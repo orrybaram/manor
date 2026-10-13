@@ -280,6 +280,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
           ownership,
           publishProjectsChanged: () => core.bus.publish("projects", "changed"),
           publishAgent: (agent) => shared.notifier.sendAgentUpdate(agent),
+          reconcileAgents: async () => {
+            await reconcileLiveAgents();
+          },
         }),
         serverStatus: hostStatus,
         hostName: () => hostPlatform.hostName(),
@@ -339,23 +342,33 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   });
 
   /**
+   * Abandon every active agent whose pane the daemon no longer has, over one
+   * `listSessions`; the live sessions, or null when the daemon cannot say.
+   */
+  async function reconcileLiveAgents(): Promise<Array<{ sessionId: string }> | null> {
+    let live: Array<{ sessionId: string }>;
+    try {
+      live = await server.localBackend.pty.listSessions();
+    } catch (err) {
+      console.debug(
+        "[host-server] cannot list sessions to reconcile agents:",
+        errorMessage(err),
+      );
+      return null;
+    }
+    reconcileStaleAgents(deps, live);
+    return live;
+  }
+
+  /**
    * The first catch-up's follow-through, over one `listSessions`: abandon
    * every active agent whose pane the daemon no longer has — the desktop's
    * `agents.reconcileStale`; sessions that died while no server was watching
    * left no SessionEnd to say so — then resync the live panes' facts.
    */
   async function afterFirstCatchUp(): Promise<void> {
-    let live: Array<{ sessionId: string }>;
-    try {
-      live = await server.localBackend.pty.listSessions();
-    } catch (err) {
-      console.debug(
-        "[host-server] cannot list sessions after catch-up:",
-        errorMessage(err),
-      );
-      return;
-    }
-    reconcileStaleAgents(deps, live);
+    const live = await reconcileLiveAgents();
+    if (!live) return;
     await server.resyncHostPanes(
       LOCAL_HOST_ID,
       live.map((s) => s.sessionId),

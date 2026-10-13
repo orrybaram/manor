@@ -181,6 +181,42 @@ describe("adoption (ADR-227 D3)", () => {
     expect(fs.existsSync(path.join(desktopDir(), "backups"))).toBe(false);
   });
 
+  it("abandons an adopted active agent whose pane is gone at once, not at the next boot", async () => {
+    withoutGit();
+    const seed = defaultSeed();
+    seedDesktop(desktopDir(), {
+      ...seed,
+      agents: [
+        // The daemon has `pane-1` (the harness starts it) and not `pane-gone`.
+        agentRecord("box-live", "box", {
+          status: "active",
+          lastAgentStatus: "working",
+          projectId: "box-app",
+          paneId: "pane-1",
+        }),
+        agentRecord("box-gone", "box", {
+          status: "active",
+          lastAgentStatus: "working",
+          projectId: "box-app",
+          paneId: "pane-gone",
+        }),
+      ],
+    });
+    const desktop = openDesktop(desktopDir());
+    await h.serve();
+    const owner = await h.owner();
+
+    await desktop.adoption.run("box", owner.client);
+
+    const status = (id: string) => hostAgents().find((a) => a.id === id)?.status;
+    await eventually(
+      () => status("box-gone"),
+      (value) => value === "abandoned",
+      "the adopted agent whose pane is gone",
+    );
+    expect(status("box-live")).toBe("active");
+  });
+
   it("lets the host win every conflict, and adds only what it lacks", async () => {
     withoutGit();
     await h.serve();

@@ -199,7 +199,7 @@ rather than taking the first row.
 
 ## The remote-host harness (ADR-160 / ADR-178)
 
-`remote-host.spec.ts` runs against a real sshd and is skipped unless
+`remote-host.spec.ts` (and `host-server.spec.ts`, `host-ownership.spec.ts`) run against a real sshd and is skipped unless
 `MANOR_E2E_SSH=1`. Don't run it with bare `playwright test`. Use
 `scripts/test-remote-e2e.mjs`, which builds the app and the `manor-host`
 tarball, starts the sshd, runs the bridge-level vitest suite and this spec,
@@ -220,6 +220,25 @@ node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
   agent and a hook trigger that are installed on the box. Both go through the
   box's real hook script, so hooks reach the remote daemon's listener and
   journal.
+- **Needs a display.** On a headless or WSL2 box, run it as
+  `DISPLAY=:0 node scripts/test-remote-e2e.mjs --playwright-only`. If
+  `/tmp/.X11-unix/X0` is missing: `ln -s /mnt/wslg/.X11-unix/X0 /tmp/.X11-unix/X0`.
+- **`host-server.spec.ts`** and **`host-ownership.spec.ts`** (ADR-225,
+  ADR-227) pair a phone with the box's host server through a local relay, so
+  they need the private-sshd target, `pnpm build:web:relay` and Node 22.
+  `host-ownership.spec.ts` launches the desktop with a remote project already
+  in its `projects.json` (the `tempHome` fixture is overridden to seed it),
+  so adoption is a step it awaits. It puts a fake `gh` on the box
+  (`installRemoteStubs`, `setRemoteGhPrs`; `helpers/fake-gh.ts` builds it).
+- `manor-e2e-agent` ends with `exec awk`, not a shell loop: the host server
+  reads a pane's foreground process, and a shell reads as "agent exited".
+- **Known failures on Linux** (they fail on `main` too): the two
+  `read-state.spec.ts` dock-badge tests (`app.dock` is macOS-only),
+  `pr-badge-matrix.spec.ts`, `sidebar-pr-tweaks.spec.ts`'s big test, both
+  failing `bridge.spec.ts` tests (`Meta+t`, and quitting on the last window
+  close), `smoke.spec.ts` "reopening a closed pane", and `remote-host.spec.ts`
+  "laptop closed … one notification" (fixed on the ADR-227 branch). The list is
+  in `docs/remote-hosts.md#testing`.
 - The launched app keeps `MANOR_E2E_SSH_CONFIG` through the fixture's
   `MANOR_*` scrub. Manor's managed ssh config includes that file ahead of
   `~/.ssh/config` (a test-only hook). See `docs/remote-hosts.md#testing`.

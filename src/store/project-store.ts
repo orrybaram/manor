@@ -276,7 +276,7 @@ function watchSetupScript(): SetupScriptWatch {
           }
         : {
             id: `workspace-setup-${Date.now()}`,
-            message: "Workspace setup script failed to start",
+            message: "Workspace setup script failed",
             status: "error",
             detail: event.message,
           },

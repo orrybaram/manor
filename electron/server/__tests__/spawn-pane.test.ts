@@ -260,6 +260,50 @@ describe("server-side launches", () => {
     });
     const left = Object.values(store.get(WS)!.layout.panels).flatMap((p) => p.tabs);
     expect(left).toEqual([]);
+
+    // Nobody closed it, so "reopen closed pane" has nothing to bring back.
+    await store.apply(WS, { type: "reopen-closed-pane", newTabId: "reopened" }, { kind: "window", id: "1" });
+    const reopened = Object.values(store.get(WS)!.layout.panels).flatMap((p) => p.tabs);
+    expect(reopened).toEqual([]);
+  });
+
+  it("reports a setup script that exits non-zero as failed", async () => {
+    const ops = createWorkspaceOps({
+      projectManager: {
+        createWorktree: async () =>
+          ({
+            id: "p1",
+            hostId: "local",
+            worktreeStartScript: "pnpm i",
+            group: null,
+            workspaces: [{ path: WS, branch: "feat", isMain: false, name: "feat" }],
+          }) as unknown as ProjectInfo,
+        createWorkspacesFromIssues: async () => [],
+        removeWorktree: async () => {},
+        quickMergeWorktree: async () => {},
+        setGroupLastUsedHost: () => {},
+      },
+      statsStore: { record: () => {} },
+      notifyProjectsChanged: () => {},
+      runSetupScript: launches.runSetupScript,
+    });
+    await ops.create({ projectId: "p1", name: "feat", origin: "7" });
+    await settle();
+    const tabs = Object.values(store.get(WS)!.layout.panels).flatMap((p) => p.tabs);
+    const paneId = (tabs[0].rootNode as { paneId: string }).paneId;
+
+    launches.onExit(paneId, 3);
+    await settle();
+
+    expect(progress[progress.length - 1]).toEqual({
+      origin: "7",
+      event: {
+        step: "setup-script",
+        status: "error",
+        message: "The setup script exited with code 3.",
+        workspacePath: WS,
+      },
+    });
   });
 
   it("ignores the exit of a pane that is not running a setup script", async () => {

@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-import { eventually, useHostServerHarness, withGit } from "./harness";
+import { eventually, ptySubprocess, useHostServerHarness, withGit } from "./harness";
 import type { AgentInfo } from "../../agent-persistence";
 import type { ProjectInfo } from "../../projects/types";
 import type { LayoutEntry } from "../../../src/lib/layout/protocol";
@@ -93,6 +93,16 @@ describe("a device on a host server that owns its host (ADR-227 D6)", () => {
       "the agent's session on the daemon",
     );
     expect(session?.cwd).toBe(wsPath);
+
+    // Its launch line waits for the shell's first output, and is typed then.
+    const shell = ptySubprocess();
+    expect(shell.typed()).toBe("");
+    shell.output("$ ");
+    await eventually(
+      () => shell.typed(),
+      (typed) => typed.includes("claude"),
+      "the launch line typed into the shell",
+    );
 
     // The layout is the server's, and persisted.
     const layout = await p.call("layout", "getAll");

@@ -3,6 +3,7 @@ import { localCtx } from "../../method";
 
 
 import { ptyCreate, ptyReset } from "../pty";
+import { LayoutStore, type LayoutFile } from "../../../layout/layout-store";
 
 /**
  * The handlers under test, by their old IPC channel names. There is no
@@ -14,6 +15,19 @@ import { ptyCreate, ptyReset } from "../pty";
 let current: unknown;
 function register(deps: unknown): void {
   current = deps;
+}
+
+/** The deps' layout: spawning a pane records and delivers through it. */
+function withLayout<B extends object>(backend: B): { backend: B; layoutStore: LayoutStore } {
+  const noFile = {
+    load: () => null,
+    save: () => {},
+    removeWorkspace: () => {},
+  } as unknown as LayoutFile;
+  return {
+    backend,
+    layoutStore: new LayoutStore(noFile, () => {}, backend as never),
+  };
 }
 const call =
   (fn: (...args: never[]) => unknown) =>
@@ -40,7 +54,7 @@ function setup(hostId: string) {
       createOrAttachWith: vi.fn().mockResolvedValue({ snapshot: null, hostId }),
     },
   };
-  register({ backend } as never);
+  register(withLayout(backend) as never);
   return handlers.get("pty:create")!;
 }
 
@@ -67,7 +81,7 @@ describe("pty:create on a remote host that is not connected (ADR-178 §6)", () =
         createOrAttachWith: vi.fn().mockRejectedValue(err),
       },
     };
-    register({ backend } as never);
+    register(withLayout(backend) as never);
     return handlers.get("pty:create")!;
   }
 
@@ -129,7 +143,7 @@ describe("pty:create on the host it was asked for (ADR-191)", () => {
     router.setWorkspacePaths("p-local", ["/home/me/code/app", SHARED]);
     router.setWorkspacePaths("p-box", ["/home/me/code/app", SHARED]);
     const backend = new RoutedBackend(registry, (p) => router.hostIdForPath(p));
-    register({ backend } as never);
+    register(withLayout(backend) as never);
     return { create: handlers.get("pty:create")!, created, sessions };
   }
 

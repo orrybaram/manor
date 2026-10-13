@@ -354,9 +354,11 @@ function printResult(result: ToolResult, command: string, io: CliIo): void {
 }
 
 /**
- * An error response's `{ error }` message when it has one — the remote relay
- * (ADR-189) answers "isn't available from remote hosts" and "not connected"
- * that way, and those read better than a JSON blob. Otherwise the raw body.
+ * An error response's `{ error }` message when it has one — the host
+ * server's relay (ADR-227 D8) answers "needs Manor desktop; it isn't
+ * available from remote hosts" and "Manor's host server isn't running on this
+ * host" that way, and those read better than a JSON blob. Otherwise the raw
+ * body.
  */
 function httpErrorDetail(err: HttpError): string {
   const body = err.body as { error?: unknown } | null;

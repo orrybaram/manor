@@ -26,7 +26,7 @@ import {
   retryHost,
 } from "./helpers/remote-project";
 import { closeSettings, pairHostPhone } from "./helpers/settings";
-import { runInTerminal } from "./helpers/terminal";
+import { paneText, runInTerminal } from "./helpers/terminal";
 import { stripAnsi } from "./helpers/ansi";
 
 /**
@@ -49,12 +49,10 @@ import { stripAnsi } from "./helpers/ansi";
  * 5. The desktop reconnects and replays the same journal: its agent state
  *    matches the host server's (D2, two readers of one journal).
  *
- * The host server owns its host's projects and layout now (ADR-227 D2), and
- * until the desktop hands over what it holds for the host (adoption, ADR-227
- * D3) it has none: it is `pending`. So the phone reaches the agent and its
- * terminal through the bridge, not through a sidebar and a layout. ADR-227
- * ticket 14 rewrites this spec around adoption, a phone-created workspace
- * and a phone-launched agent.
+ * The host server owns its host's projects and layout (ADR-227 D2): the
+ * project the desktop cloned onto the box lives there, so the phone finds it
+ * in its sidebar and types into the agent's pane. Adoption, and a phone that
+ * makes a workspace and launches an agent, are `host-ownership.spec.ts`.
  *
  * Needs the private-sshd target (`node scripts/test-remote-e2e.mjs`): the box
  * must reach the test's local relay on 127.0.0.1, which a Docker container
@@ -174,16 +172,10 @@ relayTest.describe("host server", () => {
           .toEqual([boxName]);
 
         // The host was adopted on the desktop's first connect (ADR-227 D3),
-        // so the project the desktop cloned onto it lives there (D4).
-        await expect
-          .poll(
-            () =>
-              page.evaluate(async () =>
-                (await window.electronAPI.projects.getAll()).map((p: { name: string }) => p.name),
-              ),
-            { timeout: 15_000 },
-          )
-          .toEqual([PROJECT_NAME]);
+        // so the project the desktop cloned onto it lives there (D4): the
+        // phone's sidebar lists it, as the desktop's does.
+        await expect(page.getByTestId("workspace-item").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText(PROJECT_NAME, { exact: true }).first()).toBeVisible();
 
         // The agent is listed, thinking.
         const phoneAgent = () =>
@@ -209,31 +201,18 @@ relayTest.describe("host server", () => {
         );
 
         // Typing reaches the agent's PTY on the box: the agent itself echoes
-        // the line back, which a local echo never would.
-        const attached = await page.evaluate(async (pane) => {
-          const w = window as unknown as { __paneOutput: string[] };
-          w.__paneOutput = [];
-          window.electronAPI.pty.onOutput(pane, (data: string) => {
-            w.__paneOutput.push(data);
-          });
-          return window.electronAPI.pty.create(pane, null, 80, 24);
-        }, paneId);
-        expect(attached).toMatchObject({ ok: true });
+        // the line back, which a local echo never would. Typed into the
+        // pane the way a person does, in the phone's own terminal.
         const message = "typed with the lid closed";
-        await page.evaluate(
-          ([pane, text]) => window.electronAPI.pty.write(pane, `${text}\r`),
-          [paneId, message] as const,
-        );
+        const pane = page
+          .locator(`[data-testid="workspace-pane"][data-pane-id="${paneId}"] [data-testid="terminal-pane"]`)
+          .first();
+        await expect(pane).toBeVisible({ timeout: 30_000 });
+        await pane.click();
+        await page.keyboard.type(message);
+        await page.keyboard.press("Enter");
         await expect
-          .poll(
-            async () =>
-              stripAnsi(
-                await page.evaluate(() =>
-                  (window as unknown as { __paneOutput: string[] }).__paneOutput.join(""),
-                ),
-              ),
-            { timeout: 20_000 },
-          )
+          .poll(async () => stripAnsi(await paneText(page, paneId)), { timeout: 20_000 })
           .toContain(`received: ${message}`);
 
         // 5. Lid open: the desktop replays the same journal and lands where

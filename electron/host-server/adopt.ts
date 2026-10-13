@@ -44,6 +44,12 @@ export interface AdoptionDeps {
   publishProjectsChanged(): void;
   /** `agents.updated` for one agent the host did not have. */
   publishAgent(agent: AgentInfo): void;
+  /**
+   * Abandon adopted agents whose pane the daemon no longer has: the desktop
+   * recorded them as active, but their sessions may have ended since. Best
+   * effort, after the hand-over; a failure is not the adoption's.
+   */
+  reconcileAgents?(): Promise<void>;
 }
 
 /** Adopt a checked bundle; resolves once ownership is `host`. */
@@ -62,6 +68,9 @@ export function createAdoption(deps: AdoptionDeps): Adopt {
     deps.ownership.set("host");
     deps.publishProjectsChanged();
     for (const agent of agents) deps.publishAgent(agent);
+    // Left to the next boot's sweep otherwise: an adopted agent whose pane is
+    // gone would read as active until then.
+    await deps.reconcileAgents?.().catch(() => {});
   }
 
   return (bundle) => {

@@ -18,10 +18,18 @@ import { execFile } from "node:child_process";
 
 import "../../terminal-host/xterm-env-polyfill";
 
+/** The PTY subprocesses the daemon forked, in order (see `ptySubprocess`). */
+const forked = vi.hoisted(
+  () => [] as Array<{ stdin: PassThrough; stdout: PassThrough; written: Buffer[] }>,
+);
+
 vi.mock("node:child_process", () => ({
   fork: vi.fn(() => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
+    const written: Buffer[] = [];
+    stdin.on("data", (chunk: Buffer) => written.push(chunk));
+    forked.push({ stdin, stdout, written });
     return { stdin, stdout, on: vi.fn(), kill: vi.fn(), pid: 77777 };
   }),
   // No secret helper exists here: the plaintext host's probe for a stronger
@@ -59,8 +67,37 @@ import {
 } from "../../remote-control/relay/__tests__/fake-relay";
 import { base64urlDecode } from "../../../src/lib/relay-crypto";
 import { WebSocket as WsWebSocket, type ClientOptions } from "ws";
+import { FrameDecoder, MSG, encodeFrame } from "../../terminal-host/pty-subprocess-ipc";
 
 export type Frame = Record<string, unknown>;
+
+/**
+ * The newest PTY subprocess the daemon forked, seen from the shell's side:
+ * what the daemon typed into it, and a way to make the shell print (the
+ * output a `writeAfterReady` waits for). Mocked, as the rest of the PTY is.
+ */
+export function ptySubprocess(): {
+  /** Everything written to the terminal so far, as text. */
+  typed(): string;
+  /** The shell printed `data`: its first output makes it "ready". */
+  output(data: string): void;
+} {
+  const sub = forked[forked.length - 1];
+  if (!sub) throw new Error("no PTY subprocess was forked");
+  return {
+    typed() {
+      let text = "";
+      const decoder = new FrameDecoder((type, payload) => {
+        if (type === MSG.WRITE) text += payload.toString("utf-8");
+      });
+      for (const chunk of sub.written) decoder.push(chunk);
+      return text;
+    },
+    output(data) {
+      sub.stdout.write(encodeFrame(MSG.DATA, data));
+    },
+  };
+}
 
 /** Sockets to an already-running `E2EDaemon`; nothing is ever spawned. */
 export class HarnessTransport implements HostTransport {

@@ -9,6 +9,7 @@
 # agent's would.
 #
 #   manor-e2e-agent               start a session: SessionStart, UserPromptSubmit
+#   manor-e2e-agent PROMPT        the same, and prints the prompt it was given
 #   manor-e2e-agent --session ID  the same, with a session id the test chose
 #   manor-e2e-agent --resume ID   what Manor types to resume session ID after
 #                                 the remote daemon restarted (ADR-178 §6);
@@ -30,6 +31,8 @@ elif [ "${1:-}" = "--session" ] && [ -n "${2:-}" ]; then
 else
   sid="e2e-agent-$$"
   printf 'manor-e2e-agent started %s\n' "$sid"
+  # A launch from a composer types the prompt as the command's argument.
+  [ $# -gt 0 ] && printf 'manor-e2e-agent prompt: %s\n' "$*"
 fi
 
 hook() {

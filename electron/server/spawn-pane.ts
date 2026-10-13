@@ -186,10 +186,9 @@ export async function spawnPane(
     // the moment it has a shell to be typed into. A command put back after
     // its remote host dropped is typed on a reattach too: the session it was
     // meant for may have survived on the host, without it.
-    // (`layoutStore?.`: a test about terminals alone builds no layout.)
     const fresh = isFreshSession(deps, paneId, result);
-    if (fresh) deps.layoutStore?.recordSpawn(paneId, resolvedCwd);
-    if (fresh || deps.layoutStore?.pendingCommands.isRequeued(paneId)) {
+    if (fresh) deps.layoutStore.recordSpawn(paneId, resolvedCwd);
+    if (fresh || deps.layoutStore.pendingCommands.isRequeued(paneId)) {
       await deliverPendingCommand(deps, paneId, result.hostId);
     }
 
@@ -267,8 +266,8 @@ async function deliverPendingCommand(
   hostId: HostId,
 ): Promise<void> {
   const { layoutStore } = deps;
-  const pending = layoutStore?.pendingCommands.take(paneId);
-  if (!layoutStore || !pending) return;
+  const pending = layoutStore.pendingCommands.take(paneId);
+  if (!pending) return;
   try {
     const line =
       pending.prompt !== undefined
@@ -371,8 +370,11 @@ export interface ServerLaunches extends PaneLauncher {
     hostId: HostId,
     origin: string | null,
   ): Promise<void>;
-  /** A session's shell exited: a setup script's tab closes with it. */
-  onExit(paneId: string): void;
+  /**
+   * A session's shell exited: a setup script's tab closes with it, and a
+   * script that ended with a non-zero `exitCode` is reported as failed.
+   */
+  onExit(paneId: string, exitCode?: number | null): void;
 }
 
 export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
@@ -449,21 +451,39 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
       }
     },
 
-    onExit(paneId) {
+    onExit(paneId, exitCode) {
       const setup = setups.get(paneId);
       if (!setup) return;
       setups.delete(paneId);
-      deps.publishSetupProgress(setup.origin, {
-        step: "setup-script",
-        status: "done",
-        workspacePath: setup.workspacePath,
-      });
+      // `script; exit` ends the shell with the script's own status. A shell
+      // that was killed (no code) is not a failed script.
+      deps.publishSetupProgress(
+        setup.origin,
+        exitCode
+          ? {
+              step: "setup-script",
+              status: "error",
+              message: `The setup script exited with code ${exitCode}.`,
+              workspacePath: setup.workspacePath,
+            }
+          : {
+              step: "setup-script",
+              status: "done",
+              workspacePath: setup.workspacePath,
+            },
+      );
       // `exit` ended the shell; its tab goes with it, whether or not anyone
       // is looking. A mounted pane closes itself too — the second close is a
       // no-op.
       void deps
         .spawnDeps()
-        .layoutStore.apply(setup.key, { type: "close-pane", paneId }, SETUP_ORIGIN)
+        .layoutStore.apply(
+          setup.key,
+          { type: "close-pane", paneId },
+          SETUP_ORIGIN,
+          // Nobody closed it: "reopen closed pane" must not bring it back.
+          { remember: false },
+        )
         .catch(() => {});
     },
   };

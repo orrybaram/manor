@@ -238,6 +238,12 @@
   min-width: 0;
 }
 
+.ghMissing {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
 .workspaceName {
   overflow: hidden;
   text-overflow: ellipsis;

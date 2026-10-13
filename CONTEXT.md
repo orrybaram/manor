@@ -88,19 +88,23 @@ Everything in `electron/` that is not Electron: projects, routes, integrations, 
 _Avoid_: main process, backend, the API
 
 **Host server**:
-A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It has its own **Room** and its own paired devices, reads the same hook journal the desktop does (ADR-225), and owns its host's projects, workspaces and layout once adopted (ADR-227).
+A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It is the authority for its host: after **Adoption** it owns that host's projects, workspaces, folders, linked issues, layout and agents, runs `git`, `gh` and the setup scripts there, and answers the `manor` CLI on the box. It has its own **Room** and its own paired devices, and reads the daemon's hook journal itself. A device on it can create a workspace and launch an agent with no desktop connected (ADR-225, ADR-227).
 _Avoid_: remote server, box server, cloud server, the daemon (the daemon owns PTYs; the host server is the Manor server beside it)
 
 **Owner channel**:
-The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. The desktop sets up projects on the host, sends its push keys and pairs phones with the host through it.
+The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. Nothing is pushed over it any more — no manifest, no layout snapshot: the desktop hands the host its records once (**Adoption**), then reads and writes the host's state through the server (a `HostProxy` per host, with a cache for when it is away) and hears its changes as events. It still does what a device may not: set projects up on the host, send its push keys and pair phones with the host.
 _Avoid_: control channel, sync channel, admin connection
+
+**Adoption**:
+The one-time hand-over of what a desktop holds for a remote **Host** — that host's projects (with workspace names, folders, linked issues and settings), agents and layout — to the host's **Host server**, on the desktop's first connect to a server that owns nothing yet. The host merges the records by id and wins every conflict. Only after the host's acknowledgement does the desktop write a backup (`~/.manor/backups/pre-adr-227-<hostId>.json`), drop the records, and let go of the layout; the sessions carry on untouched. It is safe to repeat, and a crash anywhere finishes on the next connect.
+_Avoid_: migration, sync, import
 
 **Daemon**:
 `terminal-host/` — the process that owns PTYs, scrollback, and agent detection; already headless, already runs wherever a host is.
 _Avoid_: terminal host, pty server
 
 **Host**:
-A place sessions run — the local machine, or a remote box — always a Manor server and a daemon together: the local machine's Manor server lives in Electron main, a remote box's is its **Host server**. The renderer attaches to exactly one at a time, and local stays a first-class choice.
+A place sessions run — the local machine, or a remote box — always a Manor server and a daemon together: the local machine's Manor server lives in Electron main, a remote box's is its **Host server**. The renderer attaches to exactly one at a time, and local stays a first-class choice. The desktop is a client of each remote host's server, not its owner.
 _Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
 
 **Project**:
@@ -190,7 +194,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 - A session has exactly one **Winsize owner** and any number of **Followers**; a web-app viewer is a **Follower** whenever the desktop has the pane mounted.
 - A **Project** is set up on one or more **Hosts**; each **Workspace** lives on exactly one of them.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
-- A remote **Host**'s **Manor server** is its **Host server**. In slice 1 the desktop still owns that host's projects and layout and sends them over the **Owner channel**; the host server and the desktop each read the daemon's hook journal and agree on **Agent status** because the **Status reconciler** is a pure function of it.
+- A remote **Host**'s **Manor server** is its **Host server**, and it owns that host's projects, layout and agents (ADR-227). The desktop hands over what it held at **Adoption**, then reads and writes through the server over the **Owner channel**; only the host server reads that host's hook journal, so there is one **Agent status** per agent, decided on the box.
 - Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 
 - The **Desktop app** issues tokens — for its own **Room**, or, through the **Owner channel**, for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and switches between them.

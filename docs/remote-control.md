@@ -216,8 +216,8 @@ because it exists to be reachable while nobody is at the desktop. Nothing can
 reach it without a device token, and until you pair a phone with it, no device
 has one.
 
-What a host-paired phone can do with the lid closed, and what it can't do yet
-(create workspaces, launch agents, rearrange the layout), is in
+What a host-paired phone can do with the lid closed (create workspaces, launch
+agents, rearrange the layout) and what still needs the desktop is in
 [Your phone with the lid closed](remote-hosts.md#your-phone-with-the-lid-closed).
 
 If a host's section says *Pairing keys on \<host\> are stored unencrypted*,

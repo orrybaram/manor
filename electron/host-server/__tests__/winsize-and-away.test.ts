@@ -10,8 +10,12 @@ import {
   setForeign,
 } from "../../pty-attachments";
 import type { SessionInfo } from "../../terminal-host/types";
-import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../../bridge/types";
+import {
+  BridgeUnavailableRefusal,
+  UNAVAILABLE_HOST_CODE,
+} from "../../bridge/types";
 import { HOST_TABLE, type HostServerDeps } from "../handlers";
+import { LayoutStore, type LayoutFile } from "../../layout/layout-store";
 import { createHostWinsize, hasOtherClients } from "../winsize";
 
 const device = {
@@ -70,22 +74,30 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
         : null,
       hostId: "local",
     }));
-    deps = {
-      backend: {
-        pty: {
-          listSessions: async () => sessions,
-          createOrAttachWith,
-          attachExisting: vi.fn(async (id: string) =>
-            sessions.some((s) => s.sessionId === id && s.alive)
-              ? { screenAnsi: "$ ", seq: 7, cols: 90, rows: 20 }
-              : null,
-          ),
-          getSnapshot: async () => ({ cols: 90, rows: 20 }),
-          write: vi.fn(),
-          resize: vi.fn(async () => {}),
-          detach: vi.fn(async () => {}),
-        },
+    const noFile = {
+      load: () => null,
+      save: () => {},
+      removeWorkspace: () => {},
+    } as unknown as LayoutFile;
+    const backend = {
+      pty: {
+        listSessions: async () => sessions,
+        createOrAttachWith,
+        attachExisting: vi.fn(async (id: string) =>
+          sessions.some((s) => s.sessionId === id && s.alive)
+            ? { screenAnsi: "$ ", seq: 7, cols: 90, rows: 20 }
+            : null,
+        ),
+        getSnapshot: async () => ({ cols: 90, rows: 20 }),
+        write: vi.fn(),
+        resize: vi.fn(async () => {}),
+        detach: vi.fn(async () => {}),
       },
+    };
+    deps = {
+      backend,
+      // Spawning a pane records and delivers through the layout.
+      layoutStore: new LayoutStore(noFile, () => {}, backend as never),
       winsize: {
         watch: (id: string, attachedClients: number | undefined) => {
           watched.push([id, attachedClients]);
@@ -141,7 +153,10 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
 
   it("is a follower when an old daemon reports no count", async () => {
     sessions = [session("pane-1", undefined)];
-    expect(await create(device)).toMatchObject({ ok: true, winsizeOwner: false });
+    expect(await create(device)).toMatchObject({
+      ok: true,
+      winsizeOwner: false,
+    });
   });
 
   it("does not count its own subscription once a device already holds the pane", async () => {
@@ -347,7 +362,10 @@ describe("layout writes on the host (ADR-227 D6)", () => {
     expect(apply).not.toHaveBeenCalled();
 
     ownership = "host";
-    await handler("layout.apply")({ deps, caller: device }, ...args["layout.apply"]);
+    await handler("layout.apply")(
+      { deps, caller: device },
+      ...args["layout.apply"],
+    );
     expect(apply).toHaveBeenCalledWith(
       "/ws/a",
       { type: "new-tab", tab: {} },

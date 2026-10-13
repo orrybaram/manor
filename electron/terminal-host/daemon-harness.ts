@@ -279,6 +279,14 @@ export class E2EDaemon {
         );
         break;
       }
+      case "writeAfterReady":
+        send(
+          socket,
+          this.host.writeAfterReady(req.sessionId, req.data)
+            ? { type: "writeQueued" }
+            : { type: "error", message: `Session ${req.sessionId} not found` },
+        );
+        break;
       case "listSessions":
         send(socket, {
           type: "sessions",

@@ -36,7 +36,7 @@
  *   --serve            start the target, print the env to export, wait for ^C
  *   --vitest-only      run only the bridge-level vitest suite
  *   --playwright-only  run only the Playwright specs (remote-host.spec.ts,
- *                      host-server.spec.ts), one worker
+ *                      host-server.spec.ts, host-ownership.spec.ts), one worker
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -51,7 +51,11 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOCKER_CONTEXT = path.join(ROOT, "tests/e2e/remote-host");
 const VITEST_SUITE = "electron/terminal-host/__tests__/remote-ssh.e2e.test.ts";
 /** Run one file at a time (`--workers=1`): every spec shares the one box. */
-const PLAYWRIGHT_SUITES = ["tests/e2e/remote-host.spec.ts", "tests/e2e/host-server.spec.ts"];
+const PLAYWRIGHT_SUITES = [
+  "tests/e2e/remote-host.spec.ts",
+  "tests/e2e/host-server.spec.ts",
+  "tests/e2e/host-ownership.spec.ts",
+];
 /** What the box's host server dials unless a spec says otherwise: nothing. */
 const CLOSED_RELAY_URL = "http://127.0.0.1:9";
 const APP_ALIAS = "manor-e2e";

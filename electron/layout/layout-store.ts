@@ -409,11 +409,16 @@ export class LayoutStore {
    * Serialized per workspace: the returned promise is chained onto the
    * previous command's, so a split that is still killing panes cannot have a
    * close land in the middle of it.
+   *
+   * A close the server makes itself (a setup script's tab, when its shell
+   * exits) passes `remember: false`: nobody closed that tab, so "reopen
+   * closed pane" must not bring it back.
    */
   apply(
     workspacePath: string,
     command: LayoutCommand,
     origin: LayoutOrigin,
+    { remember = true }: { remember?: boolean } = {},
   ): Promise<LayoutApplyResult> {
     // Home is the Dashboard and never holds tabs (ADR-197 §1).
     if (isHomePath(workspacePath)) {
@@ -428,7 +433,7 @@ export class LayoutStore {
       .catch(() => {})
       .then(() =>
         (this.removals.get(workspacePath) ?? 0) === removals
-          ? this.applyNow(workspacePath, command, origin)
+          ? this.applyNow(workspacePath, command, origin, remember)
           : { error: `Workspace was removed: ${workspacePath}` },
       );
     this.queues.set(
@@ -881,6 +886,7 @@ export class LayoutStore {
     workspacePath: string,
     command: LayoutCommand,
     origin: LayoutOrigin,
+    remember: boolean,
   ): Promise<LayoutApplyResult> {
     if (
       !command ||
@@ -901,7 +907,9 @@ export class LayoutStore {
       { layout: before, closedStack: state.closedStack },
       command,
     );
-    state.closedStack = titleClosedPane(state, result.closedStack);
+    state.closedStack = remember
+      ? titleClosedPane(state, result.closedStack)
+      : state.closedStack;
     // What the command implies about the *sender's* selection, to travel back
     // with the broadcast (D3) — and in the answer, for a command that changed
     // nothing and so broadcasts nothing.

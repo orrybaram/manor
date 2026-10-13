@@ -679,7 +679,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     // and a setup script's tab closes (ADR-227 D5).
     if (event.type === "exit") {
       chatMirror.closePane(event.sessionId);
-      launches.onExit(event.sessionId);
+      launches.onExit(event.sessionId, event.exitCode);
     }
     // Every host's stream events arrive here and only here, so this is where
     // the bridge is fed (ADR-180 D5) — the only consumer that forwards, to a

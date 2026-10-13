@@ -350,7 +350,10 @@ function remoteControlListDevices(ctx: Ctx): RemoteDeviceInfo[] {
   return ctx.deps.remoteControl.listDevices();
 }
 
-function remoteControlRevoke(ctx: Ctx, id: string): RemoteDeviceInfo[] {
+function remoteControlRevoke(
+  ctx: Ctx,
+  id: string,
+): Promise<RemoteDeviceInfo[]> {
   assertString(id, "remoteControl.revoke.id");
   return ctx.deps.remoteControl.revoke(id);
 }

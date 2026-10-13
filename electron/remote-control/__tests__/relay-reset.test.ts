@@ -82,9 +82,9 @@ describe("resetting the relay address", () => {
         typeof raw === "string" ? (devices.get(raw) ?? null) : null,
       ids: () => [...devices.values()].map((d) => d.id),
       idsInOtherRelayRooms: () => [],
-      revoke: (id: string) => {
+      revokeMany: async (ids: readonly string[]) => {
         for (const [token, d] of devices)
-          if (d.id === id) devices.delete(token);
+          if (ids.includes(d.id)) devices.delete(token);
       },
       list: () => [],
     };
@@ -104,7 +104,7 @@ describe("resetting the relay address", () => {
     });
     const identityStore = {
       describe: () => ({ roomId, x25519Pub: "" }),
-      reset: () => ({ roomId: "new", x25519Pub: "" }),
+      reset: async () => ({ roomId: "new", x25519Pub: "" }),
     };
     const runtime: RemoteControlRuntime = {
       gate,

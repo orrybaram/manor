@@ -8,6 +8,7 @@ import {
   libsecretSecretBox,
   pickHostSecretBox,
   plainFileSecretBox,
+  SecretBoxUnavailableError,
   systemdCredsSecretBox,
   type ExecFn,
   type SecretBox,
@@ -86,6 +87,27 @@ describe("systemdCredsSecretBox", () => {
         stdout: Buffer.alloc(0),
       })),
     ).toBeNull();
+  });
+
+  it("tells a helper that could not run apart from a failed decrypt", async () => {
+    let helper: "ok" | "fails" | "cannot-run" = "ok";
+    const exec: ExecFn = async (cmd, args, input) => {
+      if (args[0] === "--version") {
+        return { code: 0, stdout: Buffer.from("systemd 257") };
+      }
+      if (helper === "cannot-run") return { code: null, stdout: Buffer.alloc(0) };
+      if (helper === "fails") return { code: 1, stdout: Buffer.alloc(0) };
+      return fakeSystemdCreds()(cmd, args, input);
+    };
+    const box = (await systemdCredsSecretBox(exec))!;
+    helper = "cannot-run";
+    await expect(box.decrypt(Buffer.from("x"))).rejects.toBeInstanceOf(
+      SecretBoxUnavailableError,
+    );
+    helper = "fails";
+    const failed = await box.decrypt(Buffer.from("x")).catch((e: unknown) => e);
+    expect(failed).toBeInstanceOf(Error);
+    expect(failed).not.toBeInstanceOf(SecretBoxUnavailableError);
   });
 
   it("is unavailable when the round trip does not match", async () => {
@@ -199,9 +221,103 @@ describe("pickHostSecretBox", () => {
         probes: { "systemd-creds": async () => null },
       }),
     ).rejects.toThrow(
-      "Pairing keys were encrypted with systemd-creds, which is no longer available",
+      new SecretBoxUnavailableError(
+        "Pairing keys were encrypted with systemd-creds, which is no longer available",
+      ),
     );
     expect(choice()).toBe("systemd-creds");
+  });
+
+  describe("upgrading from plaintext", () => {
+    /** "Seals" by prefixing, and refuses to open anything without the prefix. */
+    const sealingBox = (name: "systemd-creds" | "libsecret"): SecretBox => ({
+      available: () => true,
+      backend: () => name,
+      encrypt: async (b) => Buffer.concat([Buffer.from(`${name}:`), b]),
+      decrypt: async (b) => {
+        const prefix = Buffer.from(`${name}:`);
+        if (!b.subarray(0, prefix.length).equals(prefix)) {
+          throw new Error("not sealed by this box");
+        }
+        return b.subarray(prefix.length);
+      },
+    });
+    const sealedDir = () => path.dirname(choiceFile);
+    const onPlaintext = async (files: Record<string, string>) => {
+      await pickHostSecretBox({
+        choiceFile,
+        probes: { "systemd-creds": async () => null, libsecret: async () => null },
+      });
+      for (const [name, text] of Object.entries(files)) {
+        fs.writeFileSync(path.join(sealedDir(), name), text, { mode: 0o600 });
+      }
+    };
+
+    it("re-seals every sealed file with the first stronger backend that appears", async () => {
+      await onPlaintext({ "relay-identity.enc": '{"v":1}', "remote-devices.enc": "[]" });
+      fs.writeFileSync(path.join(sealedDir(), "manifest.json"), "{}");
+
+      const box = await pickHostSecretBox({
+        choiceFile,
+        probes: {
+          "systemd-creds": async () => null,
+          libsecret: async () => sealingBox("libsecret"),
+        },
+      });
+      expect(box.backend()).toBe("libsecret");
+      expect(choice()).toBe("libsecret");
+      const read = (name: string) => fs.readFileSync(path.join(sealedDir(), name));
+      expect((await box.decrypt(read("relay-identity.enc"))).toString()).toBe('{"v":1}');
+      expect((await box.decrypt(read("remote-devices.enc"))).toString()).toBe("[]");
+      expect(fs.statSync(path.join(sealedDir(), "remote-devices.enc")).mode & 0o777).toBe(0o600);
+      // Not a sealed file: left alone.
+      expect(read("manifest.json").toString()).toBe("{}");
+    });
+
+    it("finishes a run that was cut short without sealing a file twice", async () => {
+      await onPlaintext({ "a.enc": "plain-a", "b.enc": "plain-b" });
+      const box = sealingBox("systemd-creds");
+      // The earlier run sealed `a` and died before the choice was written.
+      fs.writeFileSync(path.join(sealedDir(), "a.enc"), await box.encrypt(Buffer.from("plain-a")));
+      await pickHostSecretBox({
+        choiceFile,
+        probes: { "systemd-creds": async () => box },
+      });
+      for (const [name, text] of [["a.enc", "plain-a"], ["b.enc", "plain-b"]]) {
+        const onDisk = fs.readFileSync(path.join(sealedDir(), name));
+        expect((await box.decrypt(onDisk)).toString()).toBe(text);
+      }
+      expect(choice()).toBe("systemd-creds");
+    });
+
+    it("stays on plaintext, changing nothing, when the new box cannot seal", async () => {
+      await onPlaintext({ "a.enc": "plain-a" });
+      const flaky: SecretBox = {
+        ...sealingBox("systemd-creds"),
+        encrypt: async () => {
+          throw new SecretBoxUnavailableError("timed out");
+        },
+      };
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const box = await pickHostSecretBox({
+        choiceFile,
+        probes: { "systemd-creds": async () => flaky, libsecret: async () => null },
+      });
+      warn.mockRestore();
+      expect(box.backend()).toBe("plaintext");
+      expect(choice()).toBe("plaintext");
+      expect(fs.readFileSync(path.join(sealedDir(), "a.enc"), "utf8")).toBe("plain-a");
+    });
+
+    it("stays on plaintext while nothing stronger works", async () => {
+      await onPlaintext({ "a.enc": "plain-a" });
+      const box = await pickHostSecretBox({
+        choiceFile,
+        probes: { "systemd-creds": async () => null, libsecret: async () => null },
+      });
+      expect(box.backend()).toBe("plaintext");
+      expect(fs.readFileSync(path.join(sealedDir(), "a.enc"), "utf8")).toBe("plain-a");
+    });
   });
 
   const realSystemdCreds = (() => {

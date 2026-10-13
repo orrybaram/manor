@@ -14,8 +14,9 @@
  * useful content anyway.
  *
  * The VAPID key pair is generated once and kept encrypted next to the device
- * store. Losing it costs every subscription (phones must re-subscribe), which
- * is why it is persisted rather than regenerated per launch.
+ * store (a `SealedStore`, read once by `init()`). Losing it costs every
+ * subscription (phones must re-subscribe), which is why it is persisted rather
+ * than regenerated per launch.
  *
  * `web-push` itself is loaded on first real use — a send, or generating the
  * key pair — never at startup (ADR-205 §3). A user with no subscribed phones
@@ -27,7 +28,11 @@ import type * as WebPush from "web-push";
 import { cjsExports, lazy } from "../lib/lazy";
 import { remoteVapidFile } from "../paths";
 import type { SecretBox } from "../platform/secret-box";
-import { readSealed, writeSealed } from "../platform/sealed-file";
+import {
+  EncryptionUnavailableError,
+  SealedStore,
+  type SealedCodec,
+} from "../platform/sealed-store";
 import type { PushSubscriptionRecord, RemoteDeviceStore } from "./devices";
 
 export interface VapidKeys {
@@ -67,22 +72,61 @@ export interface PushNotifyOptions {
   skipEndpoints?: ReadonlySet<string>;
 }
 
+const VAPID_CODEC: SealedCodec<VapidKeys> = {
+  parse(text) {
+    const parsed: unknown = JSON.parse(text);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as VapidKeys).publicKey === "string" &&
+      typeof (parsed as VapidKeys).privateKey === "string"
+    ) {
+      const { publicKey, privateKey } = parsed as VapidKeys;
+      return { publicKey, privateKey };
+    }
+    return null;
+  },
+  serialize: (keys) => JSON.stringify(keys),
+};
+
 export class PushManager {
-  private keys: VapidKeys | null = null;
-  private loaded = false;
+  /**
+   * The active key pair once `init()` has read the file: `keys` is null until
+   * one is generated or imported. The whole slot is null before `init()`.
+   */
+  private active: { keys: VapidKeys | null } | null = null;
+  /** Reads the file at most once; a read that threw is retried next time. */
+  private readonly loadOnce = lazy(async () => {
+    this.active = { keys: await this.store.init() };
+  });
   /** In-flight generation, so concurrent callers share one key pair. */
   private generating: Promise<VapidKeys> | null = null;
+  private readonly store: SealedStore<VapidKeys>;
 
   constructor(
     private readonly devices: RemoteDeviceStore,
     private readonly secretBox: SecretBox,
-    private readonly filePath: string = remoteVapidFile(),
+    filePath: string = remoteVapidFile(),
     /** Injected so tests do not talk to a real push service. */
     private readonly send: typeof WebPush.sendNotification = async (...args) =>
       (await loadWebPush()).sendNotification(...args),
     private readonly generate: () => VapidKeys | Promise<VapidKeys> = async () =>
       (await loadWebPush()).generateVAPIDKeys(),
-  ) {}
+  ) {
+    this.store = new SealedStore(secretBox, filePath, "push key", VAPID_CODEC);
+  }
+
+  /**
+   * Decrypt the stored key pair into memory. The app calls it at startup;
+   * everything that needs the keys awaits it too, so a caller racing startup
+   * waits for the read rather than generating a pair over it. No file, or one this install cannot open, means a fresh pair on
+   * first use, and phones re-subscribe on their next visit. A box that could
+   * not run at all rejects (`SecretBoxUnavailableError`): push stays off and
+   * the file is left alone.
+   */
+  init(): Promise<void> {
+    return this.loadOnce();
+  }
 
   /**
    * The application server key a client needs to subscribe. Generates the pair
@@ -118,16 +162,11 @@ export class PushManager {
    * Throws if the key cannot be stored safely.
    */
   async importKeys(keys: VapidKeys): Promise<boolean> {
-    if (!this.secretBox.available()) {
-      throw new Error("OS encryption is unavailable; the push key cannot be stored");
-    }
+    const active = await this.inited();
+    if (!this.secretBox.available()) throw new EncryptionUnavailableError();
     // Wait out a generation in flight, then compare with what is active.
-    if (!this.loaded) {
-      this.loaded = true;
-      this.keys = await this.read();
-    }
     if (this.generating) await this.generating.catch(() => undefined);
-    const current = this.keys;
+    const current = active.keys;
     if (
       current &&
       current.publicKey === keys.publicKey &&
@@ -136,8 +175,9 @@ export class PushManager {
       return false;
     }
     const next = { publicKey: keys.publicKey, privateKey: keys.privateKey };
-    await writeSealed(this.secretBox, this.filePath, JSON.stringify(next));
-    this.keys = next;
+    this.store.write(next);
+    await this.store.flush();
+    active.keys = next;
     if (!current || current.publicKey !== next.publicKey) {
       this.devices.clearPushSubscriptions();
     }
@@ -199,7 +239,16 @@ export class PushManager {
         } catch (err) {
           const status = (err as { statusCode?: number }).statusCode;
           if (status === 404 || status === 410) {
-            this.devices.setPushSubscription(device.id, null);
+            try {
+              this.devices.setPushSubscription(device.id, null);
+            } catch (persistErr) {
+              // Dropped from memory either way; the store reports its own
+              // write failure to the next pair or revoke.
+              console.warn(
+                `[remote-control] could not drop retired push endpoint for ${device.id}:`,
+                persistErr,
+              );
+            }
             return;
           }
           console.warn(
@@ -213,12 +262,8 @@ export class PushManager {
   }
 
   private async ensureKeys(): Promise<VapidKeys> {
-    if (this.keys) return this.keys;
-    if (!this.loaded) {
-      this.loaded = true;
-      this.keys = await this.read();
-    }
-    if (this.keys) return this.keys;
+    const active = await this.inited();
+    if (active.keys) return active.keys;
 
     if (!this.secretBox.available()) {
       throw new Error(
@@ -227,37 +272,26 @@ export class PushManager {
       );
     }
     if (!this.generating) {
-      this.generating = this.generateAndStore().finally(() => {
+      this.generating = this.generateAndStore(active).finally(() => {
         this.generating = null;
       });
     }
     return this.generating;
   }
 
-  private async generateAndStore(): Promise<VapidKeys> {
+  private async generateAndStore(active: {
+    keys: VapidKeys | null;
+  }): Promise<VapidKeys> {
     const keys = await this.generate();
-    await writeSealed(this.secretBox, this.filePath, JSON.stringify(keys));
-    this.keys = keys;
+    this.store.write(keys);
+    await this.store.flush();
+    active.keys = keys;
     return keys;
   }
 
-  private async read(): Promise<VapidKeys | null> {
-    try {
-      const decrypted = await readSealed(this.secretBox, this.filePath);
-      const parsed: unknown = JSON.parse(decrypted);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        typeof (parsed as VapidKeys).publicKey === "string" &&
-        typeof (parsed as VapidKeys).privateKey === "string"
-      ) {
-        return parsed as VapidKeys;
-      }
-    } catch {
-      // No file, or a file this install cannot decrypt. A fresh pair is
-      // generated, and phones re-subscribe on their next visit.
-    }
-    return null;
+  private async inited(): Promise<{ keys: VapidKeys | null }> {
+    await this.init();
+    return this.active!;
   }
 }
 

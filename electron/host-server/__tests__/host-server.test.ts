@@ -32,7 +32,11 @@ vi.mock("node:child_process", () => ({
     const stdout = new PassThrough();
     return { stdin, stdout, on: vi.fn(), kill: vi.fn(), pid: 77777 };
   }),
-  spawn: vi.fn(),
+  // No secret helper exists here: the plaintext host's probe for a stronger
+  // backend finds nothing and it stays on plaintext.
+  spawn: vi.fn(() => {
+    throw Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" });
+  }),
   execFile: vi.fn(),
 }));
 
@@ -325,7 +329,7 @@ describe("host server", () => {
     await daemon.start();
     paths = hostServerPaths(path.join(tmp, "server"));
     fs.mkdirSync(paths.dataDir, { recursive: true });
-    // No secret-store probing in a test: plaintext was "chosen" earlier.
+    // Plaintext was "chosen" earlier; its upgrade probe finds no helper.
     fs.writeFileSync(
       paths.secretBackend,
       JSON.stringify({ backend: "plaintext" }),

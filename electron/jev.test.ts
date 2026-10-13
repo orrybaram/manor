@@ -7,7 +7,7 @@ import {
   type RelayIdentity,
 } from "../src/lib/relay-crypto";
 import { JevClient } from "./jev";
-import { EncryptionUnavailableError } from "./remote-control/devices";
+import { EncryptionUnavailableError } from "./platform/sealed-store";
 import type { RelayIdentityStore } from "./remote-control/relay/identity";
 
 vi.mock("electron", () => ({

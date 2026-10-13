@@ -1,6 +1,6 @@
 ---
 title: SealedStore with atomic writes, surfaced failures and typed unavailability
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: []

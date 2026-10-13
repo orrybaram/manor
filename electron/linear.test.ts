@@ -16,23 +16,32 @@ const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockUnlinkSync = vi.fn();
 const mockChmod = vi.fn();
+const mockRename = vi.fn();
+const mockRm = vi.fn();
 const mockExistsSync = vi.fn();
 
-vi.mock("node:fs", () => ({
-  default: {
-    readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
-    writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
-    mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
-    unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
-    existsSync: (...args: unknown[]) => mockExistsSync(...args),
-    promises: {
-      readFile: async (...args: unknown[]) => mockReadFileSync(...args),
-      writeFile: async (...args: unknown[]) => mockWriteFileSync(...args),
-      mkdir: async (...args: unknown[]) => mockMkdirSync(...args),
-      chmod: async (...args: unknown[]) => mockChmod(...args),
+vi.mock("node:fs", () => {
+  const promises = {
+    readFile: async (...args: unknown[]) => mockReadFileSync(...args),
+    writeFile: async (...args: unknown[]) => mockWriteFileSync(...args),
+    mkdir: async (...args: unknown[]) => mockMkdirSync(...args),
+    chmod: async (...args: unknown[]) => mockChmod(...args),
+    rename: async (...args: unknown[]) => mockRename(...args),
+    rm: async (...args: unknown[]) => mockRm(...args),
+  };
+  return {
+    // `lib/fs-atomic` reads the namespace, everything else the default.
+    promises,
+    default: {
+      readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+      writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+      mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+      unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
+      existsSync: (...args: unknown[]) => mockExistsSync(...args),
+      promises,
     },
-  },
-}));
+  };
+});
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -59,7 +68,7 @@ describe("LinearManager", () => {
   // ─── Token management ────────────────────────────────────────────────────────
 
   describe("saveToken", () => {
-    it("encrypts via the secret box and writes to linear-token.enc", async () => {
+    it("encrypts via the secret box and writes linear-token.enc atomically", async () => {
       await manager.saveToken("lin_api_test123");
 
       expect(mockMkdirSync).toHaveBeenCalledWith(
@@ -67,9 +76,14 @@ describe("LinearManager", () => {
         { recursive: true },
       );
       expect(mockWriteFileSync).toHaveBeenCalledWith(
-        expect.stringContaining("linear-token.enc"),
+        expect.stringMatching(/linear-token\.enc\..+\.tmp$/),
         Buffer.from("enc:lin_api_test123"),
         { mode: 0o600 },
+      );
+      const tmp = mockWriteFileSync.mock.calls[0][0] as string;
+      expect(mockRename).toHaveBeenCalledWith(
+        tmp,
+        expect.stringMatching(/linear-token\.enc$/),
       );
       expect(manager.getToken()).toBe("lin_api_test123");
     });

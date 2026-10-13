@@ -265,7 +265,7 @@ with it. Pair them again afterwards.
 ### Encrypting pairing keys
 
 The host server encrypts its keys with the first of these that works on the
-box, checked once on first start:
+box, checked on first start (and, while it is on plaintext, on every start):
 
 1. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
    derived from the machine's own credential secret, and uses the TPM2 chip
@@ -296,24 +296,24 @@ systemd-creds --version | head -1        # needs 256 or newer
 echo probe | systemd-creds --user encrypt --name=manor - - >/dev/null && echo ok
 ```
 
-**The choice is remembered.** Once a backend has encrypted the keys, the host
-server keeps using it. If it later stops working, the server reports an error
-naming it, and doesn't fall back to writing plaintext. So upgrading systemd on
-a box that is already on plaintext changes nothing by itself. To move to the
-new backend, start over with new keys. This disconnects the phones paired with
-this host.
+**The choice is remembered.** Once systemd-creds or libsecret has encrypted
+the keys, the host server keeps using it. If it later stops working, the server
+reports an error naming it, and doesn't fall back to writing plaintext.
 
-1. Quit Manor on your laptop. A connected desktop would restart the host
-   server within seconds, with the old keys.
-2. On the box, stop the server and delete its keys:
+**Plaintext upgrades itself.** Plaintext is only ever a last resort, so a host
+server on plaintext checks for systemd-creds and then libsecret every time it
+starts. When one works, it encrypts the existing key files with it and
+switches to it. Your phones stay paired. So to move a box off plaintext,
+make one of them work (for example, upgrade systemd to 256 or newer), then
+restart the host server:
 
-   ```bash
-   kill "$(cat ~/.manor/remote/server/server.pid)"
-   cd ~/.manor/remote/server && rm -f secret-backend relay-identity.enc remote-devices.enc remote-vapid.enc
-   ```
+```bash
+kill "$(cat ~/.manor/remote/server/server.pid)"
+```
 
-3. Open Manor. Once the host connects, check that the warning is gone, then
-   pair your phones again.
+A connected desktop starts it again within seconds. Check that the warning in
+Settings → Remote control is gone, or that `secret-backend` names the new
+backend.
 
 ## Integrations
 
@@ -534,9 +534,21 @@ stays, read `~/.manor/remote/server/logs/host-server-spawn.log` and
 
 **"Pairing keys were encrypted with …, which is no longer available"**
 The secret backend the host server chose on its first start no longer works,
-for example because the keyring is locked or `systemd-creds` was removed. Bring
-it back, or start over with new keys as described in
-[Encrypting pairing keys](#encrypting-pairing-keys).
+for example because the keyring is locked or `systemd-creds` was removed. The
+keys are left as they are. Bring the backend back and restart the host server.
+If it is gone for good, start over with new keys. This disconnects the phones
+paired with this host:
+
+1. Quit Manor on your laptop. A connected desktop would restart the host
+   server within seconds, with the old keys.
+2. On the box, stop the server and delete its keys:
+
+   ```bash
+   kill "$(cat ~/.manor/remote/server/server.pid)"
+   cd ~/.manor/remote/server && rm -f secret-backend relay-identity.enc remote-devices.enc remote-vapid.enc
+   ```
+
+3. Open Manor. Once the host connects, pair your phones again.
 
 **A phone paired with a host can't connect**
 In the host's section of Settings → Remote control, check that the summary

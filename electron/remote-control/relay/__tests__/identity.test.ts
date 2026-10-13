@@ -4,8 +4,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { base64urlDecode, roomIdFor } from "../../../../src/lib/relay-crypto";
-import { EncryptionUnavailableError } from "../../devices";
+import { EncryptionUnavailableError } from "../../../platform/sealed-store";
 import { switchableBox } from "../../../platform/__tests__/switchable-box";
+import { SecretBoxUnavailableError } from "../../../platform/secret-box";
 import { RelayIdentityStore } from "../identity";
 import { wipe } from "../wipe";
 
@@ -59,15 +60,14 @@ describe("RelayIdentityStore", () => {
     keychain.setAvailable(false);
     const store = await open();
     expect(() => store.load()).toThrow(EncryptionUnavailableError);
-    expect(() => store.reset()).toThrow(EncryptionUnavailableError);
+    await expect(store.reset()).rejects.toThrow(EncryptionUnavailableError);
     expect(fs.existsSync(file)).toBe(false);
   });
 
   it("reset() regenerates both keys and the room", async () => {
     const store = await open();
     const before = store.describe();
-    const after = store.reset();
-    await store.flush();
+    const after = await store.reset();
     expect(after.roomId).not.toBe(before.roomId);
     expect(after.x25519Pub).not.toBe(before.x25519Pub);
     expect((await open()).roomId).toBe(after.roomId);
@@ -78,6 +78,34 @@ describe("RelayIdentityStore", () => {
     const store = await open();
     expect(store.roomId).toHaveLength(22);
     expect(JSON.parse(fs.readFileSync(file, "utf8"))).toHaveProperty("v", 1);
+  });
+
+  it("leaves the file alone when the secret box could not run", async () => {
+    const created = (await open()).describe();
+    const before = fs.readFileSync(file, "utf8");
+    const store = new RelayIdentityStore(
+      {
+        ...keychain,
+        decrypt: async () => {
+          throw new SecretBoxUnavailableError("helper timed out");
+        },
+      },
+      file,
+    );
+    await expect(store.init()).rejects.toThrow(SecretBoxUnavailableError);
+    expect(() => store.describe()).toThrow(/init/);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+    // A later init that can read gets the same identity back.
+    expect((await open()).roomId).toBe(created.roomId);
+  });
+
+  it("reads the file even while the box cannot store, and serves it once it can", async () => {
+    const created = (await open()).describe();
+    keychain.setAvailable(false);
+    const store = await open();
+    expect(() => store.describe()).toThrow(EncryptionUnavailableError);
+    keychain.setAvailable(true);
+    expect(store.describe()).toEqual(created);
   });
 
   it("must be initialised before use", () => {

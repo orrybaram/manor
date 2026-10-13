@@ -11,7 +11,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { RemoteDeviceStore, EncryptionUnavailableError } from "../devices";
+import { RemoteDeviceStore } from "../devices";
+import { EncryptionUnavailableError } from "../../platform/sealed-store";
+import {
+  plainFileSecretBox,
+  SecretBoxUnavailableError,
+  type SecretBox,
+} from "../../platform/secret-box";
 import { switchableBox } from "../../platform/__tests__/switchable-box";
 import { AuthRateLimiter } from "../rate-limit";
 
@@ -49,7 +55,7 @@ describe("RemoteDeviceStore", () => {
 
   it("pairs a device whose token verifies", async () => {
     const s = await store();
-    const { device, rawToken } = s.pair("Orry's phone", ROOM);
+    const { device, rawToken } = await s.pair("Orry's phone", ROOM);
     const verified = s.verify(rawToken);
     expect(verified?.id).toBe(device.id);
     expect(verified?.label).toBe("Orry's phone");
@@ -58,8 +64,8 @@ describe("RemoteDeviceStore", () => {
 
   it("mints a distinct high-entropy token per device", async () => {
     const s = await store();
-    const a = s.pair("a", ROOM).rawToken;
-    const b = s.pair("b", ROOM).rawToken;
+    const a = (await s.pair("a", ROOM)).rawToken;
+    const b = (await s.pair("b", ROOM)).rawToken;
     expect(a).not.toBe(b);
     // 32 random bytes, base64url — no padding, comfortably over 40 chars.
     expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -67,7 +73,7 @@ describe("RemoteDeviceStore", () => {
 
   it("rejects a mutated token", async () => {
     const s = await store();
-    const { rawToken } = s.pair("phone", ROOM);
+    const { rawToken } = await s.pair("phone", ROOM);
     const mutated =
       rawToken.slice(0, -1) + (rawToken.endsWith("A") ? "B" : "A");
     expect(s.verify(mutated)).toBeNull();
@@ -75,7 +81,7 @@ describe("RemoteDeviceStore", () => {
 
   it("rejects a wrong-length or non-string token without throwing", async () => {
     const s = await store();
-    s.pair("phone", ROOM);
+    await s.pair("phone", ROOM);
     expect(s.verify("")).toBeNull();
     expect(s.verify("short")).toBeNull();
     expect(s.verify("x".repeat(4096))).toBeNull();
@@ -86,33 +92,33 @@ describe("RemoteDeviceStore", () => {
 
   it("only matches the device the token belongs to", async () => {
     const s = await store();
-    const first = s.pair("first", ROOM);
-    const second = s.pair("second", ROOM);
+    const first = await s.pair("first", ROOM);
+    const second = await s.pair("second", ROOM);
     expect(s.verify(first.rawToken)?.id).toBe(first.device.id);
     expect(s.verify(second.rawToken)?.id).toBe(second.device.id);
   });
 
   it("revokes immediately, through a live store", async () => {
     const s = await store();
-    const { device, rawToken } = s.pair("phone", ROOM);
+    const { device, rawToken } = await s.pair("phone", ROOM);
     expect(s.verify(rawToken)).not.toBeNull();
-    s.revoke(device.id);
+    await s.revoke(device.id);
     expect(s.verify(rawToken)).toBeNull();
     expect(s.list()).toEqual([]);
   });
 
   it("revoking one device leaves the others working", async () => {
     const s = await store();
-    const doomed = s.pair("doomed", ROOM);
-    const kept = s.pair("kept", ROOM);
-    s.revoke(doomed.device.id);
+    const doomed = await s.pair("doomed", ROOM);
+    const kept = await s.pair("kept", ROOM);
+    await s.revoke(doomed.device.id);
     expect(s.verify(doomed.rawToken)).toBeNull();
     expect(s.verify(kept.rawToken)?.id).toBe(kept.device.id);
   });
 
   it("never exposes the token hash through list()", async () => {
     const s = await store();
-    s.pair("phone", ROOM);
+    await s.pair("phone", ROOM);
     const listed = s.list();
     expect(listed).toHaveLength(1);
     expect(listed[0]).not.toHaveProperty("tokenHash");
@@ -121,7 +127,7 @@ describe("RemoteDeviceStore", () => {
 
   it("round-trips through the file, and never writes the raw token", async () => {
     const first = await store();
-    const { device, rawToken } = first.pair("phone", ROOM);
+    const { device, rawToken } = await first.pair("phone", ROOM);
 
     const onDisk = await diskText();
     expect(onDisk).not.toContain(rawToken);
@@ -135,18 +141,18 @@ describe("RemoteDeviceStore", () => {
 
   it("writes the device file 0600", async () => {
     const s = await store();
-    s.pair("phone", ROOM);
+    await s.pair("phone", ROOM);
     await s.flush();
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     // A second write must not relax it.
-    s.pair("laptop", ROOM);
+    await s.pair("laptop", ROOM);
     await s.flush();
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it("records lastSeenAt on a successful verify", async () => {
     const s = await store();
-    const { rawToken } = s.pair("phone", ROOM);
+    const { rawToken } = await s.pair("phone", ROOM);
     expect(s.list()[0].lastSeenAt).toBeNull();
     s.verify(rawToken);
     expect(s.list()[0].lastSeenAt).toBeTypeOf("number");
@@ -155,7 +161,9 @@ describe("RemoteDeviceStore", () => {
   it("refuses to store when the OS cannot encrypt", async () => {
     keychain.setAvailable(false);
     const s = await store();
-    expect(() => s.pair("phone", ROOM)).toThrow(EncryptionUnavailableError);
+    await expect(s.pair("phone", ROOM)).rejects.toThrow(
+      EncryptionUnavailableError,
+    );
     expect(fs.existsSync(file)).toBe(false);
   });
 
@@ -165,6 +173,68 @@ describe("RemoteDeviceStore", () => {
     const s = await store();
     expect(s.list()).toEqual([]);
     expect(s.verify("anything")).toBeNull();
+  });
+
+  it("leaves the file alone when the secret box could not run", async () => {
+    await (await store()).pair("phone", ROOM);
+    const before = await diskText();
+    const broken: SecretBox = {
+      ...plainFileSecretBox,
+      decrypt: async () => {
+        throw new SecretBoxUnavailableError("helper timed out");
+      },
+    };
+    const s = new RemoteDeviceStore(broken, file);
+    await expect(s.init()).rejects.toThrow(SecretBoxUnavailableError);
+    expect(() => s.list()).toThrow(/init/);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+  });
+
+  describe("a write that fails", () => {
+    let failWrites = false;
+    const flaky: SecretBox = {
+      ...plainFileSecretBox,
+      encrypt: async (plain) => {
+        if (failWrites) throw new Error("disk full");
+        return Buffer.from(plain);
+      },
+    };
+    beforeEach(() => {
+      failWrites = false;
+    });
+
+    it("rejects the pair, drops the device, and keeps refusing", async () => {
+      const s = new RemoteDeviceStore(flaky, file);
+      await s.init();
+      failWrites = true;
+      await expect(s.pair("phone", ROOM)).rejects.toThrow("disk full");
+      expect(s.list()).toEqual([]);
+      failWrites = false;
+      // The store's disk state is unknown now; it does not pretend otherwise.
+      await expect(s.pair("tablet", ROOM)).rejects.toThrow("disk full");
+      await expect(s.flush()).rejects.toThrow("disk full");
+      expect(fs.existsSync(file)).toBe(false);
+    });
+
+    it("rejects the revoke, which still takes effect in memory", async () => {
+      const s = new RemoteDeviceStore(flaky, file);
+      await s.init();
+      const { device, rawToken } = await s.pair("phone", ROOM);
+      failWrites = true;
+      await expect(s.revoke(device.id)).rejects.toThrow("disk full");
+      expect(s.verify(rawToken)).toBeNull();
+      // On disk it is still paired, which is why the caller must hear this.
+      const reopened = await store();
+      expect(reopened.list().map((d) => d.id)).toEqual([device.id]);
+    });
+
+    it("does not turn a valid hello away over a lastSeenAt write", async () => {
+      const s = new RemoteDeviceStore(flaky, file);
+      await s.init();
+      const { device, rawToken } = await s.pair("phone", ROOM);
+      failWrites = true;
+      expect(s.verify(rawToken)?.id).toBe(device.id);
+    });
   });
 
   /**
@@ -254,7 +324,7 @@ describe("RemoteDeviceStore", () => {
 
     it("keeps the token working across the rewrite", async () => {
       const before = await store();
-      const { rawToken } = before.pair("phone", ROOM);
+      const { rawToken } = await before.pair("phone", ROOM);
       const stored = JSON.parse((await diskText())) as Record<
         string,
         unknown
@@ -278,8 +348,8 @@ describe("RemoteDeviceStore", () => {
 
     it("remembers which relay room a device's link points at", async () => {
       const s = await store();
-      const old = s.pair("old", "room-a");
-      s.pair("current", "room-b");
+      const old = await s.pair("old", "room-a");
+      await s.pair("current", "room-b");
       await s.flush();
       const reloaded = await store();
       expect(reloaded.idsInOtherRelayRooms("room-b")).toEqual([old.device.id]);
@@ -291,7 +361,7 @@ describe("RemoteDeviceStore", () => {
     it("carries fields it does not know through a rewrite", async () => {
       writeRows([{ ...relayRow("browser"), futureField: { x: 1 } }]);
       const s = await store();
-      s.pair("another", ROOM);
+      await s.pair("another", ROOM);
       expect((await diskText())).toContain('"futureField":{"x":1}');
       expect((await diskText())).not.toContain('"via"');
       expect(JSON.stringify(s.list())).not.toContain("futureField");

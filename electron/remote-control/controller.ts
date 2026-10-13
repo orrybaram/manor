@@ -244,9 +244,10 @@ export class RemoteControlController {
    * device reaches the whole bridge.
    *
    * Needs the runtime (the identity lives there), which is loaded whenever
-   * remote control is on — and the pairing form only shows then.
+   * remote control is on — and the pairing form only shows then. Resolves once
+   * the device is on disk.
    */
-  pair(label: string): PairResult {
+  async pair(label: string): Promise<PairResult> {
     const relay = this.runtime?.relay;
     const identity = this.runtime?.relayIdentity;
     if (!this.runtime) {
@@ -258,8 +259,8 @@ export class RemoteControlController {
     const origin = relay.origin;
     if (!origin) throw new Error("The relay address is not configured.");
     const { roomId, x25519Pub } = identity.describe();
-    this.revokeStaleRelayDevices(roomId);
-    const { device, rawToken } = this.deviceStore.pair(label, roomId);
+    await this.revokeStaleRelayDevices(roomId);
+    const { device, rawToken } = await this.deviceStore.pair(label, roomId);
     this.emit();
     return {
       device,
@@ -274,12 +275,18 @@ export class RemoteControlController {
     };
   }
 
-  revoke(id: string): RemoteControlStatus {
-    this.deviceStore.revoke(id);
+  /**
+   * Resolves once the revoke is on disk, and rejects when it could not be
+   * saved: the device is refused and disconnected either way, but would be
+   * back after a restart, and the user has to hear that.
+   */
+  async revoke(id: string): Promise<RemoteControlStatus> {
+    const saved = this.deviceStore.revoke(id);
     // Revoke means now: the store only stops new hellos. With the runtime
     // never loaded there is no connection to close.
     this.runtime?.gate.closeDevice(id);
     this.emit();
+    await saved;
     return this.status();
   }
 
@@ -288,7 +295,7 @@ export class RemoteControlController {
    * loaded, and this never loads it.
    */
   startRelay(): Promise<RemoteControlStatus> {
-    return this.serially(() => {
+    return this.serially(async () => {
       const runtime = this.runtime;
       if (!runtime || this.closed || !this.wantEnabled || !this.enabled) {
         throw new Error("Enable remote control before starting the relay.");
@@ -301,7 +308,7 @@ export class RemoteControlController {
       // `start` has loaded the identity (or replaced an unreadable one), so
       // this is the first moment a changed room can be noticed.
       if (relay.status.state !== "failed") {
-        this.revokeStaleRelayDevices(relayIdentity.describe().roomId);
+        await this.revokeStaleRelayDevices(relayIdentity.describe().roomId);
       }
       this.emit();
       return this.status();
@@ -339,12 +346,12 @@ export class RemoteControlController {
       if (!runtime || !relay || !identity) {
         throw new Error("The relay is not available.");
       }
-      for (const id of this.deviceStore.ids()) {
-        this.deviceStore.revoke(id);
-        runtime.gate.closeDevice(id);
-      }
+      const ids = this.deviceStore.ids();
+      const revoked = this.deviceStore.revokeMany(ids);
+      for (const id of ids) runtime.gate.closeDevice(id);
+      await revoked;
       relay.stop();
-      identity.reset();
+      await identity.reset();
       this.relayNotice = null;
       this.emit();
       return this.status();
@@ -357,13 +364,12 @@ export class RemoteControlController {
    * one (a new room) without a word, so this is where the user finds out:
    * those devices are revoked, and the relay card says why.
    */
-  private revokeStaleRelayDevices(roomId: string): void {
+  private async revokeStaleRelayDevices(roomId: string): Promise<void> {
     const stale = this.deviceStore.idsInOtherRelayRooms(roomId);
     if (stale.length === 0) return;
-    for (const id of stale) {
-      this.deviceStore.revoke(id);
-      this.runtime?.gate.closeDevice(id);
-    }
+    const revoked = this.deviceStore.revokeMany(stale);
+    for (const id of stale) this.runtime?.gate.closeDevice(id);
+    await revoked;
     const n = stale.length;
     this.relayNotice =
       "This machine's relay identity couldn't be read, so it has a new " +

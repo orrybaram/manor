@@ -86,7 +86,7 @@ export function remoteControlSetEnabled(
 export function remoteControlPair(
   ctx: RemoteControlCtx<"pair">,
   label: string,
-): PairResult {
+): Promise<PairResult> {
   assertString(label, "remoteControl.pair.label");
   const trimmed = label.trim();
   if (trimmed.length === 0 || trimmed.length > 64) {
@@ -98,7 +98,7 @@ export function remoteControlPair(
 export function remoteControlRevoke(
   ctx: HandlerCtx,
   id: string,
-): RemoteControlStatus {
+): Promise<RemoteControlStatus> {
   assertString(id, "remoteControl.revoke.id");
   return ctx.deps.remoteControl.revoke(id);
 }

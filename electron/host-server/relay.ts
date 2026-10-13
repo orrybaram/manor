@@ -98,9 +98,11 @@ export interface HostServerStatus {
 
 /** The `remoteControl.*` surface the host table exposes. */
 export interface HostRemoteControl {
-  pair(label: string): PairResult;
+  /** Resolves once the device is on disk. */
+  pair(label: string): Promise<PairResult>;
   listDevices(): RemoteDeviceInfo[];
-  revoke(id: string): RemoteDeviceInfo[];
+  /** Resolves once the revoke is on disk; rejects when it could not be saved. */
+  revoke(id: string): Promise<RemoteDeviceInfo[]>;
   vapidPublicKey(): Promise<string | null>;
   subscribePush(
     deviceId: string,
@@ -110,7 +112,11 @@ export interface HostRemoteControl {
 
 export interface HostRelay {
   readonly remoteControl: HostRemoteControl;
-  /** Decrypt the stores (creating the identity on first run). */
+  /**
+   * Decrypt the stores (creating the identity on first run). Rejects, and the
+   * relay stays off, when the secret box could not run: the stores are left
+   * as they are on disk rather than started over.
+   */
   init(): Promise<void>;
   /** Dial the relay, and keep dialling until `stop()`. */
   start(): void;
@@ -167,6 +173,13 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
   });
 
   let running = false;
+  /**
+   * Set once `init()` has read every store. Until then (or for good, when the
+   * secret box could not run) nothing here touches them, and the status
+   * reports why.
+   */
+  let ready = false;
+  let initError: string | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   const failedRetryMs = options.failedRetryMs ?? FAILED_RETRY_MS;
 
@@ -197,19 +210,19 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     }
   };
 
-  const revokeAll = (ids: readonly string[]): void => {
-    for (const id of ids) {
-      devices.revoke(id);
-      gate.closeDevice(id);
-    }
+  /** Refused and disconnected now; resolves once that is on disk. */
+  const revokeAll = async (ids: readonly string[]): Promise<void> => {
+    const saved = devices.revokeMany(ids);
+    for (const id of ids) gate.closeDevice(id);
+    await saved;
   };
 
   const remoteControl: HostRemoteControl = {
-    pair(label) {
+    async pair(label) {
       const origin = connector.origin;
       if (!origin) throw new Error("The relay address is not configured.");
       const { roomId, x25519Pub } = identity.describe();
-      const { device, rawToken } = devices.pair(label, roomId);
+      const { device, rawToken } = await devices.pair(label, roomId);
       return {
         device,
         rawToken,
@@ -223,10 +236,10 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       };
     },
     listDevices: () => devices.list(),
-    revoke(id) {
+    async revoke(id) {
       // Revoke means now: the store stops new hellos, the gate closes the
       // device's live channels.
-      revokeAll([id]);
+      await revokeAll([id]);
       return devices.list();
     },
     vapidPublicKey: () => push.publicKey(),
@@ -238,7 +251,14 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     remoteControl,
 
     async init() {
-      await Promise.all([identity.init(), devices.init()]);
+      try {
+        await Promise.all([identity.init(), devices.init(), push.init()]);
+      } catch (err) {
+        initError = `pairing keys could not be read: ${errorMessage(err)}`;
+        throw err;
+      }
+      initError = null;
+      ready = true;
       // An identity that could not be read was replaced by a new one (a new
       // room); every device paired to the old room holds a dead link.
       const roomId = roomIdOrNull();
@@ -248,7 +268,7 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
         console.warn(
           `[host-server] relay identity changed; revoking ${stale.length} device(s) paired to the old room`,
         );
-        revokeAll(stale);
+        await revokeAll(stale);
       }
     },
 
@@ -265,6 +285,8 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       // The relay first, so nothing new arrives while the rest closes.
       connector.stop();
       gate.close();
+      // A failed write already rejected the pair or revoke that made it; here
+      // it is logged so the rest of shutdown still runs.
       await Promise.all([identity.flush(), devices.flush()]).catch(
         (err: unknown) => {
           console.error(
@@ -276,7 +298,7 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     },
 
     onAgentStatus(agent, prevStatus, newStatus) {
-      if (!deps.notifyOnRequiresInput()) return;
+      if (!ready || !deps.notifyOnRequiresInput()) return;
       pushAgentTransition(push, agent, prevStatus, newStatus);
     },
 
@@ -285,14 +307,16 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       return {
         roomId: roomIdOrNull(),
         connected: status.state === "running",
-        error: status.error,
+        error: initError ?? status.error,
       };
     },
 
-    deviceCount: () => devices.ids().length,
+    deviceCount: () => (ready ? devices.ids().length : 0),
 
     pushEndpoints: () =>
-      devices.pushTargets().map((target) => target.subscription.endpoint),
+      ready
+        ? devices.pushTargets().map((target) => target.subscription.endpoint)
+        : [],
 
     setVapidKeys: (keys) => push.importKeys(keys),
 
@@ -300,12 +324,15 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       // The desktop's `resetRelayAddress` order: revoke and close while the
       // old room still carries each device's 4401 (it reads as "re-pair"),
       // then hang up (the connector holds the old keys) and regenerate.
-      revokeAll(devices.ids());
+      await revokeAll(devices.ids());
       clearRetry();
       connector.stop();
-      identity.reset();
-      await Promise.all([identity.flush(), devices.flush()]);
-      if (running) connector.start();
+      try {
+        await identity.reset();
+      } finally {
+        // Back on the air either way; a reset that was not saved rejects.
+        if (running) connector.start();
+      }
     },
   };
 }

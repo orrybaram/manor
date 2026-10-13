@@ -2,7 +2,7 @@ import fs from "node:fs";
 
 import { linearTokenFile } from "./paths";
 import type { SecretBox } from "./platform/secret-box";
-import { readSealed, writeSealed } from "./platform/sealed-file";
+import { readSealed, writeSealed } from "./platform/sealed-store";
 import { isLinearImageUrl } from "../src/lib/task-images";
 import { fetchImageDataUrl } from "./image-proxy";
 
@@ -71,11 +71,16 @@ export class LinearManager {
     this.tokenPath = linearTokenFile();
   }
 
-  /** Decrypt the stored key into memory. Call once before using the manager. */
+  /**
+   * Decrypt the stored key into memory. Call once before using the manager.
+   * A key that cannot be read is treated as disconnected; nothing is written
+   * over it until the user saves a new one.
+   */
   async init(): Promise<void> {
     try {
       this.token = await readSealed(this.secretBox, this.tokenPath);
-    } catch {
+    } catch (err) {
+      console.warn("[linear] could not read the stored API key:", err);
       this.token = null;
     }
   }

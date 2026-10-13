@@ -877,10 +877,17 @@ export function initApp(devTitle: string | null): void {
   // ── App lifecycle ──
   app.whenReady().then(async () => {
     // Decrypt the secrets the stores keep in memory before any window can ask
-    // for them (the secret box is async; the stores' APIs are not).
+    // for them (the secret box is async; the stores' APIs are not). A store
+    // that cannot be read stays unread (and its file untouched) rather than
+    // keeping the app from starting.
+    const initSecrets = (label: string, init: Promise<void>) =>
+      init.catch((err: unknown) => {
+        console.error(`[remote-control] could not read ${label}:`, err);
+      });
     await Promise.all([
-      remoteDeviceStore.init(),
-      relayIdentityStore.init(),
+      initSecrets("paired devices", remoteDeviceStore.init()),
+      initSecrets("relay identity", relayIdentityStore.init()),
+      initSecrets("push key", remotePush.init()),
       linearManager.init(),
     ]);
     // Native application menu (ADR-170). Must run after `whenReady()` (Menu
@@ -1037,7 +1044,45 @@ export function initApp(devTitle: string | null): void {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", () => {
+  /**
+   * The sealed stores write in the background; a quit that did not wait for
+   * them would lose the last pairing or revoke. So the first quit is held
+   * (`preventDefault`) while the shutdown below runs and the store queues
+   * drain — at most `QUIT_FLUSH_TIMEOUT_MS` — and then quits again for real.
+   * That second pass finds `shutDown` set and lets the quit through.
+   */
+  const QUIT_FLUSH_TIMEOUT_MS = 5_000;
+  let shutDown = false;
+  let shuttingDown = false;
+  /** After `before`, the store queues drained; bounded either way. */
+  const flushSealedStores = async (before: Promise<unknown>): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        console.warn("[remote-control] secret stores did not flush before quit");
+        resolve();
+      }, QUIT_FLUSH_TIMEOUT_MS);
+    });
+    const flushed = before
+      .catch(() => undefined)
+      .then(() =>
+        Promise.all([remoteDeviceStore.flush(), relayIdentityStore.flush()]),
+      )
+      .then(
+        () => undefined,
+        (err: unknown) => {
+          console.error("[remote-control] could not persist secrets on quit:", err);
+        },
+      );
+    await Promise.race([flushed, timeout]);
+    clearTimeout(timer);
+  };
+
+  app.on("before-quit", (event) => {
+    if (shutDown) return;
+    event.preventDefault();
+    if (shuttingDown) return;
+    shuttingDown = true;
     agentHookServer.stop();
     webviewServer.stop();
     // The layout debounce is 300ms; a quit inside that window must not be the
@@ -1046,8 +1091,7 @@ export function initApp(devTitle: string | null): void {
     hostServerSync.dispose();
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.
-    void remoteControl.shutdown();
-    void Promise.all([remoteDeviceStore.flush(), relayIdentityStore.flush()]);
+    const remoteControlDown = remoteControl.shutdown();
     // Bridge sockets close with remote control above; disposing the surface then
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.
@@ -1066,5 +1110,10 @@ export function initApp(devTitle: string | null): void {
     projectManager.flushHostHookSeqs();
     worktreeWatcher.dispose();
     remoteWorktreePoller.dispose();
+    // Last: the relay is down by now, so nothing new joins the queues.
+    void flushSealedStores(remoteControlDown).finally(() => {
+      shutDown = true;
+      app.quit();
+    });
   });
 }

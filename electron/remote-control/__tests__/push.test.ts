@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { switchableBox } from "../../platform/__tests__/switchable-box";
+import { SecretBoxUnavailableError } from "../../platform/secret-box";
 
 // Stands in for the real module so the tests can see *whether* it is loaded:
 // the factory only runs on the first `import("web-push")`.
@@ -76,15 +77,15 @@ describe("PushManager", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  function pairedWithPush(label = "phone") {
-    const { device } = devices.pair(label, "room");
+  async function pairedWithPush(label = "phone") {
+    const { device } = await devices.pair(label, "room");
     push.subscribe(device.id, SUBSCRIPTION);
     return device;
   }
 
   it("skips subscriptions the host server already pushes to", async () => {
-    pairedWithPush("phone");
-    const other = devices.pair("tablet", "room").device;
+    await pairedWithPush("phone");
+    const other = (await devices.pair("tablet", "room")).device;
     push.subscribe(other.id, {
       ...SUBSCRIPTION,
       endpoint: "https://push.example/other",
@@ -104,7 +105,7 @@ describe("PushManager", () => {
     const DESKTOP = { publicKey: "desktop-pub", privateKey: "desktop-priv" };
 
     it("replaces the active pair, persists it, and clears subscriptions made against the old one", async () => {
-      const device = pairedWithPush();
+      const device = await pairedWithPush();
       expect(await push.publicKey()).toBe("pub-key");
 
       expect(await push.importKeys(DESKTOP)).toBe(true);
@@ -128,14 +129,14 @@ describe("PushManager", () => {
 
     it("is idempotent: the same pair changes nothing and keeps subscriptions", async () => {
       await push.importKeys(DESKTOP);
-      pairedWithPush();
+      await pairedWithPush();
       expect(await push.importKeys(DESKTOP)).toBe(false);
       expect(devices.pushTargets()).toHaveLength(1);
     });
 
     it("signs pushes with the imported key", async () => {
       await push.importKeys(DESKTOP);
-      pairedWithPush();
+      await pairedWithPush();
       await push.notify({ agentId: "a", title: "t", body: "b" });
       expect(send.mock.calls[0][2]).toMatchObject({
         vapidDetails: { publicKey: "desktop-pub", privateKey: "desktop-priv" },
@@ -164,8 +165,11 @@ describe("PushManager", () => {
       expect(await host.publicKey()).toBe(await push.publicKey());
 
       // The phone's one browser subscription goes to both servers.
-      pairedWithPush();
-      host.subscribe(hostDevices.pair("phone", "room").device.id, SUBSCRIPTION);
+      await pairedWithPush();
+      host.subscribe(
+        (await hostDevices.pair("phone", "room")).device.id,
+        SUBSCRIPTION,
+      );
 
       const payload = { agentId: "a", title: "t", body: "b" };
       const hostSent = await host.notify(payload);
@@ -205,6 +209,40 @@ describe("PushManager", () => {
     expect(await reopened.publicKey()).toBe("pub-key");
   });
 
+  it("replaces a key file it cannot parse with a fresh pair", async () => {
+    const file = path.join(dir, "vapid.enc");
+    fs.writeFileSync(file, "{torn");
+    await push.init();
+    expect(await push.publicKey()).toBe("pub-key");
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({
+      publicKey: "pub-key",
+      privateKey: "priv-key",
+    });
+  });
+
+  it("stays off, and leaves the key file alone, when the secret box could not run", async () => {
+    const file = path.join(dir, "vapid.enc");
+    fs.writeFileSync(file, JSON.stringify({ publicKey: "a", privateKey: "b" }));
+    const p = new PushManager(
+      devices,
+      {
+        ...keychain,
+        decrypt: async () => {
+          throw new SecretBoxUnavailableError("helper timed out");
+        },
+      },
+      file,
+      send as never,
+      () => ({ publicKey: "pub-key", privateKey: "priv-key" }),
+    );
+    await expect(p.init()).rejects.toThrow(SecretBoxUnavailableError);
+    expect(await p.publicKey()).toBeNull();
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({
+      publicKey: "a",
+      privateKey: "b",
+    });
+  });
+
   it("refuses to store a key it cannot encrypt", async () => {
     keychain.setAvailable(false);
     const p = new PushManager(
@@ -219,21 +257,21 @@ describe("PushManager", () => {
   });
 
   it("sends exactly one push per subscribed device", async () => {
-    pairedWithPush("phone");
-    pairedWithPush("tablet");
+    await pairedWithPush("phone");
+    await pairedWithPush("tablet");
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(2);
     expect(send).toHaveBeenCalledTimes(2);
   });
 
   it("sends nothing to a device that never subscribed", async () => {
-    devices.pair("silent", "room");
+    await devices.pair("silent", "room");
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
 
   it("sends nothing to a revoked device", async () => {
-    const device = pairedWithPush();
-    devices.revoke(device.id);
+    const device = await pairedWithPush();
+    await devices.revoke(device.id);
     expect(await push.notify(pushPayloadFor("error", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
@@ -243,7 +281,7 @@ describe("PushManager", () => {
   });
 
   it("drops an endpoint the push service has retired", async () => {
-    pairedWithPush();
+    await pairedWithPush();
     send.mockRejectedValueOnce(
       Object.assign(new Error("gone"), { statusCode: 410 }),
     );
@@ -257,7 +295,7 @@ describe("PushManager", () => {
   });
 
   it("keeps a subscription that failed for a transient reason", async () => {
-    pairedWithPush();
+    await pairedWithPush();
     const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
     send.mockRejectedValueOnce(
       Object.assign(new Error("boom"), { statusCode: 500 }),
@@ -268,7 +306,7 @@ describe("PushManager", () => {
   });
 
   it("sends no push at all when the key cannot be stored", async () => {
-    pairedWithPush();
+    await pairedWithPush();
     keychain.setAvailable(false);
     const p = new PushManager(
       devices,
@@ -282,7 +320,7 @@ describe("PushManager", () => {
   });
 
   it("carries the session and project, and nothing else", async () => {
-    pairedWithPush();
+    await pairedWithPush();
     await push.notify(pushPayloadFor("requires_input", AGENT));
     const payload = JSON.parse(send.mock.calls[0][1] as string) as Record<
       string,
@@ -333,7 +371,7 @@ describe("PushManager loading web-push lazily", () => {
     expect(fs.existsSync(path.join(dir, "vapid.enc"))).toBe(false);
 
     // A subscriber makes the default seams load it, once.
-    const { device } = devices.pair("phone", "room");
+    const { device } = await devices.pair("phone", "room");
     push.subscribe(device.id, SUBSCRIPTION);
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(1);
     expect(await push.notify(pushPayloadFor("error", AGENT))).toBe(1);

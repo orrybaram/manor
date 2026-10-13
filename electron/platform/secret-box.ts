@@ -18,22 +18,44 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+import { writeFileAtomic, writeFileAtomicAsync } from "../lib/fs-atomic";
+
 export type SecretBackend =
   | "safeStorage"
   | "systemd-creds"
   | "libsecret"
-  | "plaintext"
-  | "env";
+  | "plaintext";
 
 export interface SecretBox {
-  /** Can this box encrypt right now? Callers refuse to store when it cannot. */
+  /**
+   * Can this box store a secret right now: sealed, or knowingly in plaintext
+   * (`plainFileSecretBox`, which the host server warns about)? Callers refuse
+   * to store when it cannot.
+   */
   available(): boolean;
   backend(): SecretBackend;
   encrypt(plain: Buffer): Promise<Buffer>;
   decrypt(sealed: Buffer): Promise<Buffer>;
 }
 
-/** Result of running a helper binary. `code` is null when it could not spawn. */
+/**
+ * The box could not do its job at all: its helper would not spawn, timed out,
+ * or the backend it was set up with has gone. Distinct from a decrypt that ran
+ * and failed (a corrupt or foreign file), which is a plain `Error`. A store
+ * must not answer this by starting over: the file is probably fine, and
+ * writing a fresh one over it would throw away every pairing for a hiccup.
+ */
+export class SecretBoxUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SecretBoxUnavailableError";
+  }
+}
+
+/**
+ * Result of running a helper binary. `code` is null when it could not run:
+ * it would not spawn, or it timed out.
+ */
 export interface ExecResult {
   code: number | null;
   stdout: Buffer;
@@ -103,6 +125,11 @@ function systemdCredsBox(exec: ExecFn): SecretBox {
       ["--user", verb, `--name=${CREDENTIAL_NAME}`, "-", "-"],
       input,
     );
+    if (code === null) {
+      throw new SecretBoxUnavailableError(
+        `systemd-creds ${verb} could not run (missing, or timed out)`,
+      );
+    }
     if (code !== 0) throw new Error(`systemd-creds ${verb} failed`);
     return stdout;
   };
@@ -224,7 +251,7 @@ export async function libsecretSecretBox(
 
 // ── choosing one ──
 
-type HostBackend = "systemd-creds" | "libsecret" | "plaintext";
+type HostBackend = Exclude<SecretBackend, "safeStorage">;
 
 const BACKEND_ORDER: HostBackend[] = ["systemd-creds", "libsecret", "plaintext"];
 
@@ -251,11 +278,78 @@ function readChoice(file: string): HostBackend | null {
   }
 }
 
+function writeChoice(file: string, backend: HostBackend): void {
+  writeFileAtomic(file, JSON.stringify({ backend }), { mode: 0o600 });
+}
+
+/** Sealed files live beside the choice file and end in `.enc` (`hostServerPaths`). */
+const SEALED_SUFFIX = ".enc";
+
+/**
+ * Move every sealed file beside `choiceFile` from plaintext to `box`, then
+ * remember `box` as the choice. Returns false, having changed nothing, when
+ * `box` cannot seal them all.
+ *
+ * Crash-safe by being idempotent: the choice is written last, so a run cut
+ * short is retried on the next start, and a file `box` already opens was
+ * sealed by that earlier run and is left alone. Every file is sealed in memory
+ * before any is written, so a box that fails part way leaves them all as
+ * plaintext. A write that fails part way throws: carrying on with the
+ * plaintext box would read the files already sealed as garbage.
+ */
+async function upgradeFromPlaintext(
+  choiceFile: string,
+  name: HostBackend,
+  box: SecretBox,
+): Promise<boolean> {
+  const dir = path.dirname(choiceFile);
+  let names: string[];
+  try {
+    names = fs.readdirSync(dir).filter((n) => n.endsWith(SEALED_SUFFIX));
+  } catch {
+    names = [];
+  }
+  const sealed: Array<{ file: string; data: Buffer }> = [];
+  try {
+    for (const entry of names) {
+      const file = path.join(dir, entry);
+      const plain = fs.readFileSync(file);
+      const already = await box.decrypt(plain).then(
+        () => true,
+        (err: unknown) => {
+          if (err instanceof SecretBoxUnavailableError) throw err;
+          return false;
+        },
+      );
+      if (!already) sealed.push({ file, data: await box.encrypt(plain) });
+    }
+  } catch (err) {
+    console.warn(
+      `[secret-box] could not move pairing keys to ${name}; staying on plaintext:`,
+      err,
+    );
+    return false;
+  }
+  for (const { file, data } of sealed) {
+    await writeFileAtomicAsync(file, data, { mode: 0o600 });
+  }
+  writeChoice(choiceFile, name);
+  console.info(
+    `[secret-box] moved ${sealed.length} pairing key file(s) from plaintext to ${name}`,
+  );
+  return true;
+}
+
 /**
  * The first working backend: systemd-creds, then libsecret, then plaintext.
  * The pick is persisted: a backend that later disappears is an error naming
  * it, not a silent fall back to writing plaintext over keys that are still
  * sealed with the old one.
+ *
+ * Plaintext is the one choice that is not sticky. It is only ever a last
+ * resort, so each start on it probes the stronger backends again, and the
+ * first that works takes over: every sealed file is re-sealed with it, then
+ * it becomes the choice.
  */
 export async function pickHostSecretBox(
   opts: PickHostSecretBoxOptions,
@@ -269,10 +363,20 @@ export async function pickHostSecretBox(
   };
 
   const chosen = readChoice(opts.choiceFile);
+  if (chosen === "plaintext") {
+    for (const name of BACKEND_ORDER) {
+      if (name === "plaintext") break;
+      const box = await probes[name]();
+      if (box && (await upgradeFromPlaintext(opts.choiceFile, name, box))) {
+        return box;
+      }
+    }
+    return (await probes.plaintext()) ?? plainFileSecretBox;
+  }
   if (chosen) {
     const box = await probes[chosen]();
     if (!box) {
-      throw new Error(
+      throw new SecretBoxUnavailableError(
         `Pairing keys were encrypted with ${chosen}, which is no longer available`,
       );
     }
@@ -282,10 +386,7 @@ export async function pickHostSecretBox(
   for (const name of BACKEND_ORDER) {
     const box = await probes[name]();
     if (!box) continue;
-    fs.mkdirSync(path.dirname(opts.choiceFile), { recursive: true });
-    fs.writeFileSync(opts.choiceFile, JSON.stringify({ backend: name }), {
-      mode: 0o600,
-    });
+    writeChoice(opts.choiceFile, name);
     return box;
   }
   // Unreachable: plaintext always works.

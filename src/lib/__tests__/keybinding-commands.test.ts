@@ -389,21 +389,20 @@ describe("startNewAgent", () => {
 describe("newAgent", () => {
   afterEach(() => recordHello({ hostName: null, hostServer: false }));
 
-  // A host server does not launch agents (ADR-225 D5): every trigger lands
-  // here, so none of them opens a tab or the phone's composer.
-  it("launches nothing once the hello says this is a host server", async () => {
+  // A host server launches agents like any host (ADR-227 D6).
+  it("still launches once the hello says this is a host server", async () => {
     recordHello({ hostName: "Studio", hostServer: true });
     const consumePrewarmed = vi.fn();
     vi.stubGlobal("window", {
       ...window,
+      matchMedia: () => ({ matches: false }),
       electronAPI: { ...window.electronAPI, pty: { consumePrewarmed } },
     });
 
     await newAgent({ prewarm: true });
     await settled();
 
-    expect(consumePrewarmed).not.toHaveBeenCalled();
-    expect(useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"].tabs).toHaveLength(1);
+    expect(consumePrewarmed).toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
 });

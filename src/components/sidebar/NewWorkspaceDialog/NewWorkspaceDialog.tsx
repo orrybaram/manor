@@ -48,10 +48,6 @@ import {
 } from "./folder-suggestion";
 import type { FolderPick } from "../../../lib/jev-protocol";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import {
-  hostServerUnavailableCopy,
-  useConnection,
-} from "../../../bridge/connection";
 import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 
 type Mode = "new" | "existing";
@@ -169,9 +165,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   );
 
   const hosts = useHostStore((s) => s.hosts);
-  // A host server does not create workspaces (ADR-225 D5): every way of
-  // opening this dialog lands on the stated limit instead of a form.
-  const { isHostServer, hostName: serverHostName } = useConnection();
 
   // A linked project creates in one member: the one the host picker starts
   // on (ADR-192). Anything else is created in as it is.
@@ -246,7 +239,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     queryKey: ["remote-branches", activeProjectId],
     queryFn: () =>
       window.electronAPI.projects.listRemoteBranches(activeProjectId),
-    enabled: open && !isHostServer && !!activeProjectId,
+    enabled: open && !!activeProjectId,
   });
 
   // Fetch local branches
@@ -258,7 +251,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     queryKey: ["local-branches", activeProjectId],
     queryFn: () =>
       window.electronAPI.projects.listLocalBranches(activeProjectId),
-    enabled: open && !isHostServer && !!activeProjectId,
+    enabled: open && !!activeProjectId,
   });
 
   const loadingBranches = loadingRemote || loadingLocal;
@@ -408,7 +401,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   // Not memoised: it schedules a suggestion from this render's state.
   const handleOpenAutoFocus = (e: Event) => {
     e.preventDefault();
-    if (isHostServer) return;
     setMode("new");
     setName(initialName);
     setBranchName(initialBranch || sanitizeBranchName(initialName));
@@ -558,18 +550,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
               </Button>
             </Dialog.Close>
           </Row>
-          {isHostServer ? (
-            <Stack className={styles.body}>
-              <div className={styles.hint} data-testid="new-workspace-unavailable">
-                {hostServerUnavailableCopy("Creating workspaces", serverHostName)}
-              </div>
-              <Row gap="sm" justify="flex-end" className={styles.actions}>
-                <Button type="button" variant="secondary" onClick={onClose}>
-                  Close
-                </Button>
-              </Row>
-            </Stack>
-          ) : (
             <form ref={formRef} onSubmit={handleSubmit}>
               <Stack className={styles.body}>
                 <fieldset disabled={isCreating} className={styles.fieldset}>
@@ -820,7 +800,6 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                 </fieldset>
               </Stack>
             </form>
-          )}
           {cloneSession && cloneSource && (
             <CloneToHostDialog
               key={cloneSession.key}

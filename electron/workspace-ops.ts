@@ -46,6 +46,12 @@ export interface WorkspaceOpsDeps {
     hostId: HostId,
     origin: string | null,
   ) => Promise<void>;
+  /**
+   * Tell `origin` how a worktree removal is going: `projects.removeWorktreeProgress`
+   * on the server's own bus, so a phone on a host server hears it too
+   * (ADR-227 D6). Omitted in tests that don't watch it.
+   */
+  publishRemoveProgress?: (origin: string | null, step: string) => void;
 }
 
 export interface CreateWorkspaceRequest {
@@ -90,6 +96,8 @@ export interface WorkspaceOps {
     deleteBranch?: boolean,
     onProgress?: (step: string) => void,
   ): Promise<void>;
+  /** Address one removal step to the connection that asked for the removal. */
+  publishRemoveProgress(origin: string | null, step: string): void;
   quickMerge(projectId: string, worktreePath: string): Promise<void>;
 }
 
@@ -171,6 +179,10 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       await pm.removeWorktree(projectId, worktreePath, deleteBranch, onProgress);
       statsStore.record("worktreesRemoved");
       deps.notifyProjectsChanged();
+    },
+
+    publishRemoveProgress(origin, step) {
+      deps.publishRemoveProgress?.(origin, step);
     },
 
     async quickMerge(projectId, worktreePath) {

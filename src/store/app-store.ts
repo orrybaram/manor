@@ -47,6 +47,7 @@ import {
   isTabVisible,
   visibleTabsFor,
 } from "../lib/layout/visible-tabs";
+import { BridgeUnavailableError } from "../bridge/client";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   LayoutChangedPayload,
@@ -1198,6 +1199,18 @@ function selectTabLocally(
 // window?" to give them.
 
 /**
+ * A layout write the host refused (`unavailable:host-away`, `unavailable:host`)
+ * becomes the once-per-session toast, keyed by the refusal's code so an away
+ * host and a refused method each speak once. Anything else is not handled
+ * here and returns false.
+ */
+function refuseLayoutWrite(err: unknown): boolean {
+  if (!(err instanceof BridgeUnavailableError)) return false;
+  handleBridgeUnavailable(`layout-write:${err.code}`, err.message)(err);
+  return true;
+}
+
+/**
  * Send one command for one workspace, and forget it.
  *
  * Nothing waits for the answer: what the caller actually wants — the new
@@ -1234,6 +1247,7 @@ function sendLayoutCommand(
       });
     })
     .catch((err: unknown) => {
+      if (refuseLayoutWrite(err)) return;
       console.error(`[layout] ${command.type} failed:`, err);
     });
 }
@@ -1265,6 +1279,7 @@ export function sendPendingCommand(
   void window.electronAPI?.layout
     ?.setPendingCommand(paneId, text, kind, opts)
     ?.catch((err: unknown) => {
+      if (refuseLayoutWrite(err)) return;
       console.error(`[layout] pending command for ${paneId} failed:`, err);
     });
 }

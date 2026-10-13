@@ -23,7 +23,6 @@
  */
 
 import { assertGroupUpdates, assertString } from "../../ipc-validate";
-import { publishToRenderer } from "../../renderer-broadcast";
 import type {
   CreateWorktreeOptions,
   GroupUpdatableFields,
@@ -268,12 +267,7 @@ export async function projectsRemoveWorktree(
     worktreePath,
     deleteBranch,
     (step: string) => {
-      publishToRenderer(
-        ctx.caller.id,
-        "projects",
-        "removeWorktreeProgress",
-        step,
-      );
+      ctx.deps.workspaceOps.publishRemoveProgress(ctx.caller.id, step);
     },
   );
 }

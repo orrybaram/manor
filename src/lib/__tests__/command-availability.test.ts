@@ -51,30 +51,22 @@ describe("availableCommands", () => {
 });
 
 describe("commandAvailableOnHostServer", () => {
-  it("is false for exactly what a host server cannot do (ADR-225 D5)", () => {
+  it("refuses nothing now that a host server launches agents and makes workspaces (ADR-227 D6)", () => {
     const refused = COMMANDS.filter((d) => !commandAvailableOnHostServer(d.id)).map((d) => d.id);
-    expect(refused.sort()).toEqual(["new-agent", "new-workspace"]);
+    expect(refused).toEqual([]);
   });
 
-  it("drops them from the table and the handler maps on a host server", () => {
+  it("keeps new-agent and new-workspace on a host server", () => {
     const ids = availableCommands({ web: true, hostServer: true }).map((d) => d.id);
-    expect(ids).not.toContain("new-workspace");
-    expect(ids).not.toContain("new-agent");
-    expect(ids).toContain("new-tab");
+    expect(ids).toContain("new-workspace");
+    expect(ids).toContain("new-agent");
     const handlers = commandHandlers({ chrome: {} } as unknown as CommandContext, {
       web: true,
       hostServer: true,
       primary: true,
     });
-    expect(handlers["new-workspace"]).toBeUndefined();
-    expect(handlers["new-agent"]).toBeUndefined();
-    expect(handlers["new-tab"]).toBeTypeOf("function");
-  });
-
-  it("keeps them on the web when connected to a desktop", () => {
-    const ids = availableCommands({ web: true }).map((d) => d.id);
-    expect(ids).toContain("new-workspace");
-    expect(ids).toContain("new-agent");
+    expect(handlers["new-workspace"]).toBeTypeOf("function");
+    expect(handlers["new-agent"]).toBeTypeOf("function");
   });
 });
 

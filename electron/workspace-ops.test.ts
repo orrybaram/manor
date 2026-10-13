@@ -335,6 +335,13 @@ describe("createFromIssues", () => {
 // ── remove ────────────────────────────────────────────────────────────────────
 
 describe("remove", () => {
+  it("addresses removal progress to the asking connection on the server's bus", () => {
+    const publish = vi.fn();
+    const withBus = createWorkspaceOps({ ...deps, publishRemoveProgress: publish });
+    withBus.publishRemoveProgress("7", "Detecting branch…");
+    expect(publish).toHaveBeenCalledWith("7", "Detecting branch…");
+  });
+
   it("passes every argument to the manager, records the stat and broadcasts", async () => {
     deps.projectManager.removeWorktree.mockResolvedValue(undefined);
     const onProgress = vi.fn();

@@ -420,6 +420,8 @@ export function createManorServer<D extends BridgeServerDeps>(
     statsStore,
     notifyProjectsChanged,
     runSetupScript: launches.runSetupScript,
+    publishRemoveProgress: (origin, step) =>
+      bus.publishTo(origin, "projects", "removeWorktreeProgress", step),
   });
   // ADR-199's persistent Agent activity history, fed by `publishPaneStatus`.
   const agentActivityStore = new AgentActivityStore(dataDir);

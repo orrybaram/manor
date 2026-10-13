@@ -18,6 +18,7 @@ import {
 } from "../bridge/handlers/projects";
 import {
   addRendererBroadcastSink,
+  publishToRenderer,
   type RendererBroadcast,
 } from "../renderer-broadcast";
 
@@ -26,6 +27,9 @@ import {
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
     workspaceOps: {
+      // The server's bus, in the real wiring; here the renderer broadcast.
+      publishRemoveProgress: (origin: string | null, step: string) =>
+        publishToRenderer(origin, "projects", "removeWorktreeProgress", step),
       create: vi.fn(),
       remove: vi.fn(),
       quickMerge: vi.fn(),

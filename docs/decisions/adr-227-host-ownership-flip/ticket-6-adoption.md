@@ -1,6 +1,6 @@
 ---
 title: Adopt a host's projects, agents and layout onto the box
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [5]
@@ -68,3 +68,19 @@ ADR-227 D3.
   group member ids.
 - `electron/agent-persistence.ts`
 - `electron/terminal-host/layout-persistence.ts`
+
+## Carried over from ticket 5
+- **`adopt` must update the live stores.** It writes into the
+  `ProjectManager`, `LayoutStore` and agent store instances the server holds
+  in memory, not only the files on disk. It sets ownership last, through
+  `OwnershipState.set` (`electron/host-server/ownership.ts`). After that,
+  `projects.changed` and `layout.changed` must be published, so a connected
+  phone sees the adopted state.
+- **Reuse the slice-1 helpers.** These were kept for this ticket:
+  - the `ManifestProject` and `HostLayoutSnapshot` types;
+  - `assertManifestProject` and `assertBareLayoutEntries` in `owner.ts`;
+  - `hostLayoutSnapshot` and `layoutSnapshotFor` in
+    `electron/backend/host-server-sync.ts`.
+- **Test helpers.** The harness's `h.adopt()` and
+  `HostServerInternals.ownership` flip the state directly. Keep them, or
+  build them on top of `hostServer.adopt`.

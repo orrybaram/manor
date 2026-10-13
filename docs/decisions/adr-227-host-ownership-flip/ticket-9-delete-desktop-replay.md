@@ -62,3 +62,10 @@ ADR-227 D4 (Deleted on the desktop).
   - `electron/backend/__tests__/registry.test.ts`
   - `electron/backend/__tests__/hook-feed.test.ts`
   - `electron/host-server/__tests__/two-readers.test.ts`
+
+## Carried over from ticket 5
+- **Code with no production caller left.** With the manifest gone, these are
+  unused: `GitHubManager.cachedPr` and `onPrCacheChange`,
+  `ProjectManager.knownWorkspaces`, and the "manifest snapshot" comments in
+  `github.ts` and `project-info.ts`. Delete them, unless ticket 8's merged
+  reads need `knownWorkspaces`.

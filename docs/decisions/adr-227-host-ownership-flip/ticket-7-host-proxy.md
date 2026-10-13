@@ -43,3 +43,10 @@ ADR-227 D4 (events and offline cache).
 - `electron/backend/registry.ts`: add `hostProxy(hostId)`.
 - `electron/paths.ts`: add `hostCacheFile`.
 - `electron/backend/__tests__/host-proxy.test.ts` (new)
+
+## Carried over from ticket 5
+- **Host display name.** The hello's host name is now the box's own
+  `os.hostname()`, so the desktop's alias for the host no longer reaches the
+  host server. The proxy should label the host with the desktop's alias
+  (`HostRecords.label`) when it republishes. It must not use the box's
+  hostname.

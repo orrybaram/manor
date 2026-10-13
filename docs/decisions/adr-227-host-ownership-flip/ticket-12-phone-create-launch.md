@@ -51,3 +51,9 @@ ADR-227 D6 (renderer side).
 - `src/lib/start-issue-work.ts`
 - `src/lib/__tests__/command-availability.test.ts`
 - `src/lib/__tests__/keybinding-commands.test.ts`
+
+## Carried over from ticket 5
+- **Remove-worktree progress.** `projectsRemoveWorktree` still publishes its
+  progress through the process-wide `publishToRenderer`, not the server's
+  bus. On a host server a phone never sees remove-worktree progress. Route it
+  through the server's bus.

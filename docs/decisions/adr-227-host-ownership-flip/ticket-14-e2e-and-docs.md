@@ -60,3 +60,15 @@ Extend `tests/e2e/host-server.spec.ts`, or add
   code. Report a failed script, using the exit code from the exit event.
 - **Reopen stack:** an auto-closed Setup tab goes onto the workspace's reopen
   stack. Keep it off.
+
+## Carried over from ticket 5
+- **The phone flow in the spec is a minimal fix.** Ticket 5 changed
+  `tests/e2e/host-server.spec.ts` to reach the agent through the bridge API,
+  because an unadopted host has no projects. After adoption, go back to
+  driving the phone through the sidebar.
+- **The daemon test harness doesn't support `writeAfterReady`.** As a result,
+  `device-launch.test.ts` doesn't see the launch line being typed. Add the
+  support, and assert that the line is typed.
+- **A known failure that predates this branch.** `remote-host.spec.ts`
+  "laptop closed … one notification" sends 2 notifications instead of 1. It
+  fails on main too. Note it if it is still failing.

@@ -1,6 +1,6 @@
 ---
 title: Desktop routes remote-host calls to the host server
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [6, 7]

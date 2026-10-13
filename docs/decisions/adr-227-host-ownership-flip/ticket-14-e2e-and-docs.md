@@ -80,3 +80,11 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - **Adopted agents that are still active.** The host doesn't reconcile them
   at once. One whose pane is gone is only abandoned at the next boot sweep.
   Test for this, or make adopt run `reconcileStaleAgents`.
+
+## Carried over from ticket 8
+
+- **Moving a project back off an adopted host ends its panes there**, because the host's `projects.remove` tears down its layout; the layout is not carried along, and `hostPaths` (the remembered path) is lost after adoption. A transfer onto an adopted host doesn't carry the source's main-workspace name and issues. Fix or document as a known limit.
+- **Detached-window claims** for a remote workspace are lost: `reportViewport` is forwarded with an owner origin and a host has no windows. Keep viewport claims on the desktop.
+- **Each remote pane mount costs one extra round trip** (host `pty.create` before the daemon attach). Deliberate, so the host can deliver pending commands; note it in the docs.
+- The remote e2e stub agent (`tests/e2e/remote-host/manor-e2e-agent`) now ends with `exec awk`; a foreground shell reads as "agent process exited". Note it in the e2e docs.
+- `remote-host.spec` "laptop closed … one notification" now passes on this branch (it fails on main).

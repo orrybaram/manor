@@ -50,3 +50,7 @@ ADR-227 D7 (GitHub).
 - `src/lib/trackers/github.ts`
 - the issues panel component that shows tracker status
 - `electron/host-server/__tests__/boot-and-agents.test.ts`
+
+## Carried over from ticket 8
+
+All `github.*` methods are marked `LOCAL_ROUTE` with a comment pointing here. `byGhRepo` is declared in `electron/bridge/method.ts` and resolved in `electron/server/host-routing.ts`, but nothing uses it yet. Switch the `GhRepo` methods to `byGhRepo(...)`; `electron/bridge/__tests__/routes-surface.test.ts` will then require them on the host table.

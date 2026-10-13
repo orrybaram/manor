@@ -84,3 +84,11 @@ ADR-227 D4 (Deleted on the desktop).
 - **Readiness per connection.** `proxy.ready` resolves only at the first
   snapshot ever. The resume announcement needs one per connection: add a
   "next snapshot" promise, or a `snapshotted` event.
+
+## Carried over from ticket 8
+
+- **Wire chat.** `proxy.watchChat` is not yet connected to `onSubscriptionChange`, because the desktop's own chat mirror still reads remote transcripts. Once the replay is deleted, drop the desktop mirror's remote path and wire `watchChat`.
+- **Proxy `agents.status`.** The desktop still derives it from its replay. Agent writes by id (`update`, `delete`, `markSeen`, `markResumed`) stay local and are missing from the host table; route them, or confirm they aren't needed for remote agents.
+- **Drop the duplicate filter.** The merged `agents.*` reads and the proxy's predicate `republishAgents` leave out proxy agents whose session the desktop still holds. Remove that filter (and turn on plain `republishAgents: true`) once the replay is gone.
+- **Agent removal event.** After adoption the renderer keeps the desktop-id copies of removed agents until its next fetch. Add an `agents.removed` event or a refetch trigger.
+- **Resume path.** The host-resumed announcement now waits for the owner channel, within the existing 5-second bound. Replace that with a wait on the per-connection readiness signal.

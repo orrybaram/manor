@@ -53,3 +53,7 @@ to this host".
 - `electron/backend/host-connection.ts`
 - `electron/app-lifecycle.ts`
 - `electron/host-server/__tests__/cli-relay.test.ts` (new)
+
+## Carried over from ticket 8
+
+- **The desktop's own control routes, MCP and CLI are not routed for adopted hosts.** They write through `ProjectManager` or `workspaceOps` directly, not through `BridgeServer.forward`, so e.g. create-workspace and `POST /agents` for a remote project fail with "Unknown project" once its host is adopted (regression since ticket 6). Route them through `HostRouting` (or the proxy) the same way the bridge does. This ticket touches the control surface anyway; cover it with a test.

@@ -7,7 +7,6 @@ const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = 
 import {
   hostsAdd,
   hostsHealthCheck,
-  hostsListDevices,
   hostsPairDevice,
   hostsResetPairingKeys,
   hostsRevokeDevice,
@@ -227,6 +226,7 @@ describe("hosts phone access", () => {
     await expect(hostsServerStatus(ctx, "box")).resolves.toEqual({
       state: "unsupported",
       status: null,
+      devices: [],
     });
     expect(client.status).not.toHaveBeenCalled();
   });
@@ -235,7 +235,6 @@ describe("hosts phone access", () => {
     for (const state of ["unsupported", "disconnected"]) {
       const { ctx, client } = withServer(state);
       await expect(hostsPairDevice(ctx, "box", "p")).rejects.toThrow(/Phone access/);
-      await expect(hostsListDevices(ctx, "box")).rejects.toThrow(/Phone access/);
       await expect(hostsRevokeDevice(ctx, "box", "d")).rejects.toThrow(/Phone access/);
       await expect(hostsResetPairingKeys(ctx, "box")).rejects.toThrow(/Phone access/);
       expect(client.pair).not.toHaveBeenCalled();
@@ -243,9 +242,11 @@ describe("hosts phone access", () => {
   });
 
   it("reads a status without touching the endpoint cache", async () => {
-    const { ctx, hostServerSync } = withServer("connected");
+    const { ctx, client, hostServerSync } = withServer("connected");
     const view = await hostsServerStatus(ctx, "box");
     expect(view.status?.devices).toBe(1);
+    expect(view.devices).toEqual([]);
+    expect(client.listDevices).toHaveBeenCalledTimes(1);
     expect(hostServerSync.pairingChanged).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,6 @@
 ---
 title: HostPhoneAccess on a store slice with one status call and a pairingChanged event
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [10]
@@ -28,3 +28,7 @@ blocked_by: [10]
 - `src/electron.d.ts`, preload / surface lists as required by the build
 - `src/components/settings/HostPhoneAccess.tsx`, `RemoteControlDialogs.tsx` (ResetRelayDialog), `RemoteControlPage.tsx`, the store file
 - `src/components/phone/Phone.module.css`, `PhoneHostSwitcher.tsx`, phone overflow menu component
+
+## Added from ticket 10
+
+6. `src/bridge/client.ts` `settle` is now a one-line pass-through to `settleResult` (`electron/bridge/settle.ts`). Have `src/bridge/transports/ipc.ts` / `ws.ts` (and any other caller) import `settleResult` directly and delete the wrapper.

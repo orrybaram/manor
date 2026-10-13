@@ -58,7 +58,7 @@ export function PhoneHostSwitcher(props: PhoneHostSwitcherProps) {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className={styles.hostMenu}
+          className={`${styles.phoneMenu} ${styles.hostMenu}`}
           data-testid="phone-host-menu"
           side="bottom"
           align="start"
@@ -96,7 +96,7 @@ export function PhoneHostSwitcher(props: PhoneHostSwitcherProps) {
                 <>
                   <Button
                     variant="ghost"
-                    className={styles.hostSelect}
+                    className={`${styles.phoneMenuItem} ${styles.hostSelect}`}
                     aria-current={p.roomId === activeRoomId ? "true" : undefined}
                     data-testid="phone-host-option"
                     onClick={() => {

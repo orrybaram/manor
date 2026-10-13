@@ -189,7 +189,6 @@ export type HostRefusedMethod = LocalOnly<
   | "linear.connect"
   | "hosts.serverStatus"
   | "hosts.pairDevice"
-  | "hosts.listDevices"
   | "hosts.revokeDevice"
   | "hosts.resetPairingKeys"
 >;

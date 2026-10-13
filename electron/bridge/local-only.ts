@@ -35,7 +35,6 @@ export const LOCAL_ONLY_METHODS = [
   "linear.connect",
   "hosts.serverStatus",
   "hosts.pairDevice",
-  "hosts.listDevices",
   "hosts.revokeDevice",
   "hosts.resetPairingKeys",
 ] as const;

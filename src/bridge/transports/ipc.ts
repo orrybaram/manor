@@ -30,7 +30,8 @@
  */
 
 import type { ManorHost } from "../../electron";
-import { settle, type BridgeListener, type BridgeTransport } from "../client";
+import { settleResult } from "../../../electron/bridge/settle";
+import type { BridgeListener, BridgeTransport } from "../client";
 
 /** The transport `main.tsx` hands `createBridge`. */
 export function createIpcTransport(host: ManorHost): BridgeTransport {
@@ -51,7 +52,7 @@ export function createIpcTransport(host: ManorHost): BridgeTransport {
       // The id is not needed to correlate — `ipcRenderer.invoke` does that —
       // but the frame is the same frame the socket carries.
       const id = nextId++;
-      return settle(await host.invoke({ kind: "invoke", id, ns, method, args }));
+      return settleResult(await host.invoke({ kind: "invoke", id, ns, method, args }));
     },
 
     subscribe(

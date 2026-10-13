@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { settle } from "../client";
+import { settleResult } from "../../../electron/bridge/settle";
 import {
   getActiveRoom,
   getConnection,
@@ -37,7 +37,7 @@ describe("connection facts", () => {
 
   it("does not learn it is on a host server from a refused call", () => {
     expect(() =>
-      settle({ id: 1, kind: "result", ok: false, error: "no", code: "unavailable:host" }),
+      settleResult({ id: 1, kind: "result", ok: false, error: "no", code: "unavailable:host" }),
     ).toThrow();
     expect(isHostServer()).toBe(false);
   });

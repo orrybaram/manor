@@ -380,7 +380,6 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // that go with it — the same grant as `remoteControl.pair`.
         "hosts.serverStatus",
         "hosts.pairDevice",
-        "hosts.listDevices",
         "hosts.revokeDevice",
         "hosts.resetPairingKeys",
       ].sort(),

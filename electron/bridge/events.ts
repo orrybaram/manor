@@ -101,8 +101,10 @@ export interface BridgeEvents {
   hosts: {
     statusChanged: [hosts: HostStatusInfo[]];
     reconnected: [info: { hostId: string; sessionIds: string[] }];
-    /** A host server's owner channel changed state, or its pairing did (ADR-218 D3). */
+    /** A host server's owner channel changed state (ADR-218 D3). */
     serverChanged: [info: { hostId: string; state: HostServerClientState }];
+    /** A phone was paired, revoked or the host's keys reset: re-read its status. */
+    pairingChanged: [hostId: string];
   };
   /**
    * The selected theme changed somewhere other than this call (ADR-179 ticket
@@ -224,6 +226,7 @@ export const SUBSCRIPTIONS = {
   "hosts.onStatusChanged": "hosts.statusChanged",
   "hosts.onReconnected": "hosts.reconnected",
   "hosts.onServerChanged": "hosts.serverChanged",
+  "hosts.onPairingChanged": "hosts.pairingChanged",
   "theme.onChanged": "theme.changed",
   "ports.onChange": "ports.changed",
   "branches.onChange": "branches.changed",

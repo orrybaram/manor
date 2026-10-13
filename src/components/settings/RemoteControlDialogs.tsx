@@ -138,14 +138,21 @@ export function AddDeviceDialog(props: {
   );
 }
 
-/** Resetting the address kills every link, so say so before doing it. */
+/**
+ * Resetting the address, or a remote host's pairing keys, kills every link, so
+ * say so before doing it. With a `hostName` it is that host's keys; without,
+ * this machine's relay address.
+ */
 export function ResetRelayDialog(props: {
   open: boolean;
   devices: number;
+  /** The remote host whose pairing keys are being reset; omit for this machine. */
+  hostName?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const { open, devices, onCancel, onConfirm } = props;
+  const { open, devices, hostName, onCancel, onConfirm } = props;
+  const now = devices > 0 ? ` (${devices} now)` : "";
   return (
     <Dialog.Root
       open={open}
@@ -156,23 +163,40 @@ export function ResetRelayDialog(props: {
       <Dialog.Portal>
         <Dialog.Overlay className={dialogStyles.confirmOverlay} />
         <Dialog.Content
-          data-testid="remote-relay-reset-confirm"
+          data-testid={
+            hostName ? "host-reset-confirm" : "remote-relay-reset-confirm"
+          }
           className={dialogStyles.confirmDialog}
         >
           <Dialog.Title className={dialogStyles.confirmTitle}>
-            Reset the relay address?
+            {hostName
+              ? `Reset pairing keys on ${hostName}?`
+              : "Reset the relay address?"}
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            This stops the relay and gives this machine a new address. Every
-            paired device{devices > 0 ? ` (${devices} now)` : ""} is
-            disconnected, revoked, and will need to be paired again.
+            {hostName ? (
+              <>
+                This disconnects every phone paired with {hostName}
+                {now}. They will need to be paired again.
+              </>
+            ) : (
+              <>
+                This stops the relay and gives this machine a new address. Every
+                paired device{now} is disconnected, revoked, and will need to be
+                paired again.
+              </>
+            )}
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
             <Button variant="secondary" onClick={onCancel}>
               Cancel
             </Button>
-            <Button variant="danger" onClick={onConfirm}>
-              Reset address
+            <Button
+              data-testid={hostName ? "host-reset-confirm-yes" : undefined}
+              variant="danger"
+              onClick={onConfirm}
+            >
+              {hostName ? "Reset pairing keys" : "Reset address"}
             </Button>
           </div>
         </Dialog.Content>

@@ -32,9 +32,9 @@ import {
   type HelloReplyFrame,
   type ResultFrame,
 } from "../../../electron/bridge/types";
+import { settleResult } from "../../../electron/bridge/settle";
 import {
   BridgeDisconnectedError,
-  settle,
   type BridgeListener,
   type BridgeTransport,
 } from "../client";
@@ -332,7 +332,7 @@ class WsTransport implements WsBridgeTransport {
     if (!pending) return;
     this.pending.delete(id);
     try {
-      pending.resolve(settle(frame));
+      pending.resolve(settleResult(frame));
     } catch (err) {
       pending.reject(err as Error);
     }

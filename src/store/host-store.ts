@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { HostServerView } from "../electron.d";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string };
@@ -41,6 +42,14 @@ export interface HostStatusInfo {
 interface HostState {
   hosts: HostStatusInfo[];
   busy: boolean;
+  /**
+   * Each remote host's server as the Remote Control page shows it, for the
+   * hosts something has asked about (`refreshServer`). Kept current by the
+   * two server events.
+   */
+  servers: Record<string, HostServerView>;
+  /** Read one host's server status and paired phones in a single call. */
+  refreshServer: (hostId: string) => Promise<void>;
   /** Registers a new remote host and starts connecting it in the background. */
   addHost: (target: string) => Promise<{ hostId: string; spec: HostSpec }>;
   retryConnect: (hostId: string) => Promise<void>;
@@ -54,9 +63,34 @@ export const useHostStore = create<HostState>((set) => {
 
   window.electronAPI?.hosts?.onStatusChanged((hosts) => set({ hosts }));
 
+  // Only the newest response for a host lands: a reload started later always
+  // wins, however the replies are ordered. A host is reloaded on events only
+  // once something has asked about it.
+  const requests: Record<string, number> = {};
+  const refreshServer = async (hostId: string): Promise<void> => {
+    const request = (requests[hostId] = (requests[hostId] ?? 0) + 1);
+    let view: HostServerView;
+    try {
+      view = await window.electronAPI.hosts.serverStatus(hostId);
+    } catch {
+      view = { state: "disconnected", status: null, devices: [] };
+    }
+    if (requests[hostId] !== request) return;
+    set((s) => ({ servers: { ...s.servers, [hostId]: view } }));
+  };
+  const refreshIfWatched = (hostId: string): void => {
+    if (hostId in requests) void refreshServer(hostId);
+  };
+  window.electronAPI?.hosts?.onServerChanged((info) =>
+    refreshIfWatched(info.hostId),
+  );
+  window.electronAPI?.hosts?.onPairingChanged(refreshIfWatched);
+
   return {
     hosts: [],
     busy: false,
+    servers: {},
+    refreshServer,
 
     addHost: async (target: string) => {
       set({ busy: true });

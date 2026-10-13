@@ -79,6 +79,8 @@ export interface HostServerView {
   state: HostServerClientState;
   /** Null unless the owner channel is up. */
   status: HostServerStatus | null;
+  /** Paired phones, read with the status so the two can never disagree. */
+  devices: RemoteDeviceInfo[];
 }
 
 /** The owner channel to `hostId`'s server, or a plain reason there is none. */
@@ -114,12 +116,7 @@ function connectedServer(ctx: HandlerCtx, hostId: string): HostServerClient {
 /** Have the sync re-read the host's push endpoints, then tell the page its pairing changed. */
 function pairingChanged(ctx: HandlerCtx, hostId: string): void {
   void ctx.deps.hostServerSync.pairingChanged(hostId).then(() => {
-    const client = ctx.deps.backendRegistry.hostServer(hostId);
-    if (!client) return;
-    publishRendererBroadcast("hosts", "serverChanged", {
-      hostId,
-      state: client.state,
-    });
+    publishRendererBroadcast("hosts", "pairingChanged", hostId);
   });
 }
 
@@ -128,13 +125,17 @@ export async function hostsServerStatus(
   hostId: string,
 ): Promise<HostServerView> {
   const client = serverClient(ctx, hostId);
-  if (client.state !== "connected") return { state: client.state, status: null };
+  const { state } = client;
+  if (state !== "connected") return { state, status: null, devices: [] };
   try {
-    const status = await client.api.hostServer.status();
-    return { state: client.state, status };
+    const [status, devices] = await Promise.all([
+      client.api.hostServer.status(),
+      client.api.remoteControl.listDevices(),
+    ]);
+    return { state, status, devices };
   } catch (err) {
     if (err instanceof HostServerUnavailableError) {
-      return { state: client.state, status: null };
+      return { state, status: null, devices: [] };
     }
     throw err;
   }
@@ -150,13 +151,6 @@ export async function hostsPairDevice(
   const result = await client.api.remoteControl.pair(name);
   pairingChanged(ctx, hostId);
   return result;
-}
-
-export async function hostsListDevices(
-  ctx: HandlerCtx,
-  hostId: string,
-): Promise<RemoteDeviceInfo[]> {
-  return await connectedServer(ctx, hostId).api.remoteControl.listDevices();
 }
 
 export async function hostsRevokeDevice(
@@ -221,7 +215,6 @@ export const hosts = {
   // these are `localOnly` like `remoteControl.pair` (ADR-218 D3).
   serverStatus: method(hostsServerStatus, { localOnly: true }),
   pairDevice: method(hostsPairDevice, { localOnly: true, mutating: true }),
-  listDevices: method(hostsListDevices, { localOnly: true }),
   revokeDevice: method(hostsRevokeDevice, { localOnly: true, mutating: true }),
   resetPairingKeys: method(hostsResetPairingKeys, {
     localOnly: true,

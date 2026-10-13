@@ -25,7 +25,7 @@
  * Two rules turn a property access into a frame:
  *
  * - `ns.method(...args)` → `{id, kind:"invoke", ns, method, args}`, awaiting
- *   `{id, kind:"result"}`, which `settle` below turns into the value or the
+ *   `{id, kind:"result"}`, which `settleResult` turns into the value or the
  *   error — the same way for both transports.
  * - A listener → a `subscribe` frame and a local listener, returning the
  *   unsubscribe. Which members are listeners, and which event each one
@@ -67,11 +67,7 @@
  */
 
 import { SUBSCRIPTIONS } from "../../electron/bridge/events";
-import type { ResultFrame } from "../../electron/bridge/types";
-import {
-  BridgeUnavailableError,
-  settleResult,
-} from "../../electron/bridge/settle";
+import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import type { ElectronAPI } from "../electron";
 import type { Listener } from "./subscription-registry";
 import { UNAVAILABLE_NAMESPACES } from "./unavailable";
@@ -131,18 +127,6 @@ export class BridgeDisconnectedError extends Error {
     super(message);
     this.name = "BridgeDisconnectedError";
   }
-}
-
-/**
- * A result frame, as what the call it answers resolves with or throws.
- *
- * One place for both transports: the socket delivers the frame as a message
- * and the preload as the answer to `ipcMain.handle`, and neither decides for
- * itself what `unavailable:web` means (`settleResult`, shared with the
- * desktop's owner channel).
- */
-export function settle(frame: ResultFrame): unknown {
-  return settleResult(frame);
 }
 
 /** A listener's `ns.method` → the event it subscribes to, split for a frame. */

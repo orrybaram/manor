@@ -1,6 +1,6 @@
 ---
 title: The box's manor CLI is answered by the host server
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [5]

@@ -104,3 +104,8 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - No e2e for the gh empty state (no remote fake-`gh` fixture). Add one if cheap.
 - Known local e2e failures on the pre-ticket-10 commit too: `pr-badge-matrix` ("g-queued-mergequeue readiness" expects queued, gets ready) and `sidebar-pr-tweaks`. Confirm against main and add to the known-failures note.
 - The remote e2e runner needs `DISPLAY=:0` on this box; note it in the e2e docs.
+
+## Carried over from ticket 11
+
+- No e2e covers the "Use Linear on <host>" toggle; the fake host server has no Linear. Add one only if a Linear GraphQL stub is cheap.
+- `docs/remote-hosts.md` already covers host-native `gh`, the Linear opt-in and the Linear MCP alternative; keep it in sync with the rest of the docs pass.

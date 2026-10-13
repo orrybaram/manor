@@ -57,3 +57,7 @@ ADR-227 D6 (renderer side).
   progress through the process-wide `publishToRenderer`, not the server's
   bus. On a host server a phone never sees remove-worktree progress. Route it
   through the server's bus.
+
+## Carried over from ticket 11
+
+- With "Use Linear on <host>" on, the host table answers `linear.*` (including `startIssue`). Without it, every gated `linear.*` call throws `unavailable:host` "Linear isn't turned on for <host>"; `linear.isConnected` is ungated and answers `false`. A phone issue picker should treat that as the "turn it on in desktop settings" empty state.

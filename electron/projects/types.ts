@@ -333,6 +333,13 @@ export interface PersistedProjectGroup {
 export interface PersistedState {
   projects: PersistedProject[];
   selectedProjectIndex: number;
+  /**
+   * The sidebar's order of every project, remote hosts' included (ADR-227
+   * D4): `projects` holds only this desktop's own, so a host's projects
+   * keep their place here once handed over. Absent until first needed;
+   * ids it lacks sort after it, in `projects` order.
+   */
+  projectOrder?: string[];
   /** Remote hosts by hostId. Absent in files written before ADR-160. */
   hosts?: Record<string, PersistedHost>;
   /** Linked-project groups (ADR-192). Absent when there are none. */
@@ -356,3 +363,30 @@ export interface ProjectHost {
 
 /** Resolves a host id to its backend (see `BackendRegistry.get`). */
 export type ProjectHostResolver = (hostId: string) => ProjectHost;
+
+/**
+ * The projects that live on remote hosts' servers, as the desktop reaches
+ * them (ADR-227 D4): one `HostProxy` per adopted host. `ProjectManager`
+ * holds this machine's projects (and a host's not yet handed over); these
+ * it only reads, and writes through.
+ */
+export interface RemoteProjects {
+  /**
+   * Every adopted host's projects in the desktop's form (`hostId` stamped),
+   * live, or the cache's while a host is away.
+   */
+  list(): ProjectInfo[];
+  /** Whether `hostId`'s projects live on its server: a new one goes there. */
+  owns(hostId: string): boolean;
+  /**
+   * `projects.<method>(...args)` on `hostId`'s server, arguments and answer
+   * in the desktop's form. Rejects while the host is away.
+   */
+  call(hostId: string, method: string, args: unknown[]): Promise<unknown>;
+  /**
+   * Hand what this desktop holds for `hostId` — `projectIds`, and its
+   * `<hostId>:*` layout — to that host's server, then let go of it
+   * (`HostAdoption.handOver`): how a project moved onto the host gets there.
+   */
+  handOver(hostId: string, projectIds: readonly string[]): Promise<void>;
+}

@@ -6,6 +6,10 @@
  * {@link AgentReadDeps} slice, which both `HostDeps` and `HostServerDeps`
  * satisfy, so the host server lists these directly instead of copying them.
  * The desktop-only writes (dock badge, notification log) stay in `./agents.ts`.
+ *
+ * **On the desktop the reads are merged** (ADR-227 D4): this server's agents
+ * and every adopted remote host's, from its server — less any the desktop
+ * holds its own copy of, which it still replays (until ADR-227 ticket 9).
  */
 
 import { agentHostId, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
@@ -15,6 +19,7 @@ import type { UnseenAgents } from "../../agent-status/unseen-agents";
 import type { HostStatus } from "../../backend/host-connection";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { assertString } from "../../ipc-validate";
+import type { HostRouting } from "../../server/host-routing";
 import type { HandlerCtx } from "../method";
 
 /** What `agents:getAll` narrows its page by. */
@@ -51,6 +56,8 @@ export interface AgentReadDeps {
    */
   getPaneHostId?: PaneHostLookup;
   hostStatus?: (hostId: string) => HostStatus | undefined;
+  /** Adopted remote hosts' agents, on the desktop (ADR-227 D4). */
+  hostRouting?: HostRouting;
 }
 
 type Ctx = HandlerCtx<AgentReadDeps>;
@@ -62,23 +69,42 @@ type Ctx = HandlerCtx<AgentReadDeps>;
  * exactly the read-and-type state this ADR exists to end.
  */
 export function agentsGetAll(ctx: Ctx, opts?: AgentQuery): AgentInfo[] {
-  return ctx.deps.agentManager.getAllAgents(opts);
+  const remote = ctx.deps.hostRouting?.agents() ?? [];
+  if (remote.length === 0) return ctx.deps.agentManager.getAllAgents(opts);
+  // `AgentManager.getAllAgents`' filters, sort and page, over both.
+  let agents = [...ctx.deps.agentManager.getAllAgents(), ...remote];
+  if (opts?.projectId !== undefined) agents = agents.filter((a) => a.projectId === opts.projectId);
+  if (opts?.status !== undefined) agents = agents.filter((a) => a.status === opts.status);
+  agents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  agents = agents.slice(opts?.offset ?? 0);
+  return opts?.limit !== undefined ? agents.slice(0, opts.limit) : agents;
+}
+
+/** An agent by id, this server's or (on the desktop) an adopted host's. */
+export function findAgent(deps: AgentReadDeps, agentId: string): AgentInfo | null {
+  return (
+    deps.agentManager.getAgentById(agentId) ??
+    deps.hostRouting?.agents().find((a) => a.id === agentId) ??
+    null
+  );
 }
 
 export function agentsGet(ctx: Ctx, agentId: string): AgentInfo | null {
   assertString(agentId, "agentId");
-  return ctx.deps.agentManager.getAgentById(agentId);
+  return findAgent(ctx.deps, agentId);
 }
 
 export function agentsGetActive(ctx: Ctx): AgentInfo[] {
-  return ctx.deps.agentManager.getActiveAgents();
+  const local = ctx.deps.agentManager.getActiveAgents();
+  const remote = (ctx.deps.hostRouting?.agents() ?? []).filter((a) => a.status === "active");
+  return remote.length === 0 ? local : [...local, ...remote];
 }
 
 export function agentsGetRecent(
   ctx: Ctx,
   opts?: { limit?: number },
 ): AgentInfo[] {
-  return ctx.deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
+  return agentsGetAll(ctx, { limit: opts?.limit ?? 50 });
 }
 
 /** The full unseen state, to prime a renderer's cache on boot. */

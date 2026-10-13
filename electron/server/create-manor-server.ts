@@ -13,6 +13,11 @@
  *     ──▶ the agent pipeline, resyncs, `ChatMirror`, the stream fan-out
  *     ──▶ the caller's deps, then `BridgeServer` over the caller's table
  *
+ * On a platform with remote hosts (the desktop) it also builds `HostRouting`
+ * (ADR-227 D4): each adopted host's state comes from that host's server —
+ * merged into the reads, routed to by the bridge, started there for a new
+ * remote session — and `HostAdoption` hands a host's records to it (D3).
+ *
  * What differs between platforms comes in through `Platform`
  * (`./platform.ts`). What only one caller has — the desktop's windows,
  * menu, webview server and remote control; the host server's ownership state,
@@ -50,6 +55,7 @@ import {
 } from "../backend/registry";
 import { RoutedBackend } from "../backend/routed-backend";
 import { LOCAL_HOST_ID, type WorkspaceBackend } from "../backend/types";
+import { HostAdoption } from "../backend/host-adoption";
 import { createAgentService } from "../bridge/handlers/agents";
 import { killAllActivePushes } from "../bridge/handlers/branches-diffs";
 import { wireChatMirror } from "../bridge/handlers/chat";
@@ -89,6 +95,9 @@ import { HeadlessNotifier } from "./headless-notifier";
 import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
 import { createServerLaunches } from "./spawn-pane";
+import { HostRouting } from "./host-routing";
+import type { HostProxy } from "../backend/host-proxy";
+import type { PendingCommand } from "../layout/pending-commands";
 
 /**
  * How long the one-time layout.json key migration (ADR-191) waits for a
@@ -117,6 +126,12 @@ export interface ManorCore {
   };
   /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
   resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void>;
+  /**
+   * Hands each remote host's records to its server (ADR-227 D3); the
+   * caller runs it on every owner connect (`HostServerSync`). Absent on a
+   * server with no remote hosts.
+   */
+  hostAdoption?: HostAdoption;
 }
 
 export interface ManorServerOptions<D extends BridgeServerDeps> {
@@ -183,6 +198,35 @@ export function createManorServer<D extends BridgeServerDeps>(
   // hosts come from projects.json below and connect lazily, off the launch
   // path; with none registered everything routes to the local backend.
   const { remoteHosts } = platform;
+  // The desktop as a client of each adopted host's server (ADR-227 D4).
+  // Everything it reads is built below and read only at call time.
+  const routing: HostRouting | null = remoteHosts
+    ? new HostRouting({
+        registry: {
+          hostProxy: (hostId: string): HostProxy | undefined => backendRegistry.hostProxy(hostId),
+          remoteHostIds: (): string[] => backendRegistry.remoteHostIds(),
+          sessions: {
+            ownerOf: (sessionId: string): string | undefined =>
+              backendRegistry.sessions.ownerOf(sessionId),
+          },
+        },
+        isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId),
+        hasLocalProject: (projectId: string): boolean => !projectManager.isRemoteProject(projectId),
+        hasLocalAgentSession: (sessionId: string): boolean =>
+          agentManager.getAgentBySessionId(sessionId) !== null,
+        pendingCommands: {
+          peek: (paneId: string): PendingCommand | null => layoutStore.pendingCommands.peek(paneId),
+          take: (paneId: string): PendingCommand | null => layoutStore.pendingCommands.take(paneId),
+        },
+        decorateProject: (result: unknown): unknown => projectManager.decorateRemoteResult(result),
+        bus,
+        handOver: async (hostId: string, projectIds: readonly string[]): Promise<void> => {
+          const client = backendRegistry.hostServer(hostId);
+          if (!client || !hostAdoption) throw new Error(`${hostId} has no host server`);
+          await hostAdoption.handOver(hostId, client, projectIds);
+        },
+      })
+    : null;
   const backendRegistry = new BackendRegistry({
     local: localBackend,
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
@@ -199,13 +243,17 @@ export function createManorServer<D extends BridgeServerDeps>(
       : {}),
     // Each remote host's state, from its own server (ADR-227 D4), heard by
     // this server's renderers under the desktop's keys and the user's name
-    // for the host. Its agents are not republished yet: this server still
-    // replays the host's hooks into its own agent store (ADR-227 ticket 9).
-    // Labels and chat are read at call time, once their owners exist.
-    ...(remoteHosts
+    // for the host. Of its agents, only those this server holds no copy of
+    // are republished: it still replays the host's hooks into its own agent
+    // store (ADR-227 ticket 9). Labels, chat and progress are read at call
+    // time, once their owners exist.
+    ...(remoteHosts && routing
       ? {
           hostProxy: {
             bus,
+            republishAgents: (agent: AgentInfo): boolean => routing.republishAgent(agent),
+            onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>
+              routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
             ...(remoteHosts.hostCacheDir ? { cacheDir: remoteHosts.hostCacheDir } : {}),
             publishKeyed: (ns: "chat", event: "entry" | "taskEntry", args: unknown[], key: string): void =>
@@ -226,6 +274,8 @@ export function createManorServer<D extends BridgeServerDeps>(
     layout: { remove: (key) => layoutStore.remove(key) },
     // Setup and clone progress go to the server's renderers.
     publish: bus.publishTo,
+    // Adopted hosts' projects, from their servers (ADR-227 D4).
+    ...(routing ? { remote: routing.remoteProjects() } : {}),
   });
   if (remoteHosts) {
     for (const { hostId, spec } of projectManager.getHosts()) {
@@ -255,6 +305,8 @@ export function createManorServer<D extends BridgeServerDeps>(
     backendRegistry,
     (p) => projectManager.hostIdForPath(p),
     (pid) => portScanner.hostsListeningOn(pid),
+    // A new session on an adopted host starts on its server (ADR-227 D4).
+    routing ? (...args) => routing.spawnSession(...args) : undefined,
   );
   // Agent launches and setup scripts start here, not in a renderer (ADR-227
   // D5): the layout store hands every launched pane over as it joins a tree.
@@ -417,7 +469,16 @@ export function createManorServer<D extends BridgeServerDeps>(
     paneContexts: paneContextMap,
     // Which project and workspace a pane is in, from this server's own layout
     // and projects (ADR-227 D5): a launched agent has no renderer to say.
-    layoutPaneContext: (paneId) => layoutPaneContext(layoutStore, projectManager, paneId),
+    // A remote host's layout is its server's (ADR-227 D4): a pane in it is
+    // found there.
+    layoutPaneContext: (paneId) =>
+      layoutPaneContext(
+        {
+          workspaceOf: (id) => layoutStore.workspaceOf(id) ?? routing?.workspaceOfPane(id) ?? null,
+        },
+        projectManager,
+        paneId,
+      ),
     getPaneHostId,
     unseen,
     broadcastAgent,
@@ -458,6 +519,18 @@ export function createManorServer<D extends BridgeServerDeps>(
     ...(opts.clocks ? { clocks: opts.clocks } : {}),
   }));
   const agentStatusDriver = agentPipeline.driver;
+
+  // The desktop's half of adoption (ADR-227 D3): what it holds for a host,
+  // handed to that host's server, and moved projects after it (D4).
+  const hostAdoption = remoteHosts
+    ? new HostAdoption({
+        projectManager,
+        agentManager,
+        layoutStore,
+        getPaneHostId,
+        onProjectsRemoved: () => notifyProjectsChanged(),
+      })
+    : undefined;
   backendRegistry.setHookSink(agentPipeline.hookSink);
 
   // The agents side of a pane leaving a tree (ADR-182 D7): the store calls it
@@ -622,6 +695,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       notifier,
       sessionOwners: backendRegistry.sessions,
       hostStatus: (hostId) => backendRegistry.status(hostId),
+      ...(routing ? { hostRouting: routing } : {}),
       // The sinks the shared handlers reach the platform through (ADR-227 D1).
       playSound: platform.playSound,
       appCommandResult: platform.appCommandResult,
@@ -633,6 +707,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       push: remotePush,
     },
     resyncHostPanes,
+    ...(hostAdoption ? { hostAdoption } : {}),
   };
 
   // The caller's deps: the shared parts plus its own (ADR-182 D8).
@@ -642,6 +717,8 @@ export function createManorServer<D extends BridgeServerDeps>(
   // do, built once its deps exist. Every transport attaches to it.
   const bridge = new BridgeServer(deps, {
     table: opts.table,
+    // A routed call for an adopted host is its server's (ADR-227 D4).
+    ...(routing ? { forward: routing } : {}),
     events: bus.subscribe,
     audit: new RemoteAuditLog(path.join(dataDir, "remote-audit.jsonl")),
   });

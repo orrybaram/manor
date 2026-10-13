@@ -48,7 +48,7 @@ import { errorMessage } from "../lib/errors";
 import type { Emitter } from "./emitter";
 import { HostHookFeed, type HookSeqStore, type HookSink } from "./hook-feed";
 import { HostServerClient, type HostServerClientOptions } from "./host-server-client";
-import { HostProxy, type HostProxyOptions } from "./host-proxy";
+import { HostProxy, type HostProgressEvent, type HostProxyOptions } from "./host-proxy";
 import { hostCacheFile } from "../paths";
 import { HostUnavailableError, hostGates, hostView, type HostGates } from "./host-view";
 import type { HostProvider } from "./providers/types";
@@ -163,6 +163,8 @@ export interface HostProxyContext
   extends Pick<HostProxyOptions, "bus" | "republishAgents" | "publishKeyed" | "saveDelayMs" | "log"> {
   /** The desktop's name for a host (`HostRecords.label`), read at use. */
   label(hostId: string): string;
+  /** A host's progress events for its owner (`HostProxyOptions.onProgress`). */
+  onProgress?(hostId: string, event: HostProgressEvent, args: unknown[]): void;
   /** Where the cache files go. Defaults to `hostCacheDir()`. */
   cacheDir?: string;
 }
@@ -421,6 +423,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
           cacheFile: hostCacheFile(hostId, proxyCtx.cacheDir),
           republishAgents: proxyCtx.republishAgents,
           publishKeyed: proxyCtx.publishKeyed,
+          onProgress: (event, args) => proxyCtx.onProgress?.(hostId, event, args),
           saveDelayMs: proxyCtx.saveDelayMs,
           log: proxyCtx.log,
         })
@@ -606,8 +609,13 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
       case "hostReconnected":
         this.setState({ status: "connected" });
         // Panes reattach only once the replay is in, so their agent dots
-        // are right on first paint (ADR-178 §6).
-        void this.announceResumed(token, this.hookFeed.catchUp());
+        // are right on first paint (ADR-178 §6) — and once the host's own
+        // server is back, which starts a lost pane's fresh session and types
+        // its resume command (ADR-227 D4).
+        void this.announceResumed(
+          token,
+          Promise.all([this.hookFeed.catchUp(), this.serverChannelSettled()]).then(() => {}),
+        );
         break;
       case "hostFailed": {
         const failure: HostFailure = {
@@ -621,6 +629,26 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
       }
     }
     this.ctx.hostEvents.emit(this.hostId, event);
+  }
+
+  /**
+   * Resolves once the owner channel is up, or known to have no server to
+   * reach — immediately for a host without a proxy, which reads nothing
+   * through it. Never rejects; `announceResumed` bounds the wait.
+   */
+  private serverChannelSettled(): Promise<void> {
+    const settled = () => {
+      const state = this.serverClient.state;
+      return state === "connected" || state === "unsupported";
+    };
+    if (!this.proxy || settled()) return Promise.resolve();
+    return new Promise((resolve) => {
+      const off = this.serverClient.onStateChange(() => {
+        if (!settled()) return;
+        off();
+        resolve();
+      });
+    });
   }
 
   /**

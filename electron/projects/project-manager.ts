@@ -2,6 +2,15 @@
  * `ProjectManager`: the facade over `projects.json` that IPC, the control
  * routes and MCP talk to. It owns the state and composes the modules beside
  * it — each operation lives in the module for its job (ADR-183).
+ *
+ * **On the desktop it holds this machine's projects only** (ADR-227 D4), and
+ * a remote host's until that host has adopted them (D3). An adopted host's
+ * projects are its server's: they come in through `RemoteProjects` (each
+ * host's `HostProxy`) and are merged into what `getProjects` answers, under
+ * the desktop's linked-project groups — which only the desktop has, since
+ * linking spans hosts (D2). A group's shared settings are written through to
+ * each remote member's host. Workspace writes for a remote project never
+ * reach here: the bridge forwards them to its host (`BridgeForward`).
  */
 
 import crypto from "node:crypto";
@@ -16,6 +25,7 @@ import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
 import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { mergeAdoptedProject } from "./adopt-records";
+import { moveAcrossServers } from "./host-move";
 import { HostRecords } from "./host-records";
 import {
   OriginLinks,
@@ -24,6 +34,7 @@ import {
   rememberDismissal,
 } from "./origin-links";
 import { moveProjectToHost, planClone, runClone, switchProjectHost } from "./host-move";
+import { adoptedProjectHosts } from "./project-groups";
 import { planTransfer, transferProject, type TransferDeps } from "./host-transfer";
 import { PathRouter } from "./path-router";
 import { createProjectProgress } from "./progress";
@@ -33,7 +44,9 @@ import * as groups from "./project-groups";
 import {
   buildProjectInfo,
   listGitWorkspaces,
+  persistedFromInfo,
   seedCommands,
+  withGroup,
   LastKnownWorkspaces,
 } from "./project-info";
 import { StateStore } from "./state-store";
@@ -51,6 +64,7 @@ import type {
   ProjectHostResolver,
   ProjectInfo,
   ProjectUpdatableFields,
+  RemoteProjects,
   TransferMode,
   TransferPlan,
   TransferResult,
@@ -96,6 +110,8 @@ export class ProjectManager {
   private resyncDone = false;
   /** Remote projects' last workspace listings, for while a host is away. */
   private readonly lastKnownWorkspaces: LastKnownWorkspaces;
+  /** Adopted remote hosts' projects, on the desktop (ADR-227 D4). */
+  private readonly remote: RemoteProjects | undefined;
 
   /**
    * `hosts` resolves a host id to its backend — `BackendRegistry.get` in
@@ -124,8 +140,14 @@ export class ProjectManager {
        * a test about projects alone has no renderer to tell.
        */
       publish?: PublishToRenderer;
+      /**
+       * Adopted remote hosts' projects (ADR-227 D4): the desktop's. A host
+       * server, which has no hosts of its own, has none.
+       */
+      remote?: RemoteProjects;
     } = {},
   ) {
+    this.remote = options.remote;
     this.lastKnownWorkspaces = new LastKnownWorkspaces(options.isHostAway ?? (() => false));
     if (typeof hosts === "function") {
       this.hostFor = hosts;
@@ -135,8 +157,9 @@ export class ProjectManager {
     }
     this.store = new StateStore(dataDir ?? manorDataDir());
     this.hosts = new HostRecords(this.store);
+    // Remote hosts' projects route their paths too (ADR-227 D4).
     this.paths = new PathRouter(
-      () => this.store.state.projects,
+      () => this.allRecords(),
       (hostId) => this.hostFor(hostId).facts,
     );
     this.ctx = {
@@ -145,17 +168,103 @@ export class ProjectManager {
       paths: this.paths,
       host: (hostId) => this.hostFor(hostId),
       find: (projectId) => this.findProject(projectId),
+      member: (projectId) => this.member(projectId),
+      all: () => this.allRecords(),
       findAt: (hostId, dir) =>
-        this.store.state.projects.find((p) => p.path === dir && p.hostId === hostId),
+        this.allRecords().find((p) => p.path === dir && p.hostId === hostId),
       info: (project) => this.buildProjectInfo(project),
       progress: createProjectProgress(options.publish ?? (() => {})),
       layout: options.layout,
+      remote: this.remote,
     };
     this.origins = new OriginLinks(this.ctx);
   }
 
   private findProject(projectId: string): PersistedProject | undefined {
     return this.store.state.projects.find((p) => p.id === projectId);
+  }
+
+  // ── Remote hosts' projects (ADR-227 D4) ──
+
+  /**
+   * Adopted remote hosts' projects, as their servers hold them, less any
+   * this desktop holds itself: one being moved off its host, for a moment.
+   */
+  private remoteInfos(): ProjectInfo[] {
+    if (!this.remote) return [];
+    const held = new Set(this.store.state.projects.map((p) => p.id));
+    return this.remote.list().filter((p) => !held.has(p.id));
+  }
+
+  private remoteInfo(projectId: string): ProjectInfo | undefined {
+    return this.remoteInfos().find((p) => p.id === projectId);
+  }
+
+  /** A project wherever it lives: this desktop's record, or a copy of a host's. */
+  private member(projectId: string): PersistedProject | undefined {
+    const held = this.findProject(projectId);
+    if (held) return held;
+    const info = this.remoteInfo(projectId);
+    return info ? persistedFromInfo(info) : undefined;
+  }
+
+  /** Every project, this desktop's and remote hosts', in the sidebar's order. */
+  private allRecords(): PersistedProject[] {
+    return this.ordered([
+      ...this.store.state.projects,
+      ...this.remoteInfos().map(persistedFromInfo),
+    ]);
+  }
+
+  /**
+   * `projects` in the sidebar's order (`projectOrder`); without one, as
+   * given. Ids it does not list keep their places after it.
+   */
+  private ordered<T extends { id: string }>(projects: T[]): T[] {
+    const order = this.store.state.projectOrder;
+    if (!order) return projects;
+    const at = new Map(order.map((id, i) => [id, i]));
+    return projects
+      .map((project, i) => ({ project, rank: at.get(project.id) ?? order.length + i }))
+      .sort((a, b) => a.rank - b.rank)
+      .map(({ project }) => project);
+  }
+
+  /** A remote project as the renderer sees it: its group's settings over it. */
+  private decorateRemote(info: ProjectInfo): ProjectInfo {
+    this.paths.setWorkspacePaths(
+      info.id,
+      info.workspaces.map((ws) => ws.path),
+    );
+    return withGroup(info, groups.groupOf(this.store.state, info.id));
+  }
+
+  /**
+   * A remote host's answer, if it is a project, as the renderer sees it.
+   * What the bridge forwards for a remote project comes back through here.
+   */
+  decorateRemoteResult(result: unknown): unknown {
+    if (
+      typeof result === "object" &&
+      result !== null &&
+      typeof (result as ProjectInfo).id === "string" &&
+      Array.isArray((result as ProjectInfo).workspaces)
+    ) {
+      return this.decorateRemote(result as ProjectInfo);
+    }
+    return result;
+  }
+
+  /** The remote API, or a throw naming what needs it. */
+  private requireRemote(what: string): RemoteProjects {
+    if (!this.remote) throw new Error(`${what} needs a remote host's server.`);
+    return this.remote;
+  }
+
+  /** Add `projectId` to the end of the sidebar's order, when it keeps one. */
+  private appendToOrder(projectId: string): void {
+    const order = this.store.state.projectOrder;
+    if (order && !order.includes(projectId)) order.push(projectId);
   }
 
   private buildProjectInfo(p: PersistedProject): Promise<ProjectInfo> {
@@ -212,6 +321,7 @@ export class ProjectManager {
     for (const project of this.store.state.projects) {
       if (project.hostId !== LOCAL_HOST_ID) ids.add(project.hostId);
     }
+    for (const project of this.remoteInfos()) ids.add(project.hostId);
     return Array.from(ids);
   }
 
@@ -224,7 +334,7 @@ export class ProjectManager {
 
   /** The projects that live on a remote host, each path with its host. */
   remoteProjectHostPaths(): HostPath[] {
-    return this.store.state.projects
+    return this.allRecords()
       .filter((p) => p.hostId !== LOCAL_HOST_ID)
       .map((p) => ({ path: p.path, hostId: p.hostId }));
   }
@@ -286,16 +396,38 @@ export class ProjectManager {
     const wanted = new Set(projectIds);
     const removed = state.projects.filter((p) => p.hostId === hostId && wanted.has(p.id));
     if (removed.length === 0) return [];
-    const selectedId = state.projects[state.selectedProjectIndex]?.id;
+    // They stay in the sidebar, from the host (ADR-227 D4), in their places;
+    // the selection, an index into the sidebar's list, stays where it was.
+    state.projectOrder ??= state.projects.map((p) => p.id);
     state.projects = state.projects.filter((p) => !removed.includes(p));
-    const selected = selectedId ? state.projects.findIndex((p) => p.id === selectedId) : -1;
-    state.selectedProjectIndex =
-      selected >= 0 ? selected : Math.min(state.selectedProjectIndex, Math.max(0, state.projects.length - 1));
     const ids = removed.map((p) => p.id);
     for (const id of ids) this.lastKnownWorkspaces.forget(id);
     this.hosts.recordAdoptedProjects(hostId, ids);
     this.store.save();
     return ids;
+  }
+
+  /**
+   * Point every reference to an id the host merged away at the id it lives
+   * on under now (ADR-227 D3): a record that matched one of `hostId`'s by
+   * path joined that one. Groups, dismissed pairs and the sidebar's order
+   * follow; the new id is remembered as `hostId`'s. Saves.
+   */
+  remapProjectIds(hostId: string, remap: ReadonlyMap<string, string>): void {
+    if (remap.size === 0) return;
+    const state = this.store.state;
+    const to = (id: string): string => remap.get(id) ?? id;
+    for (const group of state.groups ?? []) {
+      group.memberIds = [...new Set(group.memberIds.map(to))];
+    }
+    if (state.dismissedLinkSuggestions) {
+      state.dismissedLinkSuggestions = state.dismissedLinkSuggestions.map(
+        ([a, b]) => [to(a), to(b)] as [string, string],
+      );
+    }
+    if (state.projectOrder) state.projectOrder = [...new Set(state.projectOrder.map(to))];
+    this.hosts.recordAdoptedProjects(hostId, [...remap.values()]);
+    this.store.save();
   }
 
   /** Whether `hostId`'s records have been handed over (ADR-227 D3). */
@@ -332,7 +464,8 @@ export class ProjectManager {
    */
   knownWorkspaces(projectId: string): WorkspaceInfo[] {
     const p = this.findProject(projectId);
-    return (p && this.lastKnownWorkspaces.latest(p)) ?? [];
+    if (!p) return this.remoteInfo(projectId)?.workspaces ?? [];
+    return this.lastKnownWorkspaces.latest(p) ?? [];
   }
 
   /**
@@ -364,7 +497,17 @@ export class ProjectManager {
   /** The host a project lives on; `"local"` for unknown projects. */
   getProjectHostId(projectId: string | null | undefined): string {
     if (!projectId) return LOCAL_HOST_ID;
-    return this.findProject(projectId)?.hostId ?? LOCAL_HOST_ID;
+    return (
+      this.findProject(projectId)?.hostId ??
+      this.remoteInfo(projectId)?.hostId ??
+      adoptedProjectHosts(this.store.state).get(projectId) ??
+      LOCAL_HOST_ID
+    );
+  }
+
+  /** Whether a project lives on a remote host's server (ADR-227 D4). */
+  isRemoteProject(projectId: string): boolean {
+    return !this.findProject(projectId) && this.remoteInfo(projectId) !== undefined;
   }
 
   /** The host a bare filesystem path belongs to (see `PathRouter`). */
@@ -393,7 +536,8 @@ export class ProjectManager {
       await resyncDefaultBranches(this.ctx);
       this.paths.warm();
     }
-    return Promise.all(this.store.state.projects.map((p) => this.buildProjectInfo(p)));
+    const held = await Promise.all(this.store.state.projects.map((p) => this.buildProjectInfo(p)));
+    return this.ordered([...held, ...this.remoteInfos().map((p) => this.decorateRemote(p))]);
   }
 
   /**
@@ -402,11 +546,12 @@ export class ProjectManager {
    * that only needs what no watcher sees (a window focus) skips them.
    */
   async getRemoteProjects(): Promise<ProjectInfo[]> {
-    return Promise.all(
+    const held = await Promise.all(
       this.store.state.projects
         .filter((p) => p.hostId !== LOCAL_HOST_ID)
         .map((p) => this.buildProjectInfo(p)),
     );
+    return this.ordered([...held, ...this.remoteInfos().map((p) => this.decorateRemote(p))]);
   }
 
   getSelectedProjectIndex(): number {
@@ -452,7 +597,8 @@ export class ProjectManager {
     };
 
     this.store.state.projects.push(project);
-    this.store.state.selectedProjectIndex = this.store.state.projects.length - 1;
+    this.appendToOrder(project.id);
+    this.store.state.selectedProjectIndex = this.allRecords().length - 1;
     this.store.save();
 
     const workspaces = (await listGitWorkspaces(host.git, projectPath)) ?? [
@@ -502,19 +648,36 @@ export class ProjectManager {
     name: string;
   }): Promise<ProjectInfo> {
     this.hosts.assertKnown(opts.hostId);
+    // A host whose projects are its server's clones and adds it there
+    // (ADR-227 D4); the host's server reports the progress.
+    if (this.remote?.owns(opts.hostId)) {
+      const cloned = (await this.remote.call(opts.hostId, "clone", [opts])) as ProjectInfo;
+      this.appendToOrder(cloned.id);
+      this.store.state.selectedProjectIndex = Math.max(
+        0,
+        this.allRecords().findIndex((p) => p.id === cloned.id),
+      );
+      this.store.save();
+      return this.decorateRemote(cloned);
+    }
     const plan = await planClone(this.ctx, opts.hostId, opts);
     await runClone(this.ctx, plan);
     if (plan.owner) return this.buildProjectInfo(plan.owner);
     return this.addProject(opts.name, plan.targetDir, opts.hostId);
   }
 
-  /** See `host-move.ts`. */
+  /**
+   * See `host-move.ts`. A project on a remote host's server, or moving onto
+   * one, crosses servers (`moveAcrossServers`).
+   */
   moveProjectToHost(
     projectId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ): Promise<ProjectInfo> {
     this.lastKnownWorkspaces.forget(projectId);
-    return moveProjectToHost(this.ctx, projectId, opts);
+    return moveAcrossServers(this.ctx, projectId, opts.hostId, () =>
+      moveProjectToHost(this.ctx, projectId, opts),
+    );
   }
 
   /** See `host-move.ts`. The caller connects a remote host first. */
@@ -524,7 +687,18 @@ export class ProjectManager {
     explicitPath?: string,
   ): Promise<ProjectInfo> {
     this.lastKnownWorkspaces.forget(projectId);
-    return switchProjectHost(this.ctx, projectId, hostId, explicitPath);
+    return moveAcrossServers(this.ctx, projectId, hostId, () =>
+      switchProjectHost(this.ctx, projectId, hostId, explicitPath),
+    );
+  }
+
+  /**
+   * Hand what this desktop still holds for `hostId` — a moved project's
+   * layout, say — to its server, when its projects are its server's
+   * (ADR-227 D4). A no-op for any other host.
+   */
+  async handOverHost(hostId: string): Promise<void> {
+    if (this.remote?.owns(hostId)) await this.remote.handOver(hostId, []);
   }
 
   /** What `host-transfer.ts` composes: this manager's own operations. */
@@ -568,7 +742,7 @@ export class ProjectManager {
    * another host may not share and which `remoteDirIsCloneOf` won't match.
    */
   async getOriginUrl(projectId: string): Promise<string | null> {
-    const project = this.findProject(projectId);
+    const project = this.member(projectId);
     if (!project) return null;
     try {
       const out = await this.hostFor(project.hostId).git.exec(project.path, [
@@ -585,7 +759,7 @@ export class ProjectManager {
 
   /** Whether the project's `path` exists on the host it lives on. */
   async projectPathExists(projectId: string): Promise<boolean> {
-    const project = this.findProject(projectId);
+    const project = this.member(projectId);
     if (!project) return false;
     return this.pathExistsOnHost(project.hostId, project.path);
   }
@@ -605,6 +779,20 @@ export class ProjectManager {
    * does not wait still sees it gone.
    */
   async removeProject(projectId: string): Promise<void> {
+    const remote = this.remoteInfo(projectId);
+    if (remote && !this.findProject(projectId)) {
+      // Its host's server forgets it and ends its panes there (ADR-227 D4);
+      // this desktop only lets go of its groups' and dismissals' mention.
+      await this.requireRemote("Removing it").call(remote.hostId, "remove", [projectId]);
+      const state = this.store.state;
+      const groupId = groups.groupOf(state, projectId)?.id;
+      groups.forgetProject(state, projectId);
+      forgetLinkDismissals(state, projectId);
+      if (state.projectOrder) state.projectOrder = state.projectOrder.filter((id) => id !== projectId);
+      this.store.save();
+      if (groupId) void this.origins.rememberGroupOrigin(groupId);
+      return;
+    }
     const project = this.findProject(projectId);
     const known = project ? this.lastKnownWorkspaces.recall(project) : undefined;
     const state = this.store.state;
@@ -645,7 +833,7 @@ export class ProjectManager {
     updates: ProjectUpdatableFields,
   ): Promise<ProjectInfo | null> {
     const project = this.findProject(projectId);
-    if (!project) return null;
+    if (!project) return this.updateRemoteProject(projectId, updates);
     const group = groups.groupOf(this.store.state, projectId);
     const { shared, own } = group
       ? splitShared(updates)
@@ -654,14 +842,48 @@ export class ProjectManager {
     if (group && Object.keys(shared).length > 0) {
       // Saves the project's own changes too.
       groups.updateGroup(this.ctx, group.id, shared);
+      await groups.writeThroughShared(this.ctx, group);
     } else {
       this.store.save();
     }
     return this.buildProjectInfo(project);
   }
 
+  /**
+   * `updateProject` for a project on a remote host's server (ADR-227 D4):
+   * its own settings are written there, a group's shared ones to the group,
+   * which writes them through to every remote member. Null when no host
+   * has it.
+   */
+  private async updateRemoteProject(
+    projectId: string,
+    updates: ProjectUpdatableFields,
+  ): Promise<ProjectInfo | null> {
+    const info = this.remoteInfo(projectId);
+    if (!info) return null;
+    const remote = this.requireRemote("Updating it");
+    const group = groups.groupOf(this.store.state, projectId);
+    const { shared, own } = group ? splitShared(updates) : { shared: {}, own: updates };
+    let updated: ProjectInfo = info;
+    if (Object.keys(own).length > 0) {
+      const answer = (await remote.call(info.hostId, "update", [projectId, own])) as ProjectInfo | null;
+      if (answer) updated = answer;
+    }
+    if (group && Object.keys(shared).length > 0) {
+      groups.updateGroup(this.ctx, group.id, shared);
+      await groups.writeThroughShared(this.ctx, group);
+    }
+    return this.decorateRemote(updated);
+  }
+
   reorderProjects(orderedIds: string[]): void {
     const state = this.store.state;
+    // The whole sidebar's order, remote hosts' projects included (ADR-227 D4).
+    if (this.remote || state.projectOrder) {
+      const known = new Set(this.allRecords().map((p) => p.id));
+      const listed = orderedIds.filter((id) => known.has(id));
+      state.projectOrder = [...listed, ...[...known].filter((id) => !listed.includes(id))];
+    }
     const byId = new Map(state.projects.map((p) => [p.id, p]));
     const reordered = orderedIds
       .map((id) => byId.get(id))
@@ -691,7 +913,17 @@ export class ProjectManager {
     const group = groups.linkProjects(this.ctx, projectId, otherId);
     // Record the group's `origin` once a member's host reports it (ticket 5).
     void this.origins.rememberGroupOrigin(group.id);
+    this.writeThrough(group.id);
     return group;
+  }
+
+  /**
+   * Write `groupId`'s shared settings through to its remote members'
+   * hosts (ADR-227 D2), without waiting: a link answers at once.
+   */
+  private writeThrough(groupId: string): void {
+    const group = this.store.state.groups?.find((g) => g.id === groupId);
+    if (group) void groups.writeThroughShared(this.ctx, group);
   }
 
   /**
@@ -701,12 +933,17 @@ export class ProjectManager {
    */
   async updateGroup(groupId: string, updates: GroupUpdatableFields): Promise<ProjectInfo[]> {
     const group = groups.updateGroup(this.ctx, groupId, updates);
-    return Promise.all(
+    await groups.writeThroughShared(this.ctx, group);
+    const held = await Promise.all(
       group.memberIds
         .map((id) => this.findProject(id))
         .filter((p): p is PersistedProject => p != null)
         .map((p) => this.buildProjectInfo(p)),
     );
+    const remote = this.remoteInfos()
+      .filter((p) => group.memberIds.includes(p.id))
+      .map((p) => this.decorateRemote(p));
+    return [...held, ...remote];
   }
 
   /**
@@ -777,11 +1014,13 @@ export class ProjectManager {
    */
   async autoJoin(): Promise<Array<{ joinedId: string; intoId: string }>> {
     const state = this.store.state;
-    const lone = state.projects.filter((p) => !groups.groupOf(state, p.id)).map((p) => p.id);
+    const lone = this.allRecords()
+      .filter((p) => !groups.groupOf(state, p.id))
+      .map((p) => p.id);
     const joined: Array<{ joinedId: string; intoId: string }> = [];
     for (const projectId of lone) {
       // Removed while an earlier project's hosts were asked.
-      if (!this.findProject(projectId)) continue;
+      if (!this.member(projectId)) continue;
       for (const suggestion of await this.origins.suggest(projectId)) {
         const pair = this.joinPair(projectId, suggestion.projectId);
         if (pair) joined.push(pair);
@@ -792,7 +1031,10 @@ export class ProjectManager {
     const groupIds = new Set(
       joined.flatMap(({ intoId }) => groups.groupOf(state, intoId)?.id ?? []),
     );
-    for (const groupId of groupIds) void this.origins.rememberGroupOrigin(groupId);
+    for (const groupId of groupIds) {
+      void this.origins.rememberGroupOrigin(groupId);
+      this.writeThrough(groupId);
+    }
     return joined;
   }
 
@@ -805,14 +1047,24 @@ export class ProjectManager {
    * leaves them.
    */
   undoAutoJoin(joinedId: string, intoId: string): void {
-    const project = this.findProject(joinedId);
+    const project = this.member(joinedId);
     const groupId = groups.groupOf(this.store.state, joinedId)?.id;
     if (project && groupId) {
       // `unlinkProject` saves; the restore and the dismissal save again below.
       this.unlinkProject(joinedId);
     }
     const own = this.joinedOwn.get(joinedId);
-    if (project && own) restoreShared(project, own);
+    if (project && own) {
+      restoreShared(project, own);
+      // A remote project's record is its host's: the restore goes there.
+      if (!this.findProject(joinedId) && this.remote) {
+        void this.remote
+          .call(project.hostId, "update", [joinedId, own])
+          .catch((err: unknown) => {
+            console.warn(`[project-manager] could not restore ${joinedId}'s settings:`, err);
+          });
+      }
+    }
     this.joinedOwn.delete(joinedId);
     rememberDismissal(this.ctx, joinedId, intoId);
     this.store.save();
@@ -828,8 +1080,8 @@ export class ProjectManager {
    */
   private joinPair(a: string, b: string): { joinedId: string; intoId: string } | null {
     const state = this.store.state;
-    const projectA = this.findProject(a);
-    const projectB = this.findProject(b);
+    const projectA = this.member(a);
+    const projectB = this.member(b);
     if (!projectA || !projectB) return null;
     const groupA = groups.groupOf(state, a);
     const groupB = groups.groupOf(state, b);
@@ -838,7 +1090,7 @@ export class ProjectManager {
     let intoId: string;
     if (groupA) [joinedId, intoId] = [b, a];
     else if (groupB) [joinedId, intoId] = [a, b];
-    else if (state.projects.indexOf(projectA) > state.projects.indexOf(projectB)) {
+    else if (this.orderOf(a) > this.orderOf(b)) {
       [joinedId, intoId] = [a, b];
     } else {
       [joinedId, intoId] = [b, a];
@@ -847,7 +1099,7 @@ export class ProjectManager {
     // `intoId` is in now may hold a project the newcomer was kept apart from.
     const target = groups.groupOf(state, intoId)?.memberIds ?? [intoId];
     if (target.some((id) => isDismissed(state, joinedId, id))) return null;
-    const own = snapshotShared(this.findProject(joinedId)!);
+    const own = snapshotShared(this.member(joinedId)!);
     try {
       groups.joinProjects(this.ctx, joinedId, intoId);
     } catch {
@@ -858,15 +1110,28 @@ export class ProjectManager {
     return { joinedId, intoId };
   }
 
+  /** Where `projectId` sits in the sidebar's list; -1 when nowhere. */
+  private orderOf(projectId: string): number {
+    return this.allRecords().findIndex((p) => p.id === projectId);
+  }
+
   // ── Workspaces and folders (see `workspace-folders.ts`) ──
 
   selectWorkspace(projectId: string, workspaceIndex: number): void {
     const project = this.findProject(projectId);
-    if (!project) return;
-    project.selectedWorkspaceIndex = workspaceIndex;
-    const projectIndex = this.store.state.projects.indexOf(project);
+    const remote = project ? undefined : this.remoteInfo(projectId);
+    if (!project && !remote) return;
+    if (project) project.selectedWorkspaceIndex = workspaceIndex;
+    const projectIndex = this.orderOf(projectId);
     if (projectIndex >= 0) this.store.state.selectedProjectIndex = projectIndex;
     this.store.save();
+    // A remote project's selection is its host's record (ADR-227 D4). Not
+    // waited for: a host that is away keeps the one it had.
+    if (remote && this.remote) {
+      void this.remote
+        .call(remote.hostId, "selectWorkspace", [projectId, workspaceIndex])
+        .catch(() => {});
+    }
   }
 
   renameWorkspace(projectId: string, workspacePath: string, newName: string): void {

@@ -15,7 +15,6 @@ import { initAutoUpdater, checkForUpdates, setBeforeInstallHook } from "./update
 import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { LOCAL_HOST_ID } from "./backend/types";
-import { HostAdoption } from "./backend/host-adoption";
 import { HostServerSync } from "./backend/host-server-sync";
 import { PrewarmManager } from "./prewarm-manager";
 import { rendererBus } from "./renderer-broadcast";
@@ -264,7 +263,7 @@ export function initApp(devTitle: string | null): void {
   /** The desktop's parts, over the server's, and the one deps object of both. */
   function desktopDeps(core: ManorCore): HostDeps {
     const { client, shared } = core;
-    const { backendRegistry, projectManager, layoutStore, githubManager, portScanner } = shared;
+    const { backendRegistry, portScanner } = shared;
     // Remote dev servers opened from Manor go through these (ADR-178 §5).
     const remoteForwards = new RemoteForwards(backendRegistry);
     // Which host each pane's workspace lives on, and the resolver that turns a
@@ -314,15 +313,8 @@ export function initApp(devTitle: string | null): void {
       // valid in every room (D3).
       vapidKeys: () => core.relayStores.push.vapidKeys(),
       // What the desktop still holds for each host, handed to its server
-      // (ADR-227 D3). Until the desktop reads a host's state through that
-      // server (D4), an adopted host's projects leave the sidebar.
-      adoption: new HostAdoption({
-        projectManager: shared.projectManager,
-        agentManager: shared.agentManager,
-        layoutStore: shared.layoutStore,
-        getPaneHostId: shared.getPaneHostId,
-        onProjectsRemoved: () => core.bus.publish("projects", "changed"),
-      }),
+      // (ADR-227 D3); from then on it reads them through that server (D4).
+      adoption: core.hostAdoption,
     });
     // After the push store exists: starting syncs hosts that are already
     // connected.

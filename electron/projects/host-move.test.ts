@@ -6,6 +6,7 @@ import * as crypto from "node:crypto";
 import { ProjectManager } from "./project-manager";
 import type { GitBackend, ShellBackend } from "../backend/types";
 import { hostsOf } from "./test-fakes";
+import type { ProjectInfo, RemoteProjects } from "./types";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -427,5 +428,131 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
     expect(await mgr.projectPathExists("p2")).toBe(true);
     expect(await mgr.projectPathExists("p3")).toBe(false);
     expect(await mgr.projectPathExists("nope")).toBe(false);
+  });
+
+  describe("across host servers (ADR-227 D4)", () => {
+    /** A remote project as `box`'s server answers it. */
+    function remoteInfo(id: string, projectPath: string): ProjectInfo {
+      return {
+        id,
+        name: `Remote ${id}`,
+        path: projectPath,
+        defaultBranch: "main",
+        workspaces: [{ path: projectPath, branch: "main", isMain: true, name: "Main" }],
+        selectedWorkspaceIndex: 0,
+        defaultRunCommand: null,
+        worktreePath: null,
+        worktreeStartScript: null,
+        worktreeTeardownScript: null,
+        linearAssociations: [],
+        color: "green",
+        agentCommand: null,
+        commands: [],
+        themeName: null,
+        setupComplete: true,
+        portlessEnabled: true,
+        hostId: "box",
+        folders: [],
+        sidebarOrder: [projectPath],
+        group: null,
+      };
+    }
+
+    /**
+     * `box`'s server, adopted: it lists `infos`, and a hand-over moves the
+     * desktop's record there, as `HostAdoption.handOver` does.
+     */
+    function boxServer(infos: ProjectInfo[], mgr: () => ProjectManager): RemoteProjects & {
+      call: ReturnType<typeof vi.fn>;
+      handOver: ReturnType<typeof vi.fn>;
+    } {
+      return {
+        list: () => infos,
+        owns: (hostId) => hostId === "box",
+        call: vi.fn(async (_hostId: string, method: string, args: unknown[]) => {
+          if (method === "remove") {
+            const at = infos.findIndex((p) => p.id === args[0]);
+            if (at >= 0) infos.splice(at, 1);
+          }
+          return null;
+        }),
+        handOver: vi.fn(async (hostId: string, ids: readonly string[]) => {
+          const moved = (await mgr().getProjects()).filter((p) => ids.includes(p.id));
+          mgr().removeAdoptedProjects(hostId, ids);
+          infos.push(...moved);
+        }),
+      };
+    }
+
+    function seedHosts(projects: Array<Record<string, unknown>>) {
+      fs.writeFileSync(
+        path.join(tmpDir, "projects.json"),
+        JSON.stringify({
+          projects,
+          selectedProjectIndex: 0,
+          hosts: {
+            box: { spec: { kind: "ssh", target: "me@box" }, adopted: true },
+            mac: { spec: { kind: "ssh", target: "me@mac" } },
+          },
+        }),
+      );
+    }
+
+    it("hands a project moved onto an adopted host to its server", async () => {
+      seed();
+      const state = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+      state.hosts.box.adopted = true;
+      fs.writeFileSync(path.join(tmpDir, "projects.json"), JSON.stringify(state));
+      const { git } = fakeGit();
+      const infos: ProjectInfo[] = [];
+      const box = boxServer(infos, () => mgr);
+      const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir, { remote: box });
+
+      const info = await mgr.moveProjectToHost("p1", {
+        hostId: "box",
+        repoUrl: REPO,
+        remoteDir: "/srv/app",
+      });
+
+      expect(info).toMatchObject({ id: "p1", hostId: "box", path: "/srv/app" });
+      expect(box.handOver).toHaveBeenCalledWith("box", ["p1"]);
+      // The desktop no longer holds it; `box`'s server lists it, once.
+      const persisted = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+      expect(persisted.projects).toEqual([]);
+      expect((await mgr.getProjects()).map((p) => [p.id, p.hostId])).toEqual([["p1", "box"]]);
+    });
+
+    it("takes a project off its host's server to move it elsewhere", async () => {
+      seedHosts([]);
+      const { git } = fakeGit();
+      const infos = [remoteInfo("p2", "/home/u/p2")];
+      const box = boxServer(infos, () => mgr);
+      const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u", { "/srv/p2": [] })), tmpDir, {
+        remote: box,
+      });
+
+      const info = await mgr.switchProjectHost("p2", "mac", "/srv/p2");
+
+      expect(info).toMatchObject({ id: "p2", hostId: "mac", path: "/srv/p2", color: "green" });
+      expect(box.call).toHaveBeenCalledWith("box", "remove", ["p2"]);
+      expect(box.handOver).not.toHaveBeenCalled();
+      const projects = await mgr.getProjects();
+      expect(projects.map((p) => [p.id, p.hostId])).toEqual([["p2", "mac"]]);
+      // Its own per-workspace settings came back off the host with it.
+      expect(projects[0].workspaces.find((w) => w.path === "/srv/p2")?.name).toBe("Main");
+    });
+
+    it("leaves the host's project where it was when the move fails", async () => {
+      seedHosts([]);
+      const { git } = fakeGit();
+      const infos = [remoteInfo("p2", "/home/u/p2")];
+      const box = boxServer(infos, () => mgr);
+      const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir, { remote: box });
+
+      // `/srv/p2` does not exist on `mac`.
+      await expect(mgr.switchProjectHost("p2", "mac", "/srv/p2")).rejects.toThrow(/does not exist/);
+      expect(box.call).not.toHaveBeenCalled();
+      expect((await mgr.getProjects()).map((p) => [p.id, p.hostId])).toEqual([["p2", "box"]]);
+    });
   });
 });

@@ -38,7 +38,7 @@ import type {
 } from "../../linear";
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
-import { method, type HandlerCtx } from "../method";
+import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 
 type IssueState = "open" | "closed" | "all";
@@ -344,21 +344,30 @@ export async function linearAutoMatch(
 // Assigning, closing or opening an issue is a change every viewer's picker
 // shows next time it opens, and a feedback upload puts bytes in a public
 // release. The PR and issue reads are not audited.
+//
+// Every method runs here for now, `gh` resolving a remote repo by its
+// origin (ADR-191). The ones that take a `GhRepo` go to its host with
+// `byGhRepo` once a host server answers `github.*` (ADR-227 D7, ticket 10):
+// routing them before then would leave a remote workspace's PR badge with
+// nothing to ask.
 export const github = {
-  getPrsForBranches: method(githubGetPrsForBranches),
+  getPrsForBranches: method(githubGetPrsForBranches, { route: LOCAL_ROUTE }),
   // The clone dialog's repo list (ADR-194): what `gh` can see, no writes.
-  listRepos: method(githubListRepos),
-  checkStatus: method(githubCheckStatus),
+  listRepos: method(githubListRepos, { route: LOCAL_ROUTE }),
+  checkStatus: method(githubCheckStatus, { route: LOCAL_ROUTE }),
   // The phone greeting's name, from the signed-in profile: no writes.
-  getViewerName: method(githubGetViewerName),
-  getMyIssues: method(githubGetMyIssues),
-  getAllIssues: method(githubGetAllIssues),
-  getIssueDetail: method(githubGetIssueDetail),
-  proxyImage: method(githubProxyImage),
-  assignIssue: method(githubAssignIssue, { mutating: true }),
-  closeIssue: method(githubCloseIssue, { mutating: true }),
-  createIssue: method(githubCreateIssue, { mutating: true }),
-  uploadFeedbackImages: method(githubUploadFeedbackImages, { mutating: true }),
+  getViewerName: method(githubGetViewerName, { route: LOCAL_ROUTE }),
+  getMyIssues: method(githubGetMyIssues, { route: LOCAL_ROUTE }),
+  getAllIssues: method(githubGetAllIssues, { route: LOCAL_ROUTE }),
+  getIssueDetail: method(githubGetIssueDetail, { route: LOCAL_ROUTE }),
+  proxyImage: method(githubProxyImage, { route: LOCAL_ROUTE }),
+  assignIssue: method(githubAssignIssue, { mutating: true, route: LOCAL_ROUTE }),
+  closeIssue: method(githubCloseIssue, { mutating: true, route: LOCAL_ROUTE }),
+  createIssue: method(githubCreateIssue, { mutating: true, route: LOCAL_ROUTE }),
+  uploadFeedbackImages: method(githubUploadFeedbackImages, {
+    mutating: true,
+    route: LOCAL_ROUTE,
+  }),
 };
 
 export const linear = {
@@ -379,8 +388,14 @@ export const linear = {
   autoMatch: method(linearAutoMatch, { mutating: true }),
   startIssue: method(linearStartIssue, { mutating: true }),
   closeIssue: method(linearCloseIssue, { mutating: true }),
-  linkIssueToWorkspace: method(linearLinkIssueToWorkspace, { mutating: true }),
+  // A workspace's linked issues are its project's record: a remote
+  // project's host server's (ADR-227 D4).
+  linkIssueToWorkspace: method(linearLinkIssueToWorkspace, {
+    mutating: true,
+    route: byProject(0),
+  }),
   unlinkIssueFromWorkspace: method(linearUnlinkIssueFromWorkspace, {
     mutating: true,
+    route: byProject(0),
   }),
 };

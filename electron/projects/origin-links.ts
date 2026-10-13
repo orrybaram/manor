@@ -18,7 +18,7 @@
 
 import { memberOnHost } from "../../src/lib/project-groups";
 import type { ProjectContext } from "./context";
-import { adoptedProjectHosts, groupOf } from "./project-groups";
+import { adoptedProjectHosts, groupOf, memberHostId } from "./project-groups";
 import { normalizeOriginUrl } from "./remote-clone";
 import type {
   LinkSuggestion,
@@ -113,9 +113,14 @@ export function rememberDismissal(
   otherId: string,
 ): boolean {
   if (projectId === otherId) return false;
-  if (!ctx.find(projectId) || !ctx.find(otherId)) return false;
+  if (!ctx.member(projectId) || !ctx.member(otherId)) return false;
   const state = ctx.store.state;
   if (isDismissed(state, projectId, otherId)) return false;
+  // A project on a host's server is remembered against that host, so the
+  // pair is still known on the next load (ADR-227 D4).
+  for (const id of [projectId, otherId]) {
+    if (!ctx.find(id)) ctx.hosts.recordAdoptedProjects(ctx.member(id)!.hostId, [id]);
+  }
   state.dismissedLinkSuggestions = [
     ...(state.dismissedLinkSuggestions ?? []),
     pairOf(projectId, otherId),
@@ -147,7 +152,7 @@ export class OriginLinks {
    * Nothing is linked. See `candidatesFor` for which are considered.
    */
   async suggest(projectId: string): Promise<LinkSuggestion[]> {
-    const project = this.ctx.find(projectId);
+    const project = this.ctx.member(projectId);
     if (!project) return [];
     const ownGroup = groupOf(this.ctx.store.state, projectId);
     const key = (await this.keyOf(project)) ?? (ownGroup ? await this.groupKey(ownGroup) : null);
@@ -172,11 +177,13 @@ export class OriginLinks {
     ownGroup: PersistedProjectGroup | undefined,
   ): Candidate[] {
     const state = this.ctx.store.state;
-    const hostOf = (id: string) => this.ctx.find(id)?.hostId;
+    const hostOf = (id: string) => memberHostId(this.ctx, id);
     const ownHosts = new Set(ownGroup ? ownGroup.memberIds.map(hostOf) : [project.hostId]);
     const seenGroups = new Set<string>();
     const candidates: Candidate[] = [];
-    for (const other of state.projects) {
+    // Remote hosts' projects too (ADR-227 D4): their `origin` is read on
+    // their host, as a local project's is here.
+    for (const other of this.ctx.all()) {
       if (other.id === project.id) continue;
       const group = groupOf(state, other.id);
       if (!group) {
@@ -238,7 +245,7 @@ export class OriginLinks {
   private async groupKey(group: PersistedProjectGroup): Promise<string | null> {
     if (group.originKey) return group.originKey;
     for (const id of [...group.memberIds]) {
-      const member = this.ctx.find(id);
+      const member = this.ctx.member(id);
       const key = member ? await this.keyOf(member) : null;
       if (!key) continue;
       // While git ran, the group may have been dissolved, given a key, or

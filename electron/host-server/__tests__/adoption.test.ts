@@ -337,6 +337,8 @@ describe("adoption (ADR-227 D3)", () => {
   });
 
   it("finishes when the desktop stopped part-way through the clean-up", async () => {
+    // The desktop reads the host's projects back after each hand-over.
+    withoutGit();
     seedDesktop(desktopDir());
     const crashing = openDesktop(desktopDir());
     crashing.agentManager.removeAgents = () => {

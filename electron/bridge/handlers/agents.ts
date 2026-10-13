@@ -7,7 +7,7 @@ import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
-import { method, type HandlerCtx } from "../method";
+import { byPane, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import {
   agentsGet,
@@ -17,6 +17,7 @@ import {
   agentsGetRecent,
   agentsGetUnseen,
   agentsReconcileStale,
+  findAgent,
 } from "./agents-read";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
@@ -65,7 +66,8 @@ export async function agentsBuildResumeCommand(
   agentId: string,
 ): Promise<string | null> {
   assertString(agentId, "agentId");
-  const agent = ctx.deps.agentManager.getAgentById(agentId);
+  // A remote host's agent too: resuming one is a command typed into a pane.
+  const agent = findAgent(ctx.deps, agentId);
   if (!agent) return null;
   const base = agent.agentCommand ?? (await fallbackAgentCommand(ctx, agent));
   return getConnector(agent.agentKind).getResumeCommand(base, agent.agentSessionId);
@@ -259,31 +261,36 @@ export function createAgentService(deps: AbandonDeps): AgentService {
 /**
  * The desktop's `agents` namespace: the shared reads (`./agents-read.ts`,
  * which the host server lists too) and the desktop-only writes above.
+ *
+ * Routed (ADR-227 D4): the reads merge every adopted host's agents, and a
+ * pane's context goes to the host whose layout holds the pane. The writes by
+ * agent id stay here — they write the desktop's own copies, which it still
+ * replays (until ADR-227 ticket 9), and a host server has none of them.
  */
 export const agents = {
-  getAll: method(agentsGetAll),
-  get: method(agentsGet),
-  getActive: method(agentsGetActive),
-  getRecent: method(agentsGetRecent),
-  getUnseen: method(agentsGetUnseen),
+  getAll: method(agentsGetAll, { route: LOCAL_ROUTE }),
+  get: method(agentsGet, { route: LOCAL_ROUTE }),
+  getActive: method(agentsGetActive, { route: LOCAL_ROUTE }),
+  getRecent: method(agentsGetRecent, { route: LOCAL_ROUTE }),
+  getUnseen: method(agentsGetUnseen, { route: LOCAL_ROUTE }),
   // Every pane's published Agent status, for a renderer that starts after
   // some were already sent (ADR-184 ticket 5) — a browser always is one.
-  getPaneStatuses: method(agentsGetPaneStatuses),
-  consumePruneNotice: method(agentsConsumePruneNotice),
-  buildResumeCommand: method(agentsBuildResumeCommand),
+  getPaneStatuses: method(agentsGetPaneStatuses, { route: LOCAL_ROUTE }),
+  consumePruneNotice: method(agentsConsumePruneNotice, { route: LOCAL_ROUTE }),
+  buildResumeCommand: method(agentsBuildResumeCommand, { route: LOCAL_ROUTE }),
   // Called after every `pty.create` that has a `cwd` — without it, a pane
   // opened from a browser never gets the project context the sidebar reads.
-  setPaneContext: method(agentsSetPaneContext, { mutating: true }),
+  setPaneContext: method(agentsSetPaneContext, { mutating: true, route: byPane(0) }),
   // Every write another viewer's sidebar, palette or dock badge reads:
   // `update` renames/pins, `delete` ends a session, `markSeen` and
   // `markResumed` move the unseen flags every window shares. A pane's agent
   // is abandoned by `LayoutStore` when the pane ends, not over the bridge.
-  update: method(agentsUpdate, { mutating: true }),
-  delete: method(agentsDelete, { mutating: true }),
-  markSeen: method(agentsMarkSeen, { mutating: true }),
-  markResumed: method(agentsMarkResumed, { mutating: true }),
+  update: method(agentsUpdate, { mutating: true, route: LOCAL_ROUTE }),
+  delete: method(agentsDelete, { mutating: true, route: LOCAL_ROUTE }),
+  markSeen: method(agentsMarkSeen, { mutating: true, route: LOCAL_ROUTE }),
+  markResumed: method(agentsMarkResumed, { mutating: true, route: LOCAL_ROUTE }),
   // Ends sessions, but `App.tsx` calls it on every mount of every window and
   // tab: a line per page load is noise that buries the lines that matter,
   // and what it ends was already dead.
-  reconcileStale: method(agentsReconcileStale),
+  reconcileStale: method(agentsReconcileStale, { route: LOCAL_ROUTE }),
 };

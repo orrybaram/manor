@@ -13,6 +13,13 @@
  * removing a worktree both report their steps to `ctx.caller.id` — a
  * connection id on both transports — so one dialog, in one window, sees its
  * own progress bar and a second window sees nothing.
+ *
+ * **Routed on the desktop** (ADR-227 D4). A project on an adopted remote host
+ * is its server's: every workspace method names its project first
+ * (`byProject(0)`) and is answered there. The rest stay here — they read or
+ * write what only the desktop has (the merged list, the sidebar's order,
+ * linked-project groups, moves between hosts), and `ProjectManager` reaches
+ * each host's server itself where they touch a remote project.
  */
 
 import { assertGroupUpdates, assertString } from "../../ipc-validate";
@@ -28,7 +35,7 @@ import { LOCAL_HOST_ID } from "../../backend/types";
 import { workspaceKey } from "../../../src/lib/workspace-key";
 import type { TransferMode, TransferResult } from "../../projects/types";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
-import { method, type HandlerCtx } from "../method";
+import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 
 /**
  * A project that moved from `oldHostId` keeps the saved layouts of the
@@ -78,7 +85,7 @@ export function projectsSelect(
 }
 
 export function projectsSelectWorkspace(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspaceIndex: number,
 ): void {
@@ -146,11 +153,14 @@ export async function projectsMoveToHost(
     await deps.backendRegistry.ensureConnected(opts.hostId);
   }
   const oldHostId = projectManager.getProjectHostId(projectId);
-  return moveLayouts(
+  const moved = await moveLayouts(
     deps,
     oldHostId,
     await projectManager.moveProjectToHost(projectId, opts),
   );
+  // The layouts just moved onto an adopted host go to its server too.
+  await projectManager.handOverHost(moved.hostId);
+  return moved;
 }
 
 /**
@@ -232,11 +242,13 @@ export async function projectsSwitchHost(
     await deps.backendRegistry.ensureConnected(hostId);
   }
   const oldHostId = projectManager.getProjectHostId(projectId);
-  return moveLayouts(
+  const moved = await moveLayouts(
     deps,
     oldHostId,
     await projectManager.switchProjectHost(projectId, hostId, requestedPath),
   );
+  await projectManager.handOverHost(moved.hostId);
+  return moved;
 }
 
 /**
@@ -267,7 +279,7 @@ export async function projectsRemoveWorktree(
 }
 
 export function projectsCanQuickMerge(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   worktreePath: string,
 ): Promise<{ canMerge: boolean; reason?: string }> {
@@ -275,7 +287,7 @@ export function projectsCanQuickMerge(
 }
 
 export async function projectsQuickMergeWorktree(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   worktreePath: string,
 ): Promise<void> {
@@ -309,7 +321,7 @@ export async function projectsCreateWorktree(
 }
 
 export function projectsConvertMainToWorktree(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   name: string,
 ): Promise<ProjectInfo | null> {
@@ -546,62 +558,91 @@ export function projectsUpdate(
 }
 
 export const projects = {
-  getAll: method(projectsGetAll),
-  getSelectedIndex: method(projectsGetSelectedIndex),
-  select: method(projectsSelect, { mutating: true }),
-  selectWorkspace: method(projectsSelectWorkspace, { mutating: true }),
-  add: method(projectsAdd, { mutating: true }),
-  remove: method(projectsRemove, { mutating: true }),
-  removeWorktree: method(projectsRemoveWorktree, { mutating: true }),
+  // The merged list (ADR-227 D4): this desktop's projects and every adopted
+  // host's, in the sidebar's order, under the desktop's groups.
+  getAll: method(projectsGetAll, { route: LOCAL_ROUTE }),
+  getSelectedIndex: method(projectsGetSelectedIndex, { route: LOCAL_ROUTE }),
+  select: method(projectsSelect, { mutating: true, route: LOCAL_ROUTE }),
+  // The selection is the desktop's; a remote project's workspace index is
+  // written through to its host by `ProjectManager`.
+  selectWorkspace: method(projectsSelectWorkspace, { mutating: true, route: LOCAL_ROUTE }),
+  // A path on this machine.
+  add: method(projectsAdd, { mutating: true, route: LOCAL_ROUTE }),
+  // Groups and the sidebar's order forget it here, its host forgets it there.
+  remove: method(projectsRemove, { mutating: true, route: LOCAL_ROUTE }),
+  removeWorktree: method(projectsRemoveWorktree, { mutating: true, route: byProject(0) }),
   // `canQuickMerge` and the two branch listings read.
-  canQuickMerge: method(projectsCanQuickMerge),
-  quickMergeWorktree: method(projectsQuickMergeWorktree, { mutating: true }),
-  createWorktree: method(projectsCreateWorktree, { mutating: true }),
+  canQuickMerge: method(projectsCanQuickMerge, { route: byProject(0) }),
+  quickMergeWorktree: method(projectsQuickMergeWorktree, {
+    mutating: true,
+    route: byProject(0),
+  }),
+  createWorktree: method(projectsCreateWorktree, { mutating: true, route: byProject(0) }),
   convertMainToWorktree: method(projectsConvertMainToWorktree, {
     mutating: true,
+    route: byProject(0),
   }),
-  listRemoteBranches: method(projectsListRemoteBranches),
-  listLocalBranches: method(projectsListLocalBranches),
-  renameWorkspace: method(projectsRenameWorkspace, { mutating: true }),
-  setWorkspaceHidden: method(projectsSetWorkspaceHidden, { mutating: true }),
+  listRemoteBranches: method(projectsListRemoteBranches, { route: byProject(0) }),
+  listLocalBranches: method(projectsListLocalBranches, { route: byProject(0) }),
+  renameWorkspace: method(projectsRenameWorkspace, { mutating: true, route: byProject(0) }),
+  setWorkspaceHidden: method(projectsSetWorkspaceHidden, {
+    mutating: true,
+    route: byProject(0),
+  }),
   createWorkspaceFolder: method(projectsCreateWorkspaceFolder, {
     mutating: true,
+    route: byProject(0),
   }),
-  setFolderParent: method(projectsSetFolderParent, { mutating: true }),
+  setFolderParent: method(projectsSetFolderParent, { mutating: true, route: byProject(0) }),
   renameWorkspaceFolder: method(projectsRenameWorkspaceFolder, {
     mutating: true,
+    route: byProject(0),
   }),
   deleteWorkspaceFolder: method(projectsDeleteWorkspaceFolder, {
     mutating: true,
+    route: byProject(0),
   }),
-  setWorkspaceFolder: method(projectsSetWorkspaceFolder, { mutating: true }),
-  reorderWorkspaces: method(projectsReorderWorkspaces, { mutating: true }),
-  reorder: method(projectsReorder, { mutating: true }),
-  update: method(projectsUpdate, { mutating: true }),
-  getRemote: method(projectsGetRemote),
+  setWorkspaceFolder: method(projectsSetWorkspaceFolder, {
+    mutating: true,
+    route: byProject(0),
+  }),
+  reorderWorkspaces: method(projectsReorderWorkspaces, {
+    mutating: true,
+    route: byProject(0),
+  }),
+  reorder: method(projectsReorder, { mutating: true, route: LOCAL_ROUTE }),
+  // A grouped project's shared settings are the group's, which only the
+  // desktop has; `ProjectManager` writes its own ones to its host.
+  update: method(projectsUpdate, { mutating: true, route: LOCAL_ROUTE }),
+  getRemote: method(projectsGetRemote, { route: LOCAL_ROUTE }),
   // Main's remote-host project lifecycle (ADR-191/194 on main). `clone`'s
   // progress is the `projects.cloneProgress` broadcast. Each of these moves
-  // a project, a group, or what the sidebar shows.
-  clone: method(projectsClone, { mutating: true }),
-  moveToHost: method(projectsMoveToHost, { mutating: true }),
-  transfer: method(projectsTransfer, { mutating: true }),
-  getOriginUrl: method(projectsGetOriginUrl),
-  pathExists: method(projectsPathExists),
-  switchHost: method(projectsSwitchHost, { mutating: true }),
-  // ADR-192: linked project groups.
-  link: method(projectsLink, { mutating: true }),
-  unlink: method(projectsUnlink, { mutating: true }),
-  unlinkGroup: method(projectsUnlinkGroup, { mutating: true }),
-  updateGroup: method(projectsUpdateGroup, { mutating: true }),
+  // a project, a group, or what the sidebar shows. A clone onto an adopted
+  // host, and a move to or from one, reach its server through
+  // `ProjectManager`.
+  clone: method(projectsClone, { mutating: true, route: LOCAL_ROUTE }),
+  moveToHost: method(projectsMoveToHost, { mutating: true, route: LOCAL_ROUTE }),
+  transfer: method(projectsTransfer, { mutating: true, route: LOCAL_ROUTE }),
+  // Read with the project's host's git, over its daemon, wherever it lives.
+  getOriginUrl: method(projectsGetOriginUrl, { route: LOCAL_ROUTE }),
+  pathExists: method(projectsPathExists, { route: LOCAL_ROUTE }),
+  switchHost: method(projectsSwitchHost, { mutating: true, route: LOCAL_ROUTE }),
+  // ADR-192: linked project groups — the desktop's alone (ADR-227 D2).
+  link: method(projectsLink, { mutating: true, route: LOCAL_ROUTE }),
+  unlink: method(projectsUnlink, { mutating: true, route: LOCAL_ROUTE }),
+  unlinkGroup: method(projectsUnlinkGroup, { mutating: true, route: LOCAL_ROUTE }),
+  updateGroup: method(projectsUpdateGroup, { mutating: true, route: LOCAL_ROUTE }),
   setGroupLastUsedHost: method(projectsSetGroupLastUsedHost, {
     mutating: true,
+    route: LOCAL_ROUTE,
   }),
-  suggestLinks: method(projectsSuggestLinks),
+  suggestLinks: method(projectsSuggestLinks, { route: LOCAL_ROUTE }),
   dismissLinkSuggestion: method(projectsDismissLinkSuggestion, {
     mutating: true,
+    route: LOCAL_ROUTE,
   }),
   // ADR-214: same-origin projects join on their own; "Keep separate…".
-  autoJoin: method(projectsAutoJoin, { mutating: true }),
-  keepSeparate: method(projectsKeepSeparate, { mutating: true }),
-  undoAutoJoin: method(projectsUndoAutoJoin, { mutating: true }),
+  autoJoin: method(projectsAutoJoin, { mutating: true, route: LOCAL_ROUTE }),
+  keepSeparate: method(projectsKeepSeparate, { mutating: true, route: LOCAL_ROUTE }),
+  undoAutoJoin: method(projectsUndoAutoJoin, { mutating: true, route: LOCAL_ROUTE }),
 };

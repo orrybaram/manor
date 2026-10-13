@@ -41,6 +41,7 @@ hook SessionStart
 hook UserPromptSubmit
 printf 'manor-e2e-agent working\n'
 
-while IFS= read -r line; do
-  printf 'received: %s\n' "$line"
-done
+# The loop is not a shell: a pane whose foreground is a shell has no agent
+# in it, to whoever reads the pane's facts — and since ADR-227 D4 the host
+# server that starts the session reads them too.
+exec awk '{ print "received: " $0; fflush() }'

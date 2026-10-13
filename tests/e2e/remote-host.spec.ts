@@ -187,9 +187,11 @@ test.describe("remote host", () => {
     // PTY on it is gone, the session with it.
     onRemote('"$HOME/.manor/bin/manor-host" restart');
     // The notice shows when recovery starts and auto-dismisses; watch for it
-    // now rather than after the resume lands (slower on Linux).
+    // now rather than after the resume lands (slower on Linux). The box's
+    // server keeps its layout (ADR-227 D4), so an earlier test's panes on the
+    // same workspace come back too.
     const notice = expect(
-      window.getByText(/Remote host restarted — 1 session resumed/),
+      window.getByText(/Remote host restarted — \d+ sessions? resumed/),
     ).toBeVisible({ timeout: 2 * STEP });
 
     // The pane is recovered on a fresh shell, and Manor types the resume

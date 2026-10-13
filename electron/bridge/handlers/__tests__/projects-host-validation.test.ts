@@ -63,6 +63,9 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
       ? vi.fn().mockRejectedValue(new Error("does not exist"))
       : vi.fn().mockImplementation(async (_id: string, hostId: string) => moved(hostId)),
     moveProjectToHost: vi.fn().mockImplementation(async () => moved("box")),
+    // A host whose projects are its server's takes the moved layouts too
+    // (ADR-227 D4); none here is.
+    handOverHost: vi.fn().mockResolvedValue(undefined),
     autoJoin: vi.fn().mockResolvedValue([{ joinedId: "p2", intoId: "p1" }]),
     keepSeparate: vi.fn(),
     undoAutoJoin: vi.fn(),

@@ -148,10 +148,12 @@ function oneAtATime<T>(scope: object, paneId: string, create: () => Promise<T>):
 function isFreshSession(
   deps: SpawnPaneDeps,
   paneId: string,
-  hadSnapshot: boolean,
+  result: { snapshot: unknown; spawned?: boolean },
 ): boolean {
   const adopted = deps.prewarmManager?.claimAdopted(paneId) ?? false;
-  return !hadSnapshot || adopted;
+  // A remote host's server that started the session says so itself (ADR-227
+  // D4): this create attached to it, so it has a snapshot either way.
+  return (result.spawned ?? result.snapshot === null) || adopted;
 }
 
 /**
@@ -185,7 +187,7 @@ export async function spawnPane(
     // its remote host dropped is typed on a reattach too: the session it was
     // meant for may have survived on the host, without it.
     // (`layoutStore?.`: a test about terminals alone builds no layout.)
-    const fresh = isFreshSession(deps, paneId, result.snapshot !== null);
+    const fresh = isFreshSession(deps, paneId, result);
     if (fresh) deps.layoutStore?.recordSpawn(paneId, resolvedCwd);
     if (fresh || deps.layoutStore?.pendingCommands.isRequeued(paneId)) {
       await deliverPendingCommand(deps, paneId, result.hostId);

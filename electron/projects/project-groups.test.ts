@@ -672,4 +672,88 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     expect(() => mgr.setGroupLastUsedHost("nope", "box")).toThrow(/Unknown project group/);
     expect((await groupOf(manager(), "local-app"))?.lastUsedHostId).toBe("local");
   });
+
+  describe("members on a host server (ADR-227 D4)", () => {
+    /** `box`'s server, adopted, holding `box-app` with its own resolved copy. */
+    function boxServer() {
+      const boxApp = {
+        id: "box-app",
+        name: "Box app",
+        path: "/home/me/code/box-app",
+        defaultBranch: "main",
+        workspaces: [{ path: "/home/me/code/box-app", branch: "main", isMain: true, name: null }],
+        selectedWorkspaceIndex: 0,
+        defaultRunCommand: null,
+        worktreePath: null,
+        worktreeStartScript: null,
+        worktreeTeardownScript: null,
+        linearAssociations: [],
+        color: "green",
+        agentCommand: null,
+        commands: [],
+        themeName: null,
+        setupComplete: true,
+        portlessEnabled: true,
+        hostId: "box",
+        folders: [],
+        sidebarOrder: ["/home/me/code/box-app"],
+        group: null,
+      };
+      return {
+        list: () => [boxApp],
+        owns: (hostId: string) => hostId === "box",
+        call: vi.fn(async () => null),
+        handOver: vi.fn(async () => {}),
+      };
+    }
+
+    function remoteManager(box: ReturnType<typeof boxServer>): ProjectManager {
+      const git = {
+        exec: vi.fn(async () => {
+          throw new Error("no git here");
+        }),
+        worktreeList: vi.fn(async () => []),
+      } as unknown as GitBackend;
+      return new ProjectManager(hostsOf(git), tmpDir, { remote: box });
+    }
+
+    it("links a local project with one on a host server, and writes the group's settings there", async () => {
+      seed({
+        projects: [project("local-app", undefined, { color: "blue" })],
+        hosts: { box: { spec: { kind: "ssh", target: "me@box" }, adopted: true } },
+      });
+      const box = boxServer();
+      const mgr = remoteManager(box);
+
+      const group = mgr.linkProjects("box-app", "local-app");
+      expect(group.memberIds).toEqual(["local-app", "box-app"]);
+      // The host's member takes the group's settings, through its server.
+      await vi.waitFor(() =>
+        expect(box.call).toHaveBeenCalledWith(
+          "box",
+          "update",
+          ["box-app", expect.objectContaining({ name: "Project local-app", color: "blue" })],
+        ),
+      );
+      // Known by its host on the next load, before any host has answered.
+      const hosts = (readState() as unknown as { hosts: Record<string, { adoptedProjectIds?: string[] }> }).hosts;
+      expect(hosts.box.adoptedProjectIds).toEqual(["box-app"]);
+      // And shown under the group, with the group's settings.
+      expect((await mgr.getProjects()).find((p) => p.id === "box-app")).toMatchObject({
+        color: "blue",
+        group: { id: group.id },
+      });
+    });
+
+    it("finds a member on a host server when checking a host is free", async () => {
+      seed({
+        projects: [project("local-app", undefined), project("box-two", "box")],
+        hosts: { box: { spec: { kind: "ssh", target: "me@box" }, adopted: true } },
+      });
+      const mgr = remoteManager(boxServer());
+      mgr.linkProjects("box-app", "local-app");
+      // `box` already has a member, on its server.
+      expect(() => mgr.linkProjects("box-two", "local-app")).toThrow(/me@box/);
+    });
+  });
 });

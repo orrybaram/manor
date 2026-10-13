@@ -18,6 +18,7 @@ import {
 } from "./helpers/remote-host";
 import {
   CONNECT_TIMEOUT,
+  PROJECT_NAME,
   STEP,
   agentOnPane,
   hostStatus,
@@ -172,10 +173,17 @@ relayTest.describe("host server", () => {
           )
           .toEqual([boxName]);
 
-        // Not adopted yet (ADR-227 D3): the host server lists no projects.
-        expect(
-          await page.evaluate(() => window.electronAPI.projects.getAll()),
-        ).toEqual([]);
+        // The host was adopted on the desktop's first connect (ADR-227 D3),
+        // so the project the desktop cloned onto it lives there (D4).
+        await expect
+          .poll(
+            () =>
+              page.evaluate(async () =>
+                (await window.electronAPI.projects.getAll()).map((p: { name: string }) => p.name),
+              ),
+            { timeout: 15_000 },
+          )
+          .toEqual([PROJECT_NAME]);
 
         // The agent is listed, thinking.
         const phoneAgent = () =>
@@ -247,8 +255,8 @@ relayTest.describe("host server", () => {
         );
         const server = await phoneAgent();
         expect(server).not.toBeNull();
-        // The project is the desktop's word until adoption: the host server
-        // holds no project for this pane yet.
+        // Each side names the agent's project from its own pane context; the
+        // desktop's replay is retired by ADR-227 ticket 9. Compared without.
         expect({ ...agentState(server!), projectName: null }).toEqual({
           ...agentState(desktop),
           projectName: null,

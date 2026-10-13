@@ -14,6 +14,7 @@
  * adds — its windows, its menu, its webview server. `HostDeps` is both.
  */
 import type { HostServerSync } from "../backend/host-server-sync";
+import type { HostRouting } from "../server/host-routing";
 import type { BrowserWindow } from "electron";
 import type { RoutedBackend } from "../backend/routed-backend";
 import type { BackendRegistry } from "../backend/registry";
@@ -68,6 +69,12 @@ export interface ServerDeps {
    * Absent on a server with no remote hosts (`Platform.remoteHosts`).
    */
   hostServerSync?: HostServerSync;
+  /**
+   * The desktop as a client of each adopted host's server (ADR-227 D4): the
+   * proxies' layouts and agents the shared reads merge in. Absent on a
+   * server with no remote hosts.
+   */
+  hostRouting?: HostRouting;
   /** A pane's session owner, if any host has claimed it (ADR-191 §5). */
   getPaneHostId: PaneHostLookup;
   layoutPersistence: LayoutPersistence;
@@ -198,6 +205,7 @@ export type SharedDeps = Pick<
   | "notifier"
   | "sessionOwners"
   | "hostStatus"
+  | "hostRouting"
   | "playSound"
   | "appCommandResult"
 >;

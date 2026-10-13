@@ -12,6 +12,7 @@ import { resolveShared, summarizeGroup } from "./project-groups";
 import { normalizeSidebarOrder } from "./workspace-folders";
 import type {
   CustomCommand,
+  LinkedIssue,
   PersistedProject,
   PersistedProjectGroup,
   ProjectInfo,
@@ -244,4 +245,76 @@ export async function buildProjectInfo(
     ),
     group: group ? summarizeGroup(group) : null,
   };
+}
+
+/**
+ * A remote host's project as this desktop shows it (ADR-227 D4): what its
+ * server holds, with the desktop's linked-project group over it. The host
+ * knows nothing of groups (D2): it holds its own resolved copy of the
+ * shared settings, and the group's are written through to it, so the group
+ * here only wins where a write has not landed yet.
+ */
+export function withGroup(
+  info: ProjectInfo,
+  group: PersistedProjectGroup | undefined,
+): ProjectInfo {
+  if (!group) return { ...info, group: null };
+  return { ...info, ...resolveShared(group, info), group: summarizeGroup(group) };
+}
+
+/**
+ * The record `projects.json` would hold for a project its host's server
+ * holds (ADR-227 D4), rebuilt from what that server answers: per-workspace
+ * names, issues, hidden flags, folders and order come back out of its
+ * workspaces. What the server never says — paths on other hosts — is absent.
+ * For the desktop's own lookups (a group's members, a path's host) and for
+ * taking a project back off its host to move it.
+ */
+export function persistedFromInfo(info: ProjectInfo): PersistedProject {
+  const workspaceNames: Record<string, string> = {};
+  const workspaceIssues: Record<string, LinkedIssue[]> = {};
+  const workspaceHidden: Record<string, boolean> = {};
+  const workspaceFolderIds: Record<string, string> = {};
+  for (const ws of info.workspaces) {
+    if (ws.name !== null) workspaceNames[ws.path] = ws.name;
+    if (ws.linkedIssues && ws.linkedIssues.length > 0) {
+      workspaceIssues[ws.path] = ws.linkedIssues.map((issue) => ({ ...issue }));
+    }
+    if (ws.hidden) workspaceHidden[ws.path] = true;
+    if (ws.folderId) workspaceFolderIds[ws.path] = ws.folderId;
+  }
+  const nonEmpty = <T extends object>(record: T): T | undefined =>
+    Object.keys(record).length > 0 ? record : undefined;
+  const record: PersistedProject = {
+    id: info.id,
+    name: info.name,
+    path: info.path,
+    selectedWorkspaceIndex: info.selectedWorkspaceIndex,
+    workspaces: [],
+    defaultBranch: info.defaultBranch,
+    defaultRunCommand: info.defaultRunCommand,
+    worktreePath: info.worktreePath,
+    worktreeStartScript: info.worktreeStartScript,
+    worktreeTeardownScript: info.worktreeTeardownScript,
+    linearAssociations: info.linearAssociations.map((a) => ({ ...a })),
+    workspaceNames: nonEmpty(workspaceNames),
+    workspaceOrder: info.sidebarOrder.length > 0 ? [...info.sidebarOrder] : undefined,
+    workspaceIssues: nonEmpty(workspaceIssues),
+    workspaceHidden: nonEmpty(workspaceHidden),
+    workspaceFolders:
+      info.folders.length > 0 ? info.folders.map((f) => ({ ...f })) : undefined,
+    workspaceFolderIds: nonEmpty(workspaceFolderIds),
+    color: info.color,
+    agentCommand: info.agentCommand,
+    commands: info.commands.map((c) => ({ ...c })),
+    themeName: info.themeName,
+    setupComplete: info.setupComplete,
+    portlessEnabled: info.portlessEnabled,
+    hostId: info.hostId,
+  };
+  // Absent rather than `undefined`, as a record read from disk would be.
+  for (const key of Object.keys(record) as Array<keyof PersistedProject>) {
+    if (record[key] === undefined) delete record[key];
+  }
+  return record;
 }

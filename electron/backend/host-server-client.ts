@@ -210,9 +210,15 @@ export class HostServerClient {
    * `ns.method(...args)` on the host server: what `api` calls, and what a
    * caller holding a method only by name (`HostProxy.invoke`) uses. Rejects
    * with `HostServerUnavailableError` when the channel is not up or the
-   * server answers `unavailable:*`.
+   * server answers `unavailable:*`. `timeoutMs` overrides the client's
+   * request timeout, for a call that clones or fetches.
    */
-  invoke(ns: string, methodName: string, args: unknown[]): Promise<unknown> {
+  invoke(
+    ns: string,
+    methodName: string,
+    args: unknown[],
+    opts: { timeoutMs?: number } = {},
+  ): Promise<unknown> {
     const stream = this.stream;
     if (!stream || this.stateValue !== "connected") {
       return Promise.reject(new HostServerUnavailableError(this.hostId, this.stateValue));
@@ -222,7 +228,7 @@ export class HostServerClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${ns}.${methodName} on ${this.hostId}'s host server timed out`));
-      }, this.requestTimeoutMs);
+      }, opts.timeoutMs ?? this.requestTimeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
       this.write(stream, { kind: "invoke", id, ns, method: methodName, args });

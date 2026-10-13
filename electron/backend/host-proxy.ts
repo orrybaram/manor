@@ -7,7 +7,7 @@
  *   `projects.getAll`, `layout.getAll`, `layout.getLastActive` and
  *   `agents.getAll`. `ready` resolves at the first one.
  * - **Events.** It listens to the host's `projects.changed`,
- *   `layout.changed` and `agents.updated` (the client re-sends the
+ *   `layout.changed`, `layout.paneTitle` and `agents.updated` (the client re-sends the
  *   subscriptions on every reconnect) and republishes them into the
  *   desktop's bus. `projects.changed` carries nothing, so it re-reads the
  *   projects first and the desktop hears it once they are in.
@@ -34,8 +34,13 @@
  * **Agents republish only when asked** (`republishAgents`). Until the desktop
  * stops replaying a remote host's hook journal into its own agent store
  * (ADR-227 ticket 9), it already publishes an `agents.updated` for every
- * remote agent; the host's would be a second copy. The proxy's own list is
- * kept either way.
+ * remote agent it replays; the host's would be a second copy. A predicate
+ * republishes only the agents the desktop holds no copy of. The proxy's own
+ * list is kept either way.
+ *
+ * **Progress** the host addresses to the owner connection — a workspace's
+ * setup and teardown steps, a clone's — is handed to `onProgress`, which
+ * knows which of the desktop's callers asked (`HostRouting`).
  */
 
 import fs from "node:fs";
@@ -66,6 +71,15 @@ export type HostProxyChannel = Pick<
 /** The keyed chat events `watchChat` forwards. */
 export type HostChatEvent = "entry" | "taskEntry";
 
+/** The `projects` progress events a host addresses to its owner. */
+export type HostProgressEvent = "worktreeProgress" | "removeWorktreeProgress" | "cloneProgress";
+
+const PROGRESS_EVENTS: readonly HostProgressEvent[] = [
+  "worktreeProgress",
+  "removeWorktreeProgress",
+  "cloneProgress",
+];
+
 export interface HostProxyOptions {
   client: HostProxyChannel;
   /** The desktop's bus: what renderers and paired devices hear. */
@@ -75,10 +89,17 @@ export interface HostProxyOptions {
   /** Where the offline cache lives (`hostCacheFile(hostId)`). */
   cacheFile: string;
   /**
-   * Republish the host's `agents.updated`. Off until the desktop no longer
-   * produces its own copy for remote agents (see the header).
+   * Republish the host's `agents.updated`: always, never (the default), or
+   * for the agents the predicate passes — in the desktop's form. Off until
+   * the desktop no longer produces its own copy for remote agents (see the
+   * header).
    */
-  republishAgents?: boolean;
+  republishAgents?: boolean | ((agent: AgentInfo) => boolean);
+  /**
+   * A `projects.*Progress` event the host sent its owner, args as sent.
+   * Paths in them are the host's, which are the workspaces' own.
+   */
+  onProgress?: (event: HostProgressEvent, args: unknown[]) => void;
   /**
    * Where a forwarded chat event goes, at its key: the desktop's
    * `BridgeServer.publish`, since the bus carries no key. Without it,
@@ -167,11 +188,24 @@ export class HostProxy {
       client.subscribe("layout", "changed", undefined, (payload) =>
         this.onLayoutChanged(payload as LayoutBroadcast),
       ),
+      // A title set over the command channel (a phone's edit, a forwarded
+      // `layout.setPaneTitle`): only the host's store hears it. Pane ids are
+      // the same on both sides.
+      client.subscribe("layout", "paneTitle", undefined, (payload) => {
+        if (!this.disposed && isPlainObject(payload)) {
+          this.opts.bus.publish("layout", "paneTitle", payload as unknown as EventArgs<"layout", "paneTitle">[0]);
+        }
+      }),
       client.subscribe("agents", "updated", undefined, (agent, unseen) =>
         this.onAgentUpdated(
           agent as AgentInfo,
           unseen as EventArgs<"agents", "updated">[1],
         ),
+      ),
+      ...PROGRESS_EVENTS.map((event) =>
+        client.subscribe("projects", event, undefined, (...args) => {
+          if (!this.disposed) this.opts.onProgress?.(event, args);
+        }),
       ),
       client.onStateChange((state) => {
         if (state === "connected") void this.snapshot();
@@ -225,11 +259,16 @@ export class HostProxy {
    * `toDesktopResult`). Rejects with `HostServerUnavailableError`, naming the
    * host by its alias, while the host is away.
    */
-  async invoke(ns: string, methodName: string, args: unknown[]): Promise<unknown> {
+  async invoke(
+    ns: string,
+    methodName: string,
+    args: unknown[],
+    opts: { timeoutMs?: number } = {},
+  ): Promise<unknown> {
     if (this.away) {
       throw new HostServerUnavailableError(this.hostId, this.client.state, `${this.label} is offline`);
     }
-    const result = await this.client.invoke(ns, methodName, this.toHostArgs(args));
+    const result = await this.client.invoke(ns, methodName, this.toHostArgs(args), opts);
     return this.toDesktopResult(ns, methodName, result);
   }
 
@@ -245,6 +284,16 @@ export class HostProxy {
     });
     this.releases.push(release);
     return release;
+  }
+
+  /**
+   * Read the host's projects again now, for a caller that just changed one
+   * and reads next: the host's `projects.changed` would get there too, a
+   * moment later. Never rejects.
+   */
+  async refreshProjects(): Promise<void> {
+    if (this.disposed || this.away) return;
+    await this.readProjects();
   }
 
   /** Let go: stop listening and write the cache now. */
@@ -444,8 +493,11 @@ export class HostProxy {
     if (this.disposed || !isPlainObject(agent) || typeof agent.id !== "string") return;
     this.agentList.set(agent.id, agent);
     this.saveSoon();
-    if (this.opts.republishAgents) {
-      this.opts.bus.publish("agents", "updated", this.toDesktop(agent), unseen);
+    const republish = this.opts.republishAgents;
+    if (!republish) return;
+    const desktop = this.toDesktop(agent);
+    if (republish === true || republish(desktop)) {
+      this.opts.bus.publish("agents", "updated", desktop, unseen);
     }
   }
 

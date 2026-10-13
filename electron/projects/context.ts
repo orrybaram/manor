@@ -7,7 +7,7 @@ import type { HostRecords } from "./host-records";
 import type { ProjectProgress } from "./progress";
 import type { PathRouter } from "./path-router";
 import type { StateStore } from "./state-store";
-import type { PersistedProject, ProjectHost, ProjectInfo } from "./types";
+import type { PersistedProject, ProjectHost, ProjectInfo, RemoteProjects } from "./types";
 
 /**
  * What removing a worktree or a project needs of `LayoutStore`: to forget a
@@ -24,6 +24,19 @@ export interface ProjectContext {
   /** The backend of `hostId`. */
   host(hostId: string): ProjectHost;
   find(projectId: string): PersistedProject | undefined;
+  /**
+   * `find`, or a remote host's project as its server holds it (ADR-227 D4),
+   * rebuilt as a record: a copy, so writing to it changes nothing. For a
+   * group's members, which may live on any host.
+   */
+  member(projectId: string): PersistedProject | undefined;
+  /**
+   * Every project, this desktop's and remote hosts' (as `member` builds
+   * them), in the sidebar's order: what link suggestions look through.
+   */
+  all(): PersistedProject[];
+  /** Remote hosts' projects, on the desktop; absent on a host server. */
+  readonly remote?: RemoteProjects;
   /** The project that lives at `dir` on `hostId`, if any. */
   findAt(hostId: string, dir: string): PersistedProject | undefined;
   /** The renderer's view of `project`, asking its host's git. */

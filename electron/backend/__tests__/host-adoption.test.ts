@@ -109,17 +109,24 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(desktop.projectManager.isHostAdopted("mac")).toBe(false);
   });
 
-  it("leaves what the desktop records for a host after handing it over", async () => {
+  it("hands a host the projects it still holds for it after adoption, and keeps the agents", async () => {
     const desktop = openDesktop(dir);
     desktop.projectManager.markHostAdopted("box");
-    const { channel } = fakeChannel("host");
+    const { channel, sent } = fakeChannel("host");
+    // A project moved onto the host while it was away, or added as adoption
+    // ran (ADR-227 D4): handed over. The desktop's replay still writes the
+    // agents (ticket 9), so they stay.
     expect(await desktop.adoption.run("box", channel)).toMatchObject({
       ownership: "host",
-      sent: false,
+      sent: true,
+      removed: { projects: 2, agents: 0 },
     });
-    expect(channel.api.hostServer.adopt).not.toHaveBeenCalled();
-    expect(desktop.projectManager.manifestRecords("box")).toHaveLength(2);
+    expect(sent[0].projects.map((p) => p.id)).toEqual(["box-app", "box-other"]);
+    expect(sent[0].agents).toEqual([]);
+    expect(desktop.projectManager.manifestRecords("box")).toHaveLength(0);
     expect(desktop.agentManager.getAllAgents()).toHaveLength(4);
+    // Nothing left: the next connect is the status read.
+    expect(await desktop.adoption.run("box", channel)).toMatchObject({ sent: false });
   });
 
   it("hands over again to a host that has lost its records", async () => {
@@ -142,5 +149,30 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(first.removed).toEqual({ projects: 2, agents: 2, workspaces: 2 });
     expect(second.removed).toEqual({ projects: 0, agents: 0, workspaces: 0 });
     expect(sent[1]).toMatchObject({ projects: [], agents: [], layout: { workspaces: {} } });
+  });
+
+  it("points the desktop's group at the host's id for a record it merged by path", async () => {
+    const desktop = openDesktop(dir);
+    const { channel } = fakeChannel("pending");
+    // The box already had `box-app`'s checkout under its own id: a second
+    // laptop's record, merged into it by path.
+    const withProjects = {
+      api: {
+        ...channel.api,
+        projects: {
+          getAll: vi.fn(async () => [
+            { id: "the-box-own", path: "/home/me/box-app" },
+            { id: "box-other", path: "/home/me/other" },
+          ]),
+        },
+      },
+    } as unknown as AdoptionChannel;
+    await desktop.adoption.run("box", withProjects);
+    const state = JSON.parse(fs.readFileSync(path.join(dir, "projects.json"), "utf-8")) as {
+      groups: Array<{ memberIds: string[] }>;
+      hosts: Record<string, { adoptedProjectIds?: string[] }>;
+    };
+    expect(state.groups[0].memberIds).toEqual(["local-app", "the-box-own", "mac-app"]);
+    expect(state.hosts.box.adoptedProjectIds).toContain("the-box-own");
   });
 });

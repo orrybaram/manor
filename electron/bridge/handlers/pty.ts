@@ -168,6 +168,8 @@ export function ptyCreate(
 ): Promise<PtyCreateResult> {
   // The same spawn the server's own launches use (ADR-227 D5): a pane the
   // server already started is attached here, its command not typed again.
+  // A remote pane on an adopted host is started by that host's server, then
+  // attached here over the daemon stream (ADR-227 D4, `RoutedBackend`).
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
     spawnPane(ctx.deps, paneId, {
       cwd,
@@ -403,10 +405,12 @@ async function resetSession(
       const result = await backend.pty.createOrAttachWith(
         paneId, resolvedCwd, cols, rows, { hostId },
       );
-      if (!result.snapshot) {
+      // Started fresh — by a remote host's server, which says so, or here.
+      if (result.spawned ?? !result.snapshot) {
         return {
           ok: true,
-          snapshot: null,
+          // What the host's fresh shell drew before this attached.
+          snapshot: result.spawned ? result.snapshot?.screenAnsi || null : null,
           prewarmed: false,
           hostId: result.hostId,
         };

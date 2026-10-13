@@ -25,13 +25,13 @@
  * A crash anywhere leaves the host `pending` (nothing merged yet) or `host`
  * with the desktop not yet `adopted`; either way the next connect sends what
  * is left and finishes. Once the desktop is `adopted`, a connect to a `host`
- * is only the status read. A host server that predates ownership (no
+ * is the status read, and the hand-over of any project the desktop still
+ * holds for it (`handOver`). A host server that predates ownership (no
  * `ownership` in its status) is left alone.
  *
- * Until the desktop reads and writes a host's state through its server
- * (ADR-227 D4), an adopted host's projects are not in the desktop's lists,
- * and what the desktop still records for that host afterwards (its own hook
- * feed's agents, a project added from the desktop) stays on the desktop.
+ * Once adopted, the desktop reads and writes a host's state through its
+ * server (ADR-227 D4). What it still records for that host afterwards is its
+ * own hook feed's agents (until ADR-227 ticket 9), which stay here.
  */
 
 import fs from "node:fs";
@@ -50,7 +50,15 @@ import { hostLayoutSnapshot } from "./host-server-sync";
 
 /** What adoption needs of a host's owner channel. */
 export interface AdoptionChannel {
-  api: { hostServer: Pick<HostServerApi["hostServer"], "status" | "adopt"> };
+  api: {
+    hostServer: Pick<HostServerApi["hostServer"], "status" | "adopt">;
+    /**
+     * The host's projects once it has merged them: a record it matched by
+     * path rather than by id lives on under the host's id, and the
+     * desktop's groups follow it there. Without it, ids are not remapped.
+     */
+    projects?: Pick<HostServerApi["projects"], "getAll">;
+  };
 }
 
 export interface HostAdoptionOptions {
@@ -61,6 +69,7 @@ export interface HostAdoptionOptions {
     | "removeAdoptedProjects"
     | "isHostAdopted"
     | "markHostAdopted"
+    | "remapProjectIds"
   >;
   agentManager: Pick<AgentManager, "getAllAgents" | "removeAgents">;
   layoutStore: Pick<
@@ -128,6 +137,62 @@ export class HostAdoption {
     return run;
   }
 
+  /**
+   * Hand `projectIds` — projects this desktop holds for `hostId` — and its
+   * `<hostId>:*` layout to the host's server, adopted or not, then let go
+   * of them: how a project moved onto the host gets there (ADR-227 D4).
+   * The host merges them as it does any adoption. No agents go: the
+   * desktop's own replay still keeps those (ADR-227 ticket 9). Runs after
+   * any adoption in flight for the host.
+   */
+  handOver(
+    hostId: string,
+    channel: AdoptionChannel,
+    projectIds: readonly string[],
+  ): Promise<AdoptionOutcome> {
+    const previous = this.runs.get(hostId) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(() => this.handOverNow(hostId, channel, projectIds));
+    const settled = run.catch(() => {});
+    this.runs.set(hostId, settled);
+    void settled.then(() => {
+      if (this.runs.get(hostId) === settled) this.runs.delete(hostId);
+    });
+    return run;
+  }
+
+  private async handOverNow(
+    hostId: string,
+    channel: AdoptionChannel,
+    projectIds: readonly string[],
+  ): Promise<AdoptionOutcome> {
+    const outcome: AdoptionOutcome = {
+      ownership: null,
+      sent: false,
+      backup: null,
+      removed: { projects: 0, agents: 0, workspaces: 0 },
+    };
+    await this.opts.layoutStore.whenLoaded();
+    const wanted = new Set(projectIds);
+    const local = this.localRecords(hostId);
+    const projects = local.bundle.projects.filter((p) => wanted.has(p.id));
+    if (projects.length === 0 && Object.keys(local.layout).length === 0) return outcome;
+    const ack = await channel.api.hostServer.adopt({ ...local.bundle, projects, agents: [] });
+    if (ack.ownership !== "host") {
+      throw new Error(`${hostId} did not take its records (ownership ${String(ack.ownership)})`);
+    }
+    outcome.ownership = "host";
+    outcome.sent = true;
+    const { projectManager, layoutStore } = this.opts;
+    outcome.removed.projects = projectManager.removeAdoptedProjects(
+      hostId,
+      projects.map((p) => p.id),
+    ).length;
+    if (outcome.removed.projects > 0) this.opts.onProjectsRemoved?.(hostId);
+    await layoutStore.release(Object.keys(local.layout));
+    outcome.removed.workspaces = Object.keys(local.layout).length;
+    return outcome;
+  }
+
   private async runNow(hostId: string, channel: AdoptionChannel): Promise<AdoptionOutcome> {
     const outcome: AdoptionOutcome = {
       ownership: null,
@@ -140,8 +205,16 @@ export class HostAdoption {
     // A server from before the flip owns nothing and has no `adopt`.
     if (ownership !== "pending" && ownership !== "host") return outcome;
     outcome.ownership = ownership;
-    // Handed over already: a connect is this read, and nothing more.
-    if (ownership === "host" && this.opts.projectManager.isHostAdopted(hostId)) return outcome;
+    // Handed over already: a connect is this read, and the hand-over of any
+    // project this desktop still holds for the host — one moved there while
+    // it was away, or added as adoption ran. Agents stay: the desktop's own
+    // replay still writes those (ADR-227 ticket 9).
+    if (ownership === "host" && this.opts.projectManager.isHostAdopted(hostId)) {
+      const held = this.opts.projectManager.manifestRecords(hostId).map((p) => p.id);
+      if (held.length === 0) return outcome;
+      const handed = await this.handOverNow(hostId, channel, held);
+      return { ...handed, ownership };
+    }
 
     await this.opts.layoutStore.whenLoaded();
     const local = this.localRecords(hostId);
@@ -164,6 +237,7 @@ export class HostAdoption {
     // Only after the ack, and only what was sent.
     if (holdsAny) {
       outcome.backup = this.writeBackup(hostId, local);
+      if (outcome.sent) await this.remapMergedIds(hostId, channel, local);
       const { projectManager, agentManager, layoutStore } = this.opts;
       outcome.removed.projects = projectManager.removeAdoptedProjects(hostId, local.projectIds).length;
       if (outcome.removed.projects > 0) this.opts.onProjectsRemoved?.(hostId);
@@ -173,6 +247,36 @@ export class HostAdoption {
     }
     this.opts.projectManager.markHostAdopted(hostId);
     return outcome;
+  }
+
+  /**
+   * A record the host already had at the same path, under another id — a
+   * second laptop's, say — was merged into the host's (ADR-227 D3), so
+   * that id is gone. Point this desktop's groups and order at the host's.
+   */
+  private async remapMergedIds(
+    hostId: string,
+    channel: AdoptionChannel,
+    local: LocalRecords,
+  ): Promise<void> {
+    const getAll = channel.api.projects?.getAll;
+    if (!getAll) return;
+    let hostProjects: Array<{ id: string; path: string }>;
+    try {
+      hostProjects = await getAll();
+    } catch (err) {
+      this.log.warn(`[host-adoption] ${hostId}: could not read its projects back: ${String(err)}`);
+      return;
+    }
+    const hostIds = new Set(hostProjects.map((p) => p.id));
+    const byPath = new Map(hostProjects.map((p) => [p.path, p.id]));
+    const remap = new Map<string, string>();
+    for (const sent of local.bundle.projects) {
+      if (hostIds.has(sent.id)) continue;
+      const merged = byPath.get(sent.path);
+      if (merged) remap.set(sent.id, merged);
+    }
+    if (remap.size > 0) this.opts.projectManager.remapProjectIds(hostId, remap);
   }
 
   /** Everything this desktop holds for `hostId`, and the bundle it makes. */

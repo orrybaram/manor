@@ -2,6 +2,12 @@
  * Moving a project between hosts (ADR-179): cloning it onto a remote host,
  * or switching it to a path it already has on another host, while keeping
  * the same project record (ADR-183 split this out of `ProjectManager`).
+ *
+ * A host that has been adopted owns its projects' records (ADR-227 D2), so a
+ * move that starts or ends on one crosses servers (`moveAcrossServers`): the
+ * record is taken back from the source host's server, moved here as ever,
+ * and handed to the target host's server — each end a call to that host's
+ * server through its proxy, not an edit of `projects.json`.
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -27,6 +33,60 @@ export function rekeyRecord<T>(
   if (!record || !Object.prototype.hasOwnProperty.call(record, from)) return;
   record[to] = record[from];
   delete record[from];
+}
+
+/**
+ * Run `move` — `moveProjectToHost` or `switchProjectHost` on this desktop's
+ * record — for a project wherever it lives (ADR-227 D4):
+ *
+ * 1. **From an adopted host**, a copy of its server's record is taken into
+ *    `projects.json` for `move` to work on. Once `move` is done the source
+ *    host's server forgets the project (`projects.remove`, which ends its
+ *    panes there); if either fails, the copy goes again and nothing has
+ *    changed on that host.
+ * 2. **Onto an adopted host**, the moved record is handed to the target's
+ *    server (`RemoteProjects.handOver`), which takes it as it takes any
+ *    adoption, and this desktop lets go of it. A hand-over that fails
+ *    leaves the record here, held for that host, and the next connect of
+ *    its owner channel hands it over (`HostAdoption`).
+ */
+export async function moveAcrossServers(
+  ctx: ProjectContext,
+  projectId: string,
+  targetHostId: string,
+  move: () => Promise<ProjectInfo>,
+): Promise<ProjectInfo> {
+  const { remote } = ctx;
+  let source: string | null = null;
+  if (!ctx.find(projectId)) {
+    const record = remote ? ctx.member(projectId) : undefined;
+    if (!record) throw new Error(`Unknown project "${projectId}".`);
+    source = record.hostId;
+    ctx.store.state.projects.push(record);
+  }
+  let moved: ProjectInfo;
+  try {
+    moved = await move();
+    if (source !== null) await remote!.call(source, "remove", [projectId]);
+  } catch (err) {
+    if (source !== null) {
+      const state = ctx.store.state;
+      state.projects = state.projects.filter((p) => p.id !== projectId);
+      ctx.store.save();
+    }
+    throw err;
+  }
+  if (remote?.owns(targetHostId)) {
+    try {
+      await remote.handOver(targetHostId, [projectId]);
+    } catch (err) {
+      console.warn(
+        `[host-move] ${projectId} moved, but ${ctx.hosts.label(targetHostId)} has not taken it yet:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return moved;
 }
 
 /** Where a clone onto a host goes, resolved before anything is cloned. */

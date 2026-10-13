@@ -645,6 +645,49 @@ describe("RoutedBackend", () => {
     });
   });
 
+  it("has a remote session started by its host's server, then attaches to it (ADR-227 D4)", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    const spawnOnHost = vi.fn(async () => true as boolean | null);
+    const backend = new RoutedBackend(
+      ctx.registry,
+      (p) => (p.startsWith("/remote") ? "box" : "local"),
+      () => [],
+      spawnOnHost,
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
+
+    await expect(
+      backend.pty.createOrAttachWith("pane-r", "/remote/app", 80, 24, {
+        env: { MANOR_AGENT_KIND: "codex" },
+      }),
+    ).resolves.toMatchObject({ hostId: "box", spawned: true });
+    expect(spawnOnHost).toHaveBeenCalledWith("box", "pane-r", "/remote/app", 80, 24, {
+      MANOR_AGENT_KIND: "codex",
+    });
+    // The bytes still come over the daemon stream: this attaches to it.
+    expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith(
+      "pane-r", "/remote/app", 80, 24, undefined, { MANOR_AGENT_KIND: "codex" },
+    );
+
+    // A session already running there is the server's to find (it may
+    // have lost it, and holds what to type into a fresh one); a local one
+    // is not the server's at all.
+    spawnOnHost.mockResolvedValueOnce(false);
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
+      spawned: false,
+    });
+    await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
+    expect(spawnOnHost).toHaveBeenCalledTimes(2);
+
+    // A host whose server does not start it: the daemon creates it, as before.
+    spawnOnHost.mockResolvedValueOnce(null);
+    const created = await backend.pty.createOrAttach("pane-r2", "/remote/app", 80, 24);
+    expect(created).toMatchObject({ hostId: "box" });
+    expect(created).not.toHaveProperty("spawned");
+  });
+
   it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {
     const { backend, registry, box: remote } = routed();
     remote.raw.connect.mockRejectedValueOnce(new Error("ssh: connection refused"));

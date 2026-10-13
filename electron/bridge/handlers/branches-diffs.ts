@@ -20,6 +20,7 @@ import { publishToRenderer } from "../../renderer-broadcast";
 import type { HostPath } from "../../per-host-poller";
 import type { DiffWorkspace } from "../../diff-watcher";
 import { method, type HandlerCtx } from "../method";
+import type { HostDeps, ServerDeps } from "../../ipc/types";
 
 /** What one `git.push.progress` frame carries. */
 export type PushProgressEvent =
@@ -39,7 +40,7 @@ export function killAllActivePushes(): void {
 /** The branch and diff watchers. */
 /** Workspaces arrive with their project's host (ADR-183). */
 export function branchesStart(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   workspaces: readonly HostPath[],
 ): void {
   const value: unknown = workspaces;
@@ -47,12 +48,12 @@ export function branchesStart(
   ctx.deps.branchWatcher.start(value);
 }
 
-export function branchesStop(ctx: HandlerCtx): void {
+export function branchesStop(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.branchWatcher.stop();
 }
 
 export function diffsStart(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<HostDeps>,
   workspaces: readonly DiffWorkspace[],
 ): void {
   const value: unknown = workspaces;
@@ -61,12 +62,12 @@ export function diffsStart(
   ctx.deps.diffWatcher.start(value, ctx.deps.mainWindow);
 }
 
-export function diffsStop(ctx: HandlerCtx): void {
+export function diffsStop(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.diffWatcher.stop();
 }
 
 export function diffsGetFullDiff(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
   defaultBranch: string,
 ): Promise<string | null> {
@@ -74,14 +75,14 @@ export function diffsGetFullDiff(
 }
 
 export function diffsGetLocalDiff(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
 ): Promise<string | null> {
   return ctx.deps.backend.git.getLocalDiff(wsPath);
 }
 
 export function diffsGetStagedFiles(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
 ): Promise<string[]> {
   assertString(wsPath, "wsPath");
@@ -96,7 +97,7 @@ export function diffsGetStagedFiles(
  * table calls these rather than reaching into Electron's handler map.
  */
 export async function gitStage(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
   files: string[],
 ): Promise<void> {
@@ -105,7 +106,7 @@ export async function gitStage(
 }
 
 export async function gitUnstage(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
   files: string[],
 ): Promise<void> {
@@ -114,7 +115,7 @@ export async function gitUnstage(
 }
 
 export async function gitDiscard(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
   files: string[],
 ): Promise<void> {
@@ -123,7 +124,7 @@ export async function gitDiscard(
 }
 
 export async function gitStash(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
   files: string[],
 ): Promise<void> {
@@ -132,7 +133,7 @@ export async function gitStash(
 }
 
 export async function gitCommit(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   wsPath: string,
   message: string,
   flags: string[],
@@ -149,7 +150,7 @@ export async function gitCommit(
  * rather than racing the first.
  */
 export function gitPushStart(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   args: { wsPath: string; setUpstream?: boolean },
 ): { pushId: string; startedAt: number } {
   assertString(args.wsPath, "wsPath");
@@ -186,7 +187,10 @@ export function gitPushStart(
  * Cancel one. The wrapper took a `{ pushId }` envelope because the preload
  * built one; the table passes the id the caller actually named.
  */
-export function gitPushCancel(_ctx: HandlerCtx, pushId: string): void {
+export function gitPushCancel(
+  _ctx: HandlerCtx<ServerDeps>,
+  pushId: string,
+): void {
   const entry = activePushes.get(pushId);
   if (!entry) return;
   // Do NOT remove from the map here — let `onDone` remove it so the done

@@ -7,7 +7,7 @@ import {
 import type { PrNotifyEventKind } from "../../notifications";
 import type { PrComment } from "../../../src/lib/pr-info";
 import type { NotificationRecord } from "../../notification-store";
-import type { HostDeps } from "../../ipc/types";
+import type { DesktopDeps, HostDeps, ServerDeps } from "../../ipc/types";
 import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
@@ -16,7 +16,9 @@ import { method, type Caller, type HandlerCtx } from "../method";
  * speculatively — every mutation re-broadcasts the whole list through the
  * single send-site in `../notifications`.
  */
-export function notificationsGetAll(ctx: HandlerCtx): NotificationRecord[] {
+export function notificationsGetAll(
+  ctx: HandlerCtx<ServerDeps>,
+): NotificationRecord[] {
   return ctx.deps.notificationStore.getAll();
 }
 
@@ -24,19 +26,22 @@ export function notificationsGetAll(ctx: HandlerCtx): NotificationRecord[] {
  * Whether anything changed: `markRead` is false for an id that is unknown *or*
  * already read, and only a real transition is worth a broadcast.
  */
-export function notificationsMarkRead(ctx: HandlerCtx, id: string): boolean {
+export function notificationsMarkRead(
+  ctx: HandlerCtx<ServerDeps>,
+  id: string,
+): boolean {
   assertString(id, "id");
   const changed = ctx.deps.notificationStore.markRead(id);
   if (changed) sendNotificationsUpdate();
   return changed;
 }
 
-export function notificationsMarkAllRead(ctx: HandlerCtx): void {
+export function notificationsMarkAllRead(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.notificationStore.markAllRead();
   sendNotificationsUpdate();
 }
 
-export function notificationsClear(ctx: HandlerCtx): void {
+export function notificationsClear(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.notificationStore.clear();
   sendNotificationsUpdate();
 }
@@ -51,7 +56,10 @@ export function notificationsClear(ctx: HandlerCtx): void {
  * matters, not the primary's. A device has no window at all, and gets the
  * primary's.
  */
-function windowForCaller(deps: HostDeps, caller: Caller): BrowserWindow | null {
+function windowForCaller(
+  deps: Pick<DesktopDeps, "getRendererWindows" | "mainWindow">,
+  caller: Caller,
+): BrowserWindow | null {
   if (caller.callerClass === "local") {
     const id = Number(caller.id);
     for (const win of deps.getRendererWindows()) {
@@ -68,7 +76,7 @@ function windowForCaller(deps: HostDeps, caller: Caller): BrowserWindow | null {
  * `presentNotification` in `../notifications`.
  */
 export function notificationsShow(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<HostDeps>,
   payload: {
     kind: PrNotifyEventKind;
     title: string;

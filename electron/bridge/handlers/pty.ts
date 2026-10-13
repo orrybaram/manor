@@ -33,7 +33,7 @@ import {
   agentCommandWithPrompt,
   agentCommandWithPromptFile,
 } from "../../../src/lib/agent-command";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import type {
   PtyAttachResult,
   PtyCreateOptions,
@@ -113,7 +113,7 @@ function requestedHost(
 
 /**
  * What a viewer's own calls on a session read — write, resize, detach — and
- * nothing else (ADR-225 D6). `HostDeps` has it, and so does the host
+ * nothing else (ADR-225 D6). `ServerDeps` has it, and so does the host
  * server's `HostServerDeps`, which reuses these handlers as they are.
  */
 export interface PtyViewerDeps {
@@ -188,7 +188,7 @@ export async function createShaped<T extends { ok: boolean }>(
  * reattach — the thing this predicate exists to exclude.
  */
 function isFreshSession(
-  deps: HostDeps,
+  deps: ServerDeps,
   paneId: string,
   hadSnapshot: boolean,
 ): boolean {
@@ -224,7 +224,7 @@ function isFreshSession(
  * a typed line runs past `MAX_CANON` — 1024 bytes on macOS.
  */
 async function deliverPendingCommand(
-  deps: HostDeps,
+  deps: ServerDeps,
   paneId: string,
   hostId: HostId,
 ): Promise<void> {
@@ -273,7 +273,7 @@ async function deliverPendingCommand(
  * prompt and all, for when the host is back.
  */
 async function promptLaunchLine(
-  deps: HostDeps,
+  deps: ServerDeps,
   paneId: string,
   hostId: HostId,
   base: string,
@@ -312,7 +312,7 @@ async function promptLaunchLine(
  * a renderer, it is less.
  */
 export function ptyCreate(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -336,7 +336,7 @@ export function ptyCreate(
  * own grid, which is the owner's.
  */
 export async function ptyAttach(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   paneId: string,
 ): Promise<PtyAttachResult> {
   assertString(paneId, "paneId");
@@ -401,7 +401,7 @@ function toPtyFailure(err: unknown, paneId: string): PtyFailure {
 }
 
 async function createSession(
-  deps: HostDeps,
+  deps: ServerDeps,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -509,7 +509,10 @@ export async function ptyResize(
   }
 }
 
-export async function ptyClose(ctx: HandlerCtx, paneId: string): Promise<void> {
+export async function ptyClose(
+  ctx: HandlerCtx<ServerDeps>,
+  paneId: string,
+): Promise<void> {
   release(paneId, asViewer(ctx.caller));
   assertString(paneId, "paneId");
   try {
@@ -556,7 +559,7 @@ export async function ptyDetach(
  * so it is decorated with the same winsize ownership `pty.create` gets (D5).
  */
 export function ptyReset(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -579,7 +582,7 @@ export type PtyResetResult = {
 } & PtyWinsize;
 
 async function resetSession(
-  deps: HostDeps,
+  deps: ServerDeps,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -649,7 +652,7 @@ async function resetSession(
  * workspace's host alongside its cwd (ADR-183).
  */
 export function ptyConsumePrewarmed(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   cwd: string | null,
   hostId?: string | null,
 ): { paneId: string; commandInjected: boolean } | null {
@@ -662,7 +665,7 @@ export function ptyConsumePrewarmed(
 
 /** Point the prewarmed session at a different workspace, respawning it. */
 export async function ptyUpdatePrewarmCwd(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   cwd: string,
   hostId: string,
   agentCommand?: string | null,

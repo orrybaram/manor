@@ -1,11 +1,10 @@
 import { assertString } from "../../ipc-validate";
-import { playNotificationSound } from "../../notifications";
 import {
   connectionIdForWindow,
   publishRendererBroadcast,
   publishToRenderer,
 } from "../../renderer-broadcast";
-import type { HostDeps } from "../../ipc/types";
+import type { DesktopDeps, ServerDeps } from "../../ipc/types";
 import type { AppPreferences } from "../../preferences";
 import { method, type HandlerCtx } from "../method";
 import {
@@ -19,13 +18,13 @@ import {
  * hatches, the clipboard and the updater are `electron/ipc/native.ts` — what
  * only Electron can do.
  */
-export function preferencesGetAll(ctx: HandlerCtx): AppPreferences {
+export function preferencesGetAll(ctx: HandlerCtx<ServerDeps>): AppPreferences {
   return ctx.deps.preferencesManager.getAll();
 }
 
 /** A `full` device may write preferences (D3). */
 export function preferencesSet<K extends keyof AppPreferences>(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   key: K,
   value: AppPreferences[K],
 ): void {
@@ -33,20 +32,23 @@ export function preferencesSet<K extends keyof AppPreferences>(
   ctx.deps.preferencesManager.set(key, value);
 }
 
+/** Through the server's sound sink: a server with no speaker plays nothing. */
 export function preferencesPlaySound(
-  _ctx: HandlerCtx,
+  ctx: HandlerCtx<Pick<ServerDeps, "playSound">>,
   soundName: string,
 ): void {
   assertString(soundName, "soundName");
-  playNotificationSound(soundName);
+  ctx.deps.playSound?.(soundName);
 }
 
-export function keybindingsGetAll(ctx: HandlerCtx): Record<string, string> {
+export function keybindingsGetAll(
+  ctx: HandlerCtx<ServerDeps>,
+): Record<string, string> {
   return ctx.deps.keybindingsManager.getAll();
 }
 
 export function keybindingsSet(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   commandId: string,
   combo: string,
 ): void {
@@ -55,12 +57,15 @@ export function keybindingsSet(
   ctx.deps.keybindingsManager.set(commandId, combo);
 }
 
-export function keybindingsReset(ctx: HandlerCtx, commandId: string): void {
+export function keybindingsReset(
+  ctx: HandlerCtx<ServerDeps>,
+  commandId: string,
+): void {
   assertString(commandId, "commandId");
   ctx.deps.keybindingsManager.reset(commandId);
 }
 
-export function keybindingsResetAll(ctx: HandlerCtx): void {
+export function keybindingsResetAll(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.keybindingsManager.resetAll();
 }
 
@@ -74,7 +79,7 @@ export function keybindingsResetAll(ctx: HandlerCtx): void {
  * (`webview-keys.ts`).
  */
 export function keybindingsRunInMainWindow(
-  ctx: { deps: Pick<HostDeps, "mainWindow"> },
+  ctx: { deps: Pick<DesktopDeps, "mainWindow"> },
   commandId: string,
 ): void {
   assertString(commandId, "commandId");
@@ -100,7 +105,7 @@ export function keybindingsRunInMainWindow(
  * and `wireRemoteControlStatus` do for their namespaces.
  */
 export function wirePreferencesBroadcast(
-  deps: Pick<HostDeps, "preferencesManager">,
+  deps: Pick<ServerDeps, "preferencesManager">,
 ): void {
   deps.preferencesManager.onChange((prefs) => {
     publishRendererBroadcast("preferences", "changed", prefs);
@@ -114,7 +119,7 @@ export function wirePreferencesBroadcast(
  * needs the edit — a broadcast, same as preferences above.
  */
 export function wireKeybindingsBroadcast(
-  deps: Pick<HostDeps, "keybindingsManager">,
+  deps: Pick<ServerDeps, "keybindingsManager">,
 ): void {
   deps.keybindingsManager.onChange((overrides) => {
     publishRendererBroadcast("keybindings", "changed", overrides);

@@ -27,7 +27,7 @@ import type {
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { workspaceKey } from "../../../src/lib/workspace-key";
 import type { TransferMode, TransferResult } from "../../projects/types";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
 /**
@@ -37,7 +37,7 @@ import { method, type HandlerCtx } from "../method";
  * renderer's replica follows.
  */
 async function moveLayouts(
-  deps: HostDeps,
+  deps: ServerDeps,
   oldHostId: string,
   moved: ProjectInfo,
 ): Promise<ProjectInfo> {
@@ -53,25 +53,32 @@ async function moveLayouts(
 }
 
 /** The four the sidebar needs to paint itself. */
-export function projectsGetAll(ctx: HandlerCtx): Promise<ProjectInfo[]> {
+export function projectsGetAll(
+  ctx: HandlerCtx<ServerDeps>,
+): Promise<ProjectInfo[]> {
   return ctx.deps.projectManager.getProjects();
 }
 
 /** Only remote projects, their worktrees listed afresh. */
-export function projectsGetRemote(ctx: HandlerCtx): Promise<ProjectInfo[]> {
+export function projectsGetRemote(
+  ctx: HandlerCtx<ServerDeps>,
+): Promise<ProjectInfo[]> {
   return ctx.deps.projectManager.getRemoteProjects();
 }
 
-export function projectsGetSelectedIndex(ctx: HandlerCtx): number {
+export function projectsGetSelectedIndex(ctx: HandlerCtx<ServerDeps>): number {
   return ctx.deps.projectManager.getSelectedProjectIndex();
 }
 
-export function projectsSelect(ctx: HandlerCtx, index: number): void {
+export function projectsSelect(
+  ctx: HandlerCtx<ServerDeps>,
+  index: number,
+): void {
   ctx.deps.projectManager.selectProject(index);
 }
 
 export function projectsSelectWorkspace(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   workspaceIndex: number,
 ): void {
@@ -79,7 +86,7 @@ export function projectsSelectWorkspace(
 }
 
 export function projectsAdd(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   name: string,
   projectPath: string,
 ): Promise<ProjectInfo> {
@@ -89,7 +96,7 @@ export function projectsAdd(
 }
 
 export function projectsRemove(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
 ): Promise<void> {
   return ctx.deps.projectManager.removeProject(projectId);
@@ -100,7 +107,7 @@ export function projectsRemove(
  * Progress goes out as `projects.cloneProgress`.
  */
 export async function projectsClone(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   opts: { hostId: string; repoUrl: string; targetDir: string; name: string },
 ): Promise<ProjectInfo> {
   const { deps } = ctx;
@@ -124,7 +131,7 @@ export async function projectsClone(
  * remote host and point the same project record at it.
  */
 export async function projectsMoveToHost(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   opts: { hostId: string; repoUrl: string; remoteDir: string },
 ): Promise<ProjectInfo> {
@@ -153,7 +160,7 @@ export async function projectsMoveToHost(
  * `repoUrl` / `targetDir` filled in.
  */
 export async function projectsTransfer(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   opts: {
     projectId: string;
     hostId: string;
@@ -187,7 +194,7 @@ export async function projectsTransfer(
 }
 
 export function projectsGetOriginUrl(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
 ): Promise<string | null> {
   assertString(projectId, "projectId");
@@ -195,7 +202,7 @@ export function projectsGetOriginUrl(
 }
 
 export function projectsPathExists(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
 ): Promise<boolean> {
   assertString(projectId, "projectId");
@@ -208,7 +215,7 @@ export function projectsPathExists(
  * exist on the host.
  */
 export async function projectsSwitchHost(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   hostId: string,
   projectPath?: string | null,
@@ -237,7 +244,7 @@ export async function projectsSwitchHost(
  * `projects.removeWorktreeProgress` event (ADR-180 D5).
  */
 export async function projectsRemoveWorktree(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   worktreePath: string,
   deleteBranch?: boolean,
@@ -260,7 +267,7 @@ export async function projectsRemoveWorktree(
 }
 
 export function projectsCanQuickMerge(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   worktreePath: string,
 ): Promise<{ canMerge: boolean; reason?: string }> {
@@ -268,7 +275,7 @@ export function projectsCanQuickMerge(
 }
 
 export async function projectsQuickMergeWorktree(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   worktreePath: string,
 ): Promise<void> {
@@ -280,7 +287,7 @@ export async function projectsQuickMergeWorktree(
  * takes the caller's id as the connection its setup progress goes back to.
  */
 export async function projectsCreateWorktree(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   name: string,
   opts: Omit<CreateWorktreeOptions, "origin"> = {},
@@ -306,7 +313,7 @@ export async function projectsCreateWorktree(
 }
 
 export function projectsConvertMainToWorktree(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   name: string,
 ): Promise<ProjectInfo | null> {
@@ -314,21 +321,21 @@ export function projectsConvertMainToWorktree(
 }
 
 export function projectsListRemoteBranches(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
 ): Promise<string[]> {
   return ctx.deps.projectManager.listRemoteBranches(projectId);
 }
 
 export function projectsListLocalBranches(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
 ): Promise<string[]> {
   return ctx.deps.projectManager.listLocalBranches(projectId);
 }
 
 export function projectsRenameWorkspace(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   workspacePath: string,
   newName: string,
@@ -337,7 +344,7 @@ export function projectsRenameWorkspace(
 }
 
 export function projectsSetWorkspaceHidden(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   workspacePath: string,
   hidden: boolean,
@@ -346,7 +353,7 @@ export function projectsSetWorkspaceHidden(
 }
 
 export function projectsCreateWorkspaceFolder(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   name: string,
   parentId?: string | null,
@@ -361,7 +368,7 @@ export function projectsCreateWorkspaceFolder(
 
 /** Returns false when the move would create a folder cycle (ADR-172). */
 export function projectsSetFolderParent(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   folderId: string,
   parentId: string | null,
@@ -370,7 +377,7 @@ export function projectsSetFolderParent(
 }
 
 export function projectsRenameWorkspaceFolder(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   folderId: string,
   name: string,
@@ -380,7 +387,7 @@ export function projectsRenameWorkspaceFolder(
 }
 
 export function projectsDeleteWorkspaceFolder(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   folderId: string,
 ): void {
@@ -388,7 +395,7 @@ export function projectsDeleteWorkspaceFolder(
 }
 
 export function projectsSetWorkspaceFolder(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   workspacePath: string,
   folderId: string | null,
@@ -402,14 +409,17 @@ export function projectsSetWorkspaceFolder(
 
 /** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */
 export function projectsReorderWorkspaces(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   orderedKeys: string[],
 ): void {
   ctx.deps.projectManager.reorderWorkspaces(projectId, orderedKeys);
 }
 
-export function projectsReorder(ctx: HandlerCtx, orderedIds: string[]): void {
+export function projectsReorder(
+  ctx: HandlerCtx<ServerDeps>,
+  orderedIds: string[],
+): void {
   ctx.deps.projectManager.reorderProjects(orderedIds);
 }
 
@@ -419,31 +429,37 @@ export function projectsReorder(ctx: HandlerCtx, orderedIds: string[]): void {
  * nothing else about it changes.
  */
 export function projectsLink(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   otherId: string,
-): ReturnType<HostDeps["projectManager"]["linkProjects"]> {
+): ReturnType<ServerDeps["projectManager"]["linkProjects"]> {
   assertString(projectId, "projectId");
   assertString(otherId, "otherId");
   return ctx.deps.projectManager.linkProjects(projectId, otherId);
 }
 
-export function projectsUnlink(ctx: HandlerCtx, projectId: string): void {
+export function projectsUnlink(
+  ctx: HandlerCtx<ServerDeps>,
+  projectId: string,
+): void {
   assertString(projectId, "projectId");
   ctx.deps.projectManager.unlinkProject(projectId);
 }
 
-export function projectsUnlinkGroup(ctx: HandlerCtx, groupId: string): void {
+export function projectsUnlinkGroup(
+  ctx: HandlerCtx<ServerDeps>,
+  groupId: string,
+): void {
   assertString(groupId, "groupId");
   ctx.deps.projectManager.unlinkGroup(groupId);
 }
 
 /** ADR-192 ticket 2: set a group's shared settings. Returns every member. */
 export function projectsUpdateGroup(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   groupId: unknown,
   updates: unknown,
-): ReturnType<HostDeps["projectManager"]["updateGroup"]> {
+): ReturnType<ServerDeps["projectManager"]["updateGroup"]> {
   assertString(groupId, "groupId");
   assertGroupUpdates(updates, "updates");
   const { linearAssociations, ...rest } = updates;
@@ -457,7 +473,7 @@ export function projectsUpdateGroup(
 
 /** ADR-192: the host the New Workspace picker starts on next time. */
 export function projectsSetGroupLastUsedHost(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   groupId: string,
   hostId: string,
 ): void {
@@ -471,15 +487,15 @@ export function projectsSetGroupLastUsedHost(
  * as links after an add or clone. Suggests only; never links.
  */
 export function projectsSuggestLinks(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
-): ReturnType<HostDeps["projectManager"]["suggestLinks"]> {
+): ReturnType<ServerDeps["projectManager"]["suggestLinks"]> {
   assertString(projectId, "projectId");
   return ctx.deps.projectManager.suggestLinks(projectId);
 }
 
 export function projectsDismissLinkSuggestion(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   otherId: string,
 ): void {
@@ -494,8 +510,8 @@ export function projectsDismissLinkSuggestion(
  * joined, for the renderer's Undo toast.
  */
 export function projectsAutoJoin(
-  ctx: HandlerCtx,
-): ReturnType<HostDeps["projectManager"]["autoJoin"]> {
+  ctx: HandlerCtx<ServerDeps>,
+): ReturnType<ServerDeps["projectManager"]["autoJoin"]> {
   return ctx.deps.projectManager.autoJoin();
 }
 
@@ -503,7 +519,10 @@ export function projectsAutoJoin(
  * ADR-214 "Keep separate…": split the project's group and remember every
  * pair it split, so `autoJoin` leaves them apart.
  */
-export function projectsKeepSeparate(ctx: HandlerCtx, projectId: string): void {
+export function projectsKeepSeparate(
+  ctx: HandlerCtx<ServerDeps>,
+  projectId: string,
+): void {
   assertString(projectId, "projectId");
   ctx.deps.projectManager.keepSeparate(projectId);
 }
@@ -513,7 +532,7 @@ export function projectsKeepSeparate(ctx: HandlerCtx, projectId: string): void {
  * back its own settings, and dismiss the pair.
  */
 export function projectsUndoAutoJoin(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   joinedId: string,
   intoId: string,
 ): void {
@@ -523,7 +542,7 @@ export function projectsUndoAutoJoin(
 }
 
 export function projectsUpdate(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   updates: ProjectUpdatableFields,
 ): Promise<ProjectInfo | null> {

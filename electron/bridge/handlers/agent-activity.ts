@@ -1,6 +1,6 @@
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import { BROADCAST_DEBOUNCE_MS } from "./stats";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 import type { AgentActivitySnapshot } from "../../agent-activity-store";
 
@@ -9,7 +9,9 @@ import type { AgentActivitySnapshot } from "../../agent-activity-store";
  * `agentActivityStore` is main's single source of truth; the renderer only
  * caches the snapshot broadcast here.
  */
-export function agentActivityGet(ctx: HandlerCtx): AgentActivitySnapshot {
+export function agentActivityGet(
+  ctx: HandlerCtx<ServerDeps>,
+): AgentActivitySnapshot {
   return ctx.deps.agentActivityStore.getSnapshot();
 }
 
@@ -20,7 +22,7 @@ export function agentActivityGet(ctx: HandlerCtx): AgentActivitySnapshot {
  * debounced the same way `stats.changed` is (`wireStatsBroadcast`).
  */
 export function wireAgentActivityBroadcast(
-  deps: Pick<HostDeps, "agentActivityStore">,
+  deps: Pick<ServerDeps, "agentActivityStore">,
 ): void {
   const { agentActivityStore } = deps;
   let timer: ReturnType<typeof setTimeout> | null = null;

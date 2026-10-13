@@ -13,6 +13,7 @@ import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
 import { method, type HandlerCtx } from "../method";
+import type { ServerDeps } from "../../ipc/types";
 import {
   agentsGet,
   agentsGetActive,
@@ -65,7 +66,7 @@ export interface PaneContext {
 }
 
 export async function agentsBuildResumeCommand(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   agentId: string,
 ): Promise<string | null> {
   assertString(agentId, "agentId");
@@ -80,7 +81,10 @@ export async function agentsBuildResumeCommand(
  * the CLI into a shell rather than from Manor. Its project's agent command
  * when that runs the same kind of agent, else the kind's default.
  */
-async function fallbackAgentCommand(ctx: HandlerCtx, agent: AgentInfo): Promise<string> {
+async function fallbackAgentCommand(
+  ctx: HandlerCtx<ServerDeps>,
+  agent: AgentInfo,
+): Promise<string> {
   const connector = getConnector(agent.agentKind);
   if (!agent.workspacePath) return connector.defaultCommand;
   try {
@@ -102,7 +106,7 @@ async function fallbackAgentCommand(ctx: HandlerCtx, agent: AgentInfo): Promise<
  * bridge, audited by paneId the same way `pty.create` is.
  */
 export function agentsSetPaneContext(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   paneId: string,
   context: PaneContext,
 ): void {
@@ -125,7 +129,7 @@ export function agentsSetPaneContext(
  * boot, exactly once per upgrade. After the renderer consumes it, the
  * `agentPruneNoticeShown` flag is set so subsequent boots return 0.
  */
-export function agentsConsumePruneNotice(ctx: HandlerCtx): number {
+export function agentsConsumePruneNotice(ctx: HandlerCtx<ServerDeps>): number {
   const { agentManager, preferencesManager } = ctx.deps;
   const count = agentManager.getLastPruneCount();
   if (count <= 0) return 0;
@@ -140,7 +144,7 @@ export function agentsConsumePruneNotice(ctx: HandlerCtx): number {
  * (sidebar, palette, toasts) sees the new name without a reload.
  */
 export function agentsUpdate(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   agentId: string,
   updates: RendererAgentUpdate,
 ): AgentInfo | null {
@@ -153,7 +157,10 @@ export function agentsUpdate(
   return updated;
 }
 
-export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
+export function agentsDelete(
+  ctx: HandlerCtx<ServerDeps>,
+  agentId: string,
+): boolean {
   assertString(agentId, "agentId");
   const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
     ctx.deps;
@@ -174,7 +181,10 @@ export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
  * desktop window doing it: the same broadcast, whichever caller wrote the
  * Sets.
  */
-export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
+export function agentsMarkSeen(
+  ctx: HandlerCtx<ServerDeps>,
+  agentId: string,
+): void {
   assertString(agentId, "agentId");
   const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
     ctx.deps;
@@ -192,7 +202,7 @@ export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
 }
 
 export function agentsMarkResumed(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   agentId: string,
 ): AgentInfo | null {
   assertString(agentId, "agentId");
@@ -206,7 +216,7 @@ export function agentsMarkResumed(
  * and the Status reconciler that owns the lifecycle (ADR-184).
  */
 type AbandonDeps = Pick<
-  HandlerCtx["deps"],
+  ServerDeps,
   "agentManager" | "statsStore" | "preferencesManager" | "agentStatus"
 >;
 

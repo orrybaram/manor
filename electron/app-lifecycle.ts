@@ -83,6 +83,7 @@ import {
   sendNotificationsUpdate,
   setNotificationStore,
   setStatsStore,
+  playNotificationSound,
 } from "./notifications";
 import { killAllActivePushes } from "./bridge/handlers/branches-diffs";
 import { createAgentService } from "./bridge/handlers/agents";
@@ -100,7 +101,11 @@ import * as webviewIpc from "./ipc/webview";
 import * as nativeIpc from "./ipc/native";
 import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
-import { notifyProjectsChanged, runSetupScript } from "./renderer-bridge";
+import {
+  appCommandResult,
+  notifyProjectsChanged,
+  runSetupScript,
+} from "./renderer-bridge";
 import { RemoteWorktreePoller, WorktreeWatcher } from "./projects/worktree-watcher";
 
 /** How long an agent's `navigate` waits for a remote host to come back. */
@@ -801,6 +806,9 @@ export function initApp(devTitle: string | null): void {
     workspaceMeta: [],
     prewarmManager,
     remoteControl,
+    // The sinks the shared handlers reach Electron through (ADR-227 D1).
+    playSound: playNotificationSound,
+    appCommandResult,
     get appMenu() {
       return appMenu;
     },

@@ -19,6 +19,9 @@ const ENTRIES = [
   "electron/platform/secret-box.ts",
   // The host server's process entry, and so everything it composes (ADR-225).
   "electron/host-server/index.ts",
+  // The handler table's window-free half (ADR-227 D1): every handler a Manor
+  // server shares, whatever platform it runs on.
+  "electron/bridge/server-methods.ts",
 ];
 
 describe("platform ports", () => {

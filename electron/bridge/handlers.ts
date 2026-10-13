@@ -30,53 +30,32 @@
 import type { HostDeps } from "../ipc/types";
 import { flatten, toHandlerTable, type MethodRules } from "./method";
 import { UNAVAILABLE_CODE } from "./types";
+import { SERVER_METHODS } from "./server-methods";
 import { agents } from "./handlers/agents";
-import { agentActivity } from "./handlers/agent-activity";
-import { appCommands } from "./handlers/app-commands";
-import { branches, diffs, git, gitPush } from "./handlers/branches-diffs";
-import { chat } from "./handlers/chat";
-import { github, linear } from "./handlers/integrations";
-import { jev } from "./handlers/jev";
-import { hosts } from "./handlers/hosts";
-import { layout } from "./handlers/layout";
+import { diffs } from "./handlers/branches-diffs";
 import { notifications } from "./handlers/notifications";
-import { ports } from "./handlers/ports";
-import { keybindings, preferences } from "./handlers/preferences";
+import { keybindings } from "./handlers/preferences";
 import { processes } from "./handlers/processes";
-import { projects } from "./handlers/projects";
-import { pty } from "./handlers/pty";
-import { remoteControl } from "./handlers/remote-control";
-import { stats } from "./handlers/stats";
-import { theme } from "./handlers/theme";
-import { viewport } from "./handlers/viewport";
 
-
-const METHODS = flatten({
-  pty,
-  chat,
-  layout,
-  viewport,
-  projects,
-  hosts,
-  theme,
-  preferences,
-  keybindings,
-  remoteControl,
+/**
+ * What only the desktop answers (ADR-227 D1): methods that read a window or
+ * the webview server, and the namespaces whose modules still import
+ * `electron` through `../notifications` (`agents`, `notifications`), which
+ * `SERVER_METHODS` must not.
+ */
+const DESKTOP_METHODS = flatten({
   agents,
-  agentActivity,
   notifications,
-  stats,
-  ports,
-  processes,
-  branches,
-  diffs,
-  git,
-  "git.push": gitPush,
-  github,
-  linear,
-  jev,
-  appCommands,
+  keybindings: { runInMainWindow: keybindings.runInMainWindow },
+  diffs: { start: diffs.start },
+  processes: { list: processes.list },
 });
+
+/** Each key in exactly one of the halves; a key in both is `never` here. */
+type Overlap = keyof typeof SERVER_METHODS & keyof typeof DESKTOP_METHODS;
+const METHODS: [Overlap] extends [never]
+  ? typeof SERVER_METHODS & typeof DESKTOP_METHODS
+  : never = { ...SERVER_METHODS, ...DESKTOP_METHODS };
 
 type Methods = typeof METHODS;
 

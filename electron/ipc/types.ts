@@ -5,7 +5,13 @@
  * take this as their first argument; the six modules left in `electron/ipc/`
  * — what only Electron can do — take it too, and so does every control route
  * under `electron/routes/` (ADR-182 D8). There is one shape of deps to build,
- * one place (`app-lifecycle.ts`) that builds it, and nothing in it is null.
+ * one place (`app-lifecycle.ts`) that builds it, and nothing in it is null
+ * (the optional sinks a server without a desktop leaves out aside).
+ *
+ * It is two halves (ADR-227 D1). `ServerDeps` is window-free: what a Manor
+ * server has wherever it runs, and what the shared handlers
+ * (`SERVER_METHODS`) are typed over. `DesktopDeps` is what only the desktop
+ * adds — its windows, its menu, its webview server. `HostDeps` is both.
  */
 import type { HostServerSync } from "../backend/host-server-sync";
 import type { BrowserWindow } from "electron";
@@ -40,6 +46,7 @@ import type { SessionOwners } from "../backend/session-owners";
 import type { HostStatus } from "../backend/host-connection";
 import type { WebviewPaneAccess } from "../routes/types";
 import type { ChatMirror } from "../chat-mirror/mirror";
+import type { AppCommandResult } from "../renderer-bridge";
 
 /** A workspace as the renderer describes it for portless hostnames. */
 export interface WorkspaceMeta extends PortlessWorkspace {
@@ -49,21 +56,7 @@ export interface WorkspaceMeta extends PortlessWorkspace {
   portlessEnabled: boolean;
 }
 
-export interface HostDeps {
-  /** The PRIMARY renderer window. */
-  mainWindow: BrowserWindow | null;
-  /** All live, non-destroyed renderer windows (primary + detached popups). */
-  getRendererWindows: () => BrowserWindow[];
-  /**
-   * Register a detached popup window (created via `createDetachedWindow`) so it
-   * is tracked for broadcast, reachable by its windowId, and known to the
-   * layout store as the holder of `claim` (ADR-179 D4).
-   */
-  registerDetachedWindow: (
-    windowId: string,
-    win: BrowserWindow,
-    claim: { workspacePath: string; tabId: string },
-  ) => void;
+export interface ServerDeps {
   /** Routes each pane, cwd and pid to its host (`RoutedBackend`). */
   backend: RoutedBackend;
   /** Every host and its connection status (ADR-160). */
@@ -133,15 +126,6 @@ export interface HostDeps {
   >;
   unseenRespondedAgents: Set<string>;
   unseenInputAgents: Set<string>;
-  webviewServer: WebviewServer;
-  /** Pane inspection routes' access to `WebviewServer`'s pane registry. */
-  webviewPanes: WebviewPaneAccess;
-  /**
-   * The URL to actually load for a `navigate` in `paneId`'s webview: itself,
-   * or rewritten through the pane's host's port forward for a remote
-   * workspace (ADR-178 §5, ADR-183).
-   */
-  resolvePaneUrl: (paneId: string, url: string) => Promise<string>;
   /**
    * Which host owns each terminal session (ADR-160 §6, ADR-191 §4) —
    * `backendRegistry.sessions`. `GET /context` falls back to it for a local
@@ -154,6 +138,51 @@ export interface HostDeps {
   prewarmManager: PrewarmManager;
   /** ADR-161. Off until the user enables it; see the controller header. */
   remoteControl: RemoteControlController;
+  /**
+   * Plays a notification sound by name (`preferences.playSound`). The desktop
+   * fills it in; a server with no speaker leaves it out and the call is a
+   * no-op.
+   */
+  playSound?: (soundName: string | false) => void;
+  /**
+   * Settles a pending `appCommands.command` with the renderer's answer
+   * (`appCommands.result`). Only the desktop sends app commands, so only it
+   * fills this in.
+   */
+  appCommandResult?: (result: AppCommandResult) => void;
+}
+
+/**
+ * What only the desktop has: renderer windows, the app menu and the webview
+ * server. Desktop-only handlers (`DESKTOP_METHODS`) and the IPC modules read
+ * these; nothing in `SERVER_METHODS` may.
+ */
+export interface DesktopDeps {
+  /** The PRIMARY renderer window. */
+  mainWindow: BrowserWindow | null;
+  /** All live, non-destroyed renderer windows (primary + detached popups). */
+  getRendererWindows: () => BrowserWindow[];
+  /**
+   * Register a detached popup window (created via `createDetachedWindow`) so it
+   * is tracked for broadcast, reachable by its windowId, and known to the
+   * layout store as the holder of `claim` (ADR-179 D4).
+   */
+  registerDetachedWindow: (
+    windowId: string,
+    win: BrowserWindow,
+    claim: { workspacePath: string; tabId: string },
+  ) => void;
+  webviewServer: WebviewServer;
+  /** Pane inspection routes' access to `WebviewServer`'s pane registry. */
+  webviewPanes: WebviewPaneAccess;
+  /**
+   * The URL to actually load for a `navigate` in `paneId`'s webview: itself,
+   * or rewritten through the pane's host's port forward for a remote
+   * workspace (ADR-178 §5, ADR-183).
+   */
+  resolvePaneUrl: (paneId: string, url: string) => Promise<string>;
   /** ADR-170. The native application menu controller. */
   appMenu: AppMenuController;
 }
+
+export type HostDeps = ServerDeps & DesktopDeps;

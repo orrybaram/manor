@@ -1,5 +1,5 @@
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import type { StatsSummary } from "../../stats-store";
 import { method, type HandlerCtx } from "../method";
 
@@ -14,11 +14,11 @@ import { method, type HandlerCtx } from "../method";
  */
 export const BROADCAST_DEBOUNCE_MS = 1000;
 
-export function statsGetSummary(ctx: HandlerCtx): StatsSummary {
+export function statsGetSummary(ctx: HandlerCtx<ServerDeps>): StatsSummary {
   return ctx.deps.statsStore.getSummary();
 }
 
-export function statsReset(ctx: HandlerCtx): void {
+export function statsReset(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.statsStore.reset();
 }
 
@@ -30,7 +30,7 @@ export function statsReset(ctx: HandlerCtx): void {
  * of recording into one broadcast still has to run once, at boot, so
  * `app-lifecycle.ts` calls this in `register()`'s place.
  */
-export function wireStatsBroadcast(deps: Pick<HostDeps, "statsStore">): void {
+export function wireStatsBroadcast(deps: Pick<ServerDeps, "statsStore">): void {
   const { statsStore } = deps;
   let timer: ReturnType<typeof setTimeout> | null = null;
   statsStore.onChange(() => {

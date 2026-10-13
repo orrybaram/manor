@@ -11,7 +11,7 @@
 
 import type { AgentInfo } from "../../agent-persistence";
 import { assertString } from "../../ipc-validate";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import type { PtyBackend } from "../../backend/types";
 import type { BroadcastSource } from "../../renderer-broadcast";
 import type {
@@ -186,7 +186,7 @@ function assertChatAnswer(value: unknown): asserts value is ChatAnswer {
  *   watcher on and off, and for `chat.taskEntry` a task's (ADR-224 D3).
  */
 export function wireChatMirror(
-  deps: Pick<HostDeps, "chatMirror">,
+  deps: Pick<ServerDeps, "chatMirror">,
   bridge: {
     onSubscriptionChange(cb: (name: string, key: string) => void): () => void;
     hasSubscriber(ns: string, event: string, key: string): boolean;

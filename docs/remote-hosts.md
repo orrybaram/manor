@@ -11,10 +11,16 @@ and they keep working. Open it again and Manor reconnects. The sidebar then
 shows what they did while you were away: final statuses and one notification
 per agent.
 
+And you don't have to wait for the lid to open. Every box runs its own small
+Manor server, the **host server**. A phone paired with it sees that box's
+agents and can type into them while your laptop sleeps (see
+[Your phone with the lid closed](#your-phone-with-the-lid-closed)).
+
 Design background is in [ADR-160](decisions/adr-160-remote-workspace-backends/index.md)
-(the transport and the remote daemon) and
+(the transport and the remote daemon),
 [ADR-178](decisions/adr-178-always-on-remote-projects/index.md) (the
-always-on behavior: hook journal, onboarding, ports, reconnect).
+always-on behavior: hook journal, onboarding, ports, reconnect) and
+[ADR-225](decisions/adr-225-host-server/index.md) (the host server).
 
 ## Choosing a box
 
@@ -97,6 +103,7 @@ On the box, everything Manor installs lives under `~/.manor/`:
 | `~/.manor/bin/manor-host` | Launcher that pins the version and the absolute path to `node` |
 | `~/.manor/bin/manor` | The `manor` CLI shim for remote use |
 | `~/.manor/remote/daemon/` | The remote daemon's socket, auth token, pid and log, plus the hook journal |
+| `~/.manor/remote/server/` | The host server: its socket, owner token, pid, logs, its own relay keys and paired phones, and what the desktop last told it (see [The host server](#the-host-server)) |
 | `~/.manor/remote/hook-port` | The hook listener's port and token (mode 0600) |
 | `~/.manor/remote/control-port` | The CLI relay's port and token (mode 0600) |
 | `~/.manor/hooks/notify.{sh,js}` | The hook script agents call |
@@ -114,15 +121,219 @@ On your laptop there's one ssh connection per host, multiplexed through a
 ControlMaster socket in a temporary ssh config that Manor owns. Terminals,
 git, file reads and port scans all use that connection.
 
-**Nothing credential-related leaves your laptop.** Manor doesn't copy
-`~/.ssh`, tokens or agent credentials to the box. It doesn't enable ssh agent
+**Your credentials stay on your laptop.** Manor doesn't copy `~/.ssh`,
+tokens or agent credentials to the box. It doesn't enable ssh agent
 forwarding either: a forwarded agent is useless while the laptop is closed,
 and it exposes your keys to anyone with root on the box. You sign in to
-`gh`, `claude` and `codex` on the box yourself, once.
+`gh`, `claude` and `codex` on the box yourself, once. The one key the desktop
+does send is its Web Push signing key, so the host server can send phone
+notifications (see [Where secrets live](#where-secrets-live)). Integration
+tokens such as Linear's API key never go to the box (see
+[Integrations](#integrations)).
 
 Upgrades happen automatically. When the app version changes, the next
 connect installs the matching host package next to the old one and swaps it
 in atomically. A failed install never replaces a working one.
+
+## The host server
+
+The host package ships two programs, and Manor keeps both running on the box:
+
+- **The daemon** owns the terminals, their scrollback and the hook journal.
+- **The host server** is a headless Manor server: Node, no Electron. It
+  connects to the daemon on the box like any other client does, and runs
+  what a phone needs to reach that box with your laptop closed. That covers
+  agent status (it reads the same hook journal the desktop replays), the chat
+  view, push notifications, and its own room on the Manor relay with its own
+  paired phones.
+
+They are separate processes on purpose. A daemon restart ends every terminal,
+so the daemon only restarts when it has to. The host server restarts on every
+Manor upgrade and takes nothing down with it.
+
+**Lifecycle.** Every time the desktop connects to the box, it makes sure a
+host server of the same version is running (`manor-host remote-bridge` and
+`manor-host server-bridge` both check):
+
+- If it's running and current, nothing happens.
+- If it's from another version, Manor stops it and starts the new one. The
+  daemon and its terminals are untouched.
+- If it isn't running, Manor starts it, detached from the ssh session, so it
+  keeps running after the desktop disconnects.
+
+Like the daemon, it doesn't survive a reboot of the box. It comes back the
+next time the desktop connects.
+
+**The owner channel.** The desktop talks to the host server over the box's
+existing ssh connection: `ssh <box> manor-host server-bridge`, which pipes to
+the server's socket at `~/.manor/remote/server/server.sock`. Being able to
+run that command as you over ssh is the authentication, so the desktop is the
+server's **owner** and may do what a phone may not: pair and revoke phones,
+and reset the server's keys. On every connect, and whenever they change, the
+desktop sends it:
+
+- **the manifest**: this box's projects, workspace names, linked issues, the
+  last-known PR for each workspace, and the host's name;
+- **a layout snapshot**: the tabs and panes of this box's workspaces.
+
+The host server caches both, so a phone that connects with the lid closed
+sees the sidebar and panes the desktop last had.
+
+**Logs** are at `~/.manor/remote/server/logs/host-server.log` (rotated).
+Startup failures, before that log is open, go to `host-server-spawn.log` in
+the same directory. The first line of each start names the version and the
+secret backend in use:
+
+```
+[host-server] 0.21.0 starting in /home/you/.manor/remote/server; secrets: systemd-creds
+```
+
+To restart it by hand, stop it with
+`kill "$(cat ~/.manor/remote/server/server.pid)"`. A connected desktop notices
+the owner channel drop and starts a fresh one within seconds; otherwise the
+next connect does. Unlike `manor-host restart`, this doesn't touch the
+terminals.
+
+## Your phone with the lid closed
+
+Pair a phone with the box from **Settings → Remote control**. Each remote host
+has its own section there (see
+[Pairing a phone with a host](remote-control.md#pairing-a-phone-with-a-host)).
+That phone reaches the box's host server directly, through the Manor relay,
+whether or not your laptop is awake.
+
+**What it can do:**
+
+- See the box's projects, workspaces and agents, with live status.
+- Open any terminal and type into it.
+- Use the chat view and reply, slash commands included.
+- Get push notifications when an agent needs input or hits an error.
+- Switch between hosts, if it's paired with more than one.
+
+**What it can't do yet:**
+
+- Create a workspace or launch an agent.
+- Rearrange the layout (split, close, move tabs).
+
+Creating a workspace or starting an agent from the phone says *Not yet
+available from the phone for remote hosts* instead of failing, and the host
+server refuses layout changes from a phone. These need the box to own its
+projects and layout, and today the desktop owns them. A change made on the box
+while the desktop is away would have nowhere to go.
+
+Some more details:
+
+- **Layout.** The phone shows the layout the desktop last sent. A terminal
+  started after that, for example by an agent on the box, appears under a
+  separate **Started while away** tab.
+- **Terminal size.** While another client (the desktop, say) is attached to a
+  terminal, the phone follows its size and shrinks the font rather than
+  resizing it. When the phone is the only one attached, the terminal takes the
+  phone's size.
+- **Projects set up while the desktop was away** don't show up until the
+  desktop next connects.
+- **Issue and PR data** is the snapshot the desktop last sent, not live. See
+  [Integrations](#integrations).
+
+When the laptop opens again, the desktop replays the same hook journal the
+host server reads, so the two agree on every agent's status.
+
+## Where secrets live
+
+The host server keeps a few secrets in `~/.manor/remote/server/`, each in its
+own 0600 file:
+
+| File | What |
+|---|---|
+| `relay-identity.enc` | The host server's relay identity: the keys that make its relay room its own, and the key phones check in the pairing QR |
+| `remote-devices.enc` | Phones paired with this host. Device tokens are stored only as SHA-256 hashes |
+| `remote-vapid.enc` | The Web Push signing key. The desktop sends its own, so one browser push subscription works for every host. A host uses a key of its own until the desktop's arrives |
+| `secret-backend` | Which backend encrypted the files above |
+| `owner-token` | The token the owner channel presents on the server's socket. New on every start |
+
+Device tokens are hashed, so the secrets worth protecting are the relay
+identity and the push key. Someone who already has your account on the box can
+use them. That person can also reach your terminals, your repos and your
+agents' own credentials, so the keys add little to that. Encryption protects
+against the files leaving the box: a backup, a disk image, a volume snapshot.
+
+If you suspect the box was compromised, use **Reset pairing keys** in that
+host's section of Settings → Remote control. It gives the host server a new
+relay identity, which moves it to a new room and disconnects every phone paired
+with it. Pair them again afterwards.
+
+### Encrypting pairing keys
+
+The host server encrypts its keys with the first of these that works on the
+box, checked on first start (and, while it is on plaintext, on every start):
+
+1. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
+   derived from the machine's own credential secret, and uses the TPM2 chip
+   when the machine has one. You can decrypt the files without root, but a
+   copy of them is useless on any other machine.
+2. **libsecret**, when an unlocked Secret Service keyring (GNOME Keyring,
+   KWallet) is reachable over D-Bus and `secret-tool` is installed. Manor keeps
+   one random key in the keyring and encrypts the files with it (AES-256-GCM).
+   A server started over ssh usually has no D-Bus session, so on a headless
+   box this rarely applies.
+3. **Plaintext files, mode 0600**, as a last resort. This is never silent:
+   the host's section of Settings → Remote control says *Pairing keys on
+   \<host\> are stored unencrypted*.
+
+**To check which backend a box uses:**
+
+- Look for the warning in Settings → Remote control. No warning means the keys
+  are encrypted.
+- On the box, run `cat ~/.manor/remote/server/secret-backend`, which prints
+  `{"backend":"systemd-creds"}`, `"libsecret"` or `"plaintext"`.
+- Or read the `secrets:` field on the startup line of
+  `~/.manor/remote/server/logs/host-server.log`.
+
+**To find out whether systemd-creds would work**, run this on the box:
+
+```bash
+systemd-creds --version | head -1        # needs 256 or newer
+echo probe | systemd-creds --user encrypt --name=manor - - >/dev/null && echo ok
+```
+
+**The choice is remembered.** Once systemd-creds or libsecret has encrypted
+the keys, the host server keeps using it. If it later stops working, the server
+reports an error naming it, and doesn't fall back to writing plaintext.
+
+**Plaintext upgrades itself.** Plaintext is only ever a last resort, so a host
+server on plaintext checks for systemd-creds and then libsecret every time it
+starts. When one works, it encrypts the existing key files with it and
+switches to it. Your phones stay paired. So to move a box off plaintext,
+make one of them work (for example, upgrade systemd to 256 or newer), then
+restart the host server:
+
+```bash
+kill "$(cat ~/.manor/remote/server/server.pid)"
+```
+
+A connected desktop starts it again within seconds. Check that the warning in
+Settings → Remote control is gone, or that `secret-backend` names the new
+backend.
+
+## Integrations
+
+Every integration is one of two kinds:
+
+- **Host-native**: the credential is already on the box because your agents
+  use it, such as `gh` and git. Agents keep using the box's own sign-ins, as
+  they always have. A future host server may run these with the box's own
+  sign-in, and nothing gets copied. If `gh` isn't signed in on the box, it
+  will say so rather than fail.
+- **User-delegated**: a credential you gave Manor itself, such as Linear's API
+  key. It stays on your laptop. Copying one to a box will be an explicit,
+  per-host choice ("Use Linear on \<host\>"), stored through the box's secret
+  backend and deleted by **Reset pairing keys**.
+
+**Today the host server makes no integration calls at all.** With the lid
+closed, a phone sees each workspace's linked issue (id, title, link) and its
+PR (number, state, checks) as the desktop last knew them, sent in the
+manifest with the time they were taken. Browsing issues, starting work from an
+issue and issue images aren't available from a host server yet.
 
 ## Laptop closed
 
@@ -247,7 +458,14 @@ lives on the box.
   someone who can already ssh in as you, and Manor reads it over that ssh
   connection. The daemon's `exec` request runs commands as you on the box.
   It's reachable only through that socket.
-- **Nothing is copied to the box** except Manor's own host package.
+- **Nothing of yours is copied to the box** except Manor's own host package
+  and the desktop's Web Push signing key (see
+  [Where secrets live](#where-secrets-live)).
+- **The host server's socket is token-gated.** Its owner token is a 0600 file
+  that's new on every start, and only `manor-host server-bridge`, run over
+  your ssh connection, presents it. A phone reaches the host server only
+  through its relay room, with a device token, and can't call the owner-only
+  methods: pairing, revoking, resetting keys.
 
 ## Troubleshooting
 
@@ -308,10 +526,41 @@ Check that the agent CLI on the box has Manor's hook registered
 problem registering it appears as a warning on the host. Also check that
 `~/.manor/remote/hook-port` exists while connected.
 
+**"Phone access needs the host to reconnect"** (Settings → Remote control)
+The desktop can't reach the host server right now: the box is unreachable,
+or the server isn't running. It clears when the host reconnects. If it
+stays, read `~/.manor/remote/server/logs/host-server-spawn.log` and
+`host-server.log` on the box.
+
+**"Pairing keys were encrypted with …, which is no longer available"**
+The secret backend the host server chose on its first start no longer works,
+for example because the keyring is locked or `systemd-creds` was removed. The
+keys are left as they are. Bring the backend back and restart the host server.
+If it is gone for good, start over with new keys. This disconnects the phones
+paired with this host:
+
+1. Quit Manor on your laptop. A connected desktop would restart the host
+   server within seconds, with the old keys.
+2. On the box, stop the server and delete its keys:
+
+   ```bash
+   kill "$(cat ~/.manor/remote/server/server.pid)"
+   cd ~/.manor/remote/server && rm -f secret-backend relay-identity.enc remote-devices.enc remote-vapid.enc
+   ```
+
+3. Open Manor. Once the host connects, pair your phones again.
+
+**A phone paired with a host can't connect**
+In the host's section of Settings → Remote control, check that the summary
+says *relay connected*. The host server dials the Manor relay from the box, so
+the box needs outbound HTTPS to `relay.manor.sh`.
+
 To look under the hood on the box, the remote daemon's log is at
-`~/.manor/remote/daemon/terminal-host.log`. `~/.manor/bin/manor-host
-restart` stops the daemon (and its terminals). Manor starts a fresh one on
-the next connect and recovers the panes as after a reboot.
+`~/.manor/remote/daemon/terminal-host.log`, and the host server's is at
+`~/.manor/remote/server/logs/host-server.log`. `~/.manor/bin/manor-host
+restart` stops the daemon (and its terminals), but not the host server.
+Manor starts a fresh daemon on the next connect and recovers the panes as
+after a reboot.
 
 ## Testing
 
@@ -339,6 +588,22 @@ node scripts/test-remote-e2e.mjs --docker
 - `tests/e2e/remote-host.spec.ts` (Playwright) covers the app: laptop-closed
   replay with a single notification, pane recovery with the agent's resume
   command after a remote restart, and port forwarding.
+- `tests/e2e/host-server.spec.ts` (Playwright) covers the host server with the
+  laptop gone. The desktop starts an agent on the box and pairs a browser with
+  the box's host server through a local relay (`wrangler dev`). Then the
+  desktop loses the box, and the browser alone checks three things: the agent
+  is listed with its status, a hook fired on the box changes that status, and
+  typing reaches the agent's terminal. When the desktop reconnects, its agent
+  state must match the host server's. It needs the private-sshd target, not
+  `--docker`, because the box must reach the relay on the test machine's
+  loopback. It also needs `pnpm build:web:relay` and Node 22 on `PATH`
+  (wrangler).
+
+The Playwright specs share one box, so the harness runs them with one worker.
+The box's host server dials `MANOR_RELAY_URL` from its environment, and the
+harness sets that to a closed local port, so a test box never dials the
+production relay. `host-server.spec.ts` points it at its own relay through
+`~/.manor-e2e/env` on the box, which the harness's ssh wrapper sources.
 
 The harness writes an ssh config with two aliases, `manor-e2e` (the app's)
 and `manor-e2e-direct` (the tests' side channel), and passes it to the tests

@@ -23,29 +23,27 @@
  * never subscribed to pane B never sees a byte of B's output, however much of
  * it the daemon produces. Nothing here decides *when* something changed:
  * `renderer-broadcast.ts` and the PTY stream do, and this class forwards.
+ *
+ * **Generic over its deps** (ADR-225, ADR-226). The desktop runs it over
+ * `HostDeps` and `DESKTOP_TABLE` (`./handlers.ts`); a host server runs it over
+ * `HostServerDeps` and its allowlist (`../host-server/handlers.ts`), and its
+ * bundle never imports the desktop table, which reaches Electron. The table
+ * says what kind of server this is — the refusal it answers with, and who may
+ * call `LOCAL_ONLY` — so nothing here compares server identities.
  */
 
 import type { StreamEvent } from "../terminal-host/types";
-import type { HostDeps } from "../ipc/types";
+import type { PtyBackend } from "../backend/types";
 import { RemoteAuditLog } from "../remote-control/audit";
-import {
-  addRendererBroadcastSink,
-  type RendererBroadcast,
+import type {
+  BroadcastSource,
+  RendererBroadcast,
 } from "../renderer-broadcast";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
-import {
-  HANDLERS,
-  LOCAL_ONLY,
-  MUTATING,
-  SECRET_FIRST_ARG,
-  type BridgeHandler,
-} from "./handlers";
 import type { EventArgs, EventNs, EventOf } from "./events";
-import { sessionGrid } from "./handlers/pty";
-import type { HandlerCtx } from "./method";
+import type { HandlerCtx, HandlerTable } from "./method";
 import {
   ALL_KEYS,
-  UNAVAILABLE_CODE,
   readInvokeFrame,
   readSubscribeFrame,
   type BridgeConnection,
@@ -53,6 +51,36 @@ import {
   type InvokeFrame,
   type ResultFrame,
 } from "./types";
+
+/**
+ * The little of its deps the server itself reads (ADR-225 D6): a session's
+ * grid, for the winsize-owner push. The desktop's `HostDeps` has it; so does
+ * the host server's `HostServerDeps`, which carries no window or menu.
+ */
+export interface BridgeServerDeps {
+  backend: { pty: Pick<PtyBackend, "getSnapshot"> };
+}
+
+/**
+ * The session's current grid, or null if the daemon has no opinion yet.
+ *
+ * Never throws: a caller that cannot be told the owner's size is better off
+ * with the size it asked for than with a failed `pty.create`. Shared by the
+ * ownership-change push below (D6) and `handlers/pty.ts`'s create-shaped
+ * calls, which need the same "ask the daemon, shrug on failure" lookup.
+ */
+export async function sessionGrid(
+  deps: BridgeServerDeps,
+  paneId: string,
+): Promise<{ cols: number; rows: number } | null> {
+  try {
+    const snapshot = await deps.backend.pty.getSnapshot(paneId);
+    if (!snapshot?.cols || !snapshot.rows) return null;
+    return { cols: snapshot.cols, rows: snapshot.rows };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * A connection and what it asked to hear.
@@ -69,16 +97,26 @@ interface Registered {
   subscriptions: Map<string, Set<string>>;
 }
 
-interface BridgeServerOptions {
+interface BridgeServerOptions<D> {
+  /** What this server dispatches, and what kind of server it is. */
+  table: HandlerTable<D>;
+  /**
+   * Where keyless pushes come from: `addRendererBroadcastSink` on the
+   * desktop, the host server's own bus there.
+   */
+  events: BroadcastSource;
   audit?: RemoteAuditLog;
-  /** Overridable so a test can assert dispatch without a real `HostDeps`. */
-  handlers?: Record<string, BridgeHandler>;
 }
 
-export class BridgeServer {
+/**
+ * The dispatcher, connection registry and fan-out, over any deps `D`. What
+ * the server itself reads from `D` is `BridgeServerDeps`: a session's grid,
+ * for the winsize push.
+ */
+export class BridgeServer<D extends BridgeServerDeps> {
   private readonly connections = new Map<string, Registered>();
   private readonly audit: RemoteAuditLog;
-  private readonly handlers: Record<string, BridgeHandler>;
+  private readonly table: HandlerTable<D>;
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
@@ -87,13 +125,13 @@ export class BridgeServer {
   >();
 
   constructor(
-    private readonly deps: HostDeps,
-    options: BridgeServerOptions = {},
+    private readonly deps: D,
+    options: BridgeServerOptions<D>,
   ) {
     this.audit = options.audit ?? new RemoteAuditLog();
-    this.handlers = options.handlers ?? HANDLERS;
-    this.unsubscribeBroadcasts = addRendererBroadcastSink((broadcast) =>
-      this.onRendererBroadcast(broadcast),
+    this.table = options.table;
+    this.unsubscribeBroadcasts = options.events((broadcast) =>
+      this.onBroadcast(broadcast),
     );
     // D6: told whenever `pty-attachments.ts` decides a pane's winsize owner
     // changed — a viewer's `pty.create`/`close`/`detach`, a desktop window
@@ -238,7 +276,7 @@ export class BridgeServer {
     const id = frame.id;
     const args = frame.args;
     const key = `${frame.ns}.${frame.method}`;
-    const handler = this.handlers[key];
+    const handler = this.table.handlers[key];
     // Absent from the table, or on it but refused to this class of caller
     // (D4) — one answer for both, because the difference is none of a
     // device's business and the client renders the same empty state either
@@ -251,7 +289,9 @@ export class BridgeServer {
     // That is exactly the line an owner reading this log after a lost phone
     // needs to see.
     const refusedLocalOnly =
-      !!handler && connection.callerClass === "device" && LOCAL_ONLY.has(key);
+      !!handler &&
+      !this.table.localOnlyCallers.has(connection.callerClass) &&
+      this.table.localOnly.has(key);
     if (refusedLocalOnly) {
       this.auditInvoke(connection, key, args, "rejected", 403);
     }
@@ -260,18 +300,18 @@ export class BridgeServer {
         id,
         kind: "result",
         ok: false,
-        error: `${key} is not available in the browser`,
-        code: UNAVAILABLE_CODE,
+        error: `${key} is not available ${this.table.unavailable.where}`,
+        code: this.table.unavailable.code,
       };
     }
 
-    const audited = MUTATING.has(key);
+    const audited = this.table.mutating.has(key);
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
-    const call = handler as (ctx: HandlerCtx, ...args: unknown[]) => unknown;
+    const call = handler as (ctx: HandlerCtx<D>, ...args: unknown[]) => unknown;
     // Who sent it comes from the connection, never from the frame: a caller
     // does not get to say which caller it is (ADR-179 D3).
-    const ctx: HandlerCtx = {
+    const ctx: HandlerCtx<D> = {
       deps: this.deps,
       caller: {
         id: connection.id,
@@ -335,18 +375,18 @@ export class BridgeServer {
   }
 
   /**
-   * A keyed event from main, to the connections that asked for that key —
-   * `pty.*` comes from the stream (`handleStreamEvent`), and `chat.entry`
-   * from the chat mirror (ADR-215 D4). `renderer-broadcast.ts` has no key,
+   * `ns.event` to every connection that asked for it — at `key`, for a keyed
+   * event. `pty.*` comes from the stream (`handleStreamEvent`), and
+   * `chat.entry` from the chat mirror (ADR-215 D4): a broadcast has no key,
    * so a per-pane push that is not a stream event comes through here.
    */
-  publishKeyed<N extends EventNs, E extends EventOf<N>>(
+  publish<N extends EventNs, E extends EventOf<N>>(
     ns: N,
     event: E,
     args: EventArgs<N, E>,
-    key: string,
+    key?: string,
   ): void {
-    this.publish(ns, event, args, key);
+    this.fanOut(eventFrame(ns, event, args, key));
   }
 
   /**
@@ -448,6 +488,8 @@ export class BridgeServer {
     if (this.connections.size === 0) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
+    // A pane held elsewhere (ADR-225 D5) answers a foreign owner no
+    // connection here matches: everyone is told `owner: false`.
     const owner = ownerOf(paneId);
     // One frame per connection, not one fanned out: `owner` is each
     // connection's own answer. Subscription is still honoured — a viewer
@@ -455,18 +497,15 @@ export class BridgeServer {
     // of it.
     for (const id of this.connections.keys()) {
       const isOwner = owner?.connectionId === id;
-      this.sendTo(
-        id,
-        "pty",
-        "winsizeOwner",
-        [{ paneId, cols: grid.cols, rows: grid.rows, owner: isOwner }],
-        paneId,
-      );
+      const args: EventArgs<"pty", "winsizeOwner"> = [
+        { paneId, cols: grid.cols, rows: grid.rows, owner: isOwner },
+      ];
+      this.deliverTo(id, eventFrame("pty", "winsizeOwner", args, paneId));
     }
   }
 
   /**
-   * A change the desktop windows were told about, forwarded to everyone.
+   * A change this server's event source published, forwarded to everyone.
    * Keyless: `projects.changed` is about the machine, not about one pane.
    *
    * The names are `BridgeEvents`', and they line up with the listeners in
@@ -499,7 +538,7 @@ export class BridgeServer {
    * second mechanism for them would be a second thing to keep honest, so
    * they arrive here and take the one-connection door instead.
    */
-  private onRendererBroadcast(broadcast: RendererBroadcast): void {
+  private onBroadcast(broadcast: RendererBroadcast): void {
     // Typed where it was published (`publishRendererBroadcast` /
     // `publishToRenderer`), so it goes out as it came in.
     const frame: EventFrame = {
@@ -510,27 +549,6 @@ export class BridgeServer {
     };
     if (broadcast.to !== null) this.deliverTo(broadcast.to, frame);
     else this.fanOut(frame);
-  }
-
-  /** `ns.event` to every connection that asked for it, at `key` if keyed. */
-  private publish<N extends EventNs, E extends EventOf<N>>(
-    ns: N,
-    event: E,
-    args: EventArgs<N, E>,
-    key: string | null,
-  ): void {
-    this.fanOut(eventFrame(ns, event, args, key));
-  }
-
-  /** `ns.event` to one connection, if it asked for it. */
-  private sendTo<N extends EventNs, E extends EventOf<N>>(
-    connectionId: string,
-    ns: N,
-    event: E,
-    args: EventArgs<N, E>,
-    key: string | null,
-  ): void {
-    this.deliverTo(connectionId, eventFrame(ns, event, args, key));
   }
 
   private fanOut(frame: EventFrame): void {
@@ -587,7 +605,7 @@ export class BridgeServer {
       // it is `LOCAL_ONLY` — so a refused attempt reaches this line, and
       // `bridgeTarget` would otherwise write the key a stolen token just
       // tried to use into the very log meant to catch it.
-      target: SECRET_FIRST_ARG.has(route) ? null : bridgeTarget(args),
+      target: this.table.secretFirstArg.has(route) ? null : bridgeTarget(args),
       // No bodies: the table's arguments are too varied to fish in safely,
       // and one of them is a keystroke.
       textLength: null,
@@ -603,9 +621,9 @@ function eventFrame(
   ns: string,
   event: string,
   args: unknown[],
-  key: string | null,
+  key: string | undefined,
 ): EventFrame {
-  return key === null
+  return key === undefined
     ? { kind: "event", ns, event, args }
     : { kind: "event", ns, event, args, key };
 }

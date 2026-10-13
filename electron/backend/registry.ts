@@ -27,6 +27,7 @@ import {
   type HostStatusInfo,
   type RemoteHostContext,
 } from "./host-connection";
+import type { HostServerClient, HostServerClientState } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
 import type { HostProvider } from "./providers/types";
@@ -100,6 +101,8 @@ export interface BackendRegistryOptions {
   hookSeqStore?: HookSeqStore;
   /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
   hookReplayRetryDelayMs?: (attempt: number) => number;
+  /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
+  hostServerClient?: RemoteHostContext["hostServerClient"];
 }
 
 const LOG = "[backend-registry]";
@@ -123,6 +126,9 @@ export class BackendRegistry {
   private readonly ctx: RemoteHostContext;
   private hookSink: HookSink | null = null;
   private controlRelaySink: ControlRelaySink | null = null;
+  private readonly serverStates = new Emitter<[string, HostServerClientState]>(
+    `${LOG} host server state listener`,
+  );
 
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
@@ -139,6 +145,7 @@ export class BackendRegistry {
       hookSink: () => this.hookSink,
       hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
       controlRelaySink: () => this.controlRelaySink,
+      hostServerClient: opts.hostServerClient,
     };
     this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, this.ctx));
   }
@@ -196,6 +203,7 @@ export class BackendRegistry {
       onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
+    built.conn.serverClient.onStateChange((state) => this.serverStates.emit(hostId, state));
     this.add(built.conn);
     if (existing) void existing.dispose();
   }
@@ -215,6 +223,16 @@ export class BackendRegistry {
   /** Every host and its connection status, local first. */
   list(): HostStatusInfo[] {
     return Array.from(this.hosts.values(), (conn) => conn.info());
+  }
+
+  /**
+   * How the user names a remote host: its ssh target, as the sidebar does.
+   * Undefined for the local host and unknown ids.
+   */
+  hostDisplayName(hostId: string): string | undefined {
+    if (hostId === LOCAL_HOST_ID) return undefined;
+    const target = this.hosts.get(hostId)?.info().spec?.target;
+    return target || undefined;
   }
 
   status(hostId: string): HostStatus | undefined {
@@ -274,9 +292,42 @@ export class BackendRegistry {
     await this.hosts.get(hostId)?.disconnect();
   }
 
-  /** Drop every remote connection (app quit). */
+  /** Drop every remote connection (app quit), owner channels included. */
   async disconnectAll(): Promise<void> {
     await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
+  }
+
+  // ── Host servers (ADR-225 D4) ──
+
+  /**
+   * `hostId`'s owner channel to its host server: one per remote host, on its
+   * `RemoteHostConnection`. It connects whenever the host does and lets go
+   * when the host drops; `state` says whether the box has a host server at
+   * all. Undefined for the local host or an unknown one.
+   */
+  hostServer(hostId: string): HostServerClient | undefined {
+    const conn = this.hosts.get(hostId);
+    return conn instanceof RemoteHostConnection ? conn.serverClient : undefined;
+  }
+
+  /** Every remote host's owner channel, in registration order. */
+  hostServers(): HostServerClient[] {
+    const clients: HostServerClient[] = [];
+    for (const conn of this.hosts.values()) {
+      if (conn instanceof RemoteHostConnection) clients.push(conn.serverClient);
+    }
+    return clients;
+  }
+
+  /**
+   * Told whenever any host's owner channel changes state — `connected` after
+   * every (re)connect, which is when the desktop re-sends what the server
+   * holds (`host-server-sync.ts`). Returns the unsubscribe.
+   */
+  onHostServerStateChange(
+    listener: (hostId: string, state: HostServerClientState) => void,
+  ): () => void {
+    return this.serverStates.on(listener);
   }
 
   // ── Events ──

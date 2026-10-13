@@ -18,6 +18,13 @@ const relayed: AuthenticatedDevice = {
   label: "relay browser",
 };
 
+/** The connection identity a hello with `RELAY_TOKEN` becomes. */
+const RELAYED_CALLER = {
+  callerClass: "device",
+  deviceId: relayed.id,
+  deviceLabel: relayed.label,
+};
+
 const devices = {
   verify: (raw: unknown) => (raw === RELAY_TOKEN ? relayed : null),
 };
@@ -52,7 +59,7 @@ describe("RelayGate", () => {
     it("admits a paired device", () => {
       expect(gate.authenticate(RELAY_TOKEN)).toEqual({
         ok: true,
-        device: relayed,
+        caller: RELAYED_CALLER,
       });
     });
 
@@ -108,7 +115,10 @@ describe("RelayGate", () => {
       expect(bridge.attach).toHaveBeenCalledTimes(1);
       const [attached, authenticate] = bridge.attach.mock.calls[0];
       expect(attached).toBe(socket);
-      expect(authenticate(RELAY_TOKEN)).toEqual({ ok: true, device: relayed });
+      expect(authenticate(RELAY_TOKEN)).toEqual({
+        ok: true,
+        caller: RELAYED_CALLER,
+      });
       expect(authenticate("nope")).toEqual(UNAUTHORIZED);
     });
 

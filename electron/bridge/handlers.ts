@@ -27,7 +27,9 @@
  * against each other and against `./local-only.ts`.
  */
 
-import { flatten, type Method, type MethodRules } from "./method";
+import type { HostDeps } from "../ipc/types";
+import { flatten, toHandlerTable, type MethodRules } from "./method";
+import { UNAVAILABLE_CODE } from "./types";
 import { agents } from "./handlers/agents";
 import { agentActivity } from "./handlers/agent-activity";
 import { appCommands } from "./handlers/app-commands";
@@ -48,7 +50,6 @@ import { stats } from "./handlers/stats";
 import { theme } from "./handlers/theme";
 import { viewport } from "./handlers/viewport";
 
-export type { BridgeHandler } from "./method";
 
 const METHODS = flatten({
   pty,
@@ -84,10 +85,20 @@ type Methods = typeof METHODS;
  */
 export type HandlerMethod = keyof Methods;
 
-/** `ns.method` → handler, the table dispatch calls into. */
-export const HANDLERS = Object.fromEntries(
-  Object.entries(METHODS).map(([key, entry]) => [key, (entry as Method).fn]),
-) as { [K in HandlerMethod]: Methods[K]["fn"] };
+/**
+ * `ns.method` → handler, each with the signature its implementation declares:
+ * what `ElectronAPI` is derived from (`./contract.ts`).
+ */
+export type Handlers = { [K in HandlerMethod]: Methods[K]["fn"] };
+
+/**
+ * The table the desktop's `BridgeServer` dispatches on. Refusals read
+ * `unavailable:web`; only a desktop window may call a `localOnly` method.
+ */
+export const DESKTOP_TABLE = toHandlerTable<HostDeps>(METHODS, {
+  unavailable: { code: UNAVAILABLE_CODE, where: "in the browser" },
+  localOnlyCallers: new Set(["local"]),
+});
 
 /** The methods whose table entry carries `rule`. */
 type WithRule<Rule extends keyof MethodRules> = {
@@ -96,22 +107,11 @@ type WithRule<Rule extends keyof MethodRules> = {
     : never;
 }[HandlerMethod];
 
-function withRule(rule: keyof MethodRules): ReadonlySet<string> {
-  return new Set(
-    Object.entries(METHODS)
-      .filter(([, entry]) => (entry as Method).rules[rule])
-      .map(([key]) => key),
-  );
-}
-
 /** Which invokes leave an audit line when a device makes them. */
-export const MUTATING = withRule("mutating");
 export type MutatingMethod = WithRule<"mutating">;
 
 /** Which invokes carry a credential as their first argument. */
-export const SECRET_FIRST_ARG = withRule("secretFirstArg");
 export type SecretFirstArgMethod = WithRule<"secretFirstArg">;
 
 /** Which invokes a device is refused, however `full` its tier. */
-export const LOCAL_ONLY = withRule("localOnly");
 export type TableLocalOnlyMethod = WithRule<"localOnly">;

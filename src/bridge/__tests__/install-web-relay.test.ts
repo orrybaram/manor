@@ -9,7 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { base64urlEncode } from "../../lib/relay-crypto";
 import type { ElectronAPI } from "../../electron";
-import { WEB_RELAY_KEY } from "../web-pairing";
+import { PAIRINGS_KEY } from "../pairings";
 import { desktopKey, FakeRelaySocket } from "./fake-relay";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
@@ -79,7 +79,7 @@ describe("install-web on a relay-served page", () => {
   it("dials the relay's /join with the token from the link", async () => {
     const { mod, api } = await install(relayHash());
     expect(mod.webToken).toBe("tok");
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
 
     void api.projects.getAll().catch(() => {});
     const socket = FakeRelaySocket.last;
@@ -124,12 +124,46 @@ describe("install-web on a relay-served page", () => {
     expect(replace).toHaveBeenCalledTimes(2);
   });
 
+  it("does not take a desktop that names itself for a host server", async () => {
+    const { api } = await install(relayHash());
+    const connection = await import("../connection");
+    void api.projects.getAll().catch(() => {});
+    // The desktop sends `hostName` too (ADR-225 D7), but no `hostServer`.
+    FakeRelaySocket.last.handshake({ hostName: "desk.local" });
+    expect(connection.getConnection()).toEqual({
+      activeRoomId: ROOM,
+      hostName: "desk.local",
+      isHostServer: false,
+    });
+    expect(JSON.parse(local.get(PAIRINGS_KEY) ?? "[]")[0].name).toBe("desk.local");
+  });
+
+  it("learns from the hello whether the host is a host server", async () => {
+    const { api } = await install(relayHash());
+    // `vi.resetModules()` gives each install a fresh `connection.ts`: read
+    // the one this install wrote to.
+    const connection = await import("../connection");
+    expect(connection.getConnection()).toEqual({
+      activeRoomId: ROOM,
+      hostName: null,
+      isHostServer: false,
+    });
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake({ hostName: "Studio", hostServer: true });
+    expect(connection.getConnection()).toEqual({
+      activeRoomId: ROOM,
+      hostName: "Studio",
+      isHostServer: true,
+    });
+    expect(JSON.parse(local.get(PAIRINGS_KEY) ?? "[]")[0].name).toBe("Studio");
+  });
+
   it("keeps the relay pairing when an anchor link opens a new tab", async () => {
     await install(relayHash());
     vi.resetModules();
     const { mod } = await install("#details");
     expect(mod.webToken).toBe("tok");
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
   it("dials nothing with an old listener link and no relay pairing", async () => {
@@ -155,7 +189,7 @@ describe("install-web on a relay-served page", () => {
     FakeRelaySocket.last.handshake();
     expect(mod.getReachability()).toBe("connected");
     expect(seen).toEqual(["unreachable", "connected"]);
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
   it("emits a resync on a resumed hello, not the first", async () => {
@@ -244,7 +278,7 @@ describe("install-web on a relay-served page", () => {
     // pipe reconnects instead of forgetting (relay-pipe.ts, "Failures").
     socket.deliverRaw(new Uint8Array(48).fill(1));
     expect(outcome).not.toHaveBeenCalled();
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
   it("settles key-mismatch after repeated bad message 2s, keeping the pairing", async () => {
@@ -262,6 +296,6 @@ describe("install-web on a relay-served page", () => {
       }
     }
     expect(outcome).toHaveBeenCalledExactlyOnceWith("key-mismatch");
-    expect(local.has(WEB_RELAY_KEY)).toBe(true);
+    expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 });

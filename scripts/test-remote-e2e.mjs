@@ -35,7 +35,8 @@
  *   --smoke            start the target, run `ssh manor-e2e …` once, stop
  *   --serve            start the target, print the env to export, wait for ^C
  *   --vitest-only      run only the bridge-level vitest suite
- *   --playwright-only  run only tests/e2e/remote-host.spec.ts
+ *   --playwright-only  run only the Playwright specs (remote-host.spec.ts,
+ *                      host-server.spec.ts), one worker
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -49,7 +50,10 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOCKER_CONTEXT = path.join(ROOT, "tests/e2e/remote-host");
 const VITEST_SUITE = "electron/terminal-host/__tests__/remote-ssh.e2e.test.ts";
-const PLAYWRIGHT_SUITE = "tests/e2e/remote-host.spec.ts";
+/** Run one file at a time (`--workers=1`): every spec shares the one box. */
+const PLAYWRIGHT_SUITES = ["tests/e2e/remote-host.spec.ts", "tests/e2e/host-server.spec.ts"];
+/** What the box's host server dials unless a spec says otherwise: nothing. */
+const CLOSED_RELAY_URL = "http://127.0.0.1:9";
 const APP_ALIAS = "manor-e2e";
 const DIRECT_ALIAS = "manor-e2e-direct";
 
@@ -180,7 +184,13 @@ async function startMacTarget(tmp) {
       "# ForceCommand for the remote-host E2E sshd: an isolated HOME.",
       `HOME='${remoteHome}'`,
       `PATH='${process.env.PATH ?? "/usr/bin:/bin"}'`,
-      "export HOME PATH",
+      // The box's host server (ADR-225) dials MANOR_RELAY_URL. Never the
+      // production relay from a test box: a closed local port unless a spec
+      // points it at its own local relay (helpers/remote-host.ts
+      // `pointHostServerAtRelay`), through this file.
+      `MANOR_RELAY_URL='${CLOSED_RELAY_URL}'`,
+      'if [ -f "$HOME/.manor-e2e/env" ]; then . "$HOME/.manor-e2e/env"; fi',
+      "export HOME PATH MANOR_RELAY_URL",
       "unset ZDOTDIR",
       'cd "$HOME" || exit 1',
       'if [ -z "${SSH_ORIGINAL_COMMAND:-}" ]; then exec /bin/sh; fi',
@@ -221,10 +231,15 @@ async function startMacTarget(tmp) {
   fs.closeSync(logFd);
 
   const stop = () => {
-    // The remote daemon `remote-bridge` spawned is detached from sshd; stop
-    // it (and anything else still running out of the temp home) too.
-    for (const ns of ["remote/daemon", "daemon"]) {
-      const pid = readPid(path.join(remoteHome, ".manor", ns, "terminal-host.pid"));
+    // The remote daemon and host server `remote-bridge` spawned are detached
+    // from sshd; stop them (and anything else still running out of the temp
+    // home) too.
+    for (const file of [
+      "remote/daemon/terminal-host.pid",
+      "daemon/terminal-host.pid",
+      "remote/server/server.pid",
+    ]) {
+      const pid = readPid(path.join(remoteHome, ".manor", file));
       if (pid) safeKill(pid);
     }
     const sshdPid = readPid(pidFile) ?? child.pid;
@@ -399,7 +414,9 @@ async function main() {
     console.log("\nTarget is up. In another shell:\n");
     for (const [k, v] of Object.entries(env)) console.log(`  export ${k}=${v}`);
     console.log(`\n  pnpm exec vitest run ${VITEST_SUITE}`);
-    console.log(`  pnpm exec playwright test ${PLAYWRIGHT_SUITE}\n\nCtrl-C to stop.`);
+    console.log(
+      `  pnpm exec playwright test ${PLAYWRIGHT_SUITES.join(" ")} --workers=1\n\nCtrl-C to stop.`,
+    );
     // An unresolved promise alone would let node exit; keep the loop alive.
     setInterval(() => {}, 1 << 30);
     await new Promise(() => {});
@@ -414,7 +431,12 @@ async function main() {
   }
   if (!flags.has("--vitest-only")) {
     ok =
-      runSuite("playwright suite", "pnpm", ["exec", "playwright", "test", PLAYWRIGHT_SUITE, ...playwrightArgs], env) &&
+      runSuite(
+        "playwright suite",
+        "pnpm",
+        ["exec", "playwright", "test", ...PLAYWRIGHT_SUITES, "--workers=1", ...playwrightArgs],
+        env,
+      ) &&
       ok;
   }
   process.exitCode = ok ? 0 : 1;

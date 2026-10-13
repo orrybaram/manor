@@ -19,6 +19,14 @@ import {
   type HealthCheckResult,
 } from "../../backend/health-check";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
+import {
+  HostServerUnavailableError,
+  type HostServerClient,
+  type HostServerClientState,
+} from "../../backend/host-server-client";
+import type { HostServerStatus } from "../../host-server/relay";
+import type { PairResult } from "../../remote-control/relay-room";
+import type { RemoteDeviceInfo } from "../../remote-control/devices";
 import type { HostDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
@@ -64,6 +72,107 @@ export async function hostsHealthCheck(
   return runHealthChecks(shell, git, projectPath);
 }
 
+// ── Phone access through a host's server (ADR-225 D3, D4, D6) ──
+
+/** What the Remote Control page shows for one host's server. */
+export interface HostServerView {
+  state: HostServerClientState;
+  /** Null unless the owner channel is up. */
+  status: HostServerStatus | null;
+  /** Paired phones, read with the status so the two can never disagree. */
+  devices: RemoteDeviceInfo[];
+}
+
+/** The owner channel to `hostId`'s server, or a plain reason there is none. */
+function serverClient(ctx: HandlerCtx, hostId: string): HostServerClient {
+  assertString(hostId, "hosts:server.hostId");
+  const client = ctx.deps.backendRegistry.hostServer(hostId);
+  if (!client) {
+    throw new Error(
+      hostId === "local"
+        ? "This computer has no host server; phone access is set up in Remote control."
+        : `Unknown remote host ${hostId}.`,
+    );
+  }
+  return client;
+}
+
+/** A client that can be called now, or the error saying why not. */
+function connectedServer(ctx: HandlerCtx, hostId: string): HostServerClient {
+  const client = serverClient(ctx, hostId);
+  if (client.state === "unsupported") {
+    throw new Error(
+      "Phone access isn't available on this host: it has no Manor server yet. It is set up when the host reconnects.",
+    );
+  }
+  if (client.state !== "connected") {
+    throw new Error(
+      "Phone access needs the host to reconnect first. Try again once it is back.",
+    );
+  }
+  return client;
+}
+
+/** Have the sync re-read the host's push endpoints, then tell the page its pairing changed. */
+function pairingChanged(ctx: HandlerCtx, hostId: string): void {
+  void ctx.deps.hostServerSync.pairingChanged(hostId).then(() => {
+    publishRendererBroadcast("hosts", "pairingChanged", hostId);
+  });
+}
+
+export async function hostsServerStatus(
+  ctx: HandlerCtx,
+  hostId: string,
+): Promise<HostServerView> {
+  const client = serverClient(ctx, hostId);
+  const { state } = client;
+  if (state !== "connected") return { state, status: null, devices: [] };
+  try {
+    const [status, devices] = await Promise.all([
+      client.api.hostServer.status(),
+      client.api.remoteControl.listDevices(),
+    ]);
+    return { state, status, devices };
+  } catch (err) {
+    if (err instanceof HostServerUnavailableError) {
+      return { state, status: null, devices: [] };
+    }
+    throw err;
+  }
+}
+
+export async function hostsPairDevice(
+  ctx: HandlerCtx,
+  hostId: string,
+  label?: string,
+): Promise<PairResult> {
+  const client = connectedServer(ctx, hostId);
+  const name = typeof label === "string" && label.trim() !== "" ? label.trim() : "Phone";
+  const result = await client.api.remoteControl.pair(name);
+  pairingChanged(ctx, hostId);
+  return result;
+}
+
+export async function hostsRevokeDevice(
+  ctx: HandlerCtx,
+  hostId: string,
+  deviceId: string,
+): Promise<RemoteDeviceInfo[]> {
+  assertString(deviceId, "hosts:revokeDevice.deviceId");
+  const devices = await connectedServer(ctx, hostId).api.remoteControl.revoke(deviceId);
+  pairingChanged(ctx, hostId);
+  return devices;
+}
+
+export async function hostsResetPairingKeys(
+  ctx: HandlerCtx,
+  hostId: string,
+): Promise<HostServerStatus> {
+  const status = await connectedServer(ctx, hostId).api.hostServer.resetIdentity();
+  pairingChanged(ctx, hostId);
+  return status;
+}
+
 /**
  * Wire the two host broadcasts, once, at boot (`app-lifecycle.ts`).
  *
@@ -80,6 +189,9 @@ export function wireHostBroadcasts(
 ): void {
   deps.backendRegistry.onStatusChange((hosts: HostStatusInfo[]) => {
     publishRendererBroadcast("hosts", "statusChanged", hosts);
+  });
+  deps.backendRegistry.onHostServerStateChange((hostId, state) => {
+    publishRendererBroadcast("hosts", "serverChanged", { hostId, state });
   });
   deps.backendRegistry.onHostResumed((hostId, sessionIds) => {
     publishRendererBroadcast("hosts", "reconnected", { hostId, sessionIds });
@@ -99,4 +211,13 @@ export const hosts = {
   add: method(hostsAdd, { mutating: true }),
   retryConnect: method(hostsRetryConnect, { mutating: true }),
   healthCheck: method(hostsHealthCheck),
+  // Pairing a phone with a host's server hands out a key to that host, so
+  // these are `localOnly` like `remoteControl.pair` (ADR-225 D3).
+  serverStatus: method(hostsServerStatus, { localOnly: true }),
+  pairDevice: method(hostsPairDevice, { localOnly: true, mutating: true }),
+  revokeDevice: method(hostsRevokeDevice, { localOnly: true, mutating: true }),
+  resetPairingKeys: method(hostsResetPairingKeys, {
+    localOnly: true,
+    mutating: true,
+  }),
 };

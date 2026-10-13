@@ -1,8 +1,7 @@
 import fs from "fs";
 import path from "path";
-import type { APIRequestContext, Page } from "@playwright/test";
 
-import { expect, openTerminalTab, test } from "./fixtures";
+import { expect, test } from "./fixtures";
 import {
   FAKE_AGENT_TRANSCRIPT,
   FAKE_CHAT_OPTIONS,
@@ -13,21 +12,27 @@ import {
 import { readSession } from "./helpers/local-api";
 import { openWebApp } from "./helpers/phone";
 import { relayTest } from "./helpers/relay-fixture";
-import type { AgentSummary } from "./helpers/local-api";
 import {
-  APP_TARGET,
   REMOTE_AGENT,
-  SEED_REPO_URL,
   installRemoteStubs,
   killAppSsh,
   onRemote,
   pollFor,
   remoteKind,
   remoteSkipReason,
+  resetRemoteBox,
   seedRemoteRepo,
   setAppTargetReachable,
 } from "./helpers/remote-host";
-import { closeSettings, pairBrowser, setAgentCommand } from "./helpers/settings";
+import {
+  CONNECT_TIMEOUT,
+  STEP,
+  agentOnPane,
+  hostStatus,
+  openRemoteProject,
+  retryHost,
+} from "./helpers/remote-project";
+import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, runInTerminal } from "./helpers/terminal";
 
 /**
@@ -55,23 +60,13 @@ import { activePaneId, runInTerminal } from "./helpers/terminal";
 const skipReason = remoteSkipReason();
 test.skip(skipReason !== null, skipReason ?? "");
 
-/** A first connect to the Linux box compiles node-pty. */
-const CONNECT_TIMEOUT = remoteKind() === "docker" ? 15 * 60_000 : 5 * 60_000;
-const STEP = 60_000;
-const PROJECT_NAME = "remote-e2e";
-const REMOTE_DIR = `~/code/${PROJECT_NAME}`;
-
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(() => {
-  // A clean slate on the box, keeping the installed host (a reinstall is
-  // the bridge suite's job, and costs minutes on Linux): stop its daemon,
-  // drop its journal, earlier runs' clones and the stubs, then set up again.
-  onRemote(
-    '[ -x "$HOME/.manor/bin/manor-host" ] && "$HOME/.manor/bin/manor-host" restart >/dev/null 2>&1; ' +
-      'rm -rf "$HOME/.manor/remote" "$HOME/code" "$HOME/.manor-e2e"; true',
-    { timeoutMs: STEP },
-  );
+  // A clean slate on the box, keeping the installed host: stop its daemon and
+  // host server, drop its journal, earlier runs' clones and the stubs, then
+  // set up again.
+  resetRemoteBox();
   installRemoteStubs();
   seedRemoteRepo();
 });
@@ -80,119 +75,6 @@ test.afterEach(() => {
   // A test that failed while the app's alias was blocked must not leave it so.
   setAppTargetReachable(true);
 });
-
-interface HostInfo {
-  hostId: string;
-  status: string;
-  error?: string;
-}
-
-async function listHosts(window: Page): Promise<HostInfo[]> {
-  return (await window.evaluate(() => window.electronAPI.hosts.list())) as HostInfo[];
-}
-
-async function hostStatus(window: Page, hostId: string): Promise<HostInfo | undefined> {
-  return (await listHosts(window)).find((h) => h.hostId === hostId);
-}
-
-/**
- * Register the box, clone the seed repo onto it through the Add Project
- * dialog, and open a terminal tab in the project. Returns the host id and the
- * pane id, with the pane's (remote) shell at a prompt.
- */
-async function openRemoteProject(
-  window: Page,
-  request: APIRequestContext,
-  tempHome: string,
-  { agentCommand }: { agentCommand?: string } = {},
-): Promise<{ hostId: string; paneId: string }> {
-  // Registering a host is Project Settings → Host in the UI; it has no
-  // bearing on what this suite tests, so it goes straight through the API.
-  const { hostId } = await window.evaluate(
-    (target) => window.electronAPI.hosts.add(target),
-    APP_TARGET,
-  );
-  await pollFor(
-    `${APP_TARGET} connected`,
-    async () => {
-      const host = await hostStatus(window, hostId);
-      if (host?.status === "error") throw new Error(`host failed: ${host.error}`);
-      return host?.status === "connected" ? host : null;
-    },
-    CONNECT_TIMEOUT,
-    500,
-  );
-
-  // The onboarding screen's clone row (ADR-194) opens the Add Project dialog
-  // already on its clone tab.
-  await window.getByTestId("add-remote-project-button").click();
-  const dialog = window.getByTestId("add-project-dialog");
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  await dialog.locator("#add-project-host").click();
-  await window.getByRole("option", { name: APP_TARGET, exact: true }).click();
-  await dialog.locator("#add-project-repo-url").fill(SEED_REPO_URL);
-  await dialog.locator("#add-project-location").fill(REMOTE_DIR);
-  await dialog.locator("#add-project-name").fill(PROJECT_NAME);
-  await dialog.getByRole("button", { name: "Clone", exact: true }).click();
-
-  // Clone, then the host health check. Its results depend on what CLIs the
-  // box has, which is not this test's business — only that it ran.
-  await expect(dialog.getByTestId("health-check-list")).toBeVisible({ timeout: STEP });
-  await dialog.getByRole("button", { name: "Done", exact: true }).click();
-  await expect(dialog).not.toBeVisible({ timeout: 5_000 });
-  onRemote(`test -f ${REMOTE_DIR}/README.md`);
-
-  // Before the pane exists: its agent context is read when it is created.
-  if (agentCommand) await setAgentCommand(window, PROJECT_NAME, agentCommand);
-
-  await openTerminalTab(window);
-  const paneId = await activePaneId(window);
-  await awaitRemotePrompt(window, request, tempHome, paneId);
-  return { hostId, paneId };
-}
-
-/**
- * Wait until the remote shell in `paneId` runs what is typed. Its scrollback
- * lives on the box, so it is read through the app's own control surface. A
- * line typed before the shell is ready is dropped, so this retypes; the
- * marker is computed by the shell, so the typed text never matches it.
- */
-async function awaitRemotePrompt(
-  window: Page,
-  request: APIRequestContext,
-  tempHome: string,
-  paneId: string,
-): Promise<void> {
-  for (let attempt = 0; attempt < 10; attempt++) {
-    await runInTerminal(window, "echo READY_$((20+22))");
-    try {
-      await pollFor(
-        "the remote shell's prompt",
-        async () =>
-          (await readSession(request, tempHome, paneId)).includes("READY_42") ? true : null,
-        5_000,
-      );
-      return;
-    } catch {
-      // Not ready yet; type it again.
-    }
-  }
-  throw new Error(`remote shell in ${paneId} never answered`);
-}
-
-async function agentOnPane(
-  request: APIRequestContext,
-  tempHome: string,
-  paneId: string,
-): Promise<AgentSummary | undefined> {
-  const port = Number(
-    fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim(),
-  );
-  const res = await request.get(`http://127.0.0.1:${port}/agents`);
-  if (!res.ok()) return undefined;
-  const agents = (await res.json()) as AgentSummary[];
-  return agents.find((a) => a.paneId === paneId && a.status === "active");
-}
 
 /** Mirrors `notificationsFile()` in electron/paths.ts. */
 function agentNotifications(tempHome: string, agentId: string): { kind: string }[] {
@@ -212,10 +94,6 @@ function agentNotifications(tempHome: string, agentId: string): { kind: string }
   } catch {
     return []; // Mid-write; the poll comes back.
   }
-}
-
-async function retryHost(window: Page, hostId: string): Promise<void> {
-  await window.evaluate((id) => window.electronAPI.hosts.retryConnect(id), hostId);
 }
 
 test.describe("remote host", () => {

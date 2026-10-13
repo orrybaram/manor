@@ -11,7 +11,8 @@ import "./xterm-env-polyfill";
 import * as net from "node:net";
 import * as fs from "node:fs";
 import * as crypto from "node:crypto";
-import { dirname } from "node:path";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 import {
   mkdir as fsMkdir,
   readFile as fsReadFile,
@@ -30,6 +31,7 @@ import type {
   StreamEvent,
 } from "./types";
 import { runRemoteBridgeProcess } from "./bridge";
+import { runServerBridgeProcess } from "./server-bridge";
 import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
@@ -677,7 +679,7 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 
 // ── Entry point ──
 //
-// `manor-host` (this same compiled bundle) plays three roles depending on
+// `manor-host` (this same compiled bundle) plays several roles depending on
 // argv:
 //   - `--version` reports the version the bootstrap step (ADR-160 ticket 6)
 //     compares against `app.getVersion()`.
@@ -688,6 +690,11 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     daemon's control socket. Signal handlers that tear down *this* box's
 //     daemon would be wrong here, since this process did not spawn it — see
 //     `bridge.ts`.
+//   - `server-bridge` is the far end of the desktop's owner channel to this
+//     box's host server (ADR-225 D4): it reads the server's owner token,
+//     says the owner hello on the desktop's behalf and pumps stdin/stdout
+//     against `~/.manor/remote/server/server.sock` — see `server-bridge.ts`.
+//     Exits non-zero, with nothing on stdout, when no server is running.
 //   - `restart` stops this box's remote-namespace daemon and clears its
 //     socket and pid file (Manor desktop's daemon, if any, is left alone),
 //     using the same path logic as a local client (`LocalTransport.stop`).
@@ -706,6 +713,18 @@ async function main(): Promise<void> {
 
   if (mode === "remote-bridge") {
     await runRemoteBridgeProcess(new LocalTransport({ namespace: "remote" }));
+    return;
+  }
+
+  if (mode === "server-bridge") {
+    await runServerBridgeProcess();
+    return;
+  }
+
+  if (mode === "serve") {
+    // The host server (ADR-225) ships as a sibling bundle in the same install
+    // dir; it reads `serve [--data-dir]` and `MANOR_VERSION` itself.
+    createRequire(__filename)(join(__dirname, "host-server-index.js"));
     return;
   }
 

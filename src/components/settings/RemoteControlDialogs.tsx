@@ -70,10 +70,12 @@ export function AddDeviceDialog(props: {
   busy: boolean;
   /** Why the last pairing failed, shown where the user is looking. */
   error: string | null;
+  /** Pairing with a remote host's server rather than this computer. */
+  hostName?: string;
   onCancel: () => void;
   onPair: (label: string) => void;
 }) {
-  const { open, enabled, busy, error, onCancel, onPair } = props;
+  const { open, enabled, busy, error, hostName, onCancel, onPair } = props;
   const [label, setLabel] = useState("");
   const trimmed = label.trim();
   const submit = () => {
@@ -98,8 +100,9 @@ export function AddDeviceDialog(props: {
             Add a device
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            The device gets full control of Manor, including your terminals
-            and workspaces.
+            {hostName
+              ? `This phone reaches only ${hostName}: its projects and terminals, not your other hosts. It keeps working while this computer sleeps.`
+              : "The device gets full control of Manor, including your terminals and workspaces."}
             {!enabled && " Pairing turns on remote control."}
           </Dialog.Description>
           <div className={styles.remotePairingBody}>
@@ -135,14 +138,21 @@ export function AddDeviceDialog(props: {
   );
 }
 
-/** Resetting the address kills every link, so say so before doing it. */
+/**
+ * Resetting the address, or a remote host's pairing keys, kills every link, so
+ * say so before doing it. With a `hostName` it is that host's keys; without,
+ * this machine's relay address.
+ */
 export function ResetRelayDialog(props: {
   open: boolean;
   devices: number;
+  /** The remote host whose pairing keys are being reset; omit for this machine. */
+  hostName?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const { open, devices, onCancel, onConfirm } = props;
+  const { open, devices, hostName, onCancel, onConfirm } = props;
+  const now = devices > 0 ? ` (${devices} now)` : "";
   return (
     <Dialog.Root
       open={open}
@@ -153,23 +163,40 @@ export function ResetRelayDialog(props: {
       <Dialog.Portal>
         <Dialog.Overlay className={dialogStyles.confirmOverlay} />
         <Dialog.Content
-          data-testid="remote-relay-reset-confirm"
+          data-testid={
+            hostName ? "host-reset-confirm" : "remote-relay-reset-confirm"
+          }
           className={dialogStyles.confirmDialog}
         >
           <Dialog.Title className={dialogStyles.confirmTitle}>
-            Reset the relay address?
+            {hostName
+              ? `Reset pairing keys on ${hostName}?`
+              : "Reset the relay address?"}
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            This stops the relay and gives this machine a new address. Every
-            paired device{devices > 0 ? ` (${devices} now)` : ""} is
-            disconnected, revoked, and will need to be paired again.
+            {hostName ? (
+              <>
+                This disconnects every phone paired with {hostName}
+                {now}. They will need to be paired again.
+              </>
+            ) : (
+              <>
+                This stops the relay and gives this machine a new address. Every
+                paired device{now} is disconnected, revoked, and will need to be
+                paired again.
+              </>
+            )}
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
             <Button variant="secondary" onClick={onCancel}>
               Cancel
             </Button>
-            <Button variant="danger" onClick={onConfirm}>
-              Reset address
+            <Button
+              data-testid={hostName ? "host-reset-confirm-yes" : undefined}
+              variant="danger"
+              onClick={onConfirm}
+            >
+              {hostName ? "Reset pairing keys" : "Reset address"}
             </Button>
           </div>
         </Dialog.Content>

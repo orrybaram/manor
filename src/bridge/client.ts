@@ -25,7 +25,7 @@
  * Two rules turn a property access into a frame:
  *
  * - `ns.method(...args)` → `{id, kind:"invoke", ns, method, args}`, awaiting
- *   `{id, kind:"result"}`, which `settle` below turns into the value or the
+ *   `{id, kind:"result"}`, which `settleResult` turns into the value or the
  *   error — the same way for both transports.
  * - A listener → a `subscribe` frame and a local listener, returning the
  *   unsubscribe. Which members are listeners, and which event each one
@@ -67,13 +67,12 @@
  */
 
 import { SUBSCRIPTIONS } from "../../electron/bridge/events";
-import {
-  UNAVAILABLE_CODE,
-  type ResultFrame,
-} from "../../electron/bridge/types";
+import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import type { ElectronAPI } from "../electron";
 import type { Listener } from "./subscription-registry";
 import { UNAVAILABLE_NAMESPACES } from "./unavailable";
+
+export { BridgeUnavailableError };
 
 /** Delivered a frame's `args`, spread — the shape an `onX` callback has. */
 export type BridgeListener = Listener;
@@ -115,21 +114,6 @@ export interface BridgeTransport {
 }
 
 /**
- * The host does not implement this, and never will here.
- *
- * Its own type so a component can `catch` it and render the stated empty
- * state ADR-178 promises instead of a crash — `err instanceof
- * BridgeUnavailableError`, not a string match on a message.
- */
-export class BridgeUnavailableError extends Error {
-  readonly code = UNAVAILABLE_CODE;
-  constructor(message: string) {
-    super(message);
-    this.name = "BridgeUnavailableError";
-  }
-}
-
-/**
  * The connection dropped with this call still in flight.
  *
  * Every pending invoke gets one the moment the socket closes. The alternative
@@ -143,22 +127,6 @@ export class BridgeDisconnectedError extends Error {
     super(message);
     this.name = "BridgeDisconnectedError";
   }
-}
-
-/**
- * A result frame, as what the call it answers resolves with or throws.
- *
- * One place for both transports: the socket delivers the frame as a message
- * and the preload as the answer to `ipcMain.handle`, and neither decides for
- * itself what `unavailable:web` means.
- */
-export function settle(frame: ResultFrame): unknown {
-  if (frame.ok === true) return frame.result;
-  const message =
-    typeof frame.error === "string" ? frame.error : "The host refused";
-  throw frame.code === UNAVAILABLE_CODE
-    ? new BridgeUnavailableError(message)
-    : new Error(message);
 }
 
 /** A listener's `ns.method` → the event it subscribes to, split for a frame. */

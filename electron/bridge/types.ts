@@ -35,6 +35,23 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 export const UNAVAILABLE_CODE = "unavailable:web";
 
 /**
+ * The same refusal from a host server (ADR-225 D6): the method exists on the
+ * desktop but is not on that host's allowlist — launching an agent, browsing
+ * issues. Every `unavailable:*` code is a stated empty state to the client.
+ */
+export const UNAVAILABLE_HOST_CODE = "unavailable:host";
+
+/** The refusal a server answers with: one per kind of server. */
+export type UnavailableCode =
+  | typeof UNAVAILABLE_CODE
+  | typeof UNAVAILABLE_HOST_CODE;
+
+/** Whether a result frame's `code` is one of the `unavailable:*` refusals. */
+export function isUnavailableCode(code: unknown): code is UnavailableCode {
+  return code === UNAVAILABLE_CODE || code === UNAVAILABLE_HOST_CODE;
+}
+
+/**
  * The key a subscription that named none is filed under — by `BridgeServer`,
  * and by `SubscriptionRegistry` on the client side of either transport. Kept
  * off the wire: a subscribe frame with no `key` means exactly this, and
@@ -91,6 +108,18 @@ export interface HelloReplyFrame {
   v: number;
   rendererId: string;
   appVersion?: string;
+  /**
+   * What the server calls its host (ADR-225 D7): the phone's pairings show
+   * it. Both the desktop and a host server send it, so it says nothing
+   * about which one answered. Optional because older hosts may not send it.
+   */
+  hostName?: string;
+  /**
+   * True only from a host server (ADR-225 D5, D6; ADR-226): it serves a slice
+   * of the desktop's bridge, so the page hides what it cannot do. The
+   * desktop never sets it.
+   */
+  hostServer?: true;
 }
 
 /** A call: `ns.method(...args)`, answered with a `ResultFrame` carrying `id`. */
@@ -152,6 +181,19 @@ export interface EventFrame {
 }
 
 /**
+ * Who a caller is, as the transport decided it (never as a frame says).
+ *
+ * - `local` — an Electron renderer window on this machine (the desktop).
+ * - `owner` — the desktop reaching a host server over its owner channel
+ *   (ADR-225 D4): `manor-host server-bridge` over ssh, so ssh is the
+ *   authentication. Only a table whose `localOnlyCallers` names `owner`
+ *   (the host server's) lets one call `LOCAL_ONLY` methods; any other server
+ *   refuses an owner them exactly as it refuses a device.
+ * - `device` — a paired `full` device, through the relay.
+ */
+export type CallerClass = "local" | "owner" | "device";
+
+/**
  * What dispatch knows about a caller. A socket and a window are both this.
  *
  * Everything a transport is — a `WebSocket`, a `webContents`, a hello timer,
@@ -169,8 +211,8 @@ export interface BridgeConnection {
    * reconnect when the transport can manage it.
    */
   readonly id: string;
-  /** `local` = an Electron renderer window; `device` = a paired `full` device. */
-  readonly callerClass: "local" | "device";
+  /** See `CallerClass`. */
+  readonly callerClass: CallerClass;
   /** Audit identity, or null for a local caller (ADR-180 D4). */
   readonly deviceId: string | null;
   /** The audit line's human name for `deviceId`. Null for a local caller. */

@@ -26,7 +26,9 @@
  *
  * **Every device is the same device.** There are no tiers (ADR-207 D4): a
  * paired device reaches the whole handler table, terminal included, and
- * every connection this transport makes is `callerClass: "device"`.
+ * every connection the relay gate authenticates is `callerClass: "device"`.
+ * The one exception is the host server's own unix socket (ADR-225 D4), whose
+ * authenticator answers an `owner` caller for the owner token.
  *
  * Close codes are in the application range on purpose — 4401 reads as the
  * HTTP status it mirrors: "your token is wrong, re-pair". They are
@@ -36,25 +38,47 @@
 import { randomUUID } from "node:crypto";
 
 import type { FrameSocket } from "./frame-socket";
-import type { AuthenticatedDevice } from "../../remote-control/relay-gate";
-import type { BridgeServer } from "../server";
+import type { BridgeServer, BridgeServerDeps } from "../server";
 import {
   BRIDGE_PROTOCOL_VERSION,
   CLOSE_UNAUTHORIZED,
   type BridgeConnection,
+  type CallerClass,
   type HelloReplyFrame,
 } from "../types";
 
 /** How long an accepted socket may stay silent before it is closed. */
 const HELLO_TIMEOUT_MS = 5_000;
 
-/** What `remote-control/relay-gate.ts` answers when asked to check a hello. */
+/**
+ * Who a hello turned out to be: a paired device
+ * (`remote-control/relay-gate.ts`), or the owner — the desktop on a host
+ * server's own socket, whose token is the 0600 owner token (ADR-225 D4). It
+ * becomes the connection's identity as it is.
+ */
+export interface AuthenticatedCaller {
+  callerClass: CallerClass;
+  /** The paired device, for the audit line; null for the owner. */
+  deviceId: string | null;
+  deviceLabel: string | null;
+}
+
+/** What an authenticator answers when asked to check a hello. */
 export type BridgeAuthResult =
-  | { ok: true; device: AuthenticatedDevice }
+  | { ok: true; caller: AuthenticatedCaller }
   | { ok: false; code: number };
 
-/** The `verify + backoff` decision, which lives in `relay-gate.ts`. */
+/**
+ * The `verify + backoff` decision, which lives in `relay-gate.ts` (or the
+ * owner socket's token check), handed the hello's token.
+ */
 export type BridgeAuthenticator = (token: unknown) => BridgeAuthResult;
+
+/** The three calls this transport makes on a server, whatever its deps. */
+type Dispatcher = Pick<
+  BridgeServer<BridgeServerDeps>,
+  "accept" | "drop" | "receive"
+>;
 
 /** A live socket, and the connection it became once it said hello. */
 interface Socket {
@@ -122,8 +146,17 @@ export class WsBridgeServer {
    *   reply so a relay-served page can load the matching build (ADR-206 D4).
    */
   constructor(
-    private readonly server: BridgeServer,
-    private readonly options: { appVersion?: string } = {},
+    private readonly server: Dispatcher,
+    private readonly options: {
+      appVersion?: string;
+      /** The host's display name for the hello (ADR-225 D7). */
+      hostName?: () => string | undefined;
+      /**
+       * Set by the host server only: every hello says `hostServer: true` so
+       * the page knows it is on a bridge slice (ADR-226).
+       */
+      hostServer?: boolean;
+    } = {},
   ) {}
 
   /** Live bridge sockets. The UI's "a browser is attached" signal. */
@@ -255,12 +288,9 @@ export class WsBridgeServer {
     if (previousId && !this.idIsHeld(previousId, entry)) {
       entry.id = previousId;
     }
-    const device = result.device;
     entry.connection = {
       id: entry.id,
-      callerClass: "device",
-      deviceId: device.id,
-      deviceLabel: device.label,
+      ...result.caller,
       send: (outgoing) => this.send(entry, outgoing),
     };
     this.server.accept(entry.connection);
@@ -273,6 +303,9 @@ export class WsBridgeServer {
         appVersion: this.options.appVersion,
       }),
     };
+    const hostName = this.options.hostName?.();
+    if (hostName) reply.hostName = hostName;
+    if (this.options.hostServer) reply.hostServer = true;
     this.send(entry, reply);
   }
 

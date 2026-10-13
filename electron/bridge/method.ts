@@ -8,6 +8,7 @@
  */
 
 import type { HostDeps } from "../ipc/types";
+import type { CallerClass, UnavailableCode } from "./types";
 
 /**
  * Who is calling, as the transport saw it — never as the frame says.
@@ -19,15 +20,25 @@ import type { HostDeps } from "../ipc/types";
  */
 export interface Caller {
   id: string;
-  /** `local` = an Electron renderer window; `device` = a paired `full` device. */
-  callerClass: "local" | "device";
+  /**
+   * `local` = an Electron renderer window; `owner` = the desktop on a host
+   * server's owner channel (ADR-225 D4); `device` = a paired `full` device.
+   */
+  callerClass: CallerClass;
   /** The paired device behind a `device` caller; null/absent for `local`. */
   deviceId?: string | null;
 }
 
-/** What every handler gets before its wire arguments. */
-export interface HandlerCtx {
-  deps: HostDeps;
+/**
+ * What every handler gets before its wire arguments.
+ *
+ * `D` is the deps the table runs over: the desktop's `HostDeps` by default,
+ * or the host server's narrower `HostServerDeps` (ADR-225 D6). A handler
+ * shared by both declares only the slice of deps it reads, so either can
+ * call it.
+ */
+export interface HandlerCtx<D = HostDeps> {
+  deps: D;
   caller: Caller;
 }
 
@@ -40,7 +51,17 @@ export interface HandlerCtx {
  * where the arguments really are whatever JSON arrived — which is why every
  * handler runs its own `assert*` validation.
  */
-export type BridgeHandler = (ctx: HandlerCtx, ...args: never[]) => unknown;
+export type BridgeHandler<D = HostDeps> = (
+  ctx: HandlerCtx<D>,
+  ...args: never[]
+) => unknown;
+
+/**
+ * A handler over any deps. `never` deps is the bottom of every `HandlerCtx`,
+ * so each handler, whatever slice of deps it declares, is one of these: what
+ * a table entry is constrained by, before a server says which deps it runs.
+ */
+type AnyBridgeHandler = BridgeHandler<never>;
 
 export interface MethodRules {
   /**
@@ -63,7 +84,7 @@ export interface MethodRules {
 }
 
 export interface Method<
-  F extends BridgeHandler = BridgeHandler,
+  F extends AnyBridgeHandler = AnyBridgeHandler,
   R extends MethodRules = MethodRules,
 > {
   fn: F;
@@ -72,7 +93,7 @@ export interface Method<
 
 /** A table entry. `const R` keeps the rules literal for the derived types. */
 export function method<
-  F extends BridgeHandler,
+  F extends AnyBridgeHandler,
   const R extends MethodRules = Record<never, never>,
 >(fn: F, rules?: R): Method<F, R> {
   return { fn, rules: rules ?? ({} as R) };
@@ -107,6 +128,69 @@ export function flatten<const T extends Record<string, Table>>(
     }
   }
   return flat as Flat<T>;
+}
+
+/** The keys of `methods` whose entry carries `rule`. */
+function ruleSet(
+  methods: Record<string, Method>,
+  rule: keyof MethodRules,
+): ReadonlySet<string> {
+  return new Set(
+    Object.entries(methods)
+      .filter(([, entry]) => entry.rules[rule])
+      .map(([key]) => key),
+  );
+}
+
+/**
+ * What a `BridgeServer` dispatches: `ns.method` → handler, the rule sets read
+ * off the same entries, and what kind of server answers with it
+ * (`./handlers.ts` for the desktop, `../host-server/handlers.ts` for a host
+ * server).
+ */
+export interface HandlerTable<D> {
+  handlers: Readonly<Record<string, BridgeHandler<D>>>;
+  /** Refused to every caller class not in `localOnlyCallers` (ADR-180 D4). */
+  localOnly: ReadonlySet<string>;
+  /** Audited when a device calls them. */
+  mutating: ReadonlySet<string>;
+  /** First argument is a credential; never written to the audit line. */
+  secretFirstArg: ReadonlySet<string>;
+  /**
+   * How a method absent from the table (or refused as `localOnly`) is
+   * answered: `unavailable:web`, "in the browser" on the desktop;
+   * `unavailable:host`, "on this host" on a host server (ADR-225 D6).
+   */
+  unavailable: { code: UnavailableCode; where: string };
+  /**
+   * Who may call `localOnly` methods: a desktop window (`local`) on the
+   * desktop, the owner channel (`owner`, ADR-225 D4) on a host server. A
+   * device never; an owner reaching the desktop's server — which no desktop
+   * transport makes — is refused them like a device.
+   */
+  localOnlyCallers: ReadonlySet<CallerClass>;
+}
+
+/**
+ * A flattened table as the `HandlerTable` a server dispatches on.
+ *
+ * `D` is checked here: every entry's handler must run over `D`, so a handler
+ * that reads more deps than its server has fails to compile at the table,
+ * not at a caller's first call.
+ */
+export function toHandlerTable<D>(
+  methods: Readonly<Record<string, Method<BridgeHandler<D>>>>,
+  surface: Pick<HandlerTable<D>, "unavailable" | "localOnlyCallers">,
+): HandlerTable<D> {
+  return {
+    handlers: Object.fromEntries(
+      Object.entries(methods).map(([key, entry]) => [key, entry.fn]),
+    ),
+    localOnly: ruleSet(methods, "localOnly"),
+    mutating: ruleSet(methods, "mutating"),
+    secretFirstArg: ruleSet(methods, "secretFirstArg"),
+    ...surface,
+  };
 }
 
 /**

@@ -38,6 +38,7 @@ import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Undo2 from "lucide-react/dist/esm/icons/undo-2";
 import type { CommandItem, CategoryConfig } from "./types";
+import { useConnection } from "../../bridge/connection";
 import type { SettingsPageId } from "../settings/SettingsModal/SettingsModal";
 import { useKeybindingsStore } from "../../store/keybindings-store";
 import { formatCombo } from "../../lib/keybindings";
@@ -102,6 +103,7 @@ export function useCommands({
   navigateToStats,
 }: UseCommandsParams): CategoryConfig[] {
   const bindings = useKeybindingsStore((s) => s.bindings);
+  const { isHostServer } = useConnection();
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const activeSurface = useAppStore((s) => s.activeSurface);
@@ -130,7 +132,9 @@ export function useCommands({
     // on the web app, so it never appears rather than opening and failing.
     // The table decides which those are; the palette just asks it.
     const available = new Set(
-      availableCommands({ web: isWebApp() }).map((def) => def.id),
+      availableCommands({ web: isWebApp(), hostServer: isHostServer }).map(
+        (def) => def.id,
+      ),
     );
 
     /** The palette's view of table commands, minus any this platform lacks. */
@@ -763,5 +767,6 @@ export function useCommands({
     hasSelectedTab,
     activeTabPinned,
     panelCount,
+    isHostServer,
   ]);
 }

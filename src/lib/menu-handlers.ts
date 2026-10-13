@@ -49,6 +49,7 @@ import {
 } from "./commands";
 import { openExternal } from "./open-external";
 import { isWebApp } from "./platform";
+import { isHostServer } from "../bridge/connection";
 import {
   buildSidebarItems,
   placeAfterFolder,
@@ -192,10 +193,14 @@ function createCommandContext(chrome: MenuChrome): CommandContext {
  */
 export function createMenuHandlers(
   chrome: MenuChrome,
-  { primary = true }: { primary?: boolean } = {},
+  {
+    primary = true,
+    hostServer = isHostServer(),
+  }: { primary?: boolean; hostServer?: boolean } = {},
 ): Record<string, MenuHandler> {
   return commandHandlers(createCommandContext(chrome), {
     web: isWebApp(),
+    hostServer,
     primary,
   });
 }

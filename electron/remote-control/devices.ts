@@ -14,18 +14,23 @@
  *   3. `revoke()` mutates the live map the lookup walks. Nothing caches a copy
  *      of the device list, so revocation takes effect on the next request.
  *
- * Persistence follows `electron/linear.ts` — `safeStorage.encryptString` into
- * `manorDataDir()`, mode 0600. If the OS keychain is unavailable we refuse to
- * store rather than degrading to plaintext: a plaintext bearer token on disk is
- * worse than a feature that will not turn on.
+ * Persistence is a `SealedStore` over the `SecretBox` the store is given
+ * (ADR-225 D6): `safeStorage` on the desktop, the host's chosen backend on a
+ * host server, mode 0600 either way. When the box cannot store (a desktop with
+ * no OS keychain) pairing refuses, and remote control stays off. Pairing and
+ * revoking resolve only once the change is on disk: a revoke that was not
+ * saved would quietly come back on the next start.
  */
 
 import crypto from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
-import { safeStorage } from "electron";
 
 import { remoteDevicesFile } from "../paths";
+import type { SecretBox } from "../platform/secret-box";
+import {
+  EncryptionUnavailableError,
+  SealedStore,
+  type SealedCodec,
+} from "../platform/sealed-store";
 
 export interface RemoteDevice {
   /** Random id. Safe to log — it is not a credential. */
@@ -74,18 +79,6 @@ export type RemoteDeviceInfo = Omit<
   "tokenHash" | "pushSubscription" | "relayRoom" | "extra"
 > & { hasPush: boolean };
 
-/** Raised when the OS keychain cannot encrypt — pairing must not proceed. */
-export class EncryptionUnavailableError extends Error {
-  constructor() {
-    super(
-      "OS encryption is unavailable, so a remote-control token cannot be " +
-        "stored safely. Remote control stays off rather than writing a bearer " +
-        "token to disk in plaintext.",
-    );
-    this.name = "EncryptionUnavailableError";
-  }
-}
-
 const TOKEN_BYTES = 32;
 const HASH_BYTES = 32; // sha256
 
@@ -100,31 +93,111 @@ function sha256Hex(value: string): string {
   return crypto.createHash("sha256").update(value, "utf8").digest("hex");
 }
 
-export class RemoteDeviceStore {
-  private readonly filePath: string;
-  /** The live lookup. `revoke()` deletes from this map and nothing else. */
-  private devices = new Map<string, RemoteDevice>();
-  private loaded = false;
+/** What the device file holds, and whether loading it changed anything. */
+interface StoredDevices {
+  devices: RemoteDevice[];
+  /**
+   * Set by `parse` when a row was dropped or carried a retired field, so the
+   * file is rewritten without it. Never serialized.
+   */
+  migrated?: boolean;
+}
 
-  constructor(filePath: string = remoteDevicesFile()) {
-    this.filePath = filePath;
+const DEVICES_CODEC: SealedCodec<StoredDevices> = {
+  parse(text) {
+    const parsed: unknown = JSON.parse(text);
+    if (!Array.isArray(parsed)) return null;
+    const devices: RemoteDevice[] = [];
+    let migrated = false;
+    for (const entry of parsed) {
+      const device = asDevice(entry);
+      if (!device) {
+        migrated = true;
+        continue;
+      }
+      devices.push(device);
+      const raw = entry as Record<string, unknown>;
+      if (RETIRED_FIELDS.some((field) => field in raw)) migrated = true;
+    }
+    return { devices, migrated };
+  },
+  serialize: ({ devices }) =>
+    JSON.stringify(devices.map(({ extra, ...known }) => ({ ...extra, ...known }))),
+};
+
+export class RemoteDeviceStore {
+  /**
+   * The live lookup, once `init()` has run. `revoke()` deletes from this map
+   * and nothing else.
+   */
+  private devices: Map<string, RemoteDevice> | null = null;
+  private readonly store: SealedStore<StoredDevices>;
+
+  constructor(
+    private readonly secretBox: SecretBox,
+    filePath: string = remoteDevicesFile(),
+  ) {
+    this.store = new SealedStore(
+      secretBox,
+      filePath,
+      "paired devices",
+      DEVICES_CODEC,
+    );
+  }
+
+  /**
+   * Decrypt the file into memory. Must complete before any other method: the
+   * secret box is async, so the rest of this API reads the cached state and
+   * stays synchronous (`verify()` is on the hello path).
+   *
+   * No file, or one this install can no longer decrypt (a restored backup, a
+   * new keychain), means no usable devices, and the user re-pairs — which is
+   * exactly the recovery story the per-device model is for. A box that could
+   * not run at all rejects instead (`SecretBoxUnavailableError`), leaving the
+   * file alone.
+   */
+  async init(): Promise<void> {
+    if (this.devices) return;
+    const stored = await this.store.init();
+    const devices = new Map<string, RemoteDevice>();
+    for (const device of stored?.devices ?? []) devices.set(device.id, device);
+    this.devices = devices;
+    // Rewrite now rather than waiting for the next pair or `lastSeenAt`
+    // flush: a dropped row (a Tailscale, Watch or Reply device — ADR-207
+    // D5) or a retired field would otherwise linger on disk for a device
+    // that is never used again.
+    if (stored?.migrated) {
+      try {
+        this.persist();
+      } catch {
+        // A machine that cannot encrypt still gets the in-memory migration;
+        // refusing to *read* here would lock the user out of their own
+        // devices over a write we do not need.
+      }
+    }
+  }
+
+  /** Resolves once every queued write has reached disk; rejects if one failed. */
+  flush(): Promise<void> {
+    return this.store.flush();
   }
 
   /**
    * Mint a device. The returned `rawToken` is the only time it exists in a
    * readable form anywhere — the caller shows it once (QR + copyable text) and
-   * drops it.
+   * drops it. Resolves once the device is on disk; a device that could not be
+   * saved is dropped again, and the failure rejects.
    */
-  pair(
+  async pair(
     label: string,
     /** The relay room the device's link points at. */
     relayRoom: string,
-  ): {
+  ): Promise<{
     device: RemoteDeviceInfo;
     rawToken: string;
-  } {
-    this.load();
-    if (!safeStorage.isEncryptionAvailable()) {
+  }> {
+    const devices = this.live();
+    if (!this.secretBox.available()) {
       throw new EncryptionUnavailableError();
     }
 
@@ -138,8 +211,14 @@ export class RemoteDeviceStore {
       lastSeenAt: null,
       pushSubscription: null,
     };
-    this.devices.set(device.id, device);
-    this.persist();
+    devices.set(device.id, device);
+    try {
+      this.persist();
+      await this.store.flush();
+    } catch (err) {
+      devices.delete(device.id);
+      throw err;
+    }
     return { device: publicView(device), rawToken };
   }
 
@@ -153,7 +232,7 @@ export class RemoteDeviceStore {
    * sees mismatched buffers.
    */
   verify(rawToken: unknown): RemoteDevice | null {
-    this.load();
+    const devices = this.live();
     if (typeof rawToken !== "string" || rawToken.length === 0) return null;
 
     let presented: Buffer;
@@ -165,7 +244,7 @@ export class RemoteDeviceStore {
     if (presented.length !== HASH_BYTES) return null;
 
     let matched: RemoteDevice | null = null;
-    for (const device of this.devices.values()) {
+    for (const device of devices.values()) {
       const stored = Buffer.from(device.tokenHash, "hex");
       if (stored.length !== HASH_BYTES) continue;
       if (crypto.timingSafeEqual(presented, stored)) matched = device;
@@ -176,7 +255,13 @@ export class RemoteDeviceStore {
     const previous = matched.lastSeenAt;
     matched.lastSeenAt = now;
     if (previous === null || now - previous > LAST_SEEN_FLUSH_MS) {
-      this.persist();
+      try {
+        this.persist();
+      } catch {
+        // `lastSeenAt` is a courtesy; a store that cannot write must not turn
+        // a valid hello away. The failure is the store's to report, to the
+        // next pair or revoke.
+      }
     }
     return matched;
   }
@@ -190,12 +275,28 @@ export class RemoteDeviceStore {
     id: string,
     subscription: PushSubscriptionRecord | null,
   ): boolean {
-    this.load();
-    const device = this.devices.get(id);
+    const device = this.live().get(id);
     if (!device) return false;
     device.pushSubscription = subscription;
     this.persist();
     return true;
+  }
+
+  /**
+   * Drop every device's push subscription, keeping the devices paired. For a
+   * VAPID key change: the old subscriptions are bound to the old key, so a
+   * push signed with the new one would be refused. The phone re-subscribes on
+   * its next load.
+   */
+  clearPushSubscriptions(): void {
+    let changed = false;
+    for (const device of this.live().values()) {
+      if (device.pushSubscription) {
+        device.pushSubscription = null;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
   }
 
   /** Every device that can currently receive a push. */
@@ -203,12 +304,11 @@ export class RemoteDeviceStore {
     device: RemoteDeviceInfo;
     subscription: PushSubscriptionRecord;
   }> {
-    this.load();
     const targets: Array<{
       device: RemoteDeviceInfo;
       subscription: PushSubscriptionRecord;
     }> = [];
-    for (const device of this.devices.values()) {
+    for (const device of this.live().values()) {
       if (device.pushSubscription)
         targets.push({
           device: publicView(device),
@@ -220,8 +320,7 @@ export class RemoteDeviceStore {
 
   /** Ids of every paired device. */
   ids(): string[] {
-    this.load();
-    return [...this.devices.keys()];
+    return [...this.live().keys()];
   }
 
   /**
@@ -229,93 +328,56 @@ export class RemoteDeviceStore {
    * once the identity has changed.
    */
   idsInOtherRelayRooms(roomId: string): string[] {
-    this.load();
-    return [...this.devices.values()]
+    return [...this.live().values()]
       .filter((d) => d.relayRoom !== roomId)
       .map((d) => d.id);
   }
 
-  /** Immediate: the map this deletes from is what `verify()` walks. */
-  revoke(id: string): void {
-    this.load();
-    if (this.devices.delete(id)) this.persist();
+  /**
+   * Immediate: the map this deletes from is what `verify()` walks, so the
+   * device is refused from this call on. Resolves once that is on disk too;
+   * rejects when it could not be saved (the device would come back on the
+   * next start), and the caller says so.
+   */
+  revoke(id: string): Promise<void> {
+    return this.revokeMany([id]);
+  }
+
+  /** `revoke` for several devices, in one write. */
+  async revokeMany(ids: readonly string[]): Promise<void> {
+    const devices = this.live();
+    let changed = false;
+    for (const id of ids) if (devices.delete(id)) changed = true;
+    if (!changed) return;
+    this.persist();
+    await this.store.flush();
+  }
+
+  /** Has `init()` read the file? Until it has, `list()` and the rest refuse. */
+  get ready(): boolean {
+    return this.devices !== null;
+  }
+
+  /** Can this install seal a token? False: pairing cannot store one. */
+  encryptionAvailable(): boolean {
+    return this.secretBox.available();
   }
 
   list(): RemoteDeviceInfo[] {
-    this.load();
-    return [...this.devices.values()]
+    return [...this.live().values()]
       .sort((a, b) => a.createdAt - b.createdAt)
       .map(publicView);
   }
 
-  /** Test seam and shutdown hook: forget everything in memory. */
-  reset(): void {
-    this.devices = new Map();
-    this.loaded = false;
-  }
-
-  private load(): void {
-    if (this.loaded) return;
-    this.loaded = true;
-    let decrypted: string;
-    try {
-      const encrypted = fs.readFileSync(this.filePath);
-      decrypted = safeStorage.decryptString(encrypted);
-    } catch {
-      // No file yet, or a file this install can no longer decrypt (a restored
-      // backup, a new keychain). Either way there are no usable devices, and
-      // the user re-pairs — which is exactly the recovery story the per-device
-      // model is for.
-      return;
+  private live(): Map<string, RemoteDevice> {
+    if (!this.devices) {
+      throw new Error("RemoteDeviceStore.init() has not completed");
     }
-    try {
-      const parsed: unknown = JSON.parse(decrypted);
-      if (!Array.isArray(parsed)) return;
-      let migrated = false;
-      for (const entry of parsed) {
-        const device = asDevice(entry);
-        if (!device) {
-          migrated = true;
-          continue;
-        }
-        this.devices.set(device.id, device);
-        const raw = entry as Record<string, unknown>;
-        if (RETIRED_FIELDS.some((field) => field in raw)) migrated = true;
-      }
-      // Rewrite now rather than waiting for the next pair or `lastSeenAt`
-      // flush: a dropped row (a Tailscale, Watch or Reply device — ADR-207
-      // D5) or a retired field would otherwise linger on disk for a device
-      // that is never used again.
-      if (migrated) {
-        try {
-          this.persist();
-        } catch {
-          // A machine that cannot encrypt still gets the in-memory migration;
-          // refusing to *read* here would lock the user out of their own
-          // devices over a write we do not need.
-        }
-      }
-    } catch {
-      // Corrupt payload — same recovery.
-    }
+    return this.devices;
   }
 
   private persist(): void {
-    if (!safeStorage.isEncryptionAvailable()) {
-      throw new EncryptionUnavailableError();
-    }
-    const payload = JSON.stringify(
-      [...this.devices.values()].map(({ extra, ...known }) => ({
-        ...extra,
-        ...known,
-      })),
-    );
-    const encrypted = safeStorage.encryptString(payload);
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
-    // `mode` only applies when the file is created, so an existing file keeps
-    // whatever it had. Restate it every write.
-    fs.chmodSync(this.filePath, 0o600);
+    this.store.write({ devices: [...this.live().values()] });
   }
 }
 

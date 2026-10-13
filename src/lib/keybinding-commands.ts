@@ -36,7 +36,13 @@ import {
 } from "./commands";
 import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
+import {
+  getConnection,
+  hostServerUnavailableCopy,
+  isHostServer,
+} from "../bridge/connection";
 import { currentLayoutMode } from "../hooks/useLayoutMode";
+import { showBridgeUnavailableToastOnce } from "./bridge-unavailable-toast";
 
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
@@ -128,9 +134,17 @@ export async function startNewAgent(
 /**
  * "New agent", from any trigger. A phone opens the new-agent composer
  * instead: nothing launches until its first message, wherever its chips
- * point (ADR-222 D1). Elsewhere it is `startNewAgent`.
+ * point (ADR-222 D1). Elsewhere it is `startNewAgent`. A host server does
+ * not launch agents (ADR-225 D5): there it is a toast saying so.
  */
 export async function newAgent({ prewarm }: { prewarm: boolean }): Promise<void> {
+  if (isHostServer()) {
+    showBridgeUnavailableToastOnce(
+      "host-server-new-agent",
+      hostServerUnavailableCopy("Starting new agents", getConnection().hostName),
+    );
+    return;
+  }
   if (currentLayoutMode() === "phone") {
     useAppStore.getState().showComposer();
     return;
@@ -231,6 +245,7 @@ export function createSharedKeybindingHandlers(
 ): Record<string, CommandHandler> {
   return commandHandlers(createSharedCommandContext(options), {
     web: isWebApp(),
+    hostServer: isHostServer(),
     primary: false,
   });
 }

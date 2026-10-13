@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import { ExecShellBackend } from "../backend/exec-shell";
 import { localFacts } from "../backend/machine-facts";
 import { LOCAL_HOST_ID, type GitBackend, type HostSpec } from "../backend/types";
+import type { ManifestProject } from "../host-server/manifest";
 import { splitShared } from "../../src/lib/project-groups";
 import { manorDataDir } from "../paths";
 import type { HostPath } from "../per-host-poller";
@@ -51,6 +52,7 @@ import type {
   TransferResult,
   WorkspaceFolder,
   WorkspaceFromIssue,
+  WorkspaceInfo,
 } from "./types";
 
 /** The settings a group shares, as one project had them on its own. */
@@ -214,6 +216,41 @@ export class ProjectManager {
     return this.store.state.projects
       .filter((p) => p.hostId !== LOCAL_HOST_ID)
       .map((p) => ({ path: p.path, hostId: p.hostId }));
+  }
+
+  /**
+   * The projects on `hostId` as `projects.json` holds them, for that host's
+   * host server manifest (ADR-225 D4): copies, with a linked-project group's
+   * shared settings (ADR-192) already resolved into each one — the host
+   * server knows nothing of groups — without `hostPaths` (which name other
+   * hosts) and with `hostId` rewritten to `local`, as the box knows it.
+   */
+  manifestRecords(hostId: string): ManifestProject[] {
+    return this.store.state.projects
+      .filter((p) => p.hostId === hostId)
+      .map((p) => {
+        const { hostPaths: _hostPaths, ...record } = structuredClone(p);
+        const shared = groups.resolveShared(groups.groupOf(this.store.state, p.id), p);
+        return {
+          ...record,
+          hostId: LOCAL_HOST_ID,
+          name: shared.name,
+          color: shared.color,
+          agentCommand: shared.agentCommand,
+          themeName: shared.themeName,
+          commands: structuredClone(shared.commands),
+          linearAssociations: structuredClone(shared.linearAssociations),
+        };
+      });
+  }
+
+  /**
+   * A remote project's worktrees as last listed, without asking its host;
+   * empty for a local project or one not listed yet.
+   */
+  knownWorkspaces(projectId: string): WorkspaceInfo[] {
+    const p = this.findProject(projectId);
+    return (p && this.lastKnownWorkspaces.latest(p)) ?? [];
   }
 
   /** Run `listener` after every write of `projects.json` — any project mutation. */

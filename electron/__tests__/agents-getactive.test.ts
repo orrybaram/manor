@@ -13,18 +13,17 @@ vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
   sendAgentUpdate: vi.fn(),
-  getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
+import { agentsConsumePruneNotice } from "../bridge/handlers/agents";
 import {
   agentsGetActive,
   agentsGetRecent,
-  agentsConsumePruneNotice,
-} from "../bridge/handlers/agents";
+} from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 
 function makeDeps(overrides: Record<string, unknown> = {}) {

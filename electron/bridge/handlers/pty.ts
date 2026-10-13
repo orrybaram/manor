@@ -17,6 +17,7 @@ import { resolveSpawnCwd } from "../../paths";
 import {
   attach,
   claim,
+  isHeld,
   ownerOf,
   reclaimOnInput,
   release,
@@ -24,7 +25,8 @@ import {
   type Viewer,
 } from "../../pty-attachments";
 import { HostUnavailableError } from "../../backend/host-view";
-import { LOCAL_HOST_ID, type HostId } from "../../backend/types";
+import { LOCAL_HOST_ID, type HostId, type PtyBackend } from "../../backend/types";
+import type { TerminalSnapshot } from "../../terminal-host/types";
 import { errorMessage } from "../../lib/errors";
 import { isHomePath } from "../../../src/lib/home-path";
 import {
@@ -41,6 +43,7 @@ import type {
   PtyWinsize,
 } from "../../../src/electron.d";
 import { method, type Caller, type HandlerCtx } from "../method";
+import { sessionGrid, type BridgeServerDeps } from "../server";
 
 /**
  * Read git branch synchronously from a repo or worktree root, for this
@@ -108,34 +111,28 @@ function requestedHost(
   return opts.hostId;
 }
 
-/** The caller, as the viewer `pty-attachments.ts` holds a pane under. */
+/**
+ * What a viewer's own calls on a session read — write, resize, detach — and
+ * nothing else (ADR-225 D6). `HostDeps` has it, and so does the host
+ * server's `HostServerDeps`, which reuses these handlers as they are.
+ */
+export interface PtyViewerDeps {
+  backend: {
+    pty: Pick<PtyBackend, "write" | "resize" | "detach" | "getSnapshot">;
+  };
+}
+
+/**
+ * The caller, as the viewer `pty-attachments.ts` holds a pane under. Who
+ * outranks whom — only an Electron renderer window (`local`) does — is the
+ * registry's rule, not decided here.
+ */
 function asViewer(caller: Caller): Viewer {
   return { connectionId: caller.id, callerClass: caller.callerClass };
 }
 
 /** What a create-shaped call tells the caller about the winsize (D5). */
 type WinsizeDecoration = Required<PtyWinsize>;
-
-/**
- * The session's current grid, or null if the daemon has no opinion yet.
- *
- * Never throws: a caller that cannot be told the owner's size is better off
- * with the size it asked for than with a failed `pty.create`. Exported for
- * `server.ts`'s ownership-change push (D6), which needs the same "ask the
- * daemon, shrug on failure" grid lookup outside of a create call.
- */
-export async function sessionGrid(
-  deps: HostDeps,
-  paneId: string,
-): Promise<{ cols: number; rows: number } | null> {
-  try {
-    const snapshot = await deps.backend.pty.getSnapshot(paneId);
-    if (!snapshot?.cols || !snapshot.rows) return null;
-    return { cols: snapshot.cols, rows: snapshot.rows };
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Run a create-shaped call, tell the caller who owns the winsize, and attach
@@ -149,13 +146,17 @@ export async function sessionGrid(
  * through the one door marked "read". The answer carries the owner's grid,
  * which is what the follower renders.
  *
+ * A host server's daemon-reported attach count (ADR-225 D5) reaches here as
+ * the registry's foreign hold, set before the call: nobody follows anything
+ * but the registry.
+ *
  * Who outranks whom is `pty-attachments.ts`'s rule: a caller is a follower
  * exactly when attaching would *not* make it the owner (`wouldOwn`), which for
  * a window on this machine is only when it already holds the pane and let
  * another viewer take it.
  */
-async function createShaped<T extends { ok: boolean }>(
-  ctx: HandlerCtx,
+export async function createShaped<T extends { ok: boolean }>(
+  ctx: HandlerCtx<BridgeServerDeps>,
   paneId: string,
   cols: number,
   rows: number,
@@ -349,21 +350,36 @@ export async function ptyAttach(
         reason: sessions.isRecoverableLoss(paneId) ? "lost" : "exited",
       };
     }
-    const viewer = asViewer(ctx.caller);
-    attach(paneId, viewer, { as: "returning" });
-    return {
-      ok: true,
-      // Where `RoutedBackend` sent the attach.
-      hostId: sessions.ownerOf(paneId) ?? LOCAL_HOST_ID,
-      snapshot: snapshot.screenAnsi || null,
-      snapshotSeq: snapshot.seq,
-      winsizeOwner: ownerOf(paneId)?.connectionId === viewer.connectionId,
-      cols: snapshot.cols,
-      rows: snapshot.rows,
-    };
+    // Where `RoutedBackend` sent the attach.
+    const hostId = sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
+    return attachReturning(ctx.caller, paneId, snapshot, hostId);
   } catch (err) {
     return toPtyFailure(err, paneId);
   }
+}
+
+/**
+ * The caller back on a running session, as a returning viewer: no bid for
+ * the winsize, and the session's own grid — the owner's — in the answer.
+ * `pty.attach`'s success, here and on a host server.
+ */
+export function attachReturning(
+  caller: Caller,
+  paneId: string,
+  snapshot: TerminalSnapshot,
+  hostId: string,
+): PtyAttachResult {
+  const viewer = asViewer(caller);
+  attach(paneId, viewer, { as: "returning" });
+  return {
+    ok: true,
+    hostId,
+    snapshot: snapshot.screenAnsi || null,
+    snapshotSeq: snapshot.seq,
+    winsizeOwner: ownerOf(paneId)?.connectionId === viewer.connectionId,
+    cols: snapshot.cols,
+    rows: snapshot.rows,
+  };
 }
 
 /**
@@ -438,7 +454,11 @@ async function createSession(
   }
 }
 
-export function ptyWrite(ctx: HandlerCtx, paneId: string, data: string): void {
+export function ptyWrite(
+  ctx: HandlerCtx<PtyViewerDeps>,
+  paneId: string,
+  data: string,
+): void {
   assertString(paneId, "paneId");
   assertString(data, "data");
   // Typing, not xterm answering a query: replies to DA/DSR/focus reports
@@ -453,7 +473,10 @@ export function ptyWrite(ctx: HandlerCtx, paneId: string, data: string): void {
  * ownership push tells this viewer it owns the grid now, and its own fit
  * sends the resize, through `ptyResize`, as any owner's does.
  */
-export function ptyClaimWinsize(ctx: HandlerCtx, paneId: string): boolean {
+export function ptyClaimWinsize(
+  ctx: HandlerCtx<PtyViewerDeps>,
+  paneId: string,
+): boolean {
   assertString(paneId, "paneId");
   return claim(paneId, asViewer(ctx.caller));
 }
@@ -469,7 +492,7 @@ export function ptyClaimWinsize(ctx: HandlerCtx, paneId: string): boolean {
  * resizes normally.
  */
 export async function ptyResize(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<PtyViewerDeps>,
   paneId: string,
   cols: number,
   rows: number,
@@ -513,11 +536,11 @@ export async function ptyClose(ctx: HandlerCtx, paneId: string): Promise<void> {
  * nothing, and the next `pty.create` reuses the live subscription.
  */
 export async function ptyDetach(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<PtyViewerDeps>,
   paneId: string,
 ): Promise<void> {
   release(paneId, asViewer(ctx.caller));
-  if (ownerOf(paneId)) return;
+  if (isHeld(paneId)) return;
   assertString(paneId, "paneId");
   try {
     await ctx.deps.backend.pty.detach(paneId);

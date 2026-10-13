@@ -16,6 +16,7 @@ import path from "node:path";
 import { RelayGate, type AuthenticatedDevice } from "../relay-gate";
 import { RemoteAuditLog } from "../audit";
 import { AuthRateLimiter } from "../rate-limit";
+import { DESKTOP_TABLE } from "../../bridge/handlers";
 import { BridgeServer } from "../../bridge/server";
 import { WsBridgeServer } from "../../bridge/transports/ws";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
@@ -32,7 +33,10 @@ import {
  * is. `local` is what outranks the sockets these tests open.
  */
 const DESKTOP_WINDOW: Viewer = { connectionId: "1", callerClass: "local" };
-import { publishRendererBroadcast } from "../../renderer-broadcast";
+import {
+  addRendererBroadcastSink,
+  publishRendererBroadcast,
+} from "../../renderer-broadcast";
 import { LayoutStore } from "../../layout/layout-store";
 import { LayoutPersistence } from "../../terminal-host/layout-persistence";
 import type { HostDeps } from "../../ipc/types";
@@ -126,7 +130,7 @@ describe("WsBridgeServer", () => {
   let gate: RelayGate;
   let bridge: WsBridgeServer;
   /** The host surface the socket transport feeds. */
-  let host: BridgeServer;
+  let host: BridgeServer<HostDeps>;
   let deps: HostDeps;
   let auditDir: string;
   let audit: RemoteAuditLog;
@@ -235,7 +239,11 @@ describe("WsBridgeServer", () => {
       },
     } as unknown as HostDeps;
 
-    host = new BridgeServer(deps, { audit });
+    host = new BridgeServer(deps, {
+      table: DESKTOP_TABLE,
+      events: addRendererBroadcastSink,
+      audit,
+    });
     bridge = new WsBridgeServer(host);
     gate = new RelayGate(devices, bridge, new AuthRateLimiter());
     gate.open();

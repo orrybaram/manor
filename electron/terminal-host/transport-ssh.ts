@@ -15,6 +15,7 @@
 
 import { spawn as nodeSpawn } from "node:child_process";
 import { Duplex, type Readable, type Writable } from "node:stream";
+import type { HelloReplyFrame } from "../bridge/types";
 import type { HostTransport } from "./transport";
 import { parseHello } from "./types";
 import {
@@ -30,6 +31,7 @@ import {
   parseControlPath,
   remoteBridgeCommand,
   remoteRestartCommand,
+  remoteServerBridgeCommand,
   removeManagedSshConfig,
   type ManagedSshConfig,
 } from "./ssh-config";
@@ -129,6 +131,8 @@ class SshChildDuplex extends Duplex {
     private readonly stdin: Writable,
     private readonly stdout: Readable,
     leftover: Buffer,
+    /** What the child's exit means: an error to destroy with, or null for a clean end. */
+    exitError?: (code: number | null) => Error | null,
   ) {
     super();
     if (leftover.length > 0) this.push(leftover);
@@ -139,9 +143,9 @@ class SshChildDuplex extends Duplex {
     stdin.on("error", () => {
       // EPIPE once ssh is gone; `close` below reports the loss.
     });
-    child.on("close", () => {
+    child.on("close", (code) => {
       this.childGone = true;
-      this.destroy();
+      this.destroy(exitError?.(code) ?? undefined);
     });
     // Stays paused until the consumer reads (`_read` resumes it).
   }
@@ -166,6 +170,96 @@ class SshChildDuplex extends Duplex {
     if (!this.childGone) this.child.kill("SIGTERM");
     callback(err);
   }
+}
+
+/** A spawned bridge child and the stderr it has written so far. */
+interface BridgeChild {
+  child: SshChild;
+  stdin: Writable;
+  stdout: Readable;
+  stderrText: string;
+}
+
+/** No hello line within the first `maxPreamble` bytes. */
+class HelloPreambleError extends Error {
+  constructor(readonly maxPreamble: number) {
+    super(`no hello line in the first ${maxPreamble} bytes`);
+    this.name = "HelloPreambleError";
+  }
+}
+
+/**
+ * Read `stream` up to the first line `parse` accepts, skipping what it
+ * returns null for (login-shell noise). Resolves with the parsed hello and
+ * the bytes already read past it, `stream` paused and no longer listened to.
+ * Rejects when `parse` throws (a refusal) or more than `maxPreamble` bytes go
+ * by without a hello. The stream ending first is the caller's to notice —
+ * for an ssh child, its exit carries the better error.
+ */
+export function awaitHelloLine<T>(
+  stream: Readable,
+  parse: (line: string) => T | null,
+  maxPreamble: number = MAX_PREAMBLE_BYTES,
+): Promise<{ hello: T; rest: Buffer }> {
+  return new Promise((resolve, reject) => {
+    let buffered = Buffer.alloc(0);
+    /** Every byte read before the hello, including lines already skipped. */
+    let preambleBytes = 0;
+    const onData = (chunk: Buffer): void => {
+      buffered = Buffer.concat([buffered, chunk]);
+      let nl: number;
+      while ((nl = buffered.indexOf(0x0a)) >= 0) {
+        const line = buffered.subarray(0, nl).toString("utf-8").trim();
+        buffered = buffered.subarray(nl + 1);
+        let hello: T | null;
+        try {
+          hello = parse(line);
+        } catch (err) {
+          stream.off("data", onData);
+          reject(err);
+          return;
+        }
+        if (hello === null) {
+          preambleBytes += nl + 1;
+          if (preambleBytes > maxPreamble) break;
+          continue;
+        }
+        stream.pause();
+        stream.off("data", onData);
+        resolve({ hello, rest: buffered });
+        return;
+      }
+      if (preambleBytes + buffered.length > maxPreamble) {
+        stream.off("data", onData);
+        reject(new HelloPreambleError(maxPreamble));
+      }
+    };
+    stream.on("data", onData);
+  });
+}
+
+/**
+ * The host server's reply to the owner hello (`server-bridge` says it on
+ * the desktop's behalf): `{"type":"hello","ok":true,…}`. A line that is not
+ * JSON is login-shell noise (null); a `{"kind":"close",…}` is the server
+ * refusing the owner, and throws.
+ */
+export function parseServerHello(line: string): HelloReplyFrame | null {
+  let frame: unknown;
+  try {
+    frame = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  if (typeof frame !== "object" || frame === null) return null;
+  const f = frame as Record<string, unknown>;
+  if (f.type === "hello" && f.ok === true) return frame as HelloReplyFrame;
+  if (f.kind === "close") {
+    throw new Error(
+      `the host server refused the owner (${String(f.code)}${f.reason ? `: ${String(f.reason)}` : ""})`,
+    );
+  }
+  return null;
 }
 
 export class SshTransport implements HostTransport {
@@ -254,11 +348,11 @@ export class SshTransport implements HostTransport {
   }
 
   async connectControl(): Promise<Duplex> {
-    return this.openBridge();
+    return this.openDaemonBridge();
   }
 
   async connectStream(): Promise<Duplex> {
-    return this.openBridge();
+    return this.openDaemonBridge();
   }
 
   async authToken(): Promise<string> {
@@ -284,96 +378,115 @@ export class SshTransport implements HostTransport {
     removeManagedSshConfig(config);
   }
 
+  /**
+   * Open the owner channel to the box's host server (ADR-225 D4): one more
+   * child on the shared ControlMaster, running `manor-host server-bridge`.
+   *
+   * Resolves once the server has said its hello reply (`parseServerHello`),
+   * with the stream past it: what is left is bridge frames, one per line
+   * (`backend/host-server-client.ts`). Rejects when the child exits before
+   * the hello — no server on the box, or a `manor-host` too old to know the
+   * command — with its stderr, or when the server refuses the owner. A child
+   * that exits non-zero after the hello destroys the stream with that error.
+   */
+  async openServerBridge(): Promise<Duplex> {
+    const { duplex } = await this.openBridge(remoteServerBridgeCommand(), parseServerHello, {
+      exitIsError: true,
+    });
+    return duplex;
+  }
+
   // ── Internal ──
 
-  /** Spawn one `remote-bridge` connection and strip its hello line. */
-  private openBridge(): Promise<Duplex> {
+  /** Spawn one `remote-bridge` connection and take the token off its hello line. */
+  private async openDaemonBridge(): Promise<Duplex> {
+    const { hello, duplex } = await this.openBridge(remoteBridgeCommand(), parseHello);
+    this.token = hello.token;
+    return duplex;
+  }
+
+  /**
+   * Spawn `ssh … <command>` on the shared session and track it. Its stderr
+   * is kept (the last `MAX_STDERR_BYTES`) for the error an early exit makes.
+   */
+  private spawnBridgeChild(command: string): BridgeChild {
     const { configPath } = this.managedConfig();
-    const child = this.spawnFn(
-      "ssh",
-      buildSshArgs(configPath, this.target, remoteBridgeCommand()),
-    );
+    const child = this.spawnFn("ssh", buildSshArgs(configPath, this.target, command));
     this.track(child);
     const { stdin, stdout, stderr } = child;
     if (!stdin || !stdout || !stderr) {
       child.kill("SIGTERM");
-      return Promise.reject(new Error("ssh child is missing piped stdio"));
+      throw new Error("ssh child is missing piped stdio");
     }
-
-    let stderrText = "";
+    const bridge: BridgeChild = { child, stdin, stdout, stderrText: "" };
     stderr.on("data", (chunk: Buffer) => {
-      stderrText = (stderrText + chunk.toString("utf-8")).slice(-MAX_STDERR_BYTES);
+      bridge.stderrText = (bridge.stderrText + chunk.toString("utf-8")).slice(-MAX_STDERR_BYTES);
     });
+    return bridge;
+  }
 
-    return new Promise<Duplex>((resolve, reject) => {
-      let buffered = Buffer.alloc(0);
-      /** Every byte read before the hello, including lines already skipped. */
-      let preambleBytes = 0;
-      let settled = false;
-
-      const finish = (err: Error | null, duplex?: Duplex): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        stdout.off("data", onData);
-        child.off("error", onError);
-        child.off("close", onClose);
-        if (err) {
-          child.kill("SIGTERM");
-          reject(err);
-        } else {
-          resolve(duplex!);
-        }
-      };
-
-      const onData = (chunk: Buffer): void => {
-        buffered = Buffer.concat([buffered, chunk]);
-        let nl: number;
-        while ((nl = buffered.indexOf(0x0a)) >= 0) {
-          const line = buffered.subarray(0, nl).toString("utf-8").trim();
-          buffered = buffered.subarray(nl + 1);
-          const hello = parseHello(line);
-          if (!hello) {
-            preambleBytes += nl + 1;
-            if (preambleBytes > MAX_PREAMBLE_BYTES) break;
-            continue;
-          }
-          this.token = hello.token;
-          stdout.pause();
-          stdout.off("data", onData);
-          finish(null, new SshChildDuplex(child, stdin, stdout, buffered));
-          return;
-        }
-        if (preambleBytes + buffered.length > MAX_PREAMBLE_BYTES) {
-          finish(
-            new Error(
-              `manor-host on ${this.target} did not announce itself (no bridgeHello in the first ${MAX_PREAMBLE_BYTES} bytes)`,
-            ),
-          );
-        }
-      };
-
-      const onError = (err: Error): void => {
-        finish(new Error(`Could not run ssh for ${this.target}: ${err.message}`));
-      };
-
-      const onClose = (code: number | null): void => {
-        finish(this.exitError(code, stderrText));
-      };
-
-      const timer = setTimeout(() => {
-        finish(
+  /**
+   * One bridge child, read up to its hello line (`parse`) and handed back
+   * as a `Duplex` over the bytes after it. Rejects — killing the child —
+   * when ssh cannot run, exits first, or the handshake timeout passes.
+   */
+  private async openBridge<T>(
+    command: string,
+    parse: (line: string) => T | null,
+    /** A non-zero exit after the hello destroys the stream with ssh's error. */
+    opts: { exitIsError?: boolean } = {},
+  ): Promise<{ hello: T; duplex: Duplex }> {
+    const bridge = this.spawnBridgeChild(command);
+    const { child, stdin, stdout } = bridge;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let onError: ((err: Error) => void) | undefined;
+    let onClose: ((code: number | null) => void) | undefined;
+    const failed = new Promise<never>((_resolve, reject) => {
+      onError = (err) => reject(new Error(`Could not run ssh for ${this.target}: ${err.message}`));
+      onClose = (code) => reject(this.exitError(code, bridge.stderrText));
+      child.on("error", onError);
+      child.on("close", onClose);
+      timer = setTimeout(() => {
+        const detail = bridge.stderrText.trim();
+        reject(
           new Error(
             `Timed out after ${Math.round(this.handshakeTimeoutMs / 1000)}s waiting for manor-host on ${this.target}` +
-              (stderrText.trim() ? `: ${stderrText.trim()}` : ""),
+              (detail ? `: ${detail}` : ""),
           ),
         );
       }, this.handshakeTimeoutMs);
-
-      stdout.on("data", onData);
-      child.on("error", onError);
-      child.on("close", onClose);
     });
+    const helloed = awaitHelloLine(stdout, parse).catch((err: unknown) => {
+      if (err instanceof HelloPreambleError) {
+        throw new Error(
+          `manor-host on ${this.target} did not announce itself (no hello in the first ${err.maxPreamble} bytes)`,
+        );
+      }
+      throw err;
+    });
+    // Whichever loses the race below settles unheard.
+    helloed.catch(() => {});
+    failed.catch(() => {});
+    try {
+      const { hello, rest } = await Promise.race([helloed, failed]);
+      const duplex = new SshChildDuplex(
+        child,
+        stdin,
+        stdout,
+        rest,
+        opts.exitIsError
+          ? (code) => (code === 0 || code === null ? null : this.exitError(code, bridge.stderrText))
+          : undefined,
+      );
+      return { hello, duplex };
+    } catch (err) {
+      child.kill("SIGTERM");
+      throw err;
+    } finally {
+      clearTimeout(timer);
+      if (onError) child.off("error", onError);
+      if (onClose) child.off("close", onClose);
+    }
   }
 
   /** Translate an ssh child that exited before its hello into a useful error. */

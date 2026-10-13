@@ -116,7 +116,7 @@ function ViewItem(props: ViewItemProps) {
     <Button
       variant="ghost"
       role="menuitem"
-      className={styles.overflowItem}
+      className={`${styles.phoneMenuItem} ${styles.overflowItem}`}
       data-testid="phone-overflow-view"
       onClick={() => {
         // Under a menu handoff (ADR-218 D3) the terminal is borrowed: ending
@@ -166,7 +166,7 @@ export function PhoneOverflowMenu() {
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
-          className={styles.overflowMenu}
+          className={`${styles.phoneMenu} ${styles.overflowMenu}`}
           data-testid="phone-overflow-menu"
           side="bottom"
           align="end"
@@ -189,7 +189,7 @@ export function PhoneOverflowMenu() {
               <Button
                 variant="ghost"
                 role="menuitem"
-                className={styles.overflowItem}
+                className={`${styles.phoneMenuItem} ${styles.overflowItem}`}
                 data-testid="phone-overflow-diff"
                 onClick={() => {
                   close();
@@ -203,7 +203,7 @@ export function PhoneOverflowMenu() {
             <Button
               variant="ghost"
               role="menuitem"
-              className={styles.overflowItem}
+              className={`${styles.phoneMenuItem} ${styles.overflowItem}`}
               data-testid="overflow-refresh"
               onClick={() => {
                 close();

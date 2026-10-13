@@ -131,6 +131,8 @@ describe("the relay pipe", () => {
       expect(options.onHello).toHaveBeenCalledWith({
         rendererId: "r-1",
         appVersion: null,
+        hostName: null,
+        hostServer: false,
         resumed: false,
       });
       const { api } = bridge();
@@ -139,6 +141,21 @@ describe("the relay pipe", () => {
       expect(options.onHello).toHaveBeenLastCalledWith({
         rendererId: "r-1",
         appVersion: "9.9.9",
+        hostName: null,
+        hostServer: false,
+        resumed: false,
+      });
+    });
+
+    it("hands a host server's hostName and hostServer flag to onHello", () => {
+      const { api } = bridge();
+      void api.projects.getAll().catch(() => {});
+      FakeRelaySocket.last.handshake({ hostName: "Studio", hostServer: true });
+      expect(options.onHello).toHaveBeenLastCalledWith({
+        rendererId: "r-1",
+        appVersion: null,
+        hostName: "Studio",
+        hostServer: true,
         resumed: false,
       });
     });

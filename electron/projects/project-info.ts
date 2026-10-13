@@ -106,8 +106,17 @@ export class LastKnownWorkspaces {
 
   /** `p`'s last listing, when `p` is remote, its host is away and it has one. */
   recall(p: PersistedProject): WorkspaceInfo[] | undefined {
+    return this.isHostAway(p.hostId) ? this.latest(p) : undefined;
+  }
+
+  /**
+   * `p`'s last listing whether or not its host is away — what the desktop
+   * already knows of its worktrees, without asking git (ADR-225 D8's
+   * manifest snapshot). Undefined for a local project or one never listed.
+   */
+  latest(p: PersistedProject): WorkspaceInfo[] | undefined {
     const key = remoteKey(p);
-    if (!key || !this.isHostAway(p.hostId)) return undefined;
+    if (!key) return undefined;
     const entry = this.byProject.get(p.id);
     if (!entry || entry.key !== key) return undefined;
     return entry.workspaces.map((ws) => ({ ...ws }));
@@ -164,7 +173,7 @@ async function currentWorkspaces(
 export async function buildProjectInfo(
   p: PersistedProject,
   git: GitBackend,
-  paths: PathRouter,
+  paths: Pick<PathRouter, "setWorkspacePaths">,
   group?: PersistedProjectGroup,
   lastKnown?: LastKnownWorkspaces,
 ): Promise<ProjectInfo> {

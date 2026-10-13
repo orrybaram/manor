@@ -14,21 +14,25 @@
  * useful content anyway.
  *
  * The VAPID key pair is generated once and kept encrypted next to the device
- * store. Losing it costs every subscription (phones must re-subscribe), which
- * is why it is persisted rather than regenerated per launch.
+ * store (a `SealedStore`, read once by `init()`). Losing it costs every
+ * subscription (phones must re-subscribe), which is why it is persisted rather
+ * than regenerated per launch.
  *
  * `web-push` itself is loaded on first real use — a send, or generating the
  * key pair — never at startup (ADR-205 §3). A user with no subscribed phones
  * never loads it at all.
  */
 
-import fs from "node:fs";
-import path from "node:path";
-import { safeStorage } from "electron";
 import type * as WebPush from "web-push";
 
 import { cjsExports, lazy } from "../lib/lazy";
 import { remoteVapidFile } from "../paths";
+import type { SecretBox } from "../platform/secret-box";
+import {
+  EncryptionUnavailableError,
+  SealedStore,
+  type SealedCodec,
+} from "../platform/sealed-store";
 import type { PushSubscriptionRecord, RemoteDeviceStore } from "./devices";
 
 export interface VapidKeys {
@@ -60,21 +64,69 @@ const loadWebPush = lazy(async () =>
   cjsExports(await import("web-push"), "sendNotification"),
 );
 
+export interface PushNotifyOptions {
+  /**
+   * Subscriptions to leave out: the endpoints a host server already pushes to
+   * for its own agents, so a phone paired both ways hears once (ADR-225 D3).
+   */
+  skipEndpoints?: ReadonlySet<string>;
+}
+
+const VAPID_CODEC: SealedCodec<VapidKeys> = {
+  parse(text) {
+    const parsed: unknown = JSON.parse(text);
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      typeof (parsed as VapidKeys).publicKey === "string" &&
+      typeof (parsed as VapidKeys).privateKey === "string"
+    ) {
+      const { publicKey, privateKey } = parsed as VapidKeys;
+      return { publicKey, privateKey };
+    }
+    return null;
+  },
+  serialize: (keys) => JSON.stringify(keys),
+};
+
 export class PushManager {
-  private keys: VapidKeys | null = null;
-  private loaded = false;
+  /**
+   * The active key pair once `init()` has read the file: `keys` is null until
+   * one is generated or imported. The whole slot is null before `init()`.
+   */
+  private active: { keys: VapidKeys | null } | null = null;
+  /** Reads the file at most once; a read that threw is retried next time. */
+  private readonly loadOnce = lazy(async () => {
+    this.active = { keys: await this.store.init() };
+  });
   /** In-flight generation, so concurrent callers share one key pair. */
   private generating: Promise<VapidKeys> | null = null;
+  private readonly store: SealedStore<VapidKeys>;
 
   constructor(
     private readonly devices: RemoteDeviceStore,
-    private readonly filePath: string = remoteVapidFile(),
+    private readonly secretBox: SecretBox,
+    filePath: string = remoteVapidFile(),
     /** Injected so tests do not talk to a real push service. */
     private readonly send: typeof WebPush.sendNotification = async (...args) =>
       (await loadWebPush()).sendNotification(...args),
     private readonly generate: () => VapidKeys | Promise<VapidKeys> = async () =>
       (await loadWebPush()).generateVAPIDKeys(),
-  ) {}
+  ) {
+    this.store = new SealedStore(secretBox, filePath, "push key", VAPID_CODEC);
+  }
+
+  /**
+   * Decrypt the stored key pair into memory. The app calls it at startup;
+   * everything that needs the keys awaits it too, so a caller racing startup
+   * waits for the read rather than generating a pair over it. No file, or one this install cannot open, means a fresh pair on
+   * first use, and phones re-subscribe on their next visit. A box that could
+   * not run at all rejects (`SecretBoxUnavailableError`): push stays off and
+   * the file is left alone.
+   */
+  init(): Promise<void> {
+    return this.loadOnce();
+  }
 
   /**
    * The application server key a client needs to subscribe. Generates the pair
@@ -87,6 +139,49 @@ export class PushManager {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * The active key pair, generated on first use, for sharing with a host
+   * server (ADR-225 D3). Null when it cannot be stored safely.
+   */
+  async vapidKeys(): Promise<VapidKeys | null> {
+    try {
+      return await this.ensureKeys();
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Adopt `keys` as this manager's pair (ADR-225 D3). A browser holds one
+   * push subscription per origin, tied to one VAPID key, so every server a
+   * phone is paired with signs with the desktop's. When the public key
+   * actually changes, the stored subscriptions (made against the old key)
+   * are cleared; unchanged keys are a no-op. Returns whether it changed.
+   * Throws if the key cannot be stored safely.
+   */
+  async importKeys(keys: VapidKeys): Promise<boolean> {
+    const active = await this.inited();
+    if (!this.secretBox.available()) throw new EncryptionUnavailableError();
+    // Wait out a generation in flight, then compare with what is active.
+    if (this.generating) await this.generating.catch(() => undefined);
+    const current = active.keys;
+    if (
+      current &&
+      current.publicKey === keys.publicKey &&
+      current.privateKey === keys.privateKey
+    ) {
+      return false;
+    }
+    const next = { publicKey: keys.publicKey, privateKey: keys.privateKey };
+    this.store.write(next);
+    await this.store.flush();
+    active.keys = next;
+    if (!current || current.publicKey !== next.publicKey) {
+      this.devices.clearPushSubscriptions();
+    }
+    return true;
   }
 
   /** Record a device's subscription. False means there is no such device. */
@@ -102,10 +197,16 @@ export class PushManager {
    * that is the normal end of a subscription's life, not an error worth
    * surfacing to anyone.
    */
-  async notify(payload: PushPayload): Promise<number> {
+  async notify(
+    payload: PushPayload,
+    opts: PushNotifyOptions = {},
+  ): Promise<number> {
     // Before anything else: with nothing subscribed there is nothing to sign,
     // so neither the key nor `web-push` is needed.
-    const targets = this.devices.pushTargets();
+    const skip = opts.skipEndpoints;
+    const targets = this.devices
+      .pushTargets()
+      .filter(({ subscription }) => !skip?.has(subscription.endpoint));
     if (targets.length === 0) return 0;
 
     let keys: VapidKeys;
@@ -138,7 +239,16 @@ export class PushManager {
         } catch (err) {
           const status = (err as { statusCode?: number }).statusCode;
           if (status === 404 || status === 410) {
-            this.devices.setPushSubscription(device.id, null);
+            try {
+              this.devices.setPushSubscription(device.id, null);
+            } catch (persistErr) {
+              // Dropped from memory either way; the store reports its own
+              // write failure to the next pair or revoke.
+              console.warn(
+                `[remote-control] could not drop retired push endpoint for ${device.id}:`,
+                persistErr,
+              );
+            }
             return;
           }
           console.warn(
@@ -152,56 +262,36 @@ export class PushManager {
   }
 
   private async ensureKeys(): Promise<VapidKeys> {
-    if (this.keys) return this.keys;
-    if (!this.loaded) {
-      this.loaded = true;
-      this.keys = this.read();
-    }
-    if (this.keys) return this.keys;
+    const active = await this.inited();
+    if (active.keys) return active.keys;
 
-    if (!safeStorage.isEncryptionAvailable()) {
+    if (!this.secretBox.available()) {
       throw new Error(
         "OS encryption is unavailable, so the push signing key cannot be " +
           "stored safely. Push stays off.",
       );
     }
     if (!this.generating) {
-      this.generating = this.generateAndStore().finally(() => {
+      this.generating = this.generateAndStore(active).finally(() => {
         this.generating = null;
       });
     }
     return this.generating;
   }
 
-  private async generateAndStore(): Promise<VapidKeys> {
+  private async generateAndStore(active: {
+    keys: VapidKeys | null;
+  }): Promise<VapidKeys> {
     const keys = await this.generate();
-    const encrypted = safeStorage.encryptString(JSON.stringify(keys));
-    fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
-    fs.writeFileSync(this.filePath, encrypted, { mode: 0o600 });
-    fs.chmodSync(this.filePath, 0o600);
-    this.keys = keys;
+    this.store.write(keys);
+    await this.store.flush();
+    active.keys = keys;
     return keys;
   }
 
-  private read(): VapidKeys | null {
-    try {
-      const decrypted = safeStorage.decryptString(
-        fs.readFileSync(this.filePath),
-      );
-      const parsed: unknown = JSON.parse(decrypted);
-      if (
-        typeof parsed === "object" &&
-        parsed !== null &&
-        typeof (parsed as VapidKeys).publicKey === "string" &&
-        typeof (parsed as VapidKeys).privateKey === "string"
-      ) {
-        return parsed as VapidKeys;
-      }
-    } catch {
-      // No file, or a file this install cannot decrypt. A fresh pair is
-      // generated, and phones re-subscribe on their next visit.
-    }
-    return null;
+  private async inited(): Promise<{ keys: VapidKeys | null }> {
+    await this.init();
+    return this.active!;
   }
 }
 
@@ -217,6 +307,24 @@ export function pushPayloadFor(
       .filter(Boolean)
       .join(" — "),
   };
+}
+
+/**
+ * One agent-status transition, as a push to every subscribed device — or
+ * nothing, when the status is not worth waking a phone for or did not change.
+ * The one rule for both the desktop's controller and a host server
+ * (ADR-225 D3), each of which hands it transitions already coalesced across a
+ * hook replay (`NotificationCoalescer`).
+ */
+export function pushAgentTransition(
+  push: Pick<PushManager, "notify">,
+  agent: { id: string; name: string | null; projectName: string | null },
+  previousStatus: string | null | undefined,
+  status: string,
+  opts?: PushNotifyOptions,
+): void {
+  if (!isPushable(status) || status === previousStatus) return;
+  void push.notify(pushPayloadFor(status, agent), opts);
 }
 
 /**

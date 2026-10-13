@@ -30,13 +30,14 @@
  */
 
 import { createBridge } from "./client";
+import { recordHello, setActiveRoom } from "./connection";
+import { decodeX25519, renamePairing } from "./pairings";
 import { emitBridgeResync, registerRefresh } from "./resync";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
 import {
   forgetPairing,
   readPairing,
-  serverKeyBytes,
   versionRedirectTarget,
 } from "./web-pairing";
 
@@ -48,7 +49,7 @@ const pairing = readPairing();
  */
 function relayPipeFor(): Pipe | null {
   if (pairing === null) return null;
-  const serverKey = serverKeyBytes(pairing);
+  const serverKey = decodeX25519(pairing.serverKey);
   if (serverKey === null) return null;
   return relayPipe({ url: relayJoinUrl(pairing.roomId), serverKey });
 }
@@ -67,6 +68,11 @@ const UNPAIRED_PIPE: Pipe = {
 
 /** The pairing token this tab is dialling with, or `null` for none found. */
 export const webToken: string | null = pipe && pairing ? pairing.token : null;
+
+/** The room this tab dials, or `null` when unpaired. */
+const webRoomId: string | null = pipe && pairing ? pairing.roomId : null;
+
+setActiveRoom(webRoomId);
 
 /** What the socket has said about `webToken`, once it has said anything. */
 export type BridgeOutcome = "unauthorized" | "key-mismatch";
@@ -156,7 +162,11 @@ const transport = createWsTransport({
   // stopped, so the screen offers a reload rather than a redial.
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
-  onHello: ({ appVersion, resumed }) => {
+  onHello: ({ appVersion, resumed, hostName, hostServer }) => {
+    // The host names itself (ADR-225 D7) so the switcher shows the name
+    // instead of "Host N"; `hostServer` alone says it is a host server.
+    recordHello({ hostName, hostServer });
+    if (webRoomId && hostName) renamePairing(webRoomId, hostName);
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) {
       // This page is going away; nothing here needs to re-fetch.

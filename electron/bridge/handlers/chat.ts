@@ -12,12 +12,14 @@
 import type { AgentInfo } from "../../agent-persistence";
 import { assertString } from "../../ipc-validate";
 import type { HostDeps } from "../../ipc/types";
-import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import type { PtyBackend } from "../../backend/types";
+import type { BroadcastSource } from "../../renderer-broadcast";
 import type {
   ChatAnswer,
   ChatAnswerResult,
   ChatCommands,
   ChatHistory,
+  ChatMirror,
 } from "../../chat-mirror/mirror";
 import {
   CHAT_KEYS,
@@ -54,8 +56,17 @@ function enqueueWrite(paneId: string, job: () => Promise<void> | void): Promise<
   return run;
 }
 
+/**
+ * What the `chat` namespace reads: the pane's transcript mirror and its PTY,
+ * nothing else — so the host server (ADR-225) serves the same handlers.
+ */
+export interface ChatDeps {
+  chatMirror: Pick<ChatMirror, "getHistory" | "getTaskHistory" | "getCommands" | "answer">;
+  backend: { pty: Pick<PtyBackend, "write"> };
+}
+
 export function chatGetHistory(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
 ): Promise<ChatHistory> {
   assertString(paneId, "paneId");
@@ -64,7 +75,7 @@ export function chatGetHistory(
 
 /** A task's own transcript (ADR-224 D3); its pushes are `chat.taskEntry`. */
 export function chatGetTaskHistory(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
   taskId: string,
 ): Promise<ChatHistory> {
@@ -74,7 +85,7 @@ export function chatGetTaskHistory(
 }
 
 export function chatGetCommands(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
 ): Promise<ChatCommands> {
   assertString(paneId, "paneId");
@@ -82,7 +93,11 @@ export function chatGetCommands(
 }
 
 /** Type a prompt and submit it, as one prompt even across lines (`encodeChatMessage`). */
-export async function chatSend(ctx: HandlerCtx, paneId: string, text: string): Promise<void> {
+export async function chatSend(
+  ctx: HandlerCtx<ChatDeps>,
+  paneId: string,
+  text: string,
+): Promise<void> {
   assertString(paneId, "paneId");
   assertString(text, "text");
   if (text.trim().length === 0) throw new Error("text: expected a message");
@@ -94,13 +109,13 @@ export async function chatSend(ctx: HandlerCtx, paneId: string, text: string): P
 }
 
 /** Esc: what stops Claude mid-turn in its own TUI. */
-export function chatInterrupt(ctx: HandlerCtx, paneId: string): Promise<void> {
+export function chatInterrupt(ctx: HandlerCtx<ChatDeps>, paneId: string): Promise<void> {
   assertString(paneId, "paneId");
   return enqueueWrite(paneId, () => ctx.deps.backend.pty.write(paneId, CHAT_KEYS.esc));
 }
 
 /** One navigation key into the pane, for driving a TUI menu from the phone (ADR-218 D3). */
-export function chatKey(ctx: HandlerCtx, paneId: string, key: ChatKey): Promise<void> {
+export function chatKey(ctx: HandlerCtx<ChatDeps>, paneId: string, key: ChatKey): Promise<void> {
   assertString(paneId, "paneId");
   assertString(key, "key");
   if (!Object.prototype.hasOwnProperty.call(CHAT_KEYS, key)) {
@@ -110,7 +125,7 @@ export function chatKey(ctx: HandlerCtx, paneId: string, key: ChatKey): Promise<
 }
 
 export function chatAnswer(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ChatDeps>,
   paneId: string,
   toolUseId: string,
   answer: ChatAnswer,
@@ -163,9 +178,10 @@ function assertChatAnswer(value: unknown): asserts value is ChatAnswer {
 /**
  * The mirror's two outside signals, wired once at boot.
  *
- * - Every agent update (`agents.updated`, from its single send-site) re-checks
- *   that pane's transcript path: `/clear` and resume switch transcripts, and
- *   the hook that says so updates the agent.
+ * - Every agent update (`agents.updated`, from its single send-site, heard on
+ *   `events` — the same source the bridge forwards) re-checks that pane's
+ *   transcript path: `/clear` and resume switch transcripts, and the hook
+ *   that says so updates the agent.
  * - The bridge's subscriber count for `chat.entry` is what turns a pane's
  *   watcher on and off, and for `chat.taskEntry` a task's (ADR-224 D3).
  */
@@ -175,9 +191,10 @@ export function wireChatMirror(
     onSubscriptionChange(cb: (name: string, key: string) => void): () => void;
     hasSubscriber(ns: string, event: string, key: string): boolean;
   },
+  events: BroadcastSource,
 ): () => void {
   const { chatMirror } = deps;
-  const offAgents = addRendererBroadcastSink((broadcast) => {
+  const offAgents = events((broadcast) => {
     if (broadcast.ns !== "agents" || broadcast.event !== "updated") return;
     const agent = broadcast.args[0] as AgentInfo | undefined;
     if (agent?.paneId) chatMirror.agentChanged(agent.paneId);

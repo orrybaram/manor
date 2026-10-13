@@ -181,6 +181,66 @@ export function remoteControlPortFile(): string {
   return path.join(remoteNamespaceDir(), "control-port");
 }
 
+/**
+ * The host server's state (ADR-225 D1): a headless Manor server beside the
+ * `remote` daemon, for the phone to reach with the laptop's lid closed. Kept
+ * apart from `manorDataDir()` so a box that also runs Manor desktop (WSL, a
+ * Mac mini) never mixes the two servers' agents, pairings or keys.
+ */
+export function remoteServerDir(): string {
+  return path.join(remoteNamespaceDir(), "server");
+}
+
+/**
+ * Every file a host server keeps in `dataDir` (default `remoteServerDir()`).
+ * One table so `serve`, `server-bridge` (which reads the owner token) and
+ * the lifecycle check (which reads the pid and version) agree on names.
+ */
+export interface HostServerPaths {
+  dataDir: string;
+  /** Unix socket the owner channel's `server-bridge` pipes to; NDJSON frames. */
+  socket: string;
+  /** 0600 token a bridge hello on `socket` must present. */
+  ownerToken: string;
+  /** The running server's pid. */
+  pid: string;
+  /** The running server's version, for upgrade-on-mismatch. */
+  version: string;
+  /** How far into the daemon's hook journal agents.json reflects. */
+  hookCursor: string;
+  /** Which SecretBox backend sealed this server's keys (`pickHostSecretBox`). */
+  secretBackend: string;
+  /** The desktop's last manifest of this host's projects (ADR-225 D4). */
+  manifest: string;
+  /** The desktop's last layout snapshot for this host (ADR-225 D5). */
+  layout: string;
+  /** This server's relay identity: its own room (ADR-225 D3). Sealed. */
+  relayIdentity: string;
+  /** Phones paired to this server's room, token hashes only. Sealed. */
+  devices: string;
+  /** This server's VAPID key pair, for its own push (ADR-225 D3). Sealed. */
+  vapid: string;
+  logsDir: string;
+}
+
+export function hostServerPaths(dataDir: string = remoteServerDir()): HostServerPaths {
+  return {
+    dataDir,
+    socket: path.join(dataDir, "server.sock"),
+    ownerToken: path.join(dataDir, "owner-token"),
+    pid: path.join(dataDir, "server.pid"),
+    version: path.join(dataDir, "server.version"),
+    hookCursor: path.join(dataDir, "hook-cursor.json"),
+    secretBackend: path.join(dataDir, "secret-backend"),
+    manifest: path.join(dataDir, "manifest.json"),
+    layout: path.join(dataDir, "layout.json"),
+    relayIdentity: path.join(dataDir, "relay-identity.enc"),
+    devices: path.join(dataDir, "remote-devices.enc"),
+    vapid: path.join(dataDir, "remote-vapid.enc"),
+    logsDir: path.join(dataDir, "logs"),
+  };
+}
+
 export function hooksDir(): string {
   return path.join(manorHomeDir(), "hooks");
 }

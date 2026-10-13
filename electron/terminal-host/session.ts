@@ -239,6 +239,7 @@ export class Session {
       cols: this.cols,
       rows: this.rows,
       alive: this._alive,
+      attachedClients: this.attachedClients.size,
     };
   }
 

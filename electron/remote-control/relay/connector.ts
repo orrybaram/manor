@@ -70,7 +70,7 @@ import {
 } from "../../../src/lib/relay-crypto/protocol";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
 import { RelayChannel } from "./channel";
-import { wipe } from "./identity";
+import { wipe } from "./wipe";
 import { parseRelayUrl, resolveRelayUrl, type RelayEndpoint } from "./url";
 
 type RelayState = "stopped" | "starting" | "running" | "failed";
@@ -113,8 +113,29 @@ export interface RelayIdentitySource {
   load(): RelayIdentity;
 }
 
+/**
+ * How the connector makes its host socket: `ws`'s `WebSocket` or anything
+ * shaped like it. The connector speaks `ws`'s API, not the WHATWG one — it
+ * needs `maxPayload` (a relay must not be able to make this process
+ * allocate an arbitrarily large message), `handshakeTimeout`, `terminate()`
+ * and Node `Buffer`s — so a WHATWG global `WebSocket` (Node 22+) does not
+ * fit here, and on Node 20 there is none at all. A host server bundles this
+ * without Electron (ADR-225 D3) and passes `ws`'s constructor explicitly, so
+ * the dependency is visible where the tarball's package.json is built.
+ */
+export type RelayWebSocketCtor = new (
+  url: string,
+  options: {
+    handshakeTimeout: number;
+    perMessageDeflate: false;
+    maxPayload: number;
+  },
+) => WebSocket;
+
 export interface RelayConnectorDeps {
   identity: RelayIdentitySource;
+  /** The host socket's constructor. Defaults to `ws`'s `WebSocket`. */
+  webSocket?: RelayWebSocketCtor;
   /**
    * `RelayGate` — each finished channel is `attach`ed to it, and so to the
    * bridge behind the gate's hello check.
@@ -250,7 +271,8 @@ export class RelayConnector {
     const roomId = this.roomId;
     if (!endpoint || !roomId) return;
     this.authed = false;
-    const socket = new WebSocket(`${endpoint.socketBase}/host/${roomId}`, {
+    const Socket = this.deps.webSocket ?? WebSocket;
+    const socket = new Socket(`${endpoint.socketBase}/host/${roomId}`, {
       handshakeTimeout: this.timing.authTimeoutMs,
       // Ciphertext does not compress, and inflating what a relay sends is a
       // way for it to make main allocate.
@@ -405,7 +427,7 @@ export class RelayConnector {
 
   private writable(): WebSocket | null {
     const socket = this.socket;
-    if (!socket || !this.authed || socket.readyState !== WebSocket.OPEN) {
+    if (!socket || !this.authed || socket.readyState !== socket.OPEN) {
       return null;
     }
     return socket;

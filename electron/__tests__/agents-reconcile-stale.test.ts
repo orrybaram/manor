@@ -5,7 +5,6 @@ vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
   sendAgentUpdate: vi.fn(),
-  getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
 // ── Mock ipc-validate ──────────────────────────────────────────────────────────
@@ -13,7 +12,7 @@ vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import { agentsReconcileStale } from "../bridge/handlers/agents";
+import { agentsReconcileStale } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 import { LOCAL_HOST_ID } from "../backend/types";
 
@@ -65,9 +64,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
         listSessions: vi.fn().mockResolvedValue([]),
       },
     },
-    backendRegistry: {
-      status: vi.fn().mockReturnValue("connected"),
-    },
+    hostStatus: vi.fn((_hostId: string): string | undefined => "connected"),
     getPaneHostId: (paneId: string) => paneOwners.get(paneId),
     // The Status reconciler's driver (ADR-184).
     agentStatus: {
@@ -196,7 +193,7 @@ describe("agents:reconcileStale host connectivity (ADR-191 §5)", () => {
     paneOwners.clear();
     deps = makeDeps();
     // The box has dropped: none of its sessions are listed.
-    deps.backendRegistry.status.mockImplementation((hostId: string) =>
+    deps.hostStatus.mockImplementation((hostId: string) =>
       hostId === "box" ? "disconnected" : "connected",
     );
     deps.backend.pty.listSessions.mockResolvedValue([]);

@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import type { Filmstrip } from "./filmstrip";
 
@@ -142,6 +142,21 @@ export async function pairDevice(
   await openRemoteControlSettings(window);
 
   await window.getByTestId("remote-add-device").click();
+  return completePairingDialog(window, window, label, film);
+}
+
+/**
+ * The rest of pairing, after a trigger has opened the Add device dialog:
+ * name it, submit, read the link and token off the pairing dialog, close it,
+ * and wait for the device's row under `scope` (the whole window, or one
+ * host's section).
+ */
+async function completePairingDialog(
+  window: Page,
+  scope: Page | Locator,
+  label: string,
+  film?: Filmstrip,
+): Promise<PairedDevice> {
   const addDialog = window.getByTestId("remote-add-device-dialog");
   await expect(addDialog).toBeVisible({ timeout: 5_000 });
   await addDialog.getByTestId("remote-pair-label").fill(label);
@@ -168,8 +183,8 @@ export async function pairDevice(
   // A paired device that does not appear in the list cannot be revoked, so
   // the row is part of pairing rather than a separate thing to check for.
   await expect(
-    window.getByTestId("remote-device-row").filter({ hasText: label }),
-  ).toHaveCount(1);
+    scope.getByTestId("remote-device-row").filter({ hasText: label }),
+  ).toHaveCount(1, { timeout: 10_000 });
 
   return { label, token, link };
 }
@@ -185,6 +200,33 @@ export async function pairBrowser(
 ): Promise<PairedDevice> {
   await enableRemoteControl(window);
   return pairDevice(window, options);
+}
+
+/**
+ * Pair a device with a remote host's own Manor server (ADR-225 D3), from that
+ * host's section of Settings → Remote control: the pairing is minted on the
+ * box, and the desktop only shows it. Waits until the host server says its
+ * relay is connected, so the link works as soon as it is opened. Leaves
+ * Settings open.
+ */
+export async function pairHostPhone(
+  window: Page,
+  { hostName, label }: { hostName: string; label: string },
+): Promise<PairedDevice> {
+  await openRemoteControlSettings(window);
+  const section = window
+    .getByTestId("host-phone-access")
+    .filter({ hasText: hostName });
+  await expect(section.getByTestId("host-phone-summary")).toContainText(
+    "relay connected",
+    { timeout: 60_000 },
+  );
+  await expect(section.getByTestId("host-phone-summary")).not.toContainText(
+    "relay not connected",
+  );
+
+  await section.getByTestId("host-pair-phone").click();
+  return completePairingDialog(window, section, label);
 }
 
 /** Revoke a paired device by its label, from its row's trash button. */

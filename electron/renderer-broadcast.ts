@@ -60,7 +60,66 @@ export interface RendererBroadcast {
 
 type Sink = (broadcast: RendererBroadcast) => void;
 
-const sinks = new Set<Sink>();
+/**
+ * Where a listener registers for broadcasts; answers its unsubscribe. A
+ * `BridgeServer` is handed one (`bridge/server.ts`): this module's
+ * `addRendererBroadcastSink` on the desktop, a host server's own bus there.
+ */
+export type BroadcastSource = (sink: Sink) => () => void;
+
+/**
+ * A set of sinks and a typed publish into them, not shared with anybody.
+ *
+ * The desktop's is this module's (below). A host server makes its own
+ * (ADR-225): its agents and owner sync are one server's news, and a second
+ * server in the same process (a test) must not hear them.
+ */
+export interface BroadcastBus {
+  subscribe: BroadcastSource;
+  publish<N extends EventNs, E extends EventOf<N>>(
+    ns: N,
+    event: E,
+    ...args: EventArgs<N, E>
+  ): void;
+}
+
+export function createBroadcastBus(): BroadcastBus {
+  const bus = createSinks();
+  return {
+    subscribe: bus.add,
+    publish: (ns, event, ...args) => bus.emit(null, ns, event, args),
+  };
+}
+
+function createSinks(): {
+  add: BroadcastSource;
+  emit: (to: string | null, ns: string, event: string, args: unknown[]) => void;
+} {
+  const sinks = new Set<Sink>();
+  return {
+    add: (sink) => {
+      sinks.add(sink);
+      return () => {
+        sinks.delete(sink);
+      };
+    },
+    // Never throws: this runs on paths that must not fail, and a sink that
+    // throws is that sink's bug, not the sender's.
+    emit: (to, ns, event, args) => {
+      if (sinks.size === 0) return;
+      for (const sink of sinks) {
+        try {
+          sink({ ns, event, args, to });
+        } catch (err) {
+          console.error("[renderer-broadcast] sink threw:", err);
+        }
+      }
+    },
+  };
+}
+
+/** The process-wide sinks: every desktop window and paired device. */
+const rendererSinks = createSinks();
 
 /**
  * How a renderer window becomes a connection id.
@@ -106,12 +165,7 @@ export function connectionIdForWindow(
 }
 
 /** Register a sink. Returns the unsubscribe; call it when the sink dies. */
-export function addRendererBroadcastSink(sink: Sink): () => void {
-  sinks.add(sink);
-  return () => {
-    sinks.delete(sink);
-  };
-}
+export const addRendererBroadcastSink: BroadcastSource = rendererSinks.add;
 
 /**
  * Fan one broadcast out to every sink. Never throws: this runs on paths that
@@ -121,7 +175,7 @@ export function publishRendererBroadcast<
   N extends EventNs,
   E extends EventOf<N>,
 >(ns: N, event: E, ...args: EventArgs<N, E>): void {
-  emit(null, ns, event, args);
+  rendererSinks.emit(null, ns, event, args);
 }
 
 /**
@@ -139,21 +193,5 @@ export function publishToRenderer<N extends EventNs, E extends EventOf<N>>(
   event: E,
   ...args: EventArgs<N, E>
 ): void {
-  emit(connectionId, ns, event, args);
-}
-
-function emit(
-  to: string | null,
-  ns: string,
-  event: string,
-  args: unknown[],
-): void {
-  if (sinks.size === 0) return;
-  for (const sink of sinks) {
-    try {
-      sink({ ns, event, args, to });
-    } catch (err) {
-      console.error("[renderer-broadcast] sink threw:", err);
-    }
-  }
+  rendererSinks.emit(connectionId, ns, event, args);
 }

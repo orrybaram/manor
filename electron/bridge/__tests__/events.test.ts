@@ -7,7 +7,7 @@
  *
  * - a **broadcast** reaches every connection that asked for it;
  * - an **addressed** push reaches exactly one, which is the thing broadcast
- *   cannot express and the reason `sendTo` exists (`app-command` to the
+ *   cannot express (`app-command` to the
  *   primary window, `menu.command` to the focused one, a worktree's setup
  *   progress to whoever asked for the worktree);
  * - a subscription for pane A never hears pane B, because subscription
@@ -24,11 +24,13 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
 import {
+  addRendererBroadcastSink,
   publishRendererBroadcast,
   publishToRenderer,
   connectionIdForWindow,
   setRendererWindowResolver,
 } from "../../renderer-broadcast";
+import { DESKTOP_TABLE } from "../handlers";
 import { BridgeServer } from "../server";
 import { FrameSerialiser } from "../transports/ws";
 import type { BridgeConnection, EventFrame } from "../types";
@@ -49,13 +51,16 @@ function makeConnection(id: string, callerClass: "local" | "device" = "local") {
 }
 
 describe("bridge events", () => {
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
 
   beforeEach(() => {
     const deps = {
       getRendererWindows: () => [],
     } as unknown as HostDeps;
-    server = new BridgeServer(deps, { handlers: {} });
+    server = new BridgeServer(deps, {
+      table: { ...DESKTOP_TABLE, handlers: {} },
+      events: addRendererBroadcastSink,
+    });
   });
 
   afterEach(() => {
@@ -98,7 +103,7 @@ describe("bridge events", () => {
     server.unsubscribe(desk.connection, "chat", "entry", "pane-z");
 
     const entry = { kind: "user", id: "u1", ts: "t", text: "hi" } as const;
-    server.publishKeyed("chat", "entry", ["pane-b", entry], "pane-b");
+    server.publish("chat", "entry", ["pane-b", entry], "pane-b");
     expect(desk.frames).toEqual([]);
     expect(phone.frames).toEqual([
       { kind: "event", ns: "chat", event: "entry", args: ["pane-b", entry], key: "pane-b" },

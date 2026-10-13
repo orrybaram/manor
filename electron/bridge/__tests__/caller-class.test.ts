@@ -30,19 +30,26 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
 import { RemoteAuditLog } from "../../remote-control/audit";
-import {
-  HANDLERS,
-  LOCAL_ONLY,
-  MUTATING,
-  SECRET_FIRST_ARG,
-  type BridgeHandler,
-} from "../handlers";
+import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import { DESKTOP_TABLE } from "../handlers";
+import type { BridgeHandler, HandlerTable } from "../method";
 import { BridgeServer } from "../server";
-import { UNAVAILABLE_CODE, type BridgeConnection } from "../types";
+import {
+  UNAVAILABLE_CODE,
+  UNAVAILABLE_HOST_CODE,
+  type BridgeConnection,
+} from "../types";
+
+const {
+  handlers: HANDLERS,
+  localOnly: LOCAL_ONLY,
+  mutating: MUTATING,
+  secretFirstArg: SECRET_FIRST_ARG,
+} = DESKTOP_TABLE;
 
 function makeConnection(
   id: string,
-  callerClass: "local" | "device",
+  callerClass: "local" | "owner" | "device",
 ): BridgeConnection {
   return {
     id,
@@ -56,20 +63,33 @@ function makeConnection(
 const deps = { getRendererWindows: () => [] } as unknown as HostDeps;
 
 /** The real table's keys, with stubs that record who got through. */
-function stubTable(called: string[]): Record<string, BridgeHandler> {
+function stubTable(called: string[]): Record<string, BridgeHandler<HostDeps>> {
   return Object.fromEntries(
     Object.keys(HANDLERS).map((method) => [
       method,
       (() => {
         called.push(method);
         return "answered";
-      }) as BridgeHandler,
+      }) as BridgeHandler<HostDeps>,
     ]),
   );
 }
 
+/** A server over the desktop table's rules, and `handlers` in its place. */
+function serverOver(
+  handlers: Record<string, BridgeHandler<HostDeps>>,
+  overrides: Partial<HandlerTable<HostDeps>> = {},
+  audit?: RemoteAuditLog,
+): BridgeServer<HostDeps> {
+  return new BridgeServer(deps, {
+    table: { ...DESKTOP_TABLE, handlers, ...overrides },
+    events: addRendererBroadcastSink,
+    audit,
+  });
+}
+
 function invoke(
-  server: BridgeServer,
+  server: BridgeServer<HostDeps>,
   connection: BridgeConnection,
   method: string,
   args: unknown[] = [],
@@ -85,12 +105,12 @@ function invoke(
 }
 
 describe("LOCAL_ONLY, through dispatch", () => {
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
   let called: string[];
 
   beforeEach(() => {
     called = [];
-    server = new BridgeServer(deps, { handlers: stubTable(called) });
+    server = serverOver(stubTable(called));
   });
 
   afterEach(() => server.dispose());
@@ -120,6 +140,22 @@ describe("LOCAL_ONLY, through dispatch", () => {
     },
   );
 
+  // The owner class is a host server's (ADR-225 D4). The desktop's table
+  // does not name owners in `localOnlyCallers`, so one that reached it would
+  // be held to a device's rules, never trusted with what a window may do.
+  it.each([...LOCAL_ONLY])(
+    "refuses an owner calling %s on the desktop's server",
+    async (method) => {
+      const owner = makeConnection("own-1", "owner");
+      server.accept(owner);
+
+      const result = await invoke(server, owner, method);
+
+      expect(result).toMatchObject({ ok: false, code: UNAVAILABLE_CODE });
+      expect(called).toEqual([]);
+    },
+  );
+
   it("refuses an absent method the same way it refuses a listed one", async () => {
     const device = makeConnection("dev-1", "device");
     server.accept(device);
@@ -144,15 +180,61 @@ describe("LOCAL_ONLY, through dispatch", () => {
   });
 });
 
+/**
+ * The table says what kind of server answers (ADR-226): who may call
+ * `LOCAL_ONLY`, and the refusal everyone else gets. A host server's names the
+ * owner and not a window.
+ */
+describe("a table's localOnlyCallers and unavailable", () => {
+  let server: BridgeServer<HostDeps>;
+  let called: string[];
+
+  beforeEach(() => {
+    called = [];
+    server = serverOver(stubTable(called), {
+      localOnlyCallers: new Set(["owner"]),
+      unavailable: { code: UNAVAILABLE_HOST_CODE, where: "on this host" },
+    });
+  });
+
+  afterEach(() => server.dispose());
+
+  it("lets a listed caller class through", async () => {
+    const owner = makeConnection("own-1", "owner");
+    server.accept(owner);
+
+    const result = await invoke(server, owner, "remoteControl.pair");
+
+    expect(result).toMatchObject({ ok: true, result: "answered" });
+    expect(called).toEqual(["remoteControl.pair"]);
+  });
+
+  it("refuses any other with the table's own refusal", async () => {
+    const window = makeConnection("11", "local");
+    server.accept(window);
+
+    const result = await invoke(server, window, "remoteControl.pair");
+
+    expect(result).toEqual({
+      id: "1",
+      kind: "result",
+      ok: false,
+      code: UNAVAILABLE_HOST_CODE,
+      error: "remoteControl.pair is not available on this host",
+    });
+    expect(called).toEqual([]);
+  });
+});
+
 describe("the audit log, by caller class", () => {
   let dir: string;
   let audit: RemoteAuditLog;
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-caller-class-"));
     audit = new RemoteAuditLog(path.join(dir, "remote-audit.jsonl"));
-    server = new BridgeServer(deps, { audit, handlers: stubTable([]) });
+    server = serverOver(stubTable([]), {}, audit);
   });
 
   afterEach(() => {
@@ -294,6 +376,12 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.
         "linear.connect",
+        // ADR-225 D3: pairing a phone with a host's server, and the keys
+        // that go with it — the same grant as `remoteControl.pair`.
+        "hosts.serverStatus",
+        "hosts.pairDevice",
+        "hosts.revokeDevice",
+        "hosts.resetPairingKeys",
       ].sort(),
     );
   });

@@ -9,8 +9,8 @@
  * does).
  *
  * Verifies:
- *   - `agentsGetUnseen` returns the snapshot helper's output verbatim
- *     (renderer uses this to prime its cache on boot).
+ *   - `agentsGetUnseen` returns the unseen Sets in deps (renderer uses this
+ *     to prime its cache on boot).
  *   - `agentsMarkSeen` mutates the unseen Sets AND re-broadcasts the agent,
  *     so the renderer cache stays in sync.
  */
@@ -21,10 +21,6 @@ vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
   sendAgentUpdate: vi.fn(),
-  getUnseenSnapshot: vi.fn(() => ({
-    responded: ["t1", "t2"],
-    requires_input: ["t3"],
-  })),
 }));
 
 vi.mock("../ipc-validate", () => ({
@@ -32,12 +28,12 @@ vi.mock("../ipc-validate", () => ({
 }));
 
 import * as notifications from "../notifications";
-import { agentsGetUnseen, agentsMarkSeen } from "../bridge/handlers/agents";
+import { agentsMarkSeen } from "../bridge/handlers/agents";
+import { agentsGetUnseen } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 
 const sendAgentUpdate = vi.mocked(notifications.sendAgentUpdate);
 const updateDockBadge = vi.mocked(notifications.updateDockBadge);
-const getUnseenSnapshot = vi.mocked(notifications.getUnseenSnapshot);
 const markAgentNotificationsRead = vi.mocked(
   notifications.markAgentNotificationsRead,
 );
@@ -66,15 +62,17 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("agents.getUnseen (ADR-136)", () => {
-  // No `deps` here on purpose: `agentsGetUnseen` reads the module-level
-  // snapshot helper and takes no arguments at all.
-  it("returns the snapshot helper's output verbatim", () => {
-    const result = agentsGetUnseen();
-    expect(result).toEqual({
+  // Main's Sets, read from deps: the same Sets the driver and `markSeen`
+  // write, whichever table (desktop or host server) answers.
+  it("returns the unseen Sets' contents", () => {
+    const deps = makeDeps({
+      unseenRespondedAgents: new Set(["t1", "t2"]),
+      unseenInputAgents: new Set(["t3"]),
+    });
+    expect(agentsGetUnseen(localCtx(deps as never))).toEqual({
       responded: ["t1", "t2"],
       requires_input: ["t3"],
     });
-    expect(getUnseenSnapshot).toHaveBeenCalled();
   });
 });
 

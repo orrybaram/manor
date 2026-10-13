@@ -32,9 +32,9 @@ import {
   type HelloReplyFrame,
   type ResultFrame,
 } from "../../../electron/bridge/types";
+import { settleResult } from "../../../electron/bridge/settle";
 import {
   BridgeDisconnectedError,
-  settle,
   type BridgeListener,
   type BridgeTransport,
 } from "../client";
@@ -143,6 +143,10 @@ export interface HelloReply {
   rendererId: string | null;
   /** The desktop's version (ADR-206 D4), or null from an older host. */
   appVersion: string | null;
+  /** The host's own name for itself (ADR-225 D7), or null. */
+  hostName: string | null;
+  /** True when a host server answered, not the desktop (ADR-226). */
+  hostServer: boolean;
   /**
    * This hello resumed an earlier connection (it carried `previousId`): a
    * reconnect, after which pushes may have been missed. False on the first.
@@ -377,6 +381,9 @@ class WsTransport implements WsBridgeTransport {
           rendererId: this.rendererId,
           appVersion:
             typeof reply.appVersion === "string" ? reply.appVersion : null,
+          hostName: typeof reply.hostName === "string" ? reply.hostName : null,
+          hostServer:
+            typeof reply.hostServer === "boolean" ? reply.hostServer : false,
           resumed: this.resuming,
         });
       }
@@ -419,7 +426,7 @@ class WsTransport implements WsBridgeTransport {
     if (!pending) return;
     this.pending.delete(id);
     try {
-      pending.resolve(settle(frame));
+      pending.resolve(settleResult(frame));
     } catch (err) {
       pending.reject(err as Error);
     }

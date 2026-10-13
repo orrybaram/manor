@@ -33,6 +33,10 @@ export const LOCAL_ONLY_METHODS = [
   "remoteControl.stopRelay",
   "remoteControl.resetRelayAddress",
   "linear.connect",
+  "hosts.serverStatus",
+  "hosts.pairDevice",
+  "hosts.revokeDevice",
+  "hosts.resetPairingKeys",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

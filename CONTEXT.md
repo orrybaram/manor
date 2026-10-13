@@ -58,7 +58,7 @@ codebase, full functionality, authentication is its only boundary.
 _Avoid_: mobile app, mobile client, mobile/web experience, responsive client
 
 **Paired device**:
-A phone or browser that holds a per-device token issued by the desktop app.
+A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s that the desktop paired it with.
 _Avoid_: remote, client device, session
 
 **Relay**:
@@ -70,7 +70,7 @@ Jev's pick of a sidebar folder for a new workspace, asked through the **Relay** 
 _Avoid_: auto-folder, TypeSafe integration (there is no user key any more)
 
 **Room**:
-One desktop's place on the **Relay**, addressed by the hash of its relay public key and held by whoever holds the key. At most one host and a few **Channels**.
+One Manor server's place on the **Relay** — the desktop's, or a **Host server**'s — addressed by the hash of its relay public key and held by whoever holds the key. At most one host and a few **Channels**.
 _Avoid_: session (that is a terminal session), channel
 
 **Channel**:
@@ -87,12 +87,20 @@ _Avoid_: frontend, UI, the app
 Everything in `electron/` that is not Electron: projects, routes, integrations, notifications, remote control, and the layout authority; hosted inside Electron main today, headless in the cloud later.
 _Avoid_: main process, backend, the API
 
+**Host server**:
+A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It has its own **Room** and its own paired devices; in slice 1 it reads the same hook journal the desktop does and shows the projects and layout the desktop last sent it (ADR-225).
+_Avoid_: remote server, box server, cloud server, the daemon (the daemon owns PTYs; the host server is the Manor server beside it)
+
+**Owner channel**:
+The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. The desktop pushes the manifest and layout over it, and pairs phones with the host through it.
+_Avoid_: control channel, sync channel, admin connection
+
 **Daemon**:
 `terminal-host/` — the process that owns PTYs, scrollback, and agent detection; already headless, already runs wherever a host is.
 _Avoid_: terminal host, pty server
 
 **Host**:
-A place sessions run — the local machine, or a cloud box — always a Manor server and a daemon together; the renderer attaches to exactly one at a time, and local stays a first-class choice.
+A place sessions run — the local machine, or a remote box — always a Manor server and a daemon together: the local machine's Manor server lives in Electron main, a remote box's is its **Host server**. The renderer attaches to exactly one at a time, and local stays a first-class choice.
 _Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
 
 **Project**:
@@ -120,7 +128,7 @@ How a frame reaches the host surface — Electron IPC or a WebSocket today. Neve
 _Avoid_: connection (a transport makes connections; it is not one), channel (channel is the specific `bridge:*` IPC name)
 
 **Caller class**:
-What a connection is, as far as the bridge's dispatch is concerned: `local` (an Electron renderer window, authenticated by being one) or `device` (a paired device, authenticated by its token). Decides which host-surface methods a `LOCAL_ONLY` entry refuses.
+What a connection is, as far as the bridge's dispatch is concerned: `local` (an Electron renderer window, authenticated by being one), `owner` (the desktop on a **Host server**'s **Owner channel**, authenticated by SSH) or `device` (a paired device, authenticated by its token). Decides which host-surface methods a `LOCAL_ONLY` entry refuses: `local` and `owner` may call them, `device` may not.
 _Avoid_: tier (there is one kind of paired device; what it may not call is `LOCAL_ONLY`, decided per method)
 
 ### Viewing a session
@@ -130,7 +138,7 @@ Any client attached to a session's output stream — a desktop pane or a web-app
 _Avoid_: client, subscriber, socket
 
 **Winsize owner**:
-The one viewer whose grid the PTY winsize follows: the desktop app while it has the pane mounted, otherwise the most recent web-app viewer.
+The one viewer whose grid the PTY winsize follows: the desktop app while it has the pane mounted, otherwise the most recent web-app viewer. On a **Host server**, which has no desktop to ask, the daemon decides: a device viewer is a **Follower** whenever any other client is attached to the session.
 _Avoid_: primary, master, resize authority
 
 **Layout command**:
@@ -182,9 +190,10 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 - A session has exactly one **Winsize owner** and any number of **Followers**; a web-app viewer is a **Follower** whenever the desktop has the pane mounted.
 - A **Project** is set up on one or more **Hosts**; each **Workspace** lives on exactly one of them.
 - A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
+- A remote **Host**'s **Manor server** is its **Host server**. In slice 1 the desktop still owns that host's projects and layout and sends them over the **Owner channel**; the host server and the desktop each read the daemon's hook journal and agree on **Agent status** because the **Status reconciler** is a pure function of it.
 - Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 
-- The **Desktop app** issues tokens; a **Paired device** holds exactly one.
+- The **Desktop app** issues tokens — for its own **Room**, or, through the **Owner channel**, for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and switches between them.
 - The **Web app** is served to a **Paired device** by the **Relay** origin, and only there.
 - A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so every **Paired device** reaches the whole bridge, minus the `LOCAL_ONLY` methods.
 
@@ -204,4 +213,4 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
   the live one is **Agent status**.
 
 - "mobile/web experience" was used to mean a new client; resolved: it is the **Web app**, one responsive codebase, not a second client.
-- "remote" is overloaded across ADRs: ADR-160 _remote workspace backends_ means a workspace living on another machine; ADR-161 _remote control_ means a **Paired device** reaching this one. Prefer **paired device** / **remote surface** for the latter.
+- "remote" is overloaded across ADRs: ADR-160 _remote workspace backends_ means a workspace living on another machine; ADR-161 _remote control_ means a **Paired device** reaching this one; and since ADR-225 a paired device can reach a remote **Host** directly, through its **Host server**, with no desktop involved. Prefer **remote host** / **host server** for the first, **paired device** / **remote surface** for the second, and never "remote server" for either.

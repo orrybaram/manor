@@ -15,7 +15,7 @@ import {
   roomIdFor,
   type RelayIdentity,
 } from "../../../src/lib/relay-crypto";
-import type { BridgeServer } from "../../bridge/server";
+import type { BridgeServer, BridgeServerDeps } from "../../bridge/server";
 import { WsBridgeServer } from "../../bridge/transports/ws";
 import {
   RemoteControlController,
@@ -78,13 +78,15 @@ describe("resetting the relay address", () => {
       [RELAY_TOKEN, { id: "dev-relay", label: "browser" }],
     ]);
     const deviceStore = {
+      ready: true,
+      encryptionAvailable: () => true,
       verify: (raw: unknown) =>
         typeof raw === "string" ? (devices.get(raw) ?? null) : null,
       ids: () => [...devices.values()].map((d) => d.id),
       idsInOtherRelayRooms: () => [],
-      revoke: (id: string) => {
+      revokeMany: async (ids: readonly string[]) => {
         for (const [token, d] of devices)
-          if (d.id === id) devices.delete(token);
+          if (ids.includes(d.id)) devices.delete(token);
       },
       list: () => [],
     };
@@ -93,7 +95,7 @@ describe("resetting the relay address", () => {
       accept: () => {},
       drop: () => {},
       receive: async () => null,
-    } as unknown as BridgeServer;
+    } as unknown as BridgeServer<BridgeServerDeps>;
     bridge = new WsBridgeServer(host, { appVersion: "9.9.9" });
     const gate = new RelayGate(deviceStore, bridge, new AuthRateLimiter());
     connector = new RelayConnector({
@@ -104,19 +106,17 @@ describe("resetting the relay address", () => {
     });
     const identityStore = {
       describe: () => ({ roomId, x25519Pub: "" }),
-      reset: () => ({ roomId: "new", x25519Pub: "" }),
+      reset: async () => ({ roomId: "new", x25519Pub: "" }),
     };
     const runtime: RemoteControlRuntime = {
       gate,
       relay: connector,
       relayIdentity: identityStore as unknown as RelayIdentityStore,
     };
-    const controller = new RemoteControlController(
-      async () => runtime,
-      deviceStore as unknown as RemoteDeviceStore,
-      () => true,
-      null,
-    );
+    const controller = new RemoteControlController({
+      loadRuntime: async () => runtime,
+      devices: deviceStore as unknown as RemoteDeviceStore,
+    });
 
     connector.start();
     await until(() => connector.status.state === "running", "relay running");

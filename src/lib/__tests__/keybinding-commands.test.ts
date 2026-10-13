@@ -12,6 +12,7 @@ import {
   createSharedKeybindingHandlers,
   dispatchKeybinding,
   moveTabToNextPanel,
+  newAgent,
   resolveWorkspaceCommand,
   runForwardedCommand,
   startNewAgent,
@@ -38,6 +39,7 @@ import {
 } from "../../store/__tests__/fake-layout-server";
 
 import { workspaceKey } from "../workspace-key";
+import { recordHello } from "../../bridge/connection";
 
 const WS_PATH = "/test/workspace";
 
@@ -380,6 +382,28 @@ describe("startNewAgent", () => {
         kind: "agent-startup",
       },
     ]);
+    vi.unstubAllGlobals();
+  });
+});
+
+describe("newAgent", () => {
+  afterEach(() => recordHello({ hostName: null, hostServer: false }));
+
+  // A host server does not launch agents (ADR-225 D5): every trigger lands
+  // here, so none of them opens a tab or the phone's composer.
+  it("launches nothing once the hello says this is a host server", async () => {
+    recordHello({ hostName: "Studio", hostServer: true });
+    const consumePrewarmed = vi.fn();
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: { ...window.electronAPI, pty: { consumePrewarmed } },
+    });
+
+    await newAgent({ prewarm: true });
+    await settled();
+
+    expect(consumePrewarmed).not.toHaveBeenCalled();
+    expect(useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"].tabs).toHaveLength(1);
     vi.unstubAllGlobals();
   });
 });

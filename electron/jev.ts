@@ -13,14 +13,16 @@
 
 import type { JevAnswer, JevPayload } from "../src/lib/jev-protocol";
 import { base64urlEncode, signJevRequest } from "../src/lib/relay-crypto";
-import { EncryptionUnavailableError } from "./remote-control/devices";
-import { RelayIdentityStore, wipe } from "./remote-control/relay/identity";
+import { EncryptionUnavailableError } from "./platform/sealed-store";
+import { RelayIdentityStore } from "./remote-control/relay/identity";
+import { wipe } from "./remote-control/relay/wipe";
 import { parseRelayUrl, resolveRelayUrl } from "./remote-control/relay/url";
 
 const REQUEST_TIMEOUT_MS = 5000;
 
 export interface JevClientDeps {
-  identityStore?: () => RelayIdentityStore;
+  /** The relay identity, initialised (`RelayIdentityStore.init()` done). */
+  identityStore: () => RelayIdentityStore | Promise<RelayIdentityStore>;
   /** The relay origin, `https://host[:port]`. */
   baseUrl?: () => string;
   fetch?: typeof fetch;
@@ -29,14 +31,12 @@ export interface JevClientDeps {
 export class JevClient {
   /** Set when `safeStorage` can't encrypt: no identity, so no suggestions this session. */
   private disabled = false;
-  private store: RelayIdentityStore | null = null;
-  private readonly getStore: () => RelayIdentityStore;
+  private readonly getStore: JevClientDeps["identityStore"];
   private readonly baseUrl: () => string;
   private readonly fetchFn: typeof fetch;
 
-  constructor(deps: JevClientDeps = {}) {
-    this.getStore =
-      deps.identityStore ?? (() => (this.store ??= new RelayIdentityStore()));
+  constructor(deps: JevClientDeps) {
+    this.getStore = deps.identityStore;
     this.baseUrl =
       deps.baseUrl ?? (() => parseRelayUrl(resolveRelayUrl()).origin);
     this.fetchFn = deps.fetch ?? ((...args) => fetch(...args));
@@ -54,7 +54,7 @@ export class JevClient {
     let sig: string;
     const ts = Date.now();
     try {
-      const identity = this.getStore().load();
+      const identity = (await this.getStore()).load();
       try {
         pub = base64urlEncode(identity.ed25519.pub);
         sig = base64urlEncode(

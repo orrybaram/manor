@@ -84,7 +84,7 @@ const pendingRequests = new Map<string, PendingRequest>();
 /**
  * A renderer answering an app-command that carried a `requestId`.
  *
- * `HANDLERS["appCommands.result"]` (ADR-180 D5), and the whole of what used
+ * The table's `appCommands.result` (ADR-180 D5), and the whole of what used
  * to be a lazily installed `ipcMain.on("app-command-result")` listener. The
  * reply was always a call the renderer makes to the host, so it is an
  * ordinary invoke now; the correlation id, the pending map and the timeout

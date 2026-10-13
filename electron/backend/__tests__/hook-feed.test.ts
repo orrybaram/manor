@@ -76,6 +76,7 @@ function makeFeed(opts: {
   sink?: HookSink | null;
   retryDelayMs?: (a: number) => number;
   beforeCatchUp?: () => Promise<void>;
+  firstContact?: "head" | "replayAll";
 }) {
   const store =
     opts.lastSeq === null ? memoryHookSeqStore() : seededStore(opts.lastSeq ?? 0, opts.epoch === undefined ? EPOCH : opts.epoch);
@@ -86,6 +87,7 @@ function makeFeed(opts: {
     sink: () => opts.sink ?? null,
     retryDelayMs: opts.retryDelayMs,
     beforeCatchUp: opts.beforeCatchUp,
+    firstContact: opts.firstContact,
   });
   return { feed, store };
 }
@@ -293,6 +295,34 @@ describe("HostHookFeed", () => {
     feed.pause();
     feed.catchUp();
     expect(calls[1]).toMatchObject({ sinceSeq: 41, opts: undefined });
+  });
+
+  it("with firstContact replayAll, replays the whole journal it meets for the first time", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    const { replay, calls } = deferredReplay();
+    const rec = recordingSink();
+    const { feed, store } = makeFeed({
+      lastSeq: null,
+      replay,
+      sink: rec.sink,
+      firstContact: "replayAll",
+    });
+
+    feed.catchUp();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ sinceSeq: 0, opts: undefined });
+    feed.onLiveEvent(4, payload(4));
+    calls[0].resolve({ entries: entries(1, 3), lastSeq: 3, epoch: "e1" });
+    await flush();
+
+    expect(rec.tags()).toEqual([1, 2, 3, 4]);
+    expect(rec.ingested.every((i) => i.replay)).toBe(true);
+    expect(store.get(HOST)).toEqual({ seq: 4, epoch: "e1" });
+
+    // Met now: the next catch-up is an ordinary replay.
+    feed.pause();
+    feed.catchUp();
+    expect(calls[1]).toMatchObject({ sinceSeq: 4, opts: undefined });
   });
 
   it("replays a recreated journal from the start even once it has passed lastHookSeq", async () => {

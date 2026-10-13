@@ -1,30 +1,47 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { LinearManager } from "./linear";
+import type { SecretBox } from "./platform/secret-box";
 
-// Mock electron safeStorage
-vi.mock("electron", () => ({
-  safeStorage: {
-    encryptString: vi.fn((s: string) => Buffer.from(`enc:${s}`)),
-    decryptString: vi.fn((b: Buffer) => b.toString().replace("enc:", "")),
-  },
-}));
+// A reversible stand-in for the secret box: "enc:" marks the sealed form.
+const secretBox: SecretBox = {
+  available: () => true,
+  backend: () => "plaintext",
+  encrypt: async (b) => Buffer.from(`enc:${b.toString()}`),
+  decrypt: async (b) => Buffer.from(b.toString().replace("enc:", "")),
+};
 
 // Mock node:fs
 const mockReadFileSync = vi.fn();
 const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 const mockUnlinkSync = vi.fn();
+const mockChmod = vi.fn();
+const mockRename = vi.fn();
+const mockRm = vi.fn();
 const mockExistsSync = vi.fn();
 
-vi.mock("node:fs", () => ({
-  default: {
-    readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
-    writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
-    mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
-    unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
-    existsSync: (...args: unknown[]) => mockExistsSync(...args),
-  },
-}));
+vi.mock("node:fs", () => {
+  const promises = {
+    readFile: async (...args: unknown[]) => mockReadFileSync(...args),
+    writeFile: async (...args: unknown[]) => mockWriteFileSync(...args),
+    mkdir: async (...args: unknown[]) => mockMkdirSync(...args),
+    chmod: async (...args: unknown[]) => mockChmod(...args),
+    rename: async (...args: unknown[]) => mockRename(...args),
+    rm: async (...args: unknown[]) => mockRm(...args),
+  };
+  return {
+    // `lib/fs-atomic` reads the namespace, everything else the default.
+    promises,
+    default: {
+      readFileSync: (...args: unknown[]) => mockReadFileSync(...args),
+      writeFileSync: (...args: unknown[]) => mockWriteFileSync(...args),
+      mkdirSync: (...args: unknown[]) => mockMkdirSync(...args),
+      unlinkSync: (...args: unknown[]) => mockUnlinkSync(...args),
+      existsSync: (...args: unknown[]) => mockExistsSync(...args),
+      promises,
+    },
+  };
+});
 
 // Mock fetch globally
 const mockFetch = vi.fn();
@@ -45,29 +62,37 @@ describe("LinearManager", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    manager = new LinearManager();
+    manager = new LinearManager(secretBox);
   });
 
   // ─── Token management ────────────────────────────────────────────────────────
 
   describe("saveToken", () => {
-    it("encrypts via safeStorage and writes to linear-token.enc", () => {
-      manager.saveToken("lin_api_test123");
+    it("encrypts via the secret box and writes linear-token.enc atomically", async () => {
+      await manager.saveToken("lin_api_test123");
 
       expect(mockMkdirSync).toHaveBeenCalledWith(
         expect.stringContaining("Manor"),
         { recursive: true },
       );
       expect(mockWriteFileSync).toHaveBeenCalledWith(
-        expect.stringContaining("linear-token.enc"),
+        expect.stringMatching(/linear-token\.enc\..+\.tmp$/),
         Buffer.from("enc:lin_api_test123"),
+        { mode: 0o600 },
       );
+      const tmp = mockWriteFileSync.mock.calls[0][0] as string;
+      expect(mockRename).toHaveBeenCalledWith(
+        tmp,
+        expect.stringMatching(/linear-token\.enc$/),
+      );
+      expect(manager.getToken()).toBe("lin_api_test123");
     });
   });
 
   describe("getToken", () => {
-    it("reads and decrypts the token, returning a string", () => {
+    it("reads and decrypts the token, returning a string", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
 
       const token = manager.getToken();
 
@@ -77,7 +102,7 @@ describe("LinearManager", () => {
       );
     });
 
-    it("returns null when file doesn't exist", () => {
+    it("returns null when file doesn't exist", async () => {
       mockReadFileSync.mockImplementation(() => {
         throw new Error("ENOENT: no such file");
       });
@@ -87,7 +112,7 @@ describe("LinearManager", () => {
   });
 
   describe("clearToken", () => {
-    it("deletes the token file", () => {
+    it("deletes the token file", async () => {
       manager.clearToken();
 
       expect(mockUnlinkSync).toHaveBeenCalledWith(
@@ -95,7 +120,7 @@ describe("LinearManager", () => {
       );
     });
 
-    it("doesn't throw when file doesn't exist", () => {
+    it("doesn't throw when file doesn't exist", async () => {
       mockUnlinkSync.mockImplementation(() => {
         throw new Error("ENOENT: no such file");
       });
@@ -105,12 +130,13 @@ describe("LinearManager", () => {
   });
 
   describe("isConnected", () => {
-    it("returns true when token is present", () => {
+    it("returns true when token is present", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
       expect(manager.isConnected()).toBe(true);
     });
 
-    it("returns false when token is absent", () => {
+    it("returns false when token is absent", async () => {
       mockReadFileSync.mockImplementation(() => {
         throw new Error("ENOENT");
       });
@@ -123,6 +149,7 @@ describe("LinearManager", () => {
   describe("getViewer", () => {
     it("sends correct query and returns viewer data", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
       mockFetch.mockResolvedValue(
         makeFetchResponse({ data: { viewer: { name: "Alice", email: "alice@example.com" } } }),
       );
@@ -151,6 +178,7 @@ describe("LinearManager", () => {
 
     it("throws on non-OK HTTP response with status info", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
       mockFetch.mockResolvedValue(
         makeFetchResponse("Unauthorized", false, 401, "Unauthorized"),
       );
@@ -160,6 +188,7 @@ describe("LinearManager", () => {
 
     it("throws on GraphQL errors array", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
       mockFetch.mockResolvedValue(
         makeFetchResponse({ errors: [{ message: "Field not found" }] }),
       );
@@ -169,6 +198,7 @@ describe("LinearManager", () => {
 
     it("throws 'No data returned' when response has no data field", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
       mockFetch.mockResolvedValue(makeFetchResponse({}));
 
       await expect(manager.getViewer()).rejects.toThrow("No data returned from Linear API");
@@ -186,6 +216,7 @@ describe("LinearManager", () => {
 
     it("sends correct query variables, sorts by state type then priority, slices to limit", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
 
       const rawNodes = [
         {
@@ -258,6 +289,7 @@ describe("LinearManager", () => {
 
     it("sends correct query variables, sorts by state type then priority, slices to limit", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
 
       const rawNodes = [
         {
@@ -334,6 +366,7 @@ describe("LinearManager", () => {
   describe("getIssueDetail", () => {
     it("flattens labels.nodes to labels", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
 
       mockFetch.mockResolvedValue(
         makeFetchResponse({
@@ -370,7 +403,7 @@ describe("LinearManager", () => {
       { id: "t2", name: "Infra", key: "INF" },
     ];
 
-    it("matches project 'manor' to team 'Manor'", () => {
+    it("matches project 'manor' to team 'Manor'", async () => {
       const result = manager.autoMatchProjects(
         [{ id: "p1", name: "manor" }],
         teams,
@@ -378,7 +411,7 @@ describe("LinearManager", () => {
       expect(result["p1"]).toEqual({ teamId: "t1", teamName: "Manor", teamKey: "MNR" });
     });
 
-    it("normalizes suffixes: 'manor-app' matches team 'Manor'", () => {
+    it("normalizes suffixes: 'manor-app' matches team 'Manor'", async () => {
       const result = manager.autoMatchProjects(
         [{ id: "p2", name: "manor-app" }],
         teams,
@@ -386,7 +419,7 @@ describe("LinearManager", () => {
       expect(result["p2"]).toEqual({ teamId: "t1", teamName: "Manor", teamKey: "MNR" });
     });
 
-    it("normalizes other suffixes: 'infra-service' matches team 'Infra'", () => {
+    it("normalizes other suffixes: 'infra-service' matches team 'Infra'", async () => {
       const result = manager.autoMatchProjects(
         [{ id: "p3", name: "infra-service" }],
         teams,
@@ -394,7 +427,7 @@ describe("LinearManager", () => {
       expect(result["p3"]).toEqual({ teamId: "t2", teamName: "Infra", teamKey: "INF" });
     });
 
-    it("returns empty object when no matches", () => {
+    it("returns empty object when no matches", async () => {
       const result = manager.autoMatchProjects(
         [{ id: "p4", name: "completely-unrelated-xyz" }],
         teams,
@@ -402,7 +435,7 @@ describe("LinearManager", () => {
       expect(result).toEqual({});
     });
 
-    it("is case insensitive", () => {
+    it("is case insensitive", async () => {
       const result = manager.autoMatchProjects(
         [{ id: "p5", name: "MANOR" }],
         teams,
@@ -416,6 +449,7 @@ describe("LinearManager", () => {
   describe("startIssue", () => {
     it("finds 'In Progress' state and updates issue", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
 
       const queryResponse = {
         data: {
@@ -468,6 +502,7 @@ describe("LinearManager", () => {
   describe("closeIssue", () => {
     it("finds 'Done' state and updates issue", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));
+      await manager.init();
 
       const queryResponse = {
         data: {

@@ -198,10 +198,17 @@ export class GitHubManager {
   private onPrMerged: ((prUrl: string) => void) | undefined;
 
   /**
-   * Merged and closed PRs by repo and head branch: they never change again,
-   * so their branches are not queried again (#303).
+   * The last PR each branch of each checkout was seen with (null: none), and
+   * when — what the desktop already knows, for the host server manifest's
+   * integration snapshot (ADR-225 D8), which must not cost a call of its
+   * own. Only a lookup that reached GitHub writes here, so a rate-limited
+   * poll does not wipe what was known. A merged or closed PR here never
+   * changes again, so its branch is not queried again (#303).
    */
-  private settledPrs = new Map<string, PrInfo>();
+  private lastSeenPrs = new Map<string, { pr: PrInfo | null; at: number }>();
+
+  /** Told the host of a checkout whose PRs were just looked up. */
+  private readonly prCacheListeners = new Set<(hostId: string) => void>();
 
   /** `getPrsForBranches` lookups still running, by repo and branches. */
   private prLookupsInFlight = new Map<string, Promise<Map<string, PrInfo | null>>>();
@@ -232,7 +239,7 @@ export class GitHubManager {
 
   /**
    * Notified with the PR URL when a poll queries a merged PR — once per
-   * process, since a merged PR is not queried again (see `settledPrs`), but
+   * process, since a merged PR is not queried again (see `lastSeenPrs`), but
    * again after a restart. Counting it once is the listener's job
    * (`StatsStore.recordOnce`); this side just reports what it saw, since the
    * poll is the only place in the app that learns a PR merged without anyone
@@ -240,6 +247,37 @@ export class GitHubManager {
    */
   setPrMergedListener(listener: ((prUrl: string) => void) | undefined): void {
     this.onPrMerged = listener;
+  }
+
+  /**
+   * The PR `branch` of `repo` was last seen with, and when (epoch ms); null
+   * for "no PR", undefined when it has not been looked up. Never a call.
+   */
+  cachedPr(repo: GhRepo, branch: string): { pr: PrInfo | null; at: number } | undefined {
+    return this.lastSeenPrs.get(settledPrKey(repo, branch));
+  }
+
+  /**
+   * Told the host id whenever a lookup reached GitHub and refreshed the
+   * cache; whether anything changed is the listener's to judge. Returns the
+   * unsubscribe.
+   */
+  onPrCacheChange(listener: (hostId: string) => void): () => void {
+    this.prCacheListeners.add(listener);
+    return () => {
+      this.prCacheListeners.delete(listener);
+    };
+  }
+
+  private notifyPrCacheChange(repo: GhRepo): void {
+    const hostId = normalizeHostId(repo.hostId);
+    for (const listener of [...this.prCacheListeners]) {
+      try {
+        listener(hostId);
+      } catch (err) {
+        console.error("[GitHubManager] PR cache listener threw:", err);
+      }
+    }
   }
 
   async getPrForBranch(
@@ -253,7 +291,7 @@ export class GitHubManager {
   /**
    * Every branch's PR in one `gh api graphql` call for the repo, however many
    * branches (#303). A branch whose PR has merged or closed is answered from
-   * `settledPrs` and never asked about again. Concurrent calls for the same
+   * `lastSeenPrs` and never asked about again. Concurrent calls for the same
    * repo and branches share one lookup rather than each running their own.
    */
   async getPrsForBranches(
@@ -273,7 +311,7 @@ export class GitHubManager {
   }
 
   /**
-   * Each branch's PR: settled ones from `settledPrs`, the rest from GitHub
+   * Each branch's PR: settled ones from `lastSeenPrs`, the rest from GitHub
    * (`fetchPrsFromGitHub`), with their conversations.
    */
   private async lookUpPrs(
@@ -283,25 +321,23 @@ export class GitHubManager {
     const result = new Map<string, PrInfo | null>();
     const toAsk: string[] = [];
     for (const branch of new Set(branches)) {
-      const settled = this.settledPrs.get(settledPrKey(repo, branch));
-      if (settled) result.set(branch, settled);
+      const seen = this.lastSeenPrs.get(settledPrKey(repo, branch));
+      if (seen?.pr && seen.pr.state !== "open") result.set(branch, seen.pr);
       else toAsk.push(branch);
     }
     if (toAsk.length === 0) return result;
 
-    const raw = await this.fetchPrsFromGitHub(repo, toAsk);
+    const { prs: raw, reached } = await this.fetchPrsFromGitHub(repo, toAsk);
     const conversations = await this.conversationsFor(
       Array.from(raw.values()).filter((pr): pr is RawPr => pr !== null),
     );
     for (const branch of toAsk) {
       const pr = raw.get(branch) ?? null;
       const info = pr ? this.toPrInfo(pr, conversations.get(pr.url) ?? {}) : null;
-      // Merged and closed PRs never change again: kept, never re-queried.
-      if (info && info.state !== "open") {
-        this.settledPrs.set(settledPrKey(repo, branch), info);
-      }
+      if (reached) this.lastSeenPrs.set(settledPrKey(repo, branch), { pr: info, at: Date.now() });
       result.set(branch, info);
     }
+    if (reached) this.notifyPrCacheChange(repo);
     return result;
   }
 
@@ -313,7 +349,7 @@ export class GitHubManager {
   private async fetchPrsFromGitHub(
     repo: GhRepo,
     branches: string[],
-  ): Promise<Map<string, RawPr | null>> {
+  ): Promise<{ prs: Map<string, RawPr | null>; reached: boolean }> {
     const result = new Map<string, RawPr | null>(branches.map((b) => [b, null]));
     try {
       const { cwd, repoArgs } = await this.ghTarget(repo);
@@ -336,8 +372,9 @@ export class GitHubManager {
       });
     } catch {
       // Rate limit, network, no repo: no PRs this time round.
+      return { prs: result, reached: false };
     }
-    return result;
+    return { prs: result, reached: true };
   }
 
   private toPrInfo(pr: RawPr, conversation: PrConversationState): PrInfo {
@@ -865,7 +902,7 @@ function repoCacheKey({ path, hostId }: GhRepo): string {
   return `${normalizeHostId(hostId)}\0${path}`;
 }
 
-/** `GitHubManager.settledPrs`' key: one branch of one checkout. */
+/** `GitHubManager.lastSeenPrs`' key: one branch of one checkout. */
 function settledPrKey(repo: GhRepo, branch: string): string {
   return `${repoCacheKey(repo)}\0${branch}`;
 }

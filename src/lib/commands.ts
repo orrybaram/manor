@@ -196,6 +196,13 @@ interface CommandMeta {
    * stops type-checking here instead of silently hiding its commands.
    */
   native?: UnavailableNamespace;
+  /**
+   * `false` for a command a host server cannot serve (ADR-225 D5): it
+   * neither creates workspaces nor launches agents. A page connected to one
+   * leaves it out of the handler maps and palette, as the web does a
+   * `native` command.
+   */
+  hostServer?: false;
 }
 
 /**
@@ -429,6 +436,7 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     defaultCombo: metaCombo("n"),
     scope: "any",
+    hostServer: false,
     run: unlessHome((ctx) => ctx.startNewAgent()),
   },
   {
@@ -437,6 +445,7 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     defaultCombo: metaCombo("n", true),
     scope: "primary",
+    hostServer: false,
     run: (ctx) => ctx.chrome.openNewWorkspace(),
   },
   {
@@ -1021,19 +1030,34 @@ export function commandAvailableOnWeb(commandId: string): boolean {
   return !native || !UNAVAILABLE_NAMESPACES.has(native);
 }
 
+/** Whether a host server can serve `commandId` (ADR-225 D5). */
+export function commandAvailableOnHostServer(commandId: string): boolean {
+  return BY_ID.get(commandId)?.hostServer !== false;
+}
+
+/** Where the table is being read: the web app, and whether on a host server. */
+export interface CommandPlatform {
+  web: boolean;
+  /** Connected to a host server (its hello named it); never on the desktop. */
+  hostServer?: boolean;
+}
+
 /**
- * The table as the current platform sees it — the one place the web filter
- * is applied. On the web a native-only command is simply absent: it has no
+ * The table as the current platform sees it — the one place the web and
+ * host-server filters are applied. On the web a native-only command is
+ * simply absent, and on a host server so is one it cannot serve: it has no
  * handler, and the palette never lists it.
  */
 export function availableCommands({
   web,
-}: {
-  web: boolean;
-}): readonly CommandDef[] {
-  return web
-    ? COMMANDS.filter((def) => commandAvailableOnWeb(def.id))
-    : COMMANDS;
+  hostServer = false,
+}: CommandPlatform): readonly CommandDef[] {
+  if (!web && !hostServer) return COMMANDS;
+  return COMMANDS.filter(
+    (def) =>
+      (!web || commandAvailableOnWeb(def.id)) &&
+      (!hostServer || commandAvailableOnHostServer(def.id)),
+  );
 }
 
 /** A command→action map, as the keyboard and menu dispatchers take it. */
@@ -1049,10 +1073,10 @@ export type CommandHandler = (args?: CommandArgs) => void;
  */
 export function commandHandlers(
   ctx: SharedCommandContext | CommandContext,
-  { web, primary }: { web: boolean; primary: boolean },
+  { primary, ...platform }: CommandPlatform & { primary: boolean },
 ): Record<string, CommandHandler> {
   const handlers: Record<string, CommandHandler> = {};
-  for (const def of availableCommands({ web })) {
+  for (const def of availableCommands(platform)) {
     if (!def.run) continue;
     if (def.scope === "any") {
       const run = def.run;

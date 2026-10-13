@@ -268,6 +268,22 @@ test.describe("phone layout (ADR-181)", () => {
       // already mounted (ADR-181 D1), so focusing the split's other pane
       // must not create a new pty or resize either pane's grid.
       const otherPaneId = (initialPaneId === paneA ? paneB : paneA)!;
+      // The pane count shows before the phone applies its `pty.create`
+      // replies: until then a pane is drawn at the phone's own fit, not the
+      // desk's grid it follows. Settle both on the session's grid first, so
+      // "before" is the steady state rather than a mid-attach snapshot.
+      for (const id of [paneA, paneB!]) {
+        await expect
+          .poll(
+            async () => {
+              const meta = await readSessionMeta(request, tempHome, id);
+              const grid = await paneGrid(client.page, id).catch(() => null);
+              return grid?.cols === meta.cols && grid?.rows === meta.rows;
+            },
+            { timeout: 15_000 },
+          )
+          .toBe(true);
+      }
       const auditBefore = bridgeCreateCount(tempHome);
       const gridABefore = await paneGrid(client.page, paneA);
       const gridBBefore = await paneGrid(client.page, paneB!);

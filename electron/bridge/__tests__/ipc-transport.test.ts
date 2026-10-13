@@ -18,6 +18,8 @@ import type { MockInstance } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
 import { resetAttachments } from "../../pty-attachments";
+import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import { DESKTOP_TABLE } from "../handlers";
 import { BridgeServer } from "../server";
 import { IpcBridgeTransport, isRendererSender } from "../transports/ipc";
 import {
@@ -167,7 +169,7 @@ describe("isRendererSender", () => {
 describe("IpcBridgeTransport", () => {
   let windows: FakeWindow[];
   let transport: IpcBridgeTransport;
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
   let ping: ReturnType<typeof vi.fn>;
   let warn: MockInstance;
 
@@ -180,7 +182,8 @@ describe("IpcBridgeTransport", () => {
       getRendererWindows: () => windows,
     } as unknown as HostDeps;
     server = new BridgeServer(deps, {
-      handlers: { "demo.ping": ping as never },
+      table: { ...DESKTOP_TABLE, handlers: { "demo.ping": ping as never } },
+      events: addRendererBroadcastSink,
     });
     transport = new IpcBridgeTransport(deps, server);
     transport.start();
@@ -360,7 +363,7 @@ describe("two windows on one pane (D6)", () => {
   let detached: string[];
   let windows: FakeWindow[];
   let transport: IpcBridgeTransport;
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
 
   /** Every `pty.winsizeOwner` frame a window has been sent. */
   function ownerFrames(win: FakeWindow): Record<string, unknown>[] {
@@ -420,7 +423,7 @@ describe("two windows on one pane (D6)", () => {
       },
     } as unknown as HostDeps;
     // No `handlers` override: this is the table the app runs.
-    server = new BridgeServer(deps);
+    server = new BridgeServer(deps, { table: DESKTOP_TABLE, events: addRendererBroadcastSink });
     transport = new IpcBridgeTransport(deps, server);
     transport.start();
   });

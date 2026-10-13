@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   COMMANDS,
   availableCommands,
+  commandAvailableOnHostServer,
   commandAvailableOnWeb,
+  commandHandlers,
+  type CommandContext,
 } from "../commands";
 import { NATIVE_ONLY_COMMANDS } from "../menu-commands";
 
@@ -44,6 +47,34 @@ describe("availableCommands", () => {
     for (const def of COMMANDS) {
       expect(web.has(def.id), def.id).toBe(!NATIVE_ONLY_COMMANDS.has(def.id));
     }
+  });
+});
+
+describe("commandAvailableOnHostServer", () => {
+  it("is false for exactly what a host server cannot do (ADR-225 D5)", () => {
+    const refused = COMMANDS.filter((d) => !commandAvailableOnHostServer(d.id)).map((d) => d.id);
+    expect(refused.sort()).toEqual(["new-agent", "new-workspace"]);
+  });
+
+  it("drops them from the table and the handler maps on a host server", () => {
+    const ids = availableCommands({ web: true, hostServer: true }).map((d) => d.id);
+    expect(ids).not.toContain("new-workspace");
+    expect(ids).not.toContain("new-agent");
+    expect(ids).toContain("new-tab");
+    const handlers = commandHandlers({ chrome: {} } as unknown as CommandContext, {
+      web: true,
+      hostServer: true,
+      primary: true,
+    });
+    expect(handlers["new-workspace"]).toBeUndefined();
+    expect(handlers["new-agent"]).toBeUndefined();
+    expect(handlers["new-tab"]).toBeTypeOf("function");
+  });
+
+  it("keeps them on the web when connected to a desktop", () => {
+    const ids = availableCommands({ web: true }).map((d) => d.id);
+    expect(ids).toContain("new-workspace");
+    expect(ids).toContain("new-agent");
   });
 });
 

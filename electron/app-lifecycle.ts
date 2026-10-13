@@ -1,5 +1,6 @@
-import { app, BrowserWindow, nativeImage, powerMonitor, safeStorage } from "electron";
+import { app, BrowserWindow, nativeImage, powerMonitor } from "electron";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { TerminalHostClient } from "./terminal-host/client";
@@ -13,14 +14,18 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
+import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
-import { AgentHookServer } from "./agent-hooks";
-import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
+import type { HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
-import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/driver";
-import type { PaneStatusUpdate } from "./agent-status/effects";
+import {
+  createAgentPipeline,
+  desktopAgentPipelineOptions,
+  resyncPaneFacts,
+} from "./agent-status/pipeline";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
+import { dispatchStreamEvent } from "./agent-stream-events";
 import { ChatMirror, transcriptSources } from "./chat-mirror/mirror";
 import { pickPaneAgent } from "../src/lib/pane-agent";
 import { LocalTranscriptSource } from "./chat-mirror/transcript-source";
@@ -32,9 +37,8 @@ import { AgentActivityStore } from "./agent-activity-store";
 import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
-import { cleanAgentTitle } from "./title-utils";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
-import { initAutoUpdater, checkForUpdates } from "./updater";
+import { initAutoUpdater, checkForUpdates, setBeforeInstallHook } from "./updater";
 import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { createLocalBackend } from "./backend/host-backend";
@@ -44,11 +48,21 @@ import {
   isRemoteSessionLoss,
   type HostStatus,
 } from "./backend/registry";
+import {
+  HostServerSync,
+  buildHostManifest,
+  layoutSnapshotFor,
+} from "./backend/host-server-sync";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
-import { publishRendererBroadcast } from "./renderer-broadcast";
+import {
+  addRendererBroadcastSink,
+  publishRendererBroadcast,
+} from "./renderer-broadcast";
 import { RemoteDeviceStore } from "./remote-control/devices";
+import { RelayIdentityStore } from "./remote-control/relay/identity";
 import { BridgeServer } from "./bridge/server";
+import { DESKTOP_TABLE } from "./bridge/handlers";
 import type { WsBridgeServer } from "./bridge/transports/ws";
 import { IpcBridgeTransport } from "./bridge/transports/ipc";
 import {
@@ -116,91 +130,6 @@ function manorVersion(): string {
     // fall through
   }
   return app.getVersion();
-}
-
-export interface AgentStreamDeps {
-  agentManager: Pick<AgentManager, "getAgentByPaneId" | "updateAgent">;
-  agentStatus: Pick<AgentStatusDriver, "signal" | "noteOutput" | "forgetPane">;
-  /** Broadcast an updated Agent (and refresh the dock badge). */
-  broadcastAgent: (agent: AgentInfo) => void;
-}
-
-/**
- * The agent-domain side of a stream event, run ONCE per event in main
- * (ADR-184):
- * - `paneFacts` → a Status signal for the pane, and the Agent's name from the
- *   terminal title (unless the user pinned one);
- * - `cwd` → the active Agent's cwd;
- * - `data` → the pane is still drawing (throttled in the driver), which keeps
- *   a long streamed reply from reading as a stuck turn;
- * - `exit` → the pane's reconciler state is dropped.
- */
-export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps): void {
-  try {
-    switch (event.type) {
-      case "paneFacts": {
-        deps.agentStatus.signal(event.sessionId, { type: "paneFacts", facts: event.facts });
-        // Update the persisted Agent name from the terminal title — unless the
-        // user pinned a name of their own, which the title sync must not
-        // clobber. Only an agent still running in the foreground names
-        // itself: once it exits, the title is the shell's, and a finished
-        // Agent keeps the name it ended with.
-        const cleaned = event.facts.foreground?.kind ? cleanAgentTitle(event.facts.title) : null;
-        if (cleaned) {
-          const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
-          if (agent && agent.status === "active" && !agent.namePinned && agent.name !== cleaned) {
-            const updated = deps.agentManager.updateAgent(agent.id, { name: cleaned });
-            if (updated) deps.broadcastAgent(updated);
-          }
-        }
-        break;
-      }
-      case "cwd": {
-        // Update the agent's cwd if it is active and differs.
-        const agent = deps.agentManager.getAgentByPaneId(event.sessionId);
-        if (agent && agent.status === "active" && agent.cwd !== event.cwd) {
-          const updated = deps.agentManager.updateAgent(agent.id, { cwd: event.cwd });
-          if (updated) deps.broadcastAgent(updated);
-        }
-        break;
-      }
-      case "data":
-        deps.agentStatus.noteOutput(event.sessionId);
-        break;
-      case "exit":
-        deps.agentStatus.forgetPane(event.sessionId);
-        break;
-    }
-  } catch (err) {
-    console.error("Error in agent stream event handler:", err);
-  }
-}
-
-/**
- * What main does with one stream event from any host: its agent side once
- * (`handleAgentStreamEvent`), then the pane events to every renderer, once.
- *
- * `forward` is the bridge (`BridgeServer.handleStreamEvent`, ADR-180 D5): a
- * pane's output, exit, cwd, resize and error used to go out on a
- * `pty-${kind}-${paneId}` channel to every live window, whether or not it had
- * the pane; they are `pty.*` event frames now, keyed by paneId, published to
- * windows and devices alike — each hearing only the panes it subscribed to.
- * However many renderers are attached, a signal reaches the Status
- * reconciler once and its effects are applied once (ADR-184). `paneFacts`
- * never reaches a renderer.
- */
-export function dispatchStreamEvent(
-  event: StreamEvent,
-  agentDeps: AgentStreamDeps,
-  forward: (event: StreamEvent) => void,
-): void {
-  handleAgentStreamEvent(event, agentDeps);
-  if (event.type === "paneFacts") return;
-  try {
-    forward(event);
-  } catch (err) {
-    console.error("Error forwarding stream event:", err);
-  }
 }
 
 export function initApp(devTitle: string | null): void {
@@ -452,23 +381,22 @@ export function initApp(devTitle: string | null): void {
     if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
     return repo;
   });
-  const linearManager = new LinearManager();
-  const jevClient = new JevClient();
+  // The remote-control and relay modules take their platform from these ports
+  // rather than importing Electron, so the host server can reuse them (ADR-225 D6).
+  const secretBox = electronSecretBox;
+  const appVersion = app.getVersion();
+  const linearManager = new LinearManager(secretBox);
+  // One identity store for Jev and the relay: each caches the decrypted keys,
+  // so a second instance would go stale when the relay address is reset.
+  const relayIdentityStore = new RelayIdentityStore(secretBox);
+  const jevClient = new JevClient({
+    identityStore: async () => {
+      await relayIdentityStore.init();
+      return relayIdentityStore;
+    },
+  });
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
-  const agentHookServer = new AgentHookServer();
-  // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
-  // Replayed hooks hold their notifications until the catch-up finishes, so
-  // a night's worth of hooks is one banner per agent, not hundreds.
-  const notificationCoalescer = new NotificationCoalescer(maybeSendNotification);
-  backendRegistry.setHookSink({
-    ingest: (payload, { hostId, replay }) => {
-      const ingest = () => agentHookServer.ingestHookPayload(payload, { hostId });
-      if (replay) notificationCoalescer.hold(hostId, ingest);
-      else ingest();
-    },
-    replayFinished: (hostId) => notificationCoalescer.flush(hostId),
-  });
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
@@ -515,14 +443,42 @@ export function initApp(devTitle: string | null): void {
     statsStore.recordOnce("prsMerged", prUrl);
   });
 
+  // ADR-225 D4/D5/D8: each remote host's host server holds the desktop's
+  // view of that host — its projects (with the issue and PR data already in
+  // memory here) and its part of the layout — so a phone sees them with the
+  // lid closed. Sent whole on every connect of the owner channel; after
+  // that the manifest on any project or PR change (debounced, and only when
+  // it differs), the layout on the store's own save debounce.
+  const hostServerSync = new HostServerSync({
+    registry: backendRegistry,
+    manifest: (hostId) =>
+      buildHostManifest(hostId, {
+        projects: (id) => projectManager.manifestRecords(id),
+        workspaces: (projectId) => projectManager.knownWorkspaces(projectId),
+        cachedPr: (repo, branch) => githubManager.cachedPr(repo, branch),
+        hostName: (id) => backendRegistry.hostDisplayName(id),
+      }),
+    layout: (hostId) => layoutSnapshotFor(hostId, layoutStore),
+    // The desktop's own VAPID pair, so a phone's one browser subscription is
+    // valid in every room (D3). Read lazily: `remotePush` is built below.
+    vapidKeys: () => remotePush.vapidKeys(),
+  });
+  projectManager.onStateSaved(() => hostServerSync.manifestChanged());
+  githubManager.onPrCacheChange((hostId) => hostServerSync.manifestChanged(hostId));
+  layoutStore.onPersisted(() => hostServerSync.layoutPersisted());
+
   // ADR-161's remote control. Constructed here so the status sink and the
   // quit hook can see it; deliberately *not* started — remote control is off
   // until the user turns it on, and even then nothing is reachable until they
   // separately start the relay (ADR-207: there is no listener). The gate and
   // relay modules are not even loaded until then (ADR-205 §3): `loadRuntime`
   // runs at most once, on the first enable.
-  const remoteDeviceStore = new RemoteDeviceStore();
-  const remotePush = new PushManager(remoteDeviceStore);
+  const remoteDeviceStore = new RemoteDeviceStore(secretBox);
+  const remotePush = new PushManager(remoteDeviceStore, secretBox);
+  // After `remotePush`: starting syncs hosts that are already connected.
+  // ADR-225 D3: the sync also caches each host's push endpoints, which the
+  // controller below reads so the desktop skips what the host server sends.
+  hostServerSync.start();
   /**
    * The host surface and its two transports (ADR-180 D1/D2). The surface and
    * the desktop's IPC transport are built below, once `ipcDeps` exists: the
@@ -535,28 +491,26 @@ export function initApp(devTitle: string | null): void {
    * same `bridgeServer` the desktop's windows do: one table, one connection
    * registry, two transports.
    */
-  let bridgeServer: BridgeServer | null = null;
+  let bridgeServer: BridgeServer<HostDeps> | null = null;
   let wsBridge: WsBridgeServer | null = null;
   let ipcBridge: IpcBridgeTransport | null = null;
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
-    const [
-      { RelayGate },
-      { WsBridgeServer },
-      { RelayConnector },
-      { RelayIdentityStore },
-    ] = await Promise.all([
-      import("./remote-control/relay-gate"),
-      import("./bridge/transports/ws"),
-      import("./remote-control/relay/connector"),
-      import("./remote-control/relay/identity"),
-    ]);
+    const [{ RelayGate }, { WsBridgeServer }, { RelayConnector }] =
+      await Promise.all([
+        import("./remote-control/relay-gate"),
+        import("./bridge/transports/ws"),
+        import("./remote-control/relay/connector"),
+      ]);
+    await relayIdentityStore.init();
     // The web app's transport (ADR-178 D8, ADR-180 D1). `bridgeServer` is
     // built synchronously during `initApp`, long before anything can enable
     // remote control. Its hello reply carries the app version, so a relay
     // page built for another version can move to the matching build
     // (ADR-206 D4).
     const ws = new WsBridgeServer(bridgeServer!, {
-      appVersion: app.getVersion(),
+      appVersion,
+      // So a phone's pairings show this machine's real name (ADR-225 D7).
+      hostName: () => os.hostname(),
     });
     wsBridge = ws;
     // The hello gate every relay channel passes (ADR-207 D3): device verify,
@@ -564,17 +518,16 @@ export function initApp(devTitle: string | null): void {
     const gate = new RelayGate(remoteDeviceStore, ws);
     // ADR-206's relay: the only way in. Constructed, never started here —
     // only an explicit user action (via the controller) dials it.
-    const relayIdentity = new RelayIdentityStore();
-    const relay = new RelayConnector({ identity: relayIdentity, gate });
-    return { gate, relay, relayIdentity };
+    const relay = new RelayConnector({ identity: relayIdentityStore, gate });
+    return { gate, relay, relayIdentity: relayIdentityStore };
   };
-  const remoteControl = new RemoteControlController(
-    loadRemoteControlRuntime,
-    remoteDeviceStore,
-    () => safeStorage.isEncryptionAvailable(),
-    remotePush,
-    app.getVersion(),
-  );
+  const remoteControl = new RemoteControlController({
+    loadRuntime: loadRemoteControlRuntime,
+    devices: remoteDeviceStore,
+    push: remotePush,
+    appVersion,
+    hostPushEndpoints: (hostId) => hostServerSync.pushEndpoints(hostId),
+  });
   const paneContextMap = new Map<
     string,
     {
@@ -622,17 +575,24 @@ export function initApp(devTitle: string | null): void {
   /** A pane's session owner: the host its terminal runs on (ADR-191 §5). */
   const getPaneHostId = (paneId: string) => backendRegistry.sessions.ownerOf(paneId);
 
-  const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
+  // The agent pipeline (`agent-status/pipeline.ts`), shared with the host
+  // server: local HTTP hooks and remote hosts' journaled hooks take the same
+  // path (ADR-178 §2), and a replay's notifications are coalesced to one
+  // banner per agent, not hundreds.
+  const agentPipeline = createAgentPipeline(desktopAgentPipelineOptions({
     agentManager,
-    getPaneContext: (paneId) => paneContextMap.get(paneId),
+    paneContexts: paneContextMap,
     getPaneHostId,
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,
-    // Replayed remote hooks hold their notifications (ADR-178 §2).
-    maybeSendNotification: (agent, prevStatus, newStatus) =>
-      notificationCoalescer.send(agent, prevStatus, newStatus),
-    publishPaneStatus: (update: PaneStatusUpdate) => {
+    onStatus: maybeSendNotification,
+    // Each hook also pokes the pane's chat mirror, after the driver has
+    // captured any new transcript path: the hooks are when a transcript
+    // grows, and a remote one has no file watch (ADR-216 D3). Hooks reach
+    // here only after `agentPipeline.start()`, once `chatMirror` exists.
+    onHook: (event) => chatMirror.poke(event.paneId),
+    publishPaneStatus: (update) => {
       // One event, every renderer — windows and browsers alike — once per
       // signal (ADR-184 §4, ADR-180 D5): `agents.onStatus`.
       publishRendererBroadcast("agents", "status", update);
@@ -659,7 +619,10 @@ export function initApp(devTitle: string | null): void {
         replacedRootSessionId,
       );
     },
-  });
+  }));
+  const agentStatusDriver = agentPipeline.driver;
+  const agentHookServer = agentPipeline.ingestion;
+  backendRegistry.setHookSink(agentPipeline.hookSink);
 
   // The agents side of a pane leaving a tree (ADR-182 D7): the store calls it
   // for every pane it ends, and the abandonment is a `user` signal to the
@@ -671,16 +634,10 @@ export function initApp(devTitle: string | null): void {
     agentStatus: agentStatusDriver,
   });
 
-  /**
-   * Resync a host's panes after it (re)connects: the `paneFacts` stream has
-   * nothing to replay, so ask for each live session's current facts. Without
-   * `sessionIds`, every session the host has now.
-   */
-  async function resyncPaneFacts(hostId: string, sessionIds?: readonly string[]): Promise<void> {
+  /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
+  async function resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void> {
     try {
-      const pty = backendRegistry.get(hostId).pty;
-      const ids = sessionIds ?? (await pty.listSessions()).map((s) => s.sessionId);
-      await agentStatusDriver.resync(ids, (id) => pty.getPaneFacts(id));
+      await resyncPaneFacts(backendRegistry.get(hostId).pty, agentStatusDriver, sessionIds);
     } catch (err) {
       console.debug(`[agent-status] resync of ${hostId} failed:`, err);
     }
@@ -690,19 +647,19 @@ export function initApp(devTitle: string | null): void {
   // Those Agents did not finish: their SessionEnd must not complete them, so
   // the renderer's cold restore resumes them (ADR-185 §A). Subscribed before
   // any `connect()` (the event fires inside it); a SessionEnd the hook server
-  // hears before `setRelay` below is queued and replayed after, still inside
-  // the window.
+  // hears before `agentPipeline.start()` below is queued and replayed after,
+  // still inside the window.
   backendRegistry.onDaemonReplacing((_hostId, sessionIds) => {
     agentStatusDriver.expectPaneLoss(sessionIds);
   });
 
   // The local daemon's reconnects (its client's supervisor)...
   client.setConnectionListener({
-    onReconnected: ({ sessionIds }) => void resyncPaneFacts(LOCAL_HOST_ID, sessionIds),
+    onReconnected: ({ sessionIds }) => void resyncHostPanes(LOCAL_HOST_ID, sessionIds),
   });
   // ...and remote hosts' (their `hostReconnected` carries the survivors).
   backendRegistry.onHostEvent((hostId, event) => {
-    if (event.type === "hostReconnected") void resyncPaneFacts(hostId, event.sessionIds);
+    if (event.type === "hostReconnected") void resyncHostPanes(hostId, event.sessionIds);
   });
 
   // Every session's output, in one place. Events arrive tagged with their
@@ -725,7 +682,7 @@ export function initApp(devTitle: string | null): void {
         // A remote host's first connect (a reconnect is `hostReconnected`'s):
         // its panes' facts may already say something (ADR-184).
         if (host.hostId !== LOCAL_HOST_ID && prev !== "reconnecting") {
-          void resyncPaneFacts(host.hostId);
+          void resyncHostPanes(host.hostId);
         }
       }
     }
@@ -759,10 +716,10 @@ export function initApp(devTitle: string | null): void {
     sourceFor,
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) =>
-      bridgeServer?.publishKeyed("chat", "entry", [paneId, entry], paneId),
+      bridgeServer?.publish("chat", "entry", [paneId, entry], paneId),
     // ADR-224 D3: keyed by pane and task, so only that task's subscribers hear it.
     publishTask: (paneId, taskId, entry) =>
-      bridgeServer?.publishKeyed(
+      bridgeServer?.publish(
         "chat",
         "taskEntry",
         [paneId, taskId, entry],
@@ -806,6 +763,7 @@ export function initApp(devTitle: string | null): void {
     registerDetachedWindow,
     backend,
     backendRegistry,
+    hostServerSync,
     getPaneHostId,
     layoutPersistence,
     layoutStore,
@@ -860,7 +818,10 @@ export function initApp(devTitle: string | null): void {
   // get, by design: one table of what this host can do. The surface is built
   // here rather than inside a transport because it is the thing every
   // transport attaches to.
-  bridgeServer = new BridgeServer(ipcDeps);
+  bridgeServer = new BridgeServer(ipcDeps, {
+    table: DESKTOP_TABLE,
+    events: addRendererBroadcastSink,
+  });
   // A connection that drops has already let go of every pane it viewed
   // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
   // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
@@ -895,7 +856,7 @@ export function initApp(devTitle: string | null): void {
   // dressing.
   wireStatsBroadcast(ipcDeps);
   wireAgentActivityBroadcast(ipcDeps);
-  wireChatMirror(ipcDeps, bridgeServer);
+  wireChatMirror(ipcDeps, bridgeServer, addRendererBroadcastSink);
   wirePreferencesBroadcast(ipcDeps);
   wireKeybindingsBroadcast(ipcDeps);
   wireRemoteControlStatus(ipcDeps);
@@ -904,6 +865,20 @@ export function initApp(devTitle: string | null): void {
 
   // ── App lifecycle ──
   app.whenReady().then(async () => {
+    // Decrypt the secrets the stores keep in memory before any window can ask
+    // for them (the secret box is async; the stores' APIs are not). A store
+    // that cannot be read stays unread (and its file untouched) rather than
+    // keeping the app from starting.
+    const initSecrets = (label: string, init: Promise<void>) =>
+      init.catch((err: unknown) => {
+        console.error(`[remote-control] could not read ${label}:`, err);
+      });
+    await Promise.all([
+      initSecrets("paired devices", remoteDeviceStore.init()),
+      initSecrets("relay identity", relayIdentityStore.init()),
+      initSecrets("push key", remotePush.init()),
+      linearManager.init(),
+    ]);
     // Native application menu (ADR-170). Must run after `whenReady()` (Menu
     // isn't available before then) and before the primary window opens so the
     // menu is in place the instant the window can take focus.
@@ -1019,7 +994,7 @@ export function initApp(devTitle: string | null): void {
 
     // The local daemon's panes may already have facts (a daemon that outlived
     // the last app run): resync them now that it is connected (ADR-184).
-    void resyncPaneFacts(LOCAL_HOST_ID);
+    void resyncHostPanes(LOCAL_HOST_ID);
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
     preferencesManager.onChange(() => {
@@ -1027,21 +1002,14 @@ export function initApp(devTitle: string | null): void {
     });
 
     // Every hook — local HTTP and remote hook-feed replay alike, through
-    // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184).
-    // The daemon's AgentDetector no longer hears about hooks.
-    // Each hook also pokes the pane's chat mirror, after the driver has
-    // captured any new transcript path: the hooks are when a transcript
-    // grows, and a remote one has no file watch (ADR-216 D3).
-    agentHookServer.setRelay((event) => {
-      agentStatusDriver.hook(event);
-      chatMirror.poke(event.paneId);
-    });
-
-    // One tick, on the old sweep cadence, carries every time-based rule.
-    agentStatusDriver.start();
+    // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184);
+    // the daemon's AgentDetector no longer hears about hooks. Hooks heard
+    // before this were queued and are replayed now. One tick, on the old
+    // sweep cadence, carries every time-based rule.
+    agentPipeline.start();
 
     app.on("before-quit", () => {
-      agentStatusDriver.stop();
+      agentPipeline.stop();
     });
 
     // Reopen the PRIMARY window, not just "a" window: with a popout still open
@@ -1058,15 +1026,70 @@ export function initApp(devTitle: string | null): void {
     if (process.platform !== "darwin") app.quit();
   });
 
-  app.on("before-quit", () => {
+  /**
+   * The sealed stores write in the background; a quit that did not wait for
+   * them would lose the last pairing or revoke. So the first quit is held
+   * (`preventDefault`) while the shutdown below runs and the store queues
+   * drain — at most `QUIT_FLUSH_TIMEOUT_MS` — and then quits again for real.
+   * That second pass finds `shutDown` set and lets the quit through.
+   */
+  const QUIT_FLUSH_TIMEOUT_MS = 5_000;
+  let shutDown = false;
+  let shutdownRun: Promise<void> | null = null;
+  /** After `before`, the store queues drained; bounded either way. */
+  const flushSealedStores = async (before: Promise<unknown>): Promise<void> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<void>((resolve) => {
+      timer = setTimeout(() => {
+        console.warn("[remote-control] secret stores did not flush before quit");
+        resolve();
+      }, QUIT_FLUSH_TIMEOUT_MS);
+    });
+    const flushed = before
+      .catch(() => undefined)
+      .then(() =>
+        Promise.all([remoteDeviceStore.flush(), relayIdentityStore.flush()]),
+      )
+      .then(
+        () => undefined,
+        (err: unknown) => {
+          console.error("[remote-control] could not persist secrets on quit:", err);
+        },
+      );
+    await Promise.race([flushed, timeout]);
+    clearTimeout(timer);
+  };
+
+  /** Tears everything down once, then lets the next quit through. */
+  const runShutdown = (): Promise<void> => {
+    shutdownRun ??= performShutdown().finally(() => {
+      shutDown = true;
+    });
+    return shutdownRun;
+  };
+
+  app.on("before-quit", (event) => {
+    if (shutDown) return;
+    event.preventDefault();
+    void runShutdown().then(() => app.quit());
+  });
+
+  // An update install quits through `before-quit` too, and re-quitting with
+  // `app.quit()` after our hold could lose the relaunch. So it shuts down
+  // first, and its own quit then finds `shutDown` set and passes straight
+  // through, untouched.
+  setBeforeInstallHook(runShutdown);
+
+  function performShutdown(): Promise<void> {
     agentHookServer.stop();
     webviewServer.stop();
     // The layout debounce is 300ms; a quit inside that window must not be the
     // one that loses the user's arrangement.
     layoutStore.flush();
+    hostServerSync.dispose();
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.
-    void remoteControl.shutdown();
+    const remoteControlDown = remoteControl.shutdown();
     // Bridge sockets close with remote control above; disposing the surface then
     // releases the renderer-broadcast and attachment sinks so nothing
     // publishes into a connection set that is gone.
@@ -1085,5 +1108,7 @@ export function initApp(devTitle: string | null): void {
     projectManager.flushHostHookSeqs();
     worktreeWatcher.dispose();
     remoteWorktreePoller.dispose();
-  });
+    // Last: the relay is down by now, so nothing new joins the queues.
+    return flushSealedStores(remoteControlDown);
+  }
 }

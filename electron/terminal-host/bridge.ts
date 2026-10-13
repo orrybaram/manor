@@ -68,6 +68,8 @@ export async function runRemoteBridge(
   };
 
   await transport.ensureRunning();
+  // The host server is not this bridge's concern: `server-bridge` ensures it,
+  // and the desktop opens that on every connect (ADR-225 D1, ADR-226 B5).
   const token = await transport.authToken();
   const socket = await transport.connectControl();
 
@@ -110,7 +112,7 @@ export async function runRemoteBridgeProcess(
  * `EPIPE` on either side is expected once the peer walks away and is
  * swallowed rather than logged.
  */
-function pump(
+export function pump(
   io: BridgeIO,
   socket: Duplex,
   log: (msg: string) => void,
@@ -150,7 +152,7 @@ const STDOUT_FLUSH_TIMEOUT_MS = 2_000;
  * process: a live `process.stdin` keeps the event loop — and so the ssh
  * session — alive after the daemon has gone.
  */
-async function teardown(io: BridgeIO, socket: Duplex): Promise<void> {
+export async function teardown(io: BridgeIO, socket: Duplex): Promise<void> {
   io.stdin.unpipe(socket);
   socket.unpipe(io.stdout);
   io.stdin.destroy();

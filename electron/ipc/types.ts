@@ -7,6 +7,7 @@
  * under `electron/routes/` (ADR-182 D8). There is one shape of deps to build,
  * one place (`app-lifecycle.ts`) that builds it, and nothing in it is null.
  */
+import type { HostServerSync } from "../backend/host-server-sync";
 import type { BrowserWindow } from "electron";
 import type { RoutedBackend } from "../backend/routed-backend";
 import type { BackendRegistry } from "../backend/registry";
@@ -67,6 +68,8 @@ export interface HostDeps {
   backend: RoutedBackend;
   /** Every host and its connection status (ADR-160). */
   backendRegistry: BackendRegistry;
+  /** What is pushed to each remote host's server, and its push endpoints. */
+  hostServerSync: HostServerSync;
   /** A pane's session owner, if any host has claimed it (ADR-191 §5). */
   getPaneHostId: PaneHostLookup;
   layoutPersistence: LayoutPersistence;

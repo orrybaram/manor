@@ -9,13 +9,15 @@
  * call still prints as before and is also appended, with an ISO timestamp and
  * level, to `<dir>/main.log`.
  *
+ * Electron-free (the caller passes the directory) so the host server
+ * (ADR-225) logs the same way, to its own `logs/` directory.
+ *
  * Kept deliberately dumb: one append-mode `fs.WriteStream`, one rotated
  * backup (`main.log.1`), and every fs operation swallowed. A logging failure
  * must never surface to the user or take down the app — at worst, the file
  * stops updating and console output keeps working.
  */
 
-import { app } from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import util from "node:util";
@@ -26,8 +28,10 @@ const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const CONSOLE_METHODS = ["log", "info", "warn", "error", "debug"] as const;
 
 export interface MainLogOptions {
-  /** Directory to write `main.log` into. Defaults to `app.getPath("logs")`. */
-  dir?: string;
+  /** Directory to write the log into: `app.getPath("logs")` on the desktop. */
+  dir: string;
+  /** The log's file name. Default `main.log`. */
+  fileName?: string;
   /** Rotate once the file exceeds this many bytes. Default 5 MiB. */
   maxBytes?: number;
 }
@@ -44,14 +48,15 @@ export function formatLine(level: string, args: unknown[], now: Date = new Date(
   return `${now.toISOString()} ${level.toUpperCase()} ${util.format(...args)}\n`;
 }
 
-export function installMainLog(opts?: MainLogOptions): void {
+export function installMainLog(opts: MainLogOptions): void {
   if (installed) return;
   installed = true;
 
-  const dir = opts?.dir ?? app.getPath("logs");
-  const maxBytes = opts?.maxBytes ?? DEFAULT_MAX_BYTES;
-  const logPath = path.join(dir, "main.log");
-  const rotatedPath = path.join(dir, "main.log.1");
+  const { dir } = opts;
+  const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
+  const fileName = opts.fileName ?? "main.log";
+  const logPath = path.join(dir, fileName);
+  const rotatedPath = path.join(dir, `${fileName}.1`);
 
   let stream: fs.WriteStream | null = null;
   let bytesWritten = 0;

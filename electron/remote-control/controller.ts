@@ -30,15 +30,22 @@
  * first await, and every relay start checks it, so a Start relay landing
  * while a disable is in flight cannot outlive it. The relay transitions
  * themselves run one at a time (`serially`).
+ *
+ * Who is paired — pair, revoke, reset, stale-room revokes — is the room's
+ * business (`RelayRoom`, shared with the host server's relay); the controller
+ * decides when those may run and what the user is told.
  */
 
 import { lazy, type Lazy } from "../lib/lazy";
+import { serialQueue, type Serially } from "../lib/serial";
 import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
 import type { RelayConnector, RelayStatus } from "./relay/connector";
 import type { RelayIdentityStore } from "./relay/identity";
-import { isPushable, pushPayloadFor, type PushManager } from "./push";
+import { pushAgentTransition, type PushManager } from "./push";
+import { relayAppUrl } from "./relay/url";
 import type { PushSubscriptionRecord } from "./devices";
 import type { RelayGate } from "./relay-gate";
+import { RelayRoom, type PairResult } from "./relay-room";
 
 export interface RemoteControlStatus {
   /** Is remote control on? Nothing listens either way; see the header. */
@@ -75,14 +82,6 @@ export interface RemoteControlStatus {
   relayNotice: string | null;
 }
 
-export interface PairResult {
-  device: RemoteDeviceInfo;
-  /** Shown once, never stored. */
-  rawToken: string;
-  /** The relay link (`https://<relay>/app/<version>/#relay=…`). */
-  pairingUrl: string;
-}
-
 /** The heavy half of remote control, loaded on first real use. */
 export interface RemoteControlRuntime {
   /** The relay's hello gate, and the bridge transport behind it. */
@@ -93,6 +92,28 @@ export interface RemoteControlRuntime {
   relayIdentity?: RelayIdentityStore | null;
 }
 
+export interface RemoteControlControllerOptions {
+  /** Loads the heavy half, on first real use (ADR-205 §3). */
+  loadRuntime: () => Promise<RemoteControlRuntime>;
+  /** Eager: the settings panel lists devices with remote control off. */
+  devices: RemoteDeviceStore;
+  /** Null or absent disables push; everything else still works. */
+  push?: PushManager | null;
+  /** The version segment of relay pairing links (`/app/<version>/`). */
+  appVersion?: string;
+  /**
+   * The push endpoints a host's server already sends to (cached), so those
+   * phones are not told twice (ADR-225 D3). Empty for a host not cached.
+   */
+  hostPushEndpoints?: (hostId: string) => ReadonlySet<string>;
+}
+
+const UNREADABLE_DEVICES_NOTICE =
+  "Paired devices could not be read, so none are listed and pairing is " +
+  "unavailable. Restart Manor; if this persists, check the keychain.";
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
 const STOPPED_RELAY_STATUS: Readonly<RelayStatus> = Object.freeze({
   state: "stopped",
   url: null,
@@ -102,8 +123,13 @@ const STOPPED_RELAY_STATUS: Readonly<RelayStatus> = Object.freeze({
 export class RemoteControlController {
   private listeners = new Set<(status: RemoteControlStatus) => void>();
   private relayNotice: string | null = null;
-  /** The tail of the `serially` queue. */
-  private transition: Promise<unknown> = Promise.resolve();
+  /** Runs the relay transitions one at a time; see the header. */
+  private readonly serially: Serially = serialQueue();
+  private readonly deviceStore: RemoteDeviceStore;
+  private readonly push: PushManager | null;
+  private readonly appVersion: string;
+  private readonly hostPushEndpoints: (hostId: string) => ReadonlySet<string>;
+  private readonly room: RelayRoom;
 
   /** Set once the runtime has loaded; everything sync reads this. */
   private runtime: RemoteControlRuntime | null = null;
@@ -120,15 +146,36 @@ export class RemoteControlController {
   /** Set by `shutdown()`. Nothing starts after this, whatever is in flight. */
   private closed = false;
 
-  constructor(
-    loadRuntime: () => Promise<RemoteControlRuntime>,
-    private readonly deviceStore: RemoteDeviceStore,
-    private readonly encryptionAvailable: () => boolean,
-    /** Null disables push; everything else still works. */
-    private readonly push: PushManager | null = null,
-    /** The version segment of relay pairing links (`/app/<version>/`). */
-    private readonly appVersion: string = "0.0.0",
-  ) {
+  constructor({
+    loadRuntime,
+    devices,
+    push = null,
+    appVersion = "0.0.0",
+    hostPushEndpoints = () => EMPTY_SET,
+  }: RemoteControlControllerOptions) {
+    this.deviceStore = devices;
+    this.push = push;
+    this.appVersion = appVersion;
+    this.hostPushEndpoints = hostPushEndpoints;
+    this.room = new RelayRoom({
+      devices,
+      appVersion,
+      // Until the runtime loads there is no connection to close.
+      gate: () => this.runtime?.gate ?? null,
+      relay: () => {
+        const connector = this.runtime?.relay;
+        const identity = this.runtime?.relayIdentity;
+        return connector && identity ? { connector, identity } : null;
+      },
+      // The identity store replaced an identity it could not read with a new
+      // one (a new room) without a word, so this is where the user finds out.
+      onStaleRevoked: (n) => {
+        this.relayNotice =
+          "This machine's relay identity couldn't be read, so it has a new " +
+          `relay address. ${n} device${n === 1 ? "" : "s"} paired through the ` +
+          `relay ${n === 1 ? "was" : "were"} revoked; pair ${n === 1 ? "it" : "them"} again.`;
+      },
+    });
     this.ensureRuntime = lazy(async () => {
       const runtime = await loadRuntime();
       this.runtime = runtime;
@@ -169,14 +216,25 @@ export class RemoteControlController {
    * subscriptions, and nothing here loads the runtime.
    */
   onAgentStatus(
-    agent: { id: string; name: string | null; projectName: string | null },
+    agent: {
+      id: string;
+      name: string | null;
+      projectName: string | null;
+      /** Absent or `local`: the desktop is the only one pushing for it. */
+      hostId?: string;
+    },
     previousStatus: string | null | undefined,
     status: string,
     { notify }: { notify: boolean },
   ): void {
     if (!this.push || !notify) return;
-    if (!isPushable(status) || status === previousStatus) return;
-    void this.push.notify(pushPayloadFor(status, agent));
+    // An agent on a remote host whose server already pushes to some of these
+    // phones is told about by that server, not twice (ADR-225 D3).
+    pushAgentTransition(this.push, agent, previousStatus, status, {
+      skipEndpoints: agent.hostId
+        ? this.hostPushEndpoints(agent.hostId)
+        : undefined,
+    });
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {
@@ -185,11 +243,14 @@ export class RemoteControlController {
   }
 
   status(): RemoteControlStatus {
+    // A store that could not be read (init failed) refuses `list()`; report
+    // that rather than throwing out of every status read.
+    const ready = this.deviceStore.ready;
     return {
       ...this.runtimeStatus(),
-      devices: this.deviceStore.list(),
-      encryptionAvailable: this.encryptionAvailable(),
-      relayNotice: this.relayNotice,
+      devices: ready ? this.deviceStore.list() : [],
+      encryptionAvailable: this.deviceStore.encryptionAvailable(),
+      relayNotice: ready ? this.relayNotice : UNREADABLE_DEVICES_NOTICE,
     };
   }
 
@@ -221,36 +282,30 @@ export class RemoteControlController {
    * device reaches the whole bridge.
    *
    * Needs the runtime (the identity lives there), which is loaded whenever
-   * remote control is on — and the pairing form only shows then.
+   * remote control is on — and the pairing form only shows then. Resolves once
+   * the device is on disk.
    */
-  pair(label: string): PairResult {
-    const relay = this.runtime?.relay;
-    const identity = this.runtime?.relayIdentity;
+  async pair(label: string): Promise<PairResult> {
     if (!this.runtime) {
       throw new Error("Enable remote control before pairing through the relay.");
     }
-    if (!relay || !identity) {
-      throw new Error("The relay is not available.");
-    }
-    const origin = relay.origin;
-    if (!origin) throw new Error("The relay address is not configured.");
-    const { roomId, x25519Pub } = identity.describe();
-    this.revokeStaleRelayDevices(roomId);
-    const { device, rawToken } = this.deviceStore.pair(label, roomId);
+    const result = await this.room.pair(label);
     this.emit();
-    return {
-      device,
-      rawToken,
-      pairingUrl: `${origin}/app/${this.appVersion}/#relay=${roomId}.${x25519Pub}&t=${rawToken}`,
-    };
+    return result;
   }
 
-  revoke(id: string): RemoteControlStatus {
-    this.deviceStore.revoke(id);
-    // Revoke means now: the store only stops new hellos. With the runtime
-    // never loaded there is no connection to close.
-    this.runtime?.gate.closeDevice(id);
-    this.emit();
+  /**
+   * Resolves once the revoke is on disk, and rejects when it could not be
+   * saved: the device is refused and disconnected either way, but would be
+   * back after a restart, and the user has to hear that.
+   */
+  async revoke(id: string): Promise<RemoteControlStatus> {
+    try {
+      await this.room.revoke(id);
+    } finally {
+      // Refused and disconnected whether or not the write landed.
+      this.emit();
+    }
     return this.status();
   }
 
@@ -259,7 +314,7 @@ export class RemoteControlController {
    * loaded, and this never loads it.
    */
   startRelay(): Promise<RemoteControlStatus> {
-    return this.serially(() => {
+    return this.serially(async () => {
       const runtime = this.runtime;
       if (!runtime || this.closed || !this.wantEnabled || !this.enabled) {
         throw new Error("Enable remote control before starting the relay.");
@@ -272,7 +327,7 @@ export class RemoteControlController {
       // `start` has loaded the identity (or replaced an unreadable one), so
       // this is the first moment a changed room can be noticed.
       if (relay.status.state !== "failed") {
-        this.revokeStaleRelayDevices(relayIdentity.describe().roomId);
+        await this.room.revokeStale(relayIdentity.describe().roomId);
       }
       this.emit();
       return this.status();
@@ -288,68 +343,21 @@ export class RemoteControlController {
   }
 
   /**
-   * New room, new keys: every link ever shared for the old address is dead,
-   * so every device is revoked.
-   *
-   * The order is what makes each relay browser hear *why*. Revoking closes a
-   * device's channels with 4401, which travels to the browser through the
-   * live relay and reads there as "re-pair". Stopping the relay first would
-   * take the host socket away underneath them, and the room would answer
-   * 4404 — "this machine is not reachable" — a retry loop rather than a
-   * prompt. So: revoke and close, then stop (the connector holds the old
-   * keys) and reset.
+   * New room, new keys, every device revoked (`RelayRoom.reset`, which
+   * explains the order). The relay is left stopped.
    *
    * An explicit user action, so it may load the runtime (the identity lives
    * there) — a reset with remote control off still kills every link.
    */
   resetRelayAddress(): Promise<RemoteControlStatus> {
     return this.serially(async () => {
-      const runtime = this.closed ? null : await this.ensureRuntime();
-      const relay = runtime?.relay;
-      const identity = runtime?.relayIdentity;
-      if (!runtime || !relay || !identity) {
-        throw new Error("The relay is not available.");
-      }
-      for (const id of this.deviceStore.ids()) {
-        this.deviceStore.revoke(id);
-        runtime.gate.closeDevice(id);
-      }
-      relay.stop();
-      identity.reset();
+      if (this.closed) throw new Error("The relay is not available.");
+      await this.ensureRuntime();
+      await this.room.reset();
       this.relayNotice = null;
       this.emit();
       return this.status();
     });
-  }
-
-  /**
-   * Devices paired to a room this desktop no longer owns hold dead
-   * links. The identity store replaces an identity it cannot read with a new
-   * one (a new room) without a word, so this is where the user finds out:
-   * those devices are revoked, and the relay card says why.
-   */
-  private revokeStaleRelayDevices(roomId: string): void {
-    const stale = this.deviceStore.idsInOtherRelayRooms(roomId);
-    if (stale.length === 0) return;
-    for (const id of stale) {
-      this.deviceStore.revoke(id);
-      this.runtime?.gate.closeDevice(id);
-    }
-    const n = stale.length;
-    this.relayNotice =
-      "This machine's relay identity couldn't be read, so it has a new " +
-      `relay address. ${n} device${n === 1 ? "" : "s"} paired through the ` +
-      `relay ${n === 1 ? "was" : "were"} revoked; pair ${n === 1 ? "it" : "them"} again.`;
-  }
-
-  /**
-   * Run the relay transitions one at a time. A failure rejects that caller
-   * only; the queue carries on.
-   */
-  private serially<T>(step: () => T | Promise<T>): Promise<T> {
-    const run = this.transition.then(step);
-    this.transition = run.catch(() => undefined);
-    return run;
   }
 
   /**
@@ -398,7 +406,9 @@ export class RemoteControlController {
       enabled: this.enabled,
       relay: relay?.status ?? { ...STOPPED_RELAY_STATUS },
       relayOrigin,
-      relayAppUrl: relayOrigin ? `${relayOrigin}/app/${this.appVersion}/` : null,
+      relayAppUrl: relayOrigin
+        ? relayAppUrl(relayOrigin, this.appVersion)
+        : null,
       relayViewers: relay?.channelCount ?? 0,
     };
   }

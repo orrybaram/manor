@@ -10,6 +10,7 @@
  *                            `bootstrap` request (ADR-160 ticket 10)
  *   manor-cli.js             the `manor` CLI, run by the `~/.manor/bin/manor`
  *                            shim remote-bootstrap.ts writes (ADR-189 ticket 4)
+ *   host-server-index.js     the host server (ADR-225), run by `manor-host serve`
  *   package.json             generated; pins the bundles' externals at the
  *                            versions in the root package.json
  *
@@ -27,9 +28,17 @@ import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const OUT_DIR = path.join(ROOT, "dist-electron");
-const BUNDLES = ["terminal-host-index.js", "pty-subprocess.js", "agent-hook.js", "manor-cli.js"];
+const BUNDLES = ["terminal-host-index.js", "pty-subprocess.js", "agent-hook.js", "manor-cli.js", "host-server-index.js"];
 /** The externals of the daemon bundles (see vite.config.ts); agent-hook.js has none. */
-const RUNTIME_DEPS = ["node-pty", "@xterm/headless", "@xterm/addon-serialize", "tree-kill"];
+const RUNTIME_DEPS = [
+  "node-pty",
+  "@xterm/headless",
+  "@xterm/addon-serialize",
+  "tree-kill",
+  // host-server-index.js (ADR-225); its other deps (@noble/*) are inlined.
+  "ws",
+  "web-push",
+];
 const MIN_NODE = ">=20";
 
 function die(msg) {

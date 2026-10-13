@@ -22,6 +22,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
 import { UNAVAILABLE_CODE } from "../types";
+import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import { DESKTOP_TABLE } from "../handlers";
 import { BridgeServer } from "../server";
 import type { BridgeConnection, EventFrame } from "../types";
 
@@ -40,7 +42,7 @@ function makeConnection(id: string, callerClass: "local" | "device") {
 }
 
 describe("git.push over the bridge", () => {
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
   let pushStream: ReturnType<typeof vi.fn>;
   let handlers: { onLine(line: string): void; onDone(r: unknown): void };
 
@@ -55,7 +57,7 @@ describe("git.push over the bridge", () => {
       getRendererWindows: () => [],
       backend: { git: { pushStream } },
     } as unknown as HostDeps;
-    server = new BridgeServer(deps);
+    server = new BridgeServer(deps, { table: DESKTOP_TABLE, events: addRendererBroadcastSink });
   });
 
   afterEach(() => {
@@ -136,7 +138,7 @@ describe("git.push over the bridge", () => {
 });
 
 describe("what a paired device may not call (LOCAL_ONLY)", () => {
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
   let remoteControl: Record<string, ReturnType<typeof vi.fn>>;
   let linearManager: Record<string, ReturnType<typeof vi.fn>>;
 
@@ -161,7 +163,7 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
       remoteControl,
       linearManager,
     } as unknown as HostDeps;
-    server = new BridgeServer(deps);
+    server = new BridgeServer(deps, { table: DESKTOP_TABLE, events: addRendererBroadcastSink });
   });
 
   afterEach(() => {

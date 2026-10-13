@@ -95,6 +95,7 @@ import { resumeAgent } from "./lib/agent-resume";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
+import { useConnection } from "./bridge/connection";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { WorkspaceWatchers } from "./components/WorkspaceWatchers";
 import { PhoneNewAgentComposer } from "./components/phone/NewAgent/PhoneNewAgentComposer";
@@ -600,6 +601,7 @@ function App() {
   // instead of silently doing nothing here: the dispatcher finds no handler
   // and the fallback forwards the command.
   const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
+  const { isHostServer: onHostServer } = useConnection();
   menuHandlersRef.current = createMenuHandlers(
     {
       openSettings: (page) => {
@@ -632,7 +634,9 @@ function App() {
       },
       showGhosts: triggerGhosts,
     },
-    { primary: !OWN_CLAIM },
+    // Rebuilt when the hello says this is a host server (ADR-225 D5), which
+    // drops the commands it cannot serve.
+    { primary: !OWN_CLAIM, hostServer: onHostServer },
   );
 
   const localHandlers = useCallback(() => menuHandlersRef.current, []);

@@ -128,20 +128,6 @@ export function getUnseenFlagsForAgent(agentId: string): AgentUnseenFlags {
 }
 
 /**
- * Snapshot of the full unseen state, used by `agents:getUnseen` to prime the
- * renderer cache on boot.
- */
-export function getUnseenSnapshot(): {
-  responded: string[];
-  requires_input: string[];
-} {
-  return {
-    responded: Array.from(unseenRespondedAgents),
-    requires_input: Array.from(unseenInputAgents),
-  };
-}
-
-/**
  * Broadcast an `agents`/`updated` event with the current unseen flags, then
  * refresh the dock badge. This is the single send-site for the event; do not
  * call `webContents.send("agent-updated", ...)` directly.

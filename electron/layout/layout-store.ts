@@ -236,6 +236,7 @@ export class LayoutStore {
   private loaded: Promise<void> = Promise.resolve();
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
+  private readonly persistListeners = new Set<() => void>();
 
   /**
    * @param windows Which renderer is the primary window, and which tab a
@@ -496,6 +497,7 @@ export class LayoutStore {
     }
     this.runPendingKills(workspacePath);
     this.persistence.removeWorkspace(workspacePath as WorkspaceKey);
+    this.notifyPersisted();
 
     // Every renderer drops its copy on this, rather than each one tearing the
     // workspace down itself: `removed` is what tells it the workspace is gone
@@ -997,6 +999,17 @@ export class LayoutStore {
     this.schedulePersist();
   }
 
+  /**
+   * Told after every debounced write of the layout file — the cadence the
+   * host server pushes ride (ADR-225 D5). Returns the unsubscribe.
+   */
+  onPersisted(listener: () => void): () => void {
+    this.persistListeners.add(listener);
+    return () => {
+      this.persistListeners.delete(listener);
+    };
+  }
+
   private schedulePersist(): void {
     this.dirty = true;
     if (this.persistTimer) return;
@@ -1018,6 +1031,17 @@ export class LayoutStore {
       this.persistence.save(this.toPersisted());
     } catch (err) {
       console.error("[layout] failed to persist layout:", err);
+    }
+    this.notifyPersisted();
+  }
+
+  private notifyPersisted(): void {
+    for (const listener of [...this.persistListeners]) {
+      try {
+        listener();
+      } catch (err) {
+        console.error("[layout] persist listener threw:", err);
+      }
     }
   }
 

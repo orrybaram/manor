@@ -23,13 +23,23 @@
 
 import { assertBoolean, assertString } from "../../ipc-validate";
 import type {
-  PairResult,
+  RemoteControlController,
   RemoteControlStatus,
 } from "../../remote-control/controller";
+import type { PairResult } from "../../remote-control/relay-room";
 import { asPushSubscription } from "../../remote-control/push";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";
-import { method, type HandlerCtx } from "../method";
+import { method, type Caller, type HandlerCtx } from "../method";
+
+/**
+ * A handler that reads only `keys` of the remote-control surface. The host
+ * server (ADR-225 D3) reuses these over its own relay, pairing and push,
+ * which have the same shape and none of the desktop's enable/disable.
+ */
+type RemoteControlCtx<K extends keyof RemoteControlController> = HandlerCtx<{
+  remoteControl: Pick<RemoteControlController, K>;
+}>;
 
 /**
  * The one read the ADR-178 bridge needs, lifted out of its `ipcMain.handle`
@@ -73,7 +83,10 @@ export function remoteControlSetEnabled(
  * the dialog is not the only caller any more — an empty label on a device in
  * the revoke list is a device nobody can identify well enough to revoke.
  */
-export function remoteControlPair(ctx: HandlerCtx, label: string): PairResult {
+export function remoteControlPair(
+  ctx: RemoteControlCtx<"pair">,
+  label: string,
+): Promise<PairResult> {
   assertString(label, "remoteControl.pair.label");
   const trimmed = label.trim();
   if (trimmed.length === 0 || trimmed.length > 64) {
@@ -85,7 +98,7 @@ export function remoteControlPair(ctx: HandlerCtx, label: string): PairResult {
 export function remoteControlRevoke(
   ctx: HandlerCtx,
   id: string,
-): RemoteControlStatus {
+): Promise<RemoteControlStatus> {
   assertString(id, "remoteControl.revoke.id");
   return ctx.deps.remoteControl.revoke(id);
 }
@@ -116,17 +129,17 @@ export function remoteControlResetRelayAddress(
  * names.
  */
 export function remoteControlVapidPublicKey(
-  ctx: HandlerCtx,
+  ctx: RemoteControlCtx<"vapidPublicKey">,
 ): Promise<string | null> {
-  assertDevice(ctx);
+  assertDevice(ctx.caller);
   return ctx.deps.remoteControl.vapidPublicKey();
 }
 
 export function remoteControlSubscribePush(
-  ctx: HandlerCtx,
+  ctx: RemoteControlCtx<"subscribePush">,
   subscription: unknown,
 ): true {
-  const deviceId = assertDevice(ctx);
+  const deviceId = assertDevice(ctx.caller);
   const record = asPushSubscription(subscription);
   if (!record) throw new Error("Expected a push subscription");
   if (!ctx.deps.remoteControl.subscribePush(deviceId, record)) {
@@ -135,8 +148,7 @@ export function remoteControlSubscribePush(
   return true;
 }
 
-function assertDevice(ctx: HandlerCtx): string {
-  const { callerClass, deviceId } = ctx.caller;
+function assertDevice({ callerClass, deviceId }: Caller): string {
   if (callerClass !== "device" || !deviceId) {
     throw new Error("Push subscriptions are for paired devices only.");
   }

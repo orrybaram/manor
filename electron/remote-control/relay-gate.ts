@@ -107,6 +107,13 @@ export class RelayGate {
     this.limiter.recordSuccess(RELAY_SOURCE);
     // `verify` just moved the device's `lastSeenAt`.
     for (const listener of this.seenListeners) listener();
-    return { ok: true, device };
+    return {
+      ok: true,
+      caller: {
+        callerClass: "device",
+        deviceId: device.id,
+        deviceLabel: device.label,
+      },
+    };
   }
 }

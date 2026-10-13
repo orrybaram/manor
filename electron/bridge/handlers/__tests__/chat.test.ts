@@ -106,7 +106,7 @@ describe("wireChatMirror subscriptions (ADR-224 D3)", () => {
         return () => {};
       },
       hasSubscriber: (ns, event, key) => subscribed.has(`${ns}.${event}@${key}`),
-    });
+    }, () => () => {});
     return { chatMirror, change: (name: string, key: string) => change(name, key), off };
   }
 

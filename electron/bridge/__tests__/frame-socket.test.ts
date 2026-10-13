@@ -6,8 +6,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
+import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import { DESKTOP_TABLE } from "../handlers";
+import type { BridgeHandler } from "../method";
 import { BridgeServer } from "../server";
-import type { BridgeHandler } from "../handlers";
 import type { FrameSocket } from "../transports/frame-socket";
 import { WsBridgeServer, type BridgeAuthenticator } from "../transports/ws";
 
@@ -54,7 +56,10 @@ const deps = { getRendererWindows: () => [] } as unknown as HostDeps;
 
 const authenticate: BridgeAuthenticator = (token) => {
   if (token === "good") {
-    return { ok: true, device: { id: "dev-1", label: "Phone" } as never };
+    return {
+      ok: true,
+      caller: { callerClass: "device", deviceId: "dev-1", deviceLabel: "Phone" },
+    };
   }
   return { ok: false, code: 4401 };
 };
@@ -62,19 +67,23 @@ const authenticate: BridgeAuthenticator = (token) => {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("WsBridgeServer.attach with a FrameSocket", () => {
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
   let ws: WsBridgeServer;
   let echoed: number;
 
   beforeEach(() => {
     echoed = 0;
     server = new BridgeServer(deps, {
-      handlers: {
-        "test.echo": (() => {
-          echoed++;
-          return "pong";
-        }) as BridgeHandler,
+      table: {
+        ...DESKTOP_TABLE,
+        handlers: {
+          "test.echo": (() => {
+            echoed++;
+            return "pong";
+          }) as BridgeHandler<HostDeps>,
+        },
       },
+      events: addRendererBroadcastSink,
     });
     ws = new WsBridgeServer(server);
   });
@@ -193,6 +202,33 @@ describe("WsBridgeServer.attach with a FrameSocket", () => {
     versioned.dispose();
   });
 
+  it("marks the hello as a host server's only when told to (ADR-226)", async () => {
+    // The desktop names itself too, but is not a host server.
+    const desktop = new WsBridgeServer(server, { hostName: () => "desk" });
+    const deskSocket = new FakeSocket();
+    desktop.attach(deskSocket, authenticate);
+    deskSocket.receive({ type: "hello", token: "good" });
+    await flush();
+    expect(deskSocket.sent[0]).toMatchObject({ type: "hello", hostName: "desk" });
+    expect(deskSocket.sent[0]).not.toHaveProperty("hostServer");
+    desktop.dispose();
+
+    const host = new WsBridgeServer(server, {
+      hostName: () => "Studio",
+      hostServer: true,
+    });
+    const hostSocket = new FakeSocket();
+    host.attach(hostSocket, authenticate);
+    hostSocket.receive({ type: "hello", token: "good" });
+    await flush();
+    expect(hostSocket.sent[0]).toMatchObject({
+      type: "hello",
+      hostName: "Studio",
+      hostServer: true,
+    });
+    host.dispose();
+  });
+
   it("closeAll closes attached sockets", async () => {
     const socket = new FakeSocket();
     ws.attach(socket, authenticate);
@@ -206,12 +242,16 @@ describe("BridgeServer.receive", () => {
   it("runs nothing for a connection it has not accepted or has dropped", async () => {
     let ran = 0;
     const server = new BridgeServer(deps, {
-      handlers: {
-        "test.echo": (() => {
-          ran++;
-          return "pong";
-        }) as BridgeHandler,
+      table: {
+        ...DESKTOP_TABLE,
+        handlers: {
+          "test.echo": (() => {
+            ran++;
+            return "pong";
+          }) as BridgeHandler<HostDeps>,
+        },
       },
+      events: addRendererBroadcastSink,
     });
     const connection = {
       id: "c-1",

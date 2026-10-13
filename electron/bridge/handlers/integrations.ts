@@ -187,7 +187,7 @@ export async function linearConnect(
   apiKey: string,
 ): Promise<{ name: string; email: string }> {
   assertString(apiKey, "apiKey");
-  ctx.deps.linearManager.saveToken(apiKey);
+  await ctx.deps.linearManager.saveToken(apiKey);
   try {
     return await ctx.deps.linearManager.getViewer();
   } catch (err) {

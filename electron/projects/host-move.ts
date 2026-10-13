@@ -7,7 +7,6 @@
 import { LOCAL_HOST_ID } from "../backend/types";
 import { detectDefaultBranch } from "./branches";
 import type { ProjectContext } from "./context";
-import { emitCloneProgress } from "./progress";
 import { assertGroupHostFree } from "./project-groups";
 import {
   prepareRemoteClone,
@@ -62,8 +61,8 @@ export async function planClone(
 }
 
 /** Clone (or adopt) per `plan`, with progress on `projects:clone-progress`. */
-export function runClone(plan: ClonePlan): Promise<void> {
-  return prepareRemoteClone(plan.host, plan.repoUrl, plan.targetDir, emitCloneProgress);
+export function runClone(ctx: ProjectContext, plan: ClonePlan): Promise<void> {
+  return prepareRemoteClone(plan.host, plan.repoUrl, plan.targetDir, ctx.progress.clone);
 }
 
 /**
@@ -95,7 +94,7 @@ export async function moveProjectToHost(
     );
   }
 
-  await runClone(plan);
+  await runClone(ctx, plan);
   await repointProject(ctx, project, hostId, plan.targetDir);
   ctx.store.save();
   return ctx.info(project);

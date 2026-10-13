@@ -24,11 +24,6 @@ vi.mock("electron-updater", () => ({
   },
 }));
 
-vi.mock("../notifications", () => ({
-  sendNotificationsUpdate: vi.fn(),
-  showPrNotification: vi.fn(),
-}));
-
 vi.mock("../process-control", () => ({
   listProcesses: vi.fn(async () => ({
     daemon: { pid: 42, alive: true },
@@ -42,7 +37,6 @@ vi.mock("../process-control", () => ({
   restartPortless: vi.fn(async () => {}),
 }));
 
-import { sendNotificationsUpdate } from "../notifications";
 import { listProcesses } from "../process-control";
 import { systemRoutes } from "./system";
 import type { HostDeps, Route } from "./types";
@@ -74,6 +68,9 @@ async function call(
   return calls[0];
 }
 
+const sendNotificationsUpdate = vi.fn();
+const notifier = { sendNotificationsUpdate } as unknown as HostDeps["notifier"];
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -93,7 +90,7 @@ describe("notification routes", () => {
     const store = notificationStore(true);
     const res = await call(
       route("POST", "/notifications/:id/read"),
-      { notificationStore: store },
+      { notificationStore: store, notifier },
       { params: { id: "n1" } },
     );
 
@@ -105,7 +102,7 @@ describe("notification routes", () => {
   it("skips the broadcast when the id changed nothing", async () => {
     const res = await call(
       route("POST", "/notifications/:id/read"),
-      { notificationStore: notificationStore(false) },
+      { notificationStore: notificationStore(false), notifier },
       { params: { id: "gone" } },
     );
 
@@ -117,6 +114,7 @@ describe("notification routes", () => {
     const store = notificationStore(true);
     await call(route("POST", "/notifications/read-all"), {
       notificationStore: store,
+      notifier,
     });
 
     expect(store.markAllRead).toHaveBeenCalled();

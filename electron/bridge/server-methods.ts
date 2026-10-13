@@ -13,6 +13,7 @@
 
 import type { ServerDeps } from "../ipc/types";
 import { flatten, type BridgeHandler, type Method } from "./method";
+import { agents } from "./handlers/agents";
 import { agentActivity } from "./handlers/agent-activity";
 import { appCommands } from "./handlers/app-commands";
 import { branches, diffs, git, gitPush } from "./handlers/branches-diffs";
@@ -21,6 +22,7 @@ import { github, linear } from "./handlers/integrations";
 import { jev } from "./handlers/jev";
 import { hosts } from "./handlers/hosts";
 import { layout } from "./handlers/layout";
+import { notifications } from "./handlers/notifications";
 import { ports } from "./handlers/ports";
 import { keybindings, preferences } from "./handlers/preferences";
 import { processes } from "./handlers/processes";
@@ -48,6 +50,8 @@ export const SERVER_METHODS = flatten({
   preferences,
   keybindings: serverKeybindings,
   remoteControl,
+  agents,
+  notifications,
   agentActivity,
   stats,
   ports,

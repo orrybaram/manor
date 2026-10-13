@@ -26,6 +26,7 @@ import {
   type AgentStatusDriverDeps,
 } from "./driver";
 import type { EffectApplierDeps, PaneContext } from "./effects";
+import type { UnseenAgents } from "./unseen-agents";
 
 export interface AgentPipelineOptions
   extends Pick<
@@ -33,11 +34,11 @@ export interface AgentPipelineOptions
     | "agentManager"
     | "getPaneContext"
     | "getPaneHostId"
-    | "unseenRespondedAgents"
-    | "unseenInputAgents"
     | "broadcastAgent"
     | "publishPaneStatus"
   > {
+  /** The server's unseen flags, written by the reconciler (ADR-227 D1). */
+  unseen: UnseenAgents;
   /** A status transition worth a notification; a replay's are coalesced. */
   onStatus: EffectApplierDeps["maybeSendNotification"];
   /** After the reconciler has seen a hook (the chat mirror pokes its pane). */
@@ -103,8 +104,8 @@ export function createAgentPipeline(opts: AgentPipelineOptions): AgentPipeline {
     agentManager: opts.agentManager,
     getPaneContext: opts.getPaneContext,
     getPaneHostId: opts.getPaneHostId,
-    unseenRespondedAgents: opts.unseenRespondedAgents,
-    unseenInputAgents: opts.unseenInputAgents,
+    unseenRespondedAgents: opts.unseen.responded,
+    unseenInputAgents: opts.unseen.requiresInput,
     broadcastAgent: opts.broadcastAgent,
     maybeSendNotification: coalescer.send,
     publishPaneStatus: opts.publishPaneStatus,

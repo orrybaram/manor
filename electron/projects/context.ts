@@ -4,6 +4,7 @@
  */
 
 import type { HostRecords } from "./host-records";
+import type { ProjectProgress } from "./progress";
 import type { PathRouter } from "./path-router";
 import type { StateStore } from "./state-store";
 import type { PersistedProject, ProjectHost, ProjectInfo } from "./types";
@@ -27,6 +28,8 @@ export interface ProjectContext {
   findAt(hostId: string, dir: string): PersistedProject | undefined;
   /** The renderer's view of `project`, asking its host's git. */
   info(project: PersistedProject): Promise<ProjectInfo>;
+  /** Where setup and clone progress go (ADR-227 D1). */
+  readonly progress: ProjectProgress;
   /** The server's layout store, when there is one (tests may omit it). */
   readonly layout?: WorkspaceLayoutOwner;
 }

@@ -4,11 +4,6 @@ import { workspaceKey } from "../../../src/lib/workspace-key";
 import type { AgentInfo } from "../../agent-persistence";
 import { paneContextBackfill } from "../../agent-status/effects";
 import { assertString } from "../../ipc-validate";
-import {
-  markAgentNotificationsRead,
-  sendAgentUpdate,
-  updateDockBadge,
-} from "../../notifications";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
@@ -121,7 +116,7 @@ export function agentsSetPaneContext(
   const agent = deps.agentManager.getAgentByPaneId(paneId);
   const backfill = agent ? paneContextBackfill(agent, context) : null;
   const updated = agent && backfill ? deps.agentManager.updateAgent(agent.id, backfill) : null;
-  if (updated) sendAgentUpdate(updated, deps.preferencesManager);
+  if (updated) deps.notifier.sendAgentUpdate(updated);
 }
 
 /**
@@ -152,7 +147,7 @@ export function agentsUpdate(
   assertRendererAgentUpdate(updates);
   const updated = ctx.deps.agentManager.updateAgent(agentId, updates);
   if (updated) {
-    sendAgentUpdate(updated, ctx.deps.preferencesManager);
+    ctx.deps.notifier.sendAgentUpdate(updated);
   }
   return updated;
 }
@@ -162,12 +157,10 @@ export function agentsDelete(
   agentId: string,
 ): boolean {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
-    ctx.deps;
-  unseenRespondedAgents.delete(agentId);
-  unseenInputAgents.delete(agentId);
+  const { unseen, notifier } = ctx.deps;
+  unseen.clear(agentId);
   const result = ctx.deps.agentManager.deleteAgent(agentId);
-  updateDockBadge(preferencesManager);
+  notifier.updateDockBadge();
   return result;
 }
 
@@ -186,18 +179,16 @@ export function agentsMarkSeen(
   agentId: string,
 ): void {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
-    ctx.deps;
-  unseenRespondedAgents.delete(agentId);
-  unseenInputAgents.delete(agentId);
-  markAgentNotificationsRead(agentId);
+  const { unseen, notifier } = ctx.deps;
+  unseen.clear(agentId);
+  notifier.markAgentNotificationsRead(agentId);
   const agent = ctx.deps.agentManager.getAgentById(agentId);
   if (agent) {
-    sendAgentUpdate(agent, preferencesManager);
+    notifier.sendAgentUpdate(agent);
   } else {
     // Agent is gone (deleted before markSeen reached us) — at least refresh
     // the dock badge since the Sets just shrank.
-    updateDockBadge(preferencesManager);
+    notifier.updateDockBadge();
   }
 }
 
@@ -217,7 +208,7 @@ export function agentsMarkResumed(
  */
 type AbandonDeps = Pick<
   ServerDeps,
-  "agentManager" | "statsStore" | "preferencesManager" | "agentStatus"
+  "agentManager" | "statsStore" | "notifier" | "agentStatus"
 >;
 
 /**
@@ -229,7 +220,7 @@ function abandonAgentForPane(
   deps: AbandonDeps,
   { paneId, title }: EndedPane,
 ): void {
-  const { agentManager, statsStore, preferencesManager, agentStatus } = deps;
+  const { agentManager, statsStore, notifier, agentStatus } = deps;
   const agent = agentManager.getAgentByPaneId(paneId);
   if (!agent || agent.status !== "active") return;
   for (const counter of killCounters(agent)) statsStore.record(counter);
@@ -246,7 +237,7 @@ function abandonAgentForPane(
   // If the reconciler abandoned some other Agent, the rename still has to
   // reach the renderer.
   if (named && !persisted) {
-    sendAgentUpdate(named, preferencesManager);
+    notifier.sendAgentUpdate(named);
   }
 }
 

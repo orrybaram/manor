@@ -25,6 +25,8 @@ import {
 import { moveProjectToHost, planClone, runClone, switchProjectHost } from "./host-move";
 import { planTransfer, transferProject, type TransferDeps } from "./host-transfer";
 import { PathRouter } from "./path-router";
+import { createProjectProgress } from "./progress";
+import type { PublishToRenderer } from "../renderer-broadcast";
 import { workspaceKey, type WorkspaceKeyOwner } from "../../src/lib/workspace-key";
 import * as groups from "./project-groups";
 import {
@@ -114,6 +116,12 @@ export class ProjectManager {
        * alone need not build one.
        */
       layout?: WorkspaceLayoutOwner;
+      /**
+       * How setup and clone progress reach renderers (ADR-227 D1): the
+       * composer's publish function. Without one, progress goes nowhere —
+       * a test about projects alone has no renderer to tell.
+       */
+      publish?: PublishToRenderer;
     } = {},
   ) {
     this.lastKnownWorkspaces = new LastKnownWorkspaces(options.isHostAway ?? (() => false));
@@ -138,6 +146,7 @@ export class ProjectManager {
       findAt: (hostId, dir) =>
         this.store.state.projects.find((p) => p.path === dir && p.hostId === hostId),
       info: (project) => this.buildProjectInfo(project),
+      progress: createProjectProgress(options.publish ?? (() => {})),
       layout: options.layout,
     };
     this.origins = new OriginLinks(this.ctx);
@@ -400,7 +409,7 @@ export class ProjectManager {
   }): Promise<ProjectInfo> {
     this.hosts.assertKnown(opts.hostId);
     const plan = await planClone(this.ctx, opts.hostId, opts);
-    await runClone(plan);
+    await runClone(this.ctx, plan);
     if (plan.owner) return this.buildProjectInfo(plan.owner);
     return this.addProject(opts.name, plan.targetDir, opts.hostId);
   }

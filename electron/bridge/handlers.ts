@@ -31,21 +31,15 @@ import type { HostDeps } from "../ipc/types";
 import { flatten, toHandlerTable, type MethodRules } from "./method";
 import { UNAVAILABLE_CODE } from "./types";
 import { SERVER_METHODS } from "./server-methods";
-import { agents } from "./handlers/agents";
 import { diffs } from "./handlers/branches-diffs";
-import { notifications } from "./handlers/notifications";
 import { keybindings } from "./handlers/preferences";
 import { processes } from "./handlers/processes";
 
 /**
- * What only the desktop answers (ADR-227 D1): methods that read a window or
- * the webview server, and the namespaces whose modules still import
- * `electron` through `../notifications` (`agents`, `notifications`), which
- * `SERVER_METHODS` must not.
+ * What only the desktop answers (ADR-227 D1): the methods that read a window or
+ * the webview server.
  */
 const DESKTOP_METHODS = flatten({
-  agents,
-  notifications,
   keybindings: { runInMainWindow: keybindings.runInMainWindow },
   diffs: { start: diffs.start },
   processes: { list: processes.list },

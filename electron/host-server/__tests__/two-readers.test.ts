@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentManager, type AgentInfo } from "../../agent-persistence";
+import { UnseenAgents } from "../../agent-status/unseen-agents";
 import type { AgentStatusDriver } from "../../agent-status/driver";
 import {
   createAgentPipeline,
@@ -123,8 +124,7 @@ function desktopReader(dir: string, journal: HookJournal): Reader {
     agentManager,
     paneContexts: new Map(),
     getPaneHostId: () => REMOTE_HOST,
-    unseenRespondedAgents: new Set(),
-    unseenInputAgents: new Set(),
+    unseen: new UnseenAgents(),
     broadcastAgent: () => {},
     publishPaneStatus: () => {},
     onStatus: () => {},

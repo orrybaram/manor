@@ -11,6 +11,7 @@
 import { agentHostId, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
 import type { AgentStatusDriver } from "../../agent-status/driver";
 import type { PaneStatusUpdate } from "../../agent-status/effects";
+import type { UnseenAgents } from "../../agent-status/unseen-agents";
 import type { HostStatus } from "../../backend/host-connection";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { assertString } from "../../ipc-validate";
@@ -40,8 +41,7 @@ export interface AgentReadDeps {
     AgentStatusDriver,
     "getAllPaneStatuses" | "isPaneLossExpected" | "signal"
   >;
-  unseenRespondedAgents: ReadonlySet<string>;
-  unseenInputAgents: ReadonlySet<string>;
+  unseen: Pick<UnseenAgents, "responded" | "requiresInput">;
   backend: { pty: { listSessions(): Promise<LiveSession[]> } };
   /**
    * The host each pane's terminal runs on, and whether that host is
@@ -87,8 +87,8 @@ export function agentsGetUnseen(ctx: Ctx): {
   requires_input: string[];
 } {
   return {
-    responded: [...ctx.deps.unseenRespondedAgents],
-    requires_input: [...ctx.deps.unseenInputAgents],
+    responded: [...ctx.deps.unseen.responded],
+    requires_input: [...ctx.deps.unseen.requiresInput],
   };
 }
 

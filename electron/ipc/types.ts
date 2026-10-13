@@ -47,6 +47,8 @@ import type { HostStatus } from "../backend/host-connection";
 import type { WebviewPaneAccess } from "../routes/types";
 import type { ChatMirror } from "../chat-mirror/mirror";
 import type { AppCommandResult } from "../renderer-bridge";
+import type { UnseenAgents } from "../agent-status/unseen-agents";
+import type { ServerNotifier } from "../notifications";
 
 /** A workspace as the renderer describes it for portless hostnames. */
 export interface WorkspaceMeta extends PortlessWorkspace {
@@ -124,8 +126,13 @@ export interface ServerDeps {
       agentCommand: string | null;
     }
   >;
-  unseenRespondedAgents: Set<string>;
-  unseenInputAgents: Set<string>;
+  /** Which agents the user has not looked at since they responded (ADR-227 D1). */
+  unseen: UnseenAgents;
+  /**
+   * Notification state and side effects (ADR-227 D1): the agent broadcast, the
+   * dock badge, the log. The desktop fills in a `Notifier`.
+   */
+  notifier: ServerNotifier;
   /**
    * Which host owns each terminal session (ADR-160 §6, ADR-191 §4) —
    * `backendRegistry.sessions`. `GET /context` falls back to it for a local

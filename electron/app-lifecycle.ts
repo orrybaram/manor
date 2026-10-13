@@ -58,6 +58,7 @@ import { PrewarmManager } from "./prewarm-manager";
 import {
   addRendererBroadcastSink,
   publishRendererBroadcast,
+  publishToRenderer,
 } from "./renderer-broadcast";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RelayIdentityStore } from "./remote-control/relay/identity";
@@ -74,17 +75,8 @@ import type { HostDeps } from "./ipc/types";
 import { handleRelayedControlRequest } from "./control-relay";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
-import {
-  unseenRespondedAgents,
-  unseenInputAgents,
-  updateDockBadge as _updateDockBadge,
-  maybeSendNotification as _maybeSendNotification,
-  sendAgentUpdate,
-  sendNotificationsUpdate,
-  setNotificationStore,
-  setStatsStore,
-  playNotificationSound,
-} from "./notifications";
+import { Notifier, playNotificationSound } from "./notifications";
+import { UnseenAgents } from "./agent-status/unseen-agents";
 import { killAllActivePushes } from "./bridge/handlers/branches-diffs";
 import { createAgentService } from "./bridge/handlers/agents";
 import { wireStatsBroadcast } from "./bridge/handlers/stats";
@@ -272,6 +264,8 @@ export function initApp(devTitle: string | null): void {
     // D7), whichever caller — sidebar, quick merge, CLI or MCP — asked for it.
     // Read at call time: the store is built just below.
     layout: { remove: (key) => layoutStore.remove(key) },
+    // Setup and clone progress go to the desktop's windows and browsers.
+    publish: publishToRenderer,
   });
   for (const { hostId, spec } of projectManager.getHosts()) {
     backendRegistry.register(hostId, spec);
@@ -412,10 +406,9 @@ export function initApp(devTitle: string | null): void {
     (projectId) => projectManager.getProjectHostId(projectId),
   );
   const keybindingsManager = new KeybindingsManager();
-  // ADR-162's durable notification log. Handed to `notifications.ts` so the
+  // ADR-162's durable notification log. Handed to the `Notifier` so the
   // single recording site inside `presentNotification` can reach it.
   const notificationStore = new NotificationStore();
-  setNotificationStore(notificationStore);
   // ADR-168's usage stats.
   const statsStore = new StatsStore(undefined, {
     isEnabled: () => preferencesManager.get("statsEnabled"),
@@ -426,10 +419,22 @@ export function initApp(devTitle: string | null): void {
         body: badge.description,
         target: { type: "stats", badgeId: badge.id },
       });
-      sendNotificationsUpdate();
+      notifier.sendNotificationsUpdate();
     },
   });
-  setStatsStore(statsStore);
+  // The server's unseen flags and the notifications built on them (ADR-227
+  // D1): one of each per server, shared by the status pipeline, the handlers
+  // and the broadcast.
+  const unseen = new UnseenAgents();
+  const notifier = new Notifier({
+    notificationStore,
+    statsStore,
+    unseen,
+    preferencesManager,
+    publish: publishRendererBroadcast,
+    getMainWindow: () => mainWindow,
+    getRendererWindows,
+  });
   // ADR-203: one workspace lifecycle for both IPC and the control routes, so
   // stats, last-used host and the broadcast happen whichever transport asked.
   const workspaceOps = createWorkspaceOps({
@@ -543,22 +548,12 @@ export function initApp(devTitle: string | null): void {
     }
   >();
 
-  function updateDockBadge(): void {
-    _updateDockBadge(preferencesManager);
-  }
-
   function maybeSendNotification(
     agent: AgentInfo,
     prevStatus: string | null | undefined,
     newStatus: AgentStatus,
   ): void {
-    _maybeSendNotification(
-      agent,
-      prevStatus,
-      newStatus,
-      mainWindow,
-      preferencesManager,
-    );
+    notifier.maybeSendNotification(agent, prevStatus, newStatus);
     // A second sink on the same transition, not a second detector: whatever
     // moves the dock badge is what a paired phone hears about. What that means
     // — a stream event, a push, or nothing at all — belongs to
@@ -569,7 +564,7 @@ export function initApp(devTitle: string | null): void {
   }
 
   function broadcastAgent(agent: AgentInfo): void {
-    sendAgentUpdate(agent, preferencesManager);
+    notifier.sendAgentUpdate(agent);
   }
 
   // ── Agent status (ADR-184) ─────────────────────────────────────────────
@@ -588,8 +583,7 @@ export function initApp(devTitle: string | null): void {
     agentManager,
     paneContexts: paneContextMap,
     getPaneHostId,
-    unseenRespondedAgents,
-    unseenInputAgents,
+    unseen,
     broadcastAgent,
     onStatus: maybeSendNotification,
     // Each hook also pokes the pane's chat mirror, after the driver has
@@ -635,7 +629,7 @@ export function initApp(devTitle: string | null): void {
   const agentService = createAgentService({
     agentManager,
     statsStore,
-    preferencesManager,
+    notifier,
     agentStatus: agentStatusDriver,
   });
 
@@ -794,8 +788,8 @@ export function initApp(devTitle: string | null): void {
     preferencesManager,
     keybindingsManager,
     paneContextMap,
-    unseenRespondedAgents,
-    unseenInputAgents,
+    unseen,
+    notifier,
     webviewServer,
     // Pane inspection routes' access to WebviewServer's own pane registry
     // and console-log buffers (ADR-183) — always itself.
@@ -1006,7 +1000,7 @@ export function initApp(devTitle: string | null): void {
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
     preferencesManager.onChange(() => {
-      updateDockBadge();
+      notifier.updateDockBadge();
     });
 
     // Every hook — local HTTP and remote hook-feed replay alike, through

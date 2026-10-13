@@ -164,6 +164,14 @@ export function connectionIdForWindow(
   }
 }
 
+/*
+ * Everything below is the desktop's adapter (ADR-227 D1): the process-wide
+ * sinks, and the functions that publish into them. Code the shared server
+ * owns does not import these; it is handed a `BroadcastBus` or a
+ * `PublishToRenderer` by whoever composes the server, and the desktop passes
+ * these.
+ */
+
 /** Register a sink. Returns the unsubscribe; call it when the sink dies. */
 export const addRendererBroadcastSink: BroadcastSource = rendererSinks.add;
 
@@ -195,3 +203,6 @@ export function publishToRenderer<N extends EventNs, E extends EventOf<N>>(
 ): void {
   rendererSinks.emit(connectionId, ns, event, args);
 }
+
+/** What {@link publishToRenderer} is, for code handed one rather than importing it. */
+export type PublishToRenderer = typeof publishToRenderer;

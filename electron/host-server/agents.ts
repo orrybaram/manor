@@ -25,6 +25,7 @@ import type { PaneContext } from "../agent-status/effects";
 import { createAgentPipeline } from "../agent-status/pipeline";
 import type { HookSink } from "../backend/hook-feed";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { UnseenAgents } from "../agent-status/unseen-agents";
 import type { BroadcastBus } from "../renderer-broadcast";
 import type { AgentStatus } from "../terminal-host/types";
 
@@ -62,8 +63,7 @@ export interface HostAgentsOptions {
 export interface HostAgents {
   agentManager: AgentManager;
   driver: AgentStatusDriver;
-  unseenRespondedAgents: Set<string>;
-  unseenInputAgents: Set<string>;
+  unseen: UnseenAgents;
   /** Where the hook feed delivers each journaled hook, replayed or live. */
   hookSink: HookSink;
   /** Publish an agent to every bridge connection, with its unseen flags. */
@@ -79,16 +79,12 @@ export function createHostAgents(opts: HostAgentsOptions): HostAgents {
     opts.retentionDays,
     () => LOCAL_HOST_ID,
   );
-  const unseenRespondedAgents = new Set<string>();
-  const unseenInputAgents = new Set<string>();
+  const unseen = new UnseenAgents();
 
   // `sendAgentUpdate`'s broadcast, minus the dock badge (notifications.ts
   // is the desktop's and imports Electron).
   const broadcastAgent = (agent: AgentInfo): void => {
-    opts.publish("agents", "updated", agent, {
-      responded: unseenRespondedAgents.has(agent.id),
-      requires_input: unseenInputAgents.has(agent.id),
-    });
+    opts.publish("agents", "updated", agent, unseen.flagsFor(agent.id));
   };
 
   // The one ingestion path (ADR-178 §2). Its HTTP listener is never started:
@@ -98,8 +94,7 @@ export function createHostAgents(opts: HostAgentsOptions): HostAgents {
     agentManager,
     getPaneContext: (paneId) => opts.getPaneContext?.(paneId),
     getPaneHostId: () => LOCAL_HOST_ID,
-    unseenRespondedAgents,
-    unseenInputAgents,
+    unseen,
     broadcastAgent,
     publishPaneStatus: (update) => opts.publish("agents", "status", update),
     onStatus: (agent, prevStatus, newStatus) =>
@@ -115,8 +110,7 @@ export function createHostAgents(opts: HostAgentsOptions): HostAgents {
   return {
     agentManager,
     driver: pipeline.driver,
-    unseenRespondedAgents,
-    unseenInputAgents,
+    unseen,
     hookSink: pipeline.hookSink,
     broadcastAgent,
     start: pipeline.start,

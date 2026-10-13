@@ -69,3 +69,24 @@ ADR-227 D2 and D6 (the host table).
 - `electron/paths.ts`: the `hostServerPaths` entries for projects, layout
   and ownership.
 - `electron/host-server/__tests__/*`
+
+## Carried over from ticket 3
+- **The host now has two layout files.** Ticket 3 made the host's own
+  `LayoutStore` write `server-layout.json`, because `layout.json` in the host
+  data dir is still the owner's pushed snapshot. Once the snapshot is
+  deleted:
+  - decide the final file name (prefer `layout.json`);
+  - migrate or discard any old snapshot file;
+  - update `host-server-client.test`, which checks that file.
+- **Some parts are already built.** `createManorServer` already builds an
+  empty `ProjectManager`, `LayoutStore`, `GitHubManager` (no resolver) and
+  `LinearManager` on the host. This ticket wires them up; it doesn't create
+  them.
+- **Host deps type.** `createManorServer` is generic over deps `D`, and the
+  host still uses `HostServerDeps`. Move the host onto `ServerDeps` (or a
+  superset of it) here, so the shared handlers can be listed in
+  `HOST_TABLE`.
+- **Pane-context fallback.** The host's pane context comes from
+  `serverAgentPipelineOptions` with `derivePaneContext`, which is the old
+  `paneContextFrom` used as a fallback. Delete that fallback along with the
+  manifest.

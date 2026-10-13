@@ -13,14 +13,17 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
 import {
+  FOREIGN_CONNECTION_ID,
   attach,
   claim,
+  isHeld,
   reclaimOnInput,
   release,
   releaseViewer,
   onAttachmentChange,
   ownerOf,
   resetAttachments,
+  setForeign,
   wouldOwn,
   type Viewer,
 } from "../pty-attachments";
@@ -31,6 +34,8 @@ const windowB: Viewer = { connectionId: "22", callerClass: "local" };
 
 const deviceA: Viewer = { connectionId: "device-a", callerClass: "device" };
 const deviceB: Viewer = { connectionId: "device-b", callerClass: "device" };
+/** The desktop on a host server's owner channel (ADR-218 D4). */
+const ownerChannel: Viewer = { connectionId: "desktop", callerClass: "owner" };
 
 /** The panes `run` changed the owner of, as `onAttachmentChange` hears them. */
 function changedBy(run: () => void): string[] {
@@ -362,6 +367,62 @@ describe("pty attachments", () => {
       claim("pane-a", deviceA);
       claim("pane-a", deviceB);
       expect(ownerOf("pane-a")).toEqual(deviceB);
+    });
+  });
+  describe("the owner channel", () => {
+    it("ranks with a device, not a window on this machine", () => {
+      attach("pane-a", windowA);
+      expect(wouldOwn("pane-a", ownerChannel)).toBe(false);
+      attach("pane-a", ownerChannel);
+      expect(ownerOf("pane-a")).toEqual(windowA);
+
+      resetAttachments();
+      attach("pane-a", deviceA);
+      expect(wouldOwn("pane-a", ownerChannel)).toBe(true);
+      attach("pane-a", ownerChannel);
+      expect(ownerOf("pane-a")).toEqual(ownerChannel);
+      attach("pane-a", deviceB);
+      expect(ownerOf("pane-a")).toEqual(deviceB);
+    });
+  });
+
+  describe("a foreign hold (ADR-218 D5)", () => {
+    it("owns the pane while set, and hands it back to the default rules", () => {
+      attach("pane-a", deviceA);
+      expect(changedBy(() => setForeign("pane-a", true))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
+      expect(isHeld("pane-a")).toBe(true);
+      // Setting it again moves nothing.
+      expect(changedBy(() => setForeign("pane-a", true))).toEqual([]);
+      expect(changedBy(() => setForeign("pane-a", false))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+
+    it("makes every arrival a follower, even before anyone here holds the pane", () => {
+      setForeign("pane-a", true);
+      expect(wouldOwn("pane-a", deviceA)).toBe(false);
+      expect(wouldOwn("pane-a", windowA)).toBe(false);
+      expect(isHeld("pane-a")).toBe(false);
+      attach("pane-a", deviceA);
+      expect(ownerOf("pane-a")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
+    });
+
+    it("beats a claim, and a claim made during it is refused", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      claim("pane-a", deviceA);
+      setForeign("pane-a", true);
+      expect(claim("pane-a", deviceB)).toBe(false);
+      expect(ownerOf("pane-a")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
+      // The earlier claim survives the hold.
+      setForeign("pane-a", false);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+
+    it("is forgotten by resetAttachments", () => {
+      setForeign("pane-a", true);
+      resetAttachments();
+      expect(ownerOf("pane-a")).toBeNull();
     });
   });
 });

@@ -34,6 +34,13 @@
  * without hunting for a button, which is tmux's `window-size latest` with
  * the desk as the only viewer whose keystrokes count implicitly.
  *
+ * A **foreign hold** outranks all of it (ADR-218 D5). On a host server the
+ * pane's other viewer may be a client of the daemon this registry never sees —
+ * the desktop, attached to the same session over ssh. While the host says so
+ * (`setForeign`), nobody here owns the winsize: `ownerOf` answers a sentinel
+ * viewer no connection matches, so every resize is dropped, every claim loses
+ * and every arrival follows.
+ *
  * This is a module-level registry rather than something hung off `HostDeps`
  * because there is exactly one host per main process, and every caller — the
  * bridge's handler table, the bridge server's disconnect handler, a window
@@ -41,6 +48,8 @@
  * question has two answers. It moves into the daemon when a host can exist
  * with no Electron main to ask (ADR-178 D5).
  */
+
+import type { CallerClass } from "./bridge/types";
 
 /**
  * One viewer holding a pane: a bridge connection, and what class of caller it
@@ -57,9 +66,37 @@
 export interface Viewer {
   /** The `BridgeConnection.id` that attached. */
   connectionId: string;
-  /** `local` = an Electron renderer window; `device` = a paired device. */
-  callerClass: "local" | "device";
+  /**
+   * `local` = an Electron renderer window; `device` = a paired device;
+   * `owner` = the desktop on a host server's owner channel (ADR-218 D4).
+   */
+  callerClass: CallerClass;
 }
+
+/**
+ * How a caller class ranks for the winsize: higher wins, and among equals the
+ * most recent attach. Only a window on this machine outranks; the owner
+ * channel is another client of the daemon, not the person at its desk, so it
+ * ranks with a paired device.
+ */
+const RANK: Record<CallerClass, number> = {
+  local: 1,
+  owner: 0,
+  device: 0,
+};
+
+/** The connection id of the viewer a foreign hold reports as the owner. */
+export const FOREIGN_CONNECTION_ID = "\0foreign";
+
+/**
+ * The owner `ownerOf` answers while a pane is held elsewhere. No
+ * `BridgeConnection` has this id, so no connection is ever told it owns the
+ * pane, and no caller's resize matches it.
+ */
+const FOREIGN_VIEWER: Viewer = Object.freeze({
+  connectionId: FOREIGN_CONNECTION_ID,
+  callerClass: "device",
+});
 
 /**
  * `paneId` → the viewers holding it, oldest first.
@@ -75,6 +112,9 @@ const holders = new Map<string, Viewer[]>();
 
 /** `paneId` → the connection that explicitly claimed its winsize. */
 const claims = new Map<string, string>();
+
+/** Panes a client this registry cannot see holds (`setForeign`). */
+const foreign = new Set<string>();
 
 /**
  * A sink told which panes just got a new answer to `ownerOf`.
@@ -115,27 +155,38 @@ function ownerFingerprint(viewer: Viewer | null): string {
 }
 
 /**
- * Who owns this pane's winsize: the most recently attached `local` viewer if
- * there is one, else the most recently attached `device` viewer, else null
- * (nobody has it open).
+ * Who owns this pane's winsize: the foreign viewer while it is held
+ * elsewhere; null when nobody here has it open; the claimant; else the most
+ * recently attached viewer of the highest rank.
+ *
+ * Not "does anyone here hold it" — a held-elsewhere pane has an owner either
+ * way. That is `isHeld`.
  */
 export function ownerOf(paneId: string): Viewer | null {
+  if (foreign.has(paneId)) return FOREIGN_VIEWER;
   const viewers = holders.get(paneId);
   if (!viewers || viewers.length === 0) return null;
   const claimant = claims.get(paneId);
   const claimed = claimant && viewers.find((v) => v.connectionId === claimant);
   if (claimed) return claimed;
-  return mostRecent(viewers, "local") ?? mostRecent(viewers, "device");
+  return highestRanked(viewers);
 }
 
-function mostRecent(
-  viewers: readonly Viewer[],
-  callerClass: Viewer["callerClass"],
-): Viewer | null {
+function highestRanked(viewers: readonly Viewer[]): Viewer | null {
+  let best: Viewer | null = null;
+  // Newest first, and only a strictly higher rank displaces: among equals
+  // the most recent attach wins.
   for (let i = viewers.length - 1; i >= 0; i--) {
-    if (viewers[i].callerClass === callerClass) return viewers[i];
+    if (!best || RANK[viewers[i].callerClass] > RANK[best.callerClass]) {
+      best = viewers[i];
+    }
   }
-  return null;
+  return best;
+}
+
+/** Whether any viewer here has this pane open, whoever owns its winsize. */
+export function isHeld(paneId: string): boolean {
+  return (holders.get(paneId)?.length ?? 0) > 0;
 }
 
 /**
@@ -154,14 +205,16 @@ function mostRecent(
  * ADR-163/164/165 arriving through a door marked "reattach".
  */
 export function wouldOwn(paneId: string, viewer: Viewer): boolean {
+  // Held elsewhere: nobody's arrival outranks a viewer this side cannot see.
+  if (foreign.has(paneId)) return false;
   const owner = ownerOf(paneId);
   if (!owner) return true;
   if (owner.connectionId === viewer.connectionId) return true;
   const viewers = holders.get(paneId) ?? [];
   if (viewers.some((v) => v.connectionId === viewer.connectionId)) return false;
-  // A new arrival: `local` outranks `device`, and among equals the most
-  // recent attach — this one — wins.
-  return viewer.callerClass === "local" || owner.callerClass === "device";
+  // A new arrival: a higher rank outranks, and among equals the most recent
+  // attach — this one — wins.
+  return RANK[viewer.callerClass] >= RANK[owner.callerClass];
 }
 
 /**
@@ -206,10 +259,12 @@ export function release(paneId: string, viewer: Viewer): void {
 }
 
 /**
- * A viewer that holds this pane takes its winsize. Returns whether it holds
- * the pane (a viewer that does not cannot claim it).
+ * A viewer that holds this pane takes its winsize. Returns whether it took
+ * it: a viewer that does not hold the pane cannot, and nobody can while it is
+ * held elsewhere.
  */
 export function claim(paneId: string, viewer: Viewer): boolean {
+  if (foreign.has(paneId)) return false;
   const viewers = holders.get(paneId);
   if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
   const before = ownerFingerprint(ownerOf(paneId));
@@ -230,6 +285,25 @@ export function reclaimOnInput(paneId: string, viewer: Viewer): void {
   if (!claimant || claimant === viewer.connectionId) return;
   const before = ownerFingerprint(ownerOf(paneId));
   claims.delete(paneId);
+  const after = ownerFingerprint(ownerOf(paneId));
+  if (before !== after) notifyChanged([paneId]);
+}
+
+/**
+ * A client this registry cannot see holds the pane (`on`), or let it go.
+ *
+ * Set by a host server from the daemon's attach count (ADR-218 D5,
+ * `host-server/winsize.ts`). The hold outlives the viewers here — it is about
+ * the session, not about who on this side has it open — and is cleared by
+ * whoever set it. A flip that changes `ownerOf` is told to the change sinks
+ * like any other, so every connection watching hears `owner: false` (or its
+ * own answer again).
+ */
+export function setForeign(paneId: string, on: boolean): void {
+  if (foreign.has(paneId) === on) return;
+  const before = ownerFingerprint(ownerOf(paneId));
+  if (on) foreign.add(paneId);
+  else foreign.delete(paneId);
   const after = ownerFingerprint(ownerOf(paneId));
   if (before !== after) notifyChanged([paneId]);
 }
@@ -264,4 +338,5 @@ export function releaseViewer(connectionId: string): void {
 export function resetAttachments(): void {
   holders.clear();
   claims.clear();
+  foreign.clear();
 }

@@ -17,6 +17,7 @@ import { resolveSpawnCwd } from "../../paths";
 import {
   attach,
   claim,
+  isHeld,
   ownerOf,
   reclaimOnInput,
   release,
@@ -119,17 +120,12 @@ export interface PtyViewerDeps {
 }
 
 /**
- * The caller, as the viewer `pty-attachments.ts` holds a pane under. Only an
- * Electron renderer window (`local`) outranks; a paired device and the owner
- * channel (the desktop on a host server, ADR-218 D4) rank as `device`. The
- * owner views no pane in slice 1, and a desktop process attached to a host
- * server's pane is another client of the daemon, not the person at its desk.
+ * The caller, as the viewer `pty-attachments.ts` holds a pane under. Who
+ * outranks whom — only an Electron renderer window (`local`) does — is the
+ * registry's rule, not decided here.
  */
 function asViewer(caller: Caller): Viewer {
-  return {
-    connectionId: caller.id,
-    callerClass: caller.callerClass === "local" ? "local" : "device",
-  };
+  return { connectionId: caller.id, callerClass: caller.callerClass };
 }
 
 /** What a create-shaped call tells the caller about the winsize (D5). */
@@ -147,9 +143,9 @@ type WinsizeDecoration = Required<PtyWinsize>;
  * through the one door marked "read". The answer carries the owner's grid,
  * which is what the follower renders.
  *
- * `forceFollower` is for a host that knows something the registry does not: a
- * host server's daemon-reported attach count (ADR-218 D5), where the other
- * viewer is a client of the daemon, not a viewer held here.
+ * A host server's daemon-reported attach count (ADR-218 D5) reaches here as
+ * the registry's foreign hold, set before the call: nobody follows anything
+ * but the registry.
  *
  * Who outranks whom is `pty-attachments.ts`'s rule: a caller is a follower
  * exactly when attaching would *not* make it the owner (`wouldOwn`), which for
@@ -162,10 +158,9 @@ export async function createShaped<T extends { ok: boolean }>(
   cols: number,
   rows: number,
   run: (cols: number, rows: number) => Promise<T>,
-  forceFollower = false,
 ): Promise<T | (T & WinsizeDecoration)> {
   const viewer = asViewer(ctx.caller);
-  const follower = forceFollower || !wouldOwn(paneId, viewer);
+  const follower = !wouldOwn(paneId, viewer);
   const owner = follower ? await sessionGrid(ctx.deps, paneId) : null;
   const grid = owner ?? { cols, rows };
   const result = await run(grid.cols, grid.rows);
@@ -476,7 +471,7 @@ export async function ptyDetach(
   paneId: string,
 ): Promise<void> {
   release(paneId, asViewer(ctx.caller));
-  if (ownerOf(paneId)) return;
+  if (isHeld(paneId)) return;
   assertString(paneId, "paneId");
   try {
     await ctx.deps.backend.pty.detach(paneId);

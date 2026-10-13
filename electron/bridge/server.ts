@@ -106,13 +106,6 @@ interface BridgeServerOptions<D> {
    */
   events: BroadcastSource;
   audit?: RemoteAuditLog;
-  /**
-   * Whether a pane is also held by a client this server's registry does not
-   * know (ADR-218 D5: another client of the daemon). Nobody here owns such a
-   * pane's winsize, so every connection is told `owner: false`. Only a host
-   * server sets this.
-   */
-  heldElsewhere?: (paneId: string) => boolean;
 }
 
 /**
@@ -124,7 +117,6 @@ export class BridgeServer<D extends BridgeServerDeps> {
   private readonly connections = new Map<string, Registered>();
   private readonly audit: RemoteAuditLog;
   private readonly table: HandlerTable<D>;
-  private readonly heldElsewhere: (paneId: string) => boolean;
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
@@ -138,7 +130,6 @@ export class BridgeServer<D extends BridgeServerDeps> {
   ) {
     this.audit = options.audit ?? new RemoteAuditLog();
     this.table = options.table;
-    this.heldElsewhere = options.heldElsewhere ?? (() => false);
     this.unsubscribeBroadcasts = options.events((broadcast) =>
       this.onBroadcast(broadcast),
     );
@@ -482,15 +473,6 @@ export class BridgeServer<D extends BridgeServerDeps> {
   }
 
   /**
-   * Tell the connections watching `paneId` who owns its winsize now, for a
-   * change this server's registry did not see (ADR-218 D5: the daemon's
-   * attach count moved).
-   */
-  refreshWinsizeOwner(paneId: string): Promise<void> {
-    return this.onOwnerChanged(paneId);
-  }
-
-  /**
    * A pane's winsize owner changed: tell every connection watching it whether
    * it is the owner now (D6).
    *
@@ -506,7 +488,9 @@ export class BridgeServer<D extends BridgeServerDeps> {
     if (this.connections.size === 0) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
-    const owner = this.heldElsewhere(paneId) ? null : ownerOf(paneId);
+    // A pane held elsewhere (ADR-218 D5) answers a foreign owner no
+    // connection here matches: everyone is told `owner: false`.
+    const owner = ownerOf(paneId);
     // One frame per connection, not one fanned out: `owner` is each
     // connection's own answer. Subscription is still honoured — a viewer
     // that never asked about this pane does not hear that it isn't the owner

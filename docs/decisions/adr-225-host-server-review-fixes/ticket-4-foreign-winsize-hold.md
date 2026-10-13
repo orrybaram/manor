@@ -1,6 +1,6 @@
 ---
 title: Foreign winsize hold in the attachments registry
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [3]

@@ -1,6 +1,6 @@
 ---
 title: One generic BridgeServer with table-owned surface config
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

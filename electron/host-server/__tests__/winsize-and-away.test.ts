@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Caller } from "../../bridge/method";
 import {
+  FOREIGN_CONNECTION_ID,
   attach,
+  onAttachmentChange,
   ownerOf,
   release,
   resetAttachments,
+  setForeign,
 } from "../../pty-attachments";
 import type { LayoutEntry } from "../../../src/lib/layout/protocol";
 import type { SessionInfo } from "../../terminal-host/types";
@@ -80,15 +83,15 @@ describe("hasOtherClients", () => {
 describe("host pty.create winsize (ADR-218 D5)", () => {
   let sessions: SessionInfo[];
   let createOrAttach: ReturnType<typeof vi.fn>;
-  let watched: Array<[string, boolean]>;
-  let foreign: Set<string>;
+  let watched: Array<[string, number | undefined]>;
   let deps: HostServerDeps;
+  let winsize: ReturnType<typeof createHostWinsize>;
 
   beforeEach(() => {
     resetAttachments();
     sessions = [];
     watched = [];
-    foreign = new Set();
+    winsize = createHostWinsize({ listSessions: async () => sessions });
     createOrAttach = vi.fn(async () => ({ snapshot: null }));
     deps = {
       backend: {
@@ -102,17 +105,18 @@ describe("host pty.create winsize (ADR-218 D5)", () => {
         },
       },
       winsize: {
-        isForeign: (id: string) => foreign.has(id),
-        watch: (id: string, f: boolean) => {
-          watched.push([id, f]);
-          if (f) foreign.add(id);
-          else foreign.delete(id);
+        watch: (id: string, attachedClients: number | undefined) => {
+          watched.push([id, attachedClients]);
+          winsize.watch(id, attachedClients);
         },
-        dispose: () => {},
+        dispose: () => winsize.dispose(),
       },
     } as unknown as HostServerDeps;
   });
-  afterEach(() => resetAttachments());
+  afterEach(() => {
+    winsize.dispose();
+    resetAttachments();
+  });
 
   const create = (caller: Caller, paneId = "pane-1") =>
     handler("pty.create")({ deps, caller }, paneId, null, 120, 40);
@@ -137,7 +141,8 @@ describe("host pty.create winsize (ADR-218 D5)", () => {
       rows: 20,
     });
     expect(createOrAttach).toHaveBeenCalledWith("pane-1", expect.anything(), 90, 20);
-    expect(watched).toEqual([["pane-1", true]]);
+    expect(watched).toEqual([["pane-1", 1]]);
+    expect(ownerOf("pane-1")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
   });
 
   it("is a follower when an old daemon reports no count", async () => {
@@ -158,15 +163,18 @@ describe("host pty.create winsize (ADR-218 D5)", () => {
     expect(third).toMatchObject({ winsizeOwner: false });
   });
 
-  it("does not rank the owner channel as a local viewer", async () => {
+  it("ranks the owner channel with a device, not as a local viewer", async () => {
     sessions = [session("pane-1", 0)];
     await create(device);
-    await create(owner);
-    // A `local` viewer would have outranked the phone; the owner is a device.
+    sessions = [session("pane-1", 1)];
+    expect(await create(owner)).toMatchObject({ winsizeOwner: true });
     expect(ownerOf("pane-1")).toMatchObject({
       connectionId: "desktop",
-      callerClass: "device",
+      callerClass: "owner",
     });
+    // A `local` arrival would have outranked it; a device among equals does.
+    const third = await create({ ...device, id: "phone-2" } as Caller);
+    expect(third).toMatchObject({ winsizeOwner: true });
   });
 
   it("drops a device's resize and claim while another client holds the pane", async () => {
@@ -178,7 +186,7 @@ describe("host pty.create winsize (ADR-218 D5)", () => {
       handler("pty.claimWinsize")({ deps, caller: device }, "pane-1"),
     ).toBe(false);
 
-    foreign.clear();
+    setForeign("pane-1", false);
     await handler("pty.resize")({ deps, caller: device }, "pane-1", 50, 10);
     expect(deps.backend.pty.resize).toHaveBeenCalledWith("pane-1", 50, 10);
   });
@@ -194,52 +202,80 @@ describe("createHostWinsize poll", () => {
     resetAttachments();
   });
 
+  const phone = { connectionId: "phone-1", callerClass: "device" } as const;
+  const isForeign = (paneId: string) =>
+    ownerOf(paneId)?.connectionId === FOREIGN_CONNECTION_ID;
+
+  /** Panes the registry told its sinks about, as the bridge server hears them. */
+  function listen(): { changed: string[]; stop: () => void } {
+    const changed: string[] = [];
+    const stop = onAttachmentChange((paneId) => changed.push(paneId));
+    return { changed, stop };
+  }
+
   it("pushes when another client arrives or leaves, and stops once nothing is held", async () => {
-    let count: number | undefined = 1;
-    const onChange = vi.fn();
+    let count: number | undefined = 0;
     const w = createHostWinsize({
       listSessions: async () => [session("pane-1", count)],
-      onChange,
       intervalMs: 2000,
     });
-    attach("pane-1", { connectionId: "phone-1", callerClass: "device" });
-    w.watch("pane-1", false);
+    w.watch("pane-1", count);
+    attach("pane-1", phone);
+    count = 1; // this server's own subscription
+    const { changed, stop } = listen();
 
     await vi.advanceTimersByTimeAsync(2000);
-    expect(onChange).not.toHaveBeenCalled();
+    expect(changed).toEqual([]);
 
     count = 2; // the desktop attached
     await vi.advanceTimersByTimeAsync(2000);
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith("pane-1");
-    expect(w.isForeign("pane-1")).toBe(true);
+    expect(changed).toEqual(["pane-1"]);
+    expect(isForeign("pane-1")).toBe(true);
 
     await vi.advanceTimersByTimeAsync(2000); // unchanged: quiet
-    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(changed).toHaveLength(1);
 
     count = 1; // it left
     await vi.advanceTimersByTimeAsync(2000);
-    expect(onChange).toHaveBeenCalledTimes(2);
-    expect(w.isForeign("pane-1")).toBe(false);
+    expect(changed).toEqual(["pane-1", "pane-1"]);
+    expect(ownerOf("pane-1")).toEqual(phone);
 
-    release("pane-1", { connectionId: "phone-1", callerClass: "device" });
+    release("pane-1", phone);
     await vi.advanceTimersByTimeAsync(2000);
     expect(vi.getTimerCount()).toBe(0);
+    stop();
     w.dispose();
   });
 
   it("keeps an old daemon's follower answer and does not flap", async () => {
-    const onChange = vi.fn();
     const w = createHostWinsize({
       listSessions: async () => [session("pane-1", undefined)],
-      onChange,
     });
-    attach("pane-1", { connectionId: "phone-1", callerClass: "device" });
-    w.watch("pane-1", true);
+    w.watch("pane-1", undefined);
+    attach("pane-1", phone);
+    const { changed, stop } = listen();
     await vi.advanceTimersByTimeAsync(6000);
-    expect(onChange).not.toHaveBeenCalled();
-    expect(w.isForeign("pane-1")).toBe(true);
+    expect(changed).toEqual([]);
+    expect(isForeign("pane-1")).toBe(true);
+    stop();
     w.dispose();
+  });
+
+  it("lets go of the hold once nobody here holds the pane, and on dispose", async () => {
+    const w = createHostWinsize({
+      listSessions: async () => [session("pane-1", 2)],
+    });
+    w.watch("pane-1", 2);
+    attach("pane-1", phone);
+    expect(isForeign("pane-1")).toBe(true);
+    release("pane-1", phone);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(ownerOf("pane-1")).toBeNull();
+
+    w.watch("pane-2", undefined);
+    expect(isForeign("pane-2")).toBe(true);
+    w.dispose();
+    expect(ownerOf("pane-2")).toBeNull();
   });
 });
 

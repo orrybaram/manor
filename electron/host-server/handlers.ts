@@ -67,11 +67,7 @@ import {
   missingSessions,
   withStartedWhileAway,
 } from "./started-while-away";
-import {
-  hasOtherClients,
-  ownSocketsFor,
-  type HostWinsize,
-} from "./winsize";
+import type { HostWinsize } from "./winsize";
 
 /** The daemon calls the host server's handlers make. */
 export type HostPty = Pick<
@@ -141,7 +137,8 @@ type Ctx = HandlerCtx<HostServerDeps>;
  *
  * The winsize answer is the daemon's (ADR-218 D5, `./winsize.ts`): a follower
  * whenever a client other than this server is attached to the session — or
- * the daemon does not say — and the owner otherwise.
+ * the daemon does not say — and the owner otherwise. The count goes into the
+ * registry's foreign hold, and `createShaped` reads it from there.
  */
 export async function hostPtyCreate(
   ctx: Ctx,
@@ -176,12 +173,8 @@ export async function hostPtyCreate(
         "This terminal isn't running on the host. Starting terminals from here comes in a later version.",
     };
   }
-  const foreign = hasOtherClients(
-    session.attachedClients,
-    ownSocketsFor(paneId),
-  );
-  // Before the attach, so the ownership push it triggers already knows.
-  ctx.deps.winsize.watch(paneId, foreign);
+  // Into the registry before the call, so `createShaped` reads the hold.
+  ctx.deps.winsize.watch(paneId, session.attachedClients);
   return createShaped(ctx, paneId, cols, rows, async (c, r) => {
     try {
       const result = await pty.createOrAttach(
@@ -204,30 +197,7 @@ export async function hostPtyCreate(
         error: errorMessage(err),
       };
     }
-  }, foreign);
-}
-
-/**
- * A resize from a viewer that does not own the pane is dropped, as on the
- * desktop. Here that includes every device while another client of the daemon
- * has the session: it is not this phone's grid to move.
- */
-function hostPtyResize(
-  ctx: Ctx,
-  paneId: string,
-  cols: number,
-  rows: number,
-): Promise<void> {
-  assertString(paneId, "paneId");
-  if (ctx.deps.winsize.isForeign(paneId)) return Promise.resolve();
-  return ptyResize(ctx, paneId, cols, rows);
-}
-
-/** No claim while another client of the daemon has the session. */
-function hostPtyClaimWinsize(ctx: Ctx, paneId: string): boolean {
-  assertString(paneId, "paneId");
-  if (ctx.deps.winsize.isForeign(paneId)) return false;
-  return ptyClaimWinsize(ctx, paneId);
+  });
 }
 
 // ── agents ──
@@ -405,8 +375,10 @@ const METHODS = flatten({
     // Attaching is audited like the desktop's create; typing is not.
     create: method(hostPtyCreate, { mutating: true }),
     write: method(ptyWrite),
-    resize: method(hostPtyResize),
-    claimWinsize: method(hostPtyClaimWinsize),
+    // The registry's foreign hold drops a device's resize and claim while
+    // another client of the daemon has the session (`./winsize.ts`).
+    resize: method(ptyResize),
+    claimWinsize: method(ptyClaimWinsize),
     detach: method(ptyDetach),
   },
   agents: {

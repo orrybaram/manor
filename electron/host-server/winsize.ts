@@ -11,10 +11,15 @@
  * connection, subscribed to a session once however many devices view it
  * (`TerminalHostClient`'s subscriptions are per session, not per viewer). So
  * this server accounts for exactly one of a session's `attachedClients` while
- * a device holds the pane (`ownerOf` in `pty-attachments.ts` — the last
+ * a device holds the pane (`isHeld` in `pty-attachments.ts` — the last
  * device's detach is what unsubscribes) and none before the first attach.
  * Two phones on one pane are therefore not "someone else" to each other here;
  * the registry's own most-recent-attach rule still orders them.
+ *
+ * **The answer lives in the registry.** Whether someone else holds the pane is
+ * `setForeign` on `pty-attachments.ts`, so the desktop pty handlers this
+ * server reuses — create, resize, claim — and the bridge server's ownership
+ * push all read it from the one place they already read the winsize owner.
  *
  * **Unknown is a follower.** A daemon that predates the field omits it. The
  * safe default is never to resize a session someone else may be viewing.
@@ -27,7 +32,7 @@
  * costs one cheap RPC, and runs only while a device holds a pane.
  */
 
-import { ownerOf } from "../pty-attachments";
+import { isHeld, setForeign } from "../pty-attachments";
 import type { SessionInfo } from "../terminal-host/types";
 
 /** Poll cadence while any device holds a pane. */
@@ -46,36 +51,35 @@ export function hasOtherClients(
   return attachedClients - ownSockets > 0;
 }
 
-/** How many of a session's attached sockets are this server's own. */
-export function ownSocketsFor(paneId: string): number {
-  return ownerOf(paneId) ? 1 : 0;
+/** Hold or free `paneId` in the registry from the daemon's attach count. */
+function applyCount(paneId: string, attachedClients: number | undefined): void {
+  const ownSockets = isHeld(paneId) ? 1 : 0;
+  setForeign(paneId, hasOtherClients(attachedClients, ownSockets));
 }
 
 export interface HostWinsize {
   /**
-   * Another client of the daemon holds the pane, as of the last look. Nobody
-   * on this server owns its winsize then.
+   * A device is about to hold `paneId`: record what the daemon said about it
+   * in the registry, and keep watching it.
    */
-  isForeign(paneId: string): boolean;
-  /**
-   * A device is about to hold `paneId`: remember what the daemon said and
-   * start watching it.
-   */
-  watch(paneId: string, foreign: boolean): void;
+  watch(paneId: string, attachedClients: number | undefined): void;
   dispose(): void;
 }
 
 export interface HostWinsizeOptions {
   listSessions(): Promise<readonly SessionInfo[]>;
-  /** `foreign` changed for `paneId`: tell the devices watching it. */
-  onChange(paneId: string): void;
   intervalMs?: number;
 }
 
 export function createHostWinsize(opts: HostWinsizeOptions): HostWinsize {
-  const foreign = new Map<string, boolean>();
+  const watched = new Set<string>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let polling = false;
+
+  function unwatch(paneId: string): void {
+    watched.delete(paneId);
+    setForeign(paneId, false);
+  }
 
   async function tick(): Promise<void> {
     if (polling) return;
@@ -84,23 +88,20 @@ export function createHostWinsize(opts: HostWinsizeOptions): HostWinsize {
       const sessions = new Map(
         (await opts.listSessions()).map((s) => [s.sessionId, s]),
       );
-      for (const [paneId, was] of [...foreign]) {
+      for (const paneId of [...watched]) {
         const session = sessions.get(paneId);
         // Nobody holds it any more, or the session is gone: stop watching.
-        if (!ownerOf(paneId) || !session?.alive) {
-          foreign.delete(paneId);
+        if (!isHeld(paneId) || !session?.alive) {
+          unwatch(paneId);
           continue;
         }
-        const now = hasOtherClients(session.attachedClients, 1);
-        if (now === was) continue;
-        foreign.set(paneId, now);
-        opts.onChange(paneId);
+        applyCount(paneId, session.attachedClients);
       }
     } catch {
       // The daemon is unreachable: keep the last answer, look again.
     } finally {
       polling = false;
-      if (foreign.size === 0) stop();
+      if (watched.size === 0) stop();
     }
   }
 
@@ -111,16 +112,16 @@ export function createHostWinsize(opts: HostWinsizeOptions): HostWinsize {
   }
 
   return {
-    isForeign: (paneId) => foreign.get(paneId) ?? false,
-    watch(paneId, isForeign) {
-      foreign.set(paneId, isForeign);
+    watch(paneId, attachedClients) {
+      watched.add(paneId);
+      applyCount(paneId, attachedClients);
       if (timer) return;
       timer = setInterval(() => void tick(), opts.intervalMs ?? WINSIZE_POLL_MS);
       timer.unref?.();
     },
     dispose() {
       stop();
-      foreign.clear();
+      for (const paneId of [...watched]) unwatch(paneId);
     },
   };
 }

@@ -243,7 +243,6 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const winsize = createHostWinsize({
     listSessions: () => daemon.pty.listSessions(),
-    onChange: (paneId) => void bridge?.refreshWinsizeOwner(paneId),
   });
 
   const deps: HostServerDeps = {
@@ -285,8 +284,6 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   bridge = new BridgeServer(deps, {
     table: HOST_TABLE,
     events: events.subscribe,
-    // The daemon's attach count, not only this server's registry (D5).
-    heldElsewhere: (paneId) => winsize.isForeign(paneId),
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
   });
   const frames = new WsBridgeServer(bridge, {

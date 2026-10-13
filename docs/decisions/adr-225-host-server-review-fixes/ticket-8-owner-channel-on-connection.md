@@ -31,3 +31,7 @@ blocked_by: [7]
 - `electron/bridge/handlers/hosts.ts`, `electron/app-lifecycle.ts`
 - `electron/terminal-host/transport-ssh.ts`, `bridge.ts`, `server-bridge.ts`, tests
 - `electron/backend/__tests__/host-server-client.test.ts`
+
+## Added from ticket 3
+
+7. `terminal-host/server-bridge.ts` still sends `role: "owner"` in its hello; the authenticator no longer reads it. Drop it.

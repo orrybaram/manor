@@ -1,5 +1,5 @@
 /**
- * The host server end to end (ADR-218 D1, D2): boot, files, the agents its
+ * The host server end to end (ADR-225 D1, D2): boot, files, the agents its
  * daemon's hooks describe, and what its allowlist refuses. See `harness.ts`.
  */
 
@@ -125,7 +125,7 @@ describe("host server", () => {
       ["pty", "reset"],
       ["github", "getIssues"],
       ["layout", "apply"],
-      // No integration calls in slice 1 (ADR-218 D8), issue images included.
+      // No integration calls in slice 1 (ADR-225 D8), issue images included.
       ["github", "getPrsForBranches"],
       ["github", "proxyImage"],
       ["linear", "getAllIssues"],

@@ -2,7 +2,7 @@
  * The `agents` reads and the stale-agent sweep, shared by the desktop's table
  * (`./agents.ts`) and the host server's (`../../host-server/handlers.ts`).
  *
- * Electron-free on purpose (ADR-225 S1): every handler here reads only the
+ * Electron-free on purpose (ADR-226 S1): every handler here reads only the
  * {@link AgentReadDeps} slice, which both `HostDeps` and `HostServerDeps`
  * satisfy, so the host server lists these directly instead of copying them.
  * The desktop-only writes (dock badge, notification log) stay in `./agents.ts`.

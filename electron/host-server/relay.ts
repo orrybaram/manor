@@ -1,5 +1,5 @@
 /**
- * The host server's own relay room (ADR-218 D3): its relay identity, the
+ * The host server's own relay room (ADR-225 D3): its relay identity, the
  * phones paired to that room, their push subscriptions, and the connector
  * that dials out to `relay.manor.sh` — the desktop's remote-control runtime
  * (`app-lifecycle.ts` `loadRemoteControlRuntime`), minus the desktop's
@@ -28,7 +28,7 @@
  * The room operations themselves — pair, revoke, reset, stale-room revokes —
  * are `RelayRoom`'s, shared with the desktop and run one at a time.
  *
- * Secrets go through the host's `SecretBox` (ADR-218 D6) into `dataDir`
+ * Secrets go through the host's `SecretBox` (ADR-225 D6) into `dataDir`
  * (`hostServerPaths`). Device tokens are stored as SHA-256 hashes only.
  */
 
@@ -76,7 +76,7 @@ export interface HostRelayOptions {
   pushGenerate?: () => VapidKeys | Promise<VapidKeys>;
 }
 
-/** What `hostServer.status()` answers the owner (ADR-218 D4). */
+/** What `hostServer.status()` answers the owner (ADR-225 D4). */
 export interface HostServerStatus {
   version: string;
   uptimeMs: number;
@@ -130,14 +130,14 @@ export interface HostRelay {
   deviceCount(): number;
   pushEndpoints(): string[];
   /**
-   * Adopt the desktop's VAPID pair (ADR-218 D3). True when the key changed,
+   * Adopt the desktop's VAPID pair (ADR-225 D3). True when the key changed,
    * in which case the subscriptions made against the old one were cleared.
    */
   setVapidKeys(keys: VapidKeys): Promise<boolean>;
   /**
    * New relay identity, so a new room; every device and with it every push
    * subscription revoked; the connector redialled to the new room. The
-   * recovery step for a box that may be compromised (ADR-218 D6).
+   * recovery step for a box that may be compromised (ADR-225 D6).
    */
   resetIdentity(): Promise<void>;
 }

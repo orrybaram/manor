@@ -1,5 +1,5 @@
 /**
- * The host server's process entry (ADR-218 D1).
+ * The host server's process entry (ADR-225 D1).
  *
  *   node host-server-index.js serve [--data-dir <dir>]
  *

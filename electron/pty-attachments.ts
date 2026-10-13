@@ -34,7 +34,7 @@
  * without hunting for a button, which is tmux's `window-size latest` with
  * the desk as the only viewer whose keystrokes count implicitly.
  *
- * A **foreign hold** outranks all of it (ADR-218 D5). On a host server the
+ * A **foreign hold** outranks all of it (ADR-225 D5). On a host server the
  * pane's other viewer may be a client of the daemon this registry never sees —
  * the desktop, attached to the same session over ssh. While the host says so
  * (`setForeign`), nobody here owns the winsize: `ownerOf` answers a sentinel
@@ -68,7 +68,7 @@ export interface Viewer {
   connectionId: string;
   /**
    * `local` = an Electron renderer window; `device` = a paired device;
-   * `owner` = the desktop on a host server's owner channel (ADR-218 D4).
+   * `owner` = the desktop on a host server's owner channel (ADR-225 D4).
    */
   callerClass: CallerClass;
 }
@@ -218,27 +218,53 @@ export function wouldOwn(paneId: string, viewer: Viewer): boolean {
 }
 
 /**
+ * Run `fn`, which changes who holds or claims this pane, and tell the sinks
+ * if that gave it a different owner.
+ */
+function changingOwner(paneId: string, fn: () => void): void {
+  const before = ownerFingerprint(ownerOf(paneId));
+  fn();
+  const after = ownerFingerprint(ownerOf(paneId));
+  if (before !== after) notifyChanged([paneId]);
+}
+
+/**
  * A viewer has this pane mounted.
  *
  * A viewer already holding the pane stays where it is in the order rather
  * than moving to the end: a renderer that re-creates a pane it never let go
  * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
  * taking the winsize back off whoever holds it would make a remount a resize.
+ *
+ * `as: "returning"` is a viewer that had this pane mounted coming back — its
+ * connection dropped and it re-attached (`pty.attach`, ADR-220) — and making
+ * no bid for the winsize. It goes in as the *oldest* viewer rather than the
+ * newest, and a standing claim stays standing: whoever attached while it was
+ * away keeps the grid they have been fitting to, rather than having it
+ * reflowed under them by a viewer that merely came back. Rule 1 still holds,
+ * so a desk window coming back outranks a device, as it would have before it
+ * left. A viewer alone on the pane owns it, as any viewer alone does.
  */
-export function attach(paneId: string, viewer: Viewer): void {
-  const before = ownerFingerprint(ownerOf(paneId));
-  const viewers = holders.get(paneId);
-  if (viewers) {
-    if (!viewers.some((existing) => sameViewer(existing, viewer))) {
-      viewers.push(viewer);
-      // A new arrival is decided by the default rules, as `wouldOwn` told it.
-      claims.delete(paneId);
+export function attach(
+  paneId: string,
+  viewer: Viewer,
+  { as = "newest" }: { as?: "newest" | "returning" } = {},
+): void {
+  changingOwner(paneId, () => {
+    const viewers = holders.get(paneId);
+    if (!viewers) {
+      holders.set(paneId, [viewer]);
+      return;
     }
-  } else {
-    holders.set(paneId, [viewer]);
-  }
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+    if (viewers.some((existing) => sameViewer(existing, viewer))) return;
+    if (as === "returning") {
+      viewers.unshift(viewer);
+      return;
+    }
+    viewers.push(viewer);
+    // A new arrival is decided by the default rules, as `wouldOwn` told it.
+    claims.delete(paneId);
+  });
 }
 
 /**
@@ -246,16 +272,15 @@ export function attach(paneId: string, viewer: Viewer): void {
  * a caller that vanished is `releaseViewer`.
  */
 export function release(paneId: string, viewer: Viewer): void {
-  const before = ownerFingerprint(ownerOf(paneId));
-  const viewers = holders.get(paneId);
-  if (!viewers) return;
-  const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
-  if (idx === -1) return;
-  viewers.splice(idx, 1);
-  if (viewers.length === 0) holders.delete(paneId);
-  if (claims.get(paneId) === viewer.connectionId) claims.delete(paneId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  changingOwner(paneId, () => {
+    const viewers = holders.get(paneId);
+    if (!viewers) return;
+    const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
+    if (idx === -1) return;
+    viewers.splice(idx, 1);
+    if (viewers.length === 0) holders.delete(paneId);
+    if (claims.get(paneId) === viewer.connectionId) claims.delete(paneId);
+  });
 }
 
 /**
@@ -267,10 +292,9 @@ export function claim(paneId: string, viewer: Viewer): boolean {
   if (foreign.has(paneId)) return false;
   const viewers = holders.get(paneId);
   if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
-  const before = ownerFingerprint(ownerOf(paneId));
-  claims.set(paneId, viewer.connectionId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  changingOwner(paneId, () => {
+    claims.set(paneId, viewer.connectionId);
+  });
   return true;
 }
 
@@ -283,16 +307,15 @@ export function reclaimOnInput(paneId: string, viewer: Viewer): void {
   if (viewer.callerClass !== "local") return;
   const claimant = claims.get(paneId);
   if (!claimant || claimant === viewer.connectionId) return;
-  const before = ownerFingerprint(ownerOf(paneId));
-  claims.delete(paneId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  changingOwner(paneId, () => {
+    claims.delete(paneId);
+  });
 }
 
 /**
  * A client this registry cannot see holds the pane (`on`), or let it go.
  *
- * Set by a host server from the daemon's attach count (ADR-218 D5,
+ * Set by a host server from the daemon's attach count (ADR-225 D5,
  * `host-server/winsize.ts`). The hold outlives the viewers here — it is about
  * the session, not about who on this side has it open — and is cleared by
  * whoever set it. A flip that changes `ownerOf` is told to the change sinks

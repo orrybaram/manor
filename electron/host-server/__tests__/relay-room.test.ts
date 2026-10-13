@@ -1,5 +1,5 @@
 /**
- * The host server's own relay room (ADR-218 D3): dialled through the injected
+ * The host server's own relay room (ADR-225 D3): dialled through the injected
  * WebSocket, paired with a link, devices refused the owner's methods, push,
  * VAPID and identity reset. See `harness.ts`.
  */
@@ -18,7 +18,7 @@ import type { HostServerStatus } from "../relay";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 
-describe("host server: its own relay room (ADR-218 D3)", () => {
+describe("host server: its own relay room (ADR-225 D3)", () => {
   const h = useHostServerHarness();
 
   it("dials its room through the injected WebSocket constructor", async () => {

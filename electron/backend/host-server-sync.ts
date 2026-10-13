@@ -1,6 +1,6 @@
 /**
  * What the desktop pushes to each remote host's host server over the owner
- * channel (ADR-218 D4, D5, D8), and when.
+ * channel (ADR-225 D4, D5, D8), and when.
  *
  * **The manifest** (`buildHostManifest`) is that host's projects as
  * `projects.json` holds them, `hostId` rewritten to `local`, plus an
@@ -73,7 +73,7 @@ function prSnapshot(pr: PrInfo): PrSnapshot {
 }
 
 /**
- * The manifest for `hostId` (ADR-218 D4, D8). `now` stamps `sentAt`, and
+ * The manifest for `hostId` (ADR-225 D4, D8). `now` stamps `sentAt`, and
  * `takenAt` for a workspace whose snapshot has only an issue (issues are
  * persisted, so the desktop's copy is as fresh as the manifest); a PR's
  * `takenAt` is when the desktop last fetched it.
@@ -183,7 +183,7 @@ export class HostServerSync {
   private readonly sentLayout = new Map<string, string>();
   private readonly manifestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribe: (() => void) | null = null;
-  /** The push endpoints each host's server sends to (ADR-218 D3). */
+  /** The push endpoints each host's server sends to (ADR-225 D3). */
   private readonly endpoints: HostPushEndpoints;
 
   constructor(opts: HostServerSyncOptions) {
@@ -344,7 +344,7 @@ export class HostServerSync {
 }
 
 /**
- * The layout snapshot for `hostId` (ADR-218 D5): the entries of the desktop's
+ * The layout snapshot for `hostId` (ADR-225 D5): the entries of the desktop's
  * layout (`LayoutStore.getAll()`, keyed `<hostId>:<path>` for a remote
  * workspace) that belong to `hostId`, rekeyed to their bare path, with no
  * window claims (a claim is a desktop window's, and means nothing on the

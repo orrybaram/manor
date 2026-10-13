@@ -379,7 +379,7 @@ export class SshTransport implements HostTransport {
   }
 
   /**
-   * Open the owner channel to the box's host server (ADR-218 D4): one more
+   * Open the owner channel to the box's host server (ADR-225 D4): one more
    * child on the shared ControlMaster, running `manor-host server-bridge`.
    *
    * Resolves once the server has said its hello reply (`parseServerHello`),

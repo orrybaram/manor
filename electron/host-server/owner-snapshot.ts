@@ -1,5 +1,5 @@
 /**
- * What the owner last synced (ADR-218 D4, D5), held in memory.
+ * What the owner last synced (ADR-225 D4, D5), held in memory.
  *
  * The manifest and layout snapshot are read from `dataDir` once, at boot,
  * through the same strict validators a sync passes (`./owner.ts`): a file

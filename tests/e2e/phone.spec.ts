@@ -315,8 +315,8 @@ test.describe("phone layout (ADR-181)", () => {
       );
       await film.shot(client.page, "03-switched-pane");
 
-      // 3. The drawer. Opening it and picking the other workspace closes
-      // it and shows that workspace.
+      // 3. The drawer. Its Search row opens the palette, and picking the other
+      // workspace there closes both and shows that workspace.
       await client.page.getByTestId("phone-drawer-toggle").click();
       const drawer = client.page.getByTestId("sidebar-drawer");
       await expect(drawer).toBeVisible();
@@ -325,11 +325,12 @@ test.describe("phone layout (ADR-181)", () => {
       await expect(drawer.getByTestId("notifications-row")).toBeVisible();
       await film.shot(client.page, "04-drawer-open");
 
-      await client.page
-        .getByTestId("workspace-item")
-        .filter({ hasText: WORKSPACE_2 })
-        .click();
+      await drawer.getByTestId("search-row").click();
       await expect(drawer).not.toBeVisible();
+      const switcher = client.page.getByTestId("command-palette");
+      await switcher.locator("[cmdk-input]").fill(WORKSPACE_2);
+      await switcher.locator("[cmdk-item]", { hasText: WORKSPACE_2 }).first().click();
+      await expect(switcher).not.toBeVisible();
       await expect
         .poll(() => activePaneId(client.page), { timeout: 15_000 })
         .toBe(paneW2);
@@ -350,6 +351,21 @@ test.describe("phone layout (ADR-181)", () => {
       await film.shot(client.page, "05b-notifications-sheet");
       await client.page.getByTestId("notifications-sheet-close").click();
       await expect(sheet).not.toBeVisible();
+
+      // ADR-219: the drawer is agents-first, with no projects view behind it.
+      // Settings opens the modal.
+      await client.page.getByTestId("phone-drawer-toggle").click();
+      await expect(drawer.getByTestId("phone-agents-panel")).toBeVisible();
+      await expect(drawer.getByTestId("drawer-new-agent")).toBeVisible();
+      await expect(drawer.getByTestId("drawer-settings")).toBeVisible();
+      await expect(drawer.getByTestId("workspace-item")).toHaveCount(0);
+      await drawer.getByTestId("drawer-settings").click();
+      const phoneSettings = client.page.getByTestId("settings-modal");
+      await expect(phoneSettings).toBeVisible();
+      await client.page.keyboard.press("Escape");
+      await expect(phoneSettings).not.toBeVisible();
+
+      await expect(drawer).toBeHidden();
 
       // 4. The palette opens full screen from the top bar's overflow menu, and a
       // pane action run from it lands on the desk's layout too. The desk
@@ -515,6 +531,126 @@ test.describe("phone layout (ADR-181)", () => {
         els.map((el) => el.getAttribute("data-tab-id")),
       );
       expect(idsAfter).toEqual(idsBefore);
+    } finally {
+      await client.close();
+    }
+  });
+
+  /**
+   * ADR-220: a phone that lost the line and missed a push shows the desk's
+   * current state once the line is back, with no reload; the overflow menu's
+   * Refresh re-fetches in place.
+   *
+   * The line is dropped the way a backgrounded phone loses it: the page goes
+   * offline (so a redial cannot succeed) and every WebSocket the page opened
+   * is closed. A tracker installed before the app's scripts run is the only
+   * handle on those sockets. Pull-to-refresh is not driven here: Playwright's
+   * touch emulation has no reliable way to synthesize the overscroll gesture,
+   * and the overflow Refresh takes the same `refreshState()` path.
+   */
+  relayTest("a phone resyncs after a dropped line, and refreshes in place from the overflow menu", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    const before = "phone-resync";
+    const after = "phone-resynced";
+    await bootWorkspaceWithTerminal(app, window, tempHome, before);
+
+    const device = await pairBrowser(window, { label: "resync phone" });
+    await closeSettings(window);
+
+    const client = await openWebApp(device.link, {
+      viewport: { width: 390, height: 844 },
+      context: { isMobile: true, hasTouch: true },
+    });
+    const page = client.page;
+    try {
+      // Track every WebSocket from the first script on, then start over so
+      // the app's own socket is one of them. The pairing survives a reload.
+      // While `__blockSockets` is set, a redial goes to a port nothing
+      // listens on: the line stays down without taking the whole network
+      // (and so the page's lazy chunks) down with it.
+      await page.context().addInitScript(() => {
+        const w = window as unknown as {
+          __sockets: WebSocket[];
+          __blockSockets: boolean;
+        };
+        w.__sockets = [];
+        w.__blockSockets = false;
+        const Native = window.WebSocket;
+        window.WebSocket = new Proxy(Native, {
+          construct(target, args) {
+            const [url, protocols] = args as [string, (string | string[])?];
+            const ws = new target(
+              w.__blockSockets ? "ws://127.0.0.1:9/blocked" : url,
+              protocols,
+            );
+            w.__sockets.push(ws);
+            return ws;
+          },
+        });
+      });
+      await page.reload();
+      const topBar = page.getByTestId("phone-top-bar");
+      await expect(topBar).toBeVisible({ timeout: 30_000 });
+      await expect(topBar).toContainText(before);
+
+      // 1. Drop the line, rename on the desk meanwhile, bring it back.
+      // The marker proves the catch-up below is a resync, not a reload.
+      const closed = await page.evaluate(() => {
+        const w = window as unknown as {
+          __sockets: WebSocket[];
+          __blockSockets: boolean;
+          __marker: string;
+        };
+        w.__marker = "alive";
+        w.__blockSockets = true;
+        for (const ws of w.__sockets) ws.close();
+        return w.__sockets.length;
+      });
+      expect(closed).toBeGreaterThan(0);
+
+      const item = window.locator(
+        '[data-testid="workspace-item"]',
+        { hasText: before },
+      ).first();
+      const wsPath = await item.getAttribute("data-workspace-path");
+      const row = window.locator(
+        `[data-testid="workspace-item"][data-workspace-path="${wsPath}"]`,
+      );
+      await row.press("F2");
+      const input = row.getByTestId("workspace-name-input");
+      await expect(input).toBeVisible({ timeout: 5_000 });
+      await input.fill(after);
+      await input.press("Enter");
+      await expect(row.getByTestId("workspace-name")).toHaveText(after, {
+        timeout: 15_000,
+      });
+
+      // Still the old name: the line is down, nothing was pushed.
+      await expect(topBar).toContainText(before);
+
+      await page.evaluate(() => {
+        (window as unknown as { __blockSockets: boolean }).__blockSockets =
+          false;
+        window.dispatchEvent(new Event("online"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await expect(topBar).toContainText(after, { timeout: 30_000 });
+      expect(
+        await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
+      ).toBe("alive");
+
+      // 2. Overflow Refresh: in place, no reload.
+      await page.getByTestId("phone-overflow-button").click();
+      await expect(page.getByTestId("overflow-refresh")).toBeVisible();
+      await page.getByTestId("overflow-refresh").tap();
+      await expect(page.getByTestId("phone-overflow-menu")).toHaveCount(0);
+      await expect(topBar).toContainText(after);
+      expect(
+        await page.evaluate(() => (window as unknown as { __marker?: string }).__marker),
+      ).toBe("alive");
     } finally {
       await client.close();
     }

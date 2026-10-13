@@ -88,7 +88,7 @@ Everything in `electron/` that is not Electron: projects, routes, integrations, 
 _Avoid_: main process, backend, the API
 
 **Host server**:
-A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It has its own **Room** and its own paired devices; in slice 1 it reads the same hook journal the desktop does and shows the projects and layout the desktop last sent it (ADR-218).
+A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It has its own **Room** and its own paired devices; in slice 1 it reads the same hook journal the desktop does and shows the projects and layout the desktop last sent it (ADR-225).
 _Avoid_: remote server, box server, cloud server, the daemon (the daemon owns PTYs; the host server is the Manor server beside it)
 
 **Owner channel**:
@@ -213,4 +213,4 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
   the live one is **Agent status**.
 
 - "mobile/web experience" was used to mean a new client; resolved: it is the **Web app**, one responsive codebase, not a second client.
-- "remote" is overloaded across ADRs: ADR-160 _remote workspace backends_ means a workspace living on another machine; ADR-161 _remote control_ means a **Paired device** reaching this one; and since ADR-218 a paired device can reach a remote **Host** directly, through its **Host server**, with no desktop involved. Prefer **remote host** / **host server** for the first, **paired device** / **remote surface** for the second, and never "remote server" for either.
+- "remote" is overloaded across ADRs: ADR-160 _remote workspace backends_ means a workspace living on another machine; ADR-161 _remote control_ means a **Paired device** reaching this one; and since ADR-225 a paired device can reach a remote **Host** directly, through its **Host server**, with no desktop involved. Prefer **remote host** / **host server** for the first, **paired device** / **remote surface** for the second, and never "remote server" for either.

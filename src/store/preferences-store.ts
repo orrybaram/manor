@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { AppPreferences } from "../electron.d";
+import { liveValue } from "../bridge/resync";
 
 interface PreferencesState {
   preferences: AppPreferences;
@@ -33,18 +34,13 @@ const defaultPreferences: AppPreferences = {
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {
-  // Load initial preferences on store creation
-  window.electronAPI?.preferences
-    .getAll()
-    .then((preferences) => {
-      set({ preferences, loaded: true });
-    })
-    .catch(() => {});
-
-  // Subscribe to live preference updates
-  window.electronAPI?.preferences.onChange((preferences) => {
-    set({ preferences });
-  });
+  if (window.electronAPI?.preferences) {
+    liveValue(
+      () => window.electronAPI.preferences.getAll(),
+      (cb) => window.electronAPI.preferences.onChange(cb),
+      (preferences) => set({ preferences, loaded: true }),
+    );
+  }
 
   return {
     preferences: defaultPreferences,

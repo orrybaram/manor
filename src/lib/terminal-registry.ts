@@ -16,6 +16,10 @@
  *
  * Registration is unconditional rather than dev-gated, because what tests
  * measure here are races, and gating changes the timing that produces them.
+ *
+ * Being the one list of the terminals that are open right now, it is also
+ * what a bridge resync remounts (`useTerminalResync`, ADR-220): a pane still
+ * waiting to open its terminal has not attached yet, and attaches fresh.
  */
 
 import type { Terminal } from "@xterm/xterm";
@@ -64,4 +68,9 @@ export function unregisterTerminal(paneId: string): void {
 /** A pane's live terminal, if it has one mounted. */
 export function terminalFor(paneId: string): Terminal | null {
   return registry().get(paneId)?.term ?? null;
+}
+
+/** The panes with a live terminal open right now. */
+export function mountedTerminalPaneIds(): string[] {
+  return [...registry().keys()];
 }

@@ -10,7 +10,7 @@
  * level, to `<dir>/main.log`.
  *
  * Electron-free (the caller passes the directory) so the host server
- * (ADR-218) logs the same way, to its own `logs/` directory.
+ * (ADR-225) logs the same way, to its own `logs/` directory.
  *
  * Kept deliberately dumb: one append-mode `fs.WriteStream`, one rotated
  * backup (`main.log.1`), and every fs operation swallowed. A logging failure

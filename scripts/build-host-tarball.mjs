@@ -10,7 +10,7 @@
  *                            `bootstrap` request (ADR-160 ticket 10)
  *   manor-cli.js             the `manor` CLI, run by the `~/.manor/bin/manor`
  *                            shim remote-bootstrap.ts writes (ADR-189 ticket 4)
- *   host-server-index.js     the host server (ADR-218), run by `manor-host serve`
+ *   host-server-index.js     the host server (ADR-225), run by `manor-host serve`
  *   package.json             generated; pins the bundles' externals at the
  *                            versions in the root package.json
  *
@@ -35,7 +35,7 @@ const RUNTIME_DEPS = [
   "@xterm/headless",
   "@xterm/addon-serialize",
   "tree-kill",
-  // host-server-index.js (ADR-218); its other deps (@noble/*) are inlined.
+  // host-server-index.js (ADR-225); its other deps (@noble/*) are inlined.
   "ws",
   "web-push",
 ];

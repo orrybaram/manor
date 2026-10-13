@@ -111,7 +111,7 @@ export class LastKnownWorkspaces {
 
   /**
    * `p`'s last listing whether or not its host is away — what the desktop
-   * already knows of its worktrees, without asking git (ADR-218 D8's
+   * already knows of its worktrees, without asking git (ADR-225 D8's
    * manifest snapshot). Undefined for a local project or one never listed.
    */
   latest(p: PersistedProject): WorkspaceInfo[] | undefined {

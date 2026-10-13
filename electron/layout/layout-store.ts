@@ -1001,7 +1001,7 @@ export class LayoutStore {
 
   /**
    * Told after every debounced write of the layout file — the cadence the
-   * host server pushes ride (ADR-218 D5). Returns the unsubscribe.
+   * host server pushes ride (ADR-225 D5). Returns the unsubscribe.
    */
   onPersisted(listener: () => void): () => void {
     this.persistListeners.add(listener);

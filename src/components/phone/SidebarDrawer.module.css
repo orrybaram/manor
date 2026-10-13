@@ -16,11 +16,7 @@
 /*
  * A left-edge sheet ~85% of the viewport wide, capped so it never grows
  * past a sane drawer width on a desktop window merely dragged into phone
- * mode. `Sidebar`'s own root sets an inline `width` (the desk layout's
- * resizable `sidebarWidth`) — `[data-focus-region="sidebar"]` is `Sidebar`'s
- * stable DOM hook, not a CSS-module class, so it can be targeted here to
- * make it fill the sheet instead of keeping its desk-mode pixel width,
- * without editing `Sidebar.tsx` for a phone-only concern.
+ * mode.
  */
 .sheet {
   position: fixed;
@@ -56,9 +52,7 @@
   animation: slideOut 140ms ease-in;
 }
 
-/* `Sidebar` renders its panel inside a frame of gutters (ADR-196) that the
-   desk's sidebar column sizes; here the frame fills the sheet instead, on
-   the window's own backdrop like the column it stands in for. */
+/* The panel fills the sheet, on the window's own backdrop. */
 .sheet > * {
   flex: 1;
   min-width: 0;
@@ -66,10 +60,6 @@
 
 .sheet {
   background: var(--bg-deep);
-}
-
-.sheet [data-focus-region="sidebar"] {
-  width: 100% !important;
 }
 
 @keyframes fadeIn {

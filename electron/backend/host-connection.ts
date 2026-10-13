@@ -30,7 +30,7 @@
  *   (resnapshot) with their agents' status already right, and panes whose
  *   sessions are gone (the daemon restarted) can be recovered.
  * - **Its provider** (ADR-178 §1), released on disconnect and disposal.
- * - **The owner channel** to the box's host server (ADR-218 D4):
+ * - **The owner channel** to the box's host server (ADR-225 D4):
  *   `serverClient`, with the hook feed's lifecycle — it dials whenever the
  *   host reaches `connected` (a connect or a resume), lets go whenever the
  *   host leaves it (a drop, a disconnect), and is disposed with the host.
@@ -361,7 +361,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
 
 export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   readonly hookFeed: HostHookFeed;
-  /** The owner channel to the box's host server (ADR-218 D4). */
+  /** The owner channel to the box's host server (ADR-225 D4). */
   readonly serverClient: HostServerClient;
   /**
    * Bumped by every host event, so a resume announcement still waiting on

@@ -36,6 +36,8 @@ import { HostIndicator } from "../hosts/HostIndicator";
 import { tabBadgeHostId } from "./tab-host-badge";
 import { TabAgentDot } from "./TabAgentDot";
 import { isWebApp } from "../../lib/platform";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
+import { PhoneTabMenuContent } from "../phone/PhoneTabMenu";
 import styles from "./TabBar/TabBar.module.css";
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
@@ -223,6 +225,15 @@ export function TabButton(props: TabButtonProps) {
   // keeps Radix's own default (don't steal focus after a click).
   const openedByKeyboard = useRef(false);
   const tabElRef = useRef<HTMLDivElement | null>(null);
+  // A phone long-presses a tab for its own, shorter menu.
+  const phone = useLayoutMode() === "phone";
+  const closeAutoFocus = (e: Event) => {
+    if (openedByKeyboard.current) {
+      e.preventDefault();
+      tabElRef.current?.focus();
+    }
+    openedByKeyboard.current = false;
+  };
   return (
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
@@ -317,114 +328,117 @@ export function TabButton(props: TabButtonProps) {
         </div>
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
-        <ContextMenu.Content
-          className={styles.contextMenu}
-          onCloseAutoFocus={(e) => {
-            if (openedByKeyboard.current) {
-              e.preventDefault();
-              tabElRef.current?.focus();
-            }
-            openedByKeyboard.current = false;
-          }}
-        >
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={onTogglePin}
+        {phone ? (
+          <PhoneTabMenuContent
+            paneId={focusedPaneId}
+            canClose={canClose}
+            onClose={onClose}
+            onCloseAutoFocus={closeAutoFocus}
+          />
+        ) : (
+          <ContextMenu.Content
+            className={styles.contextMenu}
+            onCloseAutoFocus={closeAutoFocus}
           >
-            {isPinned ? "Unpin Tab" : "Pin Tab"}
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => {
-              useAppStore.getState().duplicateTab(tabId);
-            }}
-          >
-            Duplicate Tab
-          </ContextMenu.Item>
-          <ContextMenu.Separator className={styles.contextMenuSeparator} />
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => {
-              const store = useAppStore.getState();
-              store.selectTab(tabId);
-              store.splitPanel("horizontal");
-            }}
-          >
-            Move to New Panel Right
-          </ContextMenu.Item>
-          <ContextMenu.Item
-            className={styles.contextMenuItem}
-            onSelect={() => {
-              const store = useAppStore.getState();
-              store.selectTab(tabId);
-              store.splitPanel("vertical");
-            }}
-          >
-            Move to New Panel Down
-          </ContextMenu.Item>
-          {panelCount > 1 && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => moveTabToNextPanel(tabId)}
+              onSelect={onTogglePin}
             >
-              Move Tab to Next Panel
+              {isPinned ? "Unpin Tab" : "Pin Tab"}
             </ContextMenu.Item>
-          )}
-          {/* A detached window's one tab offers no "new window": popping it
-              out again would leave this window holding nothing, which closes
-              it — a no-op with extra steps. `window.detachTab` has no browser
-              meaning either (ADR-178) — removed there, not disabled. */}
-          {!isWebApp() && !hasOwnClaim() && (
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => void detachTabToNewWindow(tabId)}
+              onSelect={() => {
+                useAppStore.getState().duplicateTab(tabId);
+              }}
             >
-              Move to New Window
+              Duplicate Tab
             </ContextMenu.Item>
-          )}
-          {hasOwnClaim() && (
+            <ContextMenu.Separator className={styles.contextMenuSeparator} />
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              /* Closing is the whole operation: the claim dies with the
-                 window and the tab is already in the primary (ADR-179 D4). */
-              onSelect={() => returnToPrimaryWindow()}
+              onSelect={() => {
+                const store = useAppStore.getState();
+                store.selectTab(tabId);
+                store.splitPanel("horizontal");
+              }}
             >
-              Move Back to Main Window
+              Move to New Panel Right
             </ContextMenu.Item>
-          )}
-          {canClose && (
-            <>
-              <ContextMenu.Separator className={styles.contextMenuSeparator} />
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              onSelect={() => {
+                const store = useAppStore.getState();
+                store.selectTab(tabId);
+                store.splitPanel("vertical");
+              }}
+            >
+              Move to New Panel Down
+            </ContextMenu.Item>
+            {panelCount > 1 && (
               <ContextMenu.Item
                 className={styles.contextMenuItem}
-                onSelect={onClose}
+                onSelect={() => moveTabToNextPanel(tabId)}
               >
-                Close Tab
-                <MenuShortcut commandId="close-tab" />
+                Move Tab to Next Panel
               </ContextMenu.Item>
-              {hasOtherClosableTabs && (
+            )}
+            {/* A detached window's one tab offers no "new window": popping it
+                out again would leave this window holding nothing, which closes
+                it — a no-op with extra steps. `window.detachTab` has no browser
+                meaning either (ADR-178) — removed there, not disabled. */}
+            {!isWebApp() && !hasOwnClaim() && (
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                onSelect={() => void detachTabToNewWindow(tabId)}
+              >
+                Move to New Window
+              </ContextMenu.Item>
+            )}
+            {hasOwnClaim() && (
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                /* Closing is the whole operation: the claim dies with the
+                   window and the tab is already in the primary (ADR-179 D4). */
+                onSelect={() => returnToPrimaryWindow()}
+              >
+                Move Back to Main Window
+              </ContextMenu.Item>
+            )}
+            {canClose && (
+              <>
+                <ContextMenu.Separator className={styles.contextMenuSeparator} />
                 <ContextMenu.Item
                   className={styles.contextMenuItem}
-                  onSelect={() => {
-                    useAppStore.getState().closeOtherTabs(tabId);
-                  }}
+                  onSelect={onClose}
                 >
-                  Close Other Tabs
+                  Close Tab
+                  <MenuShortcut commandId="close-tab" />
                 </ContextMenu.Item>
-              )}
-              {hasClosableTabsToRight && (
-                <ContextMenu.Item
-                  className={styles.contextMenuItem}
-                  onSelect={() => {
-                    useAppStore.getState().closeTabsToRight(tabId);
-                  }}
-                >
-                  Close Tabs to the Right
-                </ContextMenu.Item>
-              )}
-            </>
-          )}
-        </ContextMenu.Content>
+                {hasOtherClosableTabs && (
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => {
+                      useAppStore.getState().closeOtherTabs(tabId);
+                    }}
+                  >
+                    Close Other Tabs
+                  </ContextMenu.Item>
+                )}
+                {hasClosableTabsToRight && (
+                  <ContextMenu.Item
+                    className={styles.contextMenuItem}
+                    onSelect={() => {
+                      useAppStore.getState().closeTabsToRight(tabId);
+                    }}
+                  >
+                    Close Tabs to the Right
+                  </ContextMenu.Item>
+                )}
+              </>
+            )}
+          </ContextMenu.Content>
+        )}
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );

@@ -297,7 +297,7 @@ export class BackendRegistry {
     await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
   }
 
-  // ── Host servers (ADR-218 D4) ──
+  // ── Host servers (ADR-225 D4) ──
 
   /**
    * `hostId`'s owner channel to its host server: one per remote host, on its

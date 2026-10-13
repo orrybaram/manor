@@ -31,25 +31,6 @@ export function writeChatView(paneId: string, view: ChatView): void {
 }
 
 /**
- * The agent a pane's chat follows: its active agent, or failing that the
- * newest one that ran in it. Mirrors `pickPaneAgent` in
- * `electron/chat-mirror/mirror.ts`, which the renderer can't import (it pulls
- * in `fs`), so main and the phone agree on which transcript is shown.
- */
-export function pickPaneAgent(
-  agents: readonly AgentInfo[],
-  paneId: string,
-): AgentInfo | null {
-  let newest: AgentInfo | null = null;
-  for (const agent of agents) {
-    if (agent.paneId !== paneId) continue;
-    if (agent.status === "active") return agent;
-    if (!newest || agent.createdAt > newest.createdAt) newest = agent;
-  }
-  return newest;
-}
-
-/**
  * The transcript a pane's chat would show, or null when the pane gets no
  * chat: no agent, not Claude, or no transcript yet. An agent on a remote host
  * gets the chat too; its transcript is read on that host (ADR-216 D4).

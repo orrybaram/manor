@@ -58,6 +58,16 @@ export interface PipeConnection {
   readonly open: boolean;
   /** One text frame. May throw on a dying connection; the caller catches. */
   send(text: string): void;
+  /**
+   * Is the far end still answering? Resolves true on any sign of life
+   * within `timeoutMs`, false otherwise (ADR-220 D4).
+   */
+  probe(timeoutMs: number): Promise<boolean>;
+  /**
+   * Give up on this connection: report it through `onClose` exactly once,
+   * before returning, with one of the pipe's `unreachableCodes`.
+   */
+  close(): void;
 }
 
 /** Something that can open connections carrying the bridge's text frames. */
@@ -82,6 +92,13 @@ export const CLOSE_KEY_MISMATCH = 4502;
 /** First reconnect delay, and the ceiling it doubles towards. */
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
+
+/**
+ * How long a foreground check waits for the far end before calling an
+ * open-looking socket dead (ADR-220 D4). iOS kills a backgrounded socket
+ * without a close event; this finds out in seconds, not a heartbeat or two.
+ */
+export const PROBE_TIMEOUT_MS = 2_000;
 
 /** Plain, non-function root members of `ElectronAPI`, answered from here. */
 const ROOT_VALUES: Record<string, unknown> = {
@@ -126,16 +143,32 @@ export interface HelloReply {
   rendererId: string | null;
   /** The desktop's version (ADR-206 D4), or null from an older host. */
   appVersion: string | null;
-  /** The host's own name for itself (ADR-218 D7), or null. */
+  /** The host's own name for itself (ADR-225 D7), or null. */
   hostName: string | null;
-  /** True when a host server answered, not the desktop (ADR-225). */
+  /** True when a host server answered, not the desktop (ADR-226). */
   hostServer: boolean;
+  /**
+   * This hello resumed an earlier connection (it carried `previousId`): a
+   * reconnect, after which pushes may have been missed. False on the first.
+   */
+  resumed: boolean;
 }
 
-/** `BridgeTransport`, plus the one thing a "not reachable" screen needs. */
+/**
+ * `probeNow`'s verdict: the line answered; a fresh dial is (or already was)
+ * on its way — whose hello is the moment to re-fetch; or the transport has
+ * stopped (no token, or the host refused it) and will not dial again.
+ */
+export type ProbeOutcome = "alive" | "redialing" | "stopped";
+
+/** `BridgeTransport`, plus what the page's reconnect triggers need. */
 export interface WsBridgeTransport extends BridgeTransport {
-  /** Skip the rest of the backoff wait and dial now, if one is pending. */
-  retryNow(): void;
+  /**
+   * The page came back (foreground, `pageshow`, `online`, "try again"): dial
+   * now if a dial is pending or there is no socket, and probe one that looks
+   * open, redialing at once if it does not answer (ADR-220 D4, D5).
+   */
+  probeNow(): Promise<ProbeOutcome>;
 }
 
 interface Pending {
@@ -168,6 +201,10 @@ class WsTransport implements WsBridgeTransport {
   private stopped = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether the hello in flight carried `previousId`. */
+  private resuming = false;
+  /** The probe in flight, so a burst of foreground events sends only one. */
+  private probing: Promise<ProbeOutcome> | null = null;
   private nextId = 1;
   private readonly pending = new Map<string, Pending>();
   /** Invoke frames raised before the socket was ready. */
@@ -192,10 +229,61 @@ class WsTransport implements WsBridgeTransport {
     this.pipe = options.pipe;
   }
 
-  retryNow(): void {
-    if (!this.reconnectTimer || this.stopped) return;
-    clearTimeout(this.reconnectTimer);
+  probeNow(): Promise<ProbeOutcome> {
+    if (this.stopped || this.options.token === null) {
+      return Promise.resolve("stopped");
+    }
+    if (this.reconnectTimer) {
+      this.redialNow();
+      return Promise.resolve("redialing");
+    }
+    if (!this.socket) {
+      this.open();
+      return Promise.resolve("redialing");
+    }
+    // Mid-handshake: a dial is already on its way to a hello.
+    if (!this.ready) return Promise.resolve("redialing");
+    this.probing ??= this.probe(this.socket);
+    return this.probing;
+  }
+
+  /**
+   * Probe the current socket. A socket that does not answer, and is still
+   * the current one, is closed and redialled at once.
+   */
+  private async probe(socket: PipeConnection): Promise<ProbeOutcome> {
+    const generation = this.generation;
+    const current = (): boolean =>
+      this.generation === generation && this.socket === socket;
+    try {
+      let alive: boolean;
+      try {
+        alive = await socket.probe(PROBE_TIMEOUT_MS);
+      } catch {
+        alive = false;
+      }
+      if (!current()) return "redialing";
+      if (alive) return "alive";
+      // Reported through `onClose` like any drop — teardown, and an
+      // unreachable code the page shows until the redial's hello — whose
+      // backoff timer the redial then skips.
+      socket.close();
+      this.redialNow();
+      return "redialing";
+    } finally {
+      this.probing = null;
+    }
+  }
+
+  /**
+   * Dial now instead of waiting out the backoff: the page is in front of
+   * someone right now. The backoff starts over should this dial fail too.
+   */
+  private redialNow(): void {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.stopped) return;
+    this.attempt = 0;
     this.open();
   }
 
@@ -262,6 +350,7 @@ class WsTransport implements WsBridgeTransport {
    * viewer identity does not reset.
    */
   private sayHello(): void {
+    this.resuming = this.rendererId !== null;
     this.write(
       JSON.stringify({
         type: "hello",
@@ -295,6 +384,7 @@ class WsTransport implements WsBridgeTransport {
           hostName: typeof reply.hostName === "string" ? reply.hostName : null,
           hostServer:
             typeof reply.hostServer === "boolean" ? reply.hostServer : false,
+          resumed: this.resuming,
         });
       }
       return;
@@ -342,14 +432,18 @@ class WsTransport implements WsBridgeTransport {
     }
   }
 
-  private onClose(code: number): void {
+  /** The socket is gone: fail what was waiting on it. */
+  private teardown(): void {
     this.socket = null;
     this.ready = false;
-
     const dropped = new BridgeDisconnectedError();
     for (const pending of [...this.pending.values()]) pending.reject(dropped);
     this.pending.clear();
     this.outbox.length = 0;
+  }
+
+  private onClose(code: number): void {
+    this.teardown();
 
     if (code === CLOSE_UNAUTHORIZED) {
       this.stopped = true;

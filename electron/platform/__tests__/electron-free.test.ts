@@ -1,5 +1,5 @@
 /**
- * The host server bundles these modules with no Electron around (ADR-218 D6).
+ * The host server bundles these modules with no Electron around (ADR-225 D6).
  * Same check as scripts/build-host-tarball.mjs: a bundle that still imports
  * `electron` would die at load time on a remote host while working fine on the
  * laptop. Vite's SSR build leaves `electron` (and every node_modules package)
@@ -17,7 +17,7 @@ const ENTRIES = [
   "electron/remote-control/push.ts",
   "electron/remote-control/relay/identity.ts",
   "electron/platform/secret-box.ts",
-  // The host server's process entry, and so everything it composes (ADR-218).
+  // The host server's process entry, and so everything it composes (ADR-225).
   "electron/host-server/index.ts",
 ];
 

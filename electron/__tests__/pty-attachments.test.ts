@@ -34,7 +34,7 @@ const windowB: Viewer = { connectionId: "22", callerClass: "local" };
 
 const deviceA: Viewer = { connectionId: "device-a", callerClass: "device" };
 const deviceB: Viewer = { connectionId: "device-b", callerClass: "device" };
-/** The desktop on a host server's owner channel (ADR-218 D4). */
+/** The desktop on a host server's owner channel (ADR-225 D4). */
 const ownerChannel: Viewer = { connectionId: "desktop", callerClass: "owner" };
 
 /** The panes `run` changed the owner of, as `onAttachmentChange` hears them. */
@@ -369,6 +369,7 @@ describe("pty attachments", () => {
       expect(ownerOf("pane-a")).toEqual(deviceB);
     });
   });
+
   describe("the owner channel", () => {
     it("ranks with a device, not a window on this machine", () => {
       attach("pane-a", windowA);
@@ -386,7 +387,7 @@ describe("pty attachments", () => {
     });
   });
 
-  describe("a foreign hold (ADR-218 D5)", () => {
+  describe("a foreign hold (ADR-225 D5)", () => {
     it("owns the pane while set, and hands it back to the default rules", () => {
       attach("pane-a", deviceA);
       expect(changedBy(() => setForeign("pane-a", true))).toEqual(["pane-a"]);
@@ -423,6 +424,47 @@ describe("pty attachments", () => {
       setForeign("pane-a", true);
       resetAttachments();
       expect(ownerOf("pane-a")).toBeNull();
+    });
+  });
+
+  /** A viewer coming back after its connection dropped (ADR-220). */
+  describe("attaching as a returning viewer", () => {
+    const returning = { as: "returning" } as const;
+
+    it("does not take the winsize off a viewer that attached meanwhile", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      releaseViewer(deviceA.connectionId);
+      expect(changedBy(() => attach("pane-a", deviceA, returning))).toEqual([]);
+      expect(ownerOf("pane-a")).toEqual(deviceB);
+    });
+
+    it("leaves a standing claim standing", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      claim("pane-a", deviceA);
+      attach("pane-a", windowA, returning);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+
+    it("still lets a window outrank a device", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", windowA, returning);
+      expect(ownerOf("pane-a")).toEqual(windowA);
+    });
+
+    it("owns a pane nobody else has", () => {
+      expect(changedBy(() => attach("pane-a", deviceA, returning))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+    });
+
+    it("leaves a viewer that never let go where it was", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deviceB);
+      attach("pane-a", deviceA, returning);
+      expect(ownerOf("pane-a")).toEqual(deviceB);
+      release("pane-a", deviceB);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
     });
   });
 });

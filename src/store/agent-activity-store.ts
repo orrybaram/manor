@@ -6,6 +6,7 @@ import type {
   AgentActivityTransition,
   AgentStatus,
 } from "../electron.d";
+import { liveValue } from "../bridge/resync";
 
 /** History window shown by the Home timeline and stat sparklines. */
 export const ACTIVITY_WINDOW_MS = 3 * 60 * 60 * 1000;
@@ -36,25 +37,13 @@ export function startAgentActivitySync(): () => void {
   const api = window.electronAPI?.agentActivity;
   if (!api) return () => {};
 
-  let stopped = false;
-  const unsubscribe = api.onChanged((snapshot) => {
-    if (!stopped) useAgentActivityStore.setState({ snapshot });
-  });
-  api
-    .get()
-    .then((snapshot) => {
-      // A broadcast that landed first is newer than this fetch.
-      if (!stopped && useAgentActivityStore.getState().snapshot === null) {
-        useAgentActivityStore.setState({ snapshot });
-      }
-    })
-    .catch(() => {
-      // leave the snapshot null; the next broadcast recovers
-    });
-
+  const stop = liveValue(
+    () => api.get(),
+    (cb) => api.onChanged(cb),
+    (snapshot) => useAgentActivityStore.setState({ snapshot }),
+  );
   stopActive = () => {
-    stopped = true;
-    unsubscribe();
+    stop();
     stopActive = null;
   };
   return stopActive;

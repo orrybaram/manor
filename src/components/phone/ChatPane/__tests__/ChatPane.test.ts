@@ -14,16 +14,27 @@ vi.hoisted(() => {
   (window as unknown as { electronAPI: unknown }).electronAPI = { claim: null };
 });
 
-import type { ChatAnswerResult, ChatEntry, ChatHistory } from "../../../../electron.d";
+import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../../../electron.d";
+import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
-import { setPaneChatView, usePaneChatView, usePaneChatViewStore } from "../usePaneChatView";
+import {
+  endMenuHandoff,
+  noteChatEntries,
+  selectPaneChatView,
+  setPaneChatView,
+  startMenuHandoff,
+  usePaneChatView,
+  usePaneChatViewStore,
+} from "../usePaneChatView";
 import { readChatView } from "../chat-view";
 import { useAppStore } from "../../../../store/app-store";
 import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
+import { emitBridgeResync } from "../../../../bridge/resync";
 
 const PANE = "pane-1";
+const TRANSCRIPT = "/t/a.jsonl";
 
-type EntryListener = (paneId: string, entry: ChatEntry) => void;
+type EntryListener = (paneId: string, entry: ChatPush) => void;
 
 let container: HTMLDivElement;
 let root: Root;
@@ -75,7 +86,7 @@ const question = (
 
 async function renderChat(onShowTerminal = vi.fn()): Promise<typeof onShowTerminal> {
   await act(async () => {
-    root.render(createElement(ChatPane, { paneId: PANE, transcript: "/t/a.jsonl", hidden: false, onShowTerminal }));
+    root.render(createElement(ChatPane, { paneId: PANE, transcript: TRANSCRIPT, hidden: false, onShowTerminal }));
   });
   return onShowTerminal;
 }
@@ -129,6 +140,7 @@ describe("ChatPane — entries", () => {
   it("subscribes before fetching, and renders each kind", async () => {
     installChat({
       ok: true,
+      contextTokens: null,
       entries: [
         { kind: "user", id: "u1", ts: "", text: "hello there" },
         { kind: "assistant", id: "a1", ts: "", text: "Some **bold** words" },
@@ -164,8 +176,18 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
+  it("keeps a usage push out of the entry list (ADR-223 D4)", async () => {
+    installChat({ ok: true, contextTokens: 1200, entries: [] });
+    await renderChat();
+    await act(async () =>
+      listener?.(PANE, { kind: "usage", id: "usage", ts: "", contextTokens: 4500 }),
+    );
+    expect(container.textContent).toContain("Nothing in this conversation yet.");
+    expect(container.querySelectorAll("[data-enter]")).toHaveLength(0);
+  });
+
   it("upserts live entries by id", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     await renderChat();
     const pending: ChatEntry = { kind: "tool", id: "t1", ts: "", name: "Read", summary: "x", status: "pending" };
     await act(async () => listener?.(PANE, pending));
@@ -177,7 +199,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("folds back-to-back tool calls into one line, showing the running call", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     await renderChat();
     const tool = (id: string, name: string, status: "pending" | "ok"): ChatEntry => ({
       kind: "tool",
@@ -204,7 +226,7 @@ describe("ChatPane — entries", () => {
   it("shows Thinking while Claude works with nothing to show", async () => {
     vi.useFakeTimers();
     try {
-      installChat({ ok: true, entries: [] });
+      installChat({ ok: true, contextTokens: null, entries: [] });
       useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
       await renderChat();
       expect(all("chat-thinking")).toHaveLength(0);
@@ -237,7 +259,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("shows the needs-you banner only with no answerable picker", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "requires_input", reason: "", kind: "claude" } } });
     await renderChat();
     expect(all("chat-needs-you")).toHaveLength(1);
@@ -246,7 +268,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("offers Stop while Claude is working", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
     await renderChat();
     expect(all("chat-send")).toHaveLength(0);
@@ -255,7 +277,7 @@ describe("ChatPane — entries", () => {
   });
 
   it("typing mid-turn turns Stop back into Send, with Stop beside it", async () => {
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
     await renderChat();
     await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "and then this");
@@ -268,7 +290,7 @@ describe("ChatPane — entries", () => {
 
   it("sending /clear leaves this transcript behind for a fresh chat", async () => {
     usePaneChatViewStore.setState({ starting: {} });
-    installChat({ ok: true, entries: [] });
+    installChat({ ok: true, contextTokens: null, entries: [] });
     Object.assign(chat, {
       getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
     });
@@ -282,7 +304,7 @@ describe("ChatPane — entries", () => {
 
 describe("ChatPane — question cards", () => {
   it("single question: a tap answers it", async () => {
-    installChat({ ok: true, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
+    installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
     await renderChat();
     await click(optionNamed("Beta"));
     expect(chat.answer).toHaveBeenCalledWith(PANE, "q1", {
@@ -295,7 +317,7 @@ describe("ChatPane — question cards", () => {
   });
 
   it("multi-select: toggles, then Submit", async () => {
-    installChat({ ok: true, entries: [question("q1", [{ multiSelect: true, header: "H" }])] });
+    installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: true, header: "H" }])] });
     await renderChat();
     expect(all("chat-question-other")).toHaveLength(0);
     await click(optionNamed("Gamma"));
@@ -309,7 +331,7 @@ describe("ChatPane — question cards", () => {
   });
 
   it("other: reveals a field, and Submit sends its text", async () => {
-    installChat({ ok: true, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
+    installChat({ ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: false, header: "H" }])] });
     await renderChat();
     await click(all("chat-question-other")[0]);
     const input = all("chat-question-other-input")[0] as HTMLInputElement;
@@ -324,6 +346,7 @@ describe("ChatPane — question cards", () => {
   it("two questions: collects both, then sends one answer", async () => {
     installChat({
       ok: true,
+      contextTokens: null,
       entries: [
         question("q1", [
           { multiSelect: false, header: "First" },
@@ -351,7 +374,7 @@ describe("ChatPane — question cards", () => {
 
   it("stale: falls back to the terminal", async () => {
     installChat(
-      { ok: true, entries: [question("q1", [{ multiSelect: false, header: "H" }])] },
+      { ok: true, contextTokens: null, entries: [question("q1", [{ multiSelect: false, header: "H" }])] },
       { ok: false, reason: "stale" },
     );
     const onShowTerminal = await renderChat();
@@ -365,6 +388,7 @@ describe("ChatPane — question cards", () => {
   it("needsTerminal and older open pickers go to the terminal without sending", async () => {
     installChat({
       ok: true,
+      contextTokens: null,
       entries: [
         question("old", [{ multiSelect: false, header: "Old" }]),
         { ...question("q1", [{ multiSelect: false, header: "H" }]), needsTerminal: true },
@@ -377,7 +401,7 @@ describe("ChatPane — question cards", () => {
   });
 
   it("plan: Approve sends plan-approve; Change plan opens the terminal", async () => {
-    installChat({ ok: true, entries: [{ kind: "plan", id: "p1", ts: "", plan: "1. Do it", outcome: null }] });
+    installChat({ ok: true, contextTokens: null, entries: [{ kind: "plan", id: "p1", ts: "", plan: "1. Do it", outcome: null }] });
     const onShowTerminal = await renderChat();
     await click(all("chat-plan-change")[0]);
     expect(onShowTerminal).toHaveBeenCalledTimes(1);
@@ -393,8 +417,8 @@ describe("pane view store", () => {
 
   /** Two readers of one pane, as `LeafPane` and the top bar's menu are. */
   function Harness() {
-    const [a] = usePaneChatView(PANE);
-    const [b, setB] = usePaneChatView(PANE);
+    const [a] = usePaneChatView(PANE, TRANSCRIPT);
+    const [b, setB] = usePaneChatView(PANE, TRANSCRIPT);
     return createElement(
       "button",
       { "data-testid": "flip", "data-a": a, "data-b": b, onClick: () => setB(b === "chat" ? "terminal" : "chat") },
@@ -447,10 +471,248 @@ describe("pane view store", () => {
   });
 });
 
+describe("menu handoff (ADR-218 D3)", () => {
+  beforeEach(() => {
+    usePaneChatViewStore.setState({ views: {}, starting: {}, handoffs: {} });
+  });
+
+  /** What `LeafPane` shows for the pane, while on `transcript`. */
+  const view = (transcript: string | null = TRANSCRIPT) =>
+    selectPaneChatView(usePaneChatViewStore.getState(), PANE, transcript);
+  const handoffs = () => usePaneChatViewStore.getState().handoffs;
+
+  it("start records the command and its transcript, and covers the view with the terminal", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1_000);
+    startMenuHandoff(PANE, "config", TRANSCRIPT);
+    vi.mocked(Date.now).mockRestore();
+    expect(handoffs()).toEqual({
+      [PANE]: { name: "config", startedAt: 1_000, transcript: TRANSCRIPT },
+    });
+    expect(view()).toBe("terminal");
+  });
+
+  it("never touches the stored view, so a reload mid-handoff comes back on the chat", () => {
+    startMenuHandoff(PANE, "config", TRANSCRIPT);
+    expect(usePaneChatViewStore.getState().views[PANE]).toBeUndefined();
+    expect(readChatView(PANE)).toBe("chat");
+
+    // A reload: a fresh store, with no handoff in memory.
+    usePaneChatViewStore.setState({ views: {}, starting: {}, handoffs: {} });
+    expect(view()).toBe("chat");
+  });
+
+  it("end reveals the stored view underneath", () => {
+    startMenuHandoff(PANE, "config", TRANSCRIPT);
+    endMenuHandoff(PANE);
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("chat");
+  });
+
+  it("end without a handoff leaves a chosen terminal alone", () => {
+    setPaneChatView(PANE, "terminal");
+    endMenuHandoff(PANE);
+    expect(view()).toBe("terminal");
+  });
+
+  it("a new transcript ends it", () => {
+    startMenuHandoff(PANE, "resume", TRANSCRIPT);
+    expect(view("/t/b.jsonl")).toBe("chat");
+
+    // The new transcript's chat drops it from the store as well.
+    noteChatEntries(PANE, "/t/b.jsonl", []);
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("chat");
+  });
+
+  it("from a fresh chat, it is on the transcript the pane is leaving", () => {
+    usePaneChatViewStore.setState({ starting: { [PANE]: TRANSCRIPT } });
+    startMenuHandoff(PANE, "config", null);
+    expect(handoffs()[PANE]?.transcript).toBe(TRANSCRIPT);
+    expect(view()).toBe("terminal");
+  });
+
+  async function sendBareConfig(): Promise<void> {
+    Object.assign(chat, {
+      getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
+    });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/config");
+    await click(all("chat-send")[0]);
+  }
+
+  it("a bare menu command hands off, and its transcript line brings the chat back", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    await sendBareConfig();
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/config");
+    expect(handoffs()[PANE]).toMatchObject({ name: "config", transcript: TRANSCRIPT });
+    expect(view()).toBe("terminal");
+
+    // Another command, or the menu's own command from before, keeps it.
+    const now = Date.now();
+    const at = (ms: number) => new Date(ms).toISOString();
+    await act(async () =>
+      listener?.(PANE, { kind: "command", id: "c0", ts: at(now), name: "model", args: "" }),
+    );
+    await act(async () =>
+      listener?.(PANE, { kind: "command", id: "c1", ts: at(now - 60_000), name: "config", args: "" }),
+    );
+    expect(view()).toBe("terminal");
+
+    await act(async () =>
+      listener?.(PANE, { kind: "command", id: "c2", ts: at(now + 5_000), name: "config", args: "" }),
+    );
+    expect(handoffs()).toEqual({});
+    expect(view()).toBe("chat");
+  });
+
+  it("a command with an argument that skips the menu stays on the chat", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    Object.assign(chat, {
+      getCommands: vi.fn(() => Promise.resolve({ ok: false, reason: "no-agent" })),
+    });
+    await renderChat();
+    await typeInto(all("chat-composer-input")[0] as HTMLTextAreaElement, "/model sonnet");
+    await click(all("chat-send")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model sonnet");
+    expect(handoffs()).toEqual({});
+  });
+});
+
+describe("ChatPane — choice sheet (ADR-218 D2)", () => {
+  const view = () => selectPaneChatView(usePaneChatViewStore.getState(), PANE, TRANSCRIPT);
+
+  beforeEach(() => {
+    usePaneChatViewStore.setState({ views: {}, handoffs: {} });
+    // jsdom has no layout, so no scrollIntoView.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  async function openSheet(): Promise<HTMLTextAreaElement> {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    Object.assign(chat, {
+      getCommands: vi.fn(() =>
+        Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
+      ),
+    });
+    await renderChat();
+    const input = all("chat-composer-input")[0] as HTMLTextAreaElement;
+    await typeInto(input, "/model");
+    await click(container.querySelector('[data-command="model"]') ?? undefined);
+    return input;
+  }
+
+  it("picking /model opens the sheet, and a choice sends it without leaving the chat", async () => {
+    const input = await openSheet();
+    expect(all("command-choice-sheet")).toHaveLength(1);
+    expect(all("slash-command-menu")).toHaveLength(0);
+    expect(input.value).toBe("/model");
+
+    await click(all("command-choice-sonnet")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model sonnet");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(input.value).toBe("");
+    expect(view()).toBe("chat");
+  });
+
+  it("Other prefills the command", async () => {
+    const input = await openSheet();
+    await click(all("command-choice-other")[0]);
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(input.value).toBe("/model ");
+    expect(chat.send).not.toHaveBeenCalled();
+  });
+
+  it("Open menu in terminal sends the bare command and hands off", async () => {
+    await openSheet();
+    await click(all("command-choice-terminal")[0]);
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model");
+    expect(usePaneChatViewStore.getState().handoffs[PANE]?.name).toBe("model");
+    expect(view()).toBe("terminal");
+  });
+
+  it("arrows and Enter pick, and Esc closes without sending", async () => {
+    const input = await openSheet();
+    const key = (k: string) =>
+      act(async () => {
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+      });
+    await key("ArrowDown");
+    await key("Enter");
+    expect(chat.send).toHaveBeenCalledWith(PANE, "/model fable");
+
+    chat.send.mockClear();
+    await typeInto(input, "/model");
+    await click(container.querySelector('[data-command="model"]') ?? undefined);
+    await key("Escape");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(chat.send).not.toHaveBeenCalled();
+    expect(input.value).toBe("/model");
+  });
+
+  const keyOn = (input: HTMLElement, k: string) =>
+    act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true }));
+    });
+
+  it("dismissing the sheet keeps the / menu shut, and any edit reopens it", async () => {
+    const input = await openSheet();
+    await keyOn(input, "Escape");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(all("slash-command-menu")).toHaveLength(0);
+
+    await typeInto(input, "/mode");
+    expect(all("slash-command-menu")).toHaveLength(1);
+  });
+
+  it("a tap outside the sheet dismisses it the same way", async () => {
+    await openSheet();
+    await act(async () => {
+      // The backdrop, drawn just before the sheet.
+      all("command-choice-sheet")[0]
+        .previousElementSibling?.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    });
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    expect(all("slash-command-menu")).toHaveLength(0);
+  });
+
+  it("the textarea's aria follows whichever listbox is showing", async () => {
+    const input = await openSheet();
+    const sheetList = all("command-choice-sheet")[0].querySelector('[role="listbox"]');
+    expect(input.getAttribute("aria-expanded")).toBe("true");
+    expect(input.getAttribute("aria-controls")).toBe(sheetList?.id);
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      all("command-choice-default")[0].id,
+    );
+    await keyOn(input, "ArrowUp");
+    expect(input.getAttribute("aria-activedescendant")).toBe(
+      all("command-choice-terminal")[0].id,
+    );
+
+    await keyOn(input, "Escape");
+    expect(input.getAttribute("aria-expanded")).toBe("false");
+    expect(input.getAttribute("aria-controls")).toBeNull();
+    expect(input.getAttribute("aria-activedescendant")).toBeNull();
+  });
+
+  it("Tab completes a command, and does nothing on the sheet", async () => {
+    const input = await openSheet();
+    await keyOn(input, "Tab");
+    expect(all("command-choice-sheet")).toHaveLength(1);
+    expect(chat.send).not.toHaveBeenCalled();
+
+    await typeInto(input, "/clea");
+    expect(all("command-choice-sheet")).toHaveLength(0);
+    await keyOn(input, "Tab");
+    expect(input.value).toBe("/clear ");
+    expect(all("slash-command-menu")).toHaveLength(0);
+  });
+});
+
 describe("ChatPane — host offline (ADR-216 D4)", () => {
   const OFFLINE: ChatHistory = { ok: false, reason: "host-offline" };
   const BACK: ChatHistory = {
     ok: true,
+    contextTokens: null,
     entries: [{ kind: "user", id: "u1", ts: "", text: "from before" }],
   };
 
@@ -509,5 +771,71 @@ describe("ChatPane — host offline (ADR-216 D4)", () => {
     expect(all("chat-unavailable")).toHaveLength(0);
     await act(async () => vi.advanceTimersByTime(20_000));
     expect(chat.getHistory).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("ChatPane — bridge resync (ADR-220 D3)", () => {
+  it("fetches history again and merges what was missed", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
+    await renderChat();
+    await act(async () => listener?.(PANE, { kind: "assistant", id: "a1", ts: "", text: "live" }));
+
+    chat.getHistory.mockImplementation(() =>
+      Promise.resolve({
+        ok: true,
+        contextTokens: null,
+        entries: [
+          { kind: "user", id: "u1", ts: "", text: "before" },
+          { kind: "assistant", id: "a1", ts: "", text: "live" },
+          { kind: "user", id: "u2", ts: "", text: "missed" },
+        ],
+      }),
+    );
+    await act(async () => emitBridgeResync());
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+    expect(all("chat-user").map((e) => e.textContent)).toEqual(["before", "missed"]);
+    expect(all("chat-assistant")).toHaveLength(1);
+  });
+
+  it("keeps the chat when the refetch fails, and stops listening once unmounted", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
+    await renderChat();
+    chat.getHistory.mockImplementation(() => Promise.reject(new Error("dropped")));
+    await act(async () => emitBridgeResync());
+    expect(all("chat-unavailable")).toHaveLength(0);
+    expect(all("chat-user")[0].textContent).toBe("before");
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+    emitBridgeResync();
+    expect(chat.getHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("refetches slash commands it already has on the next open, and not ones it never fetched", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    const getCommands = vi.fn(() =>
+      Promise.resolve({ ok: true, skillsKnown: true, commands: BUILTIN_COMMANDS }),
+    );
+    Object.assign(chat, { getCommands });
+    await renderChat();
+    await act(async () => emitBridgeResync());
+    expect(getCommands).not.toHaveBeenCalled();
+
+    const input = all("chat-composer-input")[0] as HTMLTextAreaElement;
+    await typeInto(input, "/mo");
+    expect(getCommands).toHaveBeenCalledTimes(1);
+    // A fresh list is not refetched on reopening.
+    await typeInto(input, "");
+    await typeInto(input, "/mo");
+    expect(getCommands).toHaveBeenCalledTimes(1);
+
+    // The resync marks it stale; the next open refetches it.
+    await act(async () => emitBridgeResync());
+    expect(getCommands).toHaveBeenCalledTimes(1);
+    await typeInto(input, "");
+    await typeInto(input, "/mo");
+    expect(getCommands).toHaveBeenCalledTimes(2);
   });
 });

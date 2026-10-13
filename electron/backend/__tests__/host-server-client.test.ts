@@ -1,5 +1,5 @@
 /**
- * The desktop's end of the owner channel (ADR-218 D4): `HostServerClient`
+ * The desktop's end of the owner channel (ADR-225 D4): `HostServerClient`
  * against a real host server in this process, reached exactly as over ssh —
  * `runServerBridge` (what `manor-host server-bridge` runs) on in-memory
  * stdio, piping to the server's unix socket — but with no ssh and no daemon.

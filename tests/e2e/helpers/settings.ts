@@ -203,7 +203,7 @@ export async function pairBrowser(
 }
 
 /**
- * Pair a device with a remote host's own Manor server (ADR-218 D3), from that
+ * Pair a device with a remote host's own Manor server (ADR-225 D3), from that
  * host's section of Settings → Remote control: the pairing is minted on the
  * box, and the desktop only shows it. Waits until the host server says its
  * relay is connected, so the link works as soon as it is opened. Leaves

@@ -182,7 +182,7 @@ export function remoteControlPortFile(): string {
 }
 
 /**
- * The host server's state (ADR-218 D1): a headless Manor server beside the
+ * The host server's state (ADR-225 D1): a headless Manor server beside the
  * `remote` daemon, for the phone to reach with the laptop's lid closed. Kept
  * apart from `manorDataDir()` so a box that also runs Manor desktop (WSL, a
  * Mac mini) never mixes the two servers' agents, pairings or keys.
@@ -210,15 +210,15 @@ export interface HostServerPaths {
   hookCursor: string;
   /** Which SecretBox backend sealed this server's keys (`pickHostSecretBox`). */
   secretBackend: string;
-  /** The desktop's last manifest of this host's projects (ADR-218 D4). */
+  /** The desktop's last manifest of this host's projects (ADR-225 D4). */
   manifest: string;
-  /** The desktop's last layout snapshot for this host (ADR-218 D5). */
+  /** The desktop's last layout snapshot for this host (ADR-225 D5). */
   layout: string;
-  /** This server's relay identity: its own room (ADR-218 D3). Sealed. */
+  /** This server's relay identity: its own room (ADR-225 D3). Sealed. */
   relayIdentity: string;
   /** Phones paired to this server's room, token hashes only. Sealed. */
   devices: string;
-  /** This server's VAPID key pair, for its own push (ADR-218 D3). Sealed. */
+  /** This server's VAPID key pair, for its own push (ADR-225 D3). Sealed. */
   vapid: string;
   logsDir: string;
 }

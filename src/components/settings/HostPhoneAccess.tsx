@@ -21,12 +21,12 @@ import { DeviceRow } from "./DeviceRow";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
-/** Where enabling systemd-creds on a host is explained (ADR-218 D6). */
+/** Where enabling systemd-creds on a host is explained (ADR-225 D6). */
 const SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#encrypting-pairing-keys";
 
 /**
- * Phone access through one remote host's own Manor server (ADR-218 D3).
+ * Phone access through one remote host's own Manor server (ADR-225 D3).
  *
  * A phone paired here reaches only this host, and keeps working while this
  * computer sleeps. A host that is not reachable, or that has no server yet,

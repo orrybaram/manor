@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.21.1] - 2026-10-11
+
+### Features
+- Phone: new-agent composer lets you choose the host, project and workspace before you send a prompt
+- Phone: new worktrees are named after the prompt you type
+- Phone: ⌘N opens the new-agent composer
+- Phone: the chat status line has a PR drawer and a chip showing local changes
+- Phone: a chip on the status line shows how many context tokens the chat has used
+- Phone: the workspace's open PR appears under the chat input
+- Phone: long-press a tab to rename it
+
+### Fixes
+- New worktrees created from main now start from the local default branch
+- Phone chat now follows only a Claude session that is running in the pane
+- Phone: you can open the drawer by swiping from anywhere in the left half of the screen
+- Phone: the drawer swipe no longer fires while a dialog, sheet or menu is open
+- Phone: Rename Workspace from the command palette now works
+
+### Improvements
+- Phone: removed the Projects view from the drawer
+- Phone: removed Reload app from the overflow menu
+
+## [0.21.0] - 2026-10-11
+
+### Features
+- Phone app now resyncs automatically when it returns to the foreground or reconnects, so terminals, chat panes, agent status and layout stay current
+- Pull-to-refresh on the phone, plus **Refresh** and **Reload app** options in the overflow menu
+- Phone drawer now shows agents first, with quick access to **New agent** and **Settings**
+- Use TUI menus from phone chat: commands with fixed arguments open a choice sheet, and other menus switch to the terminal with a key bar and return to chat when done
+- Empty phone workspace now shows a greeting and a list of recent agents
+- Swipe in from the left edge of the phone screen to open the drawer
+
+### Fixes
+- Phone resync now removes workspaces that were deleted and refreshes pane sessions
+- Terminal resync no longer brings back dead sessions or changes the terminal's window size
+- Agent status and the slash-command list now refresh correctly after a resync
+- Pull-to-refresh now waits for the data to finish reloading before it completes
+- A busy agent's status update during a resync no longer discards the refreshed statuses of other panes
+- Closing the choice sheet keeps the `/` menu closed, and any edit reopens it
+- Phone drawer now closes after tapping an agent, Settings or Add project
+- Phone chat now sends Enter separately, so messages always submit
+- Task notifications on the phone now show as a dimmed notice instead of a user message bubble
+- The changelog no longer reopens when the status bar reloads
+- Task tracker tokens are now only sent to their own hosts when loading images through the proxy
+
+### Improvements
+- Chat input sent to the same pane now goes through in order, so separate inputs no longer get mixed together
+- The Electron image proxy now checks more carefully which sources it trusts
+
 ## [0.20.1] - 2026-10-11
 
 ### Features

@@ -1,4 +1,4 @@
-import type { TaskProvider } from "./tasks";
+import { parseHttpsUrl } from "./http-url";
 
 /**
  * Where to fetch a GitHub-hosted image from with a token, or null when the
@@ -7,7 +7,7 @@ import type { TaskProvider } from "./tasks";
  * to `raw.githubusercontent.com`, which takes the token.
  */
 export function githubImageFetchUrl(url: string): string | null {
-  const parsed = httpsUrl(url);
+  const parsed = parseHttpsUrl(url);
   if (!parsed) return null;
   if (parsed.hostname === "raw.githubusercontent.com") return parsed.href;
   if (parsed.hostname !== "github.com") return null;
@@ -20,24 +20,5 @@ export function githubImageFetchUrl(url: string): string | null {
 
 /** Linear's upload host — the only place the Linear token may be sent. */
 export function isLinearImageUrl(url: string): boolean {
-  return httpsUrl(url)?.hostname === "uploads.linear.app";
-}
-
-/**
- * Whether `provider`'s image proxy will take `url`. Anything else loads
- * straight from its URL, without an IPC round trip the proxy would refuse.
- */
-export function isTrackerImageUrl(provider: TaskProvider, url: string): boolean {
-  return provider === "linear"
-    ? isLinearImageUrl(url)
-    : githubImageFetchUrl(url) !== null;
-}
-
-function httpsUrl(url: string): URL | null {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" ? parsed : null;
-  } catch {
-    return null;
-  }
+  return parseHttpsUrl(url)?.hostname === "uploads.linear.app";
 }

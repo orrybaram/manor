@@ -384,6 +384,23 @@ export interface PtyWinsize {
   rows?: number;
 }
 
+/**
+ * How a `pty.create` or `pty.attach` fails short of a session (ADR-183: one
+ * type for main and renderer).
+ */
+export type PtyFailure =
+  | {
+      /**
+       * The pane's remote host is not connected (ADR-178 §6): not a broken
+       * terminal — it is created once `hostId` is back.
+       */
+      ok: false;
+      reason: "host-unavailable";
+      hostId: string;
+      error: string;
+    }
+  | { ok: false; reason: "error"; error: string };
+
 /** What `pty.create` resolves to (ADR-183: one type for main and renderer). */
 export type PtyCreateResult = PtyWinsize & (
   | {
@@ -400,17 +417,33 @@ export type PtyCreateResult = PtyWinsize & (
       /** The session already existed — NOT that its shell reached a prompt. */
       prewarmed: boolean;
     }
+  | PtyFailure
+);
+
+/**
+ * What `pty.attach` resolves to (ADR-220): `pty.create`'s answer for a
+ * session that must already be running, which never spawns one.
+ */
+export type PtyAttachResult = PtyWinsize & (
+  | {
+      ok: true;
+      /** The host the session runs on (ADR-160). */
+      hostId: string;
+      /** The session's screen; null when it has drawn nothing. */
+      snapshot: string | null;
+      /** Stream position the snapshot reflects (ADR-159). */
+      snapshotSeq?: StreamPosition;
+    }
   | {
       /**
-       * The pane's remote host is not connected (ADR-178 §6): not a broken
-       * terminal — it is created once `hostId` is back.
+       * No live session. `exited`: its shell exited, or it was killed, and
+       * the viewer missed the `exit`. `lost`: a remote session a daemon
+       * restart took, which is recovered rather than closed (ADR-178 §6).
        */
       ok: false;
-      reason: "host-unavailable";
-      hostId: string;
-      error: string;
+      reason: "exited" | "lost";
     }
-  | { ok: false; reason: "error"; error: string }
+  | PtyFailure
 );
 
 export type { PushProgressEvent } from "../electron/bridge/handlers/branches-diffs";
@@ -458,12 +491,18 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
-/** Phone access through a host's server (ADR-218 D3). */
+/** Phone access through a host's server (ADR-225 D3). */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";
 export type { HostServerStatus } from "../electron/host-server/relay";
 
 /** The phone chat view's wire types (ADR-215). */
-export type { ChatEntry, ChatSkill } from "../electron/chat-mirror/transcript";
+export type {
+  ChatEntry,
+  ChatPush,
+  ChatSkill,
+  ChatTaskEntry,
+} from "../electron/chat-mirror/transcript";
+export type { ChatKey } from "../electron/chat-mirror/chat-keys";
 export type {
   PickerAnswer,
   PickerQuestion,

@@ -691,7 +691,7 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     daemon would be wrong here, since this process did not spawn it — see
 //     `bridge.ts`.
 //   - `server-bridge` is the far end of the desktop's owner channel to this
-//     box's host server (ADR-218 D4): it reads the server's owner token,
+//     box's host server (ADR-225 D4): it reads the server's owner token,
 //     says the owner hello on the desktop's behalf and pumps stdin/stdout
 //     against `~/.manor/remote/server/server.sock` — see `server-bridge.ts`.
 //     Exits non-zero, with nothing on stdout, when no server is running.
@@ -722,7 +722,7 @@ async function main(): Promise<void> {
   }
 
   if (mode === "serve") {
-    // The host server (ADR-218) ships as a sibling bundle in the same install
+    // The host server (ADR-225) ships as a sibling bundle in the same install
     // dir; it reads `serve [--data-dir]` and `MANOR_VERSION` itself.
     createRequire(__filename)(join(__dirname, "host-server-index.js"));
     return;

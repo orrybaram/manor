@@ -193,7 +193,11 @@ describe("GitHubManager", () => {
               additions: 10,
               deletions: 2,
               reviewDecision: "APPROVED",
-              ...rollup({ conclusion: "SUCCESS" }, { conclusion: "SUCCESS" }, { conclusion: "FAILURE" }),
+              ...rollup(
+                { name: "build", conclusion: "SUCCESS" },
+                { name: "lint", conclusion: "SUCCESS" },
+                { name: "test", conclusion: "FAILURE" },
+              ),
             }),
           ),
         ),
@@ -289,12 +293,12 @@ describe("GitHubManager", () => {
         success(
           prsAnswer(
             pr(1, rollup(
-              { conclusion: "SUCCESS" },
-              { conclusion: "FAILURE" },
-              { conclusion: "CANCELLED" },
-              { conclusion: "TIMED_OUT" },
-              { conclusion: null }, // pending
-              { conclusion: "IN_PROGRESS" }, // pending
+              { name: "a", conclusion: "SUCCESS" },
+              { name: "b", conclusion: "FAILURE" },
+              { name: "c", conclusion: "CANCELLED" },
+              { name: "d", conclusion: "TIMED_OUT" },
+              { name: "e", conclusion: null }, // pending
+              { name: "f", conclusion: "IN_PROGRESS" }, // pending
             )),
           ),
         ),
@@ -1003,5 +1007,17 @@ describe("GitHubManager.listRepos", () => {
     await mgr.listRepos();
     await mgr.listRepos();
     expect(mockState.calls).toHaveLength(2);
+  });
+});
+
+describe("getViewerName", () => {
+  it("returns the profile display name untouched but for trimming", async () => {
+    setupExecFileCalls([success("Ada Lovelace\n")]);
+    expect(await new GitHubManager().getViewerName()).toBe("Ada Lovelace");
+  });
+
+  it("is null for an empty profile name", async () => {
+    setupExecFileCalls([success("\n")]);
+    expect(await new GitHubManager().getViewerName()).toBeNull();
   });
 });

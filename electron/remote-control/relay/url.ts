@@ -66,7 +66,7 @@ export function relayAppUrl(origin: string, appVersion: string): string {
  * A pairing link (ADR-206 D3): the web app, with the room, the Noise static
  * public key and the device's raw token in the fragment, which never reaches
  * the relay. Built by the desktop's controller and by a host server
- * (ADR-218 D3) alike, so a phone pairs with either the same way.
+ * (ADR-225 D3) alike, so a phone pairs with either the same way.
  */
 export function relayPairingUrl(link: {
   origin: string;

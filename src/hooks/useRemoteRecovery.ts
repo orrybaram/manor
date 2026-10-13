@@ -32,7 +32,8 @@ export function useRemoteRecovery() {
             window.electronAPI.agents.buildResumeCommand(agentId),
           setPendingPaneCommand: (paneId, command) =>
             useAppStore.getState().setPendingPaneCommand(paneId, command),
-          reattach: (paneIds) => useRemotePaneStore.getState().reattach(paneIds),
+          reattach: (paneIds) =>
+            useRemotePaneStore.getState().reattach(paneIds, "host-recovered"),
           notify: (message) =>
             useToastStore.getState().addToast({
               id: `host-restarted-${hostId}`,
@@ -69,7 +70,7 @@ export function useRemoteRecovery() {
         const panes = remotePanes.takePanesAwaitingHost(host.hostId, (paneId) =>
           windowPanes.has(paneId),
         );
-        if (panes.length > 0) remotePanes.reattach(panes);
+        if (panes.length > 0) remotePanes.reattach(panes, "host-recovered");
       }
     });
 

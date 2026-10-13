@@ -3,6 +3,7 @@ import {
   sanitizeBranchName,
   toDirSlug,
   branchesEqual,
+  worktreeNameFromPrompt,
 } from "../branch-name";
 
 describe("sanitizeBranchName", () => {
@@ -79,5 +80,31 @@ describe("branchesEqual", () => {
     expect(branchesEqual("x", null)).toBe(false);
     expect(branchesEqual(undefined, "x")).toBe(false);
     expect(branchesEqual(null, null)).toBe(false);
+  });
+});
+
+describe("worktreeNameFromPrompt", () => {
+  const none = new Set<string>();
+
+  it("slugs the first six words", () => {
+    expect(worktreeNameFromPrompt("Fix the Login bug, please! It breaks on Safari", none)).toBe(
+      "fix-the-login-bug-please-it",
+    );
+  });
+
+  it("caps at 40 chars on a dash boundary", () => {
+    const name = worktreeNameFromPrompt("internationalization infrastructure modernization kubernetes orchestration", none);
+    expect(name.length).toBeLessThanOrEqual(40);
+    expect(name).toBe("internationalization-infrastructure");
+  });
+
+  it("falls back to agent when nothing slugs", () => {
+    expect(worktreeNameFromPrompt("  !!! ???  ", none)).toBe("agent");
+    expect(worktreeNameFromPrompt("", none)).toBe("agent");
+  });
+
+  it("suffixes until the name is free", () => {
+    expect(worktreeNameFromPrompt("fix bug", new Set(["fix-bug"]))).toBe("fix-bug-2");
+    expect(worktreeNameFromPrompt("fix bug", new Set(["fix-bug", "fix-bug-2"]))).toBe("fix-bug-3");
   });
 });

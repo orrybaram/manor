@@ -136,7 +136,7 @@ export function wipeRemote(): void {
 }
 
 /**
- * Stop the box's host server (ADR-218 D1). `manor-host restart` leaves it
+ * Stop the box's host server (ADR-225 D1). `manor-host restart` leaves it
  * running on purpose — it outlives daemon restarts — so a clean slate that
  * deletes `~/.manor/remote` stops it first, or it would linger with its
  * files gone.

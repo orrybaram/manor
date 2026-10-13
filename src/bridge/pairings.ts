@@ -1,5 +1,5 @@
 /**
- * Every host this browser is paired with (ADR-218 D7), kept in `localStorage`
+ * Every host this browser is paired with (ADR-225 D7), kept in `localStorage`
  * keyed by relay room id. A phone can hold a pairing for the desktop and one
  * for each host server; the tab dials one at a time, and switching reloads
  * the page against another (`selectPairing`, then `location.reload()`).

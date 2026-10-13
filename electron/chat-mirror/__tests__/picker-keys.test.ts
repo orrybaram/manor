@@ -71,16 +71,16 @@ describe("encodePlanApproval", () => {
 });
 
 describe("encodeChatMessage", () => {
-  it("is the text then Enter, with LF newlines kept (one prompt)", () => {
-    expect(encodeChatMessage("hi")).toBe("hi" + ENTER);
-    expect(encodeChatMessage("one\ntwo")).toBe("one\ntwo" + ENTER);
+  it("is the text with LF newlines kept (one prompt), no Enter", () => {
+    expect(encodeChatMessage("hi")).toBe("hi");
+    expect(encodeChatMessage("one\ntwo")).toBe("one\ntwo");
   });
 
   it("turns CR line endings into LF so they can't submit early", () => {
-    expect(encodeChatMessage("one\r\ntwo\rthree")).toBe("one\ntwo\nthree" + ENTER);
+    expect(encodeChatMessage("one\r\ntwo\rthree")).toBe("one\ntwo\nthree");
   });
 
   it("drops Esc and other control bytes but keeps Tab", () => {
-    expect(encodeChatMessage("a\x1b[Ab\tc\x07")).toBe("a[Ab\tc" + ENTER);
+    expect(encodeChatMessage("a\x1b[Ab\tc\x07")).toBe("a[Ab\tc");
   });
 });

@@ -18,7 +18,7 @@ async function load() {
   return await import("../just-updated");
 }
 
-describe("hasJustUpdated", () => {
+describe("takeJustUpdated", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", fakeStorage());
     vi.stubGlobal("__APP_VERSION__", "0.3.0");
@@ -29,28 +29,28 @@ describe("hasJustUpdated", () => {
   });
 
   it("stays quiet on a first launch and records the version", async () => {
-    const { hasJustUpdated } = await load();
-    expect(hasJustUpdated()).toBe(false);
+    const { takeJustUpdated } = await load();
+    expect(takeJustUpdated()).toBe(false);
     expect(localStorage.getItem(KEY)).toBe("0.3.0");
   });
 
   it("reports an update when the stored version differs", async () => {
     localStorage.setItem(KEY, "0.2.1");
-    const { hasJustUpdated } = await load();
-    expect(hasJustUpdated()).toBe(true);
+    const { takeJustUpdated } = await load();
+    expect(takeJustUpdated()).toBe(true);
     expect(localStorage.getItem(KEY)).toBe("0.3.0");
   });
 
   it("stays quiet on a relaunch of the same version", async () => {
     localStorage.setItem(KEY, "0.3.0");
-    const { hasJustUpdated } = await load();
-    expect(hasJustUpdated()).toBe(false);
+    const { takeJustUpdated } = await load();
+    expect(takeJustUpdated()).toBe(false);
   });
 
-  it("keeps its answer once the version is stamped", async () => {
+  it("acknowledges the update so a second call answers false", async () => {
     localStorage.setItem(KEY, "0.2.1");
-    const { hasJustUpdated } = await load();
-    expect(hasJustUpdated()).toBe(true);
-    expect(hasJustUpdated()).toBe(true);
+    const { takeJustUpdated } = await load();
+    expect(takeJustUpdated()).toBe(true);
+    expect(takeJustUpdated()).toBe(false);
   });
 });

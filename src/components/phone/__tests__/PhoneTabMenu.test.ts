@@ -1,0 +1,243 @@
+// @vitest-environment jsdom
+/**
+ * A tab's long-press menu on a phone: renaming the tab's agent or the
+ * workspace, copying the branch, and closing the tab — each only when it
+ * applies. Rendered as the app wires it: the real `TabButton` in phone mode,
+ * and `PhoneChrome`, which owns the rename prompt the menu asks for.
+ */
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The stores read `window.electronAPI` at import time.
+vi.hoisted(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  (window as unknown as { electronAPI: unknown }).electronAPI = {
+    claim: null,
+    agents: { onUpdate: () => () => {} },
+    keybindings: { getAll: () => new Promise(() => {}), onChange: () => () => {} },
+  };
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({
+      matches: true,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }),
+  });
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
+
+// `PhoneChrome`'s other parts reach for the bridge and the window; the
+// rename prompt is all this needs of it.
+vi.mock("../PhoneTopBar", () => ({ PhoneTopBar: () => null }));
+vi.mock("../SidebarDrawer", () => ({ SidebarDrawer: () => null }));
+vi.mock("../NotificationsSheet", () => ({ NotificationsSheet: () => null }));
+vi.mock("../EnableNotifications", () => ({ EnableNotifications: () => null }));
+vi.mock("../KeyboardLift", () => ({ KeyboardLift: () => null }));
+
+import { TabButton } from "../../tabbar/TabButton";
+import { PhoneChrome } from "../PhoneChrome";
+import { TooltipProvider } from "../../ui/Tooltip/Tooltip";
+import { requestUi } from "../../../utils/ui-request";
+import { useAppStore } from "../../../store/app-store";
+import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
+import { useAgentStore } from "../../../store/agent-store";
+import type { AgentInfo } from "../../../electron.d";
+
+const WS = "/repo/worktrees/my-workspace";
+const PANE = "pane-1";
+
+function seed(workspace: { name?: string; branch?: string; isMain?: boolean }): void {
+  useProjectStore.setState({
+    projects: [
+      { id: "p1", workspaces: [{ path: WS, ...workspace }] } as unknown as ProjectInfo,
+    ],
+  });
+  useAppStore.setState({
+    activeWorkspacePath: WS,
+    activeWorkspaceHostId: "local",
+    activeSurface: "workspace",
+    workspaceLayouts: {
+      [WS]: {
+        panelTree: { type: "leaf", panelId: "panel-1" },
+        panels: {
+          "panel-1": {
+            id: "panel-1",
+            pinnedTabIds: [],
+            tabs: [{ id: "tab-1", title: "Terminal", rootNode: { type: "leaf", paneId: PANE } }],
+          },
+        },
+      },
+    },
+  } as never);
+}
+
+/** One phone tab, next to the phone shell. */
+function Harness(props: { onClose: () => void }) {
+  return createElement(
+    TooltipProvider,
+    null,
+    createElement(
+      "div",
+      { role: "tablist" },
+      createElement(TabButton, {
+        tabId: "tab-1",
+        rootNode: { type: "leaf", paneId: PANE },
+        isActive: true,
+        isPinned: false,
+        canClose: true,
+        isDragging: false,
+        onSelect: () => {},
+        onClose: props.onClose,
+        onTogglePin: () => {},
+        buttonRef: () => {},
+      }),
+    ),
+    createElement(PhoneChrome, {
+      onNewAgent: () => {},
+      onOpenSettings: () => {},
+      onOpenSearch: () => {},
+    }),
+  );
+}
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+  useAgentStore.setState({ agents: [] });
+});
+
+function byTestId(testId: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+}
+
+function render(onClose = () => {}): void {
+  act(() => root.render(createElement(Harness, { onClose })));
+}
+
+/** A long-press reaches Radix as a `contextmenu` on the trigger. */
+function openMenu(): void {
+  act(() => {
+    byTestId("tab")!.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true }),
+    );
+  });
+}
+
+function select(testId: string): void {
+  const el = byTestId(testId);
+  if (!el) throw new Error(`no ${testId}`);
+  act(() => el.click());
+}
+
+function type(value: string): void {
+  const input = byTestId("phone-rename-input") as HTMLInputElement;
+  act(() => {
+    const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+    set.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+describe("PhoneTabMenu", () => {
+  it("renames the workspace from a dialog", () => {
+    const renameWorkspace = vi.fn(async () => {});
+    seed({ name: "old-name", branch: "feat/x" });
+    useProjectStore.setState({ renameWorkspace });
+    render();
+
+    openMenu();
+    select("phone-tab-rename-workspace");
+    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("old-name");
+    type("  new-name ");
+    select("phone-rename-save");
+    expect(renameWorkspace).toHaveBeenCalledWith("p1", WS, "new-name");
+    expect(byTestId("phone-rename-dialog")).toBeNull();
+  });
+
+  it("does not offer renaming a project's main checkout", () => {
+    seed({ isMain: true, branch: "main" });
+    render();
+    openMenu();
+    expect(byTestId("phone-tab-menu")).not.toBeNull();
+    expect(byTestId("phone-tab-rename-workspace")).toBeNull();
+    expect(byTestId("phone-tab-copy-branch")).not.toBeNull();
+  });
+
+  it("renames the tab's agent, only when it has one", () => {
+    const renameAgent = vi.fn(async () => {});
+    seed({ name: "ws" });
+    render();
+    openMenu();
+    expect(byTestId("phone-tab-rename-agent")).toBeNull();
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+
+    act(() =>
+      useAgentStore.setState({
+        renameAgent,
+        agents: [
+          {
+            id: "agent-1",
+            paneId: PANE,
+            status: "active",
+            agentKind: "codex",
+            name: "fix bug",
+            createdAt: 1,
+          } as unknown as AgentInfo,
+        ],
+      }),
+    );
+    openMenu();
+    select("phone-tab-rename-agent");
+    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("fix bug");
+    select("phone-rename-save");
+    expect(renameAgent).toHaveBeenCalledWith("agent-1", "fix bug");
+  });
+
+  it("closes the tab", () => {
+    const onClose = vi.fn();
+    seed({ name: "ws" });
+    render(onClose);
+    openMenu();
+    select("phone-tab-close");
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts no separator over Close Tab when nothing is above it", () => {
+    seed({ isMain: true });
+    render();
+    openMenu();
+    expect(byTestId("phone-tab-close")).not.toBeNull();
+    expect(document.querySelector('[role="separator"]')).toBeNull();
+  });
+
+  it("answers the palette's Rename Workspace, which the phone has no sidebar for", () => {
+    seed({ branch: "feat/x" });
+    render();
+    act(() => requestUi({ type: "rename-workspace", projectId: "p1", path: WS }));
+    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("feat/x");
+  });
+
+  it("ignores a rename of an agent that is gone", () => {
+    seed({ name: "ws" });
+    render();
+    act(() => requestUi({ type: "rename-agent", agentId: "nope" }));
+    expect(byTestId("phone-rename-dialog")).toBeNull();
+  });
+});

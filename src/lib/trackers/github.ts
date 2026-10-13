@@ -7,6 +7,7 @@
 import type { GitHubIssue } from "../../electron.d";
 import { ghRepoOf } from "../gh-repo";
 import { startGitHubIssueWork } from "../start-issue-work";
+import { githubImageFetchUrl } from "../task-images";
 import type { TaskContext, TaskRef, TaskRow } from "../tasks";
 import { cssHex, sameUrl, unlinkTask } from "./shared";
 import type { TaskTracker } from "./types";
@@ -163,6 +164,15 @@ export const githubTracker: TaskTracker = {
       staleTime: STALE_MS,
     };
   },
+
+  imageQuery: (url) =>
+    githubImageFetchUrl(url) === null
+      ? null
+      : {
+          queryKey: ["task-image", "github", url],
+          queryFn: () => window.electronAPI.github.proxyImage(url),
+          staleTime: Infinity,
+        },
 
   startWork: (row, body, onNewWorkspace) => {
     startGitHubIssueWork({

@@ -2,12 +2,16 @@
  * ADR-217 D5: the phone composer's `/` menu, as pure functions.
  */
 import { describe, expect, it } from "vitest";
-import type { ChatCommand } from "../../../../../electron/chat-mirror/builtin-commands";
+import {
+  opensMenu,
+  type ChatCommand,
+} from "../../../../../electron/chat-mirror/builtin-commands";
 import {
   applyCommand,
+  commandEffect,
   findSlashQuery,
-  firstWordCommand,
   matchCommands,
+  splitCommand,
 } from "../slash-commands";
 
 function cmd(name: string, description = "", over: Partial<ChatCommand> = {}): ChatCommand {
@@ -124,18 +128,67 @@ describe("applyCommand", () => {
   });
 });
 
-describe("firstWordCommand", () => {
-  it("returns the name of a leading command", () => {
-    expect(firstWordCommand("/model")).toBe("model");
-    expect(firstWordCommand("/model sonnet")).toBe("model");
-    expect(firstWordCommand("/model\nmore")).toBe("model");
-    expect(firstWordCommand("/anthropic-skills:pdf x")).toBe("anthropic-skills:pdf");
+describe("splitCommand", () => {
+  it("splits the name from the trimmed args", () => {
+    expect(splitCommand("/model sonnet")).toEqual({ name: "model", args: "sonnet" });
+    expect(splitCommand("/config  a=b  c ")).toEqual({ name: "config", args: "a=b  c" });
+    expect(splitCommand("/review\nthe diff")).toEqual({ name: "review", args: "the diff" });
   });
 
-  it("is null otherwise", () => {
-    expect(firstWordCommand("model")).toBeNull();
-    expect(firstWordCommand("/")).toBeNull();
-    expect(firstWordCommand("/ model")).toBeNull();
-    expect(firstWordCommand(" /model")).toBeNull();
+  it("has empty args for a bare command", () => {
+    expect(splitCommand("/model")).toEqual({ name: "model", args: "" });
+    expect(splitCommand("/model ")).toEqual({ name: "model", args: "" });
+  });
+
+  it("is null for plain text", () => {
+    expect(splitCommand("hello /model")).toBeNull();
+    expect(splitCommand("/")).toBeNull();
+  });
+});
+
+describe("opensMenu", () => {
+  const model = cmd("model", "", { source: "builtin", menu: "bare-only" });
+  const theme = cmd("theme", "", { source: "builtin", menu: "always" });
+
+  it("opens when sent bare", () => {
+    expect(opensMenu(model, "")).toBe(true);
+    expect(opensMenu(model, "  ")).toBe(true);
+  });
+
+  it("doesn't open when an argument skips the menu", () => {
+    expect(opensMenu(model, "sonnet")).toBe(false);
+  });
+
+  it("still opens with args for an always-menu command", () => {
+    expect(opensMenu(theme, "dark")).toBe(true);
+  });
+
+  it("doesn't open for a command without a menu or an unknown one", () => {
+    expect(opensMenu(cmd("review"), "")).toBe(false);
+    expect(opensMenu(undefined, "")).toBe(false);
+  });
+});
+
+describe("commandEffect", () => {
+  const lookup = (name: string) =>
+    ({ model: cmd("model", "", { menu: "bare-only" }), clear: cmd("clear") })[name];
+
+  it("is menu for a bare menu command", () => {
+    expect(commandEffect(splitCommand("/model"), lookup)).toBe("menu");
+  });
+
+  it("is null when an argument skips the menu", () => {
+    expect(commandEffect(splitCommand("/model sonnet"), lookup)).toBeNull();
+  });
+
+  it("is clear for /clear and its aliases", () => {
+    expect(commandEffect(splitCommand("/clear"), lookup)).toBe("clear");
+    expect(commandEffect(splitCommand("/reset"), lookup)).toBe("clear");
+    expect(commandEffect(splitCommand("/new"), lookup)).toBe("clear");
+  });
+
+  it("is null for plain text and unknown commands", () => {
+    expect(commandEffect(splitCommand("hello"), lookup)).toBeNull();
+    expect(commandEffect(splitCommand("/nonsense"), lookup)).toBeNull();
   });
 });

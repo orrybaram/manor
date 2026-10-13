@@ -30,7 +30,7 @@ import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
 
 /**
  * The laptop is gone, and a phone still sees and steers an agent on a remote
- * host (ADR-218): the host's own Manor server, not the desktop's, answers it.
+ * host (ADR-225): the host's own Manor server, not the desktop's, answers it.
  *
  * 1. The desktop clones a project onto the box and starts the stub agent in a
  *    pane there.

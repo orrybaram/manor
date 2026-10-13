@@ -1,4 +1,5 @@
-import { formatDateEyebrow, greeting } from "./format";
+import { greeting } from "../../../lib/greeting";
+import { formatDateEyebrow } from "./format";
 import styles from "./DashboardHeader.module.css";
 
 type DashboardHeaderProps = {

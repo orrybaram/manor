@@ -46,7 +46,7 @@ import {
   readChatView,
   writeChatView,
 } from "../ChatPane/chat-view";
-import { usePaneChatViewStore } from "../ChatPane/usePaneChatView";
+import { startMenuHandoff, usePaneChatViewStore } from "../ChatPane/usePaneChatView";
 import type { AgentInfo } from "../../../electron.d";
 
 const WS = "/repo/worktrees/my-workspace";
@@ -190,7 +190,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    usePaneChatViewStore.setState({ views: {} });
+    usePaneChatViewStore.setState({ views: {}, handoffs: {} });
   });
 
   afterEach(() => {
@@ -261,6 +261,23 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     expect(usePaneChatViewStore.getState().views[PANE]).toBe("chat");
   });
 
+  it("under a menu handoff, Show chat ends it and leaves the stored view alone", () => {
+    seedPane();
+    seedAgent({});
+    act(() => startMenuHandoff(PANE, "config", "/tmp/t.jsonl"));
+    renderBar();
+
+    openMenu();
+    expect(byTestId("phone-overflow-view")?.textContent).toBe("Show chat");
+    click("phone-overflow-view");
+    expect(usePaneChatViewStore.getState().handoffs).toEqual({});
+    expect(usePaneChatViewStore.getState().views[PANE]).toBeUndefined();
+    expect(readChatView(PANE)).toBe("chat");
+
+    openMenu();
+    expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");
+  });
+
   it("starts from the view this browser remembers", () => {
     writeChatView(PANE, "terminal");
     seedPane();
@@ -271,7 +288,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
   });
 });
 
-describe("PhoneTopBar — overflow menu's diff and rename items", () => {
+describe("PhoneTopBar — overflow menu's diff item", () => {
   const PANE = "pane-1";
 
   function seedLayout(contentType?: "diff"): void {
@@ -335,78 +352,14 @@ describe("PhoneTopBar — overflow menu's diff and rename items", () => {
     expect(byTestId("phone-overflow-diff")).toBeNull();
   });
 
-  it("renames the workspace from a dialog", () => {
-    const renameWorkspace = vi.fn(async () => {});
-    seedProjects({ name: "old-name" });
-    seedLayout();
-    useProjectStore.setState({ renameWorkspace });
-    renderBar();
-
-    openMenu();
-    click("phone-overflow-rename-workspace");
-    const input = byTestId("phone-rename-input") as HTMLInputElement;
-    expect(input.value).toBe("old-name");
-    act(() => {
-      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
-      set.call(input, "  new-name ");
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    click("phone-rename-save");
-    expect(renameWorkspace).toHaveBeenCalledWith("p1", WS, "new-name");
-    expect(byTestId("phone-rename-dialog")).toBeNull();
-  });
-
-  it("does not offer renaming a project's main checkout", () => {
-    useProjectStore.setState({
-      projects: [
-        { id: "p1", workspaces: [{ path: WS, isMain: true }] } as unknown as ProjectInfo,
-      ],
-    });
-    seedLayout();
-    renderBar();
-    openMenu();
-    expect(byTestId("phone-overflow-rename-workspace")).toBeNull();
-  });
-
-  it("renames the focused pane's agent, only when it has one", () => {
-    const renameAgent = vi.fn(async () => {});
-    seedProjects({ name: "ws" });
-    seedLayout();
-    renderBar();
-    openMenu();
-    expect(byTestId("phone-overflow-rename-agent")).toBeNull();
-    click("phone-overflow-button");
-
-    act(() =>
-      useAgentStore.setState({
-        renameAgent,
-        agents: [
-          {
-            id: "agent-1",
-            paneId: PANE,
-            status: "active",
-            agentKind: "codex",
-            name: "fix bug",
-            createdAt: 1,
-          } as unknown as AgentInfo,
-        ],
-      }),
-    );
-    openMenu();
-    click("phone-overflow-rename-agent");
-    expect((byTestId("phone-rename-input") as HTMLInputElement).value).toBe("fix bug");
-    click("phone-rename-save");
-    expect(renameAgent).toHaveBeenCalledWith("agent-1", "fix bug");
-  });
-
-  it("is not rendered on Home, where nothing applies", () => {
+  it("still renders on Home, for Refresh", () => {
     useAppStore.setState({
       activeWorkspacePath: HOME_PATH,
       activeWorkspaceHostId: "local",
       activeSurface: "workspace",
     } as never);
     renderBar();
-    expect(byTestId("phone-overflow-button")).toBeNull();
+    expect(byTestId("phone-overflow-button")).not.toBeNull();
   });
 });
 

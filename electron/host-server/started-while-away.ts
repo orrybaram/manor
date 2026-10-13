@@ -1,5 +1,5 @@
 /**
- * The "Started while away" tab (ADR-218 D5).
+ * The "Started while away" tab (ADR-225 D5).
  *
  * The phone walks the last layout snapshot the desktop pushed. A session the
  * daemon started after that push — an agent launched from the box's own

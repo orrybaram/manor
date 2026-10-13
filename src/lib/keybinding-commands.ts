@@ -17,7 +17,7 @@ import { useKeybindingsStore } from "../store/keybindings-store";
 import { useToastStore } from "../store/toast-store";
 import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
-import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "../agent-defaults";
+import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import { isHomePath } from "./home";
 import { find, ownerOf } from "./workspace-directory";
 import type { WorkspaceKey } from "./workspace-key";
@@ -36,7 +36,13 @@ import {
 } from "./commands";
 import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
-import { isHostServer } from "../bridge/connection";
+import {
+  getConnection,
+  hostServerUnavailableCopy,
+  isHostServer,
+} from "../bridge/connection";
+import { currentLayoutMode } from "../hooks/useLayoutMode";
+import { showBridgeUnavailableToastOnce } from "./bridge-unavailable-toast";
 
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
@@ -96,13 +102,10 @@ export function resolveWorkspaceCommand(key: WorkspaceKey | null): string {
  * Only the primary window may do that: the prewarmed session's cwd tracks the
  * PRIMARY window's active workspace, so a popout sitting on a different
  * workspace would inherit the wrong directory. Popouts pay the cold start.
- *
- * Resolves to the new agent's pane and kind, or null when there was no
- * surface to open it in.
  */
 export async function startNewAgent(
   { prewarm }: { prewarm: boolean } = { prewarm: false },
-): Promise<{ paneId: string; agentKind: string } | null> {
+): Promise<void> {
   const { activeWorkspacePath, activeWorkspaceHostId: hostId } =
     useAppStore.getState();
   const command = resolveWorkspaceCommand(
@@ -111,10 +114,9 @@ export async function startNewAgent(
   const prewarmed = prewarm
     ? await window.electronAPI.pty.consumePrewarmed(activeWorkspacePath, hostId)
     : null;
-  const agentKind = getAgentKindForCommand(command);
   if (!prewarmed) {
-    const opened = useAppStore.getState().addTerminalTab(command, { kind: "agent-startup" });
-    return opened ? { paneId: opened.paneId, agentKind } : null;
+    useAppStore.getState().addTerminalTab(command, { kind: "agent-startup" });
+    return;
   }
   // The prewarmed session already exists, so its pane id is known before the
   // tab is: queue the launch line against it directly, and only when the
@@ -126,8 +128,28 @@ export async function startNewAgent(
       "agent-startup",
     );
   }
-  const opened = useAppStore.getState().addTab(prewarmed.paneId);
-  return opened ? { paneId: opened.paneId, agentKind } : null;
+  useAppStore.getState().addTab(prewarmed.paneId);
+}
+
+/**
+ * "New agent", from any trigger. A phone opens the new-agent composer
+ * instead: nothing launches until its first message, wherever its chips
+ * point (ADR-222 D1). Elsewhere it is `startNewAgent`. A host server does
+ * not launch agents (ADR-225 D5): there it is a toast saying so.
+ */
+export async function newAgent({ prewarm }: { prewarm: boolean }): Promise<void> {
+  if (isHostServer()) {
+    showBridgeUnavailableToastOnce(
+      "host-server-new-agent",
+      hostServerUnavailableCopy("Starting new agents", getConnection().hostName),
+    );
+    return;
+  }
+  if (currentLayoutMode() === "phone") {
+    useAppStore.getState().showComposer();
+    return;
+  }
+  await startNewAgent({ prewarm });
 }
 
 /**
@@ -193,7 +215,7 @@ export function createSharedCommandContext(
     },
     focusedPaneId: () => selectFocusedPaneOfActiveTab(useAppStore.getState()),
     copyToClipboard,
-    startNewAgent: () => void startNewAgent({ prewarm: prewarmNewAgent }),
+    startNewAgent: () => void newAgent({ prewarm: prewarmNewAgent }),
     moveTabToNextPanel: () => moveTabToNextPanel(),
     focusedBrowser: getFocusedBrowserRef,
     focusedBrowserPaneId,

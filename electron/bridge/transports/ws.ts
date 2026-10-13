@@ -27,7 +27,7 @@
  * **Every device is the same device.** There are no tiers (ADR-207 D4): a
  * paired device reaches the whole handler table, terminal included, and
  * every connection the relay gate authenticates is `callerClass: "device"`.
- * The one exception is the host server's own unix socket (ADR-218 D4), whose
+ * The one exception is the host server's own unix socket (ADR-225 D4), whose
  * authenticator answers an `owner` caller for the owner token.
  *
  * Close codes are in the application range on purpose — 4401 reads as the
@@ -53,7 +53,7 @@ const HELLO_TIMEOUT_MS = 5_000;
 /**
  * Who a hello turned out to be: a paired device
  * (`remote-control/relay-gate.ts`), or the owner — the desktop on a host
- * server's own socket, whose token is the 0600 owner token (ADR-218 D4). It
+ * server's own socket, whose token is the 0600 owner token (ADR-225 D4). It
  * becomes the connection's identity as it is.
  */
 export interface AuthenticatedCaller {
@@ -149,11 +149,11 @@ export class WsBridgeServer {
     private readonly server: Dispatcher,
     private readonly options: {
       appVersion?: string;
-      /** The host's display name for the hello (ADR-218 D7). */
+      /** The host's display name for the hello (ADR-225 D7). */
       hostName?: () => string | undefined;
       /**
        * Set by the host server only: every hello says `hostServer: true` so
-       * the page knows it is on a bridge slice (ADR-225).
+       * the page knows it is on a bridge slice (ADR-226).
        */
       hostServer?: boolean;
     } = {},

@@ -67,7 +67,7 @@ export default defineConfig({
         },
       },
       {
-        // Host server (ADR-218) — standalone Node.js process, dispatched from
+        // Host server (ADR-225) — standalone Node.js process, dispatched from
         // `manor-host serve`. `ws` stays external for the ADR-178 D8 reason;
         // `web-push` is imported lazily and must not become a chunk. The
         // @noble/* packages are inlined. Keep this list in step with

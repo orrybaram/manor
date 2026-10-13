@@ -104,30 +104,49 @@ describe("panes awaiting their host (ADR-178 §6)", () => {
   });
 });
 
-describe("reattach (ADR-178 §6)", () => {
+describe("reattach (ADR-178 §6, ADR-220)", () => {
   it("bumps each pane's epoch so its terminal remounts", () => {
-    store().reattach(["a", "b"]);
-    store().reattach(["a"]);
+    store().reattach(["a", "b"], "host-recovered");
+    store().reattach(["a"], "resync");
     expect(store().panes.a.reattachEpoch).toBe(2);
     expect(store().panes.b.reattachEpoch).toBe(1);
   });
 
   it("does not update for an empty list", () => {
     const before = store();
-    store().reattach([]);
+    store().reattach([], "resync");
     expect(store()).toBe(before);
   });
 
-  it("marks the next mount as a reattach, once", () => {
-    expect(store().consumeReattach("a")).toBe(false);
-    store().reattach(["a"]);
-    expect(store().consumeReattach("a")).toBe(true);
-    expect(store().consumeReattach("a")).toBe(false);
+  it("tells the next mount why it is a reattach, once", () => {
+    expect(store().consumeReattach("a")).toBeNull();
+    store().reattach(["a"], "host-recovered");
+    store().reattach(["b"], "resync");
+    expect(store().consumeReattach("a")).toBe("host-recovered");
+    expect(store().consumeReattach("a")).toBeNull();
+    expect(store().consumeReattach("b")).toBe("resync");
+    expect(store().consumeReattach("b")).toBeNull();
+  });
+
+  it("lets a host recovery win over a resync not yet mounted, whichever came first", () => {
+    store().reattach(["a"], "resync");
+    store().reattach(["a"], "host-recovered");
+    store().reattach(["b"], "host-recovered");
+    store().reattach(["b"], "resync");
+    expect(store().consumeReattach("a")).toBe("host-recovered");
+    expect(store().consumeReattach("b")).toBe("host-recovered");
+  });
+
+  it("takes the latest reason once the earlier remount has mounted", () => {
+    store().reattach(["a"], "host-recovered");
+    store().consumeReattach("a");
+    store().reattach(["a"], "resync");
+    expect(store().consumeReattach("a")).toBe("resync");
   });
 
   it("keeps the epoch when the pane's host changes", () => {
     store().setPaneHost("a", "box");
-    store().reattach(["a"]);
+    store().reattach(["a"], "host-recovered");
     store().setPaneHost("a", "local");
     expect(store().panes.a).toMatchObject({ hostId: null, reattachEpoch: 1 });
   });
@@ -136,9 +155,9 @@ describe("reattach (ADR-178 §6)", () => {
 describe("forgetPane (ADR-183)", () => {
   it("forgets the pane's reattach state along with its host", () => {
     store().awaitHost("a", "box");
-    store().reattach(["a"]);
+    store().reattach(["a"], "resync");
     store().forgetPane("a");
     expect(store().panes).toEqual({});
-    expect(store().consumeReattach("a")).toBe(false);
+    expect(store().consumeReattach("a")).toBeNull();
   });
 });

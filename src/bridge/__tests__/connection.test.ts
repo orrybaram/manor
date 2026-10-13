@@ -36,7 +36,7 @@ describe("connection facts", () => {
   });
 
   it("is not a host server when the desktop names itself", () => {
-    // The desktop sends its hostname too (ADR-218 D7), without `hostServer`.
+    // The desktop sends its hostname too (ADR-225 D7), without `hostServer`.
     recordHello({ hostName: "desk.local", hostServer: false });
     expect(getConnection()).toMatchObject({
       hostName: "desk.local",

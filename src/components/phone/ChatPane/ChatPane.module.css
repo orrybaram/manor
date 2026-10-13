@@ -176,7 +176,20 @@ button.toolGroupLine:hover:not(:disabled) {
   background: transparent;
 }
 
-.toolGroupSummary {
+/* A background task finishing: a quiet, inert line like a tool group's. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 0;
+  font-size: 14px;
+  color: color-mix(in srgb, var(--text-dim) 65%, var(--bg));
+}
+
+.toolGroupSummary,
+.noticeText {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -260,6 +273,11 @@ button.toolLine:disabled {
 .statusDot[data-status="pending"] {
   background: var(--yellow);
   animation: toolPulse 1.2s ease-in-out infinite;
+}
+
+.statusDot[data-status="unknown"] {
+  background: var(--text-dim);
+  opacity: 0.5;
 }
 
 @keyframes toolPulse {
@@ -653,6 +671,27 @@ button.more {
   color: var(--text-dim);
 }
 
+.choiceHeader {
+  flex-shrink: 0;
+  padding: 8px 14px 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.choiceLabel {
+  font-size: 14px;
+  color: var(--text-selected);
+}
+
+/* Catches a tap outside the choice sheet; the sheet sits above it. */
+.choiceBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 4;
+}
+
 .slashMenuFooter {
   flex-shrink: 0;
   padding: 6px 12px;
@@ -792,4 +831,188 @@ button.commandChip {
   .typedWord {
     animation: none;
   }
+}
+
+/* ── Status line under the composer: the workspace's open PR as chips ── */
+.statusLine {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  min-width: 0;
+}
+
+.statusChip,
+:global(:root[data-layout="phone"]) .statusChip.statusChip {
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+}
+
+/* The chip is ~22px tall; pad the hit area out to a comfortable tap. */
+.statusChip::after {
+  content: "";
+  position: absolute;
+  inset: -8px -2px;
+}
+
+/* Leaves the right of the line to whatever follows (the token chip). */
+.statusSpacer {
+  flex: 1;
+}
+
+.statusChip:active {
+  background: var(--hover);
+}
+
+.statusPrIcon {
+  color: var(--green);
+}
+
+.statusPrIcon[data-draft] {
+  color: var(--text-dim);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.statusChip[data-tone="pending"] .statusDot {
+  background: var(--yellow, #eab308);
+}
+
+.statusChip[data-tone="failing"] {
+  color: var(--red);
+}
+
+.statusChip[data-tone="failing"] .statusDot {
+  background: var(--red);
+}
+
+.statusAdditions {
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+
+.statusDeletions {
+  color: var(--red);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The session's context size, right of the chips. It never shrinks: the
+   chips give way first on a narrow phone. */
+.statusTokens {
+  flex-shrink: 0;
+  padding: 3px 4px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A delegated or background task (`TaskCard`): one tappable line, and under
+   it a line of what it found. */
+.taskCard {
+  min-width: 0;
+}
+
+.taskLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  justify-content: flex-start;
+  font-size: 14px;
+}
+
+.taskTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.taskChip {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--surface);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.taskBackground {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.taskChevron {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.taskPreview {
+  padding: 0 0 4px 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* `TaskSheet`: the header stays put and the transcript below scrolls. */
+.taskSheetHeader {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 8px;
+  padding: 4px 4px 4px 16px;
+  min-width: 0;
+}
+
+.taskSheetTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-selected);
+}
+
+.taskSheetStatus {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.taskSheetBody {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 16px;
 }

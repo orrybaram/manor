@@ -5,11 +5,13 @@
  * listing doesn't include built-ins, so this is hard-coded. It is a
  * convenience list: a command missing from it can still be typed.
  *
- * Starting set from the ADR. Installed Claude Code was v2.1.296, but the list
- * could not be confirmed against `/help` without launching an interactive
- * session, so nothing was dropped. Check it against `/help` now and then.
+ * Starting set from the ADR, then checked (ADR-218 D1) against Claude Code
+ * v2.1.296: `strings` on the binary for each command's table entry
+ * (`argumentHint`, `immediate`, hidden/removed) and `claude --help` for the
+ * `--model` aliases and `--effort` levels. `/agents` is removed there. Check it
+ * against a newer version now and then.
  *
- * No imports: the renderer imports `isInteractiveCommand` from here.
+ * No imports: the renderer imports `opensMenu` from here.
  */
 
 export type ChatCommand = {
@@ -17,8 +19,11 @@ export type ChatCommand = {
   name: string;
   description: string;
   source: "builtin" | "skill";
-  /** Opens a menu in the TUI that the chat can't show. */
-  interactive?: boolean;
+  /** Opens a menu in the TUI that the chat can't show: "always", or
+   *  "bare-only" when an argument acts at once instead (`/model sonnet`). */
+  menu?: "always" | "bare-only";
+  /** Fixed arguments the phone can offer as a native picker (ADR-218 D2). */
+  choices?: { value: string; label: string; description?: string }[];
 };
 
 export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
@@ -32,31 +37,73 @@ export const BUILTIN_COMMANDS: readonly ChatCommand[] = [
   { name: "review", description: "Review a pull request", source: "builtin" },
   { name: "security-review", description: "Review pending changes for security issues", source: "builtin" },
   { name: "todos", description: "List the current todo items", source: "builtin" },
-  { name: "model", description: "Choose the model", source: "builtin", interactive: true },
-  { name: "config", description: "Open the settings", source: "builtin", interactive: true },
-  { name: "resume", description: "Resume a previous conversation", source: "builtin", interactive: true },
-  { name: "mcp", description: "Manage MCP servers", source: "builtin", interactive: true },
-  { name: "agents", description: "Manage subagents", source: "builtin", interactive: true },
-  { name: "permissions", description: "Manage tool permissions", source: "builtin", interactive: true },
-  { name: "hooks", description: "Manage hooks", source: "builtin", interactive: true },
-  { name: "memory", description: "Edit memory files", source: "builtin", interactive: true },
-  { name: "login", description: "Sign in to your account", source: "builtin", interactive: true },
-  { name: "logout", description: "Sign out of your account", source: "builtin", interactive: true },
-  { name: "doctor", description: "Check the health of the installation", source: "builtin", interactive: true },
-  { name: "status", description: "Show version, model and account status", source: "builtin", interactive: true },
-  { name: "plugin", description: "Manage plugins", source: "builtin", interactive: true },
-  { name: "theme", description: "Change the color theme", source: "builtin", interactive: true },
-  { name: "help", description: "Show help and the available commands", source: "builtin", interactive: true },
-  { name: "add-dir", description: "Add a working directory", source: "builtin", interactive: true },
-  { name: "ide", description: "Manage the IDE integration", source: "builtin", interactive: true },
-  { name: "bashes", description: "Manage background shell tasks", source: "builtin", interactive: true },
+  {
+    name: "model",
+    description: "Choose the model",
+    source: "builtin",
+    menu: "bare-only",
+    choices: [
+      { value: "default", label: "Default", description: "The recommended model for your plan" },
+      { value: "fable", label: "Fable", description: "Latest Fable model" },
+      { value: "opus", label: "Opus", description: "Latest Opus model" },
+      { value: "sonnet", label: "Sonnet", description: "Latest Sonnet model" },
+      { value: "haiku", label: "Haiku", description: "Fastest, lightest model" },
+    ],
+  },
+  {
+    name: "effort",
+    description: "Set the effort level",
+    source: "builtin",
+    menu: "bare-only",
+    choices: [
+      { value: "low", label: "Low", description: "Quickest, least thinking" },
+      { value: "medium", label: "Medium", description: "Balanced" },
+      { value: "high", label: "High", description: "More thorough" },
+      { value: "xhigh", label: "Extra high", description: "Very thorough" },
+      { value: "max", label: "Max", description: "Deepest reasoning" },
+    ],
+  },
+  {
+    name: "fast",
+    description: "Toggle fast mode",
+    source: "builtin",
+    menu: "bare-only",
+    choices: [
+      { value: "on", label: "On", description: "Faster output" },
+      { value: "off", label: "Off", description: "Standard speed" },
+    ],
+  },
+  { name: "config", description: "Open the settings", source: "builtin", menu: "bare-only" },
+  { name: "resume", description: "Resume a previous conversation", source: "builtin", menu: "bare-only" },
+  { name: "mcp", description: "Manage MCP servers", source: "builtin", menu: "bare-only" },
+  { name: "permissions", description: "Manage tool permissions", source: "builtin", menu: "always" },
+  { name: "hooks", description: "Manage hooks", source: "builtin", menu: "always" },
+  { name: "memory", description: "Edit memory files", source: "builtin", menu: "always" },
+  { name: "login", description: "Sign in to your account", source: "builtin", menu: "always" },
+  { name: "logout", description: "Sign out of your account", source: "builtin", menu: "always" },
+  { name: "doctor", description: "Check the health of the installation", source: "builtin", menu: "always" },
+  { name: "status", description: "Show version, model and account status", source: "builtin", menu: "always" },
+  { name: "plugin", description: "Manage plugins", source: "builtin", menu: "always" },
+  { name: "theme", description: "Change the color theme", source: "builtin", menu: "always" },
+  { name: "help", description: "Show help and the available commands", source: "builtin", menu: "always" },
+  { name: "add-dir", description: "Add a working directory", source: "builtin", menu: "bare-only" },
+  { name: "ide", description: "Manage the IDE integration", source: "builtin", menu: "always" },
+  { name: "bashes", description: "Manage background shell tasks", source: "builtin", menu: "always" },
 ];
 
-const INTERACTIVE = new Set(
-  BUILTIN_COMMANDS.filter((c) => c.interactive).map((c) => c.name),
-);
+const BY_NAME = new Map(BUILTIN_COMMANDS.map((c) => [c.name, c]));
 
-/** Whether `/name` opens a menu that only the terminal can show. */
-export function isInteractiveCommand(name: string): boolean {
-  return INTERACTIVE.has(name);
+/** The built-in entry for `/name`, if any. */
+export function findBuiltin(name: string): ChatCommand | undefined {
+  return BY_NAME.get(name);
+}
+
+/**
+ * Whether sending `entry` with `args` opens a TUI menu (ADR-218 D1). The caller
+ * passes the fetched entry (a skill of the same name replaces a built-in), else
+ * the built-in. With an argument, a "bare-only" command acts at once instead.
+ */
+export function opensMenu(entry: ChatCommand | undefined, args: string): boolean {
+  if (!entry) return false;
+  return entry.menu === "always" || (entry.menu === "bare-only" && args.trim() === "");
 }

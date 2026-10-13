@@ -47,7 +47,7 @@ import type {
 import type { SetupProgressEvent } from "../../src/store/project-store";
 import type { Theme } from "../../src/store/theme-store";
 import type { AppCommand } from "../renderer-bridge";
-import type { ChatEntry } from "../chat-mirror/transcript";
+import type { ChatPush } from "../chat-mirror/transcript";
 import type { PushProgressEvent } from "./handlers/branches-diffs";
 
 /**
@@ -75,11 +75,18 @@ export interface BridgeEvents {
     winsizeOwner: [payload: WinsizeOwnerEvent];
   };
   /**
-   * A pane's chat entry, new or updated (ADR-215 D4). Keyed by `paneId` like
-   * `pty.*`; an updated entry keeps its id, so a listener upserts by it.
+   * A pane's chat entry, new or updated (ADR-215 D4), or its context size
+   * (ADR-223 D4). Keyed by `paneId` like `pty.*`; an updated entry keeps its
+   * id, so a listener upserts by it.
    */
   chat: {
-    entry: [paneId: string, entry: ChatEntry];
+    entry: [paneId: string, entry: ChatPush];
+    /**
+     * One task's own transcript, new or updated entry or context size
+     * (ADR-224 D3). Keyed by `chatTaskKey(paneId, taskId)`
+     * (`chat-mirror/task-key.ts`), so a subscriber names the task it watches.
+     */
+    taskEntry: [paneId: string, taskId: string, entry: ChatPush];
   };
   layout: {
     changed: [payload: LayoutBroadcast];
@@ -101,7 +108,7 @@ export interface BridgeEvents {
   hosts: {
     statusChanged: [hosts: HostStatusInfo[]];
     reconnected: [info: { hostId: string; sessionIds: string[] }];
-    /** A host server's owner channel changed state (ADR-218 D3). */
+    /** A host server's owner channel changed state (ADR-225 D3). */
     serverChanged: [info: { hostId: string; state: HostServerClientState }];
     /** A phone was paired, revoked or the host's keys reset: re-read its status. */
     pairingChanged: [hostId: string];
@@ -205,7 +212,8 @@ export type WireEventArgs<W extends EventName> = {
  * does for every row.
  *
  * `pty.*` are the five the daemon's stream carries plus `winsizeOwner`.
- * They and `chat.onEntry` are the only ones with a key (the `paneId`). Native subscriptions are *not*
+ * They and `chat.onEntry` are the only ones with a key (the `paneId`);
+ * `chat.onTaskEntry`'s key names a task as well (`chatTaskKey`). Native subscriptions are *not*
  * here: `webview.*`, `updater.*` and `menu.onMenuCommand` are members of a
  * native namespace and are written in the preload.
  */
@@ -217,6 +225,7 @@ export const SUBSCRIPTIONS = {
   "pty.onError": "pty.error",
   "pty.onWinsizeOwner": "pty.winsizeOwner",
   "chat.onEntry": "chat.entry",
+  "chat.onTaskEntry": "chat.taskEntry",
   "layout.onChanged": "layout.changed",
   "layout.onPaneTitle": "layout.paneTitle",
   "projects.onChanged": "projects.changed",

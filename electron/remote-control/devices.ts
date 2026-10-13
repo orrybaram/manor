@@ -15,7 +15,7 @@
  *      of the device list, so revocation takes effect on the next request.
  *
  * Persistence is a `SealedStore` over the `SecretBox` the store is given
- * (ADR-218 D6): `safeStorage` on the desktop, the host's chosen backend on a
+ * (ADR-225 D6): `safeStorage` on the desktop, the host's chosen backend on a
  * host server, mode 0600 either way. When the box cannot store (a desktop with
  * no OS keychain) pairing refuses, and remote control stays off. Pairing and
  * revoking resolve only once the change is on disk: a revoke that was not

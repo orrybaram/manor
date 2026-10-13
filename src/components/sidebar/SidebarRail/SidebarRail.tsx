@@ -10,9 +10,6 @@ import { useAppStore } from "../../../store/app-store";
 import { HOME_PATH, isHomePath } from "../../../lib/home";
 import { handleSidebarRowKeyDown, useRovingRows } from "../../../lib/sidebar-row";
 import { buildTopLevelEntries } from "../../../utils/sidebar-items";
-import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
-import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
-import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
 import { SidebarResizeHandle } from "../SidebarResizeHandle/SidebarResizeHandle";
 import { RailProjectTile } from "./RailProjectTile";
@@ -50,12 +47,6 @@ export function SidebarRail(props: SidebarRailProps) {
   const showTasks = useAppStore((s) => s.showTasksView);
   const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
   const agentCount = useVisibleAgents().length;
-
-  // The full sidebar runs these; the rail stands in for it, so branch names,
-  // diff stats and PRs stay current while it's collapsed.
-  useBranchWatcher();
-  useDiffWatcher();
-  usePrWatcher();
 
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
   const selectedProject = projects[selectedProjectIndex];

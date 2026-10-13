@@ -72,7 +72,7 @@ export async function hostsHealthCheck(
   return runHealthChecks(shell, git, projectPath);
 }
 
-// ── Phone access through a host's server (ADR-218 D3, D4, D6) ──
+// ── Phone access through a host's server (ADR-225 D3, D4, D6) ──
 
 /** What the Remote Control page shows for one host's server. */
 export interface HostServerView {
@@ -212,7 +212,7 @@ export const hosts = {
   retryConnect: method(hostsRetryConnect, { mutating: true }),
   healthCheck: method(hostsHealthCheck),
   // Pairing a phone with a host's server hands out a key to that host, so
-  // these are `localOnly` like `remoteControl.pair` (ADR-218 D3).
+  // these are `localOnly` like `remoteControl.pair` (ADR-225 D3).
   serverStatus: method(hostsServerStatus, { localOnly: true }),
   pairDevice: method(hostsPairDevice, { localOnly: true, mutating: true }),
   revokeDevice: method(hostsRevokeDevice, { localOnly: true, mutating: true }),

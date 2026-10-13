@@ -76,8 +76,8 @@ if (typeof globalThis.window === "undefined") {
         reset: vi.fn(),
         resetAll: vi.fn(),
       },
-      // theme-store.ts subscribes to onChanged at module-init time (ADR-179
-      // ticket 7), so anything importing it needs this surface too.
+      // theme-store.ts's `startThemeSync` (run by App on mount) reads the
+      // theme and subscribes to onChanged (ADR-179 ticket 7).
       theme: {
         get: vi.fn().mockResolvedValue(null),
         getSelectedName: vi.fn().mockResolvedValue("__ghostty__"),

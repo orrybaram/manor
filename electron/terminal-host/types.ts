@@ -140,7 +140,7 @@ export interface SessionInfo {
   alive: boolean;
   prewarmed?: boolean;
   /**
-   * How many stream sockets are subscribed to the session right now (ADR-218
+   * How many stream sockets are subscribed to the session right now (ADR-225
    * D5): the host server's winsize rule reads it ("is anyone else looking?").
    * Additive, so no protocol bump: a daemon that predates it omits the field,
    * and a reader treats a missing count as unknown, never as zero.

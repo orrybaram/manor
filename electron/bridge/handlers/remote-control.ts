@@ -34,7 +34,7 @@ import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
  * A handler that reads only `keys` of the remote-control surface. The host
- * server (ADR-218 D3) reuses these over its own relay, pairing and push,
+ * server (ADR-225 D3) reuses these over its own relay, pairing and push,
  * which have the same shape and none of the desktop's enable/disable.
  */
 type RemoteControlCtx<K extends keyof RemoteControlController> = HandlerCtx<{

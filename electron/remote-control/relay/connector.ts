@@ -120,7 +120,7 @@ export interface RelayIdentitySource {
  * allocate an arbitrarily large message), `handshakeTimeout`, `terminate()`
  * and Node `Buffer`s — so a WHATWG global `WebSocket` (Node 22+) does not
  * fit here, and on Node 20 there is none at all. A host server bundles this
- * without Electron (ADR-218 D3) and passes `ws`'s constructor explicitly, so
+ * without Electron (ADR-225 D3) and passes `ws`'s constructor explicitly, so
  * the dependency is visible where the tarball's package.json is built.
  */
 export type RelayWebSocketCtor = new (

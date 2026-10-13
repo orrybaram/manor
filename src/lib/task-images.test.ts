@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  githubImageFetchUrl,
-  isLinearImageUrl,
-  isTrackerImageUrl,
-} from "./task-images";
+import { githubImageFetchUrl, isLinearImageUrl } from "./task-images";
 
 describe("githubImageFetchUrl", () => {
   it("rewrites a repo file link to raw.githubusercontent.com", () => {
@@ -39,15 +35,5 @@ describe("isLinearImageUrl", () => {
     expect(isLinearImageUrl("https://attacker.example/p.png")).toBe(false);
     expect(isLinearImageUrl("https://uploads.linear.app.evil.io/p.png")).toBe(false);
     expect(isLinearImageUrl("not a url")).toBe(false);
-  });
-});
-
-describe("isTrackerImageUrl", () => {
-  it("routes each provider's own hosts to its proxy", () => {
-    expect(isTrackerImageUrl("github", "https://github.com/user-attachments/assets/x")).toBe(true);
-    expect(isTrackerImageUrl("github", "https://uploads.linear.app/a.png")).toBe(false);
-    expect(isTrackerImageUrl("linear", "https://uploads.linear.app/a.png")).toBe(true);
-    expect(isTrackerImageUrl("linear", "https://github.com/user-attachments/assets/x")).toBe(false);
-    expect(isTrackerImageUrl("github", "https://i.imgur.com/a.png")).toBe(false);
   });
 });

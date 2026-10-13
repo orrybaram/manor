@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { HostServerView } from "../electron.d";
+import { liveValue } from "../bridge/resync";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string };
@@ -56,12 +57,13 @@ interface HostState {
 }
 
 export const useHostStore = create<HostState>((set) => {
-  window.electronAPI?.hosts
-    ?.list()
-    .then((hosts) => set({ hosts }))
-    .catch(() => {});
-
-  window.electronAPI?.hosts?.onStatusChanged((hosts) => set({ hosts }));
+  if (window.electronAPI?.hosts) {
+    liveValue(
+      () => window.electronAPI.hosts.list(),
+      (cb) => window.electronAPI.hosts.onStatusChanged(cb),
+      (hosts) => set({ hosts }),
+    );
+  }
 
   // Only the newest response for a host lands: a reload started later always
   // wins, however the replies are ordered. A host is reloaded on events only

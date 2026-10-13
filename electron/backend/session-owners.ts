@@ -55,6 +55,18 @@ export class SessionOwners {
   }
 
   /**
+   * Of a session its host no longer has alive: whether it was lost to a
+   * remote daemon restart (`isRemoteSessionLoss`), so its pane is recovered
+   * rather than closed (ADR-178 §6). Exactly the sessions still claimed by a
+   * remote host — `accept` keeps those claimed and releases every other
+   * ending, as `kill` does.
+   */
+  isRecoverableLoss(sessionId: string): boolean {
+    const owner = this.owners.get(sessionId);
+    return owner !== undefined && owner !== LOCAL_HOST_ID;
+  }
+
+  /**
    * Whether a stream event `hostId` sent should be delivered: not when it
    * names a session another host owns. Claims the session on first sight,
    * and releases it once its shell exited.

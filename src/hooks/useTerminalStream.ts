@@ -86,10 +86,26 @@ export function useTerminalStream(
     [],
   );
 
-  /** Queue output again, so a re-attach gets the same ordering guarantee. */
+  /** Queue output again, so the next mount's attach gets the same ordering guarantee. */
   const closeOutput = useCallback(() => {
     queuedRef.current = [];
   }, []);
+
+  /**
+   * The pane's session ended: let whatever output it queued through, and
+   * close the pane — unless it is being reset, whose old session's exit is
+   * expected and whose terminal stays. Also what a resync's attach does when
+   * it finds the session gone, having missed this exit while its connection
+   * was down (ADR-220).
+   */
+  const sessionEnded = useCallback(
+    (target: Terminal | null = termRef.current) => {
+      if (target) openRestored(target);
+      if (resettingRef?.current) return;
+      useAppStore.getState().closePaneById(paneId);
+    },
+    [paneId, resettingRef, openRestored],
+  );
 
   useMountEffect(() => {
     const unsubOutput = window.electronAPI.pty.onOutput(
@@ -116,10 +132,7 @@ export function useTerminalStream(
       },
     );
 
-    const unsubExit = window.electronAPI.pty.onExit(paneId, () => {
-      if (resettingRef?.current) return;
-      useAppStore.getState().closePaneById(paneId);
-    });
+    const unsubExit = window.electronAPI.pty.onExit(paneId, () => sessionEnded());
 
     const unsubCwd = window.electronAPI.pty.onCwd(paneId, (cwdPath: string) => {
       useAppStore.getState().setPaneCwd(paneId, cwdPath);
@@ -141,5 +154,5 @@ export function useTerminalStream(
     };
   });
 
-  return { openRestored, closeOutput };
+  return { openRestored, closeOutput, sessionEnded };
 }

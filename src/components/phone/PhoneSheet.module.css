@@ -1,0 +1,97 @@
+/*
+ * A phone sheet (`PhoneSheet`), on the same overlay and backdrop as the
+ * sidebar drawer (`SidebarDrawer.module.css`). The sheet is a column its
+ * content fills, so a header can stay put while a body below it scrolls.
+ */
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.overlay[data-state="open"] {
+  animation: fadeIn 150ms ease-out;
+}
+
+.overlay[data-state="closed"] {
+  animation: fadeOut 100ms ease-in;
+}
+
+.sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--dim);
+  outline: none;
+  overflow: hidden;
+}
+
+/* The whole screen. */
+.sheet[data-variant="full"] {
+  top: 0;
+  height: 100svh;
+}
+
+/* Up from the bottom edge, as tall as its content up to 80svh. */
+.sheet[data-variant="bottom"] {
+  max-height: 80svh;
+  border-radius: 14px 14px 0 0;
+}
+
+.sheet[data-state="open"] {
+  animation: slideUp 180ms ease-out;
+}
+
+.sheet[data-state="closed"] {
+  animation: slideDown 140ms ease-in;
+}
+
+/* As the top bar's icon buttons: a 44px touch target. */
+button.close {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}

@@ -1,4 +1,10 @@
-import { Fragment, lazy, Suspense, useState, useCallback } from "react";
+import {
+  Fragment,
+  lazy,
+  Suspense,
+  useState,
+  useCallback,
+} from "react";
 import {
   useAppStore,
   selectActiveWorkspaceKey,
@@ -10,7 +16,7 @@ import { useTasksSummaryStore } from "../../../store/tasks-summary-store";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import BarChart3 from "lucide-react/dist/esm/icons/bar-chart-3";
 import { ManorLogo } from "../../ui/ManorLogo";
-import { hasJustUpdated } from "../../../lib/just-updated";
+import { takeJustUpdated } from "../../../lib/just-updated";
 import { FeedbackModal } from "../FeedbackModal/FeedbackModal";
 import { LinkedIssuesPopover } from "../LinkedIssuesPopover/LinkedIssuesPopover";
 import { RemoteExposureIndicator } from "./RemoteExposureIndicator";
@@ -123,7 +129,9 @@ export function StatusBar(props: StatusBarProps) {
 
   // An update that just landed opens About on its own, so the changelog for
   // the version now running is the first thing the user sees.
-  const [aboutOpen, setAboutOpen] = useState(hasJustUpdated);
+  // Taking it also acknowledges it, so a remount (crossing the phone
+  // breakpoint unmounts the bar) doesn't open it again.
+  const [aboutOpen, setAboutOpen] = useState(takeJustUpdated);
   // Mounted from the first open on, so closing still plays its exit.
   const [aboutMounted, setAboutMounted] = useState(aboutOpen);
   const [feedbackOpen, setFeedbackOpen] = useState(false);

@@ -14,11 +14,10 @@ import Plus from "lucide-react/dist/esm/icons/plus";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
-import { CountBadge } from "../../ui/CountBadge/CountBadge";
-import { useNotificationStore } from "../../../store/notification-store";
+import { UnreadBadge } from "../../notifications/UnreadBadge";
 import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
-import { HOME_PATH, isHomePath } from "../../../lib/home";
+import { isHomePath } from "../../../lib/home";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
 import { useSidebarSelectionStore } from "../../../store/sidebar-selection-store";
 import {
@@ -26,10 +25,8 @@ import {
   useRovingRows,
 } from "../../../lib/sidebar-row";
 import { openContextMenuFromKeyboard } from "../../../lib/keyboard-context-menu";
-import { useBranchWatcher } from "../../../hooks/useBranchWatcher";
-import { useDiffWatcher } from "../../../hooks/useDiffWatcher";
-import { usePrWatcher } from "../../../hooks/usePrWatcher";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
+import { useSidebarNav } from "../../../hooks/useSidebarNav";
 import { SidebarEntry } from "../SidebarEntry";
 import {
   buildTopLevelEntries,
@@ -80,8 +77,6 @@ export function Sidebar(props: SidebarProps) {
   // menu, and no touch idiom needs reordering the sidebar.
   const isPhone = useLayoutMode() === "phone";
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  const showTasksView = useAppStore((s) => s.showTasksView);
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
   // While the Tasks view (ADR-198) is shown neither Home nor any project is
   // the current row; `homeActive` also gates project selection.
@@ -93,25 +88,14 @@ export function Sidebar(props: SidebarProps) {
   const ghReady = connected.includes("github");
   const linearConnected = connected.includes("linear");
 
-  useBranchWatcher();
-  useDiffWatcher();
-  usePrWatcher();
-
   const handleAddProject = onAddProject ?? (() => {});
 
   // One entry per project, or per linked group of projects (ADR-192). The
   // drag below reorders entries; a group's members move together.
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
 
-  const handleSelectHome = useCallback(() => {
-    setActiveWorkspace(HOME_PATH);
-    onNavigate?.();
-  }, [setActiveWorkspace, onNavigate]);
-
-  const handleShowTasks = useCallback(() => {
-    showTasksView();
-    onNavigate?.();
-  }, [showTasksView, onNavigate]);
+  const { selectHome: handleSelectHome, showTasks: handleShowTasks } =
+    useSidebarNav(onNavigate);
 
   // Project drag-and-drop state
   const [projDragIndex, setProjDragIndex] = useState<number | null>(null);
@@ -423,7 +407,10 @@ export function Sidebar(props: SidebarProps) {
               </div>
             </>
           </div>
-          <AgentsList onShowAll={onShowAgents} />
+          <AgentsList
+            onShowAll={onShowAgents}
+            onAgentSelect={onNavigate}
+          />
         </div>
         {/* Ports are for the desk; the phone's drawer leaves them out. */}
         {!isPhone && <PortsList />}
@@ -447,8 +434,6 @@ type NotificationsRowProps = {
 function NotificationsRow(props: NotificationsRowProps) {
   const { onOpen } = props;
 
-  const unreadCount = useNotificationStore((s) => s.unreadCount);
-
   return (
     <div
       className={styles.homeRow}
@@ -462,14 +447,7 @@ function NotificationsRow(props: NotificationsRowProps) {
         <Bell size={14} />
       </span>
       <span className={styles.homeLabel}>Notifications</span>
-      {unreadCount > 0 && (
-        <CountBadge
-          count={unreadCount}
-          className={styles.rowTrailingBadge}
-          data-testid="notifications-row-badge"
-          aria-label={`${unreadCount} unread`}
-        />
-      )}
+      <UnreadBadge variant="count" className={styles.rowTrailingBadge} />
     </div>
   );
 }

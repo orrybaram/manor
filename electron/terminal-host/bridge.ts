@@ -69,7 +69,7 @@ export async function runRemoteBridge(
 
   await transport.ensureRunning();
   // The host server is not this bridge's concern: `server-bridge` ensures it,
-  // and the desktop opens that on every connect (ADR-218 D1, ADR-225 B5).
+  // and the desktop opens that on every connect (ADR-225 D1, ADR-226 B5).
   const token = await transport.authToken();
   const socket = await transport.connectControl();
 

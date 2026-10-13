@@ -16,7 +16,7 @@ const noPanes = { panes: {} as Record<string, RemotePane> };
 function runningOn(paneId: string, hostId: string) {
   return {
     panes: {
-      [paneId]: { hostId, awaiting: false, reattachEpoch: 0, reattachPending: false },
+      [paneId]: { hostId, awaiting: false, reattachEpoch: 0, reattachReason: null },
     },
   };
 }

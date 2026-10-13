@@ -3,7 +3,7 @@
  * (ADR-215 D4, D5).
  *
  * One mirror per pane: it resolves the pane's agent and its `transcriptPath`,
- * reads the JSONL from the start through `TranscriptParser`, then tails it by
+ * reads the JSONL from the start through the agent's parser, then tails it by
  * byte offset. The offset only ever advances by the byte length of complete
  * lines; a partial trailing line is left unconsumed and re-read, with what
  * follows it, once its newline arrives — Claude appends a line in more than
@@ -29,9 +29,18 @@
  * trigger tries again, and `getHistory` answers `unavailable: "host-offline"`
  * meanwhile. Subscribers keep the entries they already have. A line too long
  * for one read is stepped over without an entry (`TranscriptRead.skip`).
+ *
+ * The tailing itself (offset, reads, watch and poll, the context size) is a
+ * `TranscriptStream` (`stream.ts`, ADR-224 D3); a pane mirror owns one for its
+ * own transcript, one per task somebody opened, and the pane-only parts:
+ * pickers and skills. Who is subscribed is the bridge's fact, kept apart from
+ * the streams, so a pane's streams can be dropped and rebuilt under it.
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
+import type { AgentKind } from "../terminal-host/types";
+import { adapterFor } from "./adapters";
+import type { TranscriptAdapter } from "./adapters/types";
 import { BUILTIN_COMMANDS, type ChatCommand } from "./builtin-commands";
 import {
   encodePickerAnswer,
@@ -42,23 +51,32 @@ import {
   RemoteTranscriptSource,
   type TranscriptExec,
 } from "./remote-transcript-source";
-import { TranscriptParser, type ChatEntry, type ChatSkill } from "./transcript";
+import { chatTaskKey } from "./task-key";
+import {
+  type ChatEntry,
+  type ChatPush,
+  type ChatSkill,
+  type ChatTaskEntry,
+} from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
+import { TranscriptStream, type TranscriptTarget } from "./stream";
 
 /**
  * Why a pane has no chat. `host-offline`: the transcript could not be read
  * just now, most likely because the agent's host is unreachable. `remote` is
  * no longer produced (ADR-216 D4) but stays for renderers that know it.
+ * `unsupported-agent`: the agent has no transcript adapter yet (ADR-224 D1).
  */
 export type ChatUnavailableReason =
   | "no-agent"
+  | "unsupported-agent"
   | "no-transcript"
   | "remote"
   | "host-offline";
 
 /** What `chat.getHistory` answers. */
 export type ChatHistory =
-  | { ok: true; entries: ChatEntry[] }
+  | { ok: true; entries: ChatEntry[]; contextTokens: number | null }
   | { ok: false; reason: ChatUnavailableReason };
 
 export type { ChatCommand } from "./builtin-commands";
@@ -89,6 +107,7 @@ export type ChatAnswerResult =
 export interface PaneAgent {
   /** The host the agent's terminal runs on now (`agentHostId`). */
   hostId: string;
+  agentKind: AgentKind;
   transcriptPath: string | null;
 }
 
@@ -97,8 +116,16 @@ export interface ChatMirrorDeps {
   agentForPane(paneId: string): PaneAgent | null;
   /** Type into the pane's PTY. */
   write(paneId: string, data: string): void;
-  /** Push a new or updated entry to the pane's `chat.entry` subscribers. */
-  publish(paneId: string, entry: ChatEntry): void;
+  /**
+   * Push a new or updated entry, or a context-size update, to the pane's
+   * `chat.entry` subscribers.
+   */
+  publish(paneId: string, entry: ChatPush): void;
+  /**
+   * Push a new or updated entry, or a context-size update, of one task's own
+   * transcript to its `chat.taskEntry` subscribers (ADR-224 D3).
+   */
+  publishTask(paneId: string, taskId: string, entry: ChatPush): void;
   /** Where the agent's transcript is read from (ADR-216 D1). */
   sourceFor(agent: PaneAgent): TranscriptSource;
   /** How long an answer waits for its `tool_result`. Default 8s. */
@@ -112,23 +139,6 @@ export interface ChatMirrorDeps {
 const DEFAULT_ANSWER_TIMEOUT_MS = 8_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_UNWATCHED_POLL_INTERVAL_MS = 2_000;
-
-/**
- * The agent a pane's chat is about: its active agent, or failing that the
- * newest one that ran in it. A pane keeps old, completed agents' records
- * pointing at it, so "the first agent with this paneId" can be the wrong one.
- */
-export function pickPaneAgent<
-  A extends { paneId: string | null; status: string; createdAt: string },
->(agents: readonly A[], paneId: string): A | null {
-  let newest: A | null = null;
-  for (const agent of agents) {
-    if (agent.paneId !== paneId) continue;
-    if (agent.status === "active") return agent;
-    if (!newest || agent.createdAt > newest.createdAt) newest = agent;
-  }
-  return newest;
-}
 
 /**
  * `ChatMirrorDeps.sourceFor` over every host: `local` for this machine, and
@@ -153,38 +163,62 @@ export function transcriptSources(
   };
 }
 
+type StreamIntervals = { pollIntervalMs: number; unwatchedPollIntervalMs: number };
+
+/**
+ * A pane's chat: its own transcript's stream, plus what only a pane has —
+ * pickers that can be answered, the last skill list, and the streams of the
+ * tasks somebody opened (ADR-224 D3).
+ */
 class PaneMirror {
-  path: string | null = null;
-  parser = new TranscriptParser();
+  readonly stream: TranscriptStream;
   /**
-   * The most recent non-empty skill list. Survives `reset`: `/clear` and
-   * resume start a transcript with no listing until its first prompt.
+   * The most recent non-empty skill list of a transcript this pane has left:
+   * `/clear` and resume start one with no listing until its first prompt.
    */
   lastSkills: ChatSkill[] = [];
-  /** Bytes of the file consumed: the end of the last complete line. */
-  offset = 0;
-  source: TranscriptSource | null = null;
-  /** The first read of this path is done; later reads publish what they find. */
-  primed = false;
-  /** Bumped on every reset, so a read or timer from before it is discarded. */
-  generation = 0;
-  watched = false;
-  unwatch: (() => void) | null = null;
-  poll: ReturnType<typeof setInterval> | null = null;
   /** Answers sent and waiting for their `tool_result`, by tool_use id. */
   awaiting = new Map<string, ReturnType<typeof setTimeout>>();
   /** Answers that timed out (D5). */
   needsTerminal = new Set<string>();
-  /** Reads run one at a time, in order. */
-  queue: Promise<void> = Promise.resolve();
-  /**
-   * A read queued behind the running one and not started yet. Every trigger
-   * until it starts joins it — the "read again" flag — so a burst of hooks
-   * during a slow remote read costs one more read, not one each.
-   */
-  pending: Promise<void> | null = null;
-  /** Why the last read failed; null once one succeeds. */
-  readError: string | null = null;
+  /** Tasks' own transcripts, by task (tool_use) id. */
+  children = new Map<string, TranscriptStream>();
+
+  constructor(
+    label: string,
+    adapter: TranscriptAdapter,
+    intervals: StreamIntervals,
+    onPush: (m: PaneMirror, push: ChatPush, publish: boolean) => void,
+  ) {
+    this.stream = new TranscriptStream({
+      label,
+      adapter,
+      ...intervals,
+      onPush: (push, publish) => onPush(this, push, publish),
+      onReset: () => this.forget(),
+    });
+  }
+
+  /** The stream is starting over: nothing it read is in question any more. */
+  private forget(): void {
+    const { parser } = this.stream;
+    if (parser.hasSkillListing()) {
+      const skills = parser.skills();
+      if (skills.length > 0) this.lastSkills = skills;
+    }
+    for (const timer of this.awaiting.values()) clearTimeout(timer);
+    this.awaiting.clear();
+    this.needsTerminal.clear();
+    // A new transcript, or this one rewritten: its tasks are not these.
+    for (const child of this.children.values()) child.release();
+    this.children.clear();
+  }
+
+  /** Stop and forget one task's stream. */
+  dropChild(taskId: string): void {
+    this.children.get(taskId)?.release();
+    this.children.delete(taskId);
+  }
 }
 
 function isOpenPicker(entry: ChatEntry): boolean {
@@ -193,43 +227,67 @@ function isOpenPicker(entry: ChatEntry): boolean {
   return false;
 }
 
+type Resolved =
+  | ({ ok: true } & TranscriptTarget)
+  | { ok: false; reason: ChatUnavailableReason };
+
 export class ChatMirror {
   private readonly mirrors = new Map<string, PaneMirror>();
+  /** Panes somebody is subscribed to (`chat.entry`). */
+  private readonly watchedPanes = new Set<string>();
+  /** Tasks somebody is subscribed to (`chat.taskEntry`), by `chatTaskKey`. */
+  private readonly watchedTasks = new Set<string>();
   private readonly answerTimeoutMs: number;
-  private readonly pollIntervalMs: number;
-  private readonly unwatchedPollIntervalMs: number;
+  private readonly intervals: StreamIntervals;
 
   constructor(private readonly deps: ChatMirrorDeps) {
     this.answerTimeoutMs = deps.answerTimeoutMs ?? DEFAULT_ANSWER_TIMEOUT_MS;
-    this.pollIntervalMs = deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
-    this.unwatchedPollIntervalMs =
-      deps.unwatchedPollIntervalMs ?? DEFAULT_UNWATCHED_POLL_INTERVAL_MS;
+    this.intervals = {
+      pollIntervalMs: deps.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS,
+      unwatchedPollIntervalMs:
+        deps.unwatchedPollIntervalMs ?? DEFAULT_UNWATCHED_POLL_INTERVAL_MS,
+    };
   }
 
   /** The pane's entries so far, after catching up with the file. */
   async getHistory(paneId: string): Promise<ChatHistory> {
-    const resolved = this.resolve(paneId);
-    if (!resolved.ok) return resolved;
-    const m = this.ensure(paneId);
-    m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path);
-    await this.read(paneId, m);
-    if (m.readError !== null) return { ok: false, reason: "host-offline" };
-    return { ok: true, entries: this.entries(m) };
+    const caught = await this.catchUp(paneId);
+    if (!caught.ok) return caught;
+    const { m } = caught;
+    return {
+      ok: true,
+      entries: m.stream.parser.entries().map((e) => this.decorate(m, e)),
+      contextTokens: m.stream.parser.contextTokens(),
+    };
+  }
+
+  /**
+   * A task's own transcript so far (ADR-224 D3), after catching up with the
+   * pane's (to find the task) and then with the task's. `no-transcript` when
+   * the task is unknown, or its agent writes it none.
+   */
+  async getTaskHistory(paneId: string, taskId: string): Promise<ChatHistory> {
+    const caught = await this.catchUp(paneId);
+    if (!caught.ok) return caught;
+    const child = this.pointChild(paneId, caught.m, taskId);
+    if (!child) return { ok: false, reason: "no-transcript" };
+    await child.read();
+    if (child.readError !== null) return { ok: false, reason: "host-offline" };
+    return {
+      ok: true,
+      entries: child.parser.entries(),
+      contextTokens: child.parser.contextTokens(),
+    };
   }
 
   /** Built-in commands plus the session's skills (ADR-217 D3). */
   async getCommands(paneId: string): Promise<ChatCommands> {
-    const resolved = this.resolve(paneId);
-    if (!resolved.ok) return resolved;
-    const m = this.ensure(paneId);
-    m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path);
-    await this.read(paneId, m);
-    if (m.readError !== null) return { ok: false, reason: "host-offline" };
+    const caught = await this.catchUp(paneId);
+    if (!caught.ok) return caught;
+    const { m } = caught;
 
-    const listed = m.parser.hasSkillListing();
-    const skills = listed ? m.parser.skills() : m.lastSkills;
+    const listed = m.stream.parser.hasSkillListing();
+    const skills = listed ? m.stream.parser.skills() : m.lastSkills;
     const byName = new Map<string, ChatCommand>();
     for (const c of BUILTIN_COMMANDS) byName.set(c.name, c);
     for (const s of skills) {
@@ -251,47 +309,64 @@ export class ChatMirror {
    */
   setWatched(paneId: string, watched: boolean): void {
     if (!watched) {
-      const m = this.mirrors.get(paneId);
-      if (!m) return;
-      m.watched = false;
-      this.stopWatching(m);
+      this.watchedPanes.delete(paneId);
+      this.mirrors.get(paneId)?.stream.stopWatching();
       return;
     }
-    const m = this.ensure(paneId);
-    m.watched = true;
-    this.sync(paneId, m);
-    this.startWatching(paneId, m);
+    this.watchedPanes.add(paneId);
+    this.sync(paneId)?.stream.startWatching();
+  }
+
+  /**
+   * Whether anybody is subscribed to one task's `chat.taskEntry` (ADR-224
+   * D3): `setWatched`'s mechanics, for the task's own transcript. The task is
+   * found in the pane's transcript; one not read yet (or whose agentId is not
+   * known yet) is tailed when its entry turns up. Unwatching drops the task's
+   * stream: the next subscriber reads it again.
+   */
+  setTaskWatched(paneId: string, taskId: string, watched: boolean): void {
+    const key = chatTaskKey(paneId, taskId);
+    if (!watched) {
+      this.watchedTasks.delete(key);
+      this.mirrors.get(paneId)?.dropChild(taskId);
+      return;
+    }
+    this.watchedTasks.add(key);
+    const m = this.sync(paneId);
+    if (!m) return;
+    this.pointChild(paneId, m, taskId)?.startWatching();
+    void m.stream.read();
   }
 
   /**
    * A hook arrived for the pane's agent: its transcript has likely grown
-   * (ADR-216 D3). Reads now if somebody is subscribed, else does nothing.
+   * (ADR-216 D3), and so may its tasks' (a subagent's hooks arrive as the
+   * root session's). Reads each that somebody is subscribed to.
    */
   poke(paneId: string): void {
     const m = this.mirrors.get(paneId);
-    if (!m?.watched || !m.path) return;
-    void this.read(paneId, m);
+    if (!m) return;
+    if (this.watchedPanes.has(paneId)) void m.stream.read();
+    for (const [taskId, child] of m.children) {
+      if (this.watchedTasks.has(chatTaskKey(paneId, taskId))) void child.read();
+    }
   }
 
   /** The pane's agent changed: re-check its transcript path. */
   agentChanged(paneId: string): void {
-    const m = this.mirrors.get(paneId);
-    if (!m) return;
-    this.sync(paneId, m);
-    if (m.watched) this.startWatching(paneId, m);
+    if (!this.mirrors.has(paneId) && !this.watchedPanes.has(paneId)) return;
+    const m = this.sync(paneId);
+    if (m && this.watchedPanes.has(paneId)) m.stream.startWatching();
   }
 
   /**
-   * The pane's session is gone: release its watcher, timers and parsed
-   * state. A pane somebody is still subscribed to (its shell was reset in
-   * place) keeps only that fact, so the next agent update can start again.
+   * The pane's session is gone: release its watchers, timers and parsed
+   * state. Its subscribers stay subscribed, so the next agent update can
+   * start again.
    */
   closePane(paneId: string): void {
-    const m = this.mirrors.get(paneId);
-    if (!m) return;
-    this.stopWatching(m);
-    this.reset(m, null);
-    if (!m.watched) this.mirrors.delete(paneId);
+    this.mirrors.get(paneId)?.stream.release();
+    this.mirrors.delete(paneId);
   }
 
   /**
@@ -309,14 +384,10 @@ export class ChatMirror {
     toolUseId: string,
     answer: ChatAnswer,
   ): Promise<ChatAnswerResult> {
-    const resolved = this.resolve(paneId);
-    if (!resolved.ok) return resolved;
-    const m = this.ensure(paneId);
-    m.source = resolved.source;
-    this.usePath(paneId, m, resolved.path);
-    await this.read(paneId, m);
     // The picker cannot be checked against a transcript that cannot be read.
-    if (m.readError !== null) return { ok: false, reason: "host-offline" };
+    const caught = await this.catchUp(paneId);
+    if (!caught.ok) return caught;
+    const { m } = caught;
 
     // Synchronous from here to the write: a second call waiting on the same
     // read sees this one's `awaiting` entry.
@@ -345,7 +416,7 @@ export class ChatMirror {
     }
 
     this.deps.write(paneId, bytes);
-    const generation = m.generation;
+    const generation = m.stream.generation;
     m.awaiting.set(
       toolUseId,
       setTimeout(() => {
@@ -357,162 +428,114 @@ export class ChatMirror {
 
   /** Release everything. The app is quitting. */
   dispose(): void {
-    for (const m of this.mirrors.values()) {
-      this.stopWatching(m);
-      this.reset(m, null);
-    }
+    for (const m of this.mirrors.values()) m.stream.release();
     this.mirrors.clear();
+    this.watchedPanes.clear();
+    this.watchedTasks.clear();
   }
 
-  private resolve(
-    paneId: string,
-  ): { ok: true; path: string; source: TranscriptSource } | { ok: false; reason: ChatUnavailableReason } {
+  private resolve(paneId: string): Resolved {
     const agent = this.deps.agentForPane(paneId);
     if (!agent) return { ok: false, reason: "no-agent" };
+    const adapter = adapterFor(agent.agentKind);
+    if (!adapter) return { ok: false, reason: "unsupported-agent" };
     if (!agent.transcriptPath) return { ok: false, reason: "no-transcript" };
     return {
       ok: true,
       path: agent.transcriptPath,
+      adapter,
       source: this.deps.sourceFor(agent),
     };
   }
 
-  private ensure(paneId: string): PaneMirror {
+  /**
+   * Point the pane's mirror at whatever its agent says now, creating the
+   * mirror if it has something to read. Null when it has not.
+   */
+  private sync(paneId: string): PaneMirror | null {
+    const resolved = this.resolve(paneId);
+    if (resolved.ok) return this.point(paneId, resolved);
+    this.mirrors.get(paneId)?.stream.point(null, false);
+    return null;
+  }
+
+  /** The pane's mirror, created if need be, pointed at `target`. */
+  private point(paneId: string, target: TranscriptTarget): PaneMirror {
     let m = this.mirrors.get(paneId);
     if (!m) {
-      m = new PaneMirror();
+      m = new PaneMirror(paneId, target.adapter, this.intervals, (pane, push, publish) =>
+        this.onPanePush(paneId, pane, push, publish),
+      );
       this.mirrors.set(paneId, m);
     }
+    m.stream.point(target, this.watchedPanes.has(paneId));
     return m;
   }
 
-  /** Point the mirror at whatever the pane's agent says now. */
-  private sync(paneId: string, m: PaneMirror): void {
-    const resolved = this.resolve(paneId);
-    if (resolved.ok) m.source = resolved.source;
-    this.usePath(paneId, m, resolved.ok ? resolved.path : null);
-  }
-
-  private usePath(paneId: string, m: PaneMirror, path: string | null): void {
-    if (m.path === path) return;
-    const watching = m.unwatch !== null || m.poll !== null;
-    this.stopWatching(m);
-    this.reset(m, path);
-    if (watching || m.watched) this.startWatching(paneId, m);
-  }
-
-  /** Forget everything read, and start over at `path`. */
-  private reset(m: PaneMirror, path: string | null): void {
-    for (const timer of m.awaiting.values()) clearTimeout(timer);
-    m.awaiting.clear();
-    m.needsTerminal.clear();
-    m.generation++;
-    m.path = path;
-    m.parser = new TranscriptParser();
-    m.offset = 0;
-    m.primed = false;
-    m.readError = null;
-  }
-
-  private startWatching(paneId: string, m: PaneMirror): void {
-    if (!m.path || m.poll !== null) return;
-    const onChange = () => {
-      void this.read(paneId, m);
-    };
-    const watchable = typeof m.source?.watch === "function";
-    m.unwatch = m.source?.watch?.(m.path, onChange) ?? null;
-    m.poll = setInterval(
-      onChange,
-      watchable ? this.pollIntervalMs : this.unwatchedPollIntervalMs,
-    );
-    m.poll.unref?.();
-    onChange();
-  }
-
-  private stopWatching(m: PaneMirror): void {
-    m.unwatch?.();
-    m.unwatch = null;
-    if (m.poll !== null) clearInterval(m.poll);
-    m.poll = null;
-  }
-
   /**
-   * Read whatever was appended since the last read, in turn. The promise
-   * settles after a read that started after this call. A call while a read
-   * is already waiting to start joins that one instead of queueing another.
+   * Point the pane's mirror at its agent's transcript and read that to its
+   * end: what every read of the chat starts with.
    */
-  private read(paneId: string, m: PaneMirror): Promise<void> {
-    if (m.pending) return m.pending;
-    const run = () => {
-      m.pending = null;
-      return this.readNow(paneId, m).catch((err: unknown) => {
-        console.error(`[chat-mirror] read failed for ${paneId}:`, err);
-      });
-    };
-    const next = m.queue.then(run, run);
-    m.pending = next;
-    m.queue = next;
-    return next;
+  private async catchUp(
+    paneId: string,
+  ): Promise<{ ok: true; m: PaneMirror } | { ok: false; reason: ChatUnavailableReason }> {
+    const resolved = this.resolve(paneId);
+    if (!resolved.ok) return resolved;
+    const m = this.point(paneId, resolved);
+    await m.stream.read();
+    if (m.stream.readError !== null) return { ok: false, reason: "host-offline" };
+    return { ok: true, m };
   }
 
-  private async readNow(paneId: string, m: PaneMirror): Promise<void> {
-    const path = m.path;
-    const source = m.source;
-    if (!path || !source) return;
-    let generation = m.generation;
-    for (;;) {
-      const result = await source.read(path, m.offset);
-      if (generation !== m.generation) return;
-      // Keep what was read so far; the next trigger tries again.
-      if (!result.ok) {
-        m.readError = result.error;
-        return;
-      }
-      // Rewritten from scratch: start over, quietly (`reset` unprimes, so
-      // the re-read publishes nothing). The data read was from the wrong
-      // offset, so read again from the start.
-      if (result.size < m.offset) {
-        this.reset(m, path);
-        generation = m.generation;
-        continue;
-      }
-      m.readError = null;
-      // A line too long to read: step over it, and read on from after it.
-      if (result.skip !== undefined && result.skip > 0) {
-        m.offset += result.skip;
-        continue;
-      }
-      this.consume(paneId, m, result.data, m.primed);
-      m.primed = true;
+  /** What the pane's stream found: publish it, and settle what it answers. */
+  private onPanePush(paneId: string, m: PaneMirror, push: ChatPush, publish: boolean): void {
+    if (push.kind === "usage") {
+      if (publish) this.deps.publish(paneId, push);
       return;
     }
+    if (!isOpenPicker(push)) this.settle(m, push.id);
+    if (publish) this.deps.publish(paneId, this.decorate(m, push));
+    // A watched task whose transcript was not known yet (its agentId arrives
+    // with its tool_result) can be tailed now.
+    if (push.kind === "task" && this.watchedTasks.has(chatTaskKey(paneId, push.id))) {
+      this.pointChild(paneId, m, push.id)?.startWatching();
+    }
+  }
+
+  /** Where the task's own transcript is, by the pane's adapter; null if none. */
+  private childPath(m: PaneMirror, task: ChatTaskEntry): string | null {
+    const parentPath = m.stream.path;
+    return parentPath ? m.stream.adapter.childTranscriptPath(parentPath, task) : null;
   }
 
   /**
-   * Parse every complete line in `data`, which starts at `m.offset`. The
-   * offset advances by the byte length of those lines (newlines included);
-   * a partial last line is left for the next read to return whole.
+   * The task's stream, created or re-pointed at wherever the adapter says
+   * its transcript is now; null when it has none (ADR-224 D3).
    */
-  private consume(
-    paneId: string,
-    m: PaneMirror,
-    data: string,
-    publish: boolean,
-  ): void {
-    const end = data.lastIndexOf("\n");
-    if (end === -1) return;
-    const complete = data.slice(0, end + 1);
-    m.offset += Buffer.byteLength(complete, "utf8");
-    for (const line of complete.slice(0, -1).split("\n")) {
-      for (const entry of m.parser.push(line)) {
-        if (!isOpenPicker(entry)) this.settle(m, entry.id);
-        if (publish) this.deps.publish(paneId, this.decorate(m, entry));
-      }
+  private pointChild(paneId: string, m: PaneMirror, taskId: string): TranscriptStream | null {
+    const task = m.stream.parser.entry(taskId);
+    const path = task?.kind === "task" ? this.childPath(m, task) : null;
+    const source = m.stream.source;
+    if (!path || !source) return null;
+    let child = m.children.get(taskId);
+    if (!child) {
+      child = new TranscriptStream({
+        label: `${paneId} task ${taskId}`,
+        adapter: m.stream.adapter,
+        child: true,
+        ...this.intervals,
+        onPush: (push, publish) => {
+          if (publish) this.deps.publishTask(paneId, taskId, push);
+        },
+      });
+      m.children.set(taskId, child);
     }
-    if (m.parser.hasSkillListing()) {
-      const skills = m.parser.skills();
-      if (skills.length > 0) m.lastSkills = skills;
-    }
+    // The task's transcript is on the same host, read the same way.
+    child.point(
+      { path, adapter: m.stream.adapter, source },
+      this.watchedTasks.has(chatTaskKey(paneId, taskId)),
+    );
+    return child;
   }
 
   /** A picker got its `tool_result`: its answer is no longer in question. */
@@ -529,14 +552,14 @@ export class ChatMirror {
     id: string,
     generation: number,
   ): Promise<void> {
-    if (m.generation !== generation || !m.awaiting.has(id)) return;
+    if (m.stream.generation !== generation || !m.awaiting.has(id)) return;
     // The watcher may be off (nobody subscribed) or simply late: look first.
     // `awaiting` keeps the id until then, so a second answer stays refused.
-    await this.read(paneId, m);
+    await m.stream.read();
     // Settled by that read, or reset while it ran.
-    if (m.generation !== generation || !m.awaiting.has(id)) return;
+    if (m.stream.generation !== generation || !m.awaiting.has(id)) return;
     m.awaiting.delete(id);
-    const entry = m.parser.entries().find((e) => e.id === id);
+    const entry = m.stream.parser.entry(id);
     if (!entry || !isOpenPicker(entry)) return;
     m.needsTerminal.add(id);
     this.deps.publish(paneId, this.decorate(m, entry));
@@ -544,7 +567,7 @@ export class ChatMirror {
 
   /** The newest question or plan, answered or not. */
   private newestPicker(m: PaneMirror): ChatEntry | null {
-    const entries = m.parser.entries();
+    const entries = m.stream.parser.entries();
     for (let i = entries.length - 1; i >= 0; i--) {
       const entry = entries[i];
       if (entry.kind === "question" || entry.kind === "plan") return entry;
@@ -552,11 +575,14 @@ export class ChatMirror {
     return null;
   }
 
-  private entries(m: PaneMirror): ChatEntry[] {
-    return m.parser.entries().map((e) => this.decorate(m, e));
-  }
-
+  /**
+   * What the parser can't know: a picker that timed out (D5), and whether
+   * the adapter finds a task its own transcript (ADR-224 D3).
+   */
   private decorate(m: PaneMirror, entry: ChatEntry): ChatEntry {
+    if (entry.kind === "task") {
+      return { ...entry, hasTranscript: this.childPath(m, entry) !== null };
+    }
     if (
       (entry.kind === "question" || entry.kind === "plan") &&
       m.needsTerminal.has(entry.id) &&

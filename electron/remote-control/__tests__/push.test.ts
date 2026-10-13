@@ -101,7 +101,7 @@ describe("PushManager", () => {
     });
   });
 
-  describe("importKeys (ADR-218 D3)", () => {
+  describe("importKeys (ADR-225 D3)", () => {
     const DESKTOP = { publicKey: "desktop-pub", privateKey: "desktop-priv" };
 
     it("replaces the active pair, persists it, and clears subscriptions made against the old one", async () => {

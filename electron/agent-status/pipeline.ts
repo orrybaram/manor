@@ -1,5 +1,5 @@
 /**
- * The agent pipeline (ADR-178 §2, ADR-184, ADR-225 S1): how a hook becomes
+ * The agent pipeline (ADR-178 §2, ADR-184, ADR-226 S1): how a hook becomes
  * an Agent's status, built once for both compositions that own agents — the
  * desktop's `initApp()` and the host server's `createHostAgents`.
  *

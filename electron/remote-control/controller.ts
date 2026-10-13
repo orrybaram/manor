@@ -103,7 +103,7 @@ export interface RemoteControlControllerOptions {
   appVersion?: string;
   /**
    * The push endpoints a host's server already sends to (cached), so those
-   * phones are not told twice (ADR-218 D3). Empty for a host not cached.
+   * phones are not told twice (ADR-225 D3). Empty for a host not cached.
    */
   hostPushEndpoints?: (hostId: string) => ReadonlySet<string>;
 }
@@ -229,7 +229,7 @@ export class RemoteControlController {
   ): void {
     if (!this.push || !notify) return;
     // An agent on a remote host whose server already pushes to some of these
-    // phones is told about by that server, not twice (ADR-218 D3).
+    // phones is told about by that server, not twice (ADR-225 D3).
     pushAgentTransition(this.push, agent, previousStatus, status, {
       skipEndpoints: agent.hostId
         ? this.hostPushEndpoints(agent.hostId)

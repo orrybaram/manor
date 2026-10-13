@@ -26,8 +26,10 @@ import {
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
 import { dispatchStreamEvent } from "./agent-stream-events";
-import { ChatMirror, pickPaneAgent, transcriptSources } from "./chat-mirror/mirror";
+import { ChatMirror, transcriptSources } from "./chat-mirror/mirror";
+import { pickPaneAgent } from "../src/lib/pane-agent";
 import { LocalTranscriptSource } from "./chat-mirror/transcript-source";
+import { chatTaskKey } from "./chat-mirror/task-key";
 import { NotificationStore } from "./notification-store";
 import { StatsStore } from "./stats-store";
 import { createWorkspaceOps } from "./workspace-ops";
@@ -380,7 +382,7 @@ export function initApp(devTitle: string | null): void {
     return repo;
   });
   // The remote-control and relay modules take their platform from these ports
-  // rather than importing Electron, so the host server can reuse them (ADR-218 D6).
+  // rather than importing Electron, so the host server can reuse them (ADR-225 D6).
   const secretBox = electronSecretBox;
   const appVersion = app.getVersion();
   const linearManager = new LinearManager(secretBox);
@@ -441,7 +443,7 @@ export function initApp(devTitle: string | null): void {
     statsStore.recordOnce("prsMerged", prUrl);
   });
 
-  // ADR-218 D4/D5/D8: each remote host's host server holds the desktop's
+  // ADR-225 D4/D5/D8: each remote host's host server holds the desktop's
   // view of that host — its projects (with the issue and PR data already in
   // memory here) and its part of the layout — so a phone sees them with the
   // lid closed. Sent whole on every connect of the owner channel; after
@@ -474,7 +476,7 @@ export function initApp(devTitle: string | null): void {
   const remoteDeviceStore = new RemoteDeviceStore(secretBox);
   const remotePush = new PushManager(remoteDeviceStore, secretBox);
   // After `remotePush`: starting syncs hosts that are already connected.
-  // ADR-218 D3: the sync also caches each host's push endpoints, which the
+  // ADR-225 D3: the sync also caches each host's push endpoints, which the
   // controller below reads so the desktop skips what the host server sends.
   hostServerSync.start();
   /**
@@ -507,7 +509,7 @@ export function initApp(devTitle: string | null): void {
     // (ADR-206 D4).
     const ws = new WsBridgeServer(bridgeServer!, {
       appVersion,
-      // So a phone's pairings show this machine's real name (ADR-218 D7).
+      // So a phone's pairings show this machine's real name (ADR-225 D7).
       hostName: () => os.hostname(),
     });
     wsBridge = ws;
@@ -707,6 +709,7 @@ export function initApp(devTitle: string | null): void {
       if (!agent) return null;
       return {
         hostId: agentHostId(agent, getPaneHostId),
+        agentKind: agent.agentKind,
         transcriptPath: agent.transcriptPath,
       };
     },
@@ -714,6 +717,14 @@ export function initApp(devTitle: string | null): void {
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) =>
       bridgeServer?.publish("chat", "entry", [paneId, entry], paneId),
+    // ADR-224 D3: keyed by pane and task, so only that task's subscribers hear it.
+    publishTask: (paneId, taskId, entry) =>
+      bridgeServer?.publish(
+        "chat",
+        "taskEntry",
+        [paneId, taskId, entry],
+        chatTaskKey(paneId, taskId),
+      ),
   });
 
   backendRegistry.onEvent((hostId: string, event: StreamEvent) => {

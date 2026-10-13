@@ -1,5 +1,5 @@
 /**
- * Who owns a pane's winsize on a host server (ADR-218 D5).
+ * Who owns a pane's winsize on a host server (ADR-225 D5).
  *
  * ADR-178 D5 said the "is a desktop attached?" check would move into the
  * daemon once a host had no Electron main to ask. This is that host: the

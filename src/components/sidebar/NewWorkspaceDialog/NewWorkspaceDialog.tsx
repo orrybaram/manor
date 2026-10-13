@@ -169,7 +169,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   );
 
   const hosts = useHostStore((s) => s.hosts);
-  // A host server does not create workspaces (ADR-218 D5): every way of
+  // A host server does not create workspaces (ADR-225 D5): every way of
   // opening this dialog lands on the stated limit instead of a form.
   const { isHostServer, hostName: serverHostName } = useConnection();
 

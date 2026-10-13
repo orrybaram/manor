@@ -80,7 +80,7 @@ describe("hasOtherClients", () => {
   });
 });
 
-describe("host pty.create winsize (ADR-218 D5)", () => {
+describe("host pty.create winsize (ADR-225 D5)", () => {
   let sessions: SessionInfo[];
   let createOrAttach: ReturnType<typeof vi.fn>;
   let watched: Array<[string, number | undefined]>;
@@ -98,6 +98,11 @@ describe("host pty.create winsize (ADR-218 D5)", () => {
         pty: {
           listSessions: async () => sessions,
           createOrAttach,
+          attachExisting: vi.fn(async (id: string) =>
+            sessions.some((s) => s.sessionId === id && s.alive)
+              ? { screenAnsi: "$ ", seq: 7, cols: 90, rows: 20 }
+              : null,
+          ),
           getSnapshot: async () => ({ cols: 90, rows: 20 }),
           write: vi.fn(),
           resize: vi.fn(async () => {}),
@@ -161,6 +166,33 @@ describe("host pty.create winsize (ADR-218 D5)", () => {
     sessions = [session("pane-1", 2)];
     const third = await create({ ...device, id: "phone-3" } as Caller);
     expect(third).toMatchObject({ winsizeOwner: false });
+  });
+
+  const reattach = (caller: Caller, paneId = "pane-1") =>
+    handler("pty.attach")({ deps, caller }, paneId);
+
+  it("re-attaches a returning device without taking the winsize, and never spawns", async () => {
+    sessions = [session("pane-1", 0)];
+    await create(device);
+    const other = { ...device, id: "phone-2" } as Caller;
+    await create(other);
+    release("pane-1", { connectionId: device.id, callerClass: "device" });
+    // The first phone comes back: the second keeps the grid it fitted to.
+    expect(await reattach(device)).toEqual({
+      ok: true,
+      hostId: "local",
+      snapshot: "$ ",
+      snapshotSeq: 7,
+      winsizeOwner: false,
+      cols: 90,
+      rows: 20,
+    });
+    expect(ownerOf("pane-1")?.connectionId).toBe("phone-2");
+    expect(createOrAttach).toHaveBeenCalledTimes(2);
+  });
+
+  it("answers exited for a session that is gone", async () => {
+    expect(await reattach(device)).toEqual({ ok: false, reason: "exited" });
   });
 
   it("ranks the owner channel with a device, not as a local viewer", async () => {
@@ -279,7 +311,7 @@ describe("createHostWinsize poll", () => {
   });
 });
 
-describe("Started while away (ADR-218 D5)", () => {
+describe("Started while away (ADR-225 D5)", () => {
   const paths = ["/ws/a", "/ws/a/sub", "/ws/b"];
 
   it("appends a missing live session to the workspace it runs in", () => {

@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ActivePort } from "../electron.d.ts";
 import { useProjectStore } from "./project-store";
+import { onBridgeResync } from "../bridge/resync";
 
 /**
  * The listening-ports list, fed by ONE scanner (ADR-198 §7). The sidebar's
@@ -78,12 +79,21 @@ function startScanner(): () => void {
   });
 
   const unsubChange = window.electronAPI.ports.onChange((newPorts) => {
-    setPorts(newPorts as ActivePort[]);
+    setPorts(newPorts);
+  });
+
+  // The scanner's pushes stop reaching a dropped socket; ask for a fresh scan.
+  const unsubResync = onBridgeResync(() => {
+    window.electronAPI.ports
+      .scanNow()
+      .then(setPorts)
+      .catch(() => {});
   });
 
   return () => {
     unsubProjects();
     unsubChange();
+    unsubResync();
     window.electronAPI.ports.stopScanner();
   };
 }

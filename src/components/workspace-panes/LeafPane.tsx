@@ -59,8 +59,15 @@ import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
 import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useAgentStore } from "../../store/agent-store";
-import { chatTranscriptPath, pickPaneAgent } from "../phone/ChatPane/chat-view";
-import { usePaneChatStarting, usePaneChatView } from "../phone/ChatPane/usePaneChatView";
+import { chatTranscriptPath } from "../phone/ChatPane/chat-view";
+import { selectPaneChatAgent } from "../../lib/pane-agent";
+import {
+  endMenuHandoff,
+  usePaneChatStarting,
+  usePaneChatView,
+  usePaneMenuHandoff,
+} from "../phone/ChatPane/usePaneChatView";
+import { MenuKeyBar } from "../phone/ChatPane/MenuKeyBar";
 import { ChatStarting } from "../phone/ChatPane/ChatStarting";
 import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
 
@@ -110,17 +117,22 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   // resume remounts the chat with the new session's history.
   const phone = useLayoutMode() === "phone";
   const chatTranscript = useAgentStore((s) =>
-    phone && contentType !== "diff" && contentType !== "browser"
-      ? chatTranscriptPath(pickPaneAgent(s.agents, paneId))
-      : null,
+    phone ? chatTranscriptPath(selectPaneChatAgent(s.agents, paneId, contentType)) : null,
   );
   // A Claude agent the phone just started opens on the chat while it boots,
   // and a `/clear` sent from the chat shows a fresh one until the new
   // session's transcript is known (its Agent only exists after a prompt).
   const chatStarting = usePaneChatStarting(paneId, chatTranscript) && phone;
-  const [paneView, setPaneView] = usePaneChatView(paneId);
+  const [paneView, setPaneView] = usePaneChatView(paneId, chatTranscript);
   const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
+
+  // ADR-218 D3: while the chat has handed the terminal a TUI menu, a key bar
+  // drives it. The handoff covers the pane's view until it ends; a new
+  // transcript (`/resume` picked a session) ends it on that session's chat.
+  const handoff = usePaneMenuHandoff(paneId, chatTranscript);
+  const showKeyBar = phone && handoff !== null;
+  const backToChat = useCallback(() => endMenuHandoff(paneId), [paneId]);
 
   const focusPane = useAppStore((s) => s.focusPane);
   const splitPane = useAppStore((s) => s.splitPane);
@@ -651,7 +663,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""}`}>
+      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <DiffPane
@@ -703,6 +715,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           </Suspense>
         )}
         {chatStarting && <ChatStarting paneId={paneId} hidden={!showChat} />}
+        {showKeyBar && <MenuKeyBar paneId={paneId} onBackToChat={backToChat} />}
       </div>
       {showDropZone && <PaneDropZone paneId={paneId} />}
     </div>

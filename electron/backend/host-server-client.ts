@@ -1,6 +1,6 @@
 /**
  * HostServerClient — the desktop's end of the owner channel to one remote
- * host's host server (ADR-218 D4).
+ * host's host server (ADR-225 D4).
  *
  * The channel is one more stream on the host's provider
  * (`HostProvider.openServerChannel`: for ssh, `exec manor-host server-bridge`

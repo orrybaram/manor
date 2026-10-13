@@ -67,7 +67,7 @@ const loadWebPush = lazy(async () =>
 export interface PushNotifyOptions {
   /**
    * Subscriptions to leave out: the endpoints a host server already pushes to
-   * for its own agents, so a phone paired both ways hears once (ADR-218 D3).
+   * for its own agents, so a phone paired both ways hears once (ADR-225 D3).
    */
   skipEndpoints?: ReadonlySet<string>;
 }
@@ -143,7 +143,7 @@ export class PushManager {
 
   /**
    * The active key pair, generated on first use, for sharing with a host
-   * server (ADR-218 D3). Null when it cannot be stored safely.
+   * server (ADR-225 D3). Null when it cannot be stored safely.
    */
   async vapidKeys(): Promise<VapidKeys | null> {
     try {
@@ -154,7 +154,7 @@ export class PushManager {
   }
 
   /**
-   * Adopt `keys` as this manager's pair (ADR-218 D3). A browser holds one
+   * Adopt `keys` as this manager's pair (ADR-225 D3). A browser holds one
    * push subscription per origin, tied to one VAPID key, so every server a
    * phone is paired with signs with the desktop's. When the public key
    * actually changes, the stored subscriptions (made against the old key)
@@ -313,7 +313,7 @@ export function pushPayloadFor(
  * One agent-status transition, as a push to every subscribed device — or
  * nothing, when the status is not worth waking a phone for or did not change.
  * The one rule for both the desktop's controller and a host server
- * (ADR-218 D3), each of which hands it transitions already coalesced across a
+ * (ADR-225 D3), each of which hands it transitions already coalesced across a
  * hook replay (`NotificationCoalescer`).
  */
 export function pushAgentTransition(

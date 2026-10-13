@@ -413,7 +413,6 @@ export class LinearManager {
    * other host throws and the renderer loads it directly.
    */
   async proxyImage(url: string): Promise<string> {
-    if (!isLinearImageUrl(url)) throw new Error("Not a Linear-hosted image");
     const token = this.getToken();
     if (!token) throw new Error("Not connected to Linear");
 

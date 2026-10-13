@@ -2,7 +2,7 @@
  * The agent side of one terminal stream event (ADR-184), shared by every
  * Manor server that runs a Status reconciler: the desktop
  * (`app-lifecycle.ts`) and the host server (`host-server/server.ts`,
- * ADR-218). Electron-free, so the host server can import it.
+ * ADR-225). Electron-free, so the host server can import it.
  */
 
 import type { AgentManager, AgentInfo } from "./agent-persistence";

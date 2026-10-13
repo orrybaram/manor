@@ -131,6 +131,18 @@ describe("TranscriptParser", () => {
     expect(p.entries()).toEqual([]);
   });
 
+  it("turns a task notification into a notice carrying its summary", () => {
+    const p = new TranscriptParser();
+    const xml = (status: string) =>
+      `<task-notification>\n<task-id>a1</task-id>\n<status>${status}</status>\n<summary>Agent "Map sync" finished</summary>\n</task-notification>`;
+    expect(p.push(userBlocks("n1", xml("completed")))).toEqual([
+      { kind: "notice", id: "n1", ts: expect.any(String), text: 'Agent "Map sync" finished', status: "ok" },
+    ]);
+    expect(p.push(userBlocks("n2", xml("failed")))[0]).toMatchObject({ kind: "notice", status: "error" });
+    expect(p.push(userBlocks("n3", "<task-notification><task-id>a1</task-id></task-notification>"))).toEqual([]);
+    expect(p.entries().some((e) => e.kind === "user")).toBe(false);
+  });
+
   it("skips malformed JSON, unknown line types and unknown blocks without throwing", () => {
     const p = new TranscriptParser();
     expect(p.push("{not json")).toEqual([]);
@@ -293,5 +305,221 @@ describe("TranscriptParser", () => {
       ).toEqual([]);
       expect(p.entries()).toHaveLength(1);
     });
+  });
+
+  describe("context tokens", () => {
+    function withUsage(uuid: string, usage: unknown, extra = {}): string {
+      return line({
+        type: "assistant",
+        uuid,
+        message: { role: "assistant", content: [{ type: "text", text: "hi" }], usage },
+        ...extra,
+      });
+    }
+
+    it("sums input, cache creation and cache read tokens, not output", () => {
+      const p = new TranscriptParser();
+      p.push(
+        withUsage("a1", {
+          input_tokens: 10,
+          cache_creation_input_tokens: 200,
+          cache_read_input_tokens: 3000,
+          output_tokens: 99,
+        }),
+      );
+      expect(p.contextTokens()).toBe(3210);
+    });
+
+    it("counts absent or non-numeric fields as zero", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 5, cache_read_input_tokens: "lots" }));
+      expect(p.contextTokens()).toBe(5);
+    });
+
+    it("takes the newest assistant line", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 100 }));
+      p.push(withUsage("a2", { input_tokens: 50, cache_read_input_tokens: 400 }));
+      expect(p.contextTokens()).toBe(450);
+    });
+
+    it("ignores sidechain and synthetic lines", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 100 }));
+      p.push(withUsage("a2", { input_tokens: 9000 }, { isSidechain: true }));
+      p.push(
+        line({
+          type: "assistant",
+          uuid: "a3",
+          message: {
+            role: "assistant",
+            model: "<synthetic>",
+            content: [{ type: "text", text: "API Error" }],
+            usage: { input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        }),
+      );
+      expect(p.contextTokens()).toBe(100);
+    });
+
+    it("is null without usage, and keeps the last known size past a line without it", () => {
+      const p = new TranscriptParser();
+      p.push(assistant("a1", [{ type: "text", text: "hi" }]));
+      p.push(withUsage("a2", { output_tokens: 3 }));
+      p.push(withUsage("a3", "garbage"));
+      expect(p.contextTokens()).toBeNull();
+      p.push(withUsage("a4", { input_tokens: 7 }));
+      p.push(assistant("a5", [{ type: "text", text: "more" }]));
+      expect(p.contextTokens()).toBe(7);
+    });
+
+    it("never puts usage in the entries", () => {
+      const p = new TranscriptParser();
+      p.push(withUsage("a1", { input_tokens: 7 }));
+      expect(p.entries().map((e) => e.kind)).toEqual(["assistant"]);
+    });
+  });
+});
+
+describe("TranscriptParser tasks", () => {
+  const launch = (id: string, name: string, input: Record<string, unknown>) =>
+    assistant(`a-${id}`, [{ type: "tool_use", id, name, input }]);
+  const result = (id: string, text: string, toolUseResult?: unknown, extra = {}) =>
+    line({
+      type: "user",
+      uuid: `r-${id}`,
+      message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, content: text, ...extra }] },
+      ...(toolUseResult === undefined ? {} : { toolUseResult }),
+    });
+  const notify = (uuid: string, toolUseId: string, status: string) =>
+    userBlocks(
+      uuid,
+      `<task-notification>\n<task-id>x</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>${status}</status>\n<summary>All done</summary>\n</task-notification>`,
+    );
+
+  it("tracks an async agent from launch to notification without a notice", () => {
+    const p = new TranscriptParser();
+    const [t] = p.push(
+      launch("tu1", "Agent", { description: "Map sync", subagent_type: "Explore", model: "sonnet", run_in_background: true }),
+    );
+    expect(t).toMatchObject({
+      kind: "task",
+      id: "tu1",
+      taskKind: "agent",
+      title: "Map sync",
+      agentType: "Explore",
+      model: "sonnet",
+      background: true,
+      status: "running",
+    });
+    const [r] = p.push(result("tu1", "Async agent launched", { isAsync: true, status: "async_launched", agentId: "a688" }));
+    expect(r).toMatchObject({ status: "running", taskRef: "a688" });
+    expect((r as { result?: string }).result).toBeUndefined();
+    const out = p.push(notify("n1", "tu1", "completed"));
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ kind: "task", id: "tu1", status: "ok", result: "All done" });
+    expect(p.entries().filter((e) => e.kind === "notice")).toEqual([]);
+  });
+
+  it("resolves a foreground agent from its result", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu2", "Agent", { description: "Look" }));
+    const [r] = p.push(result("tu2", "found it", { agentId: "b1" }));
+    expect(r).toMatchObject({ status: "ok", result: "found it", taskRef: "b1", background: false });
+  });
+
+  it("marks a failed foreground agent as error", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu3", "Agent", {}));
+    const [r] = p.push(result("tu3", "boom", undefined, { is_error: true }));
+    expect(r).toMatchObject({ title: "Agent", status: "error", result: "boom" });
+  });
+
+  it("tracks a background Bash and its killed notification", () => {
+    const p = new TranscriptParser();
+    const [t] = p.push(launch("tu4", "Bash", { command: "sleep 99\necho hi", run_in_background: true }));
+    expect(t).toMatchObject({ kind: "task", taskKind: "shell", title: "sleep 99", background: true, status: "running" });
+    const [r] = p.push(result("tu4", "Command running in background with ID: bjl", { backgroundTaskId: "bjl" }));
+    expect(r).toMatchObject({ status: "running", taskRef: "bjl" });
+    expect((r as { result?: string }).result).toBeUndefined();
+    expect(p.push(notify("n2", "tu4", "killed"))[0]).toMatchObject({ status: "killed", result: "All done" });
+  });
+
+  it("keeps a foreground Bash as a tool", () => {
+    const p = new TranscriptParser();
+    expect(p.push(launch("tu5", "Bash", { command: "ls" }))[0].kind).toBe("tool");
+  });
+
+  it("still makes a notice for a notification with an unknown tool-use-id", () => {
+    const p = new TranscriptParser();
+    const [n] = p.push(notify("n3", "nope", "failed"));
+    expect(n).toMatchObject({ kind: "notice", text: "All done", status: "error" });
+  });
+
+  it("parses the legacy Task tool name", () => {
+    const p = new TranscriptParser();
+    expect(p.push(launch("tu6", "Task", { subagent_type: "general-purpose" }))[0]).toMatchObject({
+      kind: "task",
+      taskKind: "agent",
+      title: "general-purpose",
+    });
+  });
+
+  it("tolerates a result with no toolUseResult and a malformed notification", () => {
+    const p = new TranscriptParser();
+    p.push(launch("tu7", "Agent", { description: "d", run_in_background: true }));
+    const [r] = p.push(result("tu7", "ok", "weird"));
+    expect(r).toMatchObject({ status: "running" });
+    expect(p.push(userBlocks("n4", "<task-notification><tool-use-id>tu7</tool-use-id></task-notification>"))).toEqual([]);
+    expect(p.entries().find((e) => e.id === "tu7")).toMatchObject({ status: "running" });
+  });
+
+  it("reads run_in_background written as the string \"true\"", () => {
+    const p = new TranscriptParser();
+    expect(p.push(launch("s1", "Agent", { description: "d", run_in_background: "true" }))[0]).toMatchObject({ background: true });
+    expect(p.push(launch("s2", "Bash", { command: "x", run_in_background: "true" }))[0]).toMatchObject({ kind: "task" });
+  });
+
+  it("marks an async result as background whatever the input said", () => {
+    const p = new TranscriptParser();
+    p.push(launch("s3", "Agent", { description: "d" }));
+    const [r] = p.push(result("s3", "launched", { isAsync: true, agentId: "a1" }));
+    expect(r).toMatchObject({ background: true, status: "running" });
+  });
+
+  const queued = (uuid: string, toolUseId: string, taskId = "t1") =>
+    line({
+      type: "attachment",
+      uuid,
+      attachment: {
+        type: "queued_command",
+        commandMode: "task-notification",
+        prompt: `<task-notification>\n<task-id>${taskId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<output-file>/x</output-file>\n<status>completed</status>\n<summary>All done</summary>\n</task-notification>`,
+        origin: { kind: "task-notification" },
+      },
+    });
+
+  it("settles a task from a queued_command attachment", () => {
+    const p = new TranscriptParser();
+    p.push(launch("q1", "Agent", { description: "d", run_in_background: "true" }));
+    p.push(result("q1", "launched", { isAsync: true, agentId: "a1" }));
+    const out = p.push(queued("qa", "q1"));
+    expect(out[0]).toMatchObject({ kind: "task", id: "q1", status: "ok", result: "All done" });
+    // The same notification later as a user line updates again, no notice.
+    p.push(notify("qu", "q1", "completed"));
+    expect(p.entries().filter((e) => e.kind === "notice")).toEqual([]);
+  });
+
+  it("makes one notice for an unmatched notification delivered in both forms", () => {
+    const p = new TranscriptParser();
+    expect(p.push(queued("qb", "gone", "t9"))[0]).toMatchObject({ kind: "notice" });
+    const text = `<task-notification>\n<task-id>t9</task-id>\n<tool-use-id>gone</tool-use-id>\n<status>completed</status>\n<summary>All done</summary>\n</task-notification>`;
+    expect(p.push(userBlocks("qc", text))).toEqual([]);
+    expect(p.entries().filter((e) => e.kind === "notice")).toHaveLength(1);
+  });
+
+  it("ignores a queued_command whose prompt is not a string", () => {
+    const p = new TranscriptParser();
+    expect(p.push(line({ type: "attachment", uuid: "z", attachment: { type: "queued_command", prompt: [{ type: "text", text: "hi" }] } }))).toEqual([]);
   });
 });

@@ -116,6 +116,9 @@ export class RoutedBackend implements WorkspaceBackend {
       },
       createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
         this.pty.createOrAttachWith(sessionId, cwd, cols, rows, { shellArgs, env }),
+      // Never a new session, so only ever where an existing one runs.
+      attachExisting: (sessionId) =>
+        bySession(sessionId).attachExisting(sessionId),
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
       writeAfterReady: (sessionId, data) =>
         bySession(sessionId).writeAfterReady(sessionId, data),

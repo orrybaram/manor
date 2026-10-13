@@ -123,27 +123,6 @@ export function PrPopover(props: PrPopoverProps) {
     fetchPrs();
   }, [clearHoverTimeout]);
 
-  const PrIcon =
-    pr.state === "merged"
-      ? GitMerge
-      : pr.state === "closed"
-        ? GitPullRequestClosed
-        : GitPullRequest;
-
-  const stateLabel =
-    pr.state === "merged"
-      ? "Merged"
-      : pr.state === "closed"
-        ? "Closed"
-        : "Open";
-
-  const stateClass =
-    pr.state === "merged"
-      ? styles.prPopoverStateMerged
-      : pr.state === "closed"
-        ? styles.prPopoverStateClosed
-        : styles.prPopoverStateOpen;
-
   const verdict = prVerdict(pr);
   const readiness = verdict.readiness;
   const badgeClass = {
@@ -162,19 +141,10 @@ export function PrPopover(props: PrPopoverProps) {
 
   const showDraftOutline = pr.isDraft && isLive;
 
-  const handleSendToAgent = useCallback(
-    (comment: PrComment) => {
-      if (!workspacePath) return;
-      clearHoverTimeout();
-      setOpen(false);
-      startAgentWithPrompt(
-        workspacePath,
-        reviewCommentPrompt(pr, comment),
-        hostId,
-      );
-    },
-    [workspacePath, hostId, pr, clearHoverTimeout],
-  );
+  const handleSendToAgentStart = useCallback(() => {
+    clearHoverTimeout();
+    setOpen(false);
+  }, [clearHoverTimeout]);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -285,46 +255,101 @@ export function PrPopover(props: PrPopoverProps) {
             }
           }}
         >
-          <div className={styles.prPopoverHeader}>
-            <PrIcon size={14} />
-            <span>#{pr.number}</span>
-            <span className={stateClass}>{stateLabel}</span>
-            {pr.isDraft && <span className={styles.prPopoverDraft}>Draft</span>}
-            {pr.additions != null && pr.deletions != null && (
-              <span className={styles.prPopoverDiffStat}>
-                <span className={styles.prPopoverAdditions}>
-                  +{pr.additions}
-                </span>
-                <span className={styles.prPopoverDeletions}>
-                  −{pr.deletions}
-                </span>
-              </span>
-            )}
-          </div>
-
-          <Link
-            variant="plain"
-            href={pr.url}
-            className={styles.prPopoverTitle}
-            title="Open this pull request on GitHub"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {pr.title}
-          </Link>
-
-          <SummaryRows pr={pr} />
-
-          <div className={styles.prPopoverScroll}>
-            <ReviewersSection pr={pr} />
-            <CommentsSection
-              pr={pr}
-              onSendToAgent={workspacePath ? handleSendToAgent : undefined}
-            />
-            <ChecksSection pr={pr} />
-          </div>
+          <PrDetails
+            pr={pr}
+            workspacePath={workspacePath}
+            hostId={hostId}
+            onSendToAgentStart={handleSendToAgentStart}
+          />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+/**
+ * The content of the PR card: header, title, verdict rows, reviewers, comments
+ * and checks. Shared by the desk hover card and the phone's PR drawer.
+ */
+export function PrDetails(props: {
+  pr: PrInfo;
+  workspacePath?: string;
+  hostId?: string;
+  /** Called just before "Send to agent" launches, e.g. to close a popover. */
+  onSendToAgentStart?: () => void;
+}) {
+  const { pr, workspacePath, hostId, onSendToAgentStart } = props;
+
+  const PrIcon =
+    pr.state === "merged"
+      ? GitMerge
+      : pr.state === "closed"
+        ? GitPullRequestClosed
+        : GitPullRequest;
+
+  const stateLabel =
+    pr.state === "merged"
+      ? "Merged"
+      : pr.state === "closed"
+        ? "Closed"
+        : "Open";
+
+  const stateClass =
+    pr.state === "merged"
+      ? styles.prPopoverStateMerged
+      : pr.state === "closed"
+        ? styles.prPopoverStateClosed
+        : styles.prPopoverStateOpen;
+
+  const handleSendToAgent = useCallback(
+    (comment: PrComment) => {
+      if (!workspacePath) return;
+      onSendToAgentStart?.();
+      startAgentWithPrompt(
+        workspacePath,
+        reviewCommentPrompt(pr, comment),
+        hostId,
+      );
+    },
+    [workspacePath, hostId, pr, onSendToAgentStart],
+  );
+
+  return (
+    <div className={styles.prDetails}>
+      <div className={styles.prPopoverHeader}>
+        <PrIcon size={14} />
+        <span>#{pr.number}</span>
+        <span className={stateClass}>{stateLabel}</span>
+        {pr.isDraft && <span className={styles.prPopoverDraft}>Draft</span>}
+        {pr.additions != null && pr.deletions != null && (
+          <span className={styles.prPopoverDiffStat}>
+            <span className={styles.prPopoverAdditions}>+{pr.additions}</span>
+            <span className={styles.prPopoverDeletions}>−{pr.deletions}</span>
+          </span>
+        )}
+      </div>
+
+      <Link
+        variant="plain"
+        href={pr.url}
+        className={styles.prPopoverTitle}
+        title="Open this pull request on GitHub"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {pr.title}
+      </Link>
+
+      <SummaryRows pr={pr} />
+
+      <div className={styles.prPopoverScroll}>
+        <ReviewersSection pr={pr} />
+        <CommentsSection
+          pr={pr}
+          onSendToAgent={workspacePath ? handleSendToAgent : undefined}
+        />
+        <ChecksSection pr={pr} />
+      </div>
+    </div>
   );
 }
 
@@ -558,7 +583,11 @@ const REVIEWER_STATE: Record<
     tone: styles.toneWarn,
   },
   requested: { Icon: Clock, label: "awaiting review", tone: styles.toneMuted },
-  commented: { Icon: MessageSquare, label: "commented", tone: styles.toneMuted },
+  commented: {
+    Icon: MessageSquare,
+    label: "commented",
+    tone: styles.toneMuted,
+  },
 };
 
 /** Who was asked to review and where each of them stands, approvals first. */

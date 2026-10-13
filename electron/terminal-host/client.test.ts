@@ -816,6 +816,70 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
+    it("attachExisting subscribes and snapshots a live session, never resizing it (ADR-220)", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      const session = (daemon.getHost() as any).sessions.get("pane-1");
+      (session as any).decoder.push(encodeFrame(MSG.DATA, "still here"));
+
+      client.disconnect();
+      await client.connect();
+      daemon.seen.length = 0;
+
+      const snapshot = await client.attachExisting("pane-1");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(snapshot!.screenAnsi).toContain("still here");
+      expect(daemon.seen).not.toContain("control:resize");
+      expect(daemon.seen).not.toContain("control:create");
+      expect(daemon.seen.indexOf("stream:subscribe")).toBeGreaterThan(-1);
+      expect(daemon.seen.indexOf("stream:subscribe")).toBeLessThan(
+        daemon.seen.indexOf("control:getSnapshot"),
+      );
+      client.disconnect();
+    });
+
+    it("attachExisting answers null and spawns nothing for a session that is gone (ADR-220)", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      daemon.seen.length = 0;
+
+      expect(await client.attachExisting("pane-never")).toBeNull();
+      expect(daemon.seen).not.toContain("control:create");
+      expect(daemon.getHost().listSessions()).toEqual([]);
+      client.disconnect();
+    });
+
+    it("attachExisting answers null for a session whose shell exited (ADR-220)", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      // The daemon keeps a dead session until `disposeDead`; its snapshot is
+      // still there to be had.
+      (daemon.getHost() as any).sessions.get("pane-1")._alive = false;
+      daemon.seen.length = 0;
+
+      expect(await client.attachExisting("pane-1")).toBeNull();
+      expect(daemon.seen).not.toContain("control:create");
+      expect(daemon.seen).not.toContain("control:getSnapshot");
+      client.disconnect();
+    });
+
+    it("attachExisting rejects when a live session's snapshot fails, as createOrAttach does", async () => {
+      const client = createTestClient(daemon);
+      await client.connect();
+      await client.createOrAttach("pane-1", "/tmp", 80, 24);
+      daemon.seen.length = 0;
+      daemon.failNextSnapshot = true;
+
+      // Not "gone": the session is alive, and a viewer told otherwise would
+      // close its pane.
+      await expect(client.attachExisting("pane-1")).rejects.toThrow(/socket exploded/);
+      expect(daemon.seen).not.toContain("control:create");
+      client.disconnect();
+    });
+
     it("concurrent createOrAttach calls don't corrupt FIFO queue", async () => {
       const client = createTestClient(daemon);
       await client.connect();

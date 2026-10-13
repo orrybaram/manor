@@ -1,5 +1,5 @@
 /**
- * The host server's agents (ADR-218 D2): the second reader of the daemon's
+ * The host server's agents (ADR-225 D2): the second reader of the daemon's
  * hook journal.
  *
  * In slice 1 the desktop and the host server both own the agents on this

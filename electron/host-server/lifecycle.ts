@@ -1,5 +1,5 @@
 /**
- * Keep a host server running on this box (ADR-218 D1).
+ * Keep a host server running on this box (ADR-225 D1).
  *
  * `manor-host server-bridge` calls `ensureServerRunning()`, and the desktop
  * opens one on every connect:

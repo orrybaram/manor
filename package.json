@@ -1,7 +1,7 @@
 {
   "name": "manor",
   "private": true,
-  "version": "0.20.1",
+  "version": "0.21.1",
   "packageManager": "pnpm@10.23.0",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -52,6 +52,7 @@
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@radix-ui/react-visually-hidden": "^1.2.3",
     "@tanstack/react-query": "^5.91.2",
     "@tanstack/react-virtual": "^3.13.23",
     "@xterm/addon-clipboard": "^0.2.0",

@@ -140,7 +140,7 @@ describe("LOCAL_ONLY, through dispatch", () => {
     },
   );
 
-  // The owner class is a host server's (ADR-218 D4). The desktop's table
+  // The owner class is a host server's (ADR-225 D4). The desktop's table
   // does not name owners in `localOnlyCallers`, so one that reached it would
   // be held to a device's rules, never trusted with what a window may do.
   it.each([...LOCAL_ONLY])(
@@ -181,7 +181,7 @@ describe("LOCAL_ONLY, through dispatch", () => {
 });
 
 /**
- * The table says what kind of server answers (ADR-225): who may call
+ * The table says what kind of server answers (ADR-226): who may call
  * `LOCAL_ONLY`, and the refusal everyone else gets. A host server's names the
  * owner and not a window.
  */
@@ -376,7 +376,7 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.
         "linear.connect",
-        // ADR-218 D3: pairing a phone with a host's server, and the keys
+        // ADR-225 D3: pairing a phone with a host's server, and the keys
         // that go with it — the same grant as `remoteControl.pair`.
         "hosts.serverStatus",
         "hosts.pairDevice",

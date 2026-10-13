@@ -16,6 +16,9 @@
 
 export type UiRequest =
   | { type: "rename-workspace"; projectId: string; path: string }
+  /** Rename an agent. Only the phone answers it (a tab's long-press menu);
+   *  the desk renames agents inline. */
+  | { type: "rename-agent"; agentId: string }
   | { type: "merge-worktree"; projectId: string; path: string }
   | { type: "delete-worktree"; projectId: string; path: string }
   | { type: "remove-project"; projectId: string }

@@ -1,3 +1,4 @@
+import type { NewAgentTarget } from "../components/phone/NewAgent/new-agent-target";
 import { useMemo } from "react";
 import { create } from "zustand";
 import {
@@ -23,7 +24,6 @@ import {
   findPanelWithPane,
   findPanelWithTab,
   layoutLeaves,
-  layoutPaneIds,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
@@ -37,7 +37,6 @@ import {
   type WorkspaceViewport,
   EMPTY_VIEWPORT,
   applyHint,
-  emptyViewport,
   reconcileViewport,
 } from "../lib/layout/viewport";
 import {
@@ -46,15 +45,14 @@ import {
   type Visibility,
   holdsClaim,
   isTabVisible,
-  sameClaims,
   visibleTabsFor,
 } from "../lib/layout/visible-tabs";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   LayoutChangedPayload,
+  LayoutEntry,
   PaneAgentStatus,
   PaneAgentStatusUpdate,
-  PersistedPaneSession,
   PersistedViewportFile,
   PickedElementResult,
 } from "../electron.d";
@@ -70,12 +68,26 @@ import {
   type WorkspaceKey,
 } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
+import { bootAndResync } from "../bridge/resync";
 import { useRemotePaneStore } from "./remote-pane-store";
+import {
+  type SnapshotResult,
+  adoptLayout,
+  applyLayoutSnapshot,
+  sessionSideMaps,
+  withoutWorkspace,
+} from "./layout-snapshot";
 
 export type { Panel, Tab, WorkspaceLayout };
 
-/** App-level surfaces that can fill the main area (ADR-194). */
-export type AppSurface = "workspace" | "tasks";
+/**
+ * App-level surfaces that can fill the main area (ADR-194). `composer` is the
+ * phone new-agent composer (ADR-222); desk never enters it.
+ */
+export type AppSurface = "workspace" | "tasks" | "composer";
+
+/** Unsent new-agent composer state, kept so a round trip loses nothing (ADR-222). */
+type ComposerDraft = { text: string; target: NewAgentTarget | null };
 
 /**
  * What to open the Tasks view on (ADR-208 §5). `project` is a sidebar entry
@@ -92,7 +104,8 @@ type TasksIntent = {
 
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a
- * tab/pane in front of the user: they leave the Tasks view.
+ * tab/pane in front of the user: they leave the Tasks view (and the phone
+ * composer, ADR-222).
  */
 const WORKSPACE_SURFACE = { activeSurface: "workspace" } as const;
 
@@ -105,8 +118,9 @@ export interface AppState {
   /**
    * This renderer's replica of the Manor server's layout, for every workspace
    * the server has told it about (ADR-179 D1). Read freely; never written by
-   * an action — the writers are `loadPersistedLayout` and
-   * `applyLayoutChanged`, which replace a workspace when the server says so.
+   * an action — the writers are `applyLayoutSnapshot` (the boot read and a
+   * resync) and `applyLayoutChanged`, which replace a workspace when the
+   * server says so.
    *
    * Keyed by the workspace's host-qualified key (ADR-191), as is every other
    * per-workspace map below and the server's own: a local and a remote
@@ -200,6 +214,14 @@ export interface AppState {
    * `intent` presets its search / project (ADR-208 §5).
    */
   showTasksView: (intent?: TasksIntent) => void;
+  /** Show the phone new-agent composer (ADR-222); the workspace stays active. */
+  showComposer: () => void;
+  /** Leave the composer back to the workspace surface (ADR-222). */
+  closeComposer: () => void;
+  /** Unsent composer text + chosen target; in-memory only (ADR-222). */
+  composerDraft: ComposerDraft;
+  setComposerDraft: (patch: Partial<ComposerDraft>) => void;
+  clearComposerDraft: () => void;
   /** Return the pending `tasksIntent` and clear it. */
   consumeTasksIntent: () => TasksIntent | null;
 
@@ -1249,153 +1271,71 @@ export function sendPendingCommand(
 }
 
 /**
- * What the server derived about a set of panes, as this store's side maps.
- *
- * The same shape arrives by two roads — `layout.getAll()` at boot, and a
- * reopen's `restored` — so both seed through here. The agent status is a
- * prime only: a fresh `agents:getPaneStatuses` fetch on startup (ADR-184
- * ticket 5) and the live `agents.onStatus` stream override it, it just
- * avoids a blank dot until then.
+ * What a replica change reaches outside the store with: a closed pane's host
+ * is no longer this window's to badge, or to recover when the host comes back
+ * (ADR-178 §6), and a popout whose tab went has nothing left to show.
  */
-function sessionSideMaps(sessions: Record<string, PersistedPaneSession>): {
-  cwds: Record<string, string>;
-  titles: Record<string, string>;
-  agents: Record<string, PaneAgentStatus>;
-} {
-  const cwds: Record<string, string> = {};
-  const titles: Record<string, string> = {};
-  const agents: Record<string, PaneAgentStatus> = {};
-  for (const [paneId, session] of Object.entries(sessions)) {
-    if (session.lastCwd) cwds[paneId] = session.lastCwd;
-    if (session.lastTitle) titles[paneId] = session.lastTitle;
-    // The Status reconciler's shape (ADR-184); a renderer reads only
-    // `status` and `kind` back out of what an older file kept.
-    const agent = session.lastAgentStatus;
-    if (agent) agents[paneId] = agent as PaneAgentStatus;
+function afterReplicaChange(
+  gone: readonly string[],
+  adopted: readonly string[],
+  removed: readonly string[],
+): void {
+  const remote = useRemotePaneStore.getState();
+  for (const paneId of gone) remote.forgetPane(paneId);
+  const state = useAppStore.getState();
+  for (const workspacePath of adopted) {
+    checkOwnClaim(
+      workspacePath,
+      claimsOf(state, workspacePath),
+      state.workspaceLayouts[workspacePath],
+    );
   }
-  return { cwds, titles, agents };
-}
-
-/**
- * The per-pane side maps without `paneIds`: what this renderer heard about
- * panes that have left every tree. Their sessions are the server's to end.
- */
-function withoutPanes(
-  state: AppState,
-  paneIds: Iterable<string>,
-): Partial<AppState> {
-  const paneCwd = { ...state.paneCwd };
-  const paneTitle = { ...state.paneTitle };
-  const paneAgentStatus = { ...state.paneAgentStatus };
-  const paneFavicon = { ...state.paneFavicon };
-  const paneLiveUrl = { ...state.paneLiveUrl };
-  const panePickedElement = { ...state.panePickedElement };
-  for (const paneId of paneIds) {
-    delete paneCwd[paneId];
-    delete paneTitle[paneId];
-    delete paneAgentStatus[paneId];
-    delete paneFavicon[paneId];
-    delete paneLiveUrl[paneId];
-    delete panePickedElement[paneId];
+  if (OWN_CLAIM && removed.includes(OWN_CLAIM.workspacePath)) {
+    window.electronAPI?.window?.closeSelf?.();
   }
-  return {
-    paneCwd,
-    paneTitle,
-    paneAgentStatus,
-    paneFavicon,
-    paneLiveUrl,
-    panePickedElement,
-  };
 }
 
 /**
- * Forget this renderer's copy of a workspace: its layout, the version and
- * claims it was at, its viewport, and the side maps of every pane in it.
+ * The server changed a workspace. Replace the replica with what it sent
+ * (`adoptLayout` has the version guard and the viewport repair).
  *
- * Nothing is sent. The server ends the panes and forgets the workspace
- * itself when the worktree goes (ADR-182 D7), and says so with a `removed`
- * broadcast that lands here too.
- */
-function dropWorkspace(workspacePath: string): void {
-  useAppStore.setState((state) => {
-    const { [workspacePath]: removed, ...workspaceLayouts } =
-      state.workspaceLayouts;
-    const { [workspacePath]: _version, ...layoutVersions } =
-      state.layoutVersions;
-    const { [workspacePath]: _mounted, ...mountedWorkspaces } =
-      state.mountedWorkspaces;
-    const { [workspacePath]: _claims, ...claims } = state.claims;
-    const { [workspacePath]: _viewport, ...viewports } = state.viewports;
-    return {
-      workspaceLayouts,
-      layoutVersions,
-      mountedWorkspaces,
-      claims,
-      viewports,
-      ...(removed && withoutPanes(state, layoutPaneIds(removed))),
-    };
-  });
-}
-
-/**
- * The server changed a workspace. Replace the replica with what it sent.
- *
- * A broadcast *below* the version already held is dropped: replays and the
- * overlap between `layout.getAll()` and the first broadcast after it are both
- * normal. One at the **same** version is not necessarily stale, though — a
- * claim changing is a broadcast of its own and carries no new tree (D4), so
- * the guard compares `(version, claims)` and lets an equal-version broadcast
- * with different claims through.
- *
- * Every workspace's layout is kept, opened here or not; only an opened one
- * has its viewport repaired, because nothing else is looking at it.
+ * A `removed` broadcast forgets this renderer's copy instead — adopting it
+ * would bring back a workspace whose worktree no longer exists. Nothing is
+ * sent: the server ends the panes and forgets the workspace itself when the
+ * worktree goes (ADR-182 D7).
  */
 function applyLayoutChanged(payload: LayoutChangedPayload): void {
   const { workspacePath, version, layout, restored, origin, hint } = payload;
   const claims = payload.claims ?? NO_CLAIMS;
-  // Gone, not changed: adopting this layout would bring back a workspace
-  // whose worktree no longer exists. A popout holding one of its tabs has
-  // nothing left to show.
   if (payload.removed) {
-    dropWorkspace(workspacePath);
-    if (OWN_CLAIM?.workspacePath === workspacePath) {
-      window.electronAPI?.window?.closeSelf?.();
-    }
+    useAppStore.setState((state) => withoutWorkspace(state, workspacePath));
+    afterReplicaChange([], [], [workspacePath]);
     return;
   }
-  let goneFromReplica: string[] = [];
+  let gone: string[] = [];
   useAppStore.setState((state) => {
-    const held = state.layoutVersions[workspacePath] ?? 0;
-    const previous = state.workspaceLayouts[workspacePath];
-    if (version < held) return {};
-    if (
-      version === held &&
-      previous !== undefined &&
-      sameClaims(claims, claimsOf(state, workspacePath))
-    ) {
-      return {};
-    }
-    const patch: Partial<AppState> = {
-      workspaceLayouts: { ...state.workspaceLayouts, [workspacePath]: layout },
-      layoutVersions: { ...state.layoutVersions, [workspacePath]: version },
-      claims: { ...state.claims, [workspacePath]: claims },
-    };
-
-    // Panes that left the tree take their side-map entries with them. The
-    // server has already ended their sessions (`effects.killPanes`).
-    if (previous) {
-      const alive = layoutPaneIds(layout);
-      const gone = [...layoutPaneIds(previous)].filter((id) => !alive.has(id));
-      if (gone.length > 0) {
-        Object.assign(patch, withoutPanes(state, gone));
-        goneFromReplica = gone;
-      }
-    }
-
+    const result = adoptLayout(
+      state,
+      { workspacePath, version, layout, claims },
+      {
+        visibilityOf,
+        activeKey: selectActiveWorkspaceKey(state),
+        // The command's selection hint applies only to the renderer that
+        // sent it (D3).
+        hint:
+          hint && origin.id === rendererId()
+            ? (tree, viewport, visibility) =>
+                applyHint(tree, viewport, hint, visibility)
+            : undefined,
+      },
+    );
+    if (!result) return {};
+    gone = result.gone;
+    const { patch } = result;
     // A reopen inside the server's grace hands the pane back its still-warm
     // session (ADR-179 ticket 10). Seed what the server knew about it, the
-    // way `loadPersistedLayout` does at boot, so the pane mounts in the cwd
-    // it was in and under the title it had rather than looking brand new.
+    // way a snapshot does, so the pane mounts in the cwd it was in and under
+    // the title it had rather than looking brand new.
     if (restored) {
       const { cwds, titles, agents } = sessionSideMaps(restored);
       Object.assign(patch, {
@@ -1407,39 +1347,41 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
         },
       });
     }
-
-    const active = workspacePath === selectActiveWorkspaceKey(state);
-    if (!state.mountedWorkspaces[workspacePath] && !active) return patch;
-    if (active && !state.mountedWorkspaces[workspacePath]) {
-      patch.mountedWorkspaces = {
-        ...state.mountedWorkspaces,
-        [workspacePath]: true,
-      };
-    }
-
-    // Structure is replaced wholesale; the selection is this window's and
-    // survives, repaired against the tree that just arrived — and against the
-    // claims, which say which of its tabs are on screen somewhere else. The
-    // command's selection hint applies only to the renderer that sent it (D3).
-    const before = viewportOf(state, workspacePath);
-    const visibility = visibilityOf(patch, workspacePath);
-    const reconciled = reconcileViewport(layout, before, visibility);
-    const viewport =
-      hint && origin.id === rendererId()
-        ? applyHint(layout, reconciled, hint, visibility)
-        : reconciled;
-    if (viewport !== before) {
-      patch.viewports = { ...state.viewports, [workspacePath]: viewport };
-    }
     return patch;
   });
-
-  // A closed pane's host is no longer this window's to badge, or to recover
-  // when the host comes back (ADR-178 §6).
-  const remote = useRemotePaneStore.getState();
-  for (const paneId of goneFromReplica) remote.forgetPane(paneId);
-
+  afterReplicaChange(gone, [], []);
   checkOwnClaim(workspacePath, claims, layout);
+}
+
+/**
+ * Read every workspace and merge it into the replica (`applyLayoutSnapshot`)
+ * — the boot read and a resync. `read` answers the entries, plus the
+ * viewports to seed when it is the boot's (see `SnapshotOptions`).
+ */
+async function loadLayoutSnapshot(
+  read: () => Promise<
+    | {
+        entries: Record<string, LayoutEntry>;
+        seedViewports?: Record<string, WorkspaceViewport>;
+      }
+    | undefined
+  >,
+): Promise<void> {
+  const before = useAppStore.getState().layoutVersions;
+  const snapshot = await read();
+  if (!snapshot) return;
+  let result: SnapshotResult | null = null;
+  useAppStore.setState((state) => {
+    result = applyLayoutSnapshot(state, snapshot.entries, {
+      visibilityOf,
+      activeKey: selectActiveWorkspaceKey(state),
+      before,
+      seedViewports: snapshot.seedViewports,
+    });
+    return result.next;
+  });
+  const { gone, adopted, removed } = result!;
+  afterReplicaChange(gone, adopted, removed);
 }
 
 /**
@@ -1596,6 +1538,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   activeWorkspacePath: null,
   activeWorkspaceHostId: LOCAL_HOST_ID,
   activeSurface: "workspace",
+  composerDraft: { text: "", target: null },
   tasksIntent: null,
   paneCwd: {},
   paneTitle: {},
@@ -1616,70 +1559,23 @@ export const useAppStore = create<AppState>((set, get) => ({
   loadPersistedLayout: async () => {
     try {
       const api = window.electronAPI;
-      const [entries, lastActive, ownViewport] = await Promise.all([
-        api?.layout.getAll() ?? {},
-        api?.layout.getLastActive() ?? null,
-        loadOwnViewport(),
-      ]);
-      lastActiveWorkspacePath = ownViewport?.activeWorkspacePath ?? lastActive;
-
       // Every workspace lands now, but none is rendered until it is first
       // opened (`setActiveWorkspace`): rendering them all here would mount
       // every pane of every workspace at boot, and each mount creates a PTY.
-      const cwds: Record<string, string> = {};
-      const titles: Record<string, string> = {};
-      const agents: Record<string, PaneAgentStatus> = {};
-
-      set((state) => {
-        const workspaceLayouts = { ...state.workspaceLayouts };
-        const layoutVersions = { ...state.layoutVersions };
-        // This renderer's own selection where it has one; the host's default
-        // viewport where it does not — then reconciled against the tree the
-        // server just handed over, which may have moved on since either was
-        // written (ADR-179 D3).
-        const viewports: Record<string, WorkspaceViewport> = {};
-        // Who is holding what right now (D4). Handed over with the layout so
-        // a window that opens while a tab is popped out hides it from the
-        // first paint, instead of showing it until the next broadcast.
-        const claims: Record<string, LayoutClaim[]> = {};
-        for (const [workspacePath, entry] of Object.entries(entries)) {
-          // A broadcast that landed while the read was in flight is newer.
-          if ((state.layoutVersions[workspacePath] ?? -1) > entry.version) {
-            continue;
-          }
-          workspaceLayouts[workspacePath] = entry.layout;
-          layoutVersions[workspacePath] = entry.version;
-          claims[workspacePath] = entry.claims;
-          const own = ownViewport?.workspaces?.[workspacePath];
-          viewports[workspacePath] = reconcileFor(
-            { claims },
-            workspacePath,
-            entry.layout,
-            own ?? entry.defaultViewport ?? emptyViewport(),
-          );
-          // What the server derived from the PTY events it forwards (D3): the
-          // cwd a restored pane reopens in, the title its tab shows.
-          const sessions = sessionSideMaps(entry.paneSessions);
-          Object.assign(cwds, sessions.cwds);
-          Object.assign(titles, sessions.titles);
-          Object.assign(agents, sessions.agents);
-        }
-        return {
-          layoutLoaded: true,
-          workspaceLayouts,
-          layoutVersions,
-          claims: { ...claims, ...state.claims },
-          viewports: { ...viewports, ...state.viewports },
-          paneCwd: { ...state.paneCwd, ...cwds },
-          paneTitle: { ...state.paneTitle, ...titles },
-          // A status already published this session is newer than the file.
-          paneAgentStatus: { ...agents, ...state.paneAgentStatus },
-        };
+      await loadLayoutSnapshot(async () => {
+        const [entries, lastActive, ownViewport] = await Promise.all([
+          api?.layout.getAll() ?? {},
+          api?.layout.getLastActive() ?? null,
+          loadOwnViewport(),
+        ]);
+        lastActiveWorkspacePath =
+          ownViewport?.activeWorkspacePath ?? lastActive;
+        return { entries, seedViewports: ownViewport?.workspaces ?? {} };
       });
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
-      set({ layoutLoaded: true });
     }
+    set({ layoutLoaded: true });
   },
 
   setActiveWorkspace: (path: string, hostId?: HostId | null) =>
@@ -1703,6 +1599,12 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? state
         : { activeSurface: "tasks" };
     }),
+
+  showComposer: () => set({ activeSurface: "composer" }),
+  closeComposer: () => set({ activeSurface: "workspace" }),
+  setComposerDraft: (patch) =>
+    set((state) => ({ composerDraft: { ...state.composerDraft, ...patch } })),
+  clearComposerDraft: () => set({ composerDraft: { text: "", target: null } }),
 
   consumeTasksIntent: () => {
     const intent = get().tasksIntent;
@@ -2326,9 +2228,8 @@ export const useAppStore = create<AppState>((set, get) => ({
    * `LayoutStore.remove`, whose `removed` broadcast drops any copy that is
    * left, here and in every other renderer.
    */
-  removeWorkspaceLayout: (workspacePath: WorkspaceKey) => {
-    dropWorkspace(workspacePath);
-  },
+  removeWorkspaceLayout: (workspacePath: WorkspaceKey) =>
+    set((state) => withoutWorkspace(state, workspacePath)),
 
   // ── Panel operations ──
 
@@ -2569,6 +2470,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 // ticket 14 made it true, so the wrapper is dead weight now.)
 window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 
+// A reconnected browser missed whatever was broadcast while its socket was
+// down (ADR-220 D2): re-read every workspace and merge it the way the boot
+// read does, minus the boot's own effects — `layoutLoaded`, and the viewport
+// file's selections (a resync repairs the local viewport, never replaces
+// it). Picking the active workspace and reconciling stale agents are
+// `App.tsx`'s, after the boot read, and are not re-run either; `App.tsx`
+// registers this for the resync, beside the boot read.
+export async function resyncLayout(): Promise<void> {
+  try {
+    await loadLayoutSnapshot(async () => {
+      const entries = await window.electronAPI?.layout?.getAll?.();
+      return entries && { entries };
+    });
+  } catch (err) {
+    console.error("[layout] failed to resync the layout:", err);
+  }
+}
+
 // A pane's title, off the command channel (ADR-182 D1) — a route, an MCP
 // call, or another renderer's own edit, fed into the same sink an OSC title
 // write already uses.
@@ -2603,32 +2522,34 @@ useAppStore.subscribe((state, previous) => {
 // the renderer only displays what it publishes. `onStatus` keeps every
 // window's cache live; `getPaneStatuses` primes a window that starts (or a
 // detached/popout window that opens, or a reload) after some panes' statuses
-// were already published, with nothing to replay otherwise. Deferred a
-// microtask for the same reason as `layout.onChanged` above.
+// were already published, with nothing to replay otherwise, and re-reads them
+// on a bridge resync — the held statuses are the stale ones then. A status
+// published while that read is in flight is newer than it for its pane.
+// Deferred a microtask for the same reason as `layout.onChanged` above.
 queueMicrotask(() => {
-  window.electronAPI?.agents?.onStatus?.((update) => {
+  const agents = window.electronAPI?.agents;
+  if (!agents?.onStatus) return;
+  const set = (update: PaneAgentStatusUpdate): void =>
     useAppStore.getState().setPaneAgentStatus(update);
+  // A push is newer than an in-flight read for *its* pane only: the read
+  // still lands for every other pane, so one busy agent cannot starve the
+  // rest of their catch-up.
+  const reads = new Set<Set<string>>();
+  agents.onStatus((update) => {
+    for (const pushed of reads) pushed.add(update.paneId);
+    set(update);
   });
-
-  void window.electronAPI?.agents
-    ?.getPaneStatuses?.()
-    ?.then((updates) => {
-      const primed: Record<string, PaneAgentStatus> = {};
+  bootAndResync(async () => {
+    const pushed = new Set<string>();
+    reads.add(pushed);
+    try {
+      // An older preload has no read; the live stream alone keeps the cache.
+      const updates = (await agents.getPaneStatuses?.()) ?? [];
       for (const update of updates) {
-        primed[update.paneId] = {
-          status: update.status,
-          reason: update.reason,
-          kind: update.kind,
-        };
+        if (!pushed.has(update.paneId)) set(update);
       }
-      // A status published between store creation and this resolving is
-      // newer than the snapshot the fetch carried, and must win.
-      useAppStore.setState((s) => ({
-        paneAgentStatus: { ...primed, ...s.paneAgentStatus },
-      }));
-    })
-    ?.catch(() => {
-      // Older preload, or main not reachable yet — the live `onStatus`
-      // stream still keeps the cache correct from here on.
-    });
+    } finally {
+      reads.delete(pushed);
+    }
+  });
 });

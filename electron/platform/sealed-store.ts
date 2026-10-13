@@ -1,5 +1,5 @@
 /**
- * Encrypted-at-rest JSON state over a `SecretBox` (ADR-218 D6, ADR-225): the
+ * Encrypted-at-rest JSON state over a `SecretBox` (ADR-225 D6, ADR-226): the
  * one sealed store the remote-control stores (paired devices, the relay
  * identity, the VAPID key) are built on.
  *

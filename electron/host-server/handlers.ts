@@ -1,5 +1,5 @@
 /**
- * The host server's handler table (ADR-218 D5, D6): an explicit allowlist,
+ * The host server's handler table (ADR-225 D5, D6): an explicit allowlist,
  * in the style of `remote-control/allowlist.ts`.
  *
  * The desktop's table (`bridge/handlers.ts`) is everything Manor can do. A
@@ -10,7 +10,7 @@
  * `ns.method` not listed here is answered `unavailable:host`, which the
  * renderer shows as a stated empty state (`src/bridge/client.ts`).
  *
- * Adding a method here is the decision ADR-218's "Harder" section warns
+ * Adding a method here is the decision ADR-225's "Harder" section warns
  * about: a feature that should work with the lid closed has to be added on
  * purpose. Each entry either reuses the desktop's handler as it is — those
  * declare only the slice of deps they read (`PtyViewerDeps`, `ChatDeps`,
@@ -26,11 +26,14 @@ import {
   chatAnswer,
   chatGetCommands,
   chatGetHistory,
+  chatGetTaskHistory,
   chatInterrupt,
+  chatKey,
   chatSend,
   type ChatDeps,
 } from "../bridge/handlers/chat";
 import {
+  attachReturning,
   createShaped,
   ptyClaimWinsize,
   ptyDetach,
@@ -51,7 +54,11 @@ import type { ProjectInfo } from "../projects/types";
 import { resolveSpawnCwd } from "../paths";
 import type { Theme, ThemeColors } from "../theme";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
-import type { PtyCreateOptions, PtyCreateResult } from "../../src/electron.d";
+import type {
+  PtyAttachResult,
+  PtyCreateOptions,
+  PtyCreateResult,
+} from "../../src/electron.d";
 import { errorMessage } from "../lib/errors";
 import {
   agentsGet,
@@ -92,11 +99,12 @@ export type HostPty = Pick<
   | "detach"
   | "getSnapshot"
   | "createOrAttach"
+  | "attachExisting"
   | "listSessions"
 >;
 
 /**
- * Everything the host table reads (ADR-218 D6). Not `HostDeps`: no
+ * Everything the host table reads (ADR-225 D6). Not `HostDeps`: no
  * `BrowserWindow`, no app menu, no registry of other hosts — this server is
  * one host, local to itself.
  */
@@ -118,13 +126,13 @@ export interface HostServerDeps
   preferences(): AppPreferences;
   /** The theme a phone draws terminals in: Manor's default. */
   theme(): Theme;
-  /** This server's own relay room: pairing, devices, push (ADR-218 D3). */
+  /** This server's own relay room: pairing, devices, push (ADR-225 D3). */
   remoteControl: HostRemoteControl;
   /** The same room's owner-only side: reset, the desktop's VAPID pair. */
   relay: Pick<HostRelay, "resetIdentity" | "setVapidKeys">;
   /** Persists and announces what the owner synced (`./owner.ts`). */
   ownerSync: OwnerSync;
-  /** What `hostServer.status` answers the owner (ADR-218 D4). */
+  /** What `hostServer.status` answers the owner (ADR-225 D4). */
   serverStatus(): HostServerStatus;
 }
 
@@ -135,9 +143,9 @@ type Ctx = HandlerCtx<HostServerDeps>;
 /**
  * Attach to a session the daemon already runs, as a viewer — never spawn
  * one. Starting terminals from the phone waits for slice 2, when the host
- * server owns the layout a new pane would go into (ADR-218 D5).
+ * server owns the layout a new pane would go into (ADR-225 D5).
  *
- * The winsize answer is the daemon's (ADR-218 D5, `./winsize.ts`): a follower
+ * The winsize answer is the daemon's (ADR-225 D5, `./winsize.ts`): a follower
  * whenever a client other than this server is attached to the session — or
  * the daemon does not say — and the owner otherwise. The count goes into the
  * registry's foreign hold, and `createShaped` reads it from there.
@@ -202,6 +210,37 @@ export async function hostPtyCreate(
   });
 }
 
+/**
+ * A device back from a dropped connection re-attaching to a session it had
+ * (`pty.attach`, ADR-220): never spawns, makes no bid for the winsize. The
+ * daemon's attach count goes into the registry first, as for `create`.
+ */
+export async function hostPtyAttach(ctx: Ctx, paneId: string): Promise<PtyAttachResult> {
+  assertString(paneId, "paneId");
+  const { pty } = ctx.deps.backend;
+  let session: { alive: boolean; attachedClients?: number } | undefined;
+  try {
+    const sessions = await pty.listSessions();
+    session = sessions.find((s) => s.sessionId === paneId);
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "host-unavailable",
+      hostId: LOCAL_HOST_ID,
+      error: errorMessage(err),
+    };
+  }
+  if (!session?.alive) return { ok: false, reason: "exited" };
+  ctx.deps.winsize.watch(paneId, session.attachedClients);
+  try {
+    const snapshot = await pty.attachExisting(paneId);
+    if (!snapshot) return { ok: false, reason: "exited" };
+    return attachReturning(ctx.caller, paneId, snapshot, LOCAL_HOST_ID);
+  } catch (err) {
+    return { ok: false, reason: "error", error: errorMessage(err) };
+  }
+}
+
 // ── projects, layout ──
 
 function projectsGetAll(ctx: Ctx): Promise<ProjectInfo[]> {
@@ -215,7 +254,7 @@ function projectsGetSelectedIndex(): number {
 
 /**
  * The desktop's snapshot, plus a "Started while away" tab for each live
- * daemon session it does not place (ADR-218 D5). Only the snapshot when the
+ * daemon session it does not place (ADR-225 D5). Only the snapshot when the
  * daemon or git cannot be asked: a phone still gets its layout.
  */
 async function layoutGetAll(ctx: Ctx): Promise<Record<string, LayoutEntry>> {
@@ -280,7 +319,7 @@ function hostsList(ctx: Ctx): HostStatusInfo[] {
   return [ctx.deps.daemonStatus()];
 }
 
-// ── remote control, this server's own room (ADR-218 D3) ──
+// ── remote control, this server's own room (ADR-225 D3) ──
 
 function remoteControlListDevices(ctx: Ctx): RemoteDeviceInfo[] {
   return ctx.deps.remoteControl.listDevices();
@@ -294,7 +333,7 @@ function remoteControlRevoke(
   return ctx.deps.remoteControl.revoke(id);
 }
 
-// ── the owner's view of this server (ADR-218 D4) ──
+// ── the owner's view of this server (ADR-225 D4) ──
 
 function hostServerStatus(ctx: Ctx): HostServerStatus {
   return ctx.deps.serverStatus();
@@ -303,7 +342,7 @@ function hostServerStatus(ctx: Ctx): HostServerStatus {
 /**
  * New relay identity; every phone and push subscription revoked.
  *
- * Owner-only, like pairing. When delegated integration tokens arrive (ADR-218
+ * Owner-only, like pairing. When delegated integration tokens arrive (ADR-225
  * D8, slice 2) this must delete those too: "Reset pairing keys" is the
  * recovery step for a box that may be compromised.
  */
@@ -313,7 +352,7 @@ async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
 }
 
 /**
- * The desktop's projects on this host (ADR-218 D4, D8): persisted to
+ * The desktop's projects on this host (ADR-225 D4, D8): persisted to
  * `manifest.json` and served by `projects.getAll`; every phone hears
  * `projects.changed`. The payload is checked whole before anything is
  * written (`./owner.ts`).
@@ -324,7 +363,7 @@ function hostServerSyncManifest(ctx: Ctx, manifest: HostManifest): true {
 }
 
 /**
- * The desktop's VAPID key pair (ADR-218 D3): this server signs pushes with
+ * The desktop's VAPID key pair (ADR-225 D3): this server signs pushes with
  * it, so a phone's one browser subscription is valid in every room. A key
  * that differs from the current one clears the subscriptions made against it.
  */
@@ -335,7 +374,7 @@ function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
 
 /**
  * The desktop's layout for this host's workspaces, keys already bare paths
- * (ADR-218 D5): persisted to `layout.json` and served by `layout.getAll`;
+ * (ADR-225 D5): persisted to `layout.json` and served by `layout.getAll`;
  * every phone hears `layout.changed` for the workspaces that changed.
  */
 function hostServerSyncLayout(ctx: Ctx, snapshot: HostLayoutSnapshot): true {
@@ -347,6 +386,7 @@ const METHODS = flatten({
   pty: {
     // Attaching is audited like the desktop's create; typing is not.
     create: method(hostPtyCreate, { mutating: true }),
+    attach: method(hostPtyAttach),
     write: method(ptyWrite),
     // The registry's foreign hold drops a device's resize and claim while
     // another client of the daemon has the session (`./winsize.ts`).
@@ -369,16 +409,18 @@ const METHODS = flatten({
   // Reads only. Every layout write (`apply`, `setPaneTitle`,
   // `setPendingCommand`) and the viewport report are absent, so a device is
   // answered `unavailable:host` — the renderer's once-per-session "read and
-  // type" toast (`handleBridgeUnavailable`), not an error (ADR-218 D5).
+  // type" toast (`handleBridgeUnavailable`), not an error (ADR-225 D5).
   layout: {
     getAll: method(layoutGetAll),
     getLastActive: method(layoutGetLastActive),
   },
   chat: {
     getHistory: method(chatGetHistory),
+    getTaskHistory: method(chatGetTaskHistory),
     getCommands: method(chatGetCommands),
     send: method(chatSend),
     interrupt: method(chatInterrupt),
+    key: method(chatKey),
     answer: method(chatAnswer),
   },
   preferences: {
@@ -404,7 +446,7 @@ const METHODS = flatten({
     vapidPublicKey: method(remoteControlVapidPublicKey),
     subscribePush: method(remoteControlSubscribePush),
   },
-  // The owner's alone (ADR-218 D4): `localOnly` admits the `owner` caller
+  // The owner's alone (ADR-225 D4): `localOnly` admits the `owner` caller
   // this server's socket authenticates (`./socket.ts`), and refuses every
   // device. A phone may read what the owner synced, never write it.
   hostServer: {

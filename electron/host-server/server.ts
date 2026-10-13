@@ -1,5 +1,5 @@
 /**
- * The host server (ADR-218 D1): a headless Manor server for one remote host,
+ * The host server (ADR-225 D1): a headless Manor server for one remote host,
  * composed from the parts the desktop's `initApp()` uses, with no Electron.
  *
  * It runs beside the `remote` daemon as its own process, and reaches that
@@ -45,7 +45,8 @@ import { reconcileStaleAgents } from "../bridge/handlers/agents-read";
 import { wireChatMirror } from "../bridge/handlers/chat";
 import { BridgeServer } from "../bridge/server";
 import { WsBridgeServer } from "../bridge/transports/ws";
-import { ChatMirror, pickPaneAgent } from "../chat-mirror/mirror";
+import { ChatMirror } from "../chat-mirror/mirror";
+import { chatTaskKey } from "../chat-mirror/task-key";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { errorMessage } from "../lib/errors";
 import { hostServerPaths, type DaemonNamespace } from "../paths";
@@ -57,6 +58,7 @@ import { TerminalHostClient } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
 import { ThemeManager } from "../theme";
+import { pickPaneAgent } from "../../src/lib/pane-agent";
 import { createHostAgents, type AgentStatusSink } from "./agents";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize } from "./winsize";
@@ -76,7 +78,7 @@ export interface HostServerOptions {
   dataDir?: string;
   /** Which of this machine's daemons to reach. Always `remote` in `serve`. */
   daemonNamespace?: DaemonNamespace;
-  /** Seals the relay identity, paired devices and push keys (ADR-218 D6). */
+  /** Seals the relay identity, paired devices and push keys (ADR-225 D6). */
   secretBox: SecretBox;
   /** The running app's version: the daemon handshake and the hello reply. */
   appVersion: string;
@@ -110,7 +112,7 @@ export interface HostServer {
    * the relay's channels.
    */
   readonly frames: WsBridgeServer;
-  /** What `hostServer.status` answers the owner (ADR-218 D4). */
+  /** What `hostServer.status` answers the owner (ADR-225 D4). */
   status(): HostServerStatus;
 }
 
@@ -167,7 +169,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const theme = new ThemeManager();
   const startedAt = Date.now();
 
-  // What the owner last synced (ADR-218 D4, D5), read once and held.
+  // What the owner last synced (ADR-225 D4, D5), read once and held.
   const snapshots = new OwnerSnapshotStore(paths);
   const ownerSync = createOwnerSync({ store: snapshots, publish: events.publish });
 
@@ -204,7 +206,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     agentForPane: (paneId) => {
       const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
       return agent
-        ? { hostId: LOCAL_HOST_ID, transcriptPath: agent.transcriptPath }
+        ? {
+            hostId: LOCAL_HOST_ID,
+            agentKind: agent.agentKind,
+            transcriptPath: agent.transcriptPath,
+          }
         : null;
     },
     // Transcripts are files on this box.
@@ -212,6 +218,13 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     write: (paneId, data) => daemon.pty.write(paneId, data),
     publish: (paneId, entry) =>
       bridge.publish("chat", "entry", [paneId, entry], paneId),
+    publishTask: (paneId, taskId, entry) =>
+      bridge.publish(
+        "chat",
+        "taskEntry",
+        [paneId, taskId, entry],
+        chatTaskKey(paneId, taskId),
+      ),
   });
 
   // ── the daemon's connection, as `hosts.list` reports it ──
@@ -263,7 +276,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   });
   const frames = new WsBridgeServer(bridge, {
     appVersion,
-    // The desktop's name for this host wins; else the box's own (ADR-218 D7).
+    // The desktop's name for this host wins; else the box's own (ADR-225 D7).
     hostName: () => snapshots.manifest().hostName ?? os.hostname(),
     // The page reads this, not `hostName`, to know it is on a host server.
     hostServer: true,

@@ -198,7 +198,7 @@ image service.
 A phone paired with the desktop reaches your agents only while the desktop is
 awake. For a project on a [remote host](remote-hosts.md), you can instead pair
 the phone with that host's own Manor server, the **host server**
-([ADR-218](decisions/adr-218-host-server/index.md)). That phone reaches only
+([ADR-225](decisions/adr-225-host-server/index.md)). That phone reaches only
 that host, and keeps working while your laptop sleeps.
 
 1. **Settings → Remote control.** Below this computer's devices there is a

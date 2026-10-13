@@ -51,7 +51,7 @@ describe("availableCommands", () => {
 });
 
 describe("commandAvailableOnHostServer", () => {
-  it("is false for exactly what a host server cannot do (ADR-218 D5)", () => {
+  it("is false for exactly what a host server cannot do (ADR-225 D5)", () => {
     const refused = COMMANDS.filter((d) => !commandAvailableOnHostServer(d.id)).map((d) => d.id);
     expect(refused.sort()).toEqual(["new-agent", "new-workspace"]);
   });

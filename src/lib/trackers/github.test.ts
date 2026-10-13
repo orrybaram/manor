@@ -257,3 +257,24 @@ describe("githubTracker.detailQuery", () => {
     expect(detail.priority).toBeUndefined();
   });
 });
+
+describe("githubTracker.imageQuery", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("proxies GitHub-hosted images with the token", async () => {
+    const url = "https://github.com/user-attachments/assets/x";
+    const proxyImage = vi.fn(async () => "data:image/png;base64,AA");
+    vi.stubGlobal("window", { electronAPI: { github: { proxyImage } } });
+    const query = githubTracker.imageQuery(url);
+    expect(query?.queryKey).toEqual(["task-image", "github", url]);
+    expect(await query?.queryFn()).toBe("data:image/png;base64,AA");
+    expect(proxyImage).toHaveBeenCalledWith(url);
+  });
+
+  it("loads any other host directly", () => {
+    expect(githubTracker.imageQuery("https://uploads.linear.app/a.png")).toBeNull();
+    expect(githubTracker.imageQuery("https://i.imgur.com/a.png")).toBeNull();
+  });
+});

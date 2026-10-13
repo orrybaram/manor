@@ -24,7 +24,7 @@
  * it the daemon produces. Nothing here decides *when* something changed:
  * `renderer-broadcast.ts` and the PTY stream do, and this class forwards.
  *
- * **Generic over its deps** (ADR-218, ADR-225). The desktop runs it over
+ * **Generic over its deps** (ADR-225, ADR-226). The desktop runs it over
  * `HostDeps` and `DESKTOP_TABLE` (`./handlers.ts`); a host server runs it over
  * `HostServerDeps` and its allowlist (`../host-server/handlers.ts`), and its
  * bundle never imports the desktop table, which reaches Electron. The table
@@ -53,7 +53,7 @@ import {
 } from "./types";
 
 /**
- * The little of its deps the server itself reads (ADR-218 D6): a session's
+ * The little of its deps the server itself reads (ADR-225 D6): a session's
  * grid, for the winsize-owner push. The desktop's `HostDeps` has it; so does
  * the host server's `HostServerDeps`, which carries no window or menu.
  */
@@ -488,7 +488,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
     if (this.connections.size === 0) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
-    // A pane held elsewhere (ADR-218 D5) answers a foreign owner no
+    // A pane held elsewhere (ADR-225 D5) answers a foreign owner no
     // connection here matches: everyone is told `owner: false`.
     const owner = ownerOf(paneId);
     // One frame per connection, not one fanned out: `owner` is each

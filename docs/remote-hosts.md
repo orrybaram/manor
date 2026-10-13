@@ -20,7 +20,7 @@ Design background is in [ADR-160](decisions/adr-160-remote-workspace-backends/in
 (the transport and the remote daemon),
 [ADR-178](decisions/adr-178-always-on-remote-projects/index.md) (the
 always-on behavior: hook journal, onboarding, ports, reconnect) and
-[ADR-218](decisions/adr-218-host-server/index.md) (the host server).
+[ADR-225](decisions/adr-225-host-server/index.md) (the host server).
 
 ## Choosing a box
 

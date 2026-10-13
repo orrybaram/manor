@@ -1,5 +1,5 @@
 /**
- * The host server's test harness (ADR-218 D1, D2): `runServe` against an
+ * The host server's test harness (ADR-225 D1, D2): `runServe` against an
  * in-process daemon (`daemon-harness.ts`) in a temp `dataDir`, a `FakeRelay`
  * for its room, and the two ways in — the owner, over `server.sock` through
  * the real `HostServerClient`, and a phone, through the relay.

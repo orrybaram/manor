@@ -22,7 +22,7 @@ export interface Caller {
   id: string;
   /**
    * `local` = an Electron renderer window; `owner` = the desktop on a host
-   * server's owner channel (ADR-218 D4); `device` = a paired `full` device.
+   * server's owner channel (ADR-225 D4); `device` = a paired `full` device.
    */
   callerClass: CallerClass;
   /** The paired device behind a `device` caller; null/absent for `local`. */
@@ -33,7 +33,7 @@ export interface Caller {
  * What every handler gets before its wire arguments.
  *
  * `D` is the deps the table runs over: the desktop's `HostDeps` by default,
- * or the host server's narrower `HostServerDeps` (ADR-218 D6). A handler
+ * or the host server's narrower `HostServerDeps` (ADR-225 D6). A handler
  * shared by both declares only the slice of deps it reads, so either can
  * call it.
  */
@@ -159,12 +159,12 @@ export interface HandlerTable<D> {
   /**
    * How a method absent from the table (or refused as `localOnly`) is
    * answered: `unavailable:web`, "in the browser" on the desktop;
-   * `unavailable:host`, "on this host" on a host server (ADR-218 D6).
+   * `unavailable:host`, "on this host" on a host server (ADR-225 D6).
    */
   unavailable: { code: UnavailableCode; where: string };
   /**
    * Who may call `localOnly` methods: a desktop window (`local`) on the
-   * desktop, the owner channel (`owner`, ADR-218 D4) on a host server. A
+   * desktop, the owner channel (`owner`, ADR-225 D4) on a host server. A
    * device never; an owner reaching the desktop's server — which no desktop
    * transport makes — is refused them like a device.
    */

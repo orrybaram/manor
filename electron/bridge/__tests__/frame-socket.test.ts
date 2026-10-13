@@ -202,7 +202,7 @@ describe("WsBridgeServer.attach with a FrameSocket", () => {
     versioned.dispose();
   });
 
-  it("marks the hello as a host server's only when told to (ADR-225)", async () => {
+  it("marks the hello as a host server's only when told to (ADR-226)", async () => {
     // The desktop names itself too, but is not a host server.
     const desktop = new WsBridgeServer(server, { hostName: () => "desk" });
     const deskSocket = new FakeSocket();

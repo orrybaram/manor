@@ -1,9 +1,9 @@
 /**
  * The terminal (ADR-180 D8), as the `pty` namespace of the handler table.
  *
- * `create` and `reset` answer with who owns the winsize, and attach the
- * calling connection as a viewer once they succeed. Every caller comes
- * through here — a renderer window over `bridge:*` IPC and a paired device
+ * `create`, `attach` and `reset` answer with who owns the winsize, and
+ * attach the calling connection as a viewer once they succeed. Every caller
+ * comes through here — a renderer window over `bridge:*` IPC and a paired device
  * over the socket — so this is the one place a pane gains a viewer, and
  * `resize` is a no-op for anyone who is not the one that owns it (ADR-180 D6,
  * `pty-attachments.ts`).
@@ -26,6 +26,7 @@ import {
 } from "../../pty-attachments";
 import { HostUnavailableError } from "../../backend/host-view";
 import { LOCAL_HOST_ID, type HostId, type PtyBackend } from "../../backend/types";
+import type { TerminalSnapshot } from "../../terminal-host/types";
 import { errorMessage } from "../../lib/errors";
 import { isHomePath } from "../../../src/lib/home-path";
 import {
@@ -34,8 +35,10 @@ import {
 } from "../../../src/lib/agent-command";
 import type { HostDeps } from "../../ipc/types";
 import type {
+  PtyAttachResult,
   PtyCreateOptions,
   PtyCreateResult,
+  PtyFailure,
   PtyResetOptions,
   PtyWinsize,
 } from "../../../src/electron.d";
@@ -110,7 +113,7 @@ function requestedHost(
 
 /**
  * What a viewer's own calls on a session read — write, resize, detach — and
- * nothing else (ADR-218 D6). `HostDeps` has it, and so does the host
+ * nothing else (ADR-225 D6). `HostDeps` has it, and so does the host
  * server's `HostServerDeps`, which reuses these handlers as they are.
  */
 export interface PtyViewerDeps {
@@ -143,7 +146,7 @@ type WinsizeDecoration = Required<PtyWinsize>;
  * through the one door marked "read". The answer carries the owner's grid,
  * which is what the follower renders.
  *
- * A host server's daemon-reported attach count (ADR-218 D5) reaches here as
+ * A host server's daemon-reported attach count (ADR-225 D5) reaches here as
  * the registry's foreign hold, set before the call: nobody follows anything
  * but the registry.
  *
@@ -321,6 +324,82 @@ export function ptyCreate(
   );
 }
 
+/**
+ * Re-attach a viewer to a pane whose session must already be running
+ * (ADR-220): what a viewer resyncing after its connection dropped asks for.
+ *
+ * Unlike `pty.create` it never spawns — a session whose shell exited while
+ * the viewer was away answers `exited`, and the viewer does what it would
+ * have done with the `exit` it missed — and it makes no bid for the winsize.
+ * The session is not resized, and the viewer attaches as a returning one, so
+ * whoever attached meanwhile keeps the grid. The answer carries the session's
+ * own grid, which is the owner's.
+ */
+export async function ptyAttach(
+  ctx: HandlerCtx,
+  paneId: string,
+): Promise<PtyAttachResult> {
+  assertString(paneId, "paneId");
+  const { deps } = ctx;
+  const { sessions } = deps.backendRegistry;
+  try {
+    const snapshot = await deps.backend.pty.attachExisting(paneId);
+    if (!snapshot) {
+      return {
+        ok: false,
+        reason: sessions.isRecoverableLoss(paneId) ? "lost" : "exited",
+      };
+    }
+    // Where `RoutedBackend` sent the attach.
+    const hostId = sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
+    return attachReturning(ctx.caller, paneId, snapshot, hostId);
+  } catch (err) {
+    return toPtyFailure(err, paneId);
+  }
+}
+
+/**
+ * The caller back on a running session, as a returning viewer: no bid for
+ * the winsize, and the session's own grid — the owner's — in the answer.
+ * `pty.attach`'s success, here and on a host server.
+ */
+export function attachReturning(
+  caller: Caller,
+  paneId: string,
+  snapshot: TerminalSnapshot,
+  hostId: string,
+): PtyAttachResult {
+  const viewer = asViewer(caller);
+  attach(paneId, viewer, { as: "returning" });
+  return {
+    ok: true,
+    hostId,
+    snapshot: snapshot.screenAnsi || null,
+    snapshotSeq: snapshot.seq,
+    winsizeOwner: ownerOf(paneId)?.connectionId === viewer.connectionId,
+    cols: snapshot.cols,
+    rows: snapshot.rows,
+  };
+}
+
+/**
+ * A `pty.create` or `pty.attach` that threw, as the failure it answers with.
+ *
+ * A registered remote host that is not connected is not a broken terminal
+ * (ADR-178 §6): the renderer shows the host's offline banner and creates the
+ * pane once the host is back. A remote pty call rejects with
+ * `HostUnavailableError` whenever its host is away (ADR-183); "unknown" is a
+ * host nobody registered.
+ */
+function toPtyFailure(err: unknown, paneId: string): PtyFailure {
+  const error = errorMessage(err);
+  if (err instanceof HostUnavailableError && err.status !== "unknown") {
+    return { ok: false, reason: "host-unavailable", hostId: err.hostId, error };
+  }
+  console.error(`Failed to create/attach PTY for ${paneId}:`, err);
+  return { ok: false, reason: "error", error };
+}
+
 async function createSession(
   deps: HostDeps,
   paneId: string,
@@ -371,17 +450,7 @@ async function createSession(
       hostId: result.hostId,
     };
   } catch (err) {
-    const error = errorMessage(err);
-    // A registered remote host that is not connected is not a broken
-    // terminal (ADR-178 §6): the renderer shows the host's offline
-    // banner and creates the pane once the host is back. A remote pty
-    // call rejects with `HostUnavailableError` whenever its host is away
-    // (ADR-183); "unknown" is a host nobody registered.
-    if (err instanceof HostUnavailableError && err.status !== "unknown") {
-      return { ok: false, reason: "host-unavailable", hostId: err.hostId, error };
-    }
-    console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-    return { ok: false, reason: "error", error };
+    return toPtyFailure(err, paneId);
   }
 }
 
@@ -616,6 +685,8 @@ export const pty = {
   // line per keystroke is a keylogger (ADR-161). `resize` and `detach` are
   // what a viewer does to its own view.
   create: method(ptyCreate, { mutating: true }),
+  // Never starts a session: a viewer coming back to one, like `detach`.
+  attach: method(ptyAttach),
   reset: method(ptyReset, { mutating: true }),
   write: method(ptyWrite),
   resize: method(ptyResize),

@@ -408,13 +408,138 @@ test.describe("phone chat slash commands (ADR-217)", () => {
     }
   });
 
-  test("sending an interactive command switches the pane to the terminal", async ({
+  test("sending a menu command bare hands the pane to the terminal with a key bar, and returns on its transcript line", async ({
     app,
     window,
     tempHome,
     request,
   }) => {
-    const { client, pane, chat, inputLogFile } = await openChatPhone(
+    const { client, page, pane, chat, transcriptFile, inputLogFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-handoff",
+      () => {},
+    );
+    try {
+      const terminal = pane.locator('[data-testid="terminal-pane"]');
+      await chat.getByTestId("chat-composer-input").fill("/config");
+      await chat.getByTestId("chat-send").tap();
+      await expect
+        .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
+        .toContain(`/config${ENTER}`);
+      await expect(terminal).toBeVisible({ timeout: 15_000 });
+      await expect(chat).not.toBeVisible();
+
+      const bar = page.getByTestId("menu-key-bar");
+      await expect(bar).toBeVisible({ timeout: 15_000 });
+      // The bar sits fully inside the phone's viewport, not under its edge.
+      const box = await bar.boundingBox();
+      const viewport = page.viewportSize();
+      expect(box).not.toBeNull();
+      expect(viewport).not.toBeNull();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height);
+
+      await page.getByTestId("menu-key-down").tap();
+      await expect.poll(() => inputLog(inputLogFile), { timeout: 15_000 }).toContain(DOWN);
+
+      // The menu closes in the TUI: Claude Code writes the command and its
+      // output to the transcript, and the pane goes back to the chat.
+      appendTranscript(
+        transcriptFile,
+        userLine(
+          "<command-name>/config</command-name>\n<command-message>config</command-message>\n<command-args></command-args>",
+        ),
+        userLine("<local-command-stdout>Config dialog dismissed</local-command-stdout>"),
+      );
+      await expect(chat).toBeVisible({ timeout: 20_000 });
+      await expect(terminal).not.toBeVisible();
+      await expect(page.getByTestId("menu-key-bar")).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("Back to chat leaves a handed-off menu without a transcript line", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const { client, page, pane, chat, inputLogFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-back",
+      () => {},
+    );
+    try {
+      await chat.getByTestId("chat-composer-input").fill("/config");
+      await chat.getByTestId("chat-send").tap();
+      await expect
+        .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
+        .toContain(`/config${ENTER}`);
+      await expect(page.getByTestId("menu-key-bar")).toBeVisible({ timeout: 15_000 });
+
+      await page.getByTestId("menu-key-back").tap();
+      await expect(chat).toBeVisible({ timeout: 15_000 });
+      await expect(page.getByTestId("menu-key-bar")).toHaveCount(0);
+      await expect(pane.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+      await expect(chat.getByTestId("chat-command")).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("a command with fixed arguments opens a choice sheet that sends the pick", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const { client, page, pane, chat, inputLogFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-choice",
+      () => {},
+    );
+    try {
+      const input = chat.getByTestId("chat-composer-input");
+      const sheet = page.getByTestId("command-choice-sheet");
+      const openSheet = async () => {
+        await input.fill("/");
+        await input.pressSequentially("mod");
+        const row = chat.getByTestId("slash-command-menu").locator('[data-command="model"]');
+        await expect(row).toBeVisible({ timeout: 15_000 });
+        await row.tap();
+        await expect(sheet).toBeVisible({ timeout: 15_000 });
+      };
+
+      // A tap outside the sheet, on the transcript area, closes it.
+      await openSheet();
+      await page.touchscreen.tap(195, 150);
+      await expect(sheet).toHaveCount(0);
+
+      // A choice sends the command with that argument, and stays on the chat.
+      await input.fill("");
+      await openSheet();
+      await page.getByTestId("command-choice-sonnet").tap();
+      await expect
+        .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
+        .toContain(`/model sonnet${ENTER}`);
+      await expect(chat).toBeVisible();
+      await expect(pane.locator('[data-testid="terminal-pane"]')).not.toBeVisible();
+      await expect(sheet).toHaveCount(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  test("Open menu in terminal on the choice sheet hands off to the terminal", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const { client, page, pane, chat, inputLogFile } = await openChatPhone(
       { app, window, tempHome, request },
       "phone-chat-interactive",
       () => {},
@@ -426,13 +551,126 @@ test.describe("phone chat slash commands (ADR-217)", () => {
       const row = chat.getByTestId("slash-command-menu").locator('[data-command="model"]');
       await expect(row).toBeVisible({ timeout: 15_000 });
       await row.tap();
-      await expect(input).toHaveValue("/model ");
-      await chat.getByTestId("chat-send").tap();
+      await page.getByTestId("command-choice-terminal").tap();
       await expect
         .poll(() => inputLog(inputLogFile), { timeout: 15_000 })
         .toContain(`/model${ENTER}`);
       await expect(pane.locator('[data-testid="terminal-pane"]')).toBeVisible({ timeout: 15_000 });
       await expect(chat).not.toBeVisible();
+      await expect(page.getByTestId("menu-key-bar")).toBeVisible();
+    } finally {
+      await client.close();
+    }
+  });
+});
+
+/** An assistant or user transcript line with arbitrary content blocks. */
+function blockLine(
+  role: "user" | "assistant",
+  uuid: string,
+  content: unknown,
+  extra: Record<string, unknown> = {},
+): string {
+  return JSON.stringify({
+    type: role,
+    uuid,
+    timestamp: new Date().toISOString(),
+    message: { role, content },
+    ...extra,
+  });
+}
+
+test.describe("phone chat background tasks (ADR-224)", () => {
+  test.setTimeout(240_000);
+
+  test("a background agent shows as a running card with a chip, opens its transcript, and settles on its notification", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const toolUseId = "toolu_fake_bgagent";
+    const agentId = "afake01";
+    const childReply = "subagent found three files";
+    const summary = "Agent finished the survey";
+    const { client, chat, transcriptFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-task",
+      () => {},
+    );
+    try {
+      // The child transcript lives beside the parent's, under its basename.
+      const subagentsDir = path.join(
+        path.dirname(transcriptFile),
+        path.basename(transcriptFile, ".jsonl"),
+        "subagents",
+      );
+      fs.mkdirSync(subagentsDir, { recursive: true });
+      appendTranscript(
+        path.join(subagentsDir, `agent-${agentId}.jsonl`),
+        blockLine("user", "sub-u1", "survey the repo", { isSidechain: true, agentId }),
+        blockLine("assistant", "sub-a1", [{ type: "text", text: childReply }], {
+          isSidechain: true,
+          agentId,
+        }),
+      );
+      appendTranscript(
+        transcriptFile,
+        blockLine("assistant", "a-bg-agent", [
+          {
+            type: "tool_use",
+            id: toolUseId,
+            name: "Agent",
+            input: {
+              description: "Survey the repo",
+              subagent_type: "Explore",
+              prompt: "survey the repo",
+              run_in_background: true,
+            },
+          },
+        ]),
+        blockLine(
+          "user",
+          "u-bg-result",
+          [
+            {
+              type: "tool_result",
+              tool_use_id: toolUseId,
+              content: "Async agent launched successfully.",
+            },
+          ],
+          { toolUseResult: { isAsync: true, status: "async_launched", agentId } },
+        ),
+      );
+
+      const task = chat.getByTestId("chat-task");
+      await expect(task).toBeVisible({ timeout: 20_000 });
+      await expect(task).toHaveAttribute("data-task-status", "running");
+      await expect(task).toHaveAttribute("data-task-id", toolUseId);
+      await expect(task).toContainText("Survey the repo");
+      await expect(chat.getByTestId("chat-running-chip")).toHaveText(/1 running/);
+
+      // Tap: the sheet shows the subagent's own conversation.
+      await task.getByRole("button").first().tap();
+      const sheet = client.page.getByTestId("chat-task-sheet");
+      await expect(sheet).toBeVisible({ timeout: 15_000 });
+      await expect(sheet.getByTestId("chat-assistant").filter({ hasText: childReply })).toBeVisible({
+        timeout: 15_000,
+      });
+      await client.page.keyboard.press("Escape");
+      await expect(sheet).toHaveCount(0);
+
+      // The notification settles the card; no separate notice, no chip.
+      appendTranscript(
+        transcriptFile,
+        userLine(
+          `<task-notification>\n<task-id>${agentId}</task-id>\n<tool-use-id>${toolUseId}</tool-use-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>`,
+        ),
+      );
+      await expect(task).toHaveAttribute("data-task-status", "ok", { timeout: 20_000 });
+      await expect(task).toContainText(summary);
+      await expect(chat.getByTestId("chat-running-chip")).toHaveCount(0);
+      await expect(chat.getByTestId("chat-notice")).toHaveCount(0);
     } finally {
       await client.close();
     }

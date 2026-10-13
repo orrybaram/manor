@@ -25,7 +25,7 @@ import {
 export class BridgeUnavailableError extends Error {
   /**
    * `unavailable:web` from the desktop, `unavailable:host` from a host server
-   * (ADR-218 D6). The renderer treats every `unavailable:*` alike.
+   * (ADR-225 D6). The renderer treats every `unavailable:*` alike.
    */
   readonly code: UnavailableCode;
   constructor(message: string, code: UnavailableCode = UNAVAILABLE_CODE) {

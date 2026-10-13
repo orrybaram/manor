@@ -50,7 +50,55 @@ export type ChatEntry =
       args: string;
       /** The command's local stdout, attached when it follows the command. */
       output?: string;
+    }
+  | {
+      /** Delegated or background work: an agent, or a shell command (ADR-224 D2). */
+      kind: "task";
+      /** The launching tool_use id. */
+      id: string;
+      ts: string;
+      taskKind: "agent" | "shell" | "other";
+      /** One line: the description, else the command's first line. */
+      title: string;
+      /** e.g. "implementer", "Explore". Agent tasks only. */
+      agentType?: string;
+      model?: string;
+      background: boolean;
+      status: "running" | "ok" | "error" | "killed";
+      /** The final summary or result text, capped at MAX_DETAIL. */
+      result?: string;
+      /** The agent's own id for this task, when it has one. */
+      taskRef?: string;
+      /**
+       * Set by the mirror (`mirror.ts`), never by the parser: the adapter
+       * resolves a transcript for this task (ADR-224 D3).
+       */
+      hasTranscript?: boolean;
+    }
+  | {
+      /** A background task finishing, e.g. `Agent "Map mobile state sync" finished`. */
+      kind: "notice";
+      id: string;
+      ts: string;
+      text: string;
+      status: "ok" | "error";
     };
+
+export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
+
+/**
+ * The session's context size in tokens (ADR-223 D4). Published by the mirror
+ * when it changes; never a `ChatEntry`, never drawn.
+ */
+export type ChatUsage = {
+  kind: "usage";
+  id: "usage";
+  ts: string;
+  contextTokens: number;
+};
+
+/** What the `chat.entry` channel carries: an entry or a context-size update. */
+export type ChatPush = ChatEntry | ChatUsage;
 
 /** A skill from Claude Code's `skill_listing` attachment (ADR-217 D1). */
 export type ChatSkill = { name: string; description: string };
@@ -66,6 +114,30 @@ function isObject(v: unknown): v is Json {
 
 function str(v: unknown): string | undefined {
   return typeof v === "string" ? v : undefined;
+}
+
+function tokenCount(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Context size from a message's `usage`: everything the model read, fresh
+ * or cached. Output tokens are excluded. Null when none of it is there.
+ */
+function contextSize(usage: unknown): number | null {
+  if (!isObject(usage)) return null;
+  const parts = [
+    tokenCount(usage.input_tokens),
+    tokenCount(usage.cache_creation_input_tokens),
+    tokenCount(usage.cache_read_input_tokens),
+  ];
+  if (parts.every((p) => p === undefined)) return null;
+  return parts.reduce<number>((sum, p) => sum + (p ?? 0), 0);
+}
+
+/** Claude Code writes `run_in_background` as the string "true" as often as a boolean. */
+function isTrue(v: unknown): boolean {
+  return v === true || v === "true";
 }
 
 function firstLine(s: string): string {
@@ -143,6 +215,51 @@ function parseQuestions(input: Json): PickerQuestion[] {
   return out;
 }
 
+/**
+ * The entry a `tool_use` block opens: a picker, a task (delegated or
+ * background work, ADR-224 D2), or a plain tool call.
+ */
+function toolUseEntry(id: string, ts: string, name: string, input: Json): ChatEntry {
+  if (name === "AskUserQuestion") {
+    return { kind: "question", id, ts, questions: parseQuestions(input), answer: null };
+  }
+  if (name === "ExitPlanMode") {
+    return { kind: "plan", id, ts, plan: str(input.plan) ?? "", outcome: null };
+  }
+  if (name === "Agent" || name === "Task") {
+    return {
+      kind: "task",
+      id,
+      ts,
+      taskKind: "agent",
+      title: str(input.description)?.trim() || str(input.subagent_type) || "Agent",
+      agentType: str(input.subagent_type),
+      model: str(input.model),
+      background: isTrue(input.run_in_background),
+      status: "running",
+    };
+  }
+  if (name === "Bash" && isTrue(input.run_in_background)) {
+    return {
+      kind: "task",
+      id,
+      ts,
+      taskKind: "shell",
+      title: summarizeTool(name, input),
+      background: true,
+      status: "running",
+    };
+  }
+  return { kind: "tool", id, ts, name, summary: summarizeTool(name, input), status: "pending" };
+}
+
+/** A `<task-notification>`'s `<status>` as a task's. */
+function notifiedStatus(status: string | undefined): ChatTaskEntry["status"] {
+  if (status === "failed") return "error";
+  if (status === "killed") return "killed";
+  return "ok";
+}
+
 /** Flatten a tool_result `content` (string or block array) to plain text. */
 function resultText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -156,12 +273,38 @@ function resultText(content: unknown): string {
   return parts.join("\n");
 }
 
+/** How a `TranscriptParser` reads. */
+export interface TranscriptParserOptions {
+  /**
+   * Keep `isSidechain` lines. A subagent's own transcript is all sidechain
+   * (ADR-224 D3); in the pane's transcript such lines are dropped.
+   */
+  sidechain?: boolean;
+}
+
 export class TranscriptParser {
+  private readonly sidechain: boolean;
   private order: string[] = [];
   private byId = new Map<string, ChatEntry>();
   private skillMap = new Map<string, string>();
   private sawSkillListing = false;
   private lastCommandId: string | null = null;
+  private lastContextTokens: number | null = null;
+  /** Notifications already turned into a notice; one may arrive in two forms. */
+  private seenNotices = new Set<string>();
+
+  constructor(opts: TranscriptParserOptions = {}) {
+    this.sidechain = opts.sidechain === true;
+  }
+
+  /**
+   * The context size of the newest main-thread assistant line, or null if
+   * none carried a usable `usage`. Claude Code writes one line per content
+   * block, each with the whole message's usage, so the newest is right.
+   */
+  contextTokens(): number | null {
+    return this.lastContextTokens;
+  }
 
   /** Skills from the transcript's skill listings, sorted by name. */
   skills(): ChatSkill[] {
@@ -183,6 +326,11 @@ export class TranscriptParser {
       if (e) out.push(e);
     }
     return out;
+  }
+
+  /** The entry with `id`, as it stands now. */
+  entry(id: string): ChatEntry | undefined {
+    return this.byId.get(id);
   }
 
   /** Feed one JSONL line; returns entries that are new or updated by it. */
@@ -210,18 +358,30 @@ export class TranscriptParser {
       return [];
     }
     if (!isObject(parsed)) return [];
-    if (parsed.isSidechain === true) return [];
+    if (parsed.isSidechain === true && !this.sidechain) return [];
     const type = parsed.type;
+    const ts = str(parsed.timestamp) ?? "";
+    const uuid = str(parsed.uuid) ?? `line-${this.order.length}`;
     if (type === "attachment") {
-      this.skillListing(parsed.attachment);
+      const att = parsed.attachment;
+      // A notification that lands mid-turn is queued, not a user line.
+      if (
+        isObject(att) &&
+        att.type === "queued_command" &&
+        typeof att.prompt === "string" &&
+        (att.commandMode === "task-notification" ||
+          att.prompt.trimStart().startsWith("<task-notification>"))
+      ) {
+        const e = this.notification(uuid, ts, att.prompt);
+        return e ? [e] : [];
+      }
+      this.skillListing(att);
       return [];
     }
     if (type !== "user" && type !== "assistant") return [];
     const message = parsed.message;
     if (!isObject(message)) return [];
 
-    const ts = str(parsed.timestamp) ?? "";
-    const uuid = str(parsed.uuid) ?? `line-${this.order.length}`;
     const content = message.content;
     const out: ChatEntry[] = [];
 
@@ -237,7 +397,7 @@ export class TranscriptParser {
       for (const block of content) {
         if (!isObject(block)) continue;
         if (block.type === "tool_result") {
-          const e = this.resolve(block);
+          const e = this.resolve(block, parsed.toolUseResult);
           if (e) out.push(e);
         } else if (block.type === "text" && typeof block.text === "string") {
           texts.push(block.text);
@@ -251,6 +411,12 @@ export class TranscriptParser {
     }
 
     // assistant
+    // Claude Code's own synthetic lines (an API error, an interrupt) carry
+    // zeroed usage that says nothing about the context.
+    if (message.model !== "<synthetic>") {
+      const size = contextSize(message.usage);
+      if (size !== null) this.lastContextTokens = size;
+    }
     if (!Array.isArray(content)) return [];
     content.forEach((block, i) => {
       if (!isObject(block)) return;
@@ -269,34 +435,7 @@ export class TranscriptParser {
         const name = str(block.name);
         if (!id || !name) return;
         const input = isObject(block.input) ? block.input : {};
-        let entry: ChatEntry;
-        if (name === "AskUserQuestion") {
-          entry = {
-            kind: "question",
-            id,
-            ts,
-            questions: parseQuestions(input),
-            answer: null,
-          };
-        } else if (name === "ExitPlanMode") {
-          entry = {
-            kind: "plan",
-            id,
-            ts,
-            plan: str(input.plan) ?? "",
-            outcome: null,
-          };
-        } else {
-          entry = {
-            kind: "tool",
-            id,
-            ts,
-            name,
-            summary: summarizeTool(name, input),
-            status: "pending",
-          };
-        }
-        const e = this.add(entry);
+        const e = this.add(toolUseEntry(id, ts, name, input));
         if (e) out.push(e);
       }
       // thinking and unknown block types: dropped
@@ -345,12 +484,51 @@ export class TranscriptParser {
       this.byId.set(existing.id, next);
       return next;
     }
+    // A background task finishing lands as a user turn the user never typed.
+    if (text.trimStart().startsWith("<task-notification>")) {
+      return this.notification(uuid, ts, text);
+    }
     if (isMetaText(text)) return null;
     return this.add({ kind: "user", id: uuid, ts, text });
   }
 
+  /**
+   * A `<task-notification>`: settle the task it names, else fall back to a
+   * notice. It can arrive as a queued attachment and again as a user line, so
+   * updating a task twice is fine and a notice is made once.
+   */
+  private notification(uuid: string, ts: string, text: string): ChatEntry | null {
+    const summary = tagText(text, "summary")?.trim();
+    if (!summary) return null;
+    const status = tagText(text, "status")?.trim();
+    const target = tagText(text, "tool-use-id")?.trim();
+    const task = target ? this.byId.get(target) : undefined;
+    if (task && task.kind === "task") {
+      const next: ChatEntry = {
+        ...task,
+        status: notifiedStatus(status),
+        result: summary.slice(0, MAX_DETAIL),
+      };
+      this.byId.set(task.id, next);
+      return next;
+    }
+    const id = tagText(text, "task-id")?.trim() || target;
+    if (id) {
+      const key = `${id}:${status ?? ""}`;
+      if (this.seenNotices.has(key)) return null;
+      this.seenNotices.add(key);
+    }
+    return this.add({
+      kind: "notice",
+      id: uuid,
+      ts,
+      text: summary,
+      status: notifiedStatus(status) === "ok" ? "ok" : "error",
+    });
+  }
+
   /** Apply a tool_result block to its pending entry. */
-  private resolve(block: Json): ChatEntry | null {
+  private resolve(block: Json, toolUseResult?: unknown): ChatEntry | null {
     const id = str(block.tool_use_id);
     if (!id) return null;
     const existing = this.byId.get(id);
@@ -374,6 +552,19 @@ export class TranscriptParser {
       case "plan":
         next = { ...existing, outcome: text };
         break;
+      case "task": {
+        const info = isObject(toolUseResult) ? toolUseResult : {};
+        const ref = str(info.agentId) ?? str(info.backgroundTaskId);
+        next = { ...existing };
+        if (info.isAsync === true) next.background = true;
+        if (ref) next.taskRef = ref;
+        // A launch, not a finish: the notification settles it later.
+        if (!next.background) {
+          next.status = isError ? "error" : "ok";
+          next.result = text ? text.slice(0, MAX_DETAIL) : undefined;
+        }
+        break;
+      }
       default:
         return null;
     }

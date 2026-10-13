@@ -515,6 +515,8 @@ export interface CreateWorktreeOptions {
    * workspace is ready. Ignored when `agentCommand` is given.
    */
   agentPrompt?: string;
+  /** Called with the pane id of the agent tab opened for `agentPrompt`. */
+  onAgentPane?: (paneId: string) => void;
   linkedIssue?: LinkedIssue;
   /** What a new branch starts from; the default branch when omitted. */
   baseBranch?: string;
@@ -1221,6 +1223,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const {
       branch,
       agentPrompt,
+      onAgentPane,
       linkedIssue,
       baseBranch,
       useExistingBranch,
@@ -1331,8 +1334,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         if (newIdx >= 0) get().selectWorkspace(projectId, newIdx);
       }
       const key = workspaceKey(updated.hostId, wsPath);
-      const addAgentTab = (command: string) =>
-        background
+      const addAgentTab = (command: string) => {
+        const opened = background
           ? useAppStore.getState().addTerminalTabIn(key, command, {
               kind: "agent-startup",
               prompt: launchPrompt,
@@ -1341,6 +1344,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
               kind: "agent-startup",
               prompt: launchPrompt,
             });
+        if (opened && prompt) onAgentPane?.(opened.paneId);
+      };
 
       // Mark switch as done
       useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "done");

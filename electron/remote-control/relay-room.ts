@@ -1,7 +1,7 @@
 /**
  * One relay room: its identity, the devices paired to it, the gate that
  * closes a device's live channels, and the connector that holds the room
- * open (ADR-206, ADR-225). The desktop's `RemoteControlController` and the
+ * open (ADR-206, ADR-226). The desktop's `RemoteControlController` and the
  * host server's relay (`host-server/relay.ts`) both keep their own policies —
  * enable switches, notices, always-on redialling — and come here for the
  * operations that change who is paired:
@@ -15,7 +15,7 @@
  * pair landing inside a reset, or two resets interleaving, would leave a
  * device paired to a dead room or the identity reset twice under one revoke.
  * Each resolves only once its change is on disk and rejects when it could not
- * be saved (ADR-225 B2): a revoke that was not saved comes back on restart,
+ * be saved (ADR-226 B2): a revoke that was not saved comes back on restart,
  * and whoever asked has to hear that.
  *
  * The gate and the relay are read through getters, so the desktop can hand

@@ -195,7 +195,7 @@ export function remoteBridgeCommand(): string {
 
 /**
  * The remote command that opens the owner channel to the box's host server
- * (ADR-218 D4): `manor-host server-bridge` pipes the stream to the server's
+ * (ADR-225 D4): `manor-host server-bridge` pipes the stream to the server's
  * socket after saying the owner hello for us.
  */
 export function remoteServerBridgeCommand(): string {

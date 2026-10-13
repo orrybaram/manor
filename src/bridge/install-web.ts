@@ -32,6 +32,7 @@
 import { createBridge } from "./client";
 import { recordHello, setActiveRoom } from "./connection";
 import { decodeX25519, renamePairing } from "./pairings";
+import { emitBridgeResync, registerRefresh } from "./resync";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
 import {
@@ -121,6 +122,30 @@ function setReachability(next: Reachability): void {
   for (const cb of [...reachabilityListeners]) cb();
 }
 
+/** How long a refresh waits for a redial's hello and its resync. */
+const REFRESH_REDIAL_TIMEOUT_MS = 10_000;
+
+/** Refreshes waiting on the next hello, handed that hello's resync. */
+const helloWaiters: ((resynced: Promise<void>) => void)[] = [];
+
+/** The next hello's resync settling, or `timeoutMs`, whichever is first. */
+function nextHelloResync(timeoutMs: number): Promise<void> {
+  return new Promise((resolve) => {
+    const waiter = (resynced: Promise<void>): void => {
+      void resynced.then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    };
+    const timer = setTimeout(() => {
+      const at = helloWaiters.indexOf(waiter);
+      if (at !== -1) helloWaiters.splice(at, 1);
+      resolve();
+    }, timeoutMs);
+    helloWaiters.push(waiter);
+  });
+}
+
 const transport = createWsTransport({
   token: webToken,
   pipe: pipe ?? UNPAIRED_PIPE,
@@ -137,29 +162,56 @@ const transport = createWsTransport({
   // stopped, so the screen offers a reload rather than a redial.
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
-  onHello: ({ appVersion, hostName, hostServer }) => {
-    // The host names itself (ADR-218 D7) so the switcher shows the name
+  onHello: ({ appVersion, resumed, hostName, hostServer }) => {
+    // The host names itself (ADR-225 D7) so the switcher shows the name
     // instead of "Host N"; `hostServer` alone says it is a host server.
     recordHello({ hostName, hostServer });
     if (webRoomId && hostName) renamePairing(webRoomId, hostName);
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
-    if (target) location.replace(target);
+    if (target) {
+      // This page is going away; nothing here needs to re-fetch.
+      location.replace(target);
+      return;
+    }
+    // The first hello is the cold start the stores' boot fetches already
+    // cover; a resumed one is a reconnect after which pushes may have been
+    // missed, so the stores re-fetch (ADR-220 D1).
+    const resynced = resumed ? emitBridgeResync() : Promise.resolve();
+    for (const waiter of helloWaiters.splice(0)) waiter(resynced);
   },
 });
 
-/** "Try again now" on the not-reachable overlay: skip the backoff wait. */
+/**
+ * "Try again now" on the not-reachable overlay, and a phone that comes back
+ * — unlocked, switched back to, restored from the back-forward cache, or back
+ * on a network: dial now rather than sitting out a backoff that grew to 30s
+ * while it was away, and probe a socket that still looks open, since iOS
+ * often kills a backgrounded one without a close event.
+ */
 export function retryBridgeNow(): void {
-  transport.retryNow();
+  void transport.probeNow();
 }
-
-// A phone that comes back — unlocked, switched back to, or back on a
-// network — dials now rather than sitting out a backoff that grew to 30s
-// while it was away. A no-op when no redial is pending.
 window.addEventListener("online", retryBridgeNow);
+window.addEventListener("pageshow", retryBridgeNow);
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") retryBridgeNow();
   });
 }
+
+/**
+ * The manual refresh (ADR-220 D5): probe the line, and re-fetch everything
+ * over it if it is alive. If it is not, the transport is redialling, and the
+ * hello that ends that emits the resync itself; either way this resolves once
+ * the stores have re-fetched (or the redial took too long to wait on).
+ */
+export async function refreshBridge(): Promise<void> {
+  const outcome = await transport.probeNow();
+  if (outcome === "alive") await emitBridgeResync();
+  else if (outcome === "redialing") {
+    await nextHelloResync(REFRESH_REDIAL_TIMEOUT_MS);
+  }
+}
+registerRefresh(refreshBridge);
 
 window.electronAPI = createBridge(transport);

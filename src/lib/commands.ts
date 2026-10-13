@@ -197,7 +197,7 @@ interface CommandMeta {
    */
   native?: UnavailableNamespace;
   /**
-   * `false` for a command a host server cannot serve (ADR-218 D5): it
+   * `false` for a command a host server cannot serve (ADR-225 D5): it
    * neither creates workspaces nor launches agents. A page connected to one
    * leaves it out of the handler maps and palette, as the web does a
    * `native` command.
@@ -1030,7 +1030,7 @@ export function commandAvailableOnWeb(commandId: string): boolean {
   return !native || !UNAVAILABLE_NAMESPACES.has(native);
 }
 
-/** Whether a host server can serve `commandId` (ADR-218 D5). */
+/** Whether a host server can serve `commandId` (ADR-225 D5). */
 export function commandAvailableOnHostServer(commandId: string): boolean {
   return BY_ID.get(commandId)?.hostServer !== false;
 }

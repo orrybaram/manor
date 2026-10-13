@@ -32,7 +32,7 @@ export interface HostProvider {
     opts?: { preferredLocalPort?: number; remoteHost?: string },
   ): Promise<PortForward>;
   /**
-   * Open the owner channel to the box's host server (ADR-218 D4): a stream
+   * Open the owner channel to the box's host server (ADR-225 D4): a stream
    * carrying newline-delimited bridge frames, already past the server's
    * reply to the owner hello (the box's end says the hello; the provider
    * reads the reply). Rejects when there is no server to reach or it refuses.

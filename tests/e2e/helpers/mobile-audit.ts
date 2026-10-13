@@ -75,7 +75,7 @@ export const PERF_INIT_SCRIPT = `
     app: () => document.querySelector(".app"),
     topBar: () => document.querySelector('[data-testid="phone-top-bar"]'),
     terminal: () => document.querySelector('[data-testid="terminal-pane"] .xterm-screen'),
-    prompt: () => Array.from(document.querySelectorAll(".xterm-rows")).some((r) => /\\$\\s*$/m.test(r.textContent || "")),
+    prompt: () => Array.from(document.querySelectorAll(".xterm-rows")).some((r) => /[$%#>❯]\\s*$/m.test(r.textContent || "")),
   };
   const tick = () => {
     for (const [k, test] of Object.entries(milestones)) {

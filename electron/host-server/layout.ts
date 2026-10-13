@@ -1,5 +1,5 @@
 /**
- * The layout snapshot a host server serves (ADR-218 D5).
+ * The layout snapshot a host server serves (ADR-225 D5).
  *
  * In slice 1 the desktop owns layout. It pushes this host's part of it with
  * the manifest (`hostServer.syncLayout`, `./owner.ts`): the layout v3 entries

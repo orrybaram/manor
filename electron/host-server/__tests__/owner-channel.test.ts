@@ -1,5 +1,5 @@
 /**
- * The owner channel (ADR-218 D4): what the desktop pushes to a host server
+ * The owner channel (ADR-225 D4): what the desktop pushes to a host server
  * (manifest, layout), how it is validated, persisted and served to a phone.
  * See `harness.ts`.
  */
@@ -17,7 +17,7 @@ import type { ProjectInfo } from "../../projects/types";
 import type { LayoutEntry } from "../../../src/lib/layout/protocol";
 import type { PairResult } from "../../remote-control/relay-room";
 
-describe("the owner channel (ADR-218 D4)", () => {
+describe("the owner channel (ADR-225 D4)", () => {
   const h = useHostServerHarness();
 
   function manifest(projectPath: string): HostManifest {
@@ -300,7 +300,7 @@ describe("the owner channel (ADR-218 D4)", () => {
     }
     expect(fs.existsSync(h.paths.layout)).toBe(false);
     // No snapshot was kept: all a phone sees is the live session, in a
-    // synthetic tab (ADR-218 D5).
+    // synthetic tab (ADR-225 D5).
     const served = await client.invoke<Record<string, LayoutEntry>>(
       "layout",
       "getAll",

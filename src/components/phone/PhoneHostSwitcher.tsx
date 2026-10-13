@@ -18,7 +18,7 @@ type PhoneHostSwitcherProps = {
 };
 
 /**
- * ADR-218 D7: with more than one pairing, the top bar's host switcher. Picking
+ * ADR-225 D7: with more than one pairing, the top bar's host switcher. Picking
  * a host marks it last used and reloads the page — a full reload of app state
  * is the slice-1 way to point the bridge at another room. Removing a pairing
  * asks in place (a row swaps to "Remove? Yes / No"); removing the host the

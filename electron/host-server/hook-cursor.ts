@@ -1,5 +1,5 @@
 /**
- * How far into the daemon's hook journal the host server has read (ADR-218
+ * How far into the daemon's hook journal the host server has read (ADR-225
  * D2), kept in `dataDir/hook-cursor.json` as `{ seq, epoch }`.
  *
  * The desktop keeps the same cursor per remote host in `projects.json`

@@ -1,5 +1,5 @@
 /**
- * Two readers of one journal (ADR-218 D2, Consequences).
+ * Two readers of one journal (ADR-225 D2, Consequences).
  *
  * In slice 1 the desktop and the host server both derive the agents on a
  * host from its daemon's hook journal, and agree only because both run the

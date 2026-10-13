@@ -8,6 +8,7 @@ import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
+import { TaskCard } from "./TaskCard";
 import styles from "./ChatPane.module.css";
 
 type ChatEntryViewProps = {
@@ -36,13 +37,31 @@ export function ChatEntryView(props: ChatEntryViewProps) {
     case "assistant":
       return (
         <div className={styles.assistant} data-testid="chat-assistant">
-          {live ? <ChatTypewriter source={entry.text} /> : <ChatMarkdown source={entry.text} />}
+          {live ? (
+            <ChatTypewriter source={entry.text} />
+          ) : (
+            <ChatMarkdown source={entry.text} />
+          )}
         </div>
       );
     case "tool-group":
       return <ToolGroupView group={entry} />;
     case "command":
       return <CommandEntry entry={entry} />;
+    case "notice":
+      return (
+        <div className={styles.notice} data-testid="chat-notice">
+          <span
+            className={styles.statusDot}
+            data-status={entry.status}
+            role="img"
+            aria-label={STATUS_LABEL[entry.status]}
+          />
+          <span className={styles.noticeText}>{entry.text}</span>
+        </div>
+      );
+    case "task":
+      return <TaskCard paneId={paneId} task={entry} />;
     case "question":
       return entry.answer === null ? (
         <QuestionCard
@@ -81,7 +100,9 @@ function ToolGroupView(props: ToolGroupViewProps) {
   const { group } = props;
 
   const [open, setOpen] = useState(false);
-  const running = [...group.tools].reverse().find((t) => t.status === "pending");
+  const running = [...group.tools]
+    .reverse()
+    .find((t) => t.status === "pending");
   const status = running
     ? "pending"
     : group.tools.some((t) => t.status === "error")
@@ -89,7 +110,11 @@ function ToolGroupView(props: ToolGroupViewProps) {
       : "ok";
 
   return (
-    <div className={styles.toolGroup} data-testid="chat-tool-group" data-status={status}>
+    <div
+      className={styles.toolGroup}
+      data-testid="chat-tool-group"
+      data-status={status}
+    >
       <Button
         variant="ghost"
         size="sm"
@@ -106,13 +131,20 @@ function ToolGroupView(props: ToolGroupViewProps) {
                 {i > 0 && ", "}
                 {part.text}
                 {part.failed > 0 && (
-                  <span className={styles.toolGroupFailed}> ({part.failed} failed)</span>
+                  <span className={styles.toolGroupFailed}>
+                    {" "}
+                    ({part.failed} failed)
+                  </span>
                 )}
               </span>
             ))}
           </span>
         )}
-        <ChevronRight className={styles.toolGroupChevron} size={14} aria-hidden />
+        <ChevronRight
+          className={styles.toolGroupChevron}
+          size={14}
+          aria-hidden
+        />
       </Button>
       {open && (
         <div className={styles.toolRows}>
@@ -142,7 +174,12 @@ function RunningTool(props: RunningToolProps) {
 
   return (
     <>
-      <span className={styles.statusDot} data-status="pending" role="img" aria-label="running" />
+      <span
+        className={styles.statusDot}
+        data-status="pending"
+        role="img"
+        aria-label="running"
+      />
       <span className={styles.toolGroupSummary}>{tool.summary}</span>
       {elapsed >= 0 && <span className={styles.toolElapsed}>{elapsed}s</span>}
     </>
@@ -153,7 +190,11 @@ type ToolEntryProps = {
   entry: Extract<ChatEntry, { kind: "tool" }>;
 };
 
-const STATUS_LABEL = { pending: "running", ok: "done", error: "failed" } as const;
+const STATUS_LABEL = {
+  pending: "running",
+  ok: "done",
+  error: "failed",
+} as const;
 
 /** One call inside an open group, expanding to its detail on tap. */
 function ToolEntry(props: ToolEntryProps) {
@@ -163,7 +204,11 @@ function ToolEntry(props: ToolEntryProps) {
   const expandable = Boolean(entry.detail);
 
   return (
-    <div className={styles.tool} data-testid="chat-tool" data-status={entry.status}>
+    <div
+      className={styles.tool}
+      data-testid="chat-tool"
+      data-status={entry.status}
+    >
       <Button
         variant="ghost"
         size="sm"
@@ -181,7 +226,9 @@ function ToolEntry(props: ToolEntryProps) {
         <span className={styles.toolName}>{entry.name}</span>
         <span className={styles.toolSummary}>{entry.summary}</span>
       </Button>
-      {open && entry.detail && <pre className={styles.toolDetail}>{entry.detail}</pre>}
+      {open && entry.detail && (
+        <pre className={styles.toolDetail}>{entry.detail}</pre>
+      )}
     </div>
   );
 }
@@ -218,7 +265,9 @@ function CommandEntry(props: CommandEntryProps) {
       ) : (
         <div className={styles.commandChip}>{label}</div>
       )}
-      {open && entry.output && <pre className={styles.commandOutput}>{entry.output}</pre>}
+      {open && entry.output && (
+        <pre className={styles.commandOutput}>{entry.output}</pre>
+      )}
     </div>
   );
 }

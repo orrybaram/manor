@@ -184,7 +184,7 @@ async function startMacTarget(tmp) {
       "# ForceCommand for the remote-host E2E sshd: an isolated HOME.",
       `HOME='${remoteHome}'`,
       `PATH='${process.env.PATH ?? "/usr/bin:/bin"}'`,
-      // The box's host server (ADR-218) dials MANOR_RELAY_URL. Never the
+      // The box's host server (ADR-225) dials MANOR_RELAY_URL. Never the
       // production relay from a test box: a closed local port unless a spec
       // points it at its own local relay (helpers/remote-host.ts
       // `pointHostServerAtRelay`), through this file.

@@ -1,5 +1,5 @@
 /**
- * What the owner tells a host server (ADR-218 D4, D5): the manifest of this
+ * What the owner tells a host server (ADR-225 D4, D5): the manifest of this
  * host's projects and the layout snapshot of its workspaces, pushed by the
  * desktop over the owner channel (`hostServer.syncManifest`,
  * `hostServer.syncLayout`) on every connect and on every change.
@@ -249,7 +249,7 @@ function knownWorkspacePaths(project: ManifestProject): Set<string> {
 
 /**
  * Which project and workspace a pane is in, from what the owner synced
- * (ADR-218 D2): the workspace whose layout holds the pane, and the manifest
+ * (ADR-225 D2): the workspace whose layout holds the pane, and the manifest
  * project that names that workspace (its root, a workspace it keeps a name,
  * issue, folder or place in the order for, or one under its worktree
  * directory). Undefined when the snapshot predates the pane — the agent is

@@ -1,5 +1,5 @@
 /**
- * The secret-storage port (ADR-218 D6).
+ * The secret-storage port (ADR-225 D6).
  *
  * Everything the remote-control and relay modules persist as a secret (device
  * token hashes, the relay identity, the VAPID key, the Linear key) goes

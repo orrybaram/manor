@@ -35,7 +35,7 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 export const UNAVAILABLE_CODE = "unavailable:web";
 
 /**
- * The same refusal from a host server (ADR-218 D6): the method exists on the
+ * The same refusal from a host server (ADR-225 D6): the method exists on the
  * desktop but is not on that host's allowlist — launching an agent, browsing
  * issues. Every `unavailable:*` code is a stated empty state to the client.
  */
@@ -109,13 +109,13 @@ export interface HelloReplyFrame {
   rendererId: string;
   appVersion?: string;
   /**
-   * What the server calls its host (ADR-218 D7): the phone's pairings show
+   * What the server calls its host (ADR-225 D7): the phone's pairings show
    * it. Both the desktop and a host server send it, so it says nothing
    * about which one answered. Optional because older hosts may not send it.
    */
   hostName?: string;
   /**
-   * True only from a host server (ADR-218 D5, D6; ADR-225): it serves a slice
+   * True only from a host server (ADR-225 D5, D6; ADR-226): it serves a slice
    * of the desktop's bridge, so the page hides what it cannot do. The
    * desktop never sets it.
    */
@@ -185,7 +185,7 @@ export interface EventFrame {
  *
  * - `local` — an Electron renderer window on this machine (the desktop).
  * - `owner` — the desktop reaching a host server over its owner channel
- *   (ADR-218 D4): `manor-host server-bridge` over ssh, so ssh is the
+ *   (ADR-225 D4): `manor-host server-bridge` over ssh, so ssh is the
  *   authentication. Only a table whose `localOnlyCallers` names `owner`
  *   (the host server's) lets one call `LOCAL_ONLY` methods; any other server
  *   refuses an owner them exactly as it refuses a device.

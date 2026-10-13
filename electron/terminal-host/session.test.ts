@@ -336,7 +336,7 @@ describe("Session", () => {
     });
   });
 
-  describe("attachedClients (ADR-218 D5)", () => {
+  describe("attachedClients (ADR-225 D5)", () => {
     it("counts attached stream sockets in the session info", () => {
       const a = mockSocket();
       const b = mockSocket();

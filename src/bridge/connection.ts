@@ -3,11 +3,11 @@
  * hello states, recorded once by `install-web.ts` and read by components.
  *
  * - `activeRoomId` — the relay room this page dials (the switcher marks it).
- * - `hostName` — the host names itself in its hello (ADR-218 D7); both the
+ * - `hostName` — the host names itself in its hello (ADR-225 D7); both the
  *   desktop and a host server do.
  * - `isHostServer` — the hello says `hostServer: true` only from a host
- *   server (ADR-225), which serves only a slice of the desktop's bridge
- *   (ADR-218 D5, D6): a phone paired with one can browse and drive existing agents but cannot create
+ *   server (ADR-226), which serves only a slice of the desktop's bridge
+ *   (ADR-225 D5, D6): a phone paired with one can browse and drive existing agents but cannot create
  *   workspaces or launch new agents. Entry points read this and state the
  *   limit up front rather than learning it from a refused call.
  *

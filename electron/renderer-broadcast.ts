@@ -71,7 +71,7 @@ export type BroadcastSource = (sink: Sink) => () => void;
  * A set of sinks and a typed publish into them, not shared with anybody.
  *
  * The desktop's is this module's (below). A host server makes its own
- * (ADR-218): its agents and owner sync are one server's news, and a second
+ * (ADR-225): its agents and owner sync are one server's news, and a second
  * server in the same process (a test) must not hear them.
  */
 export interface BroadcastBus {

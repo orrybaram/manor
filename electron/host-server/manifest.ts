@@ -1,6 +1,6 @@
 /**
  * The manifest: what the desktop tells a host server about the projects on
- * its host (ADR-218 D2, D4, D8).
+ * its host (ADR-225 D2, D4, D8).
  *
  * In slice 1 the desktop owns projects. It pushes this over the owner channel
  * on connect and on change (`hostServer.syncManifest`, `./owner.ts`), and the
@@ -49,7 +49,7 @@ export type IssueSnapshot = Pick<LinkedIssue, "id" | "title" | "url"> &
 export type PrSnapshot = Pick<PrInfo, "number" | "state" | "title" | "url"> &
   Partial<Pick<PrInfo, "isDraft" | "checks">>;
 
-/** What the desktop knew about one workspace's issue and PR (ADR-218 D8). */
+/** What the desktop knew about one workspace's issue and PR (ADR-225 D8). */
 export interface WorkspaceIntegrationSnapshot {
   /** ISO time the desktop took this. The phone shows its age. */
   takenAt: string;

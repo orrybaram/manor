@@ -221,7 +221,7 @@ export class AgentManager {
    * Writes the current state to disk synchronously, cancelling any pending
    * debounced save. Used after a one-shot migration so the rewritten file is
    * on disk before the process can crash or be killed, and by the host
-   * server (ADR-218) before it records how far into the hook journal it has
+   * server (ADR-225) before it records how far into the hook journal it has
    * read, so that cursor never runs ahead of the agents it produced.
    */
   flushNow(): void {

@@ -50,6 +50,7 @@ import {
   selectActiveWorkspaceKey,
   getPersistedActiveWorkspacePath,
   OWN_CLAIM,
+  resyncLayout,
 } from "./store/app-store";
 import {
   useProjectStore,
@@ -63,8 +64,8 @@ import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
   dispatchKeybinding,
+  newAgent,
   runForwardedCommand,
-  startNewAgent,
 } from "./lib/keybinding-commands";
 import { sidebarColumnWidth, windowLeadInset } from "./lib/window-lead";
 import {
@@ -75,36 +76,33 @@ import {
 import { MAIN_WINDOW_KEYBINDINGS } from "./lib/menu-commands";
 import { findPanelWithTab } from "./lib/layout/workspace-layout";
 import { PanelLayout } from "./components/panels/PanelLayout";
-import { useThemeStore } from "./store/theme-store";
+import { useThemeStore, startThemeSync } from "./store/theme-store";
+import { onBridgeResync } from "./bridge/resync";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
-import { useToastStore } from "./store/toast-store";
 import { useRemoteRecovery } from "./hooks/useRemoteRecovery";
+import { useTerminalResync } from "./hooks/useTerminalResync";
 import { useAgentContextRepair } from "./hooks/useAgentContextRepair";
 import {
   useNavigationHistory,
   navigateBack,
   navigateForward,
 } from "./hooks/useNavigationHistory";
-import type { AgentInfo } from "./electron.d";
-import { agentWorkspaceKey, navigateToAgent } from "./utils/agent-navigation";
-import { paneHasNoAgent, resumeAgentInPane } from "./lib/agent-resume-in-pane";
-import { hasPaneId } from "./lib/layout/pane-tree";
+import { resumeAgent } from "./lib/agent-resume";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
-import { hostServerUnavailableCopy, useConnection } from "./bridge/connection";
-import { showBridgeUnavailableToastOnce } from "./lib/bridge-unavailable-toast";
+import { useConnection } from "./bridge/connection";
 import { useLayoutMode } from "./hooks/useLayoutMode";
+import { WorkspaceWatchers } from "./components/WorkspaceWatchers";
+import { PhoneNewAgentComposer } from "./components/phone/NewAgent/PhoneNewAgentComposer";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
-import { markChatStarting } from "./components/phone/ChatPane/usePaneChatView";
 import "./App.css";
 
 function App() {
-  const loadTheme = useThemeStore((s) => s.loadTheme);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
@@ -119,8 +117,17 @@ function App() {
   // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
   useMountEffect(() => startAgentActivitySync());
 
+  // The selected theme, kept live, and re-read on a bridge resync.
+  useMountEffect(() => startThemeSync());
+
+  // A reconnected browser missed whatever was pushed while it was gone
+  // (ADR-220 D2): re-read the projects and every workspace. The layout's
+  // resync is not its boot read — see `resyncLayout`.
+  useMountEffect(() =>
+    onBridgeResync(() => Promise.all([loadProjects(), resyncLayout()])),
+  );
+
   useMountEffect(() => {
-    loadTheme();
     // `layout.getAll()` is a read of the Manor server's layout, and the
     // subscription that keeps it current is installed when `app-store.ts` is
     // imported — well before this runs, so a change that lands in the gap is
@@ -165,6 +172,7 @@ function App() {
   useUpdaterToasts();
   useNavigationHistory();
   useRemoteRecovery();
+  useTerminalResync();
   useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -200,7 +208,9 @@ function App() {
     // they inherit the global theme (null).
     const appState = useAppStore.getState();
     const activeTheme =
-      isHomePath(appState.activeWorkspacePath) || appState.activeSurface === "tasks"
+      isHomePath(appState.activeWorkspacePath) ||
+      appState.activeSurface === "tasks" ||
+      appState.activeSurface === "composer"
       ? null
       : useProjectStore.getState().projects[
           useProjectStore.getState().selectedProjectIndex
@@ -407,7 +417,6 @@ function App() {
     (s) => (selectActiveWorkspace(s)?.tabs.length ?? 0) > 0,
   );
 
-  const addTab = useAppStore((s) => s.addTab);
   const closeTab = useAppStore((s) => s.closeTab);
   const pendingCloseConfirmPaneId = useAppStore((s) => s.pendingCloseConfirmPaneId);
   const setPendingCloseConfirmPaneId = useAppStore((s) => s.setPendingCloseConfirmPaneId);
@@ -422,6 +431,15 @@ function App() {
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
   const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
+  // ADR-222: the phone new-agent composer covers the workspace. It is a
+  // phone surface: a renderer that widens out of phone layout goes back to
+  // the workspace, so every reader of the surface agrees.
+  const composerShown = useAppStore((s) => s.activeSurface === "composer");
+  useEffect(() => {
+    if (layoutMode !== "phone" && useAppStore.getState().activeSurface === "composer") {
+      useAppStore.getState().closeComposer();
+    }
+  }, [layoutMode]);
 
   // Reactively apply the active surface's theme. Projects carry an optional
   // theme override; Home and the Tasks view have no owning project, so they
@@ -583,7 +601,7 @@ function App() {
   // instead of silently doing nothing here: the dispatcher finds no handler
   // and the fallback forwards the command.
   const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
-  const { isHostServer: onHostServer, hostName: serverHostName } = useConnection();
+  const { isHostServer: onHostServer } = useConnection();
   menuHandlersRef.current = createMenuHandlers(
     {
       openSettings: (page) => {
@@ -612,11 +630,11 @@ function App() {
         const agent = useAgentStore
           .getState()
           .agents.find((a) => a.id === agentId);
-        if (agent) void handleResumeAgent(agent);
+        if (agent) resumeAgent(agent);
       },
       showGhosts: triggerGhosts,
     },
-    // Rebuilt when the hello says this is a host server (ADR-218 D5), which
+    // Rebuilt when the hello says this is a host server (ADR-225 D5), which
     // drops the commands it cannot serve.
     { primary: !OWN_CLAIM, hostServer: onHostServer },
   );
@@ -689,83 +707,12 @@ function App() {
     return () => window.removeEventListener("mouseup", handleMouseUp);
   });
 
-  const handleResumeAgent = useCallback(
-    async (agent: AgentInfo) => {
-      // The agent's workspace, on its host (ADR-191).
-      const agentKey = agentWorkspaceKey(agent, projects);
-      // If the agent is active and has a pane, switch to it instead of opening a new tab
-      if (agent.status === "active" && agent.paneId && agentKey) {
-        const wsLayout = useAppStore.getState().workspaceLayouts[agentKey];
-        if (wsLayout) {
-          const paneExists = Object.values(wsLayout.panels).some((panel) =>
-            panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
-          );
-          if (paneExists) {
-            navigateToAgent(agent);
-            // Its pane came back as a bare shell (the terminal session was
-            // lost): bring the agent back there rather than show it empty.
-            const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
-            if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
-            return;
-          }
-        }
-      }
-
-      const wsPath = agent.workspacePath;
-      // The Dashboard hosts no panes (ADR-197 §2), so a Home agent has
-      // nowhere to resume into.
-      if (isHomePath(wsPath)) {
-        useToastStore.getState().addToast({
-          id: `resume-home-agent-${agent.id}`,
-          message: "Dashboard agents can't be resumed",
-          status: "info",
-        });
-        return;
-      }
-      if (wsPath && agentKey) {
-        setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
-      }
-      const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
-      if (activePath) {
-        const agentProject = ownerOf(projects, agentKey);
-        const agentCommand =
-          agent.agentCommand ??
-          agentProject?.agentCommand ??
-          DEFAULT_AGENT_COMMAND;
-        // Don't consume prewarmed — resume needs a specific --resume command.
-        // The line is queued on the server (ADR-179 ticket 11).
-        useAppStore
-          .getState()
-          .addTerminalTab(`${agentCommand} --resume ${agent.agentSessionId}`, {
-            kind: "agent-startup",
-          });
-      } else {
-        addTab();
-      }
-    },
-    [setActiveWorkspace, addTab, projects],
-  );
-
-  const handleNewAgent = useCallback(async () => {
-    // A host server does not launch agents (ADR-218 D5).
-    if (onHostServer) {
-      showBridgeUnavailableToastOnce(
-        "host-server-new-agent",
-        hostServerUnavailableCopy("Starting new agents", serverHostName),
-      );
-      return;
-    }
-    // Every surface — Home and project workspaces alike — consumes a prewarmed
-    // session when one is ready. On a cold start (no prewarm, or the command
-    // hadn't been injected yet) seed the surface's launch command; the pty
-    // boundary resolves the cwd, so Home needs no special casing here.
-    const started = await startNewAgent({ prewarm: true });
-    // A phone reads a new Claude agent as a chat from the start, not only
-    // once its transcript is known (ADR-215 D7).
-    if (started && layoutMode === "phone" && started.agentKind === "claude") {
-      markChatStarting(started.paneId);
-    }
-  }, [layoutMode, onHostServer, serverHostName]);
+  // Every surface — Home and project workspaces alike — consumes a prewarmed
+  // session when one is ready. On a cold start (no prewarm, or the command
+  // hadn't been injected yet) seed the surface's launch command; the pty
+  // boundary resolves the cwd, so Home needs no special casing here. A phone
+  // opens the new-agent composer instead (`newAgent`).
+  const handleNewAgent = useCallback(() => newAgent({ prewarm: true }), []);
 
   // A detached window's one panel: the one holding the tab it claims, in this
   // window's replica of the shared layout (ADR-179 D4). A string, so the
@@ -819,6 +766,7 @@ function App() {
   } else {
     content = (
       <>
+          <WorkspaceWatchers />
           <div
             className="app-body"
             style={layoutMode === "desk" ? appBodyStyle : undefined}
@@ -858,9 +806,8 @@ function App() {
                     switcher — sits around the workspace stack, not inside it. */}
                 {layoutMode === "phone" && (
                   <PhoneChrome
-                    onShowAgents={() => setAgentsOpen(true)}
-                    onOpenProjectSettings={handleOpenProjectSettings}
-                    onAddProject={handleAddProject}
+                    onNewAgent={handleNewAgent}
+                    onOpenSettings={() => handleOpenSettings()}
                     onOpenSearch={openPhonePalette}
                   />
                 )}
@@ -875,11 +822,13 @@ function App() {
                   {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
                   <WorkspaceStack
                     visibleKey={
-                      hasTabs && !showOnboarding && !showTasksView ? activeWorkspaceKey : null
+                      hasTabs && !showOnboarding && !showTasksView && !composerShown
+                        ? activeWorkspaceKey
+                        : null
                     }
                     onNewAgent={handleNewAgent}
                   />
-                  {(showOnboarding || showTasksView || !(activeWorkspacePath && hasTabs)) && (
+                  {(showOnboarding || showTasksView || composerShown || !(activeWorkspacePath && hasTabs)) && (
                     <div className="empty-surface">
                       <div className="surface-header">
                         <span className="surface-title">
@@ -889,6 +838,8 @@ function App() {
                             ? "Welcome"
                             : showTasksView
                             ? "Tasks"
+                            : composerShown
+                            ? "New agent"
                             : workspaceDisplayName(activeWorkspaceKey, projects)}
                         </span>
                       </div>
@@ -899,6 +850,8 @@ function App() {
                           ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                           : showTasksView
                           ? <TasksView onNewWorkspace={handleNewWorkspace} />
+                          : composerShown
+                          ? <PhoneNewAgentComposer closable />
                           : !hasTabs &&
                             (isHomePath(activeWorkspacePath)
                               ? (
@@ -936,7 +889,7 @@ function App() {
               onOpenSettings={handleOpenSettings}
               onNewWorkspace={handleNewWorkspace}
               initialView={paletteInitialView}
-              onResumeAgent={handleResumeAgent}
+              onResumeAgent={resumeAgent}
               onViewAllAgents={() => setAgentsOpen(true)}
               onNewAgent={handleNewAgent}
               onRunCommand={runCommand}
@@ -952,7 +905,7 @@ function App() {
             <AgentsModal
               open={agentsOpen}
               onClose={closeAgents}
-              onResumeAgent={handleResumeAgent}
+              onResumeAgent={resumeAgent}
             />
             <AddProjectDialog
               open={addProjectDialogOpen}

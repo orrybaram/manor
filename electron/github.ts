@@ -14,8 +14,6 @@ import type {
 import { LOCAL_HOST_ID } from "./backend/types";
 import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
-import { githubImageFetchUrl } from "../src/lib/task-images";
-import { fetchImageDataUrl, ImageAuthError } from "./image-proxy";
 import {
   conversationsQueryArgs,
   graphqlTarget,
@@ -171,9 +169,6 @@ export class GitHubManager {
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
 
-  /** `gh`'s token for image fetches; dropped when gh or GitHub refuses it. */
-  private imageTokenPromise: Promise<string> | null = null;
-
   /** Without a resolver every checkout is local. */
   constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
 
@@ -205,7 +200,7 @@ export class GitHubManager {
   /**
    * The last PR each branch of each checkout was seen with (null: none), and
    * when — what the desktop already knows, for the host server manifest's
-   * integration snapshot (ADR-218 D8), which must not cost a call of its
+   * integration snapshot (ADR-225 D8), which must not cost a call of its
    * own. Only a lookup that reached GitHub writes here, so a rate-limited
    * poll does not wipe what was known. A merged or closed PR here never
    * changes again, so its branch is not queried again (#303).
@@ -858,48 +853,23 @@ export class GitHubManager {
   }
 
   /**
-   * Fetch an image embedded in an issue body with `gh`'s token and hand back
-   * a data URL — a private repo's images 404 (or bounce to a login page)
-   * without it. Only GitHub's own hosts get the token, on every redirect hop;
-   * anything else throws and the renderer loads it directly.
+   * The signed-in user's GitHub profile display name, as-is, for the phone's
+   * greeting. `null` when `gh` is missing or signed out, or the profile has
+   * no name.
    */
-  async proxyImage(url: string): Promise<string> {
-    const target = githubImageFetchUrl(url);
-    if (!target) throw new Error("Not a GitHub-hosted image");
-
-    const token = await this.imageToken();
+  async getViewerName(): Promise<string | null> {
     try {
-      return await fetchImageDataUrl({
-        url: target,
-        authorization: `token ${token}`,
-        isTrusted: (hop) => githubImageFetchUrl(hop.href) !== null,
-      });
-    } catch (err) {
-      // A token revoked or switched since it was cached; the next image asks gh again.
-      if (err instanceof ImageAuthError) this.imageTokenPromise = null;
-      throw err;
-    }
-  }
-
-  /** `gh auth token`, run once and shared by every image rather than once per image. */
-  private imageToken(): Promise<string> {
-    if (!this.imageTokenPromise) {
-      this.imageTokenPromise = execFileAsync(
+      const { stdout } = await execFileAsync(
         "gh",
-        ["auth", "token", "--hostname", "github.com"],
+        ["api", "user", "--hostname", "github.com", "--jq", ".name // \"\""],
         { encoding: "utf-8", timeout: 5000 },
-      ).then(
-        ({ stdout }) => stdout.trim(),
-        (err: unknown) => {
-          this.imageTokenPromise = null;
-          throw err;
-        },
       );
+      return stdout.trim() || null;
+    } catch {
+      return null;
     }
-    return this.imageTokenPromise;
   }
 }
-
 
 interface PrConversationState {
   unresolvedThreads?: number;

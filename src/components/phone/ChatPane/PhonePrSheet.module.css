@@ -1,0 +1,17 @@
+/*
+ * The phone's PR drawer (`PhonePrSheet`) inside its bottom `PhoneSheet`: the
+ * close button stays put and the body is the sheet's only scroller —
+ * `PrDetails` grows to fit it rather than scrolling its own checks.
+ */
+.header {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 16px 16px;
+}

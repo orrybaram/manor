@@ -1,6 +1,6 @@
 /**
  * server-bridge — the remote end of the desktop's owner channel to a host
- * server (ADR-218 D4), modelled on `remote-bridge` (`./bridge.ts`).
+ * server (ADR-225 D4), modelled on `remote-bridge` (`./bridge.ts`).
  *
  * Invoked as `manor-host server-bridge` on the far side of an ssh
  * connection (`ssh -T <target> 'exec manor-host server-bridge'`). It reads

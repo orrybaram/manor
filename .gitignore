@@ -37,8 +37,8 @@ test-results/
 playwright-report/
 .playwright/
 
-# tsc -b byproducts (the checked-in tsconfig.node.tsbuildinfo predates this)
-tsconfig.tsbuildinfo
+# tsc -b byproducts
+*.tsbuildinfo
 vite.config.js
 vite.config.d.ts
 

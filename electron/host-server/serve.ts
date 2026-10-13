@@ -1,5 +1,5 @@
 /**
- * `manor-host serve` (ADR-218 D1): run one host server in this process until
+ * `manor-host serve` (ADR-225 D1): run one host server in this process until
  * it is told to stop.
  *
  * What it leaves in `dataDir` while it runs (names in `hostServerPaths`):

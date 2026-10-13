@@ -128,7 +128,7 @@ describe("install-web on a relay-served page", () => {
     const { api } = await install(relayHash());
     const connection = await import("../connection");
     void api.projects.getAll().catch(() => {});
-    // The desktop sends `hostName` too (ADR-218 D7), but no `hostServer`.
+    // The desktop sends `hostName` too (ADR-225 D7), but no `hostServer`.
     FakeRelaySocket.last.handshake({ hostName: "desk.local" });
     expect(connection.getConnection()).toEqual({
       activeRoomId: ROOM,
@@ -190,6 +190,81 @@ describe("install-web on a relay-served page", () => {
     expect(mod.getReachability()).toBe("connected");
     expect(seen).toEqual(["unreachable", "connected"]);
     expect(local.has(PAIRINGS_KEY)).toBe(true);
+  });
+
+  it("emits a resync on a resumed hello, not the first", async () => {
+    const { api } = await install(relayHash());
+    // Same module registry as the install above, so the same listener set.
+    const { onBridgeResync } = await import("../resync");
+    const resync = vi.fn();
+    onBridgeResync(resync);
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+    expect(resync).not.toHaveBeenCalled();
+
+    FakeRelaySocket.last.drop(1006);
+    vi.advanceTimersByTime(1_000);
+    FakeRelaySocket.last.handshake();
+    expect(resync).toHaveBeenCalledOnce();
+  });
+
+  /** Whether `promise` has settled, without waiting on it. */
+  async function isSettled(promise: Promise<unknown>): Promise<boolean> {
+    let settled = false;
+    void promise.then(() => (settled = true));
+    await Promise.resolve();
+    await Promise.resolve();
+    return settled;
+  }
+
+  it("refreshBridge re-fetches over a live line, and waits for it", async () => {
+    const { mod, api } = await install(relayHash());
+    const { onBridgeResync } = await import("../resync");
+    let finish: () => void = () => {};
+    const resync = vi.fn(() => new Promise<void>((r) => (finish = r)));
+    onBridgeResync(resync);
+    void api.projects.getAll().catch(() => {});
+    const socket = FakeRelaySocket.last;
+    socket.handshake();
+
+    const refreshed = mod.refreshBridge();
+    socket.pong();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resync).toHaveBeenCalledOnce();
+    expect(await isSettled(refreshed)).toBe(false);
+    finish();
+    await refreshed;
+    expect(FakeRelaySocket.instances).toHaveLength(1);
+  });
+
+  it("refreshBridge redials a dead line and waits for its hello's resync", async () => {
+    const { mod, api } = await install(relayHash());
+    const { onBridgeResync } = await import("../resync");
+    const resync = vi.fn();
+    onBridgeResync(resync);
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+
+    const refreshed = mod.refreshBridge();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(resync).not.toHaveBeenCalled();
+    expect(FakeRelaySocket.instances).toHaveLength(2);
+    expect(await isSettled(refreshed)).toBe(false);
+    FakeRelaySocket.last.handshake();
+    expect(resync).toHaveBeenCalledOnce();
+    await refreshed;
+  });
+
+  it("refreshBridge stops waiting on a redial that never says hello", async () => {
+    const { mod, api } = await install(relayHash());
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+
+    const refreshed = mod.refreshBridge();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await isSettled(refreshed)).toBe(false);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await isSettled(refreshed)).toBe(true);
   });
 
   it("keeps the pairing on a message 2 that does not authenticate", async () => {

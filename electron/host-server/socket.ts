@@ -1,5 +1,5 @@
 /**
- * The host server's unix socket (ADR-218 D1, D4): `dataDir/server.sock`,
+ * The host server's unix socket (ADR-225 D1, D4): `dataDir/server.sock`,
  * mode 0600, where `manor-host server-bridge` (`terminal-host/server-bridge.ts`)
  * pipes the desktop's owner channel.
  *
@@ -92,7 +92,7 @@ const OWNER_CALLER = {
 } as const;
 
 /**
- * The hello check for the owner socket (ADR-218 D4): the token must be the
+ * The hello check for the owner socket (ADR-225 D4): the token must be the
  * owner token, compared in constant time. Answers an `owner` caller, which
  * the host table lets call `LOCAL_ONLY` methods such as pairing and the
  * manifest sync.

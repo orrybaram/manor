@@ -1,0 +1,41 @@
+import type { AgentInfo } from "../../electron.d";
+import type { HostId } from "../../lib/hosts";
+import { byUpdatedDesc } from "../../utils/relative-time";
+
+/** How many past agents the empty workspace offers to jump back into. */
+export const RECENT_AGENT_LIMIT = 8;
+
+/**
+ * The agents that ran in the workspace at `workspacePath` on `hostId`, most
+ * recently touched first, at most `RECENT_AGENT_LIMIT` of them.
+ */
+export function recentWorkspaceAgents(
+  agents: readonly AgentInfo[],
+  workspacePath: string | null,
+  hostId: HostId,
+): AgentInfo[] {
+  if (!workspacePath) return [];
+  return agents
+    .filter((a) => a.workspacePath === workspacePath && a.hostId === hostId)
+    .sort(byUpdatedDesc)
+    .slice(0, RECENT_AGENT_LIMIT);
+}
+
+export type RecentTone = "done" | "error" | "neutral";
+
+/** The card's status line for an agent's lifecycle. */
+export function recentStatus(agent: AgentInfo): { label: string; tone: RecentTone } {
+  switch (agent.status) {
+    case "completed":
+      return { label: "Finished", tone: "done" };
+    case "error":
+      return { label: "Errored", tone: "error" };
+    case "abandoned":
+      return { label: "Interrupted", tone: "neutral" };
+    case "active":
+      // The timeline's `working` wording (STATUS_LABEL), not "Paused".
+      return { label: "Working", tone: "neutral" };
+    default:
+      return { label: "Paused", tone: "neutral" };
+  }
+}

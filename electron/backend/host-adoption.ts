@@ -78,7 +78,10 @@ export interface HostAdoptionOptions {
   >;
   /** A pane's session owner: which host an agent runs on (ADR-191 §5). */
   getPaneHostId: PaneHostLookup;
-  /** Told after a host's projects left `projects.json`. */
+  /**
+   * Told after a host's projects left `projects.json`, or it was first
+   * marked adopted: either way its projects now come from its server.
+   */
   onProjectsRemoved?(hostId: string): void;
   /** Told after agents left `agents.json`, so a renderer drops its copies. */
   onAgentsRemoved?(agentIds: readonly string[]): void;
@@ -184,6 +187,11 @@ export class HostAdoption {
     }
     outcome.ownership = "host";
     outcome.sent = true;
+    outcome.backup = this.writeBackup(hostId, {
+      ...local,
+      projectIds: projects.map((p) => p.id),
+      agents: [],
+    });
     const { projectManager, layoutStore } = this.opts;
     outcome.removed.projects = projectManager.removeAdoptedProjects(
       hostId,
@@ -243,14 +251,17 @@ export class HostAdoption {
       if (outcome.sent) await this.remapMergedIds(hostId, channel, local);
       const { projectManager, agentManager, layoutStore } = this.opts;
       outcome.removed.projects = projectManager.removeAdoptedProjects(hostId, local.projectIds).length;
-      if (outcome.removed.projects > 0) this.opts.onProjectsRemoved?.(hostId);
       const agentIds = local.agents.map((a) => a.id);
       outcome.removed.agents = agentManager.removeAgents(agentIds);
       if (agentIds.length > 0) this.opts.onAgentsRemoved?.(agentIds);
       await layoutStore.release(Object.keys(local.layout));
       outcome.removed.workspaces = Object.keys(local.layout).length;
     }
+    const wasAdopted = this.opts.projectManager.isHostAdopted(hostId);
     this.opts.projectManager.markHostAdopted(hostId);
+    // Only now: a renderer that reads the list on this news finds the
+    // host's projects through its server, not in neither list.
+    if (outcome.removed.projects > 0 || !wasAdopted) this.opts.onProjectsRemoved?.(hostId);
     return outcome;
   }
 

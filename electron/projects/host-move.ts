@@ -20,6 +20,8 @@ import {
   validateRepoUrl,
 } from "./remote-clone";
 import type { PersistedProject, ProjectHost, ProjectInfo } from "./types";
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
+import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 
 /**
  * Move `record[from]` to `record[to]` (overwriting), leaving it unchanged
@@ -65,14 +67,21 @@ export async function moveAcrossServers(
     ctx.store.state.projects.push(record);
   }
   let moved: ProjectInfo;
+  let taken: string[] = [];
   try {
     moved = await move();
-    if (source !== null) await remote!.call(source, "remove", [projectId]);
+    if (source !== null) {
+      // The source host's server drops its layouts with the project: take
+      // them here first, where the caller moves them on (ADR-191 §3).
+      taken = await takeLayouts(ctx, source, projectId);
+      await remote!.call(source, "remove", [projectId]);
+    }
   } catch (err) {
     if (source !== null) {
       const state = ctx.store.state;
       state.projects = state.projects.filter((p) => p.id !== projectId);
       ctx.store.save();
+      if (taken.length > 0) await ctx.layout?.release?.(taken);
     }
     throw err;
   }
@@ -87,6 +96,29 @@ export async function moveAcrossServers(
     }
   }
   return moved;
+}
+
+/**
+ * Copy the layouts of `projectId`'s workspaces on adopted host `hostId`
+ * into this desktop's layout store, under the same keys. Returns the keys
+ * taken.
+ */
+async function takeLayouts(
+  ctx: ProjectContext,
+  hostId: string,
+  projectId: string,
+): Promise<string[]> {
+  if (!ctx.layout?.take || !ctx.remote) return [];
+  const info = ctx.remote.list().find((p) => p.id === projectId);
+  const paths = new Set([info?.path, ...(info?.workspaces ?? []).map((ws) => ws.path)]);
+  const entries: Record<string, LayoutEntry> = {};
+  for (const [key, entry] of Object.entries(ctx.remote.layoutOf(hostId))) {
+    const parsed = parseWorkspaceKey(key);
+    if (parsed.hostId === hostId && paths.has(parsed.path)) entries[key] = entry;
+  }
+  const keys = Object.keys(entries);
+  if (keys.length > 0) await ctx.layout.take(entries);
+  return keys;
 }
 
 /** Where a clone onto a host goes, resolved before anything is cloned. */

@@ -361,6 +361,18 @@ export class HostProxy {
     await this.readProjects();
   }
 
+  /**
+   * Take a workspace selection the desktop just sent the host into the
+   * cached list, quietly: a selection is not worth reading every project
+   * on the box back for.
+   */
+  noteSelectedWorkspace(projectId: string, workspaceIndex: number): void {
+    const project = this.projectList.find((p) => p.id === projectId);
+    if (!project || project.selectedWorkspaceIndex === workspaceIndex) return;
+    project.selectedWorkspaceIndex = workspaceIndex;
+    this.saveSoon();
+  }
+
   /** Let go: stop listening and write the cache now. */
   dispose(): void {
     if (this.disposed) return;

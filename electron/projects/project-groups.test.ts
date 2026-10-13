@@ -704,6 +704,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
         owns: (hostId: string) => hostId === "box",
         call: vi.fn(async () => null),
         handOver: vi.fn(async () => {}),
+        layoutOf: () => ({}),
       };
     }
 

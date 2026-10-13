@@ -133,6 +133,12 @@ export class RoutedBackend implements WorkspaceBackend {
     const bySession = (sessionId: string) =>
       registry.get(sessions.ownerOf(sessionId) ?? LOCAL_HOST_ID).pty;
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
+    // Remote sessions this process attached that have not exited since: a
+    // re-mount of one attaches without asking its host's server first.
+    const attachedRemote = new Set<string>();
+    registry.onEvent((_hostId, event) => {
+      if (event.type === "exit") attachedRemote.delete(event.sessionId);
+    });
 
     this.pty = {
       createOrAttachWith: async (sessionId, cwd, cols, rows, opts = {}) => {
@@ -144,14 +150,16 @@ export class RoutedBackend implements WorkspaceBackend {
         // running, or starts it afresh after the host's daemon lost it — and
         // types whatever its queue holds for the pane; this then attaches
         // to it.
+        const running = attachedRemote.has(sessionId) && sessions.ownerOf(sessionId) === hostId;
         const spawned =
-          hostId !== LOCAL_HOST_ID && spawnOnHost
+          hostId !== LOCAL_HOST_ID && spawnOnHost && !running
             ? await spawnOnHost(hostId, sessionId, cwd, cols, rows, opts.env)
             : null;
         const result = await registry
           .get(hostId)
           .pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env);
         sessions.claim(sessionId, hostId);
+        if (hostId !== LOCAL_HOST_ID) attachedRemote.add(sessionId);
         return spawned === null ? { ...result, hostId } : { ...result, hostId, spawned };
       },
       createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
@@ -167,6 +175,7 @@ export class RoutedBackend implements WorkspaceBackend {
       kill: async (sessionId) => {
         await bySession(sessionId).kill(sessionId);
         sessions.release(sessionId);
+        attachedRemote.delete(sessionId);
       },
       detach: (sessionId) => bySession(sessionId).detach(sessionId),
       getSnapshot: (sessionId) => bySession(sessionId).getSnapshot(sessionId),

@@ -391,3 +391,52 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect((await projectManager.getProjects()).map((p) => p.id)).toContain("box-app");
   });
 });
+
+describe("HostRouting's setup progress", () => {
+  /** A host whose `createWorktree` adds `newPath` to project `app`. */
+  function routingWith(newPaths: string[]) {
+    const workspaces = [{ path: "/srv/app" }];
+    const proxy = {
+      hostId: "box",
+      label: "me@box",
+      away: false,
+      projects: () => [{ id: "app", workspaces: [...workspaces] }],
+      refreshProjects: vi.fn(async () => {}),
+      invoke: vi.fn(async (_ns: string, method: string) => {
+        if (method !== "createWorktree") return null;
+        workspaces.push({ path: newPaths.shift()! });
+        return { id: "app", workspaces: [...workspaces] };
+      }),
+    } as unknown as HostProxy;
+    const publishTo = vi.fn();
+    const routing = new HostRouting({
+      registry: {
+        hostProxy: () => proxy,
+        remoteHostIds: () => ["box"],
+        sessions: { ownerOf: () => undefined },
+      },
+      isAdopted: () => true,
+      hasLocalProject: () => false,
+      pendingCommands: new PendingCommands(),
+      decorateProject: (result) => result,
+      bus: { publish: vi.fn(), publishTo },
+      handOver: async () => {},
+    });
+    return { routing, publishTo };
+  }
+
+  it("sends a setup script's end to the window that made the workspace, not the last to ask", async () => {
+    const { routing, publishTo } = routingWith(["/srv/a", "/srv/b"]);
+    await routing.invoke("box", "projects", "createWorktree", ["app", "a"], { id: "A", callerClass: "local" });
+    await routing.invoke("box", "projects", "createWorktree", ["app", "b"], { id: "B", callerClass: "local" });
+
+    const end = { step: "setup-script", status: "done", workspacePath: "/srv/a" };
+    routing.onProgress("box", "worktreeProgress", [end]);
+    expect(publishTo).toHaveBeenLastCalledWith("A", "projects", "worktreeProgress", end);
+
+    // A step with no workspace still goes to whoever asked last.
+    const step = { step: "fetch", status: "in-progress" };
+    routing.onProgress("box", "worktreeProgress", [step]);
+    expect(publishTo).toHaveBeenLastCalledWith("B", "projects", "worktreeProgress", step);
+  });
+});

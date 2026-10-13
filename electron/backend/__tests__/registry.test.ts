@@ -656,14 +656,19 @@ describe("RoutedBackend", () => {
       "pane-r", "/remote/app", 80, 24, undefined, { MANOR_AGENT_KIND: "codex" },
     );
 
-    // A session already running there is the server's to find (it may
-    // have lost it, and holds what to type into a fresh one); a local one
-    // is not the server's at all.
+    // A re-mount of a session this attached, and has not seen exit, just
+    // attaches; a local one is not the server's at all.
+    await backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24);
+    await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
+    expect(spawnOnHost).toHaveBeenCalledTimes(1);
+
+    // Once it exits — or the host's daemon lost it — the server finds it
+    // again (and holds what to type into a fresh one).
+    remote.stream({ type: "exit", sessionId: "pane-r", exitCode: -1, lost: true });
     spawnOnHost.mockResolvedValueOnce(false);
     await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
       spawned: false,
     });
-    await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
     expect(spawnOnHost).toHaveBeenCalledTimes(2);
 
     // A host whose server does not start it: the daemon creates it, as before.

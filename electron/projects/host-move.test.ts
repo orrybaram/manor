@@ -7,6 +7,7 @@ import { ProjectManager } from "./project-manager";
 import type { GitBackend, ShellBackend } from "../backend/types";
 import { hostsOf } from "./test-fakes";
 import type { ProjectInfo, RemoteProjects } from "./types";
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
 
 vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -481,6 +482,7 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
           mgr().removeAdoptedProjects(hostId, ids);
           infos.push(...moved);
         }),
+        layoutOf: () => ({}),
       };
     }
 
@@ -540,6 +542,101 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
       expect(projects.map((p) => [p.id, p.hostId])).toEqual([["p2", "mac"]]);
       // Its own per-workspace settings came back off the host with it.
       expect(projects[0].workspaces.find((w) => w.path === "/srv/p2")?.name).toBe("Main");
+    });
+
+    it("brings the project's layouts off its host's server before the server drops them", async () => {
+      seedHosts([]);
+      const { git } = fakeGit();
+      const infos = [remoteInfo("p2", "/home/u/p2")];
+      const box = boxServer(infos, () => mgr);
+      const entry = { version: 3 } as unknown as LayoutEntry;
+      box.layoutOf = () => ({ "box:/home/u/p2": entry, "box:/home/u/other": entry });
+      const events: string[] = [];
+      box.call.mockImplementation(async (_hostId: string, method: string) => {
+        events.push(method);
+        return null;
+      });
+      const layout = {
+        remove: vi.fn(),
+        take: vi.fn(async (entries: Record<string, LayoutEntry>) => {
+          events.push(`take ${Object.keys(entries).join(",")}`);
+        }),
+        release: vi.fn(async () => {}),
+      };
+      const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u", { "/srv/p2": [] })), tmpDir, {
+        remote: box,
+        layout,
+      });
+
+      await mgr.switchProjectHost("p2", "mac", "/srv/p2");
+
+      expect(events).toEqual(["take box:/home/u/p2", "remove"]);
+      expect(layout.release).not.toHaveBeenCalled();
+    });
+
+    it("lets the taken layouts go again when the host's server will not drop the project", async () => {
+      seedHosts([]);
+      const { git } = fakeGit();
+      const infos = [remoteInfo("p2", "/home/u/p2")];
+      const box = boxServer(infos, () => mgr);
+      box.layoutOf = () => ({ "box:/home/u/p2": { version: 1 } as unknown as LayoutEntry });
+      box.call.mockRejectedValue(new Error("box is offline"));
+      const layout = { remove: vi.fn(), take: vi.fn(async () => {}), release: vi.fn(async () => {}) };
+      const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u", { "/srv/p2": [] })), tmpDir, {
+        remote: box,
+        layout,
+      });
+
+      await expect(mgr.switchProjectHost("p2", "mac", "/srv/p2")).rejects.toThrow(/offline/);
+      expect(layout.release).toHaveBeenCalledWith(["box:/home/u/p2"]);
+    });
+
+    describe("the selected project, among the host's", () => {
+      const local = (id: string) => ({
+        id,
+        name: id,
+        path: `/Users/me/${id}`,
+        selectedWorkspaceIndex: 0,
+        workspaces: [],
+        defaultBranch: "main",
+      });
+
+      function selection(projects: Array<Record<string, unknown>>) {
+        seedHosts(projects);
+        const { git } = fakeGit();
+        const box = boxServer([remoteInfo("r1", "/home/u/r1")], () => mgr);
+        const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir, { remote: box });
+        const selected = async () =>
+          (await mgr.getProjects())[mgr.getSelectedProjectIndex()]?.id;
+        return { mgr, selected };
+      }
+
+      it("stays on a remote project when the sidebar is reordered", async () => {
+        const { mgr, selected } = selection([local("l1"), local("l2")]);
+        mgr.selectProject(2);
+        expect(await selected()).toBe("r1");
+
+        mgr.reorderProjects(["r1", "l2", "l1"]);
+
+        expect(await selected()).toBe("r1");
+      });
+
+      it("stays on a remote project when a local one before it goes", async () => {
+        const { mgr, selected } = selection([local("l1"), local("l2")]);
+        mgr.selectProject(2);
+
+        await mgr.removeProject("l1");
+
+        expect(await selected()).toBe("r1");
+      });
+
+      it("selects a newly added project, not the host's last", async () => {
+        const { mgr, selected } = selection([local("l1")]);
+
+        const added = await mgr.addProject("new", "/Users/me/new");
+
+        expect(await selected()).toBe(added.id);
+      });
     });
 
     it("leaves the host's project where it was when the move fails", async () => {

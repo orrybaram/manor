@@ -3,6 +3,7 @@
  * `projects.json` (ADR-183 split them out of `persistence.ts`).
  */
 
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type { LinearAssociation, LinkedIssue } from "../linear";
 import type {
   GitBackend,
@@ -377,4 +378,6 @@ export interface RemoteProjects {
    * (`HostAdoption.handOver`): how a project moved onto the host gets there.
    */
   handOver(hostId: string, projectIds: readonly string[]): Promise<void>;
+  /** `hostId`'s layout as its server holds it, keyed `<hostId>:<path>`. */
+  layoutOf(hostId: string): Record<string, LayoutEntry>;
 }

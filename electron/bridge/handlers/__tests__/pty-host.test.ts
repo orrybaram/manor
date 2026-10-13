@@ -138,6 +138,7 @@ describe("pty:create on the host it was asked for (ADR-191)", () => {
     const registry = {
       sessions,
       get: (hostId: string) => backends[hostId],
+      onEvent: () => () => {},
     } as unknown as BackendRegistry;
     const router = new PathRouter(() => projects, () => ({}) as MachineFacts);
     router.setWorkspacePaths("p-local", ["/home/me/code/app", SHARED]);

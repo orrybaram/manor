@@ -553,7 +553,7 @@ export class ProjectManager {
 
     this.store.state.projects.push(project);
     this.appendToOrder(project.id);
-    this.store.state.selectedProjectIndex = this.allRecords().length - 1;
+    this.store.state.selectedProjectIndex = Math.max(0, this.orderOf(project.id));
     this.store.save();
 
     const workspaces = (await listGitWorkspaces(host.git, projectPath)) ?? [
@@ -608,10 +608,7 @@ export class ProjectManager {
     if (this.remote?.owns(opts.hostId)) {
       const cloned = (await this.remote.call(opts.hostId, "clone", [opts])) as ProjectInfo;
       this.appendToOrder(cloned.id);
-      this.store.state.selectedProjectIndex = Math.max(
-        0,
-        this.allRecords().findIndex((p) => p.id === cloned.id),
-      );
+      this.store.state.selectedProjectIndex = Math.max(0, this.orderOf(cloned.id));
       this.store.save();
       return this.decorateRemote(cloned);
     }
@@ -732,6 +729,7 @@ export class ProjectManager {
    * does not wait still sees it gone.
    */
   async removeProject(projectId: string): Promise<void> {
+    const selectedId = this.selectedProjectId();
     const remote = this.remoteInfo(projectId);
     if (remote && !this.findProject(projectId)) {
       // Its host's server forgets it and ends its panes there (ADR-227 D4);
@@ -742,6 +740,7 @@ export class ProjectManager {
       groups.forgetProject(state, projectId);
       forgetLinkDismissals(state, projectId);
       if (state.projectOrder) state.projectOrder = state.projectOrder.filter((id) => id !== projectId);
+      this.reselect(selectedId);
       this.store.save();
       if (groupId) void this.origins.rememberGroupOrigin(groupId);
       return;
@@ -752,9 +751,7 @@ export class ProjectManager {
     groups.forgetProject(state, projectId);
     forgetLinkDismissals(state, projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
-    if (state.selectedProjectIndex >= state.projects.length) {
-      state.selectedProjectIndex = Math.max(0, state.projects.length - 1);
-    }
+    this.reselect(selectedId);
     this.store.save();
     if (groupId) void this.origins.rememberGroupOrigin(groupId);
     const layout = this.ctx.layout;
@@ -829,6 +826,7 @@ export class ProjectManager {
 
   reorderProjects(orderedIds: string[]): void {
     const state = this.store.state;
+    const selectedId = this.selectedProjectId();
     // The whole sidebar's order, remote hosts' projects included (ADR-227 D4).
     if (this.remote || state.projectOrder) {
       const known = new Set(this.allRecords().map((p) => p.id));
@@ -844,12 +842,8 @@ export class ProjectManager {
     for (const p of state.projects) {
       if (!orderedSet.has(p.id)) reordered.push(p);
     }
-    const selectedId = state.projects[state.selectedProjectIndex]?.id;
     state.projects = reordered;
-    if (selectedId) {
-      const newIdx = reordered.findIndex((p) => p.id === selectedId);
-      if (newIdx >= 0) state.selectedProjectIndex = newIdx;
-    }
+    this.reselect(selectedId);
     this.store.save();
   }
 
@@ -1059,6 +1053,22 @@ export class ProjectManager {
     }
     this.joinedOwn.set(joinedId, own);
     return { joinedId, intoId };
+  }
+
+  /** The selected project's id: `selectedProjectIndex` indexes the sidebar's list. */
+  private selectedProjectId(): string | undefined {
+    return this.allRecords()[this.store.state.selectedProjectIndex]?.id;
+  }
+
+  /**
+   * Point `selectedProjectIndex` at `selectedId` again after the list
+   * changed; when it is gone, keep the index, within the list.
+   */
+  private reselect(selectedId: string | undefined): void {
+    const state = this.store.state;
+    const index = selectedId === undefined ? -1 : this.orderOf(selectedId);
+    state.selectedProjectIndex =
+      index >= 0 ? index : Math.max(0, Math.min(state.selectedProjectIndex, this.allRecords().length - 1));
   }
 
   /** Where `projectId` sits in the sidebar's list; -1 when nowhere. */

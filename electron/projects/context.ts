@@ -8,13 +8,18 @@ import type { ProjectProgress } from "./progress";
 import type { PathRouter } from "./path-router";
 import type { StateStore } from "./state-store";
 import type { PersistedProject, ProjectHost, ProjectInfo, RemoteProjects } from "./types";
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
 
 /**
  * What removing a worktree or a project needs of `LayoutStore`: to forget a
- * workspace — its panes ended, every renderer told (ADR-182 D7).
+ * workspace — its panes ended, every renderer told (ADR-182 D7). A project
+ * moving off an adopted host also brings its layouts here (`take`) for the
+ * move to carry on, and lets them go again (`release`) if it fails.
  */
 export interface WorkspaceLayoutOwner {
   remove(workspaceKey: string): void;
+  take?(entries: Readonly<Record<string, LayoutEntry>>): Promise<void>;
+  release?(workspaceKeys: readonly string[]): Promise<void>;
 }
 
 export interface ProjectContext {

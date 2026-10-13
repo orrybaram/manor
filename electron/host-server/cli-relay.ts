@@ -167,6 +167,15 @@ async function dispatchRequest(
   return { status: 500, body: { error: `${method} ${url.pathname} sent no response` } };
 }
 
+/** A relayed request's path as a URL; null when it is not one. */
+function parsePath(path: string): URL | null {
+  try {
+    return new URL(path, "http://relay");
+  } catch {
+    return null;
+  }
+}
+
 /** The refusal until this host is adopted (ADR-227 D3). */
 function pending(): ControlRelayResult {
   return {
@@ -191,7 +200,8 @@ export async function answerCliRequest(
 ): Promise<ControlRelayResult> {
   if (deps.ownership.current() !== "host") return pending();
   const method = req.method.toUpperCase();
-  const url = new URL(req.path, "http://relay");
+  const url = parsePath(req.path);
+  if (!url) return { status: 400, body: { error: `Invalid path: ${req.path}` } };
   if (!isRemoteAllowed(method, url.pathname)) {
     const [first = ""] = url.pathname.split("/").filter(Boolean);
     const what = `${method} ${normalize(url.pathname)}`;
@@ -217,12 +227,8 @@ export async function answerOwnerRequest(
   req: RelayedControlRequest,
 ): Promise<ControlRelayResult> {
   if (deps.ownership.current() !== "host") return pending();
-  let url: URL;
-  try {
-    url = new URL(req.path, "http://relay");
-  } catch (err) {
-    return { status: 400, body: { error: errorMessage(err) } };
-  }
+  const url = parsePath(req.path);
+  if (!url) return { status: 400, body: { error: `Invalid path: ${req.path}` } };
   return dispatchRequest(deps.routes, req.method.toUpperCase(), url, objectBody(req.body));
 }
 
@@ -246,11 +252,16 @@ export function serveCliRelay(client: CliRelayClient, deps: CliRelayDeps): () =>
   const offEvent = client.onEvent((event) => {
     if (event.type !== "controlRequest") return;
     const { id, method, path, body } = event;
-    void answerCliRequest(deps, { method, path, body }).then((result) => {
-      // An answer that outlives its stream goes to the new socket, which the
-      // daemon ignores; the CLI already had its 503.
-      client.sendStreamCommand({ type: "controlResponse", id, ...result });
-    });
+    void answerCliRequest(deps, { method, path, body })
+      .catch((err: unknown): ControlRelayResult => ({
+        status: 500,
+        body: { error: errorMessage(err) },
+      }))
+      .then((result) => {
+        // An answer that outlives its stream goes to the new socket, which the
+        // daemon ignores; the CLI already had its 503.
+        client.sendStreamCommand({ type: "controlResponse", id, ...result });
+      });
   });
   return () => {
     offConnected();

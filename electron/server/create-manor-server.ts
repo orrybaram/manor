@@ -257,7 +257,13 @@ export function createManorServer<D extends BridgeServerDeps>(
     // Removing a worktree or a project tears its layout down first (ADR-182
     // D7), whichever caller — sidebar, quick merge, CLI or MCP — asked for it.
     // Read at call time: the store is built just below.
-    layout: { remove: (key) => layoutStore.remove(key) },
+    layout: {
+      remove: (key) => layoutStore.remove(key),
+      take: async (entries): Promise<void> => {
+        await layoutStore.adopt(entries, null);
+      },
+      release: (keys): Promise<void> => layoutStore.release(keys),
+    },
     // Setup and clone progress go to the server's renderers.
     publish: bus.publishTo,
     // Adopted hosts' projects, from their servers (ADR-227 D4).

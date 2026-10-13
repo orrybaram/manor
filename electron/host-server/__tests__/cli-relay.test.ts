@@ -285,6 +285,17 @@ describe("the CLI relay's rules", () => {
     expect(getProjects).not.toHaveBeenCalled();
   });
 
+  it("answers 400 for a path that is not a URL", async () => {
+    const result = await answerCliRequest(
+      {
+        routes: {} as unknown as ServerRouteDeps,
+        ownership: { current: () => "host" },
+      },
+      { method: "GET", path: "//[", body: undefined },
+    );
+    expect(result).toMatchObject({ status: 400 });
+  });
+
   it("answers 500 when the route throws before answering", async () => {
     const result = await answerCliRequest(
       {

@@ -115,6 +115,15 @@ function writesProjects(ns: string, method: string): boolean {
   return ns === "projects" && !/^(get|list|can)[A-Z]/.test(method);
 }
 
+/** The workspace paths of `project`, when it is a project. */
+function workspacePathsOf(project: unknown): string[] {
+  const workspaces = (project as { workspaces?: unknown } | null)?.workspaces;
+  if (!Array.isArray(workspaces)) return [];
+  return workspaces.flatMap((ws) =>
+    typeof (ws as { path?: unknown })?.path === "string" ? [(ws as { path: string }).path] : [],
+  );
+}
+
 export class HostRouting implements BridgeForward {
   private readonly opts: HostRoutingOptions;
   /**
@@ -122,6 +131,12 @@ export class HostRouting implements BridgeForward {
    * that host's setup and teardown progress goes.
    */
   private readonly progressTo = new Map<string, string>();
+  /**
+   * Who made each workspace whose setup script may still be running, keyed
+   * `<hostId>\0<path>`: its end, minutes later, goes back to them even if
+   * someone else has made a workspace on that host since.
+   */
+  private readonly setupCallers = new Map<string, string>();
   /** The workspace a layout command last changed, here or on any host. */
   private lastActive: string | null = null;
 
@@ -193,10 +208,20 @@ export class HostRouting implements BridgeForward {
         // its broadcast's hint lands on the renderer that sent it.
         callArgs = [args[0], args[1], originOf(caller)];
       }
-      if (ns === "projects" && (method === "createWorktree" || method === "removeWorktree")) {
+      const creating = ns === "projects" && method === "createWorktree";
+      if (creating || (ns === "projects" && method === "removeWorktree")) {
         this.progressTo.set(hostId, caller.id);
       }
+      if (ns === "projects" && method === "removeWorktree") {
+        this.setupCallers.delete(`${hostId}\0${String(args[1])}`);
+      }
+      const before = creating ? this.workspacePaths(proxy, args[0]) : null;
       const result = await proxy.invoke(ns, method, callArgs, callTimeout(ns, method));
+      if (before) {
+        for (const path of workspacePathsOf(result)) {
+          if (!before.has(path)) this.setupCallers.set(`${hostId}\0${path}`, caller.id);
+        }
+      }
       // A project write the host publishes nothing for (a rename, a folder)
       // is read back now, so the desktop's next list has it.
       if (writesProjects(ns, method)) await proxy.refreshProjects();
@@ -362,8 +387,27 @@ export class HostRouting implements BridgeForward {
   onProgress(hostId: string, event: HostProgressEvent, args: unknown[]): void {
     const { bus } = this.opts;
     const [payload] = args as [never];
-    if (event === "cloneProgress") bus.publish("projects", "cloneProgress", payload);
-    else bus.publishTo(this.progressTo.get(hostId) ?? null, "projects", event, payload);
+    if (event === "cloneProgress") {
+      bus.publish("projects", "cloneProgress", payload);
+      return;
+    }
+    let to = this.progressTo.get(hostId) ?? null;
+    const step = payload as { workspacePath?: unknown; status?: unknown } | undefined;
+    if (event === "worktreeProgress" && typeof step?.workspacePath === "string") {
+      const key = `${hostId}\0${step.workspacePath}`;
+      const maker = this.setupCallers.get(key);
+      if (maker !== undefined) {
+        to = maker;
+        if (step.status === "done" || step.status === "error") this.setupCallers.delete(key);
+      }
+    }
+    bus.publishTo(to, "projects", event, payload);
+  }
+
+  /** The workspace paths `projectId` has on `proxy`'s host now. */
+  private workspacePaths(proxy: HostProxy, projectId: unknown): Set<string> {
+    const project = proxy.projects().find((p) => p.id === projectId);
+    return new Set(workspacePathsOf(project));
   }
 
   // ── merged reads ──
@@ -431,10 +475,15 @@ export class HostRouting implements BridgeForward {
           throw this.refusal(proxy, err);
         }
         // The next read here sees the change, not the list from before it.
-        await proxy.refreshProjects();
+        if (method === "selectWorkspace") {
+          proxy.noteSelectedWorkspace(args[0] as string, args[1] as number);
+        } else {
+          await proxy.refreshProjects();
+        }
         return result;
       },
       handOver: (hostId, projectIds) => this.opts.handOver(hostId, projectIds),
+      layoutOf: (hostId) => this.proxy(hostId)?.layout() ?? {},
     };
   }
 }

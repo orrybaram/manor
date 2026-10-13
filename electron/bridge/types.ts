@@ -110,10 +110,16 @@ export interface HelloReplyFrame {
   appVersion?: string;
   /**
    * What the server calls its host (ADR-218 D7): the phone's pairings show
-   * it. Optional because the desktop's own server and older hosts may not
-   * send it.
+   * it. Both the desktop and a host server send it, so it says nothing
+   * about which one answered. Optional because older hosts may not send it.
    */
   hostName?: string;
+  /**
+   * True only from a host server (ADR-218 D5, D6; ADR-225): it serves a slice
+   * of the desktop's bridge, so the page hides what it cannot do. The
+   * desktop never sets it.
+   */
+  hostServer?: true;
 }
 
 /** A call: `ns.method(...args)`, answered with a `ResultFrame` carrying `id`. */

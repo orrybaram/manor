@@ -151,6 +151,11 @@ export class WsBridgeServer {
       appVersion?: string;
       /** The host's display name for the hello (ADR-218 D7). */
       hostName?: () => string | undefined;
+      /**
+       * Set by the host server only: every hello says `hostServer: true` so
+       * the page knows it is on a bridge slice (ADR-225).
+       */
+      hostServer?: boolean;
     } = {},
   ) {}
 
@@ -300,6 +305,7 @@ export class WsBridgeServer {
     };
     const hostName = this.options.hostName?.();
     if (hostName) reply.hostName = hostName;
+    if (this.options.hostServer) reply.hostServer = true;
     this.send(entry, reply);
   }
 

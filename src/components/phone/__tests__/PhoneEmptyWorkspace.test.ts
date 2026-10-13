@@ -32,12 +32,12 @@ describe("PhoneEmptyWorkspace on a host server", () => {
     container.remove();
   });
 
-  afterEach(() => recordHello({ hostName: null }));
+  afterEach(() => recordHello({ hostName: null, hostServer: false }));
 
-  it("says launching is not available once the hello names a host server", () => {
+  it("says launching is not available once the hello says it is a host server", () => {
     act(() => root.render(createElement(PhoneEmptyWorkspace)));
     expect(container.querySelector('[data-testid="phone-empty-unavailable"]')).toBeNull();
-    act(() => recordHello({ hostName: "Studio" }));
+    act(() => recordHello({ hostName: "Studio", hostServer: true }));
     expect(
       container.querySelector('[data-testid="phone-empty-unavailable"]')?.textContent,
     ).toBe("Starting new agents is not available on Studio yet");

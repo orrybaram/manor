@@ -124,6 +124,20 @@ describe("install-web on a relay-served page", () => {
     expect(replace).toHaveBeenCalledTimes(2);
   });
 
+  it("does not take a desktop that names itself for a host server", async () => {
+    const { api } = await install(relayHash());
+    const connection = await import("../connection");
+    void api.projects.getAll().catch(() => {});
+    // The desktop sends `hostName` too (ADR-218 D7), but no `hostServer`.
+    FakeRelaySocket.last.handshake({ hostName: "desk.local" });
+    expect(connection.getConnection()).toEqual({
+      activeRoomId: ROOM,
+      hostName: "desk.local",
+      isHostServer: false,
+    });
+    expect(JSON.parse(local.get(PAIRINGS_KEY) ?? "[]")[0].name).toBe("desk.local");
+  });
+
   it("learns from the hello whether the host is a host server", async () => {
     const { api } = await install(relayHash());
     // `vi.resetModules()` gives each install a fresh `connection.ts`: read
@@ -135,7 +149,7 @@ describe("install-web on a relay-served page", () => {
       isHostServer: false,
     });
     void api.projects.getAll().catch(() => {});
-    FakeRelaySocket.last.handshake({ hostName: "Studio" });
+    FakeRelaySocket.last.handshake({ hostName: "Studio", hostServer: true });
     expect(connection.getConnection()).toEqual({
       activeRoomId: ROOM,
       hostName: "Studio",

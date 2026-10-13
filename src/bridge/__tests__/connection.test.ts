@@ -11,28 +11,38 @@ import {
 } from "../connection";
 
 describe("connection facts", () => {
-  it("is a host server exactly when the hello names the host", () => {
+  it("is a host server exactly when the hello says hostServer", () => {
     expect(isHostServer()).toBe(false);
     let calls = 0;
     const unsubscribe = subscribeConnection(() => calls++);
 
-    // The desktop's hello names nothing.
-    recordHello({ hostName: null });
+    // An older desktop's hello names nothing.
+    recordHello({ hostName: null, hostServer: false });
     expect(isHostServer()).toBe(false);
     expect(calls).toBe(0);
 
-    recordHello({ hostName: "Studio" });
+    recordHello({ hostName: "Studio", hostServer: true });
     expect(getConnection()).toMatchObject({ hostName: "Studio", isHostServer: true });
     expect(calls).toBe(1);
 
     // A repeat hello after a reconnect changes nothing.
     const before = getConnection();
-    recordHello({ hostName: "Studio" });
+    recordHello({ hostName: "Studio", hostServer: true });
     expect(getConnection()).toBe(before);
     expect(calls).toBe(1);
 
     unsubscribe();
-    recordHello({ hostName: null });
+    recordHello({ hostName: null, hostServer: false });
+  });
+
+  it("is not a host server when the desktop names itself", () => {
+    // The desktop sends its hostname too (ADR-218 D7), without `hostServer`.
+    recordHello({ hostName: "desk.local", hostServer: false });
+    expect(getConnection()).toMatchObject({
+      hostName: "desk.local",
+      isHostServer: false,
+    });
+    recordHello({ hostName: null, hostServer: false });
   });
 
   it("does not learn it is on a host server from a refused call", () => {

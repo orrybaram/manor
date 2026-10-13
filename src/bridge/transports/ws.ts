@@ -126,8 +126,10 @@ export interface HelloReply {
   rendererId: string | null;
   /** The desktop's version (ADR-206 D4), or null from an older host. */
   appVersion: string | null;
-  /** A host server's own name for itself (ADR-218 D7), or null. */
+  /** The host's own name for itself (ADR-218 D7), or null. */
   hostName: string | null;
+  /** True when a host server answered, not the desktop (ADR-225). */
+  hostServer: boolean;
 }
 
 /** `BridgeTransport`, plus the one thing a "not reachable" screen needs. */
@@ -291,6 +293,8 @@ class WsTransport implements WsBridgeTransport {
           appVersion:
             typeof reply.appVersion === "string" ? reply.appVersion : null,
           hostName: typeof reply.hostName === "string" ? reply.hostName : null,
+          hostServer:
+            typeof reply.hostServer === "boolean" ? reply.hostServer : false,
         });
       }
       return;

@@ -137,10 +137,10 @@ const transport = createWsTransport({
   // stopped, so the screen offers a reload rather than a redial.
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
-  onHello: ({ appVersion, hostName }) => {
-    // A host server names itself (ADR-218 D7): that is how the page knows
-    // it is on one, and the switcher shows the name instead of "Host N".
-    recordHello({ hostName });
+  onHello: ({ appVersion, hostName, hostServer }) => {
+    // The host names itself (ADR-218 D7) so the switcher shows the name
+    // instead of "Host N"; `hostServer` alone says it is a host server.
+    recordHello({ hostName, hostServer });
     if (webRoomId && hostName) renamePairing(webRoomId, hostName);
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) location.replace(target);

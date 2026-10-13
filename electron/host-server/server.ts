@@ -265,6 +265,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     appVersion,
     // The desktop's name for this host wins; else the box's own (ADR-218 D7).
     hostName: () => snapshots.manifest().hostName ?? os.hostname(),
+    // The page reads this, not `hostName`, to know it is on a host server.
+    hostServer: true,
   });
   const unwireChat = wireChatMirror({ chatMirror }, bridge, events.subscribe);
   opts.internals?.({ relay });

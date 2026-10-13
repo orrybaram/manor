@@ -202,6 +202,33 @@ describe("WsBridgeServer.attach with a FrameSocket", () => {
     versioned.dispose();
   });
 
+  it("marks the hello as a host server's only when told to (ADR-225)", async () => {
+    // The desktop names itself too, but is not a host server.
+    const desktop = new WsBridgeServer(server, { hostName: () => "desk" });
+    const deskSocket = new FakeSocket();
+    desktop.attach(deskSocket, authenticate);
+    deskSocket.receive({ type: "hello", token: "good" });
+    await flush();
+    expect(deskSocket.sent[0]).toMatchObject({ type: "hello", hostName: "desk" });
+    expect(deskSocket.sent[0]).not.toHaveProperty("hostServer");
+    desktop.dispose();
+
+    const host = new WsBridgeServer(server, {
+      hostName: () => "Studio",
+      hostServer: true,
+    });
+    const hostSocket = new FakeSocket();
+    host.attach(hostSocket, authenticate);
+    hostSocket.receive({ type: "hello", token: "good" });
+    await flush();
+    expect(hostSocket.sent[0]).toMatchObject({
+      type: "hello",
+      hostName: "Studio",
+      hostServer: true,
+    });
+    host.dispose();
+  });
+
   it("closeAll closes attached sockets", async () => {
     const socket = new FakeSocket();
     ws.attach(socket, authenticate);

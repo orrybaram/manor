@@ -3,11 +3,11 @@
  * hello states, recorded once by `install-web.ts` and read by components.
  *
  * - `activeRoomId` — the relay room this page dials (the switcher marks it).
- * - `hostName` — a host server names itself in its hello (ADR-218 D7); the
- *   desktop never does.
- * - `isHostServer` — so a hello with a `hostName` is a host server's, which
- *   serves only a slice of the desktop's bridge (ADR-218 D5, D6): a phone
- *   paired with one can browse and drive existing agents but cannot create
+ * - `hostName` — the host names itself in its hello (ADR-218 D7); both the
+ *   desktop and a host server do.
+ * - `isHostServer` — the hello says `hostServer: true` only from a host
+ *   server (ADR-225), which serves only a slice of the desktop's bridge
+ *   (ADR-218 D5, D6): a phone paired with one can browse and drive existing agents but cannot create
  *   workspaces or launch new agents. Entry points read this and state the
  *   limit up front rather than learning it from a refused call.
  *
@@ -44,10 +44,14 @@ export function setActiveRoom(roomId: string | null): void {
 }
 
 /** `install-web.ts` records what each hello says about the host. */
-export function recordHello(hello: { hostName: string | null }): void {
+export function recordHello(hello: {
+  hostName: string | null;
+  hostServer: boolean;
+}): void {
   const hostName = hello.hostName?.trim() || null;
-  if (hostName === facts.hostName) return;
-  update({ hostName, isHostServer: hostName !== null });
+  const isHostServer = hello.hostServer;
+  if (hostName === facts.hostName && isHostServer === facts.isHostServer) return;
+  update({ hostName, isHostServer });
 }
 
 export function getConnection(): ConnectionFacts {

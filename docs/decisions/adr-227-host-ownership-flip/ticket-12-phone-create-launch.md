@@ -1,6 +1,6 @@
 ---
 title: Phone creates workspaces and launches agents on a host server
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [5, 10, 11]

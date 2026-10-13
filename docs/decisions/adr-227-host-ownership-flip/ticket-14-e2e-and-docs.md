@@ -109,3 +109,10 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 
 - No e2e covers the "Use Linear on <host>" toggle; the fake host server has no Linear. Add one only if a Linear GraphQL stub is cheap.
 - `docs/remote-hosts.md` already covers host-native `gh`, the Linear opt-in and the Linear MCP alternative; keep it in sync with the rest of the docs pass.
+
+## Carried over from ticket 12
+
+- **Add a remote e2e where the phone, on a host server, creates a workspace and launches an agent.** The existing remote e2e doesn't cover that path (D6's headline).
+- There is no phone issue picker in the composer today. If one is built, show "turn Linear on in desktop settings" when `linear.isConnected` is false or a `linear.*` call is refused with `unavailable:host`.
+- `NewWorkspaceDialog.tsx`'s `<form>` is still indented for the removed ternary; reformat it.
+- phone-chat "slash menu lists built-ins and skills" flaked once in a batch run (passed alone). Watch it.

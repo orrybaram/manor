@@ -47,6 +47,7 @@ import {
   isTabVisible,
   visibleTabsFor,
 } from "../lib/layout/visible-tabs";
+import { BridgeUnavailableError } from "../bridge/client";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   LayoutChangedPayload,
@@ -436,15 +437,14 @@ export interface AppState {
     {
       steps: Array<{ step: SetupStep; status: StepStatus; message?: string }>;
       completed: boolean;
-      startScript?: string | null;
       workspacePath?: string;
     }
   >;
-  initWorktreeSetup: (
-    wsPathHint: string,
-    hasStartScript: boolean,
-    startScript?: string | null,
-  ) => void;
+  /**
+   * The checklist of a workspace being created. Its setup script is not a
+   * step: the server runs it in a tab of its own (ADR-227 D5).
+   */
+  initWorktreeSetup: (wsPathHint: string) => void;
   updateWorktreeSetupStep: (
     wsPath: string,
     step: SetupStep,
@@ -1199,6 +1199,18 @@ function selectTabLocally(
 // window?" to give them.
 
 /**
+ * A layout write the host refused (`unavailable:host-away`, `unavailable:host`)
+ * becomes the once-per-session toast, keyed by the refusal's code so an away
+ * host and a refused method each speak once. Anything else is not handled
+ * here and returns false.
+ */
+function refuseLayoutWrite(err: unknown): boolean {
+  if (!(err instanceof BridgeUnavailableError)) return false;
+  handleBridgeUnavailable(`layout-write:${err.code}`, err.message)(err);
+  return true;
+}
+
+/**
  * Send one command for one workspace, and forget it.
  *
  * Nothing waits for the answer: what the caller actually wants — the new
@@ -1235,6 +1247,7 @@ function sendLayoutCommand(
       });
     })
     .catch((err: unknown) => {
+      if (refuseLayoutWrite(err)) return;
       console.error(`[layout] ${command.type} failed:`, err);
     });
 }
@@ -1266,6 +1279,7 @@ export function sendPendingCommand(
   void window.electronAPI?.layout
     ?.setPendingCommand(paneId, text, kind, opts)
     ?.catch((err: unknown) => {
+      if (refuseLayoutWrite(err)) return;
       console.error(`[layout] pending command for ${paneId} failed:`, err);
     });
 }
@@ -2356,11 +2370,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { panePickedElement: rest };
     }),
 
-  initWorktreeSetup: (
-    wsPathHint: string,
-    hasStartScript: boolean,
-    startScript?: string | null,
-  ) =>
+  initWorktreeSetup: (wsPathHint: string) =>
     set((state) => {
       const baseSteps: SetupStep[] = [
         "prune",
@@ -2369,7 +2379,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         "persist",
         "switch",
       ];
-      if (hasStartScript) baseSteps.push("setup-script");
       const steps = baseSteps.map((step) => ({
         step,
         status: "pending" as StepStatus,
@@ -2380,7 +2389,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           [wsPathHint]: {
             steps,
             completed: false,
-            startScript: startScript ?? null,
             workspacePath: wsPathHint,
           },
         },

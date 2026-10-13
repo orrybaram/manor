@@ -8,17 +8,7 @@
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../notifications", () => ({
-  markAgentNotificationsRead: vi.fn(),
-  sendAgentUpdate: vi.fn(),
-  updateDockBadge: vi.fn(),
-}));
-
-import {
-  markAgentNotificationsRead,
-  sendAgentUpdate,
-  updateDockBadge,
-} from "../notifications";
+import { UnseenAgents } from "../agent-status/unseen-agents";
 import { agentRoutes } from "./agents";
 import type { HostDeps, Route } from "./types";
 
@@ -54,9 +44,19 @@ function agentManager(initial: Record<string, unknown> | null) {
   };
 }
 
-const unseenRespondedAgents = new Set<string>();
-const unseenInputAgents = new Set<string>();
+const unseen = new UnseenAgents();
+const unseenRespondedAgents = unseen.responded;
+const unseenInputAgents = unseen.requiresInput;
 const preferencesManager = { get: vi.fn(() => false) };
+const markAgentNotificationsRead = vi.fn();
+const sendAgentUpdate = vi.fn();
+const updateDockBadge = vi.fn();
+const notifier = {
+  markAgentNotificationsRead,
+  sendAgentUpdate,
+  updateDockBadge,
+  sendNotificationsUpdate: vi.fn(),
+};
 
 async function call(
   route: Route,
@@ -72,9 +72,10 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: any }> = [];
   await route.handler({
+    method: route.method,
     deps: {
-      unseenRespondedAgents,
-      unseenInputAgents,
+      unseen,
+      notifier,
       preferencesManager,
       ...deps,
     } as unknown as HostDeps,
@@ -89,9 +90,9 @@ async function call(
 beforeEach(() => {
   unseenRespondedAgents.clear();
   unseenInputAgents.clear();
-  vi.mocked(markAgentNotificationsRead).mockClear();
-  vi.mocked(sendAgentUpdate).mockClear();
-  vi.mocked(updateDockBadge).mockClear();
+  markAgentNotificationsRead.mockClear();
+  sendAgentUpdate.mockClear();
+  updateDockBadge.mockClear();
 });
 
 describe("POST /agents/:agentId/rename", () => {
@@ -129,7 +130,6 @@ describe("POST /agents/:agentId/rename", () => {
     });
     expect(sendAgentUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ id: "agent-1", name: "My Agent" }),
-      preferencesManager,
     );
   });
 
@@ -191,7 +191,7 @@ describe("DELETE /agents/:agentId", () => {
     expect(deps.agentManager.deleteAgent).toHaveBeenCalledWith("agent-1");
     expect(unseenRespondedAgents.has("agent-1")).toBe(false);
     expect(unseenInputAgents.has("agent-1")).toBe(false);
-    expect(updateDockBadge).toHaveBeenCalledWith(preferencesManager);
+    expect(updateDockBadge).toHaveBeenCalled();
   });
 });
 
@@ -216,7 +216,6 @@ describe("POST /agents/:agentId/seen", () => {
     expect(markAgentNotificationsRead).toHaveBeenCalledWith("agent-1");
     expect(sendAgentUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ id: "agent-1" }),
-      preferencesManager,
     );
   });
 });

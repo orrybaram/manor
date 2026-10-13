@@ -17,6 +17,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { MockInstance } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
+import { LayoutStore, type LayoutFile } from "../../layout/layout-store";
 import { resetAttachments } from "../../pty-attachments";
 import { addRendererBroadcastSink } from "../../renderer-broadcast";
 import { DESKTOP_TABLE } from "../handlers";
@@ -400,30 +401,41 @@ describe("two windows on one pane (D6)", () => {
     createdAt = [];
     detached = [];
     windows = [];
-    const deps = {
-      getRendererWindows: () => windows,
-      backend: {
-        pty: {
-          createOrAttachWith: async (
-            sessionId: string,
-            _cwd: string,
-            cols: number,
-            rows: number,
-          ) => {
-            createdAt.push([sessionId, cols, rows]);
-            sessionSize = { cols, rows };
-            return { snapshot: null, hostId: "local" };
-          },
-          getSnapshot: async () => ({ ...sessionSize }),
-          resize: async () => {},
-          detach: async (sessionId: string) => {
-            detached.push(sessionId);
-          },
+    const backend = {
+      pty: {
+        createOrAttachWith: async (
+          sessionId: string,
+          _cwd: string,
+          cols: number,
+          rows: number,
+        ) => {
+          createdAt.push([sessionId, cols, rows]);
+          sessionSize = { cols, rows };
+          return { snapshot: null, hostId: "local" };
+        },
+        getSnapshot: async () => ({ ...sessionSize }),
+        resize: async () => {},
+        detach: async (sessionId: string) => {
+          detached.push(sessionId);
         },
       },
+    };
+    const noFile = {
+      load: () => null,
+      save: () => {},
+      removeWorkspace: () => {},
+    } as unknown as LayoutFile;
+    const deps = {
+      getRendererWindows: () => windows,
+      backend,
+      // Spawning a pane records and delivers through the layout.
+      layoutStore: new LayoutStore(noFile, () => {}, backend as never),
     } as unknown as HostDeps;
     // No `handlers` override: this is the table the app runs.
-    server = new BridgeServer(deps, { table: DESKTOP_TABLE, events: addRendererBroadcastSink });
+    server = new BridgeServer(deps, {
+      table: DESKTOP_TABLE,
+      events: addRendererBroadcastSink,
+    });
     transport = new IpcBridgeTransport(deps, server);
     transport.start();
   });

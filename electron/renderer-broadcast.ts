@@ -81,6 +81,8 @@ export interface BroadcastBus {
     event: E,
     ...args: EventArgs<N, E>
   ): void;
+  /** The same, for one connection only, or everyone when it is null. */
+  publishTo: PublishToRenderer;
 }
 
 export function createBroadcastBus(): BroadcastBus {
@@ -88,6 +90,7 @@ export function createBroadcastBus(): BroadcastBus {
   return {
     subscribe: bus.add,
     publish: (ns, event, ...args) => bus.emit(null, ns, event, args),
+    publishTo: (to, ns, event, ...args) => bus.emit(to, ns, event, args),
   };
 }
 
@@ -164,6 +167,14 @@ export function connectionIdForWindow(
   }
 }
 
+/*
+ * Everything below is the desktop's adapter (ADR-227 D1): the process-wide
+ * sinks, and the functions that publish into them. Code the shared server
+ * owns does not import these; it is handed a `BroadcastBus` or a
+ * `PublishToRenderer` by whoever composes the server, and the desktop passes
+ * these.
+ */
+
 /** Register a sink. Returns the unsubscribe; call it when the sink dies. */
 export const addRendererBroadcastSink: BroadcastSource = rendererSinks.add;
 
@@ -195,3 +206,16 @@ export function publishToRenderer<N extends EventNs, E extends EventOf<N>>(
 ): void {
   rendererSinks.emit(connectionId, ns, event, args);
 }
+
+/** What {@link publishToRenderer} is, for code handed one rather than importing it. */
+export type PublishToRenderer = typeof publishToRenderer;
+
+/**
+ * The process-wide sinks as a {@link BroadcastBus}: what the desktop hands
+ * `createManorServer` as its server's bus (`electron/server/`).
+ */
+export const rendererBus: BroadcastBus = {
+  subscribe: addRendererBroadcastSink,
+  publish: publishRendererBroadcast,
+  publishTo: publishToRenderer,
+};

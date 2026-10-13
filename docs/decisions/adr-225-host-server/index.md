@@ -200,7 +200,7 @@ the protocol that slice 2's desktop will speak to every host anyway.
 - Switch between paired hosts (D7).
 
 **Cannot yet** (each refusal shows a named state, not an error; these come in
-slice 2):
+slice 2, and shipped in ADR-227):
 - Create a workspace or launch an agent.
 - Rearrange the layout.
 
@@ -347,7 +347,7 @@ supports this as a third path or only documents it.
 
 ### Slices after this one (each its own ADR)
 
-1. **Slice 2: ownership flip.**
+1. **Slice 2: ownership flip.** Done by ADR-227 (the host owns its host).
    - The host server becomes the authority for its projects, workspaces,
      agents and layout.
    - The desktop's remote path moves from talking to the daemon to talking to

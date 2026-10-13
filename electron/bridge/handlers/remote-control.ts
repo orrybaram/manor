@@ -29,7 +29,7 @@ import type {
 import type { PairResult } from "../../remote-control/relay-room";
 import { asPushSubscription } from "../../remote-control/push";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
@@ -47,7 +47,9 @@ type RemoteControlCtx<K extends keyof RemoteControlController> = HandlerCtx<{
  * is paired (device labels, never tokens), the same view the desktop settings
  * panel gets.
  */
-export function remoteControlGetStatus(ctx: HandlerCtx): RemoteControlStatus {
+export function remoteControlGetStatus(
+  ctx: HandlerCtx<ServerDeps>,
+): RemoteControlStatus {
   return ctx.deps.remoteControl.status();
 }
 
@@ -61,14 +63,16 @@ export function remoteControlGetStatus(ctx: HandlerCtx): RemoteControlStatus {
  * paired device through the one sink — `remoteControl.status`, which is what
  * `remoteControl.onStatus(cb)` subscribes to on both platforms.
  */
-export function wireRemoteControlStatus(deps: HostDeps): void {
+export function wireRemoteControlStatus(
+  deps: Pick<ServerDeps, "remoteControl">,
+): void {
   deps.remoteControl.onChange((status: RemoteControlStatus) => {
     publishRendererBroadcast("remoteControl", "status", status);
   });
 }
 
 export function remoteControlSetEnabled(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   enabled: boolean,
 ): Promise<RemoteControlStatus> {
   assertBoolean(enabled, "remoteControl.setEnabled.enabled");
@@ -96,7 +100,7 @@ export function remoteControlPair(
 }
 
 export function remoteControlRevoke(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   id: string,
 ): Promise<RemoteControlStatus> {
   assertString(id, "remoteControl.revoke.id");
@@ -104,20 +108,20 @@ export function remoteControlRevoke(
 }
 
 export function remoteControlStartRelay(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<RemoteControlStatus> {
   return ctx.deps.remoteControl.startRelay();
 }
 
 export function remoteControlStopRelay(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<RemoteControlStatus> {
   return ctx.deps.remoteControl.stopRelay();
 }
 
 /** New relay address; every paired device is revoked. */
 export function remoteControlResetRelayAddress(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<RemoteControlStatus> {
   return ctx.deps.remoteControl.resetRelayAddress();
 }

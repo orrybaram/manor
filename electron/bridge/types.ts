@@ -41,14 +41,42 @@ export const UNAVAILABLE_CODE = "unavailable:web";
  */
 export const UNAVAILABLE_HOST_CODE = "unavailable:host";
 
-/** The refusal a server answers with: one per kind of server. */
+/**
+ * The desktop's refusal of a write routed to a remote host whose server is
+ * out of reach (ADR-227 D4): "wsl-box is offline". Not queued — there is
+ * nowhere safe to reconcile it — so the client shows it like any other
+ * `unavailable:*`.
+ */
+export const UNAVAILABLE_HOST_AWAY_CODE = "unavailable:host-away";
+
+/** The refusal a server answers with: one per kind of server, and away. */
 export type UnavailableCode =
   | typeof UNAVAILABLE_CODE
-  | typeof UNAVAILABLE_HOST_CODE;
+  | typeof UNAVAILABLE_HOST_CODE
+  | typeof UNAVAILABLE_HOST_AWAY_CODE;
+
+/**
+ * Thrown by a handler that is on the table but refuses this call for now —
+ * a host server that has not been adopted yet (ADR-227 D3). The server
+ * answers it with `code`, the stated empty state, not `failed`.
+ */
+export class BridgeUnavailableRefusal extends Error {
+  constructor(
+    message: string,
+    readonly code: UnavailableCode,
+  ) {
+    super(message);
+    this.name = "BridgeUnavailableRefusal";
+  }
+}
 
 /** Whether a result frame's `code` is one of the `unavailable:*` refusals. */
 export function isUnavailableCode(code: unknown): code is UnavailableCode {
-  return code === UNAVAILABLE_CODE || code === UNAVAILABLE_HOST_CODE;
+  return (
+    code === UNAVAILABLE_CODE ||
+    code === UNAVAILABLE_HOST_CODE ||
+    code === UNAVAILABLE_HOST_AWAY_CODE
+  );
 }
 
 /**

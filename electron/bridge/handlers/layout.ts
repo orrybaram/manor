@@ -10,7 +10,15 @@ import type {
   PendingCommandOptions,
 } from "../../layout/pending-commands";
 import { assertString } from "../../ipc-validate";
-import { method, type Caller, type HandlerCtx } from "../method";
+import {
+  byPane,
+  byWorkspaceKey,
+  LOCAL_ROUTE,
+  method,
+  type Caller,
+  type HandlerCtx,
+} from "../method";
+import type { SharedDeps } from "../../ipc/types";
 
 /**
  * Layout, as every renderer sees it (ADR-179 D1, ADR-180 D8).
@@ -37,21 +45,44 @@ function originOf(caller: Caller): LayoutOrigin {
   };
 }
 
+/**
+ * Who a command came from, as the layout store records it: the caller — or,
+ * on a host server, the desktop's own caller, which the owner forwards it
+ * for (ADR-227 D4), so the broadcast's hint lands on the renderer that sent
+ * it. Only the owner may say; anyone else's third argument is ignored.
+ */
+function commandOrigin(caller: Caller, forwardedFor: unknown): LayoutOrigin {
+  if (caller.callerClass !== "owner" || !isOrigin(forwardedFor)) return originOf(caller);
+  return { kind: forwardedFor.kind, id: forwardedFor.id };
+}
+
+function isOrigin(value: unknown): value is LayoutOrigin {
+  if (typeof value !== "object" || value === null) return false;
+  const { kind, id } = value as Partial<LayoutOrigin>;
+  return (kind === "window" || kind === "bridge" || kind === "route") && typeof id === "string";
+}
+
+/**
+ * Every workspace's layout: this server's, and on the desktop every adopted
+ * remote host's, from its server (ADR-227 D4) — the cache's while it is away.
+ */
 export async function layoutGetAll(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
 ): Promise<Record<string, LayoutEntry>> {
   // Waits for the file, and so for the one-time workspace-key migration
   // (ADR-191) under it: a renderer only ever sees host-qualified keys.
   await ctx.deps.layoutStore.whenLoaded();
-  return ctx.deps.layoutStore.getAll();
+  const remote = ctx.deps.hostRouting?.layout() ?? {};
+  return { ...remote, ...ctx.deps.layoutStore.getAll() };
 }
 
 /** The fallback surface for a renderer with no viewport file of its own. */
 export async function layoutGetLastActive(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
 ): Promise<string | null> {
   await ctx.deps.layoutStore.whenLoaded();
-  return ctx.deps.layoutStore.getLastActiveWorkspacePath();
+  const local = ctx.deps.layoutStore.getLastActiveWorkspacePath();
+  return ctx.deps.hostRouting?.lastActiveWorkspace(local) ?? local;
 }
 
 /**
@@ -60,15 +91,17 @@ export async function layoutGetLastActive(
  * `layout.changed`, at every renderer at once.
  */
 export function layoutApply(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   workspacePath: string,
   command: LayoutCommand,
+  forwardedFor?: LayoutOrigin | null,
 ): Promise<LayoutApplyResult> {
   assertString(workspacePath, "workspacePath");
+  ctx.deps.hostRouting?.noteActive(workspacePath);
   return ctx.deps.layoutStore.apply(
     workspacePath,
     command,
-    originOf(ctx.caller),
+    commandOrigin(ctx.caller, forwardedFor),
   );
 }
 
@@ -86,7 +119,7 @@ export function layoutApply(
  * the broadcast that makes a renderer mount the pane goes out.
  */
 export function layoutSetPendingCommand(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   paneId: string,
   text: string,
   kind: PendingCommandKind = "shell",
@@ -116,7 +149,7 @@ export function layoutSetPendingCommand(
  * paneId: a stale id from a slow renderer is normal, not an error.
  */
 export function layoutSetPaneTitle(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   paneId: string,
   title: string | null,
 ): void {
@@ -135,7 +168,7 @@ export function layoutSetPaneTitle(
  * desk.
  */
 export function layoutReportViewport(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   workspacePath: string,
   viewport: WorkspaceViewport,
 ): void {
@@ -150,14 +183,21 @@ export function layoutReportViewport(
   );
 }
 
+/**
+ * On the desktop, a remote workspace's layout is its host server's
+ * (ADR-227 D4): a command names it by key, a title or a queued command by
+ * pane, and goes there. The reads merge every host's.
+ */
 export const layout = {
-  getAll: method(layoutGetAll),
-  getLastActive: method(layoutGetLastActive),
+  getAll: method(layoutGetAll, { route: LOCAL_ROUTE }),
+  getLastActive: method(layoutGetLastActive, { route: LOCAL_ROUTE }),
   // ADR-179 D1: a browser arranges panes by sending the same commands the
   // desktop sends. `workspacePath` first, so the audit line's target is the
   // workspace the command moved.
-  apply: method(layoutApply, { mutating: true }),
-  setPaneTitle: method(layoutSetPaneTitle, { mutating: true }),
-  setPendingCommand: method(layoutSetPendingCommand, { mutating: true }),
-  reportViewport: method(layoutReportViewport),
+  apply: method(layoutApply, { mutating: true, route: byWorkspaceKey(0) }),
+  setPaneTitle: method(layoutSetPaneTitle, { mutating: true, route: byPane(0) }),
+  // A pane no layout holds yet stays here, and goes with the command that
+  // adds it (`HostRouting`).
+  setPendingCommand: method(layoutSetPendingCommand, { mutating: true, route: byPane(0) }),
+  reportViewport: method(layoutReportViewport, { route: byWorkspaceKey(0) }),
 };

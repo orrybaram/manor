@@ -2,12 +2,17 @@
  * Moving a project between hosts (ADR-179): cloning it onto a remote host,
  * or switching it to a path it already has on another host, while keeping
  * the same project record (ADR-183 split this out of `ProjectManager`).
+ *
+ * A host that has been adopted owns its projects' records (ADR-227 D2), so a
+ * move that starts or ends on one crosses servers (`moveAcrossServers`): the
+ * record is taken back from the source host's server, moved here as ever,
+ * and handed to the target host's server — each end a call to that host's
+ * server through its proxy, not an edit of `projects.json`.
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import { detectDefaultBranch } from "./branches";
 import type { ProjectContext } from "./context";
-import { emitCloneProgress } from "./progress";
 import { assertGroupHostFree } from "./project-groups";
 import {
   prepareRemoteClone,
@@ -15,6 +20,8 @@ import {
   validateRepoUrl,
 } from "./remote-clone";
 import type { PersistedProject, ProjectHost, ProjectInfo } from "./types";
+import type { LayoutEntry } from "../../src/lib/layout/protocol";
+import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 
 /**
  * Move `record[from]` to `record[to]` (overwriting), leaving it unchanged
@@ -28,6 +35,90 @@ export function rekeyRecord<T>(
   if (!record || !Object.prototype.hasOwnProperty.call(record, from)) return;
   record[to] = record[from];
   delete record[from];
+}
+
+/**
+ * Run `move` — `moveProjectToHost` or `switchProjectHost` on this desktop's
+ * record — for a project wherever it lives (ADR-227 D4):
+ *
+ * 1. **From an adopted host**, a copy of its server's record is taken into
+ *    `projects.json` for `move` to work on. Once `move` is done the source
+ *    host's server forgets the project (`projects.remove`, which ends its
+ *    panes there); if either fails, the copy goes again and nothing has
+ *    changed on that host.
+ * 2. **Onto an adopted host**, the moved record is handed to the target's
+ *    server (`RemoteProjects.handOver`), which takes it as it takes any
+ *    adoption, and this desktop lets go of it. A hand-over that fails
+ *    leaves the record here, held for that host, and the next connect of
+ *    its owner channel hands it over (`HostAdoption`).
+ */
+export async function moveAcrossServers(
+  ctx: ProjectContext,
+  projectId: string,
+  targetHostId: string,
+  move: () => Promise<ProjectInfo>,
+): Promise<ProjectInfo> {
+  const { remote } = ctx;
+  let source: string | null = null;
+  if (!ctx.find(projectId)) {
+    const record = remote ? ctx.member(projectId) : undefined;
+    if (!record) throw new Error(`Unknown project "${projectId}".`);
+    source = record.hostId;
+    ctx.store.state.projects.push(record);
+  }
+  let moved: ProjectInfo;
+  let taken: string[] = [];
+  try {
+    moved = await move();
+    if (source !== null) {
+      // The source host's server drops its layouts with the project: take
+      // them here first, where the caller moves them on (ADR-191 §3).
+      taken = await takeLayouts(ctx, source, projectId);
+      await remote!.call(source, "remove", [projectId]);
+    }
+  } catch (err) {
+    if (source !== null) {
+      const state = ctx.store.state;
+      state.projects = state.projects.filter((p) => p.id !== projectId);
+      ctx.store.save();
+      if (taken.length > 0) await ctx.layout?.release?.(taken);
+    }
+    throw err;
+  }
+  if (remote?.owns(targetHostId)) {
+    try {
+      await remote.handOver(targetHostId, [projectId]);
+    } catch (err) {
+      console.warn(
+        `[host-move] ${projectId} moved, but ${ctx.hosts.label(targetHostId)} has not taken it yet:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return moved;
+}
+
+/**
+ * Copy the layouts of `projectId`'s workspaces on adopted host `hostId`
+ * into this desktop's layout store, under the same keys. Returns the keys
+ * taken.
+ */
+async function takeLayouts(
+  ctx: ProjectContext,
+  hostId: string,
+  projectId: string,
+): Promise<string[]> {
+  if (!ctx.layout?.take || !ctx.remote) return [];
+  const info = ctx.remote.list().find((p) => p.id === projectId);
+  const paths = new Set([info?.path, ...(info?.workspaces ?? []).map((ws) => ws.path)]);
+  const entries: Record<string, LayoutEntry> = {};
+  for (const [key, entry] of Object.entries(ctx.remote.layoutOf(hostId))) {
+    const parsed = parseWorkspaceKey(key);
+    if (parsed.hostId === hostId && paths.has(parsed.path)) entries[key] = entry;
+  }
+  const keys = Object.keys(entries);
+  if (keys.length > 0) await ctx.layout.take(entries);
+  return keys;
 }
 
 /** Where a clone onto a host goes, resolved before anything is cloned. */
@@ -62,8 +153,8 @@ export async function planClone(
 }
 
 /** Clone (or adopt) per `plan`, with progress on `projects:clone-progress`. */
-export function runClone(plan: ClonePlan): Promise<void> {
-  return prepareRemoteClone(plan.host, plan.repoUrl, plan.targetDir, emitCloneProgress);
+export function runClone(ctx: ProjectContext, plan: ClonePlan): Promise<void> {
+  return prepareRemoteClone(plan.host, plan.repoUrl, plan.targetDir, ctx.progress.clone);
 }
 
 /**
@@ -95,7 +186,7 @@ export async function moveProjectToHost(
     );
   }
 
-  await runClone(plan);
+  await runClone(ctx, plan);
   await repointProject(ctx, project, hostId, plan.targetDir);
   ctx.store.save();
   return ctx.info(project);

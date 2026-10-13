@@ -230,6 +230,14 @@ export class TerminalHostClient {
     this.supervisor.setListener(listener);
   }
 
+  /**
+   * Whether this client's stream socket is subscribed to `sessionId` — one of
+   * the session's `attachedClients` is then this client (ADR-225 D5).
+   */
+  isSubscribed(sessionId: string): boolean {
+    return this.subscriptions.has(sessionId);
+  }
+
   /** Subscribe to stream events (data, exit, cwd, error). Returns an unsubscribe. */
   onEvent(handler: StreamEventHandler): () => void {
     return this.stream.subscribe(handler);

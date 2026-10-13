@@ -11,6 +11,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
@@ -57,7 +58,9 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import { hostLabel, isRemoteHost, memberHostName } from "../../lib/hosts";
+import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
   remoteTargetForProject,
   workspaceDisplayName,
@@ -164,6 +167,10 @@ const WorkspaceItem = React.forwardRef<
     workspaceKey(hostId, ws.path),
   );
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
+  // A remote workspace's PR badge comes from the box's own `gh`; where that
+  // isn't signed in there is none to show, and this says why (ADR-227 D7).
+  const ghMissing = useGhHostStore((s) => !!s.missing[hostId]);
+  const ghHostName = useHostStore((s) => hostLabel(hostId, s.hosts));
   const {
     handleKeyDown: handleEmojiKeyDown,
     fieldProps: emojiFieldProps,
@@ -277,6 +284,18 @@ const WorkspaceItem = React.forwardRef<
                   hostId={hostId}
                   onOpen={() => openExternal(ws.pr!.url)}
                 />
+              )}
+              {!ws.pr && ghMissing && (
+                <Tooltip label={ghNotSignedInText(ghHostName)}>
+                  <span
+                    className={styles.ghMissing}
+                    role="status"
+                    aria-label={ghNotSignedInText(ghHostName)}
+                    data-testid="gh-not-signed-in-badge"
+                  >
+                    <TriangleAlert size={11} />
+                  </span>
+                </Tooltip>
               )}
             </div>
           </div>

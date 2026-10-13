@@ -66,6 +66,7 @@ async function getContext(
   } as unknown as RouteDeps;
   const json = vi.fn();
   await contextRoutes[0].handler({
+    method: "GET",
     deps,
     params: {},
     url: new URL(`http://x/context?${query}`),

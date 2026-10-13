@@ -12,7 +12,6 @@ import type { PersistedProject, PersistedState } from "./types";
 
 export class StateStore {
   readonly state: PersistedState;
-  private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly saveListeners: Array<() => void> = [];
 
   constructor(private readonly dataDir: string) {
@@ -40,21 +39,22 @@ export class StateStore {
     for (const project of state.projects as Array<Partial<PersistedProject>>) {
       project.hostId ??= LOCAL_HOST_ID;
     }
+    // A host's hook journal is its server's to read (ADR-227 D4): the
+    // desktop's position in it is gone.
+    for (const host of Object.values(state.hosts ?? {})) {
+      delete (host as { lastHookSeq?: number }).lastHookSeq;
+      delete (host as { hookJournalEpoch?: string }).hookJournalEpoch;
+    }
     if ("groups" in state) normalizeGroups(state);
     if ("dismissedLinkSuggestions" in state) normalizeLinkDismissals(state);
     return state;
   }
 
   /**
-   * Write now, cancelling any pending `saveSoon`. A local project's
-   * `hostId` is left out, so its record is byte-for-byte what it was
-   * before hosts existed.
+   * Write now. A local project's `hostId` is left out, so its record is
+   * byte-for-byte what it was before hosts existed.
    */
   save(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
     fs.mkdirSync(this.dataDir, { recursive: true });
     fs.writeFileSync(
       this.filePath(),
@@ -71,20 +71,5 @@ export class StateStore {
   /** Run `listener` after every write. */
   onSave(listener: () => void): void {
     this.saveListeners.push(listener);
-  }
-
-  /** Write within `delayMs`, folding every call until then into one write. */
-  saveSoon(delayMs: number): void {
-    if (this.saveTimer) return;
-    this.saveTimer = setTimeout(() => {
-      this.saveTimer = null;
-      this.save();
-    }, delayMs);
-    this.saveTimer.unref?.();
-  }
-
-  /** Write a pending `saveSoon` now; nothing if none is pending. */
-  flush(): void {
-    if (this.saveTimer) this.save();
   }
 }

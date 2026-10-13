@@ -12,6 +12,7 @@ import {
   hostsRevokeDevice,
   hostsRetryConnect,
   hostsServerStatus,
+  hostsSetLinearOnHost,
   wireHostBroadcasts,
 } from "../hosts";
 import {
@@ -196,11 +197,16 @@ describe("hosts phone access", () => {
       listDevices: vi.fn().mockResolvedValue([]),
       revoke: vi.fn().mockResolvedValue([]),
       resetIdentity: vi.fn().mockResolvedValue({ devices: 0 }),
+      setLinearToken: vi.fn().mockImplementation(async (t: string | null) => t !== null),
     };
     const server = {
       state,
       api: {
-        hostServer: { status: client.status, resetIdentity: client.resetIdentity },
+        hostServer: {
+          status: client.status,
+          resetIdentity: client.resetIdentity,
+          setLinearToken: client.setLinearToken,
+        },
         remoteControl: {
           pair: client.pair,
           listDevices: client.listDevices,
@@ -212,8 +218,32 @@ describe("hosts phone access", () => {
       hostServer: vi.fn((id: string) => (id === "box" ? server : undefined)),
     });
     const hostServerSync = { pairingChanged: vi.fn().mockResolvedValue(undefined) };
-    return { ctx: localCtx({ ...deps, hostServerSync } as never), client, hostServerSync };
+    const linearManager = { getToken: vi.fn().mockReturnValue("lin_key") };
+    return {
+      ctx: localCtx({ ...deps, hostServerSync, linearManager } as never),
+      client,
+      hostServerSync,
+      linearManager,
+    };
   }
+
+  it("sends the desktop's Linear key to the host, or deletes the copy", async () => {
+    const { ctx, client } = withServer("connected");
+    await expect(hostsSetLinearOnHost(ctx, "box", true)).resolves.toBe(true);
+    expect(client.setLinearToken).toHaveBeenLastCalledWith("lin_key");
+    await expect(hostsSetLinearOnHost(ctx, "box", false)).resolves.toBe(false);
+    expect(client.setLinearToken).toHaveBeenLastCalledWith(null);
+  });
+
+  it("will not turn Linear on without a key here, or on a dropped host", async () => {
+    const { ctx, client, linearManager } = withServer("connected");
+    linearManager.getToken.mockReturnValue(null);
+    await expect(hostsSetLinearOnHost(ctx, "box", true)).rejects.toThrow(/Connect Linear/);
+    const dropped = withServer("disconnected");
+    await expect(hostsSetLinearOnHost(dropped.ctx, "box", true)).rejects.toThrow(/Phone access/);
+    expect(client.setLinearToken).not.toHaveBeenCalled();
+    expect(dropped.client.setLinearToken).not.toHaveBeenCalled();
+  });
 
   it("reports an unknown host plainly", async () => {
     const { ctx } = withServer("connected");

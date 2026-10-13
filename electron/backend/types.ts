@@ -14,8 +14,6 @@ import type {
   SessionInfo,
   TerminalSnapshot,
   StreamEvent,
-  StreamCommand,
-  HookReplay,
   PaneFacts,
 } from "../terminal-host/types";
 import type { MachineFacts } from "./machine-facts";
@@ -89,15 +87,6 @@ export interface PtyBackend {
   onEvent(handler: StreamEventHandler): () => void;
 
   updateEnv(env: Record<string, string>): Promise<void>;
-}
-
-/** A remote host's pty backend: its daemon journals agent hooks (ADR-178 §2). */
-export interface HookJournalPtyBackend extends PtyBackend {
-  /**
-   * The host daemon's hook journal after `sinceSeq`. `headOnly` returns the
-   * journal's position with no entries.
-   */
-  replayHooks(sinceSeq: number, opts?: { headOnly?: boolean }): Promise<HookReplay>;
 }
 
 // ── Git Backend ──
@@ -304,11 +293,9 @@ export interface WorkspaceBackend {
 
 /**
  * A remote host's backend (ADR-160): it reconnects by itself and reports how
- * that goes, and its daemon journals the host's agent hooks.
+ * that goes.
  */
 export interface RemoteHostBackend extends WorkspaceBackend {
-  readonly pty: HookJournalPtyBackend;
-
   /**
    * Observe loss and recovery of the host connection (see
    * `HostConnectionEvent`). Returns an unsubscribe.
@@ -329,25 +316,5 @@ export interface RemoteHostBackend extends WorkspaceBackend {
    * tick going unanswered.
    */
   checkLiveness(): Promise<boolean>;
-
-  /**
-   * Called each time the host's stream socket (re)connects (ADR-189 §2).
-   * The daemon relays control requests to one stream socket, the one that
-   * last asked, so the ask is repeated on every new socket. Returns an
-   * unsubscribe.
-   */
-  onStreamConnected(handler: () => void): () => void;
-
-  /**
-   * Send a control-relay stream command on the current stream socket; false
-   * when there is none. A `controlResponse` is only accepted on the socket
-   * its request came in on, so one sent after a reconnect is dropped.
-   */
-  sendControlRelayCommand(cmd: ControlRelayCommand): boolean;
 }
 
-/** The stream commands a remote host's connection sends for the control relay. */
-export type ControlRelayCommand = Extract<
-  StreamCommand,
-  { type: "enableControlRelay" } | { type: "controlResponse" }
->;

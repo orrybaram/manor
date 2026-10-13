@@ -418,7 +418,7 @@ async function handleStreamMessage(
       conn.cancelExec(command.execId);
       break;
     case "enableControlRelay":
-      d.controlRelay.enable(socket);
+      d.controlRelay.enable(socket, command.role === "server" ? "server" : "app");
       break;
     case "controlResponse":
       // Parsed from the wire unchecked; a malformed id can match nothing.

@@ -41,9 +41,10 @@ import type {
 } from "../renderer-broadcast";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import type { EventArgs, EventNs, EventOf } from "./events";
-import type { HandlerCtx, HandlerTable } from "./method";
+import type { Caller, HandlerCtx, HandlerTable, RouteRule } from "./method";
 import {
   ALL_KEYS,
+  BridgeUnavailableRefusal,
   readInvokeFrame,
   readSubscribeFrame,
   type BridgeConnection,
@@ -97,9 +98,36 @@ interface Registered {
   subscriptions: Map<string, Set<string>>;
 }
 
+/**
+ * Where a routed call goes when it names a remote host (ADR-227 D4). Only
+ * the desktop has one: it answers such a call through that host's
+ * `HostProxy` instead of running the handler here. A host server has no
+ * hosts of its own, so it never forwards.
+ */
+export interface BridgeForward {
+  /**
+   * The remote host `rule` reads off `args`, or null to answer here — the
+   * argument names this machine, a host not yet adopted, or nothing known.
+   */
+  target(rule: RouteRule, args: readonly unknown[]): string | null;
+  /**
+   * `ns.method(...args)` on `hostId`'s server, for `caller`. Rejects with
+   * a `BridgeUnavailableRefusal` while that host is away.
+   */
+  invoke(
+    hostId: string,
+    ns: string,
+    method: string,
+    args: unknown[],
+    caller: Caller,
+  ): Promise<unknown>;
+}
+
 interface BridgeServerOptions<D> {
   /** What this server dispatches, and what kind of server it is. */
   table: HandlerTable<D>;
+  /** Remote hosts' calls, on the desktop (see `BridgeForward`). */
+  forward?: BridgeForward;
   /**
    * Where keyless pushes come from: `addRendererBroadcastSink` on the
    * desktop, the host server's own bus there.
@@ -117,6 +145,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
   private readonly connections = new Map<string, Registered>();
   private readonly audit: RemoteAuditLog;
   private readonly table: HandlerTable<D>;
+  private readonly forward: BridgeForward | undefined;
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
@@ -130,6 +159,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
   ) {
     this.audit = options.audit ?? new RemoteAuditLog();
     this.table = options.table;
+    this.forward = options.forward;
     this.unsubscribeBroadcasts = options.events((broadcast) =>
       this.onBroadcast(broadcast),
     );
@@ -306,9 +336,18 @@ export class BridgeServer<D extends BridgeServerDeps> {
     }
 
     const audited = this.table.mutating.has(key);
+    // A call that names a remote host is that host's server's to answer
+    // (ADR-227 D4): the same rules above, audited here, run there.
+    const route = this.table.routes.get(key);
+    const remote = route ? this.routeTarget(route, args) : null;
+    const forward = this.forward;
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
-    const call = handler as (ctx: HandlerCtx<D>, ...args: unknown[]) => unknown;
+    const call =
+      remote !== null && forward
+        ? (c: HandlerCtx<D>, ...a: unknown[]) =>
+            forward.invoke(remote, frame.ns, frame.method, a, c.caller)
+        : (handler as (ctx: HandlerCtx<D>, ...args: unknown[]) => unknown);
     // Who sent it comes from the connection, never from the frame: a caller
     // does not get to say which caller it is (ADR-179 D3).
     const ctx: HandlerCtx<D> = {
@@ -324,14 +363,30 @@ export class BridgeServer<D extends BridgeServerDeps> {
       if (audited) this.auditInvoke(connection, key, args, "sent", 200);
       return { id, kind: "result", ok: true, result };
     } catch (err) {
-      if (audited) this.auditInvoke(connection, key, args, "failed", 500);
+      // A handler's refusal is the same stated empty state as a method
+      // absent from the table, with the handler's own words.
+      const refused = err instanceof BridgeUnavailableRefusal;
+      if (audited) {
+        this.auditInvoke(connection, key, args, refused ? "rejected" : "failed", refused ? 403 : 500);
+      }
       return {
         id,
         kind: "result",
         ok: false,
         error: err instanceof Error ? err.message : String(err),
-        code: "failed",
+        code: refused ? err.code : "failed",
       };
+    }
+  }
+
+  /** Where `forward` sends a routed call; here (null) when it cannot say. */
+  private routeTarget(route: RouteRule, args: readonly unknown[]): string | null {
+    if (!this.forward) return null;
+    try {
+      return this.forward.target(route, args);
+    } catch (err) {
+      console.error("[bridge] route lookup threw:", err);
+      return null;
     }
   }
 

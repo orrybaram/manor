@@ -136,6 +136,11 @@ export interface BridgeEvents {
     ];
     /** The Status reconciler published a pane's Agent status (ADR-184). */
     status: [update: PaneAgentStatusUpdate];
+    /**
+     * Agents left the list for good, by id: a host's server adopted them
+     * (ADR-227 D3), so a copy a renderer holds under the old id is stale.
+     */
+    removed: [agentIds: string[]];
   };
   /** The full snapshot, after a burst of transitions settles (ADR-199 §2). */
   agentActivity: { changed: [snapshot: AgentActivitySnapshot] };
@@ -244,6 +249,7 @@ export const SUBSCRIPTIONS = {
   "git.push.onProgress": "git.push.progress",
   "agents.onUpdate": "agents.updated",
   "agents.onStatus": "agents.status",
+  "agents.onRemoved": "agents.removed",
   "agentActivity.onChanged": "agentActivity.changed",
   "preferences.onChange": "preferences.changed",
   "keybindings.onChange": "keybindings.changed",

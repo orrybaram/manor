@@ -5,12 +5,6 @@
 
 import { describe, it, expect, vi } from "vitest";
 
-vi.mock("../notifications", () => ({
-  updateDockBadge: vi.fn(),
-  markAgentNotificationsRead: vi.fn(),
-  sendAgentUpdate: vi.fn(),
-}));
-
 import { agentsBuildResumeCommand } from "../bridge/handlers/agents";
 import { localCtx } from "../bridge/method";
 import type { HostDeps } from "../routes/types";

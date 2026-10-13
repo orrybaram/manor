@@ -4,6 +4,7 @@ import {
   type WorkspaceInfo,
 } from "../store/project-store";
 import { ghRepoOf } from "../lib/gh-repo";
+import { noteGhStatus } from "../lib/gh-host-status";
 import { keyOf } from "../lib/workspace-directory";
 import { branchesEqual } from "../utils/branch-name";
 import { deliverPrNotifications } from "../utils/pr-notifications";
@@ -99,7 +100,9 @@ async function fetchAllPrs() {
         }
       }
     } catch {
-      // gh CLI not available or network error — skip
+      // gh CLI not available or network error — skip. On a remote host,
+      // find out whether it is `gh` there and say so (ADR-227 D7).
+      void noteGhStatus(ghRepoOf(project).hostId);
     }
   }
 }

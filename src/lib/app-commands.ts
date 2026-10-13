@@ -18,8 +18,8 @@
  * Handlers **throw** on bad input. `App.tsx` converts a throw into
  * `{ ok: false, error }`, which main maps onto an HTTP status.
  *
- * Note the one legacy command `run-setup-script` is *not* here: it is
- * fire-and-forget, and it depends on `App.tsx`'s callback refs.
+ * A new workspace's setup script is not one of them: the server runs it
+ * itself, in a tab of its own (ADR-227 D5).
  */
 
 import {

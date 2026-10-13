@@ -1,10 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
 
-vi.mock("../renderer-bridge", () => ({
-  notifyProjectsChanged: vi.fn(),
-}));
-
-import { notifyProjectsChanged } from "../renderer-bridge";
 import { folderRoutes } from "./folders";
 import type { HostDeps, Route } from "./types";
 import type { ProjectInfo, WorkspaceFolder } from "../persistence";
@@ -104,8 +99,10 @@ function makeProjectManager(projectId = "p1") {
   };
 }
 
+const notifyProjectsChanged = vi.fn();
+
 function deps(pm: ReturnType<typeof makeProjectManager>): HostDeps {
-  return { projectManager: pm } as unknown as HostDeps;
+  return { projectManager: pm, notifyProjectsChanged } as unknown as HostDeps;
 }
 
 async function call(
@@ -116,6 +113,7 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: unknown }> = [];
   await r.handler({
+    method: r.method,
     deps: d,
     params,
     url: new URL("http://localhost/projects/p1/folders"),

@@ -63,6 +63,63 @@ export type BridgeHandler<D = HostDeps> = (
  */
 type AnyBridgeHandler = BridgeHandler<never>;
 
+/**
+ * Which host a call is for, read off one of its arguments (ADR-227 D4).
+ *
+ * - `project`: a project id — the host the project lives on.
+ * - `workspaceKey`: a workspace key (`<hostId>:<path>`, or a bare local path).
+ * - `pane`: a pane id — the host whose layout holds the pane.
+ * - `ghRepo`: a `GhRepo` (`{ path, hostId }`) — its `hostId`.
+ * - `host`: a host id, or null/absent for the desktop's own.
+ * - `agent`: an agent id — the host whose server holds the agent.
+ *
+ * On the desktop, a call whose argument names a remote host is answered by
+ * that host's server, through its `HostProxy` (`BridgeServer`'s `forward`);
+ * every other call, and every call on a host server, runs here.
+ */
+export interface RouteRule {
+  by: "project" | "workspaceKey" | "pane" | "ghRepo" | "agent" | "host";
+  /** Which wire argument names the target. */
+  arg: number;
+}
+
+/**
+ * Answered here whatever host it touches: a merged read, or a write that
+ * fans out to each host itself (`ProjectManager`'s groups). The surface
+ * test asks every method of a routed namespace to say one or the other.
+ */
+export const LOCAL_ROUTE = "local";
+
+/** A project id at `arg`. */
+export function byProject(arg: number): RouteRule {
+  return { by: "project", arg };
+}
+
+/** A workspace key at `arg`. */
+export function byWorkspaceKey(arg: number): RouteRule {
+  return { by: "workspaceKey", arg };
+}
+
+/** A pane id at `arg`. */
+export function byPane(arg: number): RouteRule {
+  return { by: "pane", arg };
+}
+
+/** A `GhRepo` at `arg`. */
+export function byGhRepo(arg: number): RouteRule {
+  return { by: "ghRepo", arg };
+}
+
+/** A host id at `arg`; an absent one stays on this machine. */
+export function byHost(arg: number): RouteRule {
+  return { by: "host", arg };
+}
+
+/** An agent id at `arg`. */
+export function byAgent(arg: number): RouteRule {
+  return { by: "agent", arg };
+}
+
 export interface MethodRules {
   /**
    * A device's call leaves an audit line. Anything that starts or ends a
@@ -81,6 +138,12 @@ export interface MethodRules {
    * browser in `./local-only.ts`.
    */
   localOnly?: true;
+  /**
+   * Which host answers it on the desktop (ADR-227 D4): a `RouteRule`, or
+   * `LOCAL_ROUTE` for one this server answers whatever host it touches.
+   * Absent is local too; a routed namespace says so explicitly.
+   */
+  route?: RouteRule | typeof LOCAL_ROUTE;
 }
 
 export interface Method<
@@ -133,7 +196,7 @@ export function flatten<const T extends Record<string, Table>>(
 /** The keys of `methods` whose entry carries `rule`. */
 function ruleSet(
   methods: Record<string, Method>,
-  rule: keyof MethodRules,
+  rule: Exclude<keyof MethodRules, "route">,
 ): ReadonlySet<string> {
   return new Set(
     Object.entries(methods)
@@ -156,6 +219,11 @@ export interface HandlerTable<D> {
   mutating: ReadonlySet<string>;
   /** First argument is a credential; never written to the audit line. */
   secretFirstArg: ReadonlySet<string>;
+  /**
+   * The methods that name their host in an argument (ADR-227 D4): what the
+   * desktop's `forward` reads to send a call to a remote host's server.
+   */
+  routes: ReadonlyMap<string, RouteRule>;
   /**
    * How a method absent from the table (or refused as `localOnly`) is
    * answered: `unavailable:web`, "in the browser" on the desktop;
@@ -189,6 +257,12 @@ export function toHandlerTable<D>(
     localOnly: ruleSet(methods, "localOnly"),
     mutating: ruleSet(methods, "mutating"),
     secretFirstArg: ruleSet(methods, "secretFirstArg"),
+    routes: new Map(
+      Object.entries(methods).flatMap(([key, entry]) => {
+        const route = entry.rules.route;
+        return route && route !== LOCAL_ROUTE ? [[key, route] as const] : [];
+      }),
+    ),
     ...surface,
   };
 }
@@ -197,6 +271,6 @@ export function toHandlerTable<D>(
  * A context for a caller at this machine that is not a bridge connection —
  * a test, or a host-side path that calls a handler directly.
  */
-export function localCtx(deps: HostDeps, id = "local"): HandlerCtx {
+export function localCtx<D = HostDeps>(deps: D, id = "local"): HandlerCtx<D> {
   return { deps, caller: { id, callerClass: "local" } };
 }

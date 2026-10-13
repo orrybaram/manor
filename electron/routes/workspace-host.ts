@@ -4,9 +4,8 @@
  * main — which knows the projects and the caller — names the host.
  */
 
-import { proxyToRenderer } from "../renderer-bridge";
 import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
-import type { RouteDeps, Json } from "./types";
+import type { ServerRouteDeps } from "./types";
 
 /**
  * `body` with a `hostId` for its `workspacePath`, or a 403 to answer with.
@@ -19,7 +18,7 @@ import type { RouteDeps, Json } from "./types";
  * `workspacePath` is returned as is.
  */
 export function withWorkspaceHost(
-  deps: Pick<RouteDeps, "projectManager" | "callerHostId">,
+  deps: Pick<ServerRouteDeps, "projectManager" | "callerHostId">,
   body: Record<string, unknown>,
 ): { ok: true; body: Record<string, unknown> } | { ok: false; status: 403; error: string } {
   const workspacePath = body.workspacePath;
@@ -35,22 +34,4 @@ export function withWorkspaceHost(
   if (named !== undefined) return { ok: true, body };
   const hostId = deps.projectManager?.hostIdForPath(workspacePath);
   return { ok: true, body: hostId ? { ...body, hostId } : body };
-}
-
-/**
- * Proxy `cmd` to the renderer with `body`'s workspace host resolved by
- * `withWorkspaceHost`, or answer its 403.
- */
-export async function proxyWithWorkspaceHost(
-  deps: Pick<RouteDeps, "projectManager" | "callerHostId">,
-  json: Json,
-  cmd: string,
-  body: Record<string, unknown>,
-): Promise<void> {
-  const resolved = withWorkspaceHost(deps, body);
-  if (!resolved.ok) {
-    json(resolved.status, { error: resolved.error });
-    return;
-  }
-  await proxyToRenderer(json, cmd, resolved.body);
 }

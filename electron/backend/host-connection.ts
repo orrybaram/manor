@@ -18,42 +18,38 @@
  *
  * `RemoteHostConnection` adds what only a remote host has:
  *
- * - **Agent hooks** (ADR-178 §2). A remote daemon journals its host's agent
- *   hooks and streams them as `hookEvent`s. Those are not re-published: the
- *   host's `HostHookFeed` replays the journal after every (re)connect, then
- *   feeds live events, in order, to the hook sink. Before each replay it
- *   claims the host's sessions, so status relayed for a replayed hook reaches
- *   that host's daemon.
+ * - **Agent hooks** are the host server's (ADR-227 D4): it reads its own
+ *   daemon's journal. The desktop hears none, and ignores any `hookEvent`
+ *   its stream still carries. Reaching `connected` it claims the host's
+ *   sessions, so calls for a pane reach that host's daemon.
  * - **Away and back** (ADR-178 §6). When the host comes back after a drop,
- *   the connection waits for its hook replay, lists the sessions its daemon
- *   still has, and only then announces it resumed — so panes reattach
- *   (resnapshot) with their agents' status already right, and panes whose
- *   sessions are gone (the daemon restarted) can be recovered.
+ *   the connection waits for its proxy to hold the host's state again
+ *   (bounded), lists the sessions its daemon still has, and only then
+ *   announces it resumed — so panes reattach (resnapshot) with their agents'
+ *   status already right, and panes whose sessions are gone (the daemon
+ *   restarted) can be recovered.
  * - **Its provider** (ADR-178 §1), released on disconnect and disposal.
  * - **The owner channel** to the box's host server (ADR-225 D4):
- *   `serverClient`, with the hook feed's lifecycle — it dials whenever the
+ *   `serverClient`. It dials whenever the
  *   host reaches `connected` (a connect or a resume), lets go whenever the
  *   host leaves it (a drop, a disconnect), and is disposed with the host.
- * - **The control relay** (ADR-189 §2). A `manor` CLI on the host talks to
- *   its daemon, which relays each request down the stream as a
- *   `controlRequest`. The connection asks for them on every stream
- *   (re)connect, hands each to the control relay sink, and answers with a
- *   `controlResponse` on the same stream.
+ * - **The host's state** (ADR-227 D4): `proxy`, a `HostProxy` over that
+ *   channel, when the registry was given somewhere to publish it. It
+ *   follows the channel by itself and is disposed with the host.
+ * - **Not the control relay.** A `manor` CLI on the host is answered by the
+ *   host's own server (ADR-227 D8), which asks the daemon for its requests;
+ *   the desktop no longer does (ADR-189 §2 had it answer them).
  */
 
 import { errorMessage } from "../lib/errors";
 import type { Emitter } from "./emitter";
-import { HostHookFeed, type HookSeqStore, type HookSink } from "./hook-feed";
 import { HostServerClient, type HostServerClientOptions } from "./host-server-client";
+import { HostProxy, type HostProgressEvent, type HostProxyOptions } from "./host-proxy";
+import { hostCacheFile } from "../paths";
 import { HostUnavailableError, hostGates, hostView, type HostGates } from "./host-view";
 import type { HostProvider } from "./providers/types";
 import { classifyHostFailure } from "./remote-backend";
 import type { SessionOwners } from "./session-owners";
-import type { HookPayload } from "../terminal-host/types";
-import type {
-  ControlRelayResult,
-  RelayedControlRequest,
-} from "../terminal-host/control-relay-listener";
 import type {
   HostConnectionEvent,
   HostFailure,
@@ -99,26 +95,14 @@ export interface HostStatusInfo {
   warnings?: string[];
 }
 
-/**
- * Answers a control request a remote host's `manor` CLI sent (ADR-189 §2),
- * tagged with the host it came from so the answer can be scoped to it. Main
- * wires this to its control routes, behind the remote allowlist.
- */
-export type ControlRelaySink = (
-  hostId: string,
-  req: RelayedControlRequest,
-) => Promise<ControlRelayResult>;
-
 type HostState = Omit<HostStatusInfo, "hostId" | "spec" | "warnings">;
 
-type ControlRequestEvent = Extract<StreamEvent, { type: "controlRequest" }>;
-
 /**
- * How long a reconnect waits for the host's hook replay before announcing
- * it resumed anyway. Panes stay frozen until then, so a replay that is slow
- * (a huge journal) or retrying must not hold them for long.
+ * How long a reconnect waits for the host's proxy to read its state before
+ * announcing the host resumed anyway. Panes stay frozen until then, so a
+ * slow read must not hold them for long.
  */
-const RESUME_REPLAY_WAIT_MS = 5_000;
+const RESUME_SYNC_WAIT_MS = 5_000;
 
 /** What every host's connection reports to: the registry's shared state. */
 export interface HostConnectionContext {
@@ -140,15 +124,21 @@ export interface RemoteHostContext extends HostConnectionContext {
   hostEvents: Emitter<[hostId: string, event: HostConnectionEvent]>;
   /** A host is back after a drop; see `BackendRegistry.onHostResumed`. */
   resumed: Emitter<[hostId: string, sessionIds: string[]]>;
-  hookSeqStore: HookSeqStore;
-  /** Where agent hooks go; null until the app wires it up. */
-  hookSink: () => HookSink | null;
-  /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
-  hookReplayRetryDelayMs?: (attempt: number) => number;
-  /** Where relayed control requests go; null until the app wires it up. */
-  controlRelaySink: () => ControlRelaySink | null;
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: Pick<HostServerClientOptions, "requestTimeoutMs" | "retryDelayMs" | "log">;
+  /** Where each host's `HostProxy` publishes; no proxies without it. */
+  hostProxy?: HostProxyContext;
+}
+
+/** What every remote host's `HostProxy` is built with (ADR-227 D4). */
+export interface HostProxyContext
+  extends Pick<HostProxyOptions, "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "saveDelayMs" | "log"> {
+  /** The desktop's name for a host (`HostRecords.label`), read at use. */
+  label(hostId: string): string;
+  /** A host's progress events for its owner (`HostProxyOptions.onProgress`). */
+  onProgress?(hostId: string, event: HostProgressEvent, args: unknown[]): void;
+  /** Where the cache files go. Defaults to `hostCacheDir()`. */
+  cacheDir?: string;
 }
 
 export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
@@ -232,11 +222,6 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   /** Drop the connection. The local host's is never dropped. */
   async disconnect(): Promise<void> {}
 
-  /** Catch up on the host's agent hooks; the local host has no journal. */
-  catchUpHooks(): Promise<void> {
-    return Promise.resolve();
-  }
-
   /**
    * This host's daemon is about to be replaced and `sessionIds` are what it
    * is about to lose (ADR-185 §A). Whoever builds this host's client wires
@@ -261,14 +246,8 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
     return null;
   }
 
-  /** A `hookEvent` from the host's daemon. The local daemon sends none. */
-  protected onHookEvent(_seq: number, _payload: HookPayload): void {}
-
-  /**
-   * A `controlRequest` from the host's daemon. The local daemon sends none:
-   * a CLI on this machine talks to main directly.
-   */
-  protected onControlRequest(_event: ControlRequestEvent): void {}
+  /** The host reached `connected` by a connect (a resume is `onHostEvent`'s). */
+  protected onConnected(): void {}
 
   /** Release what the connection holds, after `dispose()`; never throws. */
   protected async release(): Promise<void> {
@@ -341,18 +320,15 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
     // Resolving now would hand a pty call a client that was disposed.
     if (!current()) throw superseded();
     this.setState({ status: "connected" });
-    void this.catchUpHooks();
+    this.onConnected();
   }
 
   private onStreamEvent(event: StreamEvent): void {
-    if (event.type === "hookEvent") {
-      this.onHookEvent(event.seq, event.payload);
-      return;
-    }
-    if (event.type === "controlRequest") {
-      this.onControlRequest(event);
-      return;
-    }
+    // The host server reads the journal; the desktop has no use for hooks.
+    if (event.type === "hookEvent") return;
+    // A box's CLI requests are its host server's to answer (ADR-227 D8);
+    // on a host server, it hears them on its own daemon client.
+    if (event.type === "controlRequest") return;
     if (this.ctx.sessions.accept(this.hostId, event)) {
       this.ctx.streamEvents.emit(this.hostId, event);
     }
@@ -360,12 +336,13 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
 }
 
 export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
-  readonly hookFeed: HostHookFeed;
   /** The owner channel to the box's host server (ADR-225 D4). */
   readonly serverClient: HostServerClient;
+  /** The host's state through that channel (ADR-227 D4); see `HostProxyContext`. */
+  readonly proxy: HostProxy | null;
   /**
    * Bumped by every host event, so a resume announcement still waiting on
-   * its replay is dropped when the host drops again meanwhile.
+   * the proxy is dropped when the host drops again meanwhile.
    */
   private resumeToken = 0;
 
@@ -377,31 +354,29 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     protected readonly ctx: RemoteHostContext,
   ) {
     super(hostId, spec, backend, ctx);
-    this.hookFeed = new HostHookFeed({
-      hostId,
-      replay: backend.pty.replayHooks.bind(backend.pty),
-      store: ctx.hookSeqStore,
-      sink: ctx.hookSink,
-      // Replayed hooks relay status to their pane's session through
-      // `RoutedBackend`, which routes by session owner. Right after launch
-      // no remote session is known yet, so without this the relay would
-      // fall through to the local daemon.
-      beforeCatchUp: () => this.claimHostSessions(),
-      ...(ctx.hookReplayRetryDelayMs ? { retryDelayMs: ctx.hookReplayRetryDelayMs } : {}),
-    });
     this.serverClient = new HostServerClient({
       hostId,
       open: provider.openServerChannel?.bind(provider) ?? null,
       ...ctx.hostServerClient,
     });
+    const proxyCtx = ctx.hostProxy;
+    this.proxy = proxyCtx
+      ? new HostProxy({
+          client: this.serverClient,
+          bus: proxyCtx.bus,
+          label: () => proxyCtx.label(hostId),
+          cacheFile: hostCacheFile(hostId, proxyCtx.cacheDir),
+          republishAgents: proxyCtx.republishAgents,
+          onAgentUpdate: (agent, unseen, prev) =>
+            proxyCtx.onAgentUpdate?.(agent, unseen, prev),
+          onUnseenRead: (ids, unseen) => proxyCtx.onUnseenRead?.(ids, unseen),
+          publishKeyed: proxyCtx.publishKeyed,
+          onProgress: (event, args) => proxyCtx.onProgress?.(hostId, event, args),
+          saveDelayMs: proxyCtx.saveDelayMs,
+          log: proxyCtx.log,
+        })
+      : null;
     this.unsubscribes.push(backend.onHostEvent((event) => this.onHostEvent(event)));
-    // The daemon relays to the stream socket that last asked, and forgets
-    // one that closes, so every new socket has to ask again.
-    this.unsubscribes.push(
-      backend.onStreamConnected(() => {
-        backend.sendControlRelayCommand({ type: "enableControlRelay" });
-      }),
-    );
   }
 
   /** Latest bootstrap progress, shown while `connecting`. */
@@ -457,18 +432,18 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   override async disconnect(): Promise<void> {
     this.autoConnect = false;
     this.cancelConnect();
-    this.hookFeed.pause();
     this.setState({ status: "disconnected" }, "clear");
     await this.disposeProvider();
     await this.backend.disconnect();
   }
 
-  override catchUpHooks(): Promise<void> {
-    return this.hookFeed.catchUp();
+  protected override onConnected(): void {
+    this.claimHostSessionsInBackground();
   }
 
   /** The host was unregistered or replaced: its owner channel goes with it. */
   override async dispose(): Promise<void> {
+    this.proxy?.dispose();
     this.serverClient.dispose();
     await super.dispose();
   }
@@ -490,16 +465,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     return hostGates(this);
   }
 
-  protected override onHookEvent(seq: number, payload: HookPayload): void {
-    this.hookFeed.onLiveEvent(seq, payload);
-  }
-
-  protected override onControlRequest(event: ControlRequestEvent): void {
-    void this.answerControlRequest(event);
-  }
-
   protected override async release(): Promise<void> {
-    this.hookFeed.pause();
     await this.disposeProvider();
     await super.release();
   }
@@ -513,39 +479,17 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     }
   }
 
-  /**
-   * Run a relayed request through the sink and send its answer back. The
-   * daemon's CLI is waiting on an HTTP reply, so every request gets one:
-   * 503 while no sink is wired up, 500 when the sink throws. An answer that
-   * outlives its stream (the host reconnected meanwhile) goes to the new
-   * socket, which the daemon ignores; the CLI already had its 503.
-   */
-  private async answerControlRequest({
-    id,
-    method,
-    path,
-    body,
-  }: ControlRequestEvent): Promise<void> {
-    const sink = this.ctx.controlRelaySink();
-    let result: ControlRelayResult;
-    if (!sink) {
-      result = { status: 503, body: { error: "Manor isn't ready for control requests yet" } };
-    } else {
+  /** Claim every session the host's daemon reports, so calls for a pane reach it. */
+  private claimHostSessionsInBackground(): void {
+    void (async () => {
       try {
-        result = await sink(this.hostId, { method, path, body });
+        const sessions = await this.backend.pty.listSessions();
+        if (this.disposed) return;
+        for (const { sessionId } of sessions) this.ctx.sessions.claim(sessionId, this.hostId);
       } catch (err) {
-        result = { status: 500, body: { error: errorMessage(err) } };
+        console.debug(`[host-connection] claiming ${this.hostId}'s sessions failed:`, err);
       }
-    }
-    if (this.disposed) return;
-    this.backend.sendControlRelayCommand({ type: "controlResponse", id, ...result });
-  }
-
-  /** Claim every session the host's daemon reports. */
-  private async claimHostSessions(): Promise<void> {
-    const sessions = await this.backend.pty.listSessions();
-    if (this.disposed) return;
-    for (const { sessionId } of sessions) this.ctx.sessions.claim(sessionId, this.hostId);
+    })();
   }
 
   private onHostEvent(event: HostConnectionEvent): void {
@@ -555,7 +499,6 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     const token = ++this.resumeToken;
     switch (event.type) {
       case "hostDisconnected":
-        this.hookFeed.pause();
         this.setState({
           status: "reconnecting",
           retryInMs: event.retryInMs,
@@ -573,9 +516,11 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
         break;
       case "hostReconnected":
         this.setState({ status: "connected" });
-        // Panes reattach only once the replay is in, so their agent dots
-        // are right on first paint (ADR-178 §6).
-        void this.announceResumed(token, this.hookFeed.catchUp());
+        // Panes reattach only once the host's server is back and the proxy
+        // has read its state, so their agent dots are right on first paint
+        // (ADR-178 §6) and a lost pane's fresh session can start and type its
+        // resume command (ADR-227 D4).
+        void this.announceResumed(token, this.proxy?.synced() ?? Promise.resolve());
         break;
       case "hostFailed": {
         const failure: HostFailure = {
@@ -583,7 +528,6 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
           message: event.message,
           ...(event.code !== undefined ? { code: event.code } : {}),
         };
-        this.hookFeed.pause();
         this.setState({ status: "error", error: event.message, failure }, "clear");
         break;
       }
@@ -592,19 +536,19 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /**
-   * Announce the host resumed once its hook replay has settled (bounded by
-   * `RESUME_REPLAY_WAIT_MS`) and its daemon has said which sessions it still
+   * Announce the host resumed once its proxy holds the host's state (bounded
+   * by `RESUME_SYNC_WAIT_MS`) and its daemon has said which sessions it still
    * has. Dropped if the host moves on meanwhile; a failed listing is dropped
    * too — the connection went again, and the next reconnect announces.
    */
-  private async announceResumed(token: number, replayed: Promise<void>): Promise<void> {
+  private async announceResumed(token: number, synced: Promise<void>): Promise<void> {
     const current = () =>
       !this.disposed && this.resumeToken === token && this.status === "connected";
     let timer: ReturnType<typeof setTimeout> | undefined;
     await Promise.race([
-      replayed,
+      synced,
       new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, RESUME_REPLAY_WAIT_MS);
+        timer = setTimeout(resolve, RESUME_SYNC_WAIT_MS);
       }),
     ]);
     clearTimeout(timer);

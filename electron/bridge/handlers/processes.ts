@@ -1,6 +1,7 @@
 import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { method, type HandlerCtx } from "../method";
+import type { HostDeps, ServerDeps } from "../../ipc/types";
 import {
   type ProcessesSnapshot,
   listProcesses,
@@ -16,7 +17,9 @@ import {
  * reachable by a `full` device on the bridge and nowhere else (ADR-182 D2),
  * and is `mutating`.
  */
-export function processesList(ctx: HandlerCtx): Promise<ProcessesSnapshot> {
+export function processesList(
+  ctx: HandlerCtx<HostDeps>,
+): Promise<ProcessesSnapshot> {
   const { backend, agentHookServer, webviewServer, portScanner } = ctx.deps;
   return listProcesses({
     backend,
@@ -27,7 +30,7 @@ export function processesList(ctx: HandlerCtx): Promise<ProcessesSnapshot> {
 }
 
 export async function processesKillSession(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   sessionId: string,
 ): Promise<void> {
   assertString(sessionId, "sessionId");
@@ -43,7 +46,7 @@ export async function processesKillSession(
 }
 
 export function processesCleanupDead(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<{ success: boolean }> {
   return cleanupDeadProcesses(ctx.deps.backend);
 }
@@ -56,7 +59,7 @@ export function processesRestartPortless(): Promise<void> {
   return restartPortless();
 }
 
-export function processesKillAll(ctx: HandlerCtx): Promise<void> {
+export function processesKillAll(ctx: HandlerCtx<ServerDeps>): Promise<void> {
   const { backend, agentManager, statsStore, portScanner } = ctx.deps;
   return killAllProcesses({ backend, agentManager, statsStore, portScanner });
 }

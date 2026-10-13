@@ -201,6 +201,29 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     );
   });
 
+  // ADR-227 D5: what a server-launched agent is recorded under.
+  it("names the project that owns a workspace on its host, most closely", async () => {
+    const git = fullGit();
+    const shell = fakeShell("/home/remoteuser");
+    const mgr = new ProjectManager(hostsOf(git, shell), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    const outer = await mgr.addProject("Outer", "/srv/app", "box");
+    const inner = await mgr.addProject("Inner", "/srv/app/packages/lib", "box");
+    mgr.renameWorkspace(outer.id, "/elsewhere/feat", "Feat");
+    await mgr.updateProject(inner.id, { agentCommand: "codex" });
+
+    expect(mgr.workspaceProject("box", "/srv/app/packages/lib")).toEqual({
+      projectId: inner.id,
+      projectName: "Inner",
+      agentCommand: "codex",
+    });
+    // A workspace it only remembers, outside its root.
+    expect(mgr.workspaceProject("box", "/elsewhere/feat")?.projectId).toBe(outer.id);
+    // The same path on another host is not this project's.
+    expect(mgr.workspaceProject("local", "/srv/app")).toBeNull();
+    expect(mgr.workspaceProject("box", "/srv/other")).toBeNull();
+  });
+
   // ADR-191: what migrating path-keyed data to workspace keys is told.
   it("describes each project as a workspace-key owner, with its worktree root expanded on its host", async () => {
     const git = fullGit();

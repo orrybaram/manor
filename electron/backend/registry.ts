@@ -6,7 +6,7 @@
  * (`createLocalBackend`); remote hosts are registered from their persisted `HostSpec` and
  * connected lazily, in the background, never on the launch path.
  *
- * Each host is a `HostConnection` (status, connecting, hook feed, reconnect
+ * Each host is a `HostConnection` (status, connecting, proxy, reconnect
  * handling — `host-connection.ts`), and `get(hostId)` hands out its view
  * (gated for a remote host — `host-view.ts`). The registry keeps the hosts,
  * which host owns each session (`SessionOwners`), and the listeners every
@@ -18,15 +18,15 @@
  */
 
 import { Emitter } from "./emitter";
-import { memoryHookSeqStore, type HookSeqStore, type HookSink } from "./hook-feed";
 import {
   HostConnection,
   RemoteHostConnection,
-  type ControlRelaySink,
+  type HostProxyContext,
   type HostStatus,
   type HostStatusInfo,
   type RemoteHostContext,
 } from "./host-connection";
+import type { HostProxy } from "./host-proxy";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
@@ -43,7 +43,7 @@ import {
   type WorkspaceBackend,
 } from "./types";
 
-export type { ControlRelaySink, HostStatus, HostStatusInfo } from "./host-connection";
+export type { HostStatus, HostStatusInfo } from "./host-connection";
 export { HostUnavailableError } from "./host-view";
 export { isRemoteSessionLoss } from "./session-owners";
 
@@ -97,12 +97,14 @@ export interface BackendRegistryOptions {
   createRemote?: RemoteBackendFactory;
   /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
   createProvider?: HostProviderFactory;
-  /** Each remote host's last ingested hook seq. Defaults to in-memory. */
-  hookSeqStore?: HookSeqStore;
-  /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
-  hookReplayRetryDelayMs?: (attempt: number) => number;
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: RemoteHostContext["hostServerClient"];
+  /**
+   * Gives every remote host a `HostProxy` publishing here (ADR-227 D4). The
+   * desktop passes its bus; without it (a host server, most tests) there
+   * are none, and nothing is cached.
+   */
+  hostProxy?: HostProxyContext;
 }
 
 const LOG = "[backend-registry]";
@@ -124,8 +126,6 @@ export class BackendRegistry {
   private readonly remoteVersion: string;
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
-  private hookSink: HookSink | null = null;
-  private controlRelaySink: ControlRelaySink | null = null;
   private readonly serverStates = new Emitter<[string, HostServerClientState]>(
     `${LOG} host server state listener`,
   );
@@ -141,11 +141,8 @@ export class BackendRegistry {
       hostEvents: this.hostEvents,
       resumed: this.resumed,
       daemonReplacing: this.daemonReplacing,
-      hookSeqStore: opts.hookSeqStore ?? memoryHookSeqStore(),
-      hookSink: () => this.hookSink,
-      hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
-      controlRelaySink: () => this.controlRelaySink,
       hostServerClient: opts.hostServerClient,
+      hostProxy: opts.hostProxy,
     };
     this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, this.ctx));
   }
@@ -310,6 +307,17 @@ export class BackendRegistry {
     return conn instanceof RemoteHostConnection ? conn.serverClient : undefined;
   }
 
+  /**
+   * `hostId`'s state as its host server holds it (ADR-227 D4): reads that
+   * answer from the cache while it is away, and calls in the desktop's
+   * form. Undefined for the local host, an unknown one, or a registry built
+   * without `hostProxy`.
+   */
+  hostProxy(hostId: string): HostProxy | undefined {
+    const conn = this.hosts.get(hostId);
+    return conn instanceof RemoteHostConnection ? (conn.proxy ?? undefined) : undefined;
+  }
+
   /** Every remote host's owner channel, in registration order. */
   hostServers(): HostServerClient[] {
     const clients: HostServerClient[] = [];
@@ -332,25 +340,6 @@ export class BackendRegistry {
 
   // ── Events ──
 
-  /**
-   * Where remote hosts' agent hooks go (ADR-178 §2). Hosts already connected
-   * catch up from their journals now; the rest do on connect.
-   */
-  setHookSink(sink: HookSink): void {
-    this.hookSink = sink;
-    for (const conn of this.hosts.values()) {
-      if (conn.status === "connected") void conn.catchUpHooks();
-    }
-  }
-
-  /**
-   * Where control requests relayed from remote hosts' `manor` CLIs go
-   * (ADR-189 §2). Until it is set they are answered 503.
-   */
-  setControlRelaySink(sink: ControlRelaySink): void {
-    this.controlRelaySink = sink;
-  }
-
   /** Stream events from every host, tagged with the host they came from. */
   onEvent(handler: (hostId: string, event: StreamEvent) => void): () => void {
     return this.streamEvents.on(handler);
@@ -362,8 +351,8 @@ export class BackendRegistry {
   }
 
   /**
-   * A remote host came back after a drop and its hook replay is done (or
-   * took too long). `sessionIds` are every session its daemon has now: a
+   * A remote host came back after a drop and its proxy has read the host's
+   * state again (or took too long). `sessionIds` are every session its daemon has now: a
    * pane the app had on that host whose session is not among them was lost
    * (the daemon restarted); the rest should reattach, having missed output.
    */

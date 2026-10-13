@@ -88,6 +88,17 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
     get().receiveAgentUpdate(agent, unseen);
   });
 
+  // Agents a host's server adopted left the list under their old ids
+  // (ADR-227 D3): the host's own copies arrive as updates.
+  window.electronAPI?.agents.onRemoved?.((agentIds) => {
+    const gone = new Set(agentIds);
+    set((state) => ({
+      agents: state.agents.filter((a) => !gone.has(a.id)),
+      unseenRespondedAgentIds: new Set([...state.unseenRespondedAgentIds].filter((id) => !gone.has(id))),
+      unseenInputAgentIds: new Set([...state.unseenInputAgentIds].filter((id) => !gone.has(id))),
+    }));
+  });
+
   // Whatever is on screen has been read. Structure (`workspaceLayouts`) and
   // this window's viewport (`viewports`: selected tab, focused pane — ADR-179
   // D3) are both immutable, so every split / tab-select / workspace-switch

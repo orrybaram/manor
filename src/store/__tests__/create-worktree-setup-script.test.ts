@@ -1,12 +1,24 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
-import { useProjectStore, type ProjectInfo } from "../project-store";
+import {
+  useProjectStore,
+  type ProjectInfo,
+  type SetupProgressEvent,
+} from "../project-store";
+import { useToastStore } from "../toast-store";
 import {
   fakeLayoutApi,
   fakeViewportApi,
   queuedCommands,
   settled,
 } from "./fake-layout-server";
+
+/** Every live `projects.onWorktreeSetupProgress` listener. */
+const progressListeners = new Set<(e: SetupProgressEvent) => void>();
+/** The server reporting a setup-script step (ADR-227 D5). */
+function serverReports(event: SetupProgressEvent): void {
+  for (const cb of [...progressListeners]) cb(event);
+}
 
 // Mock electronAPI
 vi.stubGlobal("window", {
@@ -19,7 +31,10 @@ vi.stubGlobal("window", {
       createWorktree: vi.fn(),
       selectWorkspace: vi.fn(),
       select: vi.fn(),
-      onWorktreeSetupProgress: vi.fn(() => vi.fn()),
+      onWorktreeSetupProgress: vi.fn((cb: (e: SetupProgressEvent) => void) => {
+        progressListeners.add(cb);
+        return () => progressListeners.delete(cb);
+      }),
     },
     pty: {
       create: vi.fn(() => Promise.resolve()),
@@ -77,10 +92,12 @@ describe("createWorktree setup script", () => {
       workspaceLayouts: {},
       activeWorkspacePath: null,
     });
+    useToastStore.setState({ toasts: [] });
+    progressListeners.clear();
     vi.clearAllMocks();
   });
 
-  it("stores start script in worktree setup state and queues nothing", async () => {
+  it("leaves the setup script to the server and follows it to the end", async () => {
     const worktreePath = "/worktrees/test-project/my-feature";
 
     const projectWithScript = makeProject({
@@ -118,17 +135,52 @@ describe("createWorktree setup script", () => {
     // The workspace should be activated
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
 
-    // Start script is stored in worktreeSetupState, and nowhere else
-    const setupState = useAppStore.getState().worktreeSetupState[worktreePath];
-    expect(setupState).toBeDefined();
-    expect(setupState.startScript).toBe("npm install");
-
-    // Nothing is queued for a new pane: the setup view runs the script in a
-    // session of its own (ADR-179 ticket 11 moved that queue to the server).
+    // The renderer neither queues the script nor spawns a session for it:
+    // the server opened the script's tab before answering (ADR-227 D5).
     expect(queuedCommands).toEqual([]);
+    expect(window.electronAPI.pty.create).not.toHaveBeenCalled();
+    expect(useAppStore.getState().worktreeSetupState[worktreePath]).toBeUndefined();
+
+    // Another workspace's script ending is not this one's.
+    serverReports({
+      step: "setup-script",
+      status: "done",
+      workspacePath: "/worktrees/test-project/other",
+    });
+    expect(useToastStore.getState().toasts).toEqual([]);
+
+    serverReports({ step: "setup-script", status: "done", workspacePath: worktreePath });
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ message: "Workspace setup complete" }),
+    ]);
+    expect(progressListeners.size).toBe(0);
   });
 
-  it("stores setup-script step as pending when both start script and agent command provided", async () => {
+  it("keeps a script that ended before the answer for the workspace it made", async () => {
+    const worktreePath = "/worktrees/test-project/quick";
+    const project = makeProject({ worktreeStartScript: "true" });
+    useProjectStore.setState({ projects: [project] });
+    vi.mocked(window.electronAPI.projects.createWorktree).mockImplementation(
+      async () => {
+        serverReports({ step: "setup-script", status: "done", workspacePath: worktreePath });
+        return {
+          ...project,
+          workspaces: [
+            ...project.workspaces,
+            { path: worktreePath, branch: "quick", isMain: false, name: "quick", linkedIssues: [] },
+          ],
+        };
+      },
+    );
+
+    await useProjectStore.getState().createWorktree("proj-1", "quick", { branch: "quick" });
+
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ message: "Workspace setup complete" }),
+    ]);
+  });
+
+  it("shows the script's progress as a toast while the agent's tab is on screen", async () => {
     const worktreePath = "/worktrees/test-project/feat";
 
     const projectWithScript = makeProject({
@@ -157,12 +209,9 @@ describe("createWorktree setup script", () => {
       .getState()
       .createWorktree("proj-1", "feat", { branch: "feat", agentCommand: "claude" });
 
-    // Setup state should exist with a setup-script step marked pending
-    const setupState = useAppStore.getState().worktreeSetupState[worktreePath];
-    expect(setupState).toBeDefined();
-    const setupScriptStep = setupState.steps.find((s: any) => s.step === "setup-script");
-    expect(setupScriptStep).toBeDefined();
-    expect(setupScriptStep!.status).toBe("pending");
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ id: `worktree-setup-${worktreePath}`, status: "loading" }),
+    ]);
 
     // The agent starts in parallel with the script, not after it: its launch
     // line is queued on the server for a tab of its own (ADR-179 ticket 11).
@@ -174,7 +223,11 @@ describe("createWorktree setup script", () => {
     const layout = useAppStore.getState().workspaceLayouts[worktreePath];
     const tabs = Object.values(layout!.panels).flatMap((p) => p.tabs);
     expect(tabs.length).toBe(1);
-    expect(window.electronAPI.pty.create).toHaveBeenCalled();
+
+    serverReports({ step: "setup-script", status: "done", workspacePath: worktreePath });
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ message: "Workspace setup complete" }),
+    ]);
   });
 
   it("starts the project's agent with the prompt as its first message", async () => {

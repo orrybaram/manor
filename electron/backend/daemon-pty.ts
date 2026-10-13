@@ -1,12 +1,8 @@
 import type { TerminalHostClient } from "../terminal-host/client";
-import type {
-  HookJournalPtyBackend,
-  StreamEventHandler,
-} from "./types";
+import type { PtyBackend, StreamEventHandler } from "./types";
 import type {
   SessionInfo,
   TerminalSnapshot,
-  HookReplay,
   PaneFacts,
 } from "../terminal-host/types";
 
@@ -14,7 +10,7 @@ import type {
  * Ptys on a terminal-host daemon, through its `TerminalHostClient` — the
  * local daemon or a remote one alike (ADR-183).
  */
-export class DaemonPtyBackend implements HookJournalPtyBackend {
+export class DaemonPtyBackend implements PtyBackend {
   private client: TerminalHostClient;
 
   constructor(client: TerminalHostClient) {
@@ -83,14 +79,6 @@ export class DaemonPtyBackend implements HookJournalPtyBackend {
    */
   async updateEnv(env: Record<string, string>): Promise<void> {
     await this.client.updateEnv(env);
-  }
-
-  /** The daemon's hook journal after `sinceSeq` (see `HookJournalPtyBackend.replayHooks`). */
-  async replayHooks(
-    sinceSeq: number,
-    opts?: { headOnly?: boolean },
-  ): Promise<HookReplay> {
-    return this.client.replayHooks(sinceSeq, opts);
   }
 
   /** Ensure the underlying client is connected to the daemon. */

@@ -11,8 +11,7 @@ import type {
   PrComment,
   PrInfo,
 } from "../src/lib/pr-info";
-import { LOCAL_HOST_ID } from "./backend/types";
-import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
+import { normalizeHostId } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
 import {
   conversationsQueryArgs,
@@ -127,67 +126,24 @@ interface ConversationCacheEntry {
   state: PrConversationState;
 }
 
-/**
- * `[HOST/]OWNER/REPO` for `gh --repo`, from a git remote URL — https, `ssh://`
- * or scp-style (`git@github.com:owner/repo.git`). Null when the URL has no
- * owner/repo path to take one from.
- */
-export function ghRepoFromRemoteUrl(url: string): string | null {
-  const match =
-    /^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/i.exec(url) ??
-    /^(?:[^@/]+@)?([^@/:]+):(.+?)(?:\.git)?\/?$/.exec(url);
-  if (!match) return null;
-  const [, host, path] = match;
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length !== 2) return null;
-  const slug = segments.join("/");
-  return host === "github.com" ? slug : `${host}/${slug}`;
-}
-
-/**
- * Names the repo `gh` should target for a checkout that `gh` cannot run
- * inside: `[HOST/]OWNER/REPO` for the checkout at `path` on the remote
- * `hostId` (ADR-160), which exists only over there. Throws when its repo
- * cannot be determined.
- */
-export type RemoteRepoResolver = (hostId: string, path: string) => Promise<string>;
-
-/** Where and how to run `gh` for a checkout: see `RemoteRepoResolver`. */
+/** Where and how to run `gh` for a checkout. */
 interface GhTarget {
   cwd: string | undefined;
   repoArgs: string[];
 }
 
 export class GitHubManager {
-  /**
-   * Remote checkouts' repos, keyed by workspace key (ADR-191), so the same
-   * path on two hosts keeps two entries. A checkout's origin rarely moves, and
-   * resolving it is an ssh round trip — once per project per poll otherwise.
-   */
-  private remoteRepoCache = new Map<WorkspaceKey, string>();
-
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
 
-  /** Without a resolver every checkout is local. */
-  constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
-
   /**
-   * A local checkout runs `gh` in its directory, which reads the repo from
-   * it, as before; a remote one runs here against its origin's repo.
+   * `gh` runs in the checkout's directory, which it reads the repo from, with
+   * the sign-in of whichever machine this server runs on. A remote project's
+   * calls are routed to its own host's server (`byGhRepo`, ADR-227 D7), so
+   * the path is always a local one here.
    */
-  private async ghTarget({ path, hostId }: GhRepo): Promise<GhTarget> {
-    const resolve = this.resolveRemoteRepo;
-    if (!resolve || normalizeHostId(hostId) === LOCAL_HOST_ID) {
-      return { cwd: path, repoArgs: [] };
-    }
-    const key = workspaceKey(hostId, path);
-    let repo = this.remoteRepoCache.get(key);
-    if (!repo) {
-      repo = await resolve(hostId, path);
-      this.remoteRepoCache.set(key, repo);
-    }
-    return { cwd: undefined, repoArgs: ["--repo", repo] };
+  private async ghTarget({ path }: GhRepo): Promise<GhTarget> {
+    return { cwd: path, repoArgs: [] };
   }
 
   private readyPromise: Promise<boolean> | null = null;
@@ -199,16 +155,11 @@ export class GitHubManager {
 
   /**
    * The last PR each branch of each checkout was seen with (null: none), and
-   * when — what the desktop already knows, for the host server manifest's
-   * integration snapshot (ADR-225 D8), which must not cost a call of its
-   * own. Only a lookup that reached GitHub writes here, so a rate-limited
+   * when. Only a lookup that reached GitHub writes here, so a rate-limited
    * poll does not wipe what was known. A merged or closed PR here never
    * changes again, so its branch is not queried again (#303).
    */
   private lastSeenPrs = new Map<string, { pr: PrInfo | null; at: number }>();
-
-  /** Told the host of a checkout whose PRs were just looked up. */
-  private readonly prCacheListeners = new Set<(hostId: string) => void>();
 
   /** `getPrsForBranches` lookups still running, by repo and branches. */
   private prLookupsInFlight = new Map<string, Promise<Map<string, PrInfo | null>>>();
@@ -247,37 +198,6 @@ export class GitHubManager {
    */
   setPrMergedListener(listener: ((prUrl: string) => void) | undefined): void {
     this.onPrMerged = listener;
-  }
-
-  /**
-   * The PR `branch` of `repo` was last seen with, and when (epoch ms); null
-   * for "no PR", undefined when it has not been looked up. Never a call.
-   */
-  cachedPr(repo: GhRepo, branch: string): { pr: PrInfo | null; at: number } | undefined {
-    return this.lastSeenPrs.get(settledPrKey(repo, branch));
-  }
-
-  /**
-   * Told the host id whenever a lookup reached GitHub and refreshed the
-   * cache; whether anything changed is the listener's to judge. Returns the
-   * unsubscribe.
-   */
-  onPrCacheChange(listener: (hostId: string) => void): () => void {
-    this.prCacheListeners.add(listener);
-    return () => {
-      this.prCacheListeners.delete(listener);
-    };
-  }
-
-  private notifyPrCacheChange(repo: GhRepo): void {
-    const hostId = normalizeHostId(repo.hostId);
-    for (const listener of [...this.prCacheListeners]) {
-      try {
-        listener(hostId);
-      } catch (err) {
-        console.error("[GitHubManager] PR cache listener threw:", err);
-      }
-    }
   }
 
   async getPrForBranch(
@@ -337,7 +257,6 @@ export class GitHubManager {
       if (reached) this.lastSeenPrs.set(settledPrKey(repo, branch), { pr: info, at: Date.now() });
       result.set(branch, info);
     }
-    if (reached) this.notifyPrCacheChange(repo);
     return result;
   }
 

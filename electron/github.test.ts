@@ -86,7 +86,7 @@ vi.mock("node:fs/promises", () => ({
 }));
 
 // Import AFTER mocks
-import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
+import { GitHubManager } from "./github";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -351,34 +351,6 @@ describe("GitHubManager", () => {
       // The repo goes in as variables, not spliced into the query.
       expect(conversationQuery).toContain("r0: repository(owner: $o0, name: $n0)");
       expect(mockState.calls[1]).toEqual(expect.arrayContaining(["o0=owner", "n0=repo"]));
-    });
-
-    it("remembers each branch's last PR for the host server manifest, without a call of its own", async () => {
-      const changed: string[] = [];
-      manager.onPrCacheChange((hostId) => changed.push(hostId));
-      expect(manager.cachedPr(REPO, "branch-a")).toBeUndefined();
-      setupExecFileCalls([
-        success(prsAnswer(pr(7), null)),
-        success(conversation({})),
-        // The same again: told again; the listener judges whether it differs.
-        success(prsAnswer(pr(7), null)),
-        // A failed poll keeps what was known.
-        failure("rate limited"),
-      ]);
-
-      await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
-      expect(manager.cachedPr(REPO, "branch-a")?.pr?.number).toBe(7);
-      expect(manager.cachedPr(REPO, "branch-b")).toEqual({ pr: null, at: expect.any(Number) });
-      expect(changed).toEqual(["local"]);
-
-      await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
-      expect(changed).toHaveLength(2);
-
-      const calls = mockState.calls.length;
-      await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
-      expect(mockState.calls.length).toBe(calls + 1);
-      expect(manager.cachedPr(REPO, "branch-a")?.pr?.number).toBe(7);
-      expect(changed).toHaveLength(2);
     });
 
     it("never queries a merged or closed PR's branch again", async () => {
@@ -841,128 +813,20 @@ describe("GitHubManager", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Remote projects (ADR-160): the checkout is on another host, so `gh` runs
-  // here against the repo the resolver names instead of inside the path.
+  // A host's own checkouts (ADR-227 D7): no resolver, `gh` runs in the path
+  // with the signed-in user of the machine the server runs on.
   // -------------------------------------------------------------------------
-  describe("remote projects", () => {
-    function resolver(
-      repoFor: (hostId: string, path: string) => Promise<string>,
-    ) {
-      return vi.fn(repoFor);
-    }
-
-    it("targets the resolved repo instead of running in the remote path", async () => {
-      const remote = new GitHubManager(resolver(async () => "owner/repo"));
-      setupExecFileCalls([success("[]")]);
-
-      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
-
-      expect(mockState.calls[0]).toEqual(
-        expect.arrayContaining(["issue", "list", "--repo", "owner/repo"]),
-      );
-      expect(mockState.cwds[0]).toBeUndefined();
-    });
-
-    it("points the PR query's repo placeholders at the resolved repo", async () => {
-      const remote = new GitHubManager(resolver(async () => "ghe.example.com/owner/repo"));
-      setupExecFileCalls([success(prsAnswer(null))]);
-
-      await remote.getPrForBranch({ path: "/remote/repo", hostId: "box" }, "feat/x");
-
-      expect(mockState.calls[0]).toEqual(
-        expect.arrayContaining(["--hostname", "ghe.example.com", "owner={owner}"]),
-      );
-      expect(mockState.cwds[0]).toBeUndefined();
-      expect(mockState.envs[0]?.GH_REPO).toBe("ghe.example.com/owner/repo");
-    });
-
-    it("keeps running local checkouts in their directory", async () => {
-      const resolve = resolver(async () => "owner/repo");
-      const remote = new GitHubManager(resolve);
-      setupExecFileCalls([success("[]")]);
-
-      await remote.getAllIssues({ path: "/local/repo", hostId: "local" });
-
-      expect(mockState.calls[0]).not.toContain("--repo");
-      expect(mockState.cwds[0]).toBe("/local/repo");
-      expect(resolve).not.toHaveBeenCalled();
-    });
-
-    it("resolves a remote checkout's repo once", async () => {
-      const resolve = resolver(async () => "owner/repo");
-      const remote = new GitHubManager(resolve);
+  describe("host-native checkouts", () => {
+    it("runs gh in the checkout's directory, whatever host id the caller names", async () => {
       setupExecFileCalls([success("[]"), success("[]")]);
 
-      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
-      await remote.getMyIssues({ path: "/remote/repo", hostId: "box" });
+      await manager.getMyIssues({ path: "/srv/repo", hostId: "box" });
+      await manager.getAllIssues({ path: "/srv/other", hostId: "local" });
 
-      expect(resolve).toHaveBeenCalledOnce();
-      expect(resolve).toHaveBeenCalledWith("box", "/remote/repo");
+      expect(mockState.calls[0]).not.toContain("--repo");
+      expect(mockState.cwds[0]).toBe("/srv/repo");
+      expect(mockState.cwds[1]).toBe("/srv/other");
     });
-
-    it("reports no PR when the repo cannot be resolved", async () => {
-      const remote = new GitHubManager(
-        resolver(async () => {
-          throw new Error("no origin");
-        }),
-      );
-
-      await expect(
-        remote.getPrForBranch(
-          { path: "/remote/repo", hostId: "box" },
-          "feat/x",
-        ),
-      ).resolves.toBeNull();
-    });
-
-    // ADR-191: the same path on two hosts is two checkouts.
-    it("keeps separate cache entries for the same path on two hosts", async () => {
-      const resolve = resolver(async (hostId) => `owner/${hostId}-repo`);
-      const remote = new GitHubManager(resolve);
-      setupExecFileCalls([
-        success("[]"),
-        success("[]"),
-        success("[]"),
-        success("[]"),
-        success("[]"),
-      ]);
-
-      await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
-      await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
-      await remote.getMyIssues({ path: "/srv/repo", hostId: "box" });
-      await remote.getMyIssues({ path: "/srv/repo", hostId: "other" });
-      await remote.getMyIssues({ path: "/srv/repo", hostId: "local" });
-
-      expect(resolve).toHaveBeenCalledTimes(2);
-      const repoArg = (args: string[]) =>
-        args.includes("--repo") ? args[args.indexOf("--repo") + 1] : null;
-      expect(mockState.calls.map(repoArg)).toEqual([
-        "owner/box-repo",
-        "owner/other-repo",
-        "owner/box-repo",
-        "owner/other-repo",
-        null,
-      ]);
-      expect(mockState.cwds[4]).toBe("/srv/repo");
-    });
-  });
-});
-
-describe("ghRepoFromRemoteUrl", () => {
-  it.each([
-    ["https://github.com/owner/repo.git", "owner/repo"],
-    ["https://github.com/owner/repo", "owner/repo"],
-    ["git@github.com:owner/repo.git", "owner/repo"],
-    ["ssh://git@github.com/owner/repo.git", "owner/repo"],
-    ["ssh://git@github.com:22/owner/repo", "owner/repo"],
-    ["https://ghe.example.com/owner/repo.git", "ghe.example.com/owner/repo"],
-  ])("%s -> %s", (url, repo) => {
-    expect(ghRepoFromRemoteUrl(url)).toBe(repo);
-  });
-
-  it("rejects a URL without an owner/repo path", () => {
-    expect(ghRepoFromRemoteUrl("/srv/git/repo.git")).toBeNull();
-    expect(ghRepoFromRemoteUrl("https://github.com/owner")).toBeNull();
   });
 });
 

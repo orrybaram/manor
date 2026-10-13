@@ -41,12 +41,16 @@
  * viewer no connection matches, so every resize is dropped, every claim loses
  * and every arrival follows.
  *
- * This is a module-level registry rather than something hung off `HostDeps`
- * because there is exactly one host per main process, and every caller — the
- * bridge's handler table, the bridge server's disconnect handler, a window
- * dying in `app-lifecycle.ts` — must be looking at the same set or the
- * question has two answers. It moves into the daemon when a host can exist
- * with no Electron main to ask (ADR-178 D5).
+ * This is a module-level registry, and shared between servers in one process
+ * on purpose (ADR-227 D1). It is keyed by pane id, and a pane belongs to
+ * exactly one server, so two servers never contend for an entry. What is
+ * process-wide is `changeSinks`: each `BridgeServer` registers one and hears
+ * an owner change for every pane, including another server's. That is safe
+ * because it pushes `winsizeOwner` only to connections that subscribed to the
+ * pane, and a connection subscribes only to its own server's panes. The
+ * question every caller asks — who owns this pane's winsize — has one answer.
+ * It moves into the daemon when a host can exist with no Electron main to ask
+ * (ADR-178 D5).
  */
 
 import type { CallerClass } from "./bridge/types";

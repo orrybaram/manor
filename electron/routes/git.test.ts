@@ -127,6 +127,7 @@ async function call(
     url.searchParams.set(k, v);
   }
   await r.handler({
+    method: r.method,
     deps: d,
     params: {},
     url,

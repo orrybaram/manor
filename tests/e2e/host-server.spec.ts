@@ -26,7 +26,8 @@ import {
   retryHost,
 } from "./helpers/remote-project";
 import { closeSettings, pairHostPhone } from "./helpers/settings";
-import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
+import { paneText, runInTerminal } from "./helpers/terminal";
+import { stripAnsi } from "./helpers/ansi";
 
 /**
  * The laptop is gone, and a phone still sees and steers an agent on a remote
@@ -48,8 +49,10 @@ import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
  * 5. The desktop reconnects and replays the same journal: its agent state
  *    matches the host server's (D2, two readers of one journal).
  *
- * The browser runs at a desktop-sized viewport: the web app is one renderer
- * at any size, and the sidebar's agent rows are what show status.
+ * The host server owns its host's projects and layout (ADR-227 D2): the
+ * project the desktop cloned onto the box lives there, so the phone finds it
+ * in its sidebar and types into the agent's pane. Adoption, and a phone that
+ * makes a workspace and launches an agent, are `host-ownership.spec.ts`.
  *
  * Needs the private-sshd target (`node scripts/test-remote-e2e.mjs`): the box
  * must reach the test's local relay on 127.0.0.1, which a Docker container
@@ -120,22 +123,12 @@ relayTest.describe("host server", () => {
         STEP,
       );
 
-      // The desktop pushes its layout to the host server over the owner
-      // channel (D4, D5); the phone walks that snapshot with the lid closed,
-      // so it must be on the box before the desktop goes.
-      await pollFor(
-        "the desktop's layout on the host server",
-        () =>
-          onRemote(
-            `grep -q '${paneId}' "$HOME/.manor/remote/server/layout.json" 2>/dev/null && echo ok; true`,
-          ).stdout.includes("ok")
-            ? true
-            : null,
+      const serverPid = await pollFor(
+        "a host server running on the box",
+        () => hostServerPid(),
         STEP,
         500,
       );
-      const serverPid = hostServerPid();
-      expect(serverPid, "a host server running on the box").not.toBeNull();
 
       // 2. Pair a phone with the host server, from the desktop.
       const device = await pairHostPhone(window, {
@@ -162,12 +155,10 @@ relayTest.describe("host server", () => {
       const client = await openWebApp(device.link);
       try {
         const page = client.page;
-        await expect(
-          page.getByTestId("project-header").filter({ hasText: PROJECT_NAME }),
-        ).toBeVisible({ timeout: 30_000 });
 
-        // The pairing carries the host's name from the host server's hello
-        // (ticket 10), which the desktop sent it in the manifest.
+        // The pairing carries the host's name from the host server's hello:
+        // the box's own (ADR-225 D7).
+        const boxName = onRemote("hostname").stdout.trim();
         await expect
           .poll(
             () =>
@@ -178,7 +169,13 @@ relayTest.describe("host server", () => {
               }),
             { timeout: 15_000 },
           )
-          .toEqual([APP_TARGET]);
+          .toEqual([boxName]);
+
+        // The host was adopted on the desktop's first connect (ADR-227 D3),
+        // so the project the desktop cloned onto it lives there (D4): the
+        // phone's sidebar lists it, as the desktop's does.
+        await expect(page.getByTestId("workspace-item").first()).toBeVisible({ timeout: 30_000 });
+        await expect(page.getByText(PROJECT_NAME, { exact: true }).first()).toBeVisible();
 
         // The agent is listed, thinking.
         const phoneAgent = () =>
@@ -186,7 +183,7 @@ relayTest.describe("host server", () => {
             const agents = await window.electronAPI.agents.getActive();
             return agents.find((a: { paneId: string | null }) => a.paneId === pane) ?? null;
           }, paneId);
-        const listed = await pollFor(
+        await pollFor(
           "the agent on the phone",
           async () => {
             const a = await phoneAgent();
@@ -194,33 +191,28 @@ relayTest.describe("host server", () => {
           },
           STEP,
         );
-        const row = page.locator(
-          `[data-testid="sidebar-agent-row"][data-agent-id="${listed.id}"]`,
-        );
-        await expect(row).toBeVisible({ timeout: STEP });
-        await expect(row.locator('[title="Agent thinking"]')).toBeVisible({
-          timeout: 10_000,
-        });
 
         // A hook on the box, nobody's desktop connected: the status moves.
         onRemote(`"$HOME/.manor-e2e/bin/fire-hook" ${paneId} Stop ${agentSession}`);
-        await expect(row.locator('[data-testid="agent-dot"]')).toHaveAttribute(
-          "data-status",
-          "responded",
-          { timeout: STEP },
+        await pollFor(
+          "the agent responded on the phone",
+          async () => ((await phoneAgent())?.lastAgentStatus === "responded" ? true : null),
+          STEP,
         );
-        expect((await phoneAgent())?.lastAgentStatus).toBe("responded");
 
         // Typing reaches the agent's PTY on the box: the agent itself echoes
-        // the line back, which a local echo never would.
-        await expect.poll(() => activePaneId(page), { timeout: 15_000 }).toBe(paneId);
-        await expect
-          .poll(() => paneText(page, paneId), { timeout: 20_000 })
-          .toContain("manor-e2e-agent working");
+        // the line back, which a local echo never would. Typed into the
+        // pane the way a person does, in the phone's own terminal.
         const message = "typed with the lid closed";
-        await runInTerminal(page, message);
+        const pane = page
+          .locator(`[data-testid="workspace-pane"][data-pane-id="${paneId}"] [data-testid="terminal-pane"]`)
+          .first();
+        await expect(pane).toBeVisible({ timeout: 30_000 });
+        await pane.click();
+        await page.keyboard.type(message);
+        await page.keyboard.press("Enter");
         await expect
-          .poll(() => paneText(page, paneId), { timeout: 20_000 })
+          .poll(async () => stripAnsi(await paneText(page, paneId)), { timeout: 20_000 })
           .toContain(`received: ${message}`);
 
         // 5. Lid open: the desktop replays the same journal and lands where
@@ -242,7 +234,12 @@ relayTest.describe("host server", () => {
         );
         const server = await phoneAgent();
         expect(server).not.toBeNull();
-        expect(agentState(server!)).toEqual(agentState(desktop));
+        // Each side names the agent's project from its own pane context; the
+        // desktop's replay is retired by ADR-227 ticket 9. Compared without.
+        expect({ ...agentState(server!), projectName: null }).toEqual({
+          ...agentState(desktop),
+          projectName: null,
+        });
         // Still the one server: the desktop reconnecting did not replace it.
         expect(hostServerPid()).toBe(serverPid);
       } catch (err) {

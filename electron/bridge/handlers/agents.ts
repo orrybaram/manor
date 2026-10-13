@@ -4,15 +4,11 @@ import { workspaceKey } from "../../../src/lib/workspace-key";
 import type { AgentInfo } from "../../agent-persistence";
 import { paneContextBackfill } from "../../agent-status/effects";
 import { assertString } from "../../ipc-validate";
-import {
-  markAgentNotificationsRead,
-  sendAgentUpdate,
-  updateDockBadge,
-} from "../../notifications";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
-import { method, type HandlerCtx } from "../method";
+import { byAgent, byPane, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import {
   agentsGet,
   agentsGetActive,
@@ -21,12 +17,16 @@ import {
   agentsGetRecent,
   agentsGetUnseen,
   agentsReconcileStale,
+  findAgent,
 } from "./agents-read";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "name",
   "namePinned",
 ]);
+
+/** What the writes by agent id touch: shared with the host server's table. */
+export type AgentWriteDeps = Pick<ServerDeps, "agentManager" | "notifier" | "unseen">;
 
 /** What a renderer may change about an agent: its name, and whether it is pinned. */
 export interface RendererAgentUpdate {
@@ -65,11 +65,12 @@ export interface PaneContext {
 }
 
 export async function agentsBuildResumeCommand(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   agentId: string,
 ): Promise<string | null> {
   assertString(agentId, "agentId");
-  const agent = ctx.deps.agentManager.getAgentById(agentId);
+  // A remote host's agent too: resuming one is a command typed into a pane.
+  const agent = findAgent(ctx.deps, agentId);
   if (!agent) return null;
   const base = agent.agentCommand ?? (await fallbackAgentCommand(ctx, agent));
   return getConnector(agent.agentKind).getResumeCommand(base, agent.agentSessionId);
@@ -80,7 +81,10 @@ export async function agentsBuildResumeCommand(
  * the CLI into a shell rather than from Manor. Its project's agent command
  * when that runs the same kind of agent, else the kind's default.
  */
-async function fallbackAgentCommand(ctx: HandlerCtx, agent: AgentInfo): Promise<string> {
+async function fallbackAgentCommand(
+  ctx: HandlerCtx<ServerDeps>,
+  agent: AgentInfo,
+): Promise<string> {
   const connector = getConnector(agent.agentKind);
   if (!agent.workspacePath) return connector.defaultCommand;
   try {
@@ -102,7 +106,7 @@ async function fallbackAgentCommand(ctx: HandlerCtx, agent: AgentInfo): Promise<
  * bridge, audited by paneId the same way `pty.create` is.
  */
 export function agentsSetPaneContext(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   paneId: string,
   context: PaneContext,
 ): void {
@@ -117,7 +121,7 @@ export function agentsSetPaneContext(
   const agent = deps.agentManager.getAgentByPaneId(paneId);
   const backfill = agent ? paneContextBackfill(agent, context) : null;
   const updated = agent && backfill ? deps.agentManager.updateAgent(agent.id, backfill) : null;
-  if (updated) sendAgentUpdate(updated, deps.preferencesManager);
+  if (updated) deps.notifier.sendAgentUpdate(updated);
 }
 
 /**
@@ -125,7 +129,7 @@ export function agentsSetPaneContext(
  * boot, exactly once per upgrade. After the renderer consumes it, the
  * `agentPruneNoticeShown` flag is set so subsequent boots return 0.
  */
-export function agentsConsumePruneNotice(ctx: HandlerCtx): number {
+export function agentsConsumePruneNotice(ctx: HandlerCtx<ServerDeps>): number {
   const { agentManager, preferencesManager } = ctx.deps;
   const count = agentManager.getLastPruneCount();
   if (count <= 0) return 0;
@@ -140,7 +144,7 @@ export function agentsConsumePruneNotice(ctx: HandlerCtx): number {
  * (sidebar, palette, toasts) sees the new name without a reload.
  */
 export function agentsUpdate(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<AgentWriteDeps>,
   agentId: string,
   updates: RendererAgentUpdate,
 ): AgentInfo | null {
@@ -148,19 +152,20 @@ export function agentsUpdate(
   assertRendererAgentUpdate(updates);
   const updated = ctx.deps.agentManager.updateAgent(agentId, updates);
   if (updated) {
-    sendAgentUpdate(updated, ctx.deps.preferencesManager);
+    ctx.deps.notifier.sendAgentUpdate(updated);
   }
   return updated;
 }
 
-export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
+export function agentsDelete(
+  ctx: HandlerCtx<AgentWriteDeps>,
+  agentId: string,
+): boolean {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
-    ctx.deps;
-  unseenRespondedAgents.delete(agentId);
-  unseenInputAgents.delete(agentId);
+  const { unseen, notifier } = ctx.deps;
+  unseen.clear(agentId);
   const result = ctx.deps.agentManager.deleteAgent(agentId);
-  updateDockBadge(preferencesManager);
+  notifier.updateDockBadge();
   return result;
 }
 
@@ -174,25 +179,26 @@ export function agentsDelete(ctx: HandlerCtx, agentId: string): boolean {
  * desktop window doing it: the same broadcast, whichever caller wrote the
  * Sets.
  */
-export function agentsMarkSeen(ctx: HandlerCtx, agentId: string): void {
+export function agentsMarkSeen(
+  ctx: HandlerCtx<AgentWriteDeps>,
+  agentId: string,
+): void {
   assertString(agentId, "agentId");
-  const { unseenRespondedAgents, unseenInputAgents, preferencesManager } =
-    ctx.deps;
-  unseenRespondedAgents.delete(agentId);
-  unseenInputAgents.delete(agentId);
-  markAgentNotificationsRead(agentId);
+  const { unseen, notifier } = ctx.deps;
+  unseen.clear(agentId);
+  notifier.markAgentNotificationsRead(agentId);
   const agent = ctx.deps.agentManager.getAgentById(agentId);
   if (agent) {
-    sendAgentUpdate(agent, preferencesManager);
+    notifier.sendAgentUpdate(agent);
   } else {
     // Agent is gone (deleted before markSeen reached us) — at least refresh
     // the dock badge since the Sets just shrank.
-    updateDockBadge(preferencesManager);
+    notifier.updateDockBadge();
   }
 }
 
 export function agentsMarkResumed(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<AgentWriteDeps>,
   agentId: string,
 ): AgentInfo | null {
   assertString(agentId, "agentId");
@@ -206,8 +212,8 @@ export function agentsMarkResumed(
  * and the Status reconciler that owns the lifecycle (ADR-184).
  */
 type AbandonDeps = Pick<
-  HandlerCtx["deps"],
-  "agentManager" | "statsStore" | "preferencesManager" | "agentStatus"
+  ServerDeps,
+  "agentManager" | "statsStore" | "notifier" | "agentStatus"
 >;
 
 /**
@@ -219,7 +225,7 @@ function abandonAgentForPane(
   deps: AbandonDeps,
   { paneId, title }: EndedPane,
 ): void {
-  const { agentManager, statsStore, preferencesManager, agentStatus } = deps;
+  const { agentManager, statsStore, notifier, agentStatus } = deps;
   const agent = agentManager.getAgentByPaneId(paneId);
   if (!agent || agent.status !== "active") return;
   for (const counter of killCounters(agent)) statsStore.record(counter);
@@ -236,7 +242,7 @@ function abandonAgentForPane(
   // If the reconciler abandoned some other Agent, the rename still has to
   // reach the renderer.
   if (named && !persisted) {
-    sendAgentUpdate(named, preferencesManager);
+    notifier.sendAgentUpdate(named);
   }
 }
 
@@ -258,31 +264,35 @@ export function createAgentService(deps: AbandonDeps): AgentService {
 /**
  * The desktop's `agents` namespace: the shared reads (`./agents-read.ts`,
  * which the host server lists too) and the desktop-only writes above.
+ *
+ * Routed (ADR-227 D4): the reads merge every adopted host's agents, a pane's
+ * context goes to the host whose layout holds the pane, and a write by agent
+ * id goes to the host whose server holds the agent.
  */
 export const agents = {
-  getAll: method(agentsGetAll),
-  get: method(agentsGet),
-  getActive: method(agentsGetActive),
-  getRecent: method(agentsGetRecent),
-  getUnseen: method(agentsGetUnseen),
+  getAll: method(agentsGetAll, { route: LOCAL_ROUTE }),
+  get: method(agentsGet, { route: LOCAL_ROUTE }),
+  getActive: method(agentsGetActive, { route: LOCAL_ROUTE }),
+  getRecent: method(agentsGetRecent, { route: LOCAL_ROUTE }),
+  getUnseen: method(agentsGetUnseen, { route: LOCAL_ROUTE }),
   // Every pane's published Agent status, for a renderer that starts after
   // some were already sent (ADR-184 ticket 5) — a browser always is one.
-  getPaneStatuses: method(agentsGetPaneStatuses),
-  consumePruneNotice: method(agentsConsumePruneNotice),
-  buildResumeCommand: method(agentsBuildResumeCommand),
+  getPaneStatuses: method(agentsGetPaneStatuses, { route: LOCAL_ROUTE }),
+  consumePruneNotice: method(agentsConsumePruneNotice, { route: LOCAL_ROUTE }),
+  buildResumeCommand: method(agentsBuildResumeCommand, { route: LOCAL_ROUTE }),
   // Called after every `pty.create` that has a `cwd` — without it, a pane
   // opened from a browser never gets the project context the sidebar reads.
-  setPaneContext: method(agentsSetPaneContext, { mutating: true }),
+  setPaneContext: method(agentsSetPaneContext, { mutating: true, route: byPane(0) }),
   // Every write another viewer's sidebar, palette or dock badge reads:
   // `update` renames/pins, `delete` ends a session, `markSeen` and
   // `markResumed` move the unseen flags every window shares. A pane's agent
   // is abandoned by `LayoutStore` when the pane ends, not over the bridge.
-  update: method(agentsUpdate, { mutating: true }),
-  delete: method(agentsDelete, { mutating: true }),
-  markSeen: method(agentsMarkSeen, { mutating: true }),
-  markResumed: method(agentsMarkResumed, { mutating: true }),
+  update: method(agentsUpdate, { mutating: true, route: byAgent(0) }),
+  delete: method(agentsDelete, { mutating: true, route: byAgent(0) }),
+  markSeen: method(agentsMarkSeen, { mutating: true, route: byAgent(0) }),
+  markResumed: method(agentsMarkResumed, { mutating: true, route: byAgent(0) }),
   // Ends sessions, but `App.tsx` calls it on every mount of every window and
   // tab: a line per page load is noise that buries the lines that matter,
   // and what it ends was already dead.
-  reconcileStale: method(agentsReconcileStale),
+  reconcileStale: method(agentsReconcileStale, { route: LOCAL_ROUTE }),
 };

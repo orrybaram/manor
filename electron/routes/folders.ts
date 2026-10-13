@@ -6,23 +6,25 @@
  * the 503/404 preamble every route here shares with the other project routes.
  */
 
-import { notifyProjectsChanged } from "../renderer-bridge";
-import { requireFolder, requireWorkspace, withProject } from "./projects";
-import type { Route } from "./types";
+import { HERE, requireFolder, requireWorkspace, withProject } from "./projects";
+import type { ServerRoute } from "./types";
 
-export const folderRoutes: Route[] = [
+export const folderRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/projects/:projectId/folders",
-    handler: withProject(async ({ json }, _pm, project) => {
-      json(200, project.folders);
-    }),
+    handler: withProject(
+      async ({ json }, _pm, project) => {
+        json(200, project.folders);
+      },
+      { here: HERE },
+    ),
   },
 
   {
     method: "POST",
     path: "/projects/:projectId/folders",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       const body = await readBody();
       const name = body.name;
       if (typeof name !== "string" || !name.trim()) {
@@ -39,7 +41,7 @@ export const folderRoutes: Route[] = [
         json(500, { error: "Failed to create folder" });
         return;
       }
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, folder);
     }),
   },
@@ -47,7 +49,7 @@ export const folderRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/folders/:folderId/rename",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm, project) => {
       const body = await readBody();
       const name = body.name;
       if (typeof name !== "string" || !name.trim()) {
@@ -56,7 +58,7 @@ export const folderRoutes: Route[] = [
       }
       if (!requireFolder(project, params.folderId, json)) return;
       pm.renameWorkspaceFolder(params.projectId, params.folderId, name);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -64,7 +66,7 @@ export const folderRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/folders/:folderId/parent",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm, project) => {
       const body = await readBody();
       const parentId = body.parentId ?? null;
       if (parentId !== null && typeof parentId !== "string") {
@@ -79,7 +81,7 @@ export const folderRoutes: Route[] = [
         json(409, { error: "Would create a folder cycle" });
         return;
       }
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -87,11 +89,11 @@ export const folderRoutes: Route[] = [
   {
     method: "DELETE",
     path: "/projects/:projectId/folders/:folderId",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm, project) => {
       await readBody();
       if (!requireFolder(project, params.folderId, json)) return;
       pm.deleteWorkspaceFolder(params.projectId, params.folderId);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -99,7 +101,7 @@ export const folderRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/folder",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm, project) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       if (typeof workspacePath !== "string") {
@@ -114,7 +116,7 @@ export const folderRoutes: Route[] = [
       if (!requireWorkspace(project, workspacePath, json)) return;
       if (folderId !== null && !requireFolder(project, folderId, json)) return;
       pm.setWorkspaceFolder(params.projectId, workspacePath, folderId);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },

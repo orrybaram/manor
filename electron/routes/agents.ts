@@ -26,10 +26,12 @@ import {
   agentsMarkSeen,
   agentsUpdate,
 } from "../bridge/handlers/agents";
+import { agentsGetActive, agentsGetAll } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 import { stripAnsi } from "../terminal-host/pane-facts";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
-import type { HostDeps, Route } from "./types";
+import { askHost, forwardToHost, onAdoptedHost } from "./host-forward";
+import type { ServerRoute, ServerRouteDeps } from "./types";
 
 /** The wire shape `GET /agents` returns — a curated slice of `AgentInfo`. */
 export interface AgentSummary {
@@ -79,16 +81,23 @@ function toSummary(agent: AgentInfo): AgentSummary {
 export function resolveTarget(
   agentManager: AgentManager,
   target: string,
+  /** Adopted hosts' agents, on the desktop (ADR-227 D4). */
+  remote: readonly AgentInfo[] = [],
 ): AgentInfo | null {
   // 1. Stable agent id (what list_agents hands back).
-  const byId = agentManager.getAgentById(target);
+  const byId = agentManager.getAgentById(target) ?? remote.find((a) => a.id === target);
   if (byId) return byId;
 
   // 2. Raw pane id.
-  const byPane = agentManager.getAgentByPaneId(target);
+  const byPane =
+    agentManager.getAgentByPaneId(target) ??
+    remote.find((a) => a.paneId === target && a.status === "active");
   if (byPane) return byPane;
 
-  const active = agentManager.getActiveAgents();
+  const active = [
+    ...agentManager.getActiveAgents(),
+    ...remote.filter((a) => a.status === "active"),
+  ];
 
   // 3. `#<issue>` — the branch/workspace for an issue conventionally leads with
   //    the issue number (e.g. `159-add-orchestration-ux`), so match a workspace
@@ -146,7 +155,7 @@ interface TargetResult {
 }
 
 function prepareWrite(
-  deps: HostDeps,
+  deps: ServerRouteDeps,
   body: Record<string, unknown>,
 ): PreparedWrite {
   const target = body.target;
@@ -158,7 +167,7 @@ function prepareWrite(
     };
   }
 
-  const agent = resolveTarget(deps.agentManager, target);
+  const agent = resolveTarget(deps.agentManager, target, deps.hostRouting?.agents());
   if (!agent) {
     return {
       ok: false,
@@ -200,8 +209,8 @@ type ResolvedAgent =
  * or a raw paneId — so a caller holding either handle can reach the same
  * agent. Not found is the caller's mistake (404).
  */
-function resolveAgentParam(deps: HostDeps, agentId: string): ResolvedAgent {
-  const agent = resolveTarget(deps.agentManager, agentId);
+function resolveAgentParam(deps: ServerRouteDeps, agentId: string): ResolvedAgent {
+  const agent = resolveTarget(deps.agentManager, agentId, deps.hostRouting?.agents());
   if (!agent) {
     return { ok: false, status: 404, error: `No agent matches '${agentId}'` };
   }
@@ -242,16 +251,26 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
  * workspace a window is looking at is that window's viewport (D3), and a route
  * does not move it.
  *
+ * The session starts on the server too (ADR-227 D5): the apply that adds
+ * the tab spawns its pane and types the launch line (`spawnPane`), so the
+ * agent runs on a host no renderer is looking at. A renderer that mounts the
+ * pane later attaches to it.
+ *
  * The prompt is not baked into the line: it is queued beside the bare
- * harness command, raw, and `pty.create` delivers it through a file on the
+ * harness command, raw, and the spawn delivers it through a file on the
  * pane's host (ADR-209) — a long prompt typed inline is cut at the tty's
  * canonical line limit. A blank prompt is no prompt.
  */
 export async function startAgentInWorkspace(
-  deps: HostDeps,
+  deps: ServerRouteDeps,
   workspacePath: string,
   options: { prompt?: string; agentCommand?: string; hostId?: string } = {},
 ): Promise<StartAgentResult> {
+  // A workspace on an adopted host is in its server's layout, which spawns
+  // the agent there (ADR-227 D4).
+  if (onAdoptedHost(deps, options.hostId)) {
+    return startAgentOnHost(deps, options.hostId, workspacePath, options);
+  }
   const store = deps.layoutStore;
   // Rejected before anything is queued: the Dashboard hosts no panes
   // (ADR-197 §1).
@@ -270,8 +289,8 @@ export async function startAgentInWorkspace(
   const paneId = allPaneIds(tab.rootNode)[0];
 
   // Queued before the tab exists, for the ordering `pendingCommands` spells
-  // out: the apply broadcasts, a renderer mounts the pane, and its
-  // `pty.create` is what types this.
+  // out: the apply that adds the pane is what launches it, and it types
+  // this.
   const prompt = options.prompt?.trim() ? options.prompt : undefined;
   store.pendingCommands.set(paneId, base, "agent-startup", { prompt });
 
@@ -287,7 +306,52 @@ export async function startAgentInWorkspace(
   return { ok: true, data: { tabId: tab.id, paneId, workspacePath } };
 }
 
-export const agentRoutes: Route[] = [
+/** `startAgentInWorkspace` for a workspace on an adopted host: its own `POST /agents`. */
+async function startAgentOnHost(
+  deps: ServerRouteDeps,
+  hostId: string,
+  workspacePath: string,
+  options: { prompt?: string; agentCommand?: string },
+): Promise<StartAgentResult> {
+  const answer = await askHost(deps, hostId, "POST", "/agents", {
+    workspacePath,
+    ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
+    ...(options.agentCommand !== undefined ? { agentCommand: options.agentCommand } : {}),
+  });
+  if (answer.status === 200) return { ok: true, data: answer.body as StartedAgent };
+  const error = (answer.body as { error?: unknown } | null)?.error;
+  return {
+    ok: false,
+    status: answer.status,
+    error: typeof error === "string" ? error : `${hostId} answered ${answer.status}`,
+  };
+}
+
+/** `/agents/<id>[/<action>]` for `agent`, by its id. */
+function agentPath(agent: AgentInfo, action?: string): string {
+  const base = `/agents/${encodeURIComponent(agent.id)}`;
+  return action ? `${base}/${action}` : base;
+}
+
+/**
+ * An agent write for one of an adopted host's agents: that host's server
+ * holds the agent and answers through this same route, named by its id
+ * (ADR-227 D4). True when it went.
+ */
+async function agentOnHost(
+  deps: ServerRouteDeps,
+  json: (status: number, body: unknown) => void,
+  agent: AgentInfo,
+  method: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  if (!onAdoptedHost(deps, agent.hostId)) return false;
+  await forwardToHost(deps, json, agent.hostId, method, path, body);
+  return true;
+}
+
+export const agentRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/agents",
@@ -312,9 +376,11 @@ export const agentRoutes: Route[] = [
         limit === undefined &&
         offset === undefined;
 
+      // Merged with the adopted hosts' agents (ADR-227 D4), as the bridge reads are.
+      const ctx = localCtx(deps);
       const agents = noFilters
-        ? deps.agentManager.getActiveAgents()
-        : deps.agentManager.getAllAgents({ projectId, status, limit, offset });
+        ? agentsGetActive(ctx)
+        : agentsGetAll(ctx, { projectId, status, limit, offset });
 
       json(200, agents.map(toSummary));
     },
@@ -433,7 +499,7 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      const agent = resolveTarget(deps.agentManager, target);
+      const agent = resolveTarget(deps.agentManager, target, deps.hostRouting?.agents());
       if (!agent) {
         json(404, { error: `No session matches target '${target}'` });
         return;
@@ -441,6 +507,10 @@ export const agentRoutes: Route[] = [
       const { paneId } = agent;
       if (!paneId) {
         json(409, { error: `Session '${agent.id}' has no live pane to end` });
+        return;
+      }
+      // Its host's reconciler marks it abandoned.
+      if (await agentOnHost(deps, json, agent, "POST", "/sessions/end", { target: agent.id })) {
         return;
       }
 
@@ -485,7 +555,7 @@ export const agentRoutes: Route[] = [
       // terminal panes never get an AgentInfo, and their scrollback is just as
       // readable — paneId is the pty sessionId is the scrollback dir key. So an
       // unresolved target falls through to being treated as a raw pane id.
-      const agent = resolveTarget(deps.agentManager, target);
+      const agent = resolveTarget(deps.agentManager, target, deps.hostRouting?.agents());
       if (agent && !agent.paneId) {
         json(409, {
           error: `Session '${agent.id}' has no live pane to read from`,
@@ -602,6 +672,10 @@ export const agentRoutes: Route[] = [
         json(400, { error: "Missing 'name' string in request body" });
         return;
       }
+      const { agent } = resolved;
+      if (await agentOnHost(deps, json, agent, "POST", agentPath(agent, "rename"), { name })) {
+        return;
+      }
 
       const trimmed = name.trim();
       const updates = trimmed
@@ -632,7 +706,9 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      const ok = agentsDelete(localCtx(deps), resolved.agent.id);
+      const { agent } = resolved;
+      if (await agentOnHost(deps, json, agent, "DELETE", agentPath(agent), {})) return;
+      const ok = agentsDelete(localCtx(deps), agent.id);
       json(200, { ok });
     },
   },
@@ -650,7 +726,9 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      agentsMarkSeen(localCtx(deps), resolved.agent.id);
+      const { agent } = resolved;
+      if (await agentOnHost(deps, json, agent, "POST", agentPath(agent, "seen"), {})) return;
+      agentsMarkSeen(localCtx(deps), agent.id);
       json(200, { ok: true });
     },
   },

@@ -6,6 +6,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { Switch } from "../ui/Switch/Switch";
 import type {
   HostServerStatus,
   HostServerView,
@@ -18,6 +19,7 @@ import {
   ResetRelayDialog,
 } from "./RemoteControlDialogs";
 import { DeviceRow } from "./DeviceRow";
+import { SettingRow } from "./SettingRow";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
@@ -48,8 +50,12 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
   const addOpen = dialog === "add";
 
+  // Whether this computer has a Linear key to hand the host (ADR-227 D7).
+  const [desktopLinear, setDesktopLinear] = useState(false);
+
   useMountEffect(() => {
     void useHostStore.getState().refreshServer(hostId);
+    void window.electronAPI.linear.isConnected().then(setDesktopLinear);
   });
 
   const run = async (action: () => Promise<void>) => {
@@ -103,6 +109,23 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
               Pair a phone
             </Button>
           </Row>
+          {(desktopLinear || status.linear) && (
+            <SettingRow
+              label={`Use Linear on ${hostName}`}
+              hint={`Copies this computer's Linear key to ${hostName}, so its phones can browse and start issues. Turn off, or reset pairing keys, to delete the copy.`}
+            >
+              <Switch
+                data-testid="host-linear-toggle"
+                checked={status.linear}
+                disabled={busy}
+                onCheckedChange={(on) =>
+                  void run(async () => {
+                    await window.electronAPI.hosts.setLinearOnHost(hostId, on);
+                  })
+                }
+              />
+            </SettingRow>
+          )}
           {devices.length > 0 && (
             <div className={styles.remoteDeviceList}>
               {devices.map((device) => (

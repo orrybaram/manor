@@ -1,18 +1,15 @@
 /**
  * The workspace lifecycle — create, create-from-issues, remove, quick-merge —
  * with every side effect each one owes: stats counters, the group's
- * last-used host, the `projects-changed` broadcast and (optionally) the setup
- * script. Both transports call it: the IPC handlers (the UI) and the HTTP
- * control routes (the `manor` CLI and MCP), so a new side effect is added
- * once instead of remembered per adapter (ADR-203).
+ * last-used host, the `projects-changed` broadcast and the setup script.
+ * Both transports call it: the IPC handlers (the UI) and the HTTP control
+ * routes (the `manor` CLI and MCP), so a new side effect is added once
+ * instead of remembered per adapter (ADR-203).
  *
- * The one transport-chosen knob is `create`'s `runSetupScript` flag. The UI
- * runs the script from the renderer itself (it drives the pending setup view
- * and may launch an agent alongside it), so IPC passes `false`; the routes
- * pass `true` and the script round-trips through the renderer bridge.
- *
- * The renderer bridge is injected rather than imported so this module (and
- * its tests) never loads `electron`.
+ * The setup script runs on the server, in a tab of its own (ADR-227 D5),
+ * whoever asked for the workspace: there is no renderer to hand it to, and
+ * none is needed. Its runner is injected so this module (and its tests)
+ * spawns nothing.
  */
 
 import type {
@@ -36,9 +33,25 @@ export interface WorkspaceOpsDeps {
     | "setGroupLastUsedHost"
   >;
   statsStore: Pick<StatsStore, "record">;
-  /** The renderer bridge (`renderer-bridge.ts`), injected so tests need no `vi.mock("electron")`. */
+  /** The server's `projects.changed` broadcast. */
   notifyProjectsChanged: () => void;
-  runSetupScript: (workspacePath: string, script: string, hostId: HostId) => void;
+  /**
+   * Run a new workspace's setup script (`ServerLaunches.runSetupScript`),
+   * telling `origin` how it goes. Resolves once its tab exists; never
+   * rejects.
+   */
+  runSetupScript: (
+    workspacePath: string,
+    script: string,
+    hostId: HostId,
+    origin: string | null,
+  ) => Promise<void>;
+  /**
+   * Tell `origin` how a worktree removal is going: `projects.removeWorktreeProgress`
+   * on the server's own bus, so a phone on a host server hears it too
+   * (ADR-227 D6). Omitted in tests that don't watch it.
+   */
+  publishRemoveProgress?: (origin: string | null, step: string) => void;
 }
 
 export interface CreateWorkspaceRequest {
@@ -51,20 +64,21 @@ export interface CreateWorkspaceRequest {
   folderId?: string | null;
   /**
    * The bridge connection that asked, so its own window gets the setup
-   * progress (ADR-180 D5); omitted or null broadcasts it.
+   * progress, the setup script's included (ADR-180 D5); omitted or null
+   * broadcasts it.
    */
   origin?: string | null;
 }
 
 export interface WorkspaceOps {
   /**
-   * Create one workspace. `project` is the manager's updated project (null
-   * when the project was not found); `workspacePath` is the created
-   * workspace's path, or null if it could not be found in `project`.
+   * Create one workspace, and start its project's setup script in it.
+   * `project` is the manager's updated project (null when the project was
+   * not found); `workspacePath` is the created workspace's path, or null if
+   * it could not be found in `project`.
    */
   create(
     req: CreateWorkspaceRequest,
-    opts: { runSetupScript: boolean },
   ): Promise<{ project: ProjectInfo | null; workspacePath: string | null }>;
   /**
    * Create one workspace per issue in `project`. Takes the project itself,
@@ -82,6 +96,8 @@ export interface WorkspaceOps {
     deleteBranch?: boolean,
     onProgress?: (step: string) => void,
   ): Promise<void>;
+  /** Address one removal step to the connection that asked for the removal. */
+  publishRemoveProgress(origin: string | null, step: string): void;
   quickMerge(projectId: string, worktreePath: string): Promise<void>;
 }
 
@@ -113,7 +129,7 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
   const { projectManager: pm, statsStore } = deps;
 
   return {
-    async create(req, opts) {
+    async create(req) {
       const project = await pm.createWorktree(req.projectId, req.name, {
         branch: req.branch,
         linkedIssue: req.linkedIssue,
@@ -137,8 +153,13 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       );
       const workspacePath = created?.path ?? null;
 
-      if (opts.runSetupScript && project?.worktreeStartScript && workspacePath) {
-        deps.runSetupScript(workspacePath, project.worktreeStartScript, project.hostId);
+      if (project?.worktreeStartScript && workspacePath) {
+        await deps.runSetupScript(
+          workspacePath,
+          project.worktreeStartScript,
+          project.hostId,
+          req.origin ?? null,
+        );
       }
       return { project, workspacePath };
     },
@@ -158,6 +179,10 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       await pm.removeWorktree(projectId, worktreePath, deleteBranch, onProgress);
       statsStore.record("worktreesRemoved");
       deps.notifyProjectsChanged();
+    },
+
+    publishRemoveProgress(origin, step) {
+      deps.publishRemoveProgress?.(origin, step);
     },
 
     async quickMerge(projectId, worktreePath) {

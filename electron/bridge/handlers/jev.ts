@@ -15,6 +15,7 @@ import {
   type FolderDraft,
 } from "../../folder-suggestion";
 import { method, type HandlerCtx } from "../method";
+import type { ServerDeps } from "../../ipc/types";
 
 /**
  * The folder Jev would file a new workspace under. A malformed call is
@@ -23,7 +24,7 @@ import { method, type HandlerCtx } from "../method";
  * failure is logged.
  */
 export async function jevSuggestFolder(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   projectId: string,
   draft: FolderDraft,
 ): Promise<FolderPick | null> {

@@ -1,6 +1,6 @@
 import { assertString } from "../../ipc-validate";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 import type { Theme, ThemeColors } from "../../theme";
 
@@ -10,25 +10,25 @@ import type { Theme, ThemeColors } from "../../theme";
  * theme is ADR-179 D6's broadcast working as designed, and the browser
  * already re-renders on it.
  */
-export function themeGet(ctx: HandlerCtx): Theme {
+export function themeGet(ctx: HandlerCtx<ServerDeps>): Theme {
   return ctx.deps.themeManager.getTheme();
 }
 
-export function themeGetSelectedName(ctx: HandlerCtx): string {
+export function themeGetSelectedName(ctx: HandlerCtx<ServerDeps>): string {
   return ctx.deps.themeManager.getSelectedThemeName();
 }
 
-export function themeHasGhosttyConfig(ctx: HandlerCtx): boolean {
+export function themeHasGhosttyConfig(ctx: HandlerCtx<ServerDeps>): boolean {
   return ctx.deps.themeManager.hasGhosttyConfig();
 }
 
-export function themePreview(ctx: HandlerCtx, name: string): Theme {
+export function themePreview(ctx: HandlerCtx<ServerDeps>, name: string): Theme {
   assertString(name, "name");
   return ctx.deps.themeManager.getThemeByName(name);
 }
 
 export function themeAllColors(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<Record<string, ThemeColors>> {
   return ctx.deps.themeManager.loadAllThemeColors();
 }
@@ -46,7 +46,7 @@ export function themeAllColors(
  * `publishRendererBroadcast` covers everybody else.
  */
 export function themeSetSelected(
-  ctx: { deps: Pick<HostDeps, "themeManager"> },
+  ctx: { deps: Pick<ServerDeps, "themeManager"> },
   name: string,
 ): Theme {
   assertString(name, "name");

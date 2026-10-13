@@ -67,7 +67,10 @@ export function summarizeGroup(group: PersistedProjectGroup): ProjectGroupInfo {
  */
 export function resolveShared(
   group: PersistedProjectGroup | undefined,
-  project: PersistedProject,
+  project: Pick<
+    PersistedProject,
+    "name" | "color" | "agentCommand" | "linearAssociations" | "themeName" | "commands"
+  >,
 ): GroupSharedFields {
   return {
     name: group?.name ?? project.name,
@@ -112,6 +115,22 @@ function sharedFrom(
 }
 
 /**
+ * The projects this desktop handed over to their host's server (ADR-227 D3):
+ * id → the host each now lives on. They are no longer in `state.projects`,
+ * but groups and dismissed link suggestions still name them.
+ */
+export function adoptedProjectHosts(state: PersistedState): Map<string, string> {
+  const hosts = new Map<string, string>();
+  for (const [hostId, host] of Object.entries(state.hosts ?? {})) {
+    if (!Array.isArray(host?.adoptedProjectIds)) continue;
+    for (const id of host.adoptedProjectIds) {
+      if (typeof id === "string") hosts.set(id, hostId);
+    }
+  }
+  return hosts;
+}
+
+/**
  * Bring groups read from disk back in line with the invariants: drop
  * unknown or repeated members, a second member on a host already taken,
  * members claimed by an earlier group, and groups left with fewer than two
@@ -119,6 +138,9 @@ function sharedFrom(
  * or stale file loads as the nearest valid state. A group dropped for
  * having one member left dissolves as an unlink would: that member keeps
  * the group's shared settings.
+ *
+ * A project handed over to its host's server (ADR-227 D3) is a known
+ * member, on that host, though `projects` no longer lists it.
  */
 export function normalizeGroups(state: PersistedState): void {
   if (!Array.isArray(state.groups)) {
@@ -126,6 +148,9 @@ export function normalizeGroups(state: PersistedState): void {
     return;
   }
   const byId = new Map(state.projects.map((p) => [p.id, p]));
+  const adopted = adoptedProjectHosts(state);
+  const hostOf = (id: unknown): string | undefined =>
+    typeof id === "string" ? (byId.get(id)?.hostId ?? adopted.get(id)) : undefined;
   const claimed = new Set<string>();
   const groups: PersistedProjectGroup[] = [];
   const dissolved: PersistedProjectGroup[] = [];
@@ -134,10 +159,10 @@ export function normalizeGroups(state: PersistedState): void {
     const hosts = new Set<string>();
     const memberIds: string[] = [];
     for (const id of raw.memberIds) {
-      const project = typeof id === "string" ? byId.get(id) : undefined;
-      if (!project || claimed.has(project.id) || hosts.has(project.hostId)) continue;
-      hosts.add(project.hostId);
-      memberIds.push(project.id);
+      const hostId = hostOf(id);
+      if (hostId === undefined || claimed.has(id) || hosts.has(hostId)) continue;
+      hosts.add(hostId);
+      memberIds.push(id);
     }
     const shared = sharedFrom(raw);
     if (memberIds.length < 2) {
@@ -150,7 +175,10 @@ export function normalizeGroups(state: PersistedState): void {
     const lastUsed = raw.lastUsedHostId;
     groups.push({
       id: raw.id,
-      name: typeof raw.name === "string" ? raw.name : byId.get(memberIds[0])!.name,
+      name:
+        typeof raw.name === "string"
+          ? raw.name
+          : (memberIds.map((id) => byId.get(id)?.name).find(Boolean) ?? "Untitled"),
       memberIds,
       lastUsedHostId: typeof lastUsed === "string" && hosts.has(lastUsed) ? lastUsed : null,
       ...shared,
@@ -168,6 +196,15 @@ export function normalizeGroups(state: PersistedState): void {
   if (groups.length === 0) delete state.groups;
 }
 
+/**
+ * The host a group member lives on: this desktop's record, a remote host's
+ * server's (ADR-227 D4), or — while that host's list is not in yet — the
+ * host the desktop handed it to (`adoptedProjectHosts`).
+ */
+export function memberHostId(ctx: ProjectContext, projectId: string): string | undefined {
+  return ctx.member(projectId)?.hostId ?? adoptedProjectHosts(ctx.store.state).get(projectId);
+}
+
 /** Throws when `group` already has a member on `hostId` other than `exceptId`. */
 function assertRoomOnHost(
   ctx: ProjectContext,
@@ -178,11 +215,11 @@ function assertRoomOnHost(
   const takenId = memberOnHost(
     group.memberIds,
     hostId,
-    (id) => ctx.find(id)?.hostId,
+    (id) => memberHostId(ctx, id),
     exceptId,
   );
   if (takenId === undefined) return;
-  const taken = ctx.find(takenId);
+  const taken = ctx.member(takenId);
   throw new Error(
     hostTakenMessage(group.name, ctx.hosts.label(hostId), taken?.name ?? takenId),
   );
@@ -216,8 +253,8 @@ export function joinProjects(
 ): ProjectGroupInfo {
   const state = ctx.store.state;
   if (projectId === otherId) throw new Error("A project can't be linked with itself.");
-  const project = ctx.find(projectId);
-  const other = ctx.find(otherId);
+  const project = ctx.member(projectId);
+  const other = ctx.member(otherId);
   if (!project) throw new Error(`Unknown project "${projectId}".`);
   if (!other) throw new Error(`Unknown project "${otherId}".`);
 
@@ -235,6 +272,7 @@ export function joinProjects(
     const joining = projectGroup ? other : project;
     assertRoomOnHost(ctx, existing, joining.hostId);
     existing.memberIds.push(joining.id);
+    rememberRemoteMember(ctx, joining);
   } else {
     if (project.hostId === other.hostId) {
       throw new Error(
@@ -255,8 +293,51 @@ export function joinProjects(
         commands: [...(other.commands ?? [])],
       },
     ];
+    rememberRemoteMember(ctx, project);
+    rememberRemoteMember(ctx, other);
   }
   return groupInfoFor(state, projectId)!;
+}
+
+/**
+ * A member that lives on a remote host's server, recorded against that host
+ * (`adoptedProjectIds`) so the group keeps it on the next load, when no
+ * host's list may be in yet (`normalizeGroups`). Not saved: the caller is.
+ */
+function rememberRemoteMember(ctx: ProjectContext, member: PersistedProject): void {
+  if (ctx.find(member.id)) return;
+  ctx.hosts.recordAdoptedProjects(member.hostId, [member.id]);
+}
+
+/**
+ * The settings `group` shares, as each remote member's host must hold them
+ * (ADR-227 D2): a host project keeps its own resolved copy, so it can
+ * launch an agent with the desktop away. Written through as an ordinary
+ * `projects.update` to each member's host, after any change to them. A host
+ * that is away keeps the copy it had; one that refuses is logged.
+ */
+export async function writeThroughShared(
+  ctx: ProjectContext,
+  group: PersistedProjectGroup,
+): Promise<void> {
+  const remote = ctx.remote;
+  if (!remote) return;
+  await Promise.all(
+    group.memberIds.map(async (id) => {
+      if (ctx.find(id)) return;
+      const member = ctx.member(id);
+      if (!member) return;
+      const shared = resolveShared(group, member);
+      try {
+        await remote.call(member.hostId, "update", [id, shared]);
+      } catch (err) {
+        console.warn(
+          `[project-groups] ${group.name}: could not update ${member.name} on ${ctx.hosts.label(member.hostId)}:`,
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }),
+  );
 }
 
 /**
@@ -316,7 +397,7 @@ export function setGroupLastUsedHost(
   const group = ctx.store.state.groups?.find((g) => g.id === groupId);
   if (!group) throw new Error(`Unknown project group "${groupId}".`);
   if (group.lastUsedHostId === hostId) return;
-  if (memberOnHost(group.memberIds, hostId, (id) => ctx.find(id)?.hostId) === undefined) {
+  if (memberOnHost(group.memberIds, hostId, (id) => memberHostId(ctx, id)) === undefined) {
     throw new Error(noMemberOnHostMessage(group.name, ctx.hosts.label(hostId)));
   }
   group.lastUsedHostId = hostId;
@@ -377,7 +458,8 @@ export function forgetProject(state: PersistedState, projectId: string): boolean
   } else if (
     group.lastUsedHostId !== null &&
     !group.memberIds.some(
-      (id) => state.projects.find((p) => p.id === id)?.hostId === group.lastUsedHostId,
+      (id) =>
+        (byId(id)?.hostId ?? adoptedProjectHosts(state).get(id)) === group.lastUsedHostId,
     )
   ) {
     group.lastUsedHostId = null;

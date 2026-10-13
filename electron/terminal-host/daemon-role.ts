@@ -53,7 +53,10 @@ export interface BootstrapReport {
 export interface DaemonStartupContext {
   /** Broadcast a freshly journaled agent hook to every stream socket. */
   onHookEntry(entry: HookJournalEntry): void;
-  /** Relay a `manor` CLI request to main over the relay stream (ADR-189 §1). */
+  /**
+   * Relay a `manor` CLI request over the relay stream (ADR-189 §1), to the
+   * host server that asked for them (ADR-227 D8).
+   */
   relayControlRequest: ControlRelay;
 }
 

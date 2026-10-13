@@ -27,15 +27,15 @@ import {
 import type { HostServerStatus } from "../../host-server/relay";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
-export function hostsList(ctx: HandlerCtx): HostStatusInfo[] {
+export function hostsList(ctx: HandlerCtx<ServerDeps>): HostStatusInfo[] {
   return ctx.deps.backendRegistry.list();
 }
 
 export function hostsAdd(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   target: string,
 ): { hostId: string; spec: { kind: "ssh"; target: string } } {
   const { deps } = ctx;
@@ -53,14 +53,17 @@ export function hostsAdd(
   return { hostId, spec };
 }
 
-export function hostsRetryConnect(ctx: HandlerCtx, hostId: string): void {
+export function hostsRetryConnect(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+): void {
   assertString(hostId, "hosts:retryConnect.hostId");
   ctx.deps.backendRegistry.retryNow(hostId);
 }
 
 /** The ADR-178 (main) §4 checks, run through the host itself. */
 export async function hostsHealthCheck(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   hostId: string,
   projectPath: string,
 ): Promise<HealthCheckResult[]> {
@@ -84,7 +87,10 @@ export interface HostServerView {
 }
 
 /** The owner channel to `hostId`'s server, or a plain reason there is none. */
-function serverClient(ctx: HandlerCtx, hostId: string): HostServerClient {
+function serverClient(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+): HostServerClient {
   assertString(hostId, "hosts:server.hostId");
   const client = ctx.deps.backendRegistry.hostServer(hostId);
   if (!client) {
@@ -98,7 +104,10 @@ function serverClient(ctx: HandlerCtx, hostId: string): HostServerClient {
 }
 
 /** A client that can be called now, or the error saying why not. */
-function connectedServer(ctx: HandlerCtx, hostId: string): HostServerClient {
+function connectedServer(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+): HostServerClient {
   const client = serverClient(ctx, hostId);
   if (client.state === "unsupported") {
     throw new Error(
@@ -114,14 +123,14 @@ function connectedServer(ctx: HandlerCtx, hostId: string): HostServerClient {
 }
 
 /** Have the sync re-read the host's push endpoints, then tell the page its pairing changed. */
-function pairingChanged(ctx: HandlerCtx, hostId: string): void {
-  void ctx.deps.hostServerSync.pairingChanged(hostId).then(() => {
+function pairingChanged(ctx: HandlerCtx<ServerDeps>, hostId: string): void {
+  void Promise.resolve(ctx.deps.hostServerSync?.pairingChanged(hostId)).then(() => {
     publishRendererBroadcast("hosts", "pairingChanged", hostId);
   });
 }
 
 export async function hostsServerStatus(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   hostId: string,
 ): Promise<HostServerView> {
   const client = serverClient(ctx, hostId);
@@ -142,7 +151,7 @@ export async function hostsServerStatus(
 }
 
 export async function hostsPairDevice(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   hostId: string,
   label?: string,
 ): Promise<PairResult> {
@@ -154,7 +163,7 @@ export async function hostsPairDevice(
 }
 
 export async function hostsRevokeDevice(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   hostId: string,
   deviceId: string,
 ): Promise<RemoteDeviceInfo[]> {
@@ -165,12 +174,35 @@ export async function hostsRevokeDevice(
 }
 
 export async function hostsResetPairingKeys(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   hostId: string,
 ): Promise<HostServerStatus> {
   const status = await connectedServer(ctx, hostId).api.hostServer.resetIdentity();
   pairingChanged(ctx, hostId);
   return status;
+}
+
+/**
+ * "Use Linear on <host>" (ADR-227 D7): copy this computer's Linear key to the
+ * host's server, or delete the copy. The key goes over the owner channel to
+ * the host's own `SecretBox`; it is never returned or logged. Answers whether
+ * Linear is on for the host afterwards.
+ */
+export async function hostsSetLinearOnHost(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+  on: boolean,
+): Promise<boolean> {
+  if (typeof on !== "boolean") throw new Error("hosts:setLinearOnHost.on must be a boolean");
+  const client = connectedServer(ctx, hostId);
+  let token: string | null = null;
+  if (on) {
+    token = ctx.deps.linearManager.getToken();
+    if (token === null) throw new Error("Connect Linear on this computer first.");
+  }
+  const enabled = await client.api.hostServer.setLinearToken(token);
+  publishRendererBroadcast("hosts", "pairingChanged", hostId);
+  return enabled;
 }
 
 /**
@@ -185,7 +217,7 @@ export async function hostsResetPairingKeys(
  * window (ADR-180 D5).
  */
 export function wireHostBroadcasts(
-  deps: Pick<HostDeps, "backendRegistry">,
+  deps: Pick<ServerDeps, "backendRegistry">,
 ): void {
   deps.backendRegistry.onStatusChange((hosts: HostStatusInfo[]) => {
     publishRendererBroadcast("hosts", "statusChanged", hosts);
@@ -220,4 +252,7 @@ export const hosts = {
     localOnly: true,
     mutating: true,
   }),
+  // Sends the Linear key to the host. `mutating` is safe for the audit line:
+  // its arguments are the host id and a flag; the key is read here.
+  setLinearOnHost: method(hostsSetLinearOnHost, { localOnly: true, mutating: true }),
 };

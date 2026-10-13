@@ -16,27 +16,26 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
-vi.mock("../notifications", () => ({
-  updateDockBadge: vi.fn(),
-  markAgentNotificationsRead: vi.fn(),
-  sendAgentUpdate: vi.fn(),
-}));
+import { UnseenAgents } from "../agent-status/unseen-agents";
 
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
 }));
 
-import * as notifications from "../notifications";
 import { agentsMarkSeen } from "../bridge/handlers/agents";
 import { agentsGetUnseen } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 
-const sendAgentUpdate = vi.mocked(notifications.sendAgentUpdate);
-const updateDockBadge = vi.mocked(notifications.updateDockBadge);
-const markAgentNotificationsRead = vi.mocked(
-  notifications.markAgentNotificationsRead,
-);
+const sendAgentUpdate = vi.fn();
+const updateDockBadge = vi.fn();
+const markAgentNotificationsRead = vi.fn();
+
+function unseenOf(responded: string[], requiresInput: string[]): UnseenAgents {
+  const unseen = new UnseenAgents();
+  for (const id of responded) unseen.responded.add(id);
+  for (const id of requiresInput) unseen.requiresInput.add(id);
+  return unseen;
+}
 
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -55,8 +54,8 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     mainWindow: null,
     preferencesManager: { get: vi.fn().mockReturnValue(false), set: vi.fn() },
     paneContextMap: new Map(),
-    unseenRespondedAgents: new Set<string>(),
-    unseenInputAgents: new Set<string>(),
+    unseen: new UnseenAgents(),
+    notifier: { sendAgentUpdate, updateDockBadge, markAgentNotificationsRead },
     ...overrides,
   };
 }
@@ -66,8 +65,7 @@ describe("agents.getUnseen (ADR-136)", () => {
   // write, whichever table (desktop or host server) answers.
   it("returns the unseen Sets' contents", () => {
     const deps = makeDeps({
-      unseenRespondedAgents: new Set(["t1", "t2"]),
-      unseenInputAgents: new Set(["t3"]),
+      unseen: unseenOf(["t1", "t2"], ["t3"]),
     });
     expect(agentsGetUnseen(localCtx(deps as never))).toEqual({
       responded: ["t1", "t2"],
@@ -84,8 +82,7 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
     updateDockBadge.mockClear();
     markAgentNotificationsRead.mockClear();
     deps = makeDeps({
-      unseenRespondedAgents: new Set<string>(["t1"]),
-      unseenInputAgents: new Set<string>(["t1"]),
+      unseen: unseenOf(["t1"], ["t1"]),
     });
   });
 
@@ -95,13 +92,10 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
 
     agentsMarkSeen(localCtx(deps as never), "t1");
 
-    expect(deps.unseenRespondedAgents.has("t1")).toBe(false);
-    expect(deps.unseenInputAgents.has("t1")).toBe(false);
+    expect(deps.unseen.responded.has("t1")).toBe(false);
+    expect(deps.unseen.requiresInput.has("t1")).toBe(false);
     expect(sendAgentUpdate).toHaveBeenCalledTimes(1);
-    expect(sendAgentUpdate).toHaveBeenCalledWith(
-      agent,
-      deps.preferencesManager,
-    );
+    expect(sendAgentUpdate).toHaveBeenCalledWith(agent);
   });
 
   it("reads the log entries about an agent the user is now looking at", () => {
@@ -120,7 +114,7 @@ describe("agents.markSeen re-broadcast (ADR-136)", () => {
 
     agentsMarkSeen(localCtx(deps as never), "t1");
 
-    expect(deps.unseenRespondedAgents.has("t1")).toBe(false);
+    expect(deps.unseen.responded.has("t1")).toBe(false);
     expect(sendAgentUpdate).not.toHaveBeenCalled();
     expect(updateDockBadge).toHaveBeenCalled();
   });

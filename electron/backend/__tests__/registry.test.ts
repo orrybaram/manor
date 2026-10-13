@@ -8,7 +8,6 @@ import {
 import { RoutedBackend } from "../routed-backend";
 import type { HostConnection } from "../host-connection";
 import type {
-  ControlRelayCommand,
   ScannedPort,
   HostConnectionEvent,
   HostSpec,
@@ -23,7 +22,6 @@ import type { HostProvider } from "../providers/types";
 function fakeBackend(name: string) {
   let streamHandler: ((event: StreamEvent) => void) | null = null;
   const hostHandlers: Array<(event: HostConnectionEvent) => void> = [];
-  const streamConnectedHandlers: Array<() => void> = [];
   const raw = {
     pty: {
       createOrAttach: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -45,7 +43,6 @@ function fakeBackend(name: string) {
         };
       }),
       updateEnv: vi.fn(async () => {}),
-      replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0, epoch: "e0" })),
     },
     git: {
       exec: vi.fn(async () => `${name}-out`),
@@ -75,14 +72,6 @@ function fakeBackend(name: string) {
     }),
     retryNow: vi.fn(() => false),
     checkLiveness: vi.fn(async () => true),
-    onStreamConnected: vi.fn((handler: () => void) => {
-      streamConnectedHandlers.push(handler);
-      return () => {
-        const i = streamConnectedHandlers.indexOf(handler);
-        if (i >= 0) streamConnectedHandlers.splice(i, 1);
-      };
-    }),
-    sendControlRelayCommand: vi.fn((_cmd: ControlRelayCommand) => true),
   };
   return {
     raw,
@@ -91,13 +80,9 @@ function fakeBackend(name: string) {
     hostEvent: (event: HostConnectionEvent) => {
       for (const h of hostHandlers) h(event);
     },
-    /** The backend's stream socket (re)connected. */
-    streamConnected: () => {
-      for (const h of streamConnectedHandlers) h();
-    },
     /** Whether anything is still subscribed to this backend's events. */
     listening: () =>
-      streamHandler !== null || hostHandlers.length > 0 || streamConnectedHandlers.length > 0,
+      streamHandler !== null || hostHandlers.length > 0,
   };
 }
 
@@ -645,6 +630,54 @@ describe("RoutedBackend", () => {
     });
   });
 
+  it("has a remote session started by its host's server, then attaches to it (ADR-227 D4)", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    const spawnOnHost = vi.fn(async () => true as boolean | null);
+    const backend = new RoutedBackend(
+      ctx.registry,
+      (p) => (p.startsWith("/remote") ? "box" : "local"),
+      () => [],
+      spawnOnHost,
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
+
+    await expect(
+      backend.pty.createOrAttachWith("pane-r", "/remote/app", 80, 24, {
+        env: { MANOR_AGENT_KIND: "codex" },
+      }),
+    ).resolves.toMatchObject({ hostId: "box", spawned: true });
+    expect(spawnOnHost).toHaveBeenCalledWith("box", "pane-r", "/remote/app", 80, 24, {
+      MANOR_AGENT_KIND: "codex",
+    });
+    // The bytes still come over the daemon stream: this attaches to it.
+    expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith(
+      "pane-r", "/remote/app", 80, 24, undefined, { MANOR_AGENT_KIND: "codex" },
+    );
+
+    // A re-mount of a session this attached, and has not seen exit, just
+    // attaches; a local one is not the server's at all.
+    await backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24);
+    await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
+    expect(spawnOnHost).toHaveBeenCalledTimes(1);
+
+    // Once it exits — or the host's daemon lost it — the server finds it
+    // again (and holds what to type into a fresh one).
+    remote.stream({ type: "exit", sessionId: "pane-r", exitCode: -1, lost: true });
+    spawnOnHost.mockResolvedValueOnce(false);
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
+      spawned: false,
+    });
+    expect(spawnOnHost).toHaveBeenCalledTimes(2);
+
+    // A host whose server does not start it: the daemon creates it, as before.
+    spawnOnHost.mockResolvedValueOnce(null);
+    const created = await backend.pty.createOrAttach("pane-r2", "/remote/app", 80, 24);
+    expect(created).toMatchObject({ hostId: "box" });
+    expect(created).not.toHaveProperty("spawned");
+  });
+
   it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {
     const { backend, registry, box: remote } = routed();
     remote.raw.connect.mockRejectedValueOnce(new Error("ssh: connection refused"));
@@ -682,109 +715,49 @@ describe("RoutedBackend", () => {
   });
 });
 
-describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
-  function hookSetup() {
+describe("BackendRegistry — remote agent hooks (ADR-227 D4)", () => {
+  it("ignores a remote daemon's hookEvents: the host's server reads its journal", async () => {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
-    const replayHooks = vi.fn(async (_sinceSeq: number) => ({
-      entries: [{ seq: 1, receivedAt: 0, payload: { tag: "1" } }],
-      lastSeq: 1,
-      epoch: "e0",
-    }));
+    const replayHooks = vi.fn();
     (remote.raw.pty as Record<string, unknown>).replayHooks = replayHooks;
-    const seqs = new Map<string, number>([["box", 0]]);
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: {
-        get: (hostId) => {
-          const seq = seqs.get(hostId);
-          return seq === undefined ? null : { seq, epoch: "e0" };
-        },
-        set: (hostId, cursor) => void seqs.set(hostId, cursor.seq),
-      },
-    });
-    const ingested: Array<{ hostId: string; tag: string; replay: boolean }> = [];
-    registry.setHookSink({
-      ingest: (payload, ctx) => ingested.push({ hostId: ctx.hostId, tag: payload.tag, replay: ctx.replay }),
     });
     registry.register("box", box);
-    return { registry, local, remote, replayHooks, seqs, ingested };
-  }
-
-  it("replays the journal on connect, then feeds live hookEvents without re-publishing them", async () => {
-    const { registry, remote, replayHooks, seqs, ingested } = hookSetup();
     const listener = vi.fn();
     registry.onEvent(listener);
 
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(ingested).toHaveLength(1));
-    expect(replayHooks).toHaveBeenCalledWith(0);
-    expect(ingested[0]).toEqual({ hostId: "box", tag: "1", replay: true });
+    remote.stream({ type: "hookEvent", seq: 1, payload: { tag: "1" } });
 
-    remote.stream({ type: "hookEvent", seq: 2, payload: { tag: "2" } });
-    expect(ingested[1]).toEqual({ hostId: "box", tag: "2", replay: false });
-    expect(seqs.get("box")).toBe(2);
+    expect(replayHooks).not.toHaveBeenCalled();
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("holds hooks while reconnecting and catches up once the host is back", async () => {
-    const { registry, remote, replayHooks, ingested } = hookSetup();
-    await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(ingested).toHaveLength(1));
-
-    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
-    remote.stream({ type: "hookEvent", seq: 3, payload: { tag: "3" } });
-    expect(ingested).toHaveLength(1);
-
-    replayHooks.mockResolvedValueOnce({
-      entries: [2, 3].map((seq) => ({ seq, receivedAt: 0, payload: { tag: String(seq) } })),
-      lastSeq: 3,
-      epoch: "e0",
-    });
-    remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
-    await vi.waitFor(() => expect(ingested.map((i) => i.tag)).toEqual(["1", "2", "3"]));
-    expect(replayHooks).toHaveBeenLastCalledWith(1);
-  });
-  it("records the host's sessions before replaying, so replayed hooks relay to the remote daemon", async () => {
+  it("records the host's sessions on connect, so calls for a pane reach the remote daemon", async () => {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
-    const order: string[] = [];
-    remote.raw.pty.listSessions.mockImplementation(async () => {
-      order.push("listSessions");
-      return [{ sessionId: "pane-remote" }];
-    });
-    (remote.raw.pty as Record<string, unknown>).replayHooks = vi.fn(async () => {
-      order.push("replayHooks");
-      return {
-        entries: [{ seq: 1, receivedAt: 0, payload: { paneId: "pane-remote" } }],
-        lastSeq: 1,
-        epoch: "e0",
-      };
-    });
+    remote.raw.pty.listSessions.mockResolvedValue([{ sessionId: "pane-remote" }]);
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     const routed = new RoutedBackend(registry, () => "local");
-    // What the hook relay does for each ingested hook: route by pane.
-    registry.setHookSink({
-      ingest: (payload) => routed.pty.write(payload.paneId, "hook"),
-    });
     registry.register("box", box);
 
     // A fresh launch: nothing has been created or attached on the box yet.
     expect(registry.sessions.ownerOf("pane-remote")).toBeUndefined();
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(remote.raw.pty.write).toHaveBeenCalled());
+    await vi.waitFor(() => expect(registry.sessions.ownerOf("pane-remote")).toBe("box"));
 
-    expect(order).toEqual(["listSessions", "replayHooks"]);
-    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-remote", "hook");
+    routed.pty.write("pane-remote", "x");
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-remote", "x");
     expect(local.raw.pty.write).not.toHaveBeenCalled();
   });
 });
@@ -819,64 +792,39 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
   function resumeSetup() {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
-    const order: string[] = [];
-    let releaseReplay: (() => void) | null = null;
-    (remote.raw.pty as Record<string, unknown>).replayHooks = vi.fn(async () => {
-      order.push("replay-start");
-      await new Promise<void>((resolve) => {
-        releaseReplay = resolve;
-      });
-      order.push("replay-done");
-      return { entries: [], lastSeq: 0, epoch: "e0" };
-    });
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
-    registry.setHookSink({ ingest: () => {} });
     registry.register("box", box);
     const resumed: Array<{ hostId: string; sessionIds: string[] }> = [];
     registry.onHostResumed((hostId, sessionIds) => {
-      order.push("resumed");
       resumed.push({ hostId, sessionIds });
     });
-    return { registry, remote, order, resumed, release: () => releaseReplay?.() };
+    return { registry, remote, resumed };
   }
 
-  it("announces a resumed host only after its hook replay, with every live session", async () => {
-    const { registry, remote, order, resumed, release } = resumeSetup();
+  it("announces a resumed host with every live session", async () => {
+    const { registry, remote, resumed } = resumeSetup();
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(order).toContain("replay-start"));
-    release();
-    await vi.waitFor(() => expect(order).toContain("replay-done"));
-    order.length = 0;
     // The initial connect is not a reconnect: nothing to reattach.
     expect(resumed).toEqual([]);
 
     remote.raw.pty.listSessions.mockResolvedValue([{ sessionId: "pane-a" }]);
     remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a", "pane-b"], retryInMs: 1000 });
     remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
-    await vi.waitFor(() => expect(order).toContain("replay-start"));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(resumed).toEqual([]);
-
-    release();
     await vi.waitFor(() => expect(resumed).toHaveLength(1));
-    expect(order).toEqual(["replay-start", "replay-done", "resumed"]);
     expect(resumed[0]).toEqual({ hostId: "box", sessionIds: ["pane-a"] });
   });
 
-  it("drops the announcement when the host drops again before its replay is in", async () => {
-    const { registry, remote, resumed, release } = resumeSetup();
+  it("drops the announcement when the host drops again before it is made", async () => {
+    const { registry, remote, resumed } = resumeSetup();
     await registry.ensureConnected("box");
-    release();
     remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
     remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
     remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
-    release();
     await new Promise((r) => setTimeout(r, 10));
     expect(resumed).toEqual([]);
   });
@@ -1038,87 +986,5 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
 
       expect(seen).toEqual([]);
     });
-  });
-});
-
-describe("BackendRegistry — control relay (ADR-189 §2)", () => {
-  function relaySetup() {
-    const local = fakeBackend("local");
-    const remote = fakeBackend("box");
-    const registry = new BackendRegistry({
-      local: local.backend,
-      remoteVersion: "0.1.0",
-      createProvider: () => fakeProvider() as unknown as HostProvider,
-      createRemote: () => remote.backend,
-    });
-    registry.register("box", box);
-    const request = (id: string) =>
-      remote.stream({ type: "controlRequest", id, method: "GET", path: "/context?cwd=/x", body: undefined });
-    return { registry, local, remote, request };
-  }
-
-  it("asks for relayed requests on every stream (re)connect", () => {
-    const { remote } = relaySetup();
-    expect(remote.raw.sendControlRelayCommand).not.toHaveBeenCalled();
-    remote.streamConnected();
-    remote.streamConnected();
-    expect(remote.raw.sendControlRelayCommand.mock.calls).toEqual([
-      [{ type: "enableControlRelay" }],
-      [{ type: "enableControlRelay" }],
-    ]);
-  });
-
-  it("answers a request through the sink, tagged with the host, and does not re-publish it", async () => {
-    const { registry, remote, request } = relaySetup();
-    const listener = vi.fn();
-    registry.onEvent(listener);
-    const sink = vi.fn(async () => ({ status: 200, body: { projectId: "p1" } }));
-    registry.setControlRelaySink(sink);
-
-    request("r1");
-    await vi.waitFor(() =>
-      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith({
-        type: "controlResponse",
-        id: "r1",
-        status: 200,
-        body: { projectId: "p1" },
-      }),
-    );
-    expect(sink).toHaveBeenCalledWith("box", {
-      method: "GET",
-      path: "/context?cwd=/x",
-      body: undefined,
-    });
-    expect(listener).not.toHaveBeenCalled();
-  });
-
-  it("answers 503 with no sink and 500 when the sink throws", async () => {
-    const { registry, remote, request } = relaySetup();
-    request("r1");
-    await vi.waitFor(() =>
-      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "controlResponse", id: "r1", status: 503 }),
-      ),
-    );
-
-    registry.setControlRelaySink(async () => {
-      throw new Error("boom");
-    });
-    request("r2");
-    await vi.waitFor(() =>
-      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith({
-        type: "controlResponse",
-        id: "r2",
-        status: 500,
-        body: { error: "boom" },
-      }),
-    );
-  });
-
-  it("stops asking once the host is unregistered", async () => {
-    const { registry, remote } = relaySetup();
-    await registry.unregister("box");
-    remote.streamConnected();
-    expect(remote.raw.sendControlRelayCommand).not.toHaveBeenCalled();
   });
 });

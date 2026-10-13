@@ -16,6 +16,7 @@ import * as path from "node:path";
 import { viewportFile } from "../../paths";
 import type { PersistedViewportFile } from "../../../src/lib/layout/protocol";
 import { method, type HandlerCtx } from "../method";
+import type { ServerDeps } from "../../ipc/types";
 
 const VIEWPORT_FILE = viewportFile();
 
@@ -43,7 +44,7 @@ export function viewportLoad(): PersistedViewportFile | null {
 }
 
 export function viewportSave(
-  _ctx: HandlerCtx,
+  _ctx: HandlerCtx<ServerDeps>,
   file: PersistedViewportFile,
 ): void {
   fs.mkdirSync(path.dirname(VIEWPORT_FILE), { recursive: true });

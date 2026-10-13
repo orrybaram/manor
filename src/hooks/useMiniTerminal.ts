@@ -14,13 +14,6 @@ export interface UseMiniTerminalOptions {
   onExit?: () => void;
   /** If true, appends "; exit" to the command so the shell exits after completion */
   exitOnComplete?: boolean;
-  /**
-   * Attach to an existing PTY session instead of creating a new one.
-   * When true: start() skips pty.create; cleanup() skips pty.close.
-   * All other setup (xterm open, output/exit subscriptions) still runs so
-   * the user sees live output while the view is mounted.
-   */
-  attach?: boolean;
 }
 
 export interface UseMiniTerminalReturn {
@@ -41,7 +34,6 @@ export function useMiniTerminal(
     onOutput,
     onExit,
     exitOnComplete = false,
-    attach = false,
   } = options;
 
   const theme = useThemeStore((s) => s.theme);
@@ -65,9 +57,7 @@ export function useMiniTerminal(
     cleanupFnsRef.current.forEach((fn) => fn());
     cleanupFnsRef.current = [];
     if (paneIdRef.current) {
-      if (!attach) {
-        window.electronAPI.pty.close(paneIdRef.current);
-      }
+      window.electronAPI.pty.close(paneIdRef.current);
       paneIdRef.current = "";
     }
     if (termRef.current) {
@@ -75,7 +65,7 @@ export function useMiniTerminal(
       termRef.current = null;
     }
     fitRef.current = null;
-  }, [attach]);
+  }, []);
 
   const start = useCallback(async () => {
     const [{ Terminal }, { FitAddon }] = await Promise.all([
@@ -146,10 +136,8 @@ export function useMiniTerminal(
     // Manor's custom .zshrc emits OSC 7 (CWD) via a precmd hook, which
     // fires right before the prompt — so the first CWD event means ZLE
     // is ready for input.
-    // In attach mode the PTY and its command are owned by an upstream
-    // orchestrator — the view is a pure observer and must not re-send.
     let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-    if (cmdToSend && !attach) {
+    if (cmdToSend) {
       const unsubCwd = window.electronAPI.pty.onCwd(sessionId, () => {
         unsubCwd();
         sendCommand();
@@ -167,9 +155,7 @@ export function useMiniTerminal(
       });
     }
 
-    if (!attach) {
-      await window.electronAPI.pty.create(sessionId, cwd, cols, rows);
-    }
+    await window.electronAPI.pty.create(sessionId, cwd, cols, rows);
 
     const unsubOutput = window.electronAPI.pty.onOutput(
       sessionId,
@@ -184,7 +170,7 @@ export function useMiniTerminal(
       onExit?.();
     });
     cleanupFnsRef.current.push(unsubExit);
-  }, [sessionId, cwd, command, interactive, onOutput, onExit, exitOnComplete, attach, containerRef]);
+  }, [sessionId, cwd, command, interactive, onOutput, onExit, exitOnComplete, containerRef]);
 
   return { start, cleanup, termRef };
 }

@@ -75,15 +75,3 @@ export function subscribeConnection(cb: () => void): () => void {
 export function useConnection(): ConnectionFacts {
   return useSyncExternalStore(subscribeConnection, getConnection, () => INITIAL);
 }
-
-/**
- * What an entry point says in place of an action a host server does not do:
- * "Creating workspaces is not available on Studio yet".
- */
-export function hostServerUnavailableCopy(
-  action: string,
-  hostName: string | null,
-): string {
-  return `${action} is not available on ${hostName ?? "this host"} yet`;
-}
-

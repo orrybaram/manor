@@ -139,4 +139,45 @@ describe("wireChatMirror subscriptions (ADR-224 D3)", () => {
     expect(chatMirror.setWatched).not.toHaveBeenCalled();
     off();
   });
+
+  it("forwards a remote pane's subscription to its host instead of watching it here", () => {
+    const subscribed = new Set(["chat.entry@remote-pane", `chat.taskEntry@${chatTaskKey("remote-pane", "t1")}`]);
+    const chatMirror = { setWatched: vi.fn(), setTaskWatched: vi.fn(), agentChanged: vi.fn() };
+    let change: (name: string, key: string) => void = () => {};
+    const release = vi.fn();
+    const watchChat = vi.fn(() => release);
+    const off = wireChatMirror(
+      { chatMirror: chatMirror as never },
+      {
+        onSubscriptionChange: (cb) => {
+          change = cb;
+          return () => {};
+        },
+        hasSubscriber: (ns, event, key) => subscribed.has(`${ns}.${event}@${key}`),
+      },
+      () => () => {},
+      { proxyForPane: (paneId) => (paneId === "remote-pane" ? { watchChat } : null) },
+    );
+
+    change("chat.entry", "remote-pane");
+    // Another viewer joining the same key does not forward it twice.
+    change("chat.entry", "remote-pane");
+    change("chat.taskEntry", chatTaskKey("remote-pane", "t1"));
+    expect(watchChat.mock.calls).toEqual([
+      ["entry", "remote-pane"],
+      ["taskEntry", chatTaskKey("remote-pane", "t1")],
+    ]);
+
+    subscribed.delete("chat.entry@remote-pane");
+    change("chat.entry", "remote-pane");
+    expect(release).toHaveBeenCalledTimes(1);
+    // A pane the desktop runs itself is still watched here.
+    subscribed.add("chat.entry@local-pane");
+    change("chat.entry", "local-pane");
+    expect(chatMirror.setWatched.mock.calls).toEqual([["local-pane", true]]);
+    expect(chatMirror.setTaskWatched).not.toHaveBeenCalled();
+
+    off();
+    expect(release).toHaveBeenCalledTimes(2);
+  });
 });

@@ -118,16 +118,17 @@ describe("host server", () => {
   });
 
   it("answers what is not on its allowlist with unavailable:host", async () => {
+    h.adopt();
     await h.serve();
     const client = await h.owner();
     for (const [ns, methodName] of [
-      ["projects", "add"],
       ["pty", "reset"],
+      ["projects", "moveToHost"],
+      ["projects", "link"],
+      ["layout", "save"],
       ["github", "getIssues"],
-      ["layout", "apply"],
-      // No integration calls in slice 1 (ADR-225 D8), issue images included.
-      ["github", "getPrsForBranches"],
-      ["github", "proxyImage"],
+      // GitHub is host-native (ADR-227 D7) bar the desktop's feedback flow.
+      ["github", "uploadFeedbackImages"],
       ["linear", "getAllIssues"],
       ["linear", "proxyImage"],
     ]) {
@@ -135,7 +136,7 @@ describe("host server", () => {
         HostServerUnavailableError,
       );
     }
-    // An empty manifest and layout until the desktop sends one.
+    // No projects and no layout until one is set up here.
     expect(await client.invoke("projects", "getAll")).toEqual([]);
     expect(await client.invoke("layout", "getAll")).toEqual({});
     expect(await client.invoke("hosts", "list")).toEqual([
@@ -143,27 +144,9 @@ describe("host server", () => {
     ]);
   });
 
-  it("attaches to a running session but never spawns one", async () => {
+  it("attaches to a running session, and spawns one the daemon does not have", async () => {
     await h.serve();
     const client = await h.owner();
-    const missing = await client.invoke<Record<string, unknown>>(
-      "pty",
-      "create",
-      "pane-nope",
-      null,
-      80,
-      24,
-    );
-    expect(missing).toEqual(
-      expect.objectContaining({ ok: false, reason: "error" }),
-    );
-    expect(
-      h.daemon
-        .getHost()
-        .listSessions()
-        .map((s) => s.sessionId),
-    ).toEqual(["pane-1"]);
-
     const attached = await client.invoke<Record<string, unknown>>(
       "pty",
       "create",
@@ -173,7 +156,31 @@ describe("host server", () => {
       24,
     );
     expect(attached).toEqual(
-      expect.objectContaining({ ok: true, hostId: "local" }),
+      expect.objectContaining({ ok: true, hostId: "local", prewarmed: true }),
     );
+
+    const spawned = await client.invoke<Record<string, unknown>>(
+      "pty",
+      "create",
+      "pane-new",
+      h.tmp,
+      80,
+      24,
+    );
+    expect(spawned).toEqual(
+      expect.objectContaining({
+        ok: true,
+        hostId: "local",
+        prewarmed: false,
+        winsizeOwner: true,
+      }),
+    );
+    expect(
+      h.daemon
+        .getHost()
+        .listSessions()
+        .map((s) => s.sessionId)
+        .sort(),
+    ).toEqual(["pane-1", "pane-new"]);
   });
 });

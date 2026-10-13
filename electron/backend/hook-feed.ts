@@ -1,6 +1,7 @@
 /**
- * Hook feed — delivers a remote host's journaled agent hooks to Electron
- * main, in order, exactly once (ADR-178 §2).
+ * Hook feed — delivers a host's journaled agent hooks to the host server, in
+ * order, exactly once (ADR-178 §2). The desktop no longer reads a remote
+ * host's journal (ADR-227 D4): its host server does.
  *
  * The remote daemon journals every hook with a consecutive `seq` and
  * broadcasts it live as a `hookEvent`. Main remembers, per host, the last

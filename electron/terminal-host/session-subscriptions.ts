@@ -29,6 +29,10 @@ export class SessionSubscriptions {
     return [...this.wanted];
   }
 
+  has(sessionId: string): boolean {
+    return this.wanted.has(sessionId);
+  }
+
   /** Want `sessionId`'s stream, and subscribe to it now. */
   want(sessionId: string): void {
     this.wanted.add(sessionId);

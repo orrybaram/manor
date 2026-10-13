@@ -23,6 +23,15 @@
  * renderer), so this is the one place a path's host is inferred (ADR-183);
  * everything that knows a workspace's host passes it along instead.
  *
+ * **A session on an adopted remote host is started by that host's server**
+ * (ADR-227 D4, the control plane): `spawnOnHost` asks it to, and it spawns
+ * the session — or finds it running — and types the pane's pending command
+ * there. The session's
+ * bytes still come here over the host's daemon stream (the data plane), so
+ * the create then attaches to it as to any running session. Without
+ * `spawnOnHost` — a host server, or a host with no server to ask — the
+ * daemon creates it, as it always has.
+ *
  * With no remote host registered every route ends at the local backend,
  * called with exactly the arguments it was called with before.
  */
@@ -63,7 +72,29 @@ export interface RoutedCreateOptions {
 
 type CreateOrAttachResult = Awaited<ReturnType<PtyBackend["createOrAttach"]>> & {
   hostId: HostId;
+  /**
+   * Set when a remote host's server started the session for this call
+   * (`SpawnOnHost`): true when it spawned it fresh, false when it was
+   * already running there. The snapshot is the attach's either way, so it
+   * no longer says which.
+   */
+  spawned?: boolean;
 };
+
+/**
+ * Start a new session on `hostId`'s server (ADR-227 D4): true when it
+ * spawned one, false when one was already running, null when the session is
+ * not that server's to start — no server, away, or refused — and the daemon
+ * creates it instead.
+ */
+export type SpawnOnHost = (
+  hostId: string,
+  sessionId: string,
+  cwd: string,
+  cols: number,
+  rows: number,
+  env: Record<string, string> | undefined,
+) => Promise<boolean | null>;
 
 /** A `PtyBackend` whose `createOrAttach` also says which host it used. */
 export interface RoutedPtyBackend extends PtyBackend {
@@ -95,12 +126,19 @@ export class RoutedBackend implements WorkspaceBackend {
     private readonly registry: BackendRegistry,
     hostForPath: HostForPath,
     pidHosts: PidHosts = () => [],
+    spawnOnHost?: SpawnOnHost,
   ) {
     const { sessions } = registry;
     const local = () => registry.get(LOCAL_HOST_ID);
     const bySession = (sessionId: string) =>
       registry.get(sessions.ownerOf(sessionId) ?? LOCAL_HOST_ID).pty;
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
+    // Remote sessions this process attached that have not exited since: a
+    // re-mount of one attaches without asking its host's server first.
+    const attachedRemote = new Set<string>();
+    registry.onEvent((_hostId, event) => {
+      if (event.type === "exit") attachedRemote.delete(event.sessionId);
+    });
 
     this.pty = {
       createOrAttachWith: async (sessionId, cwd, cols, rows, opts = {}) => {
@@ -108,11 +146,21 @@ export class RoutedBackend implements WorkspaceBackend {
         // Then the host the caller asked for, since a path alone can't tell
         // two hosts with the same directory apart (local wins that tie).
         const hostId = sessions.ownerOf(sessionId) ?? opts.hostId ?? hostForPath(cwd);
+        // On a remote host its server starts the session — or finds it
+        // running, or starts it afresh after the host's daemon lost it — and
+        // types whatever its queue holds for the pane; this then attaches
+        // to it.
+        const running = attachedRemote.has(sessionId) && sessions.ownerOf(sessionId) === hostId;
+        const spawned =
+          hostId !== LOCAL_HOST_ID && spawnOnHost && !running
+            ? await spawnOnHost(hostId, sessionId, cwd, cols, rows, opts.env)
+            : null;
         const result = await registry
           .get(hostId)
           .pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env);
         sessions.claim(sessionId, hostId);
-        return { ...result, hostId };
+        if (hostId !== LOCAL_HOST_ID) attachedRemote.add(sessionId);
+        return spawned === null ? { ...result, hostId } : { ...result, hostId, spawned };
       },
       createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
         this.pty.createOrAttachWith(sessionId, cwd, cols, rows, { shellArgs, env }),
@@ -127,6 +175,7 @@ export class RoutedBackend implements WorkspaceBackend {
       kill: async (sessionId) => {
         await bySession(sessionId).kill(sessionId);
         sessions.release(sessionId);
+        attachedRemote.delete(sessionId);
       },
       detach: (sessionId) => bySession(sessionId).detach(sessionId),
       getSnapshot: (sessionId) => bySession(sessionId).getSnapshot(sessionId),

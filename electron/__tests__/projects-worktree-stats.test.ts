@@ -58,7 +58,7 @@ describe("projects worktree calls", () => {
   });
 
   describe("createWorktree", () => {
-    it("creates through workspaceOps without the setup script and returns the project", async () => {
+    it("creates through workspaceOps and returns the project", async () => {
       const info = { id: "p1" };
       deps.workspaceOps.create.mockResolvedValue({ project: info, workspacePath: "/wt" });
 
@@ -67,7 +67,6 @@ describe("projects worktree calls", () => {
       expect(result).toBe(info);
       expect(deps.workspaceOps.create).toHaveBeenCalledWith(
         expect.objectContaining({ projectId: "p1", name: "feature" }),
-        { runSetupScript: false },
       );
     });
 

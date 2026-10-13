@@ -21,7 +21,9 @@ function makeDeps() {
     },
     statsStore: { record: vi.fn() },
     notifyProjectsChanged: vi.fn(),
-    runSetupScript: vi.fn(),
+    runSetupScript: vi.fn<
+      (path: string, script: string, hostId: string, origin: string | null) => Promise<void>
+    >(async () => {}),
   };
 }
 
@@ -91,7 +93,6 @@ describe("create", () => {
         // The bridge connection that asked (ADR-180 D5).
         origin: "7",
       },
-      { runSetupScript: false },
     );
     expect(deps.projectManager.createWorktree).toHaveBeenCalledWith(
       "p1",
@@ -108,7 +109,7 @@ describe("create", () => {
 
   it("broadcasts the setup progress of a request with no origin", async () => {
     deps.projectManager.createWorktree.mockResolvedValue(null);
-    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: true });
+    await ops.create({ projectId: "p1", name: "Feature" });
     expect(
       (deps.projectManager.createWorktree.mock.calls[0][2] as { origin?: unknown })
         .origin,
@@ -121,7 +122,6 @@ describe("create", () => {
 
     const result = await ops.create(
       { projectId: "p1", name: "Feature", branch: "feature" },
-      { runSetupScript: false },
     );
 
     expect(result).toEqual({ project: updated, workspacePath: "/wt/feature" });
@@ -138,7 +138,6 @@ describe("create", () => {
 
     const result = await ops.create(
       { projectId: "p1", name: "my-feature" },
-      { runSetupScript: false },
     );
 
     // The main workspace also matches the branch but is skipped.
@@ -149,7 +148,6 @@ describe("create", () => {
     deps.projectManager.createWorktree.mockResolvedValue(project());
     const result = await ops.create(
       { projectId: "p1", name: "missing" },
-      { runSetupScript: false },
     );
     expect(result.workspacePath).toBeNull();
   });
@@ -158,13 +156,13 @@ describe("create", () => {
     deps.projectManager.createWorktree.mockResolvedValue(
       project({ group: GROUP, workspaces: [created] }),
     );
-    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: false });
+    await ops.create({ projectId: "p1", name: "Feature" });
     expect(deps.projectManager.setGroupLastUsedHost).toHaveBeenCalledWith("g1", "remote-1");
   });
 
   it("records no last-used host for an ungrouped project", async () => {
     deps.projectManager.createWorktree.mockResolvedValue(project({ workspaces: [created] }));
-    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: false });
+    await ops.create({ projectId: "p1", name: "Feature" });
     expect(deps.projectManager.setGroupLastUsedHost).not.toHaveBeenCalled();
   });
 
@@ -177,7 +175,6 @@ describe("create", () => {
 
     const result = await ops.create(
       { projectId: "p1", name: "Feature" },
-      { runSetupScript: false },
     );
 
     expect(result.project).toBe(updated);
@@ -185,25 +182,34 @@ describe("create", () => {
     expect(deps.notifyProjectsChanged).toHaveBeenCalledTimes(1);
   });
 
-  it("runs the setup script on the created workspace when asked", async () => {
+  it("runs the setup script on the created workspace, for whoever asked", async () => {
     deps.projectManager.createWorktree.mockResolvedValue(
       project({ worktreeStartScript: "pnpm i", workspaces: [created] }),
     );
-    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: true });
-    expect(deps.runSetupScript).toHaveBeenCalledWith("/wt/feature", "pnpm i", "remote-1");
+    await ops.create({ projectId: "p1", name: "Feature", origin: "7" });
+    expect(deps.runSetupScript).toHaveBeenCalledWith("/wt/feature", "pnpm i", "remote-1", "7");
   });
 
-  it("skips the setup script when the flag is false", async () => {
+  it("answers only once the setup script's tab exists", async () => {
     deps.projectManager.createWorktree.mockResolvedValue(
       project({ worktreeStartScript: "pnpm i", workspaces: [created] }),
     );
-    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: false });
-    expect(deps.runSetupScript).not.toHaveBeenCalled();
+    let opened!: () => void;
+    deps.runSetupScript.mockReturnValue(new Promise<void>((r) => (opened = r)));
+    let answered = false;
+    const done = ops.create({ projectId: "p1", name: "Feature" }).then(() => {
+      answered = true;
+    });
+    await vi.waitFor(() => expect(deps.runSetupScript).toHaveBeenCalled());
+    expect(answered).toBe(false);
+    opened();
+    await done;
+    expect(answered).toBe(true);
   });
 
   it("skips the setup script when the project has none", async () => {
     deps.projectManager.createWorktree.mockResolvedValue(project({ workspaces: [created] }));
-    await ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: true });
+    await ops.create({ projectId: "p1", name: "Feature" });
     expect(deps.runSetupScript).not.toHaveBeenCalled();
   });
 
@@ -211,7 +217,7 @@ describe("create", () => {
     deps.projectManager.createWorktree.mockResolvedValue(
       project({ worktreeStartScript: "pnpm i" }),
     );
-    await ops.create({ projectId: "p1", name: "missing" }, { runSetupScript: true });
+    await ops.create({ projectId: "p1", name: "missing" });
     expect(deps.runSetupScript).not.toHaveBeenCalled();
   });
 
@@ -219,7 +225,6 @@ describe("create", () => {
     deps.projectManager.createWorktree.mockResolvedValue(null);
     const result = await ops.create(
       { projectId: "nope", name: "Feature" },
-      { runSetupScript: true },
     );
     expect(result).toEqual({ project: null, workspacePath: null });
     expect(deps.statsStore.record).not.toHaveBeenCalled();
@@ -231,7 +236,7 @@ describe("create", () => {
   it("propagates a manager throw and records nothing", async () => {
     deps.projectManager.createWorktree.mockRejectedValue(new Error("git failed"));
     await expect(
-      ops.create({ projectId: "p1", name: "Feature" }, { runSetupScript: true }),
+      ops.create({ projectId: "p1", name: "Feature" }),
     ).rejects.toThrow("git failed");
     expect(deps.statsStore.record).not.toHaveBeenCalled();
     expect(deps.projectManager.setGroupLastUsedHost).not.toHaveBeenCalled();

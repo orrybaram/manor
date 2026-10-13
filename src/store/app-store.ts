@@ -436,15 +436,14 @@ export interface AppState {
     {
       steps: Array<{ step: SetupStep; status: StepStatus; message?: string }>;
       completed: boolean;
-      startScript?: string | null;
       workspacePath?: string;
     }
   >;
-  initWorktreeSetup: (
-    wsPathHint: string,
-    hasStartScript: boolean,
-    startScript?: string | null,
-  ) => void;
+  /**
+   * The checklist of a workspace being created. Its setup script is not a
+   * step: the server runs it in a tab of its own (ADR-227 D5).
+   */
+  initWorktreeSetup: (wsPathHint: string) => void;
   updateWorktreeSetupStep: (
     wsPath: string,
     step: SetupStep,
@@ -2356,11 +2355,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { panePickedElement: rest };
     }),
 
-  initWorktreeSetup: (
-    wsPathHint: string,
-    hasStartScript: boolean,
-    startScript?: string | null,
-  ) =>
+  initWorktreeSetup: (wsPathHint: string) =>
     set((state) => {
       const baseSteps: SetupStep[] = [
         "prune",
@@ -2369,7 +2364,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         "persist",
         "switch",
       ];
-      if (hasStartScript) baseSteps.push("setup-script");
       const steps = baseSteps.map((step) => ({
         step,
         status: "pending" as StepStatus,
@@ -2380,7 +2374,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           [wsPathHint]: {
             steps,
             completed: false,
-            startScript: startScript ?? null,
             workspacePath: wsPathHint,
           },
         },

@@ -47,7 +47,7 @@ import * as webviewIpc from "./ipc/webview";
 import * as nativeIpc from "./ipc/native";
 import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
-import { appCommandResult, runSetupScript } from "./renderer-bridge";
+import { appCommandResult } from "./renderer-bridge";
 import { createManorServer, type ManorCore } from "./server/create-manor-server";
 import type { Platform } from "./server/platform";
 
@@ -210,7 +210,6 @@ export function initApp(devTitle: string | null): void {
       claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
     },
     remoteHosts: { remoteVersion: manorVersion() },
-    runSetupScript,
     playSound: playNotificationSound,
     appCommandResult,
   };

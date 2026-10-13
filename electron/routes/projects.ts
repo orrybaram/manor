@@ -584,12 +584,15 @@ export const projectRoutes: Route[] = [
           ? body.useExistingBranch
           : undefined;
       const ops = ctx.deps.workspaceOps;
-      // The UI runs `worktreeStartScript` from the renderer itself; a CLI /
-      // MCP create has no renderer flow, so the op round-trips it (ADR-203).
-      const { project: updated } = await ops.create(
-        { projectId: project.id, name, branch, baseBranch, useExistingBranch },
-        { runSetupScript: true },
-      );
+      // The op starts `worktreeStartScript` on the server, as it does for
+      // the UI (ADR-227 D5): no window need be open.
+      const { project: updated } = await ops.create({
+        projectId: project.id,
+        name,
+        branch,
+        baseBranch,
+        useExistingBranch,
+      });
       json(200, updated && withHostLabel(pm, updated));
     }),
   },

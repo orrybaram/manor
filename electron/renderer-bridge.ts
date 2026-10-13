@@ -25,7 +25,6 @@
 import crypto from "node:crypto";
 import { BrowserWindow } from "electron";
 import type { Json } from "./routes/types";
-import type { HostId } from "./backend/types";
 import {
   connectionIdForWindow,
   publishRendererBroadcast,
@@ -33,22 +32,15 @@ import {
 } from "./renderer-broadcast";
 
 /**
- * The payload of an `appCommands.command` event.
- *
- * Two semantics share it. Without a `requestId` the send is fire-and-forget
- * (`run-setup-script` — the renderer has nothing meaningful to report back).
- * With one, the renderer *must* answer with an `appCommands.result` invoke
- * and main awaits it; see `requestRenderer`.
+ * The payload of an `appCommands.command` event: a question the renderer
+ * *must* answer with an `appCommands.result` invoke, which main awaits; see
+ * `requestRenderer`. The last fire-and-forget command, `run-setup-script`,
+ * went when setup scripts moved onto the server (ADR-227 D5).
  */
 export interface AppCommand {
   cmd: string;
-  /** Present iff main expects a reply on "app-command-result". */
-  requestId?: string;
-  workspacePath?: string;
-  /** The host of `workspacePath`'s project: the path may be on two hosts. */
-  hostId?: HostId;
-  prompt?: string;
-  script?: string;
+  /** Correlates the renderer's `appCommands.result` with this command. */
+  requestId: string;
   /** Free-form args for correlated pane/tab commands. */
   args?: Record<string, unknown>;
 }
@@ -179,28 +171,6 @@ export async function proxyToRenderer(
     return;
   }
   json(200, result.data);
-}
-
-/**
- * Ask the renderer to run the project's worktree start script in a new
- * workspace. Like agents, the script needs a PTY the renderer owns, so main
- * hands it off as an app-command. Best-effort: with no renderer attached
- * there is nowhere to run it.
- */
-export function runSetupScript(
-  workspacePath: string,
-  script: string,
-  hostId: HostId,
-): void {
-  const to = primaryConnection();
-  if (to === null) return;
-  const command: AppCommand = {
-    cmd: "run-setup-script",
-    workspacePath,
-    hostId,
-    script,
-  };
-  publishToRenderer(to, "appCommands", "command", command);
 }
 
 /**

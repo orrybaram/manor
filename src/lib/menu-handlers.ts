@@ -18,11 +18,7 @@ import {
   selectActiveWorkspaceKey,
   useAppStore,
 } from "../store/app-store";
-import {
-  useProjectStore,
-  runWorkspaceSetupScript,
-  type ProjectInfo,
-} from "../store/project-store";
+import { useProjectStore, type ProjectInfo } from "../store/project-store";
 import { hideWorkspaceAndNavigate } from "../store/workspace-actions";
 import {
   activeSurface,
@@ -166,8 +162,11 @@ function createCommandContext(chrome: MenuChrome): CommandContext {
           : items;
       void useProjectStore.getState().applySidebarChange(project.id, next);
     },
-    runSetupScript: (path, script, hostId) =>
-      runWorkspaceSetupScript(path, script, hostId ?? undefined),
+    // In a new tab of the active workspace (the command's), as the palette's
+    // custom "Run Setup Script" does: the user asked to watch it run.
+    runSetupScript: (_path, script) => {
+      useAppStore.getState().addTerminalTab(script);
+    },
     agentCommand: () =>
       resolveWorkspaceCommand(selectActiveWorkspaceKey(useAppStore.getState())),
     splitFocusedPaneWith,

@@ -177,7 +177,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const server = createManorServer<HostServerDeps>(hostPlatform, {
     table: HOST_TABLE,
-    // A new agent's project, from the owner's last manifest and layout.
+    // A new agent's project, from the owner's last manifest and layout, for
+    // a pane its own layout does not hold (ADR-227 D5 derives the rest).
     derivePaneContext: (paneId) =>
       paneContextFrom(snapshots.manifest(), snapshots.layout(), paneId),
     onAgentStatus: (agent, prevStatus, newStatus) => {

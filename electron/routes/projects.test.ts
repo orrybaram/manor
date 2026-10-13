@@ -119,7 +119,7 @@ function deps(pm: Pm, callerHostId?: string): RouteDeps {
     projectManager: pm as unknown as WorkspaceOpsDeps["projectManager"],
     statsStore: { record: vi.fn() },
     notifyProjectsChanged: vi.fn(),
-    runSetupScript: vi.fn(),
+    runSetupScript: vi.fn(async () => {}),
   });
   return {
     projectManager: pm,

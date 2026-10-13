@@ -138,6 +138,20 @@ export interface AgentService {
 const NO_AGENTS: AgentService = { abandonForPanes() {} };
 
 /**
+ * Starts a pane's session on the server (ADR-227 D5): told about every pane a
+ * command adds whose queued command launches on apply — an agent's startup
+ * line, a setup script. Told before the broadcast that makes a renderer mount
+ * the pane, so its spawn is already under way when the renderer's
+ * `pty.create` arrives, and that create attaches. Backed by
+ * `createServerLaunches` in `../server/spawn-pane.ts`.
+ */
+export interface PaneLauncher {
+  launch(workspacePath: string, paneId: string): void;
+}
+
+const NO_LAUNCHER: PaneLauncher = { launch() {} };
+
+/**
  * What main knows about a desktop window, by renderer id (D4).
  *
  * Asked rather than told, because both answers change as windows come and
@@ -264,6 +278,12 @@ export class LayoutStore {
      * passes the real one.
      */
     private readonly agents: AgentService = NO_AGENTS,
+    /**
+     * Spawns the sessions of panes whose queued command is a launch.
+     * Defaults to doing nothing — the pane then waits for a renderer, as
+     * every pane did before ADR-227; `createManorServer` passes the real one.
+     */
+    private readonly launcher: PaneLauncher = NO_LAUNCHER,
   ) {}
 
   /**
@@ -376,6 +396,11 @@ export class LayoutStore {
       workspacePath,
       entry: snapshot(state, this.claimsFor(workspacePath)),
     };
+  }
+
+  /** The key of the workspace whose tree holds `paneId`, or null. */
+  workspaceOf(paneId: string): string | null {
+    return this.find({ paneId })?.workspacePath ?? null;
   }
 
   /**
@@ -535,6 +560,18 @@ export class LayoutStore {
         previous.lastTitle === title ? previous : { ...previous, lastTitle: title },
       );
     }
+  }
+
+  /**
+   * A session the server just spawned for a pane (ADR-227 D5), folded into
+   * its `paneSessions` row so the file names it from the start — before the
+   * shell's first `cwd` event, and with no renderer to have seen it. Silent,
+   * like {@link onPtyEvent}.
+   */
+  recordSpawn(paneId: string, cwd: string): void {
+    this.updateSession(paneId, (previous) =>
+      previous.lastCwd !== null ? previous : { ...previous, lastCwd: cwd },
+    );
   }
 
   /**
@@ -811,6 +848,16 @@ export class LayoutStore {
       command.type === "reopen-closed-pane"
         ? this.reclaim(state, addedPaneIds)
         : undefined;
+
+    // A launch starts here, not in whichever renderer mounts the pane first
+    // (ADR-227 D5). Before the broadcast: the spawn is then in flight when a
+    // renderer's `pty.create` for the pane arrives, which waits for it and
+    // attaches. A reopened pane's command was cleared when it closed.
+    for (const paneId of addedPaneIds) {
+      if (this.pendingCommands.launchesOnApply(paneId)) {
+        this.launcher.launch(workspacePath, paneId);
+      }
+    }
 
     // Ending sessions is the server's job now (D2): the renderer sends the
     // command after its confirmation dialog, and the effect lands here. Not

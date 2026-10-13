@@ -293,22 +293,18 @@ export async function projectsCreateWorktree(
   opts: Omit<CreateWorktreeOptions, "origin"> = {},
 ): Promise<ProjectInfo | null> {
   // Picked field by field rather than spread: `origin` is who asked, and that
-  // is the transport's to say, never the frame's. The renderer runs the setup
-  // script itself (its pending setup view may launch an agent alongside it),
-  // so `workspaceOps` (ADR-203) must not.
-  const { project } = await ctx.deps.workspaceOps.create(
-    {
-      projectId,
-      name,
-      branch: opts.branch,
-      linkedIssue: opts.linkedIssue,
-      baseBranch: opts.baseBranch,
-      useExistingBranch: opts.useExistingBranch,
-      folderId: opts.folderId,
-      origin: ctx.caller.id,
-    },
-    { runSetupScript: false },
-  );
+  // is the transport's to say, never the frame's. The setup script starts on
+  // the server, in a tab of its own (ADR-227 D5).
+  const { project } = await ctx.deps.workspaceOps.create({
+    projectId,
+    name,
+    branch: opts.branch,
+    linkedIssue: opts.linkedIssue,
+    baseBranch: opts.baseBranch,
+    useExistingBranch: opts.useExistingBranch,
+    folderId: opts.folderId,
+    origin: ctx.caller.id,
+  });
   return project;
 }
 

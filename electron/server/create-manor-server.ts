@@ -7,7 +7,7 @@
  *
  *   daemon client, local backend, `BackendRegistry`
  *     ──▶ `ProjectManager`, `LayoutPersistence`, worktree watchers
- *     ──▶ `RoutedBackend`, `LayoutStore`
+ *     ──▶ `RoutedBackend`, the server's launches, `LayoutStore`
  *     ──▶ theme, ports, GitHub, Linear, the relay stores
  *     ──▶ preferences, agents, stats, notifications, `workspaceOps`
  *     ──▶ the agent pipeline, resyncs, `ChatMirror`, the stream fan-out
@@ -87,7 +87,9 @@ import { ThemeManager } from "../theme";
 import { createWorkspaceOps } from "../workspace-ops";
 import { pickPaneAgent } from "../../src/lib/pane-agent";
 import { HeadlessNotifier } from "./headless-notifier";
+import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
+import { createServerLaunches } from "./spawn-pane";
 
 /**
  * How long the one-time layout.json key migration (ADR-191) waits for a
@@ -160,7 +162,10 @@ export interface ManorServerOptions<D extends BridgeServerDeps> {
    * a replay's are coalesced. Read once the pipeline has started.
    */
   onAgentStatus?: AgentStatusSink;
-  /** A pane's context when no renderer has set one (`serverAgentPipelineOptions`). */
+  /**
+   * A pane's context when neither a renderer nor the server's own layout
+   * knows it (`serverAgentPipelineOptions`).
+   */
   derivePaneContext?: (paneId: string) => PaneContext | undefined;
   /** The daemon connection's own listener; the resync on reconnect is added. */
   daemonListener?: ConnectionListener;
@@ -273,6 +278,20 @@ export function createManorServer<D extends BridgeServerDeps>(
     (p) => projectManager.hostIdForPath(p),
     (pid) => portScanner.hostsListeningOn(pid),
   );
+  // Agent launches and setup scripts start here, not in a renderer (ADR-227
+  // D5): the layout store hands every launched pane over as it joins a tree.
+  // Spawning reads the caller's deps, built below, for the desktop's prewarm.
+  const launches = createServerLaunches({
+    spawnDeps: () => ({
+      backend,
+      backendRegistry,
+      layoutStore,
+      prewarmManager: (deps as Partial<Pick<ServerDeps, "prewarmManager">>).prewarmManager,
+    }),
+    projectManager,
+    publishSetupProgress: (origin, event) =>
+      bus.publishTo(origin, "projects", "worktreeProgress", event),
+  });
   /**
    * ADR-179: layout is the Manor server's, not a renderer's. One broadcaster
    * feeds every audience from the one place the layout changes.
@@ -299,6 +318,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     {
       abandonForPanes: (panes) => agentService.abandonForPanes(panes),
     },
+    launches,
   );
   // Read the file once its workspace-key migration (above) has settled —
   // usually at once; `layout.getAll()` and every command wait for it, so a
@@ -381,7 +401,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     projectManager,
     statsStore,
     notifyProjectsChanged,
-    runSetupScript: platform.runSetupScript ?? (() => {}),
+    runSetupScript: launches.runSetupScript,
   });
   // ADR-199's persistent Agent activity history, fed by `publishPaneStatus`.
   const agentActivityStore = new AgentActivityStore(dataDir);
@@ -417,6 +437,9 @@ export function createManorServer<D extends BridgeServerDeps>(
   const agentPipeline = createAgentPipeline(serverAgentPipelineOptions({
     agentManager,
     paneContexts: paneContextMap,
+    // Which project and workspace a pane is in, from this server's own layout
+    // and projects (ADR-227 D5): a launched agent has no renderer to say.
+    layoutPaneContext: (paneId) => layoutPaneContext(layoutStore, projectManager, paneId),
     derivePaneContext: opts.derivePaneContext,
     getPaneHostId,
     unseen,
@@ -575,8 +598,12 @@ export function createManorServer<D extends BridgeServerDeps>(
     // `paneSessions` is server-derived (ADR-179 D3): cwd and title reach the
     // layout file from the stream, not from a renderer reporting what it saw.
     layoutStore.onPtyEvent(event);
-    // A pane's shell is gone: its transcript watcher goes with it (ADR-215).
-    if (event.type === "exit") chatMirror.closePane(event.sessionId);
+    // A pane's shell is gone: its transcript watcher goes with it (ADR-215),
+    // and a setup script's tab closes (ADR-227 D5).
+    if (event.type === "exit") {
+      chatMirror.closePane(event.sessionId);
+      launches.onExit(event.sessionId);
+    }
     // Every host's stream events arrive here and only here, so this is where
     // the bridge is fed (ADR-180 D5) — the only consumer that forwards, to a
     // renderer window and a paired device alike.

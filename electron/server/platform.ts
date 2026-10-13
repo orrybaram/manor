@@ -26,7 +26,6 @@ import type { BroadcastBus } from "../renderer-broadcast";
 import type { StatsStore } from "../stats-store";
 import type { HostTransport } from "../terminal-host/transport";
 import type { UnseenAgents } from "../agent-status/unseen-agents";
-import type { HostId } from "../backend/types";
 
 /** What a platform's notifier is built over: the server's own state. */
 export interface NotifierParts {
@@ -82,8 +81,6 @@ export interface Platform {
     /** Manor's own version, which remote hosts are matched against. */
     remoteVersion: string;
   };
-  /** Runs a new workspace's setup script in a renderer (until ADR-227 D5). */
-  runSetupScript?: (workspacePath: string, script: string, hostId: HostId) => void;
   /** Plays a notification sound by name (`preferences.playSound`). */
   playSound?: (soundName: string | false) => void;
   /** Settles a pending `appCommands.command` with the renderer's answer. */

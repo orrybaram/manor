@@ -110,7 +110,7 @@ describe("DELETE /projects/:projectId/workspaces (ADR-182 D7)", () => {
           projectManager: pm,
           statsStore: { record: () => {} },
           notifyProjectsChanged: () => {},
-          runSetupScript: () => {},
+          runSetupScript: async () => {},
         }),
       } as unknown as RouteDeps,
       params: { projectId },

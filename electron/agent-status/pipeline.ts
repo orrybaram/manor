@@ -58,10 +58,18 @@ export type AgentStatusSink = AgentPipelineOptions["onStatus"];
  * set as a map, everything else as `AgentPipelineOptions`.
  */
 export interface ServerAgentPipelineDeps extends Omit<AgentPipelineOptions, "getPaneContext"> {
+  /** What a renderer said about a pane (`agents.setPaneContext`): an override. */
   paneContexts: ReadonlyMap<string, PaneContext>;
   /**
-   * A pane's context when no renderer has set one: the host server derives
-   * it from what its owner synced. The desktop has none.
+   * A pane's context from the server's own state (ADR-227 D5): the
+   * workspace whose layout holds the pane, and the project that owns that
+   * workspace. A pane the server launched has one before any renderer has
+   * mounted it.
+   */
+  layoutPaneContext?: (paneId: string) => PaneContext | undefined;
+  /**
+   * A pane's context when neither knows it: the host server derives it from
+   * what its owner synced. The desktop has none.
    */
   derivePaneContext?: (paneId: string) => PaneContext | undefined;
 }
@@ -71,10 +79,13 @@ export interface ServerAgentPipelineDeps extends Omit<AgentPipelineOptions, "get
  * two-readers test builds both readers the way `createManorServer` does.
  */
 export function serverAgentPipelineOptions(deps: ServerAgentPipelineDeps): AgentPipelineOptions {
-  const { paneContexts, derivePaneContext, ...rest } = deps;
+  const { paneContexts, layoutPaneContext, derivePaneContext, ...rest } = deps;
   return {
     ...rest,
-    getPaneContext: (paneId) => paneContexts.get(paneId) ?? derivePaneContext?.(paneId),
+    getPaneContext: (paneId) =>
+      paneContexts.get(paneId) ??
+      layoutPaneContext?.(paneId) ??
+      derivePaneContext?.(paneId),
   };
 }
 

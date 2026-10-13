@@ -242,8 +242,13 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
  * workspace a window is looking at is that window's viewport (D3), and a route
  * does not move it.
  *
+ * The session starts on the server too (ADR-227 D5): the apply that adds
+ * the tab spawns its pane and types the launch line (`spawnPane`), so the
+ * agent runs on a host no renderer is looking at. A renderer that mounts the
+ * pane later attaches to it.
+ *
  * The prompt is not baked into the line: it is queued beside the bare
- * harness command, raw, and `pty.create` delivers it through a file on the
+ * harness command, raw, and the spawn delivers it through a file on the
  * pane's host (ADR-209) — a long prompt typed inline is cut at the tty's
  * canonical line limit. A blank prompt is no prompt.
  */
@@ -270,8 +275,8 @@ export async function startAgentInWorkspace(
   const paneId = allPaneIds(tab.rootNode)[0];
 
   // Queued before the tab exists, for the ordering `pendingCommands` spells
-  // out: the apply broadcasts, a renderer mounts the pane, and its
-  // `pty.create` is what types this.
+  // out: the apply that adds the pane is what launches it, and it types
+  // this.
   const prompt = options.prompt?.trim() ? options.prompt : undefined;
   store.pendingCommands.set(paneId, base, "agent-startup", { prompt });
 

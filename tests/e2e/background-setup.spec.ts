@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { type ElectronApplication, type Page } from "@playwright/test";
 import {
+  assertVisiblePaneCount,
   createWorkspace,
   killApp,
   launchApp,
@@ -15,6 +16,10 @@ import {
  * `setupComplete: true` so the app boots straight into a state where a new
  * workspace can be created and its setup script runs long enough for us to
  * navigate away mid-flight.
+ *
+ * The script runs on the server, in a tab of its own (ADR-227 D5): no
+ * renderer drives it, so it finishes — and its tab closes — whether or not
+ * anyone is looking.
  */
 const test = base.extend<{ app: ElectronApplication; window: Page }>({
   app: async ({ tempHome }, use) => {
@@ -73,7 +78,7 @@ const test = base.extend<{ app: ElectronApplication; window: Page }>({
   },
 });
 
-test("setup script survives navigation; persistent toast signals background work", async ({
+test("setup script runs in a tab of its own and finishes with nobody watching", async ({
   window,
   tempHome,
 }) => {
@@ -82,52 +87,35 @@ test("setup script survives navigation; persistent toast signals background work
   // path. The sidebar's data-workspace-path attribute comes from git, so we
   // must match the resolved form.
   const projectPath = fs.realpathSync(path.join(tempHome, "test-project"));
+  const mainItem = window.locator(
+    `[data-testid="workspace-item"][data-workspace-path="${projectPath}"]`,
+  );
 
   // Project is pre-seeded, so no wizard and no import step. Sidebar should
   // already show the project with its main workspace.
-  await expect(
-    window.locator(`[data-testid="workspace-item"][data-workspace-path="${projectPath}"]`),
-  ).toBeVisible({ timeout: 10_000 });
+  await expect(mainItem).toBeVisible({ timeout: 10_000 });
 
   // Create a new workspace named "smoke-bg".
   await createWorkspace(window, "smoke-bg");
 
-  // Setup view should appear — git ops are fast, then the setup-script step
-  // flips to in-progress and the PTY runs `sleep 4` in the background.
-  const setupView = window.locator('[data-testid="workspace-setup-view"]');
-  await expect(setupView).toBeVisible({ timeout: 10_000 });
-
-  // Wait until the setup-script step is the active one (checklist shows
-  // "Running setup script") — this confirms the git phase finished and the
-  // long-running script is mid-flight.
-  await expect(setupView.getByText("Running setup script")).toBeVisible({
-    timeout: 10_000,
-  });
+  // The server opened the script's tab before the create answered, so the
+  // new workspace lands on it — a terminal running `sleep 4; exit` — not on
+  // the setup view.
+  await assertVisiblePaneCount(window, 1);
+  await expect(window.locator('[data-testid="workspace-setup-view"]')).not.toBeVisible();
 
   // Navigate away by clicking the project's main workspace in the sidebar.
-  // The main workspace's row has data-workspace-path === projectPath.
-  await window
-    .locator(
-      `[data-testid="workspace-item"][data-workspace-path="${projectPath}"]`,
-    )
-    .click();
+  await mainItem.click();
 
-  // Setup view should unmount for the backgrounded workspace.
-  await expect(setupView).not.toBeVisible({ timeout: 5_000 });
-
-  // Persistent "Setting up …" toast appears because the unmount hook fires
-  // with setup still running. Toast message includes the workspace name.
-  await expect(window.getByText(/Setting up "smoke-bg"/)).toBeVisible({
-    timeout: 5_000,
-  });
-
-  // Wait for the PTY to exit (sleep 4 is ~4s; give generous headroom). The
-  // orchestrator's exit handler removes the background toast and fires the
-  // existing success toast.
+  // The script still finishes: the server follows it, and so does the toast
+  // the create left behind.
   await expect(window.getByText("Workspace setup complete")).toBeVisible({
     timeout: 15_000,
   });
-  await expect(window.getByText(/Setting up "smoke-bg"/)).not.toBeVisible({
-    timeout: 5_000,
-  });
+
+  // Its tab closed with its shell (the server closes it on exit).
+  await window
+    .locator('[data-testid="workspace-item"]', { hasText: "smoke-bg" })
+    .click();
+  await assertVisiblePaneCount(window, 0);
 });

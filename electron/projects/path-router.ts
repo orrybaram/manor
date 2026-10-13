@@ -9,7 +9,11 @@ import { LOCAL_HOST_ID, type MachineFacts } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import { toDirSlug } from "../branch-name";
 import type { PersistedProject } from "./types";
-import { ownerHostIdForPath, type WorkspaceKeyOwner } from "../../src/lib/workspace-key";
+import {
+  isWithinPath,
+  ownerHostIdForPath,
+  type WorkspaceKeyOwner,
+} from "../../src/lib/workspace-key";
 
 /**
  * The workspace paths `projects.json` remembers for `project` without asking
@@ -236,6 +240,34 @@ export class PathRouter {
     );
     if (described.some((d) => !d.complete)) return null;
     return described.map((d) => d.owner);
+  }
+
+  /**
+   * The project on `hostId` that owns `p`: the one whose root, worktree
+   * directory, or workspace — listed by git or remembered in `projects.json`
+   * — contains it most closely. Null when none does. Synchronous, from what
+   * is already known, like {@link hostIdForPath}.
+   */
+  projectForPath(hostId: string, p: string): PersistedProject | null {
+    let best: PersistedProject | null = null;
+    let bestLength = -1;
+    for (const project of this.projects()) {
+      if (project.hostId !== hostId) continue;
+      const worktreeRoot = this.knownWorktreeBaseDir(project);
+      const roots = [
+        project.path,
+        ...(worktreeRoot ? [worktreeRoot] : []),
+        ...(this.workspacePaths.get(project.id) ?? []),
+        ...rememberedWorkspacePaths(project),
+      ];
+      for (const root of roots) {
+        if (isWithinPath(p, root) && root.length > bestLength) {
+          best = project;
+          bestLength = root.length;
+        }
+      }
+    }
+    return best;
   }
 
   /**

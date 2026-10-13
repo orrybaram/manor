@@ -262,6 +262,27 @@ export class ProjectManager {
     return (p && this.lastKnownWorkspaces.latest(p)) ?? [];
   }
 
+  /**
+   * The project a workspace on `hostId` belongs to, as an agent's record
+   * names it (ADR-227 D5): its id, and the name and agent command the
+   * renderer sees — a linked group's shared values where it has them. Null
+   * when no project owns the path. Synchronous, from what is already known
+   * (`PathRouter.projectForPath`): the agent pipeline asks on every hook.
+   */
+  workspaceProject(
+    hostId: string,
+    workspacePath: string,
+  ): { projectId: string; projectName: string; agentCommand: string | null } | null {
+    const project = this.paths.projectForPath(hostId, workspacePath);
+    if (!project) return null;
+    const shared = groups.resolveShared(groups.groupOf(this.store.state, project.id), project);
+    return {
+      projectId: project.id,
+      projectName: shared.name,
+      agentCommand: shared.agentCommand,
+    };
+  }
+
   /** Run `listener` after every write of `projects.json` — any project mutation. */
   onStateSaved(listener: () => void): void {
     this.store.onSave(listener);

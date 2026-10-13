@@ -1,6 +1,6 @@
 ---
 title: "\"Use Linear on <host>\" opt-in"
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [5, 7]

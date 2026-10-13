@@ -1,6 +1,6 @@
 ---
 title: Host server owns its projects, workspaces and layout
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [3, 4]

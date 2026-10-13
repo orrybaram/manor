@@ -1,6 +1,6 @@
 ---
 title: Agent launches and setup scripts spawn on the server
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

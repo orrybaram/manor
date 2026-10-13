@@ -49,3 +49,14 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - `CONTEXT.md`
 - `docs/` (the remote hosts page)
 - `docs/decisions/adr-225-host-server/index.md`
+
+## Small cleanups carried over from ticket 4
+- **Unused prop:** `MiniTerminal`'s `attach` prop has no caller left. Remove
+  it.
+- **Optional layout store in `spawnPane`:** it uses `deps.layoutStore?.`
+  because the pty test fakes (`pty-host`, `ipc-transport`, `ws-bridge`) have
+  no layout store. Give those fakes one, and drop the optional chaining.
+- **Failed setup scripts:** the Setup tab reports "done" whatever the exit
+  code. Report a failed script, using the exit code from the exit event.
+- **Reopen stack:** an auto-closed Setup tab goes onto the workspace's reopen
+  stack. Keep it off.

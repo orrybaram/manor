@@ -25,6 +25,9 @@
  *   card tells the user; here the stale devices are revoked and logged, and
  *   the desktop learns the device count from `hostServer.status()`.
  *
+ * The room operations themselves — pair, revoke, reset, stale-room revokes —
+ * are `RelayRoom`'s, shared with the desktop and run one at a time.
+ *
  * Secrets go through the host's `SecretBox` (ADR-218 D6) into `dataDir`
  * (`hostServerPaths`). Device tokens are stored as SHA-256 hashes only.
  */
@@ -35,7 +38,6 @@ import type { WsBridgeServer } from "../bridge/transports/ws";
 import { errorMessage } from "../lib/errors";
 import type { HostServerPaths } from "../paths";
 import type { SecretBackend, SecretBox } from "../platform/secret-box";
-import type { PairResult } from "../remote-control/controller";
 import {
   RemoteDeviceStore,
   type PushSubscriptionRecord,
@@ -54,7 +56,7 @@ import {
   type RelayWebSocketCtor,
 } from "../remote-control/relay/connector";
 import { RelayIdentityStore } from "../remote-control/relay/identity";
-import { relayPairingUrl } from "../remote-control/relay/url";
+import { RelayRoom, type PairResult } from "../remote-control/relay-room";
 import type { AgentStatusSink } from "./agents";
 
 /** How long a relay the connector gave up on waits before it is redialled. */
@@ -180,6 +182,19 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     timing: options.timing,
   });
 
+  const room = new RelayRoom({
+    devices,
+    gate: () => gate,
+    relay: () => ({ connector, identity }),
+    appVersion: deps.appVersion,
+    // No relay card here to tell; the desktop sees the device count drop.
+    onStaleRevoked: (count) => {
+      console.warn(
+        `[host-server] relay identity changed; revoked ${count} device(s) paired to the old room`,
+      );
+    },
+  });
+
   let running = false;
   /**
    * Set once `init()` has read every store. Until then (or for good, when the
@@ -218,36 +233,11 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     }
   };
 
-  /** Refused and disconnected now; resolves once that is on disk. */
-  const revokeAll = async (ids: readonly string[]): Promise<void> => {
-    const saved = devices.revokeMany(ids);
-    for (const id of ids) gate.closeDevice(id);
-    await saved;
-  };
-
   const remoteControl: HostRemoteControl = {
-    async pair(label) {
-      const origin = connector.origin;
-      if (!origin) throw new Error("The relay address is not configured.");
-      const { roomId, x25519Pub } = identity.describe();
-      const { device, rawToken } = await devices.pair(label, roomId);
-      return {
-        device,
-        rawToken,
-        pairingUrl: relayPairingUrl({
-          origin,
-          appVersion: deps.appVersion,
-          roomId,
-          x25519Pub,
-          rawToken,
-        }),
-      };
-    },
+    pair: (label) => room.pair(label),
     listDevices: () => devices.list(),
     async revoke(id) {
-      // Revoke means now: the store stops new hellos, the gate closes the
-      // device's live channels.
-      await revokeAll([id]);
+      await room.revoke(id);
       return devices.list();
     },
     vapidPublicKey: () => push.publicKey(),
@@ -270,14 +260,7 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       // An identity that could not be read was replaced by a new one (a new
       // room); every device paired to the old room holds a dead link.
       const roomId = roomIdOrNull();
-      if (roomId === null) return;
-      const stale = devices.idsInOtherRelayRooms(roomId);
-      if (stale.length > 0) {
-        console.warn(
-          `[host-server] relay identity changed; revoking ${stale.length} device(s) paired to the old room`,
-        );
-        await revokeAll(stale);
-      }
+      if (roomId !== null) await room.revokeStale(roomId);
     },
 
     start() {
@@ -328,19 +311,11 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
 
     setVapidKeys: (keys) => push.importKeys(keys),
 
-    async resetIdentity() {
-      // The desktop's `resetRelayAddress` order: revoke and close while the
-      // old room still carries each device's 4401 (it reads as "re-pair"),
-      // then hang up (the connector holds the old keys) and regenerate.
-      await revokeAll(devices.ids());
+    resetIdentity() {
+      // A pending redial would dial the room being replaced.
       clearRetry();
-      connector.stop();
-      try {
-        await identity.reset();
-      } finally {
-        // Back on the air either way; a reset that was not saved rejects.
-        if (running) connector.start();
-      }
+      // Back on the air either way; a reset that was not saved rejects.
+      return room.reset({ redial: () => running });
     },
   };
 }

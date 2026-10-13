@@ -22,3 +22,8 @@ blocked_by: [11]
 ## Added from ticket 5
 
 5. `two-readers.test.ts` builds the desktop reader via `createAgentPipeline` but still hand-writes the desktop's arguments. Extract a small `desktopAgentPipelineOptions(...)` (or similar) helper that `initApp` (`electron/app-lifecycle.ts`) and the test both call, so a change in how the desktop configures the pipeline is caught. Keep it Electron-free.
+
+## Added from ticket 6
+
+6. `electron/host-server/layout.ts` header still says "Ticket 6 adds the synthetic 'Started while away' tab…" — stale; fix the comment.
+7. The shared harness should replace the `internals` callback usage in `electron/backend/__tests__/host-server-client.test.ts` where it simplifies things (keep `HostServerOptions.internals` only if tests still need it).

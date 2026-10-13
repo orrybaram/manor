@@ -113,11 +113,10 @@ describe("resetting the relay address", () => {
       relay: connector,
       relayIdentity: identityStore as unknown as RelayIdentityStore,
     };
-    const controller = new RemoteControlController(
-      async () => runtime,
-      deviceStore as unknown as RemoteDeviceStore,
-      null,
-    );
+    const controller = new RemoteControlController({
+      loadRuntime: async () => runtime,
+      devices: deviceStore as unknown as RemoteDeviceStore,
+    });
 
     connector.start();
     await until(() => connector.status.state === "running", "relay running");

@@ -531,13 +531,13 @@ export function initApp(devTitle: string | null): void {
     const relay = new RelayConnector({ identity: relayIdentityStore, gate });
     return { gate, relay, relayIdentity: relayIdentityStore };
   };
-  const remoteControl = new RemoteControlController(
-    loadRemoteControlRuntime,
-    remoteDeviceStore,
-    remotePush,
+  const remoteControl = new RemoteControlController({
+    loadRuntime: loadRemoteControlRuntime,
+    devices: remoteDeviceStore,
+    push: remotePush,
     appVersion,
-    (hostId) => hostPushEndpoints.get(hostId),
-  );
+    hostPushEndpoints: (hostId) => hostPushEndpoints.get(hostId),
+  });
   const paneContextMap = new Map<
     string,
     {

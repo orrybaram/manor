@@ -1,6 +1,6 @@
 ---
 title: Shared RelayRoom for desktop controller and host relay
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [6]

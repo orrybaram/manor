@@ -7,6 +7,9 @@
  * The runtime (gate + relay) loads lazily (ADR-205 §3), so the second half
  * covers what happens before it loads and what happens when calls race the
  * load — above all, that shutdown never leaves anything running.
+ *
+ * What a room operation does (links, revoke order, serialisation) is
+ * `RelayRoom`'s and is tested in `relay-room.test.ts`.
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
@@ -19,7 +22,6 @@ import type { RemoteDeviceStore } from "../devices";
 import type { PushManager } from "../push";
 import type { RelayConnector } from "../relay/connector";
 import type { RelayIdentityStore } from "../relay/identity";
-import { parseFragment } from "../../../src/bridge/web-pairing";
 import { base64urlEncode } from "../../../src/lib/relay-crypto";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
@@ -115,7 +117,6 @@ function fakes(options: { gateLoad?: boolean } = {}) {
       paired.push(device);
       return { device, rawToken: "raw-token-value" };
     }),
-    revoke: vi.fn(async (id: string) => revokeIds([id])),
     revokeMany: vi.fn(async (ids: readonly string[]) => revokeIds(ids)),
     ready: true,
     encryptionAvailable: () => true,
@@ -140,13 +141,13 @@ function fakes(options: { gateLoad?: boolean } = {}) {
   const push = { notify: vi.fn(async () => 1) };
   const hostEndpoints = new Map<string, ReadonlySet<string>>();
 
-  const controller = new RemoteControlController(
+  const controller = new RemoteControlController({
     loadRuntime,
-    deviceStore as unknown as RemoteDeviceStore,
-    push as unknown as PushManager,
-    "1.2.3",
-    (hostId) => hostEndpoints.get(hostId) ?? new Set(),
-  );
+    devices: deviceStore as unknown as RemoteDeviceStore,
+    push: push as unknown as PushManager,
+    appVersion: "1.2.3",
+    hostPushEndpoints: (hostId) => hostEndpoints.get(hostId) ?? new Set(),
+  });
   return {
     controller,
     gate,
@@ -208,32 +209,32 @@ describe("RemoteControlController", () => {
   });
 
   it("surfaces an unavailable keychain rather than hiding it", () => {
-    const c = new RemoteControlController(
-      async () => {
+    const c = new RemoteControlController({
+      loadRuntime: async () => {
         throw new Error("not loaded in this test");
       },
-      {
+      devices: {
         ready: true,
         list: () => [],
         encryptionAvailable: () => false,
       } as unknown as RemoteDeviceStore,
-    );
+    });
     expect(c.status().encryptionAvailable).toBe(false);
   });
 
   it("reports an unreadable device store instead of throwing", () => {
-    const c = new RemoteControlController(
-      async () => {
+    const c = new RemoteControlController({
+      loadRuntime: async () => {
         throw new Error("not loaded in this test");
       },
-      {
+      devices: {
         ready: false,
         list: () => {
           throw new Error("RemoteDeviceStore.init() has not completed");
         },
         encryptionAvailable: () => true,
       } as unknown as RemoteDeviceStore,
-    );
+    });
     const status = c.status();
     expect(status.devices).toEqual([]);
     expect(status.relayNotice).toMatch(/could not be read/);
@@ -314,20 +315,6 @@ describe("RemoteControlController", () => {
       expect(f.deviceStore.pair).not.toHaveBeenCalled();
     });
 
-    it("builds a relay link the browser's parser accepts", async () => {
-      await f.controller.setEnabled(true);
-      const result = await f.controller.pair("browser");
-      expect(result.pairingUrl).toBe(
-        `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&t=raw-token-value`,
-      );
-      expect(f.deviceStore.pair).toHaveBeenCalledWith("browser", ROOM);
-      const hash = result.pairingUrl.slice(result.pairingUrl.indexOf("#"));
-      expect(parseFragment(hash)).toEqual({
-        kind: "relay",
-        relay: { roomId: ROOM, serverKey: KEY, token: "raw-token-value" },
-      });
-    });
-
     it("reports how many viewers came through the relay", async () => {
       expect(f.controller.status().relayViewers).toBe(0);
       await f.controller.setEnabled(true);
@@ -346,24 +333,6 @@ describe("RemoteControlController", () => {
       expect(f.identity.reset).toHaveBeenCalled();
       expect(status.relay.state).toBe("stopped");
       expect(status.devices).toEqual([]);
-    });
-
-    it("reset closes devices while the relay is still up, then stops it", async () => {
-      await f.controller.setEnabled(true);
-      await f.controller.pair("rl1");
-      await f.controller.pair("rl2");
-      await f.controller.startRelay();
-      f.order.length = 0;
-      await f.controller.resetRelayAddress();
-      // 4401 has to travel through the live relay; after `stop` it cannot.
-      expect(f.order).toEqual([
-        "revoke:dev-1",
-        "revoke:dev-2",
-        "close:dev-1",
-        "close:dev-2",
-        "relay",
-        "identity",
-      ]);
     });
 
     describe("an identity that changed underneath the devices", () => {

@@ -795,21 +795,14 @@ describe("host server", () => {
       };
     }
 
-    it("authenticates the owner hello as an owner, and only with role owner", () => {
+    it("authenticates the owner token, and only it, as the owner", () => {
       const auth = ownerTokenAuthenticator("tok");
-      expect(auth("tok", { type: "hello", token: "tok", role: "owner" })).toEqual({
+      expect(auth("tok")).toEqual({
         ok: true,
-        caller: "owner",
+        caller: { callerClass: "owner", deviceId: null, deviceLabel: null },
       });
-      expect(auth("tok", { type: "hello", token: "tok" })).toEqual({
-        ok: true,
-        caller: "owner",
-      });
-      expect(auth("tok", { type: "hello", token: "tok", role: "device" })).toMatchObject({
-        ok: false,
-        code: 4401,
-      });
-      expect(auth("nope", { type: "hello", token: "nope" })).toMatchObject({ ok: false });
+      expect(auth("nope")).toMatchObject({ ok: false, code: 4401 });
+      expect(auth(undefined)).toMatchObject({ ok: false, code: 4401 });
     });
 
     it("names itself in the hello, and the desktop's name wins", async () => {

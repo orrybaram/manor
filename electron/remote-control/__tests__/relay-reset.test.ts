@@ -15,7 +15,7 @@ import {
   roomIdFor,
   type RelayIdentity,
 } from "../../../src/lib/relay-crypto";
-import type { BridgeServer } from "../../bridge/server";
+import type { BridgeServer, BridgeServerDeps } from "../../bridge/server";
 import { WsBridgeServer } from "../../bridge/transports/ws";
 import {
   RemoteControlController,
@@ -95,7 +95,7 @@ describe("resetting the relay address", () => {
       accept: () => {},
       drop: () => {},
       receive: async () => null,
-    } as unknown as BridgeServer;
+    } as unknown as BridgeServer<BridgeServerDeps>;
     bridge = new WsBridgeServer(host, { appVersion: "9.9.9" });
     const gate = new RelayGate(deviceStore, bridge, new AuthRateLimiter());
     connector = new RelayConnector({

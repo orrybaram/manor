@@ -41,6 +41,11 @@ export const UNAVAILABLE_CODE = "unavailable:web";
  */
 export const UNAVAILABLE_HOST_CODE = "unavailable:host";
 
+/** The refusal a server answers with: one per kind of server. */
+export type UnavailableCode =
+  | typeof UNAVAILABLE_CODE
+  | typeof UNAVAILABLE_HOST_CODE;
+
 /** Whether a result frame's `code` is one of the `unavailable:*` refusals. */
 export function isUnavailableCode(code: unknown): boolean {
   return typeof code === "string" && code.startsWith("unavailable:");
@@ -175,9 +180,9 @@ export interface EventFrame {
  * - `local` — an Electron renderer window on this machine (the desktop).
  * - `owner` — the desktop reaching a host server over its owner channel
  *   (ADR-218 D4): `manor-host server-bridge` over ssh, so ssh is the
- *   authentication. Only a server built to admit owners (the host server)
- *   lets one call `LOCAL_ONLY` methods; any other server treats an owner
- *   exactly like a device.
+ *   authentication. Only a table whose `localOnlyCallers` names `owner`
+ *   (the host server's) lets one call `LOCAL_ONLY` methods; any other server
+ *   refuses an owner them exactly as it refuses a device.
  * - `device` — a paired `full` device, through the relay.
  */
 export type CallerClass = "local" | "owner" | "device";

@@ -16,10 +16,10 @@
  * 4401 still reads as "your token is wrong".
  *
  * **Authentication is the hello**, exactly as on the relay
- * (`transports/ws.ts`): `{"type":"hello","token":<owner-token>,"role":"owner"}` first,
- * within the hello timeout, or the socket is closed. The token is the 0600
- * `dataDir/owner-token`; whoever can read it is this box's user, and that
- * user already reaches every terminal here.
+ * (`transports/ws.ts`): `{"type":"hello","token":<owner-token>}` first, within
+ * the hello timeout, or the socket is closed. The token is the 0600
+ * `dataDir/owner-token`, and it is the whole credential: whoever can read it
+ * is this box's user, and that user already reaches every terminal here.
  */
 
 import crypto from "node:crypto";
@@ -84,24 +84,26 @@ function digest(value: string): Buffer {
   return crypto.createHash("sha256").update(value).digest();
 }
 
+/** The owner, as the connection the owner socket's hello becomes. */
+const OWNER_CALLER = {
+  callerClass: "owner",
+  deviceId: null,
+  deviceLabel: null,
+} as const;
+
 /**
  * The hello check for the owner socket (ADR-218 D4): the token must be the
- * owner token, compared in constant time, and a hello that names a `role`
- * must name `owner` (what `manor-host server-bridge` sends). Answers
- * `caller: "owner"`, which the host server lets call `LOCAL_ONLY` methods
- * such as pairing and the manifest sync.
+ * owner token, compared in constant time. Answers an `owner` caller, which
+ * the host table lets call `LOCAL_ONLY` methods such as pairing and the
+ * manifest sync.
  */
 export function ownerTokenAuthenticator(token: string): BridgeAuthenticator {
   const expected = digest(token);
-  return (presented, hello) => {
-    if (typeof presented !== "string")
-      return { ok: false, code: CLOSE_UNAUTHORIZED };
-    if (hello?.role !== undefined && hello.role !== "owner")
-      return { ok: false, code: CLOSE_UNAUTHORIZED };
-    return crypto.timingSafeEqual(digest(presented), expected)
-      ? { ok: true, caller: "owner" }
+  return (presented) =>
+    typeof presented === "string" &&
+    crypto.timingSafeEqual(digest(presented), expected)
+      ? { ok: true, caller: OWNER_CALLER }
       : { ok: false, code: CLOSE_UNAUTHORIZED };
-  };
 }
 
 function trySetUmask(mask: number): number | null {

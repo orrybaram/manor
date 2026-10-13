@@ -30,3 +30,7 @@ blocked_by: [6]
 - `electron/remote-control/relay-room.ts` (new), `controller.ts`
 - `electron/host-server/relay.ts`, `server.ts` (if wiring changes)
 - `electron/remote-control/__tests__/relay-room.test.ts` (new), `controller.test.ts`, `electron/host-server/__tests__/host-server.test.ts`
+
+## Added from ticket 2
+
+5. `RemoteControlController`'s constructor is now `(loadRuntime, deviceStore, push = null, appVersion = "0.0.0", hostPushEndpoints = () => EMPTY_SET)` — five positional params with optional tails. When restructuring it around `RelayRoom`, take a single options object.

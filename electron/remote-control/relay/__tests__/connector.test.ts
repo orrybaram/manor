@@ -12,7 +12,7 @@ import {
   type RelayIdentity,
 } from "../../../../src/lib/relay-crypto";
 import { MAX_RELAY_PAYLOAD_BYTES } from "../../../../src/lib/relay-crypto/protocol";
-import type { BridgeServer } from "../../../bridge/server";
+import type { BridgeServer, BridgeServerDeps } from "../../../bridge/server";
 import {
   WsBridgeServer,
   type BridgeAuthResult,
@@ -89,7 +89,7 @@ describe("RelayConnector", () => {
         const result = frame.method === "test.big" ? BIG : { echo: frame.args };
         return { id: frame.id, kind: "result", ok: true, result };
       },
-    } as unknown as BridgeServer;
+    } as unknown as BridgeServer<BridgeServerDeps>;
     bridge = new WsBridgeServer(host, { appVersion: "9.9.9" });
     gate = new RelayGate(
       {

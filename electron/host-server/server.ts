@@ -41,9 +41,8 @@ import { createLocalBackend } from "../backend/host-backend";
 import type { HostStatus, HostStatusInfo } from "../backend/host-connection";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { wireChatMirror } from "../bridge/handlers/chat";
-import { BridgeServerCore } from "../bridge/server-core";
+import { BridgeServer } from "../bridge/server";
 import { WsBridgeServer } from "../bridge/transports/ws";
-import { UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import { ChatMirror, pickPaneAgent } from "../chat-mirror/mirror";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { errorMessage } from "../lib/errors";
@@ -55,6 +54,7 @@ import {
 import type { SecretBox } from "../platform/secret-box";
 import { PreferencesManager } from "../preferences";
 import { RemoteAuditLog } from "../remote-control/audit";
+import { createBroadcastBus } from "../renderer-broadcast";
 import { TerminalHostClient } from "../terminal-host/client";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
@@ -106,7 +106,7 @@ export interface HostServer {
   /** Close every connection, persist agents and the hook cursor, let go. */
   stop(): Promise<void>;
   /** The dispatcher every transport attaches to. */
-  readonly bridge: BridgeServerCore<HostServerDeps>;
+  readonly bridge: BridgeServer<HostServerDeps>;
   /**
    * The hello gate over `FrameSocket`s: the owner socket (`serve.ts`) and,
    * in ticket 3, the relay's channels.
@@ -163,12 +163,16 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   client.setReconnectPolicy(daemonRetryDelayMs);
   const daemon = createLocalBackend(client);
 
-  let bridge: BridgeServerCore<HostServerDeps> | null = null;
+  let bridge: BridgeServer<HostServerDeps> | null = null;
   let chatMirror: ChatMirror | null = null;
   let relay: HostRelay | null = null;
+  // This server's keyless pushes — agents, the owner's syncs — heard by its
+  // bridge and chat mirror and nobody else in the process.
+  const events = createBroadcastBus();
 
   const agents = createHostAgents({
     dataDir: paths.dataDir,
+    publish: events.publish,
     // A new agent's project, from the owner's last manifest and layout.
     getPaneContext: (paneId) =>
       paneContextFrom(
@@ -198,7 +202,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     sourceFor: () => localTranscripts,
     write: (paneId, data) => daemon.pty.write(paneId, data),
     publish: (paneId, entry) =>
-      bridge?.publishKeyed("chat", "entry", [paneId, entry], paneId),
+      bridge?.publish("chat", "entry", [paneId, entry], paneId),
   });
 
   // ── the daemon's connection, as `hosts.list` reports it ──
@@ -234,11 +238,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   };
 
   // The owner's manifest and layout pushes (ADR-218 D4, D5), announced on
-  // this server's own bridge. Read at call time: the bridge is built below.
-  const ownerSync = createOwnerSync({
-    paths,
-    publish: (ns, event, args) => bridge?.broadcast(ns, event, args),
-  });
+  // this server's own bus.
+  const ownerSync = createOwnerSync({ paths, publish: events.publish });
 
   const winsize = createHostWinsize({
     listSessions: () => daemon.pty.listSessions(),
@@ -281,11 +282,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     },
   };
 
-  bridge = new BridgeServerCore(deps, {
+  bridge = new BridgeServer(deps, {
     table: HOST_TABLE,
-    unavailableCode: UNAVAILABLE_HOST_CODE,
-    // The desktop on the owner socket may pair, revoke and sync (D4).
-    admitsOwner: true,
+    events: events.subscribe,
     // The daemon's attach count, not only this server's registry (D5).
     heldElsewhere: (paneId) => winsize.isForeign(paneId),
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
@@ -306,7 +305,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     options: opts.relay,
   });
   relay = builtRelay;
-  const unwireChat = wireChatMirror({ chatMirror }, bridge);
+  const unwireChat = wireChatMirror({ chatMirror }, bridge, events.subscribe);
 
   // ── hooks ──
   const cursorStore = fileHookCursorStore(paths.hookCursor, {

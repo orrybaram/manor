@@ -12,7 +12,7 @@
  * never pull the main process in behind a type.
  */
 
-import type { HANDLERS } from "./handlers";
+import type { Handlers } from "./handlers";
 import type { EventName, SUBSCRIPTIONS, WireEventArgs } from "./events";
 
 type Fn = (...args: never[]) => unknown;
@@ -77,5 +77,5 @@ export type ListenersOf<S extends Record<string, EventName>> = Merge<
  * listener, merged into one set of namespaces.
  */
 export type BridgeApi = Merge<
-  ClientOf<typeof HANDLERS> & ListenersOf<typeof SUBSCRIPTIONS>
+  ClientOf<Handlers> & ListenersOf<typeof SUBSCRIPTIONS>
 >;

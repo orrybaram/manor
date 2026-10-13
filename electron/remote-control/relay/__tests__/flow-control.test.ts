@@ -11,7 +11,7 @@ import {
   roomIdFor,
   type RelayIdentity,
 } from "../../../../src/lib/relay-crypto";
-import type { BridgeServer } from "../../../bridge/server";
+import type { BridgeServer, BridgeServerDeps } from "../../../bridge/server";
 import {
   WsBridgeServer,
   type BridgeAuthResult,
@@ -67,7 +67,7 @@ describe("relay host socket flow control", () => {
         frame.kind === "invoke"
           ? { id: frame.id, kind: "result", ok: true, result: frame.args }
           : null,
-    } as unknown as BridgeServer;
+    } as unknown as BridgeServer<BridgeServerDeps>;
     bridge = new WsBridgeServer(host, {});
     const keys = identity;
     connector = new RelayConnector({
@@ -91,7 +91,11 @@ describe("relay host socket flow control", () => {
               token === TOKEN
                 ? {
                     ok: true,
-                    device: { id: "d", label: "p" },
+                    caller: {
+                      callerClass: "device",
+                      deviceId: "d",
+                      deviceLabel: "p",
+                    },
                   }
                 : { ok: false, code: 4401 },
           ),

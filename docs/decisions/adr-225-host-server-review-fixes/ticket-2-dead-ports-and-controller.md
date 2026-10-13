@@ -1,6 +1,6 @@
 ---
 title: Delete dead platform ports and simplify controller push-endpoint wiring
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1]

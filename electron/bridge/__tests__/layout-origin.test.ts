@@ -18,6 +18,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import type { HostDeps } from "../../ipc/types";
+import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import { DESKTOP_TABLE } from "../handlers";
 import { BridgeServer } from "../server";
 import { IpcBridgeTransport } from "../transports/ipc";
 import {
@@ -79,7 +81,7 @@ const SPLIT = {
 describe("a layout command's origin", () => {
   let windows: FakeWindow[];
   let transport: IpcBridgeTransport;
-  let server: BridgeServer;
+  let server: BridgeServer<HostDeps>;
   let apply: ReturnType<typeof vi.fn>;
   let reportViewport: ReturnType<typeof vi.fn>;
 
@@ -122,7 +124,7 @@ describe("a layout command's origin", () => {
     } as unknown as HostDeps;
     // The real table: the point is what `HANDLERS["layout.apply"]` makes of
     // the caller the server hands it, not that a stub receives one.
-    server = new BridgeServer(deps);
+    server = new BridgeServer(deps, { table: DESKTOP_TABLE, events: addRendererBroadcastSink });
     transport = new IpcBridgeTransport(deps, server);
     transport.start();
   });

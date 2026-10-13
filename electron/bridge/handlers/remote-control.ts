@@ -30,7 +30,7 @@ import type {
 import { asPushSubscription } from "../../remote-control/push";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";
-import { method, type HandlerCtx } from "../method";
+import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
  * A handler that reads only `keys` of the remote-control surface. The host
@@ -131,7 +131,7 @@ export function remoteControlResetRelayAddress(
 export function remoteControlVapidPublicKey(
   ctx: RemoteControlCtx<"vapidPublicKey">,
 ): Promise<string | null> {
-  assertDevice(ctx);
+  assertDevice(ctx.caller);
   return ctx.deps.remoteControl.vapidPublicKey();
 }
 
@@ -139,7 +139,7 @@ export function remoteControlSubscribePush(
   ctx: RemoteControlCtx<"subscribePush">,
   subscription: unknown,
 ): true {
-  const deviceId = assertDevice(ctx);
+  const deviceId = assertDevice(ctx.caller);
   const record = asPushSubscription(subscription);
   if (!record) throw new Error("Expected a push subscription");
   if (!ctx.deps.remoteControl.subscribePush(deviceId, record)) {
@@ -148,8 +148,7 @@ export function remoteControlSubscribePush(
   return true;
 }
 
-function assertDevice(ctx: Pick<HandlerCtx<unknown>, "caller">): string {
-  const { callerClass, deviceId } = ctx.caller;
+function assertDevice({ callerClass, deviceId }: Caller): string {
   if (callerClass !== "device" || !deviceId) {
     throw new Error("Push subscriptions are for paired devices only.");
   }

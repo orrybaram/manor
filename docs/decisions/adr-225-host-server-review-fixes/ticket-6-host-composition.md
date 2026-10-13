@@ -37,3 +37,7 @@ blocked_by: [5]
 - `electron/host-server/owner.ts`, `manifest.ts`, `layout.ts`, `server.ts`, `handlers.ts`, `serve.ts`, `lifecycle.ts`, `started-while-away.ts`, `relay.ts`, `index.ts`, new `owner-snapshot.ts` / `pid-file.ts`
 - `electron/backend/hook-feed.ts`, `electron/backend/host-server-sync.ts`
 - `electron/host-server/__tests__/*`
+
+## Added from ticket 2
+
+10. Fix the eslint `no-useless-assignment` error in `electron/host-server/lifecycle.ts` (~174).

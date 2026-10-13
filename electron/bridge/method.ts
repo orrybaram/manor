@@ -8,7 +8,7 @@
  */
 
 import type { HostDeps } from "../ipc/types";
-import type { CallerClass } from "./types";
+import type { CallerClass, UnavailableCode } from "./types";
 
 /**
  * Who is calling, as the transport saw it — never as the frame says.
@@ -131,7 +131,7 @@ export function flatten<const T extends Record<string, Table>>(
 }
 
 /** The keys of `methods` whose entry carries `rule`. */
-export function ruleSet(
+function ruleSet(
   methods: Record<string, Method>,
   rule: keyof MethodRules,
 ): ReadonlySet<string> {
@@ -140,6 +140,57 @@ export function ruleSet(
       .filter(([, entry]) => entry.rules[rule])
       .map(([key]) => key),
   );
+}
+
+/**
+ * What a `BridgeServer` dispatches: `ns.method` → handler, the rule sets read
+ * off the same entries, and what kind of server answers with it
+ * (`./handlers.ts` for the desktop, `../host-server/handlers.ts` for a host
+ * server).
+ */
+export interface HandlerTable<D> {
+  handlers: Readonly<Record<string, BridgeHandler<D>>>;
+  /** Refused to every caller class not in `localOnlyCallers` (ADR-180 D4). */
+  localOnly: ReadonlySet<string>;
+  /** Audited when a device calls them. */
+  mutating: ReadonlySet<string>;
+  /** First argument is a credential; never written to the audit line. */
+  secretFirstArg: ReadonlySet<string>;
+  /**
+   * How a method absent from the table (or refused as `localOnly`) is
+   * answered: `unavailable:web`, "in the browser" on the desktop;
+   * `unavailable:host`, "on this host" on a host server (ADR-218 D6).
+   */
+  unavailable: { code: UnavailableCode; where: string };
+  /**
+   * Who may call `localOnly` methods: a desktop window (`local`) on the
+   * desktop, the owner channel (`owner`, ADR-218 D4) on a host server. A
+   * device never; an owner reaching the desktop's server — which no desktop
+   * transport makes — is refused them like a device.
+   */
+  localOnlyCallers: ReadonlySet<CallerClass>;
+}
+
+/**
+ * A flattened table as the `HandlerTable` a server dispatches on.
+ *
+ * `D` is checked here: every entry's handler must run over `D`, so a handler
+ * that reads more deps than its server has fails to compile at the table,
+ * not at a caller's first call.
+ */
+export function toHandlerTable<D>(
+  methods: Readonly<Record<string, Method<BridgeHandler<D>>>>,
+  surface: Pick<HandlerTable<D>, "unavailable" | "localOnlyCallers">,
+): HandlerTable<D> {
+  return {
+    handlers: Object.fromEntries(
+      Object.entries(methods).map(([key, entry]) => [key, entry.fn]),
+    ),
+    localOnly: ruleSet(methods, "localOnly"),
+    mutating: ruleSet(methods, "mutating"),
+    secretFirstArg: ruleSet(methods, "secretFirstArg"),
+    ...surface,
+  };
 }
 
 /**

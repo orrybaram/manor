@@ -31,7 +31,7 @@ import {
   agentCommandWithPrompt,
   agentCommandWithPromptFile,
 } from "../../../src/lib/agent-command";
-import type { BridgeServerDeps, HostDeps } from "../../ipc/types";
+import type { HostDeps } from "../../ipc/types";
 import type {
   PtyCreateOptions,
   PtyCreateResult,
@@ -39,6 +39,7 @@ import type {
   PtyWinsize,
 } from "../../../src/electron.d";
 import { method, type Caller, type HandlerCtx } from "../method";
+import { sessionGrid, type BridgeServerDeps } from "../server";
 
 /**
  * Read git branch synchronously from a repo or worktree root, for this
@@ -133,27 +134,6 @@ function asViewer(caller: Caller): Viewer {
 
 /** What a create-shaped call tells the caller about the winsize (D5). */
 type WinsizeDecoration = Required<PtyWinsize>;
-
-/**
- * The session's current grid, or null if the daemon has no opinion yet.
- *
- * Never throws: a caller that cannot be told the owner's size is better off
- * with the size it asked for than with a failed `pty.create`. Exported for
- * `server.ts`'s ownership-change push (D6), which needs the same "ask the
- * daemon, shrug on failure" grid lookup outside of a create call.
- */
-export async function sessionGrid(
-  deps: BridgeServerDeps,
-  paneId: string,
-): Promise<{ cols: number; rows: number } | null> {
-  try {
-    const snapshot = await deps.backend.pty.getSnapshot(paneId);
-    if (!snapshot?.cols || !snapshot.rows) return null;
-    return { cols: snapshot.cols, rows: snapshot.rows };
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Run a create-shaped call, tell the caller who owns the winsize, and attach
@@ -430,7 +410,7 @@ export function ptyWrite(
  * sends the resize, through `ptyResize`, as any owner's does.
  */
 export function ptyClaimWinsize(
-  ctx: HandlerCtx<unknown>,
+  ctx: HandlerCtx<PtyViewerDeps>,
   paneId: string,
 ): boolean {
   assertString(paneId, "paneId");

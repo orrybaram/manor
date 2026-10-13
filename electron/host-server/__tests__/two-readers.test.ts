@@ -161,6 +161,7 @@ function desktopReader(dir: string, journal: HookJournal): Reader {
 function hostReader(dir: string, journal: HookJournal): Reader {
   const agents = createHostAgents({
     dataDir: dir,
+    publish: () => {},
     monoClock: clock,
     wallClock: clock,
     log: () => {},

@@ -24,7 +24,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import type { EventArgs, EventNs, EventOf } from "../bridge/events";
+import type { BroadcastBus } from "../renderer-broadcast";
 import { assertNumber, assertString } from "../ipc-validate";
 import type { HostServerPaths } from "../paths";
 import {
@@ -357,12 +357,8 @@ export function writeJsonAtomic(file: string, value: unknown): void {
   }
 }
 
-/** A keyless event to this server's connections (`BridgeServerCore.broadcast`). */
-export type OwnerSyncPublish = <N extends EventNs, E extends EventOf<N>>(
-  ns: N,
-  event: E,
-  args: EventArgs<N, E>,
-) => void;
+/** A keyless event to this server's connections: its bus (`./server.ts`). */
+type OwnerSyncPublish = BroadcastBus["publish"];
 
 export interface OwnerSync {
   /** Validate, persist and announce a manifest. */
@@ -383,7 +379,7 @@ export function createOwnerSync(opts: {
     syncManifest(manifest) {
       assertHostManifest(manifest);
       writeJsonAtomic(paths.manifest, manifest);
-      publish("projects", "changed", []);
+      publish("projects", "changed");
       return true;
     },
 
@@ -405,7 +401,7 @@ export function createOwnerSync(opts: {
           claims: [],
           origin: OWNER_ORIGIN,
         };
-        publish("layout", "changed", [payload]);
+        publish("layout", "changed", payload);
       }
       for (const [workspacePath, entry] of Object.entries(before)) {
         if (workspacePath in snapshot.workspaces) continue;
@@ -417,7 +413,7 @@ export function createOwnerSync(opts: {
           origin: OWNER_ORIGIN,
           removed: true,
         };
-        publish("layout", "changed", [payload]);
+        publish("layout", "changed", payload);
       }
       return true;
     },

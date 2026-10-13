@@ -7,7 +7,7 @@
  *
  *   relay ──channel──▶ RelayGate (device verify, backoff)
  *                        ──▶ the server's hello gate (`frames`)
- *                              ──▶ BridgeServerCore, as `callerClass: "device"`
+ *                              ──▶ BridgeServer, as `callerClass: "device"`
  *
  * So a phone on this room is a device to the host table exactly as it is to
  * the desktop's: LOCAL_ONLY methods (pairing, revoke, status, reset) answer

@@ -29,7 +29,7 @@ import {
 import type { PaneContext } from "../agent-status/effects";
 import { NotificationCoalescer, type HookSink } from "../backend/hook-feed";
 import { LOCAL_HOST_ID } from "../backend/types";
-import { publishRendererBroadcast } from "../renderer-broadcast";
+import type { BroadcastBus } from "../renderer-broadcast";
 import type { AgentStatus } from "../terminal-host/types";
 
 export type AgentStatusSink = (
@@ -41,6 +41,11 @@ export type AgentStatusSink = (
 export interface HostAgentsOptions {
   /** Where `agents.json` lives: the server's `dataDir`. */
   dataDir: string;
+  /**
+   * Where `agents.updated` / `agents.status` go: the host server's own bus,
+   * which its bridge and chat mirror listen on (`./server.ts`).
+   */
+  publish: BroadcastBus["publish"];
   retentionDays?: number;
   /**
    * The project a pane belongs to, for a new agent's record. The desktop
@@ -81,7 +86,7 @@ export function createHostAgents(opts: HostAgentsOptions): HostAgents {
   // `sendAgentUpdate`'s broadcast, minus the dock badge (notifications.ts
   // is the desktop's and imports Electron).
   const broadcastAgent = (agent: AgentInfo): void => {
-    publishRendererBroadcast("agents", "updated", agent, {
+    opts.publish("agents", "updated", agent, {
       responded: unseenRespondedAgents.has(agent.id),
       requires_input: unseenInputAgents.has(agent.id),
     });
@@ -102,7 +107,7 @@ export function createHostAgents(opts: HostAgentsOptions): HostAgents {
     broadcastAgent,
     maybeSendNotification: coalescer.send,
     publishPaneStatus: (update) =>
-      publishRendererBroadcast("agents", "status", update),
+      opts.publish("agents", "status", update),
     ...(opts.monoClock ? { monoClock: opts.monoClock } : {}),
     ...(opts.wallClock ? { wallClock: opts.wallClock } : {}),
     ...(opts.log ? { log: opts.log } : {}),

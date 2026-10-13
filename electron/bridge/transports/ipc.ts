@@ -141,7 +141,7 @@ export class IpcBridgeTransport {
    */
   constructor(
     private readonly deps: HostDeps,
-    private readonly server: BridgeServer,
+    private readonly server: BridgeServer<HostDeps>,
   ) {}
 
   /** Renderer windows that have spoken at least one frame. */
@@ -178,7 +178,7 @@ export class IpcBridgeTransport {
    *
    * The addressed half of the event migration — `appCommands.command` to the
    * primary window, `menu.command` to the focused one — is all "tell *that
-   * one* renderer", and `BridgeServer.sendTo` wants an id rather than a
+   * one* renderer", and an addressed broadcast wants an id rather than a
    * window. Turning one into the other is this
    * transport's private business: a connection id happens to be
    * `String(webContents.id)` today, and a send-site that spelled that out for

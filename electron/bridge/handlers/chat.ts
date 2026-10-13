@@ -13,7 +13,7 @@ import type { AgentInfo } from "../../agent-persistence";
 import { assertString } from "../../ipc-validate";
 import type { HostDeps } from "../../ipc/types";
 import type { PtyBackend } from "../../backend/types";
-import { addRendererBroadcastSink } from "../../renderer-broadcast";
+import type { BroadcastSource } from "../../renderer-broadcast";
 import type {
   ChatAnswer,
   ChatAnswerResult,
@@ -119,9 +119,10 @@ function assertChatAnswer(value: unknown): asserts value is ChatAnswer {
 /**
  * The mirror's two outside signals, wired once at boot.
  *
- * - Every agent update (`agents.updated`, from its single send-site) re-checks
- *   that pane's transcript path: `/clear` and resume switch transcripts, and
- *   the hook that says so updates the agent.
+ * - Every agent update (`agents.updated`, from its single send-site, heard on
+ *   `events` — the same source the bridge forwards) re-checks that pane's
+ *   transcript path: `/clear` and resume switch transcripts, and the hook
+ *   that says so updates the agent.
  * - The bridge's subscriber count for `chat.entry` is what turns a pane's
  *   watcher on and off.
  */
@@ -131,9 +132,10 @@ export function wireChatMirror(
     onSubscriptionChange(cb: (name: string, key: string) => void): () => void;
     hasSubscriber(ns: string, event: string, key: string): boolean;
   },
+  events: BroadcastSource,
 ): () => void {
   const { chatMirror } = deps;
-  const offAgents = addRendererBroadcastSink((broadcast) => {
+  const offAgents = events((broadcast) => {
     if (broadcast.ns !== "agents" || broadcast.event !== "updated") return;
     const agent = broadcast.args[0] as AgentInfo | undefined;
     if (agent?.paneId) chatMirror.agentChanged(agent.paneId);

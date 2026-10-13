@@ -43,14 +43,11 @@ import {
 import {
   flatten,
   method,
-  ruleSet,
-  type BridgeHandler,
+  toHandlerTable,
   type HandlerCtx,
-  type Method,
-  type MethodRules,
 } from "../bridge/method";
-import type { HandlerTable } from "../bridge/server-core";
-import type { BridgeServerDeps } from "../ipc/types";
+import type { BridgeServerDeps } from "../bridge/server";
+import { UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
 import { resolveSpawnCwd } from "../paths";
@@ -403,98 +400,85 @@ function hostServerSyncLayout(ctx: Ctx, snapshot: unknown): true {
   return ctx.deps.hostServer.syncLayout(snapshot);
 }
 
-/**
- * A host table entry: `method`, checked against `HostServerDeps`, so a
- * desktop handler that reads more than this server has fails to compile here
- * rather than at a phone's first call.
- */
-function hostMethod<
-  F extends BridgeHandler<HostServerDeps>,
-  const R extends MethodRules = Record<never, never>,
->(fn: F, rules?: R): Method<F, R> {
-  return method(fn, rules);
-}
-
 const METHODS = flatten({
   pty: {
     // Attaching is audited like the desktop's create; typing is not.
-    create: hostMethod(hostPtyCreate, { mutating: true }),
-    write: hostMethod(ptyWrite),
-    resize: hostMethod(hostPtyResize),
-    claimWinsize: hostMethod(hostPtyClaimWinsize),
-    detach: hostMethod(ptyDetach),
+    create: method(hostPtyCreate, { mutating: true }),
+    write: method(ptyWrite),
+    resize: method(hostPtyResize),
+    claimWinsize: method(hostPtyClaimWinsize),
+    detach: method(ptyDetach),
   },
   agents: {
-    getAll: hostMethod(agentsGetAll),
-    get: hostMethod(agentsGet),
-    getActive: hostMethod(agentsGetActive),
-    getRecent: hostMethod(agentsGetRecent),
-    getUnseen: hostMethod(agentsGetUnseen),
-    getPaneStatuses: hostMethod(agentsGetPaneStatuses),
+    getAll: method(agentsGetAll),
+    get: method(agentsGet),
+    getActive: method(agentsGetActive),
+    getRecent: method(agentsGetRecent),
+    getUnseen: method(agentsGetUnseen),
+    getPaneStatuses: method(agentsGetPaneStatuses),
   },
   projects: {
-    getAll: hostMethod(projectsGetAll),
-    getSelectedIndex: hostMethod(projectsGetSelectedIndex),
+    getAll: method(projectsGetAll),
+    getSelectedIndex: method(projectsGetSelectedIndex),
   },
   // Reads only. Every layout write (`apply`, `setPaneTitle`,
   // `setPendingCommand`) and the viewport report are absent, so a device is
   // answered `unavailable:host` — the renderer's once-per-session "read and
   // type" toast (`handleBridgeUnavailable`), not an error (ADR-218 D5).
   layout: {
-    getAll: hostMethod(layoutGetAll),
-    getLastActive: hostMethod(layoutGetLastActive),
+    getAll: method(layoutGetAll),
+    getLastActive: method(layoutGetLastActive),
   },
   chat: {
-    getHistory: hostMethod(chatGetHistory),
-    getCommands: hostMethod(chatGetCommands),
-    send: hostMethod(chatSend),
-    interrupt: hostMethod(chatInterrupt),
-    answer: hostMethod(chatAnswer),
+    getHistory: method(chatGetHistory),
+    getCommands: method(chatGetCommands),
+    send: method(chatSend),
+    interrupt: method(chatInterrupt),
+    answer: method(chatAnswer),
   },
   preferences: {
-    getAll: hostMethod(preferencesGetAll),
+    getAll: method(preferencesGetAll),
   },
   theme: {
-    get: hostMethod(themeGet),
-    getSelectedName: hostMethod(themeGetSelectedName),
-    hasGhosttyConfig: hostMethod(themeHasGhosttyConfig),
-    preview: hostMethod(themePreview),
-    allColors: hostMethod(themeAllColors),
+    get: method(themeGet),
+    getSelectedName: method(themeGetSelectedName),
+    hasGhosttyConfig: method(themeHasGhosttyConfig),
+    preview: method(themePreview),
+    allColors: method(themeAllColors),
   },
   hosts: {
-    list: hostMethod(hostsList),
+    list: method(hostsList),
   },
   // A token that can pair more devices survives its own revocation: what
   // changes who can reach this room is the owner's alone (`localOnly`, so a
   // device is answered `unavailable:host`). The push pair is for devices.
   remoteControl: {
-    pair: hostMethod(remoteControlPair, { localOnly: true }),
-    listDevices: hostMethod(remoteControlListDevices, { localOnly: true }),
-    revoke: hostMethod(remoteControlRevoke, { localOnly: true }),
-    vapidPublicKey: hostMethod(remoteControlVapidPublicKey),
-    subscribePush: hostMethod(remoteControlSubscribePush),
+    pair: method(remoteControlPair, { localOnly: true }),
+    listDevices: method(remoteControlListDevices, { localOnly: true }),
+    revoke: method(remoteControlRevoke, { localOnly: true }),
+    vapidPublicKey: method(remoteControlVapidPublicKey),
+    subscribePush: method(remoteControlSubscribePush),
   },
   // The owner's alone (ADR-218 D4): `localOnly` admits the `owner` caller
   // this server's socket authenticates (`./socket.ts`), and refuses every
   // device. A phone may read what the owner synced, never write it.
   hostServer: {
-    status: hostMethod(hostServerStatus, { localOnly: true }),
-    resetIdentity: hostMethod(hostServerResetIdentity, { localOnly: true }),
-    syncManifest: hostMethod(hostServerSyncManifest, { localOnly: true }),
-    syncLayout: hostMethod(hostServerSyncLayout, { localOnly: true }),
-    setVapidKeys: hostMethod(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
+    status: method(hostServerStatus, { localOnly: true }),
+    resetIdentity: method(hostServerResetIdentity, { localOnly: true }),
+    syncManifest: method(hostServerSyncManifest, { localOnly: true }),
+    syncLayout: method(hostServerSyncLayout, { localOnly: true }),
+    setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
   },
 });
 
-const methods = METHODS as Record<string, Method>;
-
-/** The table `BridgeServerCore` dispatches on a host server. */
-export const HOST_TABLE: HandlerTable<HostServerDeps> = {
-  // Each entry was checked against `HostServerDeps` by `hostMethod`.
-  handlers: Object.fromEntries(
-    Object.entries(methods).map(([key, entry]) => [key, entry.fn]),
-  ) as Record<string, BridgeHandler<HostServerDeps>>,
-  localOnly: ruleSet(methods, "localOnly"),
-  mutating: ruleSet(methods, "mutating"),
-  secretFirstArg: ruleSet(methods, "secretFirstArg"),
-};
+/**
+ * The table a host server's `BridgeServer` dispatches on. Every entry is
+ * checked against `HostServerDeps` here, so a desktop handler that reads more
+ * than this server has fails to compile rather than at a phone's first call.
+ * Refusals read `unavailable:host`; only the owner may call a `localOnly`
+ * method (the desktop on the owner socket pairs, revokes and syncs, D4).
+ */
+export const HOST_TABLE = toHandlerTable<HostServerDeps>(METHODS, {
+  unavailable: { code: UNAVAILABLE_HOST_CODE, where: "on this host" },
+  localOnlyCallers: new Set(["owner"]),
+});

@@ -51,10 +51,14 @@ import {
 } from "./backend/host-server-sync";
 import { RoutedBackend } from "./backend/routed-backend";
 import { PrewarmManager } from "./prewarm-manager";
-import { publishRendererBroadcast } from "./renderer-broadcast";
+import {
+  addRendererBroadcastSink,
+  publishRendererBroadcast,
+} from "./renderer-broadcast";
 import { RemoteDeviceStore } from "./remote-control/devices";
 import { RelayIdentityStore } from "./remote-control/relay/identity";
 import { BridgeServer } from "./bridge/server";
+import { DESKTOP_TABLE } from "./bridge/handlers";
 import type { WsBridgeServer } from "./bridge/transports/ws";
 import { IpcBridgeTransport } from "./bridge/transports/ipc";
 import {
@@ -512,7 +516,7 @@ export function initApp(devTitle: string | null): void {
    * same `bridgeServer` the desktop's windows do: one table, one connection
    * registry, two transports.
    */
-  let bridgeServer: BridgeServer | null = null;
+  let bridgeServer: BridgeServer<HostDeps> | null = null;
   let wsBridge: WsBridgeServer | null = null;
   let ipcBridge: IpcBridgeTransport | null = null;
   const loadRemoteControlRuntime = async (): Promise<RemoteControlRuntime> => {
@@ -732,7 +736,7 @@ export function initApp(devTitle: string | null): void {
     sourceFor,
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) =>
-      bridgeServer?.publishKeyed("chat", "entry", [paneId, entry], paneId),
+      bridgeServer?.publish("chat", "entry", [paneId, entry], paneId),
   });
 
   backendRegistry.onEvent((hostId: string, event: StreamEvent) => {
@@ -826,7 +830,10 @@ export function initApp(devTitle: string | null): void {
   // get, by design: one table of what this host can do. The surface is built
   // here rather than inside a transport because it is the thing every
   // transport attaches to.
-  bridgeServer = new BridgeServer(ipcDeps);
+  bridgeServer = new BridgeServer(ipcDeps, {
+    table: DESKTOP_TABLE,
+    events: addRendererBroadcastSink,
+  });
   // A connection that drops has already let go of every pane it viewed
   // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
   // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
@@ -861,7 +868,7 @@ export function initApp(devTitle: string | null): void {
   // dressing.
   wireStatsBroadcast(ipcDeps);
   wireAgentActivityBroadcast(ipcDeps);
-  wireChatMirror(ipcDeps, bridgeServer);
+  wireChatMirror(ipcDeps, bridgeServer, addRendererBroadcastSink);
   wirePreferencesBroadcast(ipcDeps);
   wireKeybindingsBroadcast(ipcDeps);
   wireRemoteControlStatus(ipcDeps);

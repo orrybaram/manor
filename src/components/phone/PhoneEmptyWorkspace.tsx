@@ -1,6 +1,6 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import { useState } from "react";
-import { useHostRestricted, HOST_UNAVAILABLE_COPY } from "../../bridge/host-restrictions";
+import { hostServerUnavailableCopy, useConnection } from "../../bridge/connection";
 import { getAgentKindForCommand } from "../../agent-defaults";
 import { launchAgentInWorkspace } from "../../lib/agent-prompt-launch";
 import { resolveWorkspaceCommand } from "../../lib/keybinding-commands";
@@ -25,8 +25,8 @@ export function PhoneEmptyWorkspace() {
 
   // A host server does not launch agents (ADR-218 D5): say so instead of
   // offering a composer whose first message goes nowhere.
-  const restricted = useHostRestricted();
-  const canSend = !restricted && text.trim().length > 0;
+  const { isHostServer, hostName } = useConnection();
+  const canSend = !isHostServer && text.trim().length > 0;
 
   const send = () => {
     if (!canSend) return;
@@ -49,9 +49,9 @@ export function PhoneEmptyWorkspace() {
           <ManorLogo />
         </div>
       </div>
-      {restricted && (
+      {isHostServer && (
         <div className={styles.unavailable} data-testid="phone-empty-unavailable">
-          {HOST_UNAVAILABLE_COPY}
+          {hostServerUnavailableCopy("Starting new agents", hostName)}
         </div>
       )}
       <div className={chatStyles.composer} data-keyboard-lift>
@@ -60,7 +60,7 @@ export function PhoneEmptyWorkspace() {
             className={chatStyles.composerInput}
             value={text}
             rows={1}
-            disabled={restricted}
+            disabled={isHostServer}
             placeholder="Ask Claude…"
             aria-label="First message for a new agent"
             data-testid="phone-empty-composer-input"

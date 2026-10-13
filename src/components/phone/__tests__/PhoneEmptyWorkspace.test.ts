@@ -15,7 +15,7 @@ vi.hoisted(() => {
 });
 
 import { PhoneEmptyWorkspace } from "../PhoneEmptyWorkspace";
-import { HOST_UNAVAILABLE_COPY, markHostRestricted } from "../../../bridge/host-restrictions";
+import { recordHello } from "../../../bridge/connection";
 
 describe("PhoneEmptyWorkspace on a host server", () => {
   let container: HTMLDivElement;
@@ -32,13 +32,15 @@ describe("PhoneEmptyWorkspace on a host server", () => {
     container.remove();
   });
 
-  it("says launching is not available once the host refuses with unavailable:host", () => {
+  afterEach(() => recordHello({ hostName: null }));
+
+  it("says launching is not available once the hello names a host server", () => {
     act(() => root.render(createElement(PhoneEmptyWorkspace)));
     expect(container.querySelector('[data-testid="phone-empty-unavailable"]')).toBeNull();
-    act(() => markHostRestricted());
+    act(() => recordHello({ hostName: "Studio" }));
     expect(
       container.querySelector('[data-testid="phone-empty-unavailable"]')?.textContent,
-    ).toBe(HOST_UNAVAILABLE_COPY);
+    ).toBe("Starting new agents is not available on Studio yet");
     expect(
       container.querySelector<HTMLButtonElement>('[data-testid="phone-empty-send"]')!.disabled,
     ).toBe(true);

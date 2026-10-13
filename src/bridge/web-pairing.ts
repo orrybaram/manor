@@ -27,24 +27,16 @@
  */
 
 import {
-  decodeX25519,
-  isValidRoomId,
-  listPairings,
+  isRelayCredentials,
   lastUsedPairing,
+  migrateLegacyPairing,
   removePairing,
   upsertPairing,
-  type StoredPairing,
+  type RelayCredentials,
 } from "./pairings";
 
 /** `sessionStorage`: the versions this tab already redirected to (JSON array). */
 export const VERSION_REDIRECT_KEY = "manor.web.versionRedirect";
-
-export interface RelayCredentials {
-  roomId: string;
-  /** The desktop's X25519 static public key, base64url. */
-  serverKey: string;
-  token: string;
-}
 
 /** The relay pairing this page holds, or null for none. */
 export type Pairing = RelayCredentials | null;
@@ -64,24 +56,6 @@ export type FragmentPairing =
  * `randomBytes(32).toString("base64url")`, unpadded — 43 characters.
  */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
-/** The desktop's key as bytes, or null if the stored text is not one. */
-export function serverKeyBytes(relay: RelayCredentials): Uint8Array | null {
-  return decodeX25519(relay.serverKey);
-}
-
-function isRelayCredentials(value: unknown): value is RelayCredentials {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  return (
-    typeof v.roomId === "string" &&
-    isValidRoomId(v.roomId) &&
-    typeof v.serverKey === "string" &&
-    decodeX25519(v.serverKey) !== null &&
-    typeof v.token === "string" &&
-    v.token.length > 0
-  );
-}
 
 /** Parse `location.hash` (with or without the leading `#`). */
 export function parseFragment(hash: string): FragmentPairing {
@@ -116,10 +90,6 @@ export function parseFragment(hash: string): FragmentPairing {
     : { kind: "invalid" };
 }
 
-function toCredentials(p: StoredPairing): RelayCredentials {
-  return { roomId: p.roomId, serverKey: p.x25519Pub, token: p.token };
-}
-
 /**
  * Take a pairing out of the fragment on this load, add it to the stored
  * pairings (or update the one for the same room) and strip the fragment so it
@@ -128,20 +98,13 @@ function toCredentials(p: StoredPairing): RelayCredentials {
  * the other pairings (ADR-218 D7).
  */
 export function readPairing(): Pairing {
+  migrateLegacyPairing();
   const fresh = parseFragment(location.hash);
   if (fresh.kind !== "none") {
     history.replaceState(null, "", location.pathname + location.search);
   }
-  if (fresh.kind === "relay") {
-    upsertPairing({
-      roomId: fresh.relay.roomId,
-      x25519Pub: fresh.relay.serverKey,
-      token: fresh.relay.token,
-    });
-    return fresh.relay;
-  }
-  const last = lastUsedPairing();
-  return last ? toCredentials(last) : null;
+  if (fresh.kind === "relay") return upsertPairing(fresh.relay);
+  return lastUsedPairing();
 }
 
 /**
@@ -150,11 +113,7 @@ export function readPairing(): Pairing {
  * and a stale tab's refusal must not erase that. The other pairings stay.
  */
 export function forgetPairing(pairing: Pairing): void {
-  if (pairing === null) return;
-  const stored = listPairings().find((p) => p.roomId === pairing.roomId);
-  if (stored && stored.x25519Pub === pairing.serverKey) {
-    removePairing(pairing.roomId, pairing.token);
-  }
+  if (pairing !== null) removePairing(pairing);
 }
 
 /** A version that can be put in a path without saying anything else. */

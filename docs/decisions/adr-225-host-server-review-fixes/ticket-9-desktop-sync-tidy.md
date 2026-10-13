@@ -1,6 +1,6 @@
 ---
 title: HostServerSync owns push endpoints; trim github PR cache and manifest inputs
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [8]

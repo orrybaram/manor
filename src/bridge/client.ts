@@ -67,17 +67,13 @@
  */
 
 import { SUBSCRIPTIONS } from "../../electron/bridge/events";
-import {
-  UNAVAILABLE_HOST_CODE,
-  type ResultFrame,
-} from "../../electron/bridge/types";
+import type { ResultFrame } from "../../electron/bridge/types";
 import {
   BridgeUnavailableError,
   settleResult,
 } from "../../electron/bridge/settle";
 import type { ElectronAPI } from "../electron";
 import type { Listener } from "./subscription-registry";
-import { markHostRestricted } from "./host-restrictions";
 import { UNAVAILABLE_NAMESPACES } from "./unavailable";
 
 export { BridgeUnavailableError };
@@ -146,9 +142,6 @@ export class BridgeDisconnectedError extends Error {
  * desktop's owner channel).
  */
 export function settle(frame: ResultFrame): unknown {
-  if (frame.ok === false && frame.code === UNAVAILABLE_HOST_CODE) {
-    markHostRestricted();
-  }
   return settleResult(frame);
 }
 

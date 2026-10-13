@@ -108,13 +108,13 @@ describe("readPairing", () => {
 
   it("stores a relay link and strips the fragment", () => {
     at(RELAY_HASH);
-    expect(readPairing()).toEqual(RELAY);
+    expect(readPairing()).toMatchObject(RELAY);
     expect(replaceState).toHaveBeenCalledWith(null, "", "/app/1.0.0/");
     const stored = JSON.parse(local.map.get(PAIRINGS_KEY) ?? "[]");
     expect(stored).toHaveLength(1);
     expect(stored[0]).toMatchObject({
       roomId: ROOM,
-      x25519Pub: KEY,
+      serverKey: KEY,
       token: "tok_en-1",
       name: "Host 1",
     });
@@ -124,7 +124,7 @@ describe("readPairing", () => {
     at(RELAY_HASH);
     readPairing();
     at("");
-    expect(readPairing()).toEqual(RELAY);
+    expect(readPairing()).toMatchObject(RELAY);
     expect(replaceState).toHaveBeenCalledOnce();
   });
 
@@ -132,7 +132,7 @@ describe("readPairing", () => {
     at(RELAY_HASH);
     readPairing();
     at("#details");
-    expect(readPairing()).toEqual(RELAY);
+    expect(readPairing()).toMatchObject(RELAY);
     expect(replaceState).toHaveBeenCalledOnce();
     expect(local.map.has(PAIRINGS_KEY)).toBe(true);
   });
@@ -141,7 +141,7 @@ describe("readPairing", () => {
     at(RELAY_HASH);
     readPairing();
     at(`#${TOKEN}`, "/app/1.0.0/web.html");
-    expect(readPairing()).toEqual(RELAY);
+    expect(readPairing()).toMatchObject(RELAY);
     // Stripped, since it looks like a credential, but not stored.
     expect(replaceState).toHaveBeenCalledTimes(2);
     expect([...local.map.keys()]).toEqual([PAIRINGS_KEY]);
@@ -163,9 +163,9 @@ describe("readPairing", () => {
     at(RELAY_HASH);
     readPairing();
     at(`#relay=${ROOM}.${KEY}&t=newer`);
-    expect(readPairing()).toEqual({ ...RELAY, token: "newer" });
+    expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
     at("");
-    expect(readPairing()).toEqual({ ...RELAY, token: "newer" });
+    expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
   });
 
   it("strips an invalid relay link without storing it", () => {
@@ -195,9 +195,9 @@ describe("readPairing", () => {
     readPairing();
     forgetPairing(stale);
     at("");
-    expect(readPairing()).toEqual({ ...RELAY, token: "newer" });
+    expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
     forgetPairing(null);
-    expect(readPairing()).toEqual({ ...RELAY, token: "newer" });
+    expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
   });
 
   it("forgetPairing leaves the other rooms' pairings", () => {
@@ -207,7 +207,7 @@ describe("readPairing", () => {
     readPairing();
     forgetPairing(first);
     at("");
-    expect(readPairing()).toEqual({ roomId: ROOM2, serverKey: KEY, token: "second" });
+    expect(readPairing()).toMatchObject({ roomId: ROOM2, serverKey: KEY, token: "second" });
     expect(listPairings()).toHaveLength(1);
   });
 
@@ -215,7 +215,7 @@ describe("readPairing", () => {
     at(RELAY_HASH);
     readPairing();
     at(`#relay=${ROOM2}.${KEY}&t=second`);
-    expect(readPairing()).toEqual({ roomId: ROOM2, serverKey: KEY, token: "second" });
+    expect(readPairing()).toMatchObject({ roomId: ROOM2, serverKey: KEY, token: "second" });
     expect(listPairings().map((p) => p.roomId)).toEqual([ROOM, ROOM2]);
     expect(replaceState).toHaveBeenCalledTimes(2);
     // No link next time: the one used last is the one dialled.
@@ -226,7 +226,7 @@ describe("readPairing", () => {
   it("carries the legacy single pairing into the list", () => {
     local.map.set(LEGACY_RELAY_KEY, JSON.stringify(RELAY));
     at("");
-    expect(readPairing()).toEqual(RELAY);
+    expect(readPairing()).toMatchObject(RELAY);
     expect(local.map.has(LEGACY_RELAY_KEY)).toBe(false);
     expect(listPairings()).toHaveLength(1);
     // And a link then adds beside it.

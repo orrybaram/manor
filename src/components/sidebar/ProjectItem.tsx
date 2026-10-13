@@ -64,7 +64,6 @@ import {
 } from "../../lib/sidebar-rail";
 import { normalizeHostId, workspaceKey } from "../../lib/workspace-key";
 import { useHostStore } from "../../store/host-store";
-import { unlessHostRestricted } from "../../bridge/host-restrictions";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { PrPopover } from "./PrPopover";
 import { ProjectSetUpMenu } from "./ProjectSetUpMenu";
@@ -419,9 +418,6 @@ export function ProjectItem(props: ProjectItemProps) {
   const [confirmMergeWorktree, setConfirmMergeWorktree] =
     useState<WorkspaceInfo | null>(null);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
-  // A host server cannot create workspaces: say so instead of opening a form.
-  const requestNewWorkspace = () =>
-    unlessHostRestricted(() => setNewWorkspaceOpen(true));
   // Folder chosen via its context menu's "New Workspace…"; the created
   // workspace is placed inside it once the worktree exists.
   const [newWorkspaceFolderId, setNewWorkspaceFolderId] = useState<string | null>(null);
@@ -1132,7 +1128,7 @@ export function ProjectItem(props: ProjectItemProps) {
         onDelete={() => deleteWorkspaceFolder(projectId, folder.id)}
         onNewWorkspace={() => {
           setNewWorkspaceFolderId(folder.id);
-          requestNewWorkspace();
+          setNewWorkspaceOpen(true);
         }}
         onNewSubfolder={() => {
           setPendingMovePaths(null);
@@ -1214,7 +1210,7 @@ export function ProjectItem(props: ProjectItemProps) {
             )}
             {!isSection && (
               <ProjectHeaderActions
-                onNewWorkspace={() => requestNewWorkspace()}
+                onNewWorkspace={() => setNewWorkspaceOpen(true)}
                 onNewFolder={() => {
                   setPendingMovePaths(null);
                   setNewFolderParentId(null);
@@ -1232,7 +1228,7 @@ export function ProjectItem(props: ProjectItemProps) {
           >
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => requestNewWorkspace()}
+              onSelect={() => setNewWorkspaceOpen(true)}
             >
               New Workspace
             </ContextMenu.Item>

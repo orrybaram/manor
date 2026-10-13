@@ -7,10 +7,12 @@
  * The last-used pairing is simply the one with the greatest `lastUsedAt`: a
  * fresh link or a switch stamps it, and a load with no link opens that one.
  * Before this list existed a single pairing lived at `manor.web.relay`; the
- * first load carries it into the list (named "Host 1") and drops the old key.
+ * first load carries it into the list (named "Host 1") and drops the old key
+ * (`migrateLegacyPairing`, run by `readPairing` at boot).
  *
  * Pure storage, no bridge: `web-pairing.ts` turns links into records here and
- * `install-web.ts` reads the record it dials.
+ * `install-web.ts` reads the record it dials. Which room the page dials is
+ * `connection.ts`'s.
  */
 
 import { ROOM_ID_LENGTH, base64urlDecode } from "../lib/relay-crypto";
@@ -21,12 +23,17 @@ export const PAIRINGS_KEY = "manor.web.pairings";
 /** The single pairing an earlier build kept: `{ roomId, serverKey, token }`. */
 export const LEGACY_RELAY_KEY = "manor.web.relay";
 
-export interface StoredPairing {
+/** What a pairing link carries: enough to dial a host's relay room. */
+export interface RelayCredentials {
   roomId: string;
   /** The host's X25519 static public key, base64url. */
-  x25519Pub: string;
+  serverKey: string;
   token: string;
-  /** What the switcher shows: the host's own `hostName`, else "Host N". */
+}
+
+/** One host in the list: its credentials and what the switcher shows. */
+export interface StoredPairing extends RelayCredentials {
+  /** The host's own `hostName`, else "Host N". */
   name: string;
   addedAt: number;
   lastUsedAt: number;
@@ -35,7 +42,7 @@ export interface StoredPairing {
 const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
 const X25519_KEY_BYTES = 32;
 
-export function isValidRoomId(text: string): boolean {
+function isValidRoomId(text: string): boolean {
   return ROOM_ID_PATTERN.test(text);
 }
 
@@ -49,16 +56,23 @@ export function decodeX25519(text: string): Uint8Array | null {
   }
 }
 
-function isStoredPairing(value: unknown): value is StoredPairing {
+export function isRelayCredentials(value: unknown): value is RelayCredentials {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
   return (
     typeof v.roomId === "string" &&
     isValidRoomId(v.roomId) &&
-    typeof v.x25519Pub === "string" &&
-    decodeX25519(v.x25519Pub) !== null &&
+    typeof v.serverKey === "string" &&
+    decodeX25519(v.serverKey) !== null &&
     typeof v.token === "string" &&
-    v.token.length > 0 &&
+    v.token.length > 0
+  );
+}
+
+function isStoredPairing(value: unknown): value is StoredPairing {
+  if (!isRelayCredentials(value)) return false;
+  const v = value as unknown as Record<string, unknown>;
+  return (
     typeof v.name === "string" &&
     typeof v.addedAt === "number" &&
     typeof v.lastUsedAt === "number"
@@ -93,31 +107,13 @@ function storageRemove(key: string): void {
 const listeners = new Set<() => void>();
 const EMPTY: StoredPairing[] = [];
 /** The parsed list for `useSyncExternalStore`: stable until it changes. */
-let snapshot: { raw: string | null; list: StoredPairing[] } | null = null;
+let snapshot: { raw: string | null; list: StoredPairing[] } = {
+  raw: null,
+  list: EMPTY,
+};
 
 function notify(): void {
-  snapshot = null;
   for (const cb of [...listeners]) cb();
-}
-
-/** The legacy single pairing as a list entry, or null for none. */
-function legacyPairing(now: number): StoredPairing | null {
-  const raw = storageGet(LEGACY_RELAY_KEY);
-  if (raw === null) return null;
-  try {
-    const v = JSON.parse(raw) as Record<string, unknown>;
-    const candidate = {
-      roomId: v.roomId,
-      x25519Pub: v.serverKey,
-      token: v.token,
-      name: "Host 1",
-      addedAt: now,
-      lastUsedAt: now,
-    };
-    return isStoredPairing(candidate) ? candidate : null;
-  } catch {
-    return null;
-  }
 }
 
 function parseList(raw: string): StoredPairing[] {
@@ -135,22 +131,35 @@ function write(list: StoredPairing[]): void {
 }
 
 /**
- * Every stored pairing, oldest first. Carries the legacy single pairing into
- * the list the first time it finds no list.
+ * Carry the legacy single pairing into the list, the first time there is no
+ * list, and drop the old key. Run once at boot, by `readPairing`, before
+ * anything reads the list.
+ */
+export function migrateLegacyPairing(now: number = Date.now()): void {
+  const raw = storageGet(LEGACY_RELAY_KEY);
+  if (raw === null) return;
+  storageRemove(LEGACY_RELAY_KEY);
+  if (storageGet(PAIRINGS_KEY) !== null) return;
+  let legacy: unknown;
+  try {
+    legacy = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  if (!isRelayCredentials(legacy)) return;
+  const { roomId, serverKey, token } = legacy;
+  write([{ roomId, serverKey, token, name: "Host 1", addedAt: now, lastUsedAt: now }]);
+}
+
+/**
+ * Every stored pairing, oldest first. Only reads: the same array until the
+ * stored list changes, as `useSyncExternalStore` needs.
  */
 export function listPairings(): StoredPairing[] {
   const raw = storageGet(PAIRINGS_KEY);
-  if (raw === null) {
-    const legacy = legacyPairing(Date.now());
-    if (legacy === null) return EMPTY;
-    write([legacy]);
-    storageRemove(LEGACY_RELAY_KEY);
-    return [legacy];
-  }
-  if (snapshot?.raw === raw) return snapshot.list;
-  const list = parseList(raw);
-  snapshot = { raw, list };
-  return list;
+  if (raw === snapshot.raw) return snapshot.list;
+  snapshot = { raw, list: raw === null ? EMPTY : parseList(raw) };
+  return snapshot.list;
 }
 
 /** The pairing a load with no link opens: the most recently used. */
@@ -175,14 +184,15 @@ function fallbackName(list: StoredPairing[]): string {
  * name kept) — a link never replaces the others — and mark it last used.
  */
 export function upsertPairing(
-  link: { roomId: string; x25519Pub: string; token: string },
+  link: RelayCredentials,
   now: number = Date.now(),
 ): StoredPairing {
+  const { roomId, serverKey, token } = link;
   const list = listPairings();
-  const existing = list.find((p) => p.roomId === link.roomId);
+  const existing = list.find((p) => p.roomId === roomId);
   const next: StoredPairing = existing
-    ? { ...existing, ...link, lastUsedAt: now }
-    : { ...link, name: fallbackName(list), addedAt: now, lastUsedAt: now };
+    ? { ...existing, serverKey, token, lastUsedAt: now }
+    : { roomId, serverKey, token, name: fallbackName(list), addedAt: now, lastUsedAt: now };
   write(existing ? list.map((p) => (p === existing ? next : p)) : [...list, next]);
   return next;
 }
@@ -205,13 +215,18 @@ export function renamePairing(roomId: string, name: string): void {
 }
 
 /**
- * Drop `roomId`. With `token`, only if that is still the stored token: a
- * stale tab refused by the host must not erase a newer link another tab took.
+ * Drop the pairing with exactly these credentials. A stale tab refused by
+ * the host must not erase a newer link another tab took for the same room.
  */
-export function removePairing(roomId: string, token?: string): void {
+export function removePairing(credentials: RelayCredentials): void {
   const list = listPairings();
   const next = list.filter(
-    (p) => !(p.roomId === roomId && (token === undefined || p.token === token)),
+    (p) =>
+      !(
+        p.roomId === credentials.roomId &&
+        p.serverKey === credentials.serverKey &&
+        p.token === credentials.token
+      ),
   );
   if (next.length !== list.length) write(next);
 }
@@ -219,26 +234,11 @@ export function removePairing(roomId: string, token?: string): void {
 export function subscribePairings(cb: () => void): () => void {
   listeners.add(cb);
   const onStorage = (e: StorageEvent) => {
-    if (e.key === PAIRINGS_KEY) {
-      snapshot = null;
-      cb();
-    }
+    if (e.key === PAIRINGS_KEY) cb();
   };
   if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
   return () => {
     listeners.delete(cb);
     if (typeof window !== "undefined") window.removeEventListener("storage", onStorage);
   };
-}
-
-let activeRoomId: string | null = null;
-
-/** `install-web.ts` records the room this page dials. */
-export function setActiveRoom(roomId: string | null): void {
-  activeRoomId = roomId;
-}
-
-/** The room this page dials, for the switcher to mark. */
-export function getActiveRoom(): string | null {
-  return activeRoomId;
 }

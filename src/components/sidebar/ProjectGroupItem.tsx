@@ -17,7 +17,6 @@ import {
 import { LOCAL_HOST_ID, memberHostName } from "../../lib/hosts";
 import { startingMemberId, type WorkspaceHostChoice } from "../../lib/workspace-host-choices";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { unlessHostRestricted } from "../../bridge/host-restrictions";
 import { NewWorkspaceDialog } from "./NewWorkspaceDialog/NewWorkspaceDialog";
 import { NewFolderDialog } from "./NewFolderDialog";
 import { ProjectSetUpMenu } from "./ProjectSetUpMenu";
@@ -90,9 +89,6 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
 
   const { group, sections } = entry;
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
-  // A host server cannot create workspaces: say so instead of opening a form.
-  const requestNewWorkspace = () =>
-    unlessHostRestricted(() => setNewWorkspaceOpen(true));
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
@@ -185,7 +181,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             )}
             {collapsed && indicator && <WorkspaceIndicatorDot indicator={indicator} />}
             <ProjectHeaderActions
-              onNewWorkspace={() => requestNewWorkspace()}
+              onNewWorkspace={() => setNewWorkspaceOpen(true)}
               onNewFolder={() => setNewFolderOpen(true)}
               onOpenSettings={onOpenSettings}
             />
@@ -198,7 +194,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           >
             <ContextMenu.Item
               className={styles.contextMenuItem}
-              onSelect={() => requestNewWorkspace()}
+              onSelect={() => setNewWorkspaceOpen(true)}
             >
               New Workspace
             </ContextMenu.Item>

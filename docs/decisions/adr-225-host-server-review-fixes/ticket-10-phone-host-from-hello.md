@@ -1,6 +1,6 @@
 ---
 title: Phone learns host-server status from the hello; one pairing credential shape
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [9]

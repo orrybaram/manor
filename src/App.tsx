@@ -96,6 +96,8 @@ import { hasPaneId } from "./lib/layout/pane-tree";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath, HOME_PATH } from "./lib/home";
 import { isWebApp } from "./lib/platform";
+import { hostServerUnavailableCopy, useConnection } from "./bridge/connection";
+import { showBridgeUnavailableToastOnce } from "./lib/bridge-unavailable-toast";
 import { useLayoutMode } from "./hooks/useLayoutMode";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
 import { markChatStarting } from "./components/phone/ChatPane/usePaneChatView";
@@ -581,6 +583,7 @@ function App() {
   // instead of silently doing nothing here: the dispatcher finds no handler
   // and the fallback forwards the command.
   const menuHandlersRef = useRef<Record<string, MenuHandler>>({});
+  const { isHostServer: onHostServer, hostName: serverHostName } = useConnection();
   menuHandlersRef.current = createMenuHandlers(
     {
       openSettings: (page) => {
@@ -613,7 +616,9 @@ function App() {
       },
       showGhosts: triggerGhosts,
     },
-    { primary: !OWN_CLAIM },
+    // Rebuilt when the hello says this is a host server (ADR-218 D5), which
+    // drops the commands it cannot serve.
+    { primary: !OWN_CLAIM, hostServer: onHostServer },
   );
 
   const localHandlers = useCallback(() => menuHandlersRef.current, []);
@@ -742,6 +747,14 @@ function App() {
   );
 
   const handleNewAgent = useCallback(async () => {
+    // A host server does not launch agents (ADR-218 D5).
+    if (onHostServer) {
+      showBridgeUnavailableToastOnce(
+        "host-server-new-agent",
+        hostServerUnavailableCopy("Starting new agents", serverHostName),
+      );
+      return;
+    }
     // Every surface — Home and project workspaces alike — consumes a prewarmed
     // session when one is ready. On a cold start (no prewarm, or the command
     // hadn't been injected yet) seed the surface's launch command; the pty
@@ -752,7 +765,7 @@ function App() {
     if (started && layoutMode === "phone" && started.agentKind === "claude") {
       markChatStarting(started.paneId);
     }
-  }, [layoutMode]);
+  }, [layoutMode, onHostServer, serverHostName]);
 
   // A detached window's one panel: the one holding the tab it claims, in this
   // window's replica of the shared layout (ADR-179 D4). A string, so the

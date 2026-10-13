@@ -124,6 +124,26 @@ describe("install-web on a relay-served page", () => {
     expect(replace).toHaveBeenCalledTimes(2);
   });
 
+  it("learns from the hello whether the host is a host server", async () => {
+    const { api } = await install(relayHash());
+    // `vi.resetModules()` gives each install a fresh `connection.ts`: read
+    // the one this install wrote to.
+    const connection = await import("../connection");
+    expect(connection.getConnection()).toEqual({
+      activeRoomId: ROOM,
+      hostName: null,
+      isHostServer: false,
+    });
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake({ hostName: "Studio" });
+    expect(connection.getConnection()).toEqual({
+      activeRoomId: ROOM,
+      hostName: "Studio",
+      isHostServer: true,
+    });
+    expect(JSON.parse(local.get(PAIRINGS_KEY) ?? "[]")[0].name).toBe("Studio");
+  });
+
   it("keeps the relay pairing when an anchor link opens a new tab", async () => {
     await install(relayHash());
     vi.resetModules();

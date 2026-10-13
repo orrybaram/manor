@@ -30,13 +30,13 @@
  */
 
 import { createBridge } from "./client";
-import { renamePairing, setActiveRoom } from "./pairings";
+import { recordHello, setActiveRoom } from "./connection";
+import { decodeX25519, renamePairing } from "./pairings";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
 import {
   forgetPairing,
   readPairing,
-  serverKeyBytes,
   versionRedirectTarget,
 } from "./web-pairing";
 
@@ -48,7 +48,7 @@ const pairing = readPairing();
  */
 function relayPipeFor(): Pipe | null {
   if (pairing === null) return null;
-  const serverKey = serverKeyBytes(pairing);
+  const serverKey = decodeX25519(pairing.serverKey);
   if (serverKey === null) return null;
   return relayPipe({ url: relayJoinUrl(pairing.roomId), serverKey });
 }
@@ -69,7 +69,7 @@ const UNPAIRED_PIPE: Pipe = {
 export const webToken: string | null = pipe && pairing ? pairing.token : null;
 
 /** The room this tab dials, or `null` when unpaired. */
-export const webRoomId: string | null = pipe && pairing ? pairing.roomId : null;
+const webRoomId: string | null = pipe && pairing ? pairing.roomId : null;
 
 setActiveRoom(webRoomId);
 
@@ -138,8 +138,9 @@ const transport = createWsTransport({
   onKeyMismatch: () => settle("key-mismatch"),
   onStatus: setReachability,
   onHello: ({ appVersion, hostName }) => {
-    // A host server names itself (ADR-218 D7); the switcher shows that
-    // instead of "Host N".
+    // A host server names itself (ADR-218 D7): that is how the page knows
+    // it is on one, and the switcher shows the name instead of "Host N".
+    recordHello({ hostName });
     if (webRoomId && hostName) renamePairing(webRoomId, hostName);
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) location.replace(target);

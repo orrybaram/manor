@@ -290,10 +290,7 @@ class WsTransport implements WsBridgeTransport {
           rendererId: this.rendererId,
           appVersion:
             typeof reply.appVersion === "string" ? reply.appVersion : null,
-          hostName:
-            typeof (frame as { hostName?: unknown }).hostName === "string"
-              ? (frame as { hostName: string }).hostName
-              : null,
+          hostName: typeof reply.hostName === "string" ? reply.hostName : null,
         });
       }
       return;

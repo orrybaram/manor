@@ -13,11 +13,8 @@ vi.hoisted(() => {
 });
 
 import { base64urlEncode } from "../../../lib/relay-crypto";
-import {
-  listPairings,
-  setActiveRoom,
-  upsertPairing,
-} from "../../../bridge/pairings";
+import { setActiveRoom } from "../../../bridge/connection";
+import { listPairings, upsertPairing } from "../../../bridge/pairings";
 import { PhoneHostSwitcher } from "../PhoneHostSwitcher";
 
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));
@@ -61,14 +58,14 @@ describe("PhoneHostSwitcher", () => {
   }
 
   it("renders nothing with fewer than two pairings", () => {
-    upsertPairing({ roomId: A, x25519Pub: KEY, token: "a" });
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" });
     render();
     expect(q("phone-host-switcher")).toBeNull();
   });
 
   it("lists hosts and switching marks the room last used and reloads", () => {
-    upsertPairing({ roomId: A, x25519Pub: KEY, token: "a" }, 10);
-    upsertPairing({ roomId: B, x25519Pub: KEY, token: "b" }, 5);
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    upsertPairing({ roomId: B, serverKey: KEY, token: "b" }, 5);
     render();
     expect(q("phone-host-switcher")?.textContent).toContain("Host 1");
     click(q("phone-host-switcher"));
@@ -80,8 +77,8 @@ describe("PhoneHostSwitcher", () => {
   });
 
   it("asks inline before removing a pairing", () => {
-    upsertPairing({ roomId: A, x25519Pub: KEY, token: "a" });
-    upsertPairing({ roomId: B, x25519Pub: KEY, token: "b" });
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" });
+    upsertPairing({ roomId: B, serverKey: KEY, token: "b" });
     render();
     click(q("phone-host-switcher"));
     click(document.querySelectorAll<HTMLElement>('[data-testid="phone-host-remove"]')[1]);

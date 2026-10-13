@@ -47,8 +47,8 @@ export type UnavailableCode =
   | typeof UNAVAILABLE_HOST_CODE;
 
 /** Whether a result frame's `code` is one of the `unavailable:*` refusals. */
-export function isUnavailableCode(code: unknown): boolean {
-  return typeof code === "string" && code.startsWith("unavailable:");
+export function isUnavailableCode(code: unknown): code is UnavailableCode {
+  return code === UNAVAILABLE_CODE || code === UNAVAILABLE_HOST_CODE;
 }
 
 /**

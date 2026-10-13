@@ -2,8 +2,8 @@ import { useState, useSyncExternalStore } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import { useConnection } from "../../bridge/connection";
 import {
-  getActiveRoom,
   listPairings,
   removePairing,
   selectPairing,
@@ -28,7 +28,7 @@ type PhoneHostSwitcherProps = {
 export function PhoneHostSwitcher(props: PhoneHostSwitcherProps) {
   const { onReload = () => location.reload() } = props;
 
-  const activeRoomId = getActiveRoom();
+  const { activeRoomId } = useConnection();
   const pairings = useSyncExternalStore(subscribePairings, listPairings, listPairings);
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null);
@@ -76,7 +76,7 @@ export function PhoneHostSwitcher(props: PhoneHostSwitcherProps) {
                     variant="ghost"
                     data-testid="phone-host-remove-confirm"
                     onClick={() => {
-                      removePairing(p.roomId);
+                      removePairing(p);
                       setConfirming(null);
                       if (p.roomId === activeRoomId) onReload();
                     }}

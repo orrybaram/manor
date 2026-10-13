@@ -36,6 +36,7 @@ import {
 } from "./commands";
 import { findPanelWithTab } from "./layout/workspace-layout";
 import { isWebApp } from "./platform";
+import { isHostServer } from "../bridge/connection";
 
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
@@ -222,6 +223,7 @@ export function createSharedKeybindingHandlers(
 ): Record<string, CommandHandler> {
   return commandHandlers(createSharedCommandContext(options), {
     web: isWebApp(),
+    hostServer: isHostServer(),
     primary: false,
   });
 }

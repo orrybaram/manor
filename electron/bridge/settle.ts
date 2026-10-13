@@ -8,7 +8,12 @@
  * Imports only `./types`, so the renderer bundles can read it.
  */
 
-import { UNAVAILABLE_CODE, isUnavailableCode, type ResultFrame } from "./types";
+import {
+  UNAVAILABLE_CODE,
+  isUnavailableCode,
+  type ResultFrame,
+  type UnavailableCode,
+} from "./types";
 
 /**
  * The server does not implement this, and never will there.
@@ -22,8 +27,8 @@ export class BridgeUnavailableError extends Error {
    * `unavailable:web` from the desktop, `unavailable:host` from a host server
    * (ADR-218 D6). The renderer treats every `unavailable:*` alike.
    */
-  readonly code: string;
-  constructor(message: string, code: string = UNAVAILABLE_CODE) {
+  readonly code: UnavailableCode;
+  constructor(message: string, code: UnavailableCode = UNAVAILABLE_CODE) {
     super(message);
     this.code = code;
     this.name = "BridgeUnavailableError";

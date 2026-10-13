@@ -32,6 +32,16 @@ export interface HostStatusInfo {
   /** Epoch ms the next reconnect attempt is due, while `reconnecting`. */
   retryAt?: number;
   warnings?: string[];
+  /**
+   * The host server's relay room, from its last status (ADR-228 D2). Absent
+   * until one has been read; null when the server has no room.
+   */
+  roomId?: string | null;
+  /**
+   * Whether the host server takes this window's own viewer stream (ADR-228
+   * D3, D4). Absent until a status has been read; false for an older server.
+   */
+  viewerBridge?: boolean;
 }
 
 /**

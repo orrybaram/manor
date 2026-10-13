@@ -45,6 +45,7 @@ import {
   type BridgeConnection,
   type CallerClass,
   type HelloReplyFrame,
+  type ViewerKind,
 } from "../types";
 
 /** How long an accepted socket may stay silent before it is closed. */
@@ -58,6 +59,11 @@ const HELLO_TIMEOUT_MS = 5_000;
  */
 export interface AuthenticatedCaller {
   callerClass: CallerClass;
+  /**
+   * A desktop window's viewer stream (ADR-228 D4), when the authenticator
+   * honoured the hello's `viewer`. Absent otherwise.
+   */
+  viewer?: ViewerKind;
   /** The paired device, for the audit line; null for the owner. */
   deviceId: string | null;
   deviceLabel: string | null;
@@ -70,9 +76,15 @@ export type BridgeAuthResult =
 
 /**
  * The `verify + backoff` decision, which lives in `relay-gate.ts` (or the
- * owner socket's token check), handed the hello's token.
+ * owner socket's token check), handed the hello's token — and the whole
+ * hello, for the one authenticator that reads more of it (the owner socket's
+ * `viewer`, ADR-228 D4). Whatever else a hello says is the authenticator's
+ * to honour or ignore; this transport takes none of it on trust.
  */
-export type BridgeAuthenticator = (token: unknown) => BridgeAuthResult;
+export type BridgeAuthenticator = (
+  token: unknown,
+  hello?: Readonly<Record<string, unknown>>,
+) => BridgeAuthResult;
 
 /** The three calls this transport makes on a server, whatever its deps. */
 type Dispatcher = Pick<
@@ -271,7 +283,7 @@ export class WsBridgeServer {
       this.close(entry, CLOSE_UNAUTHORIZED, "hello must come first");
       return;
     }
-    const result = authenticate(frame.token);
+    const result = authenticate(frame.token, frame);
     if (!result.ok) {
       this.close(entry, result.code, "hello rejected");
       return;

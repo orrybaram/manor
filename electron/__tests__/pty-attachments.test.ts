@@ -36,6 +36,12 @@ const deviceA: Viewer = { connectionId: "device-a", callerClass: "device" };
 const deviceB: Viewer = { connectionId: "device-b", callerClass: "device" };
 /** The desktop on a host server's owner channel (ADR-225 D4). */
 const ownerChannel: Viewer = { connectionId: "desktop", callerClass: "owner" };
+/** A desktop window's own viewer stream to a host server (ADR-228 D4). */
+const deskViewer: Viewer = {
+  connectionId: "desk-viewer",
+  callerClass: "owner",
+  viewer: "desktop",
+};
 
 /** The panes `run` changed the owner of, as `onAttachmentChange` hears them. */
 function changedBy(run: () => void): string[] {
@@ -384,6 +390,51 @@ describe("pty attachments", () => {
       expect(ownerOf("pane-a")).toEqual(ownerChannel);
       attach("pane-a", deviceB);
       expect(ownerOf("pane-a")).toEqual(deviceB);
+    });
+  });
+
+  describe("a desktop viewer stream (ADR-228 D5)", () => {
+    it("outranks a device, whichever attached first", () => {
+      attach("pane-a", deviceA);
+      expect(wouldOwn("pane-a", deskViewer)).toBe(true);
+      expect(changedBy(() => attach("pane-a", deskViewer))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")).toEqual(deskViewer);
+      // A device arriving later follows.
+      expect(wouldOwn("pane-a", deviceB)).toBe(false);
+      attach("pane-a", deviceB);
+      expect(ownerOf("pane-a")).toEqual(deskViewer);
+    });
+
+    it("outranks main's owner channel", () => {
+      attach("pane-a", deskViewer);
+      expect(wouldOwn("pane-a", ownerChannel)).toBe(false);
+      attach("pane-a", ownerChannel);
+      expect(ownerOf("pane-a")).toEqual(deskViewer);
+    });
+
+    it("leaves a device the owner while no viewer has the pane mounted", () => {
+      attach("pane-a", deviceA);
+      attach("pane-a", deskViewer);
+      expect(changedBy(() => release("pane-a", deskViewer))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+      attach("pane-b", deviceB);
+      expect(ownerOf("pane-b")).toEqual(deviceB);
+    });
+
+    it("takes the winsize back from a device's claim by typing, as a desk window does", () => {
+      attach("pane-a", deskViewer);
+      attach("pane-a", deviceA);
+      expect(claim("pane-a", deviceA)).toBe(true);
+      expect(ownerOf("pane-a")).toEqual(deviceA);
+      reclaimOnInput("pane-a", deskViewer);
+      expect(ownerOf("pane-a")).toEqual(deskViewer);
+    });
+
+    it("still follows a foreign hold", () => {
+      attach("pane-a", deskViewer);
+      setForeign("pane-a", true);
+      expect(ownerOf("pane-a")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
+      expect(wouldOwn("pane-a", deskViewer)).toBe(false);
     });
   });
 

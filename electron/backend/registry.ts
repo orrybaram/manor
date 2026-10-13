@@ -22,6 +22,7 @@ import {
   HostConnection,
   RemoteHostConnection,
   type HostProxyContext,
+  type HostServerFacts,
   type HostStatus,
   type HostStatusInfo,
   type RemoteHostContext,
@@ -43,7 +44,7 @@ import {
   type WorkspaceBackend,
 } from "./types";
 
-export type { HostStatus, HostStatusInfo } from "./host-connection";
+export type { HostServerFacts, HostStatus, HostStatusInfo } from "./host-connection";
 export { HostUnavailableError } from "./host-view";
 export { isRemoteSessionLoss } from "./session-owners";
 
@@ -316,6 +317,16 @@ export class BackendRegistry {
   hostProxy(hostId: string): HostProxy | undefined {
     const conn = this.hosts.get(hostId);
     return conn instanceof RemoteHostConnection ? (conn.proxy ?? undefined) : undefined;
+  }
+
+  /**
+   * Record what `hostId`'s server said in its last status (ADR-228 D2, D3):
+   * `hosts.list` carries it, and a change is a status change. Null forgets
+   * it. The local host and unknown ones are ignored.
+   */
+  setServerFacts(hostId: string, facts: HostServerFacts | null): void {
+    const conn = this.hosts.get(hostId);
+    if (conn instanceof RemoteHostConnection) conn.setServerFacts(facts);
   }
 
   /** Every remote host's owner channel, in registration order. */

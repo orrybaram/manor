@@ -213,6 +213,29 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
     expect(third).toMatchObject({ winsizeOwner: true });
   });
 
+  it("ranks a desktop viewer stream above a device, and does not count it as foreign (ADR-228 D5)", async () => {
+    const deskViewer = { ...owner, id: "desk-viewer", viewer: "desktop" } as Caller;
+    sessions = [session("pane-1", 0)];
+    expect(await create(device)).toMatchObject({ winsizeOwner: true });
+    // The daemon shows one socket, this server's own: the viewer stream
+    // reaches the session through it, not as another daemon client.
+    sessions = [session("pane-1", 1)];
+    expect(await create(deskViewer)).toMatchObject({
+      winsizeOwner: true,
+      cols: 120,
+      rows: 40,
+    });
+    expect(ownerOf("pane-1")).toMatchObject({ connectionId: "desk-viewer" });
+    // A phone arriving later follows the desk.
+    const later = await create({ ...device, id: "phone-2" } as Caller);
+    expect(later).toMatchObject({ winsizeOwner: false });
+    await handler("pty.resize")({ deps, caller: device }, "pane-1", 50, 10);
+    expect(deps.backend.pty.resize).not.toHaveBeenCalled();
+    // The viewer lets go: a device owns the pane again.
+    release("pane-1", { connectionId: "desk-viewer", callerClass: "owner", viewer: "desktop" });
+    expect(ownerOf("pane-1")?.callerClass).toBe("device");
+  });
+
   it("drops a device's resize and claim while another client holds the pane", async () => {
     sessions = [session("pane-1", 1)];
     await create(device);
@@ -371,5 +394,24 @@ describe("layout writes on the host (ADR-227 D6)", () => {
       { type: "new-tab", tab: {} },
       expect.objectContaining({ id: "phone-1" }),
     );
+  });
+
+  it("takes a forwarded origin from main's owner channel only, never from a viewer stream (ADR-228 D4)", async () => {
+    const apply = vi.fn(async () => ({ version: 1 }));
+    const deps = {
+      ownership: { current: () => "host" },
+      layoutStore: { apply },
+    } as unknown as HostServerDeps;
+    const forwarded = { kind: "window", id: "7" };
+    const command = { type: "new-tab", tab: {} };
+    await handler("layout.apply")({ deps, caller: owner }, "/ws/a", command, forwarded);
+    expect(apply).toHaveBeenLastCalledWith("/ws/a", command, forwarded);
+
+    const deskViewer = { ...owner, id: "desk-viewer", viewer: "desktop" } as Caller;
+    await handler("layout.apply")({ deps, caller: deskViewer }, "/ws/a", command, forwarded);
+    expect(apply).toHaveBeenLastCalledWith("/ws/a", command, {
+      kind: "bridge",
+      id: "desk-viewer",
+    });
   });
 });

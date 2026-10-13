@@ -25,11 +25,17 @@ import {
   type HostServerClientState,
 } from "../../backend/host-server-client";
 import type { HostServerStatus } from "../../host-server/relay";
+import { serverFactsOf } from "../../backend/host-server-sync";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
+/**
+ * Every host and its connection status — with, for a remote host, its
+ * server's relay room and whether it takes desktop viewer streams, from the
+ * last status read (ADR-228 D2, D3; `HostServerSync`).
+ */
 export function hostsList(ctx: HandlerCtx<ServerDeps>): HostStatusInfo[] {
   return ctx.deps.backendRegistry.list();
 }
@@ -141,6 +147,8 @@ export async function hostsServerStatus(
       client.api.hostServer.status(),
       client.api.remoteControl.listDevices(),
     ]);
+    // A fresh read: keep `hosts.list`'s room and capability current with it.
+    ctx.deps.backendRegistry.setServerFacts(hostId, serverFactsOf(status));
     return { state, status, devices };
   } catch (err) {
     if (err instanceof HostServerUnavailableError) {

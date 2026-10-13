@@ -93,9 +93,27 @@ export interface HostStatusInfo {
    * next `connect()`; never fails the connection.
    */
   warnings?: string[];
+  /**
+   * The host server's relay room, from its last status read (ADR-228 D2):
+   * what a phone that sees this host only through the desktop names it by.
+   * Absent until a status has been read; null when the server has no room.
+   */
+  roomId?: string | null;
+  /**
+   * Whether the host server's last status reported the `viewer-bridge`
+   * capability (ADR-228 D3, D4), so a window may open its own stream to it.
+   * Absent until a status has been read; false for an older server.
+   */
+  viewerBridge?: boolean;
 }
 
-type HostState = Omit<HostStatusInfo, "hostId" | "spec" | "warnings">;
+/** What a host server's last status said about it (ADR-228 D2, D3). */
+export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBridge">>;
+
+type HostState = Omit<
+  HostStatusInfo,
+  "hostId" | "spec" | "warnings" | "roomId" | "viewerBridge"
+>;
 
 /**
  * How long a reconnect waits for the host's proxy to read its state before
@@ -152,6 +170,8 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   protected state: HostState = { status: "disconnected" };
   /** Kept apart from `state`: they outlive reconnects (see `setState`). */
   private warnings: string[] | undefined;
+  /** Kept apart from `state` too: the last status read, across reconnects. */
+  private serverFacts: HostServerFacts | undefined;
   private connecting: Promise<void> | null = null;
   private attempt = 0;
   protected readonly unsubscribes: Array<() => void> = [];
@@ -181,7 +201,18 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
       spec: this.spec,
       ...this.state,
       ...(this.warnings ? { warnings: this.warnings } : {}),
+      ...(this.serverFacts ?? {}),
     };
+  }
+
+  /**
+   * What the host server's last status said (ADR-228 D2, D3), or null to
+   * forget it — the box has no host server. Announced like any other change.
+   */
+  setServerFacts(facts: HostServerFacts | null): void {
+    this.announcing(() => {
+      this.serverFacts = facts ?? undefined;
+    });
   }
 
   /** What `BackendRegistry.get` hands out for this host (see `host-view.ts`). */

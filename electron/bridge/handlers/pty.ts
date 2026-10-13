@@ -95,11 +95,15 @@ export interface PtyViewerDeps {
 
 /**
  * The caller, as the viewer `pty-attachments.ts` holds a pane under. Who
- * outranks whom — only an Electron renderer window (`local`) does — is the
- * registry's rule, not decided here.
+ * outranks whom — only a desk window (`local`, or a desktop viewer stream on
+ * a host server) does — is the registry's rule, not decided here.
  */
 function asViewer(caller: Caller): Viewer {
-  return { connectionId: caller.id, callerClass: caller.callerClass };
+  return {
+    connectionId: caller.id,
+    callerClass: caller.callerClass,
+    ...(caller.viewer !== undefined && { viewer: caller.viewer }),
+  };
 }
 
 /** What a create-shaped call tells the caller about the winsize (D5). */

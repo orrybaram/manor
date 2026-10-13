@@ -64,6 +64,7 @@ function makeDeps() {
       return () => {};
     }),
     onHostServerStateChange: vi.fn(() => () => {}),
+    setServerFacts: vi.fn(),
     onStatusChange: vi.fn((cb: (hosts: unknown[]) => void) => {
       statusListeners.push(cb);
       return () => {};
@@ -221,6 +222,7 @@ describe("hosts phone access", () => {
     const linearManager = { getToken: vi.fn().mockReturnValue("lin_key") };
     return {
       ctx: localCtx({ ...deps, hostServerSync, linearManager } as never),
+      backendRegistry,
       client,
       hostServerSync,
       linearManager,
@@ -278,6 +280,28 @@ describe("hosts phone access", () => {
     expect(view.devices).toEqual([]);
     expect(client.listDevices).toHaveBeenCalledTimes(1);
     expect(hostServerSync.pairingChanged).not.toHaveBeenCalled();
+  });
+
+  it("records the status's room and capability for hosts.list; an older host has no viewer bridge (ADR-228)", async () => {
+    const { ctx, client, backendRegistry: registry } = withServer("connected");
+    // An older host: no `capabilities`, no top-level `roomId`.
+    client.status.mockResolvedValueOnce({ devices: 0, relay: { roomId: "room-old" } });
+    await hostsServerStatus(ctx, "box");
+    expect(registry.setServerFacts).toHaveBeenLastCalledWith("box", {
+      roomId: "room-old",
+      viewerBridge: false,
+    });
+    client.status.mockResolvedValueOnce({
+      devices: 0,
+      roomId: "room-new",
+      capabilities: ["viewer-bridge"],
+      relay: { roomId: "room-new" },
+    });
+    await hostsServerStatus(ctx, "box");
+    expect(registry.setServerFacts).toHaveBeenLastCalledWith("box", {
+      roomId: "room-new",
+      viewerBridge: true,
+    });
   });
 
   it("tells the sync the pairing changed after pair, revoke and reset", async () => {

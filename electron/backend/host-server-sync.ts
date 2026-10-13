@@ -13,7 +13,9 @@
  *   one status read.
  * - **The host's push endpoints** are read back after it, and again whenever
  *   a phone is paired or revoked (`pairingChanged`): the desktop skips its
- *   own push to those for that host's agents.
+ *   own push to those for that host's agents. The same status read gives
+ *   the host's relay room and whether it takes desktop viewer streams
+ *   (ADR-228 D2, D3), which `hosts.list` carries.
  *
  * The host server owns its projects and layout (ADR-227 D2), so neither is
  * pushed any more.
@@ -28,7 +30,10 @@ import {
 } from "../host-server/layout";
 import type { VapidKeys } from "../remote-control/push";
 import { HostPushEndpoints } from "../remote-control/host-push-endpoints";
+import { hasViewerBridge } from "../host-server/capabilities";
+import type { HostServerStatus } from "../host-server/relay";
 import type { HostAdoption } from "./host-adoption";
+import type { HostServerFacts } from "./host-connection";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 
 /** The registry's side of the push: each remote host's owner channel. */
@@ -38,6 +43,24 @@ export interface HostServerRegistry {
   onHostServerStateChange(
     listener: (hostId: string, state: HostServerClientState) => void,
   ): () => void;
+  /**
+   * Record what a host's server said in its last status (ADR-228 D2, D3), so
+   * `hosts.list` carries its room and whether it takes viewer streams.
+   * Optional: a registry that does not list hosts has nowhere to put them.
+   */
+  setServerFacts?(hostId: string, facts: HostServerFacts | null): void;
+}
+
+/** The facts `hosts.list` carries, from one status (ADR-228 D2, D3). */
+export function serverFactsOf(
+  status: Pick<HostServerStatus, "roomId" | "capabilities" | "relay">,
+): HostServerFacts {
+  return {
+    // A server from before ADR-228 has no top-level `roomId`; its relay's is
+    // the same room.
+    roomId: status.roomId !== undefined ? status.roomId : (status.relay?.roomId ?? null),
+    viewerBridge: hasViewerBridge(status),
+  };
 }
 
 export interface HostServerSyncOptions {
@@ -66,9 +89,14 @@ export class HostServerSync {
     this.vapidKeys = opts.vapidKeys;
     this.adoption = opts.adoption;
     this.endpoints = new HostPushEndpoints({
+      // The one status read per connect and pairing change: its room and
+      // capabilities are recorded for `hosts.list` on the way past.
       status: async (hostId) => {
         const client = opts.registry.hostServer(hostId);
-        return client?.state === "connected" ? client.api.hostServer.status() : null;
+        if (client?.state !== "connected") return null;
+        const status = await client.api.hostServer.status();
+        opts.registry.setServerFacts?.(hostId, serverFactsOf(status));
+        return status;
       },
     });
     this.log = opts.log ?? console;
@@ -82,7 +110,11 @@ export class HostServerSync {
     this.unsubscribe?.();
     this.unsubscribe = this.registry.onHostServerStateChange((hostId, state) => {
       if (state === "connected") void this.sendAll(hostId);
-      else if (state === "unsupported") this.endpoints.forget(hostId);
+      else if (state === "unsupported") {
+        this.endpoints.forget(hostId);
+        // No host server on the box: no room, no viewer streams.
+        this.registry.setServerFacts?.(hostId, null);
+      }
     });
     for (const client of this.registry.hostServers()) {
       if (client.state === "connected") void this.sendAll(client.hostId);

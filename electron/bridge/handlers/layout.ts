@@ -49,10 +49,18 @@ function originOf(caller: Caller): LayoutOrigin {
  * Who a command came from, as the layout store records it: the caller — or,
  * on a host server, the desktop's own caller, which the owner forwards it
  * for (ADR-227 D4), so the broadcast's hint lands on the renderer that sent
- * it. Only the owner may say; anyone else's third argument is ignored.
+ * it. Only main's owner channel may say; anyone else's third argument is
+ * ignored. A desktop window's viewer stream (ADR-228 D4) is an owner too,
+ * but it is the renderer itself: its own connection is the origin.
  */
 function commandOrigin(caller: Caller, forwardedFor: unknown): LayoutOrigin {
-  if (caller.callerClass !== "owner" || !isOrigin(forwardedFor)) return originOf(caller);
+  if (
+    caller.callerClass !== "owner" ||
+    caller.viewer !== undefined ||
+    !isOrigin(forwardedFor)
+  ) {
+    return originOf(caller);
+  }
   return { kind: forwardedFor.kind, id: forwardedFor.id };
 }
 

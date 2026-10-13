@@ -63,6 +63,7 @@ import { createAdoption } from "./adopt";
 import { serveCliRelay } from "./cli-relay";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
+import { HOST_SERVER_CAPABILITIES } from "./capabilities";
 import { fileHookCursorStore } from "./hook-cursor";
 import { fileOwnershipState, type OwnershipState } from "./ownership";
 import {
@@ -300,12 +301,15 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   client.setReconnectPolicy(daemonRetryDelayMs);
 
   function hostStatus(): HostServerStatus {
+    const relayStatus = relay.relayStatus();
     return {
       version: appVersion,
+      capabilities: [...HOST_SERVER_CAPABILITIES],
+      roomId: relayStatus.roomId,
       ownership: ownership.current(),
       uptimeMs: Date.now() - startedAt,
       secretBackend: opts.secretBox.backend(),
-      relay: relay.relayStatus(),
+      relay: relayStatus,
       devices: relay.deviceCount(),
       pushEndpoints: relay.pushEndpoints(),
       linear: shared.linearManager.isConnected(),

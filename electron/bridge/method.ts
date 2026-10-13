@@ -9,7 +9,7 @@
 
 import type { HostDeps } from "../ipc/types";
 import { LOCAL_ROUTE, type RouteRule } from "./routes";
-import type { CallerClass, UnavailableCode } from "./types";
+import type { CallerClass, UnavailableCode, ViewerKind } from "./types";
 
 // The route rules live in `./routes.ts` (ADR-228 D1) so the renderer can read
 // them; the tables import them from here.
@@ -39,6 +39,12 @@ export interface Caller {
    * server's owner channel (ADR-225 D4); `device` = a paired `full` device.
    */
   callerClass: CallerClass;
+  /**
+   * A desktop window's own stream to a host server (ADR-228 D4): an `owner`
+   * that ranks as the desk for the winsize and is its own layout origin.
+   * Absent for everyone else.
+   */
+  viewer?: ViewerKind;
   /** The paired device behind a `device` caller; null/absent for `local`. */
   deviceId?: string | null;
 }

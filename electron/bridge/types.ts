@@ -222,6 +222,21 @@ export interface EventFrame {
 export type CallerClass = "local" | "owner" | "device";
 
 /**
+ * What kind of viewer a connection is, beyond its caller class (ADR-228 D4).
+ *
+ * - `desktop` — a desktop renderer window reaching a host server directly,
+ *   over its own `manor-host server-bridge --viewer` stream. Its caller class
+ *   is `owner` (the same user, through the same 0600 token), but it is a
+ *   window someone is looking at, not main's owner channel: it ranks like a
+ *   `local` window for the winsize (`pty-attachments.ts`), and it never
+ *   forwards a layout origin on anyone else's behalf.
+ *
+ * Only an authenticator sets it; a hello's own say-so counts only where the
+ * authenticator chooses to honour it (the owner socket's, `host-server/socket.ts`).
+ */
+export type ViewerKind = "desktop";
+
+/**
  * What dispatch knows about a caller. A socket and a window are both this.
  *
  * Everything a transport is — a `WebSocket`, a `webContents`, a hello timer,
@@ -241,6 +256,8 @@ export interface BridgeConnection {
   readonly id: string;
   /** See `CallerClass`. */
   readonly callerClass: CallerClass;
+  /** See `ViewerKind`. Absent for every connection that is not a viewer stream. */
+  readonly viewer?: ViewerKind;
   /** Audit identity, or null for a local caller (ADR-180 D4). */
   readonly deviceId: string | null;
   /** The audit line's human name for `deviceId`. Null for a local caller. */

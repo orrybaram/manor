@@ -18,7 +18,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AgentManager, type AgentInfo } from "../../agent-persistence";
 import type { AgentStatusDriver } from "../../agent-status/driver";
-import { createAgentPipeline } from "../../agent-status/pipeline";
+import {
+  createAgentPipeline,
+  desktopAgentPipelineOptions,
+} from "../../agent-status/pipeline";
 import { HostHookFeed, memoryHookSeqStore } from "../../backend/hook-feed";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { HookJournal } from "../../terminal-host/hook-journal";
@@ -116,9 +119,9 @@ function replaySource(journal: HookJournal) {
  */
 function desktopReader(dir: string, journal: HookJournal): Reader {
   const agentManager = new AgentManager(dir, 90, () => REMOTE_HOST);
-  const pipeline = createAgentPipeline({
+  const pipeline = createAgentPipeline(desktopAgentPipelineOptions({
     agentManager,
-    getPaneContext: () => undefined,
+    paneContexts: new Map(),
     getPaneHostId: () => REMOTE_HOST,
     unseenRespondedAgents: new Set(),
     unseenInputAgents: new Set(),
@@ -126,7 +129,7 @@ function desktopReader(dir: string, journal: HookJournal): Reader {
     publishPaneStatus: () => {},
     onStatus: () => {},
     clocks: { monoClock: clock, wallClock: clock, log: () => {} },
-  });
+  }));
   pipeline.start();
   const store = memoryHookSeqStore();
   store.set(REMOTE_HOST, { seq: 0, epoch: journal.epoch });

@@ -25,7 +25,7 @@ import {
   type AgentStatusDriver,
   type AgentStatusDriverDeps,
 } from "./driver";
-import type { EffectApplierDeps } from "./effects";
+import type { EffectApplierDeps, PaneContext } from "./effects";
 
 export interface AgentPipelineOptions
   extends Pick<
@@ -46,6 +46,23 @@ export interface AgentPipelineOptions
   onHookEvent?: AgentStatusDriverDeps["onHookEvent"];
   /** Driver clocks and log, injectable so two pipelines can be compared. */
   clocks?: Pick<AgentStatusDriverDeps, "monoClock" | "wallClock" | "log">;
+}
+
+/**
+ * What the desktop's `initApp()` hands the pipeline: the renderer's pane
+ * contexts as a map, everything else as `AgentPipelineOptions`.
+ */
+export interface DesktopAgentPipelineDeps extends Omit<AgentPipelineOptions, "getPaneContext"> {
+  paneContexts: ReadonlyMap<string, PaneContext>;
+}
+
+/**
+ * The desktop's configuration of the pipeline, in one place so the
+ * two-readers test builds its desktop reader the way `initApp()` does.
+ */
+export function desktopAgentPipelineOptions(deps: DesktopAgentPipelineDeps): AgentPipelineOptions {
+  const { paneContexts, ...rest } = deps;
+  return { ...rest, getPaneContext: (paneId) => paneContexts.get(paneId) };
 }
 
 export interface AgentPipeline {

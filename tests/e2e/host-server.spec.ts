@@ -4,6 +4,7 @@ import { relayTest } from "./helpers/relay-fixture";
 import {
   APP_TARGET,
   REMOTE_AGENT,
+  hostServerPid,
   installRemoteStubs,
   killAppSsh,
   onRemote,
@@ -11,9 +12,9 @@ import {
   pollFor,
   remoteKind,
   remoteSkipReason,
+  resetRemoteBox,
   seedRemoteRepo,
   setAppTargetReachable,
-  stopHostServer,
 } from "./helpers/remote-host";
 import {
   CONNECT_TIMEOUT,
@@ -68,12 +69,7 @@ test.beforeAll(() => {
   // A clean slate, as remote-host.spec.ts makes one — including the host
   // server's state, so it starts afresh (and against this test's relay) on
   // the desktop's first connect.
-  stopHostServer();
-  onRemote(
-    '[ -x "$HOME/.manor/bin/manor-host" ] && "$HOME/.manor/bin/manor-host" restart >/dev/null 2>&1; ' +
-      'rm -rf "$HOME/.manor/remote" "$HOME/code" "$HOME/.manor-e2e"; true',
-    { timeoutMs: STEP },
-  );
+  resetRemoteBox();
   installRemoteStubs();
   seedRemoteRepo();
 });
@@ -99,14 +95,6 @@ function agentState(a: AgentState): AgentState {
     projectName: a.projectName,
     agentKind: a.agentKind,
   };
-}
-
-/** The host server's pid on the box, or null when none is running. */
-function hostServerPid(): number | null {
-  const out = onRemote(
-    'pid=$(cat "$HOME/.manor/remote/server/server.pid" 2>/dev/null) && kill -0 "$pid" 2>/dev/null && echo "$pid"; true',
-  ).stdout.trim();
-  return out ? Number(out) : null;
 }
 
 relayTest.describe("host server", () => {

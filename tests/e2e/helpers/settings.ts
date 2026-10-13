@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import type { Filmstrip } from "./filmstrip";
 
@@ -142,6 +142,21 @@ export async function pairDevice(
   await openRemoteControlSettings(window);
 
   await window.getByTestId("remote-add-device").click();
+  return completePairingDialog(window, window, label, film);
+}
+
+/**
+ * The rest of pairing, after a trigger has opened the Add device dialog:
+ * name it, submit, read the link and token off the pairing dialog, close it,
+ * and wait for the device's row under `scope` (the whole window, or one
+ * host's section).
+ */
+async function completePairingDialog(
+  window: Page,
+  scope: Page | Locator,
+  label: string,
+  film?: Filmstrip,
+): Promise<PairedDevice> {
   const addDialog = window.getByTestId("remote-add-device-dialog");
   await expect(addDialog).toBeVisible({ timeout: 5_000 });
   await addDialog.getByTestId("remote-pair-label").fill(label);
@@ -168,8 +183,8 @@ export async function pairDevice(
   // A paired device that does not appear in the list cannot be revoked, so
   // the row is part of pairing rather than a separate thing to check for.
   await expect(
-    window.getByTestId("remote-device-row").filter({ hasText: label }),
-  ).toHaveCount(1);
+    scope.getByTestId("remote-device-row").filter({ hasText: label }),
+  ).toHaveCount(1, { timeout: 10_000 });
 
   return { label, token, link };
 }
@@ -211,30 +226,7 @@ export async function pairHostPhone(
   );
 
   await section.getByTestId("host-pair-phone").click();
-  const addDialog = window.getByTestId("remote-add-device-dialog");
-  await expect(addDialog).toBeVisible({ timeout: 5_000 });
-  await addDialog.getByTestId("remote-pair-label").fill(label);
-  await addDialog.getByTestId("remote-pair-submit").click();
-
-  const dialog = window.getByTestId("remote-pairing-dialog");
-  await expect(dialog).toBeVisible({ timeout: 10_000 });
-  const link =
-    (await window
-      .getByTestId("remote-pairing-link")
-      .getAttribute("data-link")) ?? "";
-  if (!link.includes("#relay=")) {
-    throw new Error(`Host pairing dialog showed no relay link (got "${link}")`);
-  }
-  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("t") ?? "";
-  if (!token) throw new Error("Host pairing link carried no token");
-
-  await window.getByTestId("remote-pairing-done").click();
-  await expect(dialog).not.toBeVisible({ timeout: 5_000 });
-  await expect(
-    section.getByTestId("remote-device-row").filter({ hasText: label }),
-  ).toHaveCount(1, { timeout: 10_000 });
-
-  return { label, token, link };
+  return completePairingDialog(window, section, label);
 }
 
 /** Revoke a paired device by its label, from its row's trash button. */

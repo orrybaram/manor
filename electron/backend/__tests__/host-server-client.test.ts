@@ -27,7 +27,7 @@ import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { plainFileSecretBox } from "../../platform/secret-box";
 import type { HostTransport } from "../../terminal-host/transport";
 import { runServerBridge } from "../../terminal-host/server-bridge";
-import { awaitHelloLine, parseServerHello } from "../../terminal-host/transport-ssh";
+import { readPastServerHello } from "../../host-server/__tests__/hello-stream";
 import {
   HostServerClient,
   HostServerUnavailableError,
@@ -72,11 +72,6 @@ async function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
-  const ended = new Promise<never>((_resolve, reject) => {
-    stdout.once("error", reject);
-    stdout.once("close", () => reject(new Error("the stream ended before the hello")));
-  });
-  ended.catch(() => {});
   // The server is already running in-process; never spawn a real one.
   runServerBridge(
     { stdin, stdout, stderr },
@@ -84,8 +79,7 @@ async function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
   ).catch((err: Error) => {
     stdout.destroy(err);
   });
-  const { rest } = await Promise.race([awaitHelloLine(stdout, parseServerHello), ended]);
-  if (rest.length > 0) stdout.unshift(rest);
+  await readPastServerHello(stdout);
   return joined(stdin, stdout);
 }
 

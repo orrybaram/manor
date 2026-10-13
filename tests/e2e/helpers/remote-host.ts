@@ -102,20 +102,37 @@ export function remoteHome(): string {
   return onRemote('printf "%s" "$HOME"').stdout.trim();
 }
 
+/** The shell line that reads the host server's pid file into `$pid`. */
+const READ_SERVER_PID = 'pid=$(cat "$HOME/.manor/remote/server/server.pid" 2>/dev/null)';
+
 /**
- * Stop the box's Manor daemon and delete everything Manor put there, so the
- * next connect is a cold bootstrap. Also clears the suite's own leftovers.
+ * Stop the box's Manor daemon and host server and delete what Manor put
+ * there, so the next connect starts afresh (and the host server, against the
+ * test's relay). Also clears the suite's own leftovers: earlier runs' clones
+ * and the stubs.
+ *
+ * By default the installed host is kept (a reinstall is the bridge suite's
+ * job, and costs minutes on Linux) and only its state under `remote/` goes.
+ * `coldBootstrap` deletes all of `~/.manor` too, so the next connect is a
+ * bootstrap from nothing.
  */
-export function wipeRemote(): void {
+export function resetRemoteBox({ coldBootstrap = false } = {}): void {
   // Agent configs the bootstrap registered hooks in are only removed on the
   // harness's own throwaway homes, never on a box of your own.
-  const agentConfigs = remoteKind() === "custom" ? "" : ' "$HOME/.claude" "$HOME/.codex"';
+  const agentConfigs =
+    coldBootstrap && remoteKind() !== "custom" ? ' "$HOME/.claude" "$HOME/.codex"' : "";
+  const manor = coldBootstrap ? '"$HOME/.manor"' : '"$HOME/.manor/remote"';
   stopHostServer();
   onRemote(
     '[ -x "$HOME/.manor/bin/manor-host" ] && "$HOME/.manor/bin/manor-host" restart >/dev/null 2>&1; ' +
-      `rm -rf "$HOME/.manor" "$HOME/.manor-e2e" "$HOME/code"${agentConfigs}; true`,
+      `rm -rf ${manor} "$HOME/.manor-e2e" "$HOME/code"${agentConfigs}; true`,
     { timeoutMs: 60_000 },
   );
+}
+
+/** A cold bootstrap's clean slate: `resetRemoteBox` with the host gone too. */
+export function wipeRemote(): void {
+  resetRemoteBox({ coldBootstrap: true });
 }
 
 /**
@@ -126,12 +143,20 @@ export function wipeRemote(): void {
  */
 export function stopHostServer(): void {
   onRemote(
-    'pid=$(cat "$HOME/.manor/remote/server/server.pid" 2>/dev/null) || exit 0; ' +
+    `${READ_SERVER_PID} || exit 0; ` +
       'kill "$pid" 2>/dev/null || exit 0; ' +
       'i=0; while kill -0 "$pid" 2>/dev/null && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done; ' +
       'kill -9 "$pid" 2>/dev/null; true',
     { timeoutMs: 30_000 },
   );
+}
+
+/** The host server's pid on the box, or null when none is running. */
+export function hostServerPid(): number | null {
+  const out = onRemote(
+    `${READ_SERVER_PID} && kill -0 "$pid" 2>/dev/null && echo "$pid"; true`,
+  ).stdout.trim();
+  return out ? Number(out) : null;
 }
 
 /**

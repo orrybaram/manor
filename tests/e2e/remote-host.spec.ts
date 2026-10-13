@@ -20,9 +20,9 @@ import {
   pollFor,
   remoteKind,
   remoteSkipReason,
+  resetRemoteBox,
   seedRemoteRepo,
   setAppTargetReachable,
-  stopHostServer,
 } from "./helpers/remote-host";
 import {
   CONNECT_TIMEOUT,
@@ -63,16 +63,10 @@ test.skip(skipReason !== null, skipReason ?? "");
 test.describe.configure({ mode: "serial" });
 
 test.beforeAll(() => {
-  // A clean slate on the box, keeping the installed host (a reinstall is
-  // the bridge suite's job, and costs minutes on Linux): stop its daemon and
-  // host server,
-  // drop its journal, earlier runs' clones and the stubs, then set up again.
-  stopHostServer();
-  onRemote(
-    '[ -x "$HOME/.manor/bin/manor-host" ] && "$HOME/.manor/bin/manor-host" restart >/dev/null 2>&1; ' +
-      'rm -rf "$HOME/.manor/remote" "$HOME/code" "$HOME/.manor-e2e"; true',
-    { timeoutMs: STEP },
-  );
+  // A clean slate on the box, keeping the installed host: stop its daemon and
+  // host server, drop its journal, earlier runs' clones and the stubs, then
+  // set up again.
+  resetRemoteBox();
   installRemoteStubs();
   seedRemoteRepo();
 });

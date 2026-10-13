@@ -18,7 +18,11 @@ import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
 import type { HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
-import { createAgentPipeline, resyncPaneFacts } from "./agent-status/pipeline";
+import {
+  createAgentPipeline,
+  desktopAgentPipelineOptions,
+  resyncPaneFacts,
+} from "./agent-status/pipeline";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
 import { dispatchStreamEvent } from "./agent-stream-events";
@@ -573,9 +577,9 @@ export function initApp(devTitle: string | null): void {
   // server: local HTTP hooks and remote hosts' journaled hooks take the same
   // path (ADR-178 §2), and a replay's notifications are coalesced to one
   // banner per agent, not hundreds.
-  const agentPipeline = createAgentPipeline({
+  const agentPipeline = createAgentPipeline(desktopAgentPipelineOptions({
     agentManager,
-    getPaneContext: (paneId) => paneContextMap.get(paneId),
+    paneContexts: paneContextMap,
     getPaneHostId,
     unseenRespondedAgents,
     unseenInputAgents,
@@ -613,7 +617,7 @@ export function initApp(devTitle: string | null): void {
         replacedRootSessionId,
       );
     },
-  });
+  }));
   const agentStatusDriver = agentPipeline.driver;
   const agentHookServer = agentPipeline.ingestion;
   backendRegistry.setHookSink(agentPipeline.hookSink);

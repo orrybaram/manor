@@ -8,9 +8,10 @@
  * caches it in `dataDir/layout.json` (`./owner-snapshot.ts`) and the phone
  * walks it (ADR-181).
  *
- * Read-only here. Ticket 6 adds the synthetic "Started while away" tab for
- * daemon sessions the snapshot lacks, and the named refusal for a device's
- * layout writes.
+ * Read-only here. The synthetic "Started while away" tab for daemon sessions
+ * the snapshot lacks is added when the layout is served
+ * (`./started-while-away.ts`, `./handlers.ts`); a device's layout writes are
+ * refused as unavailable on the host.
  */
 
 import type { LayoutEntry } from "../../src/lib/layout/protocol";

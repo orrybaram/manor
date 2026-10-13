@@ -1,6 +1,6 @@
 ---
 title: Split host-server tests with a shared harness and dedupe E2E helpers
-status: in-progress
+status: done
 priority: low
 assignee: sonnet
 blocked_by: [11]

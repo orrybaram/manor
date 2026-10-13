@@ -28,7 +28,6 @@
         "scripts/**/*.{ts,mjs}",
         "tests/**/*.ts"
       ],
-      "ignore": ["electron/platform/notifier.ts"],
       "ignoreDependencies": ["@electron/osx-sign"],
       "vite": {
         "config": ["vite.config.ts", "vite.web.config.ts", "vitest.config.ts"]

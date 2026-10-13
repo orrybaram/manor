@@ -120,8 +120,22 @@ export function checkForUpdates(): void {
   void runUpdater((updater) => updater.checkForUpdates());
 }
 
+let beforeInstall: (() => Promise<void>) | null = null;
+
+/**
+ * Work to finish before an install quits the app (the shell's shutdown, which
+ * holds the first `before-quit`). Run first so the install's own quit is not
+ * held and cannot lose its relaunch.
+ */
+export function setBeforeInstallHook(hook: () => Promise<void>): void {
+  beforeInstall = hook;
+}
+
 export function quitAndInstall(): void {
-  void runUpdater((updater) => updater.quitAndInstall());
+  void runUpdater(async (updater) => {
+    await beforeInstall?.();
+    updater.quitAndInstall();
+  });
 }
 
 async function runUpdater(

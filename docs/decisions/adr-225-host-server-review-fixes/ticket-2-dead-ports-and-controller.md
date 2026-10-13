@@ -1,6 +1,6 @@
 ---
 title: Delete dead platform ports and simplify controller push-endpoint wiring
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1]
@@ -26,3 +26,8 @@ blocked_by: [1]
 - `electron/app-lifecycle.ts`, `electron/host-server/server.ts`, `electron/host-server/serve.ts`, `electron/host-server/index.ts` (exports)
 - `electron/remote-control/controller.ts`, `electron/remote-control/__tests__/controller.test.ts`
 - `electron/platform/__tests__/electron-free.test.ts` if it lists the deleted files
+
+## Added from ticket 1 follow-ups
+
+6. **Auto-update relaunch:** ticket 1 made `before-quit` in `app-lifecycle.ts` call `preventDefault()` on the first pass to await sealed flushes, then `app.quit()`. electron-updater's `quitAndInstall` goes through `before-quit`; re-quitting via `app.quit()` may lose the relaunch. Fix so an update install still relaunches: e.g. listen for `autoUpdater`'s `before-quit-for-update` and set a flag, and in that path re-issue `autoUpdater.quitAndInstall()` (or skip preventDefault and flush synchronously-bounded). Find the updater module (grep `quitAndInstall`). Add a unit test if the lifecycle is testable.
+7. **Desktop store init failure:** if `remoteDeviceStore.init()` fails on desktop, `controller.status()` throws because `list()` refuses before init. Give the desktop controller the same `ready` guard semantics the host relay has (status reports an error / empty list rather than throwing).

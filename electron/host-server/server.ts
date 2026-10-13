@@ -52,7 +52,6 @@ import {
   type DaemonNamespace,
   type HostServerPaths,
 } from "../paths";
-import type { AppInfo } from "../platform/app-info";
 import type { SecretBox } from "../platform/secret-box";
 import { PreferencesManager } from "../preferences";
 import { RemoteAuditLog } from "../remote-control/audit";
@@ -85,7 +84,8 @@ export interface HostServerOptions {
   daemonNamespace?: DaemonNamespace;
   /** Seals the relay identity, paired devices and push keys (ADR-218 D6). */
   secretBox: SecretBox;
-  appInfo: AppInfo;
+  /** The running app's version: the daemon handshake and the hello reply. */
+  appVersion: string;
   /** How the daemon is reached. Defaults to its local socket; tests inject. */
   transport?: HostTransport;
   /**
@@ -152,10 +152,10 @@ function daemonTransport(namespace: DaemonNamespace): HostTransport {
 export function createHostServer(opts: HostServerOptions): HostServer {
   const paths = hostServerPaths(opts.dataDir);
   fs.mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });
-  const { appInfo } = opts;
+  const { appVersion } = opts;
 
   const client = new TerminalHostClient(
-    appInfo.version,
+    appVersion,
     opts.transport ?? daemonTransport(opts.daemonNamespace ?? "remote"),
   );
   // The local daemon reconnects quietly on the desktop; a server that has to
@@ -224,7 +224,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const hostStatus = (): HostServerStatus => {
     const r = hostRelay();
     return {
-      version: appInfo.version,
+      version: appVersion,
       uptimeMs: Date.now() - startedAt,
       secretBackend: opts.secretBox.backend(),
       relay: r.relayStatus(),
@@ -291,7 +291,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     audit: new RemoteAuditLog(`${paths.dataDir}/remote-audit.jsonl`),
   });
   const frames = new WsBridgeServer(bridge, {
-    appVersion: appInfo.version,
+    appVersion: appVersion,
     // The desktop's name for this host wins; else the box's own (ADR-218 D7).
     hostName: () => readManifest(paths.manifest).hostName ?? os.hostname(),
   });
@@ -300,7 +300,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const builtRelay = createHostRelay({
     paths,
     secretBox: opts.secretBox,
-    appVersion: appInfo.version,
+    appVersion: appVersion,
     frames,
     notifyOnRequiresInput: () => preferences.get("notifyOnRequiresInput"),
     options: opts.relay,

@@ -353,6 +353,16 @@ export class RemoteDeviceStore {
     await this.store.flush();
   }
 
+  /** Has `init()` read the file? Until it has, `list()` and the rest refuse. */
+  get ready(): boolean {
+    return this.devices !== null;
+  }
+
+  /** Can this install seal a token? False: pairing cannot store one. */
+  encryptionAvailable(): boolean {
+    return this.secretBox.available();
+  }
+
   list(): RemoteDeviceInfo[] {
     return [...this.live().values()]
       .sort((a, b) => a.createdAt - b.createdAt)

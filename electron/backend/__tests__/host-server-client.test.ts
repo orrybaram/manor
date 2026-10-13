@@ -158,7 +158,7 @@ describe("HostServerClient over server-bridge", () => {
     server = createHostServer({
       dataDir: paths.dataDir,
       secretBox: plainFileSecretBox,
-      appInfo: { version: "9.9.9-test", isPackaged: false, logsDir: tmp },
+      appVersion: "9.9.9-test",
       transport: noDaemon,
     });
     // Its identity and device stores, without dialling the relay.

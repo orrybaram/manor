@@ -117,6 +117,8 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     }),
     revoke: vi.fn(async (id: string) => revokeIds([id])),
     revokeMany: vi.fn(async (ids: readonly string[]) => revokeIds(ids)),
+    ready: true,
+    encryptionAvailable: () => true,
     list: () => [...paired],
     ids: () => paired.map((d) => d.id),
     idsInOtherRelayRooms: (roomId: string) =>
@@ -136,13 +138,14 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     return runtime;
   });
   const push = { notify: vi.fn(async () => 1) };
+  const hostEndpoints = new Map<string, ReadonlySet<string>>();
 
   const controller = new RemoteControlController(
     loadRuntime,
     deviceStore as unknown as RemoteDeviceStore,
-    () => true,
     push as unknown as PushManager,
     "1.2.3",
+    (hostId) => hostEndpoints.get(hostId) ?? new Set(),
   );
   return {
     controller,
@@ -150,6 +153,7 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     deviceStore,
     loadRuntime,
     push,
+    hostEndpoints,
     releaseLoad: () => held.resolve(),
     relay,
     identity,
@@ -208,10 +212,31 @@ describe("RemoteControlController", () => {
       async () => {
         throw new Error("not loaded in this test");
       },
-      { list: () => [] } as unknown as RemoteDeviceStore,
-      () => false,
+      {
+        ready: true,
+        list: () => [],
+        encryptionAvailable: () => false,
+      } as unknown as RemoteDeviceStore,
     );
     expect(c.status().encryptionAvailable).toBe(false);
+  });
+
+  it("reports an unreadable device store instead of throwing", () => {
+    const c = new RemoteControlController(
+      async () => {
+        throw new Error("not loaded in this test");
+      },
+      {
+        ready: false,
+        list: () => {
+          throw new Error("RemoteDeviceStore.init() has not completed");
+        },
+        encryptionAvailable: () => true,
+      } as unknown as RemoteDeviceStore,
+    );
+    const status = c.status();
+    expect(status.devices).toEqual([]);
+    expect(status.relayNotice).toMatch(/could not be read/);
   });
 
   describe("relay (ADR-206)", () => {
@@ -449,32 +474,27 @@ describe("RemoteControlController before the runtime loads", () => {
 
   it("skips the endpoints a remote host's server already pushes to", () => {
     const endpoints = new Set(["https://push.example/abc"]);
-    const lookup = vi.fn(() => endpoints);
-    f.controller.setHostPushEndpoints(lookup);
+    f.hostEndpoints.set("box", endpoints);
     f.controller.onAgentStatus(
       { ...AGENT, hostId: "box" },
       "working",
       "requires_input",
       { notify: true },
     );
-    expect(lookup).toHaveBeenCalledWith("box");
     expect(f.push.notify).toHaveBeenLastCalledWith(expect.anything(), {
       skipEndpoints: endpoints,
     });
   });
 
-  it("sends local agents to every subscription", () => {
-    const lookup = vi.fn(() => new Set(["https://push.example/abc"]));
-    f.controller.setHostPushEndpoints(lookup);
+  it("sends an agent on an uncached host to every subscription", () => {
     f.controller.onAgentStatus(
       { ...AGENT, hostId: "local" },
       "working",
       "requires_input",
       { notify: true },
     );
-    expect(lookup).not.toHaveBeenCalled();
     expect(f.push.notify).toHaveBeenLastCalledWith(expect.anything(), {
-      skipEndpoints: undefined,
+      skipEndpoints: new Set(),
     });
   });
 

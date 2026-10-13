@@ -102,11 +102,7 @@ export async function runServe(opts: ServeOptions): Promise<RunningServer> {
     dataDir: paths.dataDir,
     daemonNamespace: opts.daemonNamespace ?? "remote",
     secretBox,
-    appInfo: {
-      version: opts.version,
-      isPackaged: true,
-      logsDir: paths.logsDir,
-    },
+    appVersion: opts.version,
     transport: opts.transport,
     relay: opts.relay,
   });

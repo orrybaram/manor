@@ -94,6 +94,12 @@ export interface RemoteControlRuntime {
   relayIdentity?: RelayIdentityStore | null;
 }
 
+const UNREADABLE_DEVICES_NOTICE =
+  "Paired devices could not be read, so none are listed and pairing is " +
+  "unavailable. Restart Manor; if this persists, check the keychain.";
+
+const EMPTY_SET: ReadonlySet<string> = new Set();
+
 const STOPPED_RELAY_STATUS: Readonly<RelayStatus> = Object.freeze({
   state: "stopped",
   url: null,
@@ -120,17 +126,21 @@ export class RemoteControlController {
   private wantEnabled = false;
   /** Set by `shutdown()`. Nothing starts after this, whatever is in flight. */
   private closed = false;
-  private hostPushEndpoints: ((hostId: string) => ReadonlySet<string>) | null =
-    null;
 
   constructor(
     loadRuntime: () => Promise<RemoteControlRuntime>,
     private readonly deviceStore: RemoteDeviceStore,
-    private readonly encryptionAvailable: () => boolean,
     /** Null disables push; everything else still works. */
     private readonly push: PushManager | null = null,
     /** The version segment of relay pairing links (`/app/<version>/`). */
     private readonly appVersion: string = "0.0.0",
+    /**
+     * The push endpoints a host's server already sends to (cached), so those
+     * phones are not told twice (ADR-218 D3). Empty for a host not cached.
+     */
+    private readonly hostPushEndpoints: (
+      hostId: string,
+    ) => ReadonlySet<string> = () => EMPTY_SET,
   ) {
     this.ensureRuntime = lazy(async () => {
       const runtime = await loadRuntime();
@@ -186,20 +196,11 @@ export class RemoteControlController {
     if (!this.push || !notify) return;
     // An agent on a remote host whose server already pushes to some of these
     // phones is told about by that server, not twice (ADR-218 D3).
-    const skipEndpoints =
-      agent.hostId && agent.hostId !== "local"
-        ? this.hostPushEndpoints?.(agent.hostId)
-        : undefined;
     pushAgentTransition(this.push, agent, previousStatus, status, {
-      skipEndpoints,
+      skipEndpoints: agent.hostId
+        ? this.hostPushEndpoints(agent.hostId)
+        : undefined,
     });
-  }
-
-  /** Where to find the push endpoints a host's server sends to (cached). */
-  setHostPushEndpoints(
-    lookup: ((hostId: string) => ReadonlySet<string>) | null,
-  ): void {
-    this.hostPushEndpoints = lookup;
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {
@@ -208,11 +209,14 @@ export class RemoteControlController {
   }
 
   status(): RemoteControlStatus {
+    // A store that could not be read (init failed) refuses `list()`; report
+    // that rather than throwing out of every status read.
+    const ready = this.deviceStore.ready;
     return {
       ...this.runtimeStatus(),
-      devices: this.deviceStore.list(),
-      encryptionAvailable: this.encryptionAvailable(),
-      relayNotice: this.relayNotice,
+      devices: ready ? this.deviceStore.list() : [],
+      encryptionAvailable: this.deviceStore.encryptionAvailable(),
+      relayNotice: ready ? this.relayNotice : UNREADABLE_DEVICES_NOTICE,
     };
   }
 

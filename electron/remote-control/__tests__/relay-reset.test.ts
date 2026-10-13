@@ -78,6 +78,8 @@ describe("resetting the relay address", () => {
       [RELAY_TOKEN, { id: "dev-relay", label: "browser" }],
     ]);
     const deviceStore = {
+      ready: true,
+      encryptionAvailable: () => true,
       verify: (raw: unknown) =>
         typeof raw === "string" ? (devices.get(raw) ?? null) : null,
       ids: () => [...devices.values()].map((d) => d.id),
@@ -114,7 +116,6 @@ describe("resetting the relay address", () => {
     const controller = new RemoteControlController(
       async () => runtime,
       deviceStore as unknown as RemoteDeviceStore,
-      () => true,
       null,
     );
 

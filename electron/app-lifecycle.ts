@@ -14,7 +14,6 @@ import { BranchWatcher } from "./branch-watcher";
 import { DiffWatcher } from "./diff-watcher";
 import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
-import type { AppInfo } from "./platform/app-info";
 import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
 import { AgentHookServer } from "./agent-hooks";
@@ -35,7 +34,7 @@ import { countBusyAgents } from "./stats-signals";
 import { PreferencesManager } from "./preferences";
 import { KeybindingsManager } from "./keybindings";
 import type { AgentStatus, StreamEvent } from "./terminal-host/types";
-import { initAutoUpdater, checkForUpdates } from "./updater";
+import { initAutoUpdater, checkForUpdates, setBeforeInstallHook } from "./updater";
 import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { createLocalBackend } from "./backend/host-backend";
@@ -378,11 +377,7 @@ export function initApp(devTitle: string | null): void {
   // The remote-control and relay modules take their platform from these ports
   // rather than importing Electron, so the host server can reuse them (ADR-218 D6).
   const secretBox = electronSecretBox;
-  const appInfo: AppInfo = {
-    version: app.getVersion(),
-    isPackaged: app.isPackaged,
-    logsDir: app.getPath("logs"),
-  };
+  const appVersion = app.getVersion();
   const linearManager = new LinearManager(secretBox);
   // One identity store for Jev and the relay: each caches the decrypted keys,
   // so a second instance would go stale when the relay address is reset.
@@ -534,7 +529,7 @@ export function initApp(devTitle: string | null): void {
     // page built for another version can move to the matching build
     // (ADR-206 D4).
     const ws = new WsBridgeServer(bridgeServer!, {
-      appVersion: appInfo.version,
+      appVersion,
       // So a phone's pairings show this machine's real name (ADR-218 D7).
       hostName: () => os.hostname(),
     });
@@ -550,11 +545,10 @@ export function initApp(devTitle: string | null): void {
   const remoteControl = new RemoteControlController(
     loadRemoteControlRuntime,
     remoteDeviceStore,
-    () => secretBox.available(),
     remotePush,
-    appInfo.version,
+    appVersion,
+    (hostId) => hostPushEndpoints.get(hostId),
   );
-  remoteControl.setHostPushEndpoints((hostId) => hostPushEndpoints.get(hostId));
   const paneContextMap = new Map<
     string,
     {
@@ -1053,7 +1047,7 @@ export function initApp(devTitle: string | null): void {
    */
   const QUIT_FLUSH_TIMEOUT_MS = 5_000;
   let shutDown = false;
-  let shuttingDown = false;
+  let shutdownRun: Promise<void> | null = null;
   /** After `before`, the store queues drained; bounded either way. */
   const flushSealedStores = async (before: Promise<unknown>): Promise<void> => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1078,11 +1072,27 @@ export function initApp(devTitle: string | null): void {
     clearTimeout(timer);
   };
 
+  /** Tears everything down once, then lets the next quit through. */
+  const runShutdown = (): Promise<void> => {
+    shutdownRun ??= performShutdown().finally(() => {
+      shutDown = true;
+    });
+    return shutdownRun;
+  };
+
   app.on("before-quit", (event) => {
     if (shutDown) return;
     event.preventDefault();
-    if (shuttingDown) return;
-    shuttingDown = true;
+    void runShutdown().then(() => app.quit());
+  });
+
+  // An update install quits through `before-quit` too, and re-quitting with
+  // `app.quit()` after our hold could lose the relaunch. So it shuts down
+  // first, and its own quit then finds `shutDown` set and passes straight
+  // through, untouched.
+  setBeforeInstallHook(runShutdown);
+
+  function performShutdown(): Promise<void> {
     agentHookServer.stop();
     webviewServer.stop();
     // The layout debounce is 300ms; a quit inside that window must not be the
@@ -1111,9 +1121,6 @@ export function initApp(devTitle: string | null): void {
     worktreeWatcher.dispose();
     remoteWorktreePoller.dispose();
     // Last: the relay is down by now, so nothing new joins the queues.
-    void flushSealedStores(remoteControlDown).finally(() => {
-      shutDown = true;
-      app.quit();
-    });
-  });
+    return flushSealedStores(remoteControlDown);
+  }
 }

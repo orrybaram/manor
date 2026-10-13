@@ -88,3 +88,9 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - **Each remote pane mount costs one extra round trip** (host `pty.create` before the daemon attach). Deliberate, so the host can deliver pending commands; note it in the docs.
 - The remote e2e stub agent (`tests/e2e/remote-host/manor-e2e-agent`) now ends with `exec awk`; a foreground shell reads as "agent process exited". Note it in the e2e docs.
 - `remote-host.spec` "laptop closed … one notification" now passes on this branch (it fails on main).
+
+## Carried over from ticket 9
+
+- **Legacy boxes regress.** A box with no host server (or an old one) now gets no agent status, chat or worktree polling on the desktop, and no last-known workspaces while away; `removeProject` for such a project while its host is away only tears down the main path's layout. This follows D4's deletions; document it in the ADR's Consequences and the user docs (upgrade the box).
+- `ChatMirror`'s `unwatchedPollIntervalMs` path is now unused in production; remove it if knip doesn't need it.
+- Two `read-state.spec` tests assert `app.dock.getBadge()`, which is macOS-only; they fail on Linux. Confirm they fail on main too and add to the known-failures note (or skip them off macOS).

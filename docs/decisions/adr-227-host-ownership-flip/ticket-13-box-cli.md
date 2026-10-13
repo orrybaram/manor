@@ -57,3 +57,8 @@ to this host".
 ## Carried over from ticket 8
 
 - **The desktop's own control routes, MCP and CLI are not routed for adopted hosts.** They write through `ProjectManager` or `workspaceOps` directly, not through `BridgeServer.forward`, so e.g. create-workspace and `POST /agents` for a remote project fail with "Unknown project" once its host is adopted (regression since ticket 6). Route them through `HostRouting` (or the proxy) the same way the bridge does. This ticket touches the control surface anyway; cover it with a test.
+
+## Carried over from ticket 9
+
+- The desktop's HTTP write routes `DELETE /agents/:id`, `PATCH /agents/:id`, `/agents/:id/seen`, and `/sessions/end`'s `agentStatus.signal` still act only on the desktop's own agent store. Reads and `/sessions/send`/`interrupt` resolve adopted hosts' agents; these writes don't. The bridge methods already forward via `byAgent`; make the HTTP routes use the same path.
+- Stats-only reads (`process-control` / `processes.killSession` kill counters, the busy-agent count) don't count remote agents. Small; fix if it falls out of the routing work.

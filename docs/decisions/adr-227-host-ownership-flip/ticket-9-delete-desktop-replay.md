@@ -1,6 +1,6 @@
 ---
 title: Delete desktop journal replay, manifest sync and remote polling
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [8]

@@ -1,6 +1,6 @@
 ---
 title: createManorServer(platform) shared by initApp and the host server
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [1, 2]
@@ -85,3 +85,19 @@ reads the owner's manifest and layout in this ticket. The flip is ticket 5.
   has no equivalent: `backendRegistry` remote hosts, `hostServerSync`,
   `remoteForwards` and portless. These belong with the `remoteHosts?`
   port.
+
+## Carried over from ticket 2
+- **The host must supply a notifier.** `ServerDeps.notifier` (`ServerNotifier`)
+  is required, so the host needs a headless one:
+  - it implements `sendAgentUpdate`, `updateDockBadge`,
+    `markAgentNotificationsRead` and `sendNotificationsUpdate`;
+  - it has no `showPrNotification`.
+  
+  `electron/host-server/agents.ts` still has its own `broadcastAgent`. Fold
+  that into the notifier, or into the shared pipeline.
+- **`ProjectManager` needs a real `publish`.** Its `publish` option defaults
+  to a no-op, so `createManorServer` must pass the server's bus publish.
+  Otherwise setup and clone progress go nowhere on the host.
+- **`pty-attachments.ts` stays process-wide.** It is documented as safe
+  because pane ids are unique per server. Keep that in mind if the
+  host-server test harness runs two servers with colliding pane ids.

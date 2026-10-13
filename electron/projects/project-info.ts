@@ -4,9 +4,8 @@
  */
 
 import crypto from "node:crypto";
-import { LOCAL_HOST_ID, type GitBackend, type MachineFacts } from "../backend/types";
+import type { GitBackend, MachineFacts } from "../backend/types";
 import { errorMessage } from "../lib/errors";
-import { workspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 import type { PathRouter } from "./path-router";
 import { resolveShared, summarizeGroup } from "./project-groups";
 import { normalizeSidebarOrder } from "./workspace-folders";
@@ -77,87 +76,10 @@ export async function seedCommands(
   }
 }
 
-/**
- * Each remote project's last successful workspace listing (ADR-192 §5).
- * While its host is away git can't list anything; the project then keeps
- * the workspaces it last had rather than collapsing to its main checkout, so
- * the sidebar still shows what's there.
- *
- * Served only while the host is away (`isHostAway`): a connected host that
- * lists nothing — the repo was deleted or moved — gets the main checkout,
- * never stale worktrees. An entry is for one host and path (`workspaceKey`),
- * so it is ignored once the project lives elsewhere, and `forget` drops it
- * when the project is removed or moved. In memory only: a host that is away
- * from launch on shows just the main checkout.
- */
-export class LastKnownWorkspaces {
-  private readonly byProject = new Map<
-    string,
-    { key: WorkspaceKey; workspaces: WorkspaceInfo[] }
-  >();
-
-  constructor(private readonly isHostAway: (hostId: string) => boolean) {}
-
-  /** Records `workspaces` as what git listed for remote project `p`. */
-  remember(p: PersistedProject, workspaces: readonly WorkspaceInfo[]): void {
-    const key = remoteKey(p);
-    if (!key) return;
-    this.byProject.set(p.id, { key, workspaces: workspaces.map((ws) => ({ ...ws })) });
-  }
-
-  /** `p`'s last listing, when `p` is remote, its host is away and it has one. */
-  recall(p: PersistedProject): WorkspaceInfo[] | undefined {
-    return this.isHostAway(p.hostId) ? this.latest(p) : undefined;
-  }
-
-  /**
-   * `p`'s last listing whether or not its host is away — what the desktop
-   * already knows of its worktrees, without asking git (ADR-225 D8's
-   * manifest snapshot). Undefined for a local project or one never listed.
-   */
-  latest(p: PersistedProject): WorkspaceInfo[] | undefined {
-    const key = remoteKey(p);
-    if (!key) return undefined;
-    const entry = this.byProject.get(p.id);
-    if (!entry || entry.key !== key) return undefined;
-    return entry.workspaces.map((ws) => ({ ...ws }));
-  }
-
-  forget(projectId: string): void {
-    this.byProject.delete(projectId);
-  }
-}
-
-/**
- * The key of a remote project's checkout, or undefined for a local project
- * or one whose path can't be keyed (not POSIX-absolute) — such a project is
- * never cached rather than failing the whole project list.
- */
-function remoteKey(p: PersistedProject): WorkspaceKey | undefined {
-  if (!p.hostId || p.hostId === LOCAL_HOST_ID) return undefined;
-  try {
-    return workspaceKey(p.hostId, p.path);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The workspaces to show for `p`: what git lists now, else its last listing
- * while its host is away (`lastKnown`), else the main checkout alone.
- */
-async function currentWorkspaces(
-  p: PersistedProject,
-  git: GitBackend,
-  lastKnown: LastKnownWorkspaces | undefined,
-): Promise<WorkspaceInfo[]> {
-  const listed = await listGitWorkspaces(git, p.path);
-  if (listed) {
-    lastKnown?.remember(p, listed);
-    return listed;
-  }
+/** The workspaces to show for `p`: what git lists now, else the main checkout alone. */
+async function currentWorkspaces(p: PersistedProject, git: GitBackend): Promise<WorkspaceInfo[]> {
   return (
-    lastKnown?.recall(p) ?? [
+    (await listGitWorkspaces(git, p.path)) ?? [
       { path: p.path, branch: p.defaultBranch, isMain: true, name: null },
     ]
   );
@@ -168,17 +90,15 @@ async function currentWorkspaces(
  * git lists now. Records those workspace paths with `paths`, which routes
  * by them. `group` is the project's linked-project group (ADR-192), whose
  * shared settings (name, color, agent command, Linear, theme, commands) win
- * over the project's own. `lastKnown` stands in for the listing while a remote host
- * is away.
+ * over the project's own.
  */
 export async function buildProjectInfo(
   p: PersistedProject,
   git: GitBackend,
   paths: Pick<PathRouter, "setWorkspacePaths">,
   group?: PersistedProjectGroup,
-  lastKnown?: LastKnownWorkspaces,
 ): Promise<ProjectInfo> {
-  const rawWorkspaces = await currentWorkspaces(p, git, lastKnown);
+  const rawWorkspaces = await currentWorkspaces(p, git);
   const rawWorkspacePaths = rawWorkspaces.map((ws) => ws.path);
   paths.setWorkspacePaths(p.id, rawWorkspacePaths);
   // Apply persisted ordering

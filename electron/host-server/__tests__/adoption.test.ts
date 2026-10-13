@@ -115,8 +115,9 @@ describe("adoption (ADR-227 D3)", () => {
     expect(desktopState.hosts?.box).toMatchObject({
       adopted: true,
       adoptedProjectIds: ["box-app", "box-other"],
-      lastHookSeq: 7,
     });
+    // The hook position the file was seeded with is gone: the box reads its own journal.
+    expect(desktopState.hosts?.box).not.toHaveProperty("lastHookSeq");
     expect(desktopState.hosts?.mac).not.toHaveProperty("adopted");
 
     expect(ids(readJson<{ agents: AgentInfo[] }>(path.join(desktopDir(), "agents.json")).agents)).toEqual([

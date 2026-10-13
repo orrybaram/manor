@@ -30,8 +30,8 @@
  * `ownership` in its status) is left alone.
  *
  * Once adopted, the desktop reads and writes a host's state through its
- * server (ADR-227 D4). What it still records for that host afterwards is its
- * own hook feed's agents (until ADR-227 ticket 9), which stay here.
+ * server (ADR-227 D4), and records no agents for it: any left from before
+ * the desktop stopped replaying the host's hooks are dropped on connect.
  */
 
 import fs from "node:fs";
@@ -80,6 +80,8 @@ export interface HostAdoptionOptions {
   getPaneHostId: PaneHostLookup;
   /** Told after a host's projects left `projects.json`. */
   onProjectsRemoved?(hostId: string): void;
+  /** Told after agents left `agents.json`, so a renderer drops its copies. */
+  onAgentsRemoved?(agentIds: readonly string[]): void;
   /** Defaults to `backupsDir()`. */
   backupDir?: string;
   now?: () => Date;
@@ -141,9 +143,9 @@ export class HostAdoption {
    * Hand `projectIds` — projects this desktop holds for `hostId` — and its
    * `<hostId>:*` layout to the host's server, adopted or not, then let go
    * of them: how a project moved onto the host gets there (ADR-227 D4).
-   * The host merges them as it does any adoption. No agents go: the
-   * desktop's own replay still keeps those (ADR-227 ticket 9). Runs after
-   * any adoption in flight for the host.
+   * The host merges them as it does any adoption. No agents go: a host
+   * that has adopted holds its own. Runs after any adoption in flight for
+   * the host.
    */
   handOver(
     hostId: string,
@@ -207,9 +209,10 @@ export class HostAdoption {
     outcome.ownership = ownership;
     // Handed over already: a connect is this read, and the hand-over of any
     // project this desktop still holds for the host — one moved there while
-    // it was away, or added as adoption ran. Agents stay: the desktop's own
-    // replay still writes those (ADR-227 ticket 9).
+    // it was away, or added as adoption ran. Agents it recorded for the host
+    // since are only repeats of the host's own: dropped.
     if (ownership === "host" && this.opts.projectManager.isHostAdopted(hostId)) {
+      this.dropRepeatedAgents(hostId);
       const held = this.opts.projectManager.manifestRecords(hostId).map((p) => p.id);
       if (held.length === 0) return outcome;
       const handed = await this.handOverNow(hostId, channel, held);
@@ -241,12 +244,26 @@ export class HostAdoption {
       const { projectManager, agentManager, layoutStore } = this.opts;
       outcome.removed.projects = projectManager.removeAdoptedProjects(hostId, local.projectIds).length;
       if (outcome.removed.projects > 0) this.opts.onProjectsRemoved?.(hostId);
-      outcome.removed.agents = agentManager.removeAgents(local.agents.map((a) => a.id));
+      const agentIds = local.agents.map((a) => a.id);
+      outcome.removed.agents = agentManager.removeAgents(agentIds);
+      if (agentIds.length > 0) this.opts.onAgentsRemoved?.(agentIds);
       await layoutStore.release(Object.keys(local.layout));
       outcome.removed.workspaces = Object.keys(local.layout).length;
     }
     this.opts.projectManager.markHostAdopted(hostId);
     return outcome;
+  }
+
+  /** Forget the agents this desktop holds for an adopted host; the host has its own. */
+  private dropRepeatedAgents(hostId: string): void {
+    const { agentManager, getPaneHostId } = this.opts;
+    const ids = agentManager
+      .getAllAgents()
+      .filter((agent) => agentHostId(agent, getPaneHostId) === hostId)
+      .map((agent) => agent.id);
+    if (ids.length === 0) return;
+    agentManager.removeAgents(ids);
+    this.opts.onAgentsRemoved?.(ids);
   }
 
   /**

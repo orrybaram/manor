@@ -31,12 +31,19 @@
  *   ssh target), never the box's own hostname, which the server's hello now
  *   carries.
  *
- * **Agents republish only when asked** (`republishAgents`). Until the desktop
- * stops replaying a remote host's hook journal into its own agent store
- * (ADR-227 ticket 9), it already publishes an `agents.updated` for every
- * remote agent it replays; the host's would be a second copy. A predicate
- * republishes only the agents the desktop holds no copy of. The proxy's own
- * list is kept either way.
+ * **Agents** are the host's alone: the desktop no longer replays its hooks,
+ * so each `agents.updated` is republished (`republishAgents`, on for the
+ * desktop) and handed to `onAgentUpdate` with the agent's previous state, which
+ * is where the desktop's notifications and dock badge follow a remote agent.
+ * The proxy's own list is kept either way. A snapshot after an absence is
+ * told the same way: an agent that is new or changed since the proxy last held
+ * it is republished, and one whose status moved is handed to `onAgentUpdate`
+ * once, however many hooks fired meanwhile (an agent met for the first time,
+ * with nothing held before, is not news).
+ *
+ * **Per-connection readiness** (`synced`): `ready` is the first snapshot only.
+ * `synced()` resolves once the snapshot of the current connection is in, or
+ * at once when the box has no server to read.
  *
  * **Progress** the host addresses to the owner connection — a workspace's
  * setup and teardown steps, a clone's — is handed to `onProgress`, which
@@ -50,6 +57,7 @@ import type { AgentInfo } from "../agent-persistence";
 import type { ProjectInfo } from "../projects/types";
 import type { BroadcastBus } from "../renderer-broadcast";
 import type { EventArgs } from "../bridge/events";
+import type { PaneAgentStatusUpdate } from "../../src/electron";
 import type { LayoutBroadcast, LayoutEntry } from "../../src/lib/layout/protocol";
 import {
   parseWorkspaceKey,
@@ -88,13 +96,26 @@ export interface HostProxyOptions {
   label: () => string;
   /** Where the offline cache lives (`hostCacheFile(hostId)`). */
   cacheFile: string;
+  /** Republish the host's `agents.updated` and `agents.status` into the bus (off by default). */
+  republishAgents?: boolean;
   /**
-   * Republish the host's `agents.updated`: always, never (the default), or
-   * for the agents the predicate passes — in the desktop's form. Off until
-   * the desktop no longer produces its own copy for remote agents (see the
-   * header).
+   * A live `agents.updated` from the host, in the desktop's form, with the
+   * agent as the proxy held it before (undefined for a new one). Not called
+   * for a snapshot, which is not news.
    */
-  republishAgents?: boolean | ((agent: AgentInfo) => boolean);
+  onAgentUpdate?: (
+    agent: AgentInfo,
+    unseen: EventArgs<"agents", "updated">[1],
+    previous: AgentInfo | undefined,
+  ) => void;
+  /**
+   * The host's unseen flags as a snapshot read them, with every agent id the
+   * host holds: the desktop's own flags for those agents follow the host's.
+   */
+  onUnseenRead?: (
+    agentIds: readonly string[],
+    unseen: { responded: string[]; requires_input: string[] },
+  ) => void;
   /**
    * A `projects.*Progress` event the host sent its owner, args as sent.
    * Paths in them are the host's, which are the workspaces' own.
@@ -147,10 +168,15 @@ export class HostProxy {
   private readonly opts: HostProxyOptions;
   private readonly log: Pick<Console, "info" | "warn">;
   private resolveReady!: () => void;
+  /** Whether the current connection's snapshot is in. */
+  private inSync = false;
+  private readonly syncWaiters = new Set<() => void>();
 
   // The host's state, in its own form (bare paths, `hostId: "local"`).
   private projectList: ProjectInfo[] = [];
   private agentList = new Map<string, AgentInfo>();
+  /** Each pane's last published Agent status; live, so never cached on disk. */
+  private paneStatusList = new Map<string, PaneAgentStatusUpdate>();
   private workspaces: Record<string, LayoutEntry> = {};
   private lastActive: string | null = null;
 
@@ -202,13 +228,24 @@ export class HostProxy {
           unseen as EventArgs<"agents", "updated">[1],
         ),
       ),
+      // Each pane's Agent status is the host's reconciler's (ADR-184); the
+      // desktop derives none for a pane on an adopted host.
+      client.subscribe("agents", "status", undefined, (update) => {
+        if (this.disposed || !isPlainObject(update) || typeof update.paneId !== "string") return;
+        this.paneStatusList.set(update.paneId, update as unknown as PaneAgentStatusUpdate);
+        if (this.opts.republishAgents) {
+          this.opts.bus.publish("agents", "status", update as unknown as PaneAgentStatusUpdate);
+        }
+      }),
       ...PROGRESS_EVENTS.map((event) =>
         client.subscribe("projects", event, undefined, (...args) => {
           if (!this.disposed) this.opts.onProgress?.(event, args);
         }),
       ),
       client.onStateChange((state) => {
+        if (state !== "connected") this.inSync = false;
         if (state === "connected") void this.snapshot();
+        else if (state === "unsupported") this.releaseSyncWaiters();
       }),
     );
     if (client.state === "connected") void this.snapshot();
@@ -224,6 +261,25 @@ export class HostProxy {
     return this.client.state !== "connected";
   }
 
+  /**
+   * Resolves once this connection's snapshot is in — the host's state is
+   * current — or the box is known to have no server to read. Waits through
+   * a connection that is still coming up. Never rejects; callers bound it.
+   */
+  synced(): Promise<void> {
+    if (this.disposed || this.inSync || this.client.state === "unsupported") {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      this.syncWaiters.add(resolve);
+    });
+  }
+
+  private releaseSyncWaiters(): void {
+    for (const resolve of this.syncWaiters) resolve();
+    this.syncWaiters.clear();
+  }
+
   // ── reads, in the desktop's form; the cache's while the host is away ──
 
   /** The host's projects, `hostId` stamped. */
@@ -234,6 +290,11 @@ export class HostProxy {
   /** The host's agents, `hostId` stamped. */
   agents(): AgentInfo[] {
     return [...this.agentList.values()].map((agent) => this.toDesktop(agent));
+  }
+
+  /** The host's panes' last Agent statuses. */
+  paneStatuses(): PaneAgentStatusUpdate[] {
+    return [...this.paneStatusList.values()];
   }
 
   /** The host's layout, keyed `<hostId>:<path>`. */
@@ -283,7 +344,11 @@ export class HostProxy {
       if (!this.disposed) this.opts.publishKeyed?.("chat", event, args, key);
     });
     this.releases.push(release);
-    return release;
+    return () => {
+      const at = this.releases.indexOf(release);
+      if (at >= 0) this.releases.splice(at, 1);
+      release();
+    };
   }
 
   /**
@@ -301,6 +366,7 @@ export class HostProxy {
     if (this.disposed) return;
     this.disposed = true;
     for (const release of this.releases.splice(0)) release();
+    this.releaseSyncWaiters();
     this.flush();
   }
 
@@ -319,7 +385,14 @@ export class HostProxy {
     const generation = ++this.snapshotGeneration;
     const current = () => !this.disposed && generation === this.snapshotGeneration;
     const before = { ...this.workspaces };
-    let read: [ProjectInfo[], Record<string, LayoutEntry>, string | null, AgentInfo[]];
+    let read: [
+      ProjectInfo[],
+      Record<string, LayoutEntry>,
+      string | null,
+      AgentInfo[],
+      PaneAgentStatusUpdate[],
+      { responded: string[]; requires_input: string[] },
+    ];
     this.startLayoutRead();
     try {
       read = await Promise.all([
@@ -327,6 +400,11 @@ export class HostProxy {
         this.client.invoke("layout", "getAll", []) as Promise<Record<string, LayoutEntry>>,
         this.client.invoke("layout", "getLastActive", []) as Promise<string | null>,
         this.client.invoke("agents", "getAll", []) as Promise<AgentInfo[]>,
+        this.client.invoke("agents", "getPaneStatuses", []) as Promise<PaneAgentStatusUpdate[]>,
+        this.client.invoke("agents", "getUnseen", []) as Promise<{
+          responded: string[];
+          requires_input: string[];
+        }>,
       ]);
     } catch (err) {
       // The channel dropped mid-read; the next `connected` reads again.
@@ -338,15 +416,20 @@ export class HostProxy {
       this.endLayoutRead();
     }
     if (!current()) return;
-    const [projects, layout, lastActive, agents] = read;
+    const [projects, layout, lastActive, agents, paneStatuses, unseenRead] = read;
+    const agentsBefore = new Map(this.agentList);
     this.projectList = Array.isArray(projects) ? projects : [];
     this.applyLayoutRead(isPlainObject(layout) ? layout : {});
     this.lastActive = typeof lastActive === "string" ? lastActive : null;
     this.applyAgentRead(Array.isArray(agents) ? agents : []);
+    this.applyPaneStatusRead(Array.isArray(paneStatuses) ? paneStatuses : []);
     this.saveSoon();
+    this.inSync = true;
     this.resolveReady();
+    this.releaseSyncWaiters();
     this.opts.bus.publish("projects", "changed");
     this.publishLayoutDiff(before);
+    this.publishAgentDiff(agentsBefore, unseenRead);
   }
 
   private startLayoutRead(): void {
@@ -382,6 +465,52 @@ export class HostProxy {
       next.set(agent.id, live && live.updatedAt > agent.updatedAt ? live : agent);
     }
     this.agentList = next;
+  }
+
+  /**
+   * After a snapshot, what moved while the desktop was not hearing: each agent
+   * new or changed since `before` goes to the bus, and each one whose status
+   * moved to `onAgentUpdate`. The host's unseen flags come with them.
+   */
+  private publishAgentDiff(
+    before: ReadonlyMap<string, AgentInfo>,
+    unseenRead: { responded: string[]; requires_input: string[] } | undefined,
+  ): void {
+    const responded = new Set(Array.isArray(unseenRead?.responded) ? unseenRead.responded : []);
+    const input = new Set(Array.isArray(unseenRead?.requires_input) ? unseenRead.requires_input : []);
+    this.opts.onUnseenRead?.([...this.agentList.keys()], {
+      responded: [...responded],
+      requires_input: [...input],
+    });
+    for (const agent of this.agentList.values()) {
+      const was = before.get(agent.id);
+      if (was && was.updatedAt === agent.updatedAt) continue;
+      const desktop = this.toDesktop(agent);
+      const flags = { responded: responded.has(agent.id), requires_input: input.has(agent.id) };
+      if (this.opts.republishAgents) this.opts.bus.publish("agents", "updated", desktop, flags);
+      if (was && was.lastAgentStatus !== agent.lastAgentStatus) {
+        this.opts.onAgentUpdate?.(desktop, flags, this.toDesktop(was));
+      }
+    }
+  }
+
+  /**
+   * The read's pane statuses, published for each that differs from what was
+   * held: statuses set while the desktop was not hearing reach renderers now.
+   */
+  private applyPaneStatusRead(read: PaneAgentStatusUpdate[]): void {
+    const next = new Map<string, PaneAgentStatusUpdate>();
+    for (const update of read) {
+      if (!isPlainObject(update) || typeof update.paneId !== "string") continue;
+      next.set(update.paneId, update);
+      if (
+        this.opts.republishAgents &&
+        JSON.stringify(this.paneStatusList.get(update.paneId)) !== JSON.stringify(update)
+      ) {
+        this.opts.bus.publish("agents", "status", update);
+      }
+    }
+    this.paneStatusList = next;
   }
 
   /**
@@ -491,14 +620,12 @@ export class HostProxy {
     unseen: EventArgs<"agents", "updated">[1],
   ): void {
     if (this.disposed || !isPlainObject(agent) || typeof agent.id !== "string") return;
+    const previous = this.agentList.get(agent.id);
     this.agentList.set(agent.id, agent);
     this.saveSoon();
-    const republish = this.opts.republishAgents;
-    if (!republish) return;
     const desktop = this.toDesktop(agent);
-    if (republish === true || republish(desktop)) {
-      this.opts.bus.publish("agents", "updated", desktop, unseen);
-    }
+    if (this.opts.republishAgents) this.opts.bus.publish("agents", "updated", desktop, unseen);
+    this.opts.onAgentUpdate?.(desktop, unseen, previous && this.toDesktop(previous));
   }
 
   private publishLayout(payload: LayoutBroadcast): void {

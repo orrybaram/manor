@@ -1,11 +1,11 @@
 /**
  * PerHostPoller — the one per-host polling loop behind `PortScanner`,
- * `BranchWatcher`, `DiffWatcher` (ADR-183) and `RemoteWorktreePoller`.
+ * `BranchWatcher` and `DiffWatcher` (ADR-183).
  *
  * It is fed `{ path, hostId }` entries — the host travels with the path, so
  * nothing here guesses a path's host — and scans each host's paths on that
  * host's own cadence: a slow or unreachable remote host holds back only its
- * own results, never another host's. It owns what the three pollers used to
+ * own results, never another host's. It owns what the pollers used to
  * hand-roll, each a little differently:
  *
  * - one scan per host at a time — a tick finding the host's previous scan

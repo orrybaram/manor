@@ -109,13 +109,13 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(desktop.projectManager.isHostAdopted("mac")).toBe(false);
   });
 
-  it("hands a host the projects it still holds for it after adoption, and keeps the agents", async () => {
+  it("hands a host the projects it still holds for it after adoption, and drops the agents it recorded since", async () => {
     const desktop = openDesktop(dir);
     desktop.projectManager.markHostAdopted("box");
     const { channel, sent } = fakeChannel("host");
     // A project moved onto the host while it was away, or added as adoption
-    // ran (ADR-227 D4): handed over. The desktop's replay still writes the
-    // agents (ticket 9), so they stay.
+    // ran (ADR-227 D4): handed over. The host has its own agents, so those the
+    // desktop wrote for it since are dropped, not handed over.
     expect(await desktop.adoption.run("box", channel)).toMatchObject({
       ownership: "host",
       sent: true,
@@ -124,7 +124,7 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(sent[0].projects.map((p) => p.id)).toEqual(["box-app", "box-other"]);
     expect(sent[0].agents).toEqual([]);
     expect(desktop.projectManager.manifestRecords("box")).toHaveLength(0);
-    expect(desktop.agentManager.getAllAgents()).toHaveLength(4);
+    expect(desktop.agentManager.getAllAgents().map((a) => a.id).sort()).toEqual(["local-1", "mac-1"]);
     // Nothing left: the next connect is the status read.
     expect(await desktop.adoption.run("box", channel)).toMatchObject({ sent: false });
   });

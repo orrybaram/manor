@@ -6,7 +6,7 @@
  * (`createLocalBackend`); remote hosts are registered from their persisted `HostSpec` and
  * connected lazily, in the background, never on the launch path.
  *
- * Each host is a `HostConnection` (status, connecting, hook feed, reconnect
+ * Each host is a `HostConnection` (status, connecting, proxy, reconnect
  * handling — `host-connection.ts`), and `get(hostId)` hands out its view
  * (gated for a remote host — `host-view.ts`). The registry keeps the hosts,
  * which host owns each session (`SessionOwners`), and the listeners every
@@ -18,7 +18,6 @@
  */
 
 import { Emitter } from "./emitter";
-import { memoryHookSeqStore, type HookSeqStore, type HookSink } from "./hook-feed";
 import {
   HostConnection,
   RemoteHostConnection,
@@ -99,10 +98,6 @@ export interface BackendRegistryOptions {
   createRemote?: RemoteBackendFactory;
   /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
   createProvider?: HostProviderFactory;
-  /** Each remote host's last ingested hook seq. Defaults to in-memory. */
-  hookSeqStore?: HookSeqStore;
-  /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
-  hookReplayRetryDelayMs?: (attempt: number) => number;
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: RemoteHostContext["hostServerClient"];
   /**
@@ -132,7 +127,6 @@ export class BackendRegistry {
   private readonly remoteVersion: string;
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
-  private hookSink: HookSink | null = null;
   private controlRelaySink: ControlRelaySink | null = null;
   private readonly serverStates = new Emitter<[string, HostServerClientState]>(
     `${LOG} host server state listener`,
@@ -149,9 +143,6 @@ export class BackendRegistry {
       hostEvents: this.hostEvents,
       resumed: this.resumed,
       daemonReplacing: this.daemonReplacing,
-      hookSeqStore: opts.hookSeqStore ?? memoryHookSeqStore(),
-      hookSink: () => this.hookSink,
-      hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
       controlRelaySink: () => this.controlRelaySink,
       hostServerClient: opts.hostServerClient,
       hostProxy: opts.hostProxy,
@@ -353,17 +344,6 @@ export class BackendRegistry {
   // ── Events ──
 
   /**
-   * Where remote hosts' agent hooks go (ADR-178 §2). Hosts already connected
-   * catch up from their journals now; the rest do on connect.
-   */
-  setHookSink(sink: HookSink): void {
-    this.hookSink = sink;
-    for (const conn of this.hosts.values()) {
-      if (conn.status === "connected") void conn.catchUpHooks();
-    }
-  }
-
-  /**
    * Where control requests relayed from remote hosts' `manor` CLIs go
    * (ADR-189 §2). Until it is set they are answered 503.
    */
@@ -382,8 +362,8 @@ export class BackendRegistry {
   }
 
   /**
-   * A remote host came back after a drop and its hook replay is done (or
-   * took too long). `sessionIds` are every session its daemon has now: a
+   * A remote host came back after a drop and its proxy has read the host's
+   * state again (or took too long). `sessionIds` are every session its daemon has now: a
    * pane the app had on that host whose session is not among them was lost
    * (the daemon restarted); the rest should reattach, having missed output.
    */

@@ -15,7 +15,6 @@ import type {
   TerminalSnapshot,
   StreamEvent,
   StreamCommand,
-  HookReplay,
   PaneFacts,
 } from "../terminal-host/types";
 import type { MachineFacts } from "./machine-facts";
@@ -89,15 +88,6 @@ export interface PtyBackend {
   onEvent(handler: StreamEventHandler): () => void;
 
   updateEnv(env: Record<string, string>): Promise<void>;
-}
-
-/** A remote host's pty backend: its daemon journals agent hooks (ADR-178 §2). */
-export interface HookJournalPtyBackend extends PtyBackend {
-  /**
-   * The host daemon's hook journal after `sinceSeq`. `headOnly` returns the
-   * journal's position with no entries.
-   */
-  replayHooks(sinceSeq: number, opts?: { headOnly?: boolean }): Promise<HookReplay>;
 }
 
 // ── Git Backend ──
@@ -304,11 +294,9 @@ export interface WorkspaceBackend {
 
 /**
  * A remote host's backend (ADR-160): it reconnects by itself and reports how
- * that goes, and its daemon journals the host's agent hooks.
+ * that goes.
  */
 export interface RemoteHostBackend extends WorkspaceBackend {
-  readonly pty: HookJournalPtyBackend;
-
   /**
    * Observe loss and recovery of the host connection (see
    * `HostConnectionEvent`). Returns an unsubscribe.

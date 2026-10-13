@@ -8,8 +8,7 @@
  * The desktop-only writes (dock badge, notification log) stay in `./agents.ts`.
  *
  * **On the desktop the reads are merged** (ADR-227 D4): this server's agents
- * and every adopted remote host's, from its server — less any the desktop
- * holds its own copy of, which it still replays (until ADR-227 ticket 9).
+ * and every adopted remote host's, from its server.
  */
 
 import { agentHostId, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
@@ -125,7 +124,9 @@ export function agentsGetUnseen(ctx: Ctx): {
  * current dots instead of waiting on the next signal.
  */
 export function agentsGetPaneStatuses(ctx: Ctx): PaneStatusUpdate[] {
-  return ctx.deps.agentStatus.getAllPaneStatuses();
+  const local = ctx.deps.agentStatus.getAllPaneStatuses();
+  const remote = ctx.deps.hostRouting?.paneStatuses() ?? [];
+  return remote.length === 0 ? local : [...local, ...remote];
 }
 
 /** Whether the host an agent's terminal runs on is connected (local always is). */

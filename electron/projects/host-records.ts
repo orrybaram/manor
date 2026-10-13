@@ -1,14 +1,11 @@
 /**
  * The registered remote hosts in `projects.json`: how each is reached, and
- * how far its hook journal has been read (ADR-183 split this out of
+ * whether it has adopted its records (ADR-183 split this out of
  * `ProjectManager`).
  */
 
 import { LOCAL_HOST_ID, type HostSpec } from "../backend/types";
 import type { StateStore } from "./state-store";
-
-/** How long `setHookCursor` batches writes. */
-const HOOK_SEQ_SAVE_DEBOUNCE_MS = 1_000;
 
 export class HostRecords {
   constructor(private readonly store: StateStore) {}
@@ -52,39 +49,6 @@ export class HostRecords {
   label(hostId: string): string {
     if (hostId === LOCAL_HOST_ID) return "this Mac";
     return this.store.state.hosts?.[hostId]?.spec.target ?? hostId;
-  }
-
-  /**
-   * How far into which hook journal `hostId`'s hooks have been ingested, or
-   * null if its journal has never been met.
-   */
-  hookCursor(hostId: string): { seq: number; epoch: string | null } | null {
-    const host = this.store.state.hosts?.[hostId];
-    if (host?.lastHookSeq === undefined) return null;
-    return { seq: host.lastHookSeq, epoch: host.hookJournalEpoch ?? null };
-  }
-
-  /**
-   * Record the last hook-journal seq ingested from `hostId`. Hooks arrive in
-   * bursts (a replay can be thousands), so the write is debounced; call
-   * `flushHookCursors` on quit. A seq lost to a crash means the last
-   * second's hooks are replayed once more on the next launch — into a fresh
-   * relay, with notifications coalesced.
-   */
-  setHookCursor(hostId: string, cursor: { seq: number; epoch: string | null }): void {
-    const host = this.store.state.hosts?.[hostId];
-    if (!host) return;
-    const epoch = cursor.epoch ?? undefined;
-    if (host.lastHookSeq === cursor.seq && host.hookJournalEpoch === epoch) return;
-    host.lastHookSeq = cursor.seq;
-    if (epoch === undefined) delete host.hookJournalEpoch;
-    else host.hookJournalEpoch = epoch;
-    this.store.saveSoon(HOOK_SEQ_SAVE_DEBOUNCE_MS);
-  }
-
-  /** Write a pending `setHookCursor` now. */
-  flushHookCursors(): void {
-    this.store.flush();
   }
 
   /**

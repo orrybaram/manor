@@ -12,6 +12,7 @@ import path from "node:path";
 
 import {
   eventually,
+  hook,
   openOwnerStream,
   useHostServerHarness,
   withoutGit,
@@ -209,6 +210,64 @@ describe("HostProxy (ADR-227 D4)", () => {
       (n) => n >= 1,
       "projects.changed through the new channel",
     );
+  });
+
+  it("is synced once per connection, and says so for a box with no server", async () => {
+    withoutGit();
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const { bus } = desktopBus();
+    const proxy = proxyFor(h, client, bus);
+    await proxy.synced();
+
+    await h.stop();
+    await eventually(() => proxy.away, Boolean, "the host away");
+    let synced = false;
+    void proxy.synced().then(() => {
+      synced = true;
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(synced).toBe(false);
+
+    await h.serve();
+    await eventually(() => synced, Boolean, "synced after the reconnect");
+
+    // A box without a host server has nothing to wait for.
+    const bare = new HostServerClient({ hostId: "bare", open: null, log: quiet });
+    onTestFinished(() => bare.dispose());
+    bare.hostConnected();
+    await proxyFor(h, bare, bus).synced();
+  });
+
+  it("hands each live agent update on with the agent as it was before", async () => {
+    h.adopt();
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const { bus, heard } = desktopBus();
+    const seen: Array<{ status: string | null; was: string | null | undefined }> = [];
+    const proxy = proxyFor(h, client, bus, {
+      republishAgents: true,
+      onAgentUpdate: (agent, _unseen, previous) =>
+        seen.push({ status: agent.lastAgentStatus, was: previous?.lastAgentStatus }),
+    });
+    await proxy.ready;
+
+    h.daemon.emitHook(hook("SessionStart"));
+    h.daemon.emitHook(hook("UserPromptSubmit"));
+    h.daemon.emitHook(hook("Stop"));
+    await eventually(() => seen[seen.length - 1]?.status, (status) => status === "responded", "the Stop");
+
+    expect(seen[0].was).toBeUndefined();
+    expect(seen[seen.length - 1]).toEqual({ status: "responded", was: "thinking" });
+    // The pane's status came along, and is held for the merged read.
+    await eventually(
+      () => proxy.paneStatuses().find((u) => u.paneId === "pane-1")?.status,
+      (status) => status === "responded",
+      "the pane's status",
+    );
+    expect(heard.some((b) => b.ns === "agents" && b.event === "status")).toBe(true);
   });
 
   it("serves the host's last state from the cache while it is away", async () => {

@@ -31,7 +31,7 @@ import {
   type PickerAnswer,
 } from "../../chat-mirror/picker-keys";
 import { parseChatTaskKey } from "../../chat-mirror/task-key";
-import { method, type HandlerCtx } from "../method";
+import { byPane, method, type HandlerCtx } from "../method";
 
 /** The pause between a prompt's text and its Enter. Long enough that Claude
  *  Code reads the Enter as its own keypress, not the tail of a paste. */
@@ -184,6 +184,10 @@ function assertChatAnswer(value: unknown): asserts value is ChatAnswer {
  *   that says so updates the agent.
  * - The bridge's subscriber count for `chat.entry` is what turns a pane's
  *   watcher on and off, and for `chat.taskEntry` a task's (ADR-224 D3).
+ *
+ * On the desktop a pane on an adopted host has no watcher here: its host's
+ * mirror reads the transcript, and `remote` forwards the subscription there
+ * for as long as somebody holds it (ADR-227 D4).
  */
 export function wireChatMirror(
   deps: Pick<ServerDeps, "chatMirror">,
@@ -192,8 +196,25 @@ export function wireChatMirror(
     hasSubscriber(ns: string, event: string, key: string): boolean;
   },
   events: BroadcastSource,
+  remote?: { proxyForPane(paneId: string): { watchChat(event: "entry" | "taskEntry", key: string): () => void } | null },
 ): () => void {
   const { chatMirror } = deps;
+  // The forwarded subscriptions held, by event and key.
+  const forwarded = new Map<string, () => void>();
+  /** Forward (or drop) a remote pane's subscription; false when the pane is not remote. */
+  const forward = (event: "entry" | "taskEntry", key: string, paneId: string): boolean => {
+    const proxy = remote?.proxyForPane(paneId);
+    if (!proxy) return false;
+    const id = `${event}\0${key}`;
+    const wanted = bridge.hasSubscriber("chat", event, key);
+    const held = forwarded.get(id);
+    if (wanted && !held) forwarded.set(id, proxy.watchChat(event, key));
+    else if (!wanted && held) {
+      held();
+      forwarded.delete(id);
+    }
+    return true;
+  };
   const offAgents = events((broadcast) => {
     if (broadcast.ns !== "agents" || broadcast.event !== "updated") return;
     const agent = broadcast.args[0] as AgentInfo | undefined;
@@ -201,10 +222,12 @@ export function wireChatMirror(
   });
   const offSubscriptions = bridge.onSubscriptionChange((name, key) => {
     if (name === "chat.entry") {
+      if (forward("entry", key, key)) return;
       chatMirror.setWatched(key, bridge.hasSubscriber("chat", "entry", key));
     } else if (name === "chat.taskEntry") {
       const task = parseChatTaskKey(key);
       if (!task) return;
+      if (forward("taskEntry", key, task.paneId)) return;
       chatMirror.setTaskWatched(
         task.paneId,
         task.taskId,
@@ -215,19 +238,25 @@ export function wireChatMirror(
   return () => {
     offAgents();
     offSubscriptions();
+    for (const release of forwarded.values()) release();
+    forwarded.clear();
   };
 }
 
+/**
+ * Routed by pane (ADR-227 D4): a pane on an adopted host is read and typed
+ * into by that host's server, whose mirror watches its transcript.
+ */
 export const chat = {
   // A read; its pushes are `chat.entry`.
-  getHistory: method(chatGetHistory),
+  getHistory: method(chatGetHistory, { route: byPane(0) }),
   // A read; its pushes are `chat.taskEntry`.
-  getTaskHistory: method(chatGetTaskHistory),
-  getCommands: method(chatGetCommands),
+  getTaskHistory: method(chatGetTaskHistory, { route: byPane(0) }),
+  getCommands: method(chatGetCommands, { route: byPane(0) }),
   // The keyboard, like `pty.write`: a line per message or keystroke is a
   // keylogger (ADR-161), so none of these is audited.
-  send: method(chatSend),
-  interrupt: method(chatInterrupt),
-  key: method(chatKey),
-  answer: method(chatAnswer),
+  send: method(chatSend, { route: byPane(0) }),
+  interrupt: method(chatInterrupt, { route: byPane(0) }),
+  key: method(chatKey, { route: byPane(0) }),
+  answer: method(chatAnswer, { route: byPane(0) }),
 };

@@ -46,7 +46,6 @@ import {
 import type { AgentStatusDriverDeps } from "../agent-status/driver";
 import { UnseenAgents } from "../agent-status/unseen-agents";
 import { dispatchStreamEvent } from "../agent-stream-events";
-import type { HookCursor } from "../backend/hook-feed";
 import { createLocalBackend, type HostBackend } from "../backend/host-backend";
 import {
   BackendRegistry,
@@ -61,7 +60,7 @@ import { killAllActivePushes } from "../bridge/handlers/branches-diffs";
 import { wireChatMirror } from "../bridge/handlers/chat";
 import type { HandlerTable } from "../bridge/method";
 import { BridgeServer, type BridgeServerDeps } from "../bridge/server";
-import { ChatMirror, transcriptSources } from "../chat-mirror/mirror";
+import { ChatMirror } from "../chat-mirror/mirror";
 import { chatTaskKey } from "../chat-mirror/task-key";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
 import { GitHubManager, ghRepoFromRemoteUrl } from "../github";
@@ -73,10 +72,7 @@ import { NotificationStore } from "../notification-store";
 import { ProjectManager } from "../persistence";
 import { PortScanner } from "../ports";
 import { PreferencesManager } from "../preferences";
-import {
-  RemoteWorktreePoller,
-  WorktreeWatcher,
-} from "../projects/worktree-watcher";
+import { WorktreeWatcher } from "../projects/worktree-watcher";
 import { RemoteAuditLog } from "../remote-control/audit";
 import { RemoteDeviceStore } from "../remote-control/devices";
 import { PushManager, type VapidKeys } from "../remote-control/push";
@@ -212,8 +208,6 @@ export function createManorServer<D extends BridgeServerDeps>(
         },
         isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId),
         hasLocalProject: (projectId: string): boolean => !projectManager.isRemoteProject(projectId),
-        hasLocalAgentSession: (sessionId: string): boolean =>
-          agentManager.getAgentBySessionId(sessionId) !== null,
         pendingCommands: {
           peek: (paneId: string): PendingCommand | null => layoutStore.pendingCommands.peek(paneId),
           take: (paneId: string): PendingCommand | null => layoutStore.pendingCommands.take(paneId),
@@ -230,28 +224,21 @@ export function createManorServer<D extends BridgeServerDeps>(
   const backendRegistry = new BackendRegistry({
     local: localBackend,
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
-    // Where each remote host's hook journal was read up to (ADR-178 §2).
-    // Only read once hosts are registered, after projectManager exists.
-    ...(remoteHosts
-      ? {
-          hookSeqStore: {
-            get: (hostId: string): HookCursor | null => projectManager.getHostHookCursor(hostId),
-            set: (hostId: string, cursor: HookCursor): void =>
-              projectManager.setHostHookCursor(hostId, cursor),
-          },
-        }
-      : {}),
     // Each remote host's state, from its own server (ADR-227 D4), heard by
     // this server's renderers under the desktop's keys and the user's name
-    // for the host. Of its agents, only those this server holds no copy of
-    // are republished: it still replays the host's hooks into its own agent
-    // store (ADR-227 ticket 9). Labels, chat and progress are read at call
+    // for the host. The host's server reads its own hook journal, so its
+    // agents are republished whole and drive this desktop's notifications and
+    // dock badge (`onAgentUpdate`). Labels, chat and progress are read at call
     // time, once their owners exist.
     ...(remoteHosts && routing
       ? {
           hostProxy: {
             bus,
-            republishAgents: (agent: AgentInfo): boolean => routing.republishAgent(agent),
+            republishAgents: true,
+            onAgentUpdate: (agent: AgentInfo, flags: { responded: boolean; requires_input: boolean }, previous: AgentInfo | undefined): void =>
+              onRemoteAgentUpdate(agent, flags, previous),
+            onUnseenRead: (ids: readonly string[], flags: { responded: string[]; requires_input: string[] }): void =>
+              onRemoteUnseenRead(ids, flags),
             onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>
               routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
@@ -264,10 +251,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   });
   const layoutPersistence = new LayoutPersistence(platform.layoutFile);
   // Each project's git, shell and machine facts come from its host (ADR-183).
-  // A remote project keeps its last workspace listing only while its host
-  // is away (ADR-192 §5).
   const projectManager = new ProjectManager((hostId) => backendRegistry.get(hostId), dataDir, {
-    isHostAway: (hostId) => backendRegistry.status(hostId) !== "connected",
     // Removing a worktree or a project tears its layout down first (ADR-182
     // D7), whichever caller — sidebar, quick merge, CLI or MCP — asked for it.
     // Read at call time: the store is built just below.
@@ -290,10 +274,8 @@ export function createManorServer<D extends BridgeServerDeps>(
   // Worktrees made or removed outside Manor (an agent's `git worktree add`)
   // never pass through a route that notifies the renderer; watch for them.
   const worktreeWatcher = new WorktreeWatcher(notifyProjectsChanged);
-  const remoteWorktreePoller = new RemoteWorktreePoller(backendRegistry, notifyProjectsChanged);
   const syncWorktreeWatchers = () => {
     worktreeWatcher.sync(projectManager.localProjectPaths());
-    remoteWorktreePoller.sync(projectManager.remoteProjectHostPaths());
   };
   syncWorktreeWatchers();
   projectManager.onStateSaved(syncWorktreeWatchers);
@@ -395,6 +377,20 @@ export function createManorServer<D extends BridgeServerDeps>(
     preferencesManager.get("agentRetentionDays"),
     (projectId) => projectManager.getProjectHostId(projectId),
   );
+  // A host that has adopted its records owns its agents (ADR-227 D4). The
+  // desktop's own hook feed wrote more for it after the hand-over, which
+  // were never handed over and now only repeat the host's.
+  const adoptedHostIds = new Set(
+    projectManager.getHosts().flatMap(({ hostId }) => (projectManager.isHostAdopted(hostId) ? [hostId] : [])),
+  );
+  if (adoptedHostIds.size > 0) {
+    agentManager.removeAgents(
+      agentManager
+        .getAllAgents()
+        .filter((agent) => adoptedHostIds.has(agent.hostId))
+        .map((agent) => agent.id),
+    );
+  }
   const keybindingsManager = new KeybindingsManager(dataDir);
   // ADR-162's durable notification log. Handed to the notifier so the
   // single recording site can reach it.
@@ -459,6 +455,47 @@ export function createManorServer<D extends BridgeServerDeps>(
     : (paneId: string) => backendRegistry.sessions.ownerOf(paneId) ?? LOCAL_HOST_ID;
 
   const broadcastAgent = (agent: AgentInfo): void => notifier.sendAgentUpdate(agent);
+
+  /**
+   * A remote agent moved on its host's server (ADR-227 D4): the dock badge
+   * follows the host's unseen flags, and a transition into `responded` or
+   * `requires_input` takes the same path a local one does — a banner, and a
+   * push unless the host's own server sent it (`onAgentStatus`).
+   */
+  function onRemoteUnseenRead(
+    agentIds: readonly string[],
+    flags: { responded: string[]; requires_input: string[] },
+  ): void {
+    const responded = new Set(flags.responded);
+    const input = new Set(flags.requires_input);
+    for (const id of agentIds) {
+      if (responded.has(id)) unseen.responded.add(id);
+      else unseen.responded.delete(id);
+      if (input.has(id)) unseen.requiresInput.add(id);
+      else unseen.requiresInput.delete(id);
+    }
+    notifier.updateDockBadge();
+  }
+
+  function onRemoteAgentUpdate(
+    agent: AgentInfo,
+    flags: { responded: boolean; requires_input: boolean },
+    previous: AgentInfo | undefined,
+  ): void {
+    for (const [set, on] of [
+      [unseen.responded, flags?.responded],
+      [unseen.requiresInput, flags?.requires_input],
+    ] as const) {
+      if (on) set.add(agent.id);
+      else set.delete(agent.id);
+    }
+    notifier.updateDockBadge();
+    const status = agent.lastAgentStatus;
+    const was = previous?.lastAgentStatus ?? null;
+    if (status && status !== was) {
+      opts.onAgentStatus?.(agent, was, status as Parameters<AgentStatusSink>[2]);
+    }
+  }
 
   // The agent pipeline (`agent-status/pipeline.ts`): local HTTP hooks and
   // remote hosts' journaled hooks take the same path (ADR-178 §2), and a
@@ -529,9 +566,10 @@ export function createManorServer<D extends BridgeServerDeps>(
         layoutStore,
         getPaneHostId,
         onProjectsRemoved: () => notifyProjectsChanged(),
+        // The renderer keeps the agents the desktop held until it hears.
+        onAgentsRemoved: (ids) => bus.publish("agents", "removed", [...ids]),
       })
     : undefined;
-  backendRegistry.setHookSink(agentPipeline.hookSink);
 
   // The agents side of a pane leaving a tree (ADR-182 D7): the store calls it
   // for every pane it ends, and the abandonment is a `user` signal to the
@@ -545,6 +583,8 @@ export function createManorServer<D extends BridgeServerDeps>(
 
   /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
   async function resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void> {
+    // An adopted host's server does its own (ADR-227 D4).
+    if (routing?.proxy(hostId)) return;
     try {
       await resyncPaneFacts(backendRegistry.get(hostId).pty, agentStatusDriver, sessionIds);
     } catch (err) {
@@ -600,29 +640,22 @@ export function createManorServer<D extends BridgeServerDeps>(
   // ADR-215: each pane's Claude transcript, for the phone's chat view. It
   // publishes through the bridge, which is built below; nothing is published
   // before somebody subscribes, and nobody can before the bridge exists.
-  // A remote agent's transcript is read through its host's shell exec
-  // (ADR-216 D2), which fails fast while the host is not connected.
-  const sourceFor = transcriptSources(new LocalTranscriptSource(), (hostId) => {
-    if (!backendRegistry.has(hostId)) return null;
-    const { shell } = backendRegistry.get(hostId);
-    return {
-      file: async (cmd, args, execOpts) => ({
-        stdout: await shell.exec(cmd, args, execOpts),
-        stderr: "",
-      }),
-    };
-  });
+  // A remote agent's transcript is its host's server's to read (ADR-227 D4):
+  // its mirror watches the pane, and `wireChatMirror` forwards the desktop's
+  // subscriptions to it. This mirror reads this machine's transcripts only.
+  const localTranscripts = new LocalTranscriptSource();
   const chatMirror = new ChatMirror({
     agentForPane: (paneId) => {
       const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
       if (!agent) return null;
+      if (agentHostId(agent, getPaneHostId) !== LOCAL_HOST_ID) return null;
       return {
         hostId: agentHostId(agent, getPaneHostId),
         agentKind: agent.agentKind,
         transcriptPath: agent.transcriptPath,
       };
     },
-    sourceFor,
+    sourceFor: () => localTranscripts,
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) => bridge.publish("chat", "entry", [paneId, entry], paneId),
     // ADR-224 D3: keyed by pane and task, so only that task's subscribers hear it.
@@ -657,6 +690,13 @@ export function createManorServer<D extends BridgeServerDeps>(
     // Every host's stream events arrive here and only here, so this is where
     // the bridge is fed (ADR-180 D5) — the only consumer that forwards, to a
     // renderer window and a paired device alike.
+    // The agent half of a pane on an adopted host is that host's (ADR-227
+    // D4): its server's reconciler decides the pane's status and names its
+    // Agent, and the proxy brings the answer here.
+    if (routing?.proxy(hostId)) {
+      if (event.type !== "paneFacts") bridge.handleStreamEvent(event);
+      return;
+    }
     dispatchStreamEvent(
       event,
       { agentManager, agentStatus: agentStatusDriver, broadcastAgent },
@@ -722,7 +762,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     events: bus.subscribe,
     audit: new RemoteAuditLog(path.join(dataDir, "remote-audit.jsonl")),
   });
-  const unwireChat = wireChatMirror({ chatMirror }, bridge, bus.subscribe);
+  const unwireChat = wireChatMirror({ chatMirror }, bridge, bus.subscribe, routing ?? undefined);
 
   return {
     ...core,
@@ -774,9 +814,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       statsStore.flushNow();
       agentActivityStore.flush();
       agentActivityStore.dispose();
-      projectManager.flushHostHookSeqs();
       worktreeWatcher.dispose();
-      remoteWorktreePoller.dispose();
     },
   };
 }

@@ -83,7 +83,13 @@ import {
   layoutSetPaneTitle,
   layoutSetPendingCommand,
 } from "../bridge/handlers/layout";
-import { agentsSetPaneContext } from "../bridge/handlers/agents";
+import {
+  agentsDelete,
+  agentsMarkResumed,
+  agentsMarkSeen,
+  agentsSetPaneContext,
+  agentsUpdate,
+} from "../bridge/handlers/agents";
 import {
   linearLinkIssueToWorkspace,
   linearUnlinkIssueFromWorkspace,
@@ -371,6 +377,12 @@ const METHODS = flatten({
     // A renderer's word on a pane's project overrides the server's own
     // (ADR-227 D5).
     setPaneContext: method(agentsSetPaneContext, { mutating: true }),
+    // The desktop forwards its writes by agent id for the host's agents here
+    // (ADR-227 D4).
+    update: method(agentsUpdate, { mutating: true }),
+    delete: method(agentsDelete, { mutating: true }),
+    markSeen: method(agentsMarkSeen, { mutating: true }),
+    markResumed: method(agentsMarkResumed, { mutating: true }),
   },
   // A device works inside the projects on this host (ADR-227 D6): makes and
   // removes workspaces and arranges them. Adding a project to the box, or

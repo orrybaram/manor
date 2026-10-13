@@ -21,7 +21,6 @@ import { LOCAL_HOST_ID, type GitBackend, type HostSpec } from "../backend/types"
 import type { ManifestProject } from "../host-server/manifest";
 import { splitShared } from "../../src/lib/project-groups";
 import { manorDataDir } from "../paths";
-import type { HostPath } from "../per-host-poller";
 import { detectDefaultBranch, listLocalBranches, listRemoteBranches, resyncDefaultBranches } from "./branches";
 import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { mergeAdoptedProject } from "./adopt-records";
@@ -47,7 +46,6 @@ import {
   persistedFromInfo,
   seedCommands,
   withGroup,
-  LastKnownWorkspaces,
 } from "./project-info";
 import { StateStore } from "./state-store";
 import * as folders from "./workspace-folders";
@@ -70,7 +68,6 @@ import type {
   TransferResult,
   WorkspaceFolder,
   WorkspaceFromIssue,
-  WorkspaceInfo,
 } from "./types";
 
 /** The settings a group shares, as one project had them on its own. */
@@ -108,8 +105,6 @@ export class ProjectManager {
   private readonly joinedOwn = new Map<string, SharedSettings>();
   private readonly hostFor: ProjectHostResolver;
   private resyncDone = false;
-  /** Remote projects' last workspace listings, for while a host is away. */
-  private readonly lastKnownWorkspaces: LastKnownWorkspaces;
   /** Adopted remote hosts' projects, on the desktop (ADR-227 D4). */
   private readonly remote: RemoteProjects | undefined;
 
@@ -117,17 +112,11 @@ export class ProjectManager {
    * `hosts` resolves a host id to its backend — `BackendRegistry.get` in
    * the app. A bare `GitBackend` is this machine's git for every project,
    * with this machine's shell and facts (local-only callers and tests).
-   *
-   * `isHostAway` says whether a host is not connected now — in the app,
-   * `BackendRegistry.status(hostId) !== "connected"`. Only while it is does
-   * a remote project fall back to its last workspace listing. Without it,
-   * no host is ever away.
    */
   constructor(
     hosts: ProjectHostResolver | GitBackend,
     dataDir?: string,
     options: {
-      isHostAway?: (hostId: string) => boolean;
       /**
        * The server's layout store, as far as removing a worktree or a
        * project needs it (ADR-182 D7). Optional so a test about projects
@@ -148,7 +137,6 @@ export class ProjectManager {
     } = {},
   ) {
     this.remote = options.remote;
-    this.lastKnownWorkspaces = new LastKnownWorkspaces(options.isHostAway ?? (() => false));
     if (typeof hosts === "function") {
       this.hostFor = hosts;
     } else {
@@ -273,7 +261,6 @@ export class ProjectManager {
       this.hostFor(p.hostId).git,
       this.paths,
       groups.groupOf(this.store.state, p.id),
-      this.lastKnownWorkspaces,
     );
   }
 
@@ -301,20 +288,6 @@ export class ProjectManager {
     this.hosts.assertKnown(hostId);
   }
 
-  getHostHookCursor(hostId: string): { seq: number; epoch: string | null } | null {
-    return this.hosts.hookCursor(hostId);
-  }
-
-  /** Debounced; see `HostRecords.setHookCursor`. */
-  setHostHookCursor(hostId: string, cursor: { seq: number; epoch: string | null }): void {
-    this.hosts.setHookCursor(hostId, cursor);
-  }
-
-  /** Write a pending `setHostHookCursor` now. */
-  flushHostHookSeqs(): void {
-    this.hosts.flushHookCursors();
-  }
-
   /** Remote hosts at least one project lives on. */
   remoteHostIdsInUse(): string[] {
     const ids = new Set<string>();
@@ -330,13 +303,6 @@ export class ProjectManager {
     return this.store.state.projects
       .filter((p) => p.hostId === LOCAL_HOST_ID)
       .map((p) => p.path);
-  }
-
-  /** The projects that live on a remote host, each path with its host. */
-  remoteProjectHostPaths(): HostPath[] {
-    return this.allRecords()
-      .filter((p) => p.hostId !== LOCAL_HOST_ID)
-      .map((p) => ({ path: p.path, hostId: p.hostId }));
   }
 
   /**
@@ -401,7 +367,6 @@ export class ProjectManager {
     state.projectOrder ??= state.projects.map((p) => p.id);
     state.projects = state.projects.filter((p) => !removed.includes(p));
     const ids = removed.map((p) => p.id);
-    for (const id of ids) this.lastKnownWorkspaces.forget(id);
     this.hosts.recordAdoptedProjects(hostId, ids);
     this.store.save();
     return ids;
@@ -456,16 +421,6 @@ export class ProjectManager {
       else state.projects.push({ ...structuredClone(record), hostId: LOCAL_HOST_ID });
     }
     this.store.save();
-  }
-
-  /**
-   * A remote project's worktrees as last listed, without asking its host;
-   * empty for a local project or one not listed yet.
-   */
-  knownWorkspaces(projectId: string): WorkspaceInfo[] {
-    const p = this.findProject(projectId);
-    if (!p) return this.remoteInfo(projectId)?.workspaces ?? [];
-    return this.lastKnownWorkspaces.latest(p) ?? [];
   }
 
   /**
@@ -674,7 +629,6 @@ export class ProjectManager {
     projectId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ): Promise<ProjectInfo> {
-    this.lastKnownWorkspaces.forget(projectId);
     return moveAcrossServers(this.ctx, projectId, opts.hostId, () =>
       moveProjectToHost(this.ctx, projectId, opts),
     );
@@ -686,7 +640,6 @@ export class ProjectManager {
     hostId: string,
     explicitPath?: string,
   ): Promise<ProjectInfo> {
-    this.lastKnownWorkspaces.forget(projectId);
     return moveAcrossServers(this.ctx, projectId, hostId, () =>
       switchProjectHost(this.ctx, projectId, hostId, explicitPath),
     );
@@ -794,12 +747,10 @@ export class ProjectManager {
       return;
     }
     const project = this.findProject(projectId);
-    const known = project ? this.lastKnownWorkspaces.recall(project) : undefined;
     const state = this.store.state;
     const groupId = groups.groupOf(state, projectId)?.id;
     groups.forgetProject(state, projectId);
     forgetLinkDismissals(state, projectId);
-    this.lastKnownWorkspaces.forget(projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
     if (state.selectedProjectIndex >= state.projects.length) {
       state.selectedProjectIndex = Math.max(0, state.projects.length - 1);
@@ -809,7 +760,7 @@ export class ProjectManager {
     const layout = this.ctx.layout;
     if (!project || !layout) return;
 
-    let paths: string[] = known?.map((ws) => ws.path) ?? [];
+    let paths: string[] = [];
     try {
       paths = (await this.buildProjectInfo(project)).workspaces.map((ws) => ws.path);
     } catch {

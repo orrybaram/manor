@@ -12,6 +12,7 @@ import path from "node:path";
 
 import {
   eventually,
+  hook,
   openOwnerStream,
   useHostServerHarness,
   withoutGit,
@@ -27,12 +28,13 @@ import { HostProxy } from "../../backend/host-proxy";
 import { HostServerClient } from "../../backend/host-server-client";
 import { ProjectManager } from "../../projects/project-manager";
 import type { GitBackend } from "../../backend/types";
-import { byPane, byProject, byWorkspaceKey, type Caller } from "../../bridge/method";
+import { byAgent, byPane, byProject, byWorkspaceKey, type Caller } from "../../bridge/method";
 import { BridgeUnavailableRefusal } from "../../bridge/types";
 import { PendingCommands } from "../../layout/pending-commands";
 import { createBroadcastBus, type RendererBroadcast } from "../../renderer-broadcast";
 import { createTab } from "../../../src/lib/layout/ids";
 import type { LayoutBroadcast } from "../../../src/lib/layout/protocol";
+import type { AgentInfo } from "../../agent-persistence";
 import { HostRouting } from "../host-routing";
 
 const quiet = { info: () => {}, warn: () => {} };
@@ -84,6 +86,7 @@ describe("HostRouting (ADR-227 D4)", () => {
       client,
       bus,
       label: () => "me@box",
+      republishAgents: true,
       cacheFile: path.join(h.tmp, "host-cache", "box.json"),
       saveDelayMs: 10,
       log: quiet,
@@ -97,8 +100,6 @@ describe("HostRouting (ADR-227 D4)", () => {
       },
       isAdopted: (hostId) => projectManager!.isHostAdopted(hostId),
       hasLocalProject: (id) => !projectManager!.isRemoteProject(id),
-      hasLocalAgentSession: (sessionId) =>
-        before.agentManager.getAgentBySessionId(sessionId) !== null,
       pendingCommands,
       decorateProject: (result) => projectManager!.decorateRemoteResult(result),
       bus,
@@ -209,13 +210,64 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect(updated).toMatchObject({ id: "box-other", hostId: "box", defaultRunCommand: "make" });
   });
 
-  it("lists the host's agents the desktop holds no copy of", async () => {
+  it("lists the host's agents", async () => {
     const { routing } = await adoptedDesktop();
     await eventually(() => routing.agents().length, (n) => n === 2, "box's agents");
     expect(routing.agents().map((a) => [a.id, a.hostId]).sort()).toEqual([
       ["box-1", "box"],
       ["box-2", "box"],
     ]);
+  });
+
+  it("reads the host's agents as the host holds them after a status change", async () => {
+    const { client, routing, heard } = await adoptedDesktop();
+    await eventually(() => routing.agents().length, (n) => n === 2, "box's agents");
+
+    // A hook on the box moves an agent: only the host's server hears it.
+    h.daemon.emitHook(hook("SessionStart"));
+    h.daemon.emitHook(hook("UserPromptSubmit"));
+    h.daemon.emitHook(hook("Stop"));
+    const asHostHasThem = async () =>
+      (await (client.invoke("agents", "getAll", []) as Promise<AgentInfo[]>)).map((a) => ({ ...a, hostId: "box" }));
+    await eventually(
+      () => routing.agents().find((a) => a.agentSessionId === "sess-1")?.lastAgentStatus,
+      (status) => status === "responded",
+      "the desktop's copy of the agent responding",
+    );
+
+    // The desktop's merged read is the host's own, with the host's name on it.
+    const byId = (a: AgentInfo, b: AgentInfo) => a.id.localeCompare(b.id);
+    expect([...routing.agents()].sort(byId)).toEqual((await asHostHasThem()).sort(byId));
+    // And it was heard here once, under the host's id, with its pane's status.
+    const updates = heard
+      .filter((b) => b.ns === "agents" && b.event === "updated")
+      .map((b) => b.args[0] as AgentInfo)
+      .filter((a) => a.agentSessionId === "sess-1");
+    expect(updates.length).toBeGreaterThan(0);
+    expect(updates.every((a) => a.hostId === "box")).toBe(true);
+    await eventually(
+      () => routing.paneStatuses().find((u) => u.paneId === "pane-1")?.status,
+      Boolean,
+      "the pane's status",
+    );
+    expect(heard.some((b) => b.ns === "agents" && b.event === "status")).toBe(true);
+  });
+
+  it("sends a write by agent id to the host that holds the agent", async () => {
+    const { routing, client } = await adoptedDesktop();
+    await eventually(() => routing.agents().length, (n) => n === 2, "box's agents");
+    expect(routing.target(byAgent(0), ["box-1"])).toBe("box");
+    expect(routing.target(byAgent(0), ["desktop-agent"])).toBeNull();
+
+    await routing.invoke("box", "agents", "update", ["box-1", { name: "Renamed" }], WINDOW);
+    expect((await (client.invoke("agents", "getAll", []) as Promise<AgentInfo[]>)).find((a) => a.id === "box-1")?.name).toBe(
+      "Renamed",
+    );
+    await eventually(
+      () => routing.agents().find((a) => a.id === "box-1")?.name,
+      (name) => name === "Renamed",
+      "the rename, back through the proxy",
+    );
   });
 
   it("refuses a write while the host is away, and reads from the cache", async () => {

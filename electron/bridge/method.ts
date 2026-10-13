@@ -70,13 +70,14 @@ type AnyBridgeHandler = BridgeHandler<never>;
  * - `workspaceKey`: a workspace key (`<hostId>:<path>`, or a bare local path).
  * - `pane`: a pane id — the host whose layout holds the pane.
  * - `ghRepo`: a `GhRepo` (`{ path, hostId }`) — its `hostId`.
+ * - `agent`: an agent id — the host whose server holds the agent.
  *
  * On the desktop, a call whose argument names a remote host is answered by
  * that host's server, through its `HostProxy` (`BridgeServer`'s `forward`);
  * every other call, and every call on a host server, runs here.
  */
 export interface RouteRule {
-  by: "project" | "workspaceKey" | "pane" | "ghRepo";
+  by: "project" | "workspaceKey" | "pane" | "ghRepo" | "agent";
   /** Which wire argument names the target. */
   arg: number;
 }
@@ -106,6 +107,11 @@ export function byPane(arg: number): RouteRule {
 /** A `GhRepo` at `arg`. */
 export function byGhRepo(arg: number): RouteRule {
   return { by: "ghRepo", arg };
+}
+
+/** An agent id at `arg`. */
+export function byAgent(arg: number): RouteRule {
+  return { by: "agent", arg };
 }
 
 export interface MethodRules {

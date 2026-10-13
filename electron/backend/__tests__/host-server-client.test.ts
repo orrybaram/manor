@@ -292,7 +292,6 @@ describe("BackendRegistry's owner channels", () => {
     const backend = {
       pty: {
         onEvent: (_h: (event: StreamEvent) => void) => () => {},
-        replayHooks: async () => ({ entries: [], lastSeq: 0, epoch: "e0" }),
         listSessions: async () => [],
       },
       connect: vi.fn(async () => {}),

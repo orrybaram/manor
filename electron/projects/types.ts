@@ -267,22 +267,10 @@ export interface PersistedProject {
 /**
  * A registered remote host. A record rather than a bare spec so per-host
  * state that is not part of how to reach it — ADR-178's provider settings
- * and hook-replay position (`lastHookSeq`) — can sit beside `spec` without
- * a migration.
+ * and the adoption marks — can sit beside `spec` without a migration.
  */
 export interface PersistedHost {
   spec: HostSpec;
-  /**
-   * The last seq of this host's hook journal Electron main has ingested
-   * (ADR-178 §2). Absent until the journal is first met — then the hook
-   * feed starts at the journal's head instead of replaying its history.
-   * Kept when the spec changes (a new address is usually the same box); if
-   * it is a different box, its journal has a different `hookJournalEpoch`
-   * and the hook feed starts over.
-   */
-  lastHookSeq?: number;
-  /** The epoch of the journal `lastHookSeq` counts in (ADR-178 §2). */
-  hookJournalEpoch?: string;
   /**
    * The host's server owns its projects, agents and layout, and this desktop
    * has handed over what it held for it (ADR-227 D3,

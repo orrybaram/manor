@@ -199,16 +199,11 @@ export class GitHubManager {
 
   /**
    * The last PR each branch of each checkout was seen with (null: none), and
-   * when — what the desktop already knows, for the host server manifest's
-   * integration snapshot (ADR-225 D8), which must not cost a call of its
-   * own. Only a lookup that reached GitHub writes here, so a rate-limited
+   * when. Only a lookup that reached GitHub writes here, so a rate-limited
    * poll does not wipe what was known. A merged or closed PR here never
    * changes again, so its branch is not queried again (#303).
    */
   private lastSeenPrs = new Map<string, { pr: PrInfo | null; at: number }>();
-
-  /** Told the host of a checkout whose PRs were just looked up. */
-  private readonly prCacheListeners = new Set<(hostId: string) => void>();
 
   /** `getPrsForBranches` lookups still running, by repo and branches. */
   private prLookupsInFlight = new Map<string, Promise<Map<string, PrInfo | null>>>();
@@ -247,37 +242,6 @@ export class GitHubManager {
    */
   setPrMergedListener(listener: ((prUrl: string) => void) | undefined): void {
     this.onPrMerged = listener;
-  }
-
-  /**
-   * The PR `branch` of `repo` was last seen with, and when (epoch ms); null
-   * for "no PR", undefined when it has not been looked up. Never a call.
-   */
-  cachedPr(repo: GhRepo, branch: string): { pr: PrInfo | null; at: number } | undefined {
-    return this.lastSeenPrs.get(settledPrKey(repo, branch));
-  }
-
-  /**
-   * Told the host id whenever a lookup reached GitHub and refreshed the
-   * cache; whether anything changed is the listener's to judge. Returns the
-   * unsubscribe.
-   */
-  onPrCacheChange(listener: (hostId: string) => void): () => void {
-    this.prCacheListeners.add(listener);
-    return () => {
-      this.prCacheListeners.delete(listener);
-    };
-  }
-
-  private notifyPrCacheChange(repo: GhRepo): void {
-    const hostId = normalizeHostId(repo.hostId);
-    for (const listener of [...this.prCacheListeners]) {
-      try {
-        listener(hostId);
-      } catch (err) {
-        console.error("[GitHubManager] PR cache listener threw:", err);
-      }
-    }
   }
 
   async getPrForBranch(
@@ -337,7 +301,6 @@ export class GitHubManager {
       if (reached) this.lastSeenPrs.set(settledPrKey(repo, branch), { pr: info, at: Date.now() });
       result.set(branch, info);
     }
-    if (reached) this.notifyPrCacheChange(repo);
     return result;
   }
 

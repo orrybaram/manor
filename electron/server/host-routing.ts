@@ -11,7 +11,7 @@
  *   rewrites the arguments and the answer, and a host that is away refuses
  *   with `unavailable:host-away` ("wsl-box is offline"). Nothing is queued.
  * - **Merged reads.** The proxies' projects (for `ProjectManager`, as
- *   `RemoteProjects`), layouts and agents, which the shared reads add to the
+ *   `RemoteProjects`), layouts, agents and pane statuses, which the shared reads add to the
  *   desktop's own — the cache's while a host is away.
  * - **What a forwarded call carries along.** A layout command takes the
  *   calling renderer's origin, so its selection hint lands back on that
@@ -44,7 +44,7 @@ import {
 import type { PendingCommands } from "../layout/pending-commands";
 import type { RemoteProjects } from "../projects/types";
 import type { BroadcastBus } from "../renderer-broadcast";
-import type { PtyCreateResult } from "../../src/electron.d";
+import type { PaneAgentStatusUpdate, PtyCreateResult } from "../../src/electron.d";
 import type { LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import { layoutPaneIds } from "../../src/lib/layout/workspace-layout";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
@@ -59,8 +59,6 @@ export interface HostRoutingOptions {
   isAdopted(hostId: string): boolean;
   /** Whether the desktop holds this project itself (it then answers for it). */
   hasLocalProject(projectId: string): boolean;
-  /** Whether the desktop's own agent store has this agent session. */
-  hasLocalAgentSession(agentSessionId: string): boolean;
   /** The desktop's queue: a pane's command moves to the host that runs it. */
   pendingCommands: Pick<PendingCommands, "peek" | "take">;
   /** A forwarded project answer as the renderer sees it (its group). */
@@ -139,6 +137,12 @@ export class HostRouting implements BridgeForward {
       .flatMap((hostId) => this.proxy(hostId) ?? []);
   }
 
+  /** The proxy of the adopted host `paneId` runs on; null for the desktop's own panes. */
+  proxyForPane(paneId: string): HostProxy | null {
+    const hostId = this.hostOfPane(paneId);
+    return hostId === null ? null : this.proxy(hostId);
+  }
+
   // ── routing (BridgeForward) ──
 
   target(rule: RouteRule, args: readonly unknown[]): string | null {
@@ -150,6 +154,8 @@ export class HostRouting implements BridgeForward {
         return typeof arg === "string" ? this.routable(parseWorkspaceKey(arg).hostId) : null;
       case "pane":
         return typeof arg === "string" ? this.hostOfPane(arg) : null;
+      case "agent":
+        return typeof arg === "string" ? this.hostOfAgent(arg) : null;
       case "ghRepo": {
         const hostId =
           typeof arg === "object" && arg !== null ? (arg as { hostId?: unknown }).hostId : null;
@@ -205,6 +211,14 @@ export class HostRouting implements BridgeForward {
   /** `hostId` when calls for it go to its server; null when they stay here. */
   private routable(hostId: string): string | null {
     return this.proxy(hostId) ? hostId : null;
+  }
+
+  /** The adopted host whose server holds agent `agentId`; null for one of the desktop's. */
+  private hostOfAgent(agentId: string): string | null {
+    for (const proxy of this.proxies()) {
+      if (proxy.agents().some((a) => a.id === agentId)) return proxy.hostId;
+    }
+    return null;
   }
 
   /** The adopted host whose server holds `projectId`; null if the desktop does. */
@@ -297,25 +311,16 @@ export class HostRouting implements BridgeForward {
     else bus.publishTo(this.progressTo.get(hostId) ?? null, "projects", event, payload);
   }
 
-  /**
-   * Whether a host's `agents.updated` goes on to the desktop's renderers:
-   * only for an agent the desktop holds no copy of, since the desktop
-   * publishes its own copies (until ADR-227 ticket 9).
-   */
-  republishAgent(agent: AgentInfo): boolean {
-    return !this.opts.hasLocalAgentSession(agent.agentSessionId);
-  }
-
   // ── merged reads ──
 
-  /**
-   * Every adopted host's agents the desktop holds no copy of — the host's
-   * own, and those handed over (D3) — in the desktop's form.
-   */
+  /** Every adopted host's agents, in the desktop's form. */
   agents(): AgentInfo[] {
-    return this.proxies().flatMap((proxy) =>
-      proxy.agents().filter((agent) => this.republishAgent(agent)),
-    );
+    return this.proxies().flatMap((proxy) => proxy.agents());
+  }
+
+  /** Every adopted host's panes' last Agent statuses. */
+  paneStatuses(): PaneAgentStatusUpdate[] {
+    return this.proxies().flatMap((proxy) => proxy.paneStatuses());
   }
 
   /** Every adopted host's layout, keyed `<hostId>:<path>`. */

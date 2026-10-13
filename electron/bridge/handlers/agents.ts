@@ -7,7 +7,7 @@ import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
-import { byPane, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import { byAgent, byPane, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import {
   agentsGet,
@@ -24,6 +24,9 @@ const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "name",
   "namePinned",
 ]);
+
+/** What the writes by agent id touch: shared with the host server's table. */
+export type AgentWriteDeps = Pick<ServerDeps, "agentManager" | "notifier" | "unseen">;
 
 /** What a renderer may change about an agent: its name, and whether it is pinned. */
 export interface RendererAgentUpdate {
@@ -141,7 +144,7 @@ export function agentsConsumePruneNotice(ctx: HandlerCtx<ServerDeps>): number {
  * (sidebar, palette, toasts) sees the new name without a reload.
  */
 export function agentsUpdate(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<AgentWriteDeps>,
   agentId: string,
   updates: RendererAgentUpdate,
 ): AgentInfo | null {
@@ -155,7 +158,7 @@ export function agentsUpdate(
 }
 
 export function agentsDelete(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<AgentWriteDeps>,
   agentId: string,
 ): boolean {
   assertString(agentId, "agentId");
@@ -177,7 +180,7 @@ export function agentsDelete(
  * Sets.
  */
 export function agentsMarkSeen(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<AgentWriteDeps>,
   agentId: string,
 ): void {
   assertString(agentId, "agentId");
@@ -195,7 +198,7 @@ export function agentsMarkSeen(
 }
 
 export function agentsMarkResumed(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<AgentWriteDeps>,
   agentId: string,
 ): AgentInfo | null {
   assertString(agentId, "agentId");
@@ -262,10 +265,9 @@ export function createAgentService(deps: AbandonDeps): AgentService {
  * The desktop's `agents` namespace: the shared reads (`./agents-read.ts`,
  * which the host server lists too) and the desktop-only writes above.
  *
- * Routed (ADR-227 D4): the reads merge every adopted host's agents, and a
- * pane's context goes to the host whose layout holds the pane. The writes by
- * agent id stay here — they write the desktop's own copies, which it still
- * replays (until ADR-227 ticket 9), and a host server has none of them.
+ * Routed (ADR-227 D4): the reads merge every adopted host's agents, a pane's
+ * context goes to the host whose layout holds the pane, and a write by agent
+ * id goes to the host whose server holds the agent.
  */
 export const agents = {
   getAll: method(agentsGetAll, { route: LOCAL_ROUTE }),
@@ -285,10 +287,10 @@ export const agents = {
   // `update` renames/pins, `delete` ends a session, `markSeen` and
   // `markResumed` move the unseen flags every window shares. A pane's agent
   // is abandoned by `LayoutStore` when the pane ends, not over the bridge.
-  update: method(agentsUpdate, { mutating: true, route: LOCAL_ROUTE }),
-  delete: method(agentsDelete, { mutating: true, route: LOCAL_ROUTE }),
-  markSeen: method(agentsMarkSeen, { mutating: true, route: LOCAL_ROUTE }),
-  markResumed: method(agentsMarkResumed, { mutating: true, route: LOCAL_ROUTE }),
+  update: method(agentsUpdate, { mutating: true, route: byAgent(0) }),
+  delete: method(agentsDelete, { mutating: true, route: byAgent(0) }),
+  markSeen: method(agentsMarkSeen, { mutating: true, route: byAgent(0) }),
+  markResumed: method(agentsMarkResumed, { mutating: true, route: byAgent(0) }),
   // Ends sessions, but `App.tsx` calls it on every mount of every window and
   // tab: a line per page load is noise that buries the lines that matter,
   // and what it ends was already dead.

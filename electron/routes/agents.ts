@@ -26,6 +26,7 @@ import {
   agentsMarkSeen,
   agentsUpdate,
 } from "../bridge/handlers/agents";
+import { agentsGetActive, agentsGetAll } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 import { stripAnsi } from "../terminal-host/pane-facts";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
@@ -79,16 +80,23 @@ function toSummary(agent: AgentInfo): AgentSummary {
 export function resolveTarget(
   agentManager: AgentManager,
   target: string,
+  /** Adopted hosts' agents, on the desktop (ADR-227 D4). */
+  remote: readonly AgentInfo[] = [],
 ): AgentInfo | null {
   // 1. Stable agent id (what list_agents hands back).
-  const byId = agentManager.getAgentById(target);
+  const byId = agentManager.getAgentById(target) ?? remote.find((a) => a.id === target);
   if (byId) return byId;
 
   // 2. Raw pane id.
-  const byPane = agentManager.getAgentByPaneId(target);
+  const byPane =
+    agentManager.getAgentByPaneId(target) ??
+    remote.find((a) => a.paneId === target && a.status === "active");
   if (byPane) return byPane;
 
-  const active = agentManager.getActiveAgents();
+  const active = [
+    ...agentManager.getActiveAgents(),
+    ...remote.filter((a) => a.status === "active"),
+  ];
 
   // 3. `#<issue>` — the branch/workspace for an issue conventionally leads with
   //    the issue number (e.g. `159-add-orchestration-ux`), so match a workspace
@@ -158,7 +166,7 @@ function prepareWrite(
     };
   }
 
-  const agent = resolveTarget(deps.agentManager, target);
+  const agent = resolveTarget(deps.agentManager, target, deps.hostRouting?.agents());
   if (!agent) {
     return {
       ok: false,
@@ -201,7 +209,7 @@ type ResolvedAgent =
  * agent. Not found is the caller's mistake (404).
  */
 function resolveAgentParam(deps: HostDeps, agentId: string): ResolvedAgent {
-  const agent = resolveTarget(deps.agentManager, agentId);
+  const agent = resolveTarget(deps.agentManager, agentId, deps.hostRouting?.agents());
   if (!agent) {
     return { ok: false, status: 404, error: `No agent matches '${agentId}'` };
   }
@@ -317,9 +325,11 @@ export const agentRoutes: Route[] = [
         limit === undefined &&
         offset === undefined;
 
+      // Merged with the adopted hosts' agents (ADR-227 D4), as the bridge reads are.
+      const ctx = localCtx(deps);
       const agents = noFilters
-        ? deps.agentManager.getActiveAgents()
-        : deps.agentManager.getAllAgents({ projectId, status, limit, offset });
+        ? agentsGetActive(ctx)
+        : agentsGetAll(ctx, { projectId, status, limit, offset });
 
       json(200, agents.map(toSummary));
     },
@@ -438,7 +448,7 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      const agent = resolveTarget(deps.agentManager, target);
+      const agent = resolveTarget(deps.agentManager, target, deps.hostRouting?.agents());
       if (!agent) {
         json(404, { error: `No session matches target '${target}'` });
         return;
@@ -490,7 +500,7 @@ export const agentRoutes: Route[] = [
       // terminal panes never get an AgentInfo, and their scrollback is just as
       // readable — paneId is the pty sessionId is the scrollback dir key. So an
       // unresolved target falls through to being treated as a raw pane id.
-      const agent = resolveTarget(deps.agentManager, target);
+      const agent = resolveTarget(deps.agentManager, target, deps.hostRouting?.agents());
       if (agent && !agent.paneId) {
         json(409, {
           error: `Session '${agent.id}' has no live pane to read from`,

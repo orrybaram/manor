@@ -20,7 +20,7 @@
  * the channel was down are not replayed; whoever cares re-reads on
  * `connected` (`HostProxy` takes a fresh snapshot).
  *
- * `RemoteHostConnection` owns one per remote host, beside its hook feed, and
+ * `RemoteHostConnection` owns one per remote host, beside its proxy, and
  * drives it with the host's lifecycle: `hostConnected` when the host
  * connects or comes back, `hostLost` when it drops, `dispose` with it.
  *

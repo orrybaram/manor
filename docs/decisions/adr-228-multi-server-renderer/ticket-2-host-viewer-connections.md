@@ -1,6 +1,6 @@
 ---
 title: Desktop viewer connections on the host server
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: []

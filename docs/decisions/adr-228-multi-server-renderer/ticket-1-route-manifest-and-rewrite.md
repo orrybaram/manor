@@ -1,6 +1,6 @@
 ---
 title: Renderer-importable route manifest and shared host rewrite
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

@@ -43,3 +43,19 @@ still pass.
 - `electron/host-server/agents.ts`
 - `electron/app-lifecycle.ts`
 - `electron/pty-attachments.ts`
+
+## Carried over from ticket 1
+- **Move `agents` and `notifications` into `SERVER_METHODS`.** Ticket 1 left
+  both namespaces in `DESKTOP_METHODS` (`electron/bridge/handlers.ts`),
+  because both still import `electron/notifications.ts`, which imports
+  `electron` at runtime.
+  - `bridge/handlers/agents.ts` uses `markAgentNotificationsRead`,
+    `sendAgentUpdate` and `updateDockBadge`.
+  - `bridge/handlers/notifications.ts` uses `showPrNotification`,
+    `sendNotificationsUpdate` and the related functions.
+  - Once the notification state is server-scoped, reach these through
+    `ServerDeps` fields (a notifier object the desktop fills in), then move
+    both namespaces into `electron/bridge/server-methods.ts`.
+  - `notifications.show` focus-checks the caller's window. Make that check
+    an optional dep, or keep only that one method desktop-only.
+  - The electron-free bundle test must still pass.

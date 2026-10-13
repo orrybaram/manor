@@ -69,3 +69,19 @@ reads the owner's manifest and layout in this ticket. The flip is ticket 5.
 - `electron/host-server/agents.ts`: fold this into the shared pipeline if it
   becomes redundant.
 - `electron/platform/__tests__/electron-free.test.ts`
+
+## Carried over from ticket 1
+- **`Platform` supplies the new optional deps.** Ticket 1 added
+  `playSound` and `appCommandResult` as optional `ServerDeps` fields;
+  `app-lifecycle.ts` currently sets them directly on `ipcDeps`. `Platform`
+  should supply them.
+- **Decide three desktop-only methods.** Each one stays desktop-only or
+  becomes shared with an optional dep:
+  - `diffs.start` passes `mainWindow` to `DiffWatcher.start` as a visibility
+    gate;
+  - `processes.list` reports `webviewServer`;
+  - `keybindings.runInMainWindow`.
+- **Make desktop-flavoured `ServerDeps` fields optional** where the host
+  has no equivalent: `backendRegistry` remote hosts, `hostServerSync`,
+  `remoteForwards` and portless. These belong with the `remoteHosts?`
+  port.

@@ -156,6 +156,8 @@ export class HostRouting implements BridgeForward {
         return typeof arg === "string" ? this.hostOfPane(arg) : null;
       case "agent":
         return typeof arg === "string" ? this.hostOfAgent(arg) : null;
+      case "host":
+        return typeof arg === "string" ? this.routable(arg) : null;
       case "ghRepo": {
         const hostId =
           typeof arg === "object" && arg !== null ? (arg as { hostId?: unknown }).hostId : null;

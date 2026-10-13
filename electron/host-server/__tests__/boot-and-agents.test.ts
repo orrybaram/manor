@@ -127,9 +127,8 @@ describe("host server", () => {
       ["projects", "link"],
       ["layout", "save"],
       ["github", "getIssues"],
-      // No integration calls yet (ADR-227 D7 adds them), issue images included.
-      ["github", "getPrsForBranches"],
-      ["github", "proxyImage"],
+      // GitHub is host-native (ADR-227 D7) bar the desktop's feedback flow.
+      ["github", "uploadFeedbackImages"],
       ["linear", "getAllIssues"],
       ["linear", "proxyImage"],
     ]) {

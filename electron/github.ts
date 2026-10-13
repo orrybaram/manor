@@ -11,8 +11,7 @@ import type {
   PrComment,
   PrInfo,
 } from "../src/lib/pr-info";
-import { LOCAL_HOST_ID } from "./backend/types";
-import { normalizeHostId, workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
+import { normalizeHostId } from "../src/lib/workspace-key";
 import type { GhRepo } from "../src/lib/gh-repo";
 import {
   conversationsQueryArgs,
@@ -127,67 +126,24 @@ interface ConversationCacheEntry {
   state: PrConversationState;
 }
 
-/**
- * `[HOST/]OWNER/REPO` for `gh --repo`, from a git remote URL — https, `ssh://`
- * or scp-style (`git@github.com:owner/repo.git`). Null when the URL has no
- * owner/repo path to take one from.
- */
-export function ghRepoFromRemoteUrl(url: string): string | null {
-  const match =
-    /^[a-z+]+:\/\/(?:[^@/]+@)?([^/:]+)(?::\d+)?\/(.+?)(?:\.git)?\/?$/i.exec(url) ??
-    /^(?:[^@/]+@)?([^@/:]+):(.+?)(?:\.git)?\/?$/.exec(url);
-  if (!match) return null;
-  const [, host, path] = match;
-  const segments = path.split("/").filter(Boolean);
-  if (segments.length !== 2) return null;
-  const slug = segments.join("/");
-  return host === "github.com" ? slug : `${host}/${slug}`;
-}
-
-/**
- * Names the repo `gh` should target for a checkout that `gh` cannot run
- * inside: `[HOST/]OWNER/REPO` for the checkout at `path` on the remote
- * `hostId` (ADR-160), which exists only over there. Throws when its repo
- * cannot be determined.
- */
-export type RemoteRepoResolver = (hostId: string, path: string) => Promise<string>;
-
-/** Where and how to run `gh` for a checkout: see `RemoteRepoResolver`. */
+/** Where and how to run `gh` for a checkout. */
 interface GhTarget {
   cwd: string | undefined;
   repoArgs: string[];
 }
 
 export class GitHubManager {
-  /**
-   * Remote checkouts' repos, keyed by workspace key (ADR-191), so the same
-   * path on two hosts keeps two entries. A checkout's origin rarely moves, and
-   * resolving it is an ssh round trip — once per project per poll otherwise.
-   */
-  private remoteRepoCache = new Map<WorkspaceKey, string>();
-
   /** Set once `gh` refuses `projectItems` for want of `read:project`. */
   private projectScopeMissing = false;
 
-  /** Without a resolver every checkout is local. */
-  constructor(private readonly resolveRemoteRepo?: RemoteRepoResolver) {}
-
   /**
-   * A local checkout runs `gh` in its directory, which reads the repo from
-   * it, as before; a remote one runs here against its origin's repo.
+   * `gh` runs in the checkout's directory, which it reads the repo from, with
+   * the sign-in of whichever machine this server runs on. A remote project's
+   * calls are routed to its own host's server (`byGhRepo`, ADR-227 D7), so
+   * the path is always a local one here.
    */
-  private async ghTarget({ path, hostId }: GhRepo): Promise<GhTarget> {
-    const resolve = this.resolveRemoteRepo;
-    if (!resolve || normalizeHostId(hostId) === LOCAL_HOST_ID) {
-      return { cwd: path, repoArgs: [] };
-    }
-    const key = workspaceKey(hostId, path);
-    let repo = this.remoteRepoCache.get(key);
-    if (!repo) {
-      repo = await resolve(hostId, path);
-      this.remoteRepoCache.set(key, repo);
-    }
-    return { cwd: undefined, repoArgs: ["--repo", repo] };
+  private async ghTarget({ path }: GhRepo): Promise<GhTarget> {
+    return { cwd: path, repoArgs: [] };
   }
 
   private readyPromise: Promise<boolean> | null = null;

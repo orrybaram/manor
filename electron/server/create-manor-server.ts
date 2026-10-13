@@ -63,7 +63,7 @@ import { BridgeServer, type BridgeServerDeps } from "../bridge/server";
 import { ChatMirror } from "../chat-mirror/mirror";
 import { chatTaskKey } from "../chat-mirror/task-key";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
-import { GitHubManager, ghRepoFromRemoteUrl } from "../github";
+import { GitHubManager } from "../github";
 import type { ServerDeps, SharedDeps } from "../ipc/types";
 import { KeybindingsManager } from "../keybindings";
 import { LayoutStore } from "../layout/layout-store";
@@ -338,20 +338,10 @@ export function createManorServer<D extends BridgeServerDeps>(
   void layoutStore.startLoad(layoutPersistence.whenReady());
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backendRegistry);
-  // `gh` runs here, where it is authenticated. On a server with remote hosts,
-  // a remote project's checkout isn't, so it is told the repo from that
-  // checkout's origin instead, read on the host the caller named (ADR-191).
-  // A server with none runs `gh` in every checkout (ADR-225 D8).
-  const githubManager = remoteHosts
-    ? new GitHubManager(async (hostId, repoPath) => {
-        const origin = (
-          await backendRegistry.get(hostId).git.exec(repoPath, ["remote", "get-url", "origin"])
-        ).trim();
-        const repo = ghRepoFromRemoteUrl(origin);
-        if (!repo) throw new Error(`Not a GitHub remote: ${origin}`);
-        return repo;
-      })
-    : new GitHubManager();
+  // `gh` runs here, in the checkout, with this machine's own sign-in. A
+  // remote project's calls are routed to its host's server (`byGhRepo`),
+  // which composes the same manager (ADR-227 D7).
+  const githubManager = new GitHubManager();
   // The remote-control and relay modules take their platform from these ports
   // rather than importing Electron, so every server can build them (ADR-225 D6).
   const linearManager = new LinearManager(secretBox);

@@ -11,6 +11,7 @@
  * bundles this file and fails on any `electron` import.
  */
 
+import { execFile } from "node:child_process";
 import { errorMessage } from "../lib/errors";
 import { runServe } from "./serve";
 
@@ -28,6 +29,15 @@ function flag(argv: readonly string[], name: string): string | undefined {
   return value;
 }
 
+/** Where `gh` is on this server's PATH, logged once: GitHub runs here (ADR-227 D7). */
+function logGhPath(): void {
+  execFile("which", ["gh"], { encoding: "utf-8", timeout: 5000 }, (err, stdout) => {
+    console.info(
+      err ? "[host-server] gh not found on PATH" : `[host-server] gh: ${stdout.trim()}`,
+    );
+  });
+}
+
 async function main(): Promise<void> {
   const argv = process.argv.slice(2);
   if (argv[0] !== "serve") usage();
@@ -41,6 +51,8 @@ async function main(): Promise<void> {
     dataDir: flag(argv, "--data-dir"),
     version: process.env.MANOR_VERSION ?? "unknown",
   });
+
+  logGhPath();
 
   const shutdown = (signal: string) => {
     console.info(`[host-server] ${signal}`);

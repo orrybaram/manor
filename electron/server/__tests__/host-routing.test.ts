@@ -28,7 +28,7 @@ import { HostProxy } from "../../backend/host-proxy";
 import { HostServerClient } from "../../backend/host-server-client";
 import { ProjectManager } from "../../projects/project-manager";
 import type { GitBackend } from "../../backend/types";
-import { byAgent, byPane, byProject, byWorkspaceKey, type Caller } from "../../bridge/method";
+import { byAgent, byGhRepo, byHost, byPane, byProject, byWorkspaceKey, type Caller } from "../../bridge/method";
 import { BridgeUnavailableRefusal } from "../../bridge/types";
 import { PendingCommands } from "../../layout/pending-commands";
 import { createBroadcastBus, type RendererBroadcast } from "../../renderer-broadcast";
@@ -154,6 +154,16 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect(routing.target(byPane(0), ["pane-local"])).toBeNull();
     // A pane no layout holds yet stays here, with its queued command.
     expect(routing.target(byPane(0), ["pane-new"])).toBeNull();
+  });
+
+  it("routes gh calls by the repo's or the asked host", async () => {
+    const { routing } = await adoptedDesktop();
+    expect(routing.target(byGhRepo(0), [{ path: BOX_APP, hostId: "box" }])).toBe("box");
+    expect(routing.target(byGhRepo(0), [{ path: "/Users/me/app", hostId: "local" }])).toBeNull();
+    expect(routing.target(byGhRepo(0), [{ path: "/x", hostId: "mac" }])).toBeNull();
+    expect(routing.target(byHost(0), ["box"])).toBe("box");
+    expect(routing.target(byHost(0), [undefined])).toBeNull();
+    expect(routing.target(byHost(0), ["local"])).toBeNull();
   });
 
   it("forwards a workspace write, and the desktop's list shows it", async () => {

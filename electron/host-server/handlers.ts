@@ -91,6 +91,17 @@ import {
   agentsUpdate,
 } from "../bridge/handlers/agents";
 import {
+  githubAssignIssue,
+  githubCheckStatus,
+  githubCloseIssue,
+  githubCreateIssue,
+  githubGetAllIssues,
+  githubGetIssueDetail,
+  githubGetMyIssues,
+  githubGetPrsForBranches,
+  githubGetViewerName,
+  githubListRepos,
+  githubProxyImage,
   linearLinkIssueToWorkspace,
   linearUnlinkIssueFromWorkspace,
 } from "../bridge/handlers/integrations";
@@ -422,6 +433,21 @@ const METHODS = flatten({
     setPaneTitle: method(owned(layoutSetPaneTitle), { mutating: true }),
     setPendingCommand: method(owned(layoutSetPendingCommand), { mutating: true }),
     reportViewport: method(owned(layoutReportViewport)),
+  },
+  // `gh` runs here, in the checkout, with the box's own sign-in (ADR-227 D7).
+  // The feedback upload is the desktop's flow and stays off the table.
+  github: {
+    getPrsForBranches: method(githubGetPrsForBranches),
+    listRepos: method(githubListRepos),
+    getViewerName: method(githubGetViewerName),
+    checkStatus: method(githubCheckStatus),
+    getMyIssues: method(githubGetMyIssues),
+    getAllIssues: method(githubGetAllIssues),
+    getIssueDetail: method(githubGetIssueDetail),
+    proxyImage: method(githubProxyImage),
+    assignIssue: method(githubAssignIssue, { mutating: true }),
+    closeIssue: method(githubCloseIssue, { mutating: true }),
+    createIssue: method(githubCreateIssue, { mutating: true }),
   },
   // A workspace's linked issues are project records; the rest of Linear is
   // not on this host yet.

@@ -38,8 +38,11 @@ import type {
 } from "../../linear";
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
-import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import { byGhRepo, byHost, byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
+
+/** What `gh` needs: the host server carries this and no more of `ServerDeps`. */
+type GithubDeps = Pick<SharedDeps, "githubManager">;
 
 type IssueState = "open" | "closed" | "all";
 type LinearIssueOptions = { stateTypes?: string[]; limit?: number };
@@ -58,7 +61,7 @@ function assertRepo(repo: GhRepo): void {
  * is checked here, for every caller — the handler is the boundary.
  */
 export function githubGetPrsForBranches(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   branches: string[],
 ): Promise<[string, PrInfo | null][]> {
@@ -71,19 +74,22 @@ export function githubGetPrsForBranches(
 
 /** The user's clonable repos, newest push first (ADR-194). */
 export function githubListRepos(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
 ): Promise<GitHubRepo[]> {
   return ctx.deps.githubManager.listRepos();
 }
 
 /** The profile's display name, raw; the phone layer picks the first name. */
 export function githubGetViewerName(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
 ): Promise<string | null> {
   return ctx.deps.githubManager.getViewerName();
 }
 
-export function githubCheckStatus(ctx: HandlerCtx<ServerDeps>): Promise<{
+export function githubCheckStatus(
+  ctx: HandlerCtx<GithubDeps>,
+  _hostId?: string | null,
+): Promise<{
   installed: boolean;
   authenticated: boolean;
   username?: string;
@@ -102,7 +108,7 @@ export function githubCheckStatus(ctx: HandlerCtx<ServerDeps>): Promise<{
  * actual defaults; this only says "not given".
  */
 export function githubGetMyIssues(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   limit?: number | null,
   state?: IssueState | null,
@@ -116,7 +122,7 @@ export function githubGetMyIssues(
 }
 
 export function githubGetAllIssues(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   limit?: number | null,
   state?: IssueState | null,
@@ -130,7 +136,7 @@ export function githubGetAllIssues(
 }
 
 export function githubGetIssueDetail(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   issueNumber: number,
   issueUrl?: string | null,
@@ -144,7 +150,7 @@ export function githubGetIssueDetail(
 }
 
 export function githubAssignIssue(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   issueNumber: number,
 ): Promise<void> {
@@ -153,7 +159,7 @@ export function githubAssignIssue(
 }
 
 export function githubCloseIssue(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   issueNumber: number,
 ): Promise<void> {
@@ -162,7 +168,7 @@ export function githubCloseIssue(
 }
 
 export function githubCreateIssue(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   title: string,
   body: string,
   labels: string[],
@@ -171,7 +177,7 @@ export function githubCreateIssue(
 }
 
 export function githubUploadFeedbackImages(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<GithubDeps>,
   images: { base64: string; name: string }[],
 ): Promise<string[]> {
   return ctx.deps.githubManager.uploadFeedbackImages(images);
@@ -291,7 +297,7 @@ export function linearUnlinkIssueFromWorkspace(
  * `linearProxyImage`.
  */
 export function githubProxyImage(
-  _ctx: HandlerCtx<ServerDeps>,
+  _ctx: HandlerCtx<GithubDeps>,
   url: string,
 ): Promise<string> {
   assertString(url, "url");
@@ -345,24 +351,24 @@ export async function linearAutoMatch(
 // shows next time it opens, and a feedback upload puts bytes in a public
 // release. The PR and issue reads are not audited.
 //
-// Every method runs here for now, `gh` resolving a remote repo by its
-// origin (ADR-191). The ones that take a `GhRepo` go to its host with
-// `byGhRepo` once a host server answers `github.*` (ADR-227 D7, ticket 10):
-// routing them before then would leave a remote workspace's PR badge with
-// nothing to ask.
+// A `GhRepo` call goes to its host with `byGhRepo`, so a remote workspace's
+// PR badge and issues use the box's own `gh` sign-in (ADR-227 D7);
+// `checkStatus` takes the host it is asking about. The rest ask this
+// machine: the clone dialog's repo list, the viewer's name, new issues and
+// the feedback flow.
 export const github = {
-  getPrsForBranches: method(githubGetPrsForBranches, { route: LOCAL_ROUTE }),
+  getPrsForBranches: method(githubGetPrsForBranches, { route: byGhRepo(0) }),
   // The clone dialog's repo list (ADR-194): what `gh` can see, no writes.
   listRepos: method(githubListRepos, { route: LOCAL_ROUTE }),
-  checkStatus: method(githubCheckStatus, { route: LOCAL_ROUTE }),
+  checkStatus: method(githubCheckStatus, { route: byHost(0) }),
   // The phone greeting's name, from the signed-in profile: no writes.
   getViewerName: method(githubGetViewerName, { route: LOCAL_ROUTE }),
-  getMyIssues: method(githubGetMyIssues, { route: LOCAL_ROUTE }),
-  getAllIssues: method(githubGetAllIssues, { route: LOCAL_ROUTE }),
-  getIssueDetail: method(githubGetIssueDetail, { route: LOCAL_ROUTE }),
+  getMyIssues: method(githubGetMyIssues, { route: byGhRepo(0) }),
+  getAllIssues: method(githubGetAllIssues, { route: byGhRepo(0) }),
+  getIssueDetail: method(githubGetIssueDetail, { route: byGhRepo(0) }),
   proxyImage: method(githubProxyImage, { route: LOCAL_ROUTE }),
-  assignIssue: method(githubAssignIssue, { mutating: true, route: LOCAL_ROUTE }),
-  closeIssue: method(githubCloseIssue, { mutating: true, route: LOCAL_ROUTE }),
+  assignIssue: method(githubAssignIssue, { mutating: true, route: byGhRepo(0) }),
+  closeIssue: method(githubCloseIssue, { mutating: true, route: byGhRepo(0) }),
   createIssue: method(githubCreateIssue, { mutating: true, route: LOCAL_ROUTE }),
   uploadFeedbackImages: method(githubUploadFeedbackImages, {
     mutating: true,

@@ -116,3 +116,13 @@ Extend `tests/e2e/host-server.spec.ts`, or add
 - There is no phone issue picker in the composer today. If one is built, show "turn Linear on in desktop settings" when `linear.isConnected` is false or a `linear.*` call is refused with `unavailable:host`.
 - `NewWorkspaceDialog.tsx`'s `<form>` is still indented for the removed ternary; reformat it.
 - phone-chat "slash menu lists built-ins and skills" flaked once in a batch run (passed alone). Watch it.
+
+## Carried over from ticket 13
+
+- **E2E step 3 (box CLI with the lid closed):** the box's CLI now reaches the host server (`electron/host-server/cli-relay.ts`). Run `manor list-workspaces` on the box; before adoption it answers 503 "This host is being set up…".
+- **Docs:** the CLI messages changed ("Manor's host server isn't running on this host", "… needs Manor desktop; it isn't available from remote hosts"). The `httpErrorDetail` comment at `electron/mcp/cli.ts:358` still says "not connected"; fix it.
+- **Upgrade docs:** an old host server without `hostServer.control` gives desktop MCP/CLI writes for its projects 503/502 until the box is upgraded. `enableControlRelay`'s new optional `role: "server"` is backward-compatible (wire hash re-recorded, protocol stays 6).
+- **Known failures:** `bridge.spec` "two desktop windows on one pane" (presses `Meta+t`) and "the CLI lands with every window closed" (non-darwin quits on last window close, removing the port file) fail on Linux. Confirm on main and add to the known-failures note.
+- Stats-only reads (`processes.killSession` kill counters, busy-agent count) still ignore remote agents; document or fix if trivial.
+- `callerHostId` / `callerMaySee` are now never set; the scoping branches are dead. Remove them, or note why they stay.
+- `RouteContext.method` is now required; direct route-handler tests must pass it.

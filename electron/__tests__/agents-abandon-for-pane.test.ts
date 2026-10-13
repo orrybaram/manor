@@ -11,7 +11,6 @@ vi.mock("../notifications", () => ({
   updateDockBadge: vi.fn(),
   markAgentNotificationsRead: vi.fn(),
   sendAgentUpdate: vi.fn(),
-  getUnseenSnapshot: vi.fn(() => ({ responded: [], requires_input: [] })),
 }));
 
 // ── Mock ipc-validate ────────────────────────────────────────────────────────

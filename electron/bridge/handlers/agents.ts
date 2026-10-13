@@ -1,15 +1,10 @@
 import { getConnector, getConnectorForCommand } from "../../agent-connectors";
 import { resolveAgentCommand } from "../../../src/lib/resolve-agent-command";
 import { workspaceKey } from "../../../src/lib/workspace-key";
-import { agentHostId, type AgentInfo } from "../../agent-persistence";
-import {
-  paneContextBackfill,
-  type PaneStatusUpdate,
-} from "../../agent-status/effects";
-import { LOCAL_HOST_ID } from "../../backend/types";
+import type { AgentInfo } from "../../agent-persistence";
+import { paneContextBackfill } from "../../agent-status/effects";
 import { assertString } from "../../ipc-validate";
 import {
-  getUnseenSnapshot,
   markAgentNotificationsRead,
   sendAgentUpdate,
   updateDockBadge,
@@ -18,6 +13,15 @@ import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
 import { method, type HandlerCtx } from "../method";
+import {
+  agentsGet,
+  agentsGetActive,
+  agentsGetAll,
+  agentsGetPaneStatuses,
+  agentsGetRecent,
+  agentsGetUnseen,
+  agentsReconcileStale,
+} from "./agents-read";
 
 const ALLOWED_RENDERER_TASK_FIELDS: ReadonlySet<string> = new Set([
   "name",
@@ -52,72 +56,12 @@ function assertRendererAgentUpdate(
   }
 }
 
-/** Whether the host an agent's terminal runs on is connected (local always is). */
-function isAgentHostConnected(
-  deps: HandlerCtx["deps"],
-  agent: Pick<AgentInfo, "paneId" | "hostId">,
-): boolean {
-  const hostId = agentHostId(agent, deps.getPaneHostId);
-  return hostId === LOCAL_HOST_ID || deps.backendRegistry.status(hostId) === "connected";
-}
-
-/** What `agents:getAll` narrows its page by. */
-export interface AgentQuery {
-  projectId?: string;
-  status?: string;
-  limit?: number;
-  offset?: number;
-}
-
 /** The pane context `agents:setPaneContext` stores against a paneId. */
 export interface PaneContext {
   projectId: string;
   projectName: string;
   workspacePath: string;
   agentCommand: string | null;
-}
-
-/**
- * The `agents` namespace of the handler table. "Check on my agents from
- * anywhere" is the sentence ADR-178 started from, so none of it is
- * local-only — a browser that could watch an agent but not mark it seen was
- * exactly the read-and-type state this ADR exists to end.
- */
-export function agentsGetAll(ctx: HandlerCtx, opts?: AgentQuery): AgentInfo[] {
-  return ctx.deps.agentManager.getAllAgents(opts);
-}
-
-export function agentsGet(ctx: HandlerCtx, agentId: string): AgentInfo | null {
-  assertString(agentId, "agentId");
-  return ctx.deps.agentManager.getAgentById(agentId);
-}
-
-export function agentsGetActive(ctx: HandlerCtx): AgentInfo[] {
-  return ctx.deps.agentManager.getActiveAgents();
-}
-
-export function agentsGetRecent(
-  ctx: HandlerCtx,
-  opts?: { limit?: number },
-): AgentInfo[] {
-  return ctx.deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
-}
-
-export function agentsGetUnseen(): {
-  responded: string[];
-  requires_input: string[];
-} {
-  return getUnseenSnapshot();
-}
-
-/**
- * Every pane's currently published Agent status (ADR-184 ticket 5). Called
- * once on renderer startup — including a detached/popout window, a reload, or
- * a browser, which always starts after some were already sent — so it paints
- * current dots instead of waiting on the next signal.
- */
-export function agentsGetPaneStatuses(ctx: HandlerCtx): PaneStatusUpdate[] {
-  return ctx.deps.agentStatus.getAllPaneStatuses();
 }
 
 export async function agentsBuildResumeCommand(
@@ -312,43 +256,9 @@ export function createAgentService(deps: AbandonDeps): AgentService {
 }
 
 /**
- * Sweeps every `active` agent whose pane the daemon no longer has a live
- * session for, and marks it `abandoned` — the desktop's boot-time cleanup
- * for sessions that died while nothing was watching. A `responded` agent is
- * left alone even if its pane is gone: it already has an outcome.
+ * The desktop's `agents` namespace: the shared reads (`./agents-read.ts`,
+ * which the host server lists too) and the desktop-only writes above.
  */
-export async function agentsReconcileStale(ctx: HandlerCtx): Promise<void> {
-  const { deps } = ctx;
-  const { agentManager, backend, agentStatus } = deps;
-  let liveSessions: Array<{ sessionId: string }>;
-  try {
-    liveSessions = await backend.pty.listSessions();
-  } catch {
-    // Daemon unreachable — skip reconciliation
-    return;
-  }
-
-  const livePaneIds = new Set(liveSessions.map((s) => s.sessionId));
-  const allAgents = agentManager.getAllAgents();
-
-  for (const agent of allAgents) {
-    if (agent.status !== "active") continue;
-    if (!agent.paneId) continue;
-    if (livePaneIds.has(agent.paneId)) continue;
-    // Sessions of a remote host that is not connected are missing from
-    // `listSessions` because nobody could ask, not because they ended.
-    if (!isAgentHostConnected(deps, agent)) continue;
-    if (agent.lastAgentStatus === "responded") continue;
-    // Its pty was killed by a daemon replacement (ADR-185 §A): the pane is
-    // about to be cold-restored, which resumes the Agent. Abandoning it
-    // here would race that resume and win.
-    if (agentStatus.isPaneLossExpected(agent.paneId)) continue;
-
-    // Its pane is gone: the same `user` signal as closing it (ADR-184).
-    agentStatus.signal(agent.paneId, { type: "user", action: "abandon" });
-  }
-}
-
 export const agents = {
   getAll: method(agentsGetAll),
   get: method(agentsGet),

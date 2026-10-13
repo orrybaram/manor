@@ -13,15 +13,13 @@
  * Adding a method here is the decision ADR-218's "Harder" section warns
  * about: a feature that should work with the lid closed has to be added on
  * purpose. Each entry either reuses the desktop's handler as it is — those
- * declare only the slice of deps they read (`PtyViewerDeps`, `ChatDeps`) —
+ * declare only the slice of deps they read (`PtyViewerDeps`, `ChatDeps`,
+ * `AgentReadDeps`) —
  * or is a host-server read over `HostServerDeps`, which carries no window,
  * menu or Electron object of any kind.
  */
 
 import { assertPositiveInt, assertString } from "../ipc-validate";
-import type { AgentInfo } from "../agent-persistence";
-import type { AgentStatusDriver } from "../agent-status/driver";
-import type { PaneStatusUpdate } from "../agent-status/effects";
 import type { HostStatusInfo } from "../backend/host-connection";
 import { LOCAL_HOST_ID, type PtyBackend } from "../backend/types";
 import {
@@ -55,7 +53,15 @@ import type { Theme, ThemeColors } from "../theme";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type { PtyCreateOptions, PtyCreateResult } from "../../src/electron.d";
 import { errorMessage } from "../lib/errors";
-import type { AgentQuery } from "../bridge/handlers/agents";
+import {
+  agentsGet,
+  agentsGetActive,
+  agentsGetAll,
+  agentsGetPaneStatuses,
+  agentsGetRecent,
+  agentsGetUnseen,
+  type AgentReadDeps,
+} from "../bridge/handlers/agents-read";
 import {
   remoteControlPair,
   remoteControlSubscribePush,
@@ -86,18 +92,10 @@ export type HostPty = Pick<
  * one host, local to itself.
  */
 export interface HostServerDeps
-  extends BridgeServerDeps, PtyViewerDeps, ChatDeps {
+  extends BridgeServerDeps, PtyViewerDeps, ChatDeps, AgentReadDeps {
   backend: { pty: HostPty };
   /** Whether the daemon is reachable right now. */
   daemonStatus(): HostStatusInfo;
-  agentManager: {
-    getAllAgents(opts?: AgentQuery): AgentInfo[];
-    getAgentById(id: string): AgentInfo | null;
-    getActiveAgents(): AgentInfo[];
-  };
-  agentStatus: Pick<AgentStatusDriver, "getAllPaneStatuses">;
-  unseenRespondedAgents: ReadonlySet<string>;
-  unseenInputAgents: ReadonlySet<string>;
   /** The manifest's projects over git's worktrees on this box. */
   projects(): Promise<ProjectInfo[]>;
   /** The desktop's last layout snapshot for this host. */
@@ -198,39 +196,6 @@ export async function hostPtyCreate(
       };
     }
   });
-}
-
-// ── agents ──
-
-function agentsGetAll(ctx: Ctx, opts?: AgentQuery): AgentInfo[] {
-  return ctx.deps.agentManager.getAllAgents(opts);
-}
-
-function agentsGet(ctx: Ctx, agentId: string): AgentInfo | null {
-  assertString(agentId, "agentId");
-  return ctx.deps.agentManager.getAgentById(agentId);
-}
-
-function agentsGetActive(ctx: Ctx): AgentInfo[] {
-  return ctx.deps.agentManager.getActiveAgents();
-}
-
-function agentsGetRecent(ctx: Ctx, opts?: { limit?: number }): AgentInfo[] {
-  return ctx.deps.agentManager.getAllAgents({ limit: opts?.limit ?? 50 });
-}
-
-function agentsGetUnseen(ctx: Ctx): {
-  responded: string[];
-  requires_input: string[];
-} {
-  return {
-    responded: [...ctx.deps.unseenRespondedAgents],
-    requires_input: [...ctx.deps.unseenInputAgents],
-  };
-}
-
-function agentsGetPaneStatuses(ctx: Ctx): PaneStatusUpdate[] {
-  return ctx.deps.agentStatus.getAllPaneStatuses();
 }
 
 // ── projects, layout ──

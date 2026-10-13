@@ -4,10 +4,9 @@
  *
  * In slice 1 the desktop and the host server both own the agents on this
  * host, and agree by construction: each replays the same journal through the
- * same ingestion path (`AgentHookServer.ingestHookPayload`) into the same
- * pure reconciler (`createAgentStatusDriver`). This module is that path on
- * the host server, built from the very parts `app-lifecycle.ts` uses, minus
- * what has no meaning here:
+ * same pipeline (`agent-status/pipeline.ts`: `AgentHookServer.ingestHookPayload`
+ * into the pure reconciler's driver). This module is that pipeline as the
+ * host server configures it, minus what has no meaning here:
  *
  * - every agent's host is `local` — the server is local to itself;
  * - no dock badge, no desktop notification: a transition worth telling
@@ -19,15 +18,12 @@
  * state.
  */
 
-import { AgentHookServer } from "../agent-hooks";
 import type { AgentHookEvent } from "../agent-hook-events";
 import { AgentManager, type AgentInfo } from "../agent-persistence";
-import {
-  createAgentStatusDriver,
-  type AgentStatusDriver,
-} from "../agent-status/driver";
+import type { AgentStatusDriver } from "../agent-status/driver";
 import type { PaneContext } from "../agent-status/effects";
-import { NotificationCoalescer, type HookSink } from "../backend/hook-feed";
+import { createAgentPipeline } from "../agent-status/pipeline";
+import type { HookSink } from "../backend/hook-feed";
 import { LOCAL_HOST_ID } from "../backend/types";
 import type { BroadcastBus } from "../renderer-broadcast";
 import type { AgentStatus } from "../terminal-host/types";
@@ -72,6 +68,9 @@ export interface HostAgents {
   hookSink: HookSink;
   /** Publish an agent to every bridge connection, with its unseen flags. */
   broadcastAgent(agent: AgentInfo): void;
+  /** Relay hooks into the driver and start its tick. */
+  start(): void;
+  stop(): void;
 }
 
 export function createHostAgents(opts: HostAgentsOptions): HostAgents {
@@ -92,51 +91,35 @@ export function createHostAgents(opts: HostAgentsOptions): HostAgents {
     });
   };
 
-  // Replayed hooks hold their notifications until the catch-up is done,
-  // exactly as on the desktop: a night of hooks is one per agent.
-  const coalescer = new NotificationCoalescer((agent, prevStatus, newStatus) =>
-    opts.onAgentStatus?.(agent, prevStatus, newStatus),
-  );
-
-  const driver = createAgentStatusDriver({
+  // The one ingestion path (ADR-178 §2). Its HTTP listener is never started:
+  // on a remote host the daemon's own listener journals the hooks, and they
+  // reach this server through the journal like they reach the desktop.
+  const pipeline = createAgentPipeline({
     agentManager,
     getPaneContext: (paneId) => opts.getPaneContext?.(paneId),
     getPaneHostId: () => LOCAL_HOST_ID,
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,
-    maybeSendNotification: coalescer.send,
-    publishPaneStatus: (update) =>
-      opts.publish("agents", "status", update),
-    ...(opts.monoClock ? { monoClock: opts.monoClock } : {}),
-    ...(opts.wallClock ? { wallClock: opts.wallClock } : {}),
-    ...(opts.log ? { log: opts.log } : {}),
-  });
-
-  // The one ingestion path (ADR-178 §2). Its HTTP listener is never started:
-  // on a remote host the daemon's own listener journals the hooks, and they
-  // reach this server through the journal like they reach the desktop.
-  const ingestion = new AgentHookServer();
-  ingestion.setRelay((event) => {
-    driver.hook(event);
-    opts.onHook?.(event);
-  });
-
-  const hookSink: HookSink = {
-    ingest: (payload, { hostId, replay }) => {
-      const ingest = () => ingestion.ingestHookPayload(payload, { hostId });
-      if (replay) coalescer.hold(hostId, ingest);
-      else ingest();
+    publishPaneStatus: (update) => opts.publish("agents", "status", update),
+    onStatus: (agent, prevStatus, newStatus) =>
+      opts.onAgentStatus?.(agent, prevStatus, newStatus),
+    onHook: opts.onHook,
+    clocks: {
+      ...(opts.monoClock ? { monoClock: opts.monoClock } : {}),
+      ...(opts.wallClock ? { wallClock: opts.wallClock } : {}),
+      ...(opts.log ? { log: opts.log } : {}),
     },
-    replayFinished: (hostId) => coalescer.flush(hostId),
-  };
+  });
 
   return {
     agentManager,
-    driver,
+    driver: pipeline.driver,
     unseenRespondedAgents,
     unseenInputAgents,
-    hookSink,
+    hookSink: pipeline.hookSink,
     broadcastAgent,
+    start: pipeline.start,
+    stop: pipeline.stop,
   };
 }

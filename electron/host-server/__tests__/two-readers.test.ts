@@ -7,27 +7,19 @@
  * into the reconciler, or a host-server shortcut around
  * `AgentHookServer.ingestHookPayload`, would split them. This feeds one
  * recorded journal — part replayed, part live, as each reader meets it —
- * into the desktop's wiring (as `app-lifecycle.ts` builds it for a remote
- * host) and into the host server's (`createHostAgents`), and requires every
- * pane to end in the same state.
+ * into the desktop's pipeline (`createAgentPipeline` as `app-lifecycle.ts`
+ * configures it for a remote host) and into the host server's
+ * (`createHostAgents`), and requires every pane to end in the same state.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { AgentHookServer } from "../../agent-hooks";
 import { AgentManager, type AgentInfo } from "../../agent-persistence";
-import {
-  createAgentStatusDriver,
-  type AgentStatusDriver,
-} from "../../agent-status/driver";
-import {
-  HostHookFeed,
-  NotificationCoalescer,
-  memoryHookSeqStore,
-  type HookSink,
-} from "../../backend/hook-feed";
+import type { AgentStatusDriver } from "../../agent-status/driver";
+import { createAgentPipeline } from "../../agent-status/pipeline";
+import { HostHookFeed, memoryHookSeqStore } from "../../backend/hook-feed";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { HookJournal } from "../../terminal-host/hook-journal";
 import type { HookPayload, HookReplay } from "../../terminal-host/types";
@@ -100,6 +92,7 @@ interface Reader {
   agentManager: AgentManager;
   driver: AgentStatusDriver;
   feed: HostHookFeed;
+  stop(): void;
 }
 
 function replaySource(journal: HookJournal) {
@@ -114,47 +107,36 @@ function replaySource(journal: HookJournal) {
 }
 
 /**
- * The desktop's reader of a remote host's journal, wired as `initApp()`
- * wires it: hook feed → coalesced `AgentHookServer.ingestHookPayload` →
- * relay → the Status reconciler's driver, with the host as each pane's
- * session owner. Its cursor starts at the journal's beginning, as for a
- * desktop that met this journal before any of these hooks.
+ * The desktop's reader of a remote host's journal: the pipeline `initApp()`
+ * builds, configured as it configures it — the registry's session owner (the
+ * remote host) as each pane's host, the renderer's pane contexts (none yet),
+ * main's unseen Sets — with its broadcasts and notifications going nowhere.
+ * Its cursor starts at the journal's beginning, as for a desktop that met
+ * this journal before any of these hooks.
  */
 function desktopReader(dir: string, journal: HookJournal): Reader {
   const agentManager = new AgentManager(dir, 90, () => REMOTE_HOST);
-  const coalescer = new NotificationCoalescer(() => {});
-  const driver = createAgentStatusDriver({
+  const pipeline = createAgentPipeline({
     agentManager,
     getPaneContext: () => undefined,
     getPaneHostId: () => REMOTE_HOST,
     unseenRespondedAgents: new Set(),
     unseenInputAgents: new Set(),
     broadcastAgent: () => {},
-    maybeSendNotification: coalescer.send,
     publishPaneStatus: () => {},
-    monoClock: clock,
-    wallClock: clock,
-    log: () => {},
+    onStatus: () => {},
+    clocks: { monoClock: clock, wallClock: clock, log: () => {} },
   });
-  const hookServer = new AgentHookServer();
-  hookServer.setRelay((event) => driver.hook(event));
-  const sink: HookSink = {
-    ingest: (payload, { hostId, replay }) => {
-      const ingest = () => hookServer.ingestHookPayload(payload, { hostId });
-      if (replay) coalescer.hold(hostId, ingest);
-      else ingest();
-    },
-    replayFinished: (hostId) => coalescer.flush(hostId),
-  };
+  pipeline.start();
   const store = memoryHookSeqStore();
   store.set(REMOTE_HOST, { seq: 0, epoch: journal.epoch });
   const feed = new HostHookFeed({
     hostId: REMOTE_HOST,
     replay: replaySource(journal),
     store,
-    sink: () => sink,
+    sink: () => pipeline.hookSink,
   });
-  return { agentManager, driver, feed };
+  return { agentManager, driver: pipeline.driver, feed, stop: pipeline.stop };
 }
 
 /** The host server's reader, as `createHostServer` wires it. */
@@ -166,6 +148,7 @@ function hostReader(dir: string, journal: HookJournal): Reader {
     wallClock: clock,
     log: () => {},
   });
+  agents.start();
   const store = fileHookCursorStore(path.join(dir, "hook-cursor.json"), {
     beforeWrite: () => agents.agentManager.flushNow(),
   });
@@ -176,7 +159,12 @@ function hostReader(dir: string, journal: HookJournal): Reader {
     store,
     sink: () => agents.hookSink,
   });
-  return { agentManager: agents.agentManager, driver: agents.driver, feed };
+  return {
+    agentManager: agents.agentManager,
+    driver: agents.driver,
+    feed,
+    stop: agents.stop,
+  };
 }
 
 /** An agent as both readers must agree on it: all but ids, times and host. */
@@ -212,7 +200,7 @@ describe("two readers of one hook journal", () => {
   afterEach(() => {
     for (const reader of readers) {
       reader.feed.pause();
-      reader.driver.stop();
+      reader.stop();
     }
     readers = [];
     fs.rmSync(tmp, { recursive: true, force: true });

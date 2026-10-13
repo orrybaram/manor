@@ -36,10 +36,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import { dispatchStreamEvent } from "../agent-stream-events";
+import { resyncPaneFacts } from "../agent-status/pipeline";
 import { HostHookFeed } from "../backend/hook-feed";
 import { createLocalBackend } from "../backend/host-backend";
 import type { HostStatus, HostStatusInfo } from "../backend/host-connection";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { reconcileStaleAgents } from "../bridge/handlers/agents-read";
 import { wireChatMirror } from "../bridge/handlers/chat";
 import { BridgeServer } from "../bridge/server";
 import { WsBridgeServer } from "../bridge/transports/ws";
@@ -336,7 +338,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     onReconnected: ({ sessionIds }) => {
       daemonState = { status: "connected" };
       void feed?.catchUp();
-      void resyncPaneFacts(sessionIds);
+      void resyncPanes(sessionIds);
     },
   });
 
@@ -361,13 +363,10 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     return feed;
   }
 
-  async function resyncPaneFacts(
-    sessionIds?: readonly string[],
-  ): Promise<void> {
+  /** Resync pane facts; a daemon that cannot be asked is retried on reconnect. */
+  async function resyncPanes(sessionIds?: readonly string[]): Promise<void> {
     try {
-      const ids =
-        sessionIds ?? (await daemon.pty.listSessions()).map((s) => s.sessionId);
-      await driver.resync(ids, (id) => daemon.pty.getPaneFacts(id));
+      await resyncPaneFacts(daemon.pty, driver, sessionIds);
     } catch (err) {
       console.debug(
         "[host-server] pane facts resync failed:",
@@ -377,25 +376,24 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   }
 
   /**
-   * Abandon every active agent whose pane the daemon no longer has: the
-   * desktop's `agents.reconcileStale`, run once when this server first
-   * catches up. Sessions that died while no server was watching left no
-   * SessionEnd to say so.
+   * The first catch-up's follow-through, over one `listSessions`: abandon
+   * every active agent whose pane the daemon no longer has — the desktop's
+   * `agents.reconcileStale`; sessions that died while no server was watching
+   * left no SessionEnd to say so — then resync the live panes' facts.
    */
-  async function sweepStaleAgents(): Promise<void> {
-    let live: Set<string>;
+  async function afterFirstCatchUp(): Promise<void> {
+    let live: Array<{ sessionId: string }>;
     try {
-      live = new Set((await daemon.pty.listSessions()).map((s) => s.sessionId));
-    } catch {
+      live = await daemon.pty.listSessions();
+    } catch (err) {
+      console.debug(
+        "[host-server] cannot list sessions after catch-up:",
+        errorMessage(err),
+      );
       return;
     }
-    for (const agent of agentManager.getAllAgents()) {
-      if (agent.status !== "active" || !agent.paneId) continue;
-      if (live.has(agent.paneId)) continue;
-      if (agent.lastAgentStatus === "responded") continue;
-      if (driver.isPaneLossExpected(agent.paneId)) continue;
-      driver.signal(agent.paneId, { type: "user", action: "abandon" });
-    }
+    reconcileStaleAgents(deps, live);
+    await resyncPanes(live.map((s) => s.sessionId));
   }
 
   // ── lifecycle ──
@@ -415,8 +413,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (stopped) return;
       daemonState = { status: "connected" };
       await hookFeed.catchUp();
-      await sweepStaleAgents();
-      await resyncPaneFacts();
+      await afterFirstCatchUp();
       markCaughtUp();
     } catch (err) {
       if (stopped) return;
@@ -450,7 +447,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       } catch (err) {
         console.error("[host-server] relay unavailable:", errorMessage(err));
       }
-      driver.start();
+      agents.start();
       await connectLoop();
     },
 
@@ -458,7 +455,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (stopped) return;
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
-      driver.stop();
+      agents.stop();
       feed?.pause();
       await builtRelay.stop();
       frames.closeAll();

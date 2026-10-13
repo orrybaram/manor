@@ -16,11 +16,9 @@ import { GitHubManager, ghRepoFromRemoteUrl } from "./github";
 import { LinearManager } from "./linear";
 import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
-import { AgentHookServer } from "./agent-hooks";
-import { NotificationCoalescer, type HookCursor } from "./backend/hook-feed";
+import type { HookCursor } from "./backend/hook-feed";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
-import { createAgentStatusDriver, type AgentStatusDriver } from "./agent-status/driver";
-import type { PaneStatusUpdate } from "./agent-status/effects";
+import { createAgentPipeline, resyncPaneFacts } from "./agent-status/pipeline";
 import { ensureManorCli } from "./manor-cli-install";
 import { AgentManager, agentHostId, type AgentInfo } from "./agent-persistence";
 import { dispatchStreamEvent } from "./agent-stream-events";
@@ -394,19 +392,6 @@ export function initApp(devTitle: string | null): void {
   });
 
   const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
-  const agentHookServer = new AgentHookServer();
-  // Remote hosts' hooks take the same path as local ones (ADR-178 §2).
-  // Replayed hooks hold their notifications until the catch-up finishes, so
-  // a night's worth of hooks is one banner per agent, not hundreds.
-  const notificationCoalescer = new NotificationCoalescer(maybeSendNotification);
-  backendRegistry.setHookSink({
-    ingest: (payload, { hostId, replay }) => {
-      const ingest = () => agentHookServer.ingestHookPayload(payload, { hostId });
-      if (replay) notificationCoalescer.hold(hostId, ingest);
-      else ingest();
-    },
-    replayFinished: (hostId) => notificationCoalescer.flush(hostId),
-  });
   // PreferencesManager must be constructed before AgentManager so we can pass
   // the user's configured retention into the prune step.
   const preferencesManager = new PreferencesManager();
@@ -600,17 +585,24 @@ export function initApp(devTitle: string | null): void {
   /** A pane's session owner: the host its terminal runs on (ADR-191 §5). */
   const getPaneHostId = (paneId: string) => backendRegistry.sessions.ownerOf(paneId);
 
-  const agentStatusDriver: AgentStatusDriver = createAgentStatusDriver({
+  // The agent pipeline (`agent-status/pipeline.ts`), shared with the host
+  // server: local HTTP hooks and remote hosts' journaled hooks take the same
+  // path (ADR-178 §2), and a replay's notifications are coalesced to one
+  // banner per agent, not hundreds.
+  const agentPipeline = createAgentPipeline({
     agentManager,
     getPaneContext: (paneId) => paneContextMap.get(paneId),
     getPaneHostId,
     unseenRespondedAgents,
     unseenInputAgents,
     broadcastAgent,
-    // Replayed remote hooks hold their notifications (ADR-178 §2).
-    maybeSendNotification: (agent, prevStatus, newStatus) =>
-      notificationCoalescer.send(agent, prevStatus, newStatus),
-    publishPaneStatus: (update: PaneStatusUpdate) => {
+    onStatus: maybeSendNotification,
+    // Each hook also pokes the pane's chat mirror, after the driver has
+    // captured any new transcript path: the hooks are when a transcript
+    // grows, and a remote one has no file watch (ADR-216 D3). Hooks reach
+    // here only after `agentPipeline.start()`, once `chatMirror` exists.
+    onHook: (event) => chatMirror.poke(event.paneId),
+    publishPaneStatus: (update) => {
       // One event, every renderer — windows and browsers alike — once per
       // signal (ADR-184 §4, ADR-180 D5): `agents.onStatus`.
       publishRendererBroadcast("agents", "status", update);
@@ -638,6 +630,9 @@ export function initApp(devTitle: string | null): void {
       );
     },
   });
+  const agentStatusDriver = agentPipeline.driver;
+  const agentHookServer = agentPipeline.ingestion;
+  backendRegistry.setHookSink(agentPipeline.hookSink);
 
   // The agents side of a pane leaving a tree (ADR-182 D7): the store calls it
   // for every pane it ends, and the abandonment is a `user` signal to the
@@ -649,16 +644,10 @@ export function initApp(devTitle: string | null): void {
     agentStatus: agentStatusDriver,
   });
 
-  /**
-   * Resync a host's panes after it (re)connects: the `paneFacts` stream has
-   * nothing to replay, so ask for each live session's current facts. Without
-   * `sessionIds`, every session the host has now.
-   */
-  async function resyncPaneFacts(hostId: string, sessionIds?: readonly string[]): Promise<void> {
+  /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
+  async function resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void> {
     try {
-      const pty = backendRegistry.get(hostId).pty;
-      const ids = sessionIds ?? (await pty.listSessions()).map((s) => s.sessionId);
-      await agentStatusDriver.resync(ids, (id) => pty.getPaneFacts(id));
+      await resyncPaneFacts(backendRegistry.get(hostId).pty, agentStatusDriver, sessionIds);
     } catch (err) {
       console.debug(`[agent-status] resync of ${hostId} failed:`, err);
     }
@@ -668,19 +657,19 @@ export function initApp(devTitle: string | null): void {
   // Those Agents did not finish: their SessionEnd must not complete them, so
   // the renderer's cold restore resumes them (ADR-185 §A). Subscribed before
   // any `connect()` (the event fires inside it); a SessionEnd the hook server
-  // hears before `setRelay` below is queued and replayed after, still inside
-  // the window.
+  // hears before `agentPipeline.start()` below is queued and replayed after,
+  // still inside the window.
   backendRegistry.onDaemonReplacing((_hostId, sessionIds) => {
     agentStatusDriver.expectPaneLoss(sessionIds);
   });
 
   // The local daemon's reconnects (its client's supervisor)...
   client.setConnectionListener({
-    onReconnected: ({ sessionIds }) => void resyncPaneFacts(LOCAL_HOST_ID, sessionIds),
+    onReconnected: ({ sessionIds }) => void resyncHostPanes(LOCAL_HOST_ID, sessionIds),
   });
   // ...and remote hosts' (their `hostReconnected` carries the survivors).
   backendRegistry.onHostEvent((hostId, event) => {
-    if (event.type === "hostReconnected") void resyncPaneFacts(hostId, event.sessionIds);
+    if (event.type === "hostReconnected") void resyncHostPanes(hostId, event.sessionIds);
   });
 
   // Every session's output, in one place. Events arrive tagged with their
@@ -703,7 +692,7 @@ export function initApp(devTitle: string | null): void {
         // A remote host's first connect (a reconnect is `hostReconnected`'s):
         // its panes' facts may already say something (ADR-184).
         if (host.hostId !== LOCAL_HOST_ID && prev !== "reconnecting") {
-          void resyncPaneFacts(host.hostId);
+          void resyncHostPanes(host.hostId);
         }
       }
     }
@@ -1006,7 +995,7 @@ export function initApp(devTitle: string | null): void {
 
     // The local daemon's panes may already have facts (a daemon that outlived
     // the last app run): resync them now that it is connected (ADR-184).
-    void resyncPaneFacts(LOCAL_HOST_ID);
+    void resyncHostPanes(LOCAL_HOST_ID);
 
     // Update dock badge whenever preferences change (e.g. user toggles dockBadgeEnabled)
     preferencesManager.onChange(() => {
@@ -1014,21 +1003,14 @@ export function initApp(devTitle: string | null): void {
     });
 
     // Every hook — local HTTP and remote hook-feed replay alike, through
-    // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184).
-    // The daemon's AgentDetector no longer hears about hooks.
-    // Each hook also pokes the pane's chat mirror, after the driver has
-    // captured any new transcript path: the hooks are when a transcript
-    // grows, and a remote one has no file watch (ADR-216 D3).
-    agentHookServer.setRelay((event) => {
-      agentStatusDriver.hook(event);
-      chatMirror.poke(event.paneId);
-    });
-
-    // One tick, on the old sweep cadence, carries every time-based rule.
-    agentStatusDriver.start();
+    // `ingestHookPayload` — is a Status signal for the reconciler (ADR-184);
+    // the daemon's AgentDetector no longer hears about hooks. Hooks heard
+    // before this were queued and are replayed now. One tick, on the old
+    // sweep cadence, carries every time-based rule.
+    agentPipeline.start();
 
     app.on("before-quit", () => {
-      agentStatusDriver.stop();
+      agentPipeline.stop();
     });
 
     // Reopen the PRIMARY window, not just "a" window: with a popout still open

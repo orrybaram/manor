@@ -27,3 +27,7 @@ blocked_by: [11]
 
 6. `electron/host-server/layout.ts` header still says "Ticket 6 adds the synthetic 'Started while away' tab…" — stale; fix the comment.
 7. The shared harness should replace the `internals` callback usage in `electron/backend/__tests__/host-server-client.test.ts` where it simplifies things (keep `HostServerOptions.internals` only if tests still need it).
+
+## Added from ticket 8
+
+8. Reuse the `bridgeStream` helper from `electron/backend/__tests__/host-server-client.test.ts` (reads past the hello via `awaitHelloLine` + `parseServerHello`) in the shared harness.

@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import { ExecShellBackend } from "../backend/exec-shell";
 import { localFacts } from "../backend/machine-facts";
 import { LOCAL_HOST_ID, type GitBackend, type HostSpec } from "../backend/types";
+import type { ManifestProject } from "../host-server/manifest";
 import { splitShared } from "../../src/lib/project-groups";
 import { manorDataDir } from "../paths";
 import type { HostPath } from "../per-host-poller";
@@ -221,10 +222,10 @@ export class ProjectManager {
    * The projects on `hostId` as `projects.json` holds them, for that host's
    * host server manifest (ADR-218 D4): copies, with a linked-project group's
    * shared settings (ADR-192) already resolved into each one — the host
-   * server knows nothing of groups — and without `hostPaths`, which name
-   * other hosts.
+   * server knows nothing of groups — without `hostPaths` (which name other
+   * hosts) and with `hostId` rewritten to `local`, as the box knows it.
    */
-  manifestRecords(hostId: string): PersistedProject[] {
+  manifestRecords(hostId: string): ManifestProject[] {
     return this.store.state.projects
       .filter((p) => p.hostId === hostId)
       .map((p) => {
@@ -232,6 +233,7 @@ export class ProjectManager {
         const shared = groups.resolveShared(groups.groupOf(this.store.state, p.id), p);
         return {
           ...record,
+          hostId: LOCAL_HOST_ID,
           name: shared.name,
           color: shared.color,
           agentCommand: shared.agentCommand,

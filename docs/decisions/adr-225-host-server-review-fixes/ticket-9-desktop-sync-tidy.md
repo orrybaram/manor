@@ -1,6 +1,6 @@
 ---
 title: HostServerSync owns push endpoints; trim github PR cache and manifest inputs
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [8]
@@ -29,3 +29,7 @@ blocked_by: [8]
 - `electron/bridge/handlers/hosts.ts`, `__tests__/hosts.test.ts`
 - `electron/github.ts`, `electron/github.test.ts`
 - `electron/projects/project-manager.ts`, `electron/projects/project-info.ts`
+
+## Added from ticket 8
+
+5. `electron/backend/host-server-client.ts`: the `Channel` interface now wraps a single `stream` field; collapse it to `private stream: Duplex | null`.

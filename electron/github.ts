@@ -203,21 +203,16 @@ export class GitHubManager {
   private onPrMerged: ((prUrl: string) => void) | undefined;
 
   /**
-   * Merged and closed PRs by repo and head branch: they never change again,
-   * so their branches are not queried again (#303).
-   */
-  private settledPrs = new Map<string, PrInfo>();
-
-  /**
    * The last PR each branch of each checkout was seen with (null: none), and
    * when — what the desktop already knows, for the host server manifest's
    * integration snapshot (ADR-218 D8), which must not cost a call of its
    * own. Only a lookup that reached GitHub writes here, so a rate-limited
-   * poll does not wipe what was known.
+   * poll does not wipe what was known. A merged or closed PR here never
+   * changes again, so its branch is not queried again (#303).
    */
   private lastSeenPrs = new Map<string, { pr: PrInfo | null; at: number }>();
 
-  /** Told the host of a checkout whose PR summary changed. */
+  /** Told the host of a checkout whose PRs were just looked up. */
   private readonly prCacheListeners = new Set<(hostId: string) => void>();
 
   /** `getPrsForBranches` lookups still running, by repo and branches. */
@@ -249,7 +244,7 @@ export class GitHubManager {
 
   /**
    * Notified with the PR URL when a poll queries a merged PR — once per
-   * process, since a merged PR is not queried again (see `settledPrs`), but
+   * process, since a merged PR is not queried again (see `lastSeenPrs`), but
    * again after a restart. Counting it once is the listener's job
    * (`StatsStore.recordOnce`); this side just reports what it saw, since the
    * poll is the only place in the app that learns a PR merged without anyone
@@ -268,9 +263,9 @@ export class GitHubManager {
   }
 
   /**
-   * Told the host id whenever a looked-up PR's summary (number, state,
-   * title, draft, checks) differs from what was cached for its branch.
-   * Returns the unsubscribe.
+   * Told the host id whenever a lookup reached GitHub and refreshed the
+   * cache; whether anything changed is the listener's to judge. Returns the
+   * unsubscribe.
    */
   onPrCacheChange(listener: (hostId: string) => void): () => void {
     this.prCacheListeners.add(listener);
@@ -279,11 +274,7 @@ export class GitHubManager {
     };
   }
 
-  private rememberPr(repo: GhRepo, branch: string, pr: PrInfo | null): void {
-    const key = settledPrKey(repo, branch);
-    const before = this.lastSeenPrs.get(key);
-    this.lastSeenPrs.set(key, { pr, at: Date.now() });
-    if (before && prSummary(before.pr) === prSummary(pr)) return;
+  private notifyPrCacheChange(repo: GhRepo): void {
     const hostId = normalizeHostId(repo.hostId);
     for (const listener of [...this.prCacheListeners]) {
       try {
@@ -305,7 +296,7 @@ export class GitHubManager {
   /**
    * Every branch's PR in one `gh api graphql` call for the repo, however many
    * branches (#303). A branch whose PR has merged or closed is answered from
-   * `settledPrs` and never asked about again. Concurrent calls for the same
+   * `lastSeenPrs` and never asked about again. Concurrent calls for the same
    * repo and branches share one lookup rather than each running their own.
    */
   async getPrsForBranches(
@@ -325,7 +316,7 @@ export class GitHubManager {
   }
 
   /**
-   * Each branch's PR: settled ones from `settledPrs`, the rest from GitHub
+   * Each branch's PR: settled ones from `lastSeenPrs`, the rest from GitHub
    * (`fetchPrsFromGitHub`), with their conversations.
    */
   private async lookUpPrs(
@@ -335,8 +326,8 @@ export class GitHubManager {
     const result = new Map<string, PrInfo | null>();
     const toAsk: string[] = [];
     for (const branch of new Set(branches)) {
-      const settled = this.settledPrs.get(settledPrKey(repo, branch));
-      if (settled) result.set(branch, settled);
+      const seen = this.lastSeenPrs.get(settledPrKey(repo, branch));
+      if (seen?.pr && seen.pr.state !== "open") result.set(branch, seen.pr);
       else toAsk.push(branch);
     }
     if (toAsk.length === 0) return result;
@@ -348,13 +339,10 @@ export class GitHubManager {
     for (const branch of toAsk) {
       const pr = raw.get(branch) ?? null;
       const info = pr ? this.toPrInfo(pr, conversations.get(pr.url) ?? {}) : null;
-      // Merged and closed PRs never change again: kept, never re-queried.
-      if (info && info.state !== "open") {
-        this.settledPrs.set(settledPrKey(repo, branch), info);
-      }
-      if (reached) this.rememberPr(repo, branch, info);
+      if (reached) this.lastSeenPrs.set(settledPrKey(repo, branch), { pr: info, at: Date.now() });
       result.set(branch, info);
     }
+    if (reached) this.notifyPrCacheChange(repo);
     return result;
   }
 
@@ -939,21 +927,12 @@ interface RawReviewThread {
 /** How many conversation entries the popover keeps after interleaving. */
 const RECENT_COMMENT_LIMIT = 12;
 
-/**
- * What of a PR the host server manifest carries (ADR-218 D8), as a string to
- * compare: a change outside these is not worth a re-send.
- */
-function prSummary(pr: PrInfo | null): string {
-  if (!pr) return "null";
-  return JSON.stringify([pr.number, pr.state, pr.title, pr.url, pr.isDraft ?? null, pr.checks ?? null]);
-}
-
 /** What `getPrsForBranches` caches by: one checkout on one host. */
 function repoCacheKey({ path, hostId }: GhRepo): string {
   return `${normalizeHostId(hostId)}\0${path}`;
 }
 
-/** `GitHubManager.settledPrs`' key: one branch of one checkout. */
+/** `GitHubManager.lastSeenPrs`' key: one branch of one checkout. */
 function settledPrKey(repo: GhRepo, branch: string): string {
   return `${repoCacheKey(repo)}\0${branch}`;
 }

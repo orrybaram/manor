@@ -30,7 +30,6 @@ describe("HostPushEndpoints", () => {
     await cache.refresh("box");
     await cache.refresh("box");
     expect(cache.get("box").size).toBe(0);
-    cache.set("box", ["https://c"]);
     await cache.refresh("box");
     expect(cache.get("box").size).toBe(0);
   });
@@ -55,7 +54,9 @@ describe("after a VAPID key change", () => {
     expect(cache.get("box").has("https://push.example/e1")).toBe(false);
 
     // A refresh that fails never leaves a stale skip behind.
-    cache.set("box", ["https://push.example/e1"]);
+    endpoints = ["https://push.example/e1"];
+    await cache.refresh("box");
+    expect(cache.get("box").size).toBe(1);
     fail = true;
     await cache.refresh("box");
     expect(cache.get("box").size).toBe(0);

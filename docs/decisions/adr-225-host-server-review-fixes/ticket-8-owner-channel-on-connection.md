@@ -1,6 +1,6 @@
 ---
 title: Owner channel on RemoteHostConnection and a typed HostServerClient
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [7]

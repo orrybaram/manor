@@ -92,11 +92,6 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** One open stream, already past the server's hello. */
-interface Channel {
-  stream: Duplex;
-}
-
 export class HostServerClient {
   readonly hostId: string;
   /** The host server's methods, each an invoke on the channel. */
@@ -107,7 +102,8 @@ export class HostServerClient {
   private readonly log: Pick<Console, "info" | "warn">;
 
   private stateValue: HostServerClientState = "idle";
-  private channel: Channel | null = null;
+  /** The open stream, already past the server's hello. */
+  private stream: Duplex | null = null;
   private connecting: Promise<boolean> | null = null;
   /** Bumped by everything that invalidates an attempt in flight. */
   private generation = 0;
@@ -196,8 +192,8 @@ export class HostServerClient {
    * answers `unavailable:*`.
    */
   private invoke(ns: string, methodName: string, args: unknown[]): Promise<unknown> {
-    const channel = this.channel;
-    if (!channel || this.stateValue !== "connected") {
+    const stream = this.stream;
+    if (!stream || this.stateValue !== "connected") {
       return Promise.reject(new HostServerUnavailableError(this.hostId, this.stateValue));
     }
     const id = this.nextId++;
@@ -208,7 +204,7 @@ export class HostServerClient {
       }, this.requestTimeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
-      this.write(channel, { kind: "invoke", id, ns, method: methodName, args });
+      this.write(stream, { kind: "invoke", id, ns, method: methodName, args });
     });
   }
 
@@ -237,8 +233,7 @@ export class HostServerClient {
       this.failBeforeHello("the stream ended as it opened");
       return false;
     }
-    const channel: Channel = { stream };
-    this.channel = channel;
+    this.stream = stream;
     stream.on(
       "data",
       createLineReader((line) => {
@@ -249,7 +244,7 @@ export class HostServerClient {
     stream.on("error", () => {
       // Its `close` follows, and reports the drop.
     });
-    stream.on("close", () => this.onDropped(channel));
+    stream.on("close", () => this.onDropped(stream));
 
     this.connectedThisEpoch = true;
     this.retryAttempt = 0;
@@ -281,9 +276,9 @@ export class HostServerClient {
     this.setState("unsupported");
   }
 
-  private onDropped(channel: Channel): void {
-    if (this.channel !== channel) return;
-    this.channel = null;
+  private onDropped(stream: Duplex): void {
+    if (this.stream !== stream) return;
+    this.stream = null;
     this.rejectPending("the host server channel closed");
     if (this.disposed || !this.hostUp) {
       this.setState("idle");
@@ -325,10 +320,10 @@ export class HostServerClient {
     }
   }
 
-  private write(channel: Channel, frame: unknown): void {
-    if (channel.stream.destroyed || !channel.stream.writable) return;
+  private write(stream: Duplex, frame: unknown): void {
+    if (stream.destroyed || !stream.writable) return;
     try {
-      channel.stream.write(JSON.stringify(frame) + "\n");
+      stream.write(JSON.stringify(frame) + "\n");
     } catch {
       // A stream that died mid-write; its `close` reports it.
     }
@@ -339,10 +334,10 @@ export class HostServerClient {
     this.generation++;
     this.connecting = null;
     this.clearRetry();
-    const channel = this.channel;
-    this.channel = null;
+    const stream = this.stream;
+    this.stream = null;
     this.rejectPending("the host server channel closed");
-    channel?.stream.destroy();
+    stream?.destroy();
     this.setState(state);
   }
 

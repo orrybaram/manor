@@ -111,9 +111,9 @@ function connectedServer(ctx: HandlerCtx, hostId: string): HostServerClient {
   return client;
 }
 
-/** Remember the host's push endpoints and tell the page its pairing changed. */
+/** Have the sync re-read the host's push endpoints, then tell the page its pairing changed. */
 function pairingChanged(ctx: HandlerCtx, hostId: string): void {
-  void ctx.deps.hostPushEndpoints.refresh(hostId).then(() => {
+  void ctx.deps.hostServerSync.pairingChanged(hostId).then(() => {
     const client = ctx.deps.backendRegistry.hostServer(hostId);
     if (!client) return;
     publishRendererBroadcast("hosts", "serverChanged", {
@@ -131,7 +131,6 @@ export async function hostsServerStatus(
   if (client.state !== "connected") return { state: client.state, status: null };
   try {
     const status = await client.api.hostServer.status();
-    ctx.deps.hostPushEndpoints.set(hostId, status.pushEndpoints);
     return { state: client.state, status };
   } catch (err) {
     if (err instanceof HostServerUnavailableError) {

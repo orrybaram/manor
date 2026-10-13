@@ -356,7 +356,7 @@ describe("GitHubManager", () => {
       setupExecFileCalls([
         success(prsAnswer(pr(7), null)),
         success(conversation({})),
-        // The same again: nothing new to tell.
+        // The same again: told again; the listener judges whether it differs.
         success(prsAnswer(pr(7), null)),
         // A failed poll keeps what was known.
         failure("rate limited"),
@@ -365,7 +365,7 @@ describe("GitHubManager", () => {
       await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
       expect(manager.cachedPr(REPO, "branch-a")?.pr?.number).toBe(7);
       expect(manager.cachedPr(REPO, "branch-b")).toEqual({ pr: null, at: expect.any(Number) });
-      expect(changed).toEqual(["local", "local"]);
+      expect(changed).toEqual(["local"]);
 
       await manager.getPrsForBranches(REPO, ["branch-a", "branch-b"]);
       expect(changed).toHaveLength(2);

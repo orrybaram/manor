@@ -212,8 +212,8 @@ describe("hosts phone access", () => {
     Object.assign(backendRegistry, {
       hostServer: vi.fn((id: string) => (id === "box" ? server : undefined)),
     });
-    const hostPushEndpoints = { refresh: vi.fn().mockResolvedValue(undefined), set: vi.fn() };
-    return { ctx: localCtx({ ...deps, hostPushEndpoints } as never), client, hostPushEndpoints };
+    const hostServerSync = { pairingChanged: vi.fn().mockResolvedValue(undefined) };
+    return { ctx: localCtx({ ...deps, hostServerSync } as never), client, hostServerSync };
   }
 
   it("reports an unknown host plainly", async () => {
@@ -242,20 +242,20 @@ describe("hosts phone access", () => {
     }
   });
 
-  it("caches the host's endpoints from a status read", async () => {
-    const { ctx, hostPushEndpoints } = withServer("connected");
+  it("reads a status without touching the endpoint cache", async () => {
+    const { ctx, hostServerSync } = withServer("connected");
     const view = await hostsServerStatus(ctx, "box");
     expect(view.status?.devices).toBe(1);
-    expect(hostPushEndpoints.set).toHaveBeenCalledWith("box", ["https://p"]);
+    expect(hostServerSync.pairingChanged).not.toHaveBeenCalled();
   });
 
-  it("refreshes the endpoint cache after pair, revoke and reset", async () => {
-    const { ctx, client, hostPushEndpoints } = withServer("connected");
+  it("tells the sync the pairing changed after pair, revoke and reset", async () => {
+    const { ctx, client, hostServerSync } = withServer("connected");
     await hostsPairDevice(ctx, "box", "  my phone ");
     expect(client.pair).toHaveBeenCalledWith("my phone");
     await hostsRevokeDevice(ctx, "box", "d1");
     await hostsResetPairingKeys(ctx, "box");
-    expect(hostPushEndpoints.refresh).toHaveBeenCalledTimes(3);
-    expect(hostPushEndpoints.refresh).toHaveBeenCalledWith("box");
+    expect(hostServerSync.pairingChanged).toHaveBeenCalledTimes(3);
+    expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
   });
 });

@@ -24,7 +24,7 @@
  *   whose part of the layout differs from what it was last sent.
  */
 
-import type { PersistedProject, WorkspaceInfo } from "../projects/types";
+import type { WorkspaceInfo } from "../projects/types";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type { PrInfo } from "../../src/lib/pr-info";
 import { LOCAL_HOST_ID } from "./types";
@@ -43,12 +43,13 @@ import {
   type WorkspaceIntegrationSnapshot,
 } from "../host-server/manifest";
 import type { VapidKeys } from "../remote-control/push";
+import { HostPushEndpoints } from "../remote-control/host-push-endpoints";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 
 /** What the manifest is built from: the desktop's memory, never the network. */
 export interface ManifestSources {
   /** `ProjectManager.manifestRecords`: the host's projects, groups resolved. */
-  projects(hostId: string): PersistedProject[];
+  projects(hostId: string): ManifestProject[];
   /** `ProjectManager.knownWorkspaces`: a project's last worktree listing. */
   workspaces(projectId: string): Pick<WorkspaceInfo, "path" | "branch">[];
   /** The user's name for the host (its ssh target); absent if it has none. */
@@ -87,8 +88,7 @@ export function buildHostManifest(
   const integrationSnapshot: Record<string, WorkspaceIntegrationSnapshot> = {};
 
   for (const record of sources.projects(hostId)) {
-    const { hostPaths: _hostPaths, ...rest } = record;
-    projects.push({ ...rest, hostId: LOCAL_HOST_ID });
+    projects.push(record);
 
     const branchOf = new Map<string, string>();
     for (const ws of sources.workspaces(record.id)) branchOf.set(ws.path, ws.branch);
@@ -166,12 +166,6 @@ export interface HostServerSyncOptions {
    * (D3). Null when it cannot be stored safely; nothing is sent then.
    */
   vapidKeys?(): Promise<VapidKeys | null>;
-  /**
-   * The host's server changed its key and so cleared its subscriptions:
-   * whatever the desktop cached about its push endpoints is stale (a stale
-   * skip would drop the push, not duplicate it).
-   */
-  onVapidKeysChanged?(hostId: string): void;
   /** Manifest debounce. Defaults to 1 s. */
   debounceMs?: number;
   log?: Pick<Console, "warn">;
@@ -181,7 +175,6 @@ export class HostServerSync {
   private readonly registry: HostServerRegistry;
   private readonly buildManifest: (hostId: string) => HostManifest;
   private readonly buildLayout: (hostId: string) => HostLayoutSnapshot;
-  private readonly onVapidKeysChanged: ((hostId: string) => void) | undefined;
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
   private readonly debounceMs: number;
   private readonly log: Pick<Console, "warn">;
@@ -190,13 +183,20 @@ export class HostServerSync {
   private readonly sentLayout = new Map<string, string>();
   private readonly manifestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribe: (() => void) | null = null;
+  /** The push endpoints each host's server sends to (ADR-218 D3). */
+  private readonly endpoints: HostPushEndpoints;
 
   constructor(opts: HostServerSyncOptions) {
     this.registry = opts.registry;
     this.buildManifest = opts.manifest;
     this.buildLayout = opts.layout;
     this.vapidKeys = opts.vapidKeys;
-    this.onVapidKeysChanged = opts.onVapidKeysChanged;
+    this.endpoints = new HostPushEndpoints({
+      status: async (hostId) => {
+        const client = opts.registry.hostServer(hostId);
+        return client?.state === "connected" ? client.api.hostServer.status() : null;
+      },
+    });
     this.debounceMs = opts.debounceMs ?? 1_000;
     this.log = opts.log ?? console;
   }
@@ -209,6 +209,7 @@ export class HostServerSync {
     this.unsubscribe?.();
     this.unsubscribe = this.registry.onHostServerStateChange((hostId, state) => {
       if (state === "connected") void this.sendAll(hostId);
+      else if (state === "unsupported") this.endpoints.forget(hostId);
     });
     for (const client of this.registry.hostServers()) {
       if (client.state === "connected") void this.sendAll(client.hostId);
@@ -245,6 +246,22 @@ export class HostServerSync {
     }
   }
 
+  /**
+   * The push endpoints `hostId`'s server sends to; empty when unknown. The
+   * desktop skips a phone's subscriptions to these for that host's agents.
+   */
+  pushEndpoints(hostId: string): ReadonlySet<string> {
+    return this.endpoints.get(hostId);
+  }
+
+  /**
+   * A phone was paired, revoked or the host's keys reset: ask the host for
+   * its endpoints again. Resolves once the cache is current.
+   */
+  pairingChanged(hostId: string): Promise<void> {
+    return this.endpoints.refresh(hostId);
+  }
+
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -261,7 +278,9 @@ export class HostServerSync {
     await Promise.all([
       this.pushManifest(hostId, client),
       this.pushLayout(hostId, client, true),
-      this.pushVapidKeys(hostId, client),
+      // A changed key clears the host's subscriptions, so its endpoints are
+      // read only after the key is in.
+      this.pushVapidKeys(hostId, client).then(() => this.endpoints.refresh(hostId)),
     ]);
   }
 
@@ -270,7 +289,7 @@ export class HostServerSync {
     if (!this.vapidKeys) return;
     try {
       const keys = await this.vapidKeys();
-      if (keys && (await client.api.hostServer.setVapidKeys(keys))) this.onVapidKeysChanged?.(hostId);
+      if (keys) await client.api.hostServer.setVapidKeys(keys);
     } catch (err) {
       this.log.warn(`[host-server-sync] ${hostId}: setVapidKeys failed: ${errorMessage(err)}`);
     }

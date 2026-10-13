@@ -106,11 +106,7 @@ export class LastKnownWorkspaces {
 
   /** `p`'s last listing, when `p` is remote, its host is away and it has one. */
   recall(p: PersistedProject): WorkspaceInfo[] | undefined {
-    const key = remoteKey(p);
-    if (!key || !this.isHostAway(p.hostId)) return undefined;
-    const entry = this.byProject.get(p.id);
-    if (!entry || entry.key !== key) return undefined;
-    return entry.workspaces.map((ws) => ({ ...ws }));
+    return this.isHostAway(p.hostId) ? this.latest(p) : undefined;
   }
 
   /**

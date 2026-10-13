@@ -3,9 +3,10 @@
  *
  * A phone can be subscribed on the desktop and on a host server both; for an
  * agent on that host, the host server pushes, so the desktop skips those
- * subscriptions. The answer is cached per host and refreshed when the owner
- * channel connects and after pairing changes (pair, revoke, reset), because
- * the desktop's push path must not wait on a round trip. A host the desktop
+ * subscriptions. The answer is cached per host and refreshed (by
+ * `HostServerSync`) when the owner channel connects and after pairing changes
+ * (pair, revoke, reset), because the desktop's push path must not wait on a
+ * round trip. A host the desktop
  * cannot ask yields the empty set: better a duplicate than a missed push.
  */
 
@@ -37,11 +38,6 @@ export class HostPushEndpoints {
     } catch {
       this.cache.delete(hostId);
     }
-  }
-
-  /** Take endpoints already in hand (a status the caller just fetched). */
-  set(hostId: string, endpoints: readonly string[]): void {
-    this.cache.set(hostId, new Set(endpoints));
   }
 
   forget(hostId: string): void {

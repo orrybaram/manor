@@ -262,7 +262,6 @@ describe("HostServerClient over server-bridge", () => {
       if (state === "connected") connected();
     });
     let manifestBuilds = 0;
-    const changed = vi.fn();
     const sync = new HostServerSync({
       // The registry's part: every state change of the one host's channel.
       registry: {
@@ -282,7 +281,6 @@ describe("HostServerClient over server-bridge", () => {
         lastActiveWorkspacePath: null,
       }),
       vapidKeys: async () => ({ publicKey: "desktop-pub", privateKey: "desktop-priv" }),
-      onVapidKeysChanged: changed,
       debounceMs: 10,
       log: quiet,
     });
@@ -292,9 +290,6 @@ describe("HostServerClient over server-bridge", () => {
     await vi.waitFor(() => expect(fs.existsSync(paths.layout)).toBe(true));
     // The desktop's VAPID pair rides along with the manifest and layout.
     await vi.waitFor(() => expect(fs.existsSync(paths.vapid)).toBe(true));
-    // The server's key changed, so the desktop is told to re-read its endpoints.
-    await vi.waitFor(() => expect(changed).toHaveBeenCalledWith("box"));
-    const firstCalls = changed.mock.calls.length;
     expect(fs.existsSync(paths.manifest)).toBe(true);
 
     // An unchanged manifest is not sent again on a change notice.
@@ -310,8 +305,6 @@ describe("HostServerClient over server-bridge", () => {
     c.hostConnected();
     await vi.waitFor(() => expect(fs.existsSync(paths.manifest)).toBe(true));
     expect(connected).toHaveBeenCalledTimes(2);
-    // The same key again changes nothing, so nothing is refreshed.
-    expect(changed).toHaveBeenCalledTimes(firstCalls);
 
     // The server restarts under a connected host: the channel is redialled
     // (not marked unsupported) and both are sent again.
@@ -517,13 +510,14 @@ describe("buildHostManifest", () => {
       "box",
       {
         projects: () => [
-          record({
-            id: "on-box",
-            path: "/home/me/manor",
-            hostId: "box",
-            hostPaths: { local: "/Users/me/manor" },
-            workspaceIssues: { "/home/me/wt/b": [issue] },
-          }),
+          {
+            ...record({
+              id: "on-box",
+              path: "/home/me/manor",
+              workspaceIssues: { "/home/me/wt/b": [issue] },
+            }),
+            hostId: "local" as const,
+          },
         ],
         workspaces: () => [
           { path: "/home/me/manor", branch: "main" },

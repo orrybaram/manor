@@ -64,7 +64,6 @@ import {
   type RemoteControlRuntime,
 } from "./remote-control/controller";
 import { PushManager } from "./remote-control/push";
-import { HostPushEndpoints } from "./remote-control/host-push-endpoints";
 import type { HostDeps } from "./ipc/types";
 import { handleRelayedControlRequest } from "./control-relay";
 import { createWindow, saveZoomLevel } from "./window";
@@ -457,9 +456,6 @@ export function initApp(devTitle: string | null): void {
     // The desktop's own VAPID pair, so a phone's one browser subscription is
     // valid in every room (D3). Read lazily: `remotePush` is built below.
     vapidKeys: () => remotePush.vapidKeys(),
-    // A changed key cleared the host's subscriptions; re-read them (a failed
-    // refresh clears the cache) so the desktop stops skipping gone endpoints.
-    onVapidKeysChanged: (hostId) => void hostPushEndpoints.refresh(hostId),
   });
   projectManager.onStateSaved(() => hostServerSync.manifestChanged());
   githubManager.onPrCacheChange((hostId) => hostServerSync.manifestChanged(hostId));
@@ -473,22 +469,10 @@ export function initApp(devTitle: string | null): void {
   // runs at most once, on the first enable.
   const remoteDeviceStore = new RemoteDeviceStore(secretBox);
   const remotePush = new PushManager(remoteDeviceStore, secretBox);
-  // ADR-218 D3: a phone paired with a host's server hears about that host's
-  // agents from the server, so the desktop skips those subscriptions. Cached
-  // per host, refreshed on every owner-channel connect and after pairing.
-  const hostPushEndpoints = new HostPushEndpoints({
-    status: async (hostId) => {
-      const client = backendRegistry.hostServer(hostId);
-      return client?.state === "connected" ? client.api.hostServer.status() : null;
-    },
-  });
-  // After `remotePush` and `hostPushEndpoints`: starting syncs hosts that
-  // are already connected.
+  // After `remotePush`: starting syncs hosts that are already connected.
+  // ADR-218 D3: the sync also caches each host's push endpoints, which the
+  // controller below reads so the desktop skips what the host server sends.
   hostServerSync.start();
-  backendRegistry.onHostServerStateChange((hostId, state) => {
-    if (state === "connected") void hostPushEndpoints.refresh(hostId);
-    else if (state === "unsupported") hostPushEndpoints.forget(hostId);
-  });
   /**
    * The host surface and its two transports (ADR-180 D1/D2). The surface and
    * the desktop's IPC transport are built below, once `ipcDeps` exists: the
@@ -536,7 +520,7 @@ export function initApp(devTitle: string | null): void {
     devices: remoteDeviceStore,
     push: remotePush,
     appVersion,
-    hostPushEndpoints: (hostId) => hostPushEndpoints.get(hostId),
+    hostPushEndpoints: (hostId) => hostServerSync.pushEndpoints(hostId),
   });
   const paneContextMap = new Map<
     string,
@@ -764,7 +748,7 @@ export function initApp(devTitle: string | null): void {
     registerDetachedWindow,
     backend,
     backendRegistry,
-    hostPushEndpoints,
+    hostServerSync,
     getPaneHostId,
     layoutPersistence,
     layoutStore,

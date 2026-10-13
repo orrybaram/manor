@@ -6,8 +6,9 @@
  * connection (`ssh -T <target> 'exec manor-host server-bridge'`). It reads
  * the host server's 0600 owner token (`~/.manor/remote/server/owner-token`),
  * connects to the server's unix socket (`server.sock`), writes the owner
- * hello `{"type":"hello","token":…,"role":"owner"}` on the desktop's behalf,
- * and then pumps stdin/stdout transparently against the socket. SSH is the
+ * hello `{"type":"hello","token":…}` on the desktop's behalf (the token
+ * alone makes it the owner), and then pumps stdin/stdout transparently
+ * against the socket. SSH is the
  * authentication: whoever can run this command as the box's user can read
  * the token anyway.
  *
@@ -121,7 +122,7 @@ export async function runServerBridge(
 
   // The hello goes to the server, not to stdout: the desktop's first line
   // is the server's reply to it.
-  socket.write(JSON.stringify({ type: "hello", token, role: "owner" }) + "\n");
+  socket.write(JSON.stringify({ type: "hello", token }) + "\n");
 
   const code = await pump(io, socket, log);
   await teardown(io, socket);

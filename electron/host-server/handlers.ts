@@ -417,6 +417,14 @@ const METHODS = flatten({
 });
 
 /**
+ * `ns.method` → handler, as the host table declares each: what the desktop's
+ * owner-channel client is typed from (`backend/host-server-client.ts`).
+ */
+export type HostHandlers = {
+  [K in keyof typeof METHODS]: (typeof METHODS)[K]["fn"];
+};
+
+/**
  * The table a host server's `BridgeServer` dispatches on. Every entry is
  * checked against `HostServerDeps` here, so a desktop handler that reads more
  * than this server has fails to compile rather than at a phone's first call.

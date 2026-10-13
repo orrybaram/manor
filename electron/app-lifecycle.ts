@@ -479,7 +479,7 @@ export function initApp(devTitle: string | null): void {
   const hostPushEndpoints = new HostPushEndpoints({
     status: async (hostId) => {
       const client = backendRegistry.hostServer(hostId);
-      return client?.state === "connected" ? client.status() : null;
+      return client?.state === "connected" ? client.api.hostServer.status() : null;
     },
   });
   // After `remotePush` and `hostPushEndpoints`: starting syncs hosts that

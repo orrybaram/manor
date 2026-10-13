@@ -192,15 +192,25 @@ describe("hosts phone access", () => {
   function withServer(state: string) {
     const { deps, backendRegistry } = makeDeps();
     const client = {
-      state,
       status: vi.fn().mockResolvedValue({ pushEndpoints: ["https://p"], devices: 1 }),
       pair: vi.fn().mockResolvedValue({ pairingUrl: "https://relay/app/1/#x" }),
       listDevices: vi.fn().mockResolvedValue([]),
       revoke: vi.fn().mockResolvedValue([]),
       resetIdentity: vi.fn().mockResolvedValue({ devices: 0 }),
     };
+    const server = {
+      state,
+      api: {
+        hostServer: { status: client.status, resetIdentity: client.resetIdentity },
+        remoteControl: {
+          pair: client.pair,
+          listDevices: client.listDevices,
+          revoke: client.revoke,
+        },
+      },
+    };
     Object.assign(backendRegistry, {
-      hostServer: vi.fn((id: string) => (id === "box" ? client : undefined)),
+      hostServer: vi.fn((id: string) => (id === "box" ? server : undefined)),
     });
     const hostPushEndpoints = { refresh: vi.fn().mockResolvedValue(undefined), set: vi.fn() };
     return { ctx: localCtx({ ...deps, hostPushEndpoints } as never), client, hostPushEndpoints };

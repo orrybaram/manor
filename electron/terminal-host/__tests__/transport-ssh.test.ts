@@ -438,32 +438,55 @@ describe("SshTransport", () => {
     expect(b.killed).toBe(true);
   });
 
-  it("opens the owner channel with `manor-host server-bridge`, bytes untouched", async () => {
+  it("opens the owner channel with `manor-host server-bridge`, past the server's hello", async () => {
     const { transport, children } = makeTransport();
-    const duplex = transport.openServerBridge();
+    const pending = transport.openServerBridge();
     const child = await nextChild(children, 0);
     expect(child.args).toEqual(
       buildSshArgs(transport.configPath!, "me@box", remoteServerBridgeCommand()),
     );
     expect(remoteServerBridgeCommand()).toBe('exec "$HOME/.manor/bin/manor-host" server-bridge');
+    child.stdout.write('Welcome to wsl-box!\n{"type":"hello","ok":true}\n{"kind":"result"');
+    const duplex = await pending;
     const got: string[] = [];
     duplex.on("data", (c: Buffer) => got.push(c.toString("utf-8")));
-    child.stdout.write('{"type":"hello","ok":true}\n');
+    child.stdout.write(',"id":1}\n');
     duplex.write('{"kind":"invoke"}\n');
-    await vi.waitFor(() => expect(got.join("")).toBe('{"type":"hello","ok":true}\n'));
+    await vi.waitFor(() => expect(got.join("")).toBe('{"kind":"result","id":1}\n'));
     expect(child.written).toBe('{"kind":"invoke"}\n');
   });
 
   it("fails the owner channel with ssh's stderr when server-bridge exits non-zero", async () => {
     const { transport, children } = makeTransport();
-    const duplex = transport.openServerBridge();
-    const errored = new Promise<Error>((resolve) => duplex.on("error", resolve));
-    duplex.resume();
+    const pending = transport.openServerBridge();
     const child = await nextChild(children, 0);
     child.stderr.write("[server-bridge] the host server is not running on this box\n");
     await new Promise((r) => setImmediate(r));
     child.exit(3);
-    expect((await errored).message).toMatch(/code 3.*host server is not running/);
+    await expect(pending).rejects.toThrow(/code 3.*host server is not running/);
+  });
+
+  it("fails the owner channel when the server refuses the owner, and kills ssh", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.openServerBridge();
+    const child = await nextChild(children, 0);
+    child.stdout.write('{"kind":"close","code":4401,"reason":"bad token"}\n');
+    await expect(pending).rejects.toThrow(/refused the owner \(4401: bad token\)/);
+    expect(child.killed).toBe(true);
+  });
+
+  it("destroys an open owner channel with ssh's error when server-bridge exits non-zero", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.openServerBridge();
+    const child = await nextChild(children, 0);
+    child.stdout.write('{"type":"hello","ok":true}\n');
+    const duplex = await pending;
+    const errored = new Promise<Error>((resolve) => duplex.on("error", resolve));
+    duplex.resume();
+    child.stderr.write("[server-bridge] socket error\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(1);
+    expect((await errored).message).toMatch(/code 1.*socket error/);
   });
 
   it("dispose closes the ControlMaster and removes the config dir", async () => {

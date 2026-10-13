@@ -1,8 +1,8 @@
 /**
  * Keep a host server running on this box (ADR-218 D1).
  *
- * `manor-host remote-bridge` and `server-bridge` call `ensureServerRunning()`
- * whenever the desktop connects:
+ * `manor-host server-bridge` calls `ensureServerRunning()`, and the desktop
+ * opens one on every connect:
  *
  * - `server.pid` live, `server.version` equal to this install's version and
  *   `server.sock` accepting -> nothing to do;

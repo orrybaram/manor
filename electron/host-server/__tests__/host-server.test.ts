@@ -67,7 +67,7 @@ import type { HostLayoutSnapshot } from "../layout";
 import type { ProjectInfo } from "../../projects/types";
 import type { LayoutEntry } from "../../../src/lib/layout/protocol";
 import type { HostServerStatus } from "../relay";
-import type { PairResult } from "../../remote-control/controller";
+import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 import {
   FakeRelay,

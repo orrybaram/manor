@@ -14,7 +14,8 @@
  *
  * **When** (`HostServerSync`):
  * - both, whole, after every connect of the owner channel — the first, and
- *   each after a host reconnect (`BackendRegistry.setHostServerSync`);
+ *   each after a host reconnect (`BackendRegistry.onHostServerStateChange`
+ *   reporting `connected`);
  * - the manifest when a project on that host changes or that host's cached
  *   PR data does, debounced (~1 s), and only if it actually differs from
  *   what was last sent: `projects.json` is written for many reasons (a hook
@@ -42,7 +43,7 @@ import {
   type WorkspaceIntegrationSnapshot,
 } from "../host-server/manifest";
 import type { VapidKeys } from "../remote-control/push";
-import type { HostServerClient } from "./host-server-client";
+import type { HostServerClient, HostServerClientState } from "./host-server-client";
 
 /** What the manifest is built from: the desktop's memory, never the network. */
 export interface ManifestSources {
@@ -149,7 +150,9 @@ function layoutFingerprint(snapshot: HostLayoutSnapshot): string {
 export interface HostServerRegistry {
   hostServer(hostId: string): HostServerClient | undefined;
   hostServers(): HostServerClient[];
-  setHostServerSync(sync: (hostId: string, client: HostServerClient) => Promise<void>): void;
+  onHostServerStateChange(
+    listener: (hostId: string, state: HostServerClientState) => void,
+  ): () => void;
 }
 
 export interface HostServerSyncOptions {
@@ -186,6 +189,7 @@ export class HostServerSync {
   private readonly sentManifest = new Map<string, string>();
   private readonly sentLayout = new Map<string, string>();
   private readonly manifestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private unsubscribe: (() => void) | null = null;
 
   constructor(opts: HostServerSyncOptions) {
     this.registry = opts.registry;
@@ -197,9 +201,18 @@ export class HostServerSync {
     this.log = opts.log ?? console;
   }
 
-  /** Re-send both, whole, after every connect of a host's owner channel. */
+  /**
+   * Re-send both, whole, after every connect of a host's owner channel —
+   * channels already up included.
+   */
   start(): void {
-    this.registry.setHostServerSync((hostId, client) => this.sendAll(hostId, client));
+    this.unsubscribe?.();
+    this.unsubscribe = this.registry.onHostServerStateChange((hostId, state) => {
+      if (state === "connected") void this.sendAll(hostId);
+    });
+    for (const client of this.registry.hostServers()) {
+      if (client.state === "connected") void this.sendAll(client.hostId);
+    }
   }
 
   /**
@@ -233,11 +246,15 @@ export class HostServerSync {
   }
 
   dispose(): void {
+    this.unsubscribe?.();
+    this.unsubscribe = null;
     for (const timer of this.manifestTimers.values()) clearTimeout(timer);
     this.manifestTimers.clear();
   }
 
-  private async sendAll(hostId: string, client: HostServerClient): Promise<void> {
+  private async sendAll(hostId: string): Promise<void> {
+    const client = this.registry.hostServer(hostId);
+    if (!client) return;
     // A new connection may be a new server that has nothing: send whole.
     this.sentManifest.delete(hostId);
     this.sentLayout.delete(hostId);
@@ -253,7 +270,7 @@ export class HostServerSync {
     if (!this.vapidKeys) return;
     try {
       const keys = await this.vapidKeys();
-      if (keys && (await client.setVapidKeys(keys))) this.onVapidKeysChanged?.(hostId);
+      if (keys && (await client.api.hostServer.setVapidKeys(keys))) this.onVapidKeysChanged?.(hostId);
     } catch (err) {
       this.log.warn(`[host-server-sync] ${hostId}: setVapidKeys failed: ${errorMessage(err)}`);
     }
@@ -275,7 +292,7 @@ export class HostServerSync {
     if (this.sentManifest.get(hostId) === fingerprint) return;
     this.sentManifest.set(hostId, fingerprint);
     try {
-      await client.syncManifest(manifest);
+      await client.api.hostServer.syncManifest(manifest);
     } catch (err) {
       // Sent again on the next change or connect.
       if (this.sentManifest.get(hostId) === fingerprint) this.sentManifest.delete(hostId);
@@ -299,7 +316,7 @@ export class HostServerSync {
     if (!force && this.sentLayout.get(hostId) === fingerprint) return;
     this.sentLayout.set(hostId, fingerprint);
     try {
-      await client.syncLayout(snapshot);
+      await client.api.hostServer.syncLayout(snapshot);
     } catch (err) {
       if (this.sentLayout.get(hostId) === fingerprint) this.sentLayout.delete(hostId);
       this.log.warn(`[host-server-sync] ${hostId}: syncLayout failed: ${errorMessage(err)}`);

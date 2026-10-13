@@ -27,6 +27,7 @@ import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { plainFileSecretBox } from "../../platform/secret-box";
 import type { HostTransport } from "../../terminal-host/transport";
 import { runServerBridge } from "../../terminal-host/server-bridge";
+import { awaitHelloLine, parseServerHello } from "../../terminal-host/transport-ssh";
 import {
   HostServerClient,
   HostServerUnavailableError,
@@ -63,14 +64,19 @@ const noDaemon: HostTransport = {
 
 /**
  * One owner stream, as `SshTransport.openServerBridge` would give it:
- * `runServerBridge` on in-memory stdio. When the bridge cannot reach a
- * server it rejects before writing anything; the stream then errors, as an
- * ssh child exiting non-zero does.
+ * `runServerBridge` on in-memory stdio, read past the server's hello reply.
+ * When the bridge cannot reach a server it rejects before writing anything;
+ * the open then fails, as an ssh child exiting non-zero does.
  */
-function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
+async function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
   const stdin = new PassThrough();
   const stdout = new PassThrough();
   const stderr = new PassThrough();
+  const ended = new Promise<never>((_resolve, reject) => {
+    stdout.once("error", reject);
+    stdout.once("close", () => reject(new Error("the stream ended before the hello")));
+  });
+  ended.catch(() => {});
   // The server is already running in-process; never spawn a real one.
   runServerBridge(
     { stdin, stdout, stderr },
@@ -78,7 +84,9 @@ function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
   ).catch((err: Error) => {
     stdout.destroy(err);
   });
-  return Promise.resolve(joined(stdin, stdout));
+  const { rest } = await Promise.race([awaitHelloLine(stdout, parseServerHello), ended]);
+  if (rest.length > 0) stdout.unshift(rest);
+  return joined(stdin, stdout);
 }
 
 function manifest(projectPath: string): HostManifest {
@@ -141,7 +149,6 @@ describe("HostServerClient over server-bridge", () => {
     const c = new HostServerClient({
       hostId: "box",
       open: () => bridgeStream(paths),
-      helloTimeoutMs: 2_000,
       requestTimeoutMs: 2_000,
       retryDelayMs: () => 20,
       log: quiet,
@@ -179,17 +186,18 @@ describe("HostServerClient over server-bridge", () => {
   });
 
   it("connects as the owner, asks for status and syncs both payloads", async () => {
-    const onConnected = vi.fn();
-    const c = client({ onConnected });
+    const c = client();
+    const states: string[] = [];
+    c.onStateChange((state) => states.push(state));
     c.hostConnected();
     await vi.waitFor(() => expect(c.state).toBe("connected"));
-    expect(onConnected).toHaveBeenCalledTimes(1);
+    expect(states).toEqual(["connecting", "connected"]);
 
-    const status = await c.status();
+    const status = await c.api.hostServer.status();
     expect(status).toMatchObject({ version: "9.9.9-test", devices: 0, pushEndpoints: [] });
-    expect(await c.listDevices()).toEqual([]);
+    expect(await c.api.remoteControl.listDevices()).toEqual([]);
 
-    expect(await c.syncManifest(manifest(tmp))).toBe(true);
+    expect(await c.api.hostServer.syncManifest(manifest(tmp))).toBe(true);
     expect(JSON.parse(fs.readFileSync(paths.manifest, "utf-8")).projects[0].id).toBe("p1");
 
     const layout: HostLayoutSnapshot = {
@@ -198,11 +206,11 @@ describe("HostServerClient over server-bridge", () => {
       workspaces: { [tmp]: entry(4) },
       lastActiveWorkspacePath: tmp,
     };
-    expect(await c.syncLayout(layout)).toBe(true);
+    expect(await c.api.hostServer.syncLayout(layout)).toBe(true);
     expect(JSON.parse(fs.readFileSync(paths.layout, "utf-8")).workspaces[tmp].version).toBe(4);
 
     // A refused payload is an error, not a dropped channel.
-    await expect(c.syncLayout({ ...layout, version: 2 } as never)).rejects.toThrow(
+    await expect(c.api.hostServer.syncLayout({ ...layout, version: 2 } as never)).rejects.toThrow(
       /layout.version/,
     );
     expect(c.state).toBe("connected");
@@ -214,7 +222,7 @@ describe("HostServerClient over server-bridge", () => {
     c.hostConnected();
     await vi.waitFor(() => expect(c.state).toBe("unsupported"));
     expect(await c.connect()).toBe(false);
-    await expect(c.status()).rejects.toBeInstanceOf(HostServerUnavailableError);
+    await expect(c.api.hostServer.status()).rejects.toBeInstanceOf(HostServerUnavailableError);
     expect(quiet.info).toHaveBeenCalledTimes(1);
     expect(String(quiet.info.mock.calls[0][0])).toMatch(/no host server/);
     expect(quiet.warn).not.toHaveBeenCalled();
@@ -233,35 +241,35 @@ describe("HostServerClient over server-bridge", () => {
     expect(quiet.info).toHaveBeenCalledTimes(1);
   });
 
-  it("skips login-shell noise ahead of the hello", async () => {
-    const c = client({
-      open: async () => {
-        const stream = await bridgeStream(paths);
-        const noisy = new PassThrough();
-        noisy.write("Welcome to wsl-box!\n");
-        stream.pipe(noisy);
-        return joined(stream, noisy);
-      },
-    });
+  it("answers a device-only refusal as unavailable, not as a dropped channel", async () => {
+    const c = client();
     c.hostConnected();
     await vi.waitFor(() => expect(c.state).toBe("connected"));
-    expect((await c.status()).version).toBe("9.9.9-test");
+    // Not on the host table at all: `unavailable:host`.
+    const missing = (c.api as unknown as Record<string, Record<string, () => Promise<unknown>>>)
+      .agents.launch();
+    await expect(missing).rejects.toMatchObject({
+      name: "HostServerUnavailableError",
+      state: "refused",
+    });
+    expect(c.state).toBe("connected");
   });
 
   it("re-sends the manifest and layout after every connect, and redials a dropped channel", async () => {
-    // The registry's part: the client runs whatever sync hook is set.
-    let hook: ((hostId: string, cl: HostServerClient) => Promise<void>) | null = null;
-    const connected = vi.fn((cl: HostServerClient) => hook?.("box", cl));
-    const c = client({ onConnected: connected });
+    const c = client();
+    const connected = vi.fn();
+    c.onStateChange((state) => {
+      if (state === "connected") connected();
+    });
     let manifestBuilds = 0;
     const changed = vi.fn();
     const sync = new HostServerSync({
+      // The registry's part: every state change of the one host's channel.
       registry: {
         hostServer: () => c,
         hostServers: () => [c],
-        setHostServerSync: (fn) => {
-          hook = fn;
-        },
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
       },
       manifest: () => {
         manifestBuilds++;
@@ -364,7 +372,7 @@ describe("BackendRegistry's owner channels", () => {
           openServerChannel,
         }) as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hostServerClient: { log: quiet, helloTimeoutMs: 500 },
+      hostServerClient: { log: quiet },
     });
     registry.register("box", { kind: "ssh", target: "me@box" });
     const client = registry.hostServer("box")!;
@@ -380,6 +388,13 @@ describe("BackendRegistry's owner channels", () => {
     expect(client.state).toBe("idle");
     remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
     await vi.waitFor(() => expect(openServerChannel).toHaveBeenCalledTimes(2));
+
+    // The host is replaced: its channel goes with the old connection.
+    registry.register("box", { kind: "ssh", target: "me@box2" });
+    expect(registry.hostServer("box")).not.toBe(client);
+    expect(registry.hostServers()).toEqual([registry.hostServer("box")]);
+    await vi.waitFor(() => expect(client.state).toBe("idle"));
+    expect(await client.connect()).toBe(false);
 
     await registry.unregister("box");
     expect(registry.hostServer("box")).toBeUndefined();

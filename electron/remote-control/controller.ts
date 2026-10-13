@@ -47,8 +47,6 @@ import type { PushSubscriptionRecord } from "./devices";
 import type { RelayGate } from "./relay-gate";
 import { RelayRoom, type PairResult } from "./relay-room";
 
-export type { PairResult } from "./relay-room";
-
 export interface RemoteControlStatus {
   /** Is remote control on? Nothing listens either way; see the header. */
   enabled: boolean;

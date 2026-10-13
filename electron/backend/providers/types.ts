@@ -33,9 +33,11 @@ export interface HostProvider {
   ): Promise<PortForward>;
   /**
    * Open the owner channel to the box's host server (ADR-218 D4): a stream
-   * carrying newline-delimited bridge frames, already past the owner hello
-   * (the box's end says it). Absent for a provider that cannot reach a host
-   * server yet; the desktop then runs without one for that host.
+   * carrying newline-delimited bridge frames, already past the server's
+   * reply to the owner hello (the box's end says the hello; the provider
+   * reads the reply). Rejects when there is no server to reach or it refuses.
+   * Absent for a provider that cannot reach a host server yet; the desktop
+   * then runs without one for that host.
    */
   openServerChannel?(): Promise<Duplex>;
   /**

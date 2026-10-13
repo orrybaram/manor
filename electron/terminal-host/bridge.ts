@@ -17,7 +17,6 @@
  * injected transport and injected stdio, without spawning a real process.
  */
 
-import { ensureServerRunning } from "../host-server/lifecycle";
 import type { Duplex, Readable, Writable } from "node:stream";
 import { LocalTransport } from "./transport-local";
 import type { HostTransport } from "./transport";
@@ -59,7 +58,6 @@ export async function runRemoteBridge(
     stderr: process.stderr,
   },
   transport: HostTransport = new LocalTransport({ namespace: "remote" }),
-  ensureServer: () => Promise<void> = ensureServerRunning,
 ): Promise<number> {
   const log = (msg: string): void => {
     try {
@@ -70,14 +68,8 @@ export async function runRemoteBridge(
   };
 
   await transport.ensureRunning();
-  // ADR-218 D1: the host server is kept alive whenever the desktop connects.
-  // It is an extra: failing to start it must not cost the desktop its
-  // daemon bridge.
-  try {
-    await ensureServer();
-  } catch (err) {
-    log(`could not start the host server: ${errorMessage(err)}`);
-  }
+  // The host server is not this bridge's concern: `server-bridge` ensures it,
+  // and the desktop opens that on every connect (ADR-218 D1, ADR-225 B5).
   const token = await transport.authToken();
   const socket = await transport.connectControl();
 

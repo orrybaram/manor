@@ -25,7 +25,7 @@ import {
   type HostServerClientState,
 } from "../../backend/host-server-client";
 import type { HostServerStatus } from "../../host-server/relay";
-import type { PairResult } from "../../remote-control/controller";
+import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 import type { HostDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
@@ -130,7 +130,7 @@ export async function hostsServerStatus(
   const client = serverClient(ctx, hostId);
   if (client.state !== "connected") return { state: client.state, status: null };
   try {
-    const status = await client.status();
+    const status = await client.api.hostServer.status();
     ctx.deps.hostPushEndpoints.set(hostId, status.pushEndpoints);
     return { state: client.state, status };
   } catch (err) {
@@ -148,7 +148,7 @@ export async function hostsPairDevice(
 ): Promise<PairResult> {
   const client = connectedServer(ctx, hostId);
   const name = typeof label === "string" && label.trim() !== "" ? label.trim() : "Phone";
-  const result = await client.pair(name);
+  const result = await client.api.remoteControl.pair(name);
   pairingChanged(ctx, hostId);
   return result;
 }
@@ -157,7 +157,7 @@ export async function hostsListDevices(
   ctx: HandlerCtx,
   hostId: string,
 ): Promise<RemoteDeviceInfo[]> {
-  return await connectedServer(ctx, hostId).listDevices();
+  return await connectedServer(ctx, hostId).api.remoteControl.listDevices();
 }
 
 export async function hostsRevokeDevice(
@@ -166,7 +166,7 @@ export async function hostsRevokeDevice(
   deviceId: string,
 ): Promise<RemoteDeviceInfo[]> {
   assertString(deviceId, "hosts:revokeDevice.deviceId");
-  const devices = await connectedServer(ctx, hostId).revoke(deviceId);
+  const devices = await connectedServer(ctx, hostId).api.remoteControl.revoke(deviceId);
   pairingChanged(ctx, hostId);
   return devices;
 }
@@ -175,7 +175,7 @@ export async function hostsResetPairingKeys(
   ctx: HandlerCtx,
   hostId: string,
 ): Promise<HostServerStatus> {
-  const status = await connectedServer(ctx, hostId).resetIdentity();
+  const status = await connectedServer(ctx, hostId).api.hostServer.resetIdentity();
   pairingChanged(ctx, hostId);
   return status;
 }

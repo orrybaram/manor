@@ -5,43 +5,44 @@
  * The channel is one more stream on the host's provider
  * (`HostProvider.openServerChannel`: for ssh, `exec manor-host server-bridge`
  * on the shared ControlMaster). The box's end says the owner hello for us
- * and then pipes the stream to the server's unix socket, so what this side
- * reads and writes is the bridge protocol itself (`bridge/types.ts`), one
- * JSON frame per line — the same frames the phone speaks, as an invoke
- * client: `invoke` frames answered by `result` frames by id, `subscribe`
- * frames answered by `event` frames.
+ * and the provider reads the server's reply, so the stream this side gets is
+ * the bridge protocol itself (`bridge/types.ts`), one JSON frame per line —
+ * the same frames the phone speaks, as an invoke client: `invoke` frames
+ * answered by `result` frames by id. Calls are typed from the host server's
+ * own table (`api`, `HostServerApi`).
  *
- * The first line that parses as `{"type":"hello","ok":true,…}` is the
- * server accepting the owner; anything before it that is not JSON is login
- * shell noise and skipped, as `SshTransport` skips it hunting for the
- * daemon's `bridgeHello`.
+ * `RemoteHostConnection` owns one per remote host, beside its hook feed, and
+ * drives it with the host's lifecycle: `hostConnected` when the host
+ * connects or comes back, `hostLost` when it drops, `dispose` with it.
  *
  * **Unsupported is quiet.** A box with no host server to reach — a
  * `manor-host` whose `server-bridge` exits non-zero, a provider with no
- * server channel, a stream that ends before the hello — marks this client
+ * server channel, a server that refuses the owner — marks this client
  * `unsupported`, logs once, and stays that way until the host reconnects
  * (`hostConnected`), which is also when bootstrap may have installed a newer
  * `manor-host`. Never an error toast: in slice 1 a host server is a bonus
  * for the phone, not something the desktop needs.
  *
  * A channel that was up and drops while the host is still connected (the
- * server restarted for an upgrade) is retried with backoff instead.
- *
- * Every connect — the first, and each after a host reconnect or a drop —
- * runs `onConnected`, which is where the registry's owner re-sends the
- * manifest and layout (`host-server-sync.ts`).
+ * server restarted for an upgrade) is retried with backoff instead. Whoever
+ * re-sends what the server should hold listens for `connected`
+ * (`BackendRegistry.onHostServerStateChange`, `host-server-sync.ts`).
  */
 
 import type { Duplex } from "node:stream";
 import { errorMessage } from "../lib/errors";
-import type { HostLayoutSnapshot } from "../host-server/layout";
-import type { HostManifest } from "../host-server/manifest";
-import type { HostServerStatus } from "../host-server/relay";
-import type { PairResult } from "../remote-control/controller";
-import type { VapidKeys } from "../remote-control/push";
-import type { RemoteDeviceInfo } from "../remote-control/devices";
+import type { ClientOf } from "../bridge/contract";
+import { BridgeUnavailableError, settleResult } from "../bridge/settle";
+import type { ResultFrame } from "../bridge/types";
+import type { HostHandlers } from "../host-server/handlers";
 import { createLineReader } from "../terminal-host/line-reader";
-import { isUnavailableCode, type EventFrame, type ResultFrame } from "../bridge/types";
+
+/**
+ * The host server's table as the owner calls it: `api.hostServer.status()`,
+ * `api.remoteControl.pair(label)`, … Types only; a handler's signature there
+ * is its signature here.
+ */
+export type HostServerApi = ClientOf<HostHandlers>;
 
 export type HostServerClientState =
   /** The host is not connected, so neither is this. */
@@ -72,10 +73,6 @@ export interface HostServerClientOptions {
    * provider has none; the client is then always `unsupported`.
    */
   open: (() => Promise<Duplex>) | null;
-  /** After every successful connect: re-send what the server should hold. */
-  onConnected?: (client: HostServerClient) => void | Promise<void>;
-  /** How long to wait for the server's hello reply. */
-  helloTimeoutMs?: number;
   /** How long an invoke waits for its result. */
   requestTimeoutMs?: number;
   /** Delay before re-dialling a channel that dropped, by attempt. */
@@ -83,7 +80,6 @@ export interface HostServerClientOptions {
   log?: Pick<Console, "info" | "warn">;
 }
 
-const DEFAULT_HELLO_TIMEOUT_MS = 30_000;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 function defaultRetryDelayMs(attempt: number): number {
@@ -96,19 +92,16 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
-/** One open stream and what it has said so far. */
+/** One open stream, already past the server's hello. */
 interface Channel {
   stream: Duplex;
-  helloed: boolean;
 }
-
-type EventListener = (...args: unknown[]) => void;
 
 export class HostServerClient {
   readonly hostId: string;
+  /** The host server's methods, each an invoke on the channel. */
+  readonly api: HostServerApi;
   private readonly openStream: (() => Promise<Duplex>) | null;
-  private readonly onConnected: HostServerClientOptions["onConnected"];
-  private readonly helloTimeoutMs: number;
   private readonly requestTimeoutMs: number;
   private readonly retryDelayMs: (attempt: number) => number;
   private readonly log: Pick<Console, "info" | "warn">;
@@ -126,14 +119,12 @@ export class HostServerClient {
   private retryAttempt = 0;
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
-  private readonly listeners = new Map<string, Set<EventListener>>();
   private readonly stateListeners = new Set<(state: HostServerClientState) => void>();
 
   constructor(opts: HostServerClientOptions) {
     this.hostId = opts.hostId;
     this.openStream = opts.open;
-    this.onConnected = opts.onConnected;
-    this.helloTimeoutMs = opts.helloTimeoutMs ?? DEFAULT_HELLO_TIMEOUT_MS;
+    this.api = apiOver((ns, methodName, args) => this.invoke(ns, methodName, args));
     this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
     this.retryDelayMs = opts.retryDelayMs ?? defaultRetryDelayMs;
     this.log = opts.log ?? console;
@@ -151,7 +142,7 @@ export class HostServerClient {
     };
   }
 
-  // ── the host's lifecycle, as the registry reports it ──
+  // ── the host's lifecycle, as its `RemoteHostConnection` reports it ──
 
   /**
    * The host connected (or reconnected): forget any `unsupported` from
@@ -194,96 +185,31 @@ export class HostServerClient {
     this.disposed = true;
     this.hostUp = false;
     this.close("idle");
-    this.listeners.clear();
     this.stateListeners.clear();
   }
 
   // ── calls ──
 
   /**
-   * `ns.method(...args)` on the host server. Rejects with
+   * `ns.method(...args)` on the host server, for `api`. Rejects with
    * `HostServerUnavailableError` when the channel is not up or the server
    * answers `unavailable:*`.
    */
-  invoke<T>(ns: string, methodName: string, ...args: unknown[]): Promise<T> {
+  private invoke(ns: string, methodName: string, args: unknown[]): Promise<unknown> {
     const channel = this.channel;
-    if (!channel?.helloed || this.stateValue !== "connected") {
+    if (!channel || this.stateValue !== "connected") {
       return Promise.reject(new HostServerUnavailableError(this.hostId, this.stateValue));
     }
     const id = this.nextId++;
-    return new Promise<T>((resolve, reject) => {
+    return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${ns}.${methodName} on ${this.hostId}'s host server timed out`));
       }, this.requestTimeoutMs);
       timer.unref?.();
-      this.pending.set(id, {
-        resolve: (value) => resolve(value as T),
-        reject,
-        timer,
-      });
+      this.pending.set(id, { resolve, reject, timer });
       this.write(channel, { kind: "invoke", id, ns, method: methodName, args });
     });
-  }
-
-  /**
-   * Hear `ns.event` from the host server. Survives reconnects: every new
-   * channel subscribes again. Returns the unsubscribe.
-   */
-  subscribe(ns: string, event: string, listener: EventListener): () => void {
-    const name = `${ns}.${event}`;
-    let set = this.listeners.get(name);
-    if (!set) {
-      set = new Set();
-      this.listeners.set(name, set);
-      if (this.channel?.helloed) this.write(this.channel, { kind: "subscribe", ns, event });
-    }
-    set.add(listener);
-    return () => {
-      const current = this.listeners.get(name);
-      if (!current?.delete(listener) || current.size > 0) return;
-      this.listeners.delete(name);
-      if (this.channel?.helloed) this.write(this.channel, { kind: "unsubscribe", ns, event });
-    };
-  }
-
-  /** The desktop's projects on this host (ADR-218 D4, D8). */
-  syncManifest(manifest: HostManifest): Promise<true> {
-    return this.invoke("hostServer", "syncManifest", manifest);
-  }
-
-  /** The desktop's VAPID pair, so this server's pushes share its key (ADR-218 D3). */
-  setVapidKeys(keys: VapidKeys): Promise<boolean> {
-    return this.invoke("hostServer", "setVapidKeys", keys);
-  }
-
-  /** The desktop's layout for this host's workspaces (ADR-218 D5). */
-  syncLayout(snapshot: HostLayoutSnapshot): Promise<true> {
-    return this.invoke("hostServer", "syncLayout", snapshot);
-  }
-
-  /** Version, uptime, relay room, paired devices and push endpoints. */
-  status(): Promise<HostServerStatus> {
-    return this.invoke("hostServer", "status");
-  }
-
-  /** Pair a phone to this host's own room (ADR-218 D3). */
-  pair(label: string): Promise<PairResult> {
-    return this.invoke("remoteControl", "pair", label);
-  }
-
-  listDevices(): Promise<RemoteDeviceInfo[]> {
-    return this.invoke("remoteControl", "listDevices");
-  }
-
-  /** Revoke a phone; resolves with the devices left. */
-  revoke(deviceId: string): Promise<RemoteDeviceInfo[]> {
-    return this.invoke("remoteControl", "revoke", deviceId);
-  }
-
-  /** "Reset pairing keys": a new room, every phone revoked (ADR-218 D6). */
-  resetIdentity(): Promise<HostServerStatus> {
-    return this.invoke("hostServer", "resetIdentity");
   }
 
   // ── the channel ──
@@ -307,84 +233,35 @@ export class HostServerClient {
       stream.destroy();
       return false;
     }
-    const channel: Channel = { stream, helloed: false };
+    if (stream.destroyed) {
+      this.failBeforeHello("the stream ended as it opened");
+      return false;
+    }
+    const channel: Channel = { stream };
     this.channel = channel;
-
-    const helloed = await new Promise<boolean>((resolve) => {
-      let settled = false;
-      let lastError: Error | null = null;
-      const settle = (ok: boolean): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        resolve(ok);
-      };
-      const timer = setTimeout(() => {
-        lastError = new Error(`no hello within ${Math.round(this.helloTimeoutMs / 1000)}s`);
-        stream.destroy();
-      }, this.helloTimeoutMs);
-      timer.unref?.();
-
-      stream.on(
-        "data",
-        createLineReader((line) => {
-          const frame = parseFrame(line);
-          if (!channel.helloed) {
-            if (!frame) return; // login-shell noise ahead of the hello
-            if (frame.type === "hello" && frame.ok === true) {
-              channel.helloed = true;
-              settle(true);
-              return;
-            }
-            if (frame.kind === "close") {
-              lastError = new Error(
-                `refused (${String(frame.code)}${frame.reason ? `: ${String(frame.reason)}` : ""})`,
-              );
-            }
-            return;
-          }
-          if (frame) this.onFrame(frame);
-        }),
-      );
-      stream.on("error", (err) => {
-        lastError = err;
-      });
-      stream.on("close", () => {
-        if (!channel.helloed) {
-          settle(false);
-          if (current() && this.channel === channel) {
-            this.channel = null;
-            this.failBeforeHello(lastError ? errorMessage(lastError) : "the stream ended before the hello");
-          }
-          return;
-        }
-        this.onDropped(channel);
-      });
+    stream.on(
+      "data",
+      createLineReader((line) => {
+        const frame = parseFrame(line);
+        if (frame?.kind === "result") this.onResult(frame as unknown as ResultFrame);
+      }),
+    );
+    stream.on("error", () => {
+      // Its `close` follows, and reports the drop.
     });
-    if (!helloed || !current()) return false;
+    stream.on("close", () => this.onDropped(channel));
 
     this.connectedThisEpoch = true;
     this.retryAttempt = 0;
     this.setState("connected");
-    for (const name of this.listeners.keys()) {
-      const at = name.lastIndexOf(".");
-      this.write(channel, { kind: "subscribe", ns: name.slice(0, at), event: name.slice(at + 1) });
-    }
-    try {
-      await this.onConnected?.(this);
-    } catch (err) {
-      this.log.warn(
-        `[host-server-client] ${this.hostId}: re-sending after connect failed: ${errorMessage(err)}`,
-      );
-    }
-    return this.stateValue === "connected";
+    return true;
   }
 
   /**
-   * The stream ended before the server said hello. On a host whose channel
-   * has not come up since it connected, that is a box without a host server:
-   * `unsupported`. One that was up a moment ago is a server restarting:
-   * retry.
+   * The channel would not open: the stream ended (or was refused) before the
+   * server said hello. On a host whose channel has not come up since it
+   * connected, that is a box without a host server: `unsupported`. One that
+   * was up a moment ago is a server restarting: retry.
    */
   private failBeforeHello(reason: string): void {
     if (this.connectedThisEpoch && this.hostUp) {
@@ -431,34 +308,20 @@ export class HostServerClient {
     this.retryTimer = null;
   }
 
-  private onFrame(frame: Record<string, unknown>): void {
-    if (frame.kind === "result") {
-      const id = typeof frame.id === "number" ? frame.id : NaN;
-      const waiting = this.pending.get(id);
-      if (!waiting) return;
-      this.pending.delete(id);
-      clearTimeout(waiting.timer);
-      const result = frame as unknown as ResultFrame;
-      if (result.ok) {
-        waiting.resolve(result.result);
-      } else if (isUnavailableCode(result.code)) {
-        waiting.reject(new HostServerUnavailableError(this.hostId, "refused", result.error));
-      } else {
-        waiting.reject(new Error(result.error));
-      }
-      return;
-    }
-    if (frame.kind === "event") {
-      const event = frame as unknown as EventFrame;
-      const set = this.listeners.get(`${event.ns}.${event.event}`);
-      if (!set) return;
-      for (const listener of [...set]) {
-        try {
-          listener(...(Array.isArray(event.args) ? event.args : []));
-        } catch (err) {
-          this.log.warn(`[host-server-client] ${this.hostId}: listener threw: ${errorMessage(err)}`);
-        }
-      }
+  private onResult(frame: ResultFrame): void {
+    const id = typeof frame.id === "number" ? frame.id : NaN;
+    const waiting = this.pending.get(id);
+    if (!waiting) return;
+    this.pending.delete(id);
+    clearTimeout(waiting.timer);
+    try {
+      waiting.resolve(settleResult(frame));
+    } catch (err) {
+      waiting.reject(
+        err instanceof BridgeUnavailableError
+          ? new HostServerUnavailableError(this.hostId, "refused", err.message)
+          : (err as Error),
+      );
     }
   }
 
@@ -514,4 +377,34 @@ function parseFrame(line: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * `HostServerApi` over one invoke function: `api.ns.method(...args)` is
+ * `invoke("ns", "method", args)`. The host table's namespaces are one level
+ * deep, so two proxies are the whole of it.
+ */
+function apiOver(
+  invoke: (ns: string, methodName: string, args: unknown[]) => Promise<unknown>,
+): HostServerApi {
+  const namespaces = new Map<string, unknown>();
+  return new Proxy({} as HostServerApi, {
+    get(_target, ns) {
+      if (typeof ns !== "string") return undefined;
+      let methods = namespaces.get(ns);
+      if (!methods) {
+        methods = new Proxy(
+          {},
+          {
+            get: (_t, methodName) =>
+              typeof methodName === "string"
+                ? (...args: unknown[]) => invoke(ns, methodName, args)
+                : undefined,
+          },
+        );
+        namespaces.set(ns, methods);
+      }
+      return methods;
+    },
+  });
 }

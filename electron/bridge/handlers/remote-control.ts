@@ -23,10 +23,10 @@
 
 import { assertBoolean, assertString } from "../../ipc-validate";
 import type {
-  PairResult,
   RemoteControlController,
   RemoteControlStatus,
 } from "../../remote-control/controller";
+import type { PairResult } from "../../remote-control/relay-room";
 import { asPushSubscription } from "../../remote-control/push";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { HostDeps } from "../../ipc/types";

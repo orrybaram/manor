@@ -68,15 +68,19 @@
 
 import { SUBSCRIPTIONS } from "../../electron/bridge/events";
 import {
-  UNAVAILABLE_CODE,
   UNAVAILABLE_HOST_CODE,
-  isUnavailableCode,
   type ResultFrame,
 } from "../../electron/bridge/types";
+import {
+  BridgeUnavailableError,
+  settleResult,
+} from "../../electron/bridge/settle";
 import type { ElectronAPI } from "../electron";
 import type { Listener } from "./subscription-registry";
 import { markHostRestricted } from "./host-restrictions";
 import { UNAVAILABLE_NAMESPACES } from "./unavailable";
+
+export { BridgeUnavailableError };
 
 /** Delivered a frame's `args`, spread — the shape an `onX` callback has. */
 export type BridgeListener = Listener;
@@ -118,26 +122,6 @@ export interface BridgeTransport {
 }
 
 /**
- * The host does not implement this, and never will here.
- *
- * Its own type so a component can `catch` it and render the stated empty
- * state ADR-178 promises instead of a crash — `err instanceof
- * BridgeUnavailableError`, not a string match on a message.
- */
-export class BridgeUnavailableError extends Error {
-  /**
-   * `unavailable:web` from the desktop, `unavailable:host` from a host server
-   * (ADR-218 D6). The renderer treats every `unavailable:*` alike.
-   */
-  readonly code: string;
-  constructor(message: string, code: string = UNAVAILABLE_CODE) {
-    super(message);
-    this.code = code;
-    this.name = "BridgeUnavailableError";
-  }
-}
-
-/**
  * The connection dropped with this call still in flight.
  *
  * Every pending invoke gets one the moment the socket closes. The alternative
@@ -158,16 +142,14 @@ export class BridgeDisconnectedError extends Error {
  *
  * One place for both transports: the socket delivers the frame as a message
  * and the preload as the answer to `ipcMain.handle`, and neither decides for
- * itself what `unavailable:web` means.
+ * itself what `unavailable:web` means (`settleResult`, shared with the
+ * desktop's owner channel).
  */
 export function settle(frame: ResultFrame): unknown {
-  if (frame.ok === true) return frame.result;
-  const message =
-    typeof frame.error === "string" ? frame.error : "The host refused";
-  if (frame.code === UNAVAILABLE_HOST_CODE) markHostRestricted();
-  throw isUnavailableCode(frame.code)
-    ? new BridgeUnavailableError(message, frame.code)
-    : new Error(message);
+  if (frame.ok === false && frame.code === UNAVAILABLE_HOST_CODE) {
+    markHostRestricted();
+  }
+  return settleResult(frame);
 }
 
 /** A listener's `ns.method` → the event it subscribes to, split for a frame. */

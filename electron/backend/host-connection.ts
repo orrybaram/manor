@@ -30,6 +30,10 @@
  *   (resnapshot) with their agents' status already right, and panes whose
  *   sessions are gone (the daemon restarted) can be recovered.
  * - **Its provider** (ADR-178 §1), released on disconnect and disposal.
+ * - **The owner channel** to the box's host server (ADR-218 D4):
+ *   `serverClient`, with the hook feed's lifecycle — it dials whenever the
+ *   host reaches `connected` (a connect or a resume), lets go whenever the
+ *   host leaves it (a drop, a disconnect), and is disposed with the host.
  * - **The control relay** (ADR-189 §2). A `manor` CLI on the host talks to
  *   its daemon, which relays each request down the stream as a
  *   `controlRequest`. The connection asks for them on every stream
@@ -40,6 +44,7 @@
 import { errorMessage } from "../lib/errors";
 import type { Emitter } from "./emitter";
 import { HostHookFeed, type HookSeqStore, type HookSink } from "./hook-feed";
+import { HostServerClient, type HostServerClientOptions } from "./host-server-client";
 import { HostUnavailableError, hostGates, hostView, type HostGates } from "./host-view";
 import type { HostProvider } from "./providers/types";
 import { classifyHostFailure } from "./remote-backend";
@@ -142,6 +147,8 @@ export interface RemoteHostContext extends HostConnectionContext {
   hookReplayRetryDelayMs?: (attempt: number) => number;
   /** Where relayed control requests go; null until the app wires it up. */
   controlRelaySink: () => ControlRelaySink | null;
+  /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
+  hostServerClient?: Pick<HostServerClientOptions, "requestTimeoutMs" | "retryDelayMs" | "log">;
 }
 
 export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
@@ -354,6 +361,8 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
 
 export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   readonly hookFeed: HostHookFeed;
+  /** The owner channel to the box's host server (ADR-218 D4). */
+  readonly serverClient: HostServerClient;
   /**
    * Bumped by every host event, so a resume announcement still waiting on
    * its replay is dropped when the host drops again meanwhile.
@@ -379,6 +388,11 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
       // fall through to the local daemon.
       beforeCatchUp: () => this.claimHostSessions(),
       ...(ctx.hookReplayRetryDelayMs ? { retryDelayMs: ctx.hookReplayRetryDelayMs } : {}),
+    });
+    this.serverClient = new HostServerClient({
+      hostId,
+      open: provider.openServerChannel?.bind(provider) ?? null,
+      ...ctx.hostServerClient,
     });
     this.unsubscribes.push(backend.onHostEvent((event) => this.onHostEvent(event)));
     // The daemon relays to the stream socket that last asked, and forgets
@@ -451,6 +465,25 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
 
   override catchUpHooks(): Promise<void> {
     return this.hookFeed.catchUp();
+  }
+
+  /** The host was unregistered or replaced: its owner channel goes with it. */
+  override async dispose(): Promise<void> {
+    this.serverClient.dispose();
+    await super.dispose();
+  }
+
+  /**
+   * Every status move passes here, so the owner channel follows the host:
+   * reaching `connected` (the first connect, or a resume) dials it, leaving
+   * `connected` (a drop, an error, a disconnect) lets it go.
+   */
+  protected override setState(state: HostState, warnings: "keep" | "clear" = "keep"): void {
+    const was = this.status;
+    super.setState(state, warnings);
+    if (this.disposed || was === state.status) return;
+    if (state.status === "connected") this.serverClient.hostConnected();
+    else if (was === "connected") this.serverClient.hostLost();
   }
 
   protected override gates(): HostGates {

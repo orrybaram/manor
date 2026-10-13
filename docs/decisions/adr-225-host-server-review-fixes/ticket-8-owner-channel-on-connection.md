@@ -1,6 +1,6 @@
 ---
 title: Owner channel on RemoteHostConnection and a typed HostServerClient
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [7]
@@ -35,3 +35,7 @@ blocked_by: [7]
 ## Added from ticket 3
 
 7. `terminal-host/server-bridge.ts` still sends `role: "owner"` in its hello; the authenticator no longer reads it. Drop it.
+
+## Added from ticket 7
+
+8. `PairResult` now lives in `electron/remote-control/relay-room.ts`, re-exported from `controller.ts`. Import it from `relay-room` in `electron/bridge/handlers/hosts.ts`, `electron/backend/host-server-client.ts` and `electron/host-server/__tests__/host-server.test.ts`, then delete the re-export.

@@ -125,8 +125,11 @@ export class SshHostProvider implements HostProvider {
     return this.sshTransport;
   }
 
-  /** `manor-host server-bridge` over the transport's ControlMaster. */
-  async openServerChannel(): Promise<Duplex> {
+  /**
+   * `manor-host server-bridge` over the transport's ControlMaster, read past
+   * the server's hello reply.
+   */
+  openServerChannel(): Promise<Duplex> {
     return this.sshTransport.openServerBridge();
   }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
 import type { Duplex } from "node:stream";
 import * as net from "node:net";
@@ -6,11 +6,6 @@ import * as fs from "node:fs";
 import { E2EDaemon, makeTmpDir } from "../daemon-harness";
 import { runRemoteBridge } from "../bridge";
 import type { HostTransport } from "../transport";
-
-// The default would spawn a real host server under the real ~/.manor.
-vi.mock("../../host-server/lifecycle", () => ({
-  ensureServerRunning: vi.fn(async () => {}),
-}));
 
 /** A `HostTransport` that hands out sockets to an already-running `E2EDaemon`
  *  instead of spawning anything, so the bridge is exercised against a real
@@ -175,28 +170,6 @@ describe("runRemoteBridge", () => {
       runRemoteBridge({ stdin, stdout, stderr }, transport),
     ).rejects.toThrow("ECONNREFUSED");
     expect(Buffer.concat(written).length).toBe(0);
-  });
-
-  it("continues to bridge the daemon when the host server cannot be started", async () => {
-    const stdin = new PassThrough();
-    const stdout = new PassThrough();
-    const stderr = new PassThrough();
-    const lines = readLines(stdout);
-    const errText: Buffer[] = [];
-    stderr.on("data", (c: Buffer) => errText.push(c));
-
-    const bridgeDone = runRemoteBridge(
-      { stdin, stdout, stderr },
-      new FakeTransport(daemon),
-      async () => {
-        throw new Error("no server for you");
-      },
-    );
-    const hello = JSON.parse(await lines.next());
-    expect(hello).toEqual({ type: "bridgeHello", token: daemon.authToken });
-    stdin.end();
-    expect(await bridgeDone).toBe(0);
-    expect(Buffer.concat(errText).toString()).toContain("no server for you");
   });
 
   it("keeps a burst of replies intact and in order through a small-buffered stdout", async () => {

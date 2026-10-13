@@ -300,8 +300,6 @@ describe("BackendRegistry's owner channels", () => {
         hostHandlers.push(handler);
         return () => {};
       },
-      onStreamConnected: () => () => {},
-      sendControlRelayCommand: () => true,
       retryNow: () => false,
       checkLiveness: async () => true,
     };

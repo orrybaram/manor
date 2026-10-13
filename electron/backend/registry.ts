@@ -21,7 +21,6 @@ import { Emitter } from "./emitter";
 import {
   HostConnection,
   RemoteHostConnection,
-  type ControlRelaySink,
   type HostProxyContext,
   type HostStatus,
   type HostStatusInfo,
@@ -44,7 +43,7 @@ import {
   type WorkspaceBackend,
 } from "./types";
 
-export type { ControlRelaySink, HostStatus, HostStatusInfo } from "./host-connection";
+export type { HostStatus, HostStatusInfo } from "./host-connection";
 export { HostUnavailableError } from "./host-view";
 export { isRemoteSessionLoss } from "./session-owners";
 
@@ -127,7 +126,6 @@ export class BackendRegistry {
   private readonly remoteVersion: string;
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
-  private controlRelaySink: ControlRelaySink | null = null;
   private readonly serverStates = new Emitter<[string, HostServerClientState]>(
     `${LOG} host server state listener`,
   );
@@ -143,7 +141,6 @@ export class BackendRegistry {
       hostEvents: this.hostEvents,
       resumed: this.resumed,
       daemonReplacing: this.daemonReplacing,
-      controlRelaySink: () => this.controlRelaySink,
       hostServerClient: opts.hostServerClient,
       hostProxy: opts.hostProxy,
     };
@@ -342,14 +339,6 @@ export class BackendRegistry {
   }
 
   // ── Events ──
-
-  /**
-   * Where control requests relayed from remote hosts' `manor` CLIs go
-   * (ADR-189 §2). Until it is set they are answered 503.
-   */
-  setControlRelaySink(sink: ControlRelaySink): void {
-    this.controlRelaySink = sink;
-  }
 
   /** Stream events from every host, tagged with the host they came from. */
   onEvent(handler: (hostId: string, event: StreamEvent) => void): () => void {

@@ -142,6 +142,12 @@ export interface ServerDeps {
   /** Which agents the user has not looked at since they responded (ADR-227 D1). */
   unseen: UnseenAgents;
   /**
+   * Tell this server's renderers and devices their project list is stale
+   * (`projects.changed` on the server's bus), for a write that arrives over
+   * the control routes (MCP, `manor` CLI) and has no return path to them.
+   */
+  notifyProjectsChanged: () => void;
+  /**
    * Notification state and side effects (ADR-227 D1): the agent broadcast, the
    * dock badge, the log. The desktop fills in a `Notifier`.
    */
@@ -202,6 +208,7 @@ export type SharedDeps = Pick<
   | "keybindingsManager"
   | "paneContextMap"
   | "unseen"
+  | "notifyProjectsChanged"
   | "notifier"
   | "sessionOwners"
   | "hostStatus"

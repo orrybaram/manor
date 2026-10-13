@@ -30,7 +30,8 @@ import { agentsGetActive, agentsGetAll } from "../bridge/handlers/agents-read";
 import { localCtx } from "../bridge/method";
 import { stripAnsi } from "../terminal-host/pane-facts";
 import { ScrollbackWriter } from "../terminal-host/scrollback";
-import type { HostDeps, Route } from "./types";
+import { askHost, forwardToHost, onAdoptedHost } from "./host-forward";
+import type { ServerRoute, ServerRouteDeps } from "./types";
 
 /** The wire shape `GET /agents` returns — a curated slice of `AgentInfo`. */
 export interface AgentSummary {
@@ -154,7 +155,7 @@ interface TargetResult {
 }
 
 function prepareWrite(
-  deps: HostDeps,
+  deps: ServerRouteDeps,
   body: Record<string, unknown>,
 ): PreparedWrite {
   const target = body.target;
@@ -208,7 +209,7 @@ type ResolvedAgent =
  * or a raw paneId — so a caller holding either handle can reach the same
  * agent. Not found is the caller's mistake (404).
  */
-function resolveAgentParam(deps: HostDeps, agentId: string): ResolvedAgent {
+function resolveAgentParam(deps: ServerRouteDeps, agentId: string): ResolvedAgent {
   const agent = resolveTarget(deps.agentManager, agentId, deps.hostRouting?.agents());
   if (!agent) {
     return { ok: false, status: 404, error: `No agent matches '${agentId}'` };
@@ -261,10 +262,15 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
  * canonical line limit. A blank prompt is no prompt.
  */
 export async function startAgentInWorkspace(
-  deps: HostDeps,
+  deps: ServerRouteDeps,
   workspacePath: string,
   options: { prompt?: string; agentCommand?: string; hostId?: string } = {},
 ): Promise<StartAgentResult> {
+  // A workspace on an adopted host is in its server's layout, which spawns
+  // the agent there (ADR-227 D4).
+  if (onAdoptedHost(deps, options.hostId)) {
+    return startAgentOnHost(deps, options.hostId, workspacePath, options);
+  }
   const store = deps.layoutStore;
   // Rejected before anything is queued: the Dashboard hosts no panes
   // (ADR-197 §1).
@@ -300,7 +306,52 @@ export async function startAgentInWorkspace(
   return { ok: true, data: { tabId: tab.id, paneId, workspacePath } };
 }
 
-export const agentRoutes: Route[] = [
+/** `startAgentInWorkspace` for a workspace on an adopted host: its own `POST /agents`. */
+async function startAgentOnHost(
+  deps: ServerRouteDeps,
+  hostId: string,
+  workspacePath: string,
+  options: { prompt?: string; agentCommand?: string },
+): Promise<StartAgentResult> {
+  const answer = await askHost(deps, hostId, "POST", "/agents", {
+    workspacePath,
+    ...(options.prompt !== undefined ? { prompt: options.prompt } : {}),
+    ...(options.agentCommand !== undefined ? { agentCommand: options.agentCommand } : {}),
+  });
+  if (answer.status === 200) return { ok: true, data: answer.body as StartedAgent };
+  const error = (answer.body as { error?: unknown } | null)?.error;
+  return {
+    ok: false,
+    status: answer.status,
+    error: typeof error === "string" ? error : `${hostId} answered ${answer.status}`,
+  };
+}
+
+/** `/agents/<id>[/<action>]` for `agent`, by its id. */
+function agentPath(agent: AgentInfo, action?: string): string {
+  const base = `/agents/${encodeURIComponent(agent.id)}`;
+  return action ? `${base}/${action}` : base;
+}
+
+/**
+ * An agent write for one of an adopted host's agents: that host's server
+ * holds the agent and answers through this same route, named by its id
+ * (ADR-227 D4). True when it went.
+ */
+async function agentOnHost(
+  deps: ServerRouteDeps,
+  json: (status: number, body: unknown) => void,
+  agent: AgentInfo,
+  method: string,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  if (!onAdoptedHost(deps, agent.hostId)) return false;
+  await forwardToHost(deps, json, agent.hostId, method, path, body);
+  return true;
+}
+
+export const agentRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/agents",
@@ -456,6 +507,10 @@ export const agentRoutes: Route[] = [
       const { paneId } = agent;
       if (!paneId) {
         json(409, { error: `Session '${agent.id}' has no live pane to end` });
+        return;
+      }
+      // Its host's reconciler marks it abandoned.
+      if (await agentOnHost(deps, json, agent, "POST", "/sessions/end", { target: agent.id })) {
         return;
       }
 
@@ -617,6 +672,10 @@ export const agentRoutes: Route[] = [
         json(400, { error: "Missing 'name' string in request body" });
         return;
       }
+      const { agent } = resolved;
+      if (await agentOnHost(deps, json, agent, "POST", agentPath(agent, "rename"), { name })) {
+        return;
+      }
 
       const trimmed = name.trim();
       const updates = trimmed
@@ -647,7 +706,9 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      const ok = agentsDelete(localCtx(deps), resolved.agent.id);
+      const { agent } = resolved;
+      if (await agentOnHost(deps, json, agent, "DELETE", agentPath(agent), {})) return;
+      const ok = agentsDelete(localCtx(deps), agent.id);
       json(200, { ok });
     },
   },
@@ -665,7 +726,9 @@ export const agentRoutes: Route[] = [
         return;
       }
 
-      agentsMarkSeen(localCtx(deps), resolved.agent.id);
+      const { agent } = resolved;
+      if (await agentOnHost(deps, json, agent, "POST", agentPath(agent, "seen"), {})) return;
+      agentsMarkSeen(localCtx(deps), agent.id);
       json(200, { ok: true });
     },
   },

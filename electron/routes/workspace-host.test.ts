@@ -70,7 +70,7 @@ describe("relayed workspace commands", () => {
 
   async function post(r: Route, deps: RouteDeps, body: Record<string, unknown>) {
     const json = vi.fn();
-    await r.handler({ deps, params: {}, url: new URL("http://x/"), json, readBody: async () => body });
+    await r.handler({ method: r.method, deps, params: {}, url: new URL("http://x/"), json, readBody: async () => body });
     return (json.mock.calls[0] ?? []) as [number?, unknown?];
   }
 
@@ -154,7 +154,7 @@ describe("relayed structural workspace commands", () => {
 
   async function post(r: Route, body: Record<string, unknown>) {
     const json = vi.fn();
-    await r.handler({ deps: relayed, params: {}, url: new URL("http://x/"), json, readBody: async () => body });
+    await r.handler({ method: r.method, deps: relayed, params: {}, url: new URL("http://x/"), json, readBody: async () => body });
     return (json.mock.calls[0] ?? []) as [number?, unknown?];
   }
 

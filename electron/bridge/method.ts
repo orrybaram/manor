@@ -271,6 +271,6 @@ export function toHandlerTable<D>(
  * A context for a caller at this machine that is not a bridge connection —
  * a test, or a host-side path that calls a handler directly.
  */
-export function localCtx(deps: HostDeps, id = "local"): HandlerCtx {
+export function localCtx<D = HostDeps>(deps: D, id = "local"): HandlerCtx<D> {
   return { deps, caller: { id, callerClass: "local" } };
 }

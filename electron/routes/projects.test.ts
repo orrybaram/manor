@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../renderer-bridge", () => ({
-  notifyProjectsChanged: vi.fn(),
-  startAgent: vi.fn(),
-}));
-
 import { projectRoutes } from "./projects";
 import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
 import type { RouteDeps, Route } from "./types";
@@ -126,6 +121,7 @@ function deps(pm: Pm, callerHostId?: string): RouteDeps {
     githubManager: github,
     workspaceOps,
     callerHostId,
+    notifyProjectsChanged: vi.fn(),
   } as unknown as RouteDeps;
 }
 
@@ -137,6 +133,7 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: unknown }> = [];
   await r.handler({
+    method: r.method,
     deps: d,
     params,
     url: new URL("http://localhost/"),

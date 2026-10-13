@@ -42,18 +42,18 @@ vi.mock("electron", () => ({
 }));
 
 import { WebviewServer } from "../webview-server";
-import {
-  appCommandResult,
-  notifyProjectsChanged,
-  requestRenderer,
-} from "../renderer-bridge";
+import { appCommandResult, requestRenderer } from "../renderer-bridge";
 import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
 import type { AppCommand, AppCommandResult } from "../renderer-bridge";
 import {
   addRendererBroadcastSink,
+  publishRendererBroadcast,
   setRendererWindowResolver,
   type RendererBroadcast,
 } from "../renderer-broadcast";
+
+/** The desktop's `ServerDeps.notifyProjectsChanged`: the server's bus is the renderers'. */
+const notifyProjectsChanged = (): void => publishRendererBroadcast("projects", "changed");
 import { webContents, BrowserWindow } from "electron";
 import { webviewModule } from "../mcp/tools-webview";
 import type { Http } from "../mcp/types";
@@ -206,6 +206,7 @@ function serverWith(
       ({
         webviewServer: server,
         webviewPanes: server,
+        notifyProjectsChanged,
         ...deps,
       }) as unknown as HostDeps,
   );

@@ -58,7 +58,7 @@ describe("ControlRelayListener", () => {
     expect(res.status).toBe(503);
     expect(res.headers.get("content-type")).toBe("application/json");
     expect(await res.json()).toEqual({
-      error: "Manor desktop is not connected to this host",
+      error: "Manor's host server isn't running on this host",
     });
   });
 
@@ -197,7 +197,7 @@ describe("ControlRelayStreams", () => {
     vi.advanceTimersByTime(1000);
     await expect(pending).resolves.toEqual({
       status: 504,
-      body: { error: "Manor desktop did not answer in time" },
+      body: { error: "Manor did not answer in time" },
     });
     // A late answer is dropped.
     relay.respond(a, id, 200, null);
@@ -211,9 +211,29 @@ describe("ControlRelayStreams", () => {
     relay.closed(a);
     await expect(pending).resolves.toEqual({
       status: 503,
-      body: { error: "Manor desktop is not connected to this host" },
+      body: { error: "Manor's host server isn't running on this host" },
     });
     expect(relay.relay(req)).toBeNull();
+  });
+
+  it("prefers the host server's stream over an app's, whichever enabled last (ADR-227 D8)", async () => {
+    const relay = streams();
+    const server = stream("server");
+    const app = stream("app");
+    relay.enable(server, "server");
+    relay.enable(app);
+    void relay.relay(req);
+    expect(server.sent).toHaveLength(1);
+    expect(app.sent).toHaveLength(0);
+    // The server goes away: an app's stream answers until it is back.
+    relay.closed(server);
+    void relay.relay(req);
+    expect(app.sent).toHaveLength(1);
+    const again = stream("server-2");
+    relay.enable(again, "server");
+    void relay.relay(req);
+    expect(again.sent).toHaveLength(1);
+    expect(app.sent).toHaveLength(1);
   });
 
   it("keeps the relay stream when another stream closes", async () => {

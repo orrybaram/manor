@@ -62,6 +62,7 @@ async function read(
   } as unknown as HostDeps;
 
   await readRoute.handler({
+    method: readRoute.method,
     deps,
     params: {},
     url: new URL("http://localhost/sessions/read"),

@@ -14,7 +14,6 @@ import type {
   SessionInfo,
   TerminalSnapshot,
   StreamEvent,
-  StreamCommand,
   PaneFacts,
 } from "../terminal-host/types";
 import type { MachineFacts } from "./machine-facts";
@@ -317,25 +316,5 @@ export interface RemoteHostBackend extends WorkspaceBackend {
    * tick going unanswered.
    */
   checkLiveness(): Promise<boolean>;
-
-  /**
-   * Called each time the host's stream socket (re)connects (ADR-189 §2).
-   * The daemon relays control requests to one stream socket, the one that
-   * last asked, so the ask is repeated on every new socket. Returns an
-   * unsubscribe.
-   */
-  onStreamConnected(handler: () => void): () => void;
-
-  /**
-   * Send a control-relay stream command on the current stream socket; false
-   * when there is none. A `controlResponse` is only accepted on the socket
-   * its request came in on, so one sent after a reconnect is dropped.
-   */
-  sendControlRelayCommand(cmd: ControlRelayCommand): boolean;
 }
 
-/** The stream commands a remote host's connection sends for the control relay. */
-export type ControlRelayCommand = Extract<
-  StreamCommand,
-  { type: "enableControlRelay" } | { type: "controlResponse" }
->;

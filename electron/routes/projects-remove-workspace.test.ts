@@ -15,11 +15,6 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: () => [] },
 }));
 
-vi.mock("../renderer-bridge", () => ({
-  notifyProjectsChanged: vi.fn(),
-  runSetupScript: vi.fn(),
-}));
-
 import { projectRoutes } from "./projects";
 import type { RouteDeps, Route } from "./types";
 import { ProjectManager } from "../persistence";
@@ -103,6 +98,7 @@ describe("DELETE /projects/:projectId/workspaces (ADR-182 D7)", () => {
     const calls: Array<{ status: number; body: unknown }> = [];
 
     await route.handler({
+      method: route.method,
       deps: {
         projectManager: pm,
         layoutStore: store,

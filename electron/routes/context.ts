@@ -31,7 +31,7 @@ import {
 } from "../../src/lib/workspace-key";
 import { availableSources } from "../issue-backends";
 import { callerMaySee } from "./caller-host";
-import type { Route } from "./types";
+import type { ServerRoute } from "./types";
 
 /**
  * Rung 1: the pane id is authoritative — it names the *caller's* pane, not
@@ -81,7 +81,7 @@ function workspaceOfPane(
   return file ? findWorkspaceForPane(file, paneId) : null;
 }
 
-export const contextRoutes: Route[] = [
+export const contextRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/context",

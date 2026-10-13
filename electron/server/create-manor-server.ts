@@ -726,6 +726,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       keybindingsManager,
       paneContextMap,
       unseen,
+      notifyProjectsChanged,
       notifier,
       sessionOwners: backendRegistry.sessions,
       hostStatus: (hostId) => backendRegistry.status(hostId),

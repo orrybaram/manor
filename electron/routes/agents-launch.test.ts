@@ -49,6 +49,7 @@ const launchRoute = ((): Route => {
 async function call(deps: Partial<RouteDeps>, body: Record<string, unknown>) {
   const calls: Array<{ status: number; body: any }> = [];
   await launchRoute.handler({
+    method: launchRoute.method,
     deps: deps as RouteDeps,
     params: {},
     url: new URL("http://localhost/agents"),

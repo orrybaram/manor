@@ -69,6 +69,12 @@ export type StreamPosition = number;
  *     (`handleStreamMessage` has no default case) and so never sends a
  *     `controlRequest`; an older app never sends `enableControlRelay`, so a
  *     newer daemon never relays to it and answers the CLI with a 503.
+ *
+ * Still 6 — `enableControlRelay` gained an optional `role` (ADR-227 D8): the
+ *     host server sends `role: "server"`, and a daemon that knows the field
+ *     relays to that stream ahead of any app's. An older daemon ignores the
+ *     field and relays to whoever enabled last, which is the host server too,
+ *     since a desktop from ADR-227 on no longer enables the relay at all.
  */
 export const TERMINAL_HOST_PROTOCOL = 6;
 
@@ -520,9 +526,10 @@ export type StreamCommand =
   /**
    * Make this socket the relay stream: the daemon sends it every
    * `controlRequest` from here on, until it closes or another socket sends
-   * this (ADR-189 §1).
+   * this (ADR-189 §1). `role: "server"` is the host server, which owns the
+   * host (ADR-227 D8): its stream wins over any app's while it is open.
    */
-  | { type: "enableControlRelay" }
+  | { type: "enableControlRelay"; role?: "server" }
   /**
    * The answer to the `controlRequest` with this `id`: the HTTP status and
    * JSON body the CLI receives. Unknown ids (answered after the daemon timed

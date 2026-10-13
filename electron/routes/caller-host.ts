@@ -3,6 +3,11 @@
  * (ADR-189 §2): such a caller sees and acts only on its own host. Another
  * host's projects, members and hosts answer as if they weren't there.
  * A local caller (no `callerHostId`) sees every host.
+ *
+ * Since ADR-227 D8 a box's CLI is answered by that box's own host server,
+ * where every caller is local and every project is the host's own, so no
+ * request carries a `callerHostId` any more; the rule stays for any route
+ * that is handed one.
  */
 export function callerMaySee(
   callerHostId: string | undefined,

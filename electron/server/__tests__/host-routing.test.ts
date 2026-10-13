@@ -6,7 +6,7 @@
  * refused while `box` is away.
  */
 
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,10 +36,48 @@ import { createTab } from "../../../src/lib/layout/ids";
 import type { LayoutBroadcast } from "../../../src/lib/layout/protocol";
 import type { AgentInfo } from "../../agent-persistence";
 import { HostRouting } from "../host-routing";
+import type { WorkspaceKey } from "../../../src/lib/workspace-key";
+import { handleServerControlRequest } from "../../routes/server-routes";
+import type { ServerRouteDeps } from "../../routes/types";
 
 const quiet = { info: () => {}, warn: () => {} };
 
 const WINDOW: Caller = { id: "7", callerClass: "local" };
+
+/**
+ * One control request (MCP, the desktop's `manor` CLI) through the routes
+ * the desktop's control server runs, over a desktop holding no agents of its
+ * own. Resolves the answer.
+ */
+async function control(
+  deps: Pick<ServerRouteDeps, "projectManager" | "hostRouting">,
+  method: string,
+  urlPath: string,
+  body: Record<string, unknown> = {},
+): Promise<{ status: number; body: unknown }> {
+  let answer: { status: number; body: unknown } | undefined;
+  const handled = await handleServerControlRequest(
+    {
+      ...deps,
+      agentManager: {
+        getAgentById: () => undefined,
+        getAgentByPaneId: () => undefined,
+        getActiveAgents: () => [],
+        getAllAgents: () => [],
+      },
+      hostStatus: () => "connected",
+      notifyProjectsChanged: () => {},
+    } as unknown as ServerRouteDeps,
+    method,
+    new URL(urlPath, "http://desktop"),
+    (status, b) => {
+      answer ??= { status, body: b };
+    },
+    async () => body,
+  );
+  expect(handled).toBe(true);
+  return answer!;
+}
 
 /** An owner channel that reads the token on every dial and retries at once. */
 function ownerClient(h: HostServerHarness): HostServerClient {
@@ -278,6 +316,67 @@ describe("HostRouting (ADR-227 D4)", () => {
       (name) => name === "Renamed",
       "the rename, back through the proxy",
     );
+  });
+
+  it("sends the desktop's control requests for the host's projects there (ADR-227 D8)", async () => {
+    const { routing, projectManager } = await adoptedDesktop();
+    const deps = { projectManager, hostRouting: routing };
+    const answered = await control(deps, "POST", "/projects/box-app/workspaces/rename", {
+      workspacePath: BOX_APP,
+      name: "Via MCP",
+    });
+    expect(answered).toEqual({ status: 200, body: { ok: true } });
+    expect(
+      (await projectManager.getProjects())
+        .find((p) => p.id === "box-app")
+        ?.workspaces.find((w) => w.path === BOX_APP)?.name,
+    ).toBe("Via MCP");
+
+    // A create picks its target here, then goes to that host for it.
+    const sent = vi.spyOn(routing, "control");
+    await control(deps, "POST", "/projects/box-app/workspaces", { name: "feature", host: "box" });
+    expect(sent).toHaveBeenCalledWith("box", "POST", "/projects/box-app/workspaces", {
+      name: "feature",
+    });
+    // A read the merged list has stays here.
+    sent.mockClear();
+    const workspaces = await control(deps, "GET", "/projects/box-app/workspaces");
+    expect(workspaces.status).toBe(200);
+    expect(sent).not.toHaveBeenCalled();
+  });
+
+  it("launches an agent in the host's workspace on the host's server", async () => {
+    const { routing, projectManager, proxy } = await adoptedDesktop();
+    const launched = await control(
+      { projectManager, hostRouting: routing },
+      "POST",
+      "/agents",
+      { workspacePath: BOX_APP, hostId: "box", prompt: "hi" },
+    );
+    expect(launched.status).toBe(200);
+    const { paneId } = launched.body as { paneId: string };
+    // The tab is in the host's layout, under the desktop's key for it.
+    await eventually(
+      () => JSON.stringify(proxy.layout()[`box:${BOX_APP}` as WorkspaceKey] ?? null),
+      (layout) => layout.includes(paneId),
+      "the agent's tab on box",
+    );
+  });
+
+  it("sends an agent write by id to the host that holds the agent", async () => {
+    const { routing, projectManager, client } = await adoptedDesktop();
+    await eventually(() => routing.agents().length, (n) => n === 2, "box's agents");
+    const deps = { projectManager, hostRouting: routing };
+    expect(await control(deps, "POST", "/agents/box-1/seen")).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+    expect(await control(deps, "DELETE", "/agents/box-1")).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+    const left = (await (client.invoke("agents", "getAll", []) as Promise<AgentInfo[]>)).map((a) => a.id);
+    expect(left).not.toContain("box-1");
   });
 
   it("refuses a write while the host is away, and reads from the cache", async () => {

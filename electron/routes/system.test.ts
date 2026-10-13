@@ -59,6 +59,7 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: unknown }> = [];
   await r.handler({
+    method: r.method,
     deps: deps as unknown as HostDeps,
     params: opts.params ?? {},
     url: new URL(`http://localhost${r.path}`),

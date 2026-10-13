@@ -11,6 +11,7 @@
  *   daemon ──stream──▶ hook feed ──▶ AgentHookServer.ingestHookPayload
  *                                   ──▶ Status reconciler ──▶ agents.json
  *          ──stream──▶ pty events ──▶ bridge (pty.*) + chat mirror
+ *          ◀─stream── the box's `manor` CLI (`./cli-relay.ts`, ADR-227 D8)
  *   bridge ◀── socket (owner channel, `serve.ts`)
  *          ◀── relay channels, as devices (`./relay.ts`, its own room)
  *
@@ -59,6 +60,7 @@ import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
 import { createAdoption } from "./adopt";
+import { serveCliRelay } from "./cli-relay";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
 import { fileHookCursorStore } from "./hook-cursor";
@@ -287,6 +289,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const { client, deps, bridge } = server;
   const { agentManager } = server.shared;
   const { shared } = server;
+  // The box's `manor` CLI is this server's to answer (ADR-227 D8): it asks
+  // the daemon for its requests on every stream (re)connect.
+  const releaseCliRelay = serveCliRelay(client, { routes: deps, ownership });
   // The local daemon reconnects quietly on the desktop; a server that has to
   // stay up keeps trying, like a remote host's connection does.
   client.setReconnectPolicy(daemonRetryDelayMs);
@@ -422,6 +427,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (stopped) return;
       stopped = true;
       if (retryTimer) clearTimeout(retryTimer);
+      releaseCliRelay();
       server.agentPipeline.stop();
       feed.pause();
       await relay.stop();

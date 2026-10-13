@@ -60,10 +60,10 @@ export function matchPath(
  *   one of them that matches no route is a `404`, not a fall-through — the
  *   caller must not go looking for a webview route named `/projects/...`.
  */
-export async function dispatch(
-  routes: readonly Route[],
+export async function dispatch<D = RouteDeps>(
+  routes: readonly Route<D>[],
   ownedPrefixes: ReadonlySet<string>,
-  deps: RouteDeps,
+  deps: D,
   method: string,
   url: URL,
   json: Json,
@@ -77,7 +77,7 @@ export async function dispatch(
     if (!params) continue;
     pathMatched = true;
     if (route.method !== method) continue;
-    await route.handler({ deps, params, url, json, readBody });
+    await route.handler({ deps, method: route.method, params, url, json, readBody });
     return true;
   }
 

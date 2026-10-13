@@ -26,7 +26,6 @@ import {
   type RemoteControlRuntime,
 } from "./remote-control/controller";
 import type { HostDeps } from "./ipc/types";
-import { handleRelayedControlRequest } from "./control-relay";
 import { createWindow, saveZoomLevel } from "./window";
 import { installAppMenu, type AppMenuController } from "./app-menu";
 import { Notifier, playNotificationSound } from "./notifications";
@@ -380,13 +379,6 @@ export function initApp(devTitle: string | null): void {
   const { webviewServer, hostServerSync, remoteControl, prewarmManager } = ipcDeps;
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
-
-  // Remote hosts' `manor` CLIs reach the same routes, with the same deps,
-  // behind the remote allowlist (ADR-189 §2). Set once those deps exist; a
-  // request relayed before then is answered 503.
-  backendRegistry.setControlRelaySink((hostId, req) =>
-    handleRelayedControlRequest(webviewServer.getDeps(), hostId, req),
-  );
 
   // A connection that drops has already let go of every pane it viewed
   // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary

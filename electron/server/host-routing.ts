@@ -34,6 +34,7 @@ import type { AgentInfo } from "../agent-persistence";
 import type { HostProgressEvent, HostProxy } from "../backend/host-proxy";
 import { HostServerUnavailableError } from "../backend/host-server-client";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { errorMessage } from "../lib/errors";
 import type { Caller, RouteRule } from "../bridge/method";
 import type { BridgeForward } from "../bridge/server";
 import {
@@ -48,6 +49,12 @@ import type { PaneAgentStatusUpdate, PtyCreateResult } from "../../src/electron.
 import type { LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import { layoutPaneIds } from "../../src/lib/layout/workspace-layout";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
+
+/** A control request's answer: its HTTP status and JSON body. */
+export interface ControlAnswer {
+  status: number;
+  body: unknown;
+}
 
 export interface HostRoutingOptions {
   registry: {
@@ -199,6 +206,52 @@ export class HostRouting implements BridgeForward {
         : this.opts.decorateProject(result);
     } catch (err) {
       throw this.refusal(proxy, err);
+    }
+  }
+
+  /**
+   * A control request (`electron/routes/`) for one of `hostId`'s projects or
+   * agents, answered by its server's own routes (`hostServer.control`,
+   * ADR-227 D8) — the desktop's MCP and CLI reach an adopted host this way,
+   * as the bridge does through `invoke`. The answer's records carry
+   * `hostId`. Never rejects: a host that is away, or refuses, is a 503.
+   */
+  async control(
+    hostId: string,
+    method: string,
+    path: string,
+    body: Record<string, unknown>,
+  ): Promise<ControlAnswer> {
+    const proxy = this.proxy(hostId);
+    if (!proxy) return { status: 503, body: { error: `${hostId} is offline` } };
+    try {
+      const answer = (await proxy.invoke(
+        "hostServer",
+        "control",
+        [method, path, body],
+        // A write may clone, fetch or run a setup's git there.
+        method === "GET" ? {} : { timeoutMs: LONG_CALL_TIMEOUT_MS },
+      )) as ControlAnswer;
+      // A write the host publishes nothing for is read back now, so the
+      // desktop's next list has it.
+      if (method !== "GET") await proxy.refreshProjects();
+      const stamp = (value: unknown): unknown =>
+        typeof value === "object" &&
+        value !== null &&
+        (value as { hostId?: unknown }).hostId === LOCAL_HOST_ID
+          ? { ...value, hostId }
+          : value;
+      const out = answer?.body;
+      return {
+        status: typeof answer?.status === "number" ? answer.status : 502,
+        body: Array.isArray(out) ? out.map(stamp) : stamp(out),
+      };
+    } catch (err) {
+      const refusal = this.refusal(proxy, err);
+      return {
+        status: refusal instanceof BridgeUnavailableRefusal ? 503 : 502,
+        body: { error: errorMessage(refusal) },
+      };
     }
   }
 

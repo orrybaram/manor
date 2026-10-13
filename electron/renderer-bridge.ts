@@ -27,7 +27,6 @@ import { BrowserWindow } from "electron";
 import type { Json } from "./routes/types";
 import {
   connectionIdForWindow,
-  publishRendererBroadcast,
   publishToRenderer,
 } from "./renderer-broadcast";
 
@@ -171,18 +170,4 @@ export async function proxyToRenderer(
     return;
   }
   json(200, result.data);
-}
-
-/**
- * Tell the renderer its project list is stale. Mutations that originate in the
- * renderer fold the result straight into the store, but ones that arrive over
- * the control server (MCP, `manor` CLI) have no such return path — without this
- * the sidebar keeps showing the pre-mutation list until something else refetches.
- */
-export function notifyProjectsChanged(): void {
-  // One signal for every renderer, browser and window alike (ADR-180 ticket
-  // 6). The `webContents.send("projects-changed")` that used to sit beside
-  // this went with the `projects` namespace: a window is a bridge connection
-  // now, and `projects.onChanged(cb)` is a subscription to this frame.
-  publishRendererBroadcast("projects", "changed");
 }

@@ -149,6 +149,8 @@ import {
 import type { RemoteDeviceInfo } from "../remote-control/devices";
 import type { VapidKeys } from "../remote-control/push";
 import type { Adopt, AdoptionBundle } from "./adopt";
+import { answerOwnerRequest } from "./cli-relay";
+import type { ControlRelayResult } from "../terminal-host/control-relay-listener";
 import { assertAdoptionBundle, assertVapidKeys } from "./owner";
 import { assertOwned, type OwnershipState } from "./ownership";
 import type { HostRelay, HostRemoteControl, HostServerStatus } from "./relay";
@@ -413,6 +415,23 @@ async function hostServerAdopt(ctx: Ctx, bundle: AdoptionBundle): Promise<HostSe
   return ctx.deps.serverStatus();
 }
 
+/**
+ * A control request (`electron/routes/`) about one of this host's projects
+ * or agents, from the desktop's MCP or CLI (ADR-227 D4, D8): run through the
+ * same server routes the box's own CLI reaches (`./cli-relay.ts`). Answers
+ * the HTTP status and body; never rejects.
+ */
+function hostServerControl(
+  ctx: Ctx,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<ControlRelayResult> {
+  assertString(method, "hostServer.control.method");
+  assertString(path, "hostServer.control.path");
+  return answerOwnerRequest({ routes: ctx.deps, ownership: ctx.deps.ownership }, { method, path, body });
+}
+
 const METHODS = flatten({
   pty: {
     // Spawns, or attaches; audited like the desktop's create. Typing is not.
@@ -558,6 +577,7 @@ const METHODS = flatten({
     setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
     setLinearToken: method(hostServerSetLinearToken, { localOnly: true, secretFirstArg: true }),
     adopt: method(hostServerAdopt, { localOnly: true }),
+    control: method(hostServerControl, { localOnly: true, mutating: true }),
   },
 });
 

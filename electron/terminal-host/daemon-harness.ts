@@ -16,6 +16,7 @@ import * as crypto from "node:crypto";
 import { encodeFrame, MSG, PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
 import { TerminalHost } from "./terminal-host";
 import { HookJournal } from "./hook-journal";
+import { ControlRelayListener, ControlRelayStreams } from "./control-relay-listener";
 import type { Session } from "./session";
 import type { ScrollbackWriter } from "./scrollback";
 import {
@@ -29,9 +30,20 @@ import {
 
 /** A line sent on the stream socket by a client. */
 type StreamCommand = {
-  type?: "write" | "subscribe" | "unsubscribe";
+  type?:
+    | "write"
+    | "subscribe"
+    | "unsubscribe"
+    | "enableControlRelay"
+    | "controlResponse";
   sessionId?: string;
   data?: string;
+  /** `enableControlRelay` */
+  role?: string;
+  /** `controlResponse` */
+  id?: string;
+  status?: number;
+  body?: unknown;
 };
 
 /** Anything the daemon can send back on either socket. */
@@ -57,7 +69,9 @@ export function makeTmpDir(): string {
  * echo the request's `requestId`, `handshake` reports this build's protocols,
  * and — like the `remote` daemon role — it keeps a hook journal, answers
  * `replayHooks` from it, and broadcasts each journaled hook as a `hookEvent`
- * to every authenticated stream socket (`emitHook`).
+ * to every authenticated stream socket (`emitHook`). It relays control
+ * requests to the stream that asked for them, as the remote role does
+ * (`controlRelay`, `startControlListener`; ADR-189 §1, ADR-227 D8).
  */
 export class E2EDaemon {
   private server: net.Server;
@@ -68,6 +82,13 @@ export class E2EDaemon {
   readonly socketPath: string;
   readonly sessionsDir: string;
   readonly journal: HookJournal;
+  /** Which stream answers relayed control requests, as the real daemon's. */
+  readonly controlRelay = new ControlRelayStreams<net.Socket>({
+    send: (socket, event) => {
+      if (!socket.destroyed) socket.write(JSON.stringify(event) + "\n");
+    },
+  });
+  private controlListener: ControlRelayListener | null = null;
 
   constructor(tmpDir: string) {
     this.sessionsDir = path.join(tmpDir, "sessions");
@@ -104,7 +125,22 @@ export class E2EDaemon {
     return new Promise((r) => this.server.listen(this.socketPath, r));
   }
 
+  /**
+   * The remote role's control relay listener, publishing its port at
+   * `portFile` (into `env`, not this process's). Resolves the port.
+   */
+  startControlListener(portFile: string, env: NodeJS.ProcessEnv = {}): Promise<number> {
+    this.controlListener ??= new ControlRelayListener({
+      relay: this.controlRelay.relay,
+      portFile,
+      env,
+    });
+    return this.controlListener.start();
+  }
+
   async stop(): Promise<void> {
+    this.controlListener?.stop();
+    this.controlListener = null;
     await this.host.disposeAll();
     return new Promise((r) => {
       this.server.close(() => {
@@ -168,6 +204,7 @@ export class E2EDaemon {
     socket.on("error", () => socket.destroy());
     socket.on("close", () => {
       this.streamSockets.delete(socket);
+      this.controlRelay.closed(socket);
       this.host.detachAllFromSocket(socket);
     });
   }
@@ -290,6 +327,11 @@ export class E2EDaemon {
     if (cmd.type === "write") this.host.write(sessionId, cmd.data ?? "");
     else if (cmd.type === "subscribe") this.host.subscribe(sessionId, socket);
     else if (cmd.type === "unsubscribe") this.host.detach(sessionId, socket);
+    else if (cmd.type === "enableControlRelay") {
+      this.controlRelay.enable(socket, cmd.role === "server" ? "server" : "app");
+    } else if (cmd.type === "controlResponse" && typeof cmd.id === "string") {
+      this.controlRelay.respond(socket, cmd.id, cmd.status ?? 500, cmd.body);
+    }
   }
 
   private send(socket: net.Socket, resp: ControlResponse, requestId?: string): void {

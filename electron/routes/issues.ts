@@ -8,7 +8,7 @@ import { isIssueSource, parseIssueState } from "../issue-sources";
 import type { IssueSource } from "../issue-sources";
 import { InvalidIssueRef, issueBackend } from "../issue-backends";
 import { withProject } from "./projects";
-import type { Route } from "./types";
+import type { RouteContext, ServerRoute, ServerRouteDeps } from "./types";
 
 /**
  * Read `?source=` off an issue route. Absent means GitHub, so existing callers
@@ -26,7 +26,15 @@ function parseSource(
   };
 }
 
-export const issueRoutes: Route[] = [
+/**
+ * Linear is the desktop's for every host's projects (ADR-227 D7): the token
+ * is here and Linear isn't tied to a path. GitHub runs `gh` in the checkout,
+ * so an adopted host's issues are read there (`withProject`).
+ */
+const linearHere = ({ url }: RouteContext<ServerRouteDeps>): boolean =>
+  url.searchParams.get("source") === "linear";
+
+export const issueRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/projects/:projectId/issues",
@@ -55,7 +63,7 @@ export const issueRoutes: Route[] = [
       } catch (err) {
         json(502, { error: String(err) });
       }
-    }),
+    }, { here: linearHere }),
   },
 
   {
@@ -82,6 +90,6 @@ export const issueRoutes: Route[] = [
         if (err instanceof InvalidIssueRef) json(400, { error: err.message });
         else json(502, { error: String(err) });
       }
-    }),
+    }, { here: linearHere }),
   },
 ];

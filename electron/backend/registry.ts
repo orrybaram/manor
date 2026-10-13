@@ -23,10 +23,12 @@ import {
   HostConnection,
   RemoteHostConnection,
   type ControlRelaySink,
+  type HostProxyContext,
   type HostStatus,
   type HostStatusInfo,
   type RemoteHostContext,
 } from "./host-connection";
+import type { HostProxy } from "./host-proxy";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
@@ -103,6 +105,12 @@ export interface BackendRegistryOptions {
   hookReplayRetryDelayMs?: (attempt: number) => number;
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: RemoteHostContext["hostServerClient"];
+  /**
+   * Gives every remote host a `HostProxy` publishing here (ADR-227 D4). The
+   * desktop passes its bus; without it (a host server, most tests) there
+   * are none, and nothing is cached.
+   */
+  hostProxy?: HostProxyContext;
 }
 
 const LOG = "[backend-registry]";
@@ -146,6 +154,7 @@ export class BackendRegistry {
       hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
       controlRelaySink: () => this.controlRelaySink,
       hostServerClient: opts.hostServerClient,
+      hostProxy: opts.hostProxy,
     };
     this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, this.ctx));
   }
@@ -308,6 +317,17 @@ export class BackendRegistry {
   hostServer(hostId: string): HostServerClient | undefined {
     const conn = this.hosts.get(hostId);
     return conn instanceof RemoteHostConnection ? conn.serverClient : undefined;
+  }
+
+  /**
+   * `hostId`'s state as its host server holds it (ADR-227 D4): reads that
+   * answer from the cache while it is away, and calls in the desktop's
+   * form. Undefined for the local host, an unknown one, or a registry built
+   * without `hostProxy`.
+   */
+  hostProxy(hostId: string): HostProxy | undefined {
+    const conn = this.hosts.get(hostId);
+    return conn instanceof RemoteHostConnection ? (conn.proxy ?? undefined) : undefined;
   }
 
   /** Every remote host's owner channel, in registration order. */

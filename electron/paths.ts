@@ -296,6 +296,19 @@ export function backupsDir(): string {
   return path.join(manorHomeDir(), "backups");
 }
 
+/**
+ * Each remote host's last projects, agents and layout, as its host server
+ * last told them (ADR-227 D4): what the desktop shows while the host is away.
+ */
+export function hostCacheDir(): string {
+  return path.join(manorHomeDir(), "host-cache");
+}
+
+/** `hostId`'s cache file in `dir`, `<hostId>.json` (`HostProxy`). */
+export function hostCacheFile(hostId: string, dir: string = hostCacheDir()): string {
+  return path.join(dir, `${hostId.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
+}
+
 export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
 }

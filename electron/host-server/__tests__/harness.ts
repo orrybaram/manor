@@ -212,7 +212,10 @@ export interface OwnerHandle {
     method: string,
     ...args: unknown[]
   ): Promise<T>;
-  /** Subscribe to a bridge event; the client has no events of its own. */
+  /**
+   * Subscribe to a bridge event through the client, which keeps it across
+   * reconnects; the events land in `frames`.
+   */
   subscribe(ns: string, event: string): void;
   waitFor(match: (frame: Frame) => boolean): Promise<Frame>;
 }
@@ -365,11 +368,10 @@ export function useHostServerHarness(): HostServerHarness {
     async owner() {
       const token = fs.readFileSync(paths.ownerToken, "utf-8").trim();
       const frames: Frame[] = [];
-      let socket!: net.Socket;
       const client = new HostServerClient({
         hostId: "box",
         open: async () => {
-          socket = await openOwnerStream(paths.socket, token);
+          const socket = await openOwnerStream(paths.socket, token);
           socket.on(
             "data",
             createLineReader((line) => {
@@ -395,7 +397,7 @@ export function useHostServerHarness(): HostServerHarness {
         invoke: async <T>(ns: string, method: string, ...args: unknown[]) =>
           (await namespaces[ns][method](...args)) as T,
         subscribe: (ns, event) => {
-          socket.write(JSON.stringify({ kind: "subscribe", ns, event }) + "\n");
+          client.subscribe(ns, event, undefined, () => {});
         },
         waitFor: (match) =>
           eventually(

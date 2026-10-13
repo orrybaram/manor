@@ -197,6 +197,22 @@ export function createManorServer<D extends BridgeServerDeps>(
           },
         }
       : {}),
+    // Each remote host's state, from its own server (ADR-227 D4), heard by
+    // this server's renderers under the desktop's keys and the user's name
+    // for the host. Its agents are not republished yet: this server still
+    // replays the host's hooks into its own agent store (ADR-227 ticket 9).
+    // Labels and chat are read at call time, once their owners exist.
+    ...(remoteHosts
+      ? {
+          hostProxy: {
+            bus,
+            label: (hostId: string): string => projectManager.hostLabel(hostId),
+            ...(remoteHosts.hostCacheDir ? { cacheDir: remoteHosts.hostCacheDir } : {}),
+            publishKeyed: (ns: "chat", event: "entry" | "taskEntry", args: unknown[], key: string): void =>
+              bridge.publish(ns, event, args as never, key),
+          },
+        }
+      : {}),
   });
   const layoutPersistence = new LayoutPersistence(platform.layoutFile);
   // Each project's git, shell and machine facts come from its host (ADR-183).

@@ -34,6 +34,9 @@
  *   `serverClient`, with the hook feed's lifecycle — it dials whenever the
  *   host reaches `connected` (a connect or a resume), lets go whenever the
  *   host leaves it (a drop, a disconnect), and is disposed with the host.
+ * - **The host's state** (ADR-227 D4): `proxy`, a `HostProxy` over that
+ *   channel, when the registry was given somewhere to publish it. It
+ *   follows the channel by itself and is disposed with the host.
  * - **The control relay** (ADR-189 §2). A `manor` CLI on the host talks to
  *   its daemon, which relays each request down the stream as a
  *   `controlRequest`. The connection asks for them on every stream
@@ -45,6 +48,8 @@ import { errorMessage } from "../lib/errors";
 import type { Emitter } from "./emitter";
 import { HostHookFeed, type HookSeqStore, type HookSink } from "./hook-feed";
 import { HostServerClient, type HostServerClientOptions } from "./host-server-client";
+import { HostProxy, type HostProxyOptions } from "./host-proxy";
+import { hostCacheFile } from "../paths";
 import { HostUnavailableError, hostGates, hostView, type HostGates } from "./host-view";
 import type { HostProvider } from "./providers/types";
 import { classifyHostFailure } from "./remote-backend";
@@ -149,6 +154,17 @@ export interface RemoteHostContext extends HostConnectionContext {
   controlRelaySink: () => ControlRelaySink | null;
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: Pick<HostServerClientOptions, "requestTimeoutMs" | "retryDelayMs" | "log">;
+  /** Where each host's `HostProxy` publishes; no proxies without it. */
+  hostProxy?: HostProxyContext;
+}
+
+/** What every remote host's `HostProxy` is built with (ADR-227 D4). */
+export interface HostProxyContext
+  extends Pick<HostProxyOptions, "bus" | "republishAgents" | "publishKeyed" | "saveDelayMs" | "log"> {
+  /** The desktop's name for a host (`HostRecords.label`), read at use. */
+  label(hostId: string): string;
+  /** Where the cache files go. Defaults to `hostCacheDir()`. */
+  cacheDir?: string;
 }
 
 export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
@@ -363,6 +379,8 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   readonly hookFeed: HostHookFeed;
   /** The owner channel to the box's host server (ADR-225 D4). */
   readonly serverClient: HostServerClient;
+  /** The host's state through that channel (ADR-227 D4); see `HostProxyContext`. */
+  readonly proxy: HostProxy | null;
   /**
    * Bumped by every host event, so a resume announcement still waiting on
    * its replay is dropped when the host drops again meanwhile.
@@ -394,6 +412,19 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
       open: provider.openServerChannel?.bind(provider) ?? null,
       ...ctx.hostServerClient,
     });
+    const proxyCtx = ctx.hostProxy;
+    this.proxy = proxyCtx
+      ? new HostProxy({
+          client: this.serverClient,
+          bus: proxyCtx.bus,
+          label: () => proxyCtx.label(hostId),
+          cacheFile: hostCacheFile(hostId, proxyCtx.cacheDir),
+          republishAgents: proxyCtx.republishAgents,
+          publishKeyed: proxyCtx.publishKeyed,
+          saveDelayMs: proxyCtx.saveDelayMs,
+          log: proxyCtx.log,
+        })
+      : null;
     this.unsubscribes.push(backend.onHostEvent((event) => this.onHostEvent(event)));
     // The daemon relays to the stream socket that last asked, and forgets
     // one that closes, so every new socket has to ask again.
@@ -469,6 +500,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
 
   /** The host was unregistered or replaced: its owner channel goes with it. */
   override async dispose(): Promise<void> {
+    this.proxy?.dispose();
     this.serverClient.dispose();
     await super.dispose();
   }

@@ -80,6 +80,11 @@ export interface Platform {
   remoteHosts?: {
     /** Manor's own version, which remote hosts are matched against. */
     remoteVersion: string;
+    /**
+     * Where each host's offline cache goes (ADR-227 D4). Defaults to
+     * `~/.manor/host-cache/`.
+     */
+    hostCacheDir?: string;
   };
   /** Plays a notification sound by name (`preferences.playSound`). */
   playSound?: (soundName: string | false) => void;

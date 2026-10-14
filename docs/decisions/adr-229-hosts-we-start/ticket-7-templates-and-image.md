@@ -1,6 +1,6 @@
 ---
 title: Docker and Kubernetes templates, and the host image
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4, 5]

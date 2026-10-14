@@ -89,6 +89,12 @@ Record failures that also fail on main.
   - `terminal-host.test.ts` ("new client can attach after previous client
     detached") flaked once with ENOENT on `meta.json.tmp`. That's a
     pre-existing race in that file, unrelated to this ADR;
+  - the Docker template bind-mounts `secret.key` from the recipe dir, which
+    needs a local daemon (Docker Desktop, or a Linux daemon whose uid 1000
+    matches the desktop user). A remote Docker context isn't supported
+    (ticket 7);
+  - the Kubernetes template's scripts were syntax-checked only, never run
+    (ticket 7);
   - the real `systemctl --user` test is gated behind `MANOR_TEST_SYSTEMD=1`
     and wasn't run, because install turns on lingering for the account.
 

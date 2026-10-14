@@ -1,6 +1,6 @@
 ---
 title: Hosts settings page, removal, and asleep hosts on the phone
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1, 4, 5, 6, 7]

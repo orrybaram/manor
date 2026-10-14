@@ -1,6 +1,6 @@
 ---
 title: The phone names the desktop instead of "This machine"
-status: todo
+status: done
 priority: low
 assignee: sonnet
 blocked_by: []

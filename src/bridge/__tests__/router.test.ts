@@ -1210,6 +1210,22 @@ describe("the router waking a sleeping host (ADR-229 D1)", () => {
     expect(home.invokes.map((i) => i.key)).toEqual(["hosts.wake", "pty.create"]);
   });
 
+  it("leaves the host asleep for a create or attach that declines to wake (ADR-230 D3)", async () => {
+    const home = fakeServer({ "hosts.wake": undefined, "pty.create": { ok: true } });
+    const set = createServerSet();
+    set.add("local", home.transport, { home: true, lists: "all" });
+    const { resolver } = sleepyResolver({ pane: { "pane-1": "box" } });
+    const api = createRouter(set, resolver);
+
+    const created = await api.pty.create("pane-1", "/w", 80, 24, { hostId: "box", wake: false });
+    const attached = await api.pty.attach("pane-1", { wake: false });
+
+    expect(home.invokes).toEqual([]);
+    for (const answer of [created, attached]) {
+      expect(answer).toMatchObject({ ok: false, reason: "host-unavailable", hostId: "box" });
+    }
+  });
+
   it("never wakes the host for a read", async () => {
     const box = fakeServer();
     const home = fakeServer({ "projects.listLocalBranches": ["main"] });

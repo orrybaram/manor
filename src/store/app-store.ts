@@ -24,6 +24,7 @@ import {
   findPanelWithPane,
   findPanelWithTab,
   layoutLeaves,
+  layoutPaneIds,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
@@ -199,6 +200,15 @@ export interface AppState {
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
+  /**
+   * The panes of the layout read at launch whose first `pty.create` has not
+   * settled yet (ADR-230 D3). That create is not one the user meant, so it
+   * leaves a sleeping host asleep (`wake: false`). `forgetRestoredPane`
+   * drops a pane once it has, so every later create wakes as usual.
+   */
+  restoredPaneIds: ReadonlySet<string>;
+  /** `paneId`'s first create after launch is done, whatever its answer. */
+  forgetRestoredPane: (paneId: string) => void;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -1566,6 +1576,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   panePickedElement: {},
   webviewFocusedPaneId: null,
   layoutLoaded: false,
+  restoredPaneIds: new Set<string>(),
   paneFocusNonce: 0,
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
@@ -1585,12 +1596,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         ]);
         lastActiveWorkspacePath =
           ownViewport?.activeWorkspacePath ?? lastActive;
+        // What this launch restores: none of it wakes a sleeping host on
+        // its first mount (ADR-230 D3).
+        const restored = new Set(get().restoredPaneIds);
+        for (const entry of Object.values(entries)) {
+          for (const paneId of layoutPaneIds(entry.layout)) restored.add(paneId);
+        }
+        set({ restoredPaneIds: restored });
         return { entries, seedViewports: ownViewport?.workspaces ?? {} };
       });
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
     }
     set({ layoutLoaded: true });
+  },
+
+  forgetRestoredPane: (paneId) => {
+    const { restoredPaneIds } = get();
+    if (!restoredPaneIds.has(paneId)) return;
+    const rest = new Set(restoredPaneIds);
+    rest.delete(paneId);
+    set({ restoredPaneIds: rest });
   },
 
   setActiveWorkspace: (path: string, hostId?: HostId | null) =>

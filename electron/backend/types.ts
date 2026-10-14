@@ -24,6 +24,16 @@ export type { MachineFacts } from "./machine-facts";
 
 export type StreamEventHandler = (event: StreamEvent) => void;
 
+/**
+ * How a pty call that opens a session may reach its host (ADR-230 D3).
+ * `wake: false` is a call nobody meant — a pane restored at launch — which a
+ * remote host's gate answers without waking a sleeping box. Every backend
+ * but that gate ignores it.
+ */
+export interface PtyConnectOptions {
+  wake?: boolean;
+}
+
 export interface PtyBackend {
   /**
    * `env` is merged into the spawn environment of a session this call creates
@@ -44,6 +54,7 @@ export interface PtyBackend {
     rows: number,
     shellArgs?: string[],
     env?: Record<string, string>,
+    connect?: PtyConnectOptions,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }>;
 
   /**
@@ -51,7 +62,7 @@ export interface PtyBackend {
    * spawns and never resizes; null when there is no such live session
    * (ADR-220).
    */
-  attachExisting(sessionId: string): Promise<TerminalSnapshot | null>;
+  attachExisting(sessionId: string, connect?: PtyConnectOptions): Promise<TerminalSnapshot | null>;
 
   write(sessionId: string, data: string): void;
 

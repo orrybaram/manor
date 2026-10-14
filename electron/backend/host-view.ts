@@ -16,7 +16,7 @@ import { errorMessage } from "../lib/errors";
 import { streamAfter, type StreamResult } from "./exec";
 import type { HostConnection, HostStatus } from "./host-connection";
 import { posixJoin } from "./machine-facts";
-import type { GitBackend, WorkspaceBackend } from "./types";
+import type { GitBackend, PtyBackend, PtyConnectOptions, WorkspaceBackend } from "./types";
 
 /** A host is not in a state to serve the call; see `status`. */
 export class HostUnavailableError extends Error {
@@ -35,8 +35,11 @@ export class HostUnavailableError extends Error {
 }
 
 export interface HostGates {
-  /** Awaited before a pty call. */
-  pty: () => Promise<void>;
+  /**
+   * Awaited before a pty call, with the call's connect options (ADR-230 D3):
+   * `wake: false` connects without waking a sleeping host.
+   */
+  pty: (connect?: PtyConnectOptions) => Promise<void>;
   /**
    * What a failed pty call (its gate included) rejects with: a
    * `HostUnavailableError` whenever the host is not connected, so callers
@@ -52,7 +55,7 @@ export interface HostGates {
 export function hostGates(conn: HostConnection): HostGates {
   return {
     // Wait for the connection (connecting it if need be).
-    pty: async () => {
+    pty: async (connect) => {
       if (conn.disposed) throw new HostUnavailableError(conn.hostId, "unknown");
       switch (conn.status) {
         case "connected":
@@ -68,7 +71,18 @@ export function hostGates(conn: HostConnection): HostGates {
           throw new HostUnavailableError(conn.hostId, "sleeping");
         case "disconnected":
         case "connecting":
-          await conn.ensureConnected();
+          if (connect?.wake !== false) {
+            await conn.ensureConnected();
+            return;
+          }
+          // A call nobody meant — a pane restored at launch (ADR-230 D3) —
+          // connects as a background connect does, leaving a box it finds
+          // asleep asleep.
+          await conn.connectNoWake();
+          // Read again: the connect moved it on.
+          if ((conn.status as HostStatus) === "sleeping") {
+            throw new HostUnavailableError(conn.hostId, "sleeping");
+          }
       }
     },
     ptyFailure: (err) => {
@@ -98,7 +112,7 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
     // included, since main asks for it to resync once a host is back (ADR-184).
     pty: gated(
       backend.pty,
-      gates?.pty ?? null,
+      gates ? (method, args) => gates.pty(ptyConnectOptions(method, args)) : null,
       {
         // Fire-and-forget: nothing to await, and the client drops writes
         // for a session it is not connected to.
@@ -121,15 +135,29 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
   };
 }
 
+/** Which argument of a pty method carries its `PtyConnectOptions`. */
+const PTY_CONNECT_ARG: Partial<Record<keyof PtyBackend, number>> = {
+  createOrAttach: 6,
+  attachExisting: 1,
+};
+
+/** A pty call's connect options, when it has any. */
+function ptyConnectOptions(method: string, args: unknown[]): PtyConnectOptions | undefined {
+  const at = PTY_CONNECT_ARG[method as keyof PtyBackend];
+  const opts = at === undefined ? undefined : args[at];
+  return typeof opts === "object" && opts !== null ? (opts as PtyConnectOptions) : undefined;
+}
+
 /**
- * Wrap every method of `target` so it awaits `gate` first. `overrides` maps
- * a method to a replacement, or to null to call it straight through. A null
- * gate calls everything straight through (the local host). A gated call
- * that fails rejects with `failure(err)`, when given.
+ * Wrap every method of `target` so it awaits `gate` first, handing it the
+ * method and its arguments. `overrides` maps a method to a replacement, or
+ * to null to call it straight through. A null gate calls everything straight
+ * through (the local host). A gated call that fails rejects with
+ * `failure(err)`, when given.
  */
 function gated<T extends object>(
   target: T,
-  gate: (() => Promise<void>) | null,
+  gate: ((method: string, args: unknown[]) => Promise<void>) | null,
   overrides: Record<string, unknown>,
   failure?: (err: unknown) => unknown,
 ): T {
@@ -147,7 +175,7 @@ function gated<T extends object>(
       }
       return async (...args: unknown[]) => {
         try {
-          await gate();
+          await gate(String(prop), args);
           return await fn.apply(obj, args);
         } catch (err) {
           throw failure ? failure(err) : err;

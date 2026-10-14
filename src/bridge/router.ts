@@ -46,7 +46,9 @@
  * stores say is asleep first asks home to wake it (`hosts.wake`), waits for
  * that and for the host's own bridge to come back (bounded), and only then
  * is sent. A read never wakes a host. On the desktop, main's `HostRouting`
- * wakes a host for a write it forwards too; asking twice is harmless.
+ * wakes a host for a write it forwards too; asking twice is harmless. A
+ * create or attach with `wake: false` — a pane restored at launch (ADR-230
+ * D3) — wakes nothing, and answers `host-unavailable` for a host asleep.
  *
  * **What main did on the way, done here.** A call that used to reach a host
  * through main's `HostRouting` picked up a few things there that a direct
@@ -65,11 +67,11 @@
  */
 
 import { keyFor } from "../../electron/bridge/host-rewrite";
-import { byPane, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
+import { byPane, declinesWake, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../electron/bridge/types";
 import { parseChatTaskKey } from "../../electron/chat-mirror/task-key";
-import type { ElectronAPI } from "../electron";
+import type { ElectronAPI, PtyFailure } from "../electron";
 import type { LayoutEntry } from "../lib/layout/protocol";
 import { layoutPaneIds } from "../lib/layout/workspace-layout";
 import {
@@ -639,7 +641,18 @@ export function createRouter(
   function routed(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
     const asleep = sleepingTarget(rule, ns, name, args);
     if (asleep === null) return routedNow(rule, ns, name, args);
+    if (declinesWake(ns, name, args)) return Promise.resolve(asleepAnswer(asleep));
     return wake(asleep).then(() => routedNow(rule, ns, name, args));
+  }
+
+  /**
+   * What a create or attach that declines to wake (ADR-230 D3) answers for a
+   * host asleep: the `host-unavailable` failure a pane waits out behind its
+   * host's asleep banner, as for a host that is away.
+   */
+  function asleepAnswer(hostId: string): PtyFailure {
+    const name = set.get(hostId)?.hello.name ?? hostId;
+    return { ok: false, reason: "host-unavailable", hostId, error: `${name} is asleep` };
   }
 
   function routedNow(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {

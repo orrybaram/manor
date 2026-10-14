@@ -268,6 +268,26 @@ export function wakesHost(ns: string, method: string): boolean {
   return !/^(get|list|can|is|check)[A-Z]/.test(method);
 }
 
+/** Where a call that may decline to wake its host carries its options. */
+const WAKE_OPTION_ARG: Readonly<Record<string, number>> = {
+  "pty.create": 4,
+  "pty.attach": 1,
+};
+
+/**
+ * Whether routed call `ns.method` says it is not one the user meant
+ * (`wake: false`, ADR-230 D3): a pane restored at launch, on its first
+ * mount. A sleeping host is then left asleep and the call answered as for a
+ * host that is away. Main's `HostRouting` and the renderer's router ask the
+ * same question.
+ */
+export function declinesWake(ns: string, method: string, args: readonly unknown[]): boolean {
+  const at = WAKE_OPTION_ARG[`${ns}.${method}`];
+  if (at === undefined) return false;
+  const opts = args[at];
+  return typeof opts === "object" && opts !== null && (opts as { wake?: unknown }).wake === false;
+}
+
 /**
  * Every string in `value`, however deep: the pane ids a layout command names
  * among them, which is how a command queued for a pane no layout holds yet

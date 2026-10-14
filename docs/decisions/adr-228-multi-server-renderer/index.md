@@ -381,12 +381,20 @@ does not send them to the page's server.
      connected. This is the route ADR-225's end-state table asks for. The
      token never leaves the desktop.
   3. **Neither.** The call is refused with a stated reason: "Linear isn't
-     turned on for wsl-box, and This Mac is away". On the desktop the home
-     server is never away, so the same case there reads "…and Linear isn't
+     turned on for wsl-box, and This Mac is away". Each server is named as
+     away when it is unreachable, and as lacking Linear otherwise; two away
+     servers read "wsl-box and This Mac are both away". On the desktop the
+     home server is never away, so there it reads "…and Linear isn't
      connected on This Mac".
 - **Linking an issue to a workspace stays host-native.** That is
   `linear.linkIssueToWorkspace` by `byProject`. The link is project state,
   so it goes to H whichever server answered the browse.
+- **Auto-matching teams is split the same way.** `linear.autoMatch` is a
+  delegated read: it takes `{id, name}` candidates and returns matches
+  without writing. Each match is written by `linear.associateProject`
+  (`byProject`) to the project's own source, or by `projects.updateGroup` on
+  home for a grouped project, since groups are desktop state
+  (`src/lib/linear-auto-match.ts`).
 - **Browsing with no host in mind**, as in `TasksView`: the router asks the
   home server first, then any server with Linear connected.
   - `useTrackerStatus` reports Linear as connected if any reachable server
@@ -519,6 +527,14 @@ Still true:
   leave the minted host device unlinked (`electron/remote-control/host-links.ts`).
 - **Linear without a host.** Settings and wizard calls (`getViewer`,
   `getTeams`, `autoMatch`) pass no host and use browse order, home first.
+- **Grouped projects on a phone whose home is a host server.** Auto-match
+  writes a grouped project's team to its group on home; when home isn't a
+  desktop that write is refused, logged and skipped, as editing project
+  settings there already is.
+- **D10 E2E reach.** The phone E2E proves a call on behalf of a host is
+  answered by the desktop, but can't tell it from a browse (the desktop would
+  answer both), and the refusal for a host call is covered by unit tests
+  only: with the desktop gone, Tasks shows its setup hint instead.
 - **Stale Linear status on an open phone.** `src/bridge/linear-servers.ts`
   caches each server's `isConnected` and refreshes it only on hello and
   `hosts.pairingChanged`. Connecting Linear on the desktop isn't seen by an

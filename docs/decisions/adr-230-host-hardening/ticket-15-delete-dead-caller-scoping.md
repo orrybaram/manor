@@ -1,6 +1,6 @@
 ---
 title: Delete the dead callerHostId scoping
-status: todo
+status: done
 priority: low
 assignee: sonnet
 blocked_by: []

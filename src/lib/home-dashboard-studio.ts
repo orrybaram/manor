@@ -11,6 +11,7 @@ import type {
   ProjectInfo,
   WorkspaceInfo,
 } from "../store/project-store";
+import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
 import { buildTopLevelEntries } from "../utils/sidebar-items";
 import {
@@ -427,6 +428,9 @@ export interface ProjectTile {
 export interface ProjectTileDeps extends NeedsYouInput {
   hosts: readonly HostStatusInfo[];
   hostName: (hostId: string) => string;
+  /** Where the page's own bridges and listing servers stand (`isHostOffline`). */
+  direct?: (hostId: string) => Reachability | undefined;
+  via?: (hostId: string) => Reachability | undefined;
   /** Listening dev-server ports; the lowest one on a member workspace is shown. */
   ports?: readonly TilePort[];
   snoozed?: ReadonlySet<string>;
@@ -522,8 +526,8 @@ export function projectTiles(
     }
 
     const hostIds = members.map((p) => p.hostId);
-    const state = HOST_TILE_STATE[groupHostState(hostIds, deps.hosts)];
-    const awayHost = hostIds.find((id) => isHostOffline(id, deps.hosts));
+    const state = HOST_TILE_STATE[groupHostState(hostIds, deps.hosts, deps.direct, deps.via)];
+    const awayHost = hostIds.find((id) => isHostOffline(id, deps.hosts, deps.direct, deps.via));
     const status = awayHost
       ? describeHost(
           deps.hosts.find((h) => h.hostId === awayHost),

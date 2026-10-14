@@ -31,6 +31,7 @@ import { useCallback, useSyncExternalStore } from "react";
 
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import { createBridge, type BridgeTransport } from "./client";
+import { listPairings, subscribePairings } from "./pairings";
 import { emitBridgeResync } from "./resync";
 import type { ElectronAPI } from "../electron";
 
@@ -354,6 +355,94 @@ export function useServers(): readonly ServerEntry[] {
  */
 export function directReachability(hostId: string): Reachability | undefined {
   return servers.get(hostId)?.reachability;
+}
+
+/**
+ * How the relay servers that list `hostId` are doing, or undefined when
+ * none does — the host is the desktop's own page, or reached some other
+ * way (D3, source 2). A phone's `LOCAL_HOST_ID` is its home server's own
+ * machine. `connected` while any lister answers, `unreachable` when every
+ * one that has spoken is gone, `unknown` otherwise.
+ */
+export function viaReachability(hostId: string): Reachability | undefined {
+  const all = servers.list();
+  const listers =
+    hostId === LOCAL_HOST_ID
+      ? all.filter((e) => e.id === servers.homeId && e.roomId !== null)
+      : all.filter(
+          (e) =>
+            e.roomId !== null &&
+            e.id !== hostId &&
+            (e.lists === "all" || e.lists.has(hostId)),
+        );
+  if (listers.length === 0) return undefined;
+  if (listers.some((e) => e.reachability === "connected")) return "connected";
+  return listers.every((e) => e.reachability === "unreachable") ? "unreachable" : "unknown";
+}
+
+/** `viaReachability`, live. */
+export function useViaReachability(
+  hostId: string | null | undefined,
+): Reachability | undefined {
+  const read = useCallback(
+    (): Reachability | undefined => (hostId ? viaReachability(hostId) : undefined),
+    [hostId],
+  );
+  const subscribe = useCallback(
+    (cb: () => void) => subscribeSelected(servers, read, cb),
+    [read],
+  );
+  return useSyncExternalStore(subscribe, read, read);
+}
+
+/**
+ * What a phone calls the machine behind a relay server: the pairing's name
+ * (the user's own, else the host's), else its hello's. Null for a server
+ * that is not a relay room.
+ */
+function relayServerName(entry: ServerEntry | undefined): string | null {
+  if (!entry || entry.roomId === null) return null;
+  const pairing = listPairings().find((p) => p.roomId === entry.roomId);
+  return pairing?.name ?? entry.hello.name;
+}
+
+/**
+ * The name this page gives the machine behind `hostId`, or null where the
+ * usual label applies ("This machine", the ssh target). On a phone the
+ * home server's own projects (`LOCAL_HOST_ID`) belong to the desktop, so
+ * they carry the desktop's name; a host with a pairing of its own goes by
+ * that pairing's. The page is not that machine (ADR-228 D8).
+ */
+export function serverHostName(hostId: string | null | undefined): string | null {
+  if (!hostId || hostId === LOCAL_HOST_ID) {
+    const home = servers.get(servers.homeId);
+    if (!home || home.roomId === null) return null;
+    return relayServerName(home) ?? "Desktop";
+  }
+  return relayServerName(servers.get(hostId));
+}
+
+/** `serverHostName`, live. */
+export function useServerHostName(hostId: string | null | undefined): string | null {
+  const read = useCallback(() => serverHostName(hostId), [hostId]);
+  const subscribe = useCallback(
+    (cb: () => void) => {
+      const offSet = subscribeSelected(servers, read, cb);
+      let last = read();
+      const offPairings = subscribePairings(() => {
+        const next = read();
+        if (next === last) return;
+        last = next;
+        cb();
+      });
+      return () => {
+        offSet();
+        offPairings();
+      };
+    },
+    [read],
+  );
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /**

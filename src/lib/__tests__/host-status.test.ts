@@ -265,3 +265,28 @@ describe("groupHostState", () => {
     expect(groupHostState([], hosts)).toBe("connected");
   });
 });
+
+describe("isHostOffline with servers that list the host", () => {
+  const hosts = [host({ hostId: "box", status: "connected" })];
+
+  it("is away when every server that lists it is unreachable", () => {
+    expect(isHostOffline("box", hosts, () => undefined, () => "unreachable")).toBe(true);
+  });
+
+  it("stays as main says while any lister answers", () => {
+    expect(isHostOffline("box", hosts, () => undefined, () => "connected")).toBe(false);
+    expect(isHostOffline("box", hosts, () => undefined, () => undefined)).toBe(false);
+  });
+
+  it("ignores the listers when the page holds a bridge of its own", () => {
+    expect(isHostOffline("box", hosts, () => "connected", () => "unreachable")).toBe(false);
+  });
+
+  it("counts a group's host reachable only through a lister as connected", () => {
+    expect(groupHostState(["box", "box"], hosts, () => undefined, () => "connected")).toBe(
+      "connected",
+    );
+    expect(groupHostState(["box", "local"], hosts, () => undefined, (id) =>
+      id === "box" ? "unreachable" : undefined)).toBe("partially-offline");
+  });
+});

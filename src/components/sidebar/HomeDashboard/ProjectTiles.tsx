@@ -6,6 +6,12 @@ import { useHostStore } from "../../../store/host-store";
 import { usePortsStore, acquirePortsScanner } from "../../../store/ports-store";
 import { useActiveSnoozes } from "../../../store/snooze-store";
 import { useMountEffect } from "../../../hooks/useMountEffect";
+import {
+  directReachability,
+  serverHostName,
+  useServers,
+  viaReachability,
+} from "../../../bridge/server-set";
 import { memberHostName } from "../../../lib/hosts";
 import {
   projectTiles,
@@ -44,6 +50,8 @@ export function ProjectTiles(props: ProjectTilesProps) {
     (s) => s.unseenRespondedAgentIds,
   );
   const hosts = useHostStore((s) => s.hosts);
+  // Re-derive when a server comes or goes: the away states read them.
+  const serverList = useServers();
   const ports = usePortsStore((s) => s.ports);
   const snoozed = useActiveSnoozes();
   const openWorkspace = useSelectWorkspace();
@@ -61,7 +69,9 @@ export function ProjectTiles(props: ProjectTilesProps) {
         unseenRespondedAgentIds,
         snoozed,
         hosts,
-        hostName: (hostId: string) => memberHostName(hostId, hosts),
+        hostName: (hostId: string) => serverHostName(hostId) ?? memberHostName(hostId, hosts),
+        direct: directReachability,
+        via: viaReachability,
         ports,
         now,
       }),
@@ -72,6 +82,7 @@ export function ProjectTiles(props: ProjectTilesProps) {
       unseenRespondedAgentIds,
       snoozed,
       hosts,
+      serverList,
       ports,
       now,
     ],

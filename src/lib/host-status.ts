@@ -211,7 +211,8 @@ export function sourcedHost(
  * reads the page's server set). `connecting`, `reconnecting`, `error` and
  * `disconnected` all count as away, as `describeHost` marks them `offline`.
  * This machine (a missing id) and a host main has not reported yet are never
- * away.
+ * away. `via` reads the servers that list a host the page holds no bridge
+ * to: when all of them are gone it is away whatever main last said.
  *
  * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
  * keystrokes replayed into a shell minutes later, into whatever is then in
@@ -222,12 +223,17 @@ export function isHostOffline(
   hostId: string | null | undefined,
   hosts: readonly HostStatusInfo[],
   direct?: (hostId: string) => Reachability | undefined,
+  via?: (hostId: string) => Reachability | undefined,
 ): boolean {
   if (!hostId) return false;
+  const directly = direct?.(hostId);
   const host = sourcedHost(
     hosts.find((h) => h.hostId === hostId),
-    direct?.(hostId),
+    directly,
   );
+  // With no bridge of its own, a host (or the desktop's own machine, on a
+  // phone) is as far away as every server that lists it (D3, source 2).
+  if (directly === undefined && via?.(hostId) === "unreachable") return true;
   return host !== undefined && host.status !== "connected";
 }
 
@@ -247,8 +253,10 @@ export type GroupHostState = "connected" | "partially-offline" | "offline";
 export function groupHostState(
   memberHostIds: readonly (string | null | undefined)[],
   hosts: readonly HostStatusInfo[],
+  direct?: (hostId: string) => Reachability | undefined,
+  via?: (hostId: string) => Reachability | undefined,
 ): GroupHostState {
-  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts)).length;
+  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts, direct, via)).length;
   if (offline === 0) return "connected";
   return offline === memberHostIds.length ? "offline" : "partially-offline";
 }

@@ -58,6 +58,14 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
+import {
+  directReachability,
+  useDirectReachability,
+  useServerHostName,
+  useViaReachability,
+  viaReachability,
+} from "../../bridge/server-set";
+import { isHostOffline } from "../../lib/host-status";
 import { hostLabel, isRemoteHost, memberHostName } from "../../lib/hosts";
 import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -434,6 +442,19 @@ export function ProjectItem(props: ProjectItemProps) {
   const remoteTarget = useHostStore((state) =>
     remoteTargetForProject(project, state),
   );
+  // On a phone, the name of the machine behind this project: the desktop's
+  // for its own projects, a host's own pairing's for a host (ADR-228 D8).
+  const allHostsForState = useHostStore((s) => s.hosts);
+  const serverName = useServerHostName(project.hostId);
+  const hostRowLabel = serverName ?? (isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine");
+  // A lone project on an away host keeps its last workspaces, dimmed; a
+  // group's section is dimmed by its group (ADR-228 D6).
+  useDirectReachability(project.hostId);
+  useViaReachability(project.hostId);
+  const hostOffline =
+    !isSection &&
+    isHostOffline(project.hostId, allHostsForState, directReachability, viaReachability);
+  const showHostHeading = isRemoteHost(project.hostId) || serverName !== null;
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -1191,8 +1212,11 @@ export function ProjectItem(props: ProjectItemProps) {
       className={
         isSection
           ? styles.section
-          : `${styles.project} ${isSelected ? styles.projectSelected : ""}`
+          : `${styles.project} ${isSelected ? styles.projectSelected : ""} ${
+              hostOffline ? styles.sectionOffline : ""
+            }`
       }
+      data-host-offline={hostOffline || undefined}
       style={projectColorStyle(project.color)}
     >
       <ContextMenu.Root>
@@ -1218,7 +1242,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 hostId={project.hostId}
                 projectId={project.id}
                 path={project.path}
-                label={isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine"}
+                label={hostRowLabel}
                 collapsedCount={expanded ? null : project.workspaces.length}
               />
             ) : (
@@ -1331,18 +1355,18 @@ export function ProjectItem(props: ProjectItemProps) {
       {isSection ? (
         <Collapse open={expanded && items.length > 0}>{workspaceList}</Collapse>
       ) : (
-        <Collapse open={expanded && (isRemoteHost(project.hostId) || items.length > 0)}>
+        <Collapse open={expanded && (showHostHeading || items.length > 0)}>
           {/* Hangs off a guide line under the chevron (ADR-193 §3). */}
           <div className={styles.projectBody}>
             {/* A remote-only project names its host above its workspaces,
                 the way a linked group's sections do. */}
-            {isRemoteHost(project.hostId) && (
+            {showHostHeading && (
               <div className={styles.hostHeading} data-testid="project-host-heading">
                 <SectionHostLabel
                   hostId={project.hostId}
                   projectId={project.id}
                   path={project.path}
-                  label={remoteTarget ?? project.hostId}
+                  label={hostRowLabel}
                   collapsedCount={null}
                 />
               </div>

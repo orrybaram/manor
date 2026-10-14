@@ -28,6 +28,42 @@ describe("the owner channel (ADR-225 D4)", () => {
     expect(auth(undefined)).toMatchObject({ ok: false, code: 4401 });
   });
 
+  it("records a desktop viewer stream as the owner with the viewer fact (ADR-228 D4)", () => {
+    const auth = ownerTokenAuthenticator("tok");
+    expect(auth("tok", { type: "hello", token: "tok", viewer: "desktop" })).toEqual({
+      ok: true,
+      caller: {
+        callerClass: "owner",
+        viewer: "desktop",
+        deviceId: null,
+        deviceLabel: null,
+      },
+    });
+    // An older desktop's hello, or any other value, is main's owner channel.
+    for (const hello of [{ type: "hello", token: "tok" }, { viewer: "phone" }]) {
+      expect(auth("tok", hello)).toEqual({
+        ok: true,
+        caller: { callerClass: "owner", deviceId: null, deviceLabel: null },
+      });
+    }
+    // Saying it is no credential.
+    expect(auth("nope", { viewer: "desktop" })).toMatchObject({ ok: false, code: 4401 });
+  });
+
+  it("reports the viewer-bridge capability and its relay room in its status (ADR-228)", async () => {
+    const server = await h.serve();
+    await h.relayUp(server);
+    const client = await h.owner();
+    const status = await client.invoke<HostServerStatus>("hostServer", "status");
+    expect(status.capabilities).toContain("viewer-bridge");
+    expect(status.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    // The room the relay addresses, and the one a phone's pairing stores.
+    expect(status.roomId).toBe(status.relay.roomId);
+    expect(h.relay.liveHost?.roomId).toBe(status.roomId);
+    const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+    expect(paired.pairingUrl).toContain(`#relay=${status.roomId}.`);
+  });
+
   it("names itself in the hello by the box's own name", async () => {
     const server = await h.serve();
     await h.relayUp(server);

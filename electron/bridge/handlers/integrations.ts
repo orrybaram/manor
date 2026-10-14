@@ -22,6 +22,7 @@ import {
   assertGhRepo,
   assertString,
   assertStringArray,
+  isLinearAssociation,
 } from "../../ipc-validate";
 import type {
   GitHubIssue,
@@ -38,7 +39,7 @@ import type {
 } from "../../linear";
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
-import { byGhRepo, byHost, byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import { byGhRepo, byHost, byProject, delegated, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { SharedDeps } from "../../ipc/types";
 
 /** What `gh` needs: the host server carries this and no more of `ServerDeps`. */
@@ -322,31 +323,69 @@ export function linearProxyImage(
   return ctx.deps.linearManager.proxyImage(url);
 }
 
+/** A project `linearAutoMatch` is asked to find a team for. */
+export interface LinearMatchCandidate {
+  id: string;
+  name: string;
+}
+
+function assertCandidates(value: unknown): asserts value is LinearMatchCandidate[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (p: unknown) =>
+        typeof p === "object" &&
+        p !== null &&
+        typeof (p as LinearMatchCandidate).id === "string" &&
+        typeof (p as LinearMatchCandidate).name === "string",
+    )
+  ) {
+    throw new Error("projects must be a list of { id, name }");
+  }
+}
+
 /**
- * Guess a Linear team for every project that has none yet.
+ * Guess a Linear team for each of `projects` by name — by default, this
+ * server's own projects that have none yet.
  *
- * Writes — it sets `linearAssociations` on the projects it matched — so it is
- * `mutating` alongside the issue actions, not with the reads its name
- * suggests.
+ * A read: it writes nothing. Its caller is the renderer, which may have had
+ * it answered by whichever server holds the token (ADR-228 D10) and writes
+ * each match to its project's own server with `linear.associateProject`.
  */
 export async function linearAutoMatch(
   ctx: HandlerCtx<LinearDeps>,
+  projects?: LinearMatchCandidate[],
 ): Promise<Record<string, LinearAssociation>> {
-  const projects = await ctx.deps.projectManager.getProjects();
-  const teams = await ctx.deps.linearManager.getTeams();
-  const matches = ctx.deps.linearManager.autoMatchProjects(
-    projects.map((p) => ({ id: p.id, name: p.name })),
-    teams,
-  );
-  for (const [projectId, association] of Object.entries(matches)) {
-    const project = projects.find((p) => p.id === projectId);
-    if (project && project.linearAssociations.length === 0) {
-      ctx.deps.projectManager.updateProject(projectId, {
-        linearAssociations: [association],
-      });
-    }
+  let candidates: LinearMatchCandidate[];
+  if (projects === undefined) {
+    candidates = (await ctx.deps.projectManager.getProjects())
+      .filter((p) => p.linearAssociations.length === 0)
+      .map((p) => ({ id: p.id, name: p.name }));
+  } else {
+    assertCandidates(projects);
+    candidates = projects.map(({ id, name }) => ({ id, name }));
   }
-  return matches;
+  if (candidates.length === 0) return {};
+  const teams = await ctx.deps.linearManager.getTeams();
+  return ctx.deps.linearManager.autoMatchProjects(candidates, teams);
+}
+
+/**
+ * Give `projectId` the Linear team `association`, if it has none yet: an
+ * auto-match's write, made on the project's own server (ADR-228 D10). True
+ * when it was written.
+ */
+export async function linearAssociateProject(
+  ctx: HandlerCtx<Pick<SharedDeps, "projectManager">>,
+  projectId: string,
+  association: LinearAssociation,
+): Promise<boolean> {
+  assertString(projectId, "projectId");
+  if (!isLinearAssociation(association)) throw new Error("association must be a Linear team");
+  const project = (await ctx.deps.projectManager.getProjects()).find((p) => p.id === projectId);
+  if (!project || project.linearAssociations.length > 0) return false;
+  await ctx.deps.projectManager.updateProject(projectId, { linearAssociations: [association] });
+  return true;
 }
 
 // Assigning, closing or opening an issue is a change every viewer's picker
@@ -383,19 +422,22 @@ export const linear = {
   // flight is the credential itself, so connecting Linear is done at the
   // machine whose keychain will hold it; and it is never `mutating`, because
   // the audit line records the first argument — the key.
-  connect: method(linearConnect, { localOnly: true, secretFirstArg: true }),
+  connect: method(linearConnect, { localOnly: true, secretFirstArg: true, route: LOCAL_ROUTE }),
   // Drops the integration for every viewer.
-  disconnect: method(linearDisconnect, { mutating: true }),
-  isConnected: method(linearIsConnected),
-  getViewer: method(linearGetViewer),
-  getTeams: method(linearGetTeams),
-  getMyIssues: method(linearGetMyIssues),
-  getIssueDetail: method(linearGetIssueDetail),
-  getAllIssues: method(linearGetAllIssues),
-  proxyImage: method(linearProxyImage),
-  autoMatch: method(linearAutoMatch, { mutating: true }),
-  startIssue: method(linearStartIssue, { mutating: true }),
-  closeIssue: method(linearCloseIssue, { mutating: true }),
+  disconnect: method(linearDisconnect, { mutating: true, route: LOCAL_ROUTE }),
+  isConnected: method(linearIsConnected, { route: LOCAL_ROUTE }),
+  // Path-free: the renderer's router picks the server that holds the token
+  // (ADR-228 D10); main answers them itself.
+  getViewer: method(linearGetViewer, { route: delegated("linear") }),
+  getTeams: method(linearGetTeams, { route: delegated("linear") }),
+  getMyIssues: method(linearGetMyIssues, { route: delegated("linear") }),
+  getIssueDetail: method(linearGetIssueDetail, { route: delegated("linear") }),
+  getAllIssues: method(linearGetAllIssues, { route: delegated("linear") }),
+  proxyImage: method(linearProxyImage, { route: delegated("linear") }),
+  // A read: its matches are written by `associateProject`, below.
+  autoMatch: method(linearAutoMatch, { route: delegated("linear") }),
+  startIssue: method(linearStartIssue, { mutating: true, route: delegated("linear") }),
+  closeIssue: method(linearCloseIssue, { mutating: true, route: delegated("linear") }),
   // A workspace's linked issues are its project's record: a remote
   // project's host server's (ADR-227 D4).
   linkIssueToWorkspace: method(linearLinkIssueToWorkspace, {
@@ -406,4 +448,6 @@ export const linear = {
     mutating: true,
     route: byProject(0),
   }),
+  // A project's team is its record too, whichever server matched it.
+  associateProject: method(linearAssociateProject, { mutating: true, route: byProject(0) }),
 };

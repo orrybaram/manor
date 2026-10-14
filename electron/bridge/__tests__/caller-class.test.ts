@@ -384,6 +384,8 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hosts.resetPairingKeys",
         // ADR-227 D7: sends this computer's Linear key to a host.
         "hosts.setLinearOnHost",
+        // ADR-228 D9: lets the desktop pair its phones on a host, or revokes them.
+        "hosts.setLinkPhones",
       ].sort(),
     );
   });

@@ -13,7 +13,14 @@
  *   one status read.
  * - **The host's push endpoints** are read back after it, and again whenever
  *   a phone is paired or revoked (`pairingChanged`): the desktop skips its
- *   own push to those for that host's agents.
+ *   own push to those for that host's agents. The same status read gives
+ *   the host's relay room and whether it takes desktop viewer streams
+ *   (ADR-228 D2, D3), which `hosts.list` carries.
+ * - **Owed revokes** (ADR-228 D9): a pairing this desktop minted on the host
+ *   for one of its own devices, whose revoke could not reach the host —
+ *   the device was revoked, or "Phones paired with this Mac can reach" turned
+ *   off, while the host was away. Stored on the host's record, and revoked
+ *   on the next connect, before the endpoints are read.
  *
  * The host server owns its projects and layout (ADR-227 D2), so neither is
  * pushed any more.
@@ -28,7 +35,10 @@ import {
 } from "../host-server/layout";
 import type { VapidKeys } from "../remote-control/push";
 import { HostPushEndpoints } from "../remote-control/host-push-endpoints";
+import { hasViewerBridge } from "../host-server/capabilities";
+import type { HostServerStatus } from "../host-server/relay";
 import type { HostAdoption } from "./host-adoption";
+import type { HostServerFacts } from "./host-connection";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 
 /** The registry's side of the push: each remote host's owner channel. */
@@ -38,6 +48,43 @@ export interface HostServerRegistry {
   onHostServerStateChange(
     listener: (hostId: string, state: HostServerClientState) => void,
   ): () => void;
+  /**
+   * Record what a host's server said in its last status (ADR-228 D2, D3), so
+   * `hosts.list` carries its room and whether it takes viewer streams.
+   * Optional: a registry that does not list hosts has nowhere to put them.
+   */
+  setServerFacts?(hostId: string, facts: HostServerFacts | null): void;
+}
+
+/**
+ * The facts `hosts.list` carries, from one status (ADR-228 D2, D3). A host
+ * still waiting to be adopted takes no viewer stream yet (main refuses one,
+ * `electron/ipc/host-pipe.ts`), so it does not say it does: a window would
+ * only dial it to be turned away.
+ */
+export function serverFactsOf(
+  status: Pick<HostServerStatus, "roomId" | "capabilities" | "relay"> &
+    Partial<Pick<HostServerStatus, "ownership">>,
+): HostServerFacts {
+  return {
+    // A server from before ADR-228 has no top-level `roomId`; its relay's is
+    // the same room.
+    roomId: status.roomId !== undefined ? status.roomId : (status.relay?.roomId ?? null),
+    viewerBridge: hasViewerBridge(status) && status.ownership !== "pending",
+  };
+}
+
+/**
+ * The linked pairings each host is owed a revoke of (ADR-228 D9), by the
+ * host's own device id: `PersistedHost.pendingRevokes`, through
+ * `ProjectManager`.
+ */
+export interface PendingRevokes {
+  list(hostId: string): readonly string[];
+  /** `hostDeviceIds` were revoked on `hostId`. */
+  clear(hostId: string, hostDeviceIds: readonly string[]): void;
+  /** Some were: the host's phone list changed. */
+  revoked?(hostId: string): void;
 }
 
 export interface HostServerSyncOptions {
@@ -49,6 +96,8 @@ export interface HostServerSyncOptions {
   vapidKeys?(): Promise<VapidKeys | null>;
   /** Hands each host's records to its server (ADR-227 D3). */
   adoption?: Pick<HostAdoption, "run">;
+  /** Revokes owed to each host, sent on every connect (ADR-228 D9). */
+  pendingRevokes?: PendingRevokes;
   log?: Pick<Console, "warn">;
 }
 
@@ -56,6 +105,7 @@ export class HostServerSync {
   private readonly registry: HostServerRegistry;
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
   private readonly adoption: Pick<HostAdoption, "run"> | undefined;
+  private readonly pending: PendingRevokes | undefined;
   private readonly log: Pick<Console, "warn">;
   private unsubscribe: (() => void) | null = null;
   /** The push endpoints each host's server sends to (ADR-225 D3). */
@@ -65,10 +115,16 @@ export class HostServerSync {
     this.registry = opts.registry;
     this.vapidKeys = opts.vapidKeys;
     this.adoption = opts.adoption;
+    this.pending = opts.pendingRevokes;
     this.endpoints = new HostPushEndpoints({
+      // The one status read per connect and pairing change: its room and
+      // capabilities are recorded for `hosts.list` on the way past.
       status: async (hostId) => {
         const client = opts.registry.hostServer(hostId);
-        return client?.state === "connected" ? client.api.hostServer.status() : null;
+        if (client?.state !== "connected") return null;
+        const status = await client.api.hostServer.status();
+        opts.registry.setServerFacts?.(hostId, serverFactsOf(status));
+        return status;
       },
     });
     this.log = opts.log ?? console;
@@ -82,7 +138,11 @@ export class HostServerSync {
     this.unsubscribe?.();
     this.unsubscribe = this.registry.onHostServerStateChange((hostId, state) => {
       if (state === "connected") void this.sendAll(hostId);
-      else if (state === "unsupported") this.endpoints.forget(hostId);
+      else if (state === "unsupported") {
+        this.endpoints.forget(hostId);
+        // No host server on the box: no room, no viewer streams.
+        this.registry.setServerFacts?.(hostId, null);
+      }
     });
     for (const client of this.registry.hostServers()) {
       if (client.state === "connected") void this.sendAll(client.hostId);
@@ -105,6 +165,34 @@ export class HostServerSync {
     return this.endpoints.refresh(hostId);
   }
 
+  /**
+   * Revoke what `hostId` is owed, now if its owner channel is up; whatever
+   * does not go through stays owed for the next connect. Resolves once the
+   * endpoint cache is current again, if anything was revoked.
+   */
+  async revokePending(hostId: string): Promise<void> {
+    const pending = this.pending;
+    const client = this.registry.hostServer(hostId);
+    if (!pending || client?.state !== "connected") return;
+    const owed = pending.list(hostId);
+    if (owed.length === 0) return;
+    const done: string[] = [];
+    for (const id of owed) {
+      try {
+        // A device the host no longer has (its keys were reset) revokes as
+        // a no-op, and is no longer owed either.
+        await client.api.remoteControl.revoke(id);
+        done.push(id);
+      } catch (err) {
+        this.log.warn(`[host-server-sync] ${hostId}: revoke failed: ${errorMessage(err)}`);
+      }
+    }
+    if (done.length === 0) return;
+    pending.clear(hostId, done);
+    await this.endpoints.refresh(hostId);
+    pending.revoked?.(hostId);
+  }
+
   dispose(): void {
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -117,6 +205,7 @@ export class HostServerSync {
     // read only after the key is in.
     await this.pushVapidKeys(hostId, client);
     await this.adopt(hostId, client);
+    await this.revokePending(hostId);
     await this.endpoints.refresh(hostId);
   }
 

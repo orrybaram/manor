@@ -405,6 +405,28 @@ export class ProjectManager {
     this.hosts.markAdopted(hostId);
   }
 
+  /** "Phones paired with this Mac can reach <host>" (ADR-228 D9). */
+  hostLinksPhones(hostId: string): boolean {
+    return this.hosts.linkPhones(hostId);
+  }
+
+  setHostLinksPhones(hostId: string, on: boolean): void {
+    this.hosts.setLinkPhones(hostId, on);
+  }
+
+  /** Linked pairings on `hostId` still to revoke (ADR-228 D9). */
+  pendingHostRevokes(hostId: string): string[] {
+    return this.hosts.pendingRevokes(hostId);
+  }
+
+  addPendingHostRevokes(hostId: string, hostDeviceIds: readonly string[]): void {
+    this.hosts.addPendingRevokes(hostId, hostDeviceIds);
+  }
+
+  clearPendingHostRevokes(hostId: string, hostDeviceIds: readonly string[]): void {
+    this.hosts.clearPendingRevokes(hostId, hostDeviceIds);
+  }
+
   /**
    * On a host server: take in the desktop's records for this host (ADR-227
    * D3). A project matched by id — or, failing that, by path — is merged with

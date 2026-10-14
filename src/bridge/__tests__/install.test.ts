@@ -120,7 +120,16 @@ describe("the bridge-install ordering invariant", () => {
     (window as unknown as { manorHost: ManorHost }).manorHost = host;
     await import("../install-desktop");
 
-    expect(host.invoke).not.toHaveBeenCalled();
-    expect(host.subscribe).not.toHaveBeenCalled();
+    // The bridge itself reads the host list (`desktop-hosts.ts`); the store
+    // never reached it.
+    expect(host.invoke).not.toHaveBeenCalledWith(
+      expect.objectContaining({ ns: "preferences" }),
+    );
+    expect(host.subscribe).not.toHaveBeenCalledWith(
+      "preferences",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });

@@ -19,6 +19,7 @@
  * reads "reconnecting", in the warning tone, never "failed".
  */
 
+import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
 
 export type HostTone = "ok" | "warn" | "error";
@@ -189,10 +190,38 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether host `hostId` is away: main reported it and it is not connected.
- * `connecting`, `reconnecting`, `error` and `disconnected` all count as away,
- * as `describeHost` marks them `offline`. This machine (a missing id) and a
- * host main has not reported yet are never away.
+ * `host` as its source says it is (ADR-228 D6). A desktop window that holds
+ * its own bridge to the host's server (`src/bridge/desktop-hosts.ts`) has the
+ * host answering it while that bridge is `connected`, whatever main's last
+ * status said; otherwise main's status is the host's. Main closes a window's
+ * stream the moment a host leaves `connected`, so the two disagree only
+ * while that news is on its way — and then the host that is answering wins.
+ *
+ * `via` is how the servers that list the host are doing (`viaReachability`).
+ * A host the page holds no bridge to is reached only through them, so when
+ * every one is gone it reads "Not connected", whatever their last word was.
+ */
+export function sourcedHost(
+  host: HostStatusInfo | undefined,
+  direct: Reachability | undefined,
+  via?: Reachability,
+): HostStatusInfo | undefined {
+  if (!host) return host;
+  if (direct === undefined && via === "unreachable" && host.status === "connected") {
+    return { hostId: host.hostId, spec: host.spec, status: "disconnected" };
+  }
+  if (direct !== "connected" || host.status === "connected") return host;
+  return { hostId: host.hostId, spec: host.spec, status: "connected" };
+}
+
+/**
+ * Whether host `hostId` is away: main reported it and it is not connected,
+ * and no bridge of this page's own to its server is (`sourcedHost`; `direct`
+ * reads the page's server set). `connecting`, `reconnecting`, `error` and
+ * `disconnected` all count as away, as `describeHost` marks them `offline`.
+ * This machine (a missing id) and a host main has not reported yet are never
+ * away. `via` reads the servers that list a host the page holds no bridge
+ * to: when all of them are gone it is away whatever main last said.
  *
  * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
  * keystrokes replayed into a shell minutes later, into whatever is then in
@@ -202,9 +231,18 @@ export function secondsUntilRetry(
 export function isHostOffline(
   hostId: string | null | undefined,
   hosts: readonly HostStatusInfo[],
+  direct?: (hostId: string) => Reachability | undefined,
+  via?: (hostId: string) => Reachability | undefined,
 ): boolean {
   if (!hostId) return false;
-  const host = hosts.find((h) => h.hostId === hostId);
+  const directly = direct?.(hostId);
+  const host = sourcedHost(
+    hosts.find((h) => h.hostId === hostId),
+    directly,
+  );
+  // With no bridge of its own, a host (or the desktop's own machine, on a
+  // phone) is as far away as every server that lists it (D3, source 2).
+  if (directly === undefined && via?.(hostId) === "unreachable") return true;
   return host !== undefined && host.status !== "connected";
 }
 
@@ -224,8 +262,18 @@ export type GroupHostState = "connected" | "partially-offline" | "offline";
 export function groupHostState(
   memberHostIds: readonly (string | null | undefined)[],
   hosts: readonly HostStatusInfo[],
+  direct?: (hostId: string) => Reachability | undefined,
+  via?: (hostId: string) => Reachability | undefined,
 ): GroupHostState {
-  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts)).length;
+  return groupStateOf(memberHostIds, (id) => isHostOffline(id, hosts, direct, via));
+}
+
+/** `groupHostState` by a predicate that already knows which hosts are away. */
+export function groupStateOf(
+  memberHostIds: readonly (string | null | undefined)[],
+  isAway: (hostId: string | null | undefined) => boolean,
+): GroupHostState {
+  const offline = memberHostIds.filter(isAway).length;
   if (offline === 0) return "connected";
   return offline === memberHostIds.length ? "offline" : "partially-offline";
 }

@@ -148,12 +148,10 @@ function oneAtATime<T>(scope: object, paneId: string, create: () => Promise<T>):
 function isFreshSession(
   deps: SpawnPaneDeps,
   paneId: string,
-  result: { snapshot: unknown; spawned?: boolean },
+  result: { snapshot: unknown },
 ): boolean {
   const adopted = deps.prewarmManager?.claimAdopted(paneId) ?? false;
-  // A remote host's server that started the session says so itself (ADR-227
-  // D4): this create attached to it, so it has a snapshot either way.
-  return (result.spawned ?? result.snapshot === null) || adopted;
+  return result.snapshot === null || adopted;
 }
 
 /**

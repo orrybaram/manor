@@ -1,5 +1,7 @@
 import Cloud from "lucide-react/dist/esm/icons/cloud";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
+import { useServerHostName } from "../../bridge/server-set";
+import { LOCAL_HOST_ID } from "../../lib/hosts";
 import { useHostStore } from "../../store/host-store";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import type { HostDisplay } from "../../lib/host-status";
@@ -57,10 +59,12 @@ export function HostIndicator(props: HostIndicatorProps) {
  * the New Workspace host picker.
  */
 export function LocalHostLabel() {
+  // On a phone "this machine" is the desktop, by name (ADR-228 D8).
+  const name = useServerHostName(LOCAL_HOST_ID);
   return (
     <span className={styles.local} data-testid="local-host-label">
       <Laptop size={11} aria-hidden />
-      This machine
+      {name ?? "This machine"}
     </span>
   );
 }
@@ -71,9 +75,10 @@ export function LocalHostLabel() {
  */
 export function RemoteHostLabel(props: { hostId: string }) {
   const { hostId } = props;
-  const target = useHostStore(
+  const reported = useHostStore(
     (s) => s.hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId,
   );
+  const target = useServerHostName(hostId) ?? reported;
   return (
     <span className={styles.local} data-testid="remote-host-label">
       <Cloud size={11} aria-hidden />

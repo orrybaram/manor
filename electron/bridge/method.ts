@@ -8,7 +8,22 @@
  */
 
 import type { HostDeps } from "../ipc/types";
-import type { CallerClass, UnavailableCode } from "./types";
+import { LOCAL_ROUTE, type RouteRule } from "./routes";
+import type { CallerClass, UnavailableCode, ViewerKind } from "./types";
+
+// The route rules live in `./routes.ts` (ADR-228 D1) so the renderer can read
+// them; the tables import them from here.
+export {
+  LOCAL_ROUTE,
+  byAgent,
+  byGhRepo,
+  byHost,
+  byPane,
+  byProject,
+  delegated,
+  byWorkspaceKey,
+  type RouteRule,
+} from "./routes";
 
 /**
  * Who is calling, as the transport saw it — never as the frame says.
@@ -25,6 +40,12 @@ export interface Caller {
    * server's owner channel (ADR-225 D4); `device` = a paired `full` device.
    */
   callerClass: CallerClass;
+  /**
+   * A desktop window's own stream to a host server (ADR-228 D4): an `owner`
+   * that ranks as the desk for the winsize and is its own layout origin.
+   * Absent for everyone else.
+   */
+  viewer?: ViewerKind;
   /** The paired device behind a `device` caller; null/absent for `local`. */
   deviceId?: string | null;
 }
@@ -62,63 +83,6 @@ export type BridgeHandler<D = HostDeps> = (
  * a table entry is constrained by, before a server says which deps it runs.
  */
 type AnyBridgeHandler = BridgeHandler<never>;
-
-/**
- * Which host a call is for, read off one of its arguments (ADR-227 D4).
- *
- * - `project`: a project id — the host the project lives on.
- * - `workspaceKey`: a workspace key (`<hostId>:<path>`, or a bare local path).
- * - `pane`: a pane id — the host whose layout holds the pane.
- * - `ghRepo`: a `GhRepo` (`{ path, hostId }`) — its `hostId`.
- * - `host`: a host id, or null/absent for the desktop's own.
- * - `agent`: an agent id — the host whose server holds the agent.
- *
- * On the desktop, a call whose argument names a remote host is answered by
- * that host's server, through its `HostProxy` (`BridgeServer`'s `forward`);
- * every other call, and every call on a host server, runs here.
- */
-export interface RouteRule {
-  by: "project" | "workspaceKey" | "pane" | "ghRepo" | "agent" | "host";
-  /** Which wire argument names the target. */
-  arg: number;
-}
-
-/**
- * Answered here whatever host it touches: a merged read, or a write that
- * fans out to each host itself (`ProjectManager`'s groups). The surface
- * test asks every method of a routed namespace to say one or the other.
- */
-export const LOCAL_ROUTE = "local";
-
-/** A project id at `arg`. */
-export function byProject(arg: number): RouteRule {
-  return { by: "project", arg };
-}
-
-/** A workspace key at `arg`. */
-export function byWorkspaceKey(arg: number): RouteRule {
-  return { by: "workspaceKey", arg };
-}
-
-/** A pane id at `arg`. */
-export function byPane(arg: number): RouteRule {
-  return { by: "pane", arg };
-}
-
-/** A `GhRepo` at `arg`. */
-export function byGhRepo(arg: number): RouteRule {
-  return { by: "ghRepo", arg };
-}
-
-/** A host id at `arg`; an absent one stays on this machine. */
-export function byHost(arg: number): RouteRule {
-  return { by: "host", arg };
-}
-
-/** An agent id at `arg`. */
-export function byAgent(arg: number): RouteRule {
-  return { by: "agent", arg };
-}
 
 export interface MethodRules {
   /**

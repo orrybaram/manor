@@ -23,10 +23,13 @@
  * once fell through to here goes over `bridge:invoke` now, on every call,
  * the same as it does from a browser — 140-odd methods crossed one group at
  * a time, and this file did not have to change once for any of them.
+ * Since then `native` has gained only what is native by the same test:
+ * `hostPipe` (ADR-228 D4), a window's own SSH stream to a host server, which
+ * a page cannot open and main has to carry.
  *
  * `native` carries no root-level function either. Every member of
  * `ElectronAPI` that is not a host fact lives in a namespace, and every
- * namespace outside those seven crosses to the host.
+ * namespace outside the native ones crosses to the host.
  */
 
 import type { ManorHost } from "../../electron";

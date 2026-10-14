@@ -1046,6 +1046,22 @@ describe("linked-project groups at the top level (ADR-192)", () => {
     expect(topLevelKeys(entries)).toEqual(["other", "g-app", "docs"]);
   });
 
+  it("shows a group's members as separate projects when the page sees only one", () => {
+    // A phone paired with a host alone: the desktop's member is not there.
+    const entries = buildTopLevelEntries([member("app-box", "box", appGroup)]);
+
+    expect(topShape(entries)).toEqual(["app-box"]);
+  });
+
+  it("shows members as separate projects when a page sees them without the group", () => {
+    const entries = buildTopLevelEntries([
+      member("app-local", "desk-room"),
+      member("app-box", "box-room"),
+    ]);
+
+    expect(topShape(entries)).toEqual(["app-local", "app-box"]);
+  });
+
   it("keeps each section's own workspace order and folders", () => {
     const localTree = project(
       [ws("/l/main"), ws("/l/feat", "f1"), ws("/l/fix")],

@@ -49,10 +49,18 @@ function originOf(caller: Caller): LayoutOrigin {
  * Who a command came from, as the layout store records it: the caller — or,
  * on a host server, the desktop's own caller, which the owner forwards it
  * for (ADR-227 D4), so the broadcast's hint lands on the renderer that sent
- * it. Only the owner may say; anyone else's third argument is ignored.
+ * it. Only main's owner channel may say; anyone else's third argument is
+ * ignored. A desktop window's viewer stream (ADR-228 D4) is an owner too,
+ * but it is the renderer itself: its own connection is the origin.
  */
 function commandOrigin(caller: Caller, forwardedFor: unknown): LayoutOrigin {
-  if (caller.callerClass !== "owner" || !isOrigin(forwardedFor)) return originOf(caller);
+  if (
+    caller.callerClass !== "owner" ||
+    caller.viewer !== undefined ||
+    !isOrigin(forwardedFor)
+  ) {
+    return originOf(caller);
+  }
   return { kind: forwardedFor.kind, id: forwardedFor.id };
 }
 
@@ -199,5 +207,7 @@ export const layout = {
   // A pane no layout holds yet stays here, and goes with the command that
   // adds it (`HostRouting`).
   setPendingCommand: method(layoutSetPendingCommand, { mutating: true, route: byPane(0) }),
-  reportViewport: method(layoutReportViewport, { route: byWorkspaceKey(0) }),
+  // A window's report, and its claim, are the desktop's whatever workspace
+  // it names (ADR-228 D7): a host server has no windows to hold a claim.
+  reportViewport: method(layoutReportViewport, { route: LOCAL_ROUTE }),
 };

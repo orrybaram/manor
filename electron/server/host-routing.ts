@@ -19,9 +19,18 @@
  *   renderer queued a moment before without knowing the pane's host. Setup
  *   and teardown progress the host sends its owner goes back to whoever
  *   asked.
- * - **Starting a session** (`spawnSession`, `RoutedBackend`'s
- *   `SpawnOnHost`): the host's server spawns a remote pane's session and
- *   types its pending command; the desktop attaches over the daemon stream.
+ * - **A remote pane's terminal** (ADR-228 D5). Its `pty.*` calls are routed
+ *   by pane like any other: the host's server creates, attaches, types into
+ *   and resizes it, and types its pending command into a fresh one. Its
+ *   events come back through the proxy (`wirePty`) while a caller of the
+ *   desktop's is subscribed to them — a phone paired only with the desktop,
+ *   or a desktop window whose own stream to the host is down. The desktop
+ *   never attaches it over the host's daemon stream. A host that is away
+ *   answers a create or attach with the `host-unavailable` failure a
+ *   renderer waits out, as the daemon's did.
+ * - **Claims** (ADR-228 D7): a detached window's claim on a remote tab is
+ *   the desktop's, and the proxy publishes the host's layout with it
+ *   (`republishClaims`).
  *
  * A host not yet adopted — or one whose box has no host server — is still
  * the desktop's to answer for, as it always was: nothing routes to it.
@@ -31,11 +40,17 @@
  */
 
 import type { AgentInfo } from "../agent-persistence";
-import type { HostProgressEvent, HostProxy } from "../backend/host-proxy";
+import {
+  HOST_PTY_EVENTS,
+  type HostProgressEvent,
+  type HostProxy,
+  type HostPtyEvent,
+} from "../backend/host-proxy";
 import { HostServerUnavailableError } from "../backend/host-server-client";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { Caller, RouteRule } from "../bridge/method";
+import { stringsIn } from "../bridge/routes";
 import type { BridgeForward } from "../bridge/server";
 import {
   BridgeUnavailableRefusal,
@@ -45,7 +60,7 @@ import {
 import type { PendingCommands } from "../layout/pending-commands";
 import type { RemoteProjects } from "../projects/types";
 import type { BroadcastBus } from "../renderer-broadcast";
-import type { PaneAgentStatusUpdate, PtyCreateResult } from "../../src/electron.d";
+import type { PaneAgentStatusUpdate, PtyFailure } from "../../src/electron.d";
 import type { LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import { layoutPaneIds } from "../../src/lib/layout/workspace-layout";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
@@ -81,16 +96,6 @@ function originOf(caller: Caller): LayoutOrigin {
   return { kind: caller.callerClass === "local" ? "window" : "bridge", id: caller.id };
 }
 
-/** Every string in `value`, however deep: a command's pane ids among them. */
-function stringsIn(value: unknown, out: Set<string> = new Set()): Set<string> {
-  if (typeof value === "string") out.add(value);
-  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
-  else if (typeof value === "object" && value !== null) {
-    for (const item of Object.values(value)) stringsIn(item, out);
-  }
-  return out;
-}
-
 /**
  * Calls that clone or fetch, or run a setup's git, on the host: given as
  * long as a person would wait, not the owner channel's usual timeout.
@@ -107,6 +112,41 @@ const LONG_CALL_TIMEOUT_MS = 10 * 60_000;
 
 function callTimeout(ns: string, method: string): { timeoutMs?: number } {
   return LONG_CALLS.has(`${ns}.${method}`) ? { timeoutMs: LONG_CALL_TIMEOUT_MS } : {};
+}
+
+/** `pty` calls that leave the caller a viewer of the pane on the host. */
+const PTY_ATTACHING = new Set(["create", "attach", "reset"]);
+
+/**
+ * What a forwarded `pty.<method>` answers while its host is away, where it
+ * answers anything but a refusal: a create or attach fails the way a
+ * renderer waits out (`host-unavailable`), as the daemon's did; a reset
+ * fails plainly; and what a viewer does to its own view — resize, claim,
+ * detach, close — is a no-op, as the handlers here make a failed one.
+ * `write` is refused.
+ */
+function ptyAway(method: string, hostId: string, error: string): { value: unknown } | null {
+  switch (method) {
+    case "create":
+    case "attach":
+      return { value: { ok: false, reason: "host-unavailable", hostId, error } satisfies PtyFailure };
+    case "reset":
+      return { value: { ok: false, error } };
+    case "claimWinsize":
+      return { value: false };
+    case "resize":
+    case "detach":
+    case "close":
+      return { value: undefined };
+    default:
+      return null;
+  }
+}
+
+/** The bridge `wirePty` listens on: who is subscribed to a pane's events. */
+export interface PtySubscriptions {
+  onSubscriptionChange(cb: (name: string, key: string) => void): () => void;
+  hasSubscriber(ns: string, event: string, key: string): boolean;
 }
 
 /** Whether a forwarded `ns.method` changes the host's project records. */
@@ -139,6 +179,19 @@ export class HostRouting implements BridgeForward {
   private readonly setupCallers = new Map<string, string>();
   /** The workspace a layout command last changed, here or on any host. */
   private lastActive: string | null = null;
+  /**
+   * Each pane event forwarded from a host, keyed `<event>\0<paneId>`: its
+   * release, while a caller of the desktop's is subscribed to it.
+   */
+  private readonly ptyWatches = new Map<string, { hostId: string; release: () => void }>();
+  /**
+   * Remote panes the desktop's owner channel is a viewer of on their host:
+   * a forwarded create, attach or reset made it one, and nobody here has
+   * let go of it since.
+   */
+  private readonly ptyViewing = new Map<string, string>();
+  /** The bridge `wirePty` listens on, once wired. */
+  private ptySubscriptions: PtySubscriptions | null = null;
 
   constructor(opts: HostRoutingOptions) {
     this.opts = opts;
@@ -168,14 +221,24 @@ export class HostRouting implements BridgeForward {
   // ── routing (BridgeForward) ──
 
   target(rule: RouteRule, args: readonly unknown[]): string | null {
+    // A delegated call (Linear, ADR-228 D10) rides the token this server holds.
+    if (rule.by === "delegated") return null;
     const arg = args[rule.arg];
     switch (rule.by) {
       case "project":
         return typeof arg === "string" ? this.hostOfProject(arg) : null;
       case "workspaceKey":
         return typeof arg === "string" ? this.routable(parseWorkspaceKey(arg).hostId) : null;
-      case "pane":
-        return typeof arg === "string" ? this.hostOfPane(arg) : null;
+      case "pane": {
+        if (typeof arg !== "string") return null;
+        const placed = this.hostOfPane(arg);
+        if (placed !== null || rule.hostOpt === undefined) return placed;
+        // A pane no layout holds yet: the host its create names.
+        const opts = args[rule.hostOpt];
+        const named =
+          typeof opts === "object" && opts !== null ? (opts as { hostId?: unknown }).hostId : null;
+        return typeof named === "string" ? this.routable(named) : null;
+      }
       case "agent":
         return typeof arg === "string" ? this.hostOfAgent(arg) : null;
       case "host":
@@ -216,6 +279,7 @@ export class HostRouting implements BridgeForward {
         this.setupCallers.delete(`${hostId}\0${String(args[1])}`);
       }
       const before = creating ? this.workspacePaths(proxy, args[0]) : null;
+      if (ns === "pty") return await this.invokePty(proxy, method, callArgs);
       const result = await proxy.invoke(ns, method, callArgs, callTimeout(ns, method));
       if (before) {
         for (const path of workspacePathsOf(result)) {
@@ -232,6 +296,106 @@ export class HostRouting implements BridgeForward {
     } catch (err) {
       throw this.refusal(proxy, err);
     }
+  }
+
+  /**
+   * A remote pane's `pty.<method>` on its host's server (ADR-228 D5). The
+   * desktop's owner channel is the viewer there, for whichever caller of the
+   * desktop's asked; the pane's events are watched for as long as one of
+   * them is subscribed (`wirePty`).
+   */
+  private async invokePty(proxy: HostProxy, method: string, args: unknown[]): Promise<unknown> {
+    const paneId = args[0] as string;
+    let result: unknown;
+    try {
+      result = await proxy.invoke("pty", method, args);
+    } catch (err) {
+      if (!(err instanceof HostServerUnavailableError)) throw err;
+      const away = ptyAway(method, proxy.hostId, errorMessage(this.refusal(proxy, err)));
+      if (!away) throw err;
+      return away.value;
+    }
+    if (PTY_ATTACHING.has(method)) {
+      if ((result as { ok?: unknown } | null)?.ok === true) this.ptyViewing.set(paneId, proxy.hostId);
+      // Subscribed before the pane was known to be the host's: watch now.
+      this.syncPtyWatches(paneId);
+    } else if (method === "detach" || method === "close") {
+      this.ptyViewing.delete(paneId);
+    }
+    return result;
+  }
+
+  /**
+   * Forward each remote pane's `pty.*` events to the desktop's callers that
+   * subscribe to them (ADR-228 D5), through its host's proxy, for as long as
+   * one of them is: `bridge` says who is. When the last caller stops
+   * listening to a pane's output, the owner channel lets go of the pane on
+   * the host, so a caller that dropped without detaching does not hold its
+   * winsize there. Returns the unwiring.
+   */
+  wirePty(bridge: PtySubscriptions): () => void {
+    this.ptySubscriptions = bridge;
+    const off = bridge.onSubscriptionChange((name, key) => {
+      if (!name.startsWith("pty.")) return;
+      if (!(HOST_PTY_EVENTS as readonly string[]).includes(name.slice(4))) return;
+      this.syncPtyWatches(key);
+      if (name === "pty.output" && !bridge.hasSubscriber("pty", "output", key)) this.letGo(key);
+    });
+    return () => {
+      off();
+      this.ptySubscriptions = null;
+      for (const { release } of this.ptyWatches.values()) release();
+      this.ptyWatches.clear();
+    };
+  }
+
+  /** Whether `paneId`'s output reaches this server through its host's proxy. */
+  watchesPty(paneId: string): boolean {
+    return this.ptyWatches.has(`output\0${paneId}`);
+  }
+
+  /** Hold exactly the watches `paneId`'s subscribers here want, on its host. */
+  private syncPtyWatches(paneId: string): void {
+    const bridge = this.ptySubscriptions;
+    if (!bridge) return;
+    const proxy = this.proxyForPane(paneId);
+    for (const event of HOST_PTY_EVENTS) {
+      const id = `${event}\0${paneId}`;
+      const held = this.ptyWatches.get(id);
+      const wanted = proxy !== null && bridge.hasSubscriber("pty", event, paneId);
+      if (held && (!wanted || held.hostId !== proxy?.hostId)) {
+        held.release();
+        this.ptyWatches.delete(id);
+      }
+      if (wanted && !this.ptyWatches.get(id)) {
+        this.ptyWatches.set(id, {
+          hostId: proxy.hostId,
+          release: proxy.watchPty(event as HostPtyEvent, paneId),
+        });
+      }
+    }
+  }
+
+  /** Nobody here views `paneId` any more: the owner channel detaches on its host. */
+  private letGo(paneId: string): void {
+    const hostId = this.ptyViewing.get(paneId);
+    if (hostId === undefined) return;
+    this.ptyViewing.delete(paneId);
+    const proxy = this.proxy(hostId);
+    if (!proxy || proxy.away) return;
+    proxy.invoke("pty", "detach", [paneId]).catch((err: unknown) => {
+      console.debug(`[host-routing] detaching ${paneId} on ${proxy.label} failed:`, err);
+    });
+  }
+
+  /**
+   * A desktop window's claim moved on `key`, a remote workspace (ADR-228
+   * D7): its host's proxy publishes the layout again, with the claims.
+   */
+  republishClaims(key: string, origin: LayoutOrigin): void {
+    const hostId = this.routable(parseWorkspaceKey(key).hostId);
+    if (hostId === null) return;
+    this.proxy(hostId)?.republishClaims(key as WorkspaceKey, origin);
   }
 
   /**
@@ -340,45 +504,6 @@ export class HostRouting implements BridgeForward {
       };
       await proxy.invoke("layout", "setPendingCommand", [paneId, pending.text, pending.kind, opts]);
     }
-  }
-
-  // ── the control plane ──
-
-  /**
-   * Start `sessionId` on `hostId`'s server (`SpawnOnHost`): true when it
-   * spawned it, false when it was running already, null when that is not
-   * its server's to do — not adopted, away, or a failure, which is logged —
-   * and the daemon creates it as before.
-   */
-  async spawnSession(
-    hostId: string,
-    sessionId: string,
-    cwd: string,
-    cols: number,
-    rows: number,
-    env: Record<string, string> | undefined,
-  ): Promise<boolean | null> {
-    const proxy = this.proxy(hostId);
-    if (!proxy || proxy.away) return null;
-    let result: PtyCreateResult;
-    try {
-      result = (await proxy.invoke("pty", "create", [
-        sessionId,
-        cwd,
-        cols,
-        rows,
-        { hostId, agentKind: env?.MANOR_AGENT_KIND ?? null },
-      ])) as PtyCreateResult;
-    } catch (err) {
-      console.warn(`[host-routing] ${proxy.label} could not start ${sessionId}:`, err);
-      return null;
-    }
-    if (!result?.ok) {
-      console.warn(`[host-routing] ${proxy.label} could not start ${sessionId}:`, result);
-      return null;
-    }
-    // The host's `prewarmed` is whether its create found the session there.
-    return result.prewarmed === false;
   }
 
   // ── what the host sends its owner ──

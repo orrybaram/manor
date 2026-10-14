@@ -396,6 +396,26 @@ export class SshTransport implements HostTransport {
     return duplex;
   }
 
+  /**
+   * Open a desktop window's viewer stream to the box's host server (ADR-228
+   * D4): `manor-host server-bridge --viewer`, on the same ControlMaster as
+   * the owner channel.
+   *
+   * Opened, refused and timed out exactly as `openServerBridge` is. The
+   * difference is what the stream starts with: the server's hello reply line
+   * is kept and replayed as its first line, because the window's transport —
+   * not main — is the one waiting on it (`preAuthenticated`,
+   * `src/bridge/transports/ws.ts`).
+   */
+  async openViewerBridge(): Promise<Duplex> {
+    const { duplex } = await this.openBridge(
+      remoteServerBridgeCommand({ viewer: true }),
+      (line) => (parseServerHello(line) ? line : null),
+      { exitIsError: true, replayHello: (line) => Buffer.from(`${line}\n`, "utf-8") },
+    );
+    return duplex;
+  }
+
   // ── Internal ──
 
   /** Spawn one `remote-bridge` connection and take the token off its hello line. */
@@ -433,8 +453,12 @@ export class SshTransport implements HostTransport {
   private async openBridge<T>(
     command: string,
     parse: (line: string) => T | null,
-    /** A non-zero exit after the hello destroys the stream with ssh's error. */
-    opts: { exitIsError?: boolean } = {},
+    opts: {
+      /** A non-zero exit after the hello destroys the stream with ssh's error. */
+      exitIsError?: boolean;
+      /** Bytes to put back in front of the stream, in place of the hello line. */
+      replayHello?: (hello: T) => Buffer;
+    } = {},
   ): Promise<{ hello: T; duplex: Duplex }> {
     const bridge = this.spawnBridgeChild(command);
     const { child, stdin, stdout } = bridge;
@@ -473,7 +497,7 @@ export class SshTransport implements HostTransport {
         child,
         stdin,
         stdout,
-        rest,
+        opts.replayHello ? Buffer.concat([opts.replayHello(hello), rest]) : rest,
         opts.exitIsError
           ? (code) => (code === 0 || code === null ? null : this.exitError(code, bridge.stderrText))
           : undefined,

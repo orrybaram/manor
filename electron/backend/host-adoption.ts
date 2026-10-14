@@ -83,6 +83,8 @@ export interface HostAdoptionOptions {
    * marked adopted: either way its projects now come from its server.
    */
   onProjectsRemoved?(hostId: string): void;
+  /** Told once, when `hostId` is first marked adopted. */
+  onAdopted?(hostId: string): void;
   /** Told after agents left `agents.json`, so a renderer drops its copies. */
   onAgentsRemoved?(agentIds: readonly string[]): void;
   /** Defaults to `backupsDir()`. */
@@ -262,6 +264,7 @@ export class HostAdoption {
     // Only now: a renderer that reads the list on this news finds the
     // host's projects through its server, not in neither list.
     if (outcome.removed.projects > 0 || !wasAdopted) this.opts.onProjectsRemoved?.(hostId);
+    if (!wasAdopted) this.opts.onAdopted?.(hostId);
     return outcome;
   }
 

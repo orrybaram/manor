@@ -1,4 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import type { BridgeTransport } from "../../bridge/client";
+import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
+import { servers } from "../../bridge/server-set";
+import { base64urlEncode } from "../relay-crypto";
 import type { HostStatusInfo } from "../../store/host-store";
 import { transferTargets } from "../transfer-targets";
 
@@ -55,5 +59,26 @@ describe("transferTargets", () => {
     );
     expect(targets[0].disabledReason).toMatch(/^me@box is offline/);
     expect(targets[1].disabledReason).toBeNull();
+  });
+
+  it("names the desktop's own machine by its pairing on a phone (ADR-228 D8)", () => {
+    const map = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => map.get(k) ?? null,
+      setItem: (k: string, v: string) => void map.set(k, v),
+      removeItem: (k: string) => void map.delete(k),
+    });
+    const room = "AbCdEfGhIjKlMnOpQr_-01";
+    upsertPairing({ roomId: room, serverKey: base64urlEncode(new Uint8Array(32)), token: "t" });
+    recordPairingHello(room, { hostName: "desk.local", hostServer: false });
+    const transport = { invoke: () => new Promise(() => {}), subscribe: () => () => {} };
+    servers.add(room, transport as unknown as BridgeTransport, { home: true, roomId: room });
+    try {
+      const b = { id: "b", hostId: "box" };
+      expect(transferTargets(b, [b], hosts, "move")[0].label).toBe("desk.local");
+    } finally {
+      servers.remove(room);
+      vi.unstubAllGlobals();
+    }
   });
 });

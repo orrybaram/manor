@@ -58,7 +58,7 @@ codebase, full functionality, authentication is its only boundary.
 _Avoid_: mobile app, mobile client, mobile/web experience, responsive client
 
 **Paired device**:
-A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s that the desktop paired it with.
+A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s. One pairing with the desktop is enough: on every hello the device asks the desktop to pair it with each host it can reach (`remoteControl.linkHostPairings`), and the desktop mints a token in each host's **Room** and records the link, so revoking the device on the desktop revokes it on every host too. A host's "Phones paired with this Mac can reach <host>" switch opts that host out. A room the user removes on the device is remembered and not minted again until they pair it by QR (ADR-228 D9).
 _Avoid_: remote, client device, session
 
 **Relay**:
@@ -92,7 +92,7 @@ A headless **Manor server** running on a remote **Host**, next to its **Daemon**
 _Avoid_: remote server, box server, cloud server, the daemon (the daemon owns PTYs; the host server is the Manor server beside it)
 
 **Owner channel**:
-The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. Nothing is pushed over it any more — no manifest, no layout snapshot: the desktop hands the host its records once (**Adoption**), then reads and writes the host's state through the server (a `HostProxy` per host, with a cache for when it is away) and hears its changes as events. It still does what a device may not: set projects up on the host, send its push keys and pair phones with the host.
+The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. Nothing is pushed over it any more — no manifest, no layout snapshot: the desktop hands the host its records once (**Adoption**), then reads and writes the host's state through the server (a `HostProxy` per host, with a cache for when it is away) and hears its changes as events. It still does what a device may not: set projects up on the host, send its push keys and pair phones with the host. Beside it, each desktop window holds its own **viewer stream** to the host server (`manor-host server-bridge --viewer`, over the same ControlMaster): also caller class `owner`, but marked `viewer: "desktop"`, carrying that window's reads, writes and terminal bytes straight to the host (ADR-228 D4). Main only moves its frames between IPC and SSH (`hostPipe`). The owner channel still answers for callers that hold one bridge: a device paired only with the desktop, the MCP and CLI routes, and a window whose stream is down.
 _Avoid_: control channel, sync channel, admin connection
 
 **Adoption**:
@@ -104,7 +104,7 @@ _Avoid_: migration, sync, import
 _Avoid_: terminal host, pty server
 
 **Host**:
-A place sessions run — the local machine, or a remote box — always a Manor server and a daemon together: the local machine's Manor server lives in Electron main, a remote box's is its **Host server**. The renderer attaches to exactly one at a time, and local stays a first-class choice. The desktop is a client of each remote host's server, not its owner.
+A place sessions run — the local machine, or a remote box — always a Manor server and a daemon together: the local machine's Manor server lives in Electron main, a remote box's is its **Host server**. The renderer attaches to every host it can reach at once, each through its **Source**, and merges them into one sidebar; local stays a first-class choice. The desktop is a client of each remote host's server, not its owner.
 _Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
 
 **Project**:
@@ -120,8 +120,20 @@ Dropping one host's checkout from a project in Manor, without deleting its files
 _Avoid_: unlink, move
 
 **Bridge**:
-The one interface the renderer uses to reach a host: one host surface, reached over two transports — Electron IPC inside the desktop, a WebSocket from a browser — never two implementations converging on one (ADR-180).
+The one interface a renderer uses to reach a Manor server: one host surface, reached over a **Transport** — Electron IPC inside the desktop, a relay WebSocket from a browser, a `hostPipe` viewer stream from a desktop window to a host server — never two implementations converging on one (ADR-180). The renderer holds one bridge per reachable server, in its **Server set**, behind a **Router**; renderer code still calls the one `window.electronAPI` (ADR-228 D1).
 _Avoid_: preload, window.electron, API client
+
+**Server set**:
+The page's Manor servers, one entry each (`src/bridge/server-set.ts`): its bridge, its reachability (`connected` / `unknown` / `unreachable`) and what its hello said. One is **home**: on the desktop the local server in main, on a phone the paired desktop, else the most recently used pairing. A desktop window adds a host server that is connected and takes a viewer stream; a phone adds one per stored pairing (ADR-228 D1, D8).
+_Avoid_: connections, hosts list (that is `hosts.list`, main's view of its hosts), bridges
+
+**Router**:
+What `window.electronAPI` is over a **Server set** (`src/bridge/router.ts`). For each call it reads the route manifest (`electron/bridge/routes.ts`, which main's `HostRouting` reads too): a routed call goes to the named host's **Source**, a merged read (`projects.getAll`, `layout.getAll`, `agents.get*`) asks every server and merges the answers, a Linear call picks a server that has Linear (D10), and the rest goes home. It stamps every record with renderer host ids, refuses a write to a host with no source (`unavailable:host-away`), and keeps each server's last answers for when it is away (ADR-228 D1, D6).
+_Avoid_: proxy, dispatcher, HostRouting (that is main's router, for callers holding one bridge)
+
+**Source**:
+The server answering for a remote **Host** right now: a direct bridge to its **Host server** if one is reachable (a desktop window's viewer stream, a phone's own pairing with that host's **Room**), else a desktop that lists the host, through that desktop's `HostRouting`, else none — the host is away and shows its last-known state. A host's data never arrives through two sources at once (ADR-228 D3).
+_Avoid_: route, owner (ownership is the host server's), upstream
 
 **Host surface**:
 The handler table (`electron/bridge/handlers.ts`): the one set of things a renderer can ask a host to do, keyed `ns.method`. A type-level check asserts every method the renderer can call is placed somewhere — the table, a native preload namespace, or answered in the tab — so an unplaced method is a compile error, not a runtime `unavailable:web`.
@@ -142,7 +154,7 @@ Any client attached to a session's output stream — a desktop pane or a web-app
 _Avoid_: client, subscriber, socket
 
 **Winsize owner**:
-The one viewer whose grid the PTY winsize follows: the desktop app while it has the pane mounted, otherwise the most recent web-app viewer. On a **Host server**, which has no desktop to ask, the daemon decides: a device viewer is a **Follower** whenever any other client is attached to the session.
+The one viewer whose grid the PTY winsize follows: the desktop app while it has the pane mounted, otherwise the most recent web-app viewer. On a **Host server** the host's own attachment registry decides: a desktop window's viewer stream (`viewer: "desktop"`) ranks like a local window, above every device, so the desktop still wins while it has the pane mounted (ADR-228 D5). A device viewer is also a **Follower** whenever a client the server cannot see — any other daemon client — is attached to the session.
 _Avoid_: primary, master, resize authority
 
 **Layout command**:
@@ -197,7 +209,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 - A remote **Host**'s **Manor server** is its **Host server**, and it owns that host's projects, layout and agents (ADR-227). The desktop hands over what it held at **Adoption**, then reads and writes through the server over the **Owner channel**; only the host server reads that host's hook journal, so there is one **Agent status** per agent, decided on the box.
 - Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 
-- The **Desktop app** issues tokens — for its own **Room**, or, through the **Owner channel**, for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and switches between them.
+- The **Desktop app** issues tokens — for its own **Room**, or, through the **Owner channel**, for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and is connected to all of them at once: one sidebar, each host answered by its **Source**. Pairing with the desktop links the device to every host's **Room** as well (ADR-228 D9).
 - The **Web app** is served to a **Paired device** by the **Relay** origin, and only there.
 - A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so every **Paired device** reaches the whole bridge, minus the `LOCAL_ONLY` methods.
 

@@ -16,7 +16,9 @@
  *
  * 1. A `local` viewer — an Electron renderer window on this machine —
  *    outranks a `device` viewer. The user at the desk is the one holding the
- *    keyboard, and a phone looking at the same pane follows.
+ *    keyboard, and a phone looking at the same pane follows. On a host
+ *    server, a desktop window's own viewer stream (`viewer: "desktop"`,
+ *    ADR-228 D5) is that desk, and ranks the same.
  * 2. Among viewers of the same class, the most recently attached wins. This
  *    is the ADR-180 repair: before it, two desktop windows on one pane both
  *    believed they owned the winsize and took turns resizing the session to
@@ -36,7 +38,8 @@
  *
  * A **foreign hold** outranks all of it (ADR-225 D5). On a host server the
  * pane's other viewer may be a client of the daemon this registry never sees —
- * the desktop, attached to the same session over ssh. While the host says so
+ * another daemon client attached to the same session (before ADR-228, the
+ * desktop over ssh; now the desktop's windows are viewers here). While the host says so
  * (`setForeign`), nobody here owns the winsize: `ownerOf` answers a sentinel
  * viewer no connection matches, so every resize is dropped, every claim loses
  * and every arrival follows.
@@ -53,7 +56,7 @@
  * (ADR-178 D5).
  */
 
-import type { CallerClass } from "./bridge/types";
+import type { CallerClass, ViewerKind } from "./bridge/types";
 
 /**
  * One viewer holding a pane: a bridge connection, and what class of caller it
@@ -75,6 +78,11 @@ export interface Viewer {
    * `owner` = the desktop on a host server's owner channel (ADR-225 D4).
    */
   callerClass: CallerClass;
+  /**
+   * `desktop` = a desktop window's own viewer stream to a host server
+   * (ADR-228 D4). Absent for every other viewer.
+   */
+  viewer?: ViewerKind;
 }
 
 /**
@@ -88,6 +96,22 @@ const RANK: Record<CallerClass, number> = {
   owner: 0,
   device: 0,
 };
+
+/** The rank of a desk window, which a desktop viewer stream shares (ADR-228 D5). */
+const DESK_RANK = RANK.local;
+
+/**
+ * A viewer's rank: its caller class's, except that a desktop viewer stream
+ * on a host server is a desk window there, whatever its class (`owner`).
+ */
+function rankOf(viewer: Viewer): number {
+  return viewer.viewer === "desktop" ? DESK_RANK : RANK[viewer.callerClass];
+}
+
+/** Whether this viewer is someone at the desk: a window, here or through a viewer stream. */
+function isDesk(viewer: Viewer): boolean {
+  return rankOf(viewer) === DESK_RANK;
+}
 
 /** The connection id of the viewer a foreign hold reports as the owner. */
 export const FOREIGN_CONNECTION_ID = "\0foreign";
@@ -181,7 +205,7 @@ function highestRanked(viewers: readonly Viewer[]): Viewer | null {
   // Newest first, and only a strictly higher rank displaces: among equals
   // the most recent attach wins.
   for (let i = viewers.length - 1; i >= 0; i--) {
-    if (!best || RANK[viewers[i].callerClass] > RANK[best.callerClass]) {
+    if (!best || rankOf(viewers[i]) > rankOf(best)) {
       best = viewers[i];
     }
   }
@@ -218,7 +242,7 @@ export function wouldOwn(paneId: string, viewer: Viewer): boolean {
   if (viewers.some((v) => v.connectionId === viewer.connectionId)) return false;
   // A new arrival: a higher rank outranks, and among equals the most recent
   // attach — this one — wins.
-  return RANK[viewer.callerClass] >= RANK[owner.callerClass];
+  return rankOf(viewer) >= rankOf(owner);
 }
 
 /**
@@ -308,7 +332,7 @@ export function claim(paneId: string, viewer: Viewer): boolean {
  * a desk window holding the pane means the desk.
  */
 export function reclaimOnInput(paneId: string, viewer: Viewer): void {
-  if (viewer.callerClass !== "local") return;
+  if (!isDesk(viewer)) return;
   const claimant = claims.get(paneId);
   if (!claimant || claimant === viewer.connectionId) return;
   changingOwner(paneId, () => {

@@ -110,6 +110,29 @@ export const BRIDGE_EVENT = "bridge:event";
 export const BRIDGE_RENDERER_ID = "bridge:rendererId";
 
 /**
+ * A window's own streams to host servers (ADR-228 D4, `electron/ipc/
+ * host-pipe.ts`). Main carries their frames as text and reads none of them.
+ */
+/** `(hostId)` → `pipeId`. */
+export const HOST_PIPE_OPEN = "hostPipe:open";
+/** `(pipeId, text)`: one frame out. No reply. */
+export const HOST_PIPE_SEND = "hostPipe:send";
+/** `(pipeId)`: the window is done with it. No reply, and no `closed` event. */
+export const HOST_PIPE_CLOSE = "hostPipe:close";
+/** Main → renderer, `(pipeId, text)`: one frame in. */
+export const HOST_PIPE_FRAME = "hostPipe:frame";
+/** Main → renderer, `(pipeId, code)`: the stream is over. Sent once. */
+export const HOST_PIPE_CLOSED = "hostPipe:closed";
+/**
+ * The one code a host pipe closes with: the host server is not reachable
+ * from this window right now (not adopted, too old for a viewer stream,
+ * lost, or its stream ended). The renderer pipe lists it as unreachable, so
+ * its transport retries with backoff. The same number the relay pipe uses for
+ * "the far end is not answering" (`CLOSE_RELAY_UNREACHABLE`).
+ */
+export const CLOSE_HOST_UNREACHABLE = 4504;
+
+/**
  * The WebSocket transport's close codes, in the application range so they
  * read as the HTTP statuses they mirror. The client stops dialling on 4401.
  */
@@ -222,6 +245,21 @@ export interface EventFrame {
 export type CallerClass = "local" | "owner" | "device";
 
 /**
+ * What kind of viewer a connection is, beyond its caller class (ADR-228 D4).
+ *
+ * - `desktop` — a desktop renderer window reaching a host server directly,
+ *   over its own `manor-host server-bridge --viewer` stream. Its caller class
+ *   is `owner` (the same user, through the same 0600 token), but it is a
+ *   window someone is looking at, not main's owner channel: it ranks like a
+ *   `local` window for the winsize (`pty-attachments.ts`), and it never
+ *   forwards a layout origin on anyone else's behalf.
+ *
+ * Only an authenticator sets it; a hello's own say-so counts only where the
+ * authenticator chooses to honour it (the owner socket's, `host-server/socket.ts`).
+ */
+export type ViewerKind = "desktop";
+
+/**
  * What dispatch knows about a caller. A socket and a window are both this.
  *
  * Everything a transport is — a `WebSocket`, a `webContents`, a hello timer,
@@ -241,6 +279,8 @@ export interface BridgeConnection {
   readonly id: string;
   /** See `CallerClass`. */
   readonly callerClass: CallerClass;
+  /** See `ViewerKind`. Absent for every connection that is not a viewer stream. */
+  readonly viewer?: ViewerKind;
   /** Audit identity, or null for a local caller (ADR-180 D4). */
   readonly deviceId: string | null;
   /** The audit line's human name for `deviceId`. Null for a local caller. */

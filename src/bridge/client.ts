@@ -130,7 +130,7 @@ export class BridgeDisconnectedError extends Error {
 }
 
 /** A listener's `ns.method` → the event it subscribes to, split for a frame. */
-const LISTENERS: Record<string, { ns: string; event: string }> =
+export const LISTENERS: Record<string, { ns: string; event: string }> =
   Object.fromEntries(
     Object.entries(SUBSCRIPTIONS).map(([listener, wire]) => {
       const at = wire.lastIndexOf(".");
@@ -144,7 +144,7 @@ const LISTENERS: Record<string, { ns: string; event: string }> =
  * check), and answering with a function that opens a connection would turn
  * logging the bridge into calling it.
  */
-const NOT_MEMBERS: ReadonlySet<string> = new Set([
+export const NOT_MEMBERS: ReadonlySet<string> = new Set([
   "then",
   "catch",
   "finally",
@@ -192,6 +192,25 @@ function localMember(
   const fn = target[name];
   if (typeof fn !== "function") return null;
   return { owner: target, fn: fn as (...args: unknown[]) => unknown };
+}
+
+/**
+ * Whether `transport` answers `ns.method` without asking its server: a
+ * native namespace, a method it serves itself, or a namespace refused in a
+ * browser (steps 1 to 3 below). The router (`./router.ts`, ADR-228) sends
+ * those to the home server's bridge and never to another server's — a host
+ * server's socket transport would answer them for the browser it is not.
+ */
+export function servesItself(
+  transport: BridgeTransport,
+  ns: string,
+  name: string,
+): boolean {
+  return (
+    localMember(transport.localNamespaces, ns, name) !== null ||
+    hasOwn(transport.locallyServed, `${ns}.${name}`) ||
+    UNAVAILABLE_NAMESPACES.has(ns)
+  );
 }
 
 /**

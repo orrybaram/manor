@@ -133,6 +133,14 @@ export class SshHostProvider implements HostProvider {
     return this.sshTransport.openServerBridge();
   }
 
+  /**
+   * `manor-host server-bridge --viewer` over the same ControlMaster, the
+   * server's hello reply left in (ADR-228 D4).
+   */
+  openViewerChannel(): Promise<Duplex> {
+    return this.sshTransport.openViewerBridge();
+  }
+
   async forwardPort(
     remotePort: number,
     opts?: { preferredLocalPort?: number; remoteHost?: string },

@@ -41,6 +41,7 @@ import type { KeybindingsManager } from "../keybindings";
 import type { WebviewServer } from "../webview-server";
 import type { PrewarmManager } from "../prewarm-manager";
 import type { RemoteControlController } from "../remote-control/controller";
+import type { HostPairingLinks } from "../remote-control/host-links";
 import type { AppMenuController } from "../app-menu";
 import type { PortlessWorkspace } from "../../src/lib/portless-hostname";
 import type { SessionOwners } from "../backend/session-owners";
@@ -165,6 +166,11 @@ export interface ServerDeps {
   /** ADR-161. Off until the user enables it; see the controller header. */
   remoteControl: RemoteControlController;
   /**
+   * The pairings this desktop mints for its devices on each remote host
+   * (ADR-228 D9). Absent on a server with no remote hosts.
+   */
+  hostLinks?: HostPairingLinks;
+  /**
    * Plays a notification sound by name (`preferences.playSound`). The desktop
    * fills it in; a server with no speaker leaves it out and the call is a
    * no-op.
@@ -251,6 +257,7 @@ export interface DesktopDeps {
   /** The desktop always has remote hosts, so always these (`ServerDeps`). */
   hostServerSync: HostServerSync;
   remoteForwards: RemoteForwards;
+  hostLinks: HostPairingLinks;
 }
 
 export type HostDeps = ServerDeps & DesktopDeps;

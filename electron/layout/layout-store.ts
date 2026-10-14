@@ -251,6 +251,10 @@ export class LayoutStore {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
   private readonly persistListeners = new Set<() => void>();
+  /** Told when a claim moves on a workspace this store does not hold. */
+  private readonly foreignClaimListeners = new Set<
+    (workspacePath: string, origin: LayoutOrigin) => void
+  >();
 
   /**
    * @param windows Which renderer is the primary window, and which tab a
@@ -768,6 +772,19 @@ export class LayoutStore {
   }
 
   /**
+   * Told when a window's claim moves on a workspace this store does not hold
+   * — a remote host's, whose layout is its server's (ADR-228 D7). The claim
+   * is still kept here (`claimsFor`); whoever publishes that workspace's
+   * layout says it again. Returns the unsubscribe.
+   */
+  onForeignClaims(listener: (workspacePath: string, origin: LayoutOrigin) => void): () => void {
+    this.foreignClaimListeners.add(listener);
+    return () => {
+      this.foreignClaimListeners.delete(listener);
+    };
+  }
+
+  /**
    * A window is gone: whatever it held comes back to the primary (D4).
    *
    * Called when the window's bridge connection drops
@@ -847,7 +864,10 @@ export class LayoutStore {
    */
   private broadcastClaims(workspacePath: string, origin: LayoutOrigin): void {
     const state = this.entries.get(workspacePath);
-    if (!state) return;
+    if (!state) {
+      for (const listener of this.foreignClaimListeners) listener(workspacePath, origin);
+      return;
+    }
     this.broadcast({
       workspacePath,
       version: state.version,

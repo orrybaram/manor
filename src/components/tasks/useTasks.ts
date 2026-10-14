@@ -1,5 +1,8 @@
 import { useMemo } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
+import { linearServers } from "../../bridge/linear-servers";
+import { servers } from "../../bridge/server-set";
+import { useMountEffect } from "../../hooks/useMountEffect";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import {
   buildTopLevelEntries,
@@ -8,7 +11,7 @@ import {
 import { primaryMember } from "../../lib/home-dashboard";
 import type { TaskContext, TaskProvider, TaskRow } from "../../lib/tasks";
 import { mergeSources, type SourceResult } from "../../lib/task-list";
-import { TRACKERS, type TrackerScope } from "../../lib/trackers";
+import { TRACKER_STATUS_KEY, TRACKERS, type TrackerScope } from "../../lib/trackers";
 import { LOCAL_HOST_ID, normalizeHostId } from "../../lib/workspace-key";
 
 /** Query keys that already logged a failure — a flaky source logs once, not every refetch. */
@@ -119,8 +122,22 @@ export function useTrackerStatus(): {
   providers: TaskProvider[];
   /** True until every status check that was asked has answered. */
   checking: boolean;
+  /**
+   * Why Linear is unavailable, once a project is linked to a team and no
+   * reachable server has it (ADR-228 D10): which servers lack it, and which
+   * are away. Null otherwise.
+   */
+  linearWhy: string | null;
 } {
   const projects = useProjectStore((s) => s.projects);
+  const queryClient = useQueryClient();
+
+  // A server saying hello, or a pairing changing, may flip Linear on or off.
+  useMountEffect(() =>
+    linearServers(servers).subscribe(() => {
+      void queryClient.invalidateQueries({ queryKey: TRACKER_STATUS_KEY("linear") });
+    }),
+  );
 
   const asked = PROVIDERS.map(
     (provider) =>
@@ -139,9 +156,18 @@ export function useTrackerStatus(): {
     PROVIDERS.filter((_, i) => asked[i] && results[i].data === true),
   );
 
+  const linearAt = PROVIDERS.indexOf("linear");
+  const linearWhy =
+    asked[linearAt] &&
+    results[linearAt].data === false &&
+    projects.some((p) => TRACKERS.linear.canList(p))
+      ? linearServers(servers).whyNone()
+      : null;
+
   return {
     providers,
     checking: results.some((r, i) => asked[i] && r.isPending),
+    linearWhy,
   };
 }
 
@@ -152,11 +178,12 @@ export function useTrackerStatus(): {
 export function useTrackerSources(): {
   providers: TaskProvider[];
   checking: boolean;
+  linearWhy: string | null;
   sources: TaskSource[];
 } {
   const projects = useProjectStore((s) => s.projects);
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
-  const { providers, checking } = useTrackerStatus();
+  const { providers, checking, linearWhy } = useTrackerStatus();
 
   const sources = useMemo(() => {
     const out: TaskSource[] = [];
@@ -186,7 +213,7 @@ export function useTrackerSources(): {
     return out;
   }, [entries, providers]);
 
-  return { providers, checking, sources };
+  return { providers, checking, linearWhy, sources };
 }
 
 /**
@@ -201,6 +228,8 @@ export function useTaskScope(
 ): {
   providers: TaskProvider[];
   checking: boolean;
+  /** Why Linear is unavailable, when it is the reason for an empty list. */
+  linearWhy: string | null;
   provider: TaskProvider;
   projectKey: string | null;
   /** The chosen provider's sources — one per project it can list. */
@@ -209,7 +238,7 @@ export function useTaskScope(
   selectedSource: TaskSource | undefined;
 } {
   const status = useTrackerSources();
-  const { providers, checking } = status;
+  const { providers, checking, linearWhy } = status;
   const provider: TaskProvider = providers.includes(savedProvider)
     ? savedProvider
     : (providers[0] ?? savedProvider);
@@ -226,6 +255,7 @@ export function useTaskScope(
   return {
     providers,
     checking,
+    linearWhy,
     provider,
     projectKey: selectedSource ? savedProject : null,
     sources,

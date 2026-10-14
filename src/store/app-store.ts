@@ -48,6 +48,7 @@ import {
   visibleTabsFor,
 } from "../lib/layout/visible-tabs";
 import { BridgeUnavailableError } from "../bridge/client";
+import { provideHostLookups } from "../bridge/host-lookups";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   LayoutChangedPayload,
@@ -2455,6 +2456,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
 }));
+
+// Where a pane lives, for the bridge router (ADR-228 D1): the workspace whose
+// layout holds it, whose key names its host.
+provideHostLookups({
+  paneWorkspace: (paneId) => workspaceOfPane(useAppStore.getState(), paneId),
+});
 
 // ── The server's broadcasts land here (ADR-179 D1) ──
 //

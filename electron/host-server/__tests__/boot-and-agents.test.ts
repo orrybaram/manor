@@ -122,7 +122,7 @@ describe("host server", () => {
     await h.serve();
     const client = await h.owner();
     for (const [ns, methodName] of [
-      ["pty", "reset"],
+      ["pty", "consumePrewarmed"],
       ["projects", "moveToHost"],
       ["projects", "link"],
       ["layout", "save"],

@@ -93,9 +93,33 @@ export interface HostStatusInfo {
    * next `connect()`; never fails the connection.
    */
   warnings?: string[];
+  /**
+   * The host server's relay room, from its last status read (ADR-228 D2):
+   * what a phone that sees this host only through the desktop names it by.
+   * Absent until a status has been read; null when the server has no room.
+   */
+  roomId?: string | null;
+  /**
+   * Whether the host server's last status reported the `viewer-bridge`
+   * capability (ADR-228 D3, D4), so a window may open its own stream to it.
+   * Absent until a status has been read; false for an older server.
+   */
+  viewerBridge?: boolean;
+  /**
+   * Whether this desktop has handed the host its records (ADR-227 D3), the
+   * other half of what a window's own viewer stream needs (ADR-228 D3;
+   * `electron/ipc/host-pipe.ts`). Set on a desktop's remote hosts only.
+   */
+  adopted?: boolean;
 }
 
-type HostState = Omit<HostStatusInfo, "hostId" | "spec" | "warnings">;
+/** What a host server's last status said about it (ADR-228 D2, D3). */
+export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBridge">>;
+
+type HostState = Omit<
+  HostStatusInfo,
+  "hostId" | "spec" | "warnings" | "roomId" | "viewerBridge" | "adopted"
+>;
 
 /**
  * How long a reconnect waits for the host's proxy to read its state before
@@ -132,7 +156,10 @@ export interface RemoteHostContext extends HostConnectionContext {
 
 /** What every remote host's `HostProxy` is built with (ADR-227 D4). */
 export interface HostProxyContext
-  extends Pick<HostProxyOptions, "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "saveDelayMs" | "log"> {
+  extends Pick<
+    HostProxyOptions,
+    "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "claimsFor" | "saveDelayMs" | "log"
+  > {
   /** The desktop's name for a host (`HostRecords.label`), read at use. */
   label(hostId: string): string;
   /** A host's progress events for its owner (`HostProxyOptions.onProgress`). */
@@ -152,6 +179,8 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   protected state: HostState = { status: "disconnected" };
   /** Kept apart from `state`: they outlive reconnects (see `setState`). */
   private warnings: string[] | undefined;
+  /** Kept apart from `state` too: the last status read, across reconnects. */
+  private serverFacts: HostServerFacts | undefined;
   private connecting: Promise<void> | null = null;
   private attempt = 0;
   protected readonly unsubscribes: Array<() => void> = [];
@@ -181,7 +210,18 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
       spec: this.spec,
       ...this.state,
       ...(this.warnings ? { warnings: this.warnings } : {}),
+      ...(this.serverFacts ?? {}),
     };
+  }
+
+  /**
+   * What the host server's last status said (ADR-228 D2, D3), or null to
+   * forget it — the box has no host server. Announced like any other change.
+   */
+  setServerFacts(facts: HostServerFacts | null): void {
+    this.announcing(() => {
+      this.serverFacts = facts ?? undefined;
+    });
   }
 
   /** What `BackendRegistry.get` hands out for this host (see `host-view.ts`). */
@@ -371,6 +411,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
             proxyCtx.onAgentUpdate?.(agent, unseen, prev),
           onUnseenRead: (ids, unseen) => proxyCtx.onUnseenRead?.(ids, unseen),
           publishKeyed: proxyCtx.publishKeyed,
+          claimsFor: proxyCtx.claimsFor,
           onProgress: (event, args) => proxyCtx.onProgress?.(hostId, event, args),
           saveDelayMs: proxyCtx.saveDelayMs,
           log: proxyCtx.log,

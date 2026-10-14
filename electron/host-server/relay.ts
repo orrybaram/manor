@@ -83,6 +83,20 @@ export interface HostRelayOptions {
 export interface HostServerStatus {
   version: string;
   /**
+   * What this server can do beyond slice 2 (ADR-228 D3, D4), such as
+   * `"viewer-bridge"`. Optional on the type because an older server's status
+   * has none: read it through `hasViewerBridge` (`./capabilities.ts`).
+   */
+  capabilities?: string[];
+  /**
+   * This server's relay room — the hash of its relay public key, as the relay
+   * addresses it and as a phone's pairing stores it (ADR-228 D2) — or null
+   * when its identity cannot be loaded. The same value as `relay.roomId`, at
+   * the top level where a desktop's `hosts.list` reads it. Optional on the
+   * type for an older server's status.
+   */
+  roomId?: string | null;
+  /**
    * Whether this host's projects, agents and layout are the server's yet
    * (ADR-227 D3): `pending` until the desktop has handed them over.
    */

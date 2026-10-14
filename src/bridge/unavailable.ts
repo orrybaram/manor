@@ -37,6 +37,7 @@ import type { LocalOnlyMethod } from "../../electron/bridge/local-only";
  * | `shell`    | no "reveal in Finder", no "open in editor" (ADR-050) |
  * | `updater`  | the tab is updated by reloading it |
  * | `clipboard`| except `writeText`, which is served locally below |
+ * | `hostPipe` | a window's own SSH stream to a host server (ADR-228 D4); a page cannot open SSH |
  *
  * `remoteControl` is *not* here: pairing another device from the browser is a
  * perfectly sensible thing to want, and it is absent from the handler table
@@ -50,6 +51,7 @@ const UNAVAILABLE = [
   "shell",
   "updater",
   "clipboard",
+  "hostPipe",
 ] as const;
 
 export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set(UNAVAILABLE);
@@ -192,4 +194,5 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.revokeDevice"
   | "hosts.resetPairingKeys"
   | "hosts.setLinearOnHost"
+  | "hosts.setLinkPhones"
 >;

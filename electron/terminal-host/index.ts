@@ -615,17 +615,33 @@ async function shutdown(
       `Shutdown: scrollback writes still pending after ${SHUTDOWN_PERSIST_TIMEOUT_MS}ms`,
     );
   }
-  try {
-    fs.unlinkSync(role.paths.socket);
-  } catch {
-    /* ignore */
-  }
-  try {
-    fs.unlinkSync(role.paths.pid);
-  } catch {
-    /* ignore */
+  // Only while they are still this daemon's. Writing scrollback can take a
+  // while, and a daemon started meanwhile — a host server reconnecting the
+  // moment this one went quiet — has written its own pid file and socket in
+  // their place: unlinking those would leave it unreachable, and the next
+  // client would start a second daemon beside it.
+  if (ownsPidFile(role)) {
+    try {
+      fs.unlinkSync(role.paths.socket);
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.unlinkSync(role.paths.pid);
+    } catch {
+      /* ignore */
+    }
   }
   process.exit(0);
+}
+
+/** Whether `role`'s pid file still names this process (or is gone). */
+function ownsPidFile(role: DaemonRole): boolean {
+  try {
+    return Number(fs.readFileSync(role.paths.pid, "utf-8").trim()) === process.pid;
+  } catch {
+    return true;
+  }
 }
 
 /** Wait for `promise`, but no longer than `ms`; logs `timeoutMessage` if it gives up. */
@@ -695,6 +711,8 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     says the owner hello on the desktop's behalf and pumps stdin/stdout
 //     against `~/.manor/remote/server/server.sock` — see `server-bridge.ts`.
 //     Exits non-zero, with nothing on stdout, when no server is running.
+//     `server-bridge --viewer` is a desktop window's own stream (ADR-228 D4):
+//     the same, with `viewer: "desktop"` in the hello.
 //   - `restart` stops this box's remote-namespace daemon and clears its
 //     socket and pid file (Manor desktop's daemon, if any, is left alone),
 //     using the same path logic as a local client (`LocalTransport.stop`).
@@ -717,7 +735,7 @@ async function main(): Promise<void> {
   }
 
   if (mode === "server-bridge") {
-    await runServerBridgeProcess();
+    await runServerBridgeProcess(argv.slice(1));
     return;
   }
 

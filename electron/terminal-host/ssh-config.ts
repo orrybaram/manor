@@ -196,10 +196,11 @@ export function remoteBridgeCommand(): string {
 /**
  * The remote command that opens the owner channel to the box's host server
  * (ADR-225 D4): `manor-host server-bridge` pipes the stream to the server's
- * socket after saying the owner hello for us.
+ * socket after saying the owner hello for us. `viewer` opens a desktop
+ * window's own viewer stream instead (ADR-228 D4).
  */
-export function remoteServerBridgeCommand(): string {
-  return `exec ${REMOTE_HOST_BIN} server-bridge`;
+export function remoteServerBridgeCommand(opts: { viewer?: boolean } = {}): string {
+  return `exec ${REMOTE_HOST_BIN} server-bridge${opts.viewer ? " --viewer" : ""}`;
 }
 
 /**

@@ -14,6 +14,7 @@ import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
+import { serverHostName } from "../../../bridge/server-set";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
@@ -136,7 +137,7 @@ export function SettingsModal(props: SettingsModalProps) {
         members: members.map((m) => ({
           id: m.id,
           hostId: m.hostId,
-          hostLabel: memberHostName(m.hostId, hosts),
+          hostLabel: serverHostName(m.hostId) ?? memberHostName(m.hostId, hosts),
         })),
       });
     }

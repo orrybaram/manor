@@ -4,7 +4,6 @@ import { isWebApp } from "../../lib/platform";
 import { workspaceDisplayName } from "../../lib/workspace-display-name";
 import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
-import { PhoneHostSwitcher } from "./PhoneHostSwitcher";
 import { PhoneOverflowMenu } from "./PhoneOverflowMenu";
 import styles from "./Phone.module.css";
 
@@ -66,7 +65,6 @@ export function PhoneTopBar(props: PhoneTopBarProps) {
       >
         <PanelLeft size={18} />
       </Button>
-      {isWebApp() && <PhoneHostSwitcher />}
       <div className={styles.workspaceName}>{onTasks ? "Tasks" : workspaceName}</div>
       <div className={styles.actions}>
         <PhoneOverflowMenu />

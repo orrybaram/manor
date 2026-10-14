@@ -16,7 +16,10 @@
  * subscribed with nobody viewing — a session it launched (ADR-227 D5) — and
  * none otherwise.
  * Two phones on one pane are therefore not "someone else" to each other here;
- * the registry's own most-recent-attach rule still orders them.
+ * the registry's own most-recent-attach rule still orders them. Nor is a
+ * desktop window's viewer stream (ADR-228 D4): it is a connection on this
+ * server, holding the pane through the same socket, and the registry ranks it
+ * above every phone (D5). The hold is left for clients this server cannot see.
  *
  * **The answer lives in the registry.** Whether someone else holds the pane is
  * `setForeign` on `pty-attachments.ts`, so the desktop pty handlers this

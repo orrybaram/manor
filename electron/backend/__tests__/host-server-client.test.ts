@@ -8,6 +8,7 @@
  */
 
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Duplex, PassThrough } from "node:stream";
@@ -33,7 +34,7 @@ import {
   HostServerUnavailableError,
   type HostServerClientOptions,
 } from "../host-server-client";
-import { HostServerSync, layoutSnapshotFor } from "../host-server-sync";
+import { HostServerSync, layoutSnapshotFor, serverFactsOf } from "../host-server-sync";
 import { BackendRegistry } from "../registry";
 import type { HostProvider } from "../providers/types";
 import type { HostConnectionEvent, RemoteHostBackend, StreamEvent } from "../types";
@@ -283,6 +284,86 @@ describe("HostServerClient over server-bridge", () => {
     expect(connected).toHaveBeenCalledTimes(3);
     sync.dispose();
   });
+
+  it("records the host's room and viewer-bridge capability from its status (ADR-228)", async () => {
+    const c = client();
+    const setServerFacts = vi.fn();
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+        setServerFacts,
+      },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    await vi.waitFor(() => expect(setServerFacts).toHaveBeenCalled());
+    const status = await c.api.hostServer.status();
+    // It says it takes viewer streams, but not before it is adopted.
+    expect(status.capabilities).toContain("viewer-bridge");
+    expect(status.ownership).toBe("pending");
+    expect(setServerFacts).toHaveBeenLastCalledWith("box", {
+      roomId: status.relay.roomId,
+      viewerBridge: false,
+    });
+    expect(status.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    sync.dispose();
+  });
+
+  it("says the viewer hello for `server-bridge --viewer`, and the owner's otherwise", async () => {
+    const sock = path.join(tmp, "probe.sock");
+    const hellos: unknown[] = [];
+    const probe = net.createServer((s) => {
+      s.once("data", (chunk) => {
+        hellos.push(JSON.parse(chunk.toString("utf-8").split("\n")[0]));
+        s.end();
+      });
+    });
+    await new Promise<void>((resolve) => probe.listen(sock, resolve));
+    const run = (viewer: boolean) =>
+      runServerBridge(
+        { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() },
+        {
+          paths: { socket: sock, ownerToken: paths.ownerToken },
+          ensureServerRunning: async () => {},
+          viewer,
+        },
+      );
+    try {
+      await run(true);
+      await run(false);
+    } finally {
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+    }
+    const token = fs.readFileSync(paths.ownerToken, "utf-8").trim();
+    expect(hellos).toEqual([
+      { type: "hello", token, viewer: "desktop" },
+      { type: "hello", token },
+    ]);
+  });
+});
+
+describe("serverFactsOf (ADR-228)", () => {
+  it("reads an older host's status as no viewer bridge, with its relay's room", () => {
+    const relay = { roomId: "room-1", connected: true, error: null };
+    expect(serverFactsOf({ relay })).toEqual({ roomId: "room-1", viewerBridge: false });
+    expect(serverFactsOf({ relay, capabilities: ["other"] })).toMatchObject({
+      viewerBridge: false,
+    });
+    expect(
+      serverFactsOf({ relay, roomId: "room-1", capabilities: ["viewer-bridge"] }),
+    ).toEqual({ roomId: "room-1", viewerBridge: true });
+  });
+
+  it("says no viewer bridge until the host is adopted", () => {
+    const relay = { roomId: "room-1", connected: true, error: null };
+    const status = { relay, capabilities: ["viewer-bridge"] };
+    expect(serverFactsOf({ ...status, ownership: "pending" }).viewerBridge).toBe(false);
+    expect(serverFactsOf({ ...status, ownership: "host" }).viewerBridge).toBe(true);
+  });
 });
 
 describe("BackendRegistry's owner channels", () => {
@@ -354,6 +435,81 @@ describe("BackendRegistry's owner channels", () => {
 
     await registry.unregister("box");
     expect(registry.hostServer("box")).toBeUndefined();
+  });
+
+  it("lists a host's server facts once a status has said them, and announces the change", () => {
+    const registry = new BackendRegistry({
+      local: fakeRemote().backend,
+      remoteVersion: "0.0.1",
+      createProvider: () =>
+        ({
+          kind: "ssh",
+          transport: () => {
+            throw new Error("unused");
+          },
+          forwardPort: vi.fn(),
+          dispose: async () => {},
+          openServerChannel: null,
+        }) as unknown as HostProvider,
+      createRemote: () => fakeRemote().backend,
+      hostServerClient: { log: quiet },
+    });
+    registry.register("box", { kind: "ssh", target: "me@box" });
+    const box = () => registry.list().find((h) => h.hostId === "box")!;
+    expect(box()).not.toHaveProperty("viewerBridge");
+    expect(box()).not.toHaveProperty("roomId");
+
+    const changes = vi.fn();
+    registry.onStatusChange(changes);
+    registry.setServerFacts("box", { roomId: "room-1", viewerBridge: true });
+    expect(box()).toMatchObject({ roomId: "room-1", viewerBridge: true });
+    expect(changes).toHaveBeenCalledTimes(1);
+    // The same facts again are no change.
+    registry.setServerFacts("box", { roomId: "room-1", viewerBridge: true });
+    expect(changes).toHaveBeenCalledTimes(1);
+    // The local host has no server; ignored.
+    registry.setServerFacts("local", { roomId: "x", viewerBridge: true });
+    expect(registry.list()[0]).not.toHaveProperty("roomId");
+
+    registry.setServerFacts("box", null);
+    expect(box()).not.toHaveProperty("viewerBridge");
+    expect(changes).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists whether each remote host is adopted, and announces adoption", () => {
+    const adopted = new Set<string>();
+    const registry = new BackendRegistry({
+      local: fakeRemote().backend,
+      remoteVersion: "0.0.1",
+      createProvider: () =>
+        ({
+          kind: "ssh",
+          transport: () => {
+            throw new Error("unused");
+          },
+          forwardPort: vi.fn(),
+          dispose: async () => {},
+          openServerChannel: null,
+        }) as unknown as HostProvider,
+      createRemote: () => fakeRemote().backend,
+      hostServerClient: { log: quiet },
+      isAdopted: (hostId) => adopted.has(hostId),
+    });
+    registry.register("box", { kind: "ssh", target: "me@box" });
+    const box = () => registry.list().find((h) => h.hostId === "box")!;
+    expect(box().adopted).toBe(false);
+    expect(registry.list()[0]).not.toHaveProperty("adopted");
+
+    const changes = vi.fn();
+    registry.onStatusChange(changes);
+    adopted.add("box");
+    registry.adoptionChanged("box");
+    expect(changes).toHaveBeenCalledOnce();
+    expect(changes.mock.calls[0][0].find((h: { hostId: string }) => h.hostId === "box")).toMatchObject({
+      adopted: true,
+    });
+    registry.adoptionChanged("nowhere");
+    expect(changes).toHaveBeenCalledOnce();
   });
 });
 

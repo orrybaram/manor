@@ -15,8 +15,9 @@
  *
  * On a platform with remote hosts (the desktop) it also builds `HostRouting`
  * (ADR-227 D4): each adopted host's state comes from that host's server —
- * merged into the reads, routed to by the bridge, started there for a new
- * remote session — and `HostAdoption` hands a host's records to it (D3).
+ * merged into the reads, routed to by the bridge, a remote pane's terminal
+ * included (ADR-228 D5) — and `HostAdoption` hands a host's records to it
+ * (D3).
  *
  * What differs between platforms comes in through `Platform`
  * (`./platform.ts`). What only one caller has — the desktop's windows,
@@ -87,6 +88,8 @@ import type { StreamEvent } from "../terminal-host/types";
 import { ThemeManager } from "../theme";
 import { createWorkspaceOps } from "../workspace-ops";
 import { pickPaneAgent } from "../../src/lib/pane-agent";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
+import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
 import { HeadlessNotifier } from "./headless-notifier";
 import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
@@ -226,6 +229,8 @@ export function createManorServer<D extends BridgeServerDeps>(
   const backendRegistry = new BackendRegistry({
     local: localBackend,
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
+    // `hosts.list` says which hosts a window may stream to (ADR-228 D3).
+    ...(remoteHosts ? { isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId) } : {}),
     // Each remote host's state, from its own server (ADR-227 D4), heard by
     // this server's renderers under the desktop's keys and the user's name
     // for the host. The host's server reads its own hook journal, so its
@@ -245,8 +250,12 @@ export function createManorServer<D extends BridgeServerDeps>(
               routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
             ...(remoteHosts.hostCacheDir ? { cacheDir: remoteHosts.hostCacheDir } : {}),
-            publishKeyed: (ns: "chat", event: "entry" | "taskEntry", args: unknown[], key: string): void =>
-              bridge.publish(ns, event, args as never, key),
+            // A remote pane's chat and terminal, to whoever here subscribed
+            // to it (ADR-228 D5).
+            publishKeyed: (ns: "chat" | "pty", event: string, args: unknown[], key: string): void =>
+              bridge.publish(ns, event as never, args as never, key),
+            // A detached window's claim on a remote tab is the desktop's (D7).
+            claimsFor: (key: WorkspaceKey): LayoutClaim[] => layoutStore.claimsFor(key),
           },
         }
       : {}),
@@ -295,8 +304,17 @@ export function createManorServer<D extends BridgeServerDeps>(
     backendRegistry,
     (p) => projectManager.hostIdForPath(p),
     (pid) => portScanner.hostsListeningOn(pid),
-    // A new session on an adopted host starts on its server (ADR-227 D4).
-    routing ? (...args) => routing.spawnSession(...args) : undefined,
+    // An adopted host's sessions are its server's to create and attach
+    // (ADR-228 D5): `pty.*` for one is forwarded there.
+    routing ? (hostId) => routing.proxy(hostId) !== null : undefined,
+    // A remote pane a desktop window started on its host's server itself
+    // (ADR-228 D5) is that host's, by the host's own layout.
+    routing
+      ? (paneId) => {
+          const key = routing.workspaceOfPane(paneId);
+          return key === null ? null : parseWorkspaceKey(key).hostId;
+        }
+      : undefined,
   );
   // Agent launches and setup scripts start here, not in a renderer (ADR-227
   // D5): the layout store hands every launched pane over as it joins a tree.
@@ -344,6 +362,11 @@ export function createManorServer<D extends BridgeServerDeps>(
   // usually at once; `layout.getAll()` and every command wait for it, so a
   // renderer only ever sees host-qualified keys.
   void layoutStore.startLoad(layoutPersistence.whenReady());
+  // A detached window's claim on a remote tab (ADR-228 D7): the host's layout
+  // goes out again, with it.
+  if (routing) {
+    layoutStore.onForeignClaims((key, origin) => routing.republishClaims(key, origin));
+  }
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backendRegistry);
   // `gh` runs here, in the checkout, with this machine's own sign-in. A
@@ -566,6 +589,8 @@ export function createManorServer<D extends BridgeServerDeps>(
         layoutStore,
         getPaneHostId,
         onProjectsRemoved: () => notifyProjectsChanged(),
+        // A window may now open its own stream to the host (ADR-228 D3).
+        onAdopted: (hostId) => backendRegistry.adoptionChanged(hostId),
         // The renderer keeps the agents the desktop held until it hears.
         onAgentsRemoved: (ids) => bus.publish("agents", "removed", [...ids]),
       })
@@ -678,6 +703,19 @@ export function createManorServer<D extends BridgeServerDeps>(
     // one whose shell exited: the renderer recovers it when the host's
     // `hosts:reconnected` arrives (ADR-178 §6).
     if (isRemoteSessionLoss(hostId, event)) return;
+    // A pane on an adopted host is its server's (ADR-228 D5): its bytes reach
+    // this server's callers through the host's proxy (`HostRouting.wirePty`),
+    // its status is the host's reconciler's, and none of this server's
+    // layout, launches or chat holds it. The daemon streams nothing for it
+    // here — but for a pane this process attached before the host was
+    // adopted, whose bytes still come this way until it is mounted again.
+    if (routing?.proxy(hostId)) {
+      const watched = "sessionId" in event && routing.watchesPty(event.sessionId);
+      if (event.type !== "paneFacts" && !watched) {
+        bridge.handleStreamEvent(event);
+      }
+      return;
+    }
     // `paneSessions` is server-derived (ADR-179 D3): cwd and title reach the
     // layout file from the stream, not from a renderer reporting what it saw.
     layoutStore.onPtyEvent(event);
@@ -687,16 +725,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       chatMirror.closePane(event.sessionId);
       launches.onExit(event.sessionId, event.exitCode);
     }
-    // Every host's stream events arrive here and only here, so this is where
-    // the bridge is fed (ADR-180 D5) — the only consumer that forwards, to a
-    // renderer window and a paired device alike.
-    // The agent half of a pane on an adopted host is that host's (ADR-227
-    // D4): its server's reconciler decides the pane's status and names its
-    // Agent, and the proxy brings the answer here.
-    if (routing?.proxy(hostId)) {
-      if (event.type !== "paneFacts") bridge.handleStreamEvent(event);
-      return;
-    }
+    // Every daemon's stream events arrive here and only here, so this is
+    // where the bridge is fed (ADR-180 D5) — the only consumer that
+    // forwards, to a renderer window and a paired device alike.
     dispatchStreamEvent(
       event,
       { agentManager, agentStatus: agentStatusDriver, broadcastAgent },
@@ -764,6 +795,8 @@ export function createManorServer<D extends BridgeServerDeps>(
     audit: new RemoteAuditLog(path.join(dataDir, "remote-audit.jsonl")),
   });
   const unwireChat = wireChatMirror({ chatMirror }, bridge, bus.subscribe, routing ?? undefined);
+  // A remote pane's terminal events, for whoever here views it (ADR-228 D5).
+  const unwirePty = routing?.wirePty(bridge) ?? ((): void => {});
 
   return {
     ...core,
@@ -807,6 +840,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       // releases the broadcast and attachment sinks so nothing publishes into
       // a connection set that is gone.
       unwireChat();
+      unwirePty();
       bridge.dispose();
       chatMirror.dispose();
       // Takes down the ssh children; remote sessions keep running on their hosts.

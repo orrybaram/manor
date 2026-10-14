@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
+import { onBehalfOf } from "../../bridge/router";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { ghRepoOf } from "../../lib/gh-repo";
@@ -90,9 +91,11 @@ export function useIssuesShortcut() {
     let cancelled = false;
     const probe =
       tracker === "linear"
-        ? window.electronAPI.linear.getMyIssues(teamIdsKey.split(","), {
-            limit: 1,
-          })
+        ? onBehalfOf(repoHostId, () =>
+            window.electronAPI.linear.getMyIssues(teamIdsKey.split(","), {
+              limit: 1,
+            }),
+          )
         : window.electronAPI.github.getMyIssues(repo!, 1);
 
     probe
@@ -107,7 +110,7 @@ export function useIssuesShortcut() {
     return () => {
       cancelled = true;
     };
-  }, [probeKey, tracker, teamIdsKey, repo]);
+  }, [probeKey, tracker, teamIdsKey, repo, repoHostId]);
 
   const handleGitHubInstalled = useCallback(() => {
     setGhStatus({ hostId: undefined, installed: true, authenticated: true });

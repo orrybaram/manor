@@ -45,10 +45,13 @@ import {
 import {
   attachReturning,
   ptyClaimWinsize,
+  ptyClose,
   ptyCreate,
   ptyDetach,
+  ptyReset,
   ptyResize,
   ptyWrite,
+  type PtyResetResult,
   type PtyViewerDeps,
 } from "../bridge/handlers/pty";
 import {
@@ -102,6 +105,7 @@ import {
   githubGetViewerName,
   githubListRepos,
   githubProxyImage,
+  linearAssociateProject,
   linearAutoMatch,
   linearCloseIssue,
   linearGetAllIssues,
@@ -130,6 +134,7 @@ import type {
   PtyAttachResult,
   PtyCreateOptions,
   PtyCreateResult,
+  PtyResetOptions,
 } from "../../src/electron.d";
 import { errorMessage } from "../lib/errors";
 import {
@@ -291,6 +296,25 @@ export async function hostPtyAttach(ctx: Ctx, paneId: string): Promise<PtyAttach
   }
 }
 
+/**
+ * A pane's session killed and started afresh in place (`pty.reset`), for a
+ * desktop window that holds this server's bridge itself (ADR-228 D5). The
+ * fresh session has nobody else on it, so the hold says so before the
+ * create-shaped answer reads it.
+ */
+function hostPtyReset(
+  ctx: Ctx,
+  paneId: string,
+  cwd: string | null,
+  cols: number,
+  rows: number,
+  opts?: PtyResetOptions | null,
+): Promise<PtyResetResult> {
+  assertString(paneId, "paneId");
+  ctx.deps.winsize.watch(paneId, 0);
+  return ptyReset(ctx, paneId, cwd, cols, rows, opts);
+}
+
 // ── preferences, theme ──
 
 function preferencesGetAll(ctx: Ctx): AppPreferences {
@@ -437,6 +461,10 @@ const METHODS = flatten({
     // Spawns, or attaches; audited like the desktop's create. Typing is not.
     create: method(ptyCreateWithHold, { mutating: true }),
     attach: method(hostPtyAttach),
+    // A desktop window's own bridge (ADR-228 D5) resets and ends its panes
+    // here, as it does on its own server.
+    reset: method(hostPtyReset, { mutating: true }),
+    close: method(ptyClose, { mutating: true }),
     write: method(ptyWrite),
     // The registry's foreign hold drops a device's resize and claim while
     // another client of the daemon has the session (`./winsize.ts`).
@@ -528,13 +556,14 @@ const METHODS = flatten({
     getIssueDetail: method(withLinear(linearGetIssueDetail)),
     getAllIssues: method(withLinear(linearGetAllIssues)),
     proxyImage: method(withLinear(linearProxyImage)),
-    autoMatch: method(withLinear(linearAutoMatch), { mutating: true }),
+    autoMatch: method(withLinear(linearAutoMatch)),
     startIssue: method(withLinear(linearStartIssue), { mutating: true }),
     closeIssue: method(withLinear(linearCloseIssue), { mutating: true }),
     linkIssueToWorkspace: method(owned(linearLinkIssueToWorkspace), { mutating: true }),
     unlinkIssueFromWorkspace: method(owned(linearUnlinkIssueFromWorkspace), {
       mutating: true,
     }),
+    associateProject: method(owned(linearAssociateProject), { mutating: true }),
   },
   chat: {
     getHistory: method(chatGetHistory),

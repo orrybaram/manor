@@ -355,6 +355,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
       caller: {
         id: connection.id,
         callerClass: connection.callerClass,
+        ...(connection.viewer !== undefined && { viewer: connection.viewer }),
         deviceId: connection.deviceId,
       },
     };

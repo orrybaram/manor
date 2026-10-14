@@ -2,11 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { base64urlEncode } from "../../lib/relay-crypto";
 import {
+  DECLINED_KEY,
   LEGACY_RELAY_KEY,
   PAIRINGS_KEY,
+  declinePairing,
+  declinedRooms,
+  homePairing,
   lastUsedPairing,
+  linkPairing,
   listPairings,
   migrateLegacyPairing,
+  recordPairingHello,
+  recordPairingHosts,
   removePairing,
   renamePairing,
   selectPairing,
@@ -45,8 +52,77 @@ describe("pairings store", () => {
     renamePairing(A, "Studio");
     upsertPairing({ roomId: A, serverKey: KEY, token: "a2" }, 30);
     expect(listPairings()).toEqual([
-      { roomId: A, serverKey: KEY, token: "a2", name: "Studio", addedAt: 10, lastUsedAt: 30 },
+      {
+        roomId: A,
+        serverKey: KEY,
+        token: "a2",
+        name: "Studio",
+        customName: true,
+        addedAt: 10,
+        lastUsedAt: 30,
+      },
     ]);
+  });
+
+  it("takes the host's own name from a hello until the user names it", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    recordPairingHello(A, { hostName: "desk.local", hostServer: false });
+    expect(listPairings()[0]).toMatchObject({ name: "desk.local", hostServer: false });
+    renamePairing(A, "  My Mac ");
+    recordPairingHello(A, { hostName: "desk.local", hostServer: false });
+    expect(listPairings()[0]).toMatchObject({ name: "My Mac", customName: true });
+    // An empty name is no rename.
+    renamePairing(A, "  ");
+    expect(listPairings()[0].name).toBe("My Mac");
+  });
+
+  it("keeps a pairing a desktop linked, named by it, without making it last used (ADR-228 D9)", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    expect(listPairings()[1]).toEqual({
+      roomId: B,
+      serverKey: KEY,
+      token: "box",
+      name: "me@box",
+      addedAt: 20,
+      lastUsedAt: 0,
+      hostServer: true,
+    });
+    expect(lastUsedPairing()?.roomId).toBe(A);
+    // A fresh mint renews the token; the user's own name stays.
+    renamePairing(B, "Build box");
+    linkPairing({ roomId: B, serverKey: KEY, token: "box-2", name: "me@box" }, 30);
+    expect(listPairings()[1]).toMatchObject({ token: "box-2", name: "Build box", addedAt: 20 });
+    // Nothing that is not a pairing is kept.
+    linkPairing({ roomId: "short", serverKey: KEY, token: "x", name: "bad" });
+    expect(listPairings()).toHaveLength(2);
+  });
+
+  it("keeps a desktop's host rooms", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    recordPairingHosts(A, { h1: B, h2: null });
+    expect(listPairings()[0].hosts).toEqual({ h1: B, h2: null });
+  });
+
+  it("makes the paired desktop home, else the last used", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    upsertPairing({ roomId: B, serverKey: KEY, token: "b" }, 20);
+    expect(homePairing()?.roomId).toBe(B);
+    recordPairingHello(B, { hostName: null, hostServer: true });
+    expect(homePairing()?.roomId).toBe(B);
+    recordPairingHello(A, { hostName: null, hostServer: false });
+    expect(homePairing()?.roomId).toBe(A);
+  });
+
+  it("drops a stored pairing whose extra fields are malformed", () => {
+    map.set(
+      PAIRINGS_KEY,
+      JSON.stringify([
+        { roomId: A, serverKey: KEY, token: "a", name: "A", addedAt: 1, lastUsedAt: 1, hosts: [] },
+        { roomId: B, serverKey: KEY, token: "b", name: "B", addedAt: 1, lastUsedAt: 1 },
+      ]),
+    );
+    expect(listPairings().map((p) => p.roomId)).toEqual([B]);
   });
 
   it("migrates the legacy single pairing", () => {
@@ -86,6 +162,25 @@ describe("pairings store", () => {
     expect(listPairings()).toHaveLength(2);
     removePairing(a);
     expect(listPairings().map((p) => p.roomId)).toEqual([B]);
+  });
+
+  it("remembers a declined room, which a desktop's link does not bring back but a fresh link does (ADR-228 D9)", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    const box = listPairings()[1];
+    // A stale tab's refusal declines nothing.
+    declinePairing({ ...box, token: "stale" });
+    expect(declinedRooms()).toEqual([]);
+    declinePairing(box);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A]);
+    expect(declinedRooms()).toEqual([B]);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box-2", name: "me@box" }, 30);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A]);
+    // A QR re-pair takes the room back.
+    upsertPairing({ roomId: B, serverKey: KEY, token: "qr" }, 40);
+    expect(declinedRooms()).toEqual([]);
+    expect(map.has(DECLINED_KEY)).toBe(false);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A, B]);
   });
 
   it("reuses the smallest free Host number", () => {

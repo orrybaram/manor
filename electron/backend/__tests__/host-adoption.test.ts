@@ -109,6 +109,16 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(desktop.projectManager.isHostAdopted("mac")).toBe(false);
   });
 
+  it("says a host was adopted once, so a window may stream to it (ADR-228 D3)", async () => {
+    const onAdopted = vi.fn();
+    const desktop = openDesktop(dir, { onAdopted });
+    const { channel } = fakeChannel("pending");
+    await desktop.adoption.run("box", channel);
+    expect(onAdopted).toHaveBeenCalledExactlyOnceWith("box");
+    await desktop.adoption.run("box", fakeChannel("host").channel);
+    expect(onAdopted).toHaveBeenCalledOnce();
+  });
+
   it("hands a host the projects it still holds for it after adoption, and drops the agents it recorded since", async () => {
     const desktop = openDesktop(dir);
     desktop.projectManager.markHostAdopted("box");

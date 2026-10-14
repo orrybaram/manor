@@ -105,6 +105,12 @@ export interface HostStatusInfo {
    * Absent until a status has been read; false for an older server.
    */
   viewerBridge?: boolean;
+  /**
+   * Whether this desktop has handed the host its records (ADR-227 D3), the
+   * other half of what a window's own viewer stream needs (ADR-228 D3;
+   * `electron/ipc/host-pipe.ts`). Set on a desktop's remote hosts only.
+   */
+  adopted?: boolean;
 }
 
 /** What a host server's last status said about it (ADR-228 D2, D3). */
@@ -112,7 +118,7 @@ export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBr
 
 type HostState = Omit<
   HostStatusInfo,
-  "hostId" | "spec" | "warnings" | "roomId" | "viewerBridge"
+  "hostId" | "spec" | "warnings" | "roomId" | "viewerBridge" | "adopted"
 >;
 
 /**

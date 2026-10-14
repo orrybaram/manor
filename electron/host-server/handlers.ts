@@ -105,6 +105,7 @@ import {
   githubGetViewerName,
   githubListRepos,
   githubProxyImage,
+  linearAssociateProject,
   linearAutoMatch,
   linearCloseIssue,
   linearGetAllIssues,
@@ -555,13 +556,14 @@ const METHODS = flatten({
     getIssueDetail: method(withLinear(linearGetIssueDetail)),
     getAllIssues: method(withLinear(linearGetAllIssues)),
     proxyImage: method(withLinear(linearProxyImage)),
-    autoMatch: method(withLinear(linearAutoMatch), { mutating: true }),
+    autoMatch: method(withLinear(linearAutoMatch)),
     startIssue: method(withLinear(linearStartIssue), { mutating: true }),
     closeIssue: method(withLinear(linearCloseIssue), { mutating: true }),
     linkIssueToWorkspace: method(owned(linearLinkIssueToWorkspace), { mutating: true }),
     unlinkIssueFromWorkspace: method(owned(linearUnlinkIssueFromWorkspace), {
       mutating: true,
     }),
+    associateProject: method(owned(linearAssociateProject), { mutating: true }),
   },
   chat: {
     getHistory: method(chatGetHistory),

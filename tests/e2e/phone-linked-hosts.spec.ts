@@ -39,11 +39,14 @@ import { closeSettings, openRemoteControlSettings, pairBrowser } from "./helpers
  *
  * Linear (ADR-228 D10) rides along: it is connected on the desktop only (its
  * GraphQL answered by a stub in main, there being no Linear here), and the
- * box's server has it off. The phone's Linear call is answered by the
- * desktop; with the desktop stopped it is refused, saying the desktop is
- * away. This checks the routing by each server's `isConnected` answer, and
- * the call with no host in mind (`TasksView`'s); a call on behalf of the box
- * goes through the same choice, in `src/bridge/__tests__/router.test.ts`.
+ * box's server has it off. The box's project is given a team on the desktop
+ * (`linear.associateProject`, written on the box). The phone's Tasks view
+ * lists that project's issues on behalf of the box (`onBehalfOf`): the box
+ * has no Linear, so the desktop that lists it answers. A call with no host
+ * in mind is answered by the desktop too; with the desktop stopped it is
+ * refused, saying the desktop is away. The refusal for a call on behalf of
+ * the box is not reached from the page then — Tasks shows its setup hint
+ * once no server has Linear — and is in `src/bridge/__tests__/`.
  *
  * Needs the private-sshd target (`node scripts/test-remote-e2e.mjs`), as
  * `phone-all-pairings.spec.ts` does: the box must reach the local relay.
@@ -83,21 +86,43 @@ function storedRooms(page: Page): Promise<string[]> {
 /** The stub viewer main's Linear answers with. */
 const LINEAR_VIEWER = { name: "E2E Linear", email: "e2e@linear.test" };
 
+/** The one issue main's stub Linear lists, whatever the team. */
+const LINEAR_ISSUE = {
+  id: "e2e-issue",
+  identifier: "E2E-1",
+  title: "E2E issue answered for the box",
+  url: "https://linear.app/e2e/issue/E2E-1",
+  branchName: "e2e-1",
+  priority: 2,
+  state: { name: "Todo", type: "unstarted" },
+  labels: { nodes: [] },
+  updatedAt: "2026-10-01T00:00:00.000Z",
+};
+
+const LINEAR_TEAM = { teamId: "e2e-team", teamName: "E2E", teamKey: "E2E" };
+
 /**
- * Answer main's Linear GraphQL with `viewer` alone; every other fetch goes
- * out as before. Main's `LinearManager` calls the global `fetch` per call.
+ * Answer main's Linear GraphQL with `viewer`, and one issue for either issue
+ * list; every other fetch goes out as before. Main's `LinearManager` calls
+ * the global `fetch` per call.
  */
 async function stubDesktopLinear(app: ElectronApplication): Promise<void> {
-  await app.evaluate((_electron, viewer) => {
+  await app.evaluate((_electron, { viewer, issue }) => {
     const real = globalThis.fetch;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (!url.startsWith("https://api.linear.app/")) return real(input, init);
-      return new Response(JSON.stringify({ data: { viewer } }), {
+      const query = String((JSON.parse(String(init?.body ?? "{}")) as { query?: string }).query ?? "");
+      const data = query.includes("assignedIssues")
+        ? { viewer: { assignedIssues: { nodes: [issue] } } }
+        : query.includes("issues(")
+          ? { issues: { nodes: [issue] } }
+          : { viewer };
+      return new Response(JSON.stringify({ data }), {
         headers: { "content-type": "application/json" },
       });
     }) as typeof fetch;
-  }, LINEAR_VIEWER);
+  }, { viewer: LINEAR_VIEWER, issue: LINEAR_ISSUE });
 }
 
 /** The phone's `linear.getViewer()`: its answer's name, or the refusal. */
@@ -157,6 +182,15 @@ relayTest.describe("a phone paired with the desktop only", () => {
       // Linear on the desktop only, before the phone first asks who has it.
       await stubDesktopLinear(app);
       await window.evaluate(() => window.electronAPI.linear.connect("lin_api_e2e"));
+      // The box's project gets a team: a write to the box, by project.
+      const associated = await window.evaluate(
+        async ({ name, team }) => {
+          const project = (await window.electronAPI.projects.getAll()).find((p) => p.name === name);
+          return project ? window.electronAPI.linear.associateProject(project.id, team) : false;
+        },
+        { name: PROJECT_NAME, team: LINEAR_TEAM },
+      );
+      expect(associated).toBe(true);
 
       const client = await openWebApp(desk.link, { viewport: DESK });
       try {
@@ -196,6 +230,25 @@ relayTest.describe("a phone paired with the desktop only", () => {
           async () => ((await phoneLinearViewer(page)) === `viewer:${LINEAR_VIEWER.name}` ? true : null),
           STEP,
         );
+
+        // The box's project's issues, listed on behalf of the box: the box has
+        // no Linear, so the desktop that lists it answers (D10).
+        await pollFor(
+          "the box's project carrying its team on the phone",
+          async () => {
+            const teams = await page.evaluate(
+              async (id) =>
+                (await window.electronAPI.projects.getAll()).find((p) => p.id === id)
+                  ?.linearAssociations.map((a) => a.teamId) ?? [],
+              boxProject.id,
+            );
+            return teams.includes(LINEAR_TEAM.teamId) ? true : null;
+          },
+          STEP,
+        );
+        await page.getByTestId("tasks-row").click();
+        await expect(page.getByTestId("tasks-view")).toBeVisible();
+        await expect(page.getByText(LINEAR_ISSUE.title).first()).toBeVisible({ timeout: STEP });
 
         // 4. The desktop stops; the box answers on its own.
         await killApp(app);

@@ -106,6 +106,12 @@ export interface BackendRegistryOptions {
    * are none, and nothing is cached.
    */
   hostProxy?: HostProxyContext;
+  /**
+   * Whether a remote host has adopted its records (ADR-227 D3), stamped on
+   * each remote host in `list()` as `adopted`. The desktop passes its
+   * `ProjectManager`'s; without it (a host server, most tests) none is.
+   */
+  isAdopted?: (hostId: string) => boolean;
 }
 
 const LOG = "[backend-registry]";
@@ -125,6 +131,7 @@ export class BackendRegistry {
   private readonly createRemote: RemoteBackendFactory;
   private readonly createProvider: HostProviderFactory;
   private readonly remoteVersion: string;
+  private readonly isAdopted: ((hostId: string) => boolean) | undefined;
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
   private readonly serverStates = new Emitter<[string, HostServerClientState]>(
@@ -133,6 +140,7 @@ export class BackendRegistry {
 
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
+    this.isAdopted = opts.isAdopted;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
     this.createProvider = opts.createProvider ?? defaultCreateProvider;
     this.ctx = {
@@ -220,7 +228,19 @@ export class BackendRegistry {
 
   /** Every host and its connection status, local first. */
   list(): HostStatusInfo[] {
-    return Array.from(this.hosts.values(), (conn) => conn.info());
+    return Array.from(this.hosts.values(), (conn) => {
+      const info = conn.info();
+      if (!this.isAdopted || conn.hostId === LOCAL_HOST_ID) return info;
+      return { ...info, adopted: this.isAdopted(conn.hostId) };
+    });
+  }
+
+  /**
+   * `hostId` was adopted (ADR-227 D3): `list()`'s `adopted` changed, so its
+   * listeners hear it — a window adds its own stream to the host then.
+   */
+  adoptionChanged(hostId: string): void {
+    if (this.hosts.has(hostId)) this.emitStatus();
   }
 
   /**

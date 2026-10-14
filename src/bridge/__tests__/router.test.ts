@@ -16,6 +16,8 @@ import {
 import { onBridgeResync } from "../resync";
 import { createRouter, onBehalfOf, storeResolver, type HostResolver } from "../router";
 import { createServerSet, type ServerSet } from "../server-set";
+import { autoMatchLinearTeams } from "../../lib/linear-auto-match";
+import type { ProjectInfo } from "../../store/project-store";
 
 type Handler = (...args: unknown[]) => unknown;
 
@@ -1114,6 +1116,40 @@ describe("Linear calls pick their server per call (ADR-228 D10)", () => {
     set.setReachability("box", "connected");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(await onBehalfOf("box", () => api.linear.getViewer())).toBe("box");
+  });
+
+  it("write each auto-matched team to its project's own server", async () => {
+    // A phone whose home is the host's room; the desktop is paired too.
+    const team = (key: string) => ({ teamId: key, teamName: key, teamKey: key });
+    const box = fakeServer({
+      "linear.isConnected": true,
+      "linear.autoMatch": { pd: team("D"), pb: team("B") },
+      "linear.associateProject": true,
+    });
+    const desk = fakeServer({ "linear.isConnected": false, "linear.associateProject": true });
+    const set = createServerSet();
+    set.add("boxroom", box.transport, { home: true, roomId: "boxroom" });
+    set.recordHello("boxroom", { hostName: "wsl-box", hostServer: true });
+    set.add("deskroom", desk.transport, { lists: "all", roomId: "deskroom" });
+    set.recordHello("deskroom", { hostName: "mac", hostServer: false });
+    set.setReachability("boxroom", "connected");
+    set.setReachability("deskroom", "connected");
+    const api = createRouter(set, fakeResolver({ project: { pd: "deskroom", pb: "boxroom" } }));
+    const project = (id: string, hostId: string) =>
+      ({ id, name: id, hostId, linearAssociations: [], workspaces: [] }) as unknown as ProjectInfo;
+
+    const count = await autoMatchLinearTeams([project("pd", "deskroom"), project("pb", "boxroom")], api);
+
+    expect(count).toBe(2);
+    // The host answered the match, and wrote only its own project.
+    expect(box.invokes.map((i) => [i.key, i.args])).toEqual([
+      ["linear.isConnected", []],
+      ["linear.autoMatch", [[{ id: "pd", name: "pd" }, { id: "pb", name: "pb" }]]],
+      ["linear.associateProject", ["pb", team("B")]],
+    ]);
+    expect(desk.invokes.filter((i) => i.key === "linear.associateProject").map((i) => i.args)).toEqual([
+      ["pd", team("D")],
+    ]);
   });
 
   it("keep linking an issue to its project's host", async () => {

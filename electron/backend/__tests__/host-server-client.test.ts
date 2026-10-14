@@ -475,6 +475,42 @@ describe("BackendRegistry's owner channels", () => {
     expect(box()).not.toHaveProperty("viewerBridge");
     expect(changes).toHaveBeenCalledTimes(2);
   });
+
+  it("lists whether each remote host is adopted, and announces adoption", () => {
+    const adopted = new Set<string>();
+    const registry = new BackendRegistry({
+      local: fakeRemote().backend,
+      remoteVersion: "0.0.1",
+      createProvider: () =>
+        ({
+          kind: "ssh",
+          transport: () => {
+            throw new Error("unused");
+          },
+          forwardPort: vi.fn(),
+          dispose: async () => {},
+          openServerChannel: null,
+        }) as unknown as HostProvider,
+      createRemote: () => fakeRemote().backend,
+      hostServerClient: { log: quiet },
+      isAdopted: (hostId) => adopted.has(hostId),
+    });
+    registry.register("box", { kind: "ssh", target: "me@box" });
+    const box = () => registry.list().find((h) => h.hostId === "box")!;
+    expect(box().adopted).toBe(false);
+    expect(registry.list()[0]).not.toHaveProperty("adopted");
+
+    const changes = vi.fn();
+    registry.onStatusChange(changes);
+    adopted.add("box");
+    registry.adoptionChanged("box");
+    expect(changes).toHaveBeenCalledOnce();
+    expect(changes.mock.calls[0][0].find((h: { hostId: string }) => h.hostId === "box")).toMatchObject({
+      adopted: true,
+    });
+    registry.adoptionChanged("nowhere");
+    expect(changes).toHaveBeenCalledOnce();
+  });
 });
 
 describe("adoption's records (ADR-227 D3)", () => {

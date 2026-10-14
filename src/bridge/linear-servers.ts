@@ -8,7 +8,9 @@
  * 1. H's own server, if it reports Linear connected;
  * 2. the desktop that lists H, if it is reachable and has Linear connected;
  * 3. neither: a stated refusal, "Linear isn't turned on for wsl-box, and
- *    This Mac is away".
+ *    This Mac is away". A server that is away is named as away, since what
+ *    it has is not known; when every one named is, they are named together:
+ *    "wsl-box and This Mac are both away".
  *
  * With no host in mind (browsing in `TasksView`) it is home first, then any
  * server with Linear.
@@ -115,9 +117,9 @@ export function createLinearServers(set: ServerSet): LinearServers {
     return entry.hello.name ?? entry.id;
   }
 
-  /** Why `entry` cannot answer: "Linear isn't turned on for x" / "x is away". */
-  function lack(entry: ServerEntry): string {
-    if (!reachable(entry)) return `${nameOf(entry)} is away`;
+  /** Why `entry` cannot answer: "Linear isn't turned on for x", or x is away. */
+  function lack(entry: ServerEntry): Reason {
+    if (!reachable(entry)) return { away: nameOf(entry) };
     // A desktop holds the token itself; a host server was opted in.
     return !entry.hello.hostServer
       ? `Linear isn't connected on ${nameOf(entry)}`
@@ -150,7 +152,7 @@ export function createLinearServers(set: ServerSet): LinearServers {
       if (own && has(own)) return { server: own };
       const lister = via.find(has);
       if (lister) return { server: lister };
-      const reasons = [
+      const reasons: Reason[] = [
         ...(own ? [lack(own)] : [`Linear isn't turned on for ${serverHostName(hostId) ?? hostId}`]),
         ...via.map((e) => lack(e)),
       ];
@@ -165,7 +167,7 @@ export function createLinearServers(set: ServerSet): LinearServers {
     whyNone() {
       const all = set.list();
       const home = set.home();
-      const reasons = [lack(home)];
+      const reasons: Reason[] = [lack(home)];
       const others = all.filter((e) => e !== home);
       const away = others.filter((e) => !reachable(e));
       for (const e of away) reasons.push(lack(e));
@@ -217,6 +219,25 @@ export function createLinearServers(set: ServerSet): LinearServers {
   return api;
 }
 
-function join(reasons: string[]): string {
-  return reasons.length <= 1 ? (reasons[0] ?? "") : `${reasons.slice(0, -1).join(", ")}, and ${reasons[reasons.length - 1]}`;
+/** One clause of a refusal: a sentence, or a server that is away, by name. */
+type Reason = string | { away: string };
+
+/**
+ * The clauses as one sentence. Servers all away are named together ("x and y
+ * are both away"); otherwise each says its own ("x is away").
+ */
+function join(reasons: Reason[]): string {
+  const away = reasons.flatMap((r) => (typeof r === "string" ? [] : [r.away]));
+  if (away.length > 1 && away.length === reasons.length) {
+    return `${list(away)} are ${away.length === 2 ? "both" : "all"} away`;
+  }
+  const clauses = reasons.map((r) => (typeof r === "string" ? r : `${r.away} is away`));
+  return clauses.length <= 1
+    ? (clauses[0] ?? "")
+    : `${clauses.slice(0, -1).join(", ")}, and ${clauses[clauses.length - 1]}`;
+}
+
+/** "a and b", "a, b and c". */
+function list(names: string[]): string {
+  return names.length <= 1 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }

@@ -5,13 +5,16 @@
  *
  * The list comes from the home server's `hosts.list` and
  * `hosts.onStatusChanged`, which carry each host's connection status and,
- * from its server's last status, `viewerBridge` (ticket 2). A host joins the
- * set when it is connected and says `viewerBridge` — main's own check before
- * it opens a stream (`electron/ipc/host-pipe.ts`), adoption included — so a
- * transport is never left dialling a host main will always turn away. Until
- * the first status read `viewerBridge` is absent, which counts as "not yet".
+ * from its server's last status, `viewerBridge` (ticket 2), and whether this
+ * desktop has adopted it (`adopted`). A host joins the set when it is
+ * connected, says `viewerBridge` and is adopted — main's own check before it
+ * opens a stream (`electron/ipc/host-pipe.ts`) — so a transport is never left
+ * dialling a host main will always turn away. Until the first status read
+ * `viewerBridge` is absent, which counts as "not yet"; adoption finishing is
+ * a status change, which adds it then.
  *
- * Once in, a host stays while it is listed and says `viewerBridge`:
+ * Once in, a host stays while it is listed, says `viewerBridge` and is
+ * adopted:
  *
  * - **Away** (`reconnecting`, `error`, …). Main closes the stream, the
  *   transport reports `unreachable` and dials again with backoff, and the
@@ -51,13 +54,14 @@ export interface DesktopHostsOptions {
   transport?: (hostId: string) => WsBridgeTransport;
 }
 
+/** Whether main would open a stream to `host` while it is connected. */
+function streamable(host: HostStatusInfo): boolean {
+  return host.viewerBridge === true && host.adopted === true;
+}
+
 /** Whether a window may hold its own bridge to `host` now (D3, D4). */
 export function takesViewerStream(host: HostStatusInfo): boolean {
-  return (
-    host.hostId !== LOCAL_HOST_ID &&
-    host.status === "connected" &&
-    host.viewerBridge === true
-  );
+  return host.hostId !== LOCAL_HOST_ID && host.status === "connected" && streamable(host);
 }
 
 /**
@@ -96,7 +100,7 @@ export function watchDesktopHosts(options: DesktopHostsOptions): () => void {
         if (takesViewerStream(host)) add(host.hostId);
         continue;
       }
-      if (host.viewerBridge !== true) {
+      if (!streamable(host)) {
         remove(host.hostId);
         continue;
       }

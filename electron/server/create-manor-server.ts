@@ -229,6 +229,8 @@ export function createManorServer<D extends BridgeServerDeps>(
   const backendRegistry = new BackendRegistry({
     local: localBackend,
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
+    // `hosts.list` says which hosts a window may stream to (ADR-228 D3).
+    ...(remoteHosts ? { isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId) } : {}),
     // Each remote host's state, from its own server (ADR-227 D4), heard by
     // this server's renderers under the desktop's keys and the user's name
     // for the host. The host's server reads its own hook journal, so its
@@ -587,6 +589,8 @@ export function createManorServer<D extends BridgeServerDeps>(
         layoutStore,
         getPaneHostId,
         onProjectsRemoved: () => notifyProjectsChanged(),
+        // A window may now open its own stream to the host (ADR-228 D3).
+        onAdopted: (hostId) => backendRegistry.adoptionChanged(hostId),
         // The renderer keeps the agents the desktop held until it hears.
         onAgentsRemoved: (ids) => bus.publish("agents", "removed", [...ids]),
       })

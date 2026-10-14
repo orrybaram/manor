@@ -42,6 +42,12 @@ export interface HostStatusInfo {
    * D3, D4). Absent until a status has been read; false for an older server.
    */
   viewerBridge?: boolean;
+  /**
+   * Whether the desktop has handed the host its records (ADR-227 D3): main
+   * opens a window's viewer stream only to an adopted host. Absent on a
+   * host server's own list and for the local host.
+   */
+  adopted?: boolean;
 }
 
 /**

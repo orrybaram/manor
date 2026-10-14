@@ -43,6 +43,7 @@ function host(hostId: string, overrides: Partial<HostStatusInfo> = {}): HostStat
     spec: { kind: "ssh", target: hostId },
     status: "connected",
     viewerBridge: true,
+    adopted: true,
     ...overrides,
   };
 }
@@ -93,6 +94,25 @@ describe("a desktop window's host servers", () => {
     expect(ids(set)).toEqual(["local"]);
     push([host("box")]);
     expect(ids(set)).toEqual(["local", "box"]);
+  });
+
+  it("waits for adoption before dialling a host, and adds it once adopted", async () => {
+    // Main turns a window away from a host it has not adopted (4504): a
+    // transport made now would dial in a loop.
+    const { set, made, push } = setup([host("box", { adopted: false })]);
+    await Promise.resolve();
+    expect(ids(set)).toEqual(["local"]);
+    expect(made.has("box")).toBe(false);
+
+    // Adoption finishing is a status change.
+    push([host("box")]);
+    expect(ids(set)).toEqual(["local", "box"]);
+  });
+
+  it("does not take an adoption the list never stated", async () => {
+    const { set } = setup([host("box", { adopted: undefined })]);
+    await Promise.resolve();
+    expect(ids(set)).toEqual(["local"]);
   });
 
   it("keeps an away host, and dials it at once when it is back", async () => {

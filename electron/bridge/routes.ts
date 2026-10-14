@@ -220,4 +220,5 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "linear.closeIssue": delegated("linear"),
   "linear.linkIssueToWorkspace": byProject(0),
   "linear.unlinkIssueFromWorkspace": byProject(0),
+  "linear.associateProject": byProject(0),
 };

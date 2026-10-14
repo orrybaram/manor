@@ -207,5 +207,7 @@ export const layout = {
   // A pane no layout holds yet stays here, and goes with the command that
   // adds it (`HostRouting`).
   setPendingCommand: method(layoutSetPendingCommand, { mutating: true, route: byPane(0) }),
-  reportViewport: method(layoutReportViewport, { route: byWorkspaceKey(0) }),
+  // A window's report, and its claim, are the desktop's whatever workspace
+  // it names (ADR-228 D7): a host server has no windows to hold a claim.
+  reportViewport: method(layoutReportViewport, { route: LOCAL_ROUTE }),
 };

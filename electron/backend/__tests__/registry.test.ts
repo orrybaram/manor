@@ -652,52 +652,43 @@ describe("RoutedBackend", () => {
     });
   });
 
-  it("has a remote session started by its host's server, then attaches to it (ADR-227 D4)", async () => {
+  it("never creates or attaches a session its host's server serves (ADR-228 D5)", async () => {
     const ctx = setup();
     ctx.registry.register("box", box);
-    const spawnOnHost = vi.fn(async () => true as boolean | null);
+    let served = true;
     const backend = new RoutedBackend(
       ctx.registry,
       (p) => (p.startsWith("/remote") ? "box" : "local"),
       () => [],
-      spawnOnHost,
+      (hostId) => served && hostId === "box",
+      (paneId) => (paneId === "pane-placed" ? "box" : null),
     );
     const remote = ctx.remotes.get("box")!;
     await ctx.registry.ensureConnected("box");
 
-    await expect(
-      backend.pty.createOrAttachWith("pane-r", "/remote/app", 80, 24, {
-        env: { MANOR_AGENT_KIND: "codex" },
-      }),
-    ).resolves.toMatchObject({ hostId: "box", spawned: true });
-    expect(spawnOnHost).toHaveBeenCalledWith("box", "pane-r", "/remote/app", 80, 24, {
-      MANOR_AGENT_KIND: "codex",
-    });
-    // The bytes still come over the daemon stream: this attaches to it.
-    expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith(
-      "pane-r", "/remote/app", 80, 24, undefined, { MANOR_AGENT_KIND: "codex" },
+    // `box`'s server creates and attaches its panes, over its own bridge.
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).rejects.toThrow(
+      /whose own server attaches it/,
     );
-
-    // A re-mount of a session this attached, and has not seen exit, just
-    // attaches; a local one is not the server's at all.
-    await backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24);
+    await expect(backend.pty.attachExisting("pane-placed")).rejects.toThrow(
+      /whose own server attaches it/,
+    );
+    expect(remote.raw.pty.createOrAttach).not.toHaveBeenCalled();
+    // A request about a running session still reaches the host it runs on.
+    backend.pty.write("pane-placed", "ls\r");
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-placed", "ls\r");
+    // The desktop's own sessions are its own.
     await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
-    expect(spawnOnHost).toHaveBeenCalledTimes(1);
+    expect(ctx.local.raw.pty.createOrAttach).toHaveBeenCalled();
 
-    // Once it exits — or the host's daemon lost it — the server finds it
-    // again (and holds what to type into a fresh one).
-    remote.stream({ type: "exit", sessionId: "pane-r", exitCode: -1, lost: true });
-    spawnOnHost.mockResolvedValueOnce(false);
+    // A host not served by its own server: the daemon creates it, as before.
+    served = false;
     await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
-      spawned: false,
+      hostId: "box",
     });
-    expect(spawnOnHost).toHaveBeenCalledTimes(2);
-
-    // A host whose server does not start it: the daemon creates it, as before.
-    spawnOnHost.mockResolvedValueOnce(null);
-    const created = await backend.pty.createOrAttach("pane-r2", "/remote/app", 80, 24);
-    expect(created).toMatchObject({ hostId: "box" });
-    expect(created).not.toHaveProperty("spawned");
+    expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith(
+      "pane-r", "/remote/app", 80, 24, undefined, undefined,
+    );
   });
 
   it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {

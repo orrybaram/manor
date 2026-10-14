@@ -29,6 +29,12 @@ export interface RouteRule {
   by: "project" | "workspaceKey" | "pane" | "ghRepo" | "agent" | "host";
   /** Which wire argument names the target. */
   arg: number;
+  /**
+   * For a `pane` rule: an options argument whose `hostId` names the host
+   * when no layout places the pane yet — a session created for a tab that
+   * was added a moment ago (`pty.create`'s `{ hostId }`).
+   */
+  hostOpt?: number;
 }
 
 /**
@@ -48,9 +54,12 @@ export function byWorkspaceKey(arg: number): RouteRule {
   return { by: "workspaceKey", arg };
 }
 
-/** A pane id at `arg`. */
-export function byPane(arg: number): RouteRule {
-  return { by: "pane", arg };
+/**
+ * A pane id at `arg`; `hostOpt`, when given, is the options argument whose
+ * `hostId` names the host of a pane no layout holds yet.
+ */
+export function byPane(arg: number, hostOpt?: number): RouteRule {
+  return hostOpt === undefined ? { by: "pane", arg } : { by: "pane", arg, hostOpt };
 }
 
 /** A `GhRepo` at `arg`. */
@@ -78,6 +87,18 @@ export function byAgent(arg: number): RouteRule {
  * On a table, `"merge"` and `"home"` are both `LOCAL_ROUTE`.
  */
 export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
+  // A remote pane's terminal is its host server's (ADR-228 D5): a desktop
+  // window's own bridge to it, or main forwarding for a caller that holds
+  // only the desktop. A new pane's create and reset name its host.
+  "pty.create": byPane(0, 4),
+  "pty.attach": byPane(0),
+  "pty.reset": byPane(0, 4),
+  "pty.write": byPane(0),
+  "pty.resize": byPane(0),
+  "pty.claimWinsize": byPane(0),
+  "pty.close": byPane(0),
+  "pty.detach": byPane(0),
+
   "chat.getHistory": byPane(0),
   "chat.getTaskHistory": byPane(0),
   "chat.getCommands": byPane(0),
@@ -91,7 +112,9 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "layout.apply": byWorkspaceKey(0),
   "layout.setPaneTitle": byPane(0),
   "layout.setPendingCommand": byPane(0),
-  "layout.reportViewport": byWorkspaceKey(0),
+  // A viewport report is a window's, and a claim is desktop-window state
+  // the desktop's `LayoutStore` keeps (D7): a host server has no windows.
+  "layout.reportViewport": "home",
 
   "projects.getAll": "merge",
   "projects.getSelectedIndex": "home",
@@ -164,38 +187,4 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
 
   "linear.linkIssueToWorkspace": byProject(0),
   "linear.unlinkIssueFromWorkspace": byProject(0),
-};
-
-/**
- * Where the renderer's router (`src/bridge/router.ts`) answers a method
- * differently from main's `HostRouting`, on top of `ROUTES`. Nothing else
- * reads it: the handler tables, and so main, keep `ROUTES` as it is.
- *
- * - **`pty.*` by pane** (ADR-228 D5). A desktop window holds its own bridge to
- *   each host server (D4), so a remote pane's terminal is the host's to
- *   answer, as it already is for a phone paired with that host. Main still
- *   answers `pty.*` itself (ticket 6 moves it), so this is the renderer's
- *   alone. A pane the renderer cannot place stays home, as do the methods
- *   only a desktop window has (`consumePrewarmed`, `updatePrewarmCwd`).
- * - **`layout.reportViewport` home** (D7). A viewport report is a window's,
- *   and a claim is desktop-window state that main's `LayoutStore` keeps; a
- *   host server has no windows to hold one.
- */
-export const RENDERER_ROUTES: Record<string, RouteRule | "merge" | "home"> = {
-  "pty.create": byPane(0),
-  "pty.attach": byPane(0),
-  "pty.reset": byPane(0),
-  "pty.write": byPane(0),
-  "pty.resize": byPane(0),
-  "pty.claimWinsize": byPane(0),
-  "pty.close": byPane(0),
-  "pty.detach": byPane(0),
-
-  "layout.reportViewport": "home",
-};
-
-/** `ROUTES` with `RENDERER_ROUTES` over it: what the renderer's router reads. */
-export const RENDERER_ROUTE_TABLE: Record<string, RouteRule | "merge" | "home"> = {
-  ...ROUTES,
-  ...RENDERER_ROUTES,
 };

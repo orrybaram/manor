@@ -4,9 +4,7 @@
  * Renderer code calls one `ElectronAPI`, as it always has. Behind it is no
  * longer one bridge but the page's server set (`./server-set.ts`), and this
  * router decides which of them answers each call, by the route manifest
- * (`electron/bridge/routes.ts`) that main's `HostRouting` reads too, with the
- * renderer's own overlay on it (`RENDERER_ROUTES`: a pane's `pty.*` by pane,
- * a viewport report home):
+ * (`electron/bridge/routes.ts`) that main's `HostRouting` reads too:
  *
  * - **Served at home.** A native namespace, a method the home transport
  *   serves itself (a browser's viewport and clipboard) and a namespace refused
@@ -52,11 +50,7 @@ import {
   toDesktopResult,
   toHostArgs,
 } from "../../electron/bridge/host-rewrite";
-import {
-  byPane,
-  RENDERER_ROUTE_TABLE,
-  type RouteRule,
-} from "../../electron/bridge/routes";
+import { byPane, ROUTES, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE } from "../../electron/bridge/types";
 import { parseChatTaskKey } from "../../electron/chat-mirror/task-key";
@@ -68,7 +62,7 @@ import {
   normalizeHostId,
   parseWorkspaceKey,
 } from "../lib/workspace-key";
-import { LISTENERS, NOT_MEMBERS, servesItself } from "./client";
+import { BridgeDisconnectedError, LISTENERS, NOT_MEMBERS, servesItself } from "./client";
 import { hostLookups } from "./host-lookups";
 import type { ServerEntry, ServerSet } from "./server-set";
 
@@ -96,7 +90,12 @@ export const storeResolver: HostResolver = {
         if (typeof arg !== "string") return null;
         const key = lookups.paneWorkspace?.(arg);
         if (key) return parseWorkspaceKey(key).hostId;
-        return lookups.paneHost?.(arg) ?? null;
+        const known = lookups.paneHost?.(arg);
+        if (known) return known;
+        // A pane no layout holds yet: the host its create names.
+        const opts = rule.hostOpt === undefined ? null : args[rule.hostOpt];
+        const named = isPlainObject(opts) ? opts.hostId : null;
+        return typeof named === "string" && named ? named : null;
       }
       case "agent":
         return typeof arg === "string" ? (lookups.agent?.(arg) ?? null) : null;
@@ -115,7 +114,7 @@ export const storeResolver: HostResolver = {
 
 /** The namespaces with a merged read: their listeners fan out. */
 const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
-  Object.entries(RENDERER_ROUTE_TABLE)
+  Object.entries(ROUTES)
     .filter(([, route]) => route === "merge")
     .map(([key]) => key.slice(0, key.lastIndexOf("."))),
 );
@@ -123,11 +122,10 @@ const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
 /**
  * The namespaces whose listeners are keyed by pane (`electron/bridge/events.ts`)
  * and whose calls route by pane: their listeners go to the pane's source.
- * `pty` routes by pane in the renderer's overlay (D5).
  */
 const PANE_NAMESPACES: ReadonlySet<string> = new Set(
   ["pty", "chat"].filter((ns) =>
-    Object.entries(RENDERER_ROUTE_TABLE).some(
+    Object.entries(ROUTES).some(
       ([key, route]) =>
         key.startsWith(`${ns}.`) && typeof route === "object" && route.by === "pane",
     ),
@@ -226,6 +224,17 @@ export function createRouter(
   >();
   /** Each project's group, from the desktop's last `projects.getAll` (D3). */
   let desktopGroups = new Map<unknown, unknown>();
+  /**
+   * The desktop's claims on each workspace, as home last said them (D7): a
+   * tab a detached window holds is the desktop's to know, and no host
+   * server's layout carries it.
+   */
+  const homeClaims = new Map<string, unknown>();
+  /**
+   * The layout each workspace's answerer last gave, for a claim that moved
+   * on a workspace home does not answer for: told again with it.
+   */
+  const lastLayouts = new Map<string, { version: unknown; layout: unknown }>();
   let members = new Map(set.list().map((entry) => [entry.id, entry.bridge]));
 
   // ── sources (D3) ──
@@ -381,7 +390,14 @@ export function createRouter(
     if (hostId === null && ns === "layout" && name === "setPendingCommand") {
       return holdPendingCommand(args);
     }
-    const target = hostId === null ? home : sourceOf(hostId);
+    const keyboard = ns === "pty" && name === "write";
+    let target = hostId === null ? home : sourceOf(hostId);
+    // A keystroke for a pane whose own bridge is not up this moment goes
+    // through home, which forwards it to the host (main's `HostRouting`),
+    // rather than waiting in a queue the next drop throws away.
+    if (keyboard && target && hostId !== null && !isHome(target) && target.reachability !== "connected") {
+      if (lists(home, hostId)) target = home;
+    }
     if (!target) return Promise.reject(awayError(hostId as string));
     if (rule.by === "pane" && typeof args[rule.arg] === "string") {
       const paneId = args[rule.arg] as string;
@@ -389,11 +405,19 @@ export function createRouter(
     }
     releaseHeldFor(ns, name, args, target);
     if (target.id === LOCAL_HOST_ID) return call(target, ns, name, args);
-    return Promise.resolve(
+    const answer = Promise.resolve(
       call(target, ns, name, toHostArgs(target.id, args)),
     ).then((result) => {
       const out = toDesktopResult(target.id, ns, name, result);
       return ns === "projects" ? withDesktopGroup(out) : out;
+    });
+    if (!keyboard) return answer;
+    // Nobody awaits a keystroke. One the stream dropped mid-flight may or may
+    // not have reached the host, so it is not sent twice; it is let go.
+    const via = target;
+    return answer.catch((err: unknown) => {
+      if (!(err instanceof BridgeDisconnectedError)) throw err;
+      console.warn(`[bridge-router] a keystroke to ${via.id} was lost as its stream dropped`);
     });
   }
 
@@ -542,10 +566,17 @@ export function createRouter(
     const out: Record<string, unknown> = {};
     for (const { entry, value } of answers) {
       if (!isPlainObject(value)) continue;
+      if (holdsClaims(entry)) {
+        homeClaims.clear();
+        for (const [key, layout] of Object.entries(value)) {
+          if (isPlainObject(layout) && Array.isArray(layout.claims)) homeClaims.set(key, layout.claims);
+        }
+      }
       const mine: Record<string, unknown> = {};
       for (const [key, layout] of Object.entries(value)) {
         if (answerer(hostOfKey(key, entry)) !== entry) continue;
-        mine[key] = layout;
+        noteLayout(key, layout);
+        mine[key] = isHome(entry) ? layout : withHomeClaims(key, layout);
       }
       notePanes(entry, mine);
       Object.assign(out, mine);
@@ -603,6 +634,38 @@ export function createRouter(
     return out;
   }
 
+  // ── claims (D7) ──
+
+  /** Whether `entry` says which tabs the desktop's windows hold: a desktop at home. */
+  function holdsClaims(entry: ServerEntry): boolean {
+    return isHome(entry) && !entry.hello.hostServer;
+  }
+
+  /** `layout` with the desktop's claims on `key`, when home has said any. */
+  function withHomeClaims(key: string, layout: unknown): unknown {
+    if (!isPlainObject(layout) || !homeClaims.has(key)) return layout;
+    return { ...layout, claims: homeClaims.get(key) };
+  }
+
+  function noteLayout(key: string, layout: unknown): void {
+    if (isPlainObject(layout)) lastLayouts.set(key, { version: layout.version, layout: layout.layout });
+  }
+
+  /**
+   * Home's claims on `key` from one of its broadcasts: true when they moved.
+   * A removed workspace has none left.
+   */
+  function noteHomeClaims(key: string, payload: Record<string, unknown>): boolean {
+    if (payload.removed) {
+      homeClaims.delete(key);
+      return false;
+    }
+    if (!Array.isArray(payload.claims)) return false;
+    const moved = JSON.stringify(homeClaims.get(key) ?? []) !== JSON.stringify(payload.claims);
+    homeClaims.set(key, payload.claims);
+    return moved;
+  }
+
   // ── subscriptions ──
 
   /** `entry`'s event in the renderer's form, or null to drop it (D3). */
@@ -616,14 +679,33 @@ export function createRouter(
       const path = first.workspacePath;
       if (typeof path !== "string") return args;
       const key = stampKey(entry, path);
-      if (key === null || answerer(hostOfKey(key, entry)) !== entry) return null;
+      if (key === null) return null;
+      const claimsMoved = holdsClaims(entry) && noteHomeClaims(key, first);
+      if (answerer(hostOfKey(key, entry)) !== entry) {
+        // A desktop window took or let go of a tab of a workspace another
+        // server answers for (D7): that server's layout, with the claims.
+        const last = lastLayouts.get(key);
+        if (!claimsMoved || !last) return null;
+        return [
+          { workspacePath: key, version: last.version, layout: last.layout, claims: first.claims, origin: first.origin },
+          ...rest,
+        ];
+      }
       const byKey = panesByServer.get(entry.id) ?? new Map<string, Set<string>>();
-      if (first.removed) byKey.delete(key);
-      else byKey.set(key, panesOf(first));
+      if (first.removed) {
+        byKey.delete(key);
+        lastLayouts.delete(key);
+      } else {
+        byKey.set(key, panesOf(first));
+        noteLayout(key, first);
+      }
       panesByServer.set(entry.id, byKey);
       const origin = ownOrigin(entry, first.origin);
-      if (key === path && origin === first.origin) return args;
-      return [{ ...first, workspacePath: key, origin }, ...rest];
+      // A host server's broadcast carries no desktop window's claims.
+      const claims =
+        isHome(entry) || first.removed || !homeClaims.has(key) ? first.claims : homeClaims.get(key);
+      if (key === path && origin === first.origin && claims === first.claims) return args;
+      return [{ ...first, workspacePath: key, origin, claims }, ...rest];
     }
     if (event.ns === "agents" && event.event === "updated") {
       const agent =
@@ -802,8 +884,8 @@ export function createRouter(
     if (listens && typeof args[args.length - 1] === "function") {
       return subscribe(ns, name, listens, args);
     }
-    const route = Object.prototype.hasOwnProperty.call(RENDERER_ROUTE_TABLE, key)
-      ? RENDERER_ROUTE_TABLE[key]
+    const route = Object.prototype.hasOwnProperty.call(ROUTES, key)
+      ? ROUTES[key]
       : "home";
     if (route === "merge") {
       return set.list().length === 1 ? call(home, ns, name, args) : merged(ns, name, args);

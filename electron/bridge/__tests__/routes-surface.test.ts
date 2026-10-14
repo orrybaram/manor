@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { DESKTOP_TABLE } from "../handlers";
 import { SERVER_METHODS } from "../server-methods";
 import { LOCAL_ROUTE, type Method } from "../method";
-import { RENDERER_ROUTES, ROUTES } from "../routes";
+import { ROUTES } from "../routes";
 import { HOST_TABLE } from "../../host-server/handlers";
 
 /** The namespaces that read or write a host's projects, layout or agents. */
@@ -87,16 +87,16 @@ describe("routing surface (ADR-227 D4)", () => {
     expect(stray).toEqual([]);
   });
 
-  it("overlays the renderer's routes only on real methods (ADR-228 D5, D7)", () => {
-    const unknown = Object.keys(RENDERER_ROUTES).filter((key) => !(key in methods));
-    expect(unknown).toEqual([]);
-  });
-
-  it("sends the renderer's routed methods only to ones a host server answers", () => {
-    const unanswered = Object.entries(RENDERER_ROUTES)
-      .filter(([, route]) => typeof route === "object")
-      .map(([key]) => key)
-      .filter((key) => !(key in HOST_TABLE.handlers));
-    expect(unanswered).toEqual([]);
+  it("routes a remote pane's terminal by pane, and keeps viewport reports home (ADR-228 D5, D7)", () => {
+    for (const name of ["create", "attach", "reset", "write", "resize", "claimWinsize", "close", "detach"]) {
+      expect({ name, route: DESKTOP_TABLE.routes.get(`pty.${name}`)?.by }).toEqual({ name, route: "pane" });
+    }
+    // A new pane's host is in its create's and reset's options.
+    expect(DESKTOP_TABLE.routes.get("pty.create")).toEqual({ by: "pane", arg: 0, hostOpt: 4 });
+    expect(DESKTOP_TABLE.routes.get("pty.reset")).toEqual({ by: "pane", arg: 0, hostOpt: 4 });
+    // Only a desktop window has a prewarmed session.
+    expect(DESKTOP_TABLE.routes.has("pty.consumePrewarmed")).toBe(false);
+    expect(ROUTES["layout.reportViewport"]).toBe("home");
+    expect(DESKTOP_TABLE.routes.has("layout.reportViewport")).toBe(false);
   });
 });

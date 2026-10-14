@@ -701,12 +701,15 @@ node scripts/test-remote-e2e.mjs --docker
 - `tests/e2e/host-direct-bridge.spec.ts` (Playwright) covers a desktop
   window's own bridge to the host server (ADR-228 D4, D5). A pane on the box
   is typed into and resized over the window's `server-bridge --viewer`
-  stream. When that stream is killed, typing still reaches the box through
-  main, and the window dials the stream again and redraws the pane over it.
+  stream. When that stream is killed, typing and output still go through
+  main, which forwards the pane's terminal to the box's server, and the
+  window dials the stream again and redraws the pane over it.
   A host server that does not report `viewer-bridge` (the test-only
   `MANOR_E2E_HOST_CAPABILITIES` in `~/.manor-e2e/env` stands in for an older
-  one) gets no stream, and its pane works through main. Each test starts from
-  a clean box.
+  one) gets no stream, and its pane works through main. A browser paired
+  only with the desktop (over a local relay, as in `host-server.spec.ts`)
+  types into the box's pane and sees its output, through main. Each test
+  starts from a clean box.
 
 The Playwright specs share one box, so the harness runs them with one worker.
 The box's host server dials `MANOR_RELAY_URL` from its environment, and the

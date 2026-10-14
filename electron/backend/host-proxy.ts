@@ -16,6 +16,12 @@
  *   default: `watchChat(event, key)` forwards one subscription to the host
  *   and republishes what comes back through `publishKeyed`, at the same key.
  *   Pane ids are the same on both sides, so nothing in it is rewritten.
+ * - **A pane's terminal** (ADR-228 D5) is heard the same way: `watchPty`
+ *   forwards one of the pane's `pty.*` subscriptions, for a caller of the
+ *   desktop's that views a remote pane through it.
+ * - **Claims** (ADR-228 D7). A tab a detached desktop window holds is the
+ *   desktop's to know (`claimsFor`), not the host's: every layout entry this
+ *   hands out or publishes carries the desktop's claims on it.
  * - **Rewriting.** To the host server its own host is `local` and its
  *   workspaces are keyed by bare path. To the desktop it is `hostId`, and
  *   its workspaces are keyed `<hostId>:<path>` (`workspaceKey`). Everything
@@ -58,9 +64,10 @@ import type { ProjectInfo } from "../projects/types";
 import type { BroadcastBus } from "../renderer-broadcast";
 import type { EventArgs } from "../bridge/events";
 import type { PaneAgentStatusUpdate } from "../../src/electron";
-import type { LayoutBroadcast, LayoutEntry } from "../../src/lib/layout/protocol";
+import type { LayoutBroadcast, LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
+import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
 import { keyFor, toDesktop, toDesktopResult, toHostArgs } from "../bridge/host-rewrite";
-import type { WorkspaceKey } from "../../src/lib/workspace-key";
+import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 import {
   HostServerUnavailableError,
   type HostServerClient,
@@ -74,6 +81,10 @@ export type HostProxyChannel = Pick<
 
 /** The keyed chat events `watchChat` forwards. */
 export type HostChatEvent = "entry" | "taskEntry";
+
+/** A pane's terminal events `watchPty` forwards, keyed by pane (ADR-228 D5). */
+export const HOST_PTY_EVENTS = ["output", "resized", "exit", "cwd", "error", "winsizeOwner"] as const;
+export type HostPtyEvent = (typeof HOST_PTY_EVENTS)[number];
 
 /** The `projects` progress events a host addresses to its owner. */
 export type HostProgressEvent = "worktreeProgress" | "removeWorktreeProgress" | "cloneProgress";
@@ -118,11 +129,21 @@ export interface HostProxyOptions {
    */
   onProgress?: (event: HostProgressEvent, args: unknown[]) => void;
   /**
-   * Where a forwarded chat event goes, at its key: the desktop's
+   * Where a forwarded chat or terminal event goes, at its key: the desktop's
    * `BridgeServer.publish`, since the bus carries no key. Without it,
-   * `watchChat` hears nothing.
+   * `watchChat` and `watchPty` hear nothing.
    */
-  publishKeyed?: (ns: "chat", event: HostChatEvent, args: unknown[], key: string) => void;
+  publishKeyed?: (
+    ns: "chat" | "pty",
+    event: HostChatEvent | HostPtyEvent,
+    args: unknown[],
+    key: string,
+  ) => void;
+  /**
+   * The desktop windows' claims on a workspace of this host's, by its key
+   * (ADR-228 D7). Read at use; none without it.
+   */
+  claimsFor?: (key: WorkspaceKey) => LayoutClaim[];
   /** How long a change waits before the cache file is written. */
   saveDelayMs?: number;
   log?: Pick<Console, "info" | "warn">;
@@ -293,14 +314,19 @@ export class HostProxy {
     return [...this.paneStatusList.values()];
   }
 
-  /** The host's layout, keyed `<hostId>:<path>`. */
+  /** The host's layout, keyed `<hostId>:<path>`, with the desktop's claims. */
   layout(): Record<WorkspaceKey, LayoutEntry> {
     const out: Record<WorkspaceKey, LayoutEntry> = {};
     for (const [bare, entry] of Object.entries(this.workspaces)) {
       const key = keyFor(this.hostId, bare);
-      if (key) out[key] = entry;
+      if (key) out[key] = { ...entry, claims: this.claimsOf(key) };
     }
     return out;
+  }
+
+  /** The desktop's claims on `key`: a host server has no windows to hold one. */
+  private claimsOf(key: WorkspaceKey): LayoutClaim[] {
+    return this.opts.claimsFor?.(key) ?? [];
   }
 
   /** The host's last active workspace, as a key; null when it has none. */
@@ -335,9 +361,47 @@ export class HostProxy {
    * (or task) while this holds. Returns the release.
    */
   watchChat(event: HostChatEvent, key: string): () => void {
+    return this.watchKeyed("chat", event, key);
+  }
+
+  /**
+   * Hear the host's `pty.<event>` for `paneId`, republished through
+   * `publishKeyed` at the pane (ADR-228 D5). The host's `winsizeOwner` says
+   * whether the desktop's owner channel owns the pane's grid, which is what
+   * a caller viewing the pane through the desktop is told. Returns the
+   * release.
+   */
+  watchPty(event: HostPtyEvent, paneId: string): () => void {
+    return this.watchKeyed("pty", event, paneId);
+  }
+
+  /**
+   * Tell the desktop's renderers a workspace's claims again (ADR-228 D7): a
+   * desktop window took or let go of one of its tabs, which the host never
+   * hears of. At the version the proxy holds; nothing for one it lacks.
+   */
+  republishClaims(key: WorkspaceKey, origin: LayoutOrigin): void {
+    const bare = parseWorkspaceKey(key);
+    if (bare.hostId !== this.hostId) return;
+    const entry = this.workspaces[bare.path];
+    if (!entry || this.disposed) return;
+    this.publishLayout({
+      workspacePath: bare.path,
+      version: entry.version,
+      layout: entry.layout,
+      claims: [],
+      origin,
+    });
+  }
+
+  private watchKeyed(
+    ns: "chat" | "pty",
+    event: HostChatEvent | HostPtyEvent,
+    key: string,
+  ): () => void {
     // A keyed listener hears only frames sent at its key.
-    const release = this.client.subscribe("chat", event, key, (...args) => {
-      if (!this.disposed) this.opts.publishKeyed?.("chat", event, args, key);
+    const release = this.client.subscribe(ns, event, key, (...args) => {
+      if (!this.disposed) this.opts.publishKeyed?.(ns, event, args, key);
     });
     this.releases.push(release);
     return () => {
@@ -639,7 +703,8 @@ export class HostProxy {
   private publishLayout(payload: LayoutBroadcast): void {
     const key = keyFor(this.hostId, payload.workspacePath);
     if (!key) return;
-    this.opts.bus.publish("layout", "changed", { ...payload, workspacePath: key });
+    const claims = payload.removed ? [] : this.claimsOf(key);
+    this.opts.bus.publish("layout", "changed", { ...payload, workspacePath: key, claims });
   }
 
   // ── the cache ──

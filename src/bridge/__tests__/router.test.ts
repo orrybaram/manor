@@ -6,11 +6,15 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { RouteRule } from "../../../electron/bridge/routes";
+import { byPane, type RouteRule } from "../../../electron/bridge/routes";
 import { UNAVAILABLE_HOST_AWAY_CODE } from "../../../electron/bridge/types";
-import { BridgeUnavailableError, type BridgeTransport } from "../client";
+import {
+  BridgeDisconnectedError,
+  BridgeUnavailableError,
+  type BridgeTransport,
+} from "../client";
 import { onBridgeResync } from "../resync";
-import { createRouter, type HostResolver } from "../router";
+import { createRouter, storeResolver, type HostResolver } from "../router";
 import { createServerSet, type ServerSet } from "../server-set";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -125,6 +129,7 @@ function desktopWithHost(
   set.add("local", home.transport, { home: true, lists: opts.homeLists ?? "all" });
   set.add("box", box.transport, { capabilities: ["viewer-bridge"] });
   set.recordHello("box", { hostName: "wsl-box", hostServer: true });
+  set.setReachability("box", "connected");
   return set;
 }
 
@@ -593,6 +598,41 @@ describe("a desktop window's terminals on a host's own bridge (D5)", () => {
     expect(home.live("pty.output")).toBe(0);
   });
 
+  it("places a new pane by the host its create names, when no store does yet", () => {
+    const create = byPane(0, 4);
+    expect(storeResolver.hostOf(create, ["pane-new", "/w", 80, 24, { hostId: "box" }])).toBe("box");
+    expect(storeResolver.hostOf(create, ["pane-new", "/w", 80, 24])).toBeNull();
+    // Only a rule that says where to look reads the options.
+    expect(storeResolver.hostOf(byPane(0), ["pane-new", "/w", 80, 24, { hostId: "box" }])).toBeNull();
+  });
+
+  it("sends a keystroke home while the pane's own bridge is not up, and lets one its drop lost go", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const home = fakeServer();
+    const box = fakeServer({
+      "pty.write": () => {
+        throw new BridgeDisconnectedError();
+      },
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({ pane: { "pane-b": "box" } }));
+
+    // In flight as the stream dropped: it may have landed, so it is not sent
+    // again, and nobody is left holding a rejection.
+    await expect(api.pty.write("pane-b", "a")).resolves.toBeUndefined();
+    expect(box.invokes.map((i) => i.key)).toEqual(["pty.write"]);
+    expect(home.invokes).toEqual([]);
+    expect(warn).toHaveBeenCalledOnce();
+
+    // Not up yet: main forwards it. Only the keyboard takes that path.
+    set.setReachability("box", "unknown");
+    await api.pty.write("pane-b", "b");
+    await api.pty.resize("pane-b", 90, 20);
+    expect(home.invokes).toEqual([{ key: "pty.write", args: ["pane-b", "b"] }]);
+    expect(box.invokes.map((i) => i.key)).toEqual(["pty.write", "pty.resize"]);
+    warn.mockRestore();
+  });
+
   it("sends a viewport report home, whatever host its workspace is on (D7)", async () => {
     const home = fakeServer();
     const box = fakeServer();
@@ -603,6 +643,64 @@ describe("a desktop window's terminals on a host's own bridge (D5)", () => {
       { key: "layout.reportViewport", args: ["box:/b", { activeTabId: "t" }] },
     ]);
     expect(box.invokes).toEqual([]);
+  });
+});
+
+describe("a detached window's claim on a remote tab (D7)", () => {
+  const CLAIM = [{ windowId: "9", tabId: "tab" }];
+
+  it("comes from the desktop, onto the host's own layout and broadcasts", async () => {
+    const home = fakeServer({
+      "layout.getAll": () => ({ "box:/b": { ...layoutWith("x", 1), claims: CLAIM } }),
+    });
+    const box = fakeServer({
+      "layout.getAll": () => ({ "/b": { ...layoutWith("x", 2), claims: [] } }),
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+    const merged = (await api.layout.getAll()) as unknown as Record<string, unknown>;
+    // The host's layout, which is newer, with the desktop's claim on it.
+    expect(merged["box:/b"]).toMatchObject({ version: 2, claims: CLAIM });
+
+    const changed = vi.fn();
+    api.layout.onChanged(changed);
+    // A change on the host keeps the claim the host never heard of.
+    box.emit("layout.changed", undefined, {
+      ...layoutWith("y", 3),
+      workspacePath: "/b",
+      claims: [],
+      origin: { kind: "bridge", id: "phone-1" },
+    });
+    expect(changed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspacePath: "box:/b", version: 3, claims: CLAIM }),
+    );
+
+    // The window closes: the desktop says so, from its own (older) copy of
+    // the host's layout. Told with the host's layout, and no claim.
+    home.emit("layout.changed", undefined, {
+      ...layoutWith("x", 2),
+      workspacePath: "box:/b",
+      claims: [],
+      origin: { kind: "window", id: "9" },
+    });
+    expect(changed).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        workspacePath: "box:/b",
+        version: 3,
+        layout: layoutWith("y", 3).layout,
+        claims: [],
+      }),
+    );
+
+    // The desktop passing on a host change, claims unmoved, is not news.
+    changed.mockClear();
+    home.emit("layout.changed", undefined, {
+      ...layoutWith("y", 3),
+      workspacePath: "box:/b",
+      claims: [],
+      origin: { kind: "bridge", id: "phone-1" },
+    });
+    expect(changed).not.toHaveBeenCalled();
   });
 });
 

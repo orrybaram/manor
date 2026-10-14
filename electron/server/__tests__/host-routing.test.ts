@@ -14,6 +14,7 @@ import {
   eventually,
   hook,
   openOwnerStream,
+  ptySubprocess,
   useHostServerHarness,
   withoutGit,
   type HostServerHarness,
@@ -34,6 +35,7 @@ import { PendingCommands } from "../../layout/pending-commands";
 import { createBroadcastBus, type RendererBroadcast } from "../../renderer-broadcast";
 import { createTab } from "../../../src/lib/layout/ids";
 import type { LayoutBroadcast } from "../../../src/lib/layout/protocol";
+import type { LayoutClaim } from "../../../src/lib/layout/visible-tabs";
 import type { AgentInfo } from "../../agent-persistence";
 import { HostRouting } from "../host-routing";
 import type { WorkspaceKey } from "../../../src/lib/workspace-key";
@@ -120,6 +122,10 @@ describe("HostRouting (ADR-227 D4)", () => {
     bus.subscribe((b) => heard.push(b));
     const pendingCommands = new PendingCommands();
     let projectManager: ProjectManager | null = null;
+    /** What the proxy published at a key: a pane's chat and terminal. */
+    const keyed: Array<{ ns: string; event: string; args: unknown[]; key: string }> = [];
+    /** The desktop windows' claims, by workspace key. */
+    const claims = new Map<string, LayoutClaim[]>();
     const proxy = new HostProxy({
       client,
       bus,
@@ -128,6 +134,8 @@ describe("HostRouting (ADR-227 D4)", () => {
       cacheFile: path.join(h.tmp, "host-cache", "box.json"),
       saveDelayMs: 10,
       log: quiet,
+      publishKeyed: (ns, event, args, key) => keyed.push({ ns, event, args, key }),
+      claimsFor: (key) => claims.get(key) ?? [],
     });
     onTestFinished(() => proxy.dispose());
     const routing = new HostRouting({
@@ -155,7 +163,40 @@ describe("HostRouting (ADR-227 D4)", () => {
       (ids) => ids.length === 2,
       "box's projects through the proxy",
     );
-    return { client, proxy, routing, projectManager, pendingCommands, heard, before };
+    return { client, proxy, routing, projectManager, pendingCommands, heard, keyed, claims, before };
+  }
+
+  /**
+   * The desktop's bridge as `wirePty` sees it: who is subscribed to what,
+   * with a caller here subscribing and letting go.
+   */
+  function fakeSubscriptions() {
+    const held = new Set<string>();
+    const sinks = new Set<(name: string, key: string) => void>();
+    const tell = (event: string, paneId: string) => {
+      for (const sink of sinks) sink(`pty.${event}`, paneId);
+    };
+    return {
+      bridge: {
+        onSubscriptionChange(cb: (name: string, key: string) => void) {
+          sinks.add(cb);
+          return () => sinks.delete(cb);
+        },
+        hasSubscriber: (ns: string, event: string, key: string) => held.has(`${ns}.${event}\0${key}`),
+      },
+      subscribe(paneId: string, events: readonly string[]) {
+        for (const event of events) {
+          held.add(`pty.${event}\0${paneId}`);
+          tell(event, paneId);
+        }
+      },
+      unsubscribe(paneId: string, events: readonly string[]) {
+        for (const event of events) {
+          held.delete(`pty.${event}\0${paneId}`);
+          tell(event, paneId);
+        }
+      },
+    };
   }
 
   it("lists an adopted host's projects in their places, under the desktop's group", async () => {
@@ -377,6 +418,130 @@ describe("HostRouting (ADR-227 D4)", () => {
     });
     const left = (await (client.invoke("agents", "getAll", []) as Promise<AgentInfo[]>)).map((a) => a.id);
     expect(left).not.toContain("box-1");
+  });
+
+  it("routes a new pane's create by the host its options name (ADR-228 D5)", async () => {
+    const { routing } = await adoptedDesktop();
+    const create = byPane(0, 4);
+    // No layout holds it yet: the create says which host it is for.
+    expect(routing.target(create, ["pane-new", "/x", 80, 24, { hostId: "box" }])).toBe("box");
+    // `mac` is not adopted, and a create naming no host stays here.
+    expect(routing.target(create, ["pane-new", "/x", 80, 24, { hostId: "mac" }])).toBeNull();
+    expect(routing.target(create, ["pane-new", "/x", 80, 24])).toBeNull();
+    // A pane a layout holds is that layout's host's, whatever it names.
+    await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
+    expect(routing.target(create, ["pane-box", "/x", 80, 24, { hostId: "local" }])).toBe("box");
+  });
+
+  it("forwards a remote pane's terminal, and republishes its events by pane (ADR-228 D5)", async () => {
+    const { routing, keyed } = await adoptedDesktop();
+    await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
+    const subs = fakeSubscriptions();
+    onTestFinished(routing.wirePty(subs.bridge));
+    // A phone paired only with the desktop, viewing a pane on box.
+    const PHONE: Caller = { id: "phone-1", callerClass: "device", deviceId: "d1" } as Caller;
+    subs.subscribe("pane-box", ["output", "winsizeOwner", "exit"]);
+    expect(routing.watchesPty("pane-box")).toBe(true);
+
+    const created = await routing.invoke(
+      "box",
+      "pty",
+      "create",
+      ["pane-box", h.tmp, 100, 30, { hostId: "box" }],
+      PHONE,
+    );
+    // The host's own create: its session, named by the desktop's id for it,
+    // and the grid is the desktop's to own — nobody else views it.
+    expect(created).toMatchObject({ ok: true, hostId: "box", winsizeOwner: true });
+    await eventually(
+      () => keyed.find((k) => k.event === "winsizeOwner" && k.key === "pane-box"),
+      Boolean,
+      "the host's winsize answer, at the pane",
+    );
+
+    // The box's shell prints: the phone hears it through the desktop.
+    const shell = ptySubprocess();
+    shell.output("hello from box");
+    await eventually(
+      () => keyed.filter((k) => k.ns === "pty" && k.event === "output" && k.key === "pane-box"),
+      (heard) => heard.some((k) => String(k.args[0]).includes("hello from box")),
+      "the box's output, at the pane",
+    );
+    // And types into it.
+    await routing.invoke("box", "pty", "write", ["pane-box", "echo hi\r"], PHONE);
+    await eventually(() => shell.typed(), (typed) => typed.includes("echo hi"), "the keystrokes on box");
+
+    // The phone stops watching: nothing more is forwarded.
+    subs.unsubscribe("pane-box", ["output", "winsizeOwner", "exit"]);
+    expect(routing.watchesPty("pane-box")).toBe(false);
+    const before = keyed.length;
+    shell.output("after");
+    await new Promise((r) => setTimeout(r, 100));
+    expect(keyed.slice(before).filter((k) => k.event === "output")).toEqual([]);
+  });
+
+  it("carries a pane's output while the window's own stream to the host is down (ADR-228 D5)", async () => {
+    const { routing, keyed } = await adoptedDesktop();
+    await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
+    const subs = fakeSubscriptions();
+    onTestFinished(routing.wirePty(subs.bridge));
+    // The window started the pane over its own stream, which main never saw.
+    const windowStream = await h.owner();
+    expect(
+      await windowStream.invoke("pty", "create", "pane-box", h.tmp, 100, 30),
+    ).toMatchObject({ ok: true });
+    const shell = ptySubprocess();
+    // Its stream drops: the window's listeners move to main (the router's
+    // fallback), which has no viewer of the pane of its own.
+    subs.subscribe("pane-box", ["output"]);
+    shell.output("while the stream is down");
+    await eventually(
+      () => keyed.filter((k) => k.event === "output" && k.key === "pane-box"),
+      (heard) => heard.some((k) => String(k.args[0]).includes("while the stream is down")),
+      "the output, through main",
+    );
+  });
+
+  it("answers a pane's create on a host that is away as a host to wait for (ADR-228 D5)", async () => {
+    const { routing, proxy } = await adoptedDesktop();
+    await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
+    await h.stop();
+    await eventually(() => proxy.away, Boolean, "box away");
+    expect(
+      await routing.invoke("box", "pty", "create", ["pane-box", h.tmp, 80, 24, {}], WINDOW),
+    ).toMatchObject({ ok: false, reason: "host-unavailable", hostId: "box" });
+    expect(await routing.invoke("box", "pty", "attach", ["pane-box"], WINDOW)).toMatchObject({
+      ok: false,
+      reason: "host-unavailable",
+    });
+    // A viewer's own view is not an error; a keystroke is refused.
+    await expect(routing.invoke("box", "pty", "resize", ["pane-box", 80, 24], WINDOW)).resolves.toBeUndefined();
+    await expect(routing.invoke("box", "pty", "write", ["pane-box", "x"], WINDOW)).rejects.toBeInstanceOf(
+      BridgeUnavailableRefusal,
+    );
+  });
+
+  it("gives a remote workspace's layout the desktop windows' claims (ADR-228 D7)", async () => {
+    const { routing, heard, claims } = await adoptedDesktop();
+    const key = `box:${BOX_WT}` as WorkspaceKey;
+    await eventually(() => routing.layout()[key], Boolean, "box's layout");
+    expect(routing.layout()[key].claims).toEqual([]);
+
+    // A detached window holds one of its tabs: the desktop's merged layout
+    // says so, and the layout goes out again with it.
+    const tabId = routing.layout()[key].layout.panels[Object.keys(routing.layout()[key].layout.panels)[0]].tabs[0].id;
+    claims.set(key, [{ windowId: "9", tabId }]);
+    expect(routing.layout()[key].claims).toEqual([{ windowId: "9", tabId }]);
+    routing.republishClaims(key, { kind: "window", id: "9" });
+    const told = heard
+      .filter((b) => b.ns === "layout" && b.event === "changed")
+      .map((b) => b.args[0] as LayoutBroadcast)
+      .filter((b) => b.workspacePath === key);
+    expect(told[told.length - 1]).toMatchObject({
+      version: routing.layout()[key].version,
+      claims: [{ windowId: "9", tabId }],
+      origin: { kind: "window", id: "9" },
+    });
   });
 
   it("refuses a write while the host is away, and reads from the cache", async () => {

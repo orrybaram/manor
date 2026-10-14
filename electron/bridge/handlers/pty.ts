@@ -42,7 +42,7 @@ import type {
   PtyResetOptions,
   PtyWinsize,
 } from "../../../src/electron.d";
-import { method, type Caller, type HandlerCtx } from "../method";
+import { byPane, method, type Caller, type HandlerCtx } from "../method";
 import { sessionGrid, type BridgeServerDeps } from "../server";
 
 /**
@@ -172,8 +172,8 @@ export function ptyCreate(
 ): Promise<PtyCreateResult> {
   // The same spawn the server's own launches use (ADR-227 D5): a pane the
   // server already started is attached here, its command not typed again.
-  // A remote pane on an adopted host is started by that host's server, then
-  // attached here over the daemon stream (ADR-227 D4, `RoutedBackend`).
+  // A remote pane on an adopted host never gets here: its create is that
+  // host's server's (ADR-228 D5, `HostRouting`).
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
     spawnPane(ctx.deps, paneId, {
       cwd,
@@ -415,12 +415,11 @@ async function resetSession(
       const result = await backend.pty.createOrAttachWith(
         paneId, resolvedCwd, cols, rows, { hostId },
       );
-      // Started fresh — by a remote host's server, which says so, or here.
-      if (result.spawned ?? !result.snapshot) {
+      // Started fresh: there was nothing to snapshot.
+      if (!result.snapshot) {
         return {
           ok: true,
-          // What the host's fresh shell drew before this attached.
-          snapshot: result.spawned ? result.snapshot?.screenAnsi || null : null,
+          snapshot: null,
           prewarmed: false,
           hostId: result.hostId,
         };
@@ -480,19 +479,25 @@ export async function ptyUpdatePrewarmCwd(
   );
 }
 
+/**
+ * Routed by pane (ADR-228 D5): a pane on an adopted host is that host
+ * server's terminal, so on the desktop each call for one is forwarded there
+ * (`HostRouting`), and its events come back keyed by pane (`HostProxy`). A
+ * new pane's create and reset name the host in their options.
+ */
 export const pty = {
   // Starting or ending a session is audited; `write` is the keyboard, and a
   // line per keystroke is a keylogger (ADR-161). `resize` and `detach` are
   // what a viewer does to its own view.
-  create: method(ptyCreate, { mutating: true }),
+  create: method(ptyCreate, { mutating: true, route: byPane(0, 4) }),
   // Never starts a session: a viewer coming back to one, like `detach`.
-  attach: method(ptyAttach),
-  reset: method(ptyReset, { mutating: true }),
-  write: method(ptyWrite),
-  resize: method(ptyResize),
-  claimWinsize: method(ptyClaimWinsize),
-  close: method(ptyClose, { mutating: true }),
-  detach: method(ptyDetach),
+  attach: method(ptyAttach, { route: byPane(0) }),
+  reset: method(ptyReset, { mutating: true, route: byPane(0, 4) }),
+  write: method(ptyWrite, { route: byPane(0) }),
+  resize: method(ptyResize, { route: byPane(0) }),
+  claimWinsize: method(ptyClaimWinsize, { route: byPane(0) }),
+  close: method(ptyClose, { mutating: true, route: byPane(0) }),
+  detach: method(ptyDetach, { route: byPane(0) }),
   // One prewarmed session per host, and its cwd tracks the primary window's
   // workspace: a device adopting it gets a shell somewhere else, and a device
   // moving it moves the desktop's out from under it.

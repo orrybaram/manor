@@ -150,7 +150,10 @@ export interface RemoteHostContext extends HostConnectionContext {
 
 /** What every remote host's `HostProxy` is built with (ADR-227 D4). */
 export interface HostProxyContext
-  extends Pick<HostProxyOptions, "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "saveDelayMs" | "log"> {
+  extends Pick<
+    HostProxyOptions,
+    "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "claimsFor" | "saveDelayMs" | "log"
+  > {
   /** The desktop's name for a host (`HostRecords.label`), read at use. */
   label(hostId: string): string;
   /** A host's progress events for its owner (`HostProxyOptions.onProgress`). */
@@ -402,6 +405,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
             proxyCtx.onAgentUpdate?.(agent, unseen, prev),
           onUnseenRead: (ids, unseen) => proxyCtx.onUnseenRead?.(ids, unseen),
           publishKeyed: proxyCtx.publishKeyed,
+          claimsFor: proxyCtx.claimsFor,
           onProgress: (event, args) => proxyCtx.onProgress?.(hostId, event, args),
           saveDelayMs: proxyCtx.saveDelayMs,
           log: proxyCtx.log,

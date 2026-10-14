@@ -922,6 +922,37 @@ describe("LayoutStore", () => {
       ]);
     });
 
+    it("leaves a claim on a workspace it does not hold to whoever publishes it (ADR-228 D7)", () => {
+      // A remote host's workspace: its layout is its server's, the claim the desktop's.
+      const remote = "box:/srv/app" as WorkspaceKey;
+      const desktop = new LayoutStore(
+        persistence,
+        (payload) => {
+          broadcasts.push(payload);
+        },
+        { pty: { kill } } as unknown as LayoutStoreBackend,
+        {
+          isPrimary: () => false,
+          claimOf: (id) => (id === "window-2" ? { workspacePath: remote, tabId: "tab-9" } : null),
+        },
+      );
+      const told: Array<[string, unknown]> = [];
+      desktop.onForeignClaims((workspacePath, origin) => told.push([workspacePath, origin]));
+
+      desktop.reportViewport(
+        remote,
+        { kind: "window", id: "window-2" },
+        { activePanelId: "panel-1", selectedTabIds: {}, focusedPaneIds: {} },
+      );
+      expect(desktop.claimsFor(remote)).toEqual([{ windowId: "window-2", tabId: "tab-9" }]);
+      expect(broadcasts).toHaveLength(0);
+      expect(told).toEqual([[remote, { kind: "window", id: "window-2" }]]);
+
+      desktop.releaseWindow("window-2");
+      expect(desktop.claimsFor(remote)).toEqual([]);
+      expect(told).toHaveLength(2);
+    });
+
     it("forgets the claims of a workspace that is going away", () => {
       report("window-2", "tab-1");
       store.remove(WS);

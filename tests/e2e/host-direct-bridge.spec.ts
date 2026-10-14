@@ -2,6 +2,9 @@ import { spawnSync } from "child_process";
 
 import { expect, test } from "./fixtures";
 import { readSession, readSessionMeta } from "./helpers/local-api";
+import { openWebApp } from "./helpers/phone";
+import { relayTest } from "./helpers/relay-fixture";
+import { closeSettings, pairBrowser } from "./helpers/settings";
 import {
   installRemoteStubs,
   onRemote,
@@ -29,6 +32,9 @@ import { paneText, runInTerminal } from "./helpers/terminal";
  *   stream again, and the pane is typed into once it is back.
  * - A host server from before ADR-228 (it does not report `viewer-bridge`)
  *   gets no stream, and its pane works through main as in slice 2 (D3).
+ * - A phone paired only with the desktop types into a pane on the box, and
+ *   sees its output: main forwards the pane's terminal to the box's server
+ *   (D5), over a local relay (`relayTest`).
  *
  * Each test starts from a clean box, so each one's project is the box's only
  * one. Skipped unless MANOR_E2E_SSH=1; run through the harness:
@@ -80,9 +86,8 @@ function killViewerStreams(): void {
 }
 
 /**
- * Type `marker`'s command and wait for the box's shell to have run it, and —
- * unless `screen` is false — for its output to be back on the window's
- * screen.
+ * Type `marker`'s command and wait for the box's shell to have run it, and
+ * for its output to be back on the window's screen.
  */
 async function typeAndSee(
   window: Parameters<typeof runInTerminal>[0],
@@ -90,7 +95,6 @@ async function typeAndSee(
   tempHome: string,
   paneId: string,
   marker: string,
-  { screen = true }: { screen?: boolean } = {},
 ): Promise<void> {
   // The shell computes the marker, so the typed text never matches it.
   await runInTerminal(window, `echo ${marker}_$((20+22))`);
@@ -98,7 +102,6 @@ async function typeAndSee(
   await expect
     .poll(() => readSession(request, tempHome, paneId), { timeout: STEP })
     .toContain(expected);
-  if (!screen) return;
   await expect.poll(() => paneText(window, paneId), { timeout: STEP }).toContain(expected);
 }
 
@@ -145,9 +148,9 @@ test.describe("a desktop window's own bridge to the host server", () => {
     // typing is never dropped as if it were away.
     expect((await hostStatus(window, hostId))?.status).toBe("connected");
     await expect(window.getByTestId("host-offline-banner")).not.toBeVisible();
-    // Main does not carry this pane's output until ticket 6, so only the box
-    // is asked whether it arrived.
-    await typeAndSee(window, request, tempHome, paneId, "FALLBACK", { screen: false });
+    // Main forwards the pane's terminal to the box's server meanwhile, its
+    // output included (ADR-228 D5), so what was typed is on the screen too.
+    await typeAndSee(window, request, tempHome, paneId, "FALLBACK");
 
     // The window dials its stream again, and its pane reattaches over it:
     // what it missed is on its screen too.
@@ -173,5 +176,42 @@ test.describe("a desktop window's own bridge to the host server", () => {
     );
     await typeAndSee(window, request, tempHome, paneId, "THROUGH_MAIN");
     expect(viewerStreams()).toBe(0);
+  });
+});
+
+relayTest.describe("a phone paired only with the desktop", () => {
+  relayTest.setTimeout(CONNECT_TIMEOUT + 4 * STEP);
+
+  relayTest("types into a pane on the box, through the desktop", async ({
+    window,
+    request,
+    tempHome,
+  }) => {
+    const { paneId } = await openRemoteProject(window, request, tempHome);
+    const device = await pairBrowser(window, { label: "desktop-only phone" });
+    await closeSettings(window);
+
+    const client = await openWebApp(device.link);
+    try {
+      const page = client.page;
+      const pane = page
+        .locator(`[data-testid="workspace-pane"][data-pane-id="${paneId}"] [data-testid="terminal-pane"]`)
+        .first();
+      await expect(pane).toBeVisible({ timeout: 30_000 });
+      await pane.click();
+      // The shell computes the marker, so the typed text never matches it.
+      await page.keyboard.type("echo PHONE_$((20+22))");
+      await page.keyboard.press("Enter");
+      // The box ran it, and its output came back to the phone through main.
+      await expect
+        .poll(() => readSession(request, tempHome, paneId), { timeout: STEP })
+        .toContain("PHONE_42");
+      await expect.poll(() => paneText(page, paneId), { timeout: STEP }).toContain("PHONE_42");
+    } catch (err) {
+      console.log(`[host-direct-bridge.spec] phone log:\n${client.log.join("\n")}`);
+      throw err;
+    } finally {
+      await client.close();
+    }
   });
 });

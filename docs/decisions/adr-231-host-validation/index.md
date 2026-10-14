@@ -437,9 +437,33 @@ gets a deterministic regression test.
   with a pointer here.
 - This ADR's "Known limits as built" is written from what the runs show.
 
+### D8. Added during implementation: the phone sees a silent server as away
+
+Ticket 5's E2E found the case D4 allowed for: a phone never reads a frozen
+desktop as away.
+- **The relay answers the phone's heartbeat itself.** So for about 90 s,
+  until the relay reaps the silent desktop, the line looks alive, and merged
+  reads hang on the silent server.
+- **After that, nothing dims the desktop's own projects.** `isHostOffline`
+  ignores a server the page reaches directly.
+
+The fix (ticket 11):
+- **End-to-end liveness in the bridge transport.** After 10 s of silence
+  from the far server, the transport sends a bridge-level `bridge.ping`.
+  With no answer within 5 s, it treats the line as dead, as a failed probe
+  already does. Any answer counts as alive, including an older server's
+  error frame for an unknown method.
+- **`isHostOffline` counts an unreachable direct source as away,** unless a
+  server that lists the host is connected.
+
+Rejected: the relay telling viewers that their host went quiet. The relay
+only sees ciphertext and its own heartbeats. A desktop whose socket is
+open but whose process is frozen looks the same to it as a busy one, until
+its own 90 s reaping.
+
 ### Scope
 
-**In:** D1–D7.
+**In:** D1–D8.
 
 **Out**, each still its own later decision:
 - waking a host from the phone while the desktop is away;

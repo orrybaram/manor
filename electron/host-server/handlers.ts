@@ -195,6 +195,8 @@ export interface HostServerDeps
   adopt: Adopt;
   /** What `hostServer.status` answers the owner (ADR-225 D4). */
   serverStatus(): HostServerStatus;
+  /** The owner has read `identityReset`; stop reporting it (ADR-229 D6). */
+  acknowledgeIdentityReset(): void;
   /** This box's name, for the messages that say which host refused. */
   hostName(): string;
 }
@@ -367,7 +369,10 @@ function remoteControlRevoke(
 // ── the owner's view of this server (ADR-225 D4) ──
 
 function hostServerStatus(ctx: Ctx): HostServerStatus {
-  return ctx.deps.serverStatus();
+  const status = ctx.deps.serverStatus();
+  // `identityReset` is for the owner's next read only (ADR-229 D6).
+  ctx.deps.acknowledgeIdentityReset();
+  return status;
 }
 
 /**

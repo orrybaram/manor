@@ -218,6 +218,8 @@ export interface HostServerPaths {
   layout: string;
   /** Whether the host has been adopted yet (ADR-227 D3). */
   ownership: string;
+  /** The instance this data dir was created under, to spot a copy (ADR-229 D6). */
+  instance: string;
   /**
    * Slice 1's owner snapshots (ADR-225 D4, D5), discarded at boot: the
    * desktop's manifest, and the layout snapshot `layout` used to hold.
@@ -245,6 +247,7 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
     projects: path.join(dataDir, "projects.json"),
     layout: path.join(dataDir, "layout.json"),
     ownership: path.join(dataDir, "ownership.json"),
+    instance: path.join(dataDir, "instance.json"),
     legacyManifest: path.join(dataDir, "manifest.json"),
     relayIdentity: path.join(dataDir, "relay-identity.enc"),
     devices: path.join(dataDir, "remote-devices.enc"),

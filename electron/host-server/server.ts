@@ -54,7 +54,7 @@ import {
   type DaemonNamespace,
   type HostServerPaths,
 } from "../paths";
-import type { SecretBox } from "../platform/secret-box";
+import { secretKeyOnVolume, type SecretBox } from "../platform/secret-box";
 import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
@@ -64,6 +64,11 @@ import { serveCliRelay } from "./cli-relay";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
 import { reportedCapabilities } from "./capabilities";
+import {
+  checkInstanceIdentity,
+  currentInstanceId,
+  type IdentityReset,
+} from "./instance";
 import { fileHookCursorStore } from "./hook-cursor";
 import { fileOwnershipState, type OwnershipState } from "./ownership";
 import {
@@ -208,6 +213,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     ...daemonState,
   });
 
+  // Set by the start-up identity check, until the owner has read it (D6).
+  let identityReset: IdentityReset | null = null;
+
   // Built with the deps, over the server's relay stores.
   let relay!: HostRelay;
   let winsize!: HostWinsize;
@@ -286,6 +294,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
           },
         }),
         serverStatus: hostStatus,
+        acknowledgeIdentityReset: () => {
+          identityReset = null;
+        },
         hostName: () => hostPlatform.hostName(),
       };
     },
@@ -313,6 +324,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       devices: relay.deviceCount(),
       pushEndpoints: relay.pushEndpoints(),
       linear: shared.linearManager.isConnected(),
+      secretKeyOnVolume: secretKeyOnVolume(),
+      identityReset,
     };
   }
 
@@ -384,12 +397,30 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
+   * A data dir copied from another instance must not share its relay room or
+   * keys (ADR-229 D6). Runs once the stores are readable, before the relay
+   * dials: a reset that fails leaves the old id recorded and is retried on the
+   * next start, with the relay held off until then.
+   */
+  async function checkIdentity(): Promise<void> {
+    identityReset = await checkInstanceIdentity({
+      instanceFile: paths.instance,
+      currentId: currentInstanceId(),
+      resetSealedStores: async () => {
+        await relay.resetForClone();
+        shared.linearManager.clearToken();
+      },
+    });
+  }
+
+  /**
    * The relay comes up independently of the daemon: a phone may pair and
    * connect while the daemon is still being reached. Never rejects.
    */
   async function startRelay(): Promise<void> {
     try {
       await relay.init();
+      await checkIdentity();
       if (!stopped) relay.start();
     } catch (err) {
       console.error("[host-server] relay unavailable:", errorMessage(err));

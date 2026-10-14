@@ -120,6 +120,18 @@ export interface HostServerStatus {
   pushEndpoints: string[];
   /** Whether the user turned Linear on for this host: its token is here (ADR-227 D7). */
   linear: boolean;
+  /**
+   * The key sealing the pairing keys is a file under `~/.manor`, on the very
+   * volume it protects (ADR-229 D5). Optional on the type for an older
+   * server's status.
+   */
+  secretKeyOnVolume?: boolean;
+  /**
+   * Set when this start found the data dir copied from another instance and
+   * reset the sealed stores (ADR-229 D6); reported until the owner has read
+   * it once.
+   */
+  identityReset?: "cloned" | null;
 }
 
 /** The `remoteControl.*` surface the host table exposes. */
@@ -164,6 +176,11 @@ export interface HostRelay {
    * recovery step for a box that may be compromised (ADR-225 D6).
    */
   resetIdentity(): Promise<void>;
+  /**
+   * `resetIdentity`, and a new VAPID pair too: what a copied data dir needs
+   * (ADR-229 D6). The caller clears the Linear token.
+   */
+  resetForClone(): Promise<void>;
 }
 
 export interface HostRelayDeps {
@@ -339,6 +356,11 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       clearRetry();
       // Back on the air either way; a reset that was not saved rejects.
       return room.reset({ redial: () => running });
+    },
+
+    async resetForClone() {
+      await this.resetIdentity();
+      await push.reset();
     },
   };
 }

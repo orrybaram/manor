@@ -4,7 +4,12 @@
  *
  * - **Status.** Each host is `disconnected` → `connecting` → `connected`,
  *   and a remote one moves to `reconnecting` / `error` as its backend
- *   reports `hostDisconnected` / `hostFailed`.
+ *   reports `hostDisconnected` / `hostFailed`, and to `sleeping` when its
+ *   provider says the box is asleep (ADR-229 D1).
+ * - **Intent.** `ensureConnected` is a connect somebody means — a call that
+ *   needs the host, the user — and wakes a sleeping host. A background
+ *   connect (`connectInBackground`, a poller) never does: a host asleep
+ *   stays asleep until somebody means to use it.
  * - **Attempts.** Concurrent `ensureConnected` callers share one attempt.
  *   Every attempt and every `disconnect()` bumps `attempt`; an attempt only
  *   touches state while it still holds the current value, so a disconnect
@@ -29,6 +34,13 @@
  *   status already right, and panes whose sessions are gone (the daemon
  *   restarted) can be recovered.
  * - **Its provider** (ADR-178 §1), released on disconnect and disposal.
+ *   Every connect brings the box up first (`ensureUp`, its lines shown as
+ *   the host's progress), except a background one that finds it asleep.
+ * - **Sleeping** (ADR-229 D1). A box its provider reports `sleeping` — asked
+ *   before each reconnect attempt, and before a background connect — puts
+ *   the host in `sleeping`: the reconnect loop stops and pollers leave it
+ *   alone. `wake()` (or any `ensureConnected`) brings it up and connects;
+ *   `stop()` puts it to sleep.
  * - **The owner channel** to the box's host server (ADR-225 D4):
  *   `serverClient`. It dials whenever the
  *   host reaches `connected` (a connect or a resume), lets go whenever the
@@ -47,7 +59,7 @@ import { HostServerClient, type HostServerClientOptions } from "./host-server-cl
 import { HostProxy, type HostProgressEvent, type HostProxyOptions } from "./host-proxy";
 import { hostCacheFile } from "../paths";
 import { HostUnavailableError, hostGates, hostView, type HostGates } from "./host-view";
-import type { HostProvider } from "./providers/types";
+import type { HostProvider, ProviderCapabilities, ProviderState } from "./providers/types";
 import { classifyHostFailure } from "./remote-backend";
 import type { SessionOwners } from "./session-owners";
 import type {
@@ -64,7 +76,9 @@ export type HostStatus =
   | "connecting"
   | "connected"
   | "reconnecting"
-  | "error";
+  | "error"
+  /** The box was put to sleep; nothing connects until something wakes it (ADR-229 D1). */
+  | "sleeping";
 
 export interface HostStatusInfo {
   hostId: string;
@@ -111,6 +125,13 @@ export interface HostStatusInfo {
    * `electron/ipc/host-pipe.ts`). Set on a desktop's remote hosts only.
    */
   adopted?: boolean;
+  /**
+   * What kind of box the host is, and what its provider can do to it
+   * (ADR-229 D1), so the renderer offers Wake, Stop and Destroy only where
+   * they work. Set on remote hosts by `BackendRegistry.list()`.
+   */
+  providerKind?: HostProvider["kind"];
+  capabilities?: ProviderCapabilities;
 }
 
 /** What a host server's last status said about it (ADR-228 D2, D3). */
@@ -118,7 +139,14 @@ export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBr
 
 type HostState = Omit<
   HostStatusInfo,
-  "hostId" | "spec" | "warnings" | "roomId" | "viewerBridge" | "adopted"
+  | "hostId"
+  | "spec"
+  | "warnings"
+  | "roomId"
+  | "viewerBridge"
+  | "adopted"
+  | "providerKind"
+  | "capabilities"
 >;
 
 /**
@@ -177,6 +205,11 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
    */
   autoConnect = true;
   protected state: HostState = { status: "disconnected" };
+  /**
+   * Whether the connect in flight is one somebody means, which wakes a
+   * sleeping host (see `bringUp`). Cleared when the attempt ends.
+   */
+  protected wakeWanted = false;
   /** Kept apart from `state`: they outlive reconnects (see `setState`). */
   private warnings: string[] | undefined;
   /** Kept apart from `state` too: the last status read, across reconnects. */
@@ -233,23 +266,21 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   /**
    * Connect if not already. Concurrent callers share one attempt. Rejects
    * with the connect error, which `info()` also reports. Always tries —
-   * including after `error` — so this is the retry.
+   * including after `error`, and on a sleeping host, which it wakes — so
+   * this is the retry.
    */
   ensureConnected(): Promise<void> {
-    this.autoConnect = true;
-    if (this.state.status === "connected") return Promise.resolve();
-    if (!this.connecting) {
-      const attempt = this.connect(++this.attempt).finally(() => {
-        if (this.connecting === attempt) this.connecting = null;
-      });
-      this.connecting = attempt;
-    }
-    return this.connecting;
+    return this.startConnect(true);
   }
 
-  /** `ensureConnected` without waiting; failures land in `info()`. */
+  /**
+   * A background connect, failures landing in `info()`. Unlike
+   * `ensureConnected` it never wakes a host: a sleeping one is left alone,
+   * and one whose box turns out to be asleep goes to `sleeping` instead of
+   * starting it (ADR-229 D1).
+   */
   connectInBackground(): void {
-    this.ensureConnected().catch(() => {
+    this.startConnect(false).catch(() => {
       // Reported through status.
     });
   }
@@ -289,6 +320,21 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   /** The host reached `connected` by a connect (a resume is `onHostEvent`'s). */
   protected onConnected(): void {}
 
+  /**
+   * Before the backend connects: bring the box up, or resolve false to leave
+   * it asleep (the attempt then ends in `sleeping`). `wake` is whether the
+   * connect is one somebody means. The local host has nothing to bring up.
+   */
+  protected async bringUp(_wake: boolean): Promise<boolean> {
+    return true;
+  }
+
+  /** The box is asleep: say so, and keep pollers from connecting it. */
+  protected markSleeping(): void {
+    this.autoConnect = false;
+    this.setState({ status: "sleeping" }, "clear");
+  }
+
   /** Release what the connection holds, after `dispose()`; never throws. */
   protected async release(): Promise<void> {
     try {
@@ -301,6 +347,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   /** Invalidate any in-flight connect so it cannot land after this. */
   protected cancelConnect(): void {
     this.connecting = null;
+    this.wakeWanted = false;
     this.attempt++;
   }
 
@@ -332,6 +379,32 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
     this.ctx.statusChanged();
   }
 
+  private startConnect(wake: boolean): Promise<void> {
+    // A background connect neither wakes a sleeping host nor re-arms pollers on it.
+    if (!wake && this.state.status === "sleeping") return Promise.resolve();
+    this.autoConnect = true;
+    if (this.state.status === "connected") return Promise.resolve();
+    if (this.connecting) {
+      // A background attempt may yet leave the host asleep; a connect that
+      // means it wakes it once that attempt is done.
+      if (wake && !this.wakeWanted) {
+        return this.connecting.then(() =>
+          this.state.status === "sleeping" ? this.startConnect(true) : undefined,
+        );
+      }
+      return this.connecting;
+    }
+    this.wakeWanted = wake;
+    const attempt = this.connect(++this.attempt).finally(() => {
+      if (this.connecting === attempt) {
+        this.connecting = null;
+        this.wakeWanted = false;
+      }
+    });
+    this.connecting = attempt;
+    return attempt;
+  }
+
   private async connect(token: number): Promise<void> {
     const current = () => !this.disposed && this.attempt === token;
     // A disconnect (or replacing / removing the host) cancelled this attempt.
@@ -343,6 +416,12 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
       );
     this.setState({ status: "connecting" }, "clear");
     try {
+      if (!(await this.bringUp(this.wakeWanted))) {
+        if (!current()) throw superseded();
+        this.markSleeping();
+        return;
+      }
+      if (!current()) throw superseded();
       await this.backend.connect();
     } catch (err) {
       if (!current()) throw superseded();
@@ -420,6 +499,60 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     this.unsubscribes.push(backend.onHostEvent((event) => this.onHostEvent(event)));
   }
 
+  /**
+   * Wake a sleeping host and connect it (ADR-229 D1): `ensureConnected`,
+   * which is a connect somebody means. A host its backend is already
+   * reconnecting attempts at once instead (`retryNow`): a second connect
+   * beside the loop's would race it.
+   */
+  wake(): Promise<void> {
+    if (this.status === "reconnecting") {
+      this.retryNow();
+      return Promise.resolve();
+    }
+    return this.ensureConnected();
+  }
+
+  /**
+   * Put the box to sleep (ADR-229 D1): drop the connection, have the
+   * provider stop the box, and wait in `sleeping` for something to wake it.
+   * Refused for a provider that cannot stop its box. A stop that fails
+   * leaves the host in `error`, saying why.
+   */
+  async stop(): Promise<void> {
+    const { provider } = this;
+    if (!provider.capabilities.canStop || !provider.stop) {
+      throw new Error(`Host "${this.hostId}" can't be stopped by Manor`);
+    }
+    await this.disconnect();
+    try {
+      await provider.stop();
+    } catch (err) {
+      if (!this.disposed && this.status === "disconnected") {
+        this.setState({ status: "error", error: `Stopping failed: ${errorMessage(err)}` }, "clear");
+      }
+      throw err;
+    }
+    // Something meant to use the host meanwhile, and connected it: leave it be.
+    if (this.disposed || this.status !== "disconnected") return;
+    this.markSleeping();
+  }
+
+  /**
+   * Asked by the backend's reconnect loop before each attempt (ADR-229 D1):
+   * false when the provider says the box is asleep, which puts the host in
+   * `sleeping` and stops the loop. Its sessions stay wanted, so the connect
+   * that wakes it resumes them.
+   */
+  async beforeReconnect(): Promise<boolean> {
+    if (this.disposed) return true;
+    if ((await this.providerState()) !== "sleeping") return true;
+    if (this.disposed) return true;
+    this.markSleeping();
+    await this.disposeProvider();
+    return false;
+  }
+
   /** Latest bootstrap progress, shown while `connecting`. */
   reportProgress(message: string): void {
     if (this.status !== "connecting") return;
@@ -469,17 +602,30 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     }
   }
 
-  /** Drop the connection. The remote sessions keep running. */
+  /**
+   * Drop the connection. The remote sessions keep running. A sleeping host
+   * stays `sleeping`: dropping a connection it does not have wakes nothing.
+   */
   override async disconnect(): Promise<void> {
     this.autoConnect = false;
     this.cancelConnect();
-    this.setState({ status: "disconnected" }, "clear");
+    this.setState({ status: this.status === "sleeping" ? "sleeping" : "disconnected" }, "clear");
     await this.disposeProvider();
     await this.backend.disconnect();
   }
 
   protected override onConnected(): void {
     this.claimHostSessionsInBackground();
+  }
+
+  /**
+   * Bring the box up before the backend connects (ADR-229 D1). A background
+   * connect asks first, and leaves a sleeping box asleep.
+   */
+  protected override async bringUp(wake: boolean): Promise<boolean> {
+    if (!wake && (await this.providerState()) === "sleeping") return false;
+    await this.provider.ensureUp((line) => this.reportProgress(line));
+    return true;
   }
 
   /** The host was unregistered or replaced: its owner channel goes with it. */
@@ -509,6 +655,16 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   protected override async release(): Promise<void> {
     await this.disposeProvider();
     await super.release();
+  }
+
+  /** What the provider says of the box; a failed ask is `error`, not asleep. */
+  private async providerState(): Promise<ProviderState> {
+    try {
+      return (await this.provider.status()).state;
+    } catch (err) {
+      console.warn(`[host-connection] asking ${this.hostId}'s provider its status failed:`, err);
+      return "error";
+    }
   }
 
   /** Release the provider's own resources (port forwards); never throws. */

@@ -1160,3 +1160,86 @@ describe("Linear calls pick their server per call (ADR-228 D10)", () => {
     expect(box.invokes.map((i) => i.key)).toEqual(["linear.linkIssueToWorkspace"]);
   });
 });
+
+describe("the router waking a sleeping host (ADR-229 D1)", () => {
+  /** `fakeResolver` with `box` asleep until `wake` says otherwise. */
+  function sleepyResolver(maps: Parameters<typeof fakeResolver>[0]) {
+    const asleep = new Set(["box"]);
+    return {
+      resolver: { ...fakeResolver(maps), asleep: (hostId: string) => asleep.has(hostId) },
+      awake: () => asleep.delete("box"),
+    };
+  }
+
+  it("asks home to wake the host, then sends a write to the host's own bridge", async () => {
+    const box = fakeServer({ "projects.createWorktree": { ok: true } });
+    const order: string[] = [];
+    const sets: ServerSet[] = [];
+    const { resolver, awake } = sleepyResolver({ project: { p1: "box" } });
+    const home = fakeServer({
+      "hosts.wake": async () => {
+        order.push("wake");
+        awake();
+        // The host's own bridge redials a moment after home says it is up.
+        setTimeout(() => sets[0].setReachability("box", "connected"), 5);
+      },
+    });
+    const set = desktopWithHost(home, box);
+    sets.push(set);
+    set.setReachability("box", "unreachable");
+    const api = createRouter(set, resolver);
+
+    const answer = await api.projects.createWorktree("p1", "feature");
+
+    expect(home.invokes.map((i) => i.key)).toEqual(["hosts.wake"]);
+    expect(home.invokes[0].args).toEqual(["box"]);
+    expect(box.invokes.map((i) => i.key)).toEqual(["projects.createWorktree"]);
+    expect(answer).toEqual({ ok: true });
+    expect(order).toEqual(["wake"]);
+  });
+
+  it("wakes through home even when home alone is in the set", async () => {
+    const home = fakeServer({ "hosts.wake": undefined, "pty.create": { ok: true } });
+    const set = createServerSet();
+    set.add("local", home.transport, { home: true, lists: "all" });
+    const { resolver } = sleepyResolver({ pane: { "pane-1": "box" } });
+    const api = createRouter(set, resolver);
+
+    await api.pty.create("pane-1", "/w", 80, 24, { hostId: "box" });
+
+    expect(home.invokes.map((i) => i.key)).toEqual(["hosts.wake", "pty.create"]);
+  });
+
+  it("never wakes the host for a read", async () => {
+    const box = fakeServer();
+    const home = fakeServer({ "projects.listLocalBranches": ["main"] });
+    const set = desktopWithHost(home, box);
+    set.setReachability("box", "unreachable");
+    const { resolver } = sleepyResolver({ project: { p1: "box" } });
+    const api = createRouter(set, resolver);
+
+    await api.projects.listLocalBranches("p1");
+
+    expect(home.invokes.map((i) => i.key)).toEqual(["projects.listLocalBranches"]);
+  });
+
+  it("shares one wake between calls that find the host asleep together", async () => {
+    let finish!: () => void;
+    const home = fakeServer({
+      "hosts.wake": () => new Promise<void>((resolve) => (finish = resolve)),
+      "projects.renameWorkspace": undefined,
+    });
+    const set = createServerSet();
+    set.add("local", home.transport, { home: true, lists: "all" });
+    const { resolver } = sleepyResolver({ project: { p1: "box" } });
+    const api = createRouter(set, resolver);
+
+    const a = api.projects.renameWorkspace("p1", "/w", "a");
+    const b = api.projects.renameWorkspace("p1", "/w", "b");
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    finish();
+    await Promise.all([a, b]);
+
+    expect(home.invokes.filter((i) => i.key === "hosts.wake")).toHaveLength(1);
+  });
+});

@@ -221,7 +221,41 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "linear.linkIssueToWorkspace": byProject(0),
   "linear.unlinkIssueFromWorkspace": byProject(0),
   "linear.associateProject": byProject(0),
+
+  // Waking and stopping a box is the desktop's that lists it: it holds the
+  // provider (ADR-229 D1). A phone wakes a host through home (D7).
+  "hosts.wake": "home",
+  "hosts.stop": "home",
 };
+
+/**
+ * Routed calls that never wake a sleeping host (ADR-229 D1), beyond the
+ * reads `wakesHost` already spares: what a viewer does to its own view of
+ * a pane, a keystroke into one (its pane's attach is what wakes the host),
+ * and bookkeeping on what the user has seen.
+ */
+const NEVER_WAKES: ReadonlySet<string> = new Set([
+  "pty.write",
+  "pty.resize",
+  "pty.claimWinsize",
+  "pty.detach",
+  "pty.close",
+  "agents.markSeen",
+  "agents.setPaneContext",
+]);
+
+/**
+ * Whether routed call `ns.method` means to use its host, so that a sleeping
+ * host is woken for it before it is sent (ADR-229 D1): opening a pane,
+ * creating a workspace, launching an agent — any write. Reads never wake
+ * (`get…`, `list…`, `can…`, `is…`, `check…`): a poller must not start a box
+ * the user put to sleep. Main's `HostRouting` and the renderer's router ask
+ * the same question.
+ */
+export function wakesHost(ns: string, method: string): boolean {
+  if (NEVER_WAKES.has(`${ns}.${method}`)) return false;
+  return !/^(get|list|can|is|check)[A-Z]/.test(method);
+}
 
 /**
  * Every string in `value`, however deep: the pane ids a layout command names

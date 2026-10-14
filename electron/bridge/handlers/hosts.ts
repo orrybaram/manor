@@ -29,7 +29,7 @@ import { serverFactsOf } from "../../backend/host-server-sync";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 import type { ServerDeps } from "../../ipc/types";
-import { method, type HandlerCtx } from "../method";
+import { LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 
 /**
  * Every host and its connection status — with, for a remote host, its
@@ -65,6 +65,42 @@ export function hostsRetryConnect(
 ): void {
   assertString(hostId, "hosts:retryConnect.hostId");
   ctx.deps.backendRegistry.retryNow(hostId);
+}
+
+/**
+ * How long `hosts.wake` waits for the host to come up before answering
+ * anyway: a box that takes longer goes on starting, and its status says how
+ * far it got (ADR-229 D1).
+ */
+const HOST_WAKE_WAIT_MS = 2 * 60_000;
+
+/**
+ * Wake `hostId` and connect it (ADR-229 D1). Answers once it is connected,
+ * or after `HOST_WAKE_WAIT_MS` with the box still starting; rejects when it
+ * cannot be brought up. A host that is awake already answers at once.
+ */
+async function hostsWake(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<void> {
+  assertString(hostId, "hosts:wake.hostId");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      ctx.deps.backendRegistry.wake(hostId),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, HOST_WAKE_WAIT_MS);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Put `hostId`'s box to sleep (ADR-229 D1). Refused for a host whose
+ * provider cannot stop it — every ssh box.
+ */
+async function hostsStop(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<void> {
+  assertString(hostId, "hosts:stop.hostId");
+  await ctx.deps.backendRegistry.stop(hostId);
 }
 
 /** The ADR-178 (main) §4 checks, run through the host itself. */
@@ -282,6 +318,12 @@ export const hosts = {
   list: method(hostsList),
   add: method(hostsAdd, { mutating: true }),
   retryConnect: method(hostsRetryConnect, { mutating: true }),
+  // A phone wakes a sleeping host through its home desktop (ADR-229 D7), so
+  // `wake` is a `full` device's too: like `retryConnect`, it only connects
+  // a host already listed here. Stopping one is the desktop user's call,
+  // so `stop` is local. Both are home's to answer (`ROUTES`).
+  wake: method(hostsWake, { mutating: true, route: LOCAL_ROUTE }),
+  stop: method(hostsStop, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   healthCheck: method(hostsHealthCheck),
   // Pairing a phone with a host's server hands out a key to that host, so
   // these are `localOnly` like `remoteControl.pair` (ADR-225 D3).

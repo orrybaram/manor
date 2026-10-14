@@ -195,4 +195,5 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.resetPairingKeys"
   | "hosts.setLinearOnHost"
   | "hosts.setLinkPhones"
+  | "hosts.stop"
 >;

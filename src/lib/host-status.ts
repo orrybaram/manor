@@ -16,7 +16,9 @@
  * settings card.
  *
  * Being away is a normal state, not an error (ADR-178 §6): a routine drop
- * reads "reconnecting", in the warning tone, never "failed".
+ * reads "reconnecting", in the warning tone, never "failed". Neither is
+ * being asleep (ADR-229 D1): a box put to sleep reads "Asleep", and nothing
+ * retries it — using it wakes it.
  */
 
 import type { Reachability } from "../bridge/server-set";
@@ -163,6 +165,18 @@ export function describeHost(
         canRetry: true,
       };
     }
+    case "sleeping":
+      // Away for routing, but nothing to retry: a write for it wakes it.
+      return {
+        target,
+        offline: true,
+        busy: false,
+        tone: "warn",
+        status: "Asleep",
+        banner: `${target} is asleep`,
+        summary: "The host is asleep. Opening a pane or starting work on it wakes it.",
+        canRetry: false,
+      };
     case "disconnected":
     default:
       return {
@@ -217,8 +231,8 @@ export function sourcedHost(
 /**
  * Whether host `hostId` is away: main reported it and it is not connected,
  * and no bridge of this page's own to its server is (`sourcedHost`; `direct`
- * reads the page's server set). `connecting`, `reconnecting`, `error` and
- * `disconnected` all count as away, as `describeHost` marks them `offline`.
+ * reads the page's server set). `connecting`, `reconnecting`, `error`,
+ * `sleeping` and `disconnected` all count as away, as `describeHost` marks them `offline`.
  * This machine (a missing id) and a host main has not reported yet are never
  * away. `via` reads the servers that list a host the page holds no bridge
  * to: when all of them are gone it is away whatever main last said.

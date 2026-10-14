@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { HostServerView } from "../electron.d";
 import { liveValue } from "../bridge/resync";
+import { provideHostLookups } from "../bridge/host-lookups";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string };
@@ -11,7 +12,16 @@ export type HostStatus =
   | "connecting"
   | "connected"
   | "reconnecting"
-  | "error";
+  | "error"
+  /** The box was put to sleep; a write for it wakes it (ADR-229 D1). */
+  | "sleeping";
+
+/** Mirrors `ProviderCapabilities` in `electron/backend/providers/types.ts`. */
+interface ProviderCapabilities {
+  canStop: boolean;
+  canDestroy: boolean;
+  autoSleep: boolean;
+}
 
 /** Mirrors `HostFailure` in `electron/backend/types.ts`. */
 export interface HostFailure {
@@ -48,6 +58,13 @@ export interface HostStatusInfo {
    * host server's own list and for the local host.
    */
   adopted?: boolean;
+  /**
+   * The remote host's kind of box and what Manor can do to it (ADR-229 D1),
+   * so Wake, Stop and Destroy are offered only where they work. Absent for
+   * the local host.
+   */
+  providerKind?: "ssh" | "recipe";
+  capabilities?: ProviderCapabilities;
 }
 
 /**
@@ -156,3 +173,8 @@ export function selectHost(
 ): (state: HostState) => HostStatusInfo | undefined {
   return (state) => state.hosts.find((h) => h.hostId === hostId);
 }
+
+// Whether a host is asleep, for the bridge router's wake-on-write (ADR-229 D1).
+provideHostLookups({
+  hostStatus: (hostId) => useHostStore.getState().hosts.find((h) => h.hostId === hostId)?.status,
+});

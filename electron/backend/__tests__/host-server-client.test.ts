@@ -401,6 +401,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },
@@ -444,6 +447,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },
@@ -484,6 +490,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },

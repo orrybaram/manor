@@ -2,9 +2,12 @@
  * HostProvider — what sits between a persisted `HostSpec` and the
  * `HostTransport` a `RemoteBackend` rides (ADR-178 §1).
  *
- * A bring-your-own ssh box is the only provider today, and it is assumed to
- * always be on. Each new kind of box becomes one more implementation of this
- * interface rather than a change to the registry.
+ * Each kind of box is one implementation of this interface rather than a
+ * change to the registry. A bring-your-own ssh box is assumed to always be
+ * on; a box Manor starts itself (ADR-229) has a lifecycle — it is brought up
+ * before every connect (`ensureUp`), may be put to sleep (`stop`), and says
+ * whether it is asleep (`status`), which the connection treats as a state of
+ * its own rather than an error (ADR-229 D1).
  */
 
 import type { Duplex } from "node:stream";
@@ -16,8 +19,47 @@ export interface PortForward {
   dispose(): void;
 }
 
+/**
+ * Where a provider's box is (ADR-229 D1). `sleeping` is a box that was put
+ * to sleep — by `stop()`, or by the provider itself when idle — and stays so
+ * until something means to use it; `unreachable` is one that should be up
+ * but did not answer.
+ */
+export type ProviderState = "up" | "starting" | "sleeping" | "unreachable" | "error";
+
+/** What a provider can do to its box beyond reaching it (ADR-229 D1). */
+export interface ProviderCapabilities {
+  /** `stop()` puts the box to sleep; `ensureUp()` wakes it. */
+  canStop: boolean;
+  /** `destroy()` deletes the box and its disk. */
+  canDestroy: boolean;
+  /** The provider puts the box to sleep by itself when idle. */
+  autoSleep: boolean;
+}
+
 export interface HostProvider {
-  readonly kind: "ssh";
+  /** `recipe` lands with ADR-229 D2; nothing builds one yet. */
+  readonly kind: "ssh" | "recipe";
+  readonly capabilities: ProviderCapabilities;
+  /**
+   * Make sure the box is up — starting or resuming it if not — before the
+   * backend connects (ADR-229 D1). `onProgress` gets one line per step, shown
+   * as the host's progress while it connects. Rejects when the box cannot be
+   * brought up.
+   */
+  ensureUp(onProgress?: (line: string) => void): Promise<void>;
+  /**
+   * Where the box is now. Asked before each reconnect attempt: `sleeping`
+   * stops the attempts. Should be cheap; never rejects for a box that is
+   * merely away.
+   */
+  status(): Promise<{ state: ProviderState; detail?: string }>;
+  /** Whether any agent on the box is working (ADR-229 D7). */
+  setBusy?(busy: boolean): void;
+  /** Put the box to sleep. Present only with `capabilities.canStop`. */
+  stop?(): Promise<void>;
+  /** Delete the box and its disk. Present only with `capabilities.canDestroy`. */
+  destroy?(): Promise<void>;
   /** The transport a `TerminalHostClient` uses to reach the box's daemon. */
   transport(): HostTransport;
   /**

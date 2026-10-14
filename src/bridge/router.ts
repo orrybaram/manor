@@ -42,6 +42,12 @@
  * and pane; a pane id two servers' layouts both hold is refused rather than
  * cross-wired. Any other listener is home's.
  *
+ * **Waking** (ADR-229 D1). A routed write (`wakesHost`) for a host the
+ * stores say is asleep first asks home to wake it (`hosts.wake`), waits for
+ * that and for the host's own bridge to come back (bounded), and only then
+ * is sent. A read never wakes a host. On the desktop, main's `HostRouting`
+ * wakes a host for a write it forwards too; asking twice is harmless.
+ *
  * **What main did on the way, done here.** A call that used to reach a host
  * through main's `HostRouting` picked up a few things there that a direct
  * call must get here instead: a queued command for a pane no layout holds
@@ -52,14 +58,14 @@
  * **The desktop's own server alone is a pass-through.** With only it in the
  * set — every desktop window, until a host server joins — each call is
  * handed to it as it was given and its answer returned untouched: no
- * resolving, no re-stamping, no copying. Main still merges remote hosts
+ * re-stamping, no copying, and no resolving except to wake a sleeping host. Main still merges remote hosts
  * itself (`HostRouting`), so that is exactly what the stores got before. A
  * phone's lone pairing is stamped all the same, so its ids do not change
  * when a second one joins.
  */
 
 import { keyFor } from "../../electron/bridge/host-rewrite";
-import { byPane, ROUTES, type RouteRule } from "../../electron/bridge/routes";
+import { byPane, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../electron/bridge/types";
 import { parseChatTaskKey } from "../../electron/chat-mirror/task-key";
@@ -87,6 +93,11 @@ export interface HostResolver {
    * `HostRouting` answers what it does not know itself.
    */
   hostOf(rule: RouteRule, args: readonly unknown[]): string | null;
+  /**
+   * Whether renderer host `hostId` is asleep (ADR-229 D1), so a write for it
+   * wakes it first. Absent: nothing is known to sleep.
+   */
+  asleep?(hostId: string): boolean;
 }
 
 /** `hostOf`, read off the stores' lookups. */
@@ -125,7 +136,17 @@ export const storeResolver: HostResolver = {
       }
     }
   },
+  asleep(hostId) {
+    return hostLookups().hostStatus?.(hostId) === "sleeping";
+  },
 };
+
+/**
+ * How long a write for a woken host waits for the host's own bridge to come
+ * back before it goes by whichever source there is (ADR-229 D1). Home has
+ * already said the host is up by then; this is only the bridge redialling.
+ */
+const WOKEN_SOURCE_WAIT_MS = 10_000;
 
 /** The namespaces with a merged read: their listeners fan out. */
 const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
@@ -542,13 +563,77 @@ export function createRouter(
     return new Error(`Pane ${paneId} is on two servers; refusing to guess which`);
   }
 
+  // ── waking (ADR-229 D1) ──
+
+  /** Each host's wake in flight, so calls that find it asleep share one. */
+  const waking = new Map<string, Promise<void>>();
+
+  /** The asleep host a routed `ns.name` would wake, or null. */
+  function sleepingTarget(rule: RouteRule, ns: string, name: string, args: unknown[]): string | null {
+    if (!resolver.asleep || !wakesHost(ns, name)) return null;
+    const hostId = resolver.hostOf(rule, args);
+    return hostId !== null && hostId !== LOCAL_HOST_ID && resolver.asleep(hostId) ? hostId : null;
+  }
+
+  /**
+   * Ask home to wake `hostId`, then wait — bounded — for the host's own
+   * bridge, when the page holds one, to be back. Never rejects: a host that
+   * did not wake is away, and the call it was for then says so.
+   */
+  function wake(hostId: string): Promise<void> {
+    let pending = waking.get(hostId);
+    if (!pending) {
+      pending = (async () => {
+        try {
+          await callHome("hosts", "wake", [hostId]);
+        } catch (err) {
+          console.warn(`[bridge-router] waking ${hostId} failed:`, err);
+          return;
+        }
+        await directBridgeBack(hostId);
+      })().finally(() => waking.delete(hostId));
+      waking.set(hostId, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * Resolves once the page's own bridge to `hostId` is connected — at once
+   * when it holds none — or after `WOKEN_SOURCE_WAIT_MS`.
+   */
+  function directBridgeBack(hostId: string): Promise<void> {
+    const back = (): boolean => {
+      const direct = set.get(hostId);
+      return !direct || isHome(direct) || direct.reachability === "connected";
+    };
+    if (back()) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = (): void => {
+        clearTimeout(timer);
+        off();
+        resolve();
+      };
+      const timer = setTimeout(done, WOKEN_SOURCE_WAIT_MS);
+      const off = set.subscribe(() => {
+        if (back()) done();
+      });
+    });
+  }
+
   // ── calls ──
 
   function call(entry: ServerEntry, ns: string, name: string, args: unknown[]): unknown {
     return memberOf(entry.bridge, ns, name)(...args);
   }
 
+  /** A routed call, after waking its host if it is asleep and the call means it. */
   function routed(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
+    const asleep = sleepingTarget(rule, ns, name, args);
+    if (asleep === null) return routedNow(rule, ns, name, args);
+    return wake(asleep).then(() => routedNow(rule, ns, name, args));
+  }
+
+  function routedNow(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
     const home = set.home();
     if (passThrough()) {
       heldCommands.releaseFor(ns, name, args, home);

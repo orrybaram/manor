@@ -96,6 +96,12 @@ export interface RemoteBackendOptions {
    * `SshTransport` whose `ensureRunning` bootstraps the remote host.
    */
   transport: HostTransport;
+  /**
+   * Asked before each reconnect attempt; false stops the loop quietly (the
+   * host's provider says it is asleep, ADR-229 D1). The next `connect()`
+   * resumes its sessions.
+   */
+  beforeReconnect?: () => Promise<boolean>;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
   reconnectDelayMs?: ReconnectPolicy;
   /**
@@ -136,6 +142,7 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.
       isPermanentFailure: (err) => classifyHostFailure(err) !== null,
+      ...(opts.beforeReconnect ? { beforeAttempt: opts.beforeReconnect } : {}),
     });
     this.client.setHeartbeat(
       opts.heartbeat === undefined

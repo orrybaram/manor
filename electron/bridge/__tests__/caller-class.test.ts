@@ -386,6 +386,9 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hosts.setLinearOnHost",
         // ADR-228 D9: lets the desktop pair its phones on a host, or revokes them.
         "hosts.setLinkPhones",
+        // ADR-229 D1: stopping a box is the desktop user's call; waking one
+        // is not refused, since a phone wakes a host through home (D7).
+        "hosts.stop",
       ].sort(),
     );
   });

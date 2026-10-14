@@ -65,6 +65,11 @@ export type RemoteBackendFactory = (
     onBootstrapWarning: (warnings: string[]) => void;
     /** The host's daemon is about to be replaced (ADR-185 §A). */
     onDaemonReplacing: (sessionIds: string[]) => void;
+    /**
+     * Asked before each reconnect attempt; false stops the loop, the box
+     * being asleep (ADR-229 D1). See `RemoteHostConnection.beforeReconnect`.
+     */
+    beforeReconnect: () => Promise<boolean>;
   },
 ) => RemoteHostBackend;
 
@@ -79,6 +84,7 @@ const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
     transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
     onDaemonReplacing: opts.onDaemonReplacing,
+    beforeReconnect: opts.beforeReconnect,
   });
 
 export interface BackendRegistryOptions {
@@ -207,6 +213,7 @@ export class BackendRegistry {
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
       onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
+      beforeReconnect: () => built.conn?.beforeReconnect() ?? Promise.resolve(true),
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     built.conn.serverClient.onStateChange((state) => this.serverStates.emit(hostId, state));
@@ -226,12 +233,22 @@ export class BackendRegistry {
     await conn.dispose();
   }
 
-  /** Every host and its connection status, local first. */
+  /**
+   * Every host and its connection status, local first. A remote host carries
+   * its provider's kind and capabilities (ADR-229 D1), and whether it was
+   * adopted when the registry knows.
+   */
   list(): HostStatusInfo[] {
     return Array.from(this.hosts.values(), (conn) => {
       const info = conn.info();
-      if (!this.isAdopted || conn.hostId === LOCAL_HOST_ID) return info;
-      return { ...info, adopted: this.isAdopted(conn.hostId) };
+      if (!(conn instanceof RemoteHostConnection)) return info;
+      const { provider } = conn;
+      return {
+        ...info,
+        ...(this.isAdopted ? { adopted: this.isAdopted(conn.hostId) } : {}),
+        providerKind: provider.kind,
+        capabilities: { ...provider.capabilities },
+      };
     });
   }
 
@@ -267,7 +284,8 @@ export class BackendRegistry {
   /**
    * Connect `hostId` if it is not already. Concurrent callers share one
    * attempt. Rejects with the connect error, which `list()` also reports.
-   * Always tries — including after `error` — so this is the retry.
+   * Always tries — including after `error`, and on a sleeping host, which
+   * it wakes (ADR-229 D1) — so this is the retry.
    */
   async ensureConnected(hostId: string): Promise<void> {
     const conn = this.hosts.get(hostId);
@@ -278,19 +296,19 @@ export class BackendRegistry {
   /**
    * The user's "Retry now". A host its backend is already reconnecting
    * attempts at once instead of waiting out the backoff; any other host that
-   * is not connected gets a fresh `connect()` (`connectInBackground`).
+   * is not connected gets a fresh `connect()` (`connectInBackground`). A
+   * sleeping host is left asleep: `wake` is what wakes it (ADR-229 D1).
    */
   retryNow(hostId: string): void {
-    const conn = this.hosts.get(hostId);
-    if (conn) conn.retryNow();
-    else this.connectInBackground(hostId);
+    this.hosts.get(hostId)?.retryNow();
   }
 
-  /** `ensureConnected` without waiting; failures land in `list()`. */
+  /**
+   * A background connect; failures land in `list()`. Unlike
+   * `ensureConnected` it never wakes a sleeping host (ADR-229 D1).
+   */
   connectInBackground(hostId: string): void {
-    this.ensureConnected(hostId).catch(() => {
-      // Reported through status.
-    });
+    this.hosts.get(hostId)?.connectInBackground();
   }
 
   /**
@@ -303,6 +321,40 @@ export class BackendRegistry {
     for (const conn of this.hosts.values()) {
       if (conn instanceof RemoteHostConnection) conn.checkLiveness();
     }
+  }
+
+  /**
+   * Wake `hostId` and connect it (ADR-229 D1): what a call that means to use
+   * a sleeping host does first. Resolves once the host is connected and its
+   * owner channel has been dialled (whether or not the box has a server);
+   * rejects with the connect error. The local host is always awake.
+   */
+  async wake(hostId: string): Promise<void> {
+    if (hostId === LOCAL_HOST_ID) return;
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) {
+      throw new HostUnavailableError(hostId, "unknown");
+    }
+    await conn.wake();
+    if (conn.status === "connected") await conn.serverClient.connect();
+  }
+
+  /**
+   * Put `hostId`'s box to sleep (ADR-229 D1): the connection is dropped, the
+   * provider stops the box, and the host waits in `sleeping` until something
+   * wakes it. Refused unless its provider `canStop`.
+   */
+  async stop(hostId: string): Promise<void> {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) {
+      throw new Error(
+        hostId === LOCAL_HOST_ID ? "This computer can't be stopped." : `Unknown remote host ${hostId}.`,
+      );
+    }
+    if (!conn.provider.capabilities.canStop) {
+      throw new Error(`${this.hostDisplayName(hostId) ?? hostId} can't be stopped by Manor.`);
+    }
+    await conn.stop();
   }
 
   /** Drop a remote host's connection. Its remote sessions keep running. */

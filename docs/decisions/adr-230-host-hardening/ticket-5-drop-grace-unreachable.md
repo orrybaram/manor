@@ -1,6 +1,6 @@
 ---
 title: A non-clean drop becomes unreachable after a grace period
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

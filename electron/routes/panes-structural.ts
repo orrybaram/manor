@@ -56,8 +56,7 @@ export const structuralRoutes: Route[] = [
     path: "/panes",
     async handler({ deps, url, json }) {
       const store = deps.layoutStore;
-      // A named workspace is keyed on its host (ADR-191), scoped for a
-      // relayed caller like every body-carrying route (`hostScoped`).
+      // A named workspace is keyed on its host (ADR-191).
       const named = url.searchParams.get("workspacePath");
       let workspacePath: string | null;
       if (named) {
@@ -65,11 +64,7 @@ export const structuralRoutes: Route[] = [
           workspacePath: named,
           hostId: url.searchParams.get("hostId") ?? undefined,
         });
-        if (!resolved.ok) {
-          json(resolved.status, { error: resolved.error });
-          return;
-        }
-        const hostId = resolved.body.hostId;
+        const hostId = resolved.hostId;
         workspacePath = workspaceKey(
           typeof hostId === "string" && hostId ? hostId : LOCAL_HOST_ID,
           named,

@@ -14,7 +14,7 @@
  * workspaces, folders, issues, agents (list, launch) and `/context`. A route
  * that needs a window — panes, tabs, webviews, the browser, the system
  * routes — answers that it needs Manor desktop. To the host every caller is
- * local (`callerMaySee` sees no `callerHostId`), and every project is its own.
+ * local, and every project is its own.
  *
  * Until the desktop has handed this host over (`ownership: "pending"`,
  * ADR-227 D3) every request is refused, as the server's bridge writes are.
@@ -155,7 +155,7 @@ async function dispatchRequest(
 
   let handled: boolean;
   try {
-    // Every caller here is local (ADR-227 D8): no `callerHostId`.
+    // Every caller here is local (ADR-227 D8).
     handled = await handleServerControlRequest(deps, method, url, json, async () => body);
   } catch (err) {
     return captured.result ?? { status: 500, body: { error: errorMessage(err) } };

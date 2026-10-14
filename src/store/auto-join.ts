@@ -1,4 +1,4 @@
-import { memberHostName } from "../lib/hosts";
+import { memberDisplayName } from "../bridge/server-set";
 import { useHostStore } from "./host-store";
 import { addErrorToast, useToastStore } from "./toast-store";
 
@@ -37,7 +37,7 @@ function describe(deps: AutoJoinDeps, id: string): string | null {
   const project = deps.getProjects().find((p) => p.id === id);
   if (!project) return null;
   const hosts = useHostStore.getState().hosts;
-  return `${project.name} on ${memberHostName(project.hostId, hosts)}`;
+  return `${project.name} on ${memberDisplayName(project.hostId, hosts)}`;
 }
 
 /** Revert every pair of a batch: unlink, restore the newcomer, dismiss. */

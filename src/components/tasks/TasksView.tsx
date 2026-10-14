@@ -50,7 +50,7 @@ import {
 } from "../../lib/tasks";
 import { entryLookup, taskList } from "../../lib/task-list";
 import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
-import { hostLabel } from "../../lib/hosts";
+import { hostSentenceName } from "../../bridge/server-set";
 import { useHostStore } from "../../store/host-store";
 import { TRACKER_STATUS_KEY, trackerFor } from "../../lib/trackers";
 import { useTaskScope, useTasks } from "./useTasks";
@@ -136,7 +136,7 @@ export function TasksView(props: TasksViewProps) {
   const missingGh = useGhHostStore((s) => s.missing);
   const hostList = useHostStore((s) => s.hosts);
   const missingGhHosts = useMemo(
-    () => Object.keys(missingGh).map((id) => hostLabel(id, hostList)),
+    () => Object.keys(missingGh).map((id) => hostSentenceName(id, hostList)),
     [missingGh, hostList],
   );
 

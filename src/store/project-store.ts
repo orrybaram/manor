@@ -7,7 +7,8 @@ import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { isRemoteHost, memberHostName } from "../lib/hosts";
+import { memberDisplayName } from "../bridge/server-set";
+import { isRemoteHost } from "../lib/hosts";
 import { requestUi } from "../utils/ui-request";
 import { useHostStore } from "./host-store";
 import type { TransferInputReason, TransferMode } from "../electron";
@@ -943,7 +944,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const toastId = `transfer-${projectId}`;
     // Main's "copy" is the dialog's "setUp".
     const dialogMode = mode === "copy" ? "setUp" : "move";
-    const hostName = memberHostName(hostId, useHostStore.getState().hosts);
+    const hostName = memberDisplayName(hostId, useHostStore.getState().hosts);
     toasts.addToast({
       id: toastId,
       message: `${mode === "copy" ? "Copying" : "Moving"} ${source.name} to ${hostName}…`,
@@ -1018,7 +1019,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ...(mode === "copy" && {
         duration: 15_000,
         action: {
-          label: `Remove from ${memberHostName(source.hostId, useHostStore.getState().hosts)}`,
+          label: `Remove from ${memberDisplayName(source.hostId, useHostStore.getState().hosts)}`,
           onClick: () => {
             useToastStore.getState().removeToast(toastId);
             get().openRemoveFromHost(projectId);
@@ -1074,7 +1075,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   removeFromHost: async (memberId) => {
     const member = get().projects.find((p) => p.id === memberId);
     if (!member) return;
-    const hostName = memberHostName(member.hostId, useHostStore.getState().hosts);
+    const hostName = memberDisplayName(member.hostId, useHostStore.getState().hosts);
     try {
       await get().removeProject(memberId);
     } catch (err) {

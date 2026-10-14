@@ -365,6 +365,22 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       ...busyState(busy.state()),
       hooks: hooks.available(),
       desktopViewing: server.bridge.hasDesktopViewerSubscriber("pty", "output"),
+      viewing: viewingNow(),
+    };
+  }
+
+  /**
+   * Who is watching (ADR-230 D1): a pane's output, and for a phone also an
+   * agent's chat, its main view of one.
+   */
+  function viewingNow(): NonNullable<HostServerStatus["viewing"]> {
+    const pty = server.bridge.viewing("pty", "output");
+    const entry = server.bridge.viewing("chat", "entry");
+    const taskEntry = server.bridge.viewing("chat", "taskEntry");
+    return {
+      desktop: pty.desktop,
+      device: pty.device || entry.device || taskEntry.device,
+      forwarded: pty.forwarded,
     };
   }
 

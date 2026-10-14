@@ -25,7 +25,7 @@ export interface HostIdleStopOptions {
   /** A fresh status read; null when the host's server cannot be reached. */
   status(
     hostId: string,
-  ): Promise<Pick<HostServerStatus, "busy" | "idleForMs" | "desktopViewing"> | null>;
+  ): Promise<Pick<HostServerStatus, "busy" | "idleForMs" | "desktopViewing" | "viewing"> | null>;
   /** What the provider was last told by `setBusy`. */
   providerBusy(hostId: string): boolean;
   isSleeping(hostId: string): boolean;
@@ -117,7 +117,9 @@ export class HostIdleStop {
       this.arm(hostId, remaining);
       return;
     }
-    if (status.desktopViewing !== false) {
+    // An older host has no `viewing`: `desktopViewing` alone, as before.
+    const { desktop, device, forwarded } = status.viewing ?? {};
+    if (status.desktopViewing !== false || desktop || device || forwarded) {
       this.arm(hostId, this.recheckMs);
       return;
     }

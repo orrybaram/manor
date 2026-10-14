@@ -141,6 +141,13 @@ interface BridgeServerOptions<D> {
  * the server itself reads from `D` is `BridgeServerDeps`: a session's grid,
  * for the winsize push.
  */
+/** What `BridgeServer.viewing` reports. */
+export interface ViewingState {
+  desktop: boolean;
+  device: boolean;
+  forwarded: boolean;
+}
+
 export class BridgeServer<D extends BridgeServerDeps> {
   private readonly connections = new Map<string, Registered>();
   private readonly audit: RemoteAuditLog;
@@ -472,6 +479,23 @@ export class BridgeServer<D extends BridgeServerDeps> {
       if (connection.viewer === "desktop" && subscriptions.has(name)) return true;
     }
     return false;
+  }
+
+  /**
+   * Who is subscribed to `ns.event` at any key, by kind of viewer (ADR-230
+   * D1): a desktop window's viewer stream, a paired device, and the owner
+   * channel (main forwarding a pane it watches for another window).
+   */
+  viewing(ns: string, event: string): ViewingState {
+    const name = `${ns}.${event}`;
+    const state: ViewingState = { desktop: false, device: false, forwarded: false };
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (!subscriptions.has(name)) continue;
+      if (connection.viewer === "desktop") state.desktop = true;
+      else if (connection.callerClass === "owner") state.forwarded = true;
+      if (connection.callerClass === "device") state.device = true;
+    }
+    return state;
   }
 
   /** Stop. An unsubscribe for something never subscribed to is not an error. */

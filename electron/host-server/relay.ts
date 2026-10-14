@@ -162,6 +162,12 @@ export interface HostServerStatus {
    * for this to be false.
    */
   desktopViewing?: boolean;
+  /**
+   * Who is watching (ADR-230 D1): `desktop` a window's viewer stream,
+   * `device` a phone (a pane's output, or an agent's chat), `forwarded` main
+   * relaying a pane for another window. Absent on an older host.
+   */
+  viewing?: { desktop: boolean; device: boolean; forwarded: boolean };
 }
 
 /** The `remoteControl.*` surface the host table exposes. */

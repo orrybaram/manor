@@ -64,6 +64,9 @@ describe("recipe templates (ADR-229 D8)", () => {
           execFileSync("bash", ["-n", target]);
           expect(content).toContain("set -euo pipefail");
           expect(content).toContain("exec 3>&1 1>&2");
+          // Every command prints its one JSON object, `stop` and `destroy`
+          // included (`{}`): the runner refuses an empty stdout.
+          expect(content, file).toContain(">&3");
           if (spawnSync(LINTER, ["--version"]).status === 0) {
             execFileSync(LINTER, ["-s", "bash", target]);
           }

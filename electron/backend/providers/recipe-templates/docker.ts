@@ -147,6 +147,7 @@ fi
 
 # The volume and the container are kept: \`up\` starts it again.
 "\${docker_cmd[@]}" stop "$name"
+echo '{}' >&3
 `;
 
 const DESTROY = `#!/usr/bin/env bash
@@ -172,6 +173,7 @@ if "\${docker_cmd[@]}" volume inspect "manor-$name-home" >/dev/null 2>&1; then
   "\${docker_cmd[@]}" volume rm "manor-$name-home"
 fi
 rm -f "\${MANOR_RECIPE_DIR:?MANOR_RECIPE_DIR is not set}/secret.key"
+echo '{}' >&3
 `;
 
 export const dockerTemplate: RecipeTemplate = {

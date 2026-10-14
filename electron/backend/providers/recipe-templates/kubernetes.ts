@@ -201,6 +201,7 @@ kube=("\${kubectl_cmd[@]}" -n "$namespace")
 
 # The claim and the secret are kept: \`up\` scales it back to 1.
 "\${kube[@]}" scale statefulset "$name" --replicas=0
+echo '{}' >&3
 `;
 
 const DESTROY = `#!/usr/bin/env bash
@@ -226,6 +227,7 @@ kube=("\${kubectl_cmd[@]}" -n "$namespace")
 "\${kube[@]}" delete statefulset "$name" --ignore-not-found --wait=true
 "\${kube[@]}" delete pvc "home-$name-0" --ignore-not-found
 "\${kube[@]}" delete secret "$name-key" --ignore-not-found
+echo '{}' >&3
 `;
 
 /** A Kubernetes quantity of storage: `20Gi`, `500Mi`. */

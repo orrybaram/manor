@@ -1,6 +1,6 @@
 ---
 title: Host pairing links survive a reset or a lost mint answer
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [1]

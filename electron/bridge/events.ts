@@ -142,6 +142,11 @@ export interface BridgeEvents {
      */
     removed: [agentIds: string[]];
   };
+  /**
+   * A host server's keep-awake flag changed (ADR-229 D7), after its idle
+   * debounce: what the desktop tells the host's provider (`setBusy`).
+   */
+  hostServer: { busyChanged: [info: { busy: boolean }] };
   /** The full snapshot, after a burst of transitions settles (ADR-199 §2). */
   agentActivity: { changed: [snapshot: AgentActivitySnapshot] };
   preferences: { changed: [prefs: AppPreferences] };

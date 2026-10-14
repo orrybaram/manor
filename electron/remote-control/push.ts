@@ -184,6 +184,20 @@ export class PushManager {
     return true;
   }
 
+  /**
+   * Replace the key pair with a freshly generated one and clear every
+   * subscription made against the old one (ADR-229 D6: a cloned host must not
+   * keep signing with its origin's key). Throws if the key cannot be stored
+   * safely.
+   */
+  async reset(): Promise<void> {
+    const active = await this.inited();
+    if (!this.secretBox.available()) throw new EncryptionUnavailableError();
+    if (this.generating) await this.generating.catch(() => undefined);
+    await this.generateAndStore(active);
+    this.devices.clearPushSubscriptions();
+  }
+
   /** Record a device's subscription. False means there is no such device. */
   subscribe(deviceId: string, subscription: PushSubscriptionRecord): boolean {
     return this.devices.setPushSubscription(deviceId, subscription);

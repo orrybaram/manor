@@ -278,6 +278,59 @@ export class ProjectManager {
     this.paths.forgetHost(hostId);
   }
 
+  /**
+   * Forget remote host `hostId` (ADR-229 D8): its record, and every project
+   * on it — this desktop's records of them, and the ones its server holds
+   * (by the host's live list, and the ids handed over at adoption). Their
+   * group memberships go as a removed project's do (ADR-192: the group
+   * dissolves when one member is left), and with them their link
+   * dismissals and their places in the sidebar's order. Nothing on the box
+   * is touched: call before the registry lets go of the host, while its
+   * live list still names its projects.
+   */
+  removeHost(hostId: string): void {
+    this.hosts.assertRemote(hostId);
+    const state = this.store.state;
+    const selectedId = this.selectedProjectId();
+    const held = state.projects.filter((p) => p.hostId === hostId);
+    const ids = new Set([
+      ...held.map((p) => p.id),
+      ...(state.hosts?.[hostId]?.adoptedProjectIds ?? []),
+      ...this.remoteInfos()
+        .filter((p) => p.hostId === hostId)
+        .map((p) => p.id),
+    ]);
+    const touchedGroups = new Set<string>();
+    for (const id of ids) {
+      const groupId = groups.groupOf(state, id)?.id;
+      if (groups.forgetProject(state, id) && groupId) touchedGroups.add(groupId);
+      forgetLinkDismissals(state, id);
+    }
+    state.projects = state.projects.filter((p) => p.hostId !== hostId);
+    if (state.projectOrder) state.projectOrder = state.projectOrder.filter((id) => !ids.has(id));
+    this.hosts.remove(hostId);
+    this.paths.forgetHost(hostId);
+    this.reselect(selectedId);
+    this.store.save();
+    for (const project of held) this.ctx.layout?.remove(workspaceKey(hostId, project.path));
+    for (const groupId of touchedGroups) void this.origins.rememberGroupOrigin(groupId);
+  }
+
+  /**
+   * The names of the projects on `hostId` (ADR-229 D8): what destroying it
+   * loses, since the host is their source of truth (ADR-227). This desktop's
+   * own records of them, and what its server last listed (live or cached).
+   */
+  projectNamesOnHost(hostId: string): string[] {
+    const names = [
+      ...this.store.state.projects.filter((p) => p.hostId === hostId).map((p) => p.name),
+      ...this.remoteInfos()
+        .filter((p) => p.hostId === hostId)
+        .map((p) => p.name),
+    ];
+    return [...new Set(names)];
+  }
+
   /** How `hostId` is named to people: its ssh target, or "this Mac". */
   hostLabel(hostId: string): string {
     return this.hosts.label(hostId);
@@ -412,6 +465,15 @@ export class ProjectManager {
 
   setHostLinksPhones(hostId: string, on: boolean): void {
     this.hosts.setLinkPhones(hostId, on);
+  }
+
+  /** "Keep Manor running when <host> restarts" (ADR-229 D4). */
+  hostSupervised(hostId: string): boolean {
+    return this.hosts.supervise(hostId);
+  }
+
+  setHostSupervised(hostId: string, on: boolean): void {
+    this.hosts.setSupervise(hostId, on);
   }
 
   /** Linked pairings on `hostId` still to revoke (ADR-228 D9). */

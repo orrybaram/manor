@@ -93,6 +93,7 @@ import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import { AnimatedCount } from "../ui/AnimatedCount/AnimatedCount";
 import { Button } from "../ui/Button/Button";
 import { Collapse } from "../ui/Collapse/Collapse";
+import { useHostDisplay } from "../../hooks/useHostDisplay";
 import styles from "./ProjectItem.module.css";
 import { CountBadge } from "../ui/CountBadge/CountBadge";
 
@@ -333,6 +334,9 @@ function SectionHostLabel(props: {
 }) {
   const { hostId, projectId, path, label, collapsedCount } = props;
   const remote = isRemoteHost(hostId);
+  // A sleeping host says so in words: its glyph alone is easy to miss on a
+  // phone (ADR-229 D7).
+  const asleep = useHostDisplay(remote ? hostId : null)?.tone === "asleep";
 
   return (
     <span
@@ -347,6 +351,11 @@ function SectionHostLabel(props: {
         <Laptop size={11} aria-hidden />
       )}
       <span className={styles.sectionHostName}>{label}</span>
+      {asleep && (
+        <span className={styles.sectionHostAsleep} data-testid="host-asleep-label">
+          Asleep
+        </span>
+      )}
       {collapsedCount !== null && (
         <CountBadge count={collapsedCount} size="xs" />
       )}

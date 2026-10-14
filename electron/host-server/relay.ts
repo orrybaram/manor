@@ -58,6 +58,7 @@ import type { RelayIdentityStore } from "../remote-control/relay/identity";
 import { RelayRoom, type PairResult } from "../remote-control/relay-room";
 import type { AgentStatusSink } from "../agent-status/pipeline";
 import type { HostOwnership } from "./ownership";
+import type { SupervisorFacts } from "./supervisor/types";
 
 /** How long a relay the connector gave up on waits before it is redialled. */
 const FAILED_RETRY_MS = 5 * 60_000;
@@ -120,6 +121,47 @@ export interface HostServerStatus {
   pushEndpoints: string[];
   /** Whether the user turned Linear on for this host: its token is here (ADR-227 D7). */
   linear: boolean;
+  /**
+   * The key sealing the pairing keys is a file under `~/.manor`, on the very
+   * volume it protects (ADR-229 D5). Optional on the type for an older
+   * server's status.
+   */
+  secretKeyOnVolume?: boolean;
+  /**
+   * Set when this start found the data dir copied from another instance and
+   * reset the sealed stores (ADR-229 D6); reported until the owner has read
+   * it once.
+   */
+  identityReset?: "cloned" | null;
+  /**
+   * What keeps this host's daemon and server running across a reboot
+   * (ADR-229 D4), from `supervisor.json`: its kind and, for systemd, whether
+   * the user manager lingers (boots without a login). Null when nothing
+   * does. Optional on the type for an older server's status.
+   */
+  supervisor?: SupervisorFacts | null;
+  /**
+   * Whether any agent on this host is thinking, working or waiting on input
+   * (ADR-229 D7), going idle 60 s after the last one stops. Optional on the
+   * type for an older server's status.
+   */
+  busy?: boolean;
+  /** Since when the host has been idle (epoch ms, this box's clock); null while busy. */
+  idleSince?: number | null;
+  /**
+   * How long the host has been idle, measured on the box; null while busy.
+   * What the desktop's idle stop reads, so a box whose clock is off from the
+   * desktop's doesn't stop early or late.
+   */
+  idleForMs?: number | null;
+  /** Which of `~/.manor/remote/hooks/on-busy` and `on-idle` can be run. */
+  hooks?: { onBusy: boolean; onIdle: boolean };
+  /**
+   * Whether a desktop window has a pane of this host mounted: its viewer
+   * stream is subscribed to a pane's output. The desktop's idle stop waits
+   * for this to be false.
+   */
+  desktopViewing?: boolean;
 }
 
 /** The `remoteControl.*` surface the host table exposes. */
@@ -164,6 +206,11 @@ export interface HostRelay {
    * recovery step for a box that may be compromised (ADR-225 D6).
    */
   resetIdentity(): Promise<void>;
+  /**
+   * `resetIdentity`, and a new VAPID pair too: what a copied data dir needs
+   * (ADR-229 D6). The caller clears the Linear token.
+   */
+  resetForClone(): Promise<void>;
 }
 
 export interface HostRelayDeps {
@@ -339,6 +386,11 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       clearRetry();
       // Back on the air either way; a reset that was not saved rejects.
       return room.reset({ redial: () => running });
+    },
+
+    async resetForClone() {
+      await this.resetIdentity();
+      await push.reset();
     },
   };
 }

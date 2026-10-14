@@ -10,6 +10,7 @@
  */
 
 import type { Duplex } from "node:stream";
+import type { RemoteExecOptions, RemoteExecResult } from "./bridge-spawner";
 
 export interface HostTransport {
   /**
@@ -52,4 +53,12 @@ export interface HostTransport {
 
   /** Allow connecting again after `dispose()`. Absent: not reusable. */
   reset?(): void;
+
+  /**
+   * Run one command on the host (`sh` snippet; see `RemoteExec`). Present on
+   * the transports that reach another machine — ssh and exec — so the
+   * desktop can run `manor-host` modes there, such as `supervisor install`
+   * (ADR-229 D4).
+   */
+  exec?(command: string, opts?: RemoteExecOptions): Promise<RemoteExecResult>;
 }

@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hostServerPaths } from "../../paths";
 import { ensureServerRunning, probeSocket, type LifecycleDeps } from "../lifecycle";
+import type { SupervisedUnit, Supervisor } from "../supervisor";
 
 /**
  * The lifecycle against a temp data dir. "Spawning" `serve` starts a fake
@@ -188,5 +189,90 @@ describe("ensureServerRunning", () => {
       ),
     ).rejects.toThrow(/did not start/);
     expect(fs.existsSync(path.join(dir, "server.lock"))).toBe(false);
+  });
+  describe("under a supervisor (ADR-229 D4)", () => {
+    /** A supervisor whose start and restart bring up a server of `version`, or throw. */
+    function fakeSupervisor(opts: { version?: string; fail?: boolean; startsNothing?: boolean } = {}) {
+      const calls: Array<[string, SupervisedUnit]> = [];
+      const paths = hostServerPaths(dir);
+      const bringUp = async (action: string, unit: SupervisedUnit) => {
+        calls.push([action, unit]);
+        if (opts.fail) throw new Error("Unit manor-host-server.service not found.");
+        if (opts.startsNothing) return;
+        await listen(paths.socket, opts.version ?? "2.0.0", process.pid);
+      };
+      const supervisor: Supervisor = {
+        kind: "systemd",
+        install: async () => {},
+        uninstall: async () => {},
+        status: async () => ({ kind: "systemd", running: { daemon: true, server: true } }),
+        start: (unit) => bringUp("start", unit),
+        restart: (unit) => bringUp("restart", unit),
+        stop: async (unit) => {
+          calls.push(["stop", unit]);
+        },
+      };
+      return { supervisor, calls };
+    }
+
+    it("starts a server that is down through the supervisor, and spawns nothing", async () => {
+      const { supervisor, calls } = fakeSupervisor();
+      await ensureServerRunning(makeDeps({ supervisor: () => supervisor }));
+      expect(calls).toEqual([["start", "server"]]);
+      expect(spawned).toBe(0);
+    });
+
+    it("replaces a stale server with restart(\"server\"), never a detached spawn", async () => {
+      const paths = hostServerPaths(dir);
+      await listen(paths.socket, "1.0.0", process.pid);
+      let dead = false;
+      const { supervisor, calls } = fakeSupervisor();
+      await ensureServerRunning(
+        makeDeps({
+          supervisor: () => supervisor,
+          isAlive: (pid) => pid === process.pid && !dead,
+          kill: (pid, sig) => {
+            killed.push([pid, sig]);
+            dead = true;
+            servers.pop()?.close();
+            fs.unlinkSync(paths.socket);
+          },
+        }),
+      );
+      expect(calls).toEqual([["restart", "server"]]);
+      expect(spawned).toBe(0);
+      expect(fs.readFileSync(paths.version, "utf-8").trim()).toBe("2.0.0");
+    });
+
+    it("falls back to the detached spawn, with a warning, when the supervisor is broken", async () => {
+      const warnings: string[] = [];
+      const { supervisor, calls } = fakeSupervisor({ fail: true });
+      await ensureServerRunning(
+        makeDeps({ supervisor: () => supervisor, warn: (m) => warnings.push(m) }),
+      );
+      expect(calls).toEqual([["start", "server"]]);
+      expect(spawned).toBe(1);
+      expect(warnings.join("\n")).toMatch(/could not start the server.*spawning it detached/);
+    });
+
+    it("falls back when the supervisor starts nothing that listens", async () => {
+      const warnings: string[] = [];
+      let clock = 0;
+      const { supervisor } = fakeSupervisor({ startsNothing: true });
+      await ensureServerRunning(
+        makeDeps({
+          supervisor: () => supervisor,
+          warn: (m) => warnings.push(m),
+          now: () => clock,
+          // Time runs fast until the fallback has spawned, so its server can listen.
+          sleep: async (ms) => {
+            clock += spawned === 0 ? ms * 100 : 0;
+            await new Promise((r) => setTimeout(r, Math.min(ms, 10)));
+          },
+        }),
+      );
+      expect(spawned).toBe(1);
+      expect(warnings.join("\n")).toMatch(/started no server/);
+    });
   });
 });

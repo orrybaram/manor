@@ -195,4 +195,12 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.resetPairingKeys"
   | "hosts.setLinearOnHost"
   | "hosts.setLinkPhones"
+  | "hosts.stop"
+  | "hosts.addRecipeHost"
+  | "hosts.createRecipe"
+  | "hosts.listTemplates"
+  | "hosts.setSupervised"
+  | "hosts.createCustomRecipe"
+  | "hosts.remove"
+  | "hosts.projectsOnHost"
 >;

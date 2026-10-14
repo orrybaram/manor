@@ -42,6 +42,7 @@
 
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import type { AgentStatusSink } from "../agent-status/pipeline";
 import { HostHookFeed } from "../backend/hook-feed";
 import type { HostStatus, HostStatusInfo } from "../backend/host-connection";
@@ -54,18 +55,26 @@ import {
   type DaemonNamespace,
   type HostServerPaths,
 } from "../paths";
-import type { SecretBox } from "../platform/secret-box";
+import { secretKeyOnVolume, type SecretBox } from "../platform/secret-box";
 import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
+import { isActiveStatus } from "../agent-status/reconciler";
 import { createAdoption } from "./adopt";
+import { createBusyTracker, createHookRunner } from "./busy";
 import { serveCliRelay } from "./cli-relay";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
 import { reportedCapabilities } from "./capabilities";
+import {
+  checkInstanceIdentity,
+  currentInstanceId,
+  type IdentityReset,
+} from "./instance";
 import { fileHookCursorStore } from "./hook-cursor";
 import { fileOwnershipState, type OwnershipState } from "./ownership";
+import { createSupervisorFactsCache } from "./supervisor";
 import {
   createHostRelay,
   type HostRelay,
@@ -94,6 +103,11 @@ export interface HostServerOptions {
   /** Driver clocks, for tests. */
   monoClock?: () => number;
   wallClock?: () => number;
+  /**
+   * Where `on-busy` and `on-idle` live (ADR-229 D7). Defaults to `hooks/`
+   * beside the data dir, which is `~/.manor/remote/hooks/` for the real one.
+   */
+  hooksDir?: string;
   /** Tests: handed the server's parts once they are built. */
   internals?: (parts: HostServerInternals) => void;
 }
@@ -194,6 +208,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   };
 
   const startedAt = Date.now();
+  // Read from the marker on every status; lingering in the background (ADR-229 D4).
+  const supervisorFacts = createSupervisorFactsCache();
+  void supervisorFacts.refresh();
 
   // Whether the desktop has handed this host over yet (ADR-227 D3).
   const ownership = fileOwnershipState(paths.ownership);
@@ -207,6 +224,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     spec: null,
     ...daemonState,
   });
+
+  // Set by the start-up identity check, until the owner has read it (D6).
+  let identityReset: IdentityReset | null = null;
 
   // Built with the deps, over the server's relay stores.
   let relay!: HostRelay;
@@ -286,6 +306,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
           },
         }),
         serverStatus: hostStatus,
+        acknowledgeIdentityReset: () => {
+          identityReset = null;
+        },
         hostName: () => hostPlatform.hostName(),
       };
     },
@@ -293,6 +316,29 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const { client, deps, bridge } = server;
   const { agentManager } = server.shared;
   const { shared } = server;
+
+  // ── busy (ADR-229 D7) ──
+  const hooks = createHookRunner({
+    dir: opts.hooksDir ?? path.join(path.dirname(paths.dataDir), "hooks"),
+    logFile: path.join(paths.logsDir, "hooks.log"),
+  });
+  const busy = createBusyTracker({
+    isBusy: () =>
+      server.agentPipeline.driver.getAllPaneStatuses().some((p) => isActiveStatus(p.status)),
+    onChange: (isBusy) => {
+      server.bus.publish("hostServer", "busyChanged", { busy: isBusy });
+      void hooks.run(isBusy);
+    },
+  });
+  // Every status the reconciler publishes could change the answer...
+  const releaseBusyWatch = server.bus.subscribe((b) => {
+    if (b.ns === "agents" && b.event === "status") busy.recompute();
+  });
+  // ...and so can a pane's end, which forgets its state without publishing.
+  client.onEvent((event) => {
+    if (event.type === "exit") queueMicrotask(() => busy.recompute());
+  });
+
   // The box's `manor` CLI is this server's to answer (ADR-227 D8): it asks
   // the daemon for its requests on every stream (re)connect.
   const releaseCliRelay = serveCliRelay(client, { routes: deps, ownership });
@@ -313,6 +359,12 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       devices: relay.deviceCount(),
       pushEndpoints: relay.pushEndpoints(),
       linear: shared.linearManager.isConnected(),
+      secretKeyOnVolume: secretKeyOnVolume(),
+      identityReset,
+      supervisor: supervisorFacts.current(),
+      ...busyState(busy.state()),
+      hooks: hooks.available(),
+      desktopViewing: server.bridge.hasDesktopViewerSubscriber("pty", "output"),
     };
   }
 
@@ -384,12 +436,30 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
+   * A data dir copied from another instance must not share its relay room or
+   * keys (ADR-229 D6). Runs once the stores are readable, before the relay
+   * dials: a reset that fails leaves the old id recorded and is retried on the
+   * next start, with the relay held off until then.
+   */
+  async function checkIdentity(): Promise<void> {
+    identityReset = await checkInstanceIdentity({
+      instanceFile: paths.instance,
+      currentId: currentInstanceId(),
+      resetSealedStores: async () => {
+        await relay.resetForClone();
+        shared.linearManager.clearToken();
+      },
+    });
+  }
+
+  /**
    * The relay comes up independently of the daemon: a phone may pair and
    * connect while the daemon is still being reached. Never rejects.
    */
   async function startRelay(): Promise<void> {
     try {
       await relay.init();
+      await checkIdentity();
       if (!stopped) relay.start();
     } catch (err) {
       console.error("[host-server] relay unavailable:", errorMessage(err));
@@ -446,6 +516,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (retryTimer) clearTimeout(retryTimer);
       releaseCliRelay();
       server.agentPipeline.stop();
+      releaseBusyWatch();
+      busy.dispose();
       feed.pause();
       await relay.stop();
       frames.closeAll();
@@ -458,5 +530,17 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       cursorStore.flush();
       await client.dispose();
     },
+  };
+}
+
+/** The busy tracker's state, plus the idle time measured here (ADR-229 D7). */
+function busyState(state: { busy: boolean; idleSince: number | null }): {
+  busy: boolean;
+  idleSince: number | null;
+  idleForMs: number | null;
+} {
+  return {
+    ...state,
+    idleForMs: state.idleSince === null ? null : Math.max(0, Date.now() - state.idleSince),
   };
 }

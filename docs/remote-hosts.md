@@ -23,24 +23,30 @@ Design background is in [ADR-160](decisions/adr-160-remote-workspace-backends/in
 (the transport and the remote daemon),
 [ADR-178](decisions/adr-178-always-on-remote-projects/index.md) (the
 always-on behavior: hook journal, onboarding, ports, reconnect) and
-[ADR-225](decisions/adr-225-host-server/index.md) (the host server) and
+[ADR-225](decisions/adr-225-host-server/index.md) (the host server),
 [ADR-227](decisions/adr-227-host-ownership-flip/index.md) (the host owns its
-host).
+host) and [ADR-229](decisions/adr-229-hosts-we-start/index.md) (hosts Manor
+starts itself, surviving a reboot, asleep hosts).
 
 ## Choosing a box
 
-Manor doesn't host anything. You bring the box, and it only needs to be
-reachable over ssh.
+Manor doesn't host anything. You bring the box. Either it is already running
+and reachable over ssh, or you give Manor a **recipe**: your own commands that
+start it, stop it and delete it (see [Host recipes](hosts/recipes.md)).
 
 - **A VPS** (Hetzner CX33 or similar). Always on and cheap. A good default
   for agents that run overnight.
 - **exe.dev, or a Coder workspace**. Fine, as long as the box stays up while
-  you're away. Manor can't wake a box that has been stopped.
+  you're away. Manor can only start a box that was stopped if it has a
+  recipe for it.
 - **A spare Mac.** macOS hosts are supported. Enable Remote Login in System
   Settings → General → Sharing.
+- **A container or a pod** that Manor starts itself, from the Docker or
+  Kubernetes template, or a cloud VM or sandbox from a custom recipe. See
+  [Host recipes](hosts/recipes.md).
 
-Managed sandbox providers (Fly Sprites, Daytona, E2B) aren't supported yet.
-See [What isn't supported](#what-isnt-supported).
+Managed sandbox providers (Fly Sprites, Daytona, E2B) have no built-in
+support. A recipe can drive their CLIs.
 
 ## Requirements
 
@@ -69,11 +75,17 @@ On your laptop:
   `ssh-add --apple-use-keychain` on macOS).
 - Host aliases, users, ports, keys and `ProxyJump` from `~/.ssh/config` all
   apply. Manor includes your config and doesn't change it.
+- A host Manor starts from a [recipe](hosts/recipes.md) and reaches over a
+  command (`docker exec`, `kubectl exec`) needs that CLI, signed in, instead
+  of ssh.
 
 ## Adding a host and a remote project
 
-1. **Add the host.** Open Project Settings → Host and enter an ssh target:
-   `user@box`, `box` (an alias from `~/.ssh/config`) or `ssh://user@box:2222`.
+1. **Add the host.** Open Settings → Hosts → **Add host** → **An SSH box**
+   (or Project Settings → Host) and enter an ssh target: `user@box`, `box`
+   (an alias from `~/.ssh/config`) or `ssh://user@box:2222`. To have Manor
+   start the host instead, choose **Start a host** (see
+   [Host recipes](hosts/recipes.md)).
    Manor starts connecting in the background. The first connection installs
    Manor's host package on the box (see [What runs where](#what-runs-where)),
    and the status bar shows its progress. On Linux the first install
@@ -111,6 +123,8 @@ On the box, everything Manor installs lives under `~/.manor/`:
 | `~/.manor/remote/server/` | The host server: its socket, owner token, pid, logs, its own relay keys and paired phones, and the box's projects (`projects.json`), layout (`layout.json`) and agents (`agents.json`) (see [The host server](#the-host-server)) |
 | `~/.manor/remote/hook-port` | The hook listener's port and token (mode 0600) |
 | `~/.manor/remote/control-port` | The CLI relay's port and token (mode 0600) |
+| `~/.manor/remote/supervisor.json`, `supervisor.env` | What keeps Manor running across a reboot, and the variables it passes on (see [Surviving a reboot](#surviving-a-reboot)) |
+| `~/.manor/remote/hooks/` | The box hooks `on-busy` and `on-idle` (see [Box hooks](hosts/recipes.md#box-hooks)) |
 | `~/.manor/hooks/notify.{sh,js}` | The hook script agents call |
 | `~/.manor/sessions/` | Terminal scrollback |
 
@@ -124,7 +138,10 @@ If a Manor desktop also runs on the box, it isn't affected. Its daemon
 
 On your laptop there's one ssh connection per host, multiplexed through a
 ControlMaster socket in a temporary ssh config that Manor owns. Terminals,
-git, file reads and port scans all use that connection.
+git, file reads and port scans all use that connection. A recipe host reached
+over a command such as `docker exec` has no ControlMaster: each stream is its
+own process. Recipes themselves live in `~/.manor/host-recipes/`, and a recipe
+host reached over ssh has its own `~/.manor/ssh/known_hosts.d/<hostId>`.
 
 **Your credentials stay on your laptop.** Manor doesn't copy `~/.ssh`,
 tokens or agent credentials to the box. It doesn't enable ssh agent
@@ -167,8 +184,9 @@ host server of the same version is running (`manor-host remote-bridge` and
 - If it isn't running, Manor starts it, detached from the ssh session, so it
   keeps running after the desktop disconnects.
 
-Like the daemon, it doesn't survive a reboot of the box. It comes back the
-next time the desktop connects.
+When a supervisor keeps Manor running on the box, these starts, stops and
+restarts go through it instead, and the daemon and the host server come back
+after a reboot with no desktop. See [Surviving a reboot](#surviving-a-reboot).
 
 **The owner channel.** The desktop talks to the host server over the box's
 existing ssh connection: `ssh <box> manor-host server-bridge`, which pipes to
@@ -259,8 +277,68 @@ secret backend in use:
 To restart it by hand, stop it with
 `kill "$(cat ~/.manor/remote/server/server.pid)"`. A connected desktop notices
 the owner channel drop and starts a fresh one within seconds; otherwise the
-next connect does. Unlike `manor-host restart`, this doesn't touch the
-terminals.
+next connect does (a container's `supervise` restarts it at once). Under
+systemd, use `systemctl --user restart manor-host-server` instead: a server
+stopped with `kill` stays stopped there until the next connect. Unlike
+`manor-host restart`, this doesn't touch the terminals.
+
+## Surviving a reboot
+
+**Keep Manor running when \<host\> restarts** (Settings → Hosts) puts the
+box's daemon and host server under the box's own supervisor. After a reboot
+they start again with no desktop: the host server rejoins its relay room, so
+a phone sees the host and can start new agents with the lid closed.
+
+- **On by default** for hosts added from now on, ssh boxes and recipe hosts
+  alike. Hosts you added before stay off until you turn it on. The setting
+  shows a line saying what keeps Manor running there, or why nothing does.
+- Turning it on runs `manor-host supervisor install` on the box. It picks the
+  first that works: systemd, launchd, then a container's `supervise`. If none
+  does, it says "No supervisor on this host", and the switch stays off. Manor
+  also installs it on connect when the switch is on and the box has none.
+- **It doesn't move what's running.** The supervisor takes over the next
+  time the daemon or the server restarts, or at the next boot. Turning the
+  switch off removes the units but stops nothing.
+- **After a reboot** the daemon starts with no terminals. The host server
+  marks the agents whose sessions are gone, as it does after a daemon
+  restart, and a pane comes back (with its agent's resume command) when
+  someone opens it. Agents aren't restarted by themselves.
+
+**Linux with systemd.** Two user units in `~/.config/systemd/user/`,
+`manor-host-daemon.service` and `manor-host-server.service`. Each runs the
+`~/.manor/bin/manor-host` shim, so an upgrade takes effect at the next
+restart, with `Restart=on-failure` and
+`EnvironmentFile=-~/.manor/remote/supervisor.env`.
+
+- A user's units only start at boot when the user **lingers**. `install`
+  runs `loginctl enable-linger`, which polkit often refuses. Then the setting
+  says "Starts after you log in to \<host\>. Run
+  `sudo loginctl enable-linger <user>` there to start it at boot." Run that
+  once on the box. (The user name in that hint comes from the ssh target, or
+  `$USER`, which your shell on the box fills in.)
+- `systemctl --user status manor-host-server` shows how it's doing.
+
+**macOS with launchd.** Two LaunchAgents in `~/Library/LaunchAgents/`,
+`sh.manor.host-daemon.plist` and `sh.manor.host-server.plist`, with
+`RunAtLoad` and `KeepAlive`. A LaunchAgent starts at login, so a Mac with no
+one logged in needs automatic login (System Settings → Users & Groups).
+
+**Containers.** A container has no init system, so `manor-host supervise`
+is its entrypoint (the reference image runs it; see
+[The host image](hosts/recipes.md#the-host-image)). It starts the daemon and
+the server, restarts either one when it exits (1 s backoff, doubling to
+30 s), passes SIGTERM on, and adopts a daemon or server that is already
+running instead of starting a second. Its pid is in
+`~/.manor/remote/supervise.pid`, and it records itself in `supervisor.json`
+when it starts, so the switch reads on from the first connect. After a node
+reboot, the container's restart policy brings it back. The switch can't turn
+it off: it is the container's entrypoint.
+
+**`supervisor.env`** passes `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and
+`MANOR_INSTANCE_ID` to the units (see
+[Encrypting pairing keys](#encrypting-pairing-keys)). `install` writes the
+ones it finds in its own environment, and keeps the ones already in the
+file. You can add them by hand, one `KEY='value'` line each.
 
 ## Your phone with the lid closed
 
@@ -304,7 +382,9 @@ drawer) lists each pairing with its reachability, and renames or removes one.
   windows or system integration.
 
 If the box is away, or its server refuses something, the phone says so
-(a toast naming the host and the reason) instead of failing quietly.
+(a toast naming the host and the reason) instead of failing quietly. A host
+Manor put to sleep shows as **Asleep** in the Hosts sheet, with **Wake** while
+the desktop is awake (see [Asleep hosts](#asleep-hosts)).
 
 Some more details:
 
@@ -360,6 +440,7 @@ own 0600 file:
 | `remote-devices.enc` | Phones paired with this host. Device tokens are stored only as SHA-256 hashes |
 | `remote-vapid.enc` | The Web Push signing key. The desktop sends its own, so one browser push subscription works for every host. A host uses a key of its own until the desktop's arrives |
 | `secret-backend` | Which backend encrypted the files above |
+| `instance.json` | The instance id the server was created under, when it has one (see [Host recipes](hosts/recipes.md#never-snapshot-a-host-that-has-run-manor)) |
 | `owner-token` | The token the owner channel presents on the server's socket. New on every start |
 
 Device tokens are hashed, so the secrets worth protecting are the relay
@@ -378,16 +459,20 @@ with it. Pair them again afterwards.
 The host server encrypts its keys with the first of these that works on the
 box, checked on first start (and, while it is on plaintext, on every start):
 
-1. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
+1. **A key you supply** (`key-file`), whenever `MANOR_SECRET_KEY` or
+   `MANOR_SECRET_KEY_FILE` is set in the server's environment. See
+   [A key from outside the box](#a-key-from-outside-the-box). This is what
+   hosts Manor starts from a template use.
+2. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
    derived from the machine's own credential secret, and uses the TPM2 chip
    when the machine has one. You can decrypt the files without root, but a
    copy of them is useless on any other machine.
-2. **libsecret**, when an unlocked Secret Service keyring (GNOME Keyring,
+3. **libsecret**, when an unlocked Secret Service keyring (GNOME Keyring,
    KWallet) is reachable over D-Bus and `secret-tool` is installed. Manor keeps
    one random key in the keyring and encrypts the files with it (AES-256-GCM).
    A server started over ssh usually has no D-Bus session, so on a headless
    box this rarely applies.
-3. **Plaintext files, mode 0600**, as a last resort. This is never silent:
+4. **Plaintext files, mode 0600**, as a last resort. This is never silent:
    the host's section of Settings → Remote control says *Pairing keys on
    \<host\> are stored unencrypted*.
 
@@ -396,7 +481,8 @@ box, checked on first start (and, while it is on plaintext, on every start):
 - Look for the warning in Settings → Remote control. No warning means the keys
   are encrypted.
 - On the box, run `cat ~/.manor/remote/server/secret-backend`, which prints
-  `{"backend":"systemd-creds"}`, `"libsecret"` or `"plaintext"`.
+  `{"backend":"key-file"}`, `"systemd-creds"`, `"libsecret"` or
+  `"plaintext"`.
 - Or read the `secrets:` field on the startup line of
   `~/.manor/remote/server/logs/host-server.log`.
 
@@ -407,13 +493,15 @@ systemd-creds --version | head -1        # needs 256 or newer
 echo probe | systemd-creds --user encrypt --name=manor - - >/dev/null && echo ok
 ```
 
-**The choice is remembered.** Once systemd-creds or libsecret has encrypted
-the keys, the host server keeps using it. If it later stops working, the server
-reports an error naming it, and doesn't fall back to writing plaintext.
+**The choice is remembered.** Once a backend other than plaintext has
+encrypted the keys, the host server keeps using it. If it later stops working,
+the server reports an error naming it, and doesn't fall back to writing
+plaintext or start over with new keys. Setting `MANOR_SECRET_KEY` later
+doesn't move a box off systemd-creds or libsecret.
 
 **Plaintext upgrades itself.** Plaintext is only ever a last resort, so a host
-server on plaintext checks for systemd-creds and then libsecret every time it
-starts. When one works, it encrypts the existing key files with it and
+server on plaintext checks for a key, then systemd-creds, then libsecret every
+time it starts. When one works, it encrypts the existing key files with it and
 switches to it. Your phones stay paired. So to move a box off plaintext,
 make one of them work (for example, upgrade systemd to 256 or newer), then
 restart the host server:
@@ -425,6 +513,42 @@ kill "$(cat ~/.manor/remote/server/server.pid)"
 A connected desktop starts it again within seconds. Check that the warning in
 Settings → Remote control is gone, or that `secret-backend` names the new
 backend.
+
+### A key from outside the box
+
+The `key-file` backend seals the files with AES-256-GCM under a 32-byte key
+you supply, so a copy of the box's disk, volume or snapshot holds nothing
+usable without the key. It reads the key from one of:
+
+- **`MANOR_SECRET_KEY`**: the key, base64 encoded;
+- **`MANOR_SECRET_KEY_FILE`**: a file holding the key, as 32 raw bytes or
+  base64 text. Typically a mounted Kubernetes Secret or Docker secret.
+
+`MANOR_SECRET_KEY` wins when both are set. A key that is set but isn't 32
+bytes, or a file that can't be read, is an error: the server doesn't fall
+back to a weaker backend.
+
+To make one: `head -c 32 /dev/urandom | base64`.
+
+**The host server must have the variable every time it starts:**
+
+- in a container, from the container's environment (the Docker and
+  Kubernetes templates set `MANOR_SECRET_KEY_FILE=/run/secrets/manor-key`
+  and mount the key there);
+- on a box with systemd or launchd, from `~/.manor/remote/supervisor.env`
+  (see [Surviving a reboot](#surviving-a-reboot));
+- otherwise the server gets only what the desktop's ssh session has, which
+  usually isn't the key.
+
+A server that sealed its keys with `key-file` and then starts without the
+key stops with "Pairing keys were sealed with a key from MANOR_SECRET_KEY or
+MANOR_SECRET_KEY_FILE, and neither is set". It never starts over with a new identity: give it the key again.
+
+**Keep the key off the box's disk.** A `MANOR_SECRET_KEY_FILE` under
+`~/.manor` is on the volume it is meant to protect. The host server notices,
+and Settings → Remote control says *The key sealing pairing keys on \<host\>
+is stored on its own disk*. `MANOR_SECRET_KEY` written into
+`supervisor.env` is on that disk too: prefer a mounted file.
 
 ## Integrations
 
@@ -505,9 +629,33 @@ the workspace and no "start work from an issue" flow.
   — N sessions resumed*.
 
 A box that stops (a VM that was shut down, a machine that powered off) takes
-running agents down with it, and they resume only when you reconnect.
-Managed providers with keep-awake support are planned. See
-[What isn't supported](#what-isnt-supported).
+running agents down with it, and they resume only when you reconnect. With
+[supervision](#surviving-a-reboot) on, its daemon and host server come back
+by themselves when the box boots again.
+
+### Asleep hosts
+
+A host Manor starts from a recipe can be put to sleep: **Stop** on Settings →
+Hosts, the box's own [`on-idle` hook](hosts/recipes.md#box-hooks), the
+recipe's `idleStopMinutes`, or the provider itself. An asleep host shows as
+**Asleep** (a moon) in the status bar, the sidebar and the Hosts page, and
+its workspaces are listed from the cache, read-only, as for any host away.
+
+- **Manor doesn't wake it by itself.** Reconnecting after the lid opens,
+  pollers and **Retry now** leave it asleep. Its recipe's `status` is asked
+  before each reconnect attempt, so a host the provider put to sleep is
+  noticed too.
+- **Using it wakes it.** **Wake** in the host's status does, and so does
+  anything that means to use the host: opening one of its panes, creating a
+  workspace, launching an agent. Reads never do. The call waits up to two
+  minutes for the host to come up, then answers "\<host\> is still starting"
+  while it goes on starting.
+- **Restoring the window you had open when Manor starts** opens its panes,
+  so a host whose workspace was on screen is woken then.
+- **On a phone**, the Hosts sheet shows the host as **Asleep** with
+  **Wake**, which asks the desktop to start it. With the desktop away it
+  says "\<host\> is asleep, and \<desktop\> is away": nothing on the relay
+  can start a stopped box.
 
 ## The `manor` CLI
 
@@ -604,9 +752,12 @@ adoption does the rest. Nothing on the box needs to be done by hand.
 
 ## What isn't supported
 
-- **Managed providers** (Fly Sprites, Daytona, E2B). Hosts are ssh only for
-  now. Manor already models hosts as providers internally, so these can be
-  added later.
+- **Built-in managed providers** (Fly Sprites, Daytona, E2B, Codespaces).
+  Use a [recipe](hosts/recipes.md) that drives their CLI.
+- **Waking a stopped host from the phone while the desktop is away.** The
+  relay holds no provider credentials.
+- **Resuming agents by themselves after a reboot.** Their panes come back
+  when opened, with the agent's resume command.
 - **Windows hosts.** Linux and macOS only.
 - **Remote MCP.** Agents on the box don't get Manor's MCP server. Hooks
   work, and the `manor` CLI works for the commands listed in "The `manor` CLI"
@@ -649,8 +800,8 @@ adoption does the rest. Nothing on the box needs to be done by hand.
 
 ## Troubleshooting
 
-Each failure mode below is shown on the host (status bar and Project
-Settings → Host) with the message quoted here.
+Each failure mode below is shown on the host (status bar and Settings → Hosts)
+with the message quoted here.
 
 **"ssh could not authenticate to …"**
 Your key isn't available non-interactively. Check that
@@ -730,6 +881,37 @@ paired with this host:
 
 3. Open Manor. Once the host connects, pair your phones again.
 
+**"Pairing keys were sealed with a key from MANOR_SECRET_KEY or MANOR_SECRET_KEY_FILE, and neither is set"**
+The host server sealed its keys with a key you supplied, and started without
+it (see [A key from outside the box](#a-key-from-outside-the-box)). Give it
+`MANOR_SECRET_KEY` or `MANOR_SECRET_KEY_FILE` again, the same key, and
+restart it.
+
+**"No supervisor on this host"**
+"Keep Manor running" found neither a systemd user manager, launchd, nor a
+running `manor-host supervise`. On a container, use an image whose entrypoint
+runs `manor-host supervise` (see
+[The host image](hosts/recipes.md#the-host-image)).
+
+**"Starts after you log in to \<host\>"**
+systemd runs the units, but the user doesn't linger, so they start only at
+login. Run `sudo loginctl enable-linger <user>` on the box once.
+
+**"\<host\> no longer exists"**
+The recipe's `status` says the box was deleted outside Manor. **Start it
+again** runs `up`, which creates a new one; **Remove…** forgets it.
+
+**"\<host\> is still starting"**
+A woken host took longer than two minutes. Its recipe's `up` goes on (up to
+15 minutes), with its progress in the host's status. Try again once it's
+connected.
+
+**A recipe command fails**
+The message names the command and quotes the end of what it printed on
+stderr. "printed nothing on stdout" or "must print exactly one JSON object"
+means the script wrote something other than its one JSON result to stdout.
+See [Host recipes](hosts/recipes.md#how-a-command-runs).
+
 **A phone paired with a host can't connect**
 In the host's section of Settings → Remote control, check that the summary
 says *relay connected*. The host server dials the Manor relay from the box, so
@@ -759,6 +941,11 @@ node scripts/test-remote-e2e.mjs --docker
 
 # Options: --no-build, --vitest-only, --playwright-only, --smoke (check the
 # sshd and exit), --serve (keep it up and print the env to export).
+
+# Hosts Manor starts (ADR-229): no sshd. Builds docker/host-image as
+# manor-host:e2e and runs the recipe-host suite against the Docker daemon.
+# Skipped, with a message, when Docker isn't available.
+node scripts/test-remote-e2e.mjs --recipe
 ```
 
 - `electron/terminal-host/__tests__/remote-ssh.e2e.test.ts` (vitest) covers
@@ -769,6 +956,32 @@ node scripts/test-remote-e2e.mjs --docker
   replay with a single notification, pane recovery with the agent's resume
   command after a remote restart, and port forwarding. Each test starts from
   a clean box.
+- `electron/backend/__tests__/recipe-docker.e2e.test.ts` (vitest, `--recipe`)
+  covers hosts Manor starts. It writes a recipe from the `docker` template
+  and drives the desktop's `BackendRegistry`, `HostServerClient` and
+  `HostRouting` against the container it starts:
+  - `up` over `docker exec`, bootstrap, the host server under `supervise`,
+    adoption, a workspace and an agent that reports status;
+  - the `on-busy` box hook running when the agent works;
+  - a port forward over exec (`port-pipe`);
+  - a forced drop: the box's `server-bridge` and `remote-bridge` are
+    killed, and the owner channel and the host reconnect by themselves to
+    the same host server;
+  - `docker restart` with the desktop gone: the host server comes back by
+    itself in the same relay room, sealed by `key-file` with the key off the
+    volume, and an agent launched afterwards starts;
+  - **Stop**: the host stays asleep for 10 s with no reconnect, then a
+    routed write (create a workspace) wakes it and succeeds;
+  - a second container on a copy of the volume, with another
+    `MANOR_INSTANCE_ID`: a new relay room, its projects kept;
+  - remove with destroy: the container, volume and recipe are gone, and the
+    host is no longer listed.
+
+  It removes every container and volume it makes, and keeps the image. Run
+  as a user in the `docker` group (or with `sg docker -c '…'`). Set
+  `MANOR_E2E_RECIPE_KEEP=1` to keep the container for a look after a
+  failure. The host server's relay is a closed local port, as in the ssh
+  suites, so no relay connection is tested there.
 - `tests/e2e/host-server.spec.ts` (Playwright) covers the host server with the
   laptop gone. The desktop clones a project onto the box and starts an agent
   there, and pairs a browser with the box's host server through a local relay
@@ -846,6 +1059,10 @@ answers are set with `setRemoteGhPrs`).
   `pnpm build:web:relay` first.
 - Pass Playwright arguments after `--`, for example
   `-- --grep "host owns"`.
+- `--docker` builds its image with `docker build --progress=plain`, which
+  needs the buildx plugin. Without it, build the image once by hand
+  (`docker build -t manor-e2e-remote:<hash> tests/e2e/remote-host`, with the
+  tag the harness prints) and run again.
 
 **Known local e2e failures.** These fail on `main` too, for reasons unrelated
 to the host server, and are not regressions:
@@ -859,8 +1076,11 @@ to the host server, and are not regressions:
 | `smoke.spec.ts` | "reopening a closed pane reattaches the same shell" | Fails on a clean `main` |
 | `web-app.spec.ts` | "a PC browser pairs, sees the sidebar, and drives a live terminal…"; "the desk's window closes and the browser is told the winsize is its own"; "the browser arranges the desk's layout, the desk follows, and back" | Fail on the ADR-228 branch before the phone held every pairing (`a3058ed1`) too; not caused by it, not yet looked into |
 | `remote-host.spec.ts` | "laptop closed … one notification" | Sent 2 notifications on `main`; it passes since the host server owns the journal |
+| `host-direct-bridge.spec.ts` (`--docker`) | "a host server without viewer-bridge works through main" | Times out waiting for the host's first status. Fails on the ADR-229 base (`4b73fd9b`) too; passes on the private sshd |
+| `remote-host.spec.ts` (`--docker`) | "laptop closed … one notification" | Flaky in Docker mode: right after its ssh is killed the desktop sometimes already reads "responded", or never reads "thinking". Failed 2 of 4 runs on `4b73fd9b` too; passes on the private sshd |
 
-The last row is fixed since the ADR-227 branch; the rest are not.
+The "laptop closed" row on the private sshd is fixed since the ADR-227 branch;
+the rest are not.
 
 The harness writes an ssh config with two aliases, `manor-e2e` (the app's)
 and `manor-e2e-direct` (the tests' side channel), and passes it to the tests

@@ -210,6 +210,8 @@ export function createManorServer<D extends BridgeServerDeps>(
             ownerOf: (sessionId: string): string | undefined =>
               backendRegistry.sessions.ownerOf(sessionId),
           },
+          status: (hostId: string): HostStatus | undefined => backendRegistry.status(hostId),
+          wake: (hostId: string): Promise<void> => backendRegistry.wake(hostId),
         },
         isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId),
         hasLocalProject: (projectId: string): boolean => !projectManager.isRemoteProject(projectId),

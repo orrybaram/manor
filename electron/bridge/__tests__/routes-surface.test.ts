@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { DESKTOP_TABLE } from "../handlers";
 import { SERVER_METHODS } from "../server-methods";
 import { LOCAL_ROUTE, type Method } from "../method";
-import { ROUTES } from "../routes";
+import { ROUTES, wakesHost } from "../routes";
 import { HOST_TABLE } from "../../host-server/handlers";
 
 /** The namespaces that read or write a host's projects, layout or agents. */
@@ -100,5 +100,37 @@ describe("routing surface (ADR-227 D4)", () => {
     expect(DESKTOP_TABLE.routes.has("pty.consumePrewarmed")).toBe(false);
     expect(ROUTES["layout.reportViewport"]).toBe("home");
     expect(DESKTOP_TABLE.routes.has("layout.reportViewport")).toBe(false);
+  });
+});
+
+describe("which routed calls wake a sleeping host (ADR-229 D1)", () => {
+  it("wakes for opening a pane, a workspace or an agent's work", () => {
+    for (const key of ["pty.create", "pty.attach", "projects.createWorktree", "layout.apply", "chat.send"]) {
+      const [ns, method] = key.split(".");
+      expect({ key, wakes: wakesHost(ns, method) }).toEqual({ key, wakes: true });
+    }
+  });
+
+  it("never wakes for a read, or for what a viewer does to its own view", () => {
+    for (const key of [
+      "projects.listLocalBranches",
+      "projects.canQuickMerge",
+      "chat.getHistory",
+      "github.getPrsForBranches",
+      "github.checkStatus",
+      "pty.write",
+      "pty.resize",
+      "pty.detach",
+      "agents.markSeen",
+    ]) {
+      const [ns, method] = key.split(".");
+      expect({ key, wakes: wakesHost(ns, method) }).toEqual({ key, wakes: false });
+    }
+  });
+
+  it("answers hosts.wake and hosts.stop at home", () => {
+    expect(ROUTES["hosts.wake"]).toBe("home");
+    expect(ROUTES["hosts.stop"]).toBe("home");
+    expect(DESKTOP_TABLE.routes.has("hosts.wake")).toBe(false);
   });
 });

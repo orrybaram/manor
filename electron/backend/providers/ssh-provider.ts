@@ -1,9 +1,12 @@
 /**
  * SshHostProvider — a box the user brings, reached over ssh (ADR-178 §1).
  *
- * Wraps ADR-160's `SshTransport`. The box is assumed to be always on. Port
- * forwards ride the transport's existing ControlMaster (`ssh -O forward`), so
- * they cost no new connection or authentication.
+ * Wraps ADR-160's `SshTransport`. The box is assumed to be always on, so
+ * its lifecycle (ADR-229 D1) is the no-op one: `ensureUp` resolves at once,
+ * it can neither be stopped nor destroyed, and `status` is the last connect's
+ * outcome — `up`, or `unreachable` after a failed one — never `sleeping`.
+ * Port forwards ride the transport's existing ControlMaster
+ * (`ssh -O forward`), so they cost no new connection or authentication.
  */
 
 import { spawn as nodeSpawn } from "node:child_process";
@@ -12,11 +15,19 @@ import type { Duplex } from "node:stream";
 import { buildControlArgs } from "../../terminal-host/ssh-config";
 import {
   SshTransport,
+  type EnsureRemoteHost,
   type SshChild,
   type SshSpawn,
+  type SshTransportOptions,
 } from "../../terminal-host/transport-ssh";
 import { remoteHostEnsurer, type BootstrapProgress } from "../remote-bootstrap";
-import type { HostProvider, PortForward } from "./types";
+import {
+  assertPort,
+  ConnectOutcome,
+  preferredLocalPort,
+  type RemoteLoopback,
+} from "./connect-and-forward";
+import type { HostProvider, PortForward, ProviderCapabilities, ProviderStatus } from "./types";
 
 const CONTROL_TIMEOUT_MS = 5_000;
 const MAX_STDERR_BYTES = 4 * 1024;
@@ -69,19 +80,25 @@ export function forwardSpec(
 }
 
 /** The box addresses a forward may target: only ever its loopback. */
-type RemoteLoopback = "127.0.0.1" | "::1";
-
-function assertPort(port: number, label: string): void {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid ${label} port: ${port}`);
-  }
-}
-
 export interface SshHostProviderOptions {
   /** Bootstrap progress from the transport's host ensurer. */
   onBootstrapProgress?: (progress: BootstrapProgress) => void;
   /** Replaces the `SshTransport`. For tests. */
   transport?: SshTransport;
+  /** Replaces the transport's host ensurer (`remoteHostEnsurer`). For tests. */
+  ensureRemoteHost?: EnsureRemoteHost;
+  /** Where the transport's managed ssh config goes. For tests. */
+  configBaseDir?: string;
+  /**
+   * For a recipe host reached over ssh (ADR-229 D2): its own `Host` block,
+   * how messages name it, and how a host-key refusal and an authentication
+   * failure read. See
+   * `SshTransportOptions`.
+   */
+  hostStanza?: SshTransportOptions["hostStanza"];
+  label?: string;
+  hostKeyMessage?: SshTransportOptions["hostKeyMessage"];
+  authMessage?: SshTransportOptions["authMessage"];
   /** Spawns the `ssh -O` control commands. Defaults to `child_process.spawn`. */
   spawn?: SshSpawn;
   /** Picks the local end of a forward. For tests. */
@@ -90,8 +107,16 @@ export interface SshHostProviderOptions {
   isPortFree?: (port: number) => Promise<boolean>;
 }
 
+/** A box the user brings: Manor neither stops nor deletes it. */
+const SSH_CAPABILITIES: ProviderCapabilities = Object.freeze({
+  canStop: false,
+  canDestroy: false,
+  autoSleep: false,
+});
+
 export class SshHostProvider implements HostProvider {
   readonly kind = "ssh" as const;
+  readonly capabilities = SSH_CAPABILITIES;
 
   private readonly sshTransport: SshTransport;
   private readonly spawnFn: SshSpawn;
@@ -104,6 +129,12 @@ export class SshHostProvider implements HostProvider {
   >();
   /** Bumped by dispose(); a forwardPort() that straddles it cancels its own forward. */
   private generation = 0;
+  /**
+   * How the last connect went, as the transport's host ensurer saw it (it
+   * runs inside every connect): what `status()` reports, with no network
+   * call of its own. `up` until a connect says otherwise.
+   */
+  private readonly lastConnect = new ConnectOutcome();
 
   constructor(
     readonly target: string,
@@ -113,8 +144,16 @@ export class SshHostProvider implements HostProvider {
       opts.transport ??
       new SshTransport(target, {
         // Runs inside every client connect, before the bridge is opened —
-        // so connect() installs or upgrades manor-host first.
-        ensureRemoteHost: remoteHostEnsurer({ onProgress: opts.onBootstrapProgress }),
+        // so connect() installs or upgrades manor-host first. Its outcome is
+        // the box's status.
+        ensureRemoteHost: this.lastConnect.track(
+          opts.ensureRemoteHost ?? remoteHostEnsurer({ onProgress: opts.onBootstrapProgress }),
+        ),
+        configBaseDir: opts.configBaseDir,
+        hostStanza: opts.hostStanza,
+        label: opts.label,
+        hostKeyMessage: opts.hostKeyMessage,
+        authMessage: opts.authMessage,
       });
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.findFreePort = opts.findFreePort ?? findFreeLocalPort;
@@ -123,6 +162,13 @@ export class SshHostProvider implements HostProvider {
 
   transport(): SshTransport {
     return this.sshTransport;
+  }
+
+  /** Always on: nothing to start. */
+  async ensureUp(): Promise<void> {}
+
+  async status(): Promise<ProviderStatus> {
+    return this.lastConnect.status();
   }
 
   /**
@@ -154,16 +200,9 @@ export class SshHostProvider implements HostProvider {
       throw new Error(`Cannot forward port ${remotePort}: not connected to ${this.target}`);
     }
     const generation = this.generation;
-    const preferred = opts?.preferredLocalPort;
+    const preferred = preferredLocalPort(opts?.preferredLocalPort, this.forwards);
     const localPort =
-      preferred !== undefined &&
-      Number.isInteger(preferred) &&
-      preferred > 0 &&
-      preferred <= 65535 &&
-      !this.forwards.has(preferred) &&
-      (await this.isPortFree(preferred))
-        ? preferred
-        : await this.findFreePort();
+      preferred !== null && (await this.isPortFree(preferred)) ? preferred : await this.findFreePort();
     assertPort(localPort, "local");
     const cancelArgs = buildControlArgs(
       configPath,

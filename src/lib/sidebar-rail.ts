@@ -2,7 +2,7 @@
 
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { selectHost } from "../store/host-store";
-import { isRemoteHost } from "./hosts";
+import { hostName, isRemoteHost } from "./hosts";
 
 const EMOJI_RE = /\p{Extended_Pictographic}/u;
 
@@ -38,7 +38,7 @@ export function remoteTargetForProject(
 ): string | null {
   if (!isRemoteHost(project.hostId)) return null;
   const host = selectHost(project.hostId)(hostState);
-  return host?.spec?.target ?? project.hostId;
+  return host ? hostName(host) : project.hostId;
 }
 
 export function workspaceDisplayName(

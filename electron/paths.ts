@@ -218,6 +218,8 @@ export interface HostServerPaths {
   layout: string;
   /** Whether the host has been adopted yet (ADR-227 D3). */
   ownership: string;
+  /** The instance this data dir was created under, to spot a copy (ADR-229 D6). */
+  instance: string;
   /**
    * Slice 1's owner snapshots (ADR-225 D4, D5), discarded at boot: the
    * desktop's manifest, and the layout snapshot `layout` used to hold.
@@ -245,12 +247,45 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
     projects: path.join(dataDir, "projects.json"),
     layout: path.join(dataDir, "layout.json"),
     ownership: path.join(dataDir, "ownership.json"),
+    instance: path.join(dataDir, "instance.json"),
     legacyManifest: path.join(dataDir, "manifest.json"),
     relayIdentity: path.join(dataDir, "relay-identity.enc"),
     devices: path.join(dataDir, "remote-devices.enc"),
     vapid: path.join(dataDir, "remote-vapid.enc"),
     logsDir: path.join(dataDir, "logs"),
   };
+}
+
+/**
+ * Which supervisor keeps this box's daemon and host server running across a
+ * reboot (ADR-229 D4): `{kind: "systemd" | "launchd" | "container"}`, written
+ * by `manor-host supervisor install`. Absent: nothing supervises them, and
+ * they are spawned detached on connect.
+ */
+export function supervisorMarkerFile(): string {
+  return path.join(remoteNamespaceDir(), "supervisor.json");
+}
+
+/**
+ * The environment the supervised units start with (ADR-229 D4, D5):
+ * `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`, as
+ * `install` found them. Mode 0600.
+ */
+export function supervisorEnvFile(): string {
+  return path.join(remoteNamespaceDir(), "supervisor.env");
+}
+
+/** `manor-host supervise`'s pid, while it runs as a container's entrypoint (ADR-229 D4). */
+export function supervisePidFile(): string {
+  return path.join(remoteNamespaceDir(), "supervise.pid");
+}
+
+/**
+ * The launcher shim bootstrap writes (`remote-bootstrap.ts`): it pins the
+ * installed version, so whatever runs it runs that version.
+ */
+export function hostShimFile(): string {
+  return path.join(manorBinDir(), "manor-host");
 }
 
 export function hooksDir(): string {
@@ -310,6 +345,27 @@ export function hostCacheDir(): string {
 /** `hostId`'s cache file in `dir`, `<hostId>.json` (`HostProxy`). */
 export function hostCacheFile(hostId: string, dir: string = hostCacheDir()): string {
   return path.join(dir, `${hostId.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
+}
+
+/**
+ * The user's host recipes (ADR-229 D2): `<recipeId>/recipe.json` and its
+ * scripts. Recipes are only ever read from here — never from a repository.
+ */
+export function hostRecipesDir(): string {
+  return path.join(manorHomeDir(), "host-recipes");
+}
+
+/**
+ * Each recipe host's own `known_hosts` (ADR-229 D2): `<hostId>` holds the
+ * one key Manor trusts for it.
+ */
+export function hostKnownHostsDir(): string {
+  return path.join(manorHomeDir(), "ssh", "known_hosts.d");
+}
+
+/** `hostId`'s own `known_hosts` in `dir` (`hostKnownHostsDir()`). */
+export function hostKnownHostsFile(hostId: string, dir: string = hostKnownHostsDir()): string {
+  return path.join(dir, hostId.replace(/[^A-Za-z0-9._-]/g, "_"));
 }
 
 export function worktreesDir(): string {

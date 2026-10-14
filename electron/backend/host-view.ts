@@ -62,6 +62,10 @@ export function hostGates(conn: HostConnection): HostGates {
           return;
         case "error":
           throw new HostUnavailableError(conn.hostId, "error", conn.error);
+        case "sleeping":
+          // Waking takes intent (ADR-229 D1): the router wakes it for a
+          // call that means it; a pty call on its own does not.
+          throw new HostUnavailableError(conn.hostId, "sleeping");
         case "disconnected":
         case "connecting":
           await conn.ensureConnected();

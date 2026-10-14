@@ -244,6 +244,22 @@ function HostSummary(props: {
           ? ` (${status.relay.error})`
           : ""}
       </div>
+      {status.secretKeyOnVolume && (
+        <div className={styles.remoteWarning} data-testid="host-key-on-volume">
+          <ShieldAlert size={14} />
+          <span>
+            The key sealing pairing keys on {hostName} is stored on its own
+            disk.{" "}
+            <Link href={SECRETS_DOCS_URL}>How to keep it elsewhere</Link>
+          </span>
+        </div>
+      )}
+      {status.identityReset === "cloned" && (
+        <div className={styles.fieldHint} data-testid="host-identity-reset">
+          {hostName} was copied from another machine, so it got new pairing
+          keys. Phones paired with this Mac re-link on their own.
+        </div>
+      )}
       {status.secretBackend === "plaintext" && (
         <div className={styles.remoteWarning} data-testid="host-plaintext-keys">
           <ShieldAlert size={14} />

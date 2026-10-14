@@ -31,6 +31,8 @@ import type { HostProxy } from "./host-proxy";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
+import { hostSpecLabel } from "./providers/recipes";
+import { RecipeHostProvider } from "./providers/recipe-provider";
 import type { HostProvider } from "./providers/types";
 import { RemoteBackend } from "./remote-backend";
 import type { BootstrapProgress } from "./remote-bootstrap";
@@ -65,20 +67,32 @@ export type RemoteBackendFactory = (
     onBootstrapWarning: (warnings: string[]) => void;
     /** The host's daemon is about to be replaced (ADR-185 §A). */
     onDaemonReplacing: (sessionIds: string[]) => void;
+    /**
+     * Asked before each reconnect attempt; false stops the loop, the box
+     * being asleep (ADR-229 D1). See `RemoteHostConnection.beforeReconnect`.
+     */
+    beforeReconnect: () => Promise<boolean>;
   },
 ) => RemoteHostBackend;
 
-const defaultCreateProvider: HostProviderFactory = (_hostId, spec, opts) =>
-  createProvider(spec, opts);
+const defaultCreateProvider: HostProviderFactory = (hostId, spec, opts) =>
+  createProvider(spec, { ...opts, hostId });
 
-/** A `RemoteBackend` over the provider's transport. */
+/**
+ * A `RemoteBackend` over the provider's transport. Built at registration,
+ * before anything has brought the box up: for a recipe host (ADR-229 D2)
+ * that transport is the provider's stand-in, which reaches whatever the
+ * last `ensureUp` built. The connection runs `ensureUp` before every
+ * `backend.connect()`, so the backend never dials before there is a way in.
+ */
 const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
   new RemoteBackend({
-    target: spec.target,
+    target: hostSpecLabel(spec),
     version: opts.version,
     transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
     onDaemonReplacing: opts.onDaemonReplacing,
+    beforeReconnect: opts.beforeReconnect,
   });
 
 export interface BackendRegistryOptions {
@@ -115,6 +129,22 @@ export interface BackendRegistryOptions {
 }
 
 const LOG = "[backend-registry]";
+
+/**
+ * `HostStatusInfo.idleStopNote` for a host's provider: true when a recipe has
+ * `idleStopMinutes` but nothing to stop the box with the lid closed — neither
+ * `autoSleep` nor a box hook — and so stops only while the desktop is awake.
+ * Undefined for a host that has no idle stop.
+ */
+function idleStopNoteOf(
+  provider: HostProvider,
+  hooks: { onBusy: boolean; onIdle: boolean } | undefined,
+): boolean | undefined {
+  if (!(provider instanceof RecipeHostProvider) || provider.idleStopMinutes === undefined) {
+    return undefined;
+  }
+  return !provider.capabilities.autoSleep && !hooks?.onBusy && !hooks?.onIdle;
+}
 
 export class BackendRegistry {
   /** Which host owns each session we have seen created, listed or streaming. */
@@ -207,6 +237,7 @@ export class BackendRegistry {
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
       onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
+      beforeReconnect: () => built.conn?.beforeReconnect() ?? Promise.resolve(true),
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     built.conn.serverClient.onStateChange((state) => this.serverStates.emit(hostId, state));
@@ -226,13 +257,54 @@ export class BackendRegistry {
     await conn.dispose();
   }
 
-  /** Every host and its connection status, local first. */
+  /**
+   * Every host and its connection status, local first. A remote host carries
+   * its provider's kind and capabilities (ADR-229 D1), and whether it was
+   * adopted when the registry knows.
+   */
   list(): HostStatusInfo[] {
     return Array.from(this.hosts.values(), (conn) => {
       const info = conn.info();
-      if (!this.isAdopted || conn.hostId === LOCAL_HOST_ID) return info;
-      return { ...info, adopted: this.isAdopted(conn.hostId) };
+      if (!(conn instanceof RemoteHostConnection)) return info;
+      const { provider } = conn;
+      const idleStopNote = idleStopNoteOf(provider, info.hooks);
+      const idleStopMinutes =
+        provider instanceof RecipeHostProvider ? provider.idleStopMinutes : undefined;
+      return {
+        ...info,
+        label: conn.spec ? hostSpecLabel(conn.spec) : conn.hostId,
+        ...(this.isAdopted ? { adopted: this.isAdopted(conn.hostId) } : {}),
+        providerKind: provider.kind,
+        capabilities: { ...provider.capabilities },
+        ...(idleStopNote !== undefined ? { idleStopNote } : {}),
+        ...(idleStopMinutes !== undefined ? { idleStopMinutes } : {}),
+      };
     });
+  }
+
+  /**
+   * `hostId`'s server said whether the host is busy (ADR-229 D7): the
+   * provider is told (`setBusy`) and `list()` carries it.
+   */
+  setBusy(hostId: string, busy: boolean): void {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return;
+    conn.provider.setBusy?.(busy);
+    conn.setServerBusy(busy);
+  }
+
+  /** What the provider was last told by `setBusy`; false when it cannot be asked. */
+  isBusy(hostId: string): boolean {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return false;
+    return conn.provider instanceof RecipeHostProvider && conn.provider.busy;
+  }
+
+  /** `hostId`'s recipe's `idleStopMinutes`, when it has one (ADR-229 D7). */
+  idleStopMinutes(hostId: string): number | undefined {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return undefined;
+    return conn.provider instanceof RecipeHostProvider ? conn.provider.idleStopMinutes : undefined;
   }
 
   /**
@@ -244,13 +316,14 @@ export class BackendRegistry {
   }
 
   /**
-   * How the user names a remote host: its ssh target, as the sidebar does.
-   * Undefined for the local host and unknown ids.
+   * How the user names a remote host: its ssh target, or a recipe host's
+   * recipe name (ADR-229 D2), as the sidebar does. Undefined for the local
+   * host and unknown ids.
    */
   hostDisplayName(hostId: string): string | undefined {
     if (hostId === LOCAL_HOST_ID) return undefined;
-    const target = this.hosts.get(hostId)?.info().spec?.target;
-    return target || undefined;
+    const spec = this.hosts.get(hostId)?.spec;
+    return spec ? hostSpecLabel(spec) || undefined : undefined;
   }
 
   status(hostId: string): HostStatus | undefined {
@@ -267,7 +340,8 @@ export class BackendRegistry {
   /**
    * Connect `hostId` if it is not already. Concurrent callers share one
    * attempt. Rejects with the connect error, which `list()` also reports.
-   * Always tries — including after `error` — so this is the retry.
+   * Always tries — including after `error`, and on a sleeping host, which
+   * it wakes (ADR-229 D1) — so this is the retry.
    */
   async ensureConnected(hostId: string): Promise<void> {
     const conn = this.hosts.get(hostId);
@@ -278,19 +352,19 @@ export class BackendRegistry {
   /**
    * The user's "Retry now". A host its backend is already reconnecting
    * attempts at once instead of waiting out the backoff; any other host that
-   * is not connected gets a fresh `connect()` (`connectInBackground`).
+   * is not connected gets a fresh `connect()` (`connectInBackground`). A
+   * sleeping host is left asleep: `wake` is what wakes it (ADR-229 D1).
    */
   retryNow(hostId: string): void {
-    const conn = this.hosts.get(hostId);
-    if (conn) conn.retryNow();
-    else this.connectInBackground(hostId);
+    this.hosts.get(hostId)?.retryNow();
   }
 
-  /** `ensureConnected` without waiting; failures land in `list()`. */
+  /**
+   * A background connect; failures land in `list()`. Unlike
+   * `ensureConnected` it never wakes a sleeping host (ADR-229 D1).
+   */
   connectInBackground(hostId: string): void {
-    this.ensureConnected(hostId).catch(() => {
-      // Reported through status.
-    });
+    this.hosts.get(hostId)?.connectInBackground();
   }
 
   /**
@@ -303,6 +377,40 @@ export class BackendRegistry {
     for (const conn of this.hosts.values()) {
       if (conn instanceof RemoteHostConnection) conn.checkLiveness();
     }
+  }
+
+  /**
+   * Wake `hostId` and connect it (ADR-229 D1): what a call that means to use
+   * a sleeping host does first. Resolves once the host is connected and its
+   * owner channel has been dialled (whether or not the box has a server);
+   * rejects with the connect error. The local host is always awake.
+   */
+  async wake(hostId: string): Promise<void> {
+    if (hostId === LOCAL_HOST_ID) return;
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) {
+      throw new HostUnavailableError(hostId, "unknown");
+    }
+    await conn.wake();
+    if (conn.status === "connected") await conn.serverClient.connect();
+  }
+
+  /**
+   * Put `hostId`'s box to sleep (ADR-229 D1): the connection is dropped, the
+   * provider stops the box, and the host waits in `sleeping` until something
+   * wakes it. Refused unless its provider `canStop`.
+   */
+  async stop(hostId: string): Promise<void> {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) {
+      throw new Error(
+        hostId === LOCAL_HOST_ID ? "This computer can't be stopped." : `Unknown remote host ${hostId}.`,
+      );
+    }
+    if (!conn.provider.capabilities.canStop) {
+      throw new Error(`${this.hostDisplayName(hostId) ?? hostId} can't be stopped by Manor.`);
+    }
+    await conn.stop();
   }
 
   /** Drop a remote host's connection. Its remote sessions keep running. */

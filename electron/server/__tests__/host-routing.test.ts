@@ -26,7 +26,8 @@ import {
   seedDesktop,
 } from "../../backend/__tests__/adoption-fixtures";
 import { HostProxy } from "../../backend/host-proxy";
-import { HostServerClient } from "../../backend/host-server-client";
+import { HostServerClient, HostServerUnavailableError } from "../../backend/host-server-client";
+import type { HostStatus } from "../../backend/host-connection";
 import { ProjectManager } from "../../projects/project-manager";
 import type { GitBackend } from "../../backend/types";
 import { byAgent, byGhRepo, byHost, byPane, byProject, byWorkspaceKey, type Caller } from "../../bridge/method";
@@ -603,5 +604,102 @@ describe("HostRouting's setup progress", () => {
     const step = { step: "fetch", status: "in-progress" };
     routing.onProgress("box", "worktreeProgress", [step]);
     expect(publishTo).toHaveBeenLastCalledWith("B", "projects", "worktreeProgress", step);
+  });
+});
+
+describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
+  /**
+   * An adopted `box` that is asleep: its proxy answers only once `wake`
+   * has connected it, as a real one does once its owner channel is back.
+   */
+  function sleepingBox(initial: HostStatus = "sleeping") {
+    let status: HostStatus = initial;
+    const sent: string[] = [];
+    const proxy = {
+      hostId: "box",
+      label: "me@box",
+      get away() {
+        return status !== "connected";
+      },
+      invoke: vi.fn(async (ns: string, method: string) => {
+        if (status !== "connected") throw new HostServerUnavailableError("box", "idle");
+        sent.push(`${ns}.${method}`);
+        return { ok: true };
+      }),
+      refreshProjects: vi.fn(async () => {}),
+      projects: () => [],
+      layout: () => ({}),
+      agents: () => [],
+    } as unknown as HostProxy;
+    const wake = vi.fn(async () => {
+      status = "connected";
+    });
+    const routing = new HostRouting({
+      registry: {
+        hostProxy: (hostId) => (hostId === "box" ? proxy : undefined),
+        remoteHostIds: () => ["box"],
+        sessions: { ownerOf: () => undefined },
+        status: (hostId) => (hostId === "box" ? status : undefined),
+        wake,
+      },
+      isAdopted: () => true,
+      hasLocalProject: () => false,
+      pendingCommands: new PendingCommands(),
+      decorateProject: (result) => result,
+      bus: createBroadcastBus(),
+      handOver: async () => {},
+    });
+    return { routing, wake, sent };
+  }
+
+  it("wakes the host for a write, then forwards it", async () => {
+    const { routing, wake, sent } = sleepingBox();
+
+    await routing.invoke("box", "projects", "createWorktree", ["box-app", "feature"], WINDOW);
+
+    expect(wake).toHaveBeenCalledWith("box");
+    expect(sent).toEqual(["projects.createWorktree"]);
+  });
+
+  it("wakes the host to open a pane on it", async () => {
+    const { routing, wake, sent } = sleepingBox();
+
+    await expect(
+      routing.invoke("box", "pty", "create", ["pane-1", "/w", 80, 24, { hostId: "box" }], WINDOW),
+    ).resolves.toEqual({ ok: true });
+
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual(["pty.create"]);
+  });
+
+  it("never wakes the host for a read, which is refused as away", async () => {
+    const { routing, wake, sent } = sleepingBox();
+
+    await expect(
+      routing.invoke("box", "projects", "listLocalBranches", ["box-app"], WINDOW),
+    ).rejects.toBeInstanceOf(BridgeUnavailableRefusal);
+    // Nor what a viewer does to its own view of a pane.
+    await routing.invoke("box", "pty", "resize", ["pane-1", 80, 24], WINDOW);
+
+    expect(wake).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+  });
+
+  it("says a host still coming up is still starting, not offline", async () => {
+    const { routing, wake } = sleepingBox("connecting");
+
+    await expect(
+      routing.invoke("box", "projects", "renameWorkspace", ["box-app", "/w", "x"], WINDOW),
+    ).rejects.toMatchObject({ code: "unavailable:host-away", message: "me@box is still starting" });
+    expect(wake).not.toHaveBeenCalled();
+  });
+
+  it("does not wake a host that is merely away", async () => {
+    const { routing, wake } = sleepingBox("reconnecting");
+
+    await expect(
+      routing.invoke("box", "projects", "renameWorkspace", ["box-app", "/w", "x"], WINDOW),
+    ).rejects.toBeInstanceOf(BridgeUnavailableRefusal);
+    expect(wake).not.toHaveBeenCalled();
   });
 });

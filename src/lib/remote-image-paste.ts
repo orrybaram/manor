@@ -6,7 +6,7 @@
  */
 
 import type { Terminal } from "@xterm/xterm";
-import { LOCAL_HOST_ID } from "./hosts";
+import { LOCAL_HOST_ID, hostName } from "./hosts";
 import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
 import { useHostStore } from "../store/host-store";
 import { useToastStore } from "../store/toast-store";
@@ -17,10 +17,10 @@ export function isRemotePane(paneId: string): boolean {
   return !!hostId && hostId !== LOCAL_HOST_ID;
 }
 
-/** The ssh target a host badges as, or its id when main hasn't reported it. */
+/** The name a host badges as (`hostName`), or its id when main hasn't reported it. */
 function hostLabel(hostId: string): string {
   const host = useHostStore.getState().hosts.find((h) => h.hostId === hostId);
-  return host?.spec?.target ?? hostId;
+  return host ? hostName(host) : hostId;
 }
 
 /**

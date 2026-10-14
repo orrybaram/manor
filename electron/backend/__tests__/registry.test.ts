@@ -16,7 +16,7 @@ import type {
   PaneFacts,
 } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
-import type { HostProvider } from "../providers/types";
+import type { HostProvider, ProviderState } from "../providers/types";
 
 /** A WorkspaceBackend whose every call is a spy, plus handles to drive it. */
 function fakeBackend(name: string) {
@@ -90,6 +90,9 @@ function fakeBackend(name: string) {
 function fakeProvider() {
   const provider = {
     kind: "ssh" as const,
+    capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+    ensureUp: vi.fn(async (_onProgress?: (line: string) => void) => {}),
+    status: vi.fn(async (): Promise<{ state: ProviderState; detail?: string; missing?: boolean }> => ({ state: "up" })),
     transport: vi.fn(() => {
       throw new Error("fake provider has no transport");
     }),
@@ -135,6 +138,16 @@ function setup() {
 }
 
 const box: HostSpec = { kind: "ssh", target: "me@box" };
+
+/**
+ * What `list()` stamps on `box`, a plain ssh box: its provider's kind and
+ * capabilities (ADR-229 D1), and its name (D2).
+ */
+const SSH_FACTS = {
+  label: "me@box",
+  providerKind: "ssh",
+  capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+} as const;
 
 describe("BackendRegistry", () => {
   it("always has the local host, handing out the local backend unwrapped in behavior", async () => {
@@ -194,7 +207,7 @@ describe("BackendRegistry", () => {
     registry.onStatusChange((hosts) => seen.push(hosts));
 
     registry.register("box", box);
-    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected" });
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected", ...SSH_FACTS });
     // Registering the same spec again is a no-op.
     registry.register("box", box);
     expect(remotes.size).toBe(1);
@@ -213,7 +226,7 @@ describe("BackendRegistry", () => {
     });
     finishConnect();
     await connecting;
-    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "connected" });
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "connected", ...SSH_FACTS });
 
     const remote = remotes.get("box")!;
     remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
@@ -236,6 +249,7 @@ describe("BackendRegistry", () => {
       status: "error",
       error: "Node 20+ is required",
       failure: { reason: "bootstrap", code: "node-missing", message: "Node 20+ is required" },
+      ...SSH_FACTS,
     });
 
     const statuses = seen.map((hosts) => hosts.find((h) => h.hostId === "box")?.status);
@@ -394,7 +408,7 @@ describe("BackendRegistry", () => {
     // Disposing the client makes the in-flight connect reject.
     failConnect(new Error("client disposed"));
     await expect(connecting).rejects.toBeInstanceOf(HostUnavailableError);
-    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected" });
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected", ...SSH_FACTS });
 
     // An explicit connect afterwards still works, and the stale attempt
     // does not interfere with it.
@@ -999,5 +1013,229 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
 
       expect(seen).toEqual([]);
     });
+  });
+});
+
+describe("provider lifecycle (ADR-229 D1)", () => {
+  /** A registry with one remote host, `box`, whose provider can stop it. */
+  function lifecycleSetup(opts: { canStop?: boolean } = {}) {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const provider = {
+      ...fakeProvider(),
+      capabilities: { canStop: opts.canStop ?? true, canDestroy: false, autoSleep: false },
+      stop: vi.fn(async () => {}),
+    };
+    let beforeReconnect: (() => Promise<boolean>) | undefined;
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => provider as unknown as HostProvider,
+      createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
+        beforeReconnect = factoryOpts.beforeReconnect;
+        return remote.backend;
+      },
+    });
+    registry.register("box", box);
+    const asleep = () => provider.status.mockResolvedValue({ state: "sleeping" });
+    return {
+      registry,
+      remote,
+      provider,
+      asleep,
+      beforeReconnect: () => beforeReconnect!(),
+    };
+  }
+
+  it("brings the box up before the backend connects, showing its progress", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    const order: string[] = [];
+    let shown: string | undefined;
+    provider.ensureUp.mockImplementation(async (onProgress) => {
+      order.push("ensureUp");
+      onProgress?.("Starting the pod…");
+      shown = registry.list()[1].progress;
+    });
+    remote.raw.connect.mockImplementation(async () => {
+      order.push("connect");
+    });
+
+    await registry.ensureConnected("box");
+
+    expect(order).toEqual(["ensureUp", "connect"]);
+    expect(shown).toBe("Starting the pod…");
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("fails the connect when the box cannot be brought up, without connecting", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    provider.ensureUp.mockRejectedValueOnce(new Error("quota exceeded"));
+
+    await expect(registry.ensureConnected("box")).rejects.toThrow("quota exceeded");
+
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+    expect(registry.list()[1]).toMatchObject({ status: "error", error: "quota exceeded" });
+  });
+
+  it("stops reconnecting once the box is asleep, and leaves it asleep for pollers", async () => {
+    const { registry, remote, provider, asleep, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
+    expect(registry.status("box")).toBe("reconnecting");
+
+    // While the box is up, the loop goes on.
+    await expect(beforeReconnect()).resolves.toBe(true);
+    expect(registry.status("box")).toBe("reconnecting");
+
+    asleep();
+    await expect(beforeReconnect()).resolves.toBe(false);
+    expect(registry.status("box")).toBe("sleeping");
+    expect(provider.dispose).toHaveBeenCalled();
+
+    // Neither a background connect nor a poller's git call wakes it.
+    registry.connectInBackground("box");
+    await expect(registry.get("box").git.exec("/p", ["status"])).rejects.toBeInstanceOf(
+      HostUnavailableError,
+    );
+    // Nor does a pty call on its own: waking is the router's, for a call that means it.
+    await expect(registry.get("box").pty.listSessions()).rejects.toBeInstanceOf(
+      HostUnavailableError,
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("sleeping");
+  });
+
+  it("wakes a sleeping host on wake(), bringing the box up and connecting", async () => {
+    const { registry, remote, provider, asleep, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    asleep();
+    await beforeReconnect();
+    expect(registry.status("box")).toBe("sleeping");
+
+    await registry.wake("box");
+
+    expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+    expect(remote.raw.connect).toHaveBeenCalledTimes(2);
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("leaves a box it finds asleep asleep on a background connect", async () => {
+    const { registry, remote, provider, asleep } = lifecycleSetup();
+    asleep();
+
+    registry.connectInBackground("box");
+    await vi.waitFor(() => expect(registry.status("box")).toBe("sleeping"));
+
+    expect(provider.ensureUp).not.toHaveBeenCalled();
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+
+    // A connect somebody means wakes it.
+    await registry.ensureConnected("box");
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("stop() disconnects, has the provider stop the box, and sleeps", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    await registry.ensureConnected("box");
+
+    await registry.stop("box");
+
+    expect(remote.raw.disconnect).toHaveBeenCalled();
+    expect(provider.stop).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("sleeping");
+    // A disconnect (app quit) keeps it asleep.
+    await registry.disconnect("box");
+    expect(registry.status("box")).toBe("sleeping");
+  });
+
+  it("refuses to stop a box its provider cannot stop", async () => {
+    const { registry, provider } = lifecycleSetup({ canStop: false });
+    await registry.ensureConnected("box");
+
+    await expect(registry.stop("box")).rejects.toThrow("can't be stopped");
+
+    expect(provider.stop).not.toHaveBeenCalled();
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("reports a box deleted outside Manor as missing, and starts it again only on wake (ADR-229 D2)", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
+
+    // A background connect does not run `up`, which would create it anew.
+    registry.connectInBackground("box");
+    await vi.waitFor(() => expect(registry.status("box")).toBe("error"));
+    expect(registry.list()[1]).toMatchObject({
+      status: "error",
+      error: "Dev pod no longer exists",
+      missing: true,
+    });
+    expect(provider.ensureUp).not.toHaveBeenCalled();
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+
+    // "Start it again".
+    await registry.wake("box");
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
+    expect(registry.list()[1]).not.toHaveProperty("missing");
+  });
+
+  it("stops reconnecting to a box that went missing (ADR-229 D2)", async () => {
+    const { registry, remote, provider, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
+
+    await expect(beforeReconnect()).resolves.toBe(false);
+
+    expect(registry.list()[1]).toMatchObject({ status: "error", missing: true });
+    expect(provider.dispose).toHaveBeenCalled();
+  });
+
+  it("names a recipe host by its recipe, falling back to the recipe id (ADR-229 D2)", () => {
+    const { registry } = setup();
+    registry.register("pod", { kind: "recipe", recipeId: "no-such-recipe" });
+    expect(registry.list()[1]).toMatchObject({ hostId: "pod", label: "no-such-recipe" });
+    expect(registry.hostDisplayName("pod")).toBe("no-such-recipe");
+  });
+
+  it("stamps the provider's kind and capabilities on each remote host", () => {
+    const { registry } = lifecycleSetup();
+    expect(registry.list()[1]).toMatchObject({
+      providerKind: "ssh",
+      capabilities: { canStop: true, canDestroy: false, autoSleep: false },
+    });
+    expect(registry.list()[0]).not.toHaveProperty("providerKind");
+  });
+});
+
+describe("provider lifecycle: a meant connect joining a background one (ADR-229 D1)", () => {
+  it("wakes the host once the background attempt has left it asleep", async () => {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const provider = fakeProvider();
+    let answer!: (state: { state: ProviderState }) => void;
+    provider.status.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => provider as unknown as HostProvider,
+      createRemote: () => remote.backend,
+    });
+    registry.register("box", box);
+
+    registry.connectInBackground("box");
+    const meant = registry.ensureConnected("box");
+    answer({ state: "sleeping" });
+    await meant;
+
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
   });
 });

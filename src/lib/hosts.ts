@@ -33,25 +33,40 @@ export function isRemoteHost(hostId: string | null | undefined): boolean {
 }
 
 /**
- * How a host is named in a sentence: its ssh target, or "this machine".
- * A remote host main hasn't reported yet is named by its id.
+ * What a host is named by: main's `label` for it, else its ssh target, else
+ * its id. A host list entry, or the slice of one that names it.
  */
-export function hostLabel(
-  hostId: string,
-  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
-): string {
+export interface NamedHost {
+  hostId: string;
+  /** The ssh target, or a recipe host's recipe name (ADR-229 D2). */
+  label?: string;
+  spec?: { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string } | null;
+}
+
+/**
+ * A remote host's name: its ssh target, or for a host Manor starts, its
+ * recipe's name (ADR-229 D2). Falls back to the id.
+ */
+export function hostName(host: NamedHost): string {
+  if (host.label) return host.label;
+  return host.spec?.kind === "ssh" ? host.spec.target : host.hostId;
+}
+
+/**
+ * How a host is named in a sentence: its name (`hostName`), or "this
+ * machine". A remote host main hasn't reported yet is named by its id.
+ */
+export function hostLabel(hostId: string, hosts: readonly NamedHost[]): string {
   if (!isRemoteHost(hostId)) return "this machine";
-  return hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId;
+  const host = hosts.find((h) => h.hostId === hostId);
+  return host ? hostName(host) : hostId;
 }
 
 /**
  * A linked member's host as a label, as the sidebar's group sections name
  * it (ADR-193): "This machine", or the remote host's ssh target.
  */
-export function memberHostName(
-  hostId: string,
-  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
-): string {
+export function memberHostName(hostId: string, hosts: readonly NamedHost[]): string {
   return isRemoteHost(hostId) ? hostLabel(hostId, hosts) : "This machine";
 }
 
@@ -60,11 +75,11 @@ export function memberHostName(
  * selects in `AddProjectDialog` and `ProjectHostSection` (ADR-183 ticket 10).
  */
 export function remoteHostOptions(
-  hosts: readonly { hostId: string; spec?: { target?: string } | null }[],
+  hosts: readonly NamedHost[],
 ): { value: string; label: string }[] {
   return hosts
     .filter((h) => isRemoteHost(h.hostId))
-    .map((h) => ({ value: h.hostId, label: h.spec?.target ?? h.hostId }));
+    .map((h) => ({ value: h.hostId, label: hostName(h) }));
 }
 
 /**

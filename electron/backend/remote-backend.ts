@@ -28,6 +28,8 @@ import { createHostBackend, type HostBackend } from "./host-backend";
 import { execFacts, type MachineFacts } from "./machine-facts";
 import { createRemoteExec } from "./remote-exec";
 import { RemoteBootstrapError } from "./remote-bootstrap";
+import { RecipeCommandError } from "./providers/recipe-runner";
+import { RecipeError } from "./providers/recipes";
 import { Emitter } from "./emitter";
 import type {
   HostConnectionEvent,
@@ -72,6 +74,9 @@ export function classifyHostFailure(err: unknown): HostFailure | null {
   if (err instanceof RemoteBootstrapError) {
     return { reason: "bootstrap", code: err.code, message: err.message };
   }
+  if (err instanceof RecipeCommandError || err instanceof RecipeError) {
+    return { reason: "recipe", message: err.message };
+  }
   return null;
 }
 
@@ -96,6 +101,12 @@ export interface RemoteBackendOptions {
    * `SshTransport` whose `ensureRunning` bootstraps the remote host.
    */
   transport: HostTransport;
+  /**
+   * Asked before each reconnect attempt; false stops the loop quietly (the
+   * host's provider says it is asleep, ADR-229 D1). The next `connect()`
+   * resumes its sessions.
+   */
+  beforeReconnect?: () => Promise<boolean>;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
   reconnectDelayMs?: ReconnectPolicy;
   /**
@@ -136,6 +147,7 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.
       isPermanentFailure: (err) => classifyHostFailure(err) !== null,
+      ...(opts.beforeReconnect ? { beforeAttempt: opts.beforeReconnect } : {}),
     });
     this.client.setHeartbeat(
       opts.heartbeat === undefined

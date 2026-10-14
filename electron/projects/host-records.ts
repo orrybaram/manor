@@ -4,18 +4,22 @@
  * `ProjectManager`).
  */
 
-import { LOCAL_HOST_ID, type HostSpec } from "../backend/types";
+import { hostSpecLabel } from "../backend/providers/recipes";
+import { isHostSpec, LOCAL_HOST_ID, type HostSpec } from "../backend/types";
 import type { StateStore } from "./state-store";
 
 export class HostRecords {
   constructor(private readonly store: StateStore) {}
 
-  /** Registered remote hosts, in the order they were added. */
+  /**
+   * Registered remote hosts, in the order they were added. A host whose spec
+   * this build doesn't know (a kind from a newer Manor, a hand-edited file)
+   * is left out rather than registered wrong; it stays in the file.
+   */
   list(): Array<{ hostId: string; spec: HostSpec }> {
-    return Object.entries(this.store.state.hosts ?? {}).map(([hostId, host]) => ({
-      hostId,
-      spec: host.spec,
-    }));
+    return Object.entries(this.store.state.hosts ?? {}).flatMap(([hostId, host]) =>
+      isHostSpec(host.spec) ? [{ hostId, spec: host.spec }] : [],
+    );
   }
 
   /** Add a remote host, or replace how an existing one is reached. */
@@ -27,6 +31,17 @@ export class HostRecords {
     if (!state.hosts) state.hosts = {};
     state.hosts[hostId] = { ...state.hosts[hostId], spec };
     this.store.save();
+  }
+
+  /**
+   * Forget `hostId`'s record — how it is reached, its adoption marks, its
+   * switches (ADR-229 D8). Not saved: the caller drops what else names the
+   * host in the same write.
+   */
+  remove(hostId: string): void {
+    const hosts = this.store.state.hosts;
+    if (!hosts?.[hostId]) return;
+    delete hosts[hostId];
   }
 
   /** Throws unless `hostId` is this machine or a registered host. */
@@ -45,10 +60,14 @@ export class HostRecords {
     this.assertKnown(hostId);
   }
 
-  /** How `hostId` is named in messages: its ssh target, or "this Mac". */
+  /**
+   * How `hostId` is named in messages: its ssh target, a recipe host's
+   * recipe name (ADR-229 D2), or "this Mac".
+   */
   label(hostId: string): string {
     if (hostId === LOCAL_HOST_ID) return "this Mac";
-    return this.store.state.hosts?.[hostId]?.spec.target ?? hostId;
+    const spec = this.store.state.hosts?.[hostId]?.spec;
+    return isHostSpec(spec) ? hostSpecLabel(spec) : hostId;
   }
 
   /**
@@ -88,6 +107,18 @@ export class HostRecords {
     if (!host || this.linkPhones(hostId) === on) return;
     if (on) delete host.linkPhones;
     else host.linkPhones = false;
+    this.store.save();
+  }
+
+  /** "Keep Manor running when <host> restarts" (ADR-229 D4); absent is off. */
+  supervise(hostId: string): boolean {
+    return this.store.state.hosts?.[hostId]?.supervise === true;
+  }
+
+  setSupervise(hostId: string, on: boolean): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || host.supervise === on) return;
+    host.supervise = on;
     this.store.save();
   }
 

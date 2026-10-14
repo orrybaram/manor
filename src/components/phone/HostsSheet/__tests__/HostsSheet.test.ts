@@ -22,6 +22,7 @@ import type { BridgeTransport } from "../../../../bridge/client";
 import { listPairings, upsertPairing } from "../../../../bridge/pairings";
 import { servers } from "../../../../bridge/server-set";
 import { HostsSheet } from "../HostsSheet";
+import { useHostStore } from "../../../../store/host-store";
 
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));
 const A = "AbCdEfGhIjKlMnOpQr_-01";
@@ -119,5 +120,44 @@ describe("HostsSheet", () => {
     click(q("phone-host-remove-confirm"));
     expect(listPairings().map((p) => p.roomId)).toEqual([A]);
     expect(all("phone-host-option")).toHaveLength(1);
+  });
+
+  describe("a host asleep (ADR-229 D7)", () => {
+    const wake = vi.fn();
+
+    beforeEach(() => {
+      wake.mockReset().mockResolvedValue(undefined);
+      Object.assign(window, { electronAPI: { hosts: { wake } } });
+      // The desktop (home) lists the host by its room, and says it sleeps.
+      act(() => {
+        servers.setLists(A, [B]);
+        useHostStore.setState({
+          hosts: [{ hostId: B, spec: { kind: "recipe", recipeId: "dev-pod" }, status: "sleeping" }],
+        });
+      });
+    });
+
+    afterEach(() => {
+      act(() => useHostStore.setState({ hosts: [] }));
+      delete (window as { electronAPI?: unknown }).electronAPI;
+    });
+
+    it("reads Asleep, and Wake asks the desktop to start it", async () => {
+      const row = all("phone-host-option")[1];
+      expect(row.getAttribute("data-state")).toBe("asleep");
+      expect(row.querySelector('[data-testid="phone-host-status"]')?.textContent).toBe("Asleep");
+      click(row.querySelector<HTMLElement>('[data-testid="phone-host-wake"]'));
+      await act(async () => {});
+      expect(wake).toHaveBeenCalledWith(B);
+    });
+
+    it("says the desktop is away when there is none to wake it", () => {
+      act(() => servers.setReachability(A, "unreachable"));
+      const row = all("phone-host-option")[1];
+      expect(row.querySelector('[data-testid="phone-host-wake"]')).toBeNull();
+      expect(row.querySelector('[data-testid="phone-host-status"]')?.textContent).toBe(
+        "Host 2 is asleep, and Host 1 is away",
+      );
+    });
   });
 });

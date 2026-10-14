@@ -4,10 +4,14 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import crypto from "node:crypto";
+
 import {
+  keyFileSecretBox,
   libsecretSecretBox,
   pickHostSecretBox,
   plainFileSecretBox,
+  secretKeyOnVolume,
   SecretBoxUnavailableError,
   systemdCredsSecretBox,
   type ExecFn,
@@ -147,6 +151,83 @@ describe("libsecretSecretBox", () => {
   });
 });
 
+describe("keyFileSecretBox", () => {
+  let dir: string;
+  const key = crypto.randomBytes(32);
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-key-file-"));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("is absent without a key", () => {
+    expect(keyFileSecretBox({})).toBeNull();
+  });
+
+  it("round-trips with a base64 key from the environment", async () => {
+    const box = keyFileSecretBox({ MANOR_SECRET_KEY: key.toString("base64") })!;
+    expect(box.backend()).toBe("key-file");
+    const sealed = await box.encrypt(Buffer.from("secret"));
+    expect(sealed.subarray(0, 4).toString()).toBe("MKF1");
+    expect(sealed.includes("secret")).toBe(false);
+    expect((await box.decrypt(sealed)).toString()).toBe("secret");
+    // A fresh nonce every time.
+    expect((await box.encrypt(Buffer.from("secret"))).equals(sealed)).toBe(false);
+  });
+
+  it("reads a raw 32-byte file and a base64 text file", async () => {
+    const raw = path.join(dir, "raw");
+    const text = path.join(dir, "text");
+    fs.writeFileSync(raw, key);
+    fs.writeFileSync(text, `  ${key.toString("base64")}\n`);
+    const a = keyFileSecretBox({ MANOR_SECRET_KEY_FILE: raw })!;
+    const b = keyFileSecretBox({ MANOR_SECRET_KEY_FILE: text })!;
+    const sealed = await a.encrypt(Buffer.from("x"));
+    expect((await b.decrypt(sealed)).toString()).toBe("x");
+  });
+
+  it("fails to open with the wrong key, or without the header", async () => {
+    const box = keyFileSecretBox({ MANOR_SECRET_KEY: key.toString("base64") })!;
+    const other = keyFileSecretBox({
+      MANOR_SECRET_KEY: crypto.randomBytes(32).toString("base64"),
+    })!;
+    const sealed = await box.encrypt(Buffer.from("secret"));
+    await expect(other.decrypt(sealed)).rejects.toThrow();
+    await expect(box.decrypt(Buffer.from("not sealed at all, no header here...")))
+      .rejects.toThrow("not key-file sealed");
+    const tampered = Buffer.from(sealed);
+    tampered[tampered.length - 1] ^= 1;
+    await expect(box.decrypt(tampered)).rejects.toThrow();
+  });
+
+  it("explains a key of the wrong size or a missing file", () => {
+    expect(() => keyFileSecretBox({ MANOR_SECRET_KEY: "c2hvcnQ=" })).toThrow(
+      /MANOR_SECRET_KEY must be 32 bytes/,
+    );
+    expect(() =>
+      keyFileSecretBox({ MANOR_SECRET_KEY_FILE: path.join(dir, "missing") }),
+    ).toThrow(/could not be read/);
+  });
+
+  it("knows a key file kept under ~/.manor", () => {
+    const home = path.join(dir, "home");
+    fs.mkdirSync(path.join(home, ".manor", "remote"), { recursive: true });
+    const inside = path.join(home, ".manor", "remote", "key");
+    const outside = path.join(dir, "mounted-key");
+    fs.writeFileSync(inside, key);
+    fs.writeFileSync(outside, key);
+    const link = path.join(home, ".manor", "link");
+    fs.symlinkSync(outside, link);
+    expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: inside }, home)).toBe(true);
+    expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: outside }, home)).toBe(false);
+    // Resolved through the link: it lives outside.
+    expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: link }, home)).toBe(false);
+    expect(secretKeyOnVolume({ MANOR_SECRET_KEY: "x" }, home)).toBe(false);
+    expect(secretKeyOnVolume({}, home)).toBe(false);
+  });
+});
+
 describe("pickHostSecretBox", () => {
   let dir: string;
   let choiceFile: string;
@@ -162,6 +243,63 @@ describe("pickHostSecretBox", () => {
   const choice = () =>
     (JSON.parse(fs.readFileSync(choiceFile, "utf8")) as { backend: string })
       .backend;
+
+  describe("key-file", () => {
+    const env = { MANOR_SECRET_KEY: crypto.randomBytes(32).toString("base64") };
+    const systemd = () => async () => fakeBox("systemd-creds");
+
+    it("goes first whenever a key is set, and is remembered", async () => {
+      const systemdProbe = vi.fn(systemd());
+      const box = await pickHostSecretBox({
+        choiceFile,
+        env,
+        probes: { "systemd-creds": systemdProbe },
+      });
+      expect(box.backend()).toBe("key-file");
+      expect(choice()).toBe("key-file");
+      expect(systemdProbe).not.toHaveBeenCalled();
+    });
+
+    it("is skipped when no key is set", async () => {
+      const box = await pickHostSecretBox({
+        choiceFile,
+        env: {},
+        probes: { "systemd-creds": systemd() },
+      });
+      expect(box.backend()).toBe("systemd-creds");
+    });
+
+    it("throws, never falling back, when sealed with a key that is now unset", async () => {
+      await pickHostSecretBox({ choiceFile, env });
+      await expect(
+        pickHostSecretBox({
+          choiceFile,
+          env: {},
+          probes: { "systemd-creds": systemd() },
+        }),
+      ).rejects.toThrow(
+        new SecretBoxUnavailableError(
+          "Pairing keys were sealed with a key from MANOR_SECRET_KEY or MANOR_SECRET_KEY_FILE, and neither is set",
+        ),
+      );
+      expect(choice()).toBe("key-file");
+    });
+
+    it("upgrades a plaintext host and re-seals its files", async () => {
+      await pickHostSecretBox({
+        choiceFile,
+        env: {},
+        probes: { "systemd-creds": async () => null, libsecret: async () => null },
+      });
+      const file = path.join(path.dirname(choiceFile), "relay-identity.enc");
+      fs.writeFileSync(file, '{"v":1}');
+      const box = await pickHostSecretBox({ choiceFile, env });
+      expect(box.backend()).toBe("key-file");
+      expect(choice()).toBe("key-file");
+      expect(fs.readFileSync(file).subarray(0, 4).toString()).toBe("MKF1");
+      expect((await box.decrypt(fs.readFileSync(file))).toString()).toBe('{"v":1}');
+    });
+  });
 
   it("prefers systemd-creds", async () => {
     const box = await pickHostSecretBox({

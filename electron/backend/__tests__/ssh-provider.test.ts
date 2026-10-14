@@ -6,6 +6,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { SshHostProvider, forwardSpec } from "../providers/ssh-provider";
 import { createProvider } from "../providers";
+import type { HostProvider } from "../providers/types";
 import { SshTransport, type SshChild } from "../../terminal-host/transport-ssh";
 
 /** An `ssh -O …` child that exits with `code` (and `stderr`) on the next tick. */
@@ -197,5 +198,46 @@ describe("createProvider", () => {
     const provider = createProvider({ kind: "ssh", target: "me@box" });
     expect(provider).toBeInstanceOf(SshHostProvider);
     expect(provider.transport()).toBeInstanceOf(SshTransport);
+  });
+});
+
+describe("SshHostProvider lifecycle (ADR-229 D1)", () => {
+  let baseDir: string;
+
+  beforeEach(() => {
+    baseDir = fs.mkdtempSync(path.join(os.tmpdir(), "ssh-provider-lifecycle-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(baseDir, { recursive: true, force: true });
+  });
+
+  it("is always on: nothing to bring up, stop or destroy", async () => {
+    const provider: HostProvider = new SshHostProvider("me@box", { configBaseDir: baseDir });
+    await expect(provider.ensureUp()).resolves.toBeUndefined();
+    expect(provider.capabilities).toEqual({ canStop: false, canDestroy: false, autoSleep: false });
+    expect(provider.stop).toBeUndefined();
+    expect(provider.destroy).toBeUndefined();
+    await expect(provider.status()).resolves.toEqual({ state: "up" });
+  });
+
+  it("reports the last connect's outcome as its status, never asleep", async () => {
+    let fail: Error | null = new Error("ssh: connect to host box port 22: Connection refused");
+    const provider = new SshHostProvider("me@box", {
+      configBaseDir: baseDir,
+      ensureRemoteHost: async () => {
+        if (fail) throw fail;
+      },
+    });
+
+    await expect(provider.transport().ensureRunning("1.0.0")).rejects.toThrow("Connection refused");
+    await expect(provider.status()).resolves.toEqual({
+      state: "unreachable",
+      detail: "ssh: connect to host box port 22: Connection refused",
+    });
+
+    fail = null;
+    await provider.transport().ensureRunning("1.0.0");
+    await expect(provider.status()).resolves.toEqual({ state: "up" });
   });
 });

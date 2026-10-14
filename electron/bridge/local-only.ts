@@ -39,6 +39,14 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.resetPairingKeys",
   "hosts.setLinearOnHost",
   "hosts.setLinkPhones",
+  "hosts.stop",
+  "hosts.addRecipeHost",
+  "hosts.createRecipe",
+  "hosts.listTemplates",
+  "hosts.setSupervised",
+  "hosts.createCustomRecipe",
+  "hosts.remove",
+  "hosts.projectsOnHost",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

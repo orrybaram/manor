@@ -757,4 +757,63 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
       expect(() => mgr.linkProjects("box-two", "local-app")).toThrow(/me@box/);
     });
   });
+  describe("removing a host (ADR-229 D8)", () => {
+    it("forgets the host, its projects and their group memberships", async () => {
+      seed({
+        projects: [
+          project("local-app", undefined),
+          project("box-other", "box"),
+          project("mac-app", "mac"),
+        ],
+        projectOrder: ["local-app", "box-app", "box-other", "mac-app"],
+        hosts: {
+          box: { spec: { kind: "ssh", target: "me@box" }, adopted: true, adoptedProjectIds: ["box-app"] },
+          mac: { spec: { kind: "ssh", target: "me@mac" } },
+        },
+        groups: [
+          // Two members left after `box` goes: the group stays.
+          { id: "g1", name: "App", memberIds: ["local-app", "box-app", "mac-app"], lastUsedHostId: "box" },
+        ],
+        dismissedLinkSuggestions: [["box-other", "mac-app"]],
+      });
+      const mgr = manager();
+      mgr.removeHost("box");
+
+      const saved = readState() as ReturnType<typeof readState> & {
+        hosts?: Record<string, unknown>;
+        projectOrder?: string[];
+        dismissedLinkSuggestions?: unknown;
+      };
+      expect(Object.keys(saved.hosts ?? {})).toEqual(["mac"]);
+      expect(saved.projects.map((p) => p.id)).toEqual(["local-app", "mac-app"]);
+      expect(saved.projectOrder).toEqual(["local-app", "mac-app"]);
+      expect(saved.groups).toEqual([
+        expect.objectContaining({ id: "g1", memberIds: ["local-app", "mac-app"], lastUsedHostId: null }),
+      ]);
+      expect(saved.dismissedLinkSuggestions).toBeUndefined();
+      expect(mgr.getHosts().map((h) => h.hostId)).toEqual(["mac"]);
+    });
+
+    it("dissolves a group the host leaves with one member", async () => {
+      seed({
+        groups: [{ id: "g1", name: "App", memberIds: ["local-app", "box-app"], lastUsedHostId: "box" }],
+      });
+      const mgr = manager();
+      mgr.removeHost("box");
+      expect(readState().groups).toBeUndefined();
+      expect(await groupOf(mgr, "local-app")).toBeNull();
+    });
+
+    it("refuses this computer and an unknown host", () => {
+      seed();
+      const mgr = manager();
+      expect(() => mgr.removeHost("local")).toThrow();
+      expect(() => mgr.removeHost("nope")).toThrow(/Unknown host/);
+    });
+
+    it("names the projects on a host, for the destroy dialog", () => {
+      seed();
+      expect(manager().projectNamesOnHost("box")).toEqual(["Project box-app", "Project box-other"]);
+    });
+  });
 });

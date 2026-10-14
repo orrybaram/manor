@@ -167,6 +167,18 @@ describe("describeHost", () => {
       canRetry: true,
     });
   });
+
+  it("reads a sleeping host as asleep: away, calm, and nothing to retry (ADR-229 D1)", () => {
+    expect(describeHost(host({ status: "sleeping" }), 0)).toMatchObject({
+      offline: true,
+      busy: false,
+      tone: "asleep",
+      status: "Asleep",
+      banner: "me@box is asleep",
+      canRetry: false,
+    });
+    expect(isHostOffline("box", [host({ status: "sleeping" })])).toBe(true);
+  });
 });
 
 describe("secondsUntilRetry", () => {

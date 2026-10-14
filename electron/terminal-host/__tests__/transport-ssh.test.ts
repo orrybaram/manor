@@ -391,6 +391,53 @@ describe("SshTransport", () => {
     await expect(running).rejects.toBeInstanceOf(SshHostKeyError);
   });
 
+  it("words an auth failure for a recipe host, whose alias no terminal knows (ADR-229 D2)", async () => {
+    const { transport, children } = makeTransport({
+      label: "Dev pod",
+      authMessage: () => "ssh could not log in to Dev pod as dev@203.0.113.7.",
+    });
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    child.stderr.write("dev@203.0.113.7: Permission denied (publickey).\r\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SshAuthError);
+    expect((err as Error).message).toBe("ssh could not log in to Dev pod as dev@203.0.113.7.");
+  });
+
+  it("words a host-key refusal as the box's owner says, for a recipe host (ADR-229 D2)", async () => {
+    const { transport, children } = makeTransport({
+      label: "Dev pod",
+      hostKeyMessage: () => "Dev pod's host key changed and the recipe didn't vouch for the new one.",
+    });
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    child.stderr.write("@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\r\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SshHostKeyError);
+    expect((err as Error).message).toBe(
+      "Dev pod's host key changed and the recipe didn't vouch for the new one.",
+    );
+  });
+
+  it("puts a recipe host's own stanza ahead of Host * (ADR-229 D2)", async () => {
+    const { transport } = makeTransport({ hostStanza: () => "Host manor-h1\n  HostName 10.0.0.9" });
+    await transport.ensureRunning("1.2.3");
+    const text = fs.readFileSync(transport.managedConfig().configPath, "utf-8");
+    expect(text.indexOf("Host manor-h1")).toBeGreaterThan(-1);
+    expect(text.indexOf("Host manor-h1")).toBeLessThan(text.indexOf("Host *"));
+  });
+
+  it("writes no stanza for a plain ssh box", async () => {
+    const { transport } = makeTransport();
+    await transport.ensureRunning("1.2.3");
+    const text = fs.readFileSync(transport.managedConfig().configPath, "utf-8");
+    expect(text.split("\n").filter((line) => line.startsWith("Host "))).toEqual(["Host *"]);
+  });
+
   it("gives up once 64KB of pre-hello noise has gone by, even in short lines", async () => {
     const { transport, children } = makeTransport();
     const pending = transport.connectControl();

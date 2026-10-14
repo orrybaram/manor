@@ -1,0 +1,262 @@
+// @vitest-environment jsdom
+/**
+ * ADR-229 D8: Settings → Hosts. A host offers only what its provider can do
+ * (Stop, Start it again, Wake), says what keeps its Manor running, and is
+ * destroyed only once its name is typed.
+ */
+import { act, createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const api = vi.hoisted(() => {
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  const hosts = {
+    // The store's live list; the tests set `hosts` themselves.
+    list: () => new Promise(() => {}),
+    onStatusChanged: () => () => {},
+    onServerChanged: () => () => {},
+    onPairingChanged: () => () => {},
+    serverStatus: vi.fn(),
+    projectsOnHost: vi.fn(),
+    remove: vi.fn(),
+    stop: vi.fn(),
+    wake: vi.fn(),
+    setSupervised: vi.fn(),
+  };
+  (window as unknown as { electronAPI: unknown }).electronAPI = { hosts };
+  return hosts;
+});
+
+import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
+import type { HostServerView } from "../../../../electron.d";
+import { SettingsNavContext } from "../../SettingsModal/settings-nav";
+import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
+import { HostEntry } from "../HostEntry";
+import { idleStopText, supervisionHint, supervisorStatusText } from "../host-settings-text";
+
+function view(over: Partial<HostServerView> = {}): HostServerView {
+  return {
+    state: "connected",
+    status: null,
+    devices: [],
+    linkPhones: true,
+    linkedDeviceIds: [],
+    supervisor: null,
+    supervise: true,
+    ...over,
+  };
+}
+
+function host(over: Partial<HostStatusInfo> = {}): HostStatusInfo {
+  return {
+    hostId: "pod",
+    spec: { kind: "recipe", recipeId: "dev-pod" },
+    label: "Dev pod",
+    status: "connected",
+    providerKind: "recipe",
+    capabilities: { canStop: true, canDestroy: true, autoSleep: false },
+    ...over,
+  };
+}
+
+describe("HostEntry", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const goTo = vi.fn();
+
+  const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+  const click = (el: HTMLElement | null) =>
+    act(() => {
+      el?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  const type = (el: HTMLElement | null, value: string) =>
+    act(() => {
+      const input = el as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  const flush = () => act(async () => {});
+
+  async function render(info: HostStatusInfo, server: HostServerView = view()) {
+    api.serverStatus.mockResolvedValue(server);
+    useHostStore.setState({ hosts: [info], servers: {} });
+    await act(async () => {
+      root.render(
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(
+            SettingsNavContext.Provider,
+            { value: goTo },
+            createElement(HostEntry, { host: info, name: info.label ?? info.hostId, readOnly: false }),
+          ),
+        ),
+      );
+    });
+    await flush();
+  }
+
+  beforeEach(() => {
+    for (const fn of [api.serverStatus, api.projectsOnHost, api.remove, api.stop, api.wake, api.setSupervised]) {
+      fn.mockReset();
+    }
+    api.projectsOnHost.mockResolvedValue(["App", "Docs"]);
+    api.remove.mockResolvedValue(undefined);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  describe("offers only what the provider can do", () => {
+    it("Stop for a connected box its provider can stop", async () => {
+      await render(host());
+      expect(q("host-stop")).not.toBeNull();
+      expect(q("host-start-again")).toBeNull();
+      expect(q("host-wake")).toBeNull();
+      click(q("host-stop"));
+      expect(api.stop).toHaveBeenCalledWith("pod");
+    });
+
+    it("no Stop for an ssh box", async () => {
+      await render(
+        host({
+          hostId: "box",
+          spec: { kind: "ssh", target: "me@box" },
+          label: "me@box",
+          providerKind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+        }),
+      );
+      expect(q("host-stop")).toBeNull();
+      expect(q("host-remove")).not.toBeNull();
+    });
+
+    it("Wake, not Stop, for a sleeping box", async () => {
+      await render(host({ status: "sleeping" }));
+      expect(q("host-stop")).toBeNull();
+      click(q("host-wake"));
+      expect(api.wake).toHaveBeenCalledWith("pod");
+    });
+
+    it("Start it again for a box deleted outside Manor", async () => {
+      await render(host({ status: "error", error: "Dev pod no longer exists", missing: true }));
+      expect(container.textContent).toContain("Dev pod no longer exists");
+      click(q("host-start-again"));
+      expect(api.wake).toHaveBeenCalledWith("pod");
+    });
+
+    it("notes an idle stop that works only while the desktop is awake", async () => {
+      await render(host({ idleStopNote: true, idleStopMinutes: 30 }));
+      expect(q("host-idle-stop-note")?.textContent).toBe("Stops after 30 min idle only while This Mac is awake");
+    });
+
+    it("links to the host's phone access", async () => {
+      await render(host());
+      click(q("host-phone-access-link"));
+      expect(goTo).toHaveBeenCalledWith({ type: "remote" }, "remote-host-pod");
+    });
+  });
+
+  describe("supervision", () => {
+    it("shows what supervises the host under its switch", async () => {
+      await render(host(), view({ supervisor: { kind: "systemd", linger: false } }));
+      expect(q("host-supervisor-status")?.textContent).toBe(
+        "Starts after you log in to Dev pod. Run `sudo loginctl enable-linger $USER` there to start it at boot.",
+      );
+      expect(q("host-supervise-toggle")?.getAttribute("aria-checked")).toBe("true");
+    });
+
+    it("shows a container's switch on and locked: supervise is its entrypoint", async () => {
+      await render(host(), view({ supervise: false, supervisor: { kind: "container" } }));
+      const toggle = q("host-supervise-toggle") as HTMLButtonElement;
+      expect(toggle.getAttribute("aria-checked")).toBe("true");
+      expect(toggle.disabled).toBe(true);
+    });
+
+    it("disables the switch while the host is away", async () => {
+      await render(host({ status: "reconnecting" }));
+      expect((q("host-supervise-toggle") as HTMLButtonElement).disabled).toBe(true);
+      expect(q("host-supervisor-status")?.textContent).toBe("Change this while Dev pod is connected.");
+    });
+  });
+
+  describe("removing", () => {
+    it("destroys only once the host's name is typed", async () => {
+      await render(host());
+      click(q("host-remove"));
+      await flush();
+      expect(q("host-destroy-projects")?.textContent).toBe("App, Docs");
+      const destroy = q("host-destroy-confirm") as HTMLButtonElement;
+      expect(destroy.disabled).toBe(true);
+      type(q("host-destroy-input"), "Dev po");
+      expect(destroy.disabled).toBe(true);
+      type(q("host-destroy-input"), "Dev pod");
+      expect(destroy.disabled).toBe(false);
+      click(destroy);
+      await flush();
+      expect(api.remove).toHaveBeenCalledWith("pod", { destroy: true });
+      expect(q("host-remove-dialog")).toBeNull();
+    });
+
+    it("removes from Manor with a plain confirm, and offers no destroy where it can't", async () => {
+      await render(host({ capabilities: { canStop: false, canDestroy: false, autoSleep: false } }));
+      click(q("host-remove"));
+      await flush();
+      expect(q("host-destroy-input")).toBeNull();
+      expect(api.projectsOnHost).not.toHaveBeenCalled();
+      click(q("host-remove-plain"));
+      await flush();
+      expect(api.remove).toHaveBeenCalledWith("pod", { destroy: false });
+    });
+
+    it("keeps the dialog open, saying why, when the destroy fails", async () => {
+      api.remove.mockRejectedValue(new Error("destroy.sh exited 1"));
+      await render(host());
+      click(q("host-remove"));
+      await flush();
+      type(q("host-destroy-input"), "Dev pod");
+      click(q("host-destroy-confirm"));
+      await flush();
+      expect(q("host-remove-error")?.textContent).toContain("destroy.sh exited 1");
+      expect(q("host-remove-dialog")).not.toBeNull();
+    });
+  });
+});
+
+describe("host settings text (ADR-229 D4, D7)", () => {
+  const ssh = { kind: "ssh", target: "dev@build" } as const;
+
+  it("says what supervises the host", () => {
+    expect(supervisorStatusText({ kind: "systemd", linger: true }, "build", ssh)).toBe("Runs at boot (systemd)");
+    expect(supervisorStatusText({ kind: "systemd" }, "build", ssh)).toBe("Runs at boot (systemd)");
+    expect(supervisorStatusText({ kind: "systemd", linger: false }, "build", ssh)).toBe(
+      "Starts after you log in to build. Run `sudo loginctl enable-linger dev` there to start it at boot.",
+    );
+    expect(supervisorStatusText({ kind: "launchd" }, "mini", null)).toBe(
+      "Starts at login (launchd). A headless Mac needs automatic login.",
+    );
+    expect(supervisorStatusText({ kind: "container" }, "pod", null)).toBe("Runs from the container's entrypoint");
+    expect(supervisorStatusText(null, "pod", null)).toBeNull();
+  });
+
+  it("explains the switch when nothing supervises the host", () => {
+    expect(supervisionHint(view({ supervise: false }), "build", true)).toMatch(/^Off:/);
+    expect(supervisionHint(view({ supervise: true }), "build", true)).toMatch(/next connect/);
+    expect(supervisionHint(view({ supervisor: { kind: "container" } }), "build", true)).toBeNull();
+    expect(supervisionHint(null, "build", false)).toBe("Change this while build is connected.");
+  });
+
+  it("words the idle-stop caveat", () => {
+    expect(idleStopText(30, "This Mac")).toBe("Stops after 30 min idle only while This Mac is awake");
+  });
+});

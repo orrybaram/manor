@@ -298,6 +298,13 @@ export interface PersistedHost {
    * the next owner connect. Absent when there are none.
    */
   pendingRevokes?: string[];
+  /**
+   * "Keep Manor running when <host> restarts" (ADR-229 D4): the host's
+   * daemon and server go under its own supervisor, installed on connect when
+   * the host reports none. True for hosts added since, and for recipe hosts;
+   * absent (off) for ssh hosts added before, whose boxes the user set up.
+   */
+  supervise?: boolean;
 }
 
 /**

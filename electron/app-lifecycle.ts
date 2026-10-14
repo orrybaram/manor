@@ -16,6 +16,7 @@ import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { LOCAL_HOST_ID } from "./backend/types";
 import { HostServerSync } from "./backend/host-server-sync";
+import { runHostSupervisor } from "./backend/host-supervisor";
 import { HostPairingLinks } from "./remote-control/host-links";
 import { PrewarmManager } from "./prewarm-manager";
 import { publishRendererBroadcast, rendererBus } from "./renderer-broadcast";
@@ -321,6 +322,17 @@ export function initApp(devTitle: string | null): void {
         list: (hostId) => shared.projectManager.pendingHostRevokes(hostId),
         clear: (hostId, ids) => shared.projectManager.clearPendingHostRevokes(hostId, ids),
         revoked: (hostId) => publishRendererBroadcast("hosts", "pairingChanged", hostId),
+      },
+      // "Keep Manor running when <host> restarts", installed on connect
+      // where it is on and the host has none (ADR-229 D4).
+      supervision: {
+        wanted: (hostId) => shared.projectManager.hostSupervised(hostId),
+        install: async (hostId) => {
+          const provider = backendRegistry.provider(hostId);
+          if (!provider) return;
+          await runHostSupervisor(provider.transport(), "install");
+          publishRendererBroadcast("hosts", "pairingChanged", hostId);
+        },
       },
     });
     // After the push store exists: starting syncs hosts that are already

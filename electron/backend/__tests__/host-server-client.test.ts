@@ -305,11 +305,61 @@ describe("HostServerClient over server-bridge", () => {
     // It says it takes viewer streams, but not before it is adopted.
     expect(status.capabilities).toContain("viewer-bridge");
     expect(status.ownership).toBe("pending");
+    // A current server also says whether it is busy and which box hooks it has (ADR-229 D7).
     expect(setServerFacts).toHaveBeenLastCalledWith("box", {
       roomId: status.relay.roomId,
       viewerBridge: false,
+      busy: false,
+      hooks: { onBusy: false, onIdle: false },
     });
     expect(status.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    sync.dispose();
+  });
+
+  it("installs supervision on connect where the record wants it and the host has none (ADR-229 D4)", async () => {
+    const c = client();
+    const install = vi.fn(async () => {});
+    const wanted = vi.fn((hostId: string) => hostId === "box");
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+      },
+      supervision: { wanted, install },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    await vi.waitFor(() => expect(install).toHaveBeenCalledWith("box"));
+    // Nothing supervises the test box: its status says so.
+    expect((await c.api.hostServer.status()).supervisor).toBeNull();
+    sync.dispose();
+  });
+
+  it("leaves a host whose record does not want supervision alone", async () => {
+    const c = client();
+    const install = vi.fn(async () => {});
+    const wanted = vi.fn(() => false);
+    const setServerFacts = vi.fn();
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+        setServerFacts,
+      },
+      supervision: { wanted, install },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    // Asked once the rest of the connect's sync is done; nothing installed.
+    await vi.waitFor(() => expect(wanted).toHaveBeenCalledWith("box"));
+    expect(setServerFacts).toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
     sync.dispose();
   });
 
@@ -401,6 +451,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },
@@ -444,6 +497,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },
@@ -484,6 +540,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },

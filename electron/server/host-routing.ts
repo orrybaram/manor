@@ -10,6 +10,9 @@
  *   adopted remote host is answered by that host's server: the proxy
  *   rewrites the arguments and the answer, and a host that is away refuses
  *   with `unavailable:host-away` ("wsl-box is offline"). Nothing is queued.
+ * - **Waking** (ADR-229 D1). A write for a host whose box is asleep wakes
+ *   it first, waits for it (bounded by `WAKE_WAIT_MS`), then goes; a read
+ *   never wakes one, and answers from the cache as for any host away.
  * - **Merged reads.** The proxies' projects (for `ProjectManager`, as
  *   `RemoteProjects`), layouts, agents and pane statuses, which the shared reads add to the
  *   desktop's own — the cache's while a host is away.
@@ -46,11 +49,12 @@ import {
   type HostProxy,
   type HostPtyEvent,
 } from "../backend/host-proxy";
+import type { HostStatus } from "../backend/host-connection";
 import { HostServerUnavailableError } from "../backend/host-server-client";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { Caller, RouteRule } from "../bridge/method";
-import { stringsIn } from "../bridge/routes";
+import { stringsIn, wakesHost } from "../bridge/routes";
 import type { BridgeForward } from "../bridge/server";
 import {
   BridgeUnavailableRefusal,
@@ -76,6 +80,10 @@ export interface HostRoutingOptions {
     hostProxy(hostId: string): HostProxy | undefined;
     remoteHostIds(): string[];
     sessions: { ownerOf(sessionId: string): string | undefined };
+    /** A host's connection status; `sleeping` is woken for a write. */
+    status?(hostId: string): HostStatus | undefined;
+    /** Wake a sleeping host and connect it (`BackendRegistry.wake`). */
+    wake?(hostId: string): Promise<void>;
   };
   /** Whether `hostId` has adopted its records (`ProjectManager.isHostAdopted`). */
   isAdopted(hostId: string): boolean;
@@ -113,6 +121,13 @@ const LONG_CALL_TIMEOUT_MS = 10 * 60_000;
 function callTimeout(ns: string, method: string): { timeoutMs?: number } {
   return LONG_CALLS.has(`${ns}.${method}`) ? { timeoutMs: LONG_CALL_TIMEOUT_MS } : {};
 }
+
+/**
+ * How long a write for a sleeping host waits for it to wake before it is
+ * refused as away (ADR-229 D1). A box slower than this goes on starting; the
+ * next call finds it up.
+ */
+const WAKE_WAIT_MS = 2 * 60_000;
 
 /** `pty` calls that leave the caller a viewer of the pane on the host. */
 const PTY_ATTACHING = new Set(["create", "attach", "reset"]);
@@ -262,6 +277,7 @@ export class HostRouting implements BridgeForward {
     if (!proxy) {
       throw new BridgeUnavailableRefusal(`${hostId} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
     }
+    if (wakesHost(ns, method)) await this.wakeIfAsleep(hostId);
     let callArgs = args;
     try {
       if (ns === "layout" && method === "apply") {
@@ -413,6 +429,7 @@ export class HostRouting implements BridgeForward {
   ): Promise<ControlAnswer> {
     const proxy = this.proxy(hostId);
     if (!proxy) return { status: 503, body: { error: `${hostId} is offline` } };
+    if (method !== "GET") await this.wakeIfAsleep(hostId);
     try {
       const answer = (await proxy.invoke(
         "hostServer",
@@ -444,12 +461,43 @@ export class HostRouting implements BridgeForward {
     }
   }
 
-  /** A host that is away, or that refused, as the bridge answers it. */
+  /**
+   * Wake `hostId` if its box is asleep (ADR-229 D1), and wait — at most
+   * `WAKE_WAIT_MS` — for it to connect. Never rejects: a host that did not
+   * wake in time, or could not, is away, and the call then refuses as for
+   * any host away — "still starting" while its start goes on (`refusal`).
+   */
+  private async wakeIfAsleep(hostId: string): Promise<void> {
+    const { registry } = this.opts;
+    if (!registry.wake || registry.status?.(hostId) !== "sleeping") return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        registry.wake(hostId),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, WAKE_WAIT_MS);
+        }),
+      ]);
+    } catch (err) {
+      console.warn(`[host-routing] waking ${hostId} failed:`, errorMessage(err));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
+   * A host that is away, or that refused, as the bridge answers it. A host
+   * still coming up — a woken box whose start outlasted `WAKE_WAIT_MS`, a
+   * recipe's `up` may take 15 minutes (ADR-229 D2) — is away, but says so.
+   */
   private refusal(proxy: HostProxy, err: unknown): unknown {
     if (!(err instanceof HostServerUnavailableError)) return err;
-    return err.state === "refused"
-      ? new BridgeUnavailableRefusal(err.message, UNAVAILABLE_HOST_CODE)
-      : new BridgeUnavailableRefusal(`${proxy.label} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
+    if (err.state === "refused") return new BridgeUnavailableRefusal(err.message, UNAVAILABLE_HOST_CODE);
+    const starting = this.opts.registry.status?.(proxy.hostId) === "connecting";
+    return new BridgeUnavailableRefusal(
+      `${proxy.label} is ${starting ? "still starting" : "offline"}`,
+      UNAVAILABLE_HOST_AWAY_CODE,
+    );
   }
 
   /** `hostId` when calls for it go to its server; null when they stay here. */
@@ -593,6 +641,7 @@ export class HostRouting implements BridgeForward {
         if (!proxy) {
           throw new BridgeUnavailableRefusal(`${hostId} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
         }
+        if (wakesHost("projects", method)) await this.wakeIfAsleep(hostId);
         let result: unknown;
         try {
           result = await proxy.invoke("projects", method, args, callTimeout("projects", method));

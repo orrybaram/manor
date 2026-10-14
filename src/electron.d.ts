@@ -494,6 +494,8 @@ export type {
 /** Phone access through a host's server (ADR-225 D3). */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";
 export type { HostServerStatus } from "../electron/host-server/relay";
+/** The "Start a host" form's templates (ADR-229 D8). */
+export type { TemplateInfo } from "../electron/backend/providers/recipe-templates/types";
 
 /** The phone chat view's wire types (ADR-215). */
 export type {

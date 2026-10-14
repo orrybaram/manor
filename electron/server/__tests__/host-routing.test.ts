@@ -25,7 +25,9 @@ import {
   openDesktop,
   seedDesktop,
 } from "../../backend/__tests__/adoption-fixtures";
-import { HostProxy } from "../../backend/host-proxy";
+import { HostProxy, type HostPtyEvent } from "../../backend/host-proxy";
+import { PtyAttachments } from "../../pty-attachments";
+import type { WinsizeOwnerEvent } from "../../../src/electron.d";
 import { HostServerClient, HostServerUnavailableError } from "../../backend/host-server-client";
 import type { HostStatus } from "../../backend/host-connection";
 import { ProjectManager } from "../../projects/project-manager";
@@ -127,6 +129,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     const keyed: Array<{ ns: string; event: string; args: unknown[]; key: string }> = [];
     /** The desktop windows' claims, by workspace key. */
     const claims = new Map<string, LayoutClaim[]>();
+    const attachments = new PtyAttachments();
     const proxy = new HostProxy({
       client,
       bus,
@@ -135,7 +138,12 @@ describe("HostRouting (ADR-227 D4)", () => {
       cacheFile: path.join(h.tmp, "host-cache", "box.json"),
       saveDelayMs: 10,
       log: quiet,
-      publishKeyed: (ns, event, args, key) => keyed.push({ ns, event, args, key }),
+      // As the desktop wires it: the host's `winsizeOwner` is told each
+      // caller here on its own (ADR-230 D10).
+      publishKeyed: (ns, event, args, key) => {
+        if (ns === "pty" && routing.onHostPtyEvent(event as HostPtyEvent, args, key)) return;
+        keyed.push({ ns, event, args, key });
+      },
       claimsFor: (key) => claims.get(key) ?? [],
     });
     onTestFinished(() => proxy.dispose());
@@ -151,6 +159,9 @@ describe("HostRouting (ADR-227 D4)", () => {
       decorateProject: (result) => projectManager!.decorateRemoteResult(result),
       bus,
       handOver: async () => {},
+      // The host server runs in this process, on the process's registry:
+      // main's callers are held apart, as in a process of main's own.
+      attachments,
     });
     const git = {
       exec: async () => {
@@ -164,12 +175,13 @@ describe("HostRouting (ADR-227 D4)", () => {
       (ids) => ids.length === 2,
       "box's projects through the proxy",
     );
-    return { client, proxy, routing, projectManager, pendingCommands, heard, keyed, claims, before };
+    return { client, proxy, routing, projectManager, pendingCommands, heard, keyed, claims, before, attachments };
   }
 
   /**
    * The desktop's bridge as `wirePty` sees it: who is subscribed to what,
-   * with a caller here subscribing and letting go.
+   * with a caller here subscribing and letting go — and what it told each
+   * connection on its own (`told`).
    */
   function fakeSubscriptions() {
     const held = new Set<string>();
@@ -177,13 +189,18 @@ describe("HostRouting (ADR-227 D4)", () => {
     const tell = (event: string, paneId: string) => {
       for (const sink of sinks) sink(`pty.${event}`, paneId);
     };
+    const told: Array<{ to: string; payload: WinsizeOwnerEvent; key: string }> = [];
     return {
+      told,
       bridge: {
         onSubscriptionChange(cb: (name: string, key: string) => void) {
           sinks.add(cb);
           return () => sinks.delete(cb);
         },
         hasSubscriber: (ns: string, event: string, key: string) => held.has(`${ns}.${event}\0${key}`),
+        publishTo: (to: string, _ns: "pty", _event: "winsizeOwner", args: [WinsizeOwnerEvent], key: string) => {
+          told.push({ to, payload: args[0], key });
+        },
       },
       subscribe(paneId: string, events: readonly string[]) {
         for (const event of events) {
@@ -455,9 +472,9 @@ describe("HostRouting (ADR-227 D4)", () => {
     // and the grid is the desktop's to own — nobody else views it.
     expect(created).toMatchObject({ ok: true, hostId: "box", winsizeOwner: true });
     await eventually(
-      () => keyed.find((k) => k.event === "winsizeOwner" && k.key === "pane-box"),
-      Boolean,
-      "the host's winsize answer, at the pane",
+      () => subs.told.find((t) => t.to === "phone-1" && t.key === "pane-box"),
+      (told) => told?.payload.owner === true,
+      "the host's winsize answer, to the phone",
     );
 
     // The box's shell prints: the phone hears it through the desktop.
@@ -479,6 +496,97 @@ describe("HostRouting (ADR-227 D4)", () => {
     shell.output("after");
     await new Promise((r) => setTimeout(r, 100));
     expect(keyed.slice(before).filter((k) => k.event === "output")).toEqual([]);
+  });
+
+  /**
+   * Two callers of the desktop's on one pane on box (ADR-230 D10): a window
+   * whose own stream to box is down, so it went through main, opens it at
+   * 100×30, then a phone paired only with the desktop opens it at 50×20.
+   * `ptyCalls` is what main sent box, by method.
+   */
+  async function twoForwardedCallers() {
+    const desktop = await adoptedDesktop();
+    const { routing, client } = desktop;
+    await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
+    const subs = fakeSubscriptions();
+    onTestFinished(routing.wirePty(subs.bridge));
+    subs.subscribe("pane-box", ["output", "winsizeOwner", "exit"]);
+    const sent = vi.spyOn(client, "invoke");
+    const ptyCalls = (method: string) =>
+      sent.mock.calls.filter(([ns, m]) => ns === "pty" && m === method).map(([, , args]) => args);
+    const window = await routing.invoke("box", "pty", "create", ["pane-box", h.tmp, 100, 30, { hostId: "box" }], WINDOW);
+    const phone = await routing.invoke("box", "pty", "create", ["pane-box", h.tmp, 50, 20, { hostId: "box" }], PHONE);
+    /** The last `winsizeOwner` connection `to` was told. */
+    const owns = (to: string) => subs.told.filter((t) => t.to === to).pop()?.payload.owner;
+    return { ...desktop, subs, ptyCalls, window, phone, owns };
+  }
+
+  const PHONE: Caller = { id: "phone-1", callerClass: "device", deviceId: "d1" } as Caller;
+
+  it("lets only the caller that owns a remote pane here size it on the host (ADR-230 D10)", async () => {
+    const { routing, ptyCalls, window, phone, owns } = await twoForwardedCallers();
+    // The window outranks the phone: the phone follows the window's grid,
+    // and its own never reaches box.
+    expect(window).toMatchObject({ ok: true, winsizeOwner: true });
+    expect(phone).toMatchObject({ ok: true, winsizeOwner: false, cols: 100, rows: 30 });
+    expect(ptyCalls("create").map((args) => args.slice(2, 4))).toEqual([
+      [100, 30],
+      [100, 30],
+    ]);
+
+    // Only the owner here resizes it on box.
+    await routing.invoke("box", "pty", "resize", ["pane-box", 50, 20], PHONE);
+    await routing.invoke("box", "pty", "resize", ["pane-box", 110, 32], WINDOW);
+    expect(ptyCalls("resize")).toEqual([["pane-box", 110, 32]]);
+
+    // The phone claims it: it owns it now, and the window follows.
+    expect(await routing.invoke("box", "pty", "claimWinsize", ["pane-box"], PHONE)).toBe(true);
+    await routing.invoke("box", "pty", "resize", ["pane-box", 120, 40], WINDOW);
+    await routing.invoke("box", "pty", "resize", ["pane-box", 50, 20], PHONE);
+    expect(ptyCalls("resize")).toEqual([
+      ["pane-box", 110, 32],
+      ["pane-box", 50, 20],
+    ]);
+    // Each caller is told its own answer, not the host's one for the desktop.
+    await eventually(
+      () => [owns(WINDOW.id), owns(PHONE.id)],
+      ([w, p]) => w === false && p === true,
+      "each caller's own winsizeOwner",
+    );
+
+    // Typing at the desk ends the phone's claim.
+    await routing.invoke("box", "pty", "write", ["pane-box", "x"], WINDOW);
+    expect([owns(WINDOW.id), owns(PHONE.id)]).toEqual([true, false]);
+  });
+
+  it("keeps box's viewer while another caller here views the pane, and detaches it once (ADR-230 D10)", async () => {
+    const { routing, ptyCalls, keyed, owns } = await twoForwardedCallers();
+    const shell = ptySubprocess();
+    // The window lets go: box is not detached, and the phone owns the grid.
+    await routing.invoke("box", "pty", "detach", ["pane-box"], WINDOW);
+    expect(ptyCalls("detach")).toEqual([]);
+    expect(owns(PHONE.id)).toBe(true);
+    // The phone still hears the pane.
+    shell.output("still here");
+    await eventually(
+      () => keyed.filter((k) => k.event === "output" && k.key === "pane-box"),
+      (heard) => heard.some((k) => String(k.args[0]).includes("still here")),
+      "the output, to the phone",
+    );
+    // The last caller lets go: box is detached, once.
+    await routing.invoke("box", "pty", "detach", ["pane-box"], PHONE);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(ptyCalls("detach")).toEqual([["pane-box"]]);
+  });
+
+  it("detaches box's viewer when the last caller here drops without detaching (ADR-230 D10)", async () => {
+    const { attachments, ptyCalls } = await twoForwardedCallers();
+    // A connection that drops is released (`BridgeServer.drop`).
+    attachments.releaseViewer(WINDOW.id);
+    expect(ptyCalls("detach")).toEqual([]);
+    attachments.releaseViewer(PHONE.id);
+    await eventually(() => ptyCalls("detach"), (calls) => calls.length === 1, "box's detach");
+    expect(ptyCalls("detach")).toEqual([["pane-box"]]);
   });
 
   it("carries a pane's output while the window's own stream to the host is down (ADR-228 D5)", async () => {
@@ -648,6 +756,7 @@ describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
       decorateProject: (result) => result,
       bus: createBroadcastBus(),
       handOver: async () => {},
+      attachments: new PtyAttachments(),
     });
     return { routing, wake, sent };
   }
@@ -666,7 +775,7 @@ describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
 
     await expect(
       routing.invoke("box", "pty", "create", ["pane-1", "/w", 80, 24, { hostId: "box" }], WINDOW),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({ ok: true, winsizeOwner: true });
 
     expect(wake).toHaveBeenCalledTimes(1);
     expect(sent).toEqual(["pty.create"]);
@@ -696,7 +805,7 @@ describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
 
     await expect(
       routing.invoke("box", "pty", "create", ["pane-1", "/w", 80, 24, { wake: false }], WINDOW),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({ ok: true, winsizeOwner: true });
 
     expect(wake).not.toHaveBeenCalled();
     expect(sent).toEqual(["pty.create"]);

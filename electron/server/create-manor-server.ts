@@ -95,7 +95,7 @@ import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
 import { createServerLaunches } from "./spawn-pane";
 import { HostRouting } from "./host-routing";
-import type { HostProxy } from "../backend/host-proxy";
+import type { HostProxy, HostPtyEvent } from "../backend/host-proxy";
 import type { PendingCommand } from "../layout/pending-commands";
 
 /**
@@ -253,9 +253,12 @@ export function createManorServer<D extends BridgeServerDeps>(
             label: (hostId: string): string => projectManager.hostLabel(hostId),
             ...(remoteHosts.hostCacheDir ? { cacheDir: remoteHosts.hostCacheDir } : {}),
             // A remote pane's chat and terminal, to whoever here subscribed
-            // to it (ADR-228 D5).
-            publishKeyed: (ns: "chat" | "pty", event: string, args: unknown[], key: string): void =>
-              bridge.publish(ns, event as never, args as never, key),
+            // to it (ADR-228 D5). Its `winsizeOwner` is told each caller
+            // here on its own (ADR-230 D10).
+            publishKeyed: (ns: "chat" | "pty", event: string, args: unknown[], key: string): void => {
+              if (ns === "pty" && routing.onHostPtyEvent(event as HostPtyEvent, args, key)) return;
+              bridge.publish(ns, event as never, args as never, key);
+            },
             // A detached window's claim on a remote tab is the desktop's (D7).
             claimsFor: (key: WorkspaceKey): LayoutClaim[] => layoutStore.claimsFor(key),
           },

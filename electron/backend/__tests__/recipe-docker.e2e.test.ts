@@ -21,6 +21,9 @@
  * 6. A port forward over exec reaches a server on the container.
  * 7. Remove with destroy: the container and volume are gone, and the host
  *    is no longer listed.
+ * 8. A forced drop: the box's ends of the exec streams are killed, as an
+ *    API server's idle timeout would cut them. The owner channel and the
+ *    host come back by themselves, to the same host server.
  *
  * Skipped unless MANOR_E2E_RECIPE=1 — `pnpm test:unit` never runs it. Run
  * it through the harness, which builds the app, the host tarball and the
@@ -442,6 +445,35 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       }
     },
     STEP_TIMEOUT_MS,
+  );
+
+  it(
+    "8. reconnects by itself after its exec streams are cut, to the same host server",
+    async () => {
+      const client = await serverConnected();
+      const pid = serverPid(NAME);
+      expect(pid).not.toBeNull();
+      const seen: string[] = [];
+      const unsubscribe = client.onStateChange((state) => seen.push(state));
+      try {
+        // The brackets keep `sh -c`'s own command line from matching.
+        const killed = onBox(NAME, 'pkill -9 -f "[s]erver-bridge|[r]emote-bridge"', {
+          allowFailure: true,
+        });
+        expect(killed.code, "no bridge process to kill").toBe(0);
+        await pollFor("the owner channel dropping", () => (seen.some((s) => s !== "connected") ? true : null), STEP_MS, 200);
+        await pollFor("the owner channel back", () => (client.state === "connected" ? true : null), STEP_MS);
+        await pollFor("the host back", () => (registry.status(HOST_ID) === "connected" ? true : null), STEP_MS);
+      } finally {
+        unsubscribe();
+      }
+      // The supervised server never noticed: only the streams to it went.
+      expect(serverPid(NAME)).toBe(pid);
+      expect((await client.api.hostServer.status()).relay.roomId).toBe(roomId);
+      const paneId = await launchAgent(workspacePath);
+      await agentActive(paneId);
+    },
+    STEP_TIMEOUT_MS * 2,
   );
 
   it(

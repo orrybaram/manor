@@ -171,6 +171,25 @@ describe("CommandHostProvider", () => {
     await vi.waitFor(() => expect(gotB()).toBe("to b\n"));
   });
 
+  it("delivers the reply to a client that half-closes after sending", async () => {
+    const m = makeProvider();
+    tracked(m);
+    const forward = await m.provider.forwardPort(5173);
+    const a = await open(forward.localPort);
+    await vi.waitFor(() => expect(m.children).toHaveLength(1));
+    const child = m.children[0];
+    // The box replies only after it sees the request end.
+    child.stdin.removeAllListeners("data");
+    child.stdin.unpipe(child.stdout);
+    child.stdin.resume();
+    child.stdin.on("data", (c: Buffer) => (child.written += c.toString("utf-8")));
+    child.stdin.on("end", () => setTimeout(() => child.stdout.end("reply"), 20));
+    const got = collect(a);
+    a.end("request");
+    await vi.waitFor(() => expect(got()).toBe("reply"));
+    expect(child.written).toBe("request");
+  });
+
   it("asks port-pipe for ::1, and nothing past loopback", async () => {
     const m = makeProvider();
     tracked(m);

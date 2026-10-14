@@ -167,7 +167,9 @@ export class CommandHostProvider implements HostProvider {
     const snippet = remotePortPipeCommand(remotePort, remoteHost);
     const generation = this.generation;
     const forward: CommandForward = {
-      server: net.createServer((socket) => this.pipeConnection(forward, socket, snippet)),
+      server: net.createServer({ allowHalfOpen: true }, (socket) =>
+        this.pipeConnection(forward, socket, snippet),
+      ),
       children: new Set(),
       sockets: new Set(),
     };
@@ -223,8 +225,11 @@ export class CommandHostProvider implements HostProvider {
     // A failed connect on the box is one stderr line and an exit; the local
     // connection just closes.
     stderr?.resume();
-    stdin.on("error", () => {
-      // EPIPE once the child is gone; its `close` ends the socket.
+    stdin.on("error", (err: NodeJS.ErrnoException) => {
+      // EPIPE / write-after-end once the child is gone is expected: its
+      // `close` ends the socket. Anything else is a real failure.
+      if (childGone || err.code === "EPIPE" || err.code === "ERR_STREAM_WRITE_AFTER_END") return;
+      console.warn(`[command-provider] port-pipe stdin: ${err.message}`);
     });
     socket.on("error", () => {
       // A reset from the local client; `close` below kills the child.

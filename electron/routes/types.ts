@@ -18,21 +18,8 @@ import type { HostDeps, SharedDeps } from "../ipc/types";
  */
 export type { HostDeps };
 
-/**
- * What one request runs over: the shared `HostDeps`, plus the one fact that
- * belongs to the request rather than the host.
- */
-export interface RouteDeps extends HostDeps {
-  /**
-   * Set per request when it was relayed from a remote host's `manor` CLI
-   * (ADR-189 §2): the host it came from. Routes that infer "the caller's
-   * project" from a path use it to only consider that host's projects, since
-   * the same path can exist on this machine too. Unset for local callers —
-   * and on a host server, which answers its own box's CLI (ADR-227 D8): to
-   * the host, every caller is local.
-   */
-  callerHostId?: string;
-}
+/** What one request runs over: the shared `HostDeps`. */
+export type RouteDeps = HostDeps;
 
 /**
  * What a route every Manor server answers runs over (ADR-227 D8): the
@@ -40,9 +27,7 @@ export interface RouteDeps extends HostDeps {
  * server dispatches the same routes for its box's `manor` CLI
  * (`./server-routes.ts`). `RouteDeps` has all of it.
  */
-export interface ServerRouteDeps extends SharedDeps {
-  callerHostId?: string;
-}
+export type ServerRouteDeps = SharedDeps;
 
 /** One buffered `console-message` from a webview's `WebContents`. */
 export interface ConsoleEntry {

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HostIdleStop } from "../host-idle-stop";
 
+type Viewing = { desktop: boolean; device: boolean; forwarded: boolean };
+
 describe("HostIdleStop (ADR-229 D7)", () => {
   const MIN = 60_000;
   let stop: ReturnType<typeof vi.fn<(hostId: string) => Promise<void>>>;
@@ -9,11 +11,11 @@ describe("HostIdleStop (ADR-229 D7)", () => {
     providerBusy: boolean;
     sleeping: boolean;
     /** The box's view; `idleSince` is on the box's clock, `skewMs` ahead of ours. */
-    status: { busy?: boolean; idleSince?: number | null; desktopViewing?: boolean } | null;
+    status: { busy?: boolean; idleSince?: number | null; desktopViewing?: boolean; viewing?: Viewing } | null;
     skewMs: number;
   };
   /** What the server reports: how long it has been idle, measured on the box. */
-  function report(): { busy?: boolean; idleForMs?: number | null; desktopViewing?: boolean } | null {
+  function report(): { busy?: boolean; idleForMs?: number | null; desktopViewing?: boolean; viewing?: Viewing } | null {
     if (!state.status) return null;
     const { idleSince, ...rest } = state.status;
     if (idleSince === undefined) return rest;
@@ -52,6 +54,36 @@ describe("HostIdleStop (ADR-229 D7)", () => {
     await vi.advanceTimersByTimeAsync(10 * MIN - 1);
     expect(stop).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
+    expect(stop).toHaveBeenCalledWith("h");
+  });
+
+  it("waits while a phone is watching, and stops once nobody is (ADR-230 D1)", async () => {
+    const viewing = { desktop: false, device: true, forwarded: false };
+    state.status = { busy: false, idleSince: Date.now(), desktopViewing: false, viewing };
+    idle.idle("h", Date.now());
+    await vi.advanceTimersByTimeAsync(10 * MIN);
+    await vi.advanceTimersByTimeAsync(5 * MIN);
+    expect(stop).not.toHaveBeenCalled();
+    state.status = { busy: false, idleSince: 0, desktopViewing: false, viewing: { ...viewing, device: false } };
+    await vi.advanceTimersByTimeAsync(MIN);
+    expect(stop).toHaveBeenCalledWith("h");
+  });
+
+  it("waits while a forwarded viewer is watching (ADR-230 D1)", async () => {
+    const viewing = { desktop: false, device: false, forwarded: true };
+    state.status = { busy: false, idleSince: Date.now(), desktopViewing: false, viewing };
+    idle.idle("h", Date.now());
+    await vi.advanceTimersByTimeAsync(15 * MIN);
+    expect(stop).not.toHaveBeenCalled();
+    state.status = { busy: false, idleSince: 0, desktopViewing: false, viewing: { ...viewing, forwarded: false } };
+    await vi.advanceTimersByTimeAsync(MIN);
+    expect(stop).toHaveBeenCalledWith("h");
+  });
+
+  it("treats an older status with no viewing as desktopViewing alone", async () => {
+    state.status = { busy: false, idleSince: Date.now(), desktopViewing: false };
+    idle.idle("h", Date.now());
+    await vi.advanceTimersByTimeAsync(10 * MIN);
     expect(stop).toHaveBeenCalledWith("h");
   });
 

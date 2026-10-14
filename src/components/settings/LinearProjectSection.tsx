@@ -26,18 +26,22 @@ export function LinearProjectSection(props: LinearProjectSectionProps) {
   const selectedIds = new Set(project.linearAssociations.map((a) => a.teamId));
 
   useMountEffect(() => {
-    window.electronAPI.linear.isConnected().then(async (isConnected) => {
-      setConnected(isConnected);
-      if (isConnected) {
-        try {
-          const t = await window.electronAPI.linear.getTeams();
-          setTeams(t);
-        } catch {
-          // ignore
+    const refresh = () =>
+      window.electronAPI.linear.isConnected().then(async (isConnected) => {
+        setConnected(isConnected);
+        if (isConnected) {
+          try {
+            const t = await window.electronAPI.linear.getTeams();
+            setTeams(t);
+          } catch {
+            // ignore
+          }
         }
-      }
-      setLoading(false);
-    });
+        setLoading(false);
+      });
+    void refresh();
+    // The key was saved or cleared elsewhere (ADR-230 D8).
+    return window.electronAPI.linear.onConnectionChanged(() => void refresh());
   });
 
   const handleToggleTeam = (team: {

@@ -156,7 +156,7 @@ export interface ServerDeps {
   /**
    * Which host owns each terminal session (ADR-160 §6, ADR-191 §4) —
    * `backendRegistry.sessions`. `GET /context` falls back to it for a local
-   * caller with no `callerHostId`.
+   * caller.
    */
   sessionOwners: SessionOwners;
   /** A host's connection status, or undefined for one never registered. */
@@ -188,7 +188,7 @@ export interface ServerDeps {
  * The `ServerDeps` every server builds the same way, in `createManorServer`
  * (ADR-227 D1): what a host server has of them. A shared handler the host
  * table lists declares this rather than `ServerDeps`, which also names what
- * only the desktop composes (remote control, Jev, prewarm, the watchers).
+ * only the desktop composes (remote control, Jev, prewarm).
  */
 export type SharedDeps = Pick<
   ServerDeps,
@@ -200,6 +200,8 @@ export type SharedDeps = Pick<
   | "projectManager"
   | "themeManager"
   | "portScanner"
+  | "branchWatcher"
+  | "diffWatcher"
   | "githubManager"
   | "linearManager"
   | "agentHookServer"

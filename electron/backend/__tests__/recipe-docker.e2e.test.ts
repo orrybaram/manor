@@ -24,6 +24,12 @@
  * 8. A forced drop: the box's ends of the exec streams are killed, as an
  *    API server's idle timeout would cut them. The owner channel and the
  *    host come back by themselves, to the same host server.
+ * 9. A forced drop after the box moved (ADR-230 D2): the container is
+ *    renamed and `up` now returns the new name, so redialling the old exec
+ *    target fails. The reconnect re-runs `up` and finds it, with no
+ *    connect from outside.
+ * 10. A port forward carries half-close (ADR-230 D4): a client that shuts
+ *    its write side after its request still gets the reply.
  *
  * Skipped unless MANOR_E2E_RECIPE=1 — `pnpm test:unit` never runs it. Run
  * it through the harness, which builds the app, the host tarball and the
@@ -38,6 +44,7 @@
 import { spawnSync } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
+import * as net from "node:net";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -50,7 +57,7 @@ import { HostServerClient } from "../host-server-client";
 import { CommandHostProvider } from "../providers/command-provider";
 import { RecipeHostProvider } from "../providers/recipe-provider";
 import { createRecipeFromTemplate } from "../providers/recipe-templates";
-import { recipeDir } from "../providers/recipes";
+import { readRecipeHostState, recipeDir } from "../providers/recipes";
 import { BackendRegistry, type HostStatusInfo } from "../registry";
 import { ensureRemoteHost, hostTarballPath } from "../remote-bootstrap";
 import { runHostSupervisor } from "../host-supervisor";
@@ -98,6 +105,10 @@ const STEP_MS = 60_000;
 const suffix = crypto.randomBytes(3).toString("hex");
 const NAME = `manor-e2e-${suffix}`;
 const CLONE = `manor-e2e-${suffix}-clone`;
+/** Where scenario 9 moves the container to. */
+const MOVED = `manor-e2e-${suffix}-moved`;
+/** The file the patched `up` and `status` read a moved container's name from. */
+const MOVED_TO_FILE = "e2e-moved-to";
 const VOLUME = `manor-${NAME}-home`;
 const CLONE_VOLUME = `manor-${CLONE}-home`;
 const HOST_ID = `recipe-e2e-${suffix}`;
@@ -265,8 +276,24 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     const marker = '-e "MANOR_INSTANCE_ID=$name" \\\n';
     expect(script).toContain(marker);
     // A recipe is the user's to edit: this one keeps the box off the
-    // production relay.
-    fs.writeFileSync(up, script.replace(marker, `${marker}      -e MANOR_RELAY_URL=${CLOSED_RELAY_URL} \\\n`));
+    // production relay. And for scenario 9, which moves the container,
+    // once `e2e-moved-to` exists in the recipe's folder, `up` and `status`
+    // name the container it holds. The
+    // volume keeps its name, as a real move's disk would.
+    const volumeLine = 'volume="manor-$name-home"\n';
+    const moved = `if [ -s "$MANOR_RECIPE_DIR/${MOVED_TO_FILE}" ]; then name=$(cat "$MANOR_RECIPE_DIR/${MOVED_TO_FILE}"); fi\n`;
+    expect(script).toContain(volumeLine);
+    fs.writeFileSync(
+      up,
+      script
+        .replace(marker, () => `${marker}      -e MANOR_RELAY_URL=${CLOSED_RELAY_URL} \\\n`)
+        .replace(volumeLine, () => `${volumeLine}${moved}`),
+    );
+    const status = path.join(recipeDir(recipeId), "status.sh");
+    const statusScript = fs.readFileSync(status, "utf-8");
+    const nameLine = "name=${MANOR_DOCKER_NAME:?MANOR_DOCKER_NAME is not set}\n";
+    expect(statusScript).toContain(nameLine);
+    fs.writeFileSync(status, statusScript.replace(nameLine, () => `${nameLine}${moved}`));
 
     statuses = [];
     registry = new BackendRegistry({
@@ -304,7 +331,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     await registry?.disconnectAll();
     // For a look inside after a failure: `docker rm -f` and `docker volume rm` by hand.
     if (process.env.MANOR_E2E_RECIPE_KEEP === "1") return;
-    for (const name of [NAME, CLONE]) docker(["rm", "-f", name], { allowFailure: true });
+    for (const name of [NAME, CLONE, MOVED]) docker(["rm", "-f", name], { allowFailure: true });
     for (const volume of [VOLUME, CLONE_VOLUME]) docker(["volume", "rm", "-f", volume], { allowFailure: true });
   }, STEP_TIMEOUT_MS);
 
@@ -448,6 +475,61 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
   );
 
   it(
+    "10. carries a half-close through a port forward: the client that shut its write side gets the reply",
+    async () => {
+      // Replies only once it has read the whole request, that is on EOF.
+      docker([
+        "exec",
+        "-d",
+        "-u",
+        "manor",
+        NAME,
+        "node",
+        "-e",
+        "require('net').createServer({ allowHalfOpen: true }, (s) => { let d = ''; " +
+          "s.on('data', (c) => (d += c)); s.on('end', () => s.end('got:' + d)); })" +
+          ".listen(4568, '127.0.0.1')",
+      ]);
+      const forward = await provider().forwardPort(4568);
+      try {
+        /** One request: write, shut the write side, read to the end. */
+        const ask = () =>
+          new Promise<string>((resolve) => {
+            const socket = net.connect({ host: "127.0.0.1", port: forward.localPort, allowHalfOpen: true });
+            let reply = "";
+            const timer = setTimeout(() => {
+              socket.destroy();
+              resolve(reply);
+            }, 10_000);
+            socket.on("connect", () => socket.end("ping"));
+            socket.on("data", (chunk) => (reply += chunk.toString()));
+            socket.on("end", () => socket.end());
+            socket.on("close", () => {
+              clearTimeout(timer);
+              resolve(reply);
+            });
+            socket.on("error", () => {});
+          });
+        // Retried only until the server on the box listens: before ADR-230
+        // D4 every answer was empty, since the pipe tore down on the EOF.
+        const reply = await pollFor(
+          "the reply after a half-close",
+          async () => {
+            const got = await ask();
+            return got === "got:ping" ? got : null;
+          },
+          STEP_MS,
+          500,
+        );
+        expect(reply).toBe("got:ping");
+      } finally {
+        forward.dispose();
+      }
+    },
+    STEP_TIMEOUT_MS,
+  );
+
+  it(
     "8. reconnects by itself after its exec streams are cut, to the same host server",
     async () => {
       const client = await serverConnected();
@@ -474,6 +556,55 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       await agentActive(paneId);
     },
     STEP_TIMEOUT_MS * 2,
+  );
+
+  it(
+    "9. re-runs up while reconnecting after the box moved, and finds it at its new exec target",
+    async () => {
+      const client = await serverConnected();
+      const pid = serverPid(NAME);
+      expect(pid).not.toBeNull();
+      const movedTo = path.join(recipeDir(recipeId), MOVED_TO_FILE);
+      const seen: string[] = [];
+      const unsubscribe = client.onStateChange((state) => seen.push(state));
+      const mark = statuses.length;
+      try {
+        // The box moves: its old exec target (`docker exec … NAME`) is gone,
+        // and only a new `up` says where it went. The streams already open
+        // ride the container's id, so cut them as scenario 8 does.
+        fs.writeFileSync(movedTo, MOVED);
+        docker(["rename", NAME, MOVED]);
+        const killed = onBox(MOVED, 'pkill -9 -f "[s]erver-bridge|[r]emote-bridge"', { allowFailure: true });
+        expect(killed.code, "no bridge process to kill").toBe(0);
+
+        await pollFor(
+          "the host reconnecting",
+          () => (statuses.slice(mark).includes("reconnecting") ? true : null),
+          STEP_MS,
+          200,
+        );
+        // Nothing here connects: the reconnect loop's own `up` has to find it.
+        await pollFor("the host back", () => (registry.status(HOST_ID) === "connected" ? true : null), STEP_MS * 2);
+        await pollFor("the owner channel back", () => (client.state === "connected" ? true : null), STEP_MS);
+        expect(seen.some((s) => s !== "connected")).toBe(true);
+        expect(readRecipeHostState(recipeDir(recipeId), HOST_ID)?.resource).toEqual({ container: MOVED });
+        // The same host server, now reached under the new name.
+        expect(serverPid(MOVED)).toBe(pid);
+        expect((await client.api.hostServer.status()).relay.roomId).toBe(roomId);
+        const paneId = await launchAgent(workspacePath);
+        await agentActive(paneId);
+      } finally {
+        unsubscribe();
+        // Back where the later scenarios expect it, and bound to it again.
+        fs.rmSync(movedTo, { force: true });
+        if (containerState(MOVED) !== "missing") docker(["rename", MOVED, NAME]);
+        await registry.disconnect(HOST_ID);
+        await registry.ensureConnected(HOST_ID);
+      }
+      await serverConnected();
+      expect(serverPid(NAME)).toBe(pid);
+    },
+    STEP_TIMEOUT_MS * 4,
   );
 
   it(

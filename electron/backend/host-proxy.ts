@@ -66,6 +66,7 @@ import type { EventArgs } from "../bridge/events";
 import type { PaneAgentStatusUpdate } from "../../src/electron";
 import type { LayoutBroadcast, LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
+import type { WorkspaceLayout } from "../../src/lib/layout/workspace-layout";
 import { keyFor, toDesktop, toDesktopResult, toHostArgs } from "../bridge/host-rewrite";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 import {
@@ -144,6 +145,16 @@ export interface HostProxyOptions {
    * (ADR-228 D7). Read at use; none without it.
    */
   claimsFor?: (key: WorkspaceKey) => LayoutClaim[];
+  /**
+   * A workspace's layout is about to be published, moving from `before` to
+   * `after` (`null`: the workspace was removed). Lets the desktop drop claims
+   * on tabs that left, so the publish carries that (ADR-230 D9).
+   */
+  onLayoutMoved?: (
+    key: WorkspaceKey,
+    before: WorkspaceLayout | undefined,
+    after: WorkspaceLayout | null,
+  ) => void;
   /** How long a change waits before the cache file is written. */
   saveDelayMs?: number;
   log?: Pick<Console, "info" | "warn">;
@@ -593,6 +604,7 @@ export class HostProxy {
     for (const [bare, entry] of Object.entries(this.workspaces)) {
       const was = before[bare];
       if (was && was.version === entry.version) continue;
+      this.layoutMoved(bare, was?.layout, entry.layout);
       this.publishLayout({
         workspacePath: bare,
         version: entry.version,
@@ -603,6 +615,7 @@ export class HostProxy {
     }
     for (const [bare, was] of Object.entries(before)) {
       if (this.workspaces[bare]) continue;
+      this.layoutMoved(bare, was.layout, null);
       this.publishLayout({
         workspacePath: bare,
         version: was.version,
@@ -662,6 +675,7 @@ export class HostProxy {
     if (typeof bare !== "string") return;
     const live = this.workspaces[bare];
     if (payload.removed) {
+      this.layoutMoved(bare, live?.layout, null);
       delete this.workspaces[bare];
       if (this.layoutReads > 0) {
         this.removedDuringRead.set(
@@ -673,6 +687,7 @@ export class HostProxy {
     } else if (live) {
       // Claims move at the same version, so only an older one is stale.
       if (live.version > payload.version) return;
+      this.layoutMoved(bare, live.layout, payload.layout);
       this.workspaces[bare] = {
         ...live,
         version: payload.version,
@@ -698,6 +713,15 @@ export class HostProxy {
     const desktop = toDesktop(this.hostId, agent);
     if (this.opts.republishAgents) this.opts.bus.publish("agents", "updated", desktop, unseen);
     this.opts.onAgentUpdate?.(desktop, unseen, previous && toDesktop(this.hostId, previous));
+  }
+
+  private layoutMoved(
+    bare: string,
+    before: WorkspaceLayout | undefined,
+    after: WorkspaceLayout | null,
+  ): void {
+    const key = keyFor(this.hostId, bare);
+    if (key) this.opts.onLayoutMoved?.(key, before, after);
   }
 
   private publishLayout(payload: LayoutBroadcast): void {

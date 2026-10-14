@@ -477,7 +477,9 @@ the hook instead.
 
 **`idleStopMinutes`** is the desktop's version of the same thing. While this
 computer is awake, Manor stops a host whose server has been idle that long,
-as long as no window has one of its panes open. It never stops a busy host.
+as long as nobody has one of its terminals open: no desktop window, and no
+phone, whether paired with the host or going through the desktop. A phone
+with one of its agents' chats open counts too. It never stops a busy host.
 With the lid closed, only a hook (or a provider's own `autoSleep`) can. For a
 recipe with `idleStopMinutes` and neither, the Hosts page says "Stops after
 30 min idle only while This Mac is awake".

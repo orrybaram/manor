@@ -24,7 +24,7 @@ import { Row, Stack } from "../../ui/Layout/Layout";
 import { sanitizeBranchName } from "../../../utils/branch-name";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { useHostStore } from "../../../store/host-store";
-import { hostLabel } from "../../../lib/hosts";
+import { hostSentenceName } from "../../../bridge/server-set";
 import { transferTargets } from "../../../lib/transfer-targets";
 import {
   memberAfterClone,
@@ -286,7 +286,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
           defaultBranch,
           localBranches: localList,
           remoteBranches: remoteList,
-          hostName: hostLabel(activeProject.hostId, hosts),
+          hostName: hostSentenceName(activeProject.hostId, hosts),
         })
       : null;
   const branchMissingMessage =

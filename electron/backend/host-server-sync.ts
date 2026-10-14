@@ -21,6 +21,11 @@
  *   the device was revoked, or "Phones paired with this Mac can reach" turned
  *   off, while the host was away. Stored on the host's record, and revoked
  *   on the next connect, before the endpoints are read.
+ * - **Lost mints** (ADR-230 D11): a pairing the desktop asked the host for,
+ *   whose answer never came back — the owner channel dropped after the host
+ *   committed it. The mint's label is unique (a random suffix), so on the
+ *   next connect every device on the host under that label, made since the
+ *   mint started, and that no desktop link points to, is revoked.
  *
  * - **Supervision** (ADR-229 D4): a host whose record says `supervise`, and
  *   whose server reports no supervisor, gets `manor-host supervisor install`
@@ -105,6 +110,34 @@ export interface PendingRevokes {
   revoked?(hostId: string): void;
 }
 
+/**
+ * A pairing this desktop started minting on a host (ADR-230 D11):
+ * `PersistedHost.pendingMints`, until the answer is recorded.
+ */
+export interface PendingMint {
+  /** The label it was minted under; unique to this mint. */
+  label: string;
+  /** When the mint started, ms since the epoch on this desktop's clock. */
+  startedAt: number;
+}
+
+/** The mints whose answer may have been lost, by host (`HostPairingLinks.pendingMints`). */
+export interface PendingMints {
+  /** Those not still in flight. */
+  list(hostId: string): readonly PendingMint[];
+  /** The mints under `labels` were reconciled. */
+  clear(hostId: string, labels: readonly string[]): void;
+  /** The host's device ids a desktop link points to: never revoked here. */
+  linked(hostId: string): readonly string[];
+}
+
+/**
+ * How far behind this desktop's clock a host's may run and still have a
+ * device it made count as made since a mint started. The label alone is
+ * unique to the mint; the time only keeps the match tight.
+ */
+export const MINT_CLOCK_SKEW_MS = 10 * 60_000;
+
 /** Which hosts should be supervised, and how to install it on one (ADR-229 D4). */
 export interface HostSupervision {
   /** `PersistedHost.supervise`. */
@@ -124,6 +157,8 @@ export interface HostServerSyncOptions {
   adoption?: Pick<HostAdoption, "run">;
   /** Revokes owed to each host, sent on every connect (ADR-228 D9). */
   pendingRevokes?: PendingRevokes;
+  /** Mints whose answer was lost, reconciled on every connect (ADR-230 D11). */
+  pendingMints?: PendingMints;
   /** Installs supervision on connect where it is wanted and missing (ADR-229 D4). */
   supervision?: HostSupervision;
   log?: Pick<Console, "warn">;
@@ -134,6 +169,7 @@ export class HostServerSync {
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
   private readonly adoption: Pick<HostAdoption, "run"> | undefined;
   private readonly pending: PendingRevokes | undefined;
+  private readonly mints: PendingMints | undefined;
   private readonly supervision: HostSupervision | undefined;
   private readonly log: Pick<Console, "warn">;
   private unsubscribe: (() => void) | null = null;
@@ -148,6 +184,7 @@ export class HostServerSync {
     this.vapidKeys = opts.vapidKeys;
     this.adoption = opts.adoption;
     this.pending = opts.pendingRevokes;
+    this.mints = opts.pendingMints;
     this.supervision = opts.supervision;
     this.endpoints = new HostPushEndpoints({
       // The one status read per connect and pairing change: its room and
@@ -264,6 +301,55 @@ export class HostServerSync {
     pending.revoked?.(hostId);
   }
 
+  /**
+   * Revoke what each lost mint left on `hostId` (ADR-230 D11): every device
+   * under the mint's label, made at or after it started (on an older host
+   * that does not say when, the label alone), that no desktop link points
+   * to. A mint is let go of once all of its are revoked; one that could not
+   * be is tried again on the next connect.
+   */
+  async reconcileMints(hostId: string): Promise<void> {
+    const mints = this.mints;
+    const client = this.registry.hostServer(hostId);
+    if (!mints || client?.state !== "connected") return;
+    const owed = mints.list(hostId);
+    if (owed.length === 0) return;
+    let listed: ReadonlyArray<{ id: string; label: string; createdAt?: number }>;
+    try {
+      listed = await client.api.remoteControl.listDevices();
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: listing devices failed: ${errorMessage(err)}`);
+      return;
+    }
+    const linked = new Set(mints.linked(hostId));
+    const done: string[] = [];
+    let revoked = false;
+    for (const mint of owed) {
+      const left = listed.filter(
+        (d) =>
+          d.label === mint.label &&
+          !linked.has(d.id) &&
+          (typeof d.createdAt !== "number" ||
+            d.createdAt >= mint.startedAt - MINT_CLOCK_SKEW_MS),
+      );
+      let failed = false;
+      for (const device of left) {
+        try {
+          await client.api.remoteControl.revoke(device.id);
+          revoked = true;
+        } catch (err) {
+          failed = true;
+          this.log.warn(`[host-server-sync] ${hostId}: revoke failed: ${errorMessage(err)}`);
+        }
+      }
+      if (!failed) done.push(mint.label);
+    }
+    if (done.length > 0) mints.clear(hostId, done);
+    if (!revoked) return;
+    await this.endpoints.refresh(hostId);
+    this.pending?.revoked?.(hostId);
+  }
+
   dispose(): void {
     this.idleStop.dispose();
     this.unsubscribe?.();
@@ -277,6 +363,7 @@ export class HostServerSync {
     // read only after the key is in.
     await this.pushVapidKeys(hostId, client);
     await this.adopt(hostId, client);
+    await this.reconcileMints(hostId);
     await this.revokePending(hostId);
     await this.endpoints.refresh(hostId);
     await this.ensureSupervised(hostId, client);

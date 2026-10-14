@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { BridgeTransport } from "../../bridge/client";
+import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
+import { servers } from "../../bridge/server-set";
+import { base64urlEncode } from "../../lib/relay-crypto";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "../auto-join";
 import { useHostStore } from "../host-store";
 import { useToastStore } from "../toast-store";
@@ -20,6 +24,26 @@ const PROJECTS = [
   { id: "p4", name: "p4", hostId: "box" },
   { id: "p5", name: "p5", hostId: "box" },
 ];
+
+/** A phone whose home server is the relay room of a desktop called desk.local. */
+function onPhone(): () => void {
+  const map = new Map<string, string>();
+  const prior = (globalThis as { localStorage?: Storage }).localStorage;
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+  });
+  const room = "AbCdEfGhIjKlMnOpQr_-01";
+  upsertPairing({ roomId: room, serverKey: base64urlEncode(new Uint8Array(32)), token: "t" });
+  recordPairingHello(room, { hostName: "desk.local", hostServer: false });
+  const transport = { invoke: () => new Promise(() => {}), subscribe: () => () => {} };
+  servers.add(room, transport as unknown as BridgeTransport, { home: true, roomId: room });
+  return () => {
+    servers.remove(room);
+    vi.stubGlobal("localStorage", prior);
+  };
+}
 
 const reload = vi.fn(async () => {});
 const deps: AutoJoinDeps = { getProjects: () => PROJECTS, reload };
@@ -106,5 +130,18 @@ describe("startAutoJoin", () => {
     set("disconnected");
     set("connected");
     expect(api.autoJoin).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("on a phone", () => {
+  it("names the desktop instead of This machine", async () => {
+    const off = onPhone();
+    try {
+      api.autoJoin.mockResolvedValue([{ joinedId: "box-app", intoId: "local-app" }]);
+      await runAutoJoin(deps);
+      expect(toasts()[0].message).toBe("Joined manor on me@box with manor on desk.local");
+    } finally {
+      off();
+    }
   });
 });

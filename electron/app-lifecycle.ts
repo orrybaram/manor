@@ -5,8 +5,6 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { layoutFile, manorDataDir } from "./paths";
 import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
-import { BranchWatcher } from "./branch-watcher";
-import { DiffWatcher } from "./diff-watcher";
 import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
@@ -207,6 +205,10 @@ export function initApp(devTitle: string | null): void {
       // The tab a detached window holds; its reports are how that takes effect.
       claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
     },
+    // The diff watcher runs no git while the primary window is hidden or
+    // minimized and no paired browser watches (ADR-230 D6). Read at each
+    // start: `mainWindow` is nulled on close and set again on reopen.
+    diffWindow: () => mainWindow,
     remoteHosts: { remoteVersion: manorVersion() },
     playSound: playNotificationSound,
     appCommandResult,
@@ -286,15 +288,6 @@ export function initApp(devTitle: string | null): void {
       if (!hostId) return url;
       return remoteUrlResolver.resolve(url, hostId, NAVIGATE_HOST_WAIT_MS);
     };
-    const branchWatcher = new BranchWatcher(backendRegistry);
-    // Paused while the desktop window is hidden — unless a paired browser is
-    // subscribed to the diff events (read at scan time, once the bridge exists).
-    const diffWatcher = new DiffWatcher(
-      backendRegistry,
-      () =>
-        server.bridge.hasDeviceSubscriber("diffs", "changed") ||
-        server.bridge.hasDeviceSubscriber("diffs", "fingerprintsChange"),
-    );
     const jevClient = new JevClient({
       identityStore: async () => {
         await core.relayStores.identity.init();
@@ -303,13 +296,40 @@ export function initApp(devTitle: string | null): void {
     });
     const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
 
+    // One pairing covers every host (ADR-228 D9): what this desktop mints for
+    // its devices on each host's server, and the revokes that follow them.
+    // Built before the sync, which reconciles its lost mints on each connect
+    // (ADR-230 D11); it reaches the sync only once a link or revoke runs.
+    const hostLinks: HostPairingLinks = new HostPairingLinks({
+      devices: core.relayStores.devices,
+      hostServers: () => backendRegistry.hostServers(),
+      records: {
+        linkPhones: (hostId) => shared.projectManager.hostLinksPhones(hostId),
+        setLinkPhones: (hostId, on) => shared.projectManager.setHostLinksPhones(hostId, on),
+        addPendingRevokes: (hostId, ids) =>
+          shared.projectManager.addPendingHostRevokes(hostId, ids),
+        label: (hostId) => shared.projectManager.hostLabel(hostId),
+        pendingMints: (hostId) => shared.projectManager.pendingHostMints(hostId),
+        addPendingMint: (hostId, mint) => shared.projectManager.addPendingHostMint(hostId, mint),
+        clearPendingMints: (hostId, labels) =>
+          shared.projectManager.clearPendingHostMints(hostId, labels),
+        forgetOwed: (hostId) => shared.projectManager.forgetOwedOnHost(hostId),
+      },
+      revokePending: (hostId) => hostServerSync.revokePending(hostId),
+      pairingChanged: (hostId) => {
+        void hostServerSync.pairingChanged(hostId).then(() => {
+          publishRendererBroadcast("hosts", "pairingChanged", hostId);
+        });
+      },
+    });
+
     // ADR-225 D3: each remote host's host server signs pushes with the
     // desktop's VAPID pair, sent on every connect of the owner channel; the
     // sync also caches each host's push endpoints, which the controller below
     // reads so the desktop skips what the host server sends. The host server
     // owns its projects and layout (ADR-227 D2): neither is pushed, but what
     // the desktop held for a host is handed over once (D3).
-    const hostServerSync = new HostServerSync({
+    const hostServerSync: HostServerSync = new HostServerSync({
       registry: backendRegistry,
       // The desktop's own VAPID pair, so a phone's one browser subscription is
       // valid in every room (D3).
@@ -323,6 +343,8 @@ export function initApp(devTitle: string | null): void {
         clear: (hostId, ids) => shared.projectManager.clearPendingHostRevokes(hostId, ids),
         revoked: (hostId) => publishRendererBroadcast("hosts", "pairingChanged", hostId),
       },
+      // Pairings minted on a host whose answer was lost (ADR-230 D11).
+      pendingMints: hostLinks.pendingMints(),
       // "Keep Manor running when <host> restarts", installed on connect
       // where it is on and the host has none (ADR-229 D4).
       supervision: {
@@ -338,26 +360,6 @@ export function initApp(devTitle: string | null): void {
     // After the push store exists: starting syncs hosts that are already
     // connected.
     hostServerSync.start();
-
-    // One pairing covers every host (ADR-228 D9): what this desktop mints for
-    // its devices on each host's server, and the revokes that follow them.
-    const hostLinks = new HostPairingLinks({
-      devices: core.relayStores.devices,
-      hostServers: () => backendRegistry.hostServers(),
-      records: {
-        linkPhones: (hostId) => shared.projectManager.hostLinksPhones(hostId),
-        setLinkPhones: (hostId, on) => shared.projectManager.setHostLinksPhones(hostId, on),
-        addPendingRevokes: (hostId, ids) =>
-          shared.projectManager.addPendingHostRevokes(hostId, ids),
-        label: (hostId) => shared.projectManager.hostLabel(hostId),
-      },
-      revokePending: (hostId) => hostServerSync.revokePending(hostId),
-      pairingChanged: (hostId) => {
-        void hostServerSync.pairingChanged(hostId).then(() => {
-          publishRendererBroadcast("hosts", "pairingChanged", hostId);
-        });
-      },
-    });
     hostLinks.start();
 
     // ADR-161's remote control. Constructed here so the status sink and the
@@ -392,8 +394,6 @@ export function initApp(devTitle: string | null): void {
       remoteForwards,
       remoteUrlResolver,
       paneHosts,
-      branchWatcher,
-      diffWatcher,
       jevClient,
       webviewServer,
       // Pane inspection routes' access to WebviewServer's own pane registry

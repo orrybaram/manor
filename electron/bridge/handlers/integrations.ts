@@ -189,25 +189,20 @@ export function githubUploadFeedbackImages(
 // ── Linear ───────────────────────────────────────────────────────────────────
 
 /**
- * Store an API key and prove it works, or store nothing.
+ * Prove an API key works, then store it, or store nothing.
  *
- * The key is written before it is tested because testing it *is* using it —
- * `getViewer` reads the stored token — so the failure path has to undo the
- * write. That is the whole of the ceremony here, and it is why a half-typed
- * key never leaves a connected-looking Linear panel behind.
+ * The key is tested before it is saved (`getViewer` takes it directly), so a
+ * failed connect writes nothing and emits no `connectionChanged`, and a
+ * half-typed key never leaves a connected-looking Linear panel behind.
  */
 export async function linearConnect(
   ctx: HandlerCtx<LinearDeps>,
   apiKey: string,
 ): Promise<{ name: string; email: string }> {
   assertString(apiKey, "apiKey");
+  const viewer = await ctx.deps.linearManager.getViewer(apiKey);
   await ctx.deps.linearManager.saveToken(apiKey);
-  try {
-    return await ctx.deps.linearManager.getViewer();
-  } catch (err) {
-    ctx.deps.linearManager.clearToken();
-    throw err;
-  }
+  return viewer;
 }
 
 /** Forget the key. Carries no credential in either direction. */

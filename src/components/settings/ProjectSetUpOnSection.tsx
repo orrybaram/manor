@@ -3,7 +3,8 @@ import Cloud from "lucide-react/dist/esm/icons/cloud";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
-import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import { memberDisplayName } from "../../bridge/server-set";
+import { isRemoteHost } from "../../lib/hosts";
 import { Button } from "../ui/Button/Button";
 import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 import { Stack, Row } from "../ui/Layout/Layout";
@@ -45,7 +46,7 @@ export function ProjectSetUpOnSection(props: ProjectSetUpOnSectionProps) {
       <div className={styles.linkedMemberList}>
         {setUpOn.map((member) => {
           const HostIcon = isRemoteHost(member.hostId) ? Cloud : Laptop;
-          const hostName = memberHostName(member.hostId, hosts);
+          const hostName = memberDisplayName(member.hostId, hosts);
           return (
             <Row key={member.id} gap="md" align="center" className={styles.linkedMemberRow}>
               <HostIcon size={14} aria-hidden className={styles.linkedMemberIcon} />

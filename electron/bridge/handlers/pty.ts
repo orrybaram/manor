@@ -36,6 +36,7 @@ import {
   type SpawnPaneDeps,
 } from "../../server/spawn-pane";
 import type {
+  PtyAttachOptions,
   PtyAttachResult,
   PtyCreateOptions,
   PtyCreateResult,
@@ -181,6 +182,7 @@ export function ptyCreate(
       rows: r,
       hostId: requestedHost(opts),
       agentKind: opts?.agentKind,
+      ...(opts?.wake === false && { wake: false }),
     }),
   );
 }
@@ -199,12 +201,16 @@ export function ptyCreate(
 export async function ptyAttach(
   ctx: HandlerCtx<ServerDeps>,
   paneId: string,
+  opts?: PtyAttachOptions | null,
 ): Promise<PtyAttachResult> {
   assertString(paneId, "paneId");
   const { deps } = ctx;
   const { sessions } = deps.backendRegistry;
   try {
-    const snapshot = await deps.backend.pty.attachExisting(paneId);
+    // A restored pane's first attach leaves a sleeping host asleep (ADR-230 D3).
+    const snapshot = await (opts?.wake === false
+      ? deps.backend.pty.attachExisting(paneId, { wake: false })
+      : deps.backend.pty.attachExisting(paneId));
     if (!snapshot) {
       return {
         ok: false,

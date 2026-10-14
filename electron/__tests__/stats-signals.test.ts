@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 
 import {
+  countBusyAcross,
   countBusyAgents,
   createSignalTracker,
   deltasForHookEvent,
@@ -374,5 +375,20 @@ describe("deltasForHookEvent", () => {
         { counter: "toolCalls", n: 1 },
       ]);
     });
+  });
+});
+
+describe("countBusyAcross (ADR-230 D14)", () => {
+  const busy = { status: "active", lastAgentStatus: "working" };
+  const idle = { status: "active", lastAgentStatus: "idle" };
+
+  it("counts a busy remote agent alongside the local ones", () => {
+    const local = { getActiveAgents: () => [busy, idle] };
+    const remote = { agents: () => [busy, busy] };
+    expect(countBusyAcross(local, remote)).toBe(3);
+  });
+
+  it("counts only local agents when there is no routing", () => {
+    expect(countBusyAcross({ getActiveAgents: () => [busy] }, null)).toBe(1);
   });
 });

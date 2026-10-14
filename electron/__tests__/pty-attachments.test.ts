@@ -14,6 +14,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 
 import {
   FOREIGN_CONNECTION_ID,
+  PtyAttachments,
   attach,
   claim,
   isHeld,
@@ -517,5 +518,34 @@ describe("pty attachments", () => {
       release("pane-a", deviceB);
       expect(ownerOf("pane-a")).toEqual(deviceA);
     });
+  });
+});
+
+describe("a registry of its own (ADR-230 D10)", () => {
+  beforeEach(() => resetAttachments());
+
+  it("lists who holds a pane, oldest first", () => {
+    const own = new PtyAttachments();
+    own.attach("pane-a", deviceA);
+    own.attach("pane-a", windowA);
+    expect(own.viewersOf("pane-a")).toEqual([deviceA, windowA]);
+    own.release("pane-a", deviceA);
+    expect(own.viewersOf("pane-a")).toEqual([windowA]);
+    expect(own.viewersOf("pane-b")).toEqual([]);
+  });
+
+  it("is apart from the process's: its holders, claims and sinks are its own", () => {
+    const own = new PtyAttachments();
+    const heard: string[] = [];
+    own.onAttachmentChange((paneId) => heard.push(paneId));
+    attach("pane-a", windowA);
+    expect(heard).toEqual([]);
+    own.attach("pane-a", deviceA);
+    expect(heard).toEqual(["pane-a"]);
+    expect(ownerOf("pane-a")).toEqual(windowA);
+    expect(own.ownerOf("pane-a")).toEqual(deviceA);
+    own.releaseViewer(deviceA.connectionId);
+    expect(own.isHeld("pane-a")).toBe(false);
+    expect(isHeld("pane-a")).toBe(true);
   });
 });

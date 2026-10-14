@@ -54,6 +54,12 @@
  * question every caller asks — who owns this pane's winsize — has one answer.
  * It moves into the daemon when a host can exist with no Electron main to ask
  * (ADR-178 D5).
+ *
+ * The rules live on `PtyAttachments`, and the module-level functions below
+ * are the process's one instance of it (`processAttachments`). Main also
+ * arbitrates among the callers it forwards to a host server (`HostRouting`,
+ * ADR-230 D10) in that same instance; a test that runs a host server and main
+ * in one process gives main's routing an instance of its own.
  */
 
 import type { CallerClass, ViewerKind } from "./bridge/types";
@@ -127,51 +133,18 @@ const FOREIGN_VIEWER: Viewer = Object.freeze({
 });
 
 /**
- * `paneId` → the viewers holding it, oldest first.
- *
- * An array rather than a `Set` because ownership among equals is about
- * *order* — "the most recently attached" — which a `Set`'s iteration order
- * happens to preserve today but was never the contract. Keyed by viewer, as
- * slice 1's map was, for the same reason: a connection that dies has to
- * release exactly what it held, and a pane open in two places is still owned
- * after one of them lets go.
- */
-const holders = new Map<string, Viewer[]>();
-
-/** `paneId` → the connection that explicitly claimed its winsize. */
-const claims = new Map<string, string>();
-
-/** Panes a client this registry cannot see holds (`setForeign`). */
-const foreign = new Set<string>();
-
-/**
  * A sink told which panes just got a new answer to `ownerOf`.
  *
- * `bridge/server.ts` is the one subscriber that exists today: it looks up
- * each changed pane's current grid and tells every connection watching it
- * `owner: boolean`, so a follower whose owner disappeared — or a follower who
- * just became the owner — hears about it without having to ask again. This
+ * `bridge/server.ts` subscribes: it looks up each changed pane's current
+ * grid and tells every connection watching it `owner: boolean`, so a follower
+ * whose owner disappeared — or a follower who just became the owner — hears
+ * about it without having to ask again. `HostRouting` does the same for a
+ * pane on a host server (ADR-230 D10), with the host's last grid. This
  * module stays Electron-free and ignorant of transports, the same reason
  * `renderer-broadcast.ts` is a leaf: the registry only knows *that* ownership
  * moved, never who is listening.
  */
 type ChangeSink = (paneId: string) => void;
-
-const changeSinks = new Set<ChangeSink>();
-
-/** Register a sink. Returns the unsubscribe. */
-export function onAttachmentChange(sink: ChangeSink): () => void {
-  changeSinks.add(sink);
-  return () => {
-    changeSinks.delete(sink);
-  };
-}
-
-function notifyChanged(changed: readonly string[]): void {
-  for (const paneId of changed) {
-    for (const sink of changeSinks) sink(paneId);
-  }
-}
 
 function sameViewer(a: Viewer, b: Viewer): boolean {
   return a.connectionId === b.connectionId;
@@ -180,24 +153,6 @@ function sameViewer(a: Viewer, b: Viewer): boolean {
 /** A stable string to compare "did the owner change" against. */
 function ownerFingerprint(viewer: Viewer | null): string {
   return viewer ? `${viewer.callerClass}:${viewer.connectionId}` : "";
-}
-
-/**
- * Who owns this pane's winsize: the foreign viewer while it is held
- * elsewhere; null when nobody here has it open; the claimant; else the most
- * recently attached viewer of the highest rank.
- *
- * Not "does anyone here hold it" — a held-elsewhere pane has an owner either
- * way. That is `isHeld`.
- */
-export function ownerOf(paneId: string): Viewer | null {
-  if (foreign.has(paneId)) return FOREIGN_VIEWER;
-  const viewers = holders.get(paneId);
-  if (!viewers || viewers.length === 0) return null;
-  const claimant = claims.get(paneId);
-  const claimed = claimant && viewers.find((v) => v.connectionId === claimant);
-  if (claimed) return claimed;
-  return highestRanked(viewers);
 }
 
 function highestRanked(viewers: readonly Viewer[]): Viewer | null {
@@ -212,182 +167,304 @@ function highestRanked(viewers: readonly Viewer[]): Viewer | null {
   return best;
 }
 
-/** Whether any viewer here has this pane open, whoever owns its winsize. */
+/** One registry of who holds which pane, and who owns its winsize. */
+export class PtyAttachments {
+  /**
+   * `paneId` → the viewers holding it, oldest first.
+   *
+   * An array rather than a `Set` because ownership among equals is about
+   * *order* — "the most recently attached" — which a `Set`'s iteration order
+   * happens to preserve today but was never the contract. Keyed by viewer, as
+   * slice 1's map was, for the same reason: a connection that dies has to
+   * release exactly what it held, and a pane open in two places is still owned
+   * after one of them lets go.
+   */
+  private readonly holders = new Map<string, Viewer[]>();
+
+  /** `paneId` → the connection that explicitly claimed its winsize. */
+  private readonly claims = new Map<string, string>();
+
+  /** Panes a client this registry cannot see holds (`setForeign`). */
+  private readonly foreign = new Set<string>();
+
+  private readonly changeSinks = new Set<ChangeSink>();
+
+  /** Register a sink. Returns the unsubscribe. */
+  onAttachmentChange(sink: ChangeSink): () => void {
+    this.changeSinks.add(sink);
+    return () => {
+      this.changeSinks.delete(sink);
+    };
+  }
+
+  private notifyChanged(changed: readonly string[]): void {
+    for (const paneId of changed) {
+      for (const sink of this.changeSinks) sink(paneId);
+    }
+  }
+
+  /**
+   * Who owns this pane's winsize: the foreign viewer while it is held
+   * elsewhere; null when nobody here has it open; the claimant; else the most
+   * recently attached viewer of the highest rank.
+   *
+   * Not "does anyone here hold it" — a held-elsewhere pane has an owner either
+   * way. That is `isHeld`.
+   */
+  ownerOf(paneId: string): Viewer | null {
+    if (this.foreign.has(paneId)) return FOREIGN_VIEWER;
+    const viewers = this.holders.get(paneId);
+    if (!viewers || viewers.length === 0) return null;
+    const claimant = this.claims.get(paneId);
+    const claimed = claimant && viewers.find((v) => v.connectionId === claimant);
+    if (claimed) return claimed;
+    return highestRanked(viewers);
+  }
+
+  /** Whether any viewer here has this pane open, whoever owns its winsize. */
+  isHeld(paneId: string): boolean {
+    return (this.holders.get(paneId)?.length ?? 0) > 0;
+  }
+
+  /** The viewers holding this pane, oldest first. */
+  viewersOf(paneId: string): readonly Viewer[] {
+    return [...(this.holders.get(paneId) ?? [])];
+  }
+
+  /**
+   * Would this viewer own the pane's winsize if it attached right now?
+   *
+   * What a create-shaped call has to know *before* it runs (`createShaped` in
+   * `bridge/handlers/pty.ts`): the caller's `cols×rows` is a request, and it may
+   * only be granted to the viewer that is about to own the pane — everyone else
+   * is handed the owner's grid to render instead.
+   *
+   * The one case that is not "read the rules off `ownerOf`" is a viewer that
+   * already holds the pane. Its attach moves nothing (see `attach`), so a
+   * follower re-creating a pane it never let go of — a remount, a workspace
+   * switched away from and back — is still a follower. Answering otherwise
+   * would let a remount resize the owner's session, which is the whole of
+   * ADR-163/164/165 arriving through a door marked "reattach".
+   */
+  wouldOwn(paneId: string, viewer: Viewer): boolean {
+    // Held elsewhere: nobody's arrival outranks a viewer this side cannot see.
+    if (this.foreign.has(paneId)) return false;
+    const owner = this.ownerOf(paneId);
+    if (!owner) return true;
+    if (owner.connectionId === viewer.connectionId) return true;
+    const viewers = this.holders.get(paneId) ?? [];
+    if (viewers.some((v) => v.connectionId === viewer.connectionId)) return false;
+    // A new arrival: a higher rank outranks, and among equals the most recent
+    // attach — this one — wins.
+    return rankOf(viewer) >= rankOf(owner);
+  }
+
+  /**
+   * Run `fn`, which changes who holds or claims this pane, and tell the sinks
+   * if that gave it a different owner.
+   */
+  private changingOwner(paneId: string, fn: () => void): void {
+    const before = ownerFingerprint(this.ownerOf(paneId));
+    fn();
+    const after = ownerFingerprint(this.ownerOf(paneId));
+    if (before !== after) this.notifyChanged([paneId]);
+  }
+
+  /**
+   * A viewer has this pane mounted.
+   *
+   * A viewer already holding the pane stays where it is in the order rather
+   * than moving to the end: a renderer that re-creates a pane it never let go
+   * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
+   * taking the winsize back off whoever holds it would make a remount a resize.
+   *
+   * `as: "returning"` is a viewer that had this pane mounted coming back — its
+   * connection dropped and it re-attached (`pty.attach`, ADR-220) — and making
+   * no bid for the winsize. It goes in as the *oldest* viewer rather than the
+   * newest, and a standing claim stays standing: whoever attached while it was
+   * away keeps the grid they have been fitting to, rather than having it
+   * reflowed under them by a viewer that merely came back. Rule 1 still holds,
+   * so a desk window coming back outranks a device, as it would have before it
+   * left. A viewer alone on the pane owns it, as any viewer alone does.
+   */
+  attach(
+    paneId: string,
+    viewer: Viewer,
+    { as = "newest" }: { as?: "newest" | "returning" } = {},
+  ): void {
+    this.changingOwner(paneId, () => {
+      const viewers = this.holders.get(paneId);
+      if (!viewers) {
+        this.holders.set(paneId, [viewer]);
+        return;
+      }
+      if (viewers.some((existing) => sameViewer(existing, viewer))) return;
+      if (as === "returning") {
+        viewers.unshift(viewer);
+        return;
+      }
+      viewers.push(viewer);
+      // A new arrival is decided by the default rules, as `wouldOwn` told it.
+      this.claims.delete(paneId);
+    });
+  }
+
+  /**
+   * A viewer let this pane go. A caller is only ever done with its own view;
+   * a caller that vanished is `releaseViewer`.
+   */
+  release(paneId: string, viewer: Viewer): void {
+    this.changingOwner(paneId, () => {
+      const viewers = this.holders.get(paneId);
+      if (!viewers) return;
+      const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
+      if (idx === -1) return;
+      viewers.splice(idx, 1);
+      if (viewers.length === 0) this.holders.delete(paneId);
+      if (this.claims.get(paneId) === viewer.connectionId) this.claims.delete(paneId);
+    });
+  }
+
+  /**
+   * A viewer that holds this pane takes its winsize. Returns whether it took
+   * it: a viewer that does not hold the pane cannot, and nobody can while it is
+   * held elsewhere.
+   */
+  claim(paneId: string, viewer: Viewer): boolean {
+    if (this.foreign.has(paneId)) return false;
+    const viewers = this.holders.get(paneId);
+    if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
+    this.changingOwner(paneId, () => {
+      this.claims.set(paneId, viewer.connectionId);
+    });
+    return true;
+  }
+
+  /**
+   * Someone typed into this pane. A keystroke at the desk ends another
+   * viewer's claim, handing the winsize back to the default rules — which for
+   * a desk window holding the pane means the desk.
+   */
+  reclaimOnInput(paneId: string, viewer: Viewer): void {
+    if (!isDesk(viewer)) return;
+    const claimant = this.claims.get(paneId);
+    if (!claimant || claimant === viewer.connectionId) return;
+    this.changingOwner(paneId, () => {
+      this.claims.delete(paneId);
+    });
+  }
+
+  /**
+   * A client this registry cannot see holds the pane (`on`), or let it go.
+   *
+   * Set by a host server from the daemon's attach count (ADR-225 D5,
+   * `host-server/winsize.ts`). The hold outlives the viewers here — it is about
+   * the session, not about who on this side has it open — and is cleared by
+   * whoever set it. A flip that changes `ownerOf` is told to the change sinks
+   * like any other, so every connection watching hears `owner: false` (or its
+   * own answer again).
+   */
+  setForeign(paneId: string, on: boolean): void {
+    if (this.foreign.has(paneId) === on) return;
+    const before = ownerFingerprint(this.ownerOf(paneId));
+    if (on) this.foreign.add(paneId);
+    else this.foreign.delete(paneId);
+    const after = ownerFingerprint(this.ownerOf(paneId));
+    if (before !== after) this.notifyChanged([paneId]);
+  }
+
+  /**
+   * A connection is gone — a window closed, a socket dropped: drop every pane
+   * it was holding.
+   *
+   * One function for both, and no `kind` argument, which is ADR-180 D6's point:
+   * a dead renderer window and a dead socket are the same event now, and the
+   * old two-kinded version had a hole in exactly this shape — the bridge server
+   * called it with `"bridge"` for every dropped connection, which released
+   * nothing at all the moment a desktop window's panes started being held under
+   * its connection id.
+   */
+  releaseViewer(connectionId: string): void {
+    const changed: string[] = [];
+    for (const [paneId, viewers] of this.holders) {
+      const idx = viewers.findIndex((v) => v.connectionId === connectionId);
+      if (idx === -1) continue;
+      const before = ownerFingerprint(this.ownerOf(paneId));
+      viewers.splice(idx, 1);
+      if (viewers.length === 0) this.holders.delete(paneId);
+      if (this.claims.get(paneId) === connectionId) this.claims.delete(paneId);
+      const after = ownerFingerprint(this.ownerOf(paneId));
+      if (before !== after) changed.push(paneId);
+    }
+    this.notifyChanged(changed);
+  }
+
+  /** Forget everything. Tests only — a real main process never wants this. */
+  reset(): void {
+    this.holders.clear();
+    this.claims.clear();
+    this.foreign.clear();
+  }
+}
+
+/** The process's registry: the one every function below reads and writes. */
+export const processAttachments = new PtyAttachments();
+
+/** Register a sink on the process's registry. Returns the unsubscribe. */
+export function onAttachmentChange(sink: ChangeSink): () => void {
+  return processAttachments.onAttachmentChange(sink);
+}
+
+/** `PtyAttachments.ownerOf`, on the process's registry. */
+export function ownerOf(paneId: string): Viewer | null {
+  return processAttachments.ownerOf(paneId);
+}
+
+/** `PtyAttachments.isHeld`, on the process's registry. */
 export function isHeld(paneId: string): boolean {
-  return (holders.get(paneId)?.length ?? 0) > 0;
+  return processAttachments.isHeld(paneId);
 }
 
-/**
- * Would this viewer own the pane's winsize if it attached right now?
- *
- * What a create-shaped call has to know *before* it runs (`createShaped` in
- * `bridge/handlers/pty.ts`): the caller's `cols×rows` is a request, and it may
- * only be granted to the viewer that is about to own the pane — everyone else
- * is handed the owner's grid to render instead.
- *
- * The one case that is not "read the rules off `ownerOf`" is a viewer that
- * already holds the pane. Its attach moves nothing (see `attach`), so a
- * follower re-creating a pane it never let go of — a remount, a workspace
- * switched away from and back — is still a follower. Answering otherwise
- * would let a remount resize the owner's session, which is the whole of
- * ADR-163/164/165 arriving through a door marked "reattach".
- */
+/** `PtyAttachments.wouldOwn`, on the process's registry. */
 export function wouldOwn(paneId: string, viewer: Viewer): boolean {
-  // Held elsewhere: nobody's arrival outranks a viewer this side cannot see.
-  if (foreign.has(paneId)) return false;
-  const owner = ownerOf(paneId);
-  if (!owner) return true;
-  if (owner.connectionId === viewer.connectionId) return true;
-  const viewers = holders.get(paneId) ?? [];
-  if (viewers.some((v) => v.connectionId === viewer.connectionId)) return false;
-  // A new arrival: a higher rank outranks, and among equals the most recent
-  // attach — this one — wins.
-  return rankOf(viewer) >= rankOf(owner);
+  return processAttachments.wouldOwn(paneId, viewer);
 }
 
-/**
- * Run `fn`, which changes who holds or claims this pane, and tell the sinks
- * if that gave it a different owner.
- */
-function changingOwner(paneId: string, fn: () => void): void {
-  const before = ownerFingerprint(ownerOf(paneId));
-  fn();
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
-}
-
-/**
- * A viewer has this pane mounted.
- *
- * A viewer already holding the pane stays where it is in the order rather
- * than moving to the end: a renderer that re-creates a pane it never let go
- * of (a remount, a StrictMode double-mount) is not a new viewer arriving, and
- * taking the winsize back off whoever holds it would make a remount a resize.
- *
- * `as: "returning"` is a viewer that had this pane mounted coming back — its
- * connection dropped and it re-attached (`pty.attach`, ADR-220) — and making
- * no bid for the winsize. It goes in as the *oldest* viewer rather than the
- * newest, and a standing claim stays standing: whoever attached while it was
- * away keeps the grid they have been fitting to, rather than having it
- * reflowed under them by a viewer that merely came back. Rule 1 still holds,
- * so a desk window coming back outranks a device, as it would have before it
- * left. A viewer alone on the pane owns it, as any viewer alone does.
- */
+/** `PtyAttachments.attach`, on the process's registry. */
 export function attach(
   paneId: string,
   viewer: Viewer,
-  { as = "newest" }: { as?: "newest" | "returning" } = {},
+  opts: { as?: "newest" | "returning" } = {},
 ): void {
-  changingOwner(paneId, () => {
-    const viewers = holders.get(paneId);
-    if (!viewers) {
-      holders.set(paneId, [viewer]);
-      return;
-    }
-    if (viewers.some((existing) => sameViewer(existing, viewer))) return;
-    if (as === "returning") {
-      viewers.unshift(viewer);
-      return;
-    }
-    viewers.push(viewer);
-    // A new arrival is decided by the default rules, as `wouldOwn` told it.
-    claims.delete(paneId);
-  });
+  processAttachments.attach(paneId, viewer, opts);
 }
 
-/**
- * A viewer let this pane go. A caller is only ever done with its own view;
- * a caller that vanished is `releaseViewer`.
- */
+/** `PtyAttachments.release`, on the process's registry. */
 export function release(paneId: string, viewer: Viewer): void {
-  changingOwner(paneId, () => {
-    const viewers = holders.get(paneId);
-    if (!viewers) return;
-    const idx = viewers.findIndex((existing) => sameViewer(existing, viewer));
-    if (idx === -1) return;
-    viewers.splice(idx, 1);
-    if (viewers.length === 0) holders.delete(paneId);
-    if (claims.get(paneId) === viewer.connectionId) claims.delete(paneId);
-  });
+  processAttachments.release(paneId, viewer);
 }
 
-/**
- * A viewer that holds this pane takes its winsize. Returns whether it took
- * it: a viewer that does not hold the pane cannot, and nobody can while it is
- * held elsewhere.
- */
+/** `PtyAttachments.claim`, on the process's registry. */
 export function claim(paneId: string, viewer: Viewer): boolean {
-  if (foreign.has(paneId)) return false;
-  const viewers = holders.get(paneId);
-  if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
-  changingOwner(paneId, () => {
-    claims.set(paneId, viewer.connectionId);
-  });
-  return true;
+  return processAttachments.claim(paneId, viewer);
 }
 
-/**
- * Someone typed into this pane. A keystroke at the desk ends another
- * viewer's claim, handing the winsize back to the default rules — which for
- * a desk window holding the pane means the desk.
- */
+/** `PtyAttachments.reclaimOnInput`, on the process's registry. */
 export function reclaimOnInput(paneId: string, viewer: Viewer): void {
-  if (!isDesk(viewer)) return;
-  const claimant = claims.get(paneId);
-  if (!claimant || claimant === viewer.connectionId) return;
-  changingOwner(paneId, () => {
-    claims.delete(paneId);
-  });
+  processAttachments.reclaimOnInput(paneId, viewer);
 }
 
-/**
- * A client this registry cannot see holds the pane (`on`), or let it go.
- *
- * Set by a host server from the daemon's attach count (ADR-225 D5,
- * `host-server/winsize.ts`). The hold outlives the viewers here — it is about
- * the session, not about who on this side has it open — and is cleared by
- * whoever set it. A flip that changes `ownerOf` is told to the change sinks
- * like any other, so every connection watching hears `owner: false` (or its
- * own answer again).
- */
+/** `PtyAttachments.setForeign`, on the process's registry. */
 export function setForeign(paneId: string, on: boolean): void {
-  if (foreign.has(paneId) === on) return;
-  const before = ownerFingerprint(ownerOf(paneId));
-  if (on) foreign.add(paneId);
-  else foreign.delete(paneId);
-  const after = ownerFingerprint(ownerOf(paneId));
-  if (before !== after) notifyChanged([paneId]);
+  processAttachments.setForeign(paneId, on);
 }
 
-/**
- * A connection is gone — a window closed, a socket dropped: drop every pane
- * it was holding.
- *
- * One function for both, and no `kind` argument, which is ADR-180 D6's point:
- * a dead renderer window and a dead socket are the same event now, and the
- * old two-kinded version had a hole in exactly this shape — the bridge server
- * called it with `"bridge"` for every dropped connection, which released
- * nothing at all the moment a desktop window's panes started being held under
- * its connection id.
- */
+/** `PtyAttachments.releaseViewer`, on the process's registry. */
 export function releaseViewer(connectionId: string): void {
-  const changed: string[] = [];
-  for (const [paneId, viewers] of holders) {
-    const idx = viewers.findIndex((v) => v.connectionId === connectionId);
-    if (idx === -1) continue;
-    const before = ownerFingerprint(ownerOf(paneId));
-    viewers.splice(idx, 1);
-    if (viewers.length === 0) holders.delete(paneId);
-    if (claims.get(paneId) === connectionId) claims.delete(paneId);
-    const after = ownerFingerprint(ownerOf(paneId));
-    if (before !== after) changed.push(paneId);
-  }
-  notifyChanged(changed);
+  processAttachments.releaseViewer(connectionId);
 }
 
 /** Forget everything. Tests only — a real main process never wants this. */
 export function resetAttachments(): void {
-  holders.clear();
-  claims.clear();
-  foreign.clear();
+  processAttachments.reset();
 }

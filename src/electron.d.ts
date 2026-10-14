@@ -360,10 +360,21 @@ export interface PtyCreateOptions {
    * both hosts have). An existing session stays where it runs.
    */
   hostId?: HostId;
+  /**
+   * False when the call is not one the user meant (ADR-230 D3): a pane
+   * restored from the persisted layout at launch, on its first mount. A
+   * sleeping host is then left asleep and the call answers
+   * `host-unavailable`, so the pane waits behind the host's asleep banner.
+   * Omitted, a call for a sleeping host wakes it (ADR-229 D1).
+   */
+  wake?: boolean;
 }
 
 /** Options for `pty.reset`: the host its fresh session runs on (see `PtyCreateOptions`). */
 export type PtyResetOptions = Pick<PtyCreateOptions, "hostId">;
+
+/** Options for `pty.attach`: whether it may wake a sleeping host (see `PtyCreateOptions`). */
+export type PtyAttachOptions = Pick<PtyCreateOptions, "wake">;
 
 /**
  * The winsize half of a create-shaped PTY reply (`pty.create`, `pty.reset`).

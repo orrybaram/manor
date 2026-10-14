@@ -11,6 +11,7 @@
  * | daemonTransport | local socket, may restart it    | namespace `remote`, never restarts it |
  * | notifier        | dock badge and native banners   | absent: `HeadlessNotifier` |
  * | windows         | primary window, detached claims | absent                   |
+ * | diffWindow      | primary window                  | absent: never paused     |
  * | remoteHosts     | SSH hosts from `projects.json`  | absent: a host has no hosts of its own |
  *
  * Type-only: nothing here runs, so it imports no Electron either.
@@ -18,6 +19,7 @@
 
 import type { AppCommandResult } from "../renderer-bridge";
 import type { WindowDirectory } from "../layout/layout-store";
+import type { DiffGateWindow } from "../diff-watcher";
 import type { NotificationStore } from "../notification-store";
 import type { ServerNotifier } from "../notifications";
 import type { SecretBox } from "../platform/secret-box";
@@ -72,6 +74,11 @@ export interface Platform {
   notifier?: (parts: NotifierParts) => ServerNotifier;
   /** Which renderer is the primary window, and the tab each detached one holds. */
   windows?: WindowDirectory;
+  /**
+   * The window whose being hidden pauses the diff watcher: the primary, read
+   * on each start. Absent: nothing pauses it (ADR-230 D6).
+   */
+  diffWindow?: () => DiffGateWindow | null;
   /**
    * The remote hosts this server reaches (ADR-160): registered from
    * `projects.json`, each with its hook cursor there. Absent on a host server,

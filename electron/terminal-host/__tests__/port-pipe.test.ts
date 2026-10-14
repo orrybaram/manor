@@ -80,8 +80,10 @@ describe("runPortPipe", () => {
     servers.push(server);
     const port = (server.address() as net.AddressInfo).port;
     const stdio = io();
-    expect(await runPortPipe({ port, host: "127.0.0.1" }, stdio)).toBe(0);
-    expect(stdio.out()).toBe("bye\n");
+    const done = runPortPipe({ port, host: "127.0.0.1" }, stdio);
+    await expect.poll(() => stdio.out()).toBe("bye\n");
+    stdio.stdin.end();
+    expect(await done).toBe(0);
   });
 
   it("reaches a server listening only on ::1", async () => {
@@ -106,5 +108,56 @@ describe("runPortPipe", () => {
     const stdio = io();
     await expect(runPortPipe({ port, host: "127.0.0.1" }, stdio)).rejects.toThrow(/ECONNREFUSED/);
     expect(stdio.out()).toBe("");
+  });
+
+  it("still delivers the reply to a client that ends its input first", async () => {
+    const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+      let got = "";
+      socket.on("data", (c: Buffer) => (got += c.toString("utf-8")));
+      socket.on("end", () => setTimeout(() => socket.end(`reply:${got}`), 20));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    servers.push(server);
+    const port = (server.address() as net.AddressInfo).port;
+    const stdio = io();
+    const done = runPortPipe({ port, host: "127.0.0.1" }, stdio);
+    stdio.stdin.end("request");
+    expect(await done).toBe(0);
+    expect(stdio.out()).toBe("reply:request");
+  });
+
+  it("still delivers stdin data after the server has ended its side", async () => {
+    let received = "";
+    const server = net.createServer({ allowHalfOpen: true }, (socket) => {
+      socket.on("data", (c: Buffer) => (received += c.toString("utf-8")));
+      socket.on("end", () => socket.end());
+      socket.end("early\n");
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    servers.push(server);
+    const port = (server.address() as net.AddressInfo).port;
+    const stdio = io();
+    const done = runPortPipe({ port, host: "127.0.0.1" }, stdio);
+    await expect.poll(() => stdio.out()).toBe("early\n");
+    stdio.stdin.write("late");
+    await expect.poll(() => received).toBe("late");
+    stdio.stdin.end();
+    expect(await done).toBe(0);
+  });
+
+  it("gives up after the linger when the other direction never ends", async () => {
+    const server = net.createServer({ allowHalfOpen: true }, () => {
+      // Never replies and never ends.
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    servers.push(server);
+    const port = (server.address() as net.AddressInfo).port;
+    const stdio = io();
+    const started = Date.now();
+    const done = runPortPipe({ port, host: "127.0.0.1" }, stdio, { lingerMs: 50 });
+    stdio.stdin.end();
+    expect(await done).toBe(0);
+    // It waited out the linger rather than closing the moment stdin ended.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(40);
   });
 });

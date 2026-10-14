@@ -24,6 +24,7 @@ import {
   findPanelWithPane,
   findPanelWithTab,
   layoutLeaves,
+  layoutPaneIds,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
@@ -199,6 +200,23 @@ export interface AppState {
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
+  /**
+   * The panes of the workspace this window shows at launch, as the layout
+   * read at launch has them, whose first `pty.create` has not settled yet
+   * (ADR-230 D3). That create is not one the user meant, so it leaves a
+   * sleeping host asleep (`wake: false`). `forgetRestoredPane` drops a pane
+   * once it has, so every later create wakes as usual. A workspace the user
+   * opens later is intent, so its panes are never here.
+   */
+  restoredPaneIds: ReadonlySet<string>;
+  /**
+   * The launch has picked the workspace this window shows (the active one):
+   * its panes of the layout read at launch become `restoredPaneIds`. Once
+   * per launch; any later call does nothing.
+   */
+  seedRestoredPanes: () => void;
+  /** `paneId`'s first create after launch is done, whatever its answer. */
+  forgetRestoredPane: (paneId: string) => void;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -1441,6 +1459,13 @@ function checkOwnClaim(
  */
 let lastActiveWorkspacePath: string | null = null;
 
+/**
+ * The pane ids of each workspace in the layout read at launch, by workspace
+ * key, until `seedRestoredPanes` takes the shown one's (ADR-230 D3). Null
+ * before the read and after the seed, so only the launch's pick seeds.
+ */
+let launchPanes: Map<string, Set<string>> | null = null;
+
 export function getPersistedActiveWorkspacePath(): string | null {
   return lastActiveWorkspacePath;
 }
@@ -1566,6 +1591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   panePickedElement: {},
   webviewFocusedPaneId: null,
   layoutLoaded: false,
+  restoredPaneIds: new Set<string>(),
   paneFocusNonce: 0,
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
@@ -1585,12 +1611,33 @@ export const useAppStore = create<AppState>((set, get) => ({
         ]);
         lastActiveWorkspacePath =
           ownViewport?.activeWorkspacePath ?? lastActive;
+        // What this launch restores, by workspace, until the launch picks
+        // the one it shows (`seedRestoredPanes`, ADR-230 D3).
+        launchPanes = new Map(
+          Object.entries(entries).map(([key, entry]) => [key, layoutPaneIds(entry.layout)]),
+        );
         return { entries, seedViewports: ownViewport?.workspaces ?? {} };
       });
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
     }
     set({ layoutLoaded: true });
+  },
+
+  seedRestoredPanes: () => {
+    const panes = launchPanes;
+    launchPanes = null;
+    const key = selectActiveWorkspaceKey(get());
+    const restored = key ? panes?.get(key) : undefined;
+    if (restored) set({ restoredPaneIds: new Set(restored) });
+  },
+
+  forgetRestoredPane: (paneId) => {
+    const { restoredPaneIds } = get();
+    if (!restoredPaneIds.has(paneId)) return;
+    const rest = new Set(restoredPaneIds);
+    rest.delete(paneId);
+    set({ restoredPaneIds: rest });
   },
 
   setActiveWorkspace: (path: string, hostId?: HostId | null) =>

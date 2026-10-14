@@ -9,7 +9,8 @@
  * - **Intent.** `ensureConnected` is a connect somebody means — a call that
  *   needs the host, the user — and wakes a sleeping host. A background
  *   connect (`connectInBackground`, a poller) never does: a host asleep
- *   stays asleep until somebody means to use it.
+ *   stays asleep until somebody means to use it. Nor does `connectNoWake`,
+ *   the awaited form a pane restored at launch connects with (ADR-230 D3).
  * - **Attempts.** Concurrent `ensureConnected` callers share one attempt.
  *   Every attempt and every `disconnect()` bumps `attempt`; an attempt only
  *   touches state while it still holds the current value, so a disconnect
@@ -39,7 +40,10 @@
  * - **Sleeping** (ADR-229 D1). A box its provider reports `sleeping` — asked
  *   before each reconnect attempt, and before a background connect — puts
  *   the host in `sleeping`: the reconnect loop stops and pollers leave it
- *   alone. `wake()` (or any `ensureConnected`) brings it up and connects;
+ *   alone. A recipe box that is not asleep has `up` re-run once per drop,
+ *   before the third attempt, in case it came back at a new address
+ *   (ADR-230 D2). Until then a failure that would stop the loop (the old
+ *   exec target is gone) doesn't. `wake()` (or any `ensureConnected`) brings it up and connects;
  *   `stop()` puts it to sleep. A box the provider says is gone (`missing`,
  *   ADR-229 D2) is treated alike, but in `error` with `missing` set: only
  *   `wake()` starts it again.
@@ -105,7 +109,10 @@ export interface HostStatusInfo {
    * (`hosts.wake`, which runs `up`) or to remove the host.
    */
   missing?: boolean;
-  /** Latest bootstrap progress line while `connecting`. */
+  /**
+   * Latest bootstrap progress line while `connecting`, or while
+   * `reconnecting` re-runs a recipe's `up` (ADR-230 D2).
+   */
   progress?: string;
   /** While `reconnecting`: the delay before the next attempt, if known. */
   retryInMs?: number | null;
@@ -232,7 +239,7 @@ export interface RemoteHostContext extends HostConnectionContext {
 export interface HostProxyContext
   extends Pick<
     HostProxyOptions,
-    "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "claimsFor" | "saveDelayMs" | "log"
+    "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "claimsFor" | "onLayoutMoved" | "saveDelayMs" | "log"
   > {
   /** The desktop's name for a host (`HostRecords.label`), read at use. */
   label(hostId: string): string;
@@ -340,6 +347,17 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
     this.startConnect(false).catch(() => {
       // Reported through status.
     });
+  }
+
+  /**
+   * A connect nobody meant, awaited (ADR-230 D3): what a pane restored at
+   * launch asks for. Like `connectInBackground` it never wakes a host — a
+   * box it finds asleep ends the attempt in `sleeping` — and it joins an
+   * attempt already in flight as that attempt is, never upgrading it to a
+   * waking one. Rejects with the connect error.
+   */
+  connectNoWake(): Promise<void> {
+    return this.startConnect(false);
   }
 
   /** The user's "Retry now" (see `BackendRegistry.retryNow`). */
@@ -527,6 +545,11 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    * the proxy is dropped when the host drops again meanwhile.
    */
   private resumeToken = 0;
+  /**
+   * The provider's `refresh` has been tried during this drop (ADR-230 D2).
+   * Cleared when the host drops or comes back.
+   */
+  private refreshedThisDrop = false;
 
   constructor(
     hostId: string,
@@ -554,6 +577,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
           onUnseenRead: (ids, unseen) => proxyCtx.onUnseenRead?.(ids, unseen),
           publishKeyed: proxyCtx.publishKeyed,
           claimsFor: proxyCtx.claimsFor,
+          onLayoutMoved: proxyCtx.onLayoutMoved,
           onProgress: (event, args) => proxyCtx.onProgress?.(hostId, event, args),
           saveDelayMs: proxyCtx.saveDelayMs,
           log: proxyCtx.log,
@@ -606,11 +630,19 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    * false when the provider says the box is asleep, which puts the host in
    * `sleeping` and stops the loop. Its sessions stay wanted, so the connect
    * that wakes it resumes them.
+   *
+   * Otherwise, from attempt 2 (0-based) on, a provider with `refresh` (a
+   * recipe) runs it once per drop (ADR-230 D2): the box may have come back
+   * at a new address, which redialling the old one never finds. A failing
+   * `refresh` is logged and the redial goes on.
    */
-  async beforeReconnect(): Promise<boolean> {
+  async beforeReconnect(attempt = 0): Promise<boolean> {
     if (this.disposed) return true;
     const status = await this.providerStatus();
-    if (status.state !== "sleeping" && !status.missing) return true;
+    if (status.state !== "sleeping" && !status.missing) {
+      await this.refreshOnce(attempt);
+      return true;
+    }
     if (this.disposed) return true;
     // A box deleted outside Manor is not started again by a reconnect: it
     // waits for "Start it again" (ADR-229 D2).
@@ -620,10 +652,27 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     return false;
   }
 
-  /** Latest bootstrap progress, shown while `connecting`. */
+  /**
+   * Asked by the backend's reconnect loop when an attempt failed in a way it
+   * would not retry (a bootstrap or recipe error): true keeps it going. The
+   * old way in to a recipe box that moved can fail like that (an exec target
+   * that no longer exists), so the loop keeps going until this drop's
+   * `refresh` has had its turn (ADR-230 D2).
+   */
+  retryPermanentFailure(): boolean {
+    return !this.disposed && this.provider.refresh !== undefined && !this.refreshedThisDrop;
+  }
+
+  /**
+   * Latest bootstrap progress, shown while `connecting`, and while
+   * `reconnecting` for a reconnect's re-run of `up` (ADR-230 D2).
+   */
   reportProgress(message: string): void {
-    if (this.status !== "connecting") return;
-    this.setState({ status: "connecting", progress: message });
+    if (this.status === "connecting") {
+      this.setState({ status: "connecting", progress: message });
+    } else if (this.status === "reconnecting") {
+      this.setState({ ...this.state, progress: message });
+    }
   }
 
   reportWarnings(warnings: string[]): void {
@@ -693,7 +742,8 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    * does (ADR-229 D2): the backend's transport only reaches something once
    * `ensureUp` has run `up` and built the way in, and nothing here dials the
    * backend before that. A reconnect after a drop rides the way in the last
-   * `ensureUp` built, without running `up` again.
+   * `ensureUp` built, until `beforeReconnect` has the provider `refresh` it
+   * (ADR-230 D2).
    */
   protected override async bringUp(wake: boolean): Promise<boolean> {
     if (!wake) {
@@ -733,6 +783,17 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   protected override async release(): Promise<void> {
     await this.disposeProvider();
     await super.release();
+  }
+
+  /** `beforeReconnect`'s once-per-drop `refresh` (ADR-230 D2); never throws. */
+  private async refreshOnce(attempt: number): Promise<void> {
+    if (attempt < 2 || this.refreshedThisDrop || !this.provider.refresh) return;
+    this.refreshedThisDrop = true;
+    try {
+      await this.provider.refresh((line) => this.reportProgress(line));
+    } catch (err) {
+      console.warn(`[host-connection] re-running ${this.hostId}'s up while reconnecting failed:`, err);
+    }
   }
 
   /** What the provider says of the box; a failed ask is `error`, not asleep. */
@@ -780,6 +841,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     const token = ++this.resumeToken;
     switch (event.type) {
       case "hostDisconnected":
+        this.refreshedThisDrop = false;
         this.setState({
           status: "reconnecting",
           retryInMs: event.retryInMs,
@@ -796,6 +858,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
         });
         break;
       case "hostReconnected":
+        this.refreshedThisDrop = false;
         this.setState({ status: "connected" });
         // Panes reattach only once the host's server is back and the proxy
         // has read its state, so their agent dots are right on first paint

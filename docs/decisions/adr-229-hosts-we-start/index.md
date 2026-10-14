@@ -631,15 +631,16 @@ the lid closed:
 ## Known limits as built
 
 **Waking and sleeping**
-- Restoring the visible workspace's panes at launch counts as using the
-  host, so it wakes a sleeping host.
+- ~~Restoring the visible workspace's panes at launch counts as using the
+  host, so it wakes a sleeping host.~~ Fixed in ADR-230 (D3).
 - A wake waits 2 min. After that a call answers "\<name\> is still
   starting" while `up` runs on (up to 15 min).
-- A reconnect after a drop reuses the last way in and doesn't re-run `up`.
+- ~~A reconnect after a drop reuses the last way in and doesn't re-run `up`.
   A box with a new address is found again only on the next full connect or
-  wake.
-- Idle stop's "no pane mounted" is the host's view: a desktop window
-  subscribed to some terminal's output. Phones don't count.
+  wake.~~ Fixed in ADR-230 (D2): `up` re-runs once per drop.
+- ~~Idle stop's "no pane mounted" is the host's view: a desktop window
+  subscribed to some terminal's output. Phones don't count.~~ Fixed in
+  ADR-230 (D1): phones and forwarded viewers count.
 
 **Supervision and secrets**
 - Turning supervision on doesn't move running processes under it; the
@@ -671,7 +672,7 @@ the lid closed:
 - "Remove from Manor" without destroy forgets the recipe's `resource`. A
   custom recipe that finds its box by `resource` may build a second one.
   Both templates find theirs by name.
-- port-pipe drops half-closed connections.
+- ~~port-pipe drops half-closed connections.~~ Fixed in ADR-230 (D4).
 - The `loginctl enable-linger` hint guesses the user name.
 
 **Coverage**

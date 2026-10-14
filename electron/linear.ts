@@ -74,6 +74,8 @@ export class LinearManager {
   constructor(
     private readonly secretBox: SecretBox,
     tokenPath: string = linearTokenFile(),
+    /** Called after the key is saved or cleared, with whether Linear is now connected (ADR-230 D8). */
+    private readonly onChange?: (connected: boolean) => void,
   ) {
     this.tokenPath = tokenPath;
   }
@@ -95,6 +97,7 @@ export class LinearManager {
   async saveToken(apiKey: string): Promise<void> {
     await writeSealed(this.secretBox, this.tokenPath, apiKey);
     this.token = apiKey;
+    this.onChange?.(true);
   }
 
   getToken(): string | null {
@@ -108,16 +111,20 @@ export class LinearManager {
     } catch {
       // file may not exist
     }
+    this.onChange?.(false);
   }
 
   isConnected(): boolean {
     return this.getToken() !== null;
   }
 
-  async getViewer(): Promise<{ name: string; email: string }> {
+  async getViewer(
+    /** Test this key instead of the stored one, without saving it. */
+    apiKey?: string,
+  ): Promise<{ name: string; email: string }> {
     const data = await this.graphql<{
       viewer: { name: string; email: string };
-    }>(`query { viewer { name email } }`);
+    }>(`query { viewer { name email } }`, undefined, apiKey);
     return data.viewer;
   }
 
@@ -433,8 +440,9 @@ export class LinearManager {
   private async graphql<T>(
     query: string,
     variables?: Record<string, unknown>,
+    apiKey?: string,
   ): Promise<T> {
-    const token = this.getToken();
+    const token = apiKey ?? this.getToken();
     if (!token) throw new Error("Not connected to Linear");
 
     const res = await fetch("https://api.linear.app/graphql", {

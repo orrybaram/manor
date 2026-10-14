@@ -13,7 +13,8 @@ import {
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
 import { useHostStore } from "../../store/host-store";
-import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import { useMemberDisplayName } from "../../bridge/server-set";
+import { isRemoteHost } from "../../lib/hosts";
 import {
   hostSegments,
   portlessHostFor,
@@ -619,6 +620,7 @@ function MemberSettingsPage(props: MemberSettingsPageProps) {
   const { project, group } = props;
 
   const hosts = useHostStore((s) => s.hosts);
+  const memberHost = useMemberDisplayName(project.hostId, hosts);
   const HostIcon = isRemoteHost(project.hostId) ? Cloud : Laptop;
 
   // Plain text in the heading's own type, not a host chip, so the host name
@@ -629,7 +631,7 @@ function MemberSettingsPage(props: MemberSettingsPageProps) {
         <span>{group.name}</span>
         <span className={styles.memberHeadingOn}>on</span>
         <HostIcon size={14} aria-hidden className={styles.memberHeadingIcon} />
-        <span>{memberHostName(project.hostId, hosts)}</span>
+        <span>{memberHost}</span>
       </Row>
       <Stack gap="xs">
         <SectionTitle id="project-location">Location</SectionTitle>

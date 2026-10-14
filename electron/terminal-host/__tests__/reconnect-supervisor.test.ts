@@ -73,6 +73,25 @@ describe("ReconnectSupervisor beforeAttempt (ADR-229 D1)", () => {
     expect(onReconnected).toHaveBeenCalledWith({ sessionIds: ["pane-a"], attempts: 1 });
   });
 
+  it("tells the check which attempt it precedes, from 0 (ADR-230 D2)", async () => {
+    const { target, setConnected } = fakeTarget();
+    target.connect
+      .mockRejectedValueOnce(new Error("box is down"))
+      .mockRejectedValueOnce(new Error("box is down"))
+      .mockImplementationOnce(async () => {
+        setConnected(true);
+      });
+    const supervisor = new ReconnectSupervisor(target);
+    const onReconnected = vi.fn();
+    supervisor.setListener({ onReconnected });
+    const beforeAttempt = vi.fn(async (_attempt: number) => true);
+    supervisor.setPolicy(() => 1, { beforeAttempt });
+
+    supervisor.connectionLost();
+    await vi.waitFor(() => expect(onReconnected).toHaveBeenCalled());
+    expect(beforeAttempt.mock.calls.map(([attempt]) => attempt)).toEqual([0, 1, 2]);
+  });
+
   it("goes on attempting when the check rejects", async () => {
     const { target, setConnected } = fakeTarget();
     target.connect.mockImplementationOnce(async () => {

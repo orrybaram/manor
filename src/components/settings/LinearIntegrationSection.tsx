@@ -25,17 +25,23 @@ export function LinearIntegrationSection() {
   const addToast = useToastStore((s) => s.addToast);
 
   useMountEffect(() => {
-    window.electronAPI.linear.isConnected().then(async (isConnected) => {
-      setConnected(isConnected);
-      if (isConnected) {
-        try {
-          const v = await window.electronAPI.linear.getViewer();
-          setViewer(v);
-        } catch {
-          // token may be stale
+    const refresh = () =>
+      window.electronAPI.linear.isConnected().then(async (isConnected) => {
+        setConnected(isConnected);
+        if (isConnected) {
+          try {
+            const v = await window.electronAPI.linear.getViewer();
+            setViewer(v);
+          } catch {
+            // token may be stale
+          }
+        } else {
+          setViewer(null);
         }
-      }
-    });
+      });
+    void refresh();
+    // The key was saved or cleared elsewhere (ADR-230 D8).
+    return window.electronAPI.linear.onConnectionChanged(() => void refresh());
   });
 
   const handleConnect = async () => {

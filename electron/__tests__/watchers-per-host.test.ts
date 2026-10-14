@@ -68,10 +68,10 @@ describe("DiffWatcher per host", () => {
         return ` 1 file changed, ${added} insertions(+)`;
       }),
     } as unknown as GitBackend;
-    const watcher = new DiffWatcher(hostsWith({ git }));
+    const watcher = new DiffWatcher(hostsWith({ git }), { window: () => window });
     const { window, send } = fakeWindow();
 
-    watcher.start([diffWs("/local/app"), diffWs("/remote/app")], window);
+    watcher.start([diffWs("/local/app"), diffWs("/remote/app")]);
     await vi.waitFor(() =>
       expect(send).toHaveBeenCalledWith("diffs.changed", {
         "/local/app": { added: 1, removed: 0 },
@@ -104,14 +104,14 @@ describe("DiffWatcher per host", () => {
         return " 1 file changed, 4 insertions(+)";
       }),
     } as unknown as GitBackend;
-    const watcher = new DiffWatcher(hostsWith({ git }));
+    const watcher = new DiffWatcher(hostsWith({ git }), { window: () => window });
     const { window, send } = fakeWindow();
     const both = {
       "/local/app": { added: 4, removed: 0 },
       "box:/remote/app": { added: 4, removed: 0 },
     };
 
-    watcher.start([diffWs("/local/app"), diffWs("/remote/app")], window);
+    watcher.start([diffWs("/local/app"), diffWs("/remote/app")]);
     await vi.waitFor(() => expect(send).toHaveBeenLastCalledWith("diffs.changed", both));
 
     remoteUp = false;
@@ -134,13 +134,13 @@ describe("DiffWatcher per host", () => {
       }) as unknown as GitBackend;
     const gits: Record<string, GitBackend> = { local: gitOn(3), box: gitOn(5) };
     const hosts = { get: (hostId: string) => ({ git: gits[hostId] }) } as unknown as HostBackends;
-    const watcher = new DiffWatcher(hosts);
+    const watcher = new DiffWatcher(hosts, { window: () => window });
     const { window, send } = fakeWindow();
     // A remote workspace at a path that looks local: its host says otherwise.
     watcher.start([
       { path: "/a", hostId: "local", defaultBranch: "main" },
       { path: "/b", hostId: "box", defaultBranch: "main" },
-    ], window);
+    ]);
     await vi.waitFor(() =>
       expect(send).toHaveBeenCalledWith("diffs.changed", {
         "/a": { added: 0, removed: 3 },
@@ -163,12 +163,12 @@ describe("DiffWatcher per host", () => {
       }) as unknown as GitBackend;
     const gits: Record<string, GitBackend> = { local: gitOn(3), box: gitOn(5) };
     const hosts = { get: (hostId: string) => ({ git: gits[hostId] }) } as unknown as HostBackends;
-    const watcher = new DiffWatcher(hosts);
+    const watcher = new DiffWatcher(hosts, { window: () => window });
     const { window, send } = fakeWindow();
     watcher.start([
       { path: "/same", hostId: "local", defaultBranch: "main" },
       { path: "/same", hostId: "box", defaultBranch: "main" },
-    ], window);
+    ]);
     await vi.waitFor(() =>
       expect(send).toHaveBeenLastCalledWith("diffs.changed", {
         "/same": { added: 0, removed: 3 },

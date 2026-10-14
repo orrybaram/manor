@@ -24,6 +24,11 @@
  *   its last answer (D6), kept in memory (`./last-known-cache.ts`) — and, on
  *   the phone, in IndexedDB (`RouterOptions.lastKnown`), so a reload while
  *   it is away still shows it.
+ * - **Split** (`"split"`, ADR-230 D6). A list of workspaces to watch: each
+ *   server is sent the ones it answers for, a server away gets its share
+ *   when it comes back, and one too old to watch (`unavailable:host`) has
+ *   its share given to a desktop that lists its host. The watchers' events
+ *   are re-keyed and merged across the servers.
  * - **Home.** Everything else.
  *
  * **Renderer host ids (D2).** On the desktop the local server is `local` and
@@ -35,9 +40,10 @@
  * server, home calls included, has its arguments turned back into that
  * server's own ids (`toServerArgs`) and its answer stamped (`stampResult`).
  *
- * **Subscriptions.** A listener of a merged namespace (`layout`, `projects`,
- * `agents`) is opened on every server, replayed on one that joins later, and
- * its events are stamped and deduplicated like a merged answer. A pane's
+ * **Subscriptions.** A listener of a merged or split namespace (`layout`,
+ * `projects`, `agents`, `branches`, `diffs`) is opened on every server,
+ * replayed on one that joins later, and its events are stamped and
+ * deduplicated like a merged answer. A pane's
  * `chat.*` and `pty.*` are opened only on the pane's source, keyed by server
  * and pane; a pane id two servers' layouts both hold is refused rather than
  * cross-wired. Any other listener is home's.
@@ -46,7 +52,9 @@
  * stores say is asleep first asks home to wake it (`hosts.wake`), waits for
  * that and for the host's own bridge to come back (bounded), and only then
  * is sent. A read never wakes a host. On the desktop, main's `HostRouting`
- * wakes a host for a write it forwards too; asking twice is harmless.
+ * wakes a host for a write it forwards too; asking twice is harmless. A
+ * create or attach with `wake: false` — a pane restored at launch (ADR-230
+ * D3) — wakes nothing, and answers `host-unavailable` for a host asleep.
  *
  * **What main did on the way, done here.** A call that used to reach a host
  * through main's `HostRouting` picked up a few things there that a direct
@@ -65,11 +73,11 @@
  */
 
 import { keyFor } from "../../electron/bridge/host-rewrite";
-import { byPane, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
+import { byPane, declinesWake, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../electron/bridge/types";
 import { parseChatTaskKey } from "../../electron/chat-mirror/task-key";
-import type { ElectronAPI } from "../electron";
+import type { ElectronAPI, PtyFailure } from "../electron";
 import type { LayoutEntry } from "../lib/layout/protocol";
 import { layoutPaneIds } from "../lib/layout/workspace-layout";
 import {
@@ -79,6 +87,7 @@ import {
 } from "../lib/workspace-key";
 import { BridgeDisconnectedError, LISTENERS, NOT_MEMBERS, servesItself } from "./client";
 import { createHeldCommands } from "./held-commands";
+import { onBridgeResync } from "./resync";
 import { hostLookups } from "./host-lookups";
 import { linearServers, type LinearChoice } from "./linear-servers";
 import type { LastKnownStore } from "./last-known";
@@ -156,12 +165,27 @@ export const storeResolver: HostResolver = {
  */
 const WOKEN_SOURCE_WAIT_MS = 10_000;
 
-/** The namespaces with a merged read: their listeners fan out. */
+/**
+ * The namespaces with a merged read, or a watch split across the servers
+ * (ADR-230 D6): their listeners fan out.
+ */
 const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
   Object.entries(ROUTES)
-    .filter(([, route]) => route === "merge")
+    .filter(([, route]) => route === "merge" || route === "split")
     .map(([key]) => key.slice(0, key.lastIndexOf("."))),
 );
+
+/**
+ * The events whose payload is a `Record<WorkspaceKey, …>` of everything one
+ * server watches (ADR-230 D6): re-keyed, kept only for the workspaces that
+ * server watches, and merged with every other server's last one, since a
+ * listener takes each payload as the whole picture.
+ */
+const KEYED_EVENTS: ReadonlySet<string> = new Set([
+  "branches.changed",
+  "diffs.changed",
+  "diffs.fingerprintsChange",
+]);
 
 /**
  * The namespaces whose listeners are keyed by pane (`electron/bridge/events.ts`)
@@ -216,6 +240,25 @@ interface FanSub {
   args: unknown[];
   listener: Fn;
   offs: Map<string, () => void>;
+  /** A `KEYED_EVENTS` listener's last payload from each server; else null. */
+  parts: Map<string, Record<string, unknown>> | null;
+}
+
+/**
+ * A `"split"` namespace's watch (ADR-230 D6): what the page last asked for,
+ * and what each server was last sent of it.
+ */
+interface SplitWatch {
+  /** The workspaces of the last `start`, or null after a `stop`. */
+  list: unknown[] | null;
+  /**
+   * Each server's last share, as sent (JSON of its arguments), or null for a
+   * `stop`. A server absent here holds nothing of this page's: never sent,
+   * away since, or come back on a new connection.
+   */
+  sent: Map<string, string | null>;
+  /** Servers too old to watch (`unavailable:host`): a desktop that lists their host does. */
+  refused: Set<string>;
 }
 
 /** A listener opened on one pane's source. */
@@ -288,6 +331,18 @@ export function createRouter(
   });
   /** Each project's group, from the desktop's last `projects.getAll` (D3). */
   let desktopGroups = new Map<unknown, unknown>();
+  /**
+   * The project order home's own `projects.getAll` last gave, and the merged
+   * order the renderer was given (ADR-230 D7). Home's selected index is into
+   * the first; the renderer's is into the second.
+   */
+  let homeProjectIds: unknown[] | null = null;
+  let mergedProjectIds: unknown[] | null = null;
+  /**
+   * The project selected on the page only, for one home does not hold. It is
+   * kept by id, as the merged list's indexes move. Not persisted across a reload (a known limit).
+   */
+  let pageSelectionId: unknown = null;
   /**
    * The desktop's claims on each workspace, as home last said them (D7): a
    * tab a detached window holds is the desktop's to know, and no host
@@ -386,6 +441,22 @@ export function createRouter(
   function awayError(hostId: string): BridgeUnavailableError {
     const name = set.get(hostId)?.hello.name ?? hostId;
     return new BridgeUnavailableError(`${name} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
+  }
+
+  /**
+   * The server watching `hostId`'s workspaces for `ns` (ADR-230 D6): the one
+   * answering for it, unless that one is too old to watch — then a desktop
+   * that lists the host, which polls it as it always has.
+   */
+  function watcherOf(ns: string, hostId: string): ServerEntry | null {
+    const own = answerer(hostId);
+    const refused = splits.get(ns)?.refused;
+    if (!refused?.has(own.id)) return own;
+    for (const entry of set.list()) {
+      if (entry.id === own.id || entry.hello.hostServer || refused.has(entry.id)) continue;
+      if (lists(entry, hostId) && reachable(entry)) return entry;
+    }
+    return null;
   }
 
   // ── stamping (D2) ──
@@ -531,6 +602,25 @@ export function createRouter(
     return args.map((arg) => (Array.isArray(arg) && !arg.every(known) ? arg.filter(known) : arg));
   }
 
+  /**
+   * `record`'s entries about workspaces `entry` watches for `ns`, re-keyed in
+   * the renderer's form when `stamp` (they already are when not).
+   */
+  function watchedEntries(
+    entry: ServerEntry,
+    ns: string,
+    record: Record<string, unknown>,
+    stamp: boolean,
+  ): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(record)) {
+      const stamped = stamp ? stampKey(entry, key) : key;
+      if (stamped === null) continue;
+      if (watcherOf(ns, hostOfKey(stamped, entry))?.id === entry.id) out[stamped] = value;
+    }
+    return out;
+  }
+
   // ── panes ──
 
   /** Record `entry`'s merged layout's panes, for the collision check. */
@@ -639,7 +729,18 @@ export function createRouter(
   function routed(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
     const asleep = sleepingTarget(rule, ns, name, args);
     if (asleep === null) return routedNow(rule, ns, name, args);
+    if (declinesWake(ns, name, args)) return Promise.resolve(asleepAnswer(asleep));
     return wake(asleep).then(() => routedNow(rule, ns, name, args));
+  }
+
+  /**
+   * What a create or attach that declines to wake (ADR-230 D3) answers for a
+   * host asleep: the `host-unavailable` failure a pane waits out behind its
+   * host's asleep banner, as for a host that is away.
+   */
+  function asleepAnswer(hostId: string): PtyFailure {
+    const name = set.get(hostId)?.hello.name ?? hostId;
+    return { ok: false, reason: "host-unavailable", hostId, error: `${name} is asleep` };
   }
 
   function routedNow(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
@@ -746,7 +847,11 @@ export function createRouter(
 
   function merge(key: string, answers: Answer[]): unknown {
     switch (key) {
-      case "projects.getAll":
+      case "projects.getAll": {
+        const list = mergeProjects(answers);
+        noteProjectOrders(answers, list);
+        return list;
+      }
       case "projects.getRemote":
         return mergeProjects(answers);
       case "layout.getAll":
@@ -876,6 +981,52 @@ export function createRouter(
     return out;
   }
 
+  /** Home's raw id order and the merged one, for the selected index (D7). */
+  function noteProjectOrders(answers: Answer[], list: unknown[]): void {
+    const home = answers.find(({ entry }) => isHome(entry));
+    const idsOf = (records: unknown): unknown[] =>
+      (Array.isArray(records) ? records : []).map((record) =>
+        isPlainObject(record) ? record.id : undefined,
+      );
+    homeProjectIds = home ? idsOf(home.value) : [];
+    mergedProjectIds = idsOf(list);
+  }
+
+  async function projectOrders(): Promise<{ home: unknown[]; merged: unknown[] }> {
+    if (!homeProjectIds || !mergedProjectIds) await merged("projects", "getAll", []);
+    return { home: homeProjectIds ?? [], merged: mergedProjectIds ?? [] };
+  }
+
+  /** `projects.getSelectedIndex`, home's index translated to the merged list. */
+  async function selectedIndex(): Promise<unknown> {
+    const answer = await callHome("projects", "getSelectedIndex", []);
+    const orders = await projectOrders();
+    if (pageSelectionId !== null) {
+      const at = orders.merged.indexOf(pageSelectionId);
+      if (at >= 0) return at;
+      pageSelectionId = null;
+    }
+    if (typeof answer !== "number") return answer;
+    const at = orders.merged.indexOf(orders.home[answer]);
+    if (at >= 0) return at;
+    return orders.merged.length === 0 ? -1 : 0;
+  }
+
+  /** `projects.select`, the merged index translated to home's. */
+  async function selectProject(args: unknown[]): Promise<unknown> {
+    const index = args[0];
+    const orders = await projectOrders();
+    const id = typeof index === "number" ? orders.merged[index] : undefined;
+    if (id === undefined) return callHome("projects", "select", args);
+    const at = orders.home.indexOf(id);
+    if (at < 0) {
+      pageSelectionId = id;
+      return undefined;
+    }
+    pageSelectionId = null;
+    return callHome("projects", "select", [at, ...args.slice(1)]);
+  }
+
   // ── claims (D7) ──
 
   /** Whether `entry` says which tabs the desktop's windows hold: a desktop at home. */
@@ -908,6 +1059,90 @@ export function createRouter(
     return moved;
   }
 
+  // ── watches split across the servers (ADR-230 D6) ──
+
+  /** Each `"split"` namespace's watch, once the page has started or stopped one. */
+  const splits = new Map<string, SplitWatch>();
+
+  /**
+   * `ns.start(list)` or `ns.stop()`: each server is sent the workspaces it
+   * answers for (`watcherOf`), in its own form; one away is skipped and sent
+   * its share when it comes back. The desktop's own server alone is handed
+   * the call as it is.
+   */
+  function split(ns: string, name: string, args: unknown[]): unknown {
+    let watch = splits.get(ns);
+    if (!watch) {
+      watch = { list: null, sent: new Map(), refused: new Set() };
+      splits.set(ns, watch);
+    }
+    watch.list = name === "start" && Array.isArray(args[0]) ? args[0] : null;
+    if (passThrough()) {
+      const home = set.home();
+      watch.sent.set(home.id, watch.list ? JSON.stringify(args) : null);
+      return call(home, ns, name, args);
+    }
+    return resplit(ns);
+  }
+
+  /** Send each reachable server its share of `ns`'s watch, where it moved. */
+  function resplit(ns: string): Promise<void> {
+    const watch = splits.get(ns);
+    if (!watch) return Promise.resolve();
+    const sends: Promise<void>[] = [];
+    for (const entry of set.list()) {
+      if (!reachable(entry)) {
+        watch.sent.delete(entry.id);
+        continue;
+      }
+      const mine = (watch.list ?? []).filter((item) => {
+        const hostId = isPlainObject(item) && typeof item.hostId === "string" ? item.hostId : null;
+        return watcherOf(ns, normalizeHostId(hostId))?.id === entry.id;
+      });
+      const args = toServerArgs(entry, onlyKnownHosts(entry, [mine]));
+      const was = watch.sent.get(entry.id);
+      if ((args[0] as unknown[]).length === 0) {
+        // Nothing of this page's to watch there: it lets go of what it had.
+        if (was === undefined || was === null) continue;
+        watch.sent.set(entry.id, null);
+        sends.push(sendWatch(entry, ns, "stop", [], null));
+        continue;
+      }
+      const json = JSON.stringify(args);
+      if (json === was) continue;
+      watch.sent.set(entry.id, json);
+      sends.push(sendWatch(entry, ns, "start", args, json));
+    }
+    return Promise.all(sends).then(() => undefined);
+  }
+
+  /**
+   * One server's share. A server too old to watch (`unavailable:host`) is
+   * refused from then on, and its share goes to a desktop that lists its
+   * host; any other failure is tried again on the next change.
+   */
+  async function sendWatch(
+    entry: ServerEntry,
+    ns: string,
+    name: string,
+    args: unknown[],
+    json: string | null,
+  ): Promise<void> {
+    try {
+      await call(entry, ns, name, args);
+    } catch (err) {
+      const watch = splits.get(ns);
+      if (!watch || watch.sent.get(entry.id) !== json) return;
+      watch.sent.delete(entry.id);
+      if ((err as { code?: unknown } | null)?.code === UNAVAILABLE_HOST_CODE) {
+        watch.refused.add(entry.id);
+        await resplit(ns);
+        return;
+      }
+      console.warn(`[bridge-router] ${ns}.${name} on ${entry.id} failed:`, err);
+    }
+  }
+
   // ── subscriptions ──
 
   /** `entry`'s event in the renderer's form, or null to drop it (D3). */
@@ -917,6 +1152,9 @@ export function createRouter(
     args: unknown[],
   ): unknown[] | null {
     const [first, ...rest] = args;
+    if (KEYED_EVENTS.has(`${event.ns}.${event.event}`) && isPlainObject(first)) {
+      return [watchedEntries(entry, event.ns, first, true), ...rest];
+    }
     if (event.ns === "layout" && event.event === "changed" && isPlainObject(first)) {
       const path = first.workspacePath;
       if (typeof path !== "string") return args;
@@ -987,13 +1225,33 @@ export function createRouter(
       }
       const current = set.get(entry.id) ?? entry;
       const out = stampEvent(current, sub.event, args);
-      if (out) sub.listener(...out);
+      if (!out) return;
+      if (sub.parts) {
+        sub.parts.set(entry.id, out[0] as Record<string, unknown>);
+        sub.listener(mergedParts(sub), ...out.slice(1));
+        return;
+      }
+      sub.listener(...out);
     };
     const off = call(entry, sub.ns, sub.name, [...sub.args, deliver]);
     sub.offs.set(entry.id, () => {
       live = false;
       if (typeof off === "function") (off as () => void)();
     });
+  }
+
+  /**
+   * Every server's last payload of a `KEYED_EVENTS` listener, in set order,
+   * each kept to what that server watches now: whose watch moved since it
+   * spoke (a host server back, say) is no longer its to say.
+   */
+  function mergedParts(sub: FanSub): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const entry of set.list()) {
+      const part = sub.parts?.get(entry.id);
+      if (part) Object.assign(out, watchedEntries(entry, sub.event.ns, part, false));
+    }
+    return out;
   }
 
   function subscribeFan(
@@ -1009,6 +1267,7 @@ export function createRouter(
       args: args.slice(0, -1),
       listener: args[args.length - 1] as Fn,
       offs: new Map(),
+      parts: KEYED_EVENTS.has(`${event.ns}.${event.event}`) ? new Map() : null,
     };
     fanSubs.add(sub);
     for (const entry of set.list()) openFan(sub, entry);
@@ -1100,8 +1359,15 @@ export function createRouter(
       for (const sub of fanSubs) {
         sub.offs.get(id)?.();
         sub.offs.delete(id);
+        if (!now.has(id)) sub.parts?.delete(id);
       }
       panesByServer.delete(id);
+      // A new connection holds none of this page's watches, and may be a
+      // newer server.
+      for (const watch of splits.values()) {
+        watch.sent.delete(id);
+        watch.refused.delete(id);
+      }
       // Gone from the set is gone for good: a pairing removed or refused.
       if (!now.has(id)) lastKnown.forget(id);
     }
@@ -1112,6 +1378,21 @@ export function createRouter(
       for (const sub of fanSubs) openFan(sub, entry);
     }
     rebindPanes();
+    // Whose workspaces are whose may have moved: a server away or back.
+    for (const ns of splits.keys()) void resplit(ns);
+  });
+
+  // A server whose stream came back has let go of what it watched for this
+  // page; so has every server, on a refresh or a new home.
+  onBridgeResync((serverId) => {
+    for (const [ns, watch] of splits) {
+      if (serverId === undefined) watch.sent.clear();
+      else {
+        watch.sent.delete(serverId);
+        watch.refused.delete(serverId);
+      }
+      void resplit(ns);
+    }
   });
 
   // ── the proxy, shaped as `createBridge`'s ──
@@ -1126,12 +1407,17 @@ export function createRouter(
     if (listens && typeof args[args.length - 1] === "function") {
       return subscribe(ns, name, listens, args);
     }
+    if (!passThrough()) {
+      if (key === "projects.getSelectedIndex") return selectedIndex();
+      if (key === "projects.select") return selectProject(args);
+    }
     const route = Object.prototype.hasOwnProperty.call(ROUTES, key)
       ? ROUTES[key]
       : "home";
     if (route === "merge") {
       return passThrough() ? call(home, ns, name, args) : merged(ns, name, args);
     }
+    if (route === "split") return split(ns, name, args);
     if (typeof route === "object" && route.by === "delegated") {
       return delegated(ns, name, args);
     }

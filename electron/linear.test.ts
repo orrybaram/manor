@@ -129,6 +129,20 @@ describe("LinearManager", () => {
     });
   });
 
+  describe("onChange (ADR-230 D8)", () => {
+    it("fires with true on save and false on clear", async () => {
+      const onChange = vi.fn();
+      const watched = new LinearManager(secretBox, undefined, onChange);
+
+      await watched.saveToken("lin_api_test123");
+      expect(onChange).toHaveBeenLastCalledWith(true);
+
+      watched.clearToken();
+      expect(onChange).toHaveBeenLastCalledWith(false);
+      expect(onChange).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe("isConnected", () => {
     it("returns true when token is present", async () => {
       mockReadFileSync.mockReturnValue(Buffer.from("enc:mytoken"));

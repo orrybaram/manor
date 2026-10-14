@@ -417,7 +417,13 @@ export async function hostsResetPairingKeys(
   ctx: HandlerCtx<ServerDeps>,
   hostId: string,
 ): Promise<HostServerStatus> {
-  const status = await connectedServer(ctx, hostId).api.hostServer.resetIdentity();
+  const client = connectedServer(ctx, hostId);
+  const reset = () => client.api.hostServer.resetIdentity();
+  // After any mint in flight on the host, whose link the reset would leave
+  // pointing at a revoked device; the host's links go with the reset
+  // (ADR-230 D11).
+  const links = ctx.deps.hostLinks;
+  const status = links ? await links.resetHost(hostId, reset) : await reset();
   pairingChanged(ctx, hostId);
   return status;
 }

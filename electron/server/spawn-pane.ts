@@ -67,6 +67,8 @@ export interface SpawnPaneOptions {
   hostId?: HostId;
   /** Sets `MANOR_AGENT_KIND` in a freshly spawned session's env. */
   agentKind?: string | null;
+  /** False for a create nobody meant: a sleeping host stays asleep (ADR-230 D3). */
+  wake?: boolean;
 }
 
 /** The grid a launch spawns at; the first viewer to attach fits it. */
@@ -177,6 +179,7 @@ export async function spawnPane(
       deps.backend.pty.createOrAttachWith(paneId, resolvedCwd, cols, rows, {
         env,
         hostId,
+        ...(opts.wake === false && { wake: false }),
       }),
     );
     // A pane opened "with a command" — `POST /tabs { command }`, a split with

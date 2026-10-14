@@ -94,6 +94,13 @@ const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
 /**
+ * How long a drop with no listed close code is tolerated before the server is
+ * called unreachable (ADR-230 D5). Long enough that a one-second blip does not
+ * flash the reachability overlay or bounce pane listeners home and back.
+ */
+export const DROP_GRACE_MS = 4_000;
+
+/**
  * How long a foreground check waits for the far end before calling an
  * open-looking socket dead (ADR-220 D4). iOS kills a backgrounded socket
  * without a close event; this finds out in seconds, not a heartbeat or two.
@@ -217,6 +224,8 @@ class WsTransport implements WsBridgeTransport {
   private stopped = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pending "call it unreachable" after a drop with no listed code. */
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the hello in flight carried `previousId`. */
   private resuming = false;
   /** The probe in flight, so a burst of foreground events sends only one. */
@@ -310,6 +319,7 @@ class WsTransport implements WsBridgeTransport {
 
   close(): void {
     this.stopped = true;
+    this.clearGrace();
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     const socket = this.socket;
@@ -452,6 +462,7 @@ class WsTransport implements WsBridgeTransport {
    * would open that gap on every reconnect.
    */
   private onReady(): void {
+    this.clearGrace();
     this.ready = true;
     this.attempt = 0;
     for (const frame of this.registry.keys()) this.send(frame);
@@ -485,17 +496,29 @@ class WsTransport implements WsBridgeTransport {
 
     if (code === CLOSE_UNAUTHORIZED) {
       this.stopped = true;
+      this.clearGrace();
       (this.options.onUnauthorized ?? defaultUnauthorized)();
       return;
     }
     if (code === CLOSE_KEY_MISMATCH && this.options.onKeyMismatch) {
       this.stopped = true;
+      this.clearGrace();
       this.options.onKeyMismatch();
       return;
     }
     if (code === CLOSE_KEY_MISMATCH) this.options.onStatus?.("unreachable");
     if (this.pipe.unreachableCodes?.has(code)) {
+      this.clearGrace();
       this.options.onStatus?.("unreachable");
+    } else if (this.graceTimer === null) {
+      // Any other drop that leads to a redial: give the redial a moment, then
+      // stop pretending the server is reachable (ADR-230 D5). Host pipes end
+      // every pipe with a listed code, so they never get here.
+      this.graceTimer = setTimeout(() => {
+        this.graceTimer = null;
+        if (this.stopped) return;
+        this.options.onStatus?.("unreachable");
+      }, DROP_GRACE_MS);
     }
 
     // Capped exponential backoff: a laptop that closed its lid should not
@@ -510,6 +533,11 @@ class WsTransport implements WsBridgeTransport {
       if (this.stopped) return;
       this.open();
     }, delay);
+  }
+
+  private clearGrace(): void {
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    this.graceTimer = null;
   }
 
   private sendOrQueue(frame: ClientFrame): void {

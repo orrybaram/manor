@@ -101,11 +101,13 @@ export function byAgent(arg: number): HostRule {
  *
  * - a `RouteRule`: by the host the named argument points at;
  * - `"merge"`: a read answered from every reachable server and merged;
+ * - `"split"`: a list of workspaces to watch, each server sent the ones it
+ *   answers for (ADR-230 D6), and its events merged as a `"merge"`'s are;
  * - `"home"`: by the caller's own server, whatever host it touches.
  *
- * On a table, `"merge"` and `"home"` are both `LOCAL_ROUTE`.
+ * On a table, `"merge"`, `"split"` and `"home"` are all `LOCAL_ROUTE`.
  */
-export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
+export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   // A remote pane's terminal is its host server's (ADR-228 D5): a desktop
   // window's own bridge to it, or main forwarding for a caller that holds
   // only the desktop. A new pane's create and reset name its host.
@@ -237,6 +239,14 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "hosts.projectsOnHost": "home",
   // Run through the host's transport, which the desktop holds (ADR-229 D4).
   "hosts.setSupervised": "home",
+
+  // Each server watches the workspaces it answers for (ADR-230 D6); a
+  // desktop window alone still hands its whole list to its own server,
+  // which polls remote hosts through their backends.
+  "branches.start": "split",
+  "branches.stop": "split",
+  "diffs.start": "split",
+  "diffs.stop": "split",
 };
 
 /**
@@ -266,6 +276,26 @@ const NEVER_WAKES: ReadonlySet<string> = new Set([
 export function wakesHost(ns: string, method: string): boolean {
   if (NEVER_WAKES.has(`${ns}.${method}`)) return false;
   return !/^(get|list|can|is|check)[A-Z]/.test(method);
+}
+
+/** Where a call that may decline to wake its host carries its options. */
+const WAKE_OPTION_ARG: Readonly<Record<string, number>> = {
+  "pty.create": 4,
+  "pty.attach": 1,
+};
+
+/**
+ * Whether routed call `ns.method` says it is not one the user meant
+ * (`wake: false`, ADR-230 D3): a pane restored at launch, on its first
+ * mount. A sleeping host is then left asleep and the call answered as for a
+ * host that is away. Main's `HostRouting` and the renderer's router ask the
+ * same question.
+ */
+export function declinesWake(ns: string, method: string, args: readonly unknown[]): boolean {
+  const at = WAKE_OPTION_ARG[`${ns}.${method}`];
+  if (at === undefined) return false;
+  const opts = args[at];
+  return typeof opts === "object" && opts !== null && (opts as { wake?: unknown }).wake === false;
 }
 
 /**

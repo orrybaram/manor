@@ -1026,13 +1026,15 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       capabilities: { canStop: opts.canStop ?? true, canDestroy: false, autoSleep: false },
       stop: vi.fn(async () => {}),
     };
-    let beforeReconnect: (() => Promise<boolean>) | undefined;
+    let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    let retryPermanentFailure: ((err: unknown) => boolean) | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => provider as unknown as HostProvider,
       createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
         beforeReconnect = factoryOpts.beforeReconnect;
+        retryPermanentFailure = factoryOpts.retryPermanentFailure;
         return remote.backend;
       },
     });
@@ -1043,9 +1045,183 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       remote,
       provider,
       asleep,
-      beforeReconnect: () => beforeReconnect!(),
+      beforeReconnect: (attempt = 0) => beforeReconnect!(attempt),
+      retryPermanentFailure: () => retryPermanentFailure!(new Error("Permission denied")),
     };
   }
+
+  /**
+   * A registry with one recipe host, `pod`, whose every `up` says the box is
+   * at the next address in `addresses` (ADR-230 D2). `reached()` is where
+   * the backend's transport would dial now.
+   */
+  function recipeSetup(addresses: string[] = ["10.0.0.1", "10.0.0.2", "10.0.0.3"]) {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("pod");
+    let ups = 0;
+    let reached: string | null = null;
+    const provider = {
+      ...fakeProvider(),
+      kind: "recipe" as const,
+      ensureUp: vi.fn(async (_onProgress?: (line: string) => void) => {
+        reached = addresses[ups++] ?? null;
+      }),
+      // Re-runs `up` unless that might wake a box that put itself to sleep.
+      refresh: vi.fn(async (onProgress?: (line: string) => void) => {
+        await provider.ensureUp(onProgress);
+        return true;
+      }),
+    };
+    let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    let retryPermanentFailure: ((err: unknown) => boolean) | undefined;
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => provider as unknown as HostProvider,
+      createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
+        beforeReconnect = factoryOpts.beforeReconnect;
+        retryPermanentFailure = factoryOpts.retryPermanentFailure;
+        return remote.backend;
+      },
+    });
+    registry.register("pod", { kind: "recipe", recipeId: "k8s-dev" });
+    const drop = () =>
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
+    return {
+      registry,
+      remote,
+      provider,
+      drop,
+      reached: () => reached,
+      beforeReconnect: (attempt: number) => beforeReconnect!(attempt),
+      retryPermanentFailure: () => retryPermanentFailure!(new Error("No such container")),
+    };
+  }
+
+  describe("a recipe host re-runs up once per drop (ADR-230 D2)", () => {
+    it("finds a box that came back at a new address", async () => {
+      const { registry, remote, provider, drop, reached, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      expect(reached()).toBe("10.0.0.1");
+      drop();
+
+      for (const attempt of [0, 1, 2]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      expect(reached()).toBe("10.0.0.2");
+      expect(registry.status("pod")).toBe("reconnecting");
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      expect(registry.status("pod")).toBe("connected");
+    });
+
+    it("runs up once per drop, and not before the third attempt", async () => {
+      const { registry, remote, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+
+      await beforeReconnect(0);
+      await beforeReconnect(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      await beforeReconnect(2);
+      await beforeReconnect(3);
+      await beforeReconnect(4);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+
+      // Back, then dropped again: a new drop gets its own re-run.
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      drop();
+      await beforeReconnect(0);
+      await beforeReconnect(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      await beforeReconnect(2);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps a failure that would stop the loop going until this drop's up has run", async () => {
+      // An exec target that no longer exists fails as a bootstrap error,
+      // which alone would stop the loop before attempt 2's re-run of `up`.
+      const { registry, remote, drop, reached, beforeReconnect, retryPermanentFailure } =
+        recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+
+      await beforeReconnect(0);
+      expect(retryPermanentFailure()).toBe(true);
+      await beforeReconnect(1);
+      expect(retryPermanentFailure()).toBe(true);
+      await beforeReconnect(2);
+      expect(reached()).toBe("10.0.0.2");
+      expect(retryPermanentFailure()).toBe(false);
+
+      // A new drop gets its own turn.
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      drop();
+      expect(retryPermanentFailure()).toBe(true);
+    });
+
+    it("never keeps the loop going for a host without refresh (ssh)", async () => {
+      const { registry, remote, retryPermanentFailure } = lifecycleSetup();
+      await registry.ensureConnected("box");
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+      expect(retryPermanentFailure()).toBe(false);
+    });
+
+    it("does not run up for a box that may have put itself to sleep", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      // The recipe is autoSleep with no `status`: the provider declines.
+      provider.refresh.mockResolvedValue(false);
+      await registry.ensureConnected("pod");
+      drop();
+
+      for (const attempt of [0, 1, 2, 3]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.refresh).toHaveBeenCalledTimes(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(registry.status("pod")).toBe("reconnecting");
+    });
+
+    it("does not re-run up for a box that is asleep", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+      provider.status.mockResolvedValue({ state: "sleeping" });
+
+      await expect(beforeReconnect(2)).resolves.toBe(false);
+
+      expect(provider.refresh).not.toHaveBeenCalled();
+      expect(registry.status("pod")).toBe("sleeping");
+    });
+
+    it("keeps redialling when up fails, without failing the host", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await registry.ensureConnected("pod");
+      drop();
+      provider.ensureUp.mockRejectedValueOnce(new Error("quota exceeded"));
+
+      for (const attempt of [0, 1, 2, 3]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      expect(registry.status("pod")).toBe("reconnecting");
+      warn.mockRestore();
+    });
+
+    it("shows up's progress while reconnecting", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+      let shown: string | undefined;
+      provider.ensureUp.mockImplementationOnce(async (onProgress) => {
+        onProgress?.("Resuming the pod…");
+        shown = registry.list()[1].progress;
+      });
+
+      await beforeReconnect(2);
+
+      expect(shown).toBe("Resuming the pod…");
+      expect(registry.status("pod")).toBe("reconnecting");
+    });
+  });
 
   it("brings the box up before the backend connects, showing its progress", async () => {
     const { registry, remote, provider } = lifecycleSetup();
@@ -1136,6 +1312,64 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     await registry.ensureConnected("box");
     expect(provider.ensureUp).toHaveBeenCalledTimes(1);
     expect(registry.status("box")).toBe("connected");
+  });
+
+  describe("a pty call that declines to wake (ADR-230 D3)", () => {
+    const create = (registry: BackendRegistry, connect?: { wake?: boolean }) =>
+      connect
+        ? registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24, undefined, undefined, connect)
+        : registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24);
+
+    it("leaves a box it finds asleep asleep, and says the host is sleeping", async () => {
+      const { registry, remote, provider, asleep } = lifecycleSetup();
+      asleep();
+
+      await expect(create(registry, { wake: false })).rejects.toMatchObject({
+        name: "HostUnavailableError",
+        status: "sleeping",
+      });
+
+      expect(provider.ensureUp).not.toHaveBeenCalled();
+      expect(remote.raw.connect).not.toHaveBeenCalled();
+      expect(remote.raw.pty.createOrAttach).not.toHaveBeenCalled();
+      expect(registry.status("box")).toBe("sleeping");
+    });
+
+    it("does not turn a background connect it joins into a waking one", async () => {
+      const { registry, provider } = lifecycleSetup();
+      let answer!: (state: { state: ProviderState }) => void;
+      provider.status.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+
+      registry.connectInBackground("box");
+      await vi.waitFor(() => expect(answer).toBeDefined());
+      expect(registry.status("box")).toBe("connecting");
+      const restored = create(registry, { wake: false });
+      answer({ state: "sleeping" });
+
+      await expect(restored).rejects.toMatchObject({ status: "sleeping" });
+      expect(provider.ensureUp).not.toHaveBeenCalled();
+    });
+
+    it("connects a box that is up, as a background connect does", async () => {
+      const { registry, remote, provider } = lifecycleSetup();
+
+      await create(registry, { wake: false });
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(remote.raw.pty.createOrAttach).toHaveBeenCalledTimes(1);
+      expect(registry.status("box")).toBe("connected");
+    });
+
+    it("still wakes the box without the option", async () => {
+      const { registry, remote, provider, asleep } = lifecycleSetup();
+      asleep();
+
+      await create(registry);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(remote.raw.pty.createOrAttach).toHaveBeenCalledTimes(1);
+      expect(registry.status("box")).toBe("connected");
+    });
   });
 
   it("stop() disconnects, has the provider stop the box, and sleeps", async () => {

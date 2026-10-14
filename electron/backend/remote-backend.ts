@@ -104,9 +104,16 @@ export interface RemoteBackendOptions {
   /**
    * Asked before each reconnect attempt; false stops the loop quietly (the
    * host's provider says it is asleep, ADR-229 D1). The next `connect()`
-   * resumes its sessions.
+   * resumes its sessions. `attempt` is 0-based, counted from the drop; a
+   * recipe host re-runs `up` on a later one (ADR-230 D2).
    */
-  beforeReconnect?: () => Promise<boolean>;
+  beforeReconnect?: (attempt: number) => Promise<boolean>;
+  /**
+   * Asked when a reconnect attempt fails in a way that would stop the loop
+   * (`classifyHostFailure`); true retries it anyway. A recipe host says so
+   * until its once-per-drop re-run of `up` has had its turn (ADR-230 D2).
+   */
+  retryPermanentFailure?: (err: unknown) => boolean;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
   reconnectDelayMs?: ReconnectPolicy;
   /**
@@ -146,7 +153,10 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
     this.client.setReconnectPolicy(this.reconnectDelayMs, {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.
-      isPermanentFailure: (err) => classifyHostFailure(err) !== null,
+      // A recipe box that moved fails at its old way in until `up` has run
+      // again (ADR-230 D2), so it may ask to keep going.
+      isPermanentFailure: (err) =>
+        classifyHostFailure(err) !== null && !(opts.retryPermanentFailure?.(err) ?? false),
       ...(opts.beforeReconnect ? { beforeAttempt: opts.beforeReconnect } : {}),
     });
     this.client.setHeartbeat(

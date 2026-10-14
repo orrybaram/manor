@@ -69,9 +69,15 @@ export type RemoteBackendFactory = (
     onDaemonReplacing: (sessionIds: string[]) => void;
     /**
      * Asked before each reconnect attempt; false stops the loop, the box
-     * being asleep (ADR-229 D1). See `RemoteHostConnection.beforeReconnect`.
+     * being asleep (ADR-229 D1). `attempt` is 0-based, counted from the
+     * drop. See `RemoteHostConnection.beforeReconnect`.
      */
-    beforeReconnect: () => Promise<boolean>;
+    beforeReconnect: (attempt: number) => Promise<boolean>;
+    /**
+     * Asked when a reconnect attempt fails in a way that would stop the
+     * loop; true retries it. See `RemoteHostConnection.retryPermanentFailure`.
+     */
+    retryPermanentFailure: (err: unknown) => boolean;
   },
 ) => RemoteHostBackend;
 
@@ -93,6 +99,7 @@ const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
     onBootstrapWarning: opts.onBootstrapWarning,
     onDaemonReplacing: opts.onDaemonReplacing,
     beforeReconnect: opts.beforeReconnect,
+    retryPermanentFailure: opts.retryPermanentFailure,
   });
 
 export interface BackendRegistryOptions {
@@ -237,7 +244,9 @@ export class BackendRegistry {
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
       onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
-      beforeReconnect: () => built.conn?.beforeReconnect() ?? Promise.resolve(true),
+      beforeReconnect: (attempt) =>
+        built.conn?.beforeReconnect(attempt) ?? Promise.resolve(true),
+      retryPermanentFailure: () => built.conn?.retryPermanentFailure() ?? false,
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     built.conn.serverClient.onStateChange((state) => this.serverStates.emit(hostId, state));

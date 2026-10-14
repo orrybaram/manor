@@ -72,6 +72,8 @@ import { LinearManager } from "../linear";
 import { NotificationStore } from "../notification-store";
 import { ProjectManager } from "../persistence";
 import { PortScanner } from "../ports";
+import { BranchWatcher } from "../branch-watcher";
+import { DiffWatcher } from "../diff-watcher";
 import { PreferencesManager } from "../preferences";
 import { WorktreeWatcher } from "../projects/worktree-watcher";
 import { RemoteAuditLog } from "../remote-control/audit";
@@ -80,7 +82,7 @@ import { PushManager, type VapidKeys } from "../remote-control/push";
 import { RelayIdentityStore } from "../remote-control/relay/identity";
 import { createBroadcastBus, type BroadcastBus } from "../renderer-broadcast";
 import { StatsStore } from "../stats-store";
-import { countBusyAgents } from "../stats-signals";
+import { countBusyAcross } from "../stats-signals";
 import { TerminalHostClient } from "../terminal-host/client";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ConnectionListener } from "../terminal-host/reconnect-supervisor";
@@ -95,7 +97,7 @@ import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
 import { createServerLaunches } from "./spawn-pane";
 import { HostRouting } from "./host-routing";
-import type { HostProxy } from "../backend/host-proxy";
+import type { HostProxy, HostPtyEvent } from "../backend/host-proxy";
 import type { PendingCommand } from "../layout/pending-commands";
 
 /**
@@ -253,11 +255,18 @@ export function createManorServer<D extends BridgeServerDeps>(
             label: (hostId: string): string => projectManager.hostLabel(hostId),
             ...(remoteHosts.hostCacheDir ? { cacheDir: remoteHosts.hostCacheDir } : {}),
             // A remote pane's chat and terminal, to whoever here subscribed
-            // to it (ADR-228 D5).
-            publishKeyed: (ns: "chat" | "pty", event: string, args: unknown[], key: string): void =>
-              bridge.publish(ns, event as never, args as never, key),
+            // to it (ADR-228 D5). Its `winsizeOwner` is told each caller
+            // here on its own (ADR-230 D10).
+            publishKeyed: (ns: "chat" | "pty", event: string, args: unknown[], key: string): void => {
+              if (ns === "pty" && routing.onHostPtyEvent(event as HostPtyEvent, args, key)) return;
+              bridge.publish(ns, event as never, args as never, key);
+            },
             // A detached window's claim on a remote tab is the desktop's (D7).
             claimsFor: (key: WorkspaceKey): LayoutClaim[] => layoutStore.claimsFor(key),
+            // And it lets go of them when the tab leaves (ADR-230 D9).
+            onLayoutMoved: (key, before, after): void => {
+              layoutStore.dropForeignClaims(key, before, after);
+            },
           },
         }
       : {}),
@@ -371,13 +380,31 @@ export function createManorServer<D extends BridgeServerDeps>(
   }
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backendRegistry);
+  // Each workspace's branch and diff, watched on the server that owns it
+  // (ADR-230 D6) for every connection that asks, and published on this
+  // server's bus. A desktop polls its remote hosts through their backends.
+  const branchWatcher = new BranchWatcher(backendRegistry, bus.publish);
+  const diffWatcher = new DiffWatcher(backendRegistry, {
+    // Paused while the desktop window is hidden, unless a paired browser is
+    // subscribed to the diff events (read at scan time, once the bridge
+    // exists). A host server has no window: nothing pauses it.
+    ...(platform.diffWindow ? { window: platform.diffWindow } : {}),
+    deviceWatching: () =>
+      bridge.hasDeviceSubscriber("diffs", "changed") ||
+      bridge.hasDeviceSubscriber("diffs", "fingerprintsChange"),
+    publish: bus.publish,
+  });
   // `gh` runs here, in the checkout, with this machine's own sign-in. A
   // remote project's calls are routed to its host's server (`byGhRepo`),
   // which composes the same manager (ADR-227 D7).
   const githubManager = new GitHubManager();
   // The remote-control and relay modules take their platform from these ports
   // rather than importing Electron, so every server can build them (ADR-225 D6).
-  const linearManager = new LinearManager(secretBox, opts.relayStores?.linearTokenFile);
+  const linearManager = new LinearManager(
+    secretBox,
+    opts.relayStores?.linearTokenFile,
+    (connected) => bus.publish("linear", "connectionChanged", connected),
+  );
   // One identity store for Jev and the relay: each caches the decrypted keys,
   // so a second instance would go stale when the relay address is reset.
   const relayFiles = opts.relayStores ?? {};
@@ -515,6 +542,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       else set.delete(agent.id);
     }
     notifier.updateDockBadge();
+    // Remote hook events no longer reach `observeHookEvent`, so the busy
+    // gauge is sampled here, once the proxy holds the update (ADR-230 D14).
+    statsStore.recordMax("maxConcurrentAgents", countBusyAcross(agentManager, routing));
     const status = agent.lastAgentStatus;
     const was = previous?.lastAgentStatus ?? null;
     if (status && status !== was) {
@@ -573,7 +603,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       statsStore.observeHookEvent(
         event,
         effects,
-        countBusyAgents(agentManager.getActiveAgents()),
+        countBusyAcross(agentManager, routing),
         isRootSession,
         replacedRootSessionId,
       );
@@ -751,6 +781,8 @@ export function createManorServer<D extends BridgeServerDeps>(
       projectManager,
       themeManager,
       portScanner,
+      branchWatcher,
+      diffWatcher,
       githubManager,
       linearManager,
       agentHookServer: agentPipeline.ingestion,
@@ -799,6 +831,11 @@ export function createManorServer<D extends BridgeServerDeps>(
   const unwireChat = wireChatMirror({ chatMirror }, bridge, bus.subscribe, routing ?? undefined);
   // A remote pane's terminal events, for whoever here views it (ADR-228 D5).
   const unwirePty = routing?.wirePty(bridge) ?? ((): void => {});
+  // A connection that closed watches nothing any more (ADR-230 D6).
+  const unwireWatchers = bridge.onDisconnect((connectionId) => {
+    branchWatcher.stop(connectionId);
+    diffWatcher.stop(connectionId);
+  });
 
   return {
     ...core,
@@ -843,6 +880,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       // a connection set that is gone.
       unwireChat();
       unwirePty();
+      unwireWatchers();
+      branchWatcher.dispose();
+      diffWatcher.dispose();
       bridge.dispose();
       chatMirror.dispose();
       // Takes down the ssh children; remote sessions keep running on their hosts.

@@ -17,7 +17,6 @@ import type {
 } from "../persistence";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { hostSpecLabel } from "../backend/providers/recipes";
-import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
 import { startAgentInWorkspace } from "./agents";
@@ -150,14 +149,10 @@ function withHostLabel(
 
 /**
  * `projects` with each group's `members` spelled out: id, name and host.
- * A relayed caller (ADR-189) sees only its own host (`callerMaySee`), so
- * its groups list only its own host's members, and a last-used host that
- * isn't its own reads as null.
  */
 function withGroupMembers(
   pm: ProjectManager,
   projects: ProjectInfo[],
-  callerHostId: string | undefined,
 ): ProjectListing[] {
   const byId = new Map(projects.map((p) => [p.id, p]));
   return projects.map((project) => {
@@ -166,7 +161,7 @@ function withGroupMembers(
     if (!group) return { ...listed, group: null };
     const members = group.memberIds.flatMap((id): GroupMemberListing[] => {
       const member = byId.get(id);
-      if (!member || !callerMaySee(callerHostId, member.hostId)) return [];
+      if (!member) return [];
       return [
         {
           projectId: member.id,
@@ -182,9 +177,7 @@ function withGroupMembers(
         id: group.id,
         name: group.name,
         memberIds: members.map((m) => m.projectId),
-        lastUsedHostId: callerMaySee(callerHostId, group.lastUsedHostId)
-          ? group.lastUsedHostId
-          : null,
+        lastUsedHostId: group.lastUsedHostId,
         members,
       },
     };
@@ -224,8 +217,6 @@ interface WorkspaceTargetRequest {
   projects: ProjectInfo[];
   /** The `host` argument, if the caller passed one. */
   host?: string;
-  /** Set when the request was relayed from a remote host (ADR-189). */
-  callerHostId?: string;
   /** Whether a host is away (registered, not connected). */
   isAway?: (hostId: string) => boolean;
 }
@@ -237,8 +228,8 @@ type WorkspaceTargetResult =
 /**
  * Which project a create-workspace request lands in. An unlinked project is
  * its own and only target. For a linked one, `host` picks that host's
- * member; without it, the caller's own host (a relayed remote CLI), then the
- * group's last-used host if it isn't away, then any member whose host isn't
+ * member; without it, the group's last-used host if it isn't away, then any
+ * member whose host isn't
  * (this machine first), then the last-used host anyway — so the create
  * explains why it can't go ahead — then the project named in the path. The
  * New Workspace dialog's `defaultHostChoice` follows the same order.
@@ -249,16 +240,12 @@ function workspaceTarget(
     project,
     projects,
     host,
-    callerHostId,
     isAway = () => false,
   }: WorkspaceTargetRequest,
 ): WorkspaceTargetResult {
   const members = (project.group?.memberIds ?? [project.id])
     .map((id) => projects.find((p) => p.id === id))
-    .filter(
-      (p): p is ProjectInfo =>
-        p !== undefined && callerMaySee(callerHostId, p.hostId),
-    );
+    .filter((p): p is ProjectInfo => p !== undefined);
   const onHost = (hostId: string | null | undefined) =>
     hostId ? members.find((m) => m.hostId === hostId) : undefined;
 
@@ -272,7 +259,6 @@ function workspaceTarget(
           Number(b.hostId !== LOCAL_HOST_ID),
       );
     const target =
-      onHost(callerHostId) ??
       (lastUsed && !isAway(lastUsed.hostId) ? lastUsed : undefined) ??
       reachable[0] ??
       lastUsed ??
@@ -281,14 +267,6 @@ function workspaceTarget(
   }
 
   const resolved = resolveHostArg(pm, host);
-  // A relayed caller must not learn which other hosts exist, so every host
-  // but its own — unknown, ambiguous or real — gets the same answer.
-  if (
-    callerHostId &&
-    !(resolved.ok && callerMaySee(callerHostId, resolved.hostId))
-  ) {
-    return { ok: false, status: 403, error: OWN_HOST_ONLY };
-  }
   if (!resolved.ok) {
     return {
       ok: false,
@@ -329,7 +307,6 @@ function resolveCreateTarget(
           project: named,
           projects,
           host: typeof body.host === "string" && body.host ? body.host : undefined,
-          callerHostId: deps.callerHostId,
           isAway: (hostId) => {
             if (hostId === LOCAL_HOST_ID) return false;
             const status = deps.hostStatus?.(hostId);
@@ -563,10 +540,7 @@ export const projectRoutes: ServerRoute[] = [
     path: "/projects",
     async handler({ deps, json }) {
       const pm = deps.projectManager;
-      json(
-        200,
-        withGroupMembers(pm, await pm.getProjects(), deps.callerHostId),
-      );
+      json(200, withGroupMembers(pm, await pm.getProjects()));
     },
   },
 

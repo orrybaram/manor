@@ -41,7 +41,7 @@ import type {
 } from "../renderer-broadcast";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import type { EventArgs, EventNs, EventOf } from "./events";
-import type { Caller, HandlerCtx, HandlerTable, RouteRule } from "./method";
+import { byPane, type Caller, type HandlerCtx, type HandlerTable, type RouteRule } from "./method";
 import {
   ALL_KEYS,
   BridgeUnavailableRefusal,
@@ -141,6 +141,13 @@ interface BridgeServerOptions<D> {
  * the server itself reads from `D` is `BridgeServerDeps`: a session's grid,
  * for the winsize push.
  */
+/** What `BridgeServer.viewing` reports. */
+export interface ViewingState {
+  desktop: boolean;
+  device: boolean;
+  forwarded: boolean;
+}
+
 export class BridgeServer<D extends BridgeServerDeps> {
   private readonly connections = new Map<string, Registered>();
   private readonly audit: RemoteAuditLog;
@@ -270,9 +277,13 @@ export class BridgeServer<D extends BridgeServerDeps> {
         // Dropped while the handler ran: anything it attached for this
         // connection (a pane viewer, by `pty.create`) was attached after
         // `drop` released it, so release it again — unless a new connection
-        // has taken the id meanwhile.
+        // has taken the id meanwhile. Disconnect sinks hear of it again for
+        // the same reason (a watch start would otherwise leave a set behind
+        // for an id that never disconnects again, ADR-230 D6), so they must
+        // treat a repeated id as harmless.
         if (!this.connections.has(connection.id)) {
           releaseViewer(connection.id);
+          for (const cb of this.disconnectSinks) cb(connection.id);
         }
         return result;
       }
@@ -446,6 +457,22 @@ export class BridgeServer<D extends BridgeServerDeps> {
   }
 
   /**
+   * `ns.event` to one connection, if it asked for it (at `key`, for a keyed
+   * event): a push whose arguments differ per connection. `HostRouting` tells
+   * each caller viewing a remote pane its own `winsizeOwner` this way
+   * (ADR-230 D10).
+   */
+  publishTo<N extends EventNs, E extends EventOf<N>>(
+    connectionId: string,
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
+    key?: string,
+  ): void {
+    this.deliverTo(connectionId, eventFrame(ns, event, args, key));
+  }
+
+  /**
    * Whether a paired device (not a desktop window) is subscribed to
    * `ns.event` — someone is watching through a browser, which a hidden
    * desktop window says nothing about (the `DiffWatcher` asks before it
@@ -472,6 +499,23 @@ export class BridgeServer<D extends BridgeServerDeps> {
       if (connection.viewer === "desktop" && subscriptions.has(name)) return true;
     }
     return false;
+  }
+
+  /**
+   * Who is subscribed to `ns.event` at any key, by kind of viewer (ADR-230
+   * D1): a desktop window's viewer stream, a paired device, and the owner
+   * channel (main forwarding a pane it watches for another window).
+   */
+  viewing(ns: string, event: string): ViewingState {
+    const name = `${ns}.${event}`;
+    const state: ViewingState = { desktop: false, device: false, forwarded: false };
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (!subscriptions.has(name)) continue;
+      if (connection.viewer === "desktop") state.desktop = true;
+      else if (connection.callerClass === "owner") state.forwarded = true;
+      if (connection.callerClass === "device") state.device = true;
+    }
+    return state;
   }
 
   /** Stop. An unsubscribe for something never subscribed to is not an error. */
@@ -555,6 +599,9 @@ export class BridgeServer<D extends BridgeServerDeps> {
    */
   private async onOwnerChanged(paneId: string): Promise<void> {
     if (this.connections.size === 0) return;
+    // A pane on a host server is `HostRouting`'s to tell (ADR-230 D10): the
+    // host's answer goes with this side's.
+    if (this.routeTarget(byPane(0), [paneId]) !== null) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
     // A pane held elsewhere (ADR-225 D5) answers a foreign owner no

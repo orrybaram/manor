@@ -64,3 +64,15 @@ ADR-228, all decisions.
 - **Panes attached before adoption.** A pane main attached through the
   daemon before adoption, in the same run, keeps its daemon subscription
   until main restarts.
+
+## Carried over from ticket 7
+- `docs/remote-hosts.md#testing` should list `phone-all-pairings.spec.ts`.
+- "Known limits as built" candidates:
+  - `branches.start` / `diffs.start` go to home only; home drops workspaces
+    for hosts it doesn't know, so branch/diff watching for host-server-only
+    workspaces on the phone is off. Proper fix: split per server and merge.
+  - `projects.getSelectedIndex` / `select` index home's list, not the merged one.
+  - The fallback id is `<desktopRoom>~<hostId>` (ADR text says `/`):
+    `workspaceKey` can't hold `/`. Update D2.
+  - Hosts sheet opens from the drawer's bottom nav, not the top-bar menu.
+- web-app e2e 255, 470, 566 fail on a3058ed1 too (pre-existing).

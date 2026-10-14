@@ -51,3 +51,10 @@ ADR-228 D9.
 - `src/components/settings/HostPhoneAccess.tsx`, `src/store/host-store.ts`
 - `src/bridge/install-web.ts` (call on hello)
 - tests and the phone E2E
+
+## Carried over from ticket 7
+- `install-web.ts` follows `subscribePairings`: pairings upserted by
+  `linkHostPairings` join the server set on their own. Use
+  `recordPairingHello`/`recordPairingHosts` in `src/bridge/pairings.ts`;
+  `customName` is the user's rename and must not be overwritten.
+- The phone's Hosts sheet is `src/components/phone/HostsSheet/`.

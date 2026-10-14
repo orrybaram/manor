@@ -1,6 +1,6 @@
 ---
 title: The phone connects to every pairing at once
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [4, 2]

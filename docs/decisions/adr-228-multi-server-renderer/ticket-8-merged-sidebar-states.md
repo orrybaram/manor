@@ -42,3 +42,12 @@ ADR-228 D3 (groups) and D8 (one sidebar).
   without direct reachability, so they don't re-render on server-set
   changes. Switch them to `sourcedHost` / `useDirectReachability`
   (`src/lib/host-status.ts`, `src/bridge/server-set.ts`).
+
+## Carried over from ticket 7
+- On the phone, `hosts.list` from home is stamped, so a desktop-listed host
+  carries its room id. The desktop's own room, and a host server's room,
+  still show raw ids. Use the server set's hello facts (`servers` entries,
+  `roomId`, `aliases`; pairing `customName`/`name` in `src/bridge/pairings.ts`)
+  for labels. Away projects are not dimmed yet on the phone.
+- Host ids on the phone are room ids, or `<desktopRoom>~<hostId>` for an
+  unmapped host (`viaServer()` in `src/bridge/server-set.ts`), not `/`.

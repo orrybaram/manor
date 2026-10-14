@@ -238,7 +238,7 @@ export interface RemoteHostContext extends HostConnectionContext {
 export interface HostProxyContext
   extends Pick<
     HostProxyOptions,
-    "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "claimsFor" | "saveDelayMs" | "log"
+    "bus" | "republishAgents" | "onAgentUpdate" | "onUnseenRead" | "publishKeyed" | "claimsFor" | "onLayoutMoved" | "saveDelayMs" | "log"
   > {
   /** The desktop's name for a host (`HostRecords.label`), read at use. */
   label(hostId: string): string;
@@ -576,6 +576,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
           onUnseenRead: (ids, unseen) => proxyCtx.onUnseenRead?.(ids, unseen),
           publishKeyed: proxyCtx.publishKeyed,
           claimsFor: proxyCtx.claimsFor,
+          onLayoutMoved: proxyCtx.onLayoutMoved,
           onProgress: (event, args) => proxyCtx.onProgress?.(hostId, event, args),
           saveDelayMs: proxyCtx.saveDelayMs,
           log: proxyCtx.log,

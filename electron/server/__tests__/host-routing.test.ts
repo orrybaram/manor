@@ -40,6 +40,7 @@ import { createTab } from "../../../src/lib/layout/ids";
 import type { LayoutBroadcast } from "../../../src/lib/layout/protocol";
 import type { LayoutClaim } from "../../../src/lib/layout/visible-tabs";
 import type { AgentInfo } from "../../agent-persistence";
+import { LayoutStore } from "../../layout/layout-store";
 import { HostRouting } from "../host-routing";
 import type { WorkspaceKey } from "../../../src/lib/workspace-key";
 import { handleServerControlRequest } from "../../routes/server-routes";
@@ -129,6 +130,14 @@ describe("HostRouting (ADR-227 D4)", () => {
     const keyed: Array<{ ns: string; event: string; args: unknown[]; key: string }> = [];
     /** The desktop windows' claims, by workspace key. */
     const claims = new Map<string, LayoutClaim[]>();
+    /** The desktop's own layout store, which holds detached windows' claims. */
+    const windowClaims = new Map<string, { workspacePath: string; tabId: string }>();
+    const desktopLayout = new LayoutStore(
+      { load: () => null, save: () => {} } as never,
+      () => {},
+      {} as never,
+      { isPrimary: () => false, claimOf: (id) => windowClaims.get(id) ?? null },
+    );
     const attachments = new PtyAttachments();
     const proxy = new HostProxy({
       client,
@@ -144,7 +153,10 @@ describe("HostRouting (ADR-227 D4)", () => {
         if (ns === "pty" && routing.onHostPtyEvent(event as HostPtyEvent, args, key)) return;
         keyed.push({ ns, event, args, key });
       },
-      claimsFor: (key) => claims.get(key) ?? [],
+      claimsFor: (key) => [...(claims.get(key) ?? []), ...desktopLayout.claimsFor(key as WorkspaceKey)],
+      onLayoutMoved: (key, was, now) => {
+        desktopLayout.dropForeignClaims(key, was, now);
+      },
     });
     onTestFinished(() => proxy.dispose());
     const routing = new HostRouting({
@@ -175,7 +187,7 @@ describe("HostRouting (ADR-227 D4)", () => {
       (ids) => ids.length === 2,
       "box's projects through the proxy",
     );
-    return { client, proxy, routing, projectManager, pendingCommands, heard, keyed, claims, before, attachments };
+    return { client, proxy, routing, projectManager, pendingCommands, heard, keyed, claims, before, attachments, desktopLayout, windowClaims };
   }
 
   /**
@@ -651,6 +663,43 @@ describe("HostRouting (ADR-227 D4)", () => {
       claims: [{ windowId: "9", tabId }],
       origin: { kind: "window", id: "9" },
     });
+  });
+
+  it("drops a window's claim on a remote tab once the host closes it (ADR-230 D9)", async () => {
+    const { routing, heard, desktopLayout, windowClaims } = await adoptedDesktop();
+    const key = `box:${BOX_WT}` as WorkspaceKey;
+    await eventually(() => routing.layout()[key], Boolean, "box's layout");
+    const first = routing.layout()[key].layout;
+    const tabId = first.panels[Object.keys(first.panels)[0]].tabs[0].id;
+    // A second tab, so closing the first leaves a workspace.
+    await routing.invoke("box", "layout", "apply", [key, { type: "new-tab", tab: createTab(undefined, "pane-two") }], WINDOW);
+    await eventually(
+      () => Object.values(routing.layout()[key].layout.panels).flatMap((p) => p.tabs).length,
+      (n) => n === 2,
+      "the second tab",
+    );
+
+    windowClaims.set("9", { workspacePath: key, tabId });
+    desktopLayout.reportViewport(
+      key,
+      { kind: "window", id: "9" },
+      { activePanelId: "p", selectedTabIds: {}, focusedPaneIds: {} },
+    );
+    expect(desktopLayout.claimsFor(key)).toEqual([{ windowId: "9", tabId }]);
+
+    await routing.invoke("box", "layout", "apply", [key, { type: "close-tab", tabId }], WINDOW);
+    const told = await eventually(
+      () =>
+        heard
+          .filter((b) => b.ns === "layout" && b.event === "changed")
+          .map((b) => b.args[0] as LayoutBroadcast)
+          .filter((b) => b.workspacePath === key)
+          .pop(),
+      (b) => !!b && !Object.values(b.layout.panels).some((p) => p.tabs.some((t) => t.id === tabId)),
+      "the layout without the tab",
+    );
+    expect(told!.claims).toEqual([]);
+    expect(desktopLayout.claimsFor(key)).toEqual([]);
   });
 
   it("refuses a write while the host is away, and reads from the cache", async () => {

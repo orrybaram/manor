@@ -890,12 +890,37 @@ export class LayoutStore {
     before: WorkspaceLayout,
     after: WorkspaceLayout,
   ): boolean {
-    const had = layoutTabIds(before);
-    const has = layoutTabIds(after);
+    return this.dropClaims(workspacePath, before, after);
+  }
+
+  /**
+   * Drop the claims on a remote workspace's tabs that left (ADR-230 D9).
+   * `after` null means the workspace was removed: every claim for the key
+   * goes. With no `before`, nothing is dropped. Doesn't broadcast: the layout
+   * publish that follows carries the claims.
+   */
+  dropForeignClaims(
+    key: string,
+    before: WorkspaceLayout | undefined,
+    after: WorkspaceLayout | null,
+  ): boolean {
+    if (after === null) return this.dropClaims(key, null, null);
+    if (!before) return false;
+    return this.dropClaims(key, before, after);
+  }
+
+  /** The shared tab-difference rule; `after` null drops every claim. */
+  private dropClaims(
+    workspacePath: string,
+    before: WorkspaceLayout | null,
+    after: WorkspaceLayout | null,
+  ): boolean {
+    const had = before ? layoutTabIds(before) : null;
+    const has = after ? layoutTabIds(after) : null;
     let dropped = false;
     for (const [windowId, claim] of [...this.claims]) {
       if (claim.workspacePath !== workspacePath) continue;
-      if (!had.has(claim.tabId) || has.has(claim.tabId)) continue;
+      if (has && (!had || !had.has(claim.tabId) || has.has(claim.tabId))) continue;
       this.claims.delete(windowId);
       dropped = true;
     }

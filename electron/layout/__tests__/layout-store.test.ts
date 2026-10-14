@@ -25,7 +25,7 @@ import {
   type PersistedLayoutV2,
 } from "../../terminal-host/layout-persistence";
 import type { LayoutStoreBackend } from "../layout-store";
-import type { Tab } from "../../../src/lib/layout/workspace-layout";
+import { createSinglePanelLayout, type Tab } from "../../../src/lib/layout/workspace-layout";
 import {
   workspaceKey,
   type WorkspaceKey,
@@ -951,6 +951,58 @@ describe("LayoutStore", () => {
       desktop.releaseWindow("window-2");
       expect(desktop.claimsFor(remote)).toEqual([]);
       expect(told).toHaveLength(2);
+    });
+
+    describe("dropForeignClaims (ADR-230 D9)", () => {
+      const remote = "box:/srv/app" as WorkspaceKey;
+      const layoutOf = (...tabIds: string[]) =>
+        createSinglePanelLayout(
+          "panel-1",
+          tabIds.map((id) => leafTab(id, `pane-${id}`)),
+          [],
+        );
+
+      /** A desktop store holding window-2's claim on `tab-9` of a remote key. */
+      function claimedDesktop(): LayoutStore {
+        const desktop = new LayoutStore(
+          persistence,
+          (payload) => {
+            broadcasts.push(payload);
+          },
+          { pty: { kill } } as unknown as LayoutStoreBackend,
+          {
+            isPrimary: () => false,
+            claimOf: (id) => (id === "window-2" ? { workspacePath: remote, tabId: "tab-9" } : null),
+          },
+        );
+        desktop.reportViewport(
+          remote,
+          { kind: "window", id: "window-2" },
+          { activePanelId: "panel-1", selectedTabIds: {}, focusedPaneIds: {} },
+        );
+        broadcasts = [];
+        return desktop;
+      }
+
+      it("drops a claim on a tab that left", () => {
+        const desktop = claimedDesktop();
+        expect(desktop.dropForeignClaims(remote, layoutOf("tab-1", "tab-9"), layoutOf("tab-1"))).toBe(true);
+        expect(desktop.claimsFor(remote)).toEqual([]);
+        expect(broadcasts).toHaveLength(0);
+      });
+
+      it("keeps a claim on a tab that has not appeared yet, or has no before", () => {
+        const desktop = claimedDesktop();
+        expect(desktop.dropForeignClaims(remote, layoutOf("tab-1"), layoutOf("tab-1", "tab-2"))).toBe(false);
+        expect(desktop.dropForeignClaims(remote, undefined, layoutOf("tab-1"))).toBe(false);
+        expect(desktop.claimsFor(remote)).toEqual([{ windowId: "window-2", tabId: "tab-9" }]);
+      });
+
+      it("drops every claim for the key when the workspace is removed", () => {
+        const desktop = claimedDesktop();
+        desktop.dropForeignClaims(remote, layoutOf("tab-1"), null);
+        expect(desktop.claimsFor(remote)).toEqual([]);
+      });
     });
 
     it("forgets the claims of a workspace that is going away", () => {

@@ -263,6 +263,10 @@ export function createManorServer<D extends BridgeServerDeps>(
             },
             // A detached window's claim on a remote tab is the desktop's (D7).
             claimsFor: (key: WorkspaceKey): LayoutClaim[] => layoutStore.claimsFor(key),
+            // And it lets go of them when the tab leaves (ADR-230 D9).
+            onLayoutMoved: (key, before, after): void => {
+              layoutStore.dropForeignClaims(key, before, after);
+            },
           },
         }
       : {}),

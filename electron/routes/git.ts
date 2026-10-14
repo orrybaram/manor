@@ -1,5 +1,5 @@
 /**
- * `/git/*` — thin wrappers over `backend.git` (`GitBackend`,
+ * `/git/*` — thin wrappers over the project's host's `git` (`GitBackend`,
  * `../backend/types.ts`): stage/unstage/discard/stash, commit, push, staged
  * files, and local/full diff.
  *
@@ -12,7 +12,11 @@
  * there is no caller host to scope by; `cwd`'s own host is guessed from its
  * owner (`ownerHostIdForPath`, ADR-191), the same tie-break `PathRouter`
  * uses, then a scan of every other host, local first, if that guess doesn't
- * actually resolve — see `resolveProjectByPath`.
+ * actually resolve — see `resolveProjectByPath`. Git then runs on the host of
+ * the project that lookup resolved (`backendRegistry`, ADR-230 D13), not on
+ * whichever host `PathRouter` would guess for `cwd`, so the project's default
+ * branch and the host running git can't disagree. A host that is away or
+ * unregistered fails as `RoutedBackend.git` would: `HostUnavailableError`.
  */
 
 import { matchProjectByPath } from "../pane-context";
@@ -81,7 +85,8 @@ async function resolveGit(
     json(400, { error: `'${cwd}' is not a known workspace path` });
     return null;
   }
-  return { git: deps.backend.git, project: match.project, cwd };
+  return { git: deps.backendRegistry.get(normalizeHostId(match.project.hostId)).git,
+    project: match.project, cwd };
 }
 
 /** `files` must be a non-empty array of strings, shared by four routes below. */

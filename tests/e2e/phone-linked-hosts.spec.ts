@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { ElectronApplication, Page } from "@playwright/test";
 
 import { expect, killApp } from "./fixtures";
 import { openWebApp } from "./helpers/phone";
@@ -37,6 +37,14 @@ import { closeSettings, openRemoteControlSettings, pairBrowser } from "./helpers
  * 4. The desktop stops. The box's project stays live: the phone asks the box
  *    for a branch made on it after the desktop went, and gets it.
  *
+ * Linear (ADR-228 D10) rides along: it is connected on the desktop only (its
+ * GraphQL answered by a stub in main, there being no Linear here), and the
+ * box's server has it off. The phone's Linear call is answered by the
+ * desktop; with the desktop stopped it is refused, saying the desktop is
+ * away. This checks the routing by each server's `isConnected` answer, and
+ * the call with no host in mind (`TasksView`'s); a call on behalf of the box
+ * goes through the same choice, in `src/bridge/__tests__/router.test.ts`.
+ *
  * Needs the private-sshd target (`node scripts/test-remote-e2e.mjs`), as
  * `phone-all-pairings.spec.ts` does: the box must reach the local relay.
  */
@@ -69,6 +77,39 @@ function storedRooms(page: Page): Promise<string[]> {
     JSON.parse(localStorage.getItem("manor.web.pairings") ?? "[]").map(
       (p: { roomId: string }) => p.roomId,
     ),
+  );
+}
+
+/** The stub viewer main's Linear answers with. */
+const LINEAR_VIEWER = { name: "E2E Linear", email: "e2e@linear.test" };
+
+/**
+ * Answer main's Linear GraphQL with `viewer` alone; every other fetch goes
+ * out as before. Main's `LinearManager` calls the global `fetch` per call.
+ */
+async function stubDesktopLinear(app: ElectronApplication): Promise<void> {
+  await app.evaluate((_electron, viewer) => {
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith("https://api.linear.app/")) return real(input, init);
+      return new Response(JSON.stringify({ data: { viewer } }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+  }, LINEAR_VIEWER);
+}
+
+/** The phone's `linear.getViewer()`: its answer's name, or the refusal. */
+function phoneLinearViewer(page: Page): Promise<string> {
+  return page.evaluate(() =>
+    Promise.race([
+      window.electronAPI.linear.getViewer().then(
+        (v) => `viewer:${v.name}`,
+        (err: unknown) => `refused:${err instanceof Error ? err.message : String(err)}`,
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve("pending"), 5_000)),
+    ]),
   );
 }
 
@@ -113,6 +154,10 @@ relayTest.describe("a phone paired with the desktop only", () => {
       await closeSettings(window);
       const deskRoom = roomOf(desk.link);
 
+      // Linear on the desktop only, before the phone first asks who has it.
+      await stubDesktopLinear(app);
+      await window.evaluate(() => window.electronAPI.linear.connect("lin_api_e2e"));
+
       const client = await openWebApp(desk.link, { viewport: DESK });
       try {
         const page = client.page;
@@ -145,6 +190,13 @@ relayTest.describe("a phone paired with the desktop only", () => {
         ).toContainText("via This Mac", { timeout: STEP });
         await closeSettings(window);
 
+        // Linear, which the box's server does not have, answered by the desktop.
+        await pollFor(
+          "the phone's Linear call answered by the desktop",
+          async () => ((await phoneLinearViewer(page)) === `viewer:${LINEAR_VIEWER.name}` ? true : null),
+          STEP,
+        );
+
         // 4. The desktop stops; the box answers on its own.
         await killApp(app);
         onRemote(`git -C ~/code/${PROJECT_NAME} branch linked-live`);
@@ -160,6 +212,17 @@ relayTest.describe("a phone paired with the desktop only", () => {
           STEP,
         );
         await expect(page.getByText(PROJECT_NAME, { exact: true }).first()).toBeVisible();
+
+        // Linear now has nowhere to go, and says why.
+        const refusal = await pollFor(
+          "the phone's Linear call refused with the desktop away",
+          async () => {
+            const answer = await phoneLinearViewer(page);
+            return answer.startsWith("refused:") && answer.includes("is away") ? answer : null;
+          },
+          STEP,
+        );
+        expect(refusal).toContain("no host has it turned on");
       } catch (err) {
         console.log(`[phone-linked-hosts.spec] phone log:\n${client.log.join("\n")}`);
         throw err;

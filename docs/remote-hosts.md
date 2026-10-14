@@ -179,9 +179,45 @@ pair and revoke phones, and reset the server's keys. The desktop pushes
 nothing to the server any more (it used to send a manifest and a layout
 snapshot). It reads and writes the box's state through the server, and hears
 changes as events. It keeps a cache of the last answers, so the sidebar still
-shows the box's workspaces while it is away. One extra round trip is
-deliberate: opening a remote pane asks the server for the pane first (so the
-server can type any waiting command), then attaches to the terminal.
+shows the box's workspaces while it is away.
+
+**Viewer streams.** Each desktop window also talks to the host server
+directly, over a stream of its own: `ssh <box> 'exec manor-host server-bridge
+--viewer'`, on the same ControlMaster as the owner channel. It authenticates
+the same way (SSH, then the 0600 token file on the box) and its hello marks
+it as a desktop window. The window's reads, writes and terminal bytes for the
+box's projects go over it straight to the host server, one hop. Main only
+moves frames between the window and ssh (the `hostPipe` preload namespace);
+it doesn't parse or route them. A window opens a stream once the host is
+connected and its server says it takes one (`viewer-bridge` in its status),
+and main closes it when the window closes or the host drops.
+
+- **Terminal size.** The host server ranks a desktop window's stream like a
+  local window, above every phone, so the desktop still decides a pane's size
+  while it has the pane mounted, and a phone follows. One registry on the box
+  decides that for every viewer.
+- **When a stream drops**, the window falls back to main for that host: main
+  forwards its calls over the owner channel (`HostRouting`) and serves the
+  cache while the host is away. The window dials the stream again with
+  backoff, and at once when the host reconnects, then redraws its panes over
+  it.
+- **Main keeps the owner channel** for what needs one bridge: a phone paired
+  only with the desktop (its terminals for the box are forwarded by main to
+  the host server), the `manor` CLI and MCP routes, notifications and the
+  dock badge, and the cache. The desktop's daemon connection to the box is
+  for lifecycle only now: starting the daemon, upgrades, port forwards and
+  the CLI relay. Remote panes are no longer attached over it.
+
+### Older host servers
+
+A host server from before multi-server support doesn't report
+`viewer-bridge`, so a desktop window opens no stream to it. The window
+reaches that box through main, as it did before: main forwards every call
+over the owner channel, and attaches the box's terminals through the host
+server. The same applies to a box that hasn't been adopted yet. The next
+connect upgrades the host package, and the window opens its stream once the
+new server reports `viewer-bridge`. Until its upgrade runs, an older server
+also lacks `pty.reset` and `pty.close`.
 
 ### Adoption
 
@@ -228,11 +264,21 @@ terminals.
 
 ## Your phone with the lid closed
 
-Pair a phone with the box from **Settings → Remote control**. Each remote host
-has its own section there (see
+Pair a phone with the desktop from **Settings → Remote control**, and it is
+paired with your remote hosts too (see
+[One pairing for every host](#one-pairing-for-every-host)). You can also pair
+it with one box directly, from that host's own section there (see
 [Pairing a phone with a host](remote-control.md#pairing-a-phone-with-a-host)).
-That phone reaches the box's host server directly, through the Manor relay,
-whether or not your laptop is awake.
+Either way the phone reaches the box's host server directly, through the
+Manor relay, whether or not your laptop is awake.
+
+**One sidebar.** The phone connects to every pairing it holds at once and
+shows their projects together, each under its host's name. A box's project is
+answered by the box's own pairing while that is reachable, and through the
+desktop otherwise. With the desktop away, the desktop's own projects stay
+listed, dimmed, from what it last said, and writes to them are refused; a box
+that is awake keeps working. The **Hosts** sheet (from the bottom of the
+drawer) lists each pairing with its reachability, and renames or removes one.
 
 **What it can do:**
 
@@ -243,15 +289,17 @@ whether or not your laptop is awake.
 - Use the chat view and reply, slash commands included.
 - Rearrange the layout (split, close, move tabs); the box owns it.
 - Get push notifications when an agent needs input or hits an error.
-- Switch between hosts, if it's paired with more than one.
+- Use Linear through the desktop while the desktop is awake, even on a box
+  that doesn't have Linear (see
+  [Linear through the desktop](#linear-through-the-desktop)).
 
 **What it can't do:**
 
 - Add or remove a project, or set one up on a box. That needs the desktop (it
   is an owner-only action). Until the box has been adopted, the server
   answers *This host is being set up* and the phone sees no projects.
-- Use Linear, until you turn on **Use Linear on \<host\>** from the desktop
-  (see [Integrations](#integrations)).
+- Use Linear with the desktop away, until you turn on **Use Linear on
+  \<host\>** from the desktop (see [Integrations](#integrations)).
 - Reach the desktop's own features: the box's server has no browser panes,
   windows or system integration.
 
@@ -263,10 +311,10 @@ Some more details:
 - **Layout.** The layout is the box's own, so a terminal an agent starts on
   the box is in it from the start. The old **Started while away** tab is
   gone.
-- **Terminal size.** While another client (the desktop, say) is attached to a
-  terminal, the phone follows its size and shrinks the font rather than
-  resizing it. When the phone is the only one attached, the terminal takes the
-  phone's size.
+- **Terminal size.** While the desktop has a terminal open, or another client
+  is attached to it, the phone follows its size and shrinks the font rather
+  than resizing it. When the phone is the only one attached, the terminal
+  takes the phone's size.
 - **Projects the desktop sets up while connected** are on the box at once.
   One set up on the box (by its `manor` CLI, say) shows on the phone and, the
   next time the desktop connects, on the laptop.
@@ -277,6 +325,29 @@ When the laptop opens again, it doesn't replay anything: it reads the box's
 state through the server, so the sidebar already shows what the phone did,
 including a workspace made while away, its agent's tab and the agent's
 status, with no restart.
+
+### One pairing for every host
+
+A phone paired with the desktop doesn't need a QR code per host. Every time
+it connects to the desktop, it asks the desktop to pair it with each host it
+doesn't already hold (`remoteControl.linkHostPairings`). For each host whose
+server is connected and whose relay is up, the desktop pairs the phone there
+over the owner channel, under the phone's own label, and hands the phone that
+room's key and token inside the phone's own encrypted channel. A host added
+later, or one that was away, is picked up on a later connect.
+
+- **On the host's device list**, such a phone shows "via This Mac".
+- **Revoking the phone on the desktop** revokes it on every host it was
+  linked to. A host that is away then is revoked on its next connect.
+- **Phones paired with this Mac can reach \<host\>.** Each host's section of
+  Settings → Remote control has this switch, on by default. Turning it off
+  stops linking phones to that host and revokes the ones already linked.
+- **Removing a host on the phone** (the Hosts sheet) is remembered: the
+  desktop won't link that room again. The same goes for a pairing the host
+  revoked. Pairing that host again by its QR code undoes it.
+- **Reset pairing keys** on a host drops every phone there and moves the host
+  to a new room. Phones still paired with the desktop are linked to the new
+  room on their next connect.
 
 ## Where secrets live
 
@@ -378,6 +449,26 @@ Every integration is one of two kinds:
   on for \<host\>". Turning the switch off, or **Reset pairing keys**, deletes
   the copy. Linear on your laptop for a remote project always uses your laptop's
   key; the copy is only for phones and the box's own server.
+
+### Linear through the desktop
+
+A phone that reaches a box without Linear can still use Linear, through the
+desktop. Linear calls aren't tied to a box, so each one goes to whichever
+server has Linear:
+
+1. the box's own server, if you turned on **Use Linear on \<host\>**;
+2. else the desktop that lists the box, if it is awake and has Linear
+   connected. The key never leaves the desktop;
+3. else nowhere, and the phone says why, naming the desktop as its pairing
+   does: for example "Linear isn't turned on for wsl-box, and my-laptop is
+   away".
+
+Browsing issues with no box in mind (the Tasks view) asks the desktop first,
+then any box with Linear on. When none has it, the Tasks view names the
+reason ("Linear isn't connected on This Mac, and no host has it turned on").
+Linking an issue to a workspace is still the box's own: the link is stored
+with the project on the box, whichever server answered the browse. On the
+desktop nothing changes: its own server is always there and holds the key.
 
 ### Linear without a key on the box
 
@@ -676,7 +767,8 @@ node scripts/test-remote-e2e.mjs --docker
   resync without duplicated output, and a remote daemon restart.
 - `tests/e2e/remote-host.spec.ts` (Playwright) covers the app: laptop-closed
   replay with a single notification, pane recovery with the agent's resume
-  command after a remote restart, and port forwarding.
+  command after a remote restart, and port forwarding. Each test starts from
+  a clean box.
 - `tests/e2e/host-server.spec.ts` (Playwright) covers the host server with the
   laptop gone. The desktop clones a project onto the box and starts an agent
   there, and pairs a browser with the box's host server through a local relay
@@ -710,12 +802,30 @@ node scripts/test-remote-e2e.mjs --docker
   only with the desktop (over a local relay, as in `host-server.spec.ts`)
   types into the box's pane and sees its output, through main. Each test
   starts from a clean box.
+- `tests/e2e/phone-all-pairings.spec.ts` (Playwright) covers a phone holding
+  every pairing at once (ADR-228 D8). One browser opens the desktop's link and
+  the box's host server's, and its sidebar lists the desktop's project and
+  the box's. With the desktop stopped, the box's project stays live (a branch
+  made on the box afterwards is listed), a write to the desktop's project is
+  refused as away, and the desktop's project is still listed. Removing the
+  desktop's pairing in the Hosts sheet takes its project out and leaves the
+  box's.
+- `tests/e2e/phone-linked-hosts.spec.ts` (Playwright) covers one pairing for
+  every host (ADR-228 D9). A browser opens only the desktop's link, is linked
+  to the box's room on its first hello, lists the box's project once (under
+  the box's room) and shows on the box's device list "via This Mac". With the
+  desktop stopped it keeps reaching the box. It also covers Linear through
+  the desktop (D10): with Linear connected on the desktop only (main's
+  Linear API is a stub there), the phone's Linear call is answered by the
+  desktop, and with the desktop stopped it is refused as away. A call on
+  behalf of one box is covered by unit tests
+  (`src/bridge/__tests__/router.test.ts`), not end to end.
 
 The Playwright specs share one box, so the harness runs them with one worker.
 The box's host server dials `MANOR_RELAY_URL` from its environment, and the
 harness sets that to a closed local port, so a test box never dials the
-production relay. `host-server.spec.ts` and `host-ownership.spec.ts` point it
-at their own relay through `~/.manor-e2e/env` on the box, which the harness's
+production relay. `host-server.spec.ts`, `host-ownership.spec.ts` and the
+phone specs point it at their own relay through `~/.manor-e2e/env` on the box, which the harness's
 ssh wrapper sources. The same file puts `~/.manor-e2e/bin` first on the
 server's `PATH`, so the box's `gh` is a fake (`installRemoteStubs`; its
 answers are set with `setRemoteGhPrs`).
@@ -730,6 +840,10 @@ answers are set with `setRemoteGhPrs`).
   `exec awk`, not a shell loop: a pane whose foreground process is a shell
   reads as "the agent's process exited" to the host server, which now reads
   pane facts itself.
+- The specs that pair a browser over a local relay (`host-server`,
+  `host-ownership`, the browser test in `host-direct-bridge`, and the two
+  phone specs) serve the web app from the relay build: run
+  `pnpm build:web:relay` first.
 - Pass Playwright arguments after `--`, for example
   `-- --grep "host owns"`.
 
@@ -743,9 +857,10 @@ to the host server, and are not regressions:
 | `sidebar-pr-tweaks.spec.ts` | "sidebar PR badge, popover, notifications, folders and diff tree" | Fails on a clean `main` |
 | `bridge.spec.ts` | "two desktop windows on one pane" (presses `Meta+t`); "the CLI lands with every window closed" | Non-macOS quits on the last window close, which removes the port file |
 | `smoke.spec.ts` | "reopening a closed pane reattaches the same shell" | Fails on a clean `main` |
+| `web-app.spec.ts` | "a PC browser pairs, sees the sidebar, and drives a live terminal…"; "the desk's window closes and the browser is told the winsize is its own"; "the browser arranges the desk's layout, the desk follows, and back" | Fail on the ADR-228 branch before the phone held every pairing (`a3058ed1`) too; not caused by it, not yet looked into |
 | `remote-host.spec.ts` | "laptop closed … one notification" | Sent 2 notifications on `main`; it passes since the host server owns the journal |
 
-The last row is fixed on the ADR-227 branch; the rest are not.
+The last row is fixed since the ADR-227 branch; the rest are not.
 
 The harness writes an ssh config with two aliases, `manor-e2e` (the app's)
 and `manor-e2e-direct` (the tests' side channel), and passes it to the tests

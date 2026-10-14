@@ -375,6 +375,23 @@ describe("install, uninstall and the CLI", () => {
     expect(fs.existsSync(d.envFile)).toBe(false);
   });
 
+  it("refuses to uninstall while supervise is the container's entrypoint", async () => {
+    const log: string[] = [];
+    const d = deps("container", log);
+    await installSupervisor(d);
+    await expect(uninstallSupervisor(d)).rejects.toThrow("can't be turned off in a container");
+    expect(log).toEqual(["install container"]);
+    expect(readSupervisorMarker(d.markerFile)).toBe("container");
+  });
+
+  it("clears a container marker once supervise is gone", async () => {
+    const log: string[] = [];
+    const d = deps("container", log);
+    await installSupervisor(d);
+    await uninstallSupervisor({ ...d, probes: { ...d.probes, container: () => false } });
+    expect(fs.existsSync(d.markerFile)).toBe(false);
+  });
+
   it("prints one JSON line for --json", async () => {
     const out: string[] = [];
     const io = {

@@ -103,6 +103,8 @@ export function HostEntry(props: HostEntryProps) {
   );
 
   const supervisorLine = supervisorStatusText(view?.supervisor ?? null, name, host.spec);
+  // `supervise` is the container's entrypoint: there is nothing to turn off.
+  const inContainer = view?.supervisor?.kind === "container";
   const hint = supervisionHint(view, name, connected);
 
   return (
@@ -126,8 +128,8 @@ export function HostEntry(props: HostEntryProps) {
           >
             <Switch
               data-testid="host-supervise-toggle"
-              checked={view?.supervise ?? false}
-              disabled={!connected || busy || view === null}
+              checked={inContainer || (view?.supervise ?? false)}
+              disabled={!connected || busy || view === null || inContainer}
               onCheckedChange={(on) =>
                 run(() => useHostStore.getState().setSupervised(hostId, on))
               }

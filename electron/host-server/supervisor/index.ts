@@ -250,11 +250,19 @@ export async function installSupervisor(
   return supervisor.status();
 }
 
-/** Remove the marker's units, `supervisor.env` and the marker. A no-op without one. */
+/**
+ * Remove the marker's units, `supervisor.env` and the marker. A no-op without
+ * one. Refuses while `supervise` runs as the container's entrypoint: it would
+ * keep supervising, and without the marker the lifecycle would spawn detached
+ * copies beside it.
+ */
 export async function uninstallSupervisor(
   deps: SupervisorCommandDeps = defaultCommandDeps(),
 ): Promise<void> {
   const kind = readSupervisorMarker(deps.markerFile);
+  if (kind === "container" && deps.probes.container()) {
+    throw new Error("Supervision can't be turned off in a container: `manor-host supervise` is its entrypoint");
+  }
   if (kind) {
     try {
       await deps.create(kind).uninstall();

@@ -176,6 +176,13 @@ describe("HostEntry", () => {
       expect(q("host-supervise-toggle")?.getAttribute("aria-checked")).toBe("true");
     });
 
+    it("shows a container's switch on and locked: supervise is its entrypoint", async () => {
+      await render(host(), view({ supervise: false, supervisor: { kind: "container" } }));
+      const toggle = q("host-supervise-toggle") as HTMLButtonElement;
+      expect(toggle.getAttribute("aria-checked")).toBe("true");
+      expect(toggle.disabled).toBe(true);
+    });
+
     it("disables the switch while the host is away", async () => {
       await render(host({ status: "reconnecting" }));
       expect((q("host-supervise-toggle") as HTMLButtonElement).disabled).toBe(true);

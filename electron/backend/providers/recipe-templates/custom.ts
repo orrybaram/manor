@@ -27,10 +27,13 @@ const UP = `#!/usr/bin/env bash
 #                              "identityFile": "~/.ssh/id_ed25519",
 #                              "hostKey": "ssh-ed25519 AAAA..."}}}
 #
-# Or, for a box with no sshd, an argv that runs one command on it:
+# Or, for a box with no sshd, an argv that runs one command on it (Manor
+# appends \`sh -c <command>\`; kubectl wants a \`--\` before it, docker doesn't):
 #
 #   {"schemaVersion": 1,
-#    "connection": {"type": "exec", "argv": ["docker", "exec", "-i", "my-box", "--"]}}
+#    "connection": {"type": "exec", "argv": ["docker", "exec", "-i", "my-box"]}}
+#   {"schemaVersion": 1,
+#    "connection": {"type": "exec", "argv": ["kubectl", "exec", "-i", "my-pod", "--"]}}
 #
 # Add "stop", "status" and "destroy" scripts to recipe.json to let Manor put
 # the box to sleep and delete it. See docs/hosts/recipes.md.

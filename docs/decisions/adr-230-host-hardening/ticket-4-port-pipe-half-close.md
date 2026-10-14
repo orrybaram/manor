@@ -1,6 +1,6 @@
 ---
 title: port-pipe carries half-close both ways
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

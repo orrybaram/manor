@@ -7,7 +7,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { byPane, type RouteRule } from "../../../electron/bridge/routes";
-import { UNAVAILABLE_HOST_AWAY_CODE } from "../../../electron/bridge/types";
+import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../../electron/bridge/types";
 import {
   BridgeDisconnectedError,
   BridgeUnavailableError,
@@ -155,6 +155,24 @@ describe("the router with only the home server", () => {
     const args = ["p1", "box:/b", "new"];
     await api.projects.renameWorkspace("p1", "box:/b", "new");
     expect(home.invokes[home.invokes.length - 1]).toEqual({ key: "projects.renameWorkspace", args });
+  });
+
+  it("hands its whole watch home and passes its updates through (ADR-230 D6)", async () => {
+    const home = fakeServer({ "branches.start": () => undefined });
+    const set = createServerSet();
+    set.add("local", home.transport, { home: true, lists: "all" });
+    const api = createRouter(set, fakeResolver({}));
+    const list = [
+      { path: "/a", hostId: "local" },
+      { path: "/b", hostId: "box" },
+    ];
+    await api.branches.start(list);
+    expect(home.invokes).toEqual([{ key: "branches.start", args: [list] }]);
+    const changed = vi.fn();
+    api.branches.onChange(changed);
+    const payload = { "/a": "main", "box:/b": "feat" };
+    home.emit("branches.changed", undefined, payload);
+    expect(changed).toHaveBeenCalledWith(payload);
   });
 
   it("answers the page's facts from the home transport", () => {
@@ -1019,6 +1037,165 @@ describe("on the phone, every server named by its room (D2)", () => {
     expect(set.homeId).toBe(DESK);
     desk.emit("agents.updated", undefined, { id: "a", hostId: "local" });
     expect(seen).toHaveBeenCalledWith({ id: "a", hostId: DESK });
+  });
+
+  describe("branches and diffs, watched where each workspace lives (ADR-230 D6)", () => {
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+    const watched = [
+      { path: "/a", hostId: DESK },
+      { path: "/b", hostId: BOX },
+      { path: "/c", hostId: `${DESK}~h2` },
+    ];
+    const invoked = (server: FakeServer, key: string) =>
+      server.invokes.filter((i) => i.key === key).map((i) => i.args);
+
+    // ADR-230 R2: home's own `branches.changed` came back in home's keys,
+    // which the phone's store, keyed by room, never matched.
+    it("re-keys home's own branch updates into the phone's keys", () => {
+      const desk = fakeServer();
+      const api = createRouter(phone(desk), fakeResolver({}));
+      const changed = vi.fn();
+      api.branches.onChange(changed);
+      desk.emit("branches.changed", undefined, { "/a": "main", "h1:/b": "feat", "h2:/c": "fix" });
+      expect(changed).toHaveBeenLastCalledWith({
+        [`${DESK}:/a`]: "main",
+        [`${BOX}:/b`]: "feat",
+        [`${DESK}~h2:/c`]: "fix",
+      });
+    });
+
+    it("sends each server only the workspaces it answers for", async () => {
+      const desk = fakeServer({ "branches.start": () => undefined });
+      const box = fakeServer({ "branches.start": () => undefined });
+      const api = createRouter(phone(desk, box), fakeResolver({}));
+      await api.branches.start(watched);
+      expect(invoked(desk, "branches.start")).toEqual([
+        [
+          [
+            { path: "/a", hostId: "local" },
+            { path: "/c", hostId: "h2" },
+          ],
+        ],
+      ]);
+      expect(invoked(box, "branches.start")).toEqual([[[{ path: "/b", hostId: "local" }]]]);
+
+      await api.branches.stop();
+      expect(invoked(desk, "branches.stop")).toEqual([[]]);
+      expect(invoked(box, "branches.stop")).toEqual([[]]);
+    });
+
+    it("hears each server's branches under the host-stamped key, merged", () => {
+      const desk = fakeServer();
+      const box = fakeServer();
+      const api = createRouter(phone(desk, box), fakeResolver({}));
+      const changed = vi.fn();
+      api.branches.onChange(changed);
+      box.emit("branches.changed", undefined, { "/b": "feat" });
+      expect(changed).toHaveBeenLastCalledWith({ [`${BOX}:/b`]: "feat" });
+      // The desktop's copy of the box's workspace is not its to say.
+      desk.emit("branches.changed", undefined, { "/a": "main", "h1:/b": "stale" });
+      expect(changed).toHaveBeenLastCalledWith({ [`${DESK}:/a`]: "main", [`${BOX}:/b`]: "feat" });
+    });
+
+    it("skips an away server, and sends it its share when it comes back", async () => {
+      const desk = fakeServer({ "branches.start": () => undefined });
+      const box = fakeServer({ "branches.start": () => undefined });
+      const set = phone(desk, box);
+      set.setReachability(BOX, "unreachable");
+      const api = createRouter(set, fakeResolver({}));
+      await api.branches.start(watched);
+      expect(invoked(box, "branches.start")).toEqual([]);
+
+      set.setReachability(BOX, "connected");
+      await flush();
+      expect(invoked(box, "branches.start")).toEqual([[[{ path: "/b", hostId: "local" }]]]);
+      // The desktop, which stood in for it, lets its workspaces go.
+      expect(invoked(desk, "branches.start").slice(-1)[0]).toEqual([
+        [
+          { path: "/a", hostId: "local" },
+          { path: "/c", hostId: "h2" },
+        ],
+      ]);
+    });
+
+    it("gives an older host server's workspaces to the desktop that lists it", async () => {
+      const desk = fakeServer({ "branches.start": () => undefined });
+      const box = fakeServer({
+        "branches.start": () => {
+          throw new BridgeUnavailableError("no", UNAVAILABLE_HOST_CODE);
+        },
+      });
+      const api = createRouter(phone(desk, box), fakeResolver({}));
+      const changed = vi.fn();
+      api.branches.onChange(changed);
+      await api.branches.start(watched);
+      await flush();
+      expect(invoked(desk, "branches.start").slice(-1)[0]).toEqual([
+        [
+          { path: "/a", hostId: "local" },
+          { path: "/b", hostId: "h1" },
+          { path: "/c", hostId: "h2" },
+        ],
+      ]);
+      desk.emit("branches.changed", undefined, { "h1:/b": "feat" });
+      expect(changed).toHaveBeenLastCalledWith({ [`${BOX}:/b`]: "feat" });
+    });
+
+    it("moves a desktop window's host workspaces to that host's bridge when it joins", async () => {
+      const home = fakeServer({ "branches.start": () => undefined });
+      const box = fakeServer({ "branches.start": () => undefined });
+      const set = createServerSet();
+      set.add("local", home.transport, { home: true, lists: "all" });
+      const api = createRouter(set, fakeResolver({}));
+      const list = [
+        { path: "/a", hostId: "local" },
+        { path: "/b", hostId: "box" },
+      ];
+      await api.branches.start(list);
+      expect(invoked(home, "branches.start")).toEqual([[list]]);
+
+      set.add("box", box.transport, { capabilities: ["viewer-bridge"] });
+      set.recordHello("box", { hostName: "wsl-box", hostServer: true });
+      set.setReachability("box", "connected");
+      await flush();
+      expect(invoked(box, "branches.start")).toEqual([[[{ path: "/b", hostId: "local" }]]]);
+      expect(invoked(home, "branches.start").slice(-1)[0]).toEqual([[{ path: "/a", hostId: "local" }]]);
+    });
+
+    it("does the same for diffs", async () => {
+      const desk = fakeServer({ "diffs.start": () => undefined });
+      const box = fakeServer({ "diffs.start": () => undefined });
+      const set = phone(desk, box);
+      set.setReachability(BOX, "unreachable");
+      const api = createRouter(set, fakeResolver({}));
+      const changed = vi.fn();
+      const fingerprints = vi.fn();
+      api.diffs.onChange(changed);
+      api.diffs.onFingerprintsChange(fingerprints);
+
+      await api.diffs.start(watched.map((ws) => ({ ...ws, defaultBranch: "main" })));
+      expect(invoked(box, "diffs.start")).toEqual([]);
+      set.setReachability(BOX, "connected");
+      await flush();
+      expect(invoked(box, "diffs.start")).toEqual([
+        [[{ path: "/b", hostId: "local", defaultBranch: "main" }]],
+      ]);
+      expect(invoked(desk, "diffs.start").slice(-1)[0]).toEqual([
+        [
+          { path: "/a", hostId: "local", defaultBranch: "main" },
+          { path: "/c", hostId: "h2", defaultBranch: "main" },
+        ],
+      ]);
+
+      box.emit("diffs.changed", undefined, { "/b": { added: 1, removed: 2 } });
+      desk.emit("diffs.changed", undefined, { "/a": { added: 3, removed: 0 } });
+      expect(changed).toHaveBeenLastCalledWith({
+        [`${DESK}:/a`]: { added: 3, removed: 0 },
+        [`${BOX}:/b`]: { added: 1, removed: 2 },
+      });
+      box.emit("diffs.fingerprintsChange", undefined, { "/b": "f1" });
+      expect(fingerprints).toHaveBeenLastCalledWith({ [`${BOX}:/b`]: "f1" });
+    });
   });
 });
 

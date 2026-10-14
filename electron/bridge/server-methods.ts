@@ -36,7 +36,6 @@ import { viewport } from "./handlers/viewport";
 // The few methods of a shared namespace that need a window are
 // `DESKTOP_METHODS`' (`./handlers.ts`); the rest of the namespace is here.
 const { runInMainWindow: _runInMainWindow, ...serverKeybindings } = keybindings;
-const { start: _diffsStart, ...serverDiffs } = diffs;
 const { list: _processesList, ...serverProcesses } = processes;
 
 export const SERVER_METHODS = flatten({
@@ -57,7 +56,7 @@ export const SERVER_METHODS = flatten({
   ports,
   processes: serverProcesses,
   branches,
-  diffs: serverDiffs,
+  diffs,
   git,
   "git.push": gitPush,
   github,

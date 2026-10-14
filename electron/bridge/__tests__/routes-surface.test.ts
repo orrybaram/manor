@@ -65,13 +65,13 @@ describe("routing surface (ADR-227 D4)", () => {
   });
 
   it("agrees with the route manifest (ADR-228 D1)", () => {
-    // `merge` and `home` are both `LOCAL_ROUTE` on a table.
+    // `merge`, `split` and `home` are all `LOCAL_ROUTE` on a table.
     const disagree = Object.entries(methods)
       .filter(([key, entry]) => entry.rules.route !== undefined && key in ROUTES)
       .filter(([key, entry]) => {
         const manifest = ROUTES[key];
         const route = entry.rules.route;
-        return manifest === "merge" || manifest === "home"
+        return manifest === "merge" || manifest === "split" || manifest === "home"
           ? route !== LOCAL_ROUTE
           : JSON.stringify(route) !== JSON.stringify(manifest);
       })
@@ -100,6 +100,25 @@ describe("routing surface (ADR-227 D4)", () => {
     expect(DESKTOP_TABLE.routes.has("pty.consumePrewarmed")).toBe(false);
     expect(ROUTES["layout.reportViewport"]).toBe("home");
     expect(DESKTOP_TABLE.routes.has("layout.reportViewport")).toBe(false);
+  });
+});
+
+describe("branch and diff watches, split across the servers (ADR-230 D6)", () => {
+  const SPLIT = ["branches.start", "branches.stop", "diffs.start", "diffs.stop"];
+
+  it("lists each watch's start and stop as split, and nothing else", () => {
+    const split = Object.entries(ROUTES)
+      .filter(([, route]) => route === "split")
+      .map(([key]) => key);
+    expect(split.sort()).toEqual([...SPLIT].sort());
+  });
+
+  it("answers them on the desktop's own server and on a host server", () => {
+    for (const key of SPLIT) {
+      expect({ key, desktop: key in DESKTOP_TABLE.handlers }).toEqual({ key, desktop: true });
+      expect({ key, routed: DESKTOP_TABLE.routes.has(key) }).toEqual({ key, routed: false });
+      expect({ key, host: key in HOST_TABLE.handlers }).toEqual({ key, host: true });
+    }
   });
 });
 

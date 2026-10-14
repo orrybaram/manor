@@ -72,6 +72,8 @@ import { LinearManager } from "../linear";
 import { NotificationStore } from "../notification-store";
 import { ProjectManager } from "../persistence";
 import { PortScanner } from "../ports";
+import { BranchWatcher } from "../branch-watcher";
+import { DiffWatcher } from "../diff-watcher";
 import { PreferencesManager } from "../preferences";
 import { WorktreeWatcher } from "../projects/worktree-watcher";
 import { RemoteAuditLog } from "../remote-control/audit";
@@ -371,6 +373,20 @@ export function createManorServer<D extends BridgeServerDeps>(
   }
   const themeManager = new ThemeManager();
   const portScanner = new PortScanner(backendRegistry);
+  // Each workspace's branch and diff, watched on the server that owns it
+  // (ADR-230 D6) for every connection that asks, and published on this
+  // server's bus. A desktop polls its remote hosts through their backends.
+  const branchWatcher = new BranchWatcher(backendRegistry, bus.publish);
+  const diffWatcher = new DiffWatcher(backendRegistry, {
+    // Paused while the desktop window is hidden, unless a paired browser is
+    // subscribed to the diff events (read at scan time, once the bridge
+    // exists). A host server has no window: nothing pauses it.
+    ...(platform.diffWindow ? { window: platform.diffWindow } : {}),
+    deviceWatching: () =>
+      bridge.hasDeviceSubscriber("diffs", "changed") ||
+      bridge.hasDeviceSubscriber("diffs", "fingerprintsChange"),
+    publish: bus.publish,
+  });
   // `gh` runs here, in the checkout, with this machine's own sign-in. A
   // remote project's calls are routed to its host's server (`byGhRepo`),
   // which composes the same manager (ADR-227 D7).
@@ -751,6 +767,8 @@ export function createManorServer<D extends BridgeServerDeps>(
       projectManager,
       themeManager,
       portScanner,
+      branchWatcher,
+      diffWatcher,
       githubManager,
       linearManager,
       agentHookServer: agentPipeline.ingestion,
@@ -799,6 +817,11 @@ export function createManorServer<D extends BridgeServerDeps>(
   const unwireChat = wireChatMirror({ chatMirror }, bridge, bus.subscribe, routing ?? undefined);
   // A remote pane's terminal events, for whoever here views it (ADR-228 D5).
   const unwirePty = routing?.wirePty(bridge) ?? ((): void => {});
+  // A connection that closed watches nothing any more (ADR-230 D6).
+  const unwireWatchers = bridge.onDisconnect((connectionId) => {
+    branchWatcher.stop(connectionId);
+    diffWatcher.stop(connectionId);
+  });
 
   return {
     ...core,
@@ -843,6 +866,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       // a connection set that is gone.
       unwireChat();
       unwirePty();
+      unwireWatchers();
+      branchWatcher.dispose();
+      diffWatcher.dispose();
       bridge.dispose();
       chatMirror.dispose();
       // Takes down the ssh children; remote sessions keep running on their hosts.

@@ -188,7 +188,7 @@ export interface ServerDeps {
  * The `ServerDeps` every server builds the same way, in `createManorServer`
  * (ADR-227 D1): what a host server has of them. A shared handler the host
  * table lists declares this rather than `ServerDeps`, which also names what
- * only the desktop composes (remote control, Jev, prewarm, the watchers).
+ * only the desktop composes (remote control, Jev, prewarm).
  */
 export type SharedDeps = Pick<
   ServerDeps,
@@ -200,6 +200,8 @@ export type SharedDeps = Pick<
   | "projectManager"
   | "themeManager"
   | "portScanner"
+  | "branchWatcher"
+  | "diffWatcher"
   | "githubManager"
   | "linearManager"
   | "agentHookServer"

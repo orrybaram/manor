@@ -188,6 +188,8 @@ export class RecipeHostProvider implements HostProvider {
   private lastKnown: ProviderStatus;
   /** A `status` command in flight, which concurrent askers share. */
   private statusRun: Promise<ProviderStatus> | null = null;
+  /** An `up` in flight, which concurrent `ensureUp` callers share. */
+  private upRun: Promise<void> | null = null;
 
   constructor(
     readonly hostId: string,
@@ -244,9 +246,39 @@ export class RecipeHostProvider implements HostProvider {
   /**
    * Run `up`, remember its resource, and build the way in when it changed.
    * Rejects with a `RecipeCommandError` or `RecipeError` saying what `up`
-   * did wrong.
+   * did wrong. Concurrent calls share one run.
    */
-  async ensureUp(onProgress?: (line: string) => void): Promise<void> {
+  ensureUp(onProgress?: (line: string) => void): Promise<void> {
+    // A wake, a connect and a reconnect's re-run sharing one `up` (ADR-230
+    // D2). Progress goes to the caller that started it.
+    this.upRun ??= this.runUp(onProgress).finally(() => {
+      this.upRun = null;
+    });
+    return this.upRun;
+  }
+
+  /**
+   * Run `up` again during a reconnect (ADR-230 D2), unless the box may have
+   * put itself to sleep: a recipe whose `up` said `autoSleep` and that has
+   * no `status` to say otherwise would be woken by it (ADR-229 D1).
+   *
+   * Rebinding here is safe: `bind` replaces the inner provider only when
+   * `up` says something different, and after a drop no stream rides the
+   * old one's transport.
+   */
+  async refresh(onProgress?: (line: string) => void): Promise<boolean> {
+    let recipe: Recipe;
+    try {
+      recipe = this.readRecipe();
+    } catch {
+      return false;
+    }
+    if (recipe.status === undefined && this.autoSleep) return false;
+    await this.ensureUp(onProgress);
+    return true;
+  }
+
+  private async runUp(onProgress?: (line: string) => void): Promise<void> {
     const prev = this.lastKnown;
     this.lastKnown = { state: "starting" };
     try {

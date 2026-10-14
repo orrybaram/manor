@@ -64,6 +64,15 @@ export interface HostProvider {
    */
   ensureUp(onProgress?: (line: string) => void): Promise<void>;
   /**
+   * During a reconnect, bring the box up again and rebuild the way in if
+   * it moved (ADR-230 D2): a box that came back at a new address is found
+   * without waiting for a full connect. Resolves false, having run nothing,
+   * when it cannot tell that doing so would not wake a box that put itself
+   * to sleep. Rejects as `ensureUp` does. Absent for a provider whose way
+   * in never moves (ssh, an exec prefix).
+   */
+  refresh?(onProgress?: (line: string) => void): Promise<boolean>;
+  /**
    * Where the box is now. Asked before each reconnect attempt: `sleeping`
    * stops the attempts. Should be cheap; never rejects for a box that is
    * merely away.

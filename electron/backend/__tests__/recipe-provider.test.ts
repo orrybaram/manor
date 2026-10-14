@@ -225,6 +225,84 @@ describe.skipIf(process.platform === "win32")("RecipeHostProvider (ADR-229 D2)",
     });
   });
 
+  describe("running up again (ADR-230 D2)", () => {
+    /** Make `up.sh` count its runs, and take a moment so runs can overlap. */
+    function countUps(): () => number {
+      const counter = path.join(dir, "up-count");
+      fs.writeFileSync(
+        path.join(dir, "up.sh"),
+        [
+          "#!/bin/sh",
+          `echo run >> "$MANOR_RECIPE_DIR/up-count"`,
+          "sleep 0.2",
+          `cat "$MANOR_RECIPE_DIR/up-result.json"`,
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      return () =>
+        fs.existsSync(counter) ? fs.readFileSync(counter, "utf-8").trim().split("\n").length : 0;
+    }
+
+    const execUp = (autoSleep?: boolean) =>
+      result("up", {
+        schemaVersion: 1,
+        connection: { type: "exec", argv: ["docker", "exec", "-i", "a"] },
+        ...(autoSleep !== undefined ? { autoSleep } : {}),
+      });
+
+    it("runs up once for concurrent ensureUp calls", async () => {
+      writeRecipe();
+      execUp();
+      const ups = countUps();
+      const provider = makeProvider();
+
+      await Promise.all([provider.ensureUp(), provider.ensureUp()]);
+
+      expect(ups()).toBe(1);
+      // Once settled, the next call runs up again.
+      await provider.ensureUp();
+      expect(ups()).toBe(2);
+    });
+
+    it("refresh runs up again for a box that does not sleep itself", async () => {
+      writeRecipe();
+      execUp();
+      const ups = countUps();
+      const provider = makeProvider();
+      await provider.ensureUp();
+      const lines: string[] = [];
+
+      await expect(provider.refresh((line) => lines.push(line))).resolves.toBe(true);
+
+      expect(ups()).toBe(2);
+    });
+
+    it("refresh declines for an autoSleep box without a status command", async () => {
+      writeRecipe();
+      execUp(true);
+      const ups = countUps();
+      const provider = makeProvider();
+      await provider.ensureUp();
+
+      await expect(provider.refresh()).resolves.toBe(false);
+
+      expect(ups()).toBe(1);
+    });
+
+    it("refresh runs up for an autoSleep box whose status said it is awake", async () => {
+      writeRecipe({ status: "./status.sh" });
+      execUp(true);
+      const ups = countUps();
+      const provider = makeProvider();
+      await provider.ensureUp();
+
+      await expect(provider.refresh()).resolves.toBe(true);
+
+      expect(ups()).toBe(2);
+    });
+  });
+
   it("fails up that prints a bad result as a recipe failure", async () => {
     writeRecipe();
     result("up", { schemaVersion: 1, connection: { type: "exec", argv: [] } });

@@ -1026,7 +1026,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       capabilities: { canStop: opts.canStop ?? true, canDestroy: false, autoSleep: false },
       stop: vi.fn(async () => {}),
     };
-    let beforeReconnect: (() => Promise<boolean>) | undefined;
+    let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
@@ -1043,9 +1043,150 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       remote,
       provider,
       asleep,
-      beforeReconnect: () => beforeReconnect!(),
+      beforeReconnect: (attempt = 0) => beforeReconnect!(attempt),
     };
   }
+
+  /**
+   * A registry with one recipe host, `pod`, whose every `up` says the box is
+   * at the next address in `addresses` (ADR-230 D2). `reached()` is where
+   * the backend's transport would dial now.
+   */
+  function recipeSetup(addresses: string[] = ["10.0.0.1", "10.0.0.2", "10.0.0.3"]) {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("pod");
+    let ups = 0;
+    let reached: string | null = null;
+    const provider = {
+      ...fakeProvider(),
+      kind: "recipe" as const,
+      ensureUp: vi.fn(async (_onProgress?: (line: string) => void) => {
+        reached = addresses[ups++] ?? null;
+      }),
+      // Re-runs `up` unless that might wake a box that put itself to sleep.
+      refresh: vi.fn(async (onProgress?: (line: string) => void) => {
+        await provider.ensureUp(onProgress);
+        return true;
+      }),
+    };
+    let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => provider as unknown as HostProvider,
+      createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
+        beforeReconnect = factoryOpts.beforeReconnect;
+        return remote.backend;
+      },
+    });
+    registry.register("pod", { kind: "recipe", recipeId: "k8s-dev" });
+    const drop = () =>
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
+    return {
+      registry,
+      remote,
+      provider,
+      drop,
+      reached: () => reached,
+      beforeReconnect: (attempt: number) => beforeReconnect!(attempt),
+    };
+  }
+
+  describe("a recipe host re-runs up once per drop (ADR-230 D2)", () => {
+    it("finds a box that came back at a new address", async () => {
+      const { registry, remote, provider, drop, reached, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      expect(reached()).toBe("10.0.0.1");
+      drop();
+
+      for (const attempt of [0, 1, 2]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      expect(reached()).toBe("10.0.0.2");
+      expect(registry.status("pod")).toBe("reconnecting");
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      expect(registry.status("pod")).toBe("connected");
+    });
+
+    it("runs up once per drop, and not before the third attempt", async () => {
+      const { registry, remote, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+
+      await beforeReconnect(0);
+      await beforeReconnect(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      await beforeReconnect(2);
+      await beforeReconnect(3);
+      await beforeReconnect(4);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+
+      // Back, then dropped again: a new drop gets its own re-run.
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      drop();
+      await beforeReconnect(0);
+      await beforeReconnect(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      await beforeReconnect(2);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not run up for a box that may have put itself to sleep", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      // The recipe is autoSleep with no `status`: the provider declines.
+      provider.refresh.mockResolvedValue(false);
+      await registry.ensureConnected("pod");
+      drop();
+
+      for (const attempt of [0, 1, 2, 3]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.refresh).toHaveBeenCalledTimes(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(registry.status("pod")).toBe("reconnecting");
+    });
+
+    it("does not re-run up for a box that is asleep", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+      provider.status.mockResolvedValue({ state: "sleeping" });
+
+      await expect(beforeReconnect(2)).resolves.toBe(false);
+
+      expect(provider.refresh).not.toHaveBeenCalled();
+      expect(registry.status("pod")).toBe("sleeping");
+    });
+
+    it("keeps redialling when up fails, without failing the host", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await registry.ensureConnected("pod");
+      drop();
+      provider.ensureUp.mockRejectedValueOnce(new Error("quota exceeded"));
+
+      for (const attempt of [0, 1, 2, 3]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      expect(registry.status("pod")).toBe("reconnecting");
+      warn.mockRestore();
+    });
+
+    it("shows up's progress while reconnecting", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+      let shown: string | undefined;
+      provider.ensureUp.mockImplementationOnce(async (onProgress) => {
+        onProgress?.("Resuming the pod…");
+        shown = registry.list()[1].progress;
+      });
+
+      await beforeReconnect(2);
+
+      expect(shown).toBe("Resuming the pod…");
+      expect(registry.status("pod")).toBe("reconnecting");
+    });
+  });
 
   it("brings the box up before the backend connects, showing its progress", async () => {
     const { registry, remote, provider } = lifecycleSetup();

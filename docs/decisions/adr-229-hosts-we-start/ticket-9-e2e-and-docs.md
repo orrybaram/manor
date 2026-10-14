@@ -83,6 +83,12 @@ Record failures that also fail on main.
   - turning the switch on doesn't move running processes under the
     supervisor: install only enables, and the supervisor takes over at the
     next restart or boot. Turning it off never stops anything (ticket 5);
+  - idle stop's "no pane mounted" is the host's view: a desktop viewer
+    subscribed to some `pty.output` (ticket 6). Phones and main's proxy
+    don't count;
+  - `terminal-host.test.ts` ("new client can attach after previous client
+    detached") flaked once with ENOENT on `meta.json.tmp`. That's a
+    pre-existing race in that file, unrelated to this ADR;
   - the real `systemctl --user` test is gated behind `MANOR_TEST_SYSTEMD=1`
     and wasn't run, because install turns on lingering for the account.
 

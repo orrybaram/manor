@@ -1199,6 +1199,86 @@ describe("on the phone, every server named by its room (D2)", () => {
   });
 });
 
+describe("the selected project on the merged list (ADR-230 D7)", () => {
+  const DESK = "DeskRoom0000000000000a";
+  const BOX = "BoxRoom00000000000000b";
+
+  function setup() {
+    const added: unknown[] = [];
+    const desk = fakeServer({
+      // `x` is the box's, which the box answers for, so the merged list
+      // drops it and `b` sits one place earlier than in home's own list.
+      "projects.getAll": () => [
+        { id: "x", hostId: "h1" },
+        { id: "a", hostId: "local" },
+        { id: "b", hostId: "local" },
+        ...added,
+      ],
+      "projects.getSelectedIndex": () => 2,
+      "projects.select": undefined,
+    });
+    const box = fakeServer({ "projects.getAll": () => [{ id: "c", hostId: "local" }] });
+    const set = createServerSet();
+    set.add(DESK, desk.transport, { home: true, roomId: DESK });
+    set.recordHello(DESK, { hostName: "desk.local", hostServer: false });
+    set.setAliases(DESK, [["h1", BOX]]);
+    set.setLists(DESK, [BOX]);
+    set.add(BOX, box.transport, { roomId: BOX });
+    set.recordHello(BOX, { hostName: "wsl-box", hostServer: true });
+    set.setReachability(BOX, "connected");
+    return { desk, added, api: createRouter(set, fakeResolver({})) };
+  }
+
+  const ids = async (api: ReturnType<typeof setup>["api"]) =>
+    ((await api.projects.getAll()) as Array<{ id: string }>).map((p) => p.id);
+
+  it("maps home's selected index to the merged index", async () => {
+    const { api } = setup();
+    const order = await ids(api);
+    expect(await api.projects.getSelectedIndex()).toBe(order.indexOf("b"));
+  });
+
+  it("sends home its own index for a merged one", async () => {
+    const { api, desk } = setup();
+    const order = await ids(api);
+    await api.projects.select(order.indexOf("b"));
+    const sent = desk.invokes.filter((i) => i.key === "projects.select");
+    expect(sent.map((i) => i.args)).toEqual([[2]]);
+  });
+
+  it("keeps a project home lacks selected on the page only", async () => {
+    const { api, desk } = setup();
+    const order = await ids(api);
+    await api.projects.select(order.indexOf("c"));
+    expect(desk.invokes.some((i) => i.key === "projects.select")).toBe(false);
+    expect(await api.projects.getSelectedIndex()).toBe(order.indexOf("c"));
+  });
+
+  it("follows a page-only project when the merged list shifts", async () => {
+    const { api, added } = setup();
+    const before = await ids(api);
+    await api.projects.select(before.indexOf("c"));
+    added.push({ id: "n", hostId: "local" });
+    const after = await ids(api);
+    expect(after.indexOf("c")).not.toBe(before.indexOf("c"));
+    expect(await api.projects.getSelectedIndex()).toBe(after.indexOf("c"));
+  });
+
+  it("passes the index through for a desktop with no direct bridges", async () => {
+    const desk = fakeServer({
+      "projects.getAll": () => [{ id: "a", hostId: "local" }],
+      "projects.getSelectedIndex": () => 3,
+      "projects.select": undefined,
+    });
+    const set = createServerSet();
+    set.add("local", desk.transport, { home: true, lists: "all" });
+    const api = createRouter(set, fakeResolver({}));
+    expect(await api.projects.getSelectedIndex()).toBe(3);
+    await api.projects.select(5);
+    expect(desk.invokes.filter((i) => i.key === "projects.select")[0].args).toEqual([5]);
+  });
+});
+
 describe("GitHub calls follow the repo's host (ADR-228 D10)", () => {
   it("send a repo's calls to its host's source, and a local repo's home", async () => {
     const home = fakeServer({ "github.getMyIssues": "home", "github.checkStatus": "home" });

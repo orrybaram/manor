@@ -332,6 +332,18 @@ export function createRouter(
   /** Each project's group, from the desktop's last `projects.getAll` (D3). */
   let desktopGroups = new Map<unknown, unknown>();
   /**
+   * The project order home's own `projects.getAll` last gave, and the merged
+   * order the renderer was given (ADR-230 D7). Home's selected index is into
+   * the first; the renderer's is into the second.
+   */
+  let homeProjectIds: unknown[] | null = null;
+  let mergedProjectIds: unknown[] | null = null;
+  /**
+   * The project selected on the page only, for one home does not hold. It is
+   * kept by id, as the merged list's indexes move. Not persisted across a reload (a known limit).
+   */
+  let pageSelectionId: unknown = null;
+  /**
    * The desktop's claims on each workspace, as home last said them (D7): a
    * tab a detached window holds is the desktop's to know, and no host
    * server's layout carries it.
@@ -835,7 +847,11 @@ export function createRouter(
 
   function merge(key: string, answers: Answer[]): unknown {
     switch (key) {
-      case "projects.getAll":
+      case "projects.getAll": {
+        const list = mergeProjects(answers);
+        noteProjectOrders(answers, list);
+        return list;
+      }
       case "projects.getRemote":
         return mergeProjects(answers);
       case "layout.getAll":
@@ -963,6 +979,52 @@ export function createRouter(
       placed.add(id);
     }
     return out;
+  }
+
+  /** Home's raw id order and the merged one, for the selected index (D7). */
+  function noteProjectOrders(answers: Answer[], list: unknown[]): void {
+    const home = answers.find(({ entry }) => isHome(entry));
+    const idsOf = (records: unknown): unknown[] =>
+      (Array.isArray(records) ? records : []).map((record) =>
+        isPlainObject(record) ? record.id : undefined,
+      );
+    homeProjectIds = home ? idsOf(home.value) : [];
+    mergedProjectIds = idsOf(list);
+  }
+
+  async function projectOrders(): Promise<{ home: unknown[]; merged: unknown[] }> {
+    if (!homeProjectIds || !mergedProjectIds) await merged("projects", "getAll", []);
+    return { home: homeProjectIds ?? [], merged: mergedProjectIds ?? [] };
+  }
+
+  /** `projects.getSelectedIndex`, home's index translated to the merged list. */
+  async function selectedIndex(): Promise<unknown> {
+    const answer = await callHome("projects", "getSelectedIndex", []);
+    const orders = await projectOrders();
+    if (pageSelectionId !== null) {
+      const at = orders.merged.indexOf(pageSelectionId);
+      if (at >= 0) return at;
+      pageSelectionId = null;
+    }
+    if (typeof answer !== "number") return answer;
+    const at = orders.merged.indexOf(orders.home[answer]);
+    if (at >= 0) return at;
+    return orders.merged.length === 0 ? -1 : 0;
+  }
+
+  /** `projects.select`, the merged index translated to home's. */
+  async function selectProject(args: unknown[]): Promise<unknown> {
+    const index = args[0];
+    const orders = await projectOrders();
+    const id = typeof index === "number" ? orders.merged[index] : undefined;
+    if (id === undefined) return callHome("projects", "select", args);
+    const at = orders.home.indexOf(id);
+    if (at < 0) {
+      pageSelectionId = id;
+      return undefined;
+    }
+    pageSelectionId = null;
+    return callHome("projects", "select", [at, ...args.slice(1)]);
   }
 
   // ── claims (D7) ──
@@ -1344,6 +1406,10 @@ export function createRouter(
       : null;
     if (listens && typeof args[args.length - 1] === "function") {
       return subscribe(ns, name, listens, args);
+    }
+    if (!passThrough()) {
+      if (key === "projects.getSelectedIndex") return selectedIndex();
+      if (key === "projects.select") return selectProject(args);
     }
     const route = Object.prototype.hasOwnProperty.call(ROUTES, key)
       ? ROUTES[key]

@@ -60,7 +60,8 @@
  *                      host-direct-bridge.spec.ts,
  *                      phone-all-pairings.spec.ts,
  *                      phone-linked-hosts.spec.ts, recipe-host.spec.ts,
- *                      host-restore-asleep.spec.ts), one worker
+ *                      host-restore-asleep.spec.ts, lid-closed.spec.ts),
+ *                      one worker
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -88,6 +89,7 @@ const PLAYWRIGHT_SUITES = [
   "tests/e2e/phone-linked-hosts.spec.ts",
   "tests/e2e/recipe-host.spec.ts",
   "tests/e2e/host-restore-asleep.spec.ts",
+  "tests/e2e/lid-closed.spec.ts",
 ];
 const K8S_CLUSTER = "manor-e2e";
 const KIND_VERSION = "v0.33.0";
@@ -355,7 +357,9 @@ async function startDockerTarget(tmp) {
   const tag = dockerImageTag();
   if (run("docker", ["image", "inspect", tag]).status !== 0) {
     log(`building ${tag} (first run only)…`);
-    const res = spawnSync("docker", ["build", "--progress=plain", "-t", tag, DOCKER_CONTEXT], {
+    // `--progress` belongs to BuildKit's buildx; the legacy builder refuses it.
+    const progress = run("docker", ["buildx", "version"]).status === 0 ? ["--progress=plain"] : [];
+    const res = spawnSync("docker", ["build", ...progress, "-t", tag, DOCKER_CONTEXT], {
       stdio: "inherit",
     });
     if (res.status !== 0) die("docker build failed");

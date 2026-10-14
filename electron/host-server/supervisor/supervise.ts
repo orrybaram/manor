@@ -16,6 +16,13 @@
  *   whichever is down without waiting out its backoff (`./container.ts`).
  * - Its pid is in `~/.manor/remote/supervise.pid` while it runs, which is
  *   how `supervisor status` knows a container is supervised.
+ * - It records itself in `~/.manor/remote/supervisor.json` when nothing is
+ *   recorded there (`claimContainerMarker`): a container whose entrypoint
+ *   is `supervise` is supervised, whether or not `supervisor install` has
+ *   run yet. The desktop's install on a fresh box's first connect races the
+ *   entrypoint, which only starts `supervise` once bootstrap has put the
+ *   shim there; without the marker, an upgrade would spawn a detached
+ *   server beside the one `supervise` restarts.
  */
 
 import { spawn } from "node:child_process";
@@ -23,16 +30,19 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { errorMessage } from "../../lib/errors";
+import { writeFileAtomic } from "../../lib/fs-atomic";
 import {
   daemonPidFile,
   daemonSocketFile,
   hostServerPaths,
   hostShimFile,
   supervisePidFile,
+  supervisorMarkerFile,
 } from "../../paths";
 import { probeSocket } from "../lifecycle";
 import { isAlive, readPid, removeIfOurs } from "../pid-file";
 import { RESTART_SIGNALS, START_SIGNAL } from "./container";
+import { readSupervisorMarker } from "./index";
 import { SUPERVISED_UNITS, type SupervisedUnit } from "./types";
 
 const MIN_BACKOFF_MS = 1_000;
@@ -326,6 +336,22 @@ function defaultSuperviseDeps(): SuperviseDeps {
 }
 
 /**
+ * Record `container` in `supervisor.json` unless a supervisor is recorded
+ * already (see the file comment). Answers whether it wrote it. Best effort:
+ * a marker that cannot be written leaves `supervisor install` to do it.
+ */
+export function claimContainerMarker(markerFile: string = supervisorMarkerFile()): boolean {
+  if (readSupervisorMarker(markerFile) !== null) return false;
+  try {
+    writeFileAtomic(markerFile, `${JSON.stringify({ kind: "container" })}\n`, { mode: 0o600, dirMode: 0o700 });
+    return true;
+  } catch (err) {
+    process.stderr.write(`[supervise] could not record itself in ${markerFile}: ${errorMessage(err)}\n`);
+    return false;
+  }
+}
+
+/**
  * The `manor-host supervise` process: refuses to run beside another
  * `supervise`, holds `supervise.pid`, and runs until SIGTERM or SIGINT.
  */
@@ -339,6 +365,7 @@ export async function runSuperviseProcess(deps: SuperviseDeps = defaultSupervise
   fs.mkdirSync(path.dirname(pidFile), { recursive: true, mode: 0o700 });
   const mine = `${process.pid}\n`;
   fs.writeFileSync(pidFile, mine, { mode: 0o600 });
+  claimContainerMarker();
 
   const supervise = new Supervise(deps);
   const stop = (signal: NodeJS.Signals) => {

@@ -4,10 +4,15 @@
  * SIGTERM fan-out.
  */
 
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ADOPT_POLL_MS,
+  claimContainerMarker,
   KILL_GRACE_MS,
   MAX_BACKOFF_MS,
   Supervise,
@@ -211,5 +216,29 @@ describe("Supervise", () => {
       ["SIGTERM", "SIGKILL"],
       ["SIGTERM", "SIGKILL"],
     ]);
+  });
+});
+
+describe("claimContainerMarker", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-supervise-marker-"));
+  });
+  afterEach(() => {
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("records container when no supervisor is recorded", () => {
+    const file = path.join(dir, "remote", "supervisor.json");
+    expect(claimContainerMarker(file)).toBe(true);
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ kind: "container" });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+  });
+
+  it("leaves a recorded supervisor alone", () => {
+    const file = path.join(dir, "supervisor.json");
+    fs.writeFileSync(file, `${JSON.stringify({ kind: "systemd" })}\n`);
+    expect(claimContainerMarker(file)).toBe(false);
+    expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({ kind: "systemd" });
   });
 });

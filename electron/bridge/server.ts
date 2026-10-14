@@ -461,6 +461,19 @@ export class BridgeServer<D extends BridgeServerDeps> {
     return false;
   }
 
+  /**
+   * Whether a desktop window's viewer stream (ADR-228 D4) is subscribed to
+   * `ns.event` at any key — for `pty.output`, a window has a pane of this
+   * server's mounted (ADR-229 D7).
+   */
+  hasDesktopViewerSubscriber(ns: string, event: string): boolean {
+    const name = `${ns}.${event}`;
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (connection.viewer === "desktop" && subscriptions.has(name)) return true;
+    }
+    return false;
+  }
+
   /** Stop. An unsubscribe for something never subscribed to is not an error. */
   unsubscribe(
     connection: BridgeConnection,

@@ -127,7 +127,7 @@ const ACTIVE_STATUSES: ReadonlySet<string> = new Set<ActiveAgentStatus>([
   "requires_input",
 ]);
 
-function isActiveStatus(status: string | null | undefined): status is ActiveAgentStatus {
+export function isActiveStatus(status: string | null | undefined): status is ActiveAgentStatus {
   return status != null && ACTIVE_STATUSES.has(status);
 }
 

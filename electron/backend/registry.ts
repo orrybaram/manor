@@ -32,6 +32,7 @@ import type { HostServerClient, HostServerClientState } from "./host-server-clie
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
 import { hostSpecLabel } from "./providers/recipes";
+import { RecipeHostProvider } from "./providers/recipe-provider";
 import type { HostProvider } from "./providers/types";
 import { RemoteBackend } from "./remote-backend";
 import type { BootstrapProgress } from "./remote-bootstrap";
@@ -128,6 +129,22 @@ export interface BackendRegistryOptions {
 }
 
 const LOG = "[backend-registry]";
+
+/**
+ * `HostStatusInfo.idleStopNote` for a host's provider: true when a recipe has
+ * `idleStopMinutes` but nothing to stop the box with the lid closed — neither
+ * `autoSleep` nor a box hook — and so stops only while the desktop is awake.
+ * Undefined for a host that has no idle stop.
+ */
+function idleStopNoteOf(
+  provider: HostProvider,
+  hooks: { onBusy: boolean; onIdle: boolean } | undefined,
+): boolean | undefined {
+  if (!(provider instanceof RecipeHostProvider) || provider.idleStopMinutes === undefined) {
+    return undefined;
+  }
+  return !provider.capabilities.autoSleep && !hooks?.onBusy && !hooks?.onIdle;
+}
 
 export class BackendRegistry {
   /** Which host owns each session we have seen created, listed or streaming. */
@@ -250,14 +267,41 @@ export class BackendRegistry {
       const info = conn.info();
       if (!(conn instanceof RemoteHostConnection)) return info;
       const { provider } = conn;
+      const idleStopNote = idleStopNoteOf(provider, info.hooks);
       return {
         ...info,
         label: conn.spec ? hostSpecLabel(conn.spec) : conn.hostId,
         ...(this.isAdopted ? { adopted: this.isAdopted(conn.hostId) } : {}),
         providerKind: provider.kind,
         capabilities: { ...provider.capabilities },
+        ...(idleStopNote !== undefined ? { idleStopNote } : {}),
       };
     });
+  }
+
+  /**
+   * `hostId`'s server said whether the host is busy (ADR-229 D7): the
+   * provider is told (`setBusy`) and `list()` carries it.
+   */
+  setBusy(hostId: string, busy: boolean): void {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return;
+    conn.provider.setBusy?.(busy);
+    conn.setServerBusy(busy);
+  }
+
+  /** What the provider was last told by `setBusy`; false when it cannot be asked. */
+  isBusy(hostId: string): boolean {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return false;
+    return conn.provider instanceof RecipeHostProvider && conn.provider.busy;
+  }
+
+  /** `hostId`'s recipe's `idleStopMinutes`, when it has one (ADR-229 D7). */
+  idleStopMinutes(hostId: string): number | undefined {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return undefined;
+    return conn.provider instanceof RecipeHostProvider ? conn.provider.idleStopMinutes : undefined;
   }
 
   /**

@@ -305,9 +305,12 @@ describe("HostServerClient over server-bridge", () => {
     // It says it takes viewer streams, but not before it is adopted.
     expect(status.capabilities).toContain("viewer-bridge");
     expect(status.ownership).toBe("pending");
+    // A current server also says whether it is busy and which box hooks it has (ADR-229 D7).
     expect(setServerFacts).toHaveBeenLastCalledWith("box", {
       roomId: status.relay.roomId,
       viewerBridge: false,
+      busy: false,
+      hooks: { onBusy: false, onIdle: false },
     });
     expect(status.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     sync.dispose();

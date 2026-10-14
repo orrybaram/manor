@@ -34,6 +34,7 @@ function fakeHost(hostId: string, roomId: string) {
     hostId,
     state: "connected" as HostServerClientState,
     paired,
+    subscribe: vi.fn(() => () => {}),
     api: {
       hostServer: {
         status: vi.fn(async () => ({

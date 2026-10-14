@@ -232,6 +232,14 @@ export class RecipeHostProvider implements HostProvider {
     };
   }
 
+  /**
+   * The recipe's `idleStopMinutes` (ADR-229 D7): stop the box after this long
+   * idle, while the desktop is awake. Undefined when the recipe has none.
+   */
+  get idleStopMinutes(): number | undefined {
+    return this.recipe?.idleStopMinutes;
+  }
+
   /** The one transport for the provider's life; see the file comment. */
   transport(): HostTransport {
     return this.recipeTransport;

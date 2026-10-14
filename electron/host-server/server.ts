@@ -42,6 +42,7 @@
 
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import type { AgentStatusSink } from "../agent-status/pipeline";
 import { HostHookFeed } from "../backend/hook-feed";
 import type { HostStatus, HostStatusInfo } from "../backend/host-connection";
@@ -59,7 +60,9 @@ import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
 import { LocalTransport } from "../terminal-host/transport-local";
+import { isActiveStatus } from "../agent-status/reconciler";
 import { createAdoption } from "./adopt";
+import { createBusyTracker, createHookRunner } from "./busy";
 import { serveCliRelay } from "./cli-relay";
 import { HOST_TABLE, type HostServerDeps } from "./handlers";
 import { createHostWinsize, type HostWinsize } from "./winsize";
@@ -100,6 +103,11 @@ export interface HostServerOptions {
   /** Driver clocks, for tests. */
   monoClock?: () => number;
   wallClock?: () => number;
+  /**
+   * Where `on-busy` and `on-idle` live (ADR-229 D7). Defaults to `hooks/`
+   * beside the data dir, which is `~/.manor/remote/hooks/` for the real one.
+   */
+  hooksDir?: string;
   /** Tests: handed the server's parts once they are built. */
   internals?: (parts: HostServerInternals) => void;
 }
@@ -308,6 +316,29 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const { client, deps, bridge } = server;
   const { agentManager } = server.shared;
   const { shared } = server;
+
+  // ── busy (ADR-229 D7) ──
+  const hooks = createHookRunner({
+    dir: opts.hooksDir ?? path.join(path.dirname(paths.dataDir), "hooks"),
+    logFile: path.join(paths.logsDir, "hooks.log"),
+  });
+  const busy = createBusyTracker({
+    isBusy: () =>
+      server.agentPipeline.driver.getAllPaneStatuses().some((p) => isActiveStatus(p.status)),
+    onChange: (isBusy) => {
+      server.bus.publish("hostServer", "busyChanged", { busy: isBusy });
+      void hooks.run(isBusy);
+    },
+  });
+  // Every status the reconciler publishes could change the answer...
+  const releaseBusyWatch = server.bus.subscribe((b) => {
+    if (b.ns === "agents" && b.event === "status") busy.recompute();
+  });
+  // ...and so can a pane's end, which forgets its state without publishing.
+  client.onEvent((event) => {
+    if (event.type === "exit") queueMicrotask(() => busy.recompute());
+  });
+
   // The box's `manor` CLI is this server's to answer (ADR-227 D8): it asks
   // the daemon for its requests on every stream (re)connect.
   const releaseCliRelay = serveCliRelay(client, { routes: deps, ownership });
@@ -331,6 +362,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       secretKeyOnVolume: secretKeyOnVolume(),
       identityReset,
       supervisor: supervisorFacts.current(),
+      ...busy.state(),
+      hooks: hooks.available(),
+      desktopViewing: server.bridge.hasDesktopViewerSubscriber("pty", "output"),
     };
   }
 
@@ -482,6 +516,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (retryTimer) clearTimeout(retryTimer);
       releaseCliRelay();
       server.agentPipeline.stop();
+      releaseBusyWatch();
+      busy.dispose();
       feed.pause();
       await relay.stop();
       frames.closeAll();

@@ -137,10 +137,24 @@ export interface HostStatusInfo {
    */
   providerKind?: HostProvider["kind"];
   capabilities?: ProviderCapabilities;
+  /**
+   * Whether an agent on the host is working (ADR-229 D7), from its server's
+   * last status and `busyChanged`. Absent until read, and for an older server.
+   */
+  busy?: boolean;
+  /** Which box hooks (`on-busy`, `on-idle`) the host's server found, from its last status. */
+  hooks?: { onBusy: boolean; onIdle: boolean };
+  /**
+   * The recipe has `idleStopMinutes` but nothing that works with the lid
+   * closed — neither the provider's `autoSleep` nor a box hook — so it stops
+   * only while this desktop is awake (ADR-229 D7). Set on recipe hosts.
+   */
+  idleStopNote?: boolean;
 }
 
 /** What a host server's last status said about it (ADR-228 D2, D3). */
-export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBridge">>;
+export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBridge">> &
+  Pick<HostStatusInfo, "busy" | "hooks">;
 
 type HostState = Omit<
   HostStatusInfo,
@@ -153,6 +167,9 @@ type HostState = Omit<
   | "providerKind"
   | "capabilities"
   | "label"
+  | "busy"
+  | "hooks"
+  | "idleStopNote"
 >;
 
 /**
@@ -260,6 +277,17 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   setServerFacts(facts: HostServerFacts | null): void {
     this.announcing(() => {
       this.serverFacts = facts ?? undefined;
+    });
+  }
+
+  /**
+   * The host's `busy`, from its server's `busyChanged` (ADR-229 D7). Kept
+   * only on top of facts a status read has already recorded.
+   */
+  setServerBusy(busy: boolean): void {
+    if (!this.serverFacts || this.serverFacts.busy === busy) return;
+    this.announcing(() => {
+      this.serverFacts = { ...this.serverFacts!, busy };
     });
   }
 

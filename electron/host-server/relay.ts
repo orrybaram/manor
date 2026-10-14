@@ -140,6 +140,22 @@ export interface HostServerStatus {
    * does. Optional on the type for an older server's status.
    */
   supervisor?: SupervisorFacts | null;
+  /**
+   * Whether any agent on this host is thinking, working or waiting on input
+   * (ADR-229 D7), going idle 60 s after the last one stops. Optional on the
+   * type for an older server's status.
+   */
+  busy?: boolean;
+  /** Since when the host has been idle (epoch ms, this box's clock); null while busy. */
+  idleSince?: number | null;
+  /** Which of `~/.manor/remote/hooks/on-busy` and `on-idle` can be run. */
+  hooks?: { onBusy: boolean; onIdle: boolean };
+  /**
+   * Whether a desktop window has a pane of this host mounted: its viewer
+   * stream is subscribed to a pane's output. The desktop's idle stop waits
+   * for this to be false.
+   */
+  desktopViewing?: boolean;
 }
 
 /** The `remoteControl.*` surface the host table exposes. */

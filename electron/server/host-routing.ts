@@ -230,6 +230,8 @@ export class HostRouting implements BridgeForward {
   // ── routing (BridgeForward) ──
 
   target(rule: RouteRule, args: readonly unknown[]): string | null {
+    // A delegated call (Linear, ADR-228 D10) rides the token this server holds.
+    if (rule.by === "delegated") return null;
     const arg = args[rule.arg];
     switch (rule.by) {
       case "project":

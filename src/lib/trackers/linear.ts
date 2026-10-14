@@ -4,6 +4,9 @@
  * one. With `github.ts`, the only reader of `row.raw` for the task list.
  */
 
+import { linearServers } from "../../bridge/linear-servers";
+import { onBehalfOf } from "../../bridge/router";
+import { servers } from "../../bridge/server-set";
 import type { LinearIssue } from "../../electron.d";
 import { startLinearIssueWork } from "../start-issue-work";
 import { isLinearImageUrl } from "../task-images";
@@ -101,7 +104,9 @@ export const linearTracker: TaskTracker = {
 
   statusQuery: () => ({
     queryKey: ["trackers", "linear", "status"],
-    queryFn: () => window.electronAPI.linear.isConnected(),
+    // Connected if any reachable server has it (ADR-228 D10): the desktop,
+    // or a host the user turned it on for.
+    queryFn: () => linearServers(servers).anyConnected(),
     staleTime: STALE_MS,
   }),
 
@@ -122,10 +127,13 @@ export const linearTracker: TaskTracker = {
       ],
       queryFn: async () => {
         const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };
-        const issues =
+        // On behalf of the project's host: its own server answers if Linear
+        // is on there, else the desktop that lists it (D10).
+        const issues = await onBehalfOf(member.hostId, () =>
           scope === "assigned"
-            ? await window.electronAPI.linear.getMyIssues(teamIds, opts)
-            : await window.electronAPI.linear.getAllIssues(teamIds, opts);
+            ? window.electronAPI.linear.getMyIssues(teamIds, opts)
+            : window.electronAPI.linear.getAllIssues(teamIds, opts),
+        );
         return issues.map((i) => ({
           ...toRow(i, ctx),
           assignedToMe: scope === "assigned",
@@ -156,7 +164,9 @@ export const linearTracker: TaskTracker = {
   detailQuery: (ref) => ({
     queryKey: ["task-detail", "linear", ref.id],
     queryFn: async () => {
-      const issue = await window.electronAPI.linear.getIssueDetail(ref.id);
+      const issue = await onBehalfOf(ref.project.hostId, () =>
+        window.electronAPI.linear.getIssueDetail(ref.id),
+      );
       const body = issue.description ?? null;
       return {
         body,
@@ -195,7 +205,10 @@ export const linearTracker: TaskTracker = {
 
   unlink: unlinkTask,
 
-  close: (ref) => window.electronAPI.linear.closeIssue(ref.id),
+  close: (ref) =>
+    onBehalfOf(ref.project.hostId, () =>
+      window.electronAPI.linear.closeIssue(ref.id),
+    ),
 
   homeUrl: (rows) => {
     for (const row of rows) {

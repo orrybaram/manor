@@ -61,7 +61,7 @@
 import { keyFor } from "../../electron/bridge/host-rewrite";
 import { byPane, ROUTES, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
-import { UNAVAILABLE_HOST_AWAY_CODE } from "../../electron/bridge/types";
+import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../electron/bridge/types";
 import { parseChatTaskKey } from "../../electron/chat-mirror/task-key";
 import type { ElectronAPI } from "../electron";
 import type { LayoutEntry } from "../lib/layout/protocol";
@@ -73,8 +73,9 @@ import {
 } from "../lib/workspace-key";
 import { BridgeDisconnectedError, LISTENERS, NOT_MEMBERS, servesItself } from "./client";
 import { hostLookups } from "./host-lookups";
+import { linearServers, type LinearChoice } from "./linear-servers";
 import type { LastKnownStore } from "./last-known";
-import { viaServer, type ServerEntry, type ServerSet } from "./server-set";
+import { servers, viaServer, type ServerEntry, type ServerSet } from "./server-set";
 
 /** Which host a routed call is for. */
 export interface HostResolver {
@@ -89,6 +90,8 @@ export interface HostResolver {
 /** `hostOf`, read off the stores' lookups. */
 export const storeResolver: HostResolver = {
   hostOf(rule, args) {
+    // A delegated call names no host; the caller says (`onBehalfOf`).
+    if (rule.by === "delegated") return null;
     const arg = args[rule.arg];
     const lookups = hostLookups();
     switch (rule.by) {
@@ -217,6 +220,37 @@ interface PaneSub {
   /** The server it is open on, and how to close it there. */
   serverId: string | null;
   off: (() => void) | null;
+}
+
+/** The host a delegated call is being made for, while its dispatch runs. */
+let delegatedHost: string | null = null;
+
+/**
+ * Run `call`, a `linear.*` call, on behalf of `hostId` (ADR-228 D10): the
+ * router picks that host's Linear server (`linearServerFor`) rather than
+ * the page's. The call is dispatched synchronously, so the host is read
+ * before this returns. Null is no host: browsing.
+ */
+export function onBehalfOf<T>(hostId: string | null | undefined, call: () => T): T {
+  const was = delegatedHost;
+  delegatedHost = hostId ? normalizeHostId(hostId) : null;
+  try {
+    return call();
+  } finally {
+    delegatedHost = was;
+  }
+}
+
+/**
+ * The server a Linear call for `hostId` goes to, or the reason there is none:
+ * the host's own server if it has Linear, else the desktop that lists the
+ * host, else a refusal. No host: home first, then any server with Linear.
+ */
+export function linearServerFor(
+  hostId: string | null,
+  set: ServerSet = servers,
+): Promise<LinearChoice> {
+  return linearServers(set).choose(hostId);
 }
 
 export interface RouterOptions {
@@ -582,6 +616,23 @@ export function createRouter(
     return answer.catch((err: unknown) => {
       if (!(err instanceof BridgeDisconnectedError)) throw err;
       console.warn(`[bridge-router] a keystroke to ${via.id} was lost as its stream dropped`);
+    });
+  }
+
+  /** A delegated call (D10): to the server `linearServerFor` picks. */
+  function delegated(ns: string, name: string, args: unknown[]): unknown {
+    const home = set.home();
+    if (passThrough()) return call(home, ns, name, args);
+    const hostId = delegatedHost;
+    return linearServerFor(hostId, set).then((choice) => {
+      const target = choice.server;
+      if (!target) {
+        throw new BridgeUnavailableError(choice.refusal, UNAVAILABLE_HOST_CODE);
+      }
+      if (native(target)) return call(target, ns, name, args);
+      return Promise.resolve(call(target, ns, name, args)).then((result) =>
+        stampResult(target, ns, name, result),
+      );
     });
   }
 
@@ -1094,6 +1145,9 @@ export function createRouter(
       : "home";
     if (route === "merge") {
       return passThrough() ? call(home, ns, name, args) : merged(ns, name, args);
+    }
+    if (typeof route === "object" && route.by === "delegated") {
+      return delegated(ns, name, args);
     }
     if (typeof route === "object") return routed(route, ns, name, args);
     return callHome(ns, name, args);

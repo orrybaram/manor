@@ -19,7 +19,7 @@ import { ROUTES } from "../routes";
 import { HOST_TABLE } from "../../host-server/handlers";
 
 /** The namespaces that read or write a host's projects, layout or agents. */
-const ROUTED_NAMESPACES = ["projects", "layout", "agents", "github"];
+const ROUTED_NAMESPACES = ["projects", "layout", "agents", "github", "chat", "linear"];
 
 const methods = SERVER_METHODS as unknown as Record<string, Method>;
 
@@ -55,6 +55,8 @@ describe("routing surface (ADR-227 D4)", () => {
 
   it("reads each route's target off an argument the method takes", () => {
     for (const [key, rule] of DESKTOP_TABLE.routes) {
+      // A delegated call names no argument (ADR-228 D10).
+      if (rule.by === "delegated") continue;
       const fn = DESKTOP_TABLE.handlers[key] as (...args: unknown[]) => unknown;
       // `fn.length` counts the context and every parameter before the first
       // with a default.

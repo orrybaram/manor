@@ -20,6 +20,7 @@ export {
   byHost,
   byPane,
   byProject,
+  delegated,
   byWorkspaceKey,
   type RouteRule,
 } from "./routes";

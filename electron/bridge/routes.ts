@@ -25,7 +25,7 @@
  * that host's server, through its `HostProxy` (`BridgeServer`'s `forward`);
  * every other call, and every call on a host server, runs here.
  */
-export interface RouteRule {
+export interface HostRule {
   by: "project" | "workspaceKey" | "pane" | "ghRepo" | "agent" | "host";
   /** Which wire argument names the target. */
   arg: number;
@@ -38,19 +38,38 @@ export interface RouteRule {
 }
 
 /**
+ * A call tied to no path, answered by whichever server holds the user's
+ * delegated credential for `provider` (ADR-228 D10): the renderer's router
+ * picks it per call (`src/bridge/linear-servers.ts`). Main's `HostRouting`
+ * treats it as local: the desktop's own server holds the token.
+ */
+export interface DelegatedRule {
+  by: "delegated";
+  provider: "linear";
+}
+
+/** How a routed method finds its server. */
+export type RouteRule = HostRule | DelegatedRule;
+
+/**
  * Answered here whatever host it touches: a merged read, or a write that
  * fans out to each host itself (`ProjectManager`'s groups). The surface
  * test asks every method of a routed namespace to say one or the other.
  */
 export const LOCAL_ROUTE = "local";
 
+/** A path-free call on `provider`'s delegated credential. */
+export function delegated(provider: DelegatedRule["provider"]): DelegatedRule {
+  return { by: "delegated", provider };
+}
+
 /** A project id at `arg`. */
-export function byProject(arg: number): RouteRule {
+export function byProject(arg: number): HostRule {
   return { by: "project", arg };
 }
 
 /** A workspace key at `arg`. */
-export function byWorkspaceKey(arg: number): RouteRule {
+export function byWorkspaceKey(arg: number): HostRule {
   return { by: "workspaceKey", arg };
 }
 
@@ -58,22 +77,22 @@ export function byWorkspaceKey(arg: number): RouteRule {
  * A pane id at `arg`; `hostOpt`, when given, is the options argument whose
  * `hostId` names the host of a pane no layout holds yet.
  */
-export function byPane(arg: number, hostOpt?: number): RouteRule {
+export function byPane(arg: number, hostOpt?: number): HostRule {
   return hostOpt === undefined ? { by: "pane", arg } : { by: "pane", arg, hostOpt };
 }
 
 /** A `GhRepo` at `arg`. */
-export function byGhRepo(arg: number): RouteRule {
+export function byGhRepo(arg: number): HostRule {
   return { by: "ghRepo", arg };
 }
 
 /** A host id at `arg`; an absent one stays on this machine. */
-export function byHost(arg: number): RouteRule {
+export function byHost(arg: number): HostRule {
   return { by: "host", arg };
 }
 
 /** An agent id at `arg`. */
-export function byAgent(arg: number): RouteRule {
+export function byAgent(arg: number): HostRule {
   return { by: "agent", arg };
 }
 
@@ -185,6 +204,20 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "github.createIssue": "home",
   "github.uploadFeedbackImages": "home",
 
+  // The path-free methods ride the user's delegated token, and the router
+  // picks the server per call (D10). `isConnected` is each server's own.
+  "linear.connect": "home",
+  "linear.isConnected": "home",
+  "linear.disconnect": "home",
+  "linear.getViewer": delegated("linear"),
+  "linear.getTeams": delegated("linear"),
+  "linear.getMyIssues": delegated("linear"),
+  "linear.getIssueDetail": delegated("linear"),
+  "linear.getAllIssues": delegated("linear"),
+  "linear.proxyImage": delegated("linear"),
+  "linear.autoMatch": delegated("linear"),
+  "linear.startIssue": delegated("linear"),
+  "linear.closeIssue": delegated("linear"),
   "linear.linkIssueToWorkspace": byProject(0),
   "linear.unlinkIssueFromWorkspace": byProject(0),
 };

@@ -11,6 +11,7 @@
 
 import { useProjectStore, type LinkedIssue, type ProjectInfo } from "../store/project-store";
 import { BridgeUnavailableError } from "../bridge/client";
+import { onBehalfOf } from "../bridge/router";
 import { showBridgeUnavailableToastOnce } from "./bridge-unavailable-toast";
 import { addErrorToast } from "../store/toast-store";
 import { sanitizeBranchName, branchesEqual } from "../utils/branch-name";
@@ -104,7 +105,9 @@ export function startGitHubIssueWork(
 }
 
 export function startLinearIssueWork(
-  opts: StartWorkCommon & {
+  opts: Omit<StartWorkCommon, "project"> & {
+    /** The project's host picks the server that starts the issue (ADR-228 D10). */
+    project: Pick<ProjectInfo, "id" | "hostId">;
     issue: {
       id: string;
       identifier: string;
@@ -138,7 +141,9 @@ export function startLinearIssueWork(
   });
   // Best effort, like the GitHub assign. A host server without Linear turned
   // on refuses (`unavailable:host`, ADR-227 D7): the toast says so, once.
-  window.electronAPI.linear.startIssue(issue.id)?.catch(
+  onBehalfOf(project.hostId, () =>
+    window.electronAPI.linear.startIssue(issue.id),
+  )?.catch(
     (err: unknown) => {
       if (err instanceof BridgeUnavailableError) {
         showBridgeUnavailableToastOnce("linear-start-issue", err.message);

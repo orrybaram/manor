@@ -358,9 +358,10 @@ export function TasksView(props: TasksViewProps) {
               Connect a tracker to see your tasks from every project here.
             </p>
             <GitHubNudge onInstalled={handleGitHubInstalled} />
-            <p className={styles.setupHint}>
-              To use Linear, connect it in Settings and link a team to a
-              project.
+            <p className={styles.setupHint} data-testid="tasks-setup-hint">
+              {scope.linearWhy
+                ? `${scope.linearWhy}.`
+                : "To use Linear, connect it in Settings and link a team to a project."}
             </p>
           </div>
         ) : (

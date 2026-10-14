@@ -14,7 +14,7 @@ import {
   type BridgeTransport,
 } from "../client";
 import { onBridgeResync } from "../resync";
-import { createRouter, storeResolver, type HostResolver } from "../router";
+import { createRouter, onBehalfOf, storeResolver, type HostResolver } from "../router";
 import { createServerSet, type ServerSet } from "../server-set";
 
 type Handler = (...args: unknown[]) => unknown;
@@ -85,6 +85,7 @@ function fakeResolver(maps: {
 }): HostResolver {
   return {
     hostOf(rule: RouteRule, args) {
+      if (rule.by === "delegated") return null;
       const arg = args[rule.arg];
       if (rule.by === "workspaceKey" && typeof arg === "string") {
         const at = arg.indexOf(":/");
@@ -1016,5 +1017,110 @@ describe("on the phone, every server named by its room (D2)", () => {
     expect(set.homeId).toBe(DESK);
     desk.emit("agents.updated", undefined, { id: "a", hostId: "local" });
     expect(seen).toHaveBeenCalledWith({ id: "a", hostId: DESK });
+  });
+});
+
+describe("GitHub calls follow the repo's host (ADR-228 D10)", () => {
+  it("send a repo's calls to its host's source, and a local repo's home", async () => {
+    const home = fakeServer({ "github.getMyIssues": "home", "github.checkStatus": "home" });
+    const box = fakeServer({ "github.getMyIssues": [], "github.checkStatus": { installed: true } });
+    const api = createRouter(desktopWithHost(home, box), storeResolver);
+
+    await api.github.getMyIssues({ path: "/r", hostId: "box" }, 1);
+    await api.github.checkStatus("box");
+    expect(box.invokes.map((i) => i.key)).toEqual(["github.getMyIssues", "github.checkStatus"]);
+    expect(box.invokes[0].args).toEqual([{ path: "/r", hostId: "local" }, 1]);
+
+    await api.github.getMyIssues({ path: "/r", hostId: "local" }, 1);
+    await api.github.checkStatus(undefined);
+    expect(home.invokes.map((i) => i.key)).toEqual(["github.getMyIssues", "github.checkStatus"]);
+  });
+});
+
+describe("Linear calls pick their server per call (ADR-228 D10)", () => {
+  const calls = (server: FakeServer) =>
+    server.invokes.filter((i) => i.key === "linear.getViewer").length;
+
+  it("go to the host's own server when it has Linear connected", async () => {
+    const home = fakeServer({ "linear.isConnected": true, "linear.getViewer": "home" });
+    const box = fakeServer({ "linear.isConnected": true, "linear.getViewer": "box" });
+    const api = createRouter(desktopWithHost(home, box), fakeResolver({}));
+
+    expect(await onBehalfOf("box", () => api.linear.getViewer())).toBe("box");
+    expect(calls(home)).toBe(0);
+  });
+
+  it("fall to the desktop that lists the host when the host has none", async () => {
+    const home = fakeServer({ "linear.isConnected": true, "linear.getViewer": "home" });
+    const box = fakeServer({ "linear.isConnected": false, "linear.getViewer": "box" });
+    const api = createRouter(desktopWithHost(home, box), fakeResolver({}));
+
+    expect(await onBehalfOf("box", () => api.linear.getViewer())).toBe("home");
+    expect(calls(box)).toBe(0);
+  });
+
+  it("refuse with a stated reason when neither has Linear", async () => {
+    const home = fakeServer({ "linear.isConnected": false });
+    const box = fakeServer({ "linear.isConnected": false });
+    const api = createRouter(desktopWithHost(home, box), fakeResolver({}));
+
+    const refused = onBehalfOf("box", () => api.linear.getViewer());
+    await expect(refused).rejects.toBeInstanceOf(BridgeUnavailableError);
+    await expect(refused).rejects.toThrow(
+      "Linear isn't turned on for wsl-box, and Linear isn't connected on This Mac",
+    );
+    expect(calls(home) + calls(box)).toBe(0);
+  });
+
+  it("name a desktop that is away in the refusal", async () => {
+    const desk = fakeServer({ "linear.isConnected": true });
+    const box = fakeServer({ "linear.isConnected": false });
+    const set = createServerSet();
+    set.add("deskroom", desk.transport, { home: true, lists: "all", roomId: "deskroom" });
+    set.recordHello("deskroom", { hostName: "mac", hostServer: false });
+    set.add("boxroom", box.transport, { roomId: "boxroom" });
+    set.recordHello("boxroom", { hostName: "wsl-box", hostServer: true });
+    set.setReachability("boxroom", "connected");
+    set.setReachability("deskroom", "unreachable");
+    const api = createRouter(set, fakeResolver({}));
+
+    await expect(onBehalfOf("boxroom", () => api.linear.getViewer())).rejects.toThrow(
+      "Linear isn't turned on for wsl-box, and mac is away",
+    );
+  });
+
+  it("try home first with no host, then any server with Linear", async () => {
+    const home = fakeServer({ "linear.isConnected": true, "linear.getViewer": "home" });
+    const box = fakeServer({ "linear.isConnected": true, "linear.getViewer": "box" });
+    expect(await createRouter(desktopWithHost(home, box), fakeResolver({})).linear.getViewer()).toBe("home");
+
+    const bare = fakeServer({ "linear.isConnected": false, "linear.getViewer": "home" });
+    const holder = fakeServer({ "linear.isConnected": true, "linear.getViewer": "box" });
+    const api = createRouter(desktopWithHost(bare, holder), fakeResolver({}));
+    expect(await api.linear.getViewer()).toBe("box");
+  });
+
+  it("ask a server again once it says hello again", async () => {
+    let on = false;
+    const home = fakeServer({ "linear.isConnected": false, "linear.getViewer": "home" });
+    const box = fakeServer({ "linear.isConnected": () => on, "linear.getViewer": "box" });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+
+    await expect(onBehalfOf("box", () => api.linear.getViewer())).rejects.toThrow("wsl-box");
+    // The host is turned on, drops and comes back: its hello refreshes the cache.
+    on = true;
+    set.setReachability("box", "unreachable");
+    set.setReachability("box", "connected");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await onBehalfOf("box", () => api.linear.getViewer())).toBe("box");
+  });
+
+  it("keep linking an issue to its project's host", async () => {
+    const home = fakeServer({});
+    const box = fakeServer({ "linear.linkIssueToWorkspace": "ok" });
+    const api = createRouter(desktopWithHost(home, box), fakeResolver({ project: { p1: "box" } }));
+    await api.linear.linkIssueToWorkspace("p1", "box:/w", {} as never);
+    expect(box.invokes.map((i) => i.key)).toEqual(["linear.linkIssueToWorkspace"]);
   });
 });

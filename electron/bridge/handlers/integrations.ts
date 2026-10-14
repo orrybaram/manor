@@ -38,7 +38,7 @@ import type {
 } from "../../linear";
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
-import { byGhRepo, byHost, byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import { byGhRepo, byHost, byProject, delegated, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { SharedDeps } from "../../ipc/types";
 
 /** What `gh` needs: the host server carries this and no more of `ServerDeps`. */
@@ -383,19 +383,21 @@ export const linear = {
   // flight is the credential itself, so connecting Linear is done at the
   // machine whose keychain will hold it; and it is never `mutating`, because
   // the audit line records the first argument — the key.
-  connect: method(linearConnect, { localOnly: true, secretFirstArg: true }),
+  connect: method(linearConnect, { localOnly: true, secretFirstArg: true, route: LOCAL_ROUTE }),
   // Drops the integration for every viewer.
-  disconnect: method(linearDisconnect, { mutating: true }),
-  isConnected: method(linearIsConnected),
-  getViewer: method(linearGetViewer),
-  getTeams: method(linearGetTeams),
-  getMyIssues: method(linearGetMyIssues),
-  getIssueDetail: method(linearGetIssueDetail),
-  getAllIssues: method(linearGetAllIssues),
-  proxyImage: method(linearProxyImage),
-  autoMatch: method(linearAutoMatch, { mutating: true }),
-  startIssue: method(linearStartIssue, { mutating: true }),
-  closeIssue: method(linearCloseIssue, { mutating: true }),
+  disconnect: method(linearDisconnect, { mutating: true, route: LOCAL_ROUTE }),
+  isConnected: method(linearIsConnected, { route: LOCAL_ROUTE }),
+  // Path-free: the renderer's router picks the server that holds the token
+  // (ADR-228 D10); main answers them itself.
+  getViewer: method(linearGetViewer, { route: delegated("linear") }),
+  getTeams: method(linearGetTeams, { route: delegated("linear") }),
+  getMyIssues: method(linearGetMyIssues, { route: delegated("linear") }),
+  getIssueDetail: method(linearGetIssueDetail, { route: delegated("linear") }),
+  getAllIssues: method(linearGetAllIssues, { route: delegated("linear") }),
+  proxyImage: method(linearProxyImage, { route: delegated("linear") }),
+  autoMatch: method(linearAutoMatch, { mutating: true, route: delegated("linear") }),
+  startIssue: method(linearStartIssue, { mutating: true, route: delegated("linear") }),
+  closeIssue: method(linearCloseIssue, { mutating: true, route: delegated("linear") }),
   // A workspace's linked issues are its project's record: a remote
   // project's host server's (ADR-227 D4).
   linkIssueToWorkspace: method(linearLinkIssueToWorkspace, {

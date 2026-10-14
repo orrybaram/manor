@@ -25,7 +25,7 @@ export interface HostIdleStopOptions {
   /** A fresh status read; null when the host's server cannot be reached. */
   status(
     hostId: string,
-  ): Promise<Pick<HostServerStatus, "busy" | "idleSince" | "desktopViewing"> | null>;
+  ): Promise<Pick<HostServerStatus, "busy" | "idleForMs" | "desktopViewing"> | null>;
   /** What the provider was last told by `setBusy`. */
   providerBusy(hostId: string): boolean;
   isSleeping(hostId: string): boolean;
@@ -111,8 +111,8 @@ export class HostIdleStop {
     // Cancelled or re-armed (a busy flip, a disconnect) while the read was out.
     if (this.epoch(hostId) !== epoch) return;
     // An older server cannot say; one that cannot be reached is away.
-    if (!status || status.busy !== false || typeof status.idleSince !== "number") return;
-    const remaining = status.idleSince + minutes * 60_000 - this.now();
+    if (!status || status.busy !== false || typeof status.idleForMs !== "number") return;
+    const remaining = minutes * 60_000 - status.idleForMs;
     if (remaining > 0) {
       this.arm(hostId, remaining);
       return;

@@ -97,14 +97,11 @@ describe("BranchWatcher", () => {
 
     // First populate lastBranches with something...
     watcher.start([local(tmpDir)]);
-    await new Promise((r) => setTimeout(r, 10));
-    expect(sends).toEqual([{ [tmpDir]: "main" }]);
+    await vi.waitFor(() => expect(sends).toEqual([{ [tmpDir]: "main" }]));
 
     // ...then restart with zero paths: the renderer must see the clear.
     watcher.start([]);
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(sends).toEqual([{ [tmpDir]: "main" }, {}]);
+    await vi.waitFor(() => expect(sends).toEqual([{ [tmpDir]: "main" }, {}]));
   });
 
   it("does not re-emit on restart with identical data", async () => {
@@ -113,8 +110,7 @@ describe("BranchWatcher", () => {
     const { sends } = captureBranches();
 
     watcher.start([local(tmpDir)]);
-    await new Promise((r) => setTimeout(r, 10));
-    expect(sends).toEqual([{ [tmpDir]: "main" }]);
+    await vi.waitFor(() => expect(sends).toEqual([{ [tmpDir]: "main" }]));
 
     watcher.start([local(tmpDir)]);
     await new Promise((r) => setTimeout(r, 10));
@@ -154,9 +150,9 @@ describe("BranchWatcher", () => {
     const { sends } = captureBranches();
 
     watcher.start([local(tmpDir), { path: tmpDir, hostId: "box" }]);
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(sends[sends.length - 1]).toEqual({ [tmpDir]: "main", [`box:${tmpDir}`]: "box-branch" });
+    await vi.waitFor(() =>
+      expect(sends[sends.length - 1]).toEqual({ [tmpDir]: "main", [`box:${tmpDir}`]: "box-branch" }),
+    );
   });
 
   it("skips a tick for a host whose previous scan is still in flight", async () => {

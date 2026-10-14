@@ -177,11 +177,12 @@ export class HostServerSync {
   }
 
   /** A status or `busyChanged` said whether `hostId` is busy (ADR-229 D7). */
-  private noteBusy(hostId: string, state: { busy?: boolean; idleSince?: number | null }): void {
+  private noteBusy(hostId: string, state: { busy?: boolean; idleForMs?: number | null }): void {
     if (state.busy === undefined) return;
     this.registry.setBusy?.(hostId, state.busy);
     if (state.busy) this.idleStop.busy(hostId);
-    else this.idleStop.idle(hostId, state.idleSince ?? Date.now());
+    // The box measured how long; turn it into a time on this clock.
+    else this.idleStop.idle(hostId, Date.now() - (state.idleForMs ?? 0));
   }
 
   /** Listen to `client`'s `busyChanged`, once; the subscription outlives its channels. */
@@ -192,7 +193,7 @@ export class HostServerSync {
       const busy = (info as { busy?: unknown } | null)?.busy;
       if (typeof busy !== "boolean") return;
       // The server debounces, so the transition is now.
-      this.noteBusy(client.hostId, { busy, idleSince: Date.now() });
+      this.noteBusy(client.hostId, { busy, idleForMs: 0 });
     });
   }
 

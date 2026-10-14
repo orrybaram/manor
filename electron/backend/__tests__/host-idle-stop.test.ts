@@ -8,8 +8,17 @@ describe("HostIdleStop (ADR-229 D7)", () => {
     minutes: number | undefined;
     providerBusy: boolean;
     sleeping: boolean;
+    /** The box's view; `idleSince` is on the box's clock, `skewMs` ahead of ours. */
     status: { busy?: boolean; idleSince?: number | null; desktopViewing?: boolean } | null;
+    skewMs: number;
   };
+  /** What the server reports: how long it has been idle, measured on the box. */
+  function report(): { busy?: boolean; idleForMs?: number | null; desktopViewing?: boolean } | null {
+    if (!state.status) return null;
+    const { idleSince, ...rest } = state.status;
+    if (idleSince === undefined) return rest;
+    return { ...rest, idleForMs: idleSince === null ? null : Date.now() + state.skewMs - idleSince };
+  }
   let idle: HostIdleStop;
 
   beforeEach(() => {
@@ -21,10 +30,11 @@ describe("HostIdleStop (ADR-229 D7)", () => {
       providerBusy: false,
       sleeping: false,
       status: { busy: false, idleSince: Date.now(), desktopViewing: false },
+      skewMs: 0,
     };
     idle = new HostIdleStop({
       minutes: () => state.minutes,
-      status: async () => state.status,
+      status: async () => report(),
       providerBusy: () => state.providerBusy,
       isSleeping: () => state.sleeping,
       stop,
@@ -70,7 +80,7 @@ describe("HostIdleStop (ADR-229 D7)", () => {
       minutes: () => 10,
       status: async () => {
         await gate;
-        return state.status;
+        return report();
       },
       providerBusy: () => false,
       isSleeping: () => false,
@@ -110,7 +120,18 @@ describe("HostIdleStop (ADR-229 D7)", () => {
     expect(stop).not.toHaveBeenCalled();
   });
 
-  it("counts the idleness from the server's idleSince", async () => {
+  it("counts the idleness the box measured, whatever its clock says", async () => {
+    // The box's clock runs an hour ahead; it has been idle for 9 minutes.
+    state.skewMs = 60 * MIN;
+    state.status = { busy: false, idleSince: Date.now() + 60 * MIN - 9 * MIN, desktopViewing: false };
+    idle.idle("h", Date.now() - 9 * MIN);
+    await vi.advanceTimersByTimeAsync(MIN - 1);
+    expect(stop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts the idleness from the server's report", async () => {
     state.status = { busy: false, idleSince: Date.now() - 9 * MIN, desktopViewing: false };
     idle.idle("h", Date.now() - 9 * MIN);
     await vi.advanceTimersByTimeAsync(MIN);

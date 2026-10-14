@@ -148,6 +148,12 @@ export interface HostServerStatus {
   busy?: boolean;
   /** Since when the host has been idle (epoch ms, this box's clock); null while busy. */
   idleSince?: number | null;
+  /**
+   * How long the host has been idle, measured on the box; null while busy.
+   * What the desktop's idle stop reads, so a box whose clock is off from the
+   * desktop's doesn't stop early or late.
+   */
+  idleForMs?: number | null;
   /** Which of `~/.manor/remote/hooks/on-busy` and `on-idle` can be run. */
   hooks?: { onBusy: boolean; onIdle: boolean };
   /**

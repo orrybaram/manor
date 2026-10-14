@@ -362,7 +362,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       secretKeyOnVolume: secretKeyOnVolume(),
       identityReset,
       supervisor: supervisorFacts.current(),
-      ...busy.state(),
+      ...busyState(busy.state()),
       hooks: hooks.available(),
       desktopViewing: server.bridge.hasDesktopViewerSubscriber("pty", "output"),
     };
@@ -530,5 +530,17 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       cursorStore.flush();
       await client.dispose();
     },
+  };
+}
+
+/** The busy tracker's state, plus the idle time measured here (ADR-229 D7). */
+function busyState(state: { busy: boolean; idleSince: number | null }): {
+  busy: boolean;
+  idleSince: number | null;
+  idleForMs: number | null;
+} {
+  return {
+    ...state,
+    idleForMs: state.idleSince === null ? null : Math.max(0, Date.now() - state.idleSince),
   };
 }

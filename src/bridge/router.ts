@@ -339,10 +339,10 @@ export function createRouter(
   let homeProjectIds: unknown[] | null = null;
   let mergedProjectIds: unknown[] | null = null;
   /**
-   * A merged index selected on the page only, for a project home does not
-   * hold. Not persisted across a reload (a known limit).
+   * The project selected on the page only, for one home does not hold. It is
+   * kept by id, as the merged list's indexes move. Not persisted across a reload (a known limit).
    */
-  let pageSelection: number | null = null;
+  let pageSelectionId: unknown = null;
   /**
    * The desktop's claims on each workspace, as home last said them (D7): a
    * tab a detached window holds is the desktop's to know, and no host
@@ -1001,7 +1001,11 @@ export function createRouter(
   async function selectedIndex(): Promise<unknown> {
     const answer = await callHome("projects", "getSelectedIndex", []);
     const orders = await projectOrders();
-    if (pageSelection !== null && pageSelection < orders.merged.length) return pageSelection;
+    if (pageSelectionId !== null) {
+      const at = orders.merged.indexOf(pageSelectionId);
+      if (at >= 0) return at;
+      pageSelectionId = null;
+    }
     if (typeof answer !== "number") return answer;
     const at = orders.merged.indexOf(orders.home[answer]);
     if (at >= 0) return at;
@@ -1016,10 +1020,10 @@ export function createRouter(
     if (id === undefined) return callHome("projects", "select", args);
     const at = orders.home.indexOf(id);
     if (at < 0) {
-      pageSelection = index as number;
+      pageSelectionId = id;
       return undefined;
     }
-    pageSelection = null;
+    pageSelectionId = null;
     return callHome("projects", "select", [at, ...args.slice(1)]);
   }
 

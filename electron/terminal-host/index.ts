@@ -615,17 +615,33 @@ async function shutdown(
       `Shutdown: scrollback writes still pending after ${SHUTDOWN_PERSIST_TIMEOUT_MS}ms`,
     );
   }
-  try {
-    fs.unlinkSync(role.paths.socket);
-  } catch {
-    /* ignore */
-  }
-  try {
-    fs.unlinkSync(role.paths.pid);
-  } catch {
-    /* ignore */
+  // Only while they are still this daemon's. Writing scrollback can take a
+  // while, and a daemon started meanwhile — a host server reconnecting the
+  // moment this one went quiet — has written its own pid file and socket in
+  // their place: unlinking those would leave it unreachable, and the next
+  // client would start a second daemon beside it.
+  if (ownsPidFile(role)) {
+    try {
+      fs.unlinkSync(role.paths.socket);
+    } catch {
+      /* ignore */
+    }
+    try {
+      fs.unlinkSync(role.paths.pid);
+    } catch {
+      /* ignore */
+    }
   }
   process.exit(0);
+}
+
+/** Whether `role`'s pid file still names this process (or is gone). */
+function ownsPidFile(role: DaemonRole): boolean {
+  try {
+    return Number(fs.readFileSync(role.paths.pid, "utf-8").trim()) === process.pid;
+  } catch {
+    return true;
+  }
 }
 
 /** Wait for `promise`, but no longer than `ms`; logs `timeoutMessage` if it gives up. */

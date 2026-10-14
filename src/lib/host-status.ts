@@ -19,6 +19,7 @@
  * reads "reconnecting", in the warning tone, never "failed".
  */
 
+import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
 
 export type HostTone = "ok" | "warn" | "error";
@@ -189,10 +190,28 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether host `hostId` is away: main reported it and it is not connected.
- * `connecting`, `reconnecting`, `error` and `disconnected` all count as away,
- * as `describeHost` marks them `offline`. This machine (a missing id) and a
- * host main has not reported yet are never away.
+ * `host` as its source says it is (ADR-228 D6). A desktop window that holds
+ * its own bridge to the host's server (`src/bridge/desktop-hosts.ts`) has the
+ * host answering it while that bridge is `connected`, whatever main's last
+ * status said; otherwise main's status is the host's. Main closes a window's
+ * stream the moment a host leaves `connected`, so the two disagree only
+ * while that news is on its way — and then the host that is answering wins.
+ */
+export function sourcedHost(
+  host: HostStatusInfo | undefined,
+  direct: Reachability | undefined,
+): HostStatusInfo | undefined {
+  if (!host || direct !== "connected" || host.status === "connected") return host;
+  return { hostId: host.hostId, spec: host.spec, status: "connected" };
+}
+
+/**
+ * Whether host `hostId` is away: main reported it and it is not connected,
+ * and no bridge of this page's own to its server is (`sourcedHost`; `direct`
+ * reads the page's server set). `connecting`, `reconnecting`, `error` and
+ * `disconnected` all count as away, as `describeHost` marks them `offline`.
+ * This machine (a missing id) and a host main has not reported yet are never
+ * away.
  *
  * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
  * keystrokes replayed into a shell minutes later, into whatever is then in
@@ -202,9 +221,13 @@ export function secondsUntilRetry(
 export function isHostOffline(
   hostId: string | null | undefined,
   hosts: readonly HostStatusInfo[],
+  direct?: (hostId: string) => Reachability | undefined,
 ): boolean {
   if (!hostId) return false;
-  const host = hosts.find((h) => h.hostId === hostId);
+  const host = sourcedHost(
+    hosts.find((h) => h.hostId === hostId),
+    direct?.(hostId),
+  );
   return host !== undefined && host.status !== "connected";
 }
 

@@ -4,6 +4,7 @@ import {
   groupHostState,
   isHostOffline,
   secondsUntilRetry,
+  sourcedHost,
 } from "../host-status";
 import type { HostStatusInfo } from "../../store/host-store";
 
@@ -208,6 +209,28 @@ describe("isHostOffline", () => {
     expect(isHostOffline(undefined, hosts)).toBe(false);
     expect(isHostOffline(null, hosts)).toBe(false);
     expect(isHostOffline("unknown", hosts)).toBe(false);
+  });
+
+  it("takes a connected bridge of the page's own to the host as the host answering (ADR-228 D6)", () => {
+    const direct = (hostId: string) => (hostId === "box" ? ("connected" as const) : undefined);
+    expect(isHostOffline("box", hosts, direct)).toBe(false);
+    // An unreachable bridge says nothing main does not: main is the source.
+    expect(isHostOffline("box", hosts, () => "unreachable")).toBe(true);
+    expect(isHostOffline("up", hosts, () => "unreachable")).toBe(false);
+  });
+});
+
+describe("sourcedHost", () => {
+  it("is main's status unless the page's own bridge to the host is connected", () => {
+    const away = host({ status: "reconnecting", retryAt: 5 });
+    expect(sourcedHost(away, undefined)).toBe(away);
+    expect(sourcedHost(away, "unreachable")).toBe(away);
+    expect(sourcedHost(away, "connected")).toEqual({
+      hostId: "box",
+      spec: away.spec,
+      status: "connected",
+    });
+    expect(sourcedHost(undefined, "connected")).toBeUndefined();
   });
 });
 

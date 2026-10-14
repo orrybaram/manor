@@ -8,6 +8,7 @@ import { isRemoteHost, type HostId } from "../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
 import { isHostOffline } from "../lib/host-status";
+import { directReachability } from "../bridge/server-set";
 import type { PtyAttachResult, PtyCreateResult } from "../electron.d";
 
 /**
@@ -66,6 +67,7 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
       isHostOffline(
         paneRemoteHost(useRemotePaneStore.getState(), paneId),
         useHostStore.getState().hosts,
+        directReachability,
       )
     ) {
       return false;

@@ -298,8 +298,14 @@ export async function ptyResize(
   }
 }
 
+/**
+ * What ending or replacing a session reads: the backend alone, so a host
+ * server's table answers both as well (ADR-228 D5).
+ */
+type PtySessionDeps = Pick<ServerDeps, "backend">;
+
 export async function ptyClose(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<PtySessionDeps>,
   paneId: string,
 ): Promise<void> {
   release(paneId, asViewer(ctx.caller));
@@ -348,7 +354,7 @@ export async function ptyDetach(
  * so it is decorated with the same winsize ownership `pty.create` gets (D5).
  */
 export function ptyReset(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<PtySessionDeps & BridgeServerDeps>,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -371,7 +377,7 @@ export type PtyResetResult = {
 } & PtyWinsize;
 
 async function resetSession(
-  deps: ServerDeps,
+  deps: PtySessionDeps,
   paneId: string,
   cwd: string | null,
   cols: number,

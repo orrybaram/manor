@@ -106,11 +106,29 @@ export class LocalTransport implements HostTransport {
    * one. Backs `manor-host restart`, which a client on another machine runs over ssh.
    */
   async stop(): Promise<void> {
+    const killed = this.readPid();
     await this.killDaemonByPid();
     // Grace period for the process to exit and release the socket
     await new Promise<void>((r) => setTimeout(r, 500));
+    // Only while they are still the stopped daemon's. A client that found it
+    // gone — a box's host server reconnecting at once — may have started the
+    // next one within the grace period, and its socket and pid file are in
+    // these places now: unlinking them would leave it unreachable, and the
+    // next client would start a second daemon beside it.
+    const current = this.readPid();
+    if (current !== null && current !== killed) return;
     try { fs.unlinkSync(this.SOCKET_PATH); } catch { /* already gone */ }
     try { fs.unlinkSync(this.PID_PATH); } catch { /* already gone */ }
+  }
+
+  /** The pid the pid file names, or null when there is none to read. */
+  private readPid(): number | null {
+    try {
+      const pid = parseInt(fs.readFileSync(this.PID_PATH, "utf-8").trim(), 10);
+      return Number.isNaN(pid) ? null : pid;
+    } catch {
+      return null;
+    }
   }
 
   connectControl(): Promise<Duplex> {

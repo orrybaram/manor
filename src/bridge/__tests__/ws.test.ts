@@ -426,6 +426,32 @@ describe("the socket transport", () => {
     });
   });
 
+  describe("closing for good", () => {
+    it("closes the socket, fails what is in flight and never dials again", async () => {
+      const onStatus = vi.fn();
+      const transport = createWsTransport({
+        token: "full-token",
+        pipe: fakePipe(),
+        onStatus,
+      });
+      const api = createBridge(transport);
+      void api.projects.getAll().catch(() => {});
+      const socket = FakeSocket.last;
+      socket.handshake();
+      const pending = api.projects.getAll();
+
+      transport.close();
+      await expect(pending).rejects.toBeInstanceOf(BridgeDisconnectedError);
+      expect(socket.readyState).toBe(3);
+      // The pipe's own close, reported late, is about a connection now gone.
+      expect(onStatus).not.toHaveBeenCalledWith("unreachable");
+      vi.advanceTimersByTime(60_000);
+      expect(FakeSocket.instances).toHaveLength(1);
+      await expect(api.projects.getAll()).rejects.toBeInstanceOf(BridgeDisconnectedError);
+      expect(await transport.probeNow()).toBe("stopped");
+    });
+  });
+
   describe("reconnecting", () => {
     /**
      * Sending back the id the host gave it lets the server reuse it when

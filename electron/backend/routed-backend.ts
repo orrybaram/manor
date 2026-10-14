@@ -96,6 +96,15 @@ export type SpawnOnHost = (
   env: Record<string, string> | undefined,
 ) => Promise<boolean | null>;
 
+/**
+ * The remote host whose layout holds pane `sessionId`, or null (ADR-228 D5).
+ * A desktop window starts and attaches a remote pane's session on that
+ * host's server itself, so this process may never have claimed it; a call
+ * made here for it — a control route's read, a fallback write — still
+ * reaches the host it runs on.
+ */
+export type PaneHostOf = (sessionId: string) => string | null;
+
 /** A `PtyBackend` whose `createOrAttach` also says which host it used. */
 export interface RoutedPtyBackend extends PtyBackend {
   createOrAttach(
@@ -127,11 +136,12 @@ export class RoutedBackend implements WorkspaceBackend {
     hostForPath: HostForPath,
     pidHosts: PidHosts = () => [],
     spawnOnHost?: SpawnOnHost,
+    paneHostOf: PaneHostOf = () => null,
   ) {
     const { sessions } = registry;
     const local = () => registry.get(LOCAL_HOST_ID);
     const bySession = (sessionId: string) =>
-      registry.get(sessions.ownerOf(sessionId) ?? LOCAL_HOST_ID).pty;
+      registry.get(sessions.ownerOf(sessionId) ?? paneHostOf(sessionId) ?? LOCAL_HOST_ID).pty;
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
     // Remote sessions this process attached that have not exited since: a
     // re-mount of one attaches without asking its host's server first.

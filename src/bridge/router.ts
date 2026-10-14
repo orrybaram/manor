@@ -4,7 +4,9 @@
  * Renderer code calls one `ElectronAPI`, as it always has. Behind it is no
  * longer one bridge but the page's server set (`./server-set.ts`), and this
  * router decides which of them answers each call, by the route manifest
- * (`electron/bridge/routes.ts`) that main's `HostRouting` reads too:
+ * (`electron/bridge/routes.ts`) that main's `HostRouting` reads too, with the
+ * renderer's own overlay on it (`RENDERER_ROUTES`: a pane's `pty.*` by pane,
+ * a viewport report home):
  *
  * - **Served at home.** A native namespace, a method the home transport
  *   serves itself (a browser's viewport and clipboard) and a namespace refused
@@ -27,9 +29,16 @@
  * **Subscriptions.** A listener of a merged namespace (`layout`, `projects`,
  * `agents`) is opened on every server, replayed on one that joins later, and
  * its events are stamped and deduplicated like a merged answer. A pane's
- * `chat.*` (and `pty.*`, once its methods route by pane) is opened only on the
- * pane's source, keyed by server and pane; a pane id two servers' layouts
- * both hold is refused rather than cross-wired. Any other listener is home's.
+ * `chat.*` and `pty.*` are opened only on the pane's source, keyed by server
+ * and pane; a pane id two servers' layouts both hold is refused rather than
+ * cross-wired. Any other listener is home's.
+ *
+ * **What main did on the way, done here.** A call that used to reach a host
+ * through main's `HostRouting` picked up a few things there that a direct
+ * call must get here instead: a queued command for a pane no layout holds
+ * yet travels with the layout command that adds it (`setPendingCommand`
+ * below), a project the host answers with carries the desktop's group, and a
+ * layout broadcast's origin names this window, not its stream to the host.
  *
  * **One server is a pass-through.** With only the home server in the set —
  * every page, until a host server joins — each call is handed to the home
@@ -43,7 +52,11 @@ import {
   toDesktopResult,
   toHostArgs,
 } from "../../electron/bridge/host-rewrite";
-import { byPane, ROUTES, type RouteRule } from "../../electron/bridge/routes";
+import {
+  byPane,
+  RENDERER_ROUTE_TABLE,
+  type RouteRule,
+} from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE } from "../../electron/bridge/types";
 import { parseChatTaskKey } from "../../electron/chat-mirror/task-key";
@@ -102,7 +115,7 @@ export const storeResolver: HostResolver = {
 
 /** The namespaces with a merged read: their listeners fan out. */
 const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
-  Object.entries(ROUTES)
+  Object.entries(RENDERER_ROUTE_TABLE)
     .filter(([, route]) => route === "merge")
     .map(([key]) => key.slice(0, key.lastIndexOf("."))),
 );
@@ -110,12 +123,11 @@ const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
 /**
  * The namespaces whose listeners are keyed by pane (`electron/bridge/events.ts`)
  * and whose calls route by pane: their listeners go to the pane's source.
- * `pty` joins once its methods carry a `byPane` rule (D5); until then its
- * calls are home's, and so are its listeners.
+ * `pty` routes by pane in the renderer's overlay (D5).
  */
 const PANE_NAMESPACES: ReadonlySet<string> = new Set(
   ["pty", "chat"].filter((ns) =>
-    Object.entries(ROUTES).some(
+    Object.entries(RENDERER_ROUTE_TABLE).some(
       ([key, route]) =>
         key.startsWith(`${ns}.`) && typeof route === "object" && route.by === "pane",
     ),
@@ -123,6 +135,12 @@ const PANE_NAMESPACES: ReadonlySet<string> = new Set(
 );
 
 const PANE_RULE = byPane(0);
+
+/**
+ * How long a queued command for a pane no layout holds yet waits for the
+ * layout command that adds the pane, before it goes home anyway.
+ */
+const HOLD_PENDING_MS = 5_000;
 
 type Fn = (...args: unknown[]) => unknown;
 
@@ -137,6 +155,14 @@ function memberOf(bridge: ElectronAPI, ns: string, name: string): Fn {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Every string in `value`, however deep: a layout command's pane ids among them. */
+function stringsIn(value: unknown, out: string[] = []): string[] {
+  if (typeof value === "string") out.push(value);
+  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
+  else if (isPlainObject(value)) for (const item of Object.values(value)) stringsIn(item, out);
+  return out;
 }
 
 /** A stable key for one call's arguments, for its last-known answer. */
@@ -187,6 +213,19 @@ export function createRouter(
   const panesByServer = new Map<string, Map<string, Set<string>>>();
   const fanSubs = new Set<FanSub>();
   const paneSubs = new Set<PaneSub>();
+  /**
+   * `layout.setPendingCommand` for panes no layout holds yet, by pane: the
+   * renderer cannot tell which server the pane will be on until the layout
+   * command that adds it goes out, so the queued line waits for it and goes
+   * to the same server first — what main's `HostRouting` does for a pane it
+   * cannot place (`movePendingCommands`).
+   */
+  const heldCommands = new Map<
+    string,
+    { args: unknown[]; timer: ReturnType<typeof setTimeout> }
+  >();
+  /** Each project's group, from the desktop's last `projects.getAll` (D3). */
+  let desktopGroups = new Map<unknown, unknown>();
   let members = new Map(set.list().map((entry) => [entry.id, entry.bridge]));
 
   // ── sources (D3) ──
@@ -334,18 +373,80 @@ export function createRouter(
 
   function routed(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
     const home = set.home();
-    if (set.list().length === 1) return call(home, ns, name, args);
+    if (set.list().length === 1) {
+      releaseHeldFor(ns, name, args, home);
+      return call(home, ns, name, args);
+    }
     const hostId = resolver.hostOf(rule, args);
+    if (hostId === null && ns === "layout" && name === "setPendingCommand") {
+      return holdPendingCommand(args);
+    }
     const target = hostId === null ? home : sourceOf(hostId);
     if (!target) return Promise.reject(awayError(hostId as string));
     if (rule.by === "pane" && typeof args[rule.arg] === "string") {
       const paneId = args[rule.arg] as string;
       if (collides(paneId)) return Promise.reject(collisionError(paneId));
     }
+    releaseHeldFor(ns, name, args, target);
     if (target.id === LOCAL_HOST_ID) return call(target, ns, name, args);
     return Promise.resolve(
       call(target, ns, name, toHostArgs(target.id, args)),
-    ).then((result) => toDesktopResult(target.id, ns, name, result));
+    ).then((result) => {
+      const out = toDesktopResult(target.id, ns, name, result);
+      return ns === "projects" ? withDesktopGroup(out) : out;
+    });
+  }
+
+  // ── what main's `HostRouting` did on the way ──
+
+  /**
+   * Queue `layout.setPendingCommand` for a pane no layout holds yet, until
+   * the command that adds it (`releaseHeldFor`) — or, if none comes, home,
+   * where main places it as before. Answered at once: the caller only needs
+   * it sent before that command, and this keeps it so.
+   */
+  function holdPendingCommand(args: unknown[]): Promise<void> {
+    const paneId = args[0];
+    if (typeof paneId !== "string") {
+      return Promise.resolve(call(set.home(), "layout", "setPendingCommand", args)).then(
+        () => {},
+      );
+    }
+    releaseHeld(paneId, set.home());
+    const timer = setTimeout(() => releaseHeld(paneId, set.home()), HOLD_PENDING_MS);
+    heldCommands.set(paneId, { args, timer });
+    return Promise.resolve();
+  }
+
+  /** Send `paneId`'s held command to `target`, ahead of whatever follows. */
+  function releaseHeld(paneId: string, target: ServerEntry): void {
+    const held = heldCommands.get(paneId);
+    if (!held) return;
+    heldCommands.delete(paneId);
+    clearTimeout(held.timer);
+    // The line as it was queued: main moves it to a host unchanged, too.
+    void Promise.resolve(call(target, "layout", "setPendingCommand", held.args)).catch(
+      (err: unknown) => {
+        console.error(`[bridge-router] pending command for ${paneId} failed:`, err);
+      },
+    );
+  }
+
+  /** A layout command going to `target` takes the held commands of the panes it names. */
+  function releaseHeldFor(ns: string, name: string, args: unknown[], target: ServerEntry): void {
+    if (heldCommands.size === 0 || ns !== "layout" || name !== "apply") return;
+    for (const paneId of stringsIn(args[1])) releaseHeld(paneId, target);
+  }
+
+  /** A host's project, or projects, with the desktop's group on each (D3). */
+  function withDesktopGroup(result: unknown): unknown {
+    const one = (project: unknown): unknown => {
+      if (!isPlainObject(project) || !desktopGroups.has(project.id)) return project;
+      if (!Array.isArray(project.workspaces)) return project;
+      const group = desktopGroups.get(project.id);
+      return (project.group ?? null) === group ? project : { ...project, group };
+    };
+    return Array.isArray(result) ? result.map(one) : one(result);
   }
 
   async function merged(ns: string, name: string, args: unknown[]): Promise<unknown> {
@@ -473,6 +574,7 @@ export function createRouter(
     const groups = new Map<unknown, unknown>(
       desktopList.map((project) => [project.id, project.group ?? null]),
     );
+    if (desktop) desktopGroups = groups;
     const withGroup = (project: Record<string, unknown>): Record<string, unknown> => {
       if (!groups.has(project.id)) return project;
       const group = groups.get(project.id);
@@ -519,7 +621,9 @@ export function createRouter(
       if (first.removed) byKey.delete(key);
       else byKey.set(key, panesOf(first));
       panesByServer.set(entry.id, byKey);
-      return key === path ? args : [{ ...first, workspacePath: key }, ...rest];
+      const origin = ownOrigin(entry, first.origin);
+      if (key === path && origin === first.origin) return args;
+      return [{ ...first, workspacePath: key, origin }, ...rest];
     }
     if (event.ns === "agents" && event.event === "updated") {
       const agent =
@@ -534,6 +638,20 @@ export function createRouter(
       }
     }
     return args;
+  }
+
+  /**
+   * A layout command this window sent a host itself carries, as its origin,
+   * the window's connection to that host. The window knows itself by its
+   * home id (`rendererId`), as it did when main forwarded the command, so
+   * its selection hint lands (ADR-179 D3).
+   */
+  function ownOrigin(entry: ServerEntry, origin: unknown): unknown {
+    if (isHome(entry) || !isPlainObject(origin)) return origin;
+    const mine = entry.transport.rendererId;
+    const home = set.home().transport.rendererId;
+    if (mine === null || home === null || origin.id !== mine) return origin;
+    return { kind: "window", id: home };
   }
 
   function openFan(sub: FanSub, entry: ServerEntry): void {
@@ -684,7 +802,9 @@ export function createRouter(
     if (listens && typeof args[args.length - 1] === "function") {
       return subscribe(ns, name, listens, args);
     }
-    const route = Object.prototype.hasOwnProperty.call(ROUTES, key) ? ROUTES[key] : "home";
+    const route = Object.prototype.hasOwnProperty.call(RENDERER_ROUTE_TABLE, key)
+      ? RENDERER_ROUTE_TABLE[key]
+      : "home";
     if (route === "merge") {
       return set.list().length === 1 ? call(home, ns, name, args) : merged(ns, name, args);
     }

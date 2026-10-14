@@ -24,3 +24,19 @@ export function hasViewerBridge(
   const caps = status?.capabilities;
   return Array.isArray(caps) && caps.includes(VIEWER_BRIDGE_CAPABILITY);
 }
+
+/**
+ * What this server's status reports. `MANOR_E2E_HOST_CAPABILITIES`, when set
+ * (comma-separated, possibly empty), replaces it: a **test-only** hook the
+ * remote-host E2E uses to stand in for a server from before ADR-228, like
+ * `MANOR_E2E_SSH_CONFIG` (`../terminal-host/ssh-config.ts`). Unset in normal
+ * use.
+ */
+export function reportedCapabilities(env: NodeJS.ProcessEnv = process.env): string[] {
+  const override = env.MANOR_E2E_HOST_CAPABILITIES;
+  if (override === undefined) return [...HOST_SERVER_CAPABILITIES];
+  return override
+    .split(",")
+    .map((capability) => capability.trim())
+    .filter((capability) => capability !== "");
+}

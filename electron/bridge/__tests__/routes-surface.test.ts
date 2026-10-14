@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 import { DESKTOP_TABLE } from "../handlers";
 import { SERVER_METHODS } from "../server-methods";
 import { LOCAL_ROUTE, type Method } from "../method";
-import { ROUTES } from "../routes";
+import { RENDERER_ROUTES, ROUTES } from "../routes";
 import { HOST_TABLE } from "../../host-server/handlers";
 
 /** The namespaces that read or write a host's projects, layout or agents. */
@@ -85,5 +85,18 @@ describe("routing surface (ADR-227 D4)", () => {
   it("lists in the manifest only methods that declare a route", () => {
     const stray = Object.keys(ROUTES).filter((key) => methods[key]?.rules.route === undefined);
     expect(stray).toEqual([]);
+  });
+
+  it("overlays the renderer's routes only on real methods (ADR-228 D5, D7)", () => {
+    const unknown = Object.keys(RENDERER_ROUTES).filter((key) => !(key in methods));
+    expect(unknown).toEqual([]);
+  });
+
+  it("sends the renderer's routed methods only to ones a host server answers", () => {
+    const unanswered = Object.entries(RENDERER_ROUTES)
+      .filter(([, route]) => typeof route === "object")
+      .map(([key]) => key)
+      .filter((key) => !(key in HOST_TABLE.handlers));
+    expect(unanswered).toEqual([]);
   });
 });

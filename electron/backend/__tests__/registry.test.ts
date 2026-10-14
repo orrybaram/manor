@@ -555,6 +555,28 @@ describe("RoutedBackend", () => {
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
   });
 
+  it("reaches a pane this process never attached on the host whose layout holds it (ADR-228 D5)", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    const backend = new RoutedBackend(
+      ctx.registry,
+      () => "local",
+      () => [],
+      undefined,
+      (paneId) => (paneId === "pane-w" ? "box" : null),
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
+
+    await backend.pty.getSnapshot("pane-w");
+    backend.pty.write("pane-w", "ls\n");
+    expect(remote.raw.pty.getSnapshot).toHaveBeenCalledWith("pane-w");
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-w", "ls\n");
+    // A pane no layout holds is still this machine's.
+    backend.pty.write("pane-x", "y");
+    expect(ctx.local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
+  });
+
   it("routes getPaneFacts to the host that owns the pane (ADR-184)", async () => {
     const { backend, local, box: remote } = routed();
     const facts: PaneFacts = {

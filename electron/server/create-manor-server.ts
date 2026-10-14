@@ -87,6 +87,7 @@ import type { StreamEvent } from "../terminal-host/types";
 import { ThemeManager } from "../theme";
 import { createWorkspaceOps } from "../workspace-ops";
 import { pickPaneAgent } from "../../src/lib/pane-agent";
+import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 import { HeadlessNotifier } from "./headless-notifier";
 import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
@@ -297,6 +298,14 @@ export function createManorServer<D extends BridgeServerDeps>(
     (pid) => portScanner.hostsListeningOn(pid),
     // A new session on an adopted host starts on its server (ADR-227 D4).
     routing ? (...args) => routing.spawnSession(...args) : undefined,
+    // A remote pane a desktop window started on its host's server itself
+    // (ADR-228 D5) is that host's, by the host's own layout.
+    routing
+      ? (paneId) => {
+          const key = routing.workspaceOfPane(paneId);
+          return key === null ? null : parseWorkspaceKey(key).hostId;
+        }
+      : undefined,
   );
   // Agent launches and setup scripts start here, not in a renderer (ADR-227
   // D5): the layout store hands every launched pane over as it joins a tree.

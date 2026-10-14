@@ -302,9 +302,12 @@ describe("HostServerClient over server-bridge", () => {
     c.hostConnected();
     await vi.waitFor(() => expect(setServerFacts).toHaveBeenCalled());
     const status = await c.api.hostServer.status();
+    // It says it takes viewer streams, but not before it is adopted.
+    expect(status.capabilities).toContain("viewer-bridge");
+    expect(status.ownership).toBe("pending");
     expect(setServerFacts).toHaveBeenLastCalledWith("box", {
       roomId: status.relay.roomId,
-      viewerBridge: true,
+      viewerBridge: false,
     });
     expect(status.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
     sync.dispose();
@@ -353,6 +356,13 @@ describe("serverFactsOf (ADR-228)", () => {
     expect(
       serverFactsOf({ relay, roomId: "room-1", capabilities: ["viewer-bridge"] }),
     ).toEqual({ roomId: "room-1", viewerBridge: true });
+  });
+
+  it("says no viewer bridge until the host is adopted", () => {
+    const relay = { roomId: "room-1", connected: true, error: null };
+    const status = { relay, capabilities: ["viewer-bridge"] };
+    expect(serverFactsOf({ ...status, ownership: "pending" }).viewerBridge).toBe(false);
+    expect(serverFactsOf({ ...status, ownership: "host" }).viewerBridge).toBe(true);
   });
 });
 

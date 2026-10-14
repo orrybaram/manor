@@ -51,15 +51,21 @@ export interface HostServerRegistry {
   setServerFacts?(hostId: string, facts: HostServerFacts | null): void;
 }
 
-/** The facts `hosts.list` carries, from one status (ADR-228 D2, D3). */
+/**
+ * The facts `hosts.list` carries, from one status (ADR-228 D2, D3). A host
+ * still waiting to be adopted takes no viewer stream yet (main refuses one,
+ * `electron/ipc/host-pipe.ts`), so it does not say it does: a window would
+ * only dial it to be turned away.
+ */
 export function serverFactsOf(
-  status: Pick<HostServerStatus, "roomId" | "capabilities" | "relay">,
+  status: Pick<HostServerStatus, "roomId" | "capabilities" | "relay"> &
+    Partial<Pick<HostServerStatus, "ownership">>,
 ): HostServerFacts {
   return {
     // A server from before ADR-228 has no top-level `roomId`; its relay's is
     // the same room.
     roomId: status.roomId !== undefined ? status.roomId : (status.relay?.roomId ?? null),
-    viewerBridge: hasViewerBridge(status),
+    viewerBridge: hasViewerBridge(status) && status.ownership !== "pending",
   };
 }
 

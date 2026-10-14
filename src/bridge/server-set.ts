@@ -27,7 +27,7 @@
  * their exports as selectors over the home entry here.
  */
 
-import { useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import { createBridge, type BridgeTransport } from "./client";
@@ -307,6 +307,54 @@ export const servers: ServerSet = createServerSet();
 /** Every server the page holds, home first, live. */
 export function useServers(): readonly ServerEntry[] {
   return useSyncExternalStore(servers.subscribe, servers.list, servers.list);
+}
+
+/**
+ * How this page's own bridge to `hostId`'s server is doing, or undefined
+ * when it holds none — a host reached only through another server (D3).
+ */
+export function directReachability(hostId: string): Reachability | undefined {
+  return servers.get(hostId)?.reachability;
+}
+
+/**
+ * Resolves once this page's own bridge to `hostId`'s server is connected —
+ * or the page holds none, or `timeoutMs` has passed. What a remount for a
+ * host that just came back waits on, so its panes attach over that bridge
+ * (D5) rather than through the home server while it is still redialling.
+ */
+export function whenDirectSettled(hostId: string, timeoutMs = 5_000): Promise<void> {
+  const settled = (): boolean => {
+    const reachability = directReachability(hostId);
+    return reachability === undefined || reachability === "connected";
+  };
+  if (settled()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = (): void => {
+      clearTimeout(timer);
+      off();
+      resolve();
+    };
+    const timer = setTimeout(done, timeoutMs);
+    const off = servers.subscribe(() => {
+      if (settled()) done();
+    });
+  });
+}
+
+/** `directReachability`, live. */
+export function useDirectReachability(
+  hostId: string | null | undefined,
+): Reachability | undefined {
+  const read = useCallback(
+    (): Reachability | undefined => (hostId ? directReachability(hostId) : undefined),
+    [hostId],
+  );
+  const subscribe = useCallback(
+    (cb: () => void) => subscribeSelected(servers, read, cb),
+    [read],
+  );
+  return useSyncExternalStore(subscribe, read, read);
 }
 
 /**

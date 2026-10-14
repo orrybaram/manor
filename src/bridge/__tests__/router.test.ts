@@ -1,7 +1,7 @@
 /**
- * The router over the server set (ADR-228 D1, D2, D3, D6), against fake
- * transports. Production holds only the home server until tickets 5 and 7
- * add more; these tests hold several.
+ * The router over the server set (ADR-228 D1, D2, D3, D5, D6, D7), against
+ * fake transports: the desktop's own server and a host server it holds a
+ * bridge to (`desktop-hosts.ts`), or several.
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -541,5 +541,152 @@ describe("the server set", () => {
     expect(set.home().bridge).toBe(before.bridge);
     set.setReachability("local", "unreachable");
     expect(cb).toHaveBeenCalledOnce();
+  });
+});
+
+describe("a desktop window's terminals on a host's own bridge (D5)", () => {
+  it("routes a remote pane's pty calls to its host, with the host option made local", async () => {
+    const home = fakeServer();
+    const box = fakeServer({
+      "pty.create": () => ({ ok: true, hostId: "local", snapshot: null }),
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({ pane: { "pane-b": "box" } }));
+
+    const created = await api.pty.create("pane-b", "/w", 80, 24, { hostId: "box" } as never);
+    void api.pty.write("pane-b", "ls\r");
+    await api.pty.resize("pane-b", 100, 30);
+    await api.pty.detach("pane-b");
+    expect(box.invokes.map((i) => [i.key, i.args])).toEqual([
+      ["pty.create", ["pane-b", "/w", 80, 24, { hostId: "local" }]],
+      ["pty.write", ["pane-b", "ls\r"]],
+      ["pty.resize", ["pane-b", 100, 30]],
+      ["pty.detach", ["pane-b"]],
+    ]);
+    // The answer names the host as the desktop knows it.
+    expect(created).toMatchObject({ ok: true, hostId: "box" });
+
+    // A pane the renderer cannot place, and the window-only calls, stay home.
+    await api.pty.create("mini-1", null, 80, 24);
+    await api.pty.consumePrewarmed("/w", "box");
+    expect(home.invokes.map((i) => i.key)).toEqual(["pty.create", "pty.consumePrewarmed"]);
+  });
+
+  it("opens a remote pane's pty listeners on its host, and moves them home while it is away", () => {
+    const home = fakeServer();
+    const box = fakeServer();
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({ pane: { "pane-b": "box" } }));
+    const output = vi.fn();
+    api.pty.onOutput("pane-b", output);
+    expect(box.live("pty.output")).toBe(1);
+    expect(home.live("pty.output")).toBe(0);
+    box.emit("pty.output", "pane-b", "hello");
+    expect(output).toHaveBeenCalledWith("hello");
+
+    // The bridge drops: main answers for the host meanwhile (D6).
+    set.setReachability("box", "unreachable");
+    expect(home.live("pty.output")).toBe(1);
+    expect(box.live("pty.output")).toBe(0);
+    set.setReachability("box", "connected");
+    expect(box.live("pty.output")).toBe(1);
+    expect(home.live("pty.output")).toBe(0);
+  });
+
+  it("sends a viewport report home, whatever host its workspace is on (D7)", async () => {
+    const home = fakeServer();
+    const box = fakeServer();
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+    await api.layout.reportViewport("box:/b", { activeTabId: "t" } as never);
+    expect(home.invokes).toEqual([
+      { key: "layout.reportViewport", args: ["box:/b", { activeTabId: "t" }] },
+    ]);
+    expect(box.invokes).toEqual([]);
+  });
+});
+
+describe("what main's HostRouting did on the way, done by the router", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sends a new pane's queued command to the server its layout command goes to", async () => {
+    const home = fakeServer();
+    const box = fakeServer();
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+
+    await api.layout.setPendingCommand("new-pane", "claude", "agent-startup");
+    expect(home.invokes).toEqual([]);
+    expect(box.invokes).toEqual([]);
+
+    await api.layout.apply("box:/b", { type: "add-tab", paneId: "new-pane" } as never);
+    expect(box.invokes.map((i) => [i.key, i.args[0]])).toEqual([
+      ["layout.setPendingCommand", "new-pane"],
+      ["layout.apply", "/b"],
+    ]);
+    // Unchanged: the line is the user's, not a key to rewrite.
+    expect(box.invokes[0].args).toEqual(["new-pane", "claude", "agent-startup"]);
+    expect(home.invokes).toEqual([]);
+  });
+
+  it("sends a queued command home when no layout command claims it in time", async () => {
+    vi.useFakeTimers();
+    const home = fakeServer();
+    const box = fakeServer();
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+    await api.layout.setPendingCommand("orphan", "ls");
+    expect(home.invokes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(home.invokes).toEqual([
+      { key: "layout.setPendingCommand", args: ["orphan", "ls"] },
+    ]);
+  });
+
+  it("gives a host's project the desktop's group", async () => {
+    const home = fakeServer({
+      "projects.getAll": () => [{ id: "p1", hostId: "box", workspaces: [], group: GROUP }],
+    });
+    const box = fakeServer({
+      "projects.getAll": () => [{ id: "p1", hostId: "local", workspaces: [] }],
+      "projects.renameWorkspace": () => ({ id: "p1", hostId: "local", workspaces: [] }),
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({ project: { p1: "box" } }));
+    await api.projects.getAll();
+    const renamed = await api.projects.renameWorkspace("p1", "box:/w", "new");
+    expect(renamed).toEqual({ id: "p1", hostId: "box", workspaces: [], group: GROUP });
+  });
+
+  it("names this window as the origin of a layout command it sent a host itself", () => {
+    const home = fakeServer({}, { rendererId: "7" });
+    const box = fakeServer({}, { rendererId: "box-conn-3" });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+    const changed = vi.fn();
+    api.layout.onChanged(changed);
+
+    const hint = { focusPaneId: "x" };
+    box.emit("layout.changed", undefined, {
+      ...layoutWith("x", 2),
+      workspacePath: "/b",
+      origin: { kind: "bridge", id: "box-conn-3" },
+      hint,
+    });
+    expect(changed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspacePath: "box:/b", origin: { kind: "window", id: "7" }, hint }),
+    );
+
+    // Someone else's command keeps its origin.
+    box.emit("layout.changed", undefined, {
+      ...layoutWith("x", 3),
+      workspacePath: "/b",
+      origin: { kind: "bridge", id: "phone-1" },
+    });
+    expect(changed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ origin: { kind: "bridge", id: "phone-1" } }),
+    );
   });
 });

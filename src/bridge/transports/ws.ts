@@ -180,6 +180,11 @@ export interface WsBridgeTransport extends BridgeTransport {
    * open, redialing at once if it does not answer (ADR-220 D4, D5).
    */
   probeNow(): Promise<ProbeOutcome>;
+  /**
+   * Stop for good: close the socket, fail what is in flight and dial no more.
+   * For a server that leaves the page's set (ADR-228 D4, a host removed).
+   */
+  close(): void;
 }
 
 interface Pending {
@@ -301,6 +306,17 @@ class WsTransport implements WsBridgeTransport {
     if (this.stopped) return;
     this.attempt = 0;
     this.open();
+  }
+
+  close(): void {
+    this.stopped = true;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const socket = this.socket;
+    // Whatever the pipe reports after this is about a connection now gone.
+    this.generation += 1;
+    this.teardown();
+    socket?.close();
   }
 
   /** Dial, if there is a token and nothing is dialling already. */

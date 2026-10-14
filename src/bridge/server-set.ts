@@ -30,6 +30,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { isHostOffline } from "../lib/host-status";
+import { hostLabel, memberHostName, type NamedHost } from "../lib/hosts";
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import type { HostStatusInfo } from "../store/host-store";
 import { createBridge, type BridgeTransport } from "./client";
@@ -435,6 +436,28 @@ export function useServerHostName(hostId: string | null | undefined): string | n
     useCallback(() => serverHostName(hostId), [hostId]),
     subscribePairings,
   );
+}
+
+/**
+ * A member's host as a label: `serverHostName` (the desktop's name on a
+ * phone), else `memberHostName` ("This machine", the ssh target).
+ */
+export function memberDisplayName(hostId: string, hosts: readonly NamedHost[]): string {
+  return serverHostName(hostId) ?? memberHostName(hostId, hosts);
+}
+
+/**
+ * `memberDisplayName` in a sentence: `serverHostName`, else `hostLabel`
+ * ("this machine", the ssh target).
+ */
+export function hostSentenceName(hostId: string, hosts: readonly NamedHost[]): string {
+  return serverHostName(hostId) ?? hostLabel(hostId, hosts);
+}
+
+/** `memberDisplayName`, live: it reads the stored pairings too. */
+export function useMemberDisplayName(hostId: string, hosts: readonly NamedHost[]): string {
+  const server = useServerHostName(hostId);
+  return server ?? memberHostName(hostId, hosts);
 }
 
 /**

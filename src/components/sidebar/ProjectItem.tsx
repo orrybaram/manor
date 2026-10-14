@@ -58,9 +58,9 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { useServerHostName } from "../../bridge/server-set";
+import { hostSentenceName, memberDisplayName, useServerHostName } from "../../bridge/server-set";
 import { useHostAway } from "../../hooks/useHostAway";
-import { hostLabel, isRemoteHost, memberHostName } from "../../lib/hosts";
+import { isRemoteHost } from "../../lib/hosts";
 import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
@@ -173,7 +173,8 @@ const WorkspaceItem = React.forwardRef<
   // A remote workspace's PR badge comes from the box's own `gh`; where that
   // isn't signed in there is none to show, and this says why (ADR-227 D7).
   const ghMissing = useGhHostStore((s) => !!s.missing[hostId]);
-  const ghHostName = useHostStore((s) => hostLabel(hostId, s.hosts));
+  const ghHostServerName = useServerHostName(hostId);
+  const ghHostName = useHostStore((s) => ghHostServerName ?? hostSentenceName(hostId, s.hosts));
   const {
     handleKeyDown: handleEmojiKeyDown,
     fieldProps: emojiFieldProps,
@@ -515,7 +516,7 @@ export function ProjectItem(props: ProjectItemProps) {
   }, [project, allProjects]);
   const openRemoveFromHost = useProjectStore((s) => s.openRemoveFromHost);
   const allHosts = useHostStore((s) => s.hosts);
-  const hostName = memberHostName(project.hostId, allHosts);
+  const hostName = memberDisplayName(project.hostId, allHosts);
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const projectIndicator = toWorkspaceIndicator(projectStatus, projectPulse);

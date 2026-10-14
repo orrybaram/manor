@@ -1,8 +1,10 @@
 # Manor host image
 
 The reference image behind the `docker` and `kubernetes` host templates
-(ADR-229 D8): Node 22, git, gh, openssh-client, tini and procps, a `manor`
-user (uid 1000, home `/home/manor`) and `manor-host-entrypoint.sh`.
+(ADR-229 D8): Node 22, git, gh, openssh-client, tini, procps and iproute2
+(`ss`, for the port list), python3, make and g++ (node-pty has no Linux
+prebuilds, so the first connect compiles it), a `manor` user (uid 1000, home
+`/home/manor`) and `manor-host-entrypoint.sh`.
 
 ## Build and push
 

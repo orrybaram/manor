@@ -1,6 +1,6 @@
 ---
 title: E2E coverage and docs
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17]
@@ -119,3 +119,7 @@ change:
   ("keeps its daemon apart") failed twice under a full parallel run and passed
   when run alone. `exec-runner` and `TaskDetail` did the same once. List them
   in docs/remote-hosts.md#testing if they reproduce.
+- **Ticket 14.**
+  - The gauge is also sampled in `onRemoteAgentUpdate` through
+    `statsStore.recordMax`.
+  - The `onRemoteAgentUpdate` sampling has no test of its own.

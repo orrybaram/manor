@@ -1,6 +1,6 @@
 ---
 title: Launch restore does not wake a sleeping host
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [2]

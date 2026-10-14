@@ -85,3 +85,12 @@ change:
   - Rows inside `ProjectSetUpOnSection`'s map and `TasksView`'s memo don't
     re-render on a pairing change alone.
 - **Ticket 15.** `withWorkspaceHost` now returns a plain body.
+- **Ticket 3.**
+  - Only the panes of the workspace a window shows at launch decline to
+    wake. Opening another workspace counts as intent. This was decided
+    during implementation; update D3 to say so.
+  - The router and `HostRouting` answer `{ok:false, reason:"host-unavailable"}`
+    rather than throwing, so the pane reaches `awaitHost`.
+  - A restored id is forgotten once its first create settles, not when it is
+    sent. That keeps StrictMode double-mounts from waking the host.
+  - Resync `attach()` never sends `wake: false`.

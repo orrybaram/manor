@@ -1,6 +1,7 @@
 import { useHostStore } from "../../store/host-store";
 import { useProjectStore } from "../../store/project-store";
 import { memberHostName } from "../../lib/hosts";
+import { serverHostName } from "../../bridge/server-set";
 import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 
 /**
@@ -19,7 +20,10 @@ export function RemoveFromHostDialog() {
   );
   const hosts = useHostStore((s) => s.hosts);
 
-  const host = member ? memberHostName(member.hostId, hosts) : "";
+  // On a phone the page is not "This machine" (ADR-228 D8).
+  const host = member
+    ? (serverHostName(member.hostId) ?? memberHostName(member.hostId, hosts))
+    : "";
   const others = member ? member.workspaces.filter((ws) => !ws.isMain).length : 0;
   const description = member
     ? `Files there aren't deleted.${

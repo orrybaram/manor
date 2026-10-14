@@ -2,8 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { base64urlEncode } from "../../lib/relay-crypto";
 import {
+  DECLINED_KEY,
   LEGACY_RELAY_KEY,
   PAIRINGS_KEY,
+  declinePairing,
+  declinedRooms,
   homePairing,
   lastUsedPairing,
   linkPairing,
@@ -159,6 +162,25 @@ describe("pairings store", () => {
     expect(listPairings()).toHaveLength(2);
     removePairing(a);
     expect(listPairings().map((p) => p.roomId)).toEqual([B]);
+  });
+
+  it("remembers a declined room, which a desktop's link does not bring back but a fresh link does (ADR-228 D9)", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    const box = listPairings()[1];
+    // A stale tab's refusal declines nothing.
+    declinePairing({ ...box, token: "stale" });
+    expect(declinedRooms()).toEqual([]);
+    declinePairing(box);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A]);
+    expect(declinedRooms()).toEqual([B]);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box-2", name: "me@box" }, 30);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A]);
+    // A QR re-pair takes the room back.
+    upsertPairing({ roomId: B, serverKey: KEY, token: "qr" }, 40);
+    expect(declinedRooms()).toEqual([]);
+    expect(map.has(DECLINED_KEY)).toBe(false);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A, B]);
   });
 
   it("reuses the smallest free Host number", () => {

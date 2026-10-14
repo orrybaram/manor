@@ -3,7 +3,7 @@ import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import type { ProjectInfo } from "../../../store/project-store";
 import { describeHost, sourcedHost } from "../../../lib/host-status";
-import { useServers } from "../../../bridge/server-set";
+import { useServers, viaReachability } from "../../../bridge/server-set";
 import { Button } from "../../ui/Button/Button";
 import styles from "./HostAlert.module.css";
 
@@ -40,7 +40,8 @@ export function HostAlert(props: HostAlertProps) {
     const out: { host: HostStatusInfo; workspaces: number }[] = [];
     for (const reported of hosts) {
       const direct = servers.find((entry) => entry.id === reported.hostId);
-      const host = sourcedHost(reported, direct?.reachability) ?? reported;
+      const host =
+        sourcedHost(reported, direct?.reachability, viaReachability(reported.hostId)) ?? reported;
       const count = workspaces.get(host.hostId);
       if (count == null) continue;
       if (host.status === "connected" || host.status === "connecting") continue;

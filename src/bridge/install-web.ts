@@ -48,6 +48,8 @@
  * - **One pairing covers every host** (D9). Every hello from a desktop asks
  *   it for pairings with its hosts this page does not hold
  *   (`remoteControl.linkHostPairings`); each joins the list, and so the set.
+ *   Rooms the user removed, or a host refused, are sent as held
+ *   (`declinedRooms`), so they are not minted again.
  *
  * Each server's last merged answers are kept in IndexedDB (`./last-known.ts`),
  * so a reload with a server away still shows what it last said (D6).
@@ -57,6 +59,7 @@ import type { HostStatusInfo } from "../store/host-store";
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import { createLastKnownStore } from "./last-known";
 import {
+  declinedRooms,
   decodeX25519,
   homePairing,
   linkPairing,
@@ -102,7 +105,21 @@ interface Held {
   needsResync: boolean;
   /** Stops following a desktop's `hosts.onStatusChanged`. */
   stopHosts: (() => void) | null;
+  /** Gives up on its first hello (`FIRST_HELLO_DEADLINE_MS`). */
+  helloDeadline: ReturnType<typeof setTimeout> | null;
 }
+
+/**
+ * How long a pairing other than home may go without its first hello before
+ * it counts as unreachable. A dial the relay never answers with a close it
+ * lists (a socket that just fails, a host that never says hello) would
+ * otherwise leave it "unknown" for good — which the router takes as
+ * reachable, so its panes' `pty`/`chat` listeners and its calls would stay
+ * on it rather than falling back to a desktop that lists the host (D3). The
+ * dial keeps retrying; its hello makes it `connected`, and the router moves
+ * them back.
+ */
+const FIRST_HELLO_DEADLINE_MS = 15_000;
 
 /** The pairings the page holds, by room. */
 const held = new Map<string, Held>();
@@ -293,7 +310,8 @@ function linkHosts(entry: Held): void {
   const { roomId } = entry.pairing;
   const bridge = servers.get(roomId)?.bridge;
   if (!bridge) return;
-  const heldRooms = listPairings().map((p) => p.roomId);
+  // Rooms let go of count as held: the desktop must not hand them back.
+  const heldRooms = [...listPairings().map((p) => p.roomId), ...declinedRooms()];
   bridge.remoteControl.linkHostPairings(heldRooms).then(
     (linked) => {
       if (held.get(roomId) !== entry || !Array.isArray(linked)) return;
@@ -326,6 +344,7 @@ function watchHosts(entry: Held): void {
 function onHello(entry: Held, reply: HelloReply): void {
   const { roomId } = entry.pairing;
   if (held.get(roomId) !== entry) return;
+  clearHelloDeadline(entry);
   servers.recordHello(roomId, reply);
   servers.setReachability(roomId, "connected");
   recordPairingHello(roomId, reply);
@@ -392,6 +411,7 @@ function open(pairing: StoredPairing, options: { home?: boolean; joined: boolean
     kind: pairing.hostServer === undefined ? null : pairing.hostServer ? "host" : "desktop",
     needsResync: options.joined,
     stopHosts: null,
+    helloDeadline: null,
   };
   entry.transport = createWsTransport({
     token: pairing.token,
@@ -408,7 +428,20 @@ function open(pairing: StoredPairing, options: { home?: boolean; joined: boolean
   held.set(roomId, entry);
   servers.add(roomId, entry.transport, { home: options.home, roomId });
   applyHosts(roomId, pairing.hosts ?? {});
+  entry.helloDeadline = setTimeout(() => {
+    entry.helloDeadline = null;
+    if (held.get(roomId) !== entry || servers.homeId === roomId) return;
+    if (servers.facts(roomId).reachability !== "unknown") return;
+    entry.needsResync = true;
+    hooks.onStatus("unreachable");
+  }, FIRST_HELLO_DEADLINE_MS);
   if (options.joined) entry.transport.start();
+}
+
+function clearHelloDeadline(entry: Held): void {
+  if (entry.helloDeadline === null) return;
+  clearTimeout(entry.helloDeadline);
+  entry.helloDeadline = null;
 }
 
 /** Let go of `roomId`'s bridge: the set, the stores and the transport. */
@@ -422,6 +455,7 @@ function drop(roomId: string): void {
   held.delete(roomId);
   servers.remove(roomId);
   entry.stopHosts?.();
+  clearHelloDeadline(entry);
   entry.transport.close();
   // Its projects, agents and layouts leave the merged stores.
   void emitBridgeResync();
@@ -446,6 +480,7 @@ function syncPairings(): void {
     ) {
       // A newer link for the same room: dial with it instead.
       entry.stopHosts?.();
+      clearHelloDeadline(entry);
       entry.transport.close();
       held.delete(pairing.roomId);
       open(pairing, { joined: true });

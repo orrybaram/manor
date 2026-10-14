@@ -62,10 +62,11 @@ test.skip(skipReason !== null, skipReason ?? "");
 
 test.describe.configure({ mode: "serial" });
 
-test.beforeAll(() => {
-  // A clean slate on the box, keeping the installed host: stop its daemon and
-  // host server, drop its journal, earlier runs' clones and the stubs, then
-  // set up again.
+test.beforeEach(() => {
+  // A clean slate on the box before every test, keeping the installed host:
+  // stop its daemon and host server, drop its journal, earlier tests' clones
+  // and the stubs, then set up again. Each test opens the project through
+  // onboarding, which a box still holding the last test's project skips.
   resetRemoteBox();
   installRemoteStubs();
   seedRemoteRepo();
@@ -187,9 +188,7 @@ test.describe("remote host", () => {
     // PTY on it is gone, the session with it.
     onRemote('"$HOME/.manor/bin/manor-host" restart');
     // The notice shows when recovery starts and auto-dismisses; watch for it
-    // now rather than after the resume lands (slower on Linux). The box's
-    // server keeps its layout (ADR-227 D4), so an earlier test's panes on the
-    // same workspace come back too.
+    // now rather than after the resume lands (slower on Linux).
     const notice = expect(
       window.getByText(/Remote host restarted — \d+ sessions? resumed/),
     ).toBeVisible({ timeout: 2 * STEP });

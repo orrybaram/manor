@@ -6,6 +6,7 @@
 import type { HostStatusInfo } from "../store/host-store";
 import { describeHost } from "./host-status";
 import { LOCAL_HOST_ID, isRemoteHost, memberHostName } from "./hosts";
+import { serverHostName } from "../bridge/server-set";
 import type { TransferMode } from "../electron";
 
 /** What the targets need of a project. */
@@ -17,7 +18,10 @@ interface TransferProject {
 
 export interface TransferTarget {
   hostId: string;
-  /** "This machine", or the remote host's ssh target. */
+  /**
+   * "This machine", or the remote host's ssh target; on a phone, the name
+   * of the machine's pairing (`serverHostName`).
+   */
   label: string;
   /** Why a transfer onto this host can't run now; null when it can. */
   disabledReason: string | null;
@@ -46,7 +50,8 @@ export function transferTargets(
   return ids
     .filter((hostId) => hostId !== project.hostId)
     .map((hostId) => {
-      const label = memberHostName(hostId, hosts);
+      // On a phone each machine goes by its pairing's name (ADR-228 D8).
+      const label = serverHostName(hostId) ?? memberHostName(hostId, hosts);
       const host = hosts.find((h) => h.hostId === hostId);
       const display = host?.status === "error" ? describeHost(host, Date.now()) : undefined;
       let disabledReason: string | null = null;

@@ -232,6 +232,18 @@ describe("sourcedHost", () => {
     });
     expect(sourcedHost(undefined, "connected")).toBeUndefined();
   });
+
+  it("reads a host with no bridge of its own as away once every server listing it is", () => {
+    const up = host({ status: "connected" });
+    expect(sourcedHost(up, undefined, "unreachable")).toEqual({
+      hostId: "box",
+      spec: up.spec,
+      status: "disconnected",
+    });
+    expect(sourcedHost(up, undefined, "unknown")).toBe(up);
+    // Its own bridge answering wins over what the listers say.
+    expect(sourcedHost(up, "connected", "unreachable")).toBe(up);
+  });
 });
 
 describe("groupHostState", () => {

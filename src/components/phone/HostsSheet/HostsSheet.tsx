@@ -3,8 +3,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import {
+  declinePairing,
   listPairings,
-  removePairing,
   renamePairing,
   subscribePairings,
   type StoredPairing,
@@ -162,7 +162,7 @@ function HostRow(props: HostRowProps) {
           size="sm"
           variant="danger"
           data-testid="phone-host-remove-confirm"
-          onClick={() => removePairing(pairing)}
+          onClick={() => declinePairing(pairing)}
         >
           Remove
         </Button>

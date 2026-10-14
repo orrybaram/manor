@@ -8,7 +8,7 @@ import { isRemoteHost, type HostId } from "../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useHostStore } from "../store/host-store";
 import { isHostOffline } from "../lib/host-status";
-import { directReachability } from "../bridge/server-set";
+import { directReachability, viaReachability } from "../bridge/server-set";
 import type { PtyAttachResult, PtyCreateResult } from "../electron.d";
 
 /**
@@ -63,11 +63,14 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
     const paneId = paneIdRef.current;
     // Read-only while the pane's remote host is away (ADR-178 §6): input is
     // dropped, not queued for a shell that may be gone by the time it lands.
+    // A host reached only through servers that are all gone is away too
+    // (ADR-228 D6).
     if (
       isHostOffline(
         paneRemoteHost(useRemotePaneStore.getState(), paneId),
         useHostStore.getState().hosts,
         directReachability,
+        viaReachability,
       )
     ) {
       return false;

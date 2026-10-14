@@ -196,12 +196,21 @@ export function secondsUntilRetry(
  * status said; otherwise main's status is the host's. Main closes a window's
  * stream the moment a host leaves `connected`, so the two disagree only
  * while that news is on its way — and then the host that is answering wins.
+ *
+ * `via` is how the servers that list the host are doing (`viaReachability`).
+ * A host the page holds no bridge to is reached only through them, so when
+ * every one is gone it reads "Not connected", whatever their last word was.
  */
 export function sourcedHost(
   host: HostStatusInfo | undefined,
   direct: Reachability | undefined,
+  via?: Reachability,
 ): HostStatusInfo | undefined {
-  if (!host || direct !== "connected" || host.status === "connected") return host;
+  if (!host) return host;
+  if (direct === undefined && via === "unreachable" && host.status === "connected") {
+    return { hostId: host.hostId, spec: host.spec, status: "disconnected" };
+  }
+  if (direct !== "connected" || host.status === "connected") return host;
   return { hostId: host.hostId, spec: host.spec, status: "connected" };
 }
 

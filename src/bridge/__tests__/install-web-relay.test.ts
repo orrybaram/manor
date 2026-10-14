@@ -439,6 +439,22 @@ describe("install-web on a relay-served page", () => {
       ).toBe(false);
     });
 
+    it("sends rooms the user removed as held, so the desktop does not mint them again (ADR-228 D9)", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 0 });
+      const { api } = await install("");
+      const pairings = await import("../pairings");
+      void api.projects.getAll().catch(() => {});
+      const box = pairings.listPairings().find((p) => p.roomId === BOX);
+      if (!box) throw new Error("no box pairing");
+      pairings.declinePairing(box);
+      const socket = socketFor(DESK);
+      socket.handshake();
+      const ask = socket.frames.find(
+        (f) => f.ns === "remoteControl" && f.method === "linkHostPairings",
+      );
+      expect(ask?.args).toEqual([[DESK, BOX]]);
+    });
+
     it("forgets only the pairing refused with 4401, and drops its server", async () => {
       store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
       const { mod, api } = await install("");
@@ -452,9 +468,35 @@ describe("install-web on a relay-served page", () => {
       box.respond();
       box.hostClose(4401);
       expect(stored().map((p) => p.roomId)).toEqual([DESK]);
+      // Revoked on its host: no desktop hands it back (ADR-228 D9).
+      const { declinedRooms } = await import("../pairings");
+      expect(declinedRooms()).toEqual([BOX]);
       expect(servers.list().map((s) => s.id)).toEqual([DESK]);
       expect(servers.homeId).toBe(DESK);
       expect(outcome).not.toHaveBeenCalled();
+    });
+
+    it("gives up on a host pairing that never says hello, so the desktop answers for it", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 0 });
+      const list = JSON.parse(local.get(PAIRINGS_KEY) ?? "[]");
+      list[0].hosts = { h1: BOX };
+      local.set(PAIRINGS_KEY, JSON.stringify(list));
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).handshake();
+      expect(servers.facts(BOX).reachability).toBe("unknown");
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(servers.facts(BOX).reachability).toBe("unreachable");
+      expect(servers.facts(DESK).reachability).toBe("connected");
+      void api.github.checkStatus(BOX).catch(() => {});
+      const ask = socketFor(DESK).frames.find(
+        (f) => f.ns === "github" && f.method === "checkStatus",
+      );
+      expect(ask?.args).toEqual(["h1"]);
+      // Its hello, late, makes it the host's source again.
+      socketFor(BOX).handshake({ hostServer: true });
+      expect(servers.facts(BOX).reachability).toBe("connected");
     });
 
     it("reads as reachable while any pairing is", async () => {

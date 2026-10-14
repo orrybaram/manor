@@ -231,6 +231,10 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   // Templates write into this desktop's recipes directory (ADR-229 D8).
   "hosts.createRecipe": "home",
   "hosts.listTemplates": "home",
+  "hosts.createCustomRecipe": "home",
+  // Removing a host is the desktop's that lists it (ADR-229 D8).
+  "hosts.remove": "home",
+  "hosts.projectsOnHost": "home",
   // Run through the host's transport, which the desktop holds (ADR-229 D4).
   "hosts.setSupervised": "home",
 };

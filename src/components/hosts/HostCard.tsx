@@ -6,7 +6,12 @@ import { isRemoteHost } from "../../lib/hosts";
 import type { HostDisplay } from "../../lib/host-status";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
-import { HostRetryButton, HostStatusDetails, LocalHostDetails } from "./HostStatusDetails";
+import {
+  HostRetryButton,
+  HostStatusDetails,
+  HostWakeButton,
+  LocalHostDetails,
+} from "./HostStatusDetails";
 import styles from "./HostCard.module.css";
 
 const COPIED_MS = 1600;
@@ -57,6 +62,7 @@ export function HostCard(props: HostCardProps) {
       {children}
       <div className={styles.actions}>
         {remoteId && display?.canRetry && <HostRetryButton hostId={remoteId} />}
+        {remoteId && display?.tone === "asleep" && <HostWakeButton hostId={remoteId} />}
         {display?.sshTarget && <CopySshCommand target={display.sshTarget} />}
         <span className={styles.spacer} />
         {actions}

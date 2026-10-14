@@ -450,3 +450,17 @@ export function writeRecipeHostState(dir: string, state: RecipeHostState): void 
     console.warn(`[recipes] could not save ${file}:`, err);
   }
 }
+
+/**
+ * Drop `dir`'s record when it is `hostId`'s: the host was removed from Manor
+ * but its box was kept (ADR-229 D8), so a host added from the recipe later
+ * starts with no `resource` of its predecessor's. Best effort.
+ */
+export function forgetRecipeHostState(dir: string, hostId: string): void {
+  if (readRecipeHostState(dir, hostId) === null) return;
+  try {
+    fs.rmSync(path.join(dir, HOST_STATE_FILE), { force: true });
+  } catch (err) {
+    console.warn(`[recipes] could not remove ${dir}'s ${HOST_STATE_FILE}:`, err);
+  }
+}

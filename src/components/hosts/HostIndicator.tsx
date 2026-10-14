@@ -247,8 +247,20 @@ const PREV_KEYS = new Set(["ArrowUp", "k"]);
 function HostAwayMenu(props: { hostId: string; display: HostDisplay; projectId?: string }) {
   const { hostId, display, projectId } = props;
   const retryConnect = useHostStore((s) => s.retryConnect);
+  const wake = useHostStore((s) => s.wake);
 
   const options: MenuOption[] = [];
+  // Asleep (ADR-229 D1): nothing to retry, but it can be woken.
+  if (display.tone === "asleep") {
+    options.push({
+      label: "wake it",
+      run: () => {
+        wake(hostId).catch(() => {
+          // Reported through the host's status.
+        });
+      },
+    });
+  }
   // Kept while a connect runs (disabled) so the list, and focus, stay put.
   if (display.canRetry || display.busy) {
     options.push({

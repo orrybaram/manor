@@ -268,6 +268,8 @@ export class BackendRegistry {
       if (!(conn instanceof RemoteHostConnection)) return info;
       const { provider } = conn;
       const idleStopNote = idleStopNoteOf(provider, info.hooks);
+      const idleStopMinutes =
+        provider instanceof RecipeHostProvider ? provider.idleStopMinutes : undefined;
       return {
         ...info,
         label: conn.spec ? hostSpecLabel(conn.spec) : conn.hostId,
@@ -275,6 +277,7 @@ export class BackendRegistry {
         providerKind: provider.kind,
         capabilities: { ...provider.capabilities },
         ...(idleStopNote !== undefined ? { idleStopNote } : {}),
+        ...(idleStopMinutes !== undefined ? { idleStopMinutes } : {}),
       };
     });
   }

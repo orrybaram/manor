@@ -34,9 +34,8 @@
  *   directory after a destroy is the caller's.
  */
 
-import * as path from "node:path";
 import type { Duplex } from "node:stream";
-import { hostKnownHostsDir, hostRecipesDir } from "../../paths";
+import { hostKnownHostsDir, hostKnownHostsFile, hostRecipesDir } from "../../paths";
 import { errorMessage } from "../../lib/errors";
 import type { HostTransport } from "../../terminal-host/transport";
 import type {
@@ -196,10 +195,7 @@ export class RecipeHostProvider implements HostProvider {
     private readonly opts: RecipeHostProviderOptions = {},
   ) {
     this.dir = recipeDir(recipeId, opts.recipesDir ?? hostRecipesDir());
-    this.knownHostsFile = path.join(
-      opts.knownHostsDir ?? hostKnownHostsDir(),
-      hostId.replace(/[^A-Za-z0-9._-]/g, "_"),
-    );
+    this.knownHostsFile = hostKnownHostsFile(hostId, opts.knownHostsDir ?? hostKnownHostsDir());
     this.alias = recipeHostAlias(hostId);
     this.recipeTransport = new RecipeTransport(
       () => this.inner?.transport() ?? null,
@@ -435,6 +431,11 @@ export class RecipeHostProvider implements HostProvider {
         hostKey
           ? `${name}'s host key doesn't match the one its recipe returned.`
           : `${name}'s host key changed and the recipe didn't vouch for the new one.`,
+      // `ssh manor-<hostId>` works only through Manor's own config.
+      authMessage: () =>
+        `ssh could not log in to ${name} as ${where.username}@${where.host}. ` +
+        `Check the user and identityFile its recipe's \`up\` returns, and that the key is loaded (\`ssh-add\`) ` +
+        "if it has a passphrase: Manor cannot answer a passphrase prompt.",
     });
   }
 

@@ -1242,4 +1242,30 @@ describe("the router waking a sleeping host (ADR-229 D1)", () => {
 
     expect(home.invokes.filter((i) => i.key === "hosts.wake")).toHaveLength(1);
   });
+
+  it("says it is waking the host, once per wake, for the toast", async () => {
+    let finish!: () => void;
+    const home = fakeServer({
+      "hosts.wake": () => new Promise<void>((resolve) => (finish = resolve)),
+      "projects.renameWorkspace": undefined,
+    });
+    const set = createServerSet();
+    set.add("local", home.transport, { home: true, lists: "all" });
+    const { resolver } = sleepyResolver({ project: { p1: "box" } });
+    const waking = vi.fn();
+    const api = createRouter(set, { ...resolver, waking });
+
+    const a = api.projects.renameWorkspace("p1", "/w", "a");
+    const b = api.projects.renameWorkspace("p1", "/w", "b");
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    expect(waking).toHaveBeenCalledTimes(1);
+    expect(waking.mock.calls[0][0]).toBe("box");
+    let settled = false;
+    void (waking.mock.calls[0][1] as Promise<void>).then(() => (settled = true));
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    finish();
+    await Promise.all([a, b]);
+    expect(settled).toBe(true);
+  });
 });

@@ -98,6 +98,11 @@ export interface HostResolver {
    * wakes it first. Absent: nothing is known to sleep.
    */
   asleep?(hostId: string): boolean;
+  /**
+   * The router began waking `hostId` for a write; `woken` settles once it
+   * is done waiting (it never rejects). Absent: nobody is told.
+   */
+  waking?(hostId: string, woken: Promise<void>): void;
 }
 
 /** `hostOf`, read off the stores' lookups. */
@@ -138,6 +143,9 @@ export const storeResolver: HostResolver = {
   },
   asleep(hostId) {
     return hostLookups().hostStatus?.(hostId) === "sleeping";
+  },
+  waking(hostId, woken) {
+    hostLookups().wakeStarted?.(hostId, woken);
   },
 };
 
@@ -593,6 +601,7 @@ export function createRouter(
         await directBridgeBack(hostId);
       })().finally(() => waking.delete(hostId));
       waking.set(hostId, pending);
+      resolver.waking?.(hostId, pending);
     }
     return pending;
   }

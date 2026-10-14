@@ -391,6 +391,21 @@ describe("SshTransport", () => {
     await expect(running).rejects.toBeInstanceOf(SshHostKeyError);
   });
 
+  it("words an auth failure for a recipe host, whose alias no terminal knows (ADR-229 D2)", async () => {
+    const { transport, children } = makeTransport({
+      label: "Dev pod",
+      authMessage: () => "ssh could not log in to Dev pod as dev@203.0.113.7.",
+    });
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    child.stderr.write("dev@203.0.113.7: Permission denied (publickey).\r\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SshAuthError);
+    expect((err as Error).message).toBe("ssh could not log in to Dev pod as dev@203.0.113.7.");
+  });
+
   it("words a host-key refusal as the box's owner says, for a recipe host (ADR-229 D2)", async () => {
     const { transport, children } = makeTransport({
       label: "Dev pod",

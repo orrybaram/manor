@@ -414,12 +414,18 @@ export class SshAuthError extends Error {
   constructor(
     readonly target: string,
     readonly stderr: string,
+    /**
+     * Replaces the wording, for a host reached at an alias only Manor's own
+     * config has, where `ssh <alias>` from a terminal means nothing (ADR-229 D2).
+     */
+    message?: string,
   ) {
     super(
-      `ssh could not authenticate to ${target}. ` +
-        `Verify that \`ssh ${shellQuote(target)}\` works from a terminal first. ` +
-        "If your key is passphrase-protected, add it to your agent with `ssh-add` — " +
-        "Manor cannot answer a passphrase prompt.",
+      message ??
+        `ssh could not authenticate to ${target}. ` +
+          `Verify that \`ssh ${shellQuote(target)}\` works from a terminal first. ` +
+          "If your key is passphrase-protected, add it to your agent with `ssh-add` — " +
+          "Manor cannot answer a passphrase prompt.",
     );
     this.name = "SshAuthError";
   }

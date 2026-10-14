@@ -94,12 +94,14 @@ export interface SshHostProviderOptions {
   configBaseDir?: string;
   /**
    * For a recipe host reached over ssh (ADR-229 D2): its own `Host` block,
-   * how messages name it, and how a host-key refusal reads. See
+   * how messages name it, and how a host-key refusal and an authentication
+   * failure read. See
    * `SshTransportOptions`.
    */
   hostStanza?: SshTransportOptions["hostStanza"];
   label?: string;
   hostKeyMessage?: SshTransportOptions["hostKeyMessage"];
+  authMessage?: SshTransportOptions["authMessage"];
   /** Spawns the `ssh -O` control commands. Defaults to `child_process.spawn`. */
   spawn?: SshSpawn;
   /** Picks the local end of a forward. For tests. */
@@ -154,6 +156,7 @@ export class SshHostProvider implements HostProvider {
         hostStanza: opts.hostStanza,
         label: opts.label,
         hostKeyMessage: opts.hostKeyMessage,
+        authMessage: opts.authMessage,
       });
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.findFreePort = opts.findFreePort ?? findFreeLocalPort;

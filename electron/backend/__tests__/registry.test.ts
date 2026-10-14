@@ -92,7 +92,7 @@ function fakeProvider() {
     kind: "ssh" as const,
     capabilities: { canStop: false, canDestroy: false, autoSleep: false },
     ensureUp: vi.fn(async (_onProgress?: (line: string) => void) => {}),
-    status: vi.fn(async (): Promise<{ state: ProviderState; detail?: string }> => ({ state: "up" })),
+    status: vi.fn(async (): Promise<{ state: ProviderState; detail?: string; missing?: boolean }> => ({ state: "up" })),
     transport: vi.fn(() => {
       throw new Error("fake provider has no transport");
     }),
@@ -1160,6 +1160,40 @@ describe("provider lifecycle (ADR-229 D1)", () => {
 
     expect(provider.stop).not.toHaveBeenCalled();
     expect(registry.status("box")).toBe("connected");
+  });
+
+  it("reports a box deleted outside Manor as missing, and starts it again only on wake (ADR-229 D2)", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
+
+    // A background connect does not run `up`, which would create it anew.
+    registry.connectInBackground("box");
+    await vi.waitFor(() => expect(registry.status("box")).toBe("error"));
+    expect(registry.list()[1]).toMatchObject({
+      status: "error",
+      error: "Dev pod no longer exists",
+      missing: true,
+    });
+    expect(provider.ensureUp).not.toHaveBeenCalled();
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+
+    // "Start it again".
+    await registry.wake("box");
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
+    expect(registry.list()[1]).not.toHaveProperty("missing");
+  });
+
+  it("stops reconnecting to a box that went missing (ADR-229 D2)", async () => {
+    const { registry, remote, provider, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
+
+    await expect(beforeReconnect()).resolves.toBe(false);
+
+    expect(registry.list()[1]).toMatchObject({ status: "error", missing: true });
+    expect(provider.dispose).toHaveBeenCalled();
   });
 
   it("names a recipe host by its recipe, falling back to the recipe id (ADR-229 D2)", () => {

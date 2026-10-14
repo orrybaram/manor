@@ -10,6 +10,8 @@ import {
   type StoredPairing,
 } from "../../../bridge/pairings";
 import { servers, useServers, type ServerEntry } from "../../../bridge/server-set";
+import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
+import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { PhoneSheet, PhoneSheetClose } from "../PhoneSheet";
@@ -27,6 +29,10 @@ type HostsSheetProps = {
  * and removes it with an in-place confirm. A removed pairing leaves the page
  * at once — its projects with it — and removing the last one reloads to the
  * pairing screen.
+ *
+ * ADR-229 D7: a host its desktop reports asleep reads **Asleep**, with
+ * **Wake**, which asks the desktop to start it (`hosts.wake` on home). Only
+ * a desktop can start a box, so with none reachable the row says so instead.
  */
 export function HostsSheet(props: HostsSheetProps) {
   const { open, onOpenChange } = props;
@@ -34,6 +40,10 @@ export function HostsSheet(props: HostsSheetProps) {
   const pairings = useSyncExternalStore(subscribePairings, listPairings, listPairings);
   // Re-read as servers come and go, home moving among them.
   const entries = useServers();
+  // Home's host list: on a phone each host goes by its room (ADR-228 D2).
+  const hosts = useHostStore((s) => s.hosts);
+  const homeEntry = entries.find((s) => s.id === servers.homeId);
+  const desktopName = desktopNameOf(pairings, homeEntry);
 
   return (
     <PhoneSheet
@@ -57,6 +67,7 @@ export function HostsSheet(props: HostsSheetProps) {
               server={entries.find((s) => s.id === pairing.roomId)}
               home={servers.homeId === pairing.roomId}
               last={pairings.length === 1}
+              asleep={asleepOf(pairing, hosts, homeEntry, desktopName)}
             />
           ))
         )}
@@ -65,11 +76,52 @@ export function HostsSheet(props: HostsSheetProps) {
   );
 }
 
+/** What a desktop is called here: home's pairing when it is one, else any desktop's. */
+function desktopNameOf(
+  pairings: readonly StoredPairing[],
+  home: ServerEntry | undefined,
+): string {
+  const homePairing = pairings.find((p) => p.roomId === home?.roomId);
+  if (home && !home.hello.hostServer && homePairing) return homePairing.name;
+  return pairings.find((p) => p.hostServer === false)?.name ?? "the desktop";
+}
+
+/**
+ * A host asleep (ADR-229 D7), as home's host list says: whether home can
+ * wake it — a desktop, reachable, that lists the host — and, when it
+ * cannot, which desktop is away. Undefined for a pairing that is not asleep.
+ */
+type Asleep = { canWake: true } | { canWake: false; desktopName: string };
+
+function asleepOf(
+  pairing: StoredPairing,
+  hosts: readonly HostStatusInfo[],
+  home: ServerEntry | undefined,
+  desktopName: string,
+): Asleep | undefined {
+  const host = hosts.find((h) => h.hostId === pairing.roomId);
+  if (host?.status !== "sleeping") return undefined;
+  const lists = home?.lists === "all" || home?.lists.has(pairing.roomId) === true;
+  const reachable = home?.reachability === "connected" && !home.hello.hostServer;
+  return reachable && lists ? { canWake: true } : { canWake: false, desktopName };
+}
+
 /** How a pairing's server is doing, as the row's `data-state` says it. */
-type PairingState = "refused" | "connected" | "unreachable" | "connecting";
+type PairingState = "refused" | "connected" | "unreachable" | "connecting" | "asleep";
 
 /** How a pairing's server is doing, in words. */
-function statusOf(server: ServerEntry | undefined): { label: string; state: PairingState } {
+function statusOf(
+  pairing: StoredPairing,
+  server: ServerEntry | undefined,
+  asleep: Asleep | undefined,
+): { label: string; state: PairingState } {
+  // Its own bridge answers: it is up, whatever home last said.
+  if (asleep && server?.reachability !== "connected") {
+    return {
+      label: asleep.canWake ? "Asleep" : `${pairing.name} is asleep, and ${asleep.desktopName} is away`,
+      state: "asleep",
+    };
+  }
   if (server?.outcome === "unauthorized") return { label: "No longer paired", state: "refused" };
   if (server?.outcome === "key-mismatch") {
     return { label: "Pairing key changed", state: "refused" };
@@ -92,15 +144,28 @@ type HostRowProps = {
   home: boolean;
   /** It is the only pairing: removing it leaves nothing to show. */
   last: boolean;
+  /** Its host is asleep, as home's host list says (ADR-229 D7). */
+  asleep: Asleep | undefined;
 };
 
 /** One pairing: its name and state, or its rename field, or the remove confirm. */
 function HostRow(props: HostRowProps) {
-  const { pairing, server, home, last } = props;
+  const { pairing, server, home, last, asleep } = props;
 
   const [mode, setMode] = useState<"view" | "rename" | "confirm">("view");
   const [name, setName] = useState(pairing.name);
-  const status = statusOf(server);
+  const [waking, setWaking] = useState<{ busy: boolean; error: string | null }>({
+    busy: false,
+    error: null,
+  });
+  const status = statusOf(pairing, server, asleep);
+  const wake = () => {
+    setWaking({ busy: true, error: null });
+    window.electronAPI.hosts.wake(pairing.roomId).then(
+      () => setWaking({ busy: false, error: null }),
+      (err: unknown) => setWaking({ busy: false, error: ipcErrorMessage(err) }),
+    );
+  };
 
   if (mode === "rename") {
     const save = () => {
@@ -186,10 +251,21 @@ function HostRow(props: HostRowProps) {
       <span className={styles.text}>
         <span className={styles.name}>{pairing.name}</span>
         <span className={styles.status} data-testid="phone-host-status">
-          {status.label}
+          {waking.busy ? "Waking…" : (waking.error ?? status.label)}
           {server?.hello.hostServer === false && " · Desktop"}
         </span>
       </span>
+      {status.state === "asleep" && asleep?.canWake && (
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="phone-host-wake"
+          disabled={waking.busy}
+          onClick={wake}
+        >
+          Wake
+        </Button>
+      )}
       <Button
         variant="ghost"
         className={styles.iconButton}

@@ -15,10 +15,13 @@ import { assertBoolean, assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
 import { assertRecipeId, readRecipe } from "../../backend/providers/recipes";
 import {
+  createCustomRecipe,
   createRecipeFromTemplate,
   listTemplates,
   type TemplateInfo,
 } from "../../backend/providers/recipe-templates";
+import { forgetHostFiles } from "../../backend/host-removal";
+import { LOCAL_HOST_ID } from "../../backend/types";
 import type { HostStatusInfo } from "../../backend/registry";
 import {
   runHealthChecks,
@@ -123,9 +126,73 @@ export function hostsCreateRecipe(
   return createRecipeFromTemplate(templateId, values);
 }
 
+/**
+ * "Create recipe folder" (ADR-229 D8): write a custom recipe's skeleton —
+ * `recipe.json` and an `up.sh` to finish — for a host named `name`, and
+ * answer its id and the file the page reveals. Starts nothing.
+ */
+export function hostsCreateCustomRecipe(
+  _ctx: HandlerCtx<ServerDeps>,
+  name: string,
+): { recipeId: string; file: string } {
+  assertString(name, "hosts:createCustomRecipe.name");
+  return createCustomRecipe(name);
+}
+
 /** The bundled templates' names and form fields (ADR-229 D8). */
 export function hostsListTemplates(_ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
   return listTemplates();
+}
+
+/**
+ * Remove remote host `hostId` from Manor (ADR-229 D8). With `destroy`, its
+ * provider's `destroy()` runs first and deletes the box and its disk; if it
+ * fails, nothing is removed and the error says why. Then the host is
+ * forgotten: its record and every project on it (with their group
+ * memberships, ADR-192), its connection, its cache, a recipe host's
+ * `known_hosts` — and with `destroy`, its recipe's directory; without,
+ * only the recipe's record of this host (`host.json`). The box itself is
+ * left alone unless destroyed.
+ */
+export async function hostsRemove(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+  opts: { destroy: boolean },
+): Promise<void> {
+  assertString(hostId, "hosts:remove.hostId");
+  if (typeof opts !== "object" || opts === null) {
+    throw new Error("hosts:remove.opts must be an object");
+  }
+  assertBoolean(opts.destroy, "hosts:remove.opts.destroy");
+  if (hostId === LOCAL_HOST_ID) throw new Error("This computer can't be removed.");
+  const { deps } = ctx;
+  const spec = deps.projectManager.getHosts().find((h) => h.hostId === hostId)?.spec;
+  if (!spec) throw new Error(`Unknown remote host ${hostId}.`);
+  const registry = deps.backendRegistry;
+  if (opts.destroy) {
+    const provider = registry.provider(hostId);
+    if (!provider?.capabilities.canDestroy || !provider.destroy) {
+      throw new Error(`${registry.hostDisplayName(hostId) ?? hostId} can't be destroyed by Manor.`);
+    }
+    await provider.destroy();
+  }
+  // While the registry holds the host, its live list still names its projects.
+  deps.projectManager.removeHost(hostId);
+  await registry.unregister(hostId);
+  // After the unregister: disposing the host's proxy writes its cache once more.
+  forgetHostFiles(hostId, spec, { destroyed: opts.destroy });
+  publishRendererBroadcast("projects", "changed");
+}
+
+/**
+ * The names of the projects on `hostId` (ADR-229 D8): what the "Destroy
+ * host and its disk" dialog lists, since the host is their source of truth
+ * (ADR-227) — from the host's live list, or its cache while it is away.
+ */
+export function hostsProjectsOnHost(ctx: HandlerCtx<ServerDeps>, hostId: string): string[] {
+  assertString(hostId, "hosts:projectsOnHost.hostId");
+  ctx.deps.projectManager.assertKnownHost(hostId);
+  return ctx.deps.projectManager.projectNamesOnHost(hostId);
 }
 
 export function hostsRetryConnect(
@@ -219,6 +286,12 @@ export interface HostServerView {
    * not be read.
    */
   supervisor: SupervisorFacts | null;
+  /**
+   * "Keep Manor running when <host> restarts" as this desktop remembers it
+   * (`PersistedHost.supervise`, ADR-229 D4): the switch's state, readable
+   * with the host away.
+   */
+  supervise: boolean;
 }
 
 /** The owner channel to `hostId`'s server, or a plain reason there is none. */
@@ -273,6 +346,7 @@ export async function hostsServerStatus(
   const links = {
     linkPhones: ctx.deps.projectManager.hostLinksPhones(hostId),
     linkedDeviceIds: ctx.deps.hostLinks?.linkedOn(hostId) ?? [],
+    supervise: ctx.deps.projectManager.hostSupervised(hostId),
   };
   const none = { state, status: null, devices: [], ...links, supervisor: null };
   if (state !== "connected") return none;
@@ -434,6 +508,15 @@ export const hosts = {
   // Writes scripts this machine will run (ADR-229 D8): the desktop user's.
   createRecipe: method(hostsCreateRecipe, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   listTemplates: method(hostsListTemplates, { localOnly: true, route: LOCAL_ROUTE }),
+  createCustomRecipe: method(hostsCreateCustomRecipe, {
+    localOnly: true,
+    mutating: true,
+    route: LOCAL_ROUTE,
+  }),
+  // Forgets a host for every viewer, and may delete its box and disk
+  // (ADR-229 D8): the desktop user's call alone, and home's to answer.
+  remove: method(hostsRemove, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
+  projectsOnHost: method(hostsProjectsOnHost, { localOnly: true, route: LOCAL_ROUTE }),
   retryConnect: method(hostsRetryConnect, { mutating: true }),
   // A phone wakes a sleeping host through its home desktop (ADR-229 D7), so
   // `wake` is a `full` device's too: like `retryConnect`, it only connects

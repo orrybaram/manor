@@ -363,6 +363,11 @@ export function hostKnownHostsDir(): string {
   return path.join(manorHomeDir(), "ssh", "known_hosts.d");
 }
 
+/** `hostId`'s own `known_hosts` in `dir` (`hostKnownHostsDir()`). */
+export function hostKnownHostsFile(hostId: string, dir: string = hostKnownHostsDir()): string {
+  return path.join(dir, hostId.replace(/[^A-Za-z0-9._-]/g, "_"));
+}
+
 export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
 }

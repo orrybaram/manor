@@ -3,7 +3,12 @@ import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createRecipeFromTemplate, listTemplates, RECIPE_TEMPLATES } from "../providers/recipe-templates";
+import {
+  createCustomRecipe,
+  createRecipeFromTemplate,
+  listTemplates,
+  RECIPE_TEMPLATES,
+} from "../providers/recipe-templates";
 import { parseRecipe, readRecipe } from "../providers/recipes";
 
 // Optional: used when it is installed (knip would flag a literal binary name).
@@ -95,5 +100,33 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(up).toContain('value: "$namespace/$name"');
     expect(up).toContain("--timeout=10m");
     expect(() => RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" })).toThrow(/storage size/);
+  });
+
+  it("custom: writes a recipe to finish, named for the host, never over another", () => {
+    const first = createCustomRecipe("  Build VM ", base);
+    expect(first).toEqual({ recipeId: "build-vm", file: path.join(base, "build-vm", "recipe.json") });
+    expect(readRecipe("build-vm", base)).toEqual({
+      schemaVersion: 1,
+      id: "build-vm",
+      name: "Build VM",
+      up: "./up.sh",
+    });
+    const up = path.join(base, "build-vm", "up.sh");
+    expect(fs.statSync(up).mode & 0o777).toBe(0o755);
+    expect(fs.readFileSync(up, "utf-8")).toContain("exec 3>&1 1>&2");
+    expect(createCustomRecipe("Build VM", base).recipeId).toBe("build-vm-2");
+    expect(createCustomRecipe("🚀", base).recipeId).toMatch(/^manor-[0-9a-f]{6}$/);
+    expect(() => createCustomRecipe("  ", base)).toThrow(/name is required/);
+  });
+
+  it("custom: its up.sh fails saying what to do until it is finished", () => {
+    createCustomRecipe("Box", base);
+    const result = spawnSync("bash", [path.join(base, "box", "up.sh")], {
+      env: { ...process.env, MANOR_RECIPE_DIR: path.join(base, "box") },
+      encoding: "utf-8",
+    });
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("edit");
   });
 });

@@ -31,6 +31,12 @@ export interface HostLookups {
    * ADR-229 D1). Not a host id: the one lookup that answers something else.
    */
   hostStatus?: Lookup;
+  /**
+   * The router began waking `hostId` for a write (ADR-229 D1); `woken`
+   * settles when it is done waiting, woken or not — for the "Waking <host>…"
+   * toast (`host-store`).
+   */
+  wakeStarted?: (hostId: string, woken: Promise<void>) => void;
 }
 
 const lookups: HostLookups = {};

@@ -172,7 +172,7 @@ describe("describeHost", () => {
     expect(describeHost(host({ status: "sleeping" }), 0)).toMatchObject({
       offline: true,
       busy: false,
-      tone: "warn",
+      tone: "asleep",
       status: "Asleep",
       banner: "me@box is asleep",
       canRetry: false,

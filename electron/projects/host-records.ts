@@ -33,6 +33,17 @@ export class HostRecords {
     this.store.save();
   }
 
+  /**
+   * Forget `hostId`'s record — how it is reached, its adoption marks, its
+   * switches (ADR-229 D8). Not saved: the caller drops what else names the
+   * host in the same write.
+   */
+  remove(hostId: string): void {
+    const hosts = this.store.state.hosts;
+    if (!hosts?.[hostId]) return;
+    delete hosts[hostId];
+  }
+
   /** Throws unless `hostId` is this machine or a registered host. */
   assertKnown(hostId: string): void {
     if (hostId === LOCAL_HOST_ID) return;

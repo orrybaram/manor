@@ -13,6 +13,7 @@ import { kubernetesTemplate } from "./kubernetes";
 import type { RecipeTemplate, TemplateInfo } from "./types";
 
 export type { FormField, RecipeTemplate, TemplateFile, TemplateInfo } from "./types";
+export { createCustomRecipe } from "./custom";
 
 export const RECIPE_TEMPLATES: readonly RecipeTemplate[] = [dockerTemplate, kubernetesTemplate];
 

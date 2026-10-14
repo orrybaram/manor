@@ -91,6 +91,12 @@ export interface SshTransportOptions {
    * terminal.
    */
   hostKeyMessage?: (stderr: string) => string;
+  /**
+   * The wording of an authentication failure, for a box reached at an alias
+   * only Manor's managed config has (ADR-229 D2). Defaults to telling the
+   * user to try `ssh <target>` from a terminal.
+   */
+  authMessage?: (stderr: string) => string;
 }
 
 const REMOTE_HANDSHAKE_TIMEOUT_MS = 60_000;
@@ -104,6 +110,7 @@ export class SshTransport implements HostTransport {
   private readonly configBaseDir: string | undefined;
   private readonly hostStanza: (() => string) | undefined;
   private readonly hostKeyMessage: ((stderr: string) => string) | undefined;
+  private readonly authMessage: ((stderr: string) => string) | undefined;
   /** How messages name the box. */
   private readonly label: string;
   private config: ManagedSshConfig | null = null;
@@ -128,6 +135,7 @@ export class SshTransport implements HostTransport {
     this.configBaseDir = opts.configBaseDir;
     this.hostStanza = opts.hostStanza;
     this.hostKeyMessage = opts.hostKeyMessage;
+    this.authMessage = opts.authMessage;
     this.label = opts.label ?? target;
     this.spawner = new BridgeSpawner({
       spawn: this.spawnFn,
@@ -286,7 +294,7 @@ export class SshTransport implements HostTransport {
 
   /** Translate an ssh child that exited before its hello into a useful error. */
   private exitError(code: number | null, stderr: string): Error {
-    if (isRemoteAuthError(stderr)) return new SshAuthError(this.target, stderr);
+    if (isRemoteAuthError(stderr)) return this.authError(stderr);
     if (isHostKeyError(stderr)) return this.hostKeyError(stderr);
     const detail = stderr.trim();
     return new Error(
@@ -300,7 +308,7 @@ export class SshTransport implements HostTransport {
     const result = await this.spawner.exec(command, opts);
     const { code, stderr } = result;
     if (code === 255 && isRemoteAuthError(stderr)) {
-      throw new SshAuthError(this.target, stderr);
+      throw this.authError(stderr);
     }
     if (code === 255 && isHostKeyError(stderr)) {
       throw this.hostKeyError(stderr);
@@ -310,5 +318,9 @@ export class SshTransport implements HostTransport {
 
   private hostKeyError(stderr: string): SshHostKeyError {
     return new SshHostKeyError(this.target, stderr, this.hostKeyMessage?.(stderr));
+  }
+
+  private authError(stderr: string): SshAuthError {
+    return new SshAuthError(this.target, stderr, this.authMessage?.(stderr));
   }
 }

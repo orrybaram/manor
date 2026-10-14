@@ -12,6 +12,11 @@
   color: var(--red, var(--danger));
 }
 
+/* Asleep (ADR-229 D1): calm, neither a warning nor an error. */
+.asleep {
+  color: var(--blue, #89b4fa);
+}
+
 .glyph {
   flex-shrink: 0;
 }

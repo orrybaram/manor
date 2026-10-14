@@ -1,6 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { localCtx } from "../../method";
 
+// `hosts.remove` deletes files under `~/.manor`; its own test uses temp dirs.
+const forgetHostFiles = vi.hoisted(() => vi.fn());
+vi.mock("../../../backend/host-removal", () => ({ forgetHostFiles }));
+
 const statusListeners: Array<(hosts: unknown[]) => void> = [];
 const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = [];
 
@@ -12,6 +16,8 @@ import {
   hostsAddRecipeHost,
   hostsHealthCheck,
   hostsPairDevice,
+  hostsProjectsOnHost,
+  hostsRemove,
   hostsResetPairingKeys,
   hostsRevokeDevice,
   hostsRetryConnect,
@@ -88,6 +94,7 @@ function makeDeps() {
     hostLinksPhones: vi.fn().mockReturnValue(true),
     setHostLinksPhones: vi.fn(),
     setHostSupervised: vi.fn(),
+    hostSupervised: vi.fn().mockReturnValue(false),
   };
   const deps = {
     backendRegistry,
@@ -338,6 +345,7 @@ describe("hosts phone access", () => {
       linkPhones: true,
       linkedDeviceIds: [],
       supervisor: null,
+      supervise: false,
     });
     expect(client.status).not.toHaveBeenCalled();
   });
@@ -421,6 +429,15 @@ describe("hosts phone access", () => {
     // An older server says nothing: none.
     expect((await hostsServerStatus(ctx, "box")).supervisor).toBeNull();
   });
+
+  it("carries the switch's remembered state, read with the host away too (ADR-229 D4)", async () => {
+    const { ctx } = withServer("disconnected");
+    const pm = (ctx.deps as unknown as { projectManager: { hostSupervised: ReturnType<typeof vi.fn> } })
+      .projectManager;
+    pm.hostSupervised.mockReturnValue(true);
+    expect((await hostsServerStatus(ctx, "box")).supervise).toBe(true);
+    expect(pm.hostSupervised).toHaveBeenCalledWith("box");
+  });
 });
 
 describe("hosts:setSupervised (ADR-229 D4)", () => {
@@ -458,5 +475,77 @@ describe("hosts:setSupervised (ADR-229 D4)", () => {
     const { ctx } = withTransport("{}");
     await expect(hostsSetSupervised(ctx, "nope", true)).rejects.toThrow(/Unknown host/);
     await expect(hostsSetSupervised(ctx, "box", "yes" as never)).rejects.toThrow();
+  });
+});
+
+describe("hosts:remove (ADR-229 D8)", () => {
+  const spec = { kind: "recipe", recipeId: "dev-pod" };
+
+  function withHost(provider: unknown) {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    const order: string[] = [];
+    const pm = Object.assign(projectManager, {
+      getHosts: vi.fn().mockReturnValue([{ hostId: "box", spec }]),
+      removeHost: vi.fn(() => void order.push("forget")),
+      projectNamesOnHost: vi.fn().mockReturnValue(["App"]),
+    });
+    Object.assign(backendRegistry, {
+      provider: vi.fn((id: string) => (id === "box" ? provider : undefined)),
+      hostDisplayName: vi.fn().mockReturnValue("Dev pod"),
+      unregister: vi.fn(async () => void order.push("unregister")),
+    });
+    forgetHostFiles.mockReset().mockImplementation(() => void order.push("files"));
+    return { ctx: localCtx(deps as never), backendRegistry, projectManager: pm, order };
+  }
+
+  it("destroys the box first, then forgets the host, its connection and its files", async () => {
+    const box = { capabilities: { canDestroy: true }, destroy: vi.fn() };
+    const { ctx, order } = withHost(box);
+    box.destroy.mockImplementation(async () => void order.push("destroy"));
+    await hostsRemove(ctx, "box", { destroy: true });
+    expect(order).toEqual(["destroy", "forget", "unregister", "files"]);
+    expect(forgetHostFiles).toHaveBeenCalledWith("box", spec, { destroyed: true });
+    expect(frames).toContainEqual({ ns: "projects", event: "changed", args: [], to: null });
+  });
+
+  it("removes nothing when the destroy fails", async () => {
+    const { ctx, backendRegistry, projectManager } = withHost({
+      capabilities: { canDestroy: true },
+      destroy: vi.fn().mockRejectedValue(new Error("destroy.sh exited 1")),
+    });
+    await expect(hostsRemove(ctx, "box", { destroy: true })).rejects.toThrow("destroy.sh exited 1");
+    expect(projectManager.removeHost).not.toHaveBeenCalled();
+    expect(backendRegistry.unregister).not.toHaveBeenCalled();
+    expect(forgetHostFiles).not.toHaveBeenCalled();
+  });
+
+  it("refuses to destroy a host its provider cannot", async () => {
+    const { ctx, projectManager } = withHost({ capabilities: { canDestroy: false } });
+    await expect(hostsRemove(ctx, "box", { destroy: true })).rejects.toThrow(/can't be destroyed/);
+    expect(projectManager.removeHost).not.toHaveBeenCalled();
+  });
+
+  it("removes from Manor without touching the box", async () => {
+    const destroy = vi.fn();
+    const { ctx, order } = withHost({ capabilities: { canDestroy: true }, destroy });
+    await hostsRemove(ctx, "box", { destroy: false });
+    expect(destroy).not.toHaveBeenCalled();
+    expect(order).toEqual(["forget", "unregister", "files"]);
+    expect(forgetHostFiles).toHaveBeenCalledWith("box", spec, { destroyed: false });
+  });
+
+  it("refuses this computer, an unknown host and a bad argument", async () => {
+    const { ctx } = withHost(undefined);
+    await expect(hostsRemove(ctx, "local", { destroy: false })).rejects.toThrow(/can't be removed/);
+    await expect(hostsRemove(ctx, "nope", { destroy: false })).rejects.toThrow(/Unknown remote host/);
+    await expect(hostsRemove(ctx, "box", { destroy: "yes" } as never)).rejects.toThrow();
+    await expect(hostsRemove(ctx, "box", null as never)).rejects.toThrow();
+  });
+
+  it("names the projects on a host", () => {
+    const { ctx, projectManager } = withHost(undefined);
+    expect(hostsProjectsOnHost(ctx, "box")).toEqual(["App"]);
+    expect(projectManager.projectNamesOnHost).toHaveBeenCalledWith("box");
+    expect(() => hostsProjectsOnHost(ctx, "nope")).toThrow(/Unknown host/);
   });
 });

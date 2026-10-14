@@ -396,6 +396,11 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hosts.listTemplates",
         // ADR-229 D4: writes units onto a host and runs commands there.
         "hosts.setSupervised",
+        // ADR-229 D8: writes a recipe this machine will run; forgets a host
+        // for every viewer and may destroy its box; names what that loses.
+        "hosts.createCustomRecipe",
+        "hosts.remove",
+        "hosts.projectsOnHost",
       ].sort(),
     );
   });

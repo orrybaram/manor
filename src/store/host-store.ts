@@ -2,6 +2,8 @@ import { create } from "zustand";
 import type { HostServerView } from "../electron.d";
 import { liveValue } from "../bridge/resync";
 import { provideHostLookups } from "../bridge/host-lookups";
+import { hostName } from "../lib/hosts";
+import { useToastStore } from "./toast-store";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string };
@@ -43,6 +45,11 @@ export interface HostStatusInfo {
   status: HostStatus;
   error?: string;
   failure?: HostFailure;
+  /**
+   * With `error`: the box was deleted outside Manor (ADR-229 D2). Its way
+   * back is "Start it again" (`wake`) or Remove.
+   */
+  missing?: boolean;
   progress?: string;
   retryInMs?: number | null;
   /** Epoch ms the next reconnect attempt is due, while `reconnecting`. */
@@ -71,6 +78,17 @@ export interface HostStatusInfo {
    */
   providerKind?: "ssh" | "recipe";
   capabilities?: ProviderCapabilities;
+  /** Whether an agent on the host is working (ADR-229 D7). */
+  busy?: boolean;
+  /** Which box hooks (`on-busy`, `on-idle`) the host's server found. */
+  hooks?: { onBusy: boolean; onIdle: boolean };
+  /**
+   * The recipe stops the box after `idleStopMinutes` only while this desktop
+   * is awake: nothing on the box does it with the lid closed (ADR-229 D7).
+   */
+  idleStopNote?: boolean;
+  /** The recipe's `idleStopMinutes`, for that note. */
+  idleStopMinutes?: number;
 }
 
 /**
@@ -98,6 +116,20 @@ interface HostState {
   /** Registers a new remote host and starts connecting it in the background. */
   addHost: (target: string) => Promise<{ hostId: string; spec: HostSpec }>;
   retryConnect: (hostId: string) => Promise<void>;
+  /**
+   * Wake a sleeping host, or start a missing one again (ADR-229 D1, D2).
+   * Resolves once it is up; its progress shows in its status meanwhile.
+   */
+  wake: (hostId: string) => Promise<void>;
+  /** Put a host's box to sleep (ADR-229 D1). */
+  stop: (hostId: string) => Promise<void>;
+  /** "Keep Manor running when <host> restarts" (ADR-229 D4). */
+  setSupervised: (hostId: string, on: boolean) => Promise<void>;
+  /**
+   * Remove a host from Manor; with `destroy`, its box and disk first
+   * (ADR-229 D8). Rejects, removing nothing, when the destroy fails.
+   */
+  removeHost: (hostId: string, destroy: boolean) => Promise<void>;
 }
 
 export const useHostStore = create<HostState>((set) => {
@@ -126,6 +158,7 @@ export const useHostStore = create<HostState>((set) => {
         linkPhones: true,
         linkedDeviceIds: [],
         supervisor: null,
+        supervise: false,
       };
     }
     if (requests[hostId] !== request) return;
@@ -172,8 +205,65 @@ export const useHostStore = create<HostState>((set) => {
     retryConnect: async (hostId: string) => {
       await window.electronAPI.hosts.retryConnect(hostId);
     },
+
+    wake: async (hostId: string) => {
+      await window.electronAPI.hosts.wake(hostId);
+    },
+
+    stop: async (hostId: string) => {
+      await window.electronAPI.hosts.stop(hostId);
+    },
+
+    setSupervised: async (hostId: string, on: boolean) => {
+      // Shown at once; a failure puts it back.
+      set((s) => {
+        const view = s.servers[hostId];
+        return view ? { servers: { ...s.servers, [hostId]: { ...view, supervise: on } } } : {};
+      });
+      try {
+        await window.electronAPI.hosts.setSupervised(hostId, on);
+      } finally {
+        void refreshServer(hostId);
+      }
+    },
+
+    removeHost: async (hostId: string, destroy: boolean) => {
+      await window.electronAPI.hosts.remove(hostId, { destroy });
+      // Main's `statusChanged` drops it from `hosts`; its server view goes here.
+      delete requests[hostId];
+      set((s) => {
+        const { [hostId]: _gone, ...servers } = s.servers;
+        return { servers };
+      });
+    },
   };
 });
+
+/**
+ * "Waking <host>…" while the router wakes a host for a write (ADR-229 D1),
+ * and what came of it once it is done waiting.
+ */
+function showWaking(hostId: string, woken: Promise<void>): void {
+  const id = `host-wake-${hostId}`;
+  const find = () => useHostStore.getState().hosts.find((h) => h.hostId === hostId);
+  const host = find();
+  const name = host ? hostName(host) : hostId;
+  const toasts = useToastStore.getState();
+  toasts.addToast({ id, message: `Waking ${name}…`, status: "loading", persistent: true });
+  void woken.then(() => {
+    const now = find();
+    if (!now || now.status === "connected" || now.status === "connecting") {
+      useToastStore.getState().removeToast(id);
+      return;
+    }
+    useToastStore.getState().updateToast(id, {
+      message: `Couldn't wake ${name}`,
+      status: "error",
+      persistent: false,
+      ...(now.error ? { detail: now.error } : {}),
+    });
+  });
+}
 
 export function selectHost(
   hostId: string | null | undefined,
@@ -184,4 +274,5 @@ export function selectHost(
 // Whether a host is asleep, for the bridge router's wake-on-write (ADR-229 D1).
 provideHostLookups({
   hostStatus: (hostId) => useHostStore.getState().hosts.find((h) => h.hostId === hostId)?.status,
+  wakeStarted: showWaking,
 });

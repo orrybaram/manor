@@ -25,7 +25,11 @@ import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
 import { hostName } from "./hosts";
 
-export type HostTone = "ok" | "warn" | "error";
+/**
+ * How a host's state is coloured. `asleep` is calm, unlike `warn`: a box
+ * put to sleep is where it was meant to be (ADR-229 D1).
+ */
+export type HostTone = "ok" | "warn" | "error" | "asleep";
 
 export interface HostDisplay {
   /**
@@ -167,6 +171,20 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
       };
     }
     case "error": {
+      // Deleted outside Manor (ADR-229 D2): starting it again is the user's
+      // call, from the Hosts page — retrying would not.
+      if (host.missing) {
+        return {
+          target,
+          offline: true,
+          busy: false,
+          tone: "error",
+          status: "No longer exists",
+          banner: `${target} no longer exists`,
+          summary: `${target} no longer exists. Start it again, or remove it, in Settings → Hosts.`,
+          canRetry: false,
+        };
+      }
       const copy = host.failure ? FAILURE_COPY[host.failure.reason] : null;
       const unreachable = copy ? null : describeUnreachable(host.error);
       const summary = copy?.summary ?? unreachable;
@@ -190,7 +208,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: true,
         busy: false,
-        tone: "warn",
+        tone: "asleep",
         status: "Asleep",
         banner: `${target} is asleep`,
         summary: "The host is asleep. Opening a pane or starting work on it wakes it.",

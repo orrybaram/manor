@@ -40,7 +40,9 @@
  *   before each reconnect attempt, and before a background connect — puts
  *   the host in `sleeping`: the reconnect loop stops and pollers leave it
  *   alone. `wake()` (or any `ensureConnected`) brings it up and connects;
- *   `stop()` puts it to sleep.
+ *   `stop()` puts it to sleep. A box the provider says is gone (`missing`,
+ *   ADR-229 D2) is treated alike, but in `error` with `missing` set: only
+ *   `wake()` starts it again.
  * - **The owner channel** to the box's host server (ADR-225 D4):
  *   `serverClient`. It dials whenever the
  *   host reaches `connected` (a connect or a resume), lets go whenever the
@@ -59,7 +61,7 @@ import { HostServerClient, type HostServerClientOptions } from "./host-server-cl
 import { HostProxy, type HostProgressEvent, type HostProxyOptions } from "./host-proxy";
 import { hostCacheFile } from "../paths";
 import { HostUnavailableError, hostGates, hostView, type HostGates } from "./host-view";
-import type { HostProvider, ProviderCapabilities, ProviderState } from "./providers/types";
+import type { HostProvider, ProviderCapabilities, ProviderStatus } from "./providers/types";
 import { classifyHostFailure } from "./remote-backend";
 import type { SessionOwners } from "./session-owners";
 import type {
@@ -97,6 +99,12 @@ export interface HostStatusInfo {
    * credentials, host key, no Node on the box) — see `HostFailure`.
    */
   failure?: HostFailure;
+  /**
+   * Set with `error` when the provider says the box is gone — deleted
+   * outside Manor (ADR-229 D2) — so the way back is to start it again
+   * (`hosts.wake`, which runs `up`) or to remove the host.
+   */
+  missing?: boolean;
   /** Latest bootstrap progress line while `connecting`. */
   progress?: string;
   /** While `reconnecting`: the delay before the next attempt, if known. */
@@ -150,6 +158,20 @@ export interface HostStatusInfo {
    * only while this desktop is awake (ADR-229 D7). Set on recipe hosts.
    */
   idleStopNote?: boolean;
+  /** The recipe's `idleStopMinutes` (ADR-229 D7), for that note. Set on recipe hosts that have one. */
+  idleStopMinutes?: number;
+}
+
+/**
+ * A background connect found the box gone (ADR-229 D2): it is not started
+ * again by itself — that is `hosts.wake`'s, somebody's intent — and the host
+ * goes to `error` with `missing`.
+ */
+export class HostMissingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "HostMissingError";
+  }
 }
 
 /** What a host server's last status said about it (ADR-228 D2, D3). */
@@ -170,6 +192,7 @@ type HostState = Omit<
   | "busy"
   | "hooks"
   | "idleStopNote"
+  | "idleStopMinutes"
 >;
 
 /**
@@ -465,6 +488,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
           status: "error",
           error: failure?.message ?? errorMessage(err),
           ...(failure ? { failure } : {}),
+          ...(err instanceof HostMissingError ? { missing: true } : {}),
         },
         "clear",
       );
@@ -486,6 +510,11 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
       this.ctx.streamEvents.emit(this.hostId, event);
     }
   }
+}
+
+/** What a host whose box is gone says (ADR-229 D2). */
+function missingMessage(status: ProviderStatus): string {
+  return status.detail ?? "The host no longer exists";
 }
 
 export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
@@ -580,9 +609,13 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    */
   async beforeReconnect(): Promise<boolean> {
     if (this.disposed) return true;
-    if ((await this.providerState()) !== "sleeping") return true;
+    const status = await this.providerStatus();
+    if (status.state !== "sleeping" && !status.missing) return true;
     if (this.disposed) return true;
-    this.markSleeping();
+    // A box deleted outside Manor is not started again by a reconnect: it
+    // waits for "Start it again" (ADR-229 D2).
+    if (status.missing) this.markMissing(status);
+    else this.markSleeping();
     await this.disposeProvider();
     return false;
   }
@@ -663,7 +696,12 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    * `ensureUp` built, without running `up` again.
    */
   protected override async bringUp(wake: boolean): Promise<boolean> {
-    if (!wake && (await this.providerState()) === "sleeping") return false;
+    if (!wake) {
+      const status = await this.providerStatus();
+      if (status.state === "sleeping") return false;
+      // `up` would create the box anew: only somebody's intent does that.
+      if (status.missing) throw new HostMissingError(missingMessage(status));
+    }
     await this.provider.ensureUp((line) => this.reportProgress(line));
     return true;
   }
@@ -698,13 +736,19 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /** What the provider says of the box; a failed ask is `error`, not asleep. */
-  private async providerState(): Promise<ProviderState> {
+  private async providerStatus(): Promise<ProviderStatus> {
     try {
-      return (await this.provider.status()).state;
+      return await this.provider.status();
     } catch (err) {
       console.warn(`[host-connection] asking ${this.hostId}'s provider its status failed:`, err);
-      return "error";
+      return { state: "error" };
     }
+  }
+
+  /** The box is gone (ADR-229 D2): say so, and keep pollers from connecting it. */
+  private markMissing(status: ProviderStatus): void {
+    this.autoConnect = false;
+    this.setState({ status: "error", error: missingMessage(status), missing: true }, "clear");
   }
 
   /** Release the provider's own resources (port forwards); never throws. */

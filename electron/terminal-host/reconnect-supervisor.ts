@@ -67,9 +67,10 @@ export interface ReconnectPolicyOptions {
    * Asked before each attempt, after its wait. False stops the loop quietly:
    * no `onFailed`, nothing reported as exited — the sessions stay wanted, so
    * a later successful `connect()` reports them through `onReconnected`.
-   * A rejection counts as true.
+   * A rejection counts as true. `attempt` is the attempt it precedes,
+   * 0-based, counted from the drop.
    */
-  beforeAttempt?: () => Promise<boolean>;
+  beforeAttempt?: (attempt: number) => Promise<boolean>;
 }
 
 /** Three quick attempts, then give up. */
@@ -90,7 +91,7 @@ export class ReconnectSupervisor {
   /** Errors the loop must not retry (see `setPolicy`). */
   private isPermanentFailure: ((err: unknown) => boolean) | null = null;
   /** Whether to go on attempting (see `setPolicy`). */
-  private beforeAttempt: (() => Promise<boolean>) | null = null;
+  private beforeAttempt: ((attempt: number) => Promise<boolean>) | null = null;
   /**
    * The loop stopped on a permanent failure with sessions still wanted. The
    * next successful connect reports them via `onReconnected`.
@@ -180,7 +181,7 @@ export class ReconnectSupervisor {
         await this.sleep(delay);
         // disconnect() was called while we slept: the caller is done with us.
         if (generation !== target.generation()) return;
-        if (!(await this.mayAttempt())) {
+        if (!(await this.mayAttempt(attempt))) {
           if (generation !== target.generation()) return;
           console.warn(
             `[terminal-host] reconnect stopped before attempt ${attempt + 1}: not to be attempted now`,
@@ -236,10 +237,10 @@ export class ReconnectSupervisor {
   }
 
   /** `beforeAttempt`'s answer; true without one, or when it rejects. */
-  private async mayAttempt(): Promise<boolean> {
+  private async mayAttempt(attempt: number): Promise<boolean> {
     if (!this.beforeAttempt) return true;
     try {
-      return await this.beforeAttempt();
+      return await this.beforeAttempt(attempt);
     } catch (err) {
       console.warn(`[terminal-host] reconnect pre-attempt check failed: ${errorMessage(err)}`);
       return true;

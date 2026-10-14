@@ -104,9 +104,10 @@ export interface RemoteBackendOptions {
   /**
    * Asked before each reconnect attempt; false stops the loop quietly (the
    * host's provider says it is asleep, ADR-229 D1). The next `connect()`
-   * resumes its sessions.
+   * resumes its sessions. `attempt` is 0-based, counted from the drop; a
+   * recipe host re-runs `up` on a later one (ADR-230 D2).
    */
-  beforeReconnect?: () => Promise<boolean>;
+  beforeReconnect?: (attempt: number) => Promise<boolean>;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
   reconnectDelayMs?: ReconnectPolicy;
   /**

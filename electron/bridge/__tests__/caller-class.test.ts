@@ -391,6 +391,9 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hosts.stop",
         // ADR-229 D2: runs the user's recipe commands on this machine.
         "hosts.addRecipeHost",
+        // ADR-229 D8: writes scripts that this machine will run.
+        "hosts.createRecipe",
+        "hosts.listTemplates",
         // ADR-229 D4: writes units onto a host and runs commands there.
         "hosts.setSupervised",
       ].sort(),

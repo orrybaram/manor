@@ -14,6 +14,11 @@ import crypto from "node:crypto";
 import { assertBoolean, assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
 import { assertRecipeId, readRecipe } from "../../backend/providers/recipes";
+import {
+  createRecipeFromTemplate,
+  listTemplates,
+  type TemplateInfo,
+} from "../../backend/providers/recipe-templates";
 import type { HostStatusInfo } from "../../backend/registry";
 import {
   runHealthChecks,
@@ -96,6 +101,31 @@ export function hostsAddRecipeHost(
     // Reported through the host's status.
   });
   return { hostId, spec };
+}
+
+/**
+ * Write a recipe from a bundled template and the form's answers (ADR-229
+ * D8), and return its id. It only writes files under `~/.manor/host-recipes/`;
+ * `addRecipeHost` is what starts a host from it.
+ */
+export function hostsCreateRecipe(
+  _ctx: HandlerCtx<ServerDeps>,
+  templateId: string,
+  values: Record<string, string>,
+): string {
+  assertString(templateId, "hosts:createRecipe.templateId");
+  if (typeof values !== "object" || values === null || Array.isArray(values)) {
+    throw new Error("hosts:createRecipe.values must be an object of strings");
+  }
+  for (const [key, value] of Object.entries(values)) {
+    assertString(value, `hosts:createRecipe.values.${key}`);
+  }
+  return createRecipeFromTemplate(templateId, values);
+}
+
+/** The bundled templates' names and form fields (ADR-229 D8). */
+export function hostsListTemplates(_ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
+  return listTemplates();
 }
 
 export function hostsRetryConnect(
@@ -401,6 +431,9 @@ export const hosts = {
   // Runs the user's own recipe commands on this machine (ADR-229 D2): the
   // desktop user's call alone, and home's to answer.
   addRecipeHost: method(hostsAddRecipeHost, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
+  // Writes scripts this machine will run (ADR-229 D8): the desktop user's.
+  createRecipe: method(hostsCreateRecipe, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
+  listTemplates: method(hostsListTemplates, { localOnly: true, route: LOCAL_ROUTE }),
   retryConnect: method(hostsRetryConnect, { mutating: true }),
   // A phone wakes a sleeping host through its home desktop (ADR-229 D7), so
   // `wake` is a `full` device's too: like `retryConnect`, it only connects

@@ -41,6 +41,8 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.setLinkPhones",
   "hosts.stop",
   "hosts.addRecipeHost",
+  "hosts.createRecipe",
+  "hosts.listTemplates",
   "hosts.setSupervised",
 ] as const;
 

@@ -197,5 +197,7 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.setLinkPhones"
   | "hosts.stop"
   | "hosts.addRecipeHost"
+  | "hosts.createRecipe"
+  | "hosts.listTemplates"
   | "hosts.setSupervised"
 >;

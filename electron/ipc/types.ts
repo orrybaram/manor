@@ -156,7 +156,7 @@ export interface ServerDeps {
   /**
    * Which host owns each terminal session (ADR-160 §6, ADR-191 §4) —
    * `backendRegistry.sessions`. `GET /context` falls back to it for a local
-   * caller with no `callerHostId`.
+   * caller.
    */
   sessionOwners: SessionOwners;
   /** A host's connection status, or undefined for one never registered. */

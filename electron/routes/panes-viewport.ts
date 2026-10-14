@@ -14,7 +14,7 @@ import { withWorkspaceHost } from "./workspace-host";
  * `withWorkspaceHost`, or answer its 403.
  */
 async function proxyWithWorkspaceHost(
-  deps: Pick<RouteDeps, "projectManager" | "callerHostId">,
+  deps: Pick<RouteDeps, "projectManager">,
   json: Json,
   cmd: string,
   body: Record<string, unknown>,

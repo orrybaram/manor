@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { provideHostLookups } from "../bridge/host-lookups";
 import { LOCAL_HOST_ID } from "../lib/hosts";
 import { allPaneIds, type PaneNode } from "../lib/layout/pane-tree";
 
@@ -187,6 +188,12 @@ export const useRemotePaneStore = create<RemotePaneState>((set, get) => ({
       return { panes: rest };
     }),
 }));
+
+// A pane no layout holds yet still names its host here, for the bridge
+// router (ADR-228 D1).
+provideHostLookups({
+  paneHost: (paneId) => useRemotePaneStore.getState().panes[paneId]?.hostId,
+});
 
 /** The remote host `paneId` runs on (or awaits), or undefined for a local pane. */
 export function paneRemoteHost(

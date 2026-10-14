@@ -5,6 +5,7 @@ import { useAppStore, selectVisiblePaneIds } from "./app-store";
 import { navigateToAgent } from "../utils/agent-navigation";
 import { cleanAgentTitle } from "../utils/agent-title";
 import { bootAndResync } from "../bridge/resync";
+import { provideHostLookups } from "../bridge/host-lookups";
 
 /** Page size used for the initial agent load and for `loadMoreAgents`. */
 const TASK_PAGE_SIZE = 100;
@@ -431,4 +432,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       get().markVisibleAgentsSeen();
     },
   };
+});
+
+// Which host's server holds an agent, for the bridge router (ADR-228 D1).
+provideHostLookups({
+  agent: (agentId) => useAgentStore.getState().agents.find((a) => a.id === agentId)?.hostId,
 });

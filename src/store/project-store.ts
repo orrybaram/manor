@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
+import { provideHostLookups } from "../bridge/host-lookups";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
@@ -1976,3 +1977,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return { collapsedFolderKeys: next };
     }),
 }));
+
+// Which host a project is on, for the bridge router (ADR-228 D1).
+provideHostLookups({
+  project: (projectId) =>
+    useProjectStore.getState().projects.find((p) => p.id === projectId)?.hostId,
+});

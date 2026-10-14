@@ -27,12 +27,23 @@
  * by a `#relay=…` link, it dials the relay's `/join/<roomId>` through a Noise
  * channel. `./web-pairing.ts` reads the link; this module builds the pipe,
  * reports reachability (relay 4404/4429) and follows the version redirect.
+ *
+ * What it installs is the router over the page's server set (ADR-228 D1,
+ * `./router.ts`), with the pairing's server as home and alone in it. The
+ * reachability and the refusal are that entry's facts (`./server-set.ts`);
+ * the exports below read them, as they read module state before.
  */
 
-import { createBridge } from "./client";
-import { recordHello, setActiveRoom } from "./connection";
+import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import { decodeX25519, renamePairing } from "./pairings";
 import { emitBridgeResync, registerRefresh } from "./resync";
+import { createRouter } from "./router";
+import {
+  servers,
+  subscribeSelected,
+  type BridgeOutcome,
+  type Reachability,
+} from "./server-set";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
 import { createWsTransport, type Pipe } from "./transports/ws";
 import {
@@ -40,6 +51,13 @@ import {
   readPairing,
   versionRedirectTarget,
 } from "./web-pairing";
+
+/**
+ * The home server's id. `local` for now, as on the desktop: the phone's
+ * records keep the ids they had (ADR-228 D2 renames them per room once the
+ * phone holds several pairings).
+ */
+const HOME = LOCAL_HOST_ID;
 
 const pairing = readPairing();
 
@@ -72,17 +90,13 @@ export const webToken: string | null = pipe && pairing ? pairing.token : null;
 /** The room this tab dials, or `null` when unpaired. */
 const webRoomId: string | null = pipe && pairing ? pairing.roomId : null;
 
-setActiveRoom(webRoomId);
+servers.setRoom(HOME, webRoomId);
 
 /** What the socket has said about `webToken`, once it has said anything. */
-export type BridgeOutcome = "unauthorized" | "key-mismatch";
-
-let outcome: BridgeOutcome | null = null;
-let listener: ((outcome: BridgeOutcome) => void) | null = null;
+export type { BridgeOutcome };
 
 function settle(next: BridgeOutcome): void {
-  outcome = next;
-  listener?.(next);
+  servers.setOutcome(HOME, next);
 }
 
 /**
@@ -92,8 +106,18 @@ function settle(next: BridgeOutcome): void {
  * `cb` runs exactly once, with whichever refusal arrives first.
  */
 export function onBridgeOutcome(cb: (outcome: BridgeOutcome) => void): void {
-  listener = cb;
-  if (outcome) cb(outcome);
+  const outcome = (): BridgeOutcome | null => servers.facts(HOME).outcome;
+  const now = outcome();
+  if (now) {
+    cb(now);
+    return;
+  }
+  const off = subscribeSelected(servers, outcome, () => {
+    const next = outcome();
+    if (!next) return;
+    off();
+    cb(next);
+  });
 }
 
 /**
@@ -102,24 +126,18 @@ export function onBridgeOutcome(cb: (outcome: BridgeOutcome) => void): void {
  * 4404/4429 (the dial keeps retrying), `connected` on the next hello. Shaped
  * for `useSyncExternalStore`.
  */
-export type Reachability = "unknown" | "connected" | "unreachable";
-
-let reachability: Reachability = "unknown";
-const reachabilityListeners = new Set<() => void>();
+export type { Reachability };
 
 export function getReachability(): Reachability {
-  return reachability;
+  return servers.facts(HOME).reachability;
 }
 
 export function subscribeReachability(cb: () => void): () => void {
-  reachabilityListeners.add(cb);
-  return () => reachabilityListeners.delete(cb);
+  return subscribeSelected(servers, getReachability, cb);
 }
 
 function setReachability(next: Reachability): void {
-  if (next === reachability) return;
-  reachability = next;
-  for (const cb of [...reachabilityListeners]) cb();
+  servers.setReachability(HOME, next);
 }
 
 /** How long a refresh waits for a redial's hello and its resync. */
@@ -165,7 +183,7 @@ const transport = createWsTransport({
   onHello: ({ appVersion, resumed, hostName, hostServer }) => {
     // The host names itself (ADR-225 D7) so the switcher shows the name
     // instead of "Host N"; `hostServer` alone says it is a host server.
-    recordHello({ hostName, hostServer });
+    servers.recordHello(HOME, { hostName, hostServer, appVersion });
     if (webRoomId && hostName) renamePairing(webRoomId, hostName);
     const target = versionRedirectTarget(__APP_VERSION__, appVersion);
     if (target) {
@@ -176,7 +194,7 @@ const transport = createWsTransport({
     // The first hello is the cold start the stores' boot fetches already
     // cover; a resumed one is a reconnect after which pushes may have been
     // missed, so the stores re-fetch (ADR-220 D1).
-    const resynced = resumed ? emitBridgeResync() : Promise.resolve();
+    const resynced = resumed ? emitBridgeResync(HOME) : Promise.resolve();
     for (const waiter of helloWaiters.splice(0)) waiter(resynced);
   },
 });
@@ -214,4 +232,5 @@ export async function refreshBridge(): Promise<void> {
 }
 registerRefresh(refreshBridge);
 
-window.electronAPI = createBridge(transport);
+servers.add(HOME, transport, { home: true, lists: "all" });
+window.electronAPI = createRouter(servers);

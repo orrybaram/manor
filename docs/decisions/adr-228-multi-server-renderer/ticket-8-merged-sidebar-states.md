@@ -1,6 +1,6 @@
 ---
 title: Merged sidebar labels and away states per source
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [5, 7]

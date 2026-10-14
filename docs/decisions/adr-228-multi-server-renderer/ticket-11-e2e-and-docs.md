@@ -76,3 +76,14 @@ ADR-228, all decisions.
     `workspaceKey` can't hold `/`. Update D2.
   - Hosts sheet opens from the drawer's bottom nav, not the top-bar menu.
 - web-app e2e 255, 470, 566 fail on a3058ed1 too (pre-existing).
+
+## Carried over from ticket 8
+- Fix if small, else list under "Known limits as built":
+  - `HostIndicator`'s icon and status chip (`useHostDisplay`) read only
+    direct reachability; a host away because its desktop is gone keeps a
+    stale connected glyph while its row is dimmed. Pass `useViaReachability`.
+  - `useTerminalConnection`'s write guard calls `isHostOffline` without
+    `via`, so input to such a host isn't blocked.
+  - `memberHostName` still says "This machine" on the phone in
+    `RemoveFromHostDialog`, `SettingsModal`, `transfer-targets`; use
+    `serverHostName` (`src/bridge/server-set.ts`).

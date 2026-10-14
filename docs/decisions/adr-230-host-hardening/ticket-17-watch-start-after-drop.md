@@ -1,6 +1,6 @@
 ---
 title: A watch start after its connection dropped leaves no stale set
-status: in-progress
+status: done
 priority: low
 assignee: sonnet
 blocked_by: [6]

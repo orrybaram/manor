@@ -396,7 +396,11 @@ export function createManorServer<D extends BridgeServerDeps>(
   const githubManager = new GitHubManager();
   // The remote-control and relay modules take their platform from these ports
   // rather than importing Electron, so every server can build them (ADR-225 D6).
-  const linearManager = new LinearManager(secretBox, opts.relayStores?.linearTokenFile);
+  const linearManager = new LinearManager(
+    secretBox,
+    opts.relayStores?.linearTokenFile,
+    (connected) => bus.publish("linear", "connectionChanged", connected),
+  );
   // One identity store for Jev and the relay: each caches the decrypted keys,
   // so a second instance would go stale when the relay address is reset.
   const relayFiles = opts.relayStores ?? {};

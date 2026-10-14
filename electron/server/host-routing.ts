@@ -64,7 +64,8 @@ import {
 import type { PendingCommands } from "../layout/pending-commands";
 import type { RemoteProjects } from "../projects/types";
 import type { BroadcastBus } from "../renderer-broadcast";
-import type { PaneAgentStatusUpdate, PtyFailure } from "../../src/electron.d";
+import { processAttachments, type PtyAttachments, type Viewer } from "../pty-attachments";
+import type { PaneAgentStatusUpdate, PtyFailure, WinsizeOwnerEvent } from "../../src/electron.d";
 import type { LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import { layoutPaneIds } from "../../src/lib/layout/workspace-layout";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
@@ -97,6 +98,35 @@ export interface HostRoutingOptions {
   bus: Pick<BroadcastBus, "publish" | "publishTo">;
   /** Hand held records to a host's server (`HostAdoption.handOver`). */
   handOver(hostId: string, projectIds: readonly string[]): Promise<void>;
+  /**
+   * Who of the desktop's callers holds a remote pane, and owns its winsize
+   * among them (ADR-230 D10): the process's registry, unless a test that
+   * runs a host server in this process gives main one of its own.
+   */
+  attachments?: PtyAttachments;
+}
+
+/** A caller, as the viewer the registry holds a pane under (`asViewer` in `bridge/handlers/pty.ts`). */
+function viewerOf(caller: Caller): Viewer {
+  return {
+    connectionId: caller.id,
+    callerClass: caller.callerClass,
+    ...(caller.viewer !== undefined && { viewer: caller.viewer }),
+  };
+}
+
+/** A pane's grid. */
+interface Grid {
+  cols: number;
+  rows: number;
+}
+
+/** `cols×rows` off an answer or an event, when it has both. */
+function gridOf(value: unknown): Grid | null {
+  const { cols, rows } = (value ?? {}) as { cols?: unknown; rows?: unknown };
+  return typeof cols === "number" && typeof rows === "number" && cols > 0 && rows > 0
+    ? { cols, rows }
+    : null;
 }
 
 /** What a layout command's origin is on the host: the desktop's caller. */
@@ -158,10 +188,20 @@ function ptyAway(method: string, hostId: string, error: string): { value: unknow
   }
 }
 
-/** The bridge `wirePty` listens on: who is subscribed to a pane's events. */
+/**
+ * The bridge `wirePty` listens on: who is subscribed to a pane's events, and
+ * the door that tells one connection its own `winsizeOwner` (ADR-230 D10).
+ */
 export interface PtySubscriptions {
   onSubscriptionChange(cb: (name: string, key: string) => void): () => void;
   hasSubscriber(ns: string, event: string, key: string): boolean;
+  publishTo(
+    connectionId: string,
+    ns: "pty",
+    event: "winsizeOwner",
+    args: [payload: WinsizeOwnerEvent],
+    key: string,
+  ): void;
 }
 
 /** Whether a forwarded `ns.method` changes the host's project records. */
@@ -207,9 +247,26 @@ export class HostRouting implements BridgeForward {
   private readonly ptyViewing = new Map<string, string>();
   /** The bridge `wirePty` listens on, once wired. */
   private ptySubscriptions: PtySubscriptions | null = null;
+  /**
+   * Who of the desktop's callers holds each remote pane, and which of them
+   * owns its winsize here (ADR-230 D10). The host decides only between the
+   * desktop as a whole and its own viewers.
+   */
+  private readonly attachments: PtyAttachments;
+  /**
+   * Whether the host says the desktop's owner channel owns each remote
+   * pane's winsize: its last answer to a create, attach or reset, or its
+   * last `winsizeOwner` event.
+   */
+  private readonly hostOwns = new Map<string, boolean>();
+  /** Each remote pane's grid, as its host last told it. */
+  private readonly ptyGrids = new Map<string, Grid>();
+  /** The pane a caller's own detach or close is releasing: the call forwards it, not `letGo`. */
+  private releasing: string | null = null;
 
   constructor(opts: HostRoutingOptions) {
     this.opts = opts;
+    this.attachments = opts.attachments ?? processAttachments;
   }
 
   // ── hosts ──
@@ -305,7 +362,7 @@ export class HostRouting implements BridgeForward {
         this.setupCallers.delete(`${hostId}\0${String(args[1])}`);
       }
       const before = creating ? this.workspacePaths(proxy, args[0]) : null;
-      if (ns === "pty") return await this.invokePty(proxy, method, callArgs);
+      if (ns === "pty") return await this.invokePty(proxy, method, callArgs, caller);
       const result = await proxy.invoke(ns, method, callArgs, callTimeout(ns, method));
       if (before) {
         for (const path of workspacePathsOf(result)) {
@@ -329,12 +386,61 @@ export class HostRouting implements BridgeForward {
    * desktop's owner channel is the viewer there, for whichever caller of the
    * desktop's asked; the pane's events are watched for as long as one of
    * them is subscribed (`wirePty`).
+   *
+   * The host sees the desktop as one viewer, so the desktop decides among
+   * its own callers first (ADR-230 D10), with the same registry rules a pane
+   * of its own has: a caller that would not own the pane here is sent the
+   * host's grid, not its own; only the caller that owns it here resizes it;
+   * and the host is detached only when no caller here holds the pane.
    */
-  private async invokePty(proxy: HostProxy, method: string, args: unknown[]): Promise<unknown> {
+  private async invokePty(
+    proxy: HostProxy,
+    method: string,
+    args: unknown[],
+    caller: Caller,
+  ): Promise<unknown> {
     const paneId = args[0] as string;
+    const viewer = viewerOf(caller);
+    const reg = this.attachments;
+    let callArgs = args;
+    let follower = false;
+    switch (method) {
+      case "create":
+      case "reset": {
+        follower = !reg.wouldOwn(paneId, viewer);
+        // A follower's grid is not its to give the session: the host's is.
+        const grid = follower ? this.ptyGrids.get(paneId) : undefined;
+        if (grid) callArgs = [args[0], args[1], grid.cols, grid.rows, ...args.slice(4)];
+        break;
+      }
+      case "resize":
+        // Not this caller's grid to move: answered, and dropped, as `ptyResize` does.
+        if (reg.ownerOf(paneId)?.connectionId !== viewer.connectionId) return undefined;
+        break;
+      case "claimWinsize":
+        if (!reg.claim(paneId, viewer)) return false;
+        break;
+      case "write":
+        // Typing, not xterm answering a query (as `ptyWrite`).
+        if (typeof args[1] === "string" && !args[1].startsWith("\x1b")) {
+          reg.reclaimOnInput(paneId, viewer);
+        }
+        break;
+      case "detach":
+      case "close":
+        this.releasing = paneId;
+        try {
+          reg.release(paneId, viewer);
+        } finally {
+          this.releasing = null;
+        }
+        // Another caller here still views it: the host's viewer stays.
+        if (method === "detach" && reg.isHeld(paneId)) return undefined;
+        break;
+    }
     let result: unknown;
     try {
-      result = await proxy.invoke("pty", method, args);
+      result = await proxy.invoke("pty", method, callArgs);
     } catch (err) {
       if (!(err instanceof HostServerUnavailableError)) throw err;
       const away = ptyAway(method, proxy.hostId, errorMessage(this.refusal(proxy, err)));
@@ -342,33 +448,113 @@ export class HostRouting implements BridgeForward {
       return away.value;
     }
     if (PTY_ATTACHING.has(method)) {
-      if ((result as { ok?: unknown } | null)?.ok === true) this.ptyViewing.set(paneId, proxy.hostId);
+      const answer = result as { ok?: unknown; winsizeOwner?: unknown } | null;
+      if (answer?.ok === true) {
+        this.ptyViewing.set(paneId, proxy.hostId);
+        const hostOwns = answer.winsizeOwner !== false;
+        this.hostOwns.set(paneId, hostOwns);
+        const grid = gridOf(answer);
+        if (grid) this.ptyGrids.set(paneId, grid);
+        reg.attach(paneId, viewer, method === "attach" ? { as: "returning" } : {});
+        const owns = !follower && reg.ownerOf(paneId)?.connectionId === viewer.connectionId;
+        result = { ...answer, winsizeOwner: hostOwns && owns };
+      }
       // Subscribed before the pane was known to be the host's: watch now.
       this.syncPtyWatches(paneId);
     } else if (method === "detach" || method === "close") {
-      this.ptyViewing.delete(paneId);
+      this.forgetPty(paneId);
     }
     return result;
   }
 
   /**
+   * One of a remote pane's events from its host, before it goes on to the
+   * desktop's callers (`HostProxyOptions.publishKeyed`). Its grid is noted;
+   * and the host's `winsizeOwner`, which is about the desktop as a whole, is
+   * told to each caller here with this side's answer for it (ADR-230 D10).
+   * Returns whether the event was delivered here, and so goes no further.
+   */
+  onHostPtyEvent(event: HostPtyEvent, args: readonly unknown[], paneId: string): boolean {
+    if (event === "resized") {
+      const [cols, rows] = args;
+      const grid = gridOf({ cols, rows });
+      if (grid) this.ptyGrids.set(paneId, grid);
+      return false;
+    }
+    if (event !== "winsizeOwner") return false;
+    const payload = args[0] as Partial<WinsizeOwnerEvent> | undefined;
+    const grid = gridOf(payload);
+    if (grid) this.ptyGrids.set(paneId, grid);
+    this.hostOwns.set(paneId, payload?.owner === true);
+    this.tellWinsizeOwners(paneId);
+    return true;
+  }
+
+  /**
+   * Tell each caller here that holds `paneId` whether it owns the grid: the
+   * host must say the desktop does, and this side that the caller does.
+   */
+  private tellWinsizeOwners(paneId: string): void {
+    const bridge = this.ptySubscriptions;
+    const grid = this.ptyGrids.get(paneId);
+    if (!bridge || !grid) return;
+    const hostOwns = this.hostOwns.get(paneId) === true;
+    const owner = this.attachments.ownerOf(paneId)?.connectionId;
+    for (const { connectionId } of this.attachments.viewersOf(paneId)) {
+      const owns = hostOwns && owner === connectionId;
+      bridge.publishTo(connectionId, "pty", "winsizeOwner", [{ paneId, ...grid, owner: owns }], paneId);
+    }
+  }
+
+  /**
+   * Who owns a remote pane here moved: a caller attached, claimed, typed,
+   * let go or dropped. Each caller left is told; and once none holds it,
+   * the owner channel lets go of it on the host.
+   */
+  private onLocalOwnerChanged(paneId: string): void {
+    if (!this.ptyViewing.has(paneId)) return;
+    if (this.attachments.isHeld(paneId)) {
+      this.tellWinsizeOwners(paneId);
+    } else if (this.releasing !== paneId) {
+      this.letGo(paneId);
+    }
+  }
+
+  /** Nothing here views `paneId` on its host any more. */
+  private forgetPty(paneId: string): void {
+    this.ptyViewing.delete(paneId);
+    this.hostOwns.delete(paneId);
+  }
+
+  /**
    * Forward each remote pane's `pty.*` events to the desktop's callers that
    * subscribe to them (ADR-228 D5), through its host's proxy, for as long as
-   * one of them is: `bridge` says who is. When the last caller stops
-   * listening to a pane's output, the owner channel lets go of the pane on
-   * the host, so a caller that dropped without detaching does not hold its
-   * winsize there. Returns the unwiring.
+   * one of them is: `bridge` says who is. When the last caller here lets go
+   * of a pane — it detached, or dropped without detaching, which releases
+   * it (`BridgeServer.drop`) — the owner channel lets go of the pane on the
+   * host, so a caller gone does not hold its winsize there; as it does when
+   * nobody is left listening to its output and nobody holds it. Each
+   * caller holding a pane is told its own `winsizeOwner` (ADR-230 D10).
+   * Returns the unwiring.
    */
   wirePty(bridge: PtySubscriptions): () => void {
     this.ptySubscriptions = bridge;
+    const offOwners = this.attachments.onAttachmentChange((paneId) => this.onLocalOwnerChanged(paneId));
     const off = bridge.onSubscriptionChange((name, key) => {
       if (!name.startsWith("pty.")) return;
       if (!(HOST_PTY_EVENTS as readonly string[]).includes(name.slice(4))) return;
       this.syncPtyWatches(key);
-      if (name === "pty.output" && !bridge.hasSubscriber("pty", "output", key)) this.letGo(key);
+      if (
+        name === "pty.output" &&
+        !bridge.hasSubscriber("pty", "output", key) &&
+        !this.attachments.isHeld(key)
+      ) {
+        this.letGo(key);
+      }
     });
     return () => {
       off();
+      offOwners();
       this.ptySubscriptions = null;
       for (const { release } of this.ptyWatches.values()) release();
       this.ptyWatches.clear();
@@ -406,7 +592,7 @@ export class HostRouting implements BridgeForward {
   private letGo(paneId: string): void {
     const hostId = this.ptyViewing.get(paneId);
     if (hostId === undefined) return;
-    this.ptyViewing.delete(paneId);
+    this.forgetPty(paneId);
     const proxy = this.proxy(hostId);
     if (!proxy || proxy.away) return;
     proxy.invoke("pty", "detach", [paneId]).catch((err: unknown) => {

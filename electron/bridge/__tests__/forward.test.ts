@@ -11,6 +11,7 @@ import path from "node:path";
 import { describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { RemoteAuditLog } from "../../remote-control/audit";
+import { attach, resetAttachments } from "../../pty-attachments";
 import { byProject, flatten, method, toHandlerTable, type HandlerCtx } from "../method";
 import { BridgeServer, type BridgeForward } from "../server";
 import {
@@ -18,6 +19,7 @@ import {
   UNAVAILABLE_CODE,
   UNAVAILABLE_HOST_AWAY_CODE,
   type BridgeConnection,
+  type EventFrame,
 } from "../types";
 
 type Deps = { backend: { pty: { getSnapshot: () => Promise<null> } } };
@@ -145,5 +147,54 @@ describe("BridgeServer forward (ADR-227 D4)", () => {
       await bridge.dispatch(conn, { id: 1, kind: "invoke", ns: "projects", method: "rename", args: ["x"] }),
     ).toMatchObject({ ok: true, result: "here:x" });
     expect(forward.invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("BridgeServer and a remote pane's winsize (ADR-230 D10)", () => {
+  /** A bridge whose `forward` says `pane-box` is box's, and a window recording what it hears. */
+  function withRemotePane() {
+    const bridge = new BridgeServer<Deps>(
+      { backend: { pty: { getSnapshot: async () => ({ cols: 80, rows: 24 }) as never } } },
+      {
+        table: TABLE,
+        forward: {
+          target: (_rule, args) => (args[0] === "pane-box" ? "box" : null),
+          invoke: async () => null,
+        },
+        events: () => () => {},
+      },
+    );
+    onTestFinished(() => {
+      bridge.dispose();
+      resetAttachments();
+    });
+    const heard: EventFrame[] = [];
+    const window: BridgeConnection = {
+      ...connection("local"),
+      send: (frame) => {
+        heard.push(frame as EventFrame);
+      },
+    };
+    bridge.accept(window);
+    for (const paneId of ["pane-box", "pane-here"]) bridge.subscribe(window, "pty", "winsizeOwner", paneId);
+    return { bridge, heard };
+  }
+
+  it("leaves a remote pane's owner changes to the routing, and tells a pane of its own", async () => {
+    const { heard } = withRemotePane();
+    attach("pane-box", { connectionId: "1", callerClass: "local" });
+    attach("pane-here", { connectionId: "1", callerClass: "local" });
+    await vi.waitFor(() => expect(heard).toHaveLength(1));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(heard.map((f) => f.key)).toEqual(["pane-here"]);
+  });
+
+  it("publishes to one connection, at a key it asked for", () => {
+    const { bridge, heard } = withRemotePane();
+    const payload = { paneId: "pane-box", cols: 80, rows: 24, owner: true };
+    bridge.publishTo("1", "pty", "winsizeOwner", [payload], "pane-box");
+    bridge.publishTo("1", "pty", "winsizeOwner", [{ ...payload, paneId: "pane-other" }], "pane-other");
+    bridge.publishTo("phone", "pty", "winsizeOwner", [payload], "pane-box");
+    expect(heard).toEqual([{ kind: "event", ns: "pty", event: "winsizeOwner", args: [payload], key: "pane-box" }]);
   });
 });

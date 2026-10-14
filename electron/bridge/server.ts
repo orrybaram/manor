@@ -41,7 +41,7 @@ import type {
 } from "../renderer-broadcast";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import type { EventArgs, EventNs, EventOf } from "./events";
-import type { Caller, HandlerCtx, HandlerTable, RouteRule } from "./method";
+import { byPane, type Caller, type HandlerCtx, type HandlerTable, type RouteRule } from "./method";
 import {
   ALL_KEYS,
   BridgeUnavailableRefusal,
@@ -453,6 +453,22 @@ export class BridgeServer<D extends BridgeServerDeps> {
   }
 
   /**
+   * `ns.event` to one connection, if it asked for it (at `key`, for a keyed
+   * event): a push whose arguments differ per connection. `HostRouting` tells
+   * each caller viewing a remote pane its own `winsizeOwner` this way
+   * (ADR-230 D10).
+   */
+  publishTo<N extends EventNs, E extends EventOf<N>>(
+    connectionId: string,
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
+    key?: string,
+  ): void {
+    this.deliverTo(connectionId, eventFrame(ns, event, args, key));
+  }
+
+  /**
    * Whether a paired device (not a desktop window) is subscribed to
    * `ns.event` — someone is watching through a browser, which a hidden
    * desktop window says nothing about (the `DiffWatcher` asks before it
@@ -579,6 +595,9 @@ export class BridgeServer<D extends BridgeServerDeps> {
    */
   private async onOwnerChanged(paneId: string): Promise<void> {
     if (this.connections.size === 0) return;
+    // A pane on a host server is `HostRouting`'s to tell (ADR-230 D10): the
+    // host's answer goes with this side's.
+    if (this.routeTarget(byPane(0), [paneId]) !== null) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
     // A pane held elsewhere (ADR-225 D5) answers a foreign owner no

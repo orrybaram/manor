@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -584,6 +584,111 @@ the lid closed:
 - **`kubectl exec` streams can be cut by the API server's idle timeouts.**
   The bridges already reconnect with backoff (ADR-169). The E2E covers a
   forced drop on the Docker template.
+
+## Built beyond the tickets
+
+- **Fixes found by the Docker E2E (ticket 9).** Each is a bug in an earlier
+  ticket that only a real container showed:
+  - Template `stop` and `destroy` printed no JSON, so Stop and Destroy
+    failed on every template host. They now print `{}`.
+  - The host image lacked node-pty's build toolchain. It now has
+    python3, make and g++, plus iproute2 for `ss`.
+  - Panes died on hosts reached without `$SHELL` (exec transports and
+    supervisors). The daemon now falls back to the passwd login shell and
+    sets `SHELL` for panes (`defaultShell()` in `session.ts`).
+  - The desktop's first `supervisor install` raced the container
+    entrypoint. `supervise` now records itself as the container supervisor
+    when it starts.
+- **Idle time is measured on the box.** Status carries `idleForMs`, so a
+  box whose clock is off doesn't stop early or late.
+- **SSH recipe hosts.** They get `HostKeyAlias manor-<hostId>` (the key
+  survives a new address), `GlobalKnownHostsFile /dev/null` and
+  `CheckHostIP no`, and their own wording for auth and host-key errors.
+- **Recipe bookkeeping.** `host.json` beside `recipe.json` keeps the last
+  `resource` and state, so a recipe with no `status` stays asleep across
+  restarts. `MANOR_INSTANCE_ID` comes from `resource` (a string or `.id`),
+  else the host id.
+- **`supervise` signals.** SIGUSR1 restarts the server, SIGUSR2 the daemon,
+  and SIGHUP starts whichever is down. `supervisor.env` keeps earlier
+  values.
+- **Hosts page extras.** A custom recipe gets a "Create recipe folder"
+  skeleton (`hosts.createCustomRecipe`). There is a "Settings: Hosts"
+  command, and the destroy dialog reads `hosts.projectsOnHost`.
+- **Removing a host removes its projects** from this desktop, and their
+  groups shrink or dissolve. Otherwise they would point at a host that no
+  longer exists.
+- **Tests.** The harness has a `--recipe` mode
+  (`MANOR_E2E_RECIPE_KEEP=1` keeps the container). Three timing-sensitive
+  tests (chat mirror, branch watcher) now wait on conditions instead of
+  fixed delays.
+
+## Known limits as built
+
+**Waking and sleeping**
+- Restoring the visible workspace's panes at launch counts as using the
+  host, so it wakes a sleeping host.
+- A wake waits 2 min. After that a call answers "\<name\> is still
+  starting" while `up` runs on (up to 15 min).
+- A reconnect after a drop reuses the last way in and doesn't re-run `up`.
+  A box with a new address is found again only on the next full connect or
+  wake.
+- Idle stop's "no pane mounted" is the host's view: a desktop window
+  subscribed to some terminal's output. Phones don't count.
+
+**Supervision and secrets**
+- Turning supervision on doesn't move running processes under it; the
+  supervisor takes over at the next restart or boot. Turning it off never
+  stops anything. In a container it can't be turned off, because
+  `supervise` is the entrypoint.
+- Under systemd, a server stopped cleanly with `kill` isn't restarted by
+  `Restart=on-failure` until the next connect. Use `systemctl --user
+  restart`.
+- `supervisor.env` is read only by systemd and launchd units. On an
+  unsupervised SSH box, `MANOR_SECRET_KEY*` and `MANOR_INSTANCE_ID` reach
+  the server only from the ssh session's environment.
+- The key-file error always names `MANOR_SECRET_KEY`, even when the key came
+  from `MANOR_SECRET_KEY_FILE`. Setting a key later upgrades only a
+  plaintext host, not one already on systemd-creds or libsecret.
+- `supervise.pid` lives on the volume. A custom image whose old pid is
+  reused by another process after a restart would make `supervise` refuse
+  to start. The reference entrypoint doesn't hit this.
+- The real `systemctl --user` test is gated behind `MANOR_TEST_SYSTEMD=1`
+  and wasn't run, because install turns on lingering for the account.
+
+**Templates and recipes**
+- The Docker template bind-mounts `secret.key` from the recipe directory.
+  It needs a local daemon (Docker Desktop, or Linux with the desktop user at
+  uid 1000). A remote Docker context isn't supported.
+- The Kubernetes template was syntax-checked only, never run against a
+  cluster.
+- "Remove from Manor" without destroy forgets the recipe's `resource`. A
+  custom recipe that finds its box by `resource` may build a second one.
+  Both templates find theirs by name.
+- port-pipe drops half-closed connections.
+- The `loginctl enable-linger` hint guesses the user name.
+
+**Coverage**
+- **Docker E2E.** It covers up over exec, restart survival, stop and wake,
+  clone detection, the busy hook, a port forward and destroy, all against a
+  real daemon (`node scripts/test-remote-e2e.mjs --recipe`).
+- **Gaps in the Docker E2E:**
+  - Clone detection copies the volume rather than using `docker commit`.
+  - Relay reachability is checked as an unchanged room id, not a live relay
+    connection.
+- **Unit and component tests only:** the desktop's busy and idle-stop path,
+  Asleep and Wake on the phone, and the Hosts page.
+- **Known failures in `--docker` mode,** recorded in
+  `docs/remote-hosts.md#testing`. Both also fail on the base commit:
+  - `host-direct-bridge` "without viewer-bridge";
+  - `remote-host` "laptop closed" (flaky).
+- **Flaky under load, unrelated to this ADR:** `terminal-host.test.ts`
+  ("new client can attach…") and `exec-runner.test.ts` ("escalates to
+  SIGKILL").
+
+**Follow-ups**
+- `test-remote-e2e.mjs --docker` uses `--progress=plain`, which needs
+  buildx.
+- The key-file error should name the variable it actually read.
 
 ## Tickets
 

@@ -1,6 +1,6 @@
 ---
 title: E2E and docs
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2, 3, 4, 5, 6, 7, 8]

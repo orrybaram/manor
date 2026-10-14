@@ -94,3 +94,10 @@ change:
   - A restored id is forgotten once its first create settles, not when it is
     sent. That keeps StrictMode double-mounts from waking the host.
   - Resync `attach()` never sends `wake: false`.
+- **Ticket 10.**
+  - The grid cache lives in `HostRouting` (`ptyGrids`).
+  - `PtyAttachments` is now a class; `processAttachments` is the process
+    instance.
+  - Forwarded create, attach and reset answers always carry `winsizeOwner`.
+  - Only main's local holders of a pane get per-connection owner flags.
+  - A follower that creates before any grid is cached sends its own size.

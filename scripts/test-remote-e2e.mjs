@@ -85,6 +85,7 @@ const PLAYWRIGHT_SUITES = [
   "tests/e2e/host-direct-bridge.spec.ts",
   "tests/e2e/phone-all-pairings.spec.ts",
   "tests/e2e/phone-linked-hosts.spec.ts",
+  "tests/e2e/recipe-host.spec.ts",
 ];
 const K8S_CLUSTER = "manor-e2e";
 const KIND_VERSION = "v0.33.0";

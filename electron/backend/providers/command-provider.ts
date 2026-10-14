@@ -17,7 +17,6 @@
 import * as net from "node:net";
 import { basename } from "node:path";
 import type { Duplex } from "node:stream";
-import { errorMessage } from "../../lib/errors";
 import {
   defaultBridgeSpawn,
   type BridgeChildProcess,
@@ -27,17 +26,15 @@ import {
 import { REMOTE_HOST_BIN } from "../../terminal-host/ssh-config";
 import { CommandTransport } from "../../terminal-host/transport-command";
 import { remoteHostEnsurer, type BootstrapProgress } from "../remote-bootstrap";
-import type { HostProvider, PortForward, ProviderCapabilities, ProviderState } from "./types";
+import {
+  assertPort,
+  ConnectOutcome,
+  preferredLocalPort,
+  type RemoteLoopback,
+} from "./connect-and-forward";
+import type { HostProvider, PortForward, ProviderCapabilities, ProviderStatus } from "./types";
 
 /** The box addresses a forward may target: only ever its loopback. */
-type RemoteLoopback = "127.0.0.1" | "::1";
-
-function assertPort(port: number, label: string): void {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid ${label} port: ${port}`);
-  }
-}
-
 /**
  * The snippet one forwarded connection runs on the box: `manor-host
  * port-pipe <port>`, with `--host ::1` for a server listening only there.
@@ -111,7 +108,7 @@ export class CommandHostProvider implements HostProvider {
    * runs inside every connect): what `status()` reports. `up` until a
    * connect says otherwise.
    */
-  private lastConnect: { state: ProviderState; detail?: string } = { state: "up" };
+  private readonly lastConnect = new ConnectOutcome();
 
   constructor(argv: readonly string[], opts: CommandHostProviderOptions = {}) {
     this.spawnFn = opts.spawn ?? defaultBridgeSpawn;
@@ -122,7 +119,7 @@ export class CommandHostProvider implements HostProvider {
         label: opts.label,
         // Runs inside every client connect, before the bridge is opened —
         // so connect() installs or upgrades manor-host first, over exec.
-        ensureRemoteHost: this.trackingOutcome(
+        ensureRemoteHost: this.lastConnect.track(
           opts.ensureRemoteHost ??
             remoteHostEnsurer({
               onProgress: opts.onBootstrapProgress,
@@ -140,8 +137,8 @@ export class CommandHostProvider implements HostProvider {
   /** Nothing to start here; the recipe provider around it starts the box. */
   async ensureUp(): Promise<void> {}
 
-  async status(): Promise<{ state: ProviderState; detail?: string }> {
-    return { ...this.lastConnect };
+  async status(): Promise<ProviderStatus> {
+    return this.lastConnect.status();
   }
 
   /** `manor-host server-bridge` in its own exec child, read past the server's hello. */
@@ -174,15 +171,9 @@ export class CommandHostProvider implements HostProvider {
       children: new Set(),
       sockets: new Set(),
     };
-    const preferred = opts?.preferredLocalPort;
+    const preferred = preferredLocalPort(opts?.preferredLocalPort, this.forwards);
     let localPort: number;
-    if (
-      preferred !== undefined &&
-      Number.isInteger(preferred) &&
-      preferred > 0 &&
-      preferred <= 65535 &&
-      !this.forwards.has(preferred)
-    ) {
+    if (preferred !== null) {
       localPort = await listenLoopback(forward.server, preferred).catch(() =>
         listenLoopback(forward.server, 0),
       );
@@ -265,18 +256,5 @@ export class CommandHostProvider implements HostProvider {
     forward.children.clear();
     for (const socket of forward.sockets) socket.destroy();
     forward.sockets.clear();
-  }
-
-  /** `ensure`, recording each run's outcome as `lastConnect`. */
-  private trackingOutcome(ensure: EnsureRemoteHost): EnsureRemoteHost {
-    return async (...args) => {
-      try {
-        await ensure(...args);
-        this.lastConnect = { state: "up" };
-      } catch (err) {
-        this.lastConnect = { state: "unreachable", detail: errorMessage(err) };
-        throw err;
-      }
-    };
   }
 }

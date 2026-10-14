@@ -13,7 +13,6 @@ import { spawn as nodeSpawn } from "node:child_process";
 import * as net from "node:net";
 import type { Duplex } from "node:stream";
 import { buildControlArgs } from "../../terminal-host/ssh-config";
-import { errorMessage } from "../../lib/errors";
 import {
   SshTransport,
   type EnsureRemoteHost,
@@ -22,7 +21,13 @@ import {
   type SshTransportOptions,
 } from "../../terminal-host/transport-ssh";
 import { remoteHostEnsurer, type BootstrapProgress } from "../remote-bootstrap";
-import type { HostProvider, PortForward, ProviderCapabilities, ProviderState } from "./types";
+import {
+  assertPort,
+  ConnectOutcome,
+  preferredLocalPort,
+  type RemoteLoopback,
+} from "./connect-and-forward";
+import type { HostProvider, PortForward, ProviderCapabilities, ProviderStatus } from "./types";
 
 const CONTROL_TIMEOUT_MS = 5_000;
 const MAX_STDERR_BYTES = 4 * 1024;
@@ -75,14 +80,6 @@ export function forwardSpec(
 }
 
 /** The box addresses a forward may target: only ever its loopback. */
-type RemoteLoopback = "127.0.0.1" | "::1";
-
-function assertPort(port: number, label: string): void {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid ${label} port: ${port}`);
-  }
-}
-
 export interface SshHostProviderOptions {
   /** Bootstrap progress from the transport's host ensurer. */
   onBootstrapProgress?: (progress: BootstrapProgress) => void;
@@ -137,7 +134,7 @@ export class SshHostProvider implements HostProvider {
    * runs inside every connect): what `status()` reports, with no network
    * call of its own. `up` until a connect says otherwise.
    */
-  private lastConnect: { state: ProviderState; detail?: string } = { state: "up" };
+  private readonly lastConnect = new ConnectOutcome();
 
   constructor(
     readonly target: string,
@@ -149,7 +146,7 @@ export class SshHostProvider implements HostProvider {
         // Runs inside every client connect, before the bridge is opened —
         // so connect() installs or upgrades manor-host first. Its outcome is
         // the box's status.
-        ensureRemoteHost: this.trackingOutcome(
+        ensureRemoteHost: this.lastConnect.track(
           opts.ensureRemoteHost ?? remoteHostEnsurer({ onProgress: opts.onBootstrapProgress }),
         ),
         configBaseDir: opts.configBaseDir,
@@ -170,8 +167,8 @@ export class SshHostProvider implements HostProvider {
   /** Always on: nothing to start. */
   async ensureUp(): Promise<void> {}
 
-  async status(): Promise<{ state: ProviderState; detail?: string }> {
-    return { ...this.lastConnect };
+  async status(): Promise<ProviderStatus> {
+    return this.lastConnect.status();
   }
 
   /**
@@ -203,16 +200,9 @@ export class SshHostProvider implements HostProvider {
       throw new Error(`Cannot forward port ${remotePort}: not connected to ${this.target}`);
     }
     const generation = this.generation;
-    const preferred = opts?.preferredLocalPort;
+    const preferred = preferredLocalPort(opts?.preferredLocalPort, this.forwards);
     const localPort =
-      preferred !== undefined &&
-      Number.isInteger(preferred) &&
-      preferred > 0 &&
-      preferred <= 65535 &&
-      !this.forwards.has(preferred) &&
-      (await this.isPortFree(preferred))
-        ? preferred
-        : await this.findFreePort();
+      preferred !== null && (await this.isPortFree(preferred)) ? preferred : await this.findFreePort();
     assertPort(localPort, "local");
     const cancelArgs = buildControlArgs(
       configPath,
@@ -267,19 +257,6 @@ export class SshHostProvider implements HostProvider {
   }
 
   // ── Internal ──
-
-  /** `ensure`, recording each run's outcome as `lastConnect`. */
-  private trackingOutcome(ensure: EnsureRemoteHost): EnsureRemoteHost {
-    return async (...args) => {
-      try {
-        await ensure(...args);
-        this.lastConnect = { state: "up" };
-      } catch (err) {
-        this.lastConnect = { state: "unreachable", detail: errorMessage(err) };
-        throw err;
-      }
-    };
-  }
 
   private async cancelForward(localPort: number): Promise<void> {
     const forward = this.forwards.get(localPort);

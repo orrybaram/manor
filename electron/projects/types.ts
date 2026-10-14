@@ -285,6 +285,19 @@ export interface PersistedHost {
    * dropping them as unknown.
    */
   adoptedProjectIds?: string[];
+  /**
+   * "Phones paired with this Mac can reach <host>" (ADR-228 D9): false when
+   * the user turned it off, so `remoteControl.linkHostPairings` mints nothing
+   * here. Absent is on.
+   */
+  linkPhones?: false;
+  /**
+   * Linked pairings on the host's server still to revoke: their desktop
+   * device was revoked, or the switch above turned off, while the host was
+   * away. Each is the host's own device id; `HostServerSync` revokes them on
+   * the next owner connect. Absent when there are none.
+   */
+  pendingRevokes?: string[];
 }
 
 /**

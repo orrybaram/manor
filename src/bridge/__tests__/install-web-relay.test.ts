@@ -400,6 +400,45 @@ describe("install-web on a relay-served page", () => {
       expect(stored()[0].hosts).toEqual({ h1: BOX, h2: null });
     });
 
+    it("asks a desktop for its hosts' pairings on every hello, and dials each (ADR-228 D9)", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false });
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      const socket = socketFor(DESK);
+      socket.handshake();
+      const ask = socket.frames.find(
+        (f) => f.ns === "remoteControl" && f.method === "linkHostPairings",
+      );
+      expect(ask?.args).toEqual([[DESK]]);
+      socket.deliver({
+        kind: "result",
+        id: ask?.id,
+        ok: true,
+        result: [
+          {
+            roomId: BOX,
+            serverKey: base64urlEncode(FakeRelaySocket.key.pub),
+            token: "minted",
+            name: "me@box",
+          },
+        ],
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stored().find((p) => p.roomId === BOX)).toMatchObject({
+        token: "minted",
+        name: "me@box",
+        hostServer: true,
+      });
+      expect(servers.list().map((s) => s.id)).toEqual([DESK, BOX]);
+      socketFor(BOX).handshake({ hostServer: true });
+      expect(socketFor(BOX).frames[0]).toEqual({ type: "hello", token: "minted" });
+      // A host server is never asked.
+      expect(
+        socketFor(BOX).frames.some((f) => f.ns === "remoteControl" && f.method === "linkHostPairings"),
+      ).toBe(false);
+    });
+
     it("forgets only the pairing refused with 4401, and drops its server", async () => {
       store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
       const { mod, api } = await install("");

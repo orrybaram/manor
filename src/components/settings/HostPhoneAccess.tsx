@@ -34,11 +34,17 @@ const SECRETS_DOCS_URL =
  * computer sleeps. A host that is not reachable, or that has no server yet,
  * gets one quiet line instead of an error: both resolve themselves when the
  * host reconnects.
+ *
+ * Above it, "Phones paired with this Mac can reach <host>" (ADR-228 D9): the
+ * phones paired with this computer are paired here too, and listed "via This
+ * Mac". It works with the host away, since turning it off is a revoke the host
+ * is then owed.
  */
 export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
   const { hostId, hostName } = props;
   const view = useHostStore((s) => s.servers[hostId]) ?? null;
   const devices = view?.devices ?? [];
+  const linked = new Set(view?.linkedDeviceIds ?? []);
   // The store refreshes on the server and pairing events, so the calls below
   // only await; nothing here reloads.
   const [action, setAction] = useState<{ busy: boolean; error: string | null }>({
@@ -76,6 +82,21 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
   return (
     <Stack gap="xs" data-testid="host-phone-access">
       <SectionTitle id={`remote-host-${hostId}`}>{hostName}</SectionTitle>
+      {view !== null && (
+        <SettingRow
+          label={`Phones paired with this Mac can reach ${hostName}`}
+          hint={`Each phone paired in Remote control is paired with ${hostName} too, so it keeps reaching ${hostName} while this computer sleeps. Turning this off unpairs them from ${hostName}.`}
+        >
+          <Switch
+            data-testid="host-link-phones-toggle"
+            checked={view.linkPhones}
+            disabled={busy}
+            onCheckedChange={(on) =>
+              void run(() => useHostStore.getState().setLinkPhones(hostId, on))
+            }
+          />
+        </SettingRow>
+      )}
       {status === null ? (
         <div className={styles.fieldHint} data-testid="host-phone-access-state">
           {mutedLine(view?.state ?? null)}
@@ -132,6 +153,7 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
                 <DeviceRow
                   key={device.id}
                   device={device}
+                  via={linked.has(device.id) ? "This Mac" : undefined}
                   busy={busy}
                   onRevoke={() =>
                     void run(async () => {

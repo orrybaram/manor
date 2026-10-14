@@ -13,6 +13,7 @@ import {
   hostsRetryConnect,
   hostsServerStatus,
   hostsSetLinearOnHost,
+  hostsSetLinkPhones,
   wireHostBroadcasts,
 } from "../hosts";
 import {
@@ -77,6 +78,8 @@ function makeDeps() {
     saveHost: vi.fn(),
     remoteHostIdsInUse: vi.fn().mockReturnValue([]),
     getHosts: vi.fn().mockReturnValue([]),
+    hostLinksPhones: vi.fn().mockReturnValue(true),
+    setHostLinksPhones: vi.fn(),
   };
   const deps = {
     backendRegistry,
@@ -259,6 +262,8 @@ describe("hosts phone access", () => {
       state: "unsupported",
       status: null,
       devices: [],
+      linkPhones: true,
+      linkedDeviceIds: [],
     });
     expect(client.status).not.toHaveBeenCalled();
   });
@@ -312,5 +317,26 @@ describe("hosts phone access", () => {
     await hostsResetPairingKeys(ctx, "box");
     expect(hostServerSync.pairingChanged).toHaveBeenCalledTimes(3);
     expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
+  });
+
+  it("carries the phone-link switch and which phones this desktop linked (ADR-228 D9)", async () => {
+    const { ctx } = withServer("connected");
+    const hostLinks = { linkedOn: vi.fn().mockReturnValue(["d1"]), setLinkPhones: vi.fn() };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    const view = await hostsServerStatus(linkedCtx, "box");
+    expect(view.linkPhones).toBe(true);
+    expect(view.linkedDeviceIds).toEqual(["d1"]);
+    expect(hostLinks.linkedOn).toHaveBeenCalledWith("box");
+  });
+
+  it("sets the phone-link switch through the links, away host included, and says the pairing changed", async () => {
+    const { ctx } = withServer("disconnected");
+    const hostLinks = { linkedOn: vi.fn(), setLinkPhones: vi.fn().mockResolvedValue(undefined) };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    await hostsSetLinkPhones(linkedCtx, "box", false);
+    expect(hostLinks.setLinkPhones).toHaveBeenCalledWith("box", false);
+    expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
+    await expect(hostsSetLinkPhones(linkedCtx, "nope", false)).rejects.toThrow(/Unknown remote host/);
+    await expect(hostsSetLinkPhones(linkedCtx, "box", "no" as never)).rejects.toThrow();
   });
 });

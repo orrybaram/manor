@@ -16,8 +16,9 @@ import { portlessManager } from "./portless";
 import { loginPathReady } from "./login-path";
 import { LOCAL_HOST_ID } from "./backend/types";
 import { HostServerSync } from "./backend/host-server-sync";
+import { HostPairingLinks } from "./remote-control/host-links";
 import { PrewarmManager } from "./prewarm-manager";
-import { rendererBus } from "./renderer-broadcast";
+import { publishRendererBroadcast, rendererBus } from "./renderer-broadcast";
 import { DESKTOP_TABLE } from "./bridge/handlers";
 import type { WsBridgeServer } from "./bridge/transports/ws";
 import { IpcBridgeTransport } from "./bridge/transports/ipc";
@@ -315,10 +316,37 @@ export function initApp(devTitle: string | null): void {
       // What the desktop still holds for each host, handed to its server
       // (ADR-227 D3); from then on it reads them through that server (D4).
       adoption: core.hostAdoption,
+      // The linked pairings each host is owed a revoke of (ADR-228 D9).
+      pendingRevokes: {
+        list: (hostId) => shared.projectManager.pendingHostRevokes(hostId),
+        clear: (hostId, ids) => shared.projectManager.clearPendingHostRevokes(hostId, ids),
+        revoked: (hostId) => publishRendererBroadcast("hosts", "pairingChanged", hostId),
+      },
     });
     // After the push store exists: starting syncs hosts that are already
     // connected.
     hostServerSync.start();
+
+    // One pairing covers every host (ADR-228 D9): what this desktop mints for
+    // its devices on each host's server, and the revokes that follow them.
+    const hostLinks = new HostPairingLinks({
+      devices: core.relayStores.devices,
+      hostServers: () => backendRegistry.hostServers(),
+      records: {
+        linkPhones: (hostId) => shared.projectManager.hostLinksPhones(hostId),
+        setLinkPhones: (hostId, on) => shared.projectManager.setHostLinksPhones(hostId, on),
+        addPendingRevokes: (hostId, ids) =>
+          shared.projectManager.addPendingHostRevokes(hostId, ids),
+        label: (hostId) => shared.projectManager.hostLabel(hostId),
+      },
+      revokePending: (hostId) => hostServerSync.revokePending(hostId),
+      pairingChanged: (hostId) => {
+        void hostServerSync.pairingChanged(hostId).then(() => {
+          publishRendererBroadcast("hosts", "pairingChanged", hostId);
+        });
+      },
+    });
+    hostLinks.start();
 
     // ADR-161's remote control. Constructed here so the status sink and the
     // quit hook can see it; deliberately *not* started — remote control is off
@@ -348,6 +376,7 @@ export function initApp(devTitle: string | null): void {
       getRendererWindows,
       registerDetachedWindow,
       hostServerSync,
+      hostLinks,
       remoteForwards,
       remoteUrlResolver,
       paneHosts,
@@ -377,7 +406,7 @@ export function initApp(devTitle: string | null): void {
     keybindingsManager,
     agentHookServer,
   } = server.shared;
-  const { webviewServer, hostServerSync, remoteControl, prewarmManager } = ipcDeps;
+  const { webviewServer, hostServerSync, hostLinks, remoteControl, prewarmManager } = ipcDeps;
 
   // ── Register all IPC handlers before window creation to avoid race conditions ──
 
@@ -629,6 +658,7 @@ export function initApp(devTitle: string | null): void {
   function performShutdown(): Promise<void> {
     webviewServer.stop();
     hostServerSync.dispose();
+    hostLinks.dispose();
     hostPipes.dispose();
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.

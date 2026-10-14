@@ -45,6 +45,9 @@
  *   another version stays in the set, its version recorded.
  * - **The list is followed.** A pairing removed in the Hosts sheet leaves the
  *   set; one added in another tab (or by a later link) joins it.
+ * - **One pairing covers every host** (D9). Every hello from a desktop asks
+ *   it for pairings with its hosts this page does not hold
+ *   (`remoteControl.linkHostPairings`); each joins the list, and so the set.
  *
  * Each server's last merged answers are kept in IndexedDB (`./last-known.ts`),
  * so a reload with a server away still shows what it last said (D6).
@@ -56,6 +59,7 @@ import { createLastKnownStore } from "./last-known";
 import {
   decodeX25519,
   homePairing,
+  linkPairing,
   listPairings,
   recordPairingHello,
   recordPairingHosts,
@@ -277,6 +281,30 @@ function hostRooms(
   return out;
 }
 
+/**
+ * One pairing covers every host (ADR-228 D9): ask desktop `entry` to pair
+ * this browser with each of its hosts whose room it does not hold, and keep
+ * what comes back. Each joins the set through `syncPairings`, and the
+ * desktop's alias for the host already names its room (D2), so the host's
+ * projects keep their id and are answered by the new pairing (D3). Asked on
+ * every hello, so a host added later, or away the last time, is picked up.
+ */
+function linkHosts(entry: Held): void {
+  const { roomId } = entry.pairing;
+  const bridge = servers.get(roomId)?.bridge;
+  if (!bridge) return;
+  const heldRooms = listPairings().map((p) => p.roomId);
+  bridge.remoteControl.linkHostPairings(heldRooms).then(
+    (linked) => {
+      if (held.get(roomId) !== entry || !Array.isArray(linked)) return;
+      for (const pairing of linked) linkPairing(pairing);
+    },
+    // A desktop from before ADR-228 has no such method; the phone simply
+    // holds what it was paired with.
+    () => {},
+  );
+}
+
 /** Follow desktop `roomId`'s hosts: listed now, and as they change. */
 function watchHosts(entry: Held): void {
   const { roomId } = entry.pairing;
@@ -302,7 +330,10 @@ function onHello(entry: Held, reply: HelloReply): void {
   servers.setReachability(roomId, "connected");
   recordPairingHello(roomId, reply);
   entry.kind = reply.hostServer ? "host" : "desktop";
-  if (entry.kind === "desktop") watchHosts(entry);
+  if (entry.kind === "desktop") {
+    watchHosts(entry);
+    linkHosts(entry);
+  }
 
   const home = held.get(servers.homeId);
   const rehome = entry.kind === "desktop" && home !== entry && home?.kind !== "desktop";

@@ -239,6 +239,43 @@ export function upsertPairing(
   return next;
 }
 
+/**
+ * A pairing a desktop minted for this browser on one of its hosts
+ * (`remoteControl.linkHostPairings`, ADR-228 D9): added, or its key and
+ * token renewed. Named as the desktop names the host, unless the user named
+ * it; known to be a host server before its first hello; and never marked last
+ * used, which is the user's choice of where to land.
+ */
+export function linkPairing(
+  link: RelayCredentials & { name: string },
+  now: number = Date.now(),
+): void {
+  if (!isRelayCredentials(link)) return;
+  const { roomId, serverKey, token } = link;
+  const name = link.name.trim();
+  const list = listPairings();
+  const existing = list.find((p) => p.roomId === roomId);
+  const next: StoredPairing = existing
+    ? {
+        ...existing,
+        serverKey,
+        token,
+        name: name && !existing.customName ? name : existing.name,
+        hostServer: true,
+      }
+    : {
+        roomId,
+        serverKey,
+        token,
+        name: name || fallbackName(list),
+        addedAt: now,
+        lastUsedAt: 0,
+        hostServer: true,
+      };
+  if (existing && JSON.stringify(next) === JSON.stringify(existing)) return;
+  write(existing ? list.map((p) => (p === existing ? next : p)) : [...list, next]);
+}
+
 /** Mark `roomId` the last used, so the next load opens it. */
 export function selectPairing(roomId: string, now: number = Date.now()): void {
   const list = listPairings();

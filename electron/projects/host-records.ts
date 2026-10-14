@@ -77,4 +77,42 @@ export class HostRecords {
     host.adopted = true;
     this.store.save();
   }
+
+  /** "Phones paired with this Mac can reach <host>" (ADR-228 D9); on by default. */
+  linkPhones(hostId: string): boolean {
+    return this.store.state.hosts?.[hostId]?.linkPhones !== false;
+  }
+
+  setLinkPhones(hostId: string, on: boolean): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || this.linkPhones(hostId) === on) return;
+    if (on) delete host.linkPhones;
+    else host.linkPhones = false;
+    this.store.save();
+  }
+
+  /** The host's linked pairings still to revoke (ADR-228 D9). */
+  pendingRevokes(hostId: string): string[] {
+    return [...(this.store.state.hosts?.[hostId]?.pendingRevokes ?? [])];
+  }
+
+  /** Owe `hostId` a revoke of each of `hostDeviceIds`. */
+  addPendingRevokes(hostId: string, hostDeviceIds: readonly string[]): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || hostDeviceIds.length === 0) return;
+    host.pendingRevokes = [...new Set([...(host.pendingRevokes ?? []), ...hostDeviceIds])];
+    this.store.save();
+  }
+
+  /** `hostDeviceIds` were revoked on `hostId`: no longer owed. */
+  clearPendingRevokes(hostId: string, hostDeviceIds: readonly string[]): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host?.pendingRevokes || hostDeviceIds.length === 0) return;
+    const done = new Set(hostDeviceIds);
+    const left = host.pendingRevokes.filter((id) => !done.has(id));
+    if (left.length === host.pendingRevokes.length) return;
+    if (left.length > 0) host.pendingRevokes = left;
+    else delete host.pendingRevokes;
+    this.store.save();
+  }
 }

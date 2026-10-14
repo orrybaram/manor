@@ -97,6 +97,23 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(reloaded.remoteHostIdsInUse()).toEqual(["box"]);
   });
 
+  it("keeps each host's phone-link switch and the revokes it is owed (ADR-228 D9)", () => {
+    const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    expect(mgr.hostLinksPhones("box")).toBe(true);
+    mgr.setHostLinksPhones("box", false);
+    mgr.addPendingHostRevokes("box", ["d1", "d2"]);
+    mgr.addPendingHostRevokes("box", ["d2"]);
+
+    const reloaded = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    expect(reloaded.hostLinksPhones("box")).toBe(false);
+    expect(reloaded.pendingHostRevokes("box")).toEqual(["d1", "d2"]);
+    reloaded.clearPendingHostRevokes("box", ["d1", "d2"]);
+    reloaded.setHostLinksPhones("box", true);
+    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+    expect(raw.hosts.box).toEqual({ spec: { kind: "ssh", target: "me@box" } });
+  });
+
   it("lists only remote projects' worktrees for a remote refresh", async () => {
     const gits = new Map<string, GitBackend>();
     const resolver = (hostId: string) => {

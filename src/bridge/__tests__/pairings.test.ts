@@ -6,6 +6,7 @@ import {
   PAIRINGS_KEY,
   homePairing,
   lastUsedPairing,
+  linkPairing,
   listPairings,
   migrateLegacyPairing,
   recordPairingHello,
@@ -70,6 +71,28 @@ describe("pairings store", () => {
     // An empty name is no rename.
     renamePairing(A, "  ");
     expect(listPairings()[0].name).toBe("My Mac");
+  });
+
+  it("keeps a pairing a desktop linked, named by it, without making it last used (ADR-228 D9)", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    expect(listPairings()[1]).toEqual({
+      roomId: B,
+      serverKey: KEY,
+      token: "box",
+      name: "me@box",
+      addedAt: 20,
+      lastUsedAt: 0,
+      hostServer: true,
+    });
+    expect(lastUsedPairing()?.roomId).toBe(A);
+    // A fresh mint renews the token; the user's own name stays.
+    renamePairing(B, "Build box");
+    linkPairing({ roomId: B, serverKey: KEY, token: "box-2", name: "me@box" }, 30);
+    expect(listPairings()[1]).toMatchObject({ token: "box-2", name: "Build box", addedAt: 20 });
+    // Nothing that is not a pairing is kept.
+    linkPairing({ roomId: "short", serverKey: KEY, token: "x", name: "bad" });
+    expect(listPairings()).toHaveLength(2);
   });
 
   it("keeps a desktop's host rooms", () => {

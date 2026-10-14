@@ -61,6 +61,11 @@ interface HostState {
   servers: Record<string, HostServerView>;
   /** Read one host's server status and paired phones in a single call. */
   refreshServer: (hostId: string) => Promise<void>;
+  /**
+   * "Phones paired with this Mac can reach <host>" (ADR-228 D9). Off revokes
+   * the pairings this desktop minted there.
+   */
+  setLinkPhones: (hostId: string, on: boolean) => Promise<void>;
   /** Registers a new remote host and starts connecting it in the background. */
   addHost: (target: string) => Promise<{ hostId: string; spec: HostSpec }>;
   retryConnect: (hostId: string) => Promise<void>;
@@ -85,7 +90,13 @@ export const useHostStore = create<HostState>((set) => {
     try {
       view = await window.electronAPI.hosts.serverStatus(hostId);
     } catch {
-      view = { state: "disconnected", status: null, devices: [] };
+      view = {
+        state: "disconnected",
+        status: null,
+        devices: [],
+        linkPhones: true,
+        linkedDeviceIds: [],
+      };
     }
     if (requests[hostId] !== request) return;
     set((s) => ({ servers: { ...s.servers, [hostId]: view } }));
@@ -103,6 +114,19 @@ export const useHostStore = create<HostState>((set) => {
     busy: false,
     servers: {},
     refreshServer,
+
+    setLinkPhones: async (hostId: string, on: boolean) => {
+      // Shown at once; the `pairingChanged` that follows brings the rest.
+      set((s) => {
+        const view = s.servers[hostId];
+        return view ? { servers: { ...s.servers, [hostId]: { ...view, linkPhones: on } } } : {};
+      });
+      try {
+        await window.electronAPI.hosts.setLinkPhones(hostId, on);
+      } finally {
+        void refreshServer(hostId);
+      }
+    },
 
     addHost: async (target: string) => {
       set({ busy: true });

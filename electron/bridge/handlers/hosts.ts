@@ -11,7 +11,7 @@
  */
 
 import crypto from "node:crypto";
-import { assertString } from "../../ipc-validate";
+import { assertBoolean, assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
 import type { HostStatusInfo } from "../../backend/registry";
 import {
@@ -90,6 +90,13 @@ export interface HostServerView {
   status: HostServerStatus | null;
   /** Paired phones, read with the status so the two can never disagree. */
   devices: RemoteDeviceInfo[];
+  /**
+   * "Phones paired with this Mac can reach <host>" (ADR-228 D9): whether
+   * this desktop's devices are paired here too. On by default.
+   */
+  linkPhones: boolean;
+  /** The ids, among `devices`, of pairings this desktop minted ("via This Mac"). */
+  linkedDeviceIds: string[];
 }
 
 /** The owner channel to `hostId`'s server, or a plain reason there is none. */
@@ -141,7 +148,11 @@ export async function hostsServerStatus(
 ): Promise<HostServerView> {
   const client = serverClient(ctx, hostId);
   const { state } = client;
-  if (state !== "connected") return { state, status: null, devices: [] };
+  const links = {
+    linkPhones: ctx.deps.projectManager.hostLinksPhones(hostId),
+    linkedDeviceIds: ctx.deps.hostLinks?.linkedOn(hostId) ?? [],
+  };
+  if (state !== "connected") return { state, status: null, devices: [], ...links };
   try {
     const [status, devices] = await Promise.all([
       client.api.hostServer.status(),
@@ -149,10 +160,10 @@ export async function hostsServerStatus(
     ]);
     // A fresh read: keep `hosts.list`'s room and capability current with it.
     ctx.deps.backendRegistry.setServerFacts(hostId, serverFactsOf(status));
-    return { state, status, devices };
+    return { state, status, devices, ...links };
   } catch (err) {
     if (err instanceof HostServerUnavailableError) {
-      return { state, status: null, devices: [] };
+      return { state, status: null, devices: [], ...links };
     }
     throw err;
   }
@@ -214,6 +225,27 @@ export async function hostsSetLinearOnHost(
 }
 
 /**
+ * "Phones paired with this Mac can reach <host>" (ADR-228 D9). Off revokes
+ * every pairing this desktop minted there — now, or on the host's next
+ * connect — and `remoteControl.linkHostPairings` mints none there again
+ * until it is back on. Allowed with the host away: that is when the revoke
+ * has to wait.
+ */
+export async function hostsSetLinkPhones(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+  on: boolean,
+): Promise<void> {
+  assertString(hostId, "hosts:setLinkPhones.hostId");
+  assertBoolean(on, "hosts:setLinkPhones.on");
+  serverClient(ctx, hostId);
+  const links = ctx.deps.hostLinks;
+  if (links) await links.setLinkPhones(hostId, on);
+  else ctx.deps.projectManager.setHostLinksPhones(hostId, on);
+  publishRendererBroadcast("hosts", "pairingChanged", hostId);
+}
+
+/**
  * Wire the two host broadcasts, once, at boot (`app-lifecycle.ts`).
  *
  * `hosts.statusChanged` carries the full host list whenever any host's status
@@ -263,4 +295,7 @@ export const hosts = {
   // Sends the Linear key to the host. `mutating` is safe for the audit line:
   // its arguments are the host id and a flag; the key is read here.
   setLinearOnHost: method(hostsSetLinearOnHost, { localOnly: true, mutating: true }),
+  // Turning it off revokes phones on the host; on lets the desktop pair its
+  // own there. The same grant as `pairDevice`, so local too (ADR-228 D9).
+  setLinkPhones: method(hostsSetLinkPhones, { localOnly: true, mutating: true }),
 };

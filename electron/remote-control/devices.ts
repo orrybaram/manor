@@ -55,6 +55,14 @@ export interface RemoteDevice {
    */
   pushSubscription: PushSubscriptionRecord | null;
   /**
+   * The pairings this desktop minted for the device on its remote hosts'
+   * servers (ADR-228 D9, `remoteControl.linkHostPairings`), one per host.
+   * Kept on the device for the reason `pushSubscription` is: revoking the
+   * device is what revokes these, and the revoke listeners are handed them.
+   * Absent on a host server, which links nothing.
+   */
+  hostLinks?: HostLink[];
+  /**
    * Fields a newer release wrote that this one does not know, carried
    * through untouched so a downgrade-then-upgrade does not lose them. A
    * build that rebuilt each row from only the fields it knew would strip
@@ -62,6 +70,20 @@ export interface RemoteDevice {
    * time the newer build read the file again.
    */
   extra?: Record<string, unknown>;
+}
+
+/** One pairing minted for a device on a remote host's server (ADR-228 D9). */
+export interface HostLink {
+  /** The desktop's id for the host. */
+  hostId: string;
+  /** The device's id in that host's own device store. */
+  hostDeviceId: string;
+}
+
+/** A device a revoke took away, and the host pairings it held. */
+export interface RevokedDevice {
+  id: string;
+  hostLinks: readonly HostLink[];
 }
 
 /** The subset of a `PushSubscription` the push service needs back. */
@@ -76,7 +98,7 @@ export interface PushSubscriptionRecord {
  */
 export type RemoteDeviceInfo = Omit<
   RemoteDevice,
-  "tokenHash" | "pushSubscription" | "relayRoom" | "extra"
+  "tokenHash" | "pushSubscription" | "relayRoom" | "extra" | "hostLinks"
 > & { hasPush: boolean };
 
 const TOKEN_BYTES = 32;
@@ -132,6 +154,9 @@ export class RemoteDeviceStore {
    */
   private devices: Map<string, RemoteDevice> | null = null;
   private readonly store: SealedStore<StoredDevices>;
+  private readonly revokeListeners = new Set<
+    (revoked: readonly RevokedDevice[]) => void
+  >();
 
   constructor(
     private readonly secretBox: SecretBox,
@@ -346,8 +371,85 @@ export class RemoteDeviceStore {
   /** `revoke` for several devices, in one write. */
   async revokeMany(ids: readonly string[]): Promise<void> {
     const devices = this.live();
+    const revoked: RevokedDevice[] = [];
+    for (const id of ids) {
+      const device = devices.get(id);
+      if (!device) continue;
+      devices.delete(id);
+      revoked.push({ id, hostLinks: device.hostLinks ?? [] });
+    }
+    if (revoked.length === 0) return;
+    // Before the write: a revoke that reaches the map is a revoke, saved or
+    // not, and whatever it takes down with it must hear so.
+    for (const listener of [...this.revokeListeners]) listener(revoked);
+    this.persist();
+    await this.store.flush();
+  }
+
+  /**
+   * Hear every revoke — one by hand, a relay reset's, a stale room's — with
+   * the host links each revoked device held (ADR-228 D9).
+   */
+  onRevoke(
+    listener: (revoked: readonly RevokedDevice[]) => void,
+  ): () => void {
+    this.revokeListeners.add(listener);
+    return () => this.revokeListeners.delete(listener);
+  }
+
+  /** `id`'s label, or null for a device that is not paired. */
+  label(id: string): string | null {
+    return this.live().get(id)?.label ?? null;
+  }
+
+  /** The pairings minted for `id` on remote hosts; empty when none. */
+  hostLinks(id: string): readonly HostLink[] {
+    return this.live().get(id)?.hostLinks ?? [];
+  }
+
+  /** Every link on `hostId`, with the desktop device each belongs to. */
+  linksOn(hostId: string): Array<{ deviceId: string } & HostLink> {
+    const out: Array<{ deviceId: string } & HostLink> = [];
+    for (const device of this.live().values()) {
+      for (const link of device.hostLinks ?? []) {
+        if (link.hostId === hostId) out.push({ deviceId: device.id, ...link });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Record `link` for `id`, replacing its link on the same host. False when
+   * the device is no longer paired: the caller revokes what it minted.
+   * Resolves once it is on disk.
+   */
+  async setHostLink(id: string, link: HostLink): Promise<boolean> {
+    const device = this.live().get(id);
+    if (!device) return false;
+    device.hostLinks = [
+      ...(device.hostLinks ?? []).filter((l) => l.hostId !== link.hostId),
+      link,
+    ];
+    this.persist();
+    await this.store.flush();
+    return true;
+  }
+
+  /**
+   * Forget the links on `hostId` — every device's, or only `deviceId`'s.
+   * The pairings themselves are the caller's to revoke.
+   */
+  async dropHostLinks(hostId: string, deviceId?: string): Promise<void> {
     let changed = false;
-    for (const id of ids) if (devices.delete(id)) changed = true;
+    for (const device of this.live().values()) {
+      if (deviceId !== undefined && device.id !== deviceId) continue;
+      const links = device.hostLinks ?? [];
+      const kept = links.filter((l) => l.hostId !== hostId);
+      if (kept.length === links.length) continue;
+      changed = true;
+      if (kept.length > 0) device.hostLinks = kept;
+      else delete device.hostLinks;
+    }
     if (!changed) return;
     this.persist();
     await this.store.flush();
@@ -387,6 +489,7 @@ function publicView(device: RemoteDevice): RemoteDeviceInfo {
     pushSubscription,
     relayRoom: _relayRoom,
     extra: _extra,
+    hostLinks: _hostLinks,
     ...rest
   } = device;
   return { ...rest, hasPush: pushSubscription !== null };
@@ -414,7 +517,20 @@ const KNOWN_FIELDS = new Set([
   "createdAt",
   "lastSeenAt",
   "pushSubscription",
+  "hostLinks",
 ]);
+
+/** A stored device's host links; malformed entries are dropped. */
+function asHostLinks(value: unknown): HostLink[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const { hostId, hostDeviceId } = entry as Record<string, unknown>;
+    return typeof hostId === "string" && typeof hostDeviceId === "string"
+      ? [{ hostId, hostDeviceId }]
+      : [];
+  });
+}
 
 /**
  * Fields older releases wrote and this one no longer does: `canSend`
@@ -452,6 +568,7 @@ function asDevice(value: unknown): RemoteDevice | null {
     )
       extra[field] = value;
   }
+  const hostLinks = asHostLinks(v.hostLinks);
   return {
     id: v.id,
     label: v.label,
@@ -460,6 +577,7 @@ function asDevice(value: unknown): RemoteDevice | null {
     createdAt: v.createdAt,
     lastSeenAt,
     pushSubscription: asSubscription(v.pushSubscription),
+    ...(hostLinks.length > 0 ? { hostLinks } : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
 }

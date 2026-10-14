@@ -1,6 +1,6 @@
 ---
 title: Provider lifecycle, sleeping hosts, wake and stop
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

@@ -3,7 +3,7 @@ title: E2E coverage and docs
 status: todo
 priority: medium
 assignee: sonnet
-blocked_by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+blocked_by: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 17]
 ---
 
 # E2E coverage and docs
@@ -101,3 +101,15 @@ change:
   - Forwarded create, attach and reset answers always carry `winsizeOwner`.
   - Only main's local holders of a pane get per-connection owner flags.
   - A follower that creates before any grid is cached sends its own size.
+- **Ticket 6.**
+  - The router merges branch and diff payloads across servers, delivering
+    the union trimmed per server, because the consumers treat each payload
+    as the whole picture.
+  - `BranchWatcher` re-emits when a connection's own list changes.
+  - Only `start` and `stop` reach host servers. The phone's diff-pane reads
+    (`diffs.getFullDiff`, `getLocalDiff`, `getStagedFiles`) still go home;
+    record that as a known limit.
+  - `refused` (an older host server) clears only on a resync or a bridge
+    change.
+  - The watchers moved into `SharedDeps`, and the per-connection sets live in
+    `electron/watched-sets.ts`.

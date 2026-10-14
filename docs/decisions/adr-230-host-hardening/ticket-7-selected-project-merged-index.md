@@ -1,6 +1,6 @@
 ---
 title: The selected project index is translated to the merged list
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [6]

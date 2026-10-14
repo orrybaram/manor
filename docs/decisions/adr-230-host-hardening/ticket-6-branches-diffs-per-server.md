@@ -1,6 +1,6 @@
 ---
 title: Branches and diffs are watched on each server and merged
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [3]

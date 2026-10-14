@@ -99,6 +99,18 @@ export class HostRecords {
     this.store.save();
   }
 
+  /** "Keep Manor running when <host> restarts" (ADR-229 D4); absent is off. */
+  supervise(hostId: string): boolean {
+    return this.store.state.hosts?.[hostId]?.supervise === true;
+  }
+
+  setSupervise(hostId: string, on: boolean): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || host.supervise === on) return;
+    host.supervise = on;
+    this.store.save();
+  }
+
   /** The host's linked pairings still to revoke (ADR-228 D9). */
   pendingRevokes(hostId: string): string[] {
     return [...(this.store.state.hosts?.[hostId]?.pendingRevokes ?? [])];

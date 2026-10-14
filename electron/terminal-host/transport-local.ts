@@ -6,6 +6,12 @@
  *   (~/.manor/daemon/ for Manor desktop, ~/.manor/remote/daemon/ for
  *   `manor-host remote-bridge` — see `DaemonNamespace` in electron/paths.ts)
  * - Reads the auth token from the 0600 token file beside it
+ *
+ * In the `remote` namespace, a box whose daemon is under a supervisor
+ * (`supervisor.json`, ADR-229 D4) starts, stops and restarts it through that
+ * supervisor, never spawning a detached copy beside it; one that fails falls
+ * back to the detached spawn with a warning. The `local` namespace (Manor
+ * desktop's own daemon) never looks.
  */
 
 import * as net from "node:net";
@@ -23,8 +29,13 @@ import {
   type DaemonNamespace,
 } from "../paths";
 import type { HostTransport } from "./transport";
+import { loadSupervisor, type Supervisor } from "../host-server/supervisor";
+import { errorMessage } from "../lib/errors";
 
 const MANOR_DIR = manorHomeDir();
+
+/** How long a supervisor gets to bring the daemon up before the detached fallback. */
+const SUPERVISED_WAIT_MS = 8000;
 
 /** Past this size the daemon log is rotated to `.log.1` at the next spawn. */
 const MAX_DAEMON_LOG_BYTES = 5 * 1024 * 1024;
@@ -55,15 +66,28 @@ export interface LocalTransportOptions {
    * `local`, Manor desktop's own; `manor-host remote-bridge` uses `remote`.
    */
   namespace?: DaemonNamespace;
+  /**
+   * The `remote` namespace's supervisor, asked on every start, stop and
+   * restart (ADR-229 D4). Defaults to the one `supervisor.json` names; never
+   * consulted for `local`. For tests.
+   */
+  supervisor?: () => Supervisor | null;
 }
 
 export class LocalTransport implements HostTransport {
   private daemonProcess: ChildProcess | null = null;
   private _migratedOldDaemons = false;
   private readonly namespace: DaemonNamespace;
+  private readonly loadSupervisor: () => Supervisor | null;
 
   constructor(opts: LocalTransportOptions = {}) {
     this.namespace = opts.namespace ?? "local";
+    this.loadSupervisor = opts.supervisor ?? loadSupervisor;
+  }
+
+  /** This daemon's supervisor; always null for the desktop's own (`local`). */
+  private supervisor(): Supervisor | null {
+    return this.namespace === "remote" ? this.loadSupervisor() : null;
   }
 
   private get daemonDir(): string {
@@ -92,7 +116,7 @@ export class LocalTransport implements HostTransport {
 
     // Check if daemon is running
     if (!this.isDaemonRunning()) {
-      await this.spawnDaemon(version);
+      await this.startDaemon(version);
     }
   }
 
@@ -107,6 +131,16 @@ export class LocalTransport implements HostTransport {
    */
   async stop(): Promise<void> {
     const killed = this.readPid();
+    const supervisor = this.supervisor();
+    if (supervisor) {
+      // Then the pid below too: the running daemon may be a detached one
+      // from before `install`, which the supervisor cannot reach.
+      await supervisor.stop("daemon").catch((err: unknown) => {
+        console.warn(
+          `[transport-local] the ${supervisor.kind} supervisor could not stop the daemon: ${errorMessage(err)}`,
+        );
+      });
+    }
     await this.killDaemonByPid();
     // Grace period for the process to exit and release the socket
     await new Promise<void>((r) => setTimeout(r, 500));
@@ -179,10 +213,42 @@ export class LocalTransport implements HostTransport {
     }
   }
 
-  /** Kill the current daemon and spawn a fresh replacement. */
+  /** Kill the current daemon and start a fresh replacement. */
   private async killAndRespawn(version?: string): Promise<void> {
     await this.stop();
+    await this.startDaemon(version);
+  }
+
+  /**
+   * Start the daemon: through the supervisor when there is one (ADR-229 D4),
+   * else — or when the supervisor brings none up — spawned detached.
+   */
+  private async startDaemon(version?: string): Promise<void> {
+    const supervisor = this.supervisor();
+    if (supervisor) {
+      try {
+        // A stale socket must not pass for the started daemon's.
+        try { fs.unlinkSync(this.SOCKET_PATH); } catch { /* not there */ }
+        await supervisor.start("daemon");
+        await this.waitForDaemon(SUPERVISED_WAIT_MS);
+        return;
+      } catch (err) {
+        console.warn(
+          `[transport-local] the ${supervisor.kind} supervisor did not start the daemon (${errorMessage(err)}); spawning it detached`,
+        );
+      }
+    }
     await this.spawnDaemon(version);
+  }
+
+  /** Wait until the pid file names a live daemon and its socket exists. */
+  private async waitForDaemon(timeoutMs: number): Promise<void> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      if (this.isDaemonRunning()) return;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error("the daemon's socket did not appear in time");
   }
 
   /**

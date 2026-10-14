@@ -58,6 +58,7 @@ import type { RelayIdentityStore } from "../remote-control/relay/identity";
 import { RelayRoom, type PairResult } from "../remote-control/relay-room";
 import type { AgentStatusSink } from "../agent-status/pipeline";
 import type { HostOwnership } from "./ownership";
+import type { SupervisorFacts } from "./supervisor/types";
 
 /** How long a relay the connector gave up on waits before it is redialled. */
 const FAILED_RETRY_MS = 5 * 60_000;
@@ -132,6 +133,13 @@ export interface HostServerStatus {
    * it once.
    */
   identityReset?: "cloned" | null;
+  /**
+   * What keeps this host's daemon and server running across a reboot
+   * (ADR-229 D4), from `supervisor.json`: its kind and, for systemd, whether
+   * the user manager lingers (boots without a login). Null when nothing
+   * does. Optional on the type for an older server's status.
+   */
+  supervisor?: SupervisorFacts | null;
 }
 
 /** The `remoteControl.*` surface the host table exposes. */

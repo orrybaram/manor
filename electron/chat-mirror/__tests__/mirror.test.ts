@@ -99,11 +99,19 @@ function side(uuid: string, text: string): string {
 }
 
 /** Let the mirror's file reads settle without touching (possibly fake) timers. */
+/**
+ * Wait for `cond`, turning the event loop, for up to 5 s of wall time (not a
+ * count of turns: the mirror's file reads go through the thread pool, which a
+ * loaded suite can hold up for longer than any fixed number of turns).
+ * `Date` is never faked here, only the timers.
+ */
 async function until(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 500; i++) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     if (cond()) return;
     await new Promise((r) => setImmediate(r));
   }
+  if (cond()) return;
   throw new Error("condition never became true");
 }
 

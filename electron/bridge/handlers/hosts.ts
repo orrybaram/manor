@@ -27,6 +27,8 @@ import {
 } from "../../backend/host-server-client";
 import type { HostServerStatus } from "../../host-server/relay";
 import { serverFactsOf } from "../../backend/host-server-sync";
+import { runHostSupervisor } from "../../backend/host-supervisor";
+import type { SupervisorFacts } from "../../host-server/supervisor/types";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 import type { ServerDeps } from "../../ipc/types";
@@ -55,6 +57,8 @@ export function hostsAdd(
   const hostId = crypto.randomUUID();
   const spec = { kind: "ssh" as const, target: trimmed };
   deps.projectManager.saveHost(hostId, spec);
+  // On by default for hosts added from now on (ADR-229 D4).
+  deps.projectManager.setHostSupervised(hostId, true);
   deps.backendRegistry.register(hostId, spec);
   deps.backendRegistry.connectInBackground(hostId);
   return { hostId, spec };
@@ -84,6 +88,8 @@ export function hostsAddRecipeHost(
   const hostId = crypto.randomUUID();
   const spec = { kind: "recipe" as const, recipeId };
   deps.projectManager.saveHost(hostId, spec);
+  // A box Manor starts is Manor's to keep running (ADR-229 D4).
+  deps.projectManager.setHostSupervised(hostId, true);
   deps.backendRegistry.register(hostId, spec);
   // A connect somebody means: it runs `up` even for a box asleep.
   deps.backendRegistry.ensureConnected(hostId).catch(() => {
@@ -177,6 +183,12 @@ export interface HostServerView {
   linkPhones: boolean;
   /** The ids, among `devices`, of pairings this desktop minted ("via This Mac"). */
   linkedDeviceIds: string[];
+  /**
+   * What keeps the host's Manor running across a reboot (ADR-229 D4), from
+   * the server's status: null when nothing does, or when the status could
+   * not be read.
+   */
+  supervisor: SupervisorFacts | null;
 }
 
 /** The owner channel to `hostId`'s server, or a plain reason there is none. */
@@ -232,7 +244,8 @@ export async function hostsServerStatus(
     linkPhones: ctx.deps.projectManager.hostLinksPhones(hostId),
     linkedDeviceIds: ctx.deps.hostLinks?.linkedOn(hostId) ?? [],
   };
-  if (state !== "connected") return { state, status: null, devices: [], ...links };
+  const none = { state, status: null, devices: [], ...links, supervisor: null };
+  if (state !== "connected") return none;
   try {
     const [status, devices] = await Promise.all([
       client.api.hostServer.status(),
@@ -240,13 +253,37 @@ export async function hostsServerStatus(
     ]);
     // A fresh read: keep `hosts.list`'s room and capability current with it.
     ctx.deps.backendRegistry.setServerFacts(hostId, serverFactsOf(status));
-    return { state, status, devices, ...links };
+    return { state, status, devices, ...links, supervisor: status.supervisor ?? null };
   } catch (err) {
-    if (err instanceof HostServerUnavailableError) {
-      return { state, status: null, devices: [], ...links };
-    }
+    if (err instanceof HostServerUnavailableError) return none;
     throw err;
   }
+}
+
+/**
+ * "Keep Manor running when <host> restarts" (ADR-229 D4): run `manor-host
+ * supervisor install` (or `uninstall`) on the host through its transport,
+ * and remember the choice, so a later connect installs it again if the
+ * host has lost it. Answers what supervises the host afterwards. Rejects
+ * when the host is away, or has no supervisor to use ("No supervisor on
+ * this host"); the choice is then left as it was.
+ */
+export async function hostsSetSupervised(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+  on: boolean,
+): Promise<SupervisorFacts | null> {
+  assertString(hostId, "hosts:setSupervised.hostId");
+  assertBoolean(on, "hosts:setSupervised.on");
+  const { deps } = ctx;
+  deps.projectManager.assertKnownHost(hostId);
+  const provider = deps.backendRegistry.provider(hostId);
+  if (!provider) throw new Error(`Unknown remote host ${hostId}.`);
+  const facts = await runHostSupervisor(provider.transport(), on ? "install" : "uninstall");
+  deps.projectManager.setHostSupervised(hostId, on);
+  // The page re-reads the server's status, which now names the supervisor.
+  publishRendererBroadcast("hosts", "pairingChanged", hostId);
+  return facts;
 }
 
 export async function hostsPairDevice(
@@ -387,4 +424,8 @@ export const hosts = {
   // Turning it off revokes phones on the host; on lets the desktop pair its
   // own there. The same grant as `pairDevice`, so local too (ADR-228 D9).
   setLinkPhones: method(hostsSetLinkPhones, { localOnly: true, mutating: true }),
+  // Writes systemd units (or LaunchAgents) onto the host and runs its
+  // commands there: the owner's call, and home's, which holds the transport
+  // (ADR-229 D4).
+  setSupervised: method(hostsSetSupervised, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
 };

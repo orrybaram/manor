@@ -228,6 +228,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "hosts.stop": "home",
   // Recipes live on the desktop that runs them (ADR-229 D2).
   "hosts.addRecipeHost": "home",
+  // Run through the host's transport, which the desktop holds (ADR-229 D4).
+  "hosts.setSupervised": "home",
 };
 
 /**

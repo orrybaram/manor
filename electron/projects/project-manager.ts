@@ -414,6 +414,15 @@ export class ProjectManager {
     this.hosts.setLinkPhones(hostId, on);
   }
 
+  /** "Keep Manor running when <host> restarts" (ADR-229 D4). */
+  hostSupervised(hostId: string): boolean {
+    return this.hosts.supervise(hostId);
+  }
+
+  setHostSupervised(hostId: string, on: boolean): void {
+    this.hosts.setSupervise(hostId, on);
+  }
+
   /** Linked pairings on `hostId` still to revoke (ADR-228 D9). */
   pendingHostRevokes(hostId: string): string[] {
     return this.hosts.pendingRevokes(hostId);

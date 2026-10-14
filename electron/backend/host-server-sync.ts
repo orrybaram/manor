@@ -22,6 +22,11 @@
  *   off, while the host was away. Stored on the host's record, and revoked
  *   on the next connect, before the endpoints are read.
  *
+ * - **Supervision** (ADR-229 D4): a host whose record says `supervise`, and
+ *   whose server reports no supervisor, gets `manor-host supervisor install`
+ *   run on it, after the rest. A host where it fails (no supervisor there)
+ *   is tried again on its next connect.
+ *
  * The host server owns its projects and layout (ADR-227 D2), so neither is
  * pushed any more.
  */
@@ -87,6 +92,14 @@ export interface PendingRevokes {
   revoked?(hostId: string): void;
 }
 
+/** Which hosts should be supervised, and how to install it on one (ADR-229 D4). */
+export interface HostSupervision {
+  /** `PersistedHost.supervise`. */
+  wanted(hostId: string): boolean;
+  /** Run `supervisor install` on the host. */
+  install(hostId: string): Promise<void>;
+}
+
 export interface HostServerSyncOptions {
   registry: HostServerRegistry;
   /**
@@ -98,6 +111,8 @@ export interface HostServerSyncOptions {
   adoption?: Pick<HostAdoption, "run">;
   /** Revokes owed to each host, sent on every connect (ADR-228 D9). */
   pendingRevokes?: PendingRevokes;
+  /** Installs supervision on connect where it is wanted and missing (ADR-229 D4). */
+  supervision?: HostSupervision;
   log?: Pick<Console, "warn">;
 }
 
@@ -106,6 +121,7 @@ export class HostServerSync {
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
   private readonly adoption: Pick<HostAdoption, "run"> | undefined;
   private readonly pending: PendingRevokes | undefined;
+  private readonly supervision: HostSupervision | undefined;
   private readonly log: Pick<Console, "warn">;
   private unsubscribe: (() => void) | null = null;
   /** The push endpoints each host's server sends to (ADR-225 D3). */
@@ -116,6 +132,7 @@ export class HostServerSync {
     this.vapidKeys = opts.vapidKeys;
     this.adoption = opts.adoption;
     this.pending = opts.pendingRevokes;
+    this.supervision = opts.supervision;
     this.endpoints = new HostPushEndpoints({
       // The one status read per connect and pairing change: its room and
       // capabilities are recorded for `hosts.list` on the way past.
@@ -207,6 +224,24 @@ export class HostServerSync {
     await this.adopt(hostId, client);
     await this.revokePending(hostId);
     await this.endpoints.refresh(hostId);
+    await this.ensureSupervised(hostId, client);
+  }
+
+  /**
+   * Install supervision when the host's record wants it and its server
+   * reports none. An older server, whose status has no `supervisor` at all,
+   * is left alone: its `manor-host` may not know the command.
+   */
+  private async ensureSupervised(hostId: string, client: HostServerClient): Promise<void> {
+    const supervision = this.supervision;
+    if (!supervision?.wanted(hostId) || client.state !== "connected") return;
+    try {
+      const status = await client.api.hostServer.status();
+      if (status.supervisor !== null) return;
+      await supervision.install(hostId);
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: installing supervision failed: ${errorMessage(err)}`);
+    }
   }
 
   /** Every connect: a status read, and a hand-over when one is owed. */

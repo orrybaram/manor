@@ -39,7 +39,12 @@ import type { Duplex } from "node:stream";
 import { hostKnownHostsDir, hostRecipesDir } from "../../paths";
 import { errorMessage } from "../../lib/errors";
 import type { HostTransport } from "../../terminal-host/transport";
-import type { EnsureRemoteHost, BridgeSpawn } from "../../terminal-host/bridge-spawner";
+import type {
+  BridgeSpawn,
+  EnsureRemoteHost,
+  RemoteExecOptions,
+  RemoteExecResult,
+} from "../../terminal-host/bridge-spawner";
 import {
   knownHostsHasKey,
   recipeHostAlias,
@@ -145,6 +150,13 @@ class RecipeTransport implements HostTransport {
 
   reset(): void {
     this.current()?.reset?.();
+  }
+
+  /** The way in's own `exec` (ssh or an exec prefix), for `manor-host` modes (ADR-229 D4). */
+  async exec(command: string, opts?: RemoteExecOptions): Promise<RemoteExecResult> {
+    const inner = this.inner();
+    if (!inner.exec) throw new Error(`${this.label()} can't run commands`);
+    return inner.exec(command, opts);
   }
 
   private inner(): HostTransport {

@@ -18,6 +18,7 @@ import {
   hostsServerStatus,
   hostsSetLinearOnHost,
   hostsSetLinkPhones,
+  hostsSetSupervised,
   wireHostBroadcasts,
 } from "../hosts";
 import {
@@ -86,6 +87,7 @@ function makeDeps() {
     getHosts: vi.fn().mockReturnValue([]),
     hostLinksPhones: vi.fn().mockReturnValue(true),
     setHostLinksPhones: vi.fn(),
+    setHostSupervised: vi.fn(),
   };
   const deps = {
     backendRegistry,
@@ -127,6 +129,13 @@ describe("hosts:add", () => {
     expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.connectInBackground).toHaveBeenCalledWith(result.hostId);
   });
+
+  it("keeps a newly added host's Manor running across reboots by default (ADR-229 D4)", () => {
+    const { deps, projectManager } = makeDeps();
+    register(deps as never);
+    const result = handlers.get("hosts:add")!(null, "me@box") as { hostId: string };
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith(result.hostId, true);
+  });
 });
 
 describe("hosts:addRecipeHost (ADR-229 D2)", () => {
@@ -162,6 +171,8 @@ describe("hosts:addRecipeHost (ADR-229 D2)", () => {
     expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.ensureConnected).toHaveBeenCalledWith(result.hostId);
+    // A box Manor starts is supervised (ADR-229 D4).
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith(result.hostId, true);
   });
 
   it("refuses a recipe that isn't in ~/.manor/host-recipes, or an id that leaves it", () => {
@@ -326,6 +337,7 @@ describe("hosts phone access", () => {
       devices: [],
       linkPhones: true,
       linkedDeviceIds: [],
+      supervisor: null,
     });
     expect(client.status).not.toHaveBeenCalled();
   });
@@ -400,5 +412,51 @@ describe("hosts phone access", () => {
     expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
     await expect(hostsSetLinkPhones(linkedCtx, "nope", false)).rejects.toThrow(/Unknown remote host/);
     await expect(hostsSetLinkPhones(linkedCtx, "box", "no" as never)).rejects.toThrow();
+  });
+
+  it("carries what supervises the host from its status (ADR-229 D4)", async () => {
+    const { ctx, client } = withServer("connected");
+    client.status.mockResolvedValueOnce({ devices: 0, supervisor: { kind: "systemd", linger: false } });
+    expect((await hostsServerStatus(ctx, "box")).supervisor).toEqual({ kind: "systemd", linger: false });
+    // An older server says nothing: none.
+    expect((await hostsServerStatus(ctx, "box")).supervisor).toBeNull();
+  });
+});
+
+describe("hosts:setSupervised (ADR-229 D4)", () => {
+  function withTransport(stdout: string, code = 0) {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    const exec = vi.fn().mockResolvedValue({ code, stdout, stderr: "" });
+    Object.assign(backendRegistry, {
+      provider: vi.fn((id: string) => (id === "box" ? { transport: () => ({ exec }) } : undefined)),
+    });
+    return { ctx: localCtx(deps as never), exec, projectManager };
+  }
+
+  it("runs supervisor install on the host, remembers it, and answers the facts", async () => {
+    const { ctx, exec, projectManager } = withTransport('{"supervisor":{"kind":"systemd","linger":true}}\n');
+    await expect(hostsSetSupervised(ctx, "box", true)).resolves.toEqual({ kind: "systemd", linger: true });
+    expect(exec.mock.calls[0][0]).toBe('exec "$HOME/.manor/bin/manor-host" supervisor install --json');
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith("box", true);
+    expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
+  });
+
+  it("runs uninstall to turn it off", async () => {
+    const { ctx, exec, projectManager } = withTransport('{"supervisor":null}\n');
+    await expect(hostsSetSupervised(ctx, "box", false)).resolves.toBeNull();
+    expect(exec.mock.calls[0][0]).toContain("supervisor uninstall --json");
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith("box", false);
+  });
+
+  it("leaves the choice as it was when the host has no supervisor", async () => {
+    const { ctx, projectManager } = withTransport('{"error":"No supervisor on this host"}\n', 1);
+    await expect(hostsSetSupervised(ctx, "box", true)).rejects.toThrow("No supervisor on this host");
+    expect(projectManager.setHostSupervised).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown host or a non-boolean", async () => {
+    const { ctx } = withTransport("{}");
+    await expect(hostsSetSupervised(ctx, "nope", true)).rejects.toThrow(/Unknown host/);
+    await expect(hostsSetSupervised(ctx, "box", "yes" as never)).rejects.toThrow();
   });
 });

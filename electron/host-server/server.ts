@@ -71,6 +71,7 @@ import {
 } from "./instance";
 import { fileHookCursorStore } from "./hook-cursor";
 import { fileOwnershipState, type OwnershipState } from "./ownership";
+import { createSupervisorFactsCache } from "./supervisor";
 import {
   createHostRelay,
   type HostRelay,
@@ -199,6 +200,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   };
 
   const startedAt = Date.now();
+  // Read from the marker on every status; lingering in the background (ADR-229 D4).
+  const supervisorFacts = createSupervisorFactsCache();
+  void supervisorFacts.refresh();
 
   // Whether the desktop has handed this host over yet (ADR-227 D3).
   const ownership = fileOwnershipState(paths.ownership);
@@ -326,6 +330,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       linear: shared.linearManager.isConnected(),
       secretKeyOnVolume: secretKeyOnVolume(),
       identityReset,
+      supervisor: supervisorFacts.current(),
     };
   }
 

@@ -34,6 +34,8 @@ import { runRemoteBridgeProcess } from "./bridge";
 import { runServerBridgeProcess } from "./server-bridge";
 import { runPortPipeProcess } from "./port-pipe";
 import { LocalTransport } from "./transport-local";
+import { runSupervisorCommand } from "../host-server/supervisor";
+import { runSuperviseProcess } from "../host-server/supervisor/supervise";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
 import { localRole, remoteRole, type DaemonRole } from "./daemon-role";
@@ -723,8 +725,17 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //   - `restart` stops this box's remote-namespace daemon and clears its
 //     socket and pid file (Manor desktop's daemon, if any, is left alone),
 //     using the same path logic as a local client (`LocalTransport.stop`).
-//     The next `remote-bridge` spawns the replacement. `SshTransport.restart`
+//     The next `remote-bridge` starts the replacement. `SshTransport.restart`
 //     runs this over ssh when the handshake reports a protocol mismatch.
+//     Under a supervisor both the stop and that start go through it
+//     (ADR-229 D4).
+//   - `supervisor install|uninstall|status [--json]` puts this box's daemon
+//     and host server under systemd, launchd or `supervise`, takes them out,
+//     or says which (ADR-229 D4) — see `host-server/supervisor/index.ts`.
+//     The desktop runs it through the host transport's `exec`.
+//   - `supervise` is a container's entrypoint (ADR-229 D4): it runs the
+//     daemon and the host server as its children, restarting either when it
+//     exits, until SIGTERM — see `host-server/supervisor/supervise.ts`.
 //   - Anything else (the normal case: no argv) starts the daemon itself, as
 //     `localRole` unless argv has `--namespace remote` (see daemon-role.ts).
 async function main(): Promise<void> {
@@ -755,6 +766,16 @@ async function main(): Promise<void> {
     // The host server (ADR-225) ships as a sibling bundle in the same install
     // dir; it reads `serve [--data-dir]` and `MANOR_VERSION` itself.
     createRequire(__filename)(join(__dirname, "host-server-index.js"));
+    return;
+  }
+
+  if (mode === "supervisor") {
+    process.exitCode = await runSupervisorCommand(argv.slice(1));
+    return;
+  }
+
+  if (mode === "supervise") {
+    await runSuperviseProcess();
     return;
   }
 

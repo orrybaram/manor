@@ -15,16 +15,15 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import path from "node:path";
 
 import { writeFileAtomic } from "../lib/fs-atomic";
-import { remoteNamespaceDir } from "../paths";
+import { supervisorMarkerFile } from "../paths";
 
 export type IdentityReset = "cloned";
 
 export interface InstanceEnv {
   env?: NodeJS.ProcessEnv;
-  /** `~/.manor/remote/supervisor.json`, written by `manor-host install` (ADR-229 D8). */
+  /** `~/.manor/remote/supervisor.json`, written by `manor-host supervisor install` (ADR-229 D4). */
   supervisorFile?: string;
   machineIdFile?: string;
   /** Runs `ioreg -rd1 -c IOPlatformExpertDevice`; its stdout. Throws when it cannot run. */
@@ -62,9 +61,7 @@ export function currentInstanceId(opts: InstanceEnv = {}): string | null {
   const fromEnv = env.MANOR_INSTANCE_ID?.trim();
   if (fromEnv) return fromEnv;
 
-  const kind = supervisorKind(
-    opts.supervisorFile ?? path.join(remoteNamespaceDir(), "supervisor.json"),
-  );
+  const kind = supervisorKind(opts.supervisorFile ?? supervisorMarkerFile());
   try {
     if (kind === "systemd") {
       const id = fs

@@ -256,6 +256,38 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
   };
 }
 
+/**
+ * Which supervisor keeps this box's daemon and host server running across a
+ * reboot (ADR-229 D4): `{kind: "systemd" | "launchd" | "container"}`, written
+ * by `manor-host supervisor install`. Absent: nothing supervises them, and
+ * they are spawned detached on connect.
+ */
+export function supervisorMarkerFile(): string {
+  return path.join(remoteNamespaceDir(), "supervisor.json");
+}
+
+/**
+ * The environment the supervised units start with (ADR-229 D4, D5):
+ * `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`, as
+ * `install` found them. Mode 0600.
+ */
+export function supervisorEnvFile(): string {
+  return path.join(remoteNamespaceDir(), "supervisor.env");
+}
+
+/** `manor-host supervise`'s pid, while it runs as a container's entrypoint (ADR-229 D4). */
+export function supervisePidFile(): string {
+  return path.join(remoteNamespaceDir(), "supervise.pid");
+}
+
+/**
+ * The launcher shim bootstrap writes (`remote-bootstrap.ts`): it pins the
+ * installed version, so whatever runs it runs that version.
+ */
+export function hostShimFile(): string {
+  return path.join(manorBinDir(), "manor-host");
+}
+
 export function hooksDir(): string {
   return path.join(manorHomeDir(), "hooks");
 }

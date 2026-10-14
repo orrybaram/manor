@@ -114,6 +114,17 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(raw.hosts.box).toEqual({ spec: { kind: "ssh", target: "me@box" } });
   });
 
+  it("keeps each host's supervise switch; absent is off (ADR-229 D4)", () => {
+    const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    expect(mgr.hostSupervised("box")).toBe(false);
+    mgr.setHostSupervised("box", true);
+    const reloaded = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    expect(reloaded.hostSupervised("box")).toBe(true);
+    reloaded.setHostSupervised("box", false);
+    expect(reloaded.hostSupervised("box")).toBe(false);
+  });
+
   it("lists only remote projects' worktrees for a remote refresh", async () => {
     const gits = new Map<string, GitBackend>();
     const resolver = (hostId: string) => {

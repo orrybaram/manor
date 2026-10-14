@@ -313,6 +313,53 @@ describe("HostServerClient over server-bridge", () => {
     sync.dispose();
   });
 
+  it("installs supervision on connect where the record wants it and the host has none (ADR-229 D4)", async () => {
+    const c = client();
+    const install = vi.fn(async () => {});
+    const wanted = vi.fn((hostId: string) => hostId === "box");
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+      },
+      supervision: { wanted, install },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    await vi.waitFor(() => expect(install).toHaveBeenCalledWith("box"));
+    // Nothing supervises the test box: its status says so.
+    expect((await c.api.hostServer.status()).supervisor).toBeNull();
+    sync.dispose();
+  });
+
+  it("leaves a host whose record does not want supervision alone", async () => {
+    const c = client();
+    const install = vi.fn(async () => {});
+    const wanted = vi.fn(() => false);
+    const setServerFacts = vi.fn();
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+        setServerFacts,
+      },
+      supervision: { wanted, install },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    // Asked once the rest of the connect's sync is done; nothing installed.
+    await vi.waitFor(() => expect(wanted).toHaveBeenCalledWith("box"));
+    expect(setServerFacts).toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
+    sync.dispose();
+  });
+
   it("says the viewer hello for `server-bridge --viewer`, and the owner's otherwise", async () => {
     const sock = path.join(tmp, "probe.sock");
     const hellos: unknown[] = [];

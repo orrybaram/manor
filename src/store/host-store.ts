@@ -125,6 +125,7 @@ export const useHostStore = create<HostState>((set) => {
         devices: [],
         linkPhones: true,
         linkedDeviceIds: [],
+        supervisor: null,
       };
     }
     if (requests[hostId] !== request) return;

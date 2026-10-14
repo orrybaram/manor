@@ -140,6 +140,8 @@ function App() {
         // clears the macOS traffic lights through the `:root` default of
         // `--window-lead-inset` (ADR-196).
         useProjectStore.setState({ sidebarMode: "hidden" });
+        // Its panes reopen without waking a sleeping host (ADR-230 D3).
+        useAppStore.getState().seedRestoredPanes();
         setAppReady(true);
         window.electronAPI.agents.reconcileStale().catch(console.error);
         return;
@@ -160,6 +162,9 @@ function App() {
           if (ws) setActiveWorkspace(ws.path, project.hostId);
         }
       }
+      // The workspace this window reopened on: its panes reopen without
+      // waking a sleeping host; any opened later is the user's (ADR-230 D3).
+      useAppStore.getState().seedRestoredPanes();
       setAppReady(true);
       window.electronAPI.agents.reconcileStale().catch(console.error);
     });

@@ -672,6 +672,36 @@ describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
     expect(sent).toEqual(["pty.create"]);
   });
 
+  it("leaves the host asleep for a restored pane's create or attach (ADR-230 D3)", async () => {
+    const { routing, wake, sent } = sleepingBox();
+
+    const created = await routing.invoke(
+      "box",
+      "pty",
+      "create",
+      ["pane-1", "/w", 80, 24, { hostId: "box", wake: false }],
+      WINDOW,
+    );
+    const attached = await routing.invoke("box", "pty", "attach", ["pane-1", { wake: false }], WINDOW);
+
+    for (const answer of [created, attached]) {
+      expect(answer).toMatchObject({ ok: false, reason: "host-unavailable", hostId: "box" });
+    }
+    expect(wake).not.toHaveBeenCalled();
+    expect(sent).toEqual([]);
+  });
+
+  it("opens a declining pane on a host that is up, as any other", async () => {
+    const { routing, wake, sent } = sleepingBox("connected");
+
+    await expect(
+      routing.invoke("box", "pty", "create", ["pane-1", "/w", 80, 24, { wake: false }], WINDOW),
+    ).resolves.toEqual({ ok: true });
+
+    expect(wake).not.toHaveBeenCalled();
+    expect(sent).toEqual(["pty.create"]);
+  });
+
   it("never wakes the host for a read, which is refused as away", async () => {
     const { routing, wake, sent } = sleepingBox();
 

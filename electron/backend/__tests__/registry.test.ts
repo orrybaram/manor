@@ -1279,6 +1279,64 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     expect(registry.status("box")).toBe("connected");
   });
 
+  describe("a pty call that declines to wake (ADR-230 D3)", () => {
+    const create = (registry: BackendRegistry, connect?: { wake?: boolean }) =>
+      connect
+        ? registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24, undefined, undefined, connect)
+        : registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24);
+
+    it("leaves a box it finds asleep asleep, and says the host is sleeping", async () => {
+      const { registry, remote, provider, asleep } = lifecycleSetup();
+      asleep();
+
+      await expect(create(registry, { wake: false })).rejects.toMatchObject({
+        name: "HostUnavailableError",
+        status: "sleeping",
+      });
+
+      expect(provider.ensureUp).not.toHaveBeenCalled();
+      expect(remote.raw.connect).not.toHaveBeenCalled();
+      expect(remote.raw.pty.createOrAttach).not.toHaveBeenCalled();
+      expect(registry.status("box")).toBe("sleeping");
+    });
+
+    it("does not turn a background connect it joins into a waking one", async () => {
+      const { registry, provider } = lifecycleSetup();
+      let answer!: (state: { state: ProviderState }) => void;
+      provider.status.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+
+      registry.connectInBackground("box");
+      await vi.waitFor(() => expect(answer).toBeDefined());
+      expect(registry.status("box")).toBe("connecting");
+      const restored = create(registry, { wake: false });
+      answer({ state: "sleeping" });
+
+      await expect(restored).rejects.toMatchObject({ status: "sleeping" });
+      expect(provider.ensureUp).not.toHaveBeenCalled();
+    });
+
+    it("connects a box that is up, as a background connect does", async () => {
+      const { registry, remote, provider } = lifecycleSetup();
+
+      await create(registry, { wake: false });
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(remote.raw.pty.createOrAttach).toHaveBeenCalledTimes(1);
+      expect(registry.status("box")).toBe("connected");
+    });
+
+    it("still wakes the box without the option", async () => {
+      const { registry, remote, provider, asleep } = lifecycleSetup();
+      asleep();
+
+      await create(registry);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(remote.raw.pty.createOrAttach).toHaveBeenCalledTimes(1);
+      expect(registry.status("box")).toBe("connected");
+    });
+  });
+
   it("stop() disconnects, has the provider stop the box, and sleeps", async () => {
     const { registry, remote, provider } = lifecycleSetup();
     await registry.ensureConnected("box");

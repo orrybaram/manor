@@ -9,7 +9,8 @@
  * - **Intent.** `ensureConnected` is a connect somebody means — a call that
  *   needs the host, the user — and wakes a sleeping host. A background
  *   connect (`connectInBackground`, a poller) never does: a host asleep
- *   stays asleep until somebody means to use it.
+ *   stays asleep until somebody means to use it. Nor does `connectNoWake`,
+ *   the awaited form a pane restored at launch connects with (ADR-230 D3).
  * - **Attempts.** Concurrent `ensureConnected` callers share one attempt.
  *   Every attempt and every `disconnect()` bumps `attempt`; an attempt only
  *   touches state while it still holds the current value, so a disconnect
@@ -345,6 +346,17 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
     this.startConnect(false).catch(() => {
       // Reported through status.
     });
+  }
+
+  /**
+   * A connect nobody meant, awaited (ADR-230 D3): what a pane restored at
+   * launch asks for. Like `connectInBackground` it never wakes a host — a
+   * box it finds asleep ends the attempt in `sleeping` — and it joins an
+   * attempt already in flight as that attempt is, never upgrading it to a
+   * waking one. Rejects with the connect error.
+   */
+  connectNoWake(): Promise<void> {
+    return this.startConnect(false);
   }
 
   /** The user's "Retry now" (see `BackendRegistry.retryNow`). */

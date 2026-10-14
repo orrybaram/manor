@@ -68,6 +68,8 @@ export interface RoutedCreateOptions {
    * goes to the host its cwd belongs to (local wins a path both hosts have).
    */
   hostId?: HostId;
+  /** False for a create nobody meant: a sleeping host stays asleep (`PtyConnectOptions`). */
+  wake?: boolean;
 }
 
 type CreateOrAttachResult = Awaited<ReturnType<PtyBackend["createOrAttach"]>> & {
@@ -140,18 +142,25 @@ export class RoutedBackend implements WorkspaceBackend {
         // two hosts with the same directory apart (local wins that tie).
         const hostId = sessions.ownerOf(sessionId) ?? opts.hostId ?? hostForPath(cwd);
         notServedHere(hostId, sessionId);
-        const result = await registry
-          .get(hostId)
-          .pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env);
+        const { pty } = registry.get(hostId);
+        // The connect option only when asked, so every other create's call is as it was.
+        const result = await (opts.wake === false
+          ? pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env, { wake: false })
+          : pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env));
         sessions.claim(sessionId, hostId);
         return { ...result, hostId };
       },
-      createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
-        this.pty.createOrAttachWith(sessionId, cwd, cols, rows, { shellArgs, env }),
+      createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env, connect) =>
+        this.pty.createOrAttachWith(sessionId, cwd, cols, rows, {
+          shellArgs,
+          env,
+          ...(connect?.wake === false && { wake: false }),
+        }),
       // Never a new session, so only ever where an existing one runs.
-      attachExisting: async (sessionId) => {
+      attachExisting: async (sessionId, connect) => {
         notServedHere(sessions.ownerOf(sessionId) ?? paneHostOf(sessionId) ?? LOCAL_HOST_ID, sessionId);
-        return bySession(sessionId).attachExisting(sessionId);
+        const pty = bySession(sessionId);
+        return connect ? pty.attachExisting(sessionId, connect) : pty.attachExisting(sessionId);
       },
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
       writeAfterReady: (sessionId, data) =>

@@ -54,7 +54,7 @@ import { HostServerUnavailableError } from "../backend/host-server-client";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { Caller, RouteRule } from "../bridge/method";
-import { stringsIn, wakesHost } from "../bridge/routes";
+import { declinesWake, stringsIn, wakesHost } from "../bridge/routes";
 import type { BridgeForward } from "../bridge/server";
 import {
   BridgeUnavailableRefusal,
@@ -277,7 +277,17 @@ export class HostRouting implements BridgeForward {
     if (!proxy) {
       throw new BridgeUnavailableRefusal(`${hostId} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
     }
-    if (wakesHost(ns, method)) await this.wakeIfAsleep(hostId);
+    if (wakesHost(ns, method)) {
+      // A pane restored at launch leaves its sleeping host asleep, and waits
+      // behind the host's asleep banner (ADR-230 D3).
+      if (declinesWake(ns, method, args)) {
+        const asleep = this.opts.registry.status?.(hostId) === "sleeping";
+        const away = asleep ? ptyAway(method, hostId, `${proxy.label} is asleep`) : null;
+        if (away) return away.value;
+      } else {
+        await this.wakeIfAsleep(hostId);
+      }
+    }
     let callArgs = args;
     try {
       if (ns === "layout" && method === "apply") {

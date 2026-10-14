@@ -489,6 +489,24 @@ export class ProjectManager {
     this.hosts.clearPendingRevokes(hostId, hostDeviceIds);
   }
 
+  /** Pairings started on `hostId` whose answer was not handled yet (ADR-230 D11). */
+  pendingHostMints(hostId: string): Array<{ label: string; startedAt: number }> {
+    return this.hosts.pendingMints(hostId);
+  }
+
+  addPendingHostMint(hostId: string, mint: { label: string; startedAt: number }): void {
+    this.hosts.addPendingMint(hostId, mint);
+  }
+
+  clearPendingHostMints(hostId: string, labels: readonly string[]): void {
+    this.hosts.clearPendingMints(hostId, labels);
+  }
+
+  /** `hostId`'s pairing keys were reset: nothing there is owed any more. */
+  forgetOwedOnHost(hostId: string): void {
+    this.hosts.forgetOwed(hostId);
+  }
+
   /**
    * On a host server: take in the desktop's records for this host (ADR-227
    * D3). A project matched by id — or, failing that, by path — is merged with

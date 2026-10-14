@@ -303,13 +303,40 @@ export function initApp(devTitle: string | null): void {
     });
     const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
 
+    // One pairing covers every host (ADR-228 D9): what this desktop mints for
+    // its devices on each host's server, and the revokes that follow them.
+    // Built before the sync, which reconciles its lost mints on each connect
+    // (ADR-230 D11); it reaches the sync only once a link or revoke runs.
+    const hostLinks: HostPairingLinks = new HostPairingLinks({
+      devices: core.relayStores.devices,
+      hostServers: () => backendRegistry.hostServers(),
+      records: {
+        linkPhones: (hostId) => shared.projectManager.hostLinksPhones(hostId),
+        setLinkPhones: (hostId, on) => shared.projectManager.setHostLinksPhones(hostId, on),
+        addPendingRevokes: (hostId, ids) =>
+          shared.projectManager.addPendingHostRevokes(hostId, ids),
+        label: (hostId) => shared.projectManager.hostLabel(hostId),
+        pendingMints: (hostId) => shared.projectManager.pendingHostMints(hostId),
+        addPendingMint: (hostId, mint) => shared.projectManager.addPendingHostMint(hostId, mint),
+        clearPendingMints: (hostId, labels) =>
+          shared.projectManager.clearPendingHostMints(hostId, labels),
+        forgetOwed: (hostId) => shared.projectManager.forgetOwedOnHost(hostId),
+      },
+      revokePending: (hostId) => hostServerSync.revokePending(hostId),
+      pairingChanged: (hostId) => {
+        void hostServerSync.pairingChanged(hostId).then(() => {
+          publishRendererBroadcast("hosts", "pairingChanged", hostId);
+        });
+      },
+    });
+
     // ADR-225 D3: each remote host's host server signs pushes with the
     // desktop's VAPID pair, sent on every connect of the owner channel; the
     // sync also caches each host's push endpoints, which the controller below
     // reads so the desktop skips what the host server sends. The host server
     // owns its projects and layout (ADR-227 D2): neither is pushed, but what
     // the desktop held for a host is handed over once (D3).
-    const hostServerSync = new HostServerSync({
+    const hostServerSync: HostServerSync = new HostServerSync({
       registry: backendRegistry,
       // The desktop's own VAPID pair, so a phone's one browser subscription is
       // valid in every room (D3).
@@ -323,6 +350,8 @@ export function initApp(devTitle: string | null): void {
         clear: (hostId, ids) => shared.projectManager.clearPendingHostRevokes(hostId, ids),
         revoked: (hostId) => publishRendererBroadcast("hosts", "pairingChanged", hostId),
       },
+      // Pairings minted on a host whose answer was lost (ADR-230 D11).
+      pendingMints: hostLinks.pendingMints(),
       // "Keep Manor running when <host> restarts", installed on connect
       // where it is on and the host has none (ADR-229 D4).
       supervision: {
@@ -338,26 +367,6 @@ export function initApp(devTitle: string | null): void {
     // After the push store exists: starting syncs hosts that are already
     // connected.
     hostServerSync.start();
-
-    // One pairing covers every host (ADR-228 D9): what this desktop mints for
-    // its devices on each host's server, and the revokes that follow them.
-    const hostLinks = new HostPairingLinks({
-      devices: core.relayStores.devices,
-      hostServers: () => backendRegistry.hostServers(),
-      records: {
-        linkPhones: (hostId) => shared.projectManager.hostLinksPhones(hostId),
-        setLinkPhones: (hostId, on) => shared.projectManager.setHostLinksPhones(hostId, on),
-        addPendingRevokes: (hostId, ids) =>
-          shared.projectManager.addPendingHostRevokes(hostId, ids),
-        label: (hostId) => shared.projectManager.hostLabel(hostId),
-      },
-      revokePending: (hostId) => hostServerSync.revokePending(hostId),
-      pairingChanged: (hostId) => {
-        void hostServerSync.pairingChanged(hostId).then(() => {
-          publishRendererBroadcast("hosts", "pairingChanged", hostId);
-        });
-      },
-    });
     hostLinks.start();
 
     // ADR-161's remote control. Constructed here so the status sink and the

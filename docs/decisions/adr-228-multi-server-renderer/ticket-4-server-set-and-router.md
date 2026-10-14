@@ -1,6 +1,6 @@
 ---
 title: Renderer server set and router behind window.electronAPI
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [1]
@@ -63,3 +63,18 @@ must not change until tickets 5 and 7 add servers.
 - `src/bridge/install-desktop.ts`, `src/bridge/install-web.ts`
 - `src/store/{project-store,app-store,agent-store,remote-pane-store}.ts`:
   only to export the lookups the resolver needs
+
+## Carried over from ticket 3
+- **Host transports serve some calls themselves.** `createWsTransport`
+  hard-codes `platform: "web"`, `ROOT_VALUES` and
+  `locallyServed = LOCALLY_SERVED`. A host bridge must therefore never be
+  asked for `viewport.*`, the root values or the browser-only `SERVED_HERE`
+  entries. The router sends those **home**.
+  - Either make that explicit in the router (only routed, merged and
+    subscription traffic reaches a non-home server), or give
+    `createWsTransport` an option that turns off local serving for non-home
+    bridges.
+  - Test it.
+- A pipe reconnect gets a new `rendererId` from the host, because no
+  `previousId` is sent. Nothing should key renderer state on a host bridge's
+  `rendererId`.

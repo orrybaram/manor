@@ -57,3 +57,13 @@ ADR-228 D4 and D5 (desktop renderer), and D6 (away hosts on the desktop).
 - `roomId` and `viewerBridge` in `hosts.list` only appear after the first
   status read; before that they are absent. Treat absent as "no direct
   bridge yet" and add the server when the status event arrives.
+
+## Carried over from ticket 3
+- Use `createHostPipeTransport(window.manorHost.hostPipe, hostId, {onHello,
+  onStatus})` from `src/bridge/transports/host-pipe.ts`.
+- Main refuses `open` with 4504 for a host that isn't adopted, isn't
+  connected or lacks `viewerBridge`, and the transport retries with backoff.
+  So only add a server for hosts that pass those checks in `hosts.list`, or
+  the transport will dial in a loop.
+- `probe` only reports whether the pipe is open. A wedged SSH line is caught
+  by the host connection's own liveness checks, not by the bridge.

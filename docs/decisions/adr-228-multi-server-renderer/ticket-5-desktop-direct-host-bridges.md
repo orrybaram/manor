@@ -1,6 +1,6 @@
 ---
 title: Desktop renderer talks to host servers directly, terminals included
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [3, 4]
@@ -67,3 +67,31 @@ ADR-228 D4 and D5 (desktop renderer), and D6 (away hosts on the desktop).
   the transport will dial in a loop.
 - `probe` only reports whether the pipe is open. A wedged SSH line is caught
   by the host connection's own liveness checks, not by the bridge.
+
+## Carried over from ticket 4 (commit 23bb1943)
+- **API.**
+  - Add a host with
+    `servers.add(hostId, createHostPipeTransport(api, hostId, servers.hooks(hostId)), { capabilities: ["viewer-bridge"] })`.
+  - Remove it with `servers.remove(hostId)`.
+  - These live in `src/bridge/server-set.ts`. The router replays listeners
+    and drops last-known state by itself.
+- **Home is added with `lists: "all"`.** When a host's own server is away,
+  the call falls back to main's `HostRouting`. That is already D6 on the
+  desktop.
+- **`pty.*` has no `byPane` rule in `ROUTES`**, so today the router sends all
+  pty calls and listeners home. The handler tables must not gain a pty
+  `route` here, because that changes main (ticket 6). Instead:
+  - add a **renderer-only overlay** in `electron/bridge/routes.ts`
+    (`RENDERER_ROUTES`, or equivalent) that the router reads on top of
+    `ROUTES`;
+  - mark it in the overlay as `pty.*` → `byPane` (the router already routes
+    calls and listeners by pane for any `byPane` rule), and
+    `layout.reportViewport` → `"home"` (D7);
+  - keep the surface test's table/`ROUTES` agreement, and add a check that
+    every overlay key is a real method.
+- **Progress events and `agents.status` from a host reach the renderer
+  unchanged.** The router only stamps `layout.changed` and `agents.updated`.
+  Stamp `projects.*Progress` (worktree setup progress) and `agents.status`
+  in `stampEvent` if the stores key them by host or workspace key. Check what
+  `useWorktreeSetupProgress` and the pane-status store expect.
+- `ServerEntry.hello.capabilities` comes only from the `add` option.

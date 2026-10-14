@@ -54,3 +54,18 @@ ADR-228 D2 (phone ids), D3, D6 (phone last-known) and D8.
   `src/components/phone/PhoneTopBar.tsx`,
   `src/components/phone/HostsSheet/` (new)
 - `e2e/` phone specs
+
+## Carried over from ticket 4 (commit 23bb1943)
+- **API.** Add a pairing with
+  `servers.add(roomId, createWsTransport({ token, pipe, ...servers.hooks(roomId) }), { roomId, lists })`.
+  Change what a server lists later with `servers.setLists(id, …)`.
+- **The phone's home id is still `local`**, and all rewriting is skipped for
+  an entry whose id is `local`. Switch to room ids here (D2). The single hook
+  point for remapping ids is `stampResult`/`stampKey` in
+  `src/bridge/router.ts`.
+- **`lists` for a desktop** comes from its `hosts.list` (`roomId` per host,
+  from ticket 2).
+- **Last-known answers** live in the router's in-memory `lastKnown` map.
+  Persist them to IndexedDB per room here.
+- `useConnection()` and `connection.ts` read the home entry, with
+  TODO(ADR-228) markers. Resolve those that mean "this host".

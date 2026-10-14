@@ -1,6 +1,6 @@
 ---
 title: A recipe host re-runs up once per drop
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

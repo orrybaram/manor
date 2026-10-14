@@ -32,6 +32,7 @@ import type {
 } from "./types";
 import { runRemoteBridgeProcess } from "./bridge";
 import { runServerBridgeProcess } from "./server-bridge";
+import { runPortPipeProcess } from "./port-pipe";
 import { LocalTransport } from "./transport-local";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
@@ -713,6 +714,12 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     Exits non-zero, with nothing on stdout, when no server is running.
 //     `server-bridge --viewer` is a desktop window's own stream (ADR-228 D4):
 //     the same, with `viewer: "desktop"` in the hello.
+//   - `port-pipe <port> [--host ::1]` is the far end of one port-forward
+//     connection over an exec transport (ADR-229 D3): it connects to
+//     127.0.0.1:<port> (or [::1]) on this box and pumps stdin/stdout against
+//     it until either side closes. Only loopback is reachable. Exits
+//     non-zero, with one stderr line, when the connect fails — see
+//     `port-pipe.ts`.
 //   - `restart` stops this box's remote-namespace daemon and clears its
 //     socket and pid file (Manor desktop's daemon, if any, is left alone),
 //     using the same path logic as a local client (`LocalTransport.stop`).
@@ -736,6 +743,11 @@ async function main(): Promise<void> {
 
   if (mode === "server-bridge") {
     await runServerBridgeProcess(argv.slice(1));
+    return;
+  }
+
+  if (mode === "port-pipe") {
+    await runPortPipeProcess(argv.slice(1));
     return;
   }
 

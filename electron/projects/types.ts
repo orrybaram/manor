@@ -299,6 +299,14 @@ export interface PersistedHost {
    */
   pendingRevokes?: string[];
   /**
+   * Pairings this desktop started minting on the host's server whose answer
+   * was not handled yet (ADR-230 D11), each under a label unique to it. One
+   * still here on the next owner connect lost its answer: `HostServerSync`
+   * revokes whatever the host made under that label. Absent when there are
+   * none.
+   */
+  pendingMints?: Array<{ label: string; startedAt: number }>;
+  /**
    * "Keep Manor running when <host> restarts" (ADR-229 D4): the host's
    * daemon and server go under its own supervisor, installed on connect when
    * the host reports none. True for hosts added since, and for recipe hosts;

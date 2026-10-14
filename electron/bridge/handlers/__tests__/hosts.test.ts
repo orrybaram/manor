@@ -401,6 +401,19 @@ describe("hosts phone access", () => {
     expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
   });
 
+  it("resets a host's pairing keys through the links' queue (ADR-230 D11)", async () => {
+    const { ctx, client, hostServerSync } = withServer("connected");
+    const hostLinks = {
+      resetHost: vi.fn(async (_hostId: string, reset: () => Promise<unknown>) => reset()),
+    };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    const status = await hostsResetPairingKeys(linkedCtx, "box");
+    expect(hostLinks.resetHost).toHaveBeenCalledWith("box", expect.any(Function));
+    expect(client.resetIdentity).toHaveBeenCalledTimes(1);
+    expect(status).toEqual({ devices: 0 });
+    expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
+  });
+
   it("carries the phone-link switch and which phones this desktop linked (ADR-228 D9)", async () => {
     const { ctx } = withServer("connected");
     const hostLinks = { linkedOn: vi.fn().mockReturnValue(["d1"]), setLinkPhones: vi.fn() };

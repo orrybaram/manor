@@ -146,4 +146,39 @@ export class HostRecords {
     else delete host.pendingRevokes;
     this.store.save();
   }
+
+  /** Mints started on the host whose answer was not handled yet (ADR-230 D11). */
+  pendingMints(hostId: string): Array<{ label: string; startedAt: number }> {
+    return [...(this.store.state.hosts?.[hostId]?.pendingMints ?? [])];
+  }
+
+  addPendingMint(hostId: string, mint: { label: string; startedAt: number }): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host) return;
+    host.pendingMints = [
+      ...(host.pendingMints ?? []).filter((m) => m.label !== mint.label),
+      { label: mint.label, startedAt: mint.startedAt },
+    ];
+    this.store.save();
+  }
+
+  clearPendingMints(hostId: string, labels: readonly string[]): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host?.pendingMints || labels.length === 0) return;
+    const done = new Set(labels);
+    const left = host.pendingMints.filter((m) => !done.has(m.label));
+    if (left.length === host.pendingMints.length) return;
+    if (left.length > 0) host.pendingMints = left;
+    else delete host.pendingMints;
+    this.store.save();
+  }
+
+  /** The host's pairing keys were reset: no revoke or mint there is owed. */
+  forgetOwed(hostId: string): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || (!host.pendingRevokes && !host.pendingMints)) return;
+    delete host.pendingRevokes;
+    delete host.pendingMints;
+    this.store.save();
+  }
 }

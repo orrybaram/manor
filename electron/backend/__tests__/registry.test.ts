@@ -1027,12 +1027,14 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       stop: vi.fn(async () => {}),
     };
     let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    let retryPermanentFailure: ((err: unknown) => boolean) | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => provider as unknown as HostProvider,
       createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
         beforeReconnect = factoryOpts.beforeReconnect;
+        retryPermanentFailure = factoryOpts.retryPermanentFailure;
         return remote.backend;
       },
     });
@@ -1044,6 +1046,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       provider,
       asleep,
       beforeReconnect: (attempt = 0) => beforeReconnect!(attempt),
+      retryPermanentFailure: () => retryPermanentFailure!(new Error("Permission denied")),
     };
   }
 
@@ -1070,12 +1073,14 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       }),
     };
     let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    let retryPermanentFailure: ((err: unknown) => boolean) | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => provider as unknown as HostProvider,
       createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
         beforeReconnect = factoryOpts.beforeReconnect;
+        retryPermanentFailure = factoryOpts.retryPermanentFailure;
         return remote.backend;
       },
     });
@@ -1089,6 +1094,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       drop,
       reached: () => reached,
       beforeReconnect: (attempt: number) => beforeReconnect!(attempt),
+      retryPermanentFailure: () => retryPermanentFailure!(new Error("No such container")),
     };
   }
 
@@ -1129,6 +1135,35 @@ describe("provider lifecycle (ADR-229 D1)", () => {
       expect(provider.ensureUp).toHaveBeenCalledTimes(2);
       await beforeReconnect(2);
       expect(provider.ensureUp).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps a failure that would stop the loop going until this drop's up has run", async () => {
+      // An exec target that no longer exists fails as a bootstrap error,
+      // which alone would stop the loop before attempt 2's re-run of `up`.
+      const { registry, remote, drop, reached, beforeReconnect, retryPermanentFailure } =
+        recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+
+      await beforeReconnect(0);
+      expect(retryPermanentFailure()).toBe(true);
+      await beforeReconnect(1);
+      expect(retryPermanentFailure()).toBe(true);
+      await beforeReconnect(2);
+      expect(reached()).toBe("10.0.0.2");
+      expect(retryPermanentFailure()).toBe(false);
+
+      // A new drop gets its own turn.
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      drop();
+      expect(retryPermanentFailure()).toBe(true);
+    });
+
+    it("never keeps the loop going for a host without refresh (ssh)", async () => {
+      const { registry, remote, retryPermanentFailure } = lifecycleSetup();
+      await registry.ensureConnected("box");
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+      expect(retryPermanentFailure()).toBe(false);
     });
 
     it("does not run up for a box that may have put itself to sleep", async () => {

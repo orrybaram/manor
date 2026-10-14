@@ -42,7 +42,8 @@
  *   the host in `sleeping`: the reconnect loop stops and pollers leave it
  *   alone. A recipe box that is not asleep has `up` re-run once per drop,
  *   before the third attempt, in case it came back at a new address
- *   (ADR-230 D2). `wake()` (or any `ensureConnected`) brings it up and connects;
+ *   (ADR-230 D2). Until then a failure that would stop the loop (the old
+ *   exec target is gone) doesn't. `wake()` (or any `ensureConnected`) brings it up and connects;
  *   `stop()` puts it to sleep. A box the provider says is gone (`missing`,
  *   ADR-229 D2) is treated alike, but in `error` with `missing` set: only
  *   `wake()` starts it again.
@@ -649,6 +650,17 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     else this.markSleeping();
     await this.disposeProvider();
     return false;
+  }
+
+  /**
+   * Asked by the backend's reconnect loop when an attempt failed in a way it
+   * would not retry (a bootstrap or recipe error): true keeps it going. The
+   * old way in to a recipe box that moved can fail like that (an exec target
+   * that no longer exists), so the loop keeps going until this drop's
+   * `refresh` has had its turn (ADR-230 D2).
+   */
+  retryPermanentFailure(): boolean {
+    return !this.disposed && this.provider.refresh !== undefined && !this.refreshedThisDrop;
   }
 
   /**

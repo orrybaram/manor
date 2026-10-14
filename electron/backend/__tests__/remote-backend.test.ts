@@ -202,6 +202,7 @@ function setup(
   opts: {
     reconnectDelayMs?: (attempt: number) => number | null;
     heartbeat?: HeartbeatOptions | null;
+    retryPermanentFailure?: (err: unknown) => boolean;
   } = {},
 ) {
   const daemon = new FakeDaemon();
@@ -676,6 +677,40 @@ describe("RemoteBackend", () => {
         error.mockRestore();
       },
     );
+
+    it("retries a permanent failure while retryPermanentFailure says so (ADR-230 D2)", async () => {
+      // A recipe box that moved: its old exec target fails as a bootstrap
+      // error until the host's re-run of `up` has had its turn.
+      let retry = true;
+      const { backend, daemon, transport, hostEvents } = setup({
+        reconnectDelayMs: () => 5,
+        retryPermanentFailure: () => retry,
+      });
+      current = backend;
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      await backend.connect();
+      await backend.pty.createOrAttach("s1", "/srv/repo", 80, 24);
+      const ensures = () => transport.ensureRunning.mock.calls.length;
+      const before = ensures();
+
+      transport.ensureRunning.mockImplementation(async () => {
+        throw new RemoteBootstrapError("unsupported-platform", "No such container: box");
+      });
+      daemon.dropConnections();
+      await waitFor(() => ensures() - before >= 3, "three attempts");
+      expect(hostEvents.some((e) => e.type === "hostFailed")).toBe(false);
+
+      // Once the re-up has run, the same failure stops the loop as before.
+      retry = false;
+      await waitFor(() => hostEvents.some((e) => e.type === "hostFailed"), "hostFailed");
+      expect(hostEvents.find((e) => e.type === "hostFailed")).toMatchObject({
+        reason: "bootstrap",
+        code: "unsupported-platform",
+      });
+      warn.mockRestore();
+      error.mockRestore();
+    });
 
     it("reports a session the restarted daemon no longer has as lost, not exited", async () => {
       const { backend, daemon, hostEvents } = setup({ reconnectDelayMs: () => 5 });

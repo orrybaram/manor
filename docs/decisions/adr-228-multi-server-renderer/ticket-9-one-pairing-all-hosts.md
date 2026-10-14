@@ -1,6 +1,6 @@
 ---
 title: One pairing covers every host (linkHostPairings)
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [7]

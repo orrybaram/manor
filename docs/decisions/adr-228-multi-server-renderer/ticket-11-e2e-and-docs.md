@@ -87,3 +87,17 @@ ADR-228, all decisions.
   - `memberHostName` still says "This machine" on the phone in
     `RemoveFromHostDialog`, `SettingsModal`, `transfer-targets`; use
     `serverHostName` (`src/bridge/server-set.ts`).
+
+## Carried over from ticket 9
+- **Fix:** a desktop-minted host pairing that the user removes in the phone's
+  Hosts sheet (or revokes as a "via This Mac" row on the host) is minted
+  again on the next desktop hello. Have the phone remember declined rooms
+  (in `src/bridge/pairings.ts`) and send them in `heldRooms`; clear the
+  memory when the user re-pairs that room by QR.
+- **Fix if small, else known limit:** a pane's `chat`/`pty` subscription
+  opened while its direct source is "unknown" stays on that source if it
+  never connects, with no fallback to the desktop (`src/bridge/router.ts`).
+  Ticket 9 avoids it by not minting while a host's relay is down.
+- Known limit: a host-server reset mid-mint can leave the minted host
+  device unlinked.
+- `docs/remote-hosts.md#testing` should list `phone-linked-hosts.spec.ts`.

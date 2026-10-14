@@ -1,6 +1,6 @@
 ---
 title: Integrations pick their server per call
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [4, 7]
@@ -49,3 +49,13 @@ ADR-228 D10.
 - `src/lib/trackers/linear.ts`, `src/lib/start-issue-work.ts`,
   `src/components/sidebar/useIssuesShortcut.tsx`
 - `src/components/tasks/useTasks.ts`, `src/components/tasks/TasksView.tsx`
+
+## Carried over from ticket 1
+- The surface test's `ROUTED_NAMESPACES` lacks `chat` and `linear`. Add them
+  (find it with `grep -rn ROUTED_NAMESPACES`) once the delegated rule exists.
+
+## Carried over from ticket 7
+- Phone host ids are room ids, or `<desktopRoom>~<hostId>` for a host the
+  phone holds no pairing for (`viaServer()`, aliases in
+  `src/bridge/server-set.ts`). "The desktop that lists the host" is the
+  server whose `lists` covers that id. On the desktop, `local` is home.

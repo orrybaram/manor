@@ -113,3 +113,9 @@ change:
     change.
   - The watchers moved into `SharedDeps`, and the per-connection sets live in
     `electron/watched-sets.ts`.
+- **Ticket 8.** `linearConnect` validates before saving
+  (`getViewer(apiKey)`), so a failed connect emits nothing.
+- **Flaky tests seen.** `electron/terminal-host/__tests__/bridge-process.test.ts`
+  ("keeps its daemon apart") failed twice under a full parallel run and passed
+  when run alone. `exec-runner` and `TaskDetail` did the same once. List them
+  in docs/remote-hosts.md#testing if they reproduce.

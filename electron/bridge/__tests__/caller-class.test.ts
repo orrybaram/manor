@@ -389,6 +389,8 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // ADR-229 D1: stopping a box is the desktop user's call; waking one
         // is not refused, since a phone wakes a host through home (D7).
         "hosts.stop",
+        // ADR-229 D2: runs the user's recipe commands on this machine.
+        "hosts.addRecipeHost",
       ].sort(),
     );
   });

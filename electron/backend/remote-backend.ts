@@ -28,6 +28,8 @@ import { createHostBackend, type HostBackend } from "./host-backend";
 import { execFacts, type MachineFacts } from "./machine-facts";
 import { createRemoteExec } from "./remote-exec";
 import { RemoteBootstrapError } from "./remote-bootstrap";
+import { RecipeCommandError } from "./providers/recipe-runner";
+import { RecipeError } from "./providers/recipes";
 import { Emitter } from "./emitter";
 import type {
   HostConnectionEvent,
@@ -71,6 +73,9 @@ export function classifyHostFailure(err: unknown): HostFailure | null {
   if (err instanceof SshHostKeyError) return { reason: "host-key", message: err.message };
   if (err instanceof RemoteBootstrapError) {
     return { reason: "bootstrap", code: err.code, message: err.message };
+  }
+  if (err instanceof RecipeCommandError || err instanceof RecipeError) {
+    return { reason: "recipe", message: err.message };
   }
   return null;
 }

@@ -16,6 +16,7 @@ import type {
   ProjectGroupInfo,
 } from "../persistence";
 import { LOCAL_HOST_ID } from "../backend/types";
+import { hostSpecLabel } from "../backend/providers/recipes";
 import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
@@ -204,7 +205,7 @@ function resolveHostArg(pm: ProjectManager, arg: string): HostArg {
   const hosts = [
     // The local label ("this Mac") is what listings show, so it names local too.
     { hostId: LOCAL_HOST_ID, target: pm.hostLabel(LOCAL_HOST_ID) as string | undefined },
-    ...pm.getHosts().map(({ hostId, spec }) => ({ hostId, target: spec.target })),
+    ...pm.getHosts().map(({ hostId, spec }) => ({ hostId, target: hostSpecLabel(spec) })),
   ];
   const matches = new Set(
     hosts

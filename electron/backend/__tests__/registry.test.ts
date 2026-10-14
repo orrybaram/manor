@@ -139,8 +139,12 @@ function setup() {
 
 const box: HostSpec = { kind: "ssh", target: "me@box" };
 
-/** What `list()` stamps on a remote host whose provider is a plain ssh box (ADR-229 D1). */
+/**
+ * What `list()` stamps on `box`, a plain ssh box: its provider's kind and
+ * capabilities (ADR-229 D1), and its name (D2).
+ */
 const SSH_FACTS = {
+  label: "me@box",
   providerKind: "ssh",
   capabilities: { canStop: false, canDestroy: false, autoSleep: false },
 } as const;
@@ -1156,6 +1160,13 @@ describe("provider lifecycle (ADR-229 D1)", () => {
 
     expect(provider.stop).not.toHaveBeenCalled();
     expect(registry.status("box")).toBe("connected");
+  });
+
+  it("names a recipe host by its recipe, falling back to the recipe id (ADR-229 D2)", () => {
+    const { registry } = setup();
+    registry.register("pod", { kind: "recipe", recipeId: "no-such-recipe" });
+    expect(registry.list()[1]).toMatchObject({ hostId: "pod", label: "no-such-recipe" });
+    expect(registry.hostDisplayName("pod")).toBe("no-such-recipe");
   });
 
   it("stamps the provider's kind and capabilities on each remote host", () => {

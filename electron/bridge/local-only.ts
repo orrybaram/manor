@@ -40,6 +40,7 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.setLinearOnHost",
   "hosts.setLinkPhones",
   "hosts.stop",
+  "hosts.addRecipeHost",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

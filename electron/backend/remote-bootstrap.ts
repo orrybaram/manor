@@ -100,16 +100,20 @@ export class RemoteBootstrapError extends Error {
 }
 
 /**
- * ssh itself failed (exit 255: unreachable, connection dropped) partway
- * through the bootstrap. Deliberately not a `RemoteBootstrapError`: those
- * describe the host and will not fix themselves, while this is the network
- * and a reconnect may well succeed.
+ * The channel itself failed (exit 255: for ssh, unreachable or the
+ * connection dropped) partway through the bootstrap. Deliberately not a
+ * `RemoteBootstrapError`: those describe the host and will not fix
+ * themselves, while this is the network and a reconnect may well succeed.
+ * `via` names the channel: `ssh`, or an exec prefix's program (`kubectl`,
+ * `docker` — ADR-229 D3), whose 255 is its own and not ssh's.
  */
 class SshSessionError extends Error {
-  constructor(target: string, command: string, res: RemoteExecResult) {
+  constructor(target: string, command: string, res: RemoteExecResult, via = "ssh") {
+    const running = `exit 255 running \`${command.split("\n")[0].slice(0, 80)}\``;
     super(
-      `ssh to ${target} failed while bootstrapping (exit 255 running \`${command.split("\n")[0].slice(0, 80)}\`)` +
-        detail(res),
+      (via === "ssh"
+        ? `ssh to ${target} failed while bootstrapping (${running})`
+        : `${via} for ${target} failed while bootstrapping (${running})`) + detail(res),
     );
     this.name = "SshSessionError";
   }
@@ -423,6 +427,11 @@ function readTarball(version: string): Buffer {
 
 export interface EnsureRemoteHostOptions {
   onProgress?: (progress: BootstrapProgress) => void;
+  /**
+   * What carries the commands, for the wording of a failed channel: `ssh`
+   * (the default), or an exec prefix's program (ADR-229 D3).
+   */
+  via?: string;
   /** The tarball for `version`. Defaults to reading `hostTarballPath(version)`. */
   loadTarball?: (version: string) => Buffer | Promise<Buffer>;
   /** Names the staging dir. Defaults to random hex. For tests. */
@@ -450,7 +459,7 @@ export async function ensureRemoteHost(
   // missing" — the caller retries the one and gives up on the other.
   const ssh: RemoteExec = async (command, execOpts) => {
     const res = await rawSsh(command, execOpts);
-    if (res.code === 255) throw new SshSessionError(target, command, res);
+    if (res.code === 255) throw new SshSessionError(target, command, res, opts.via);
     return res;
   };
   const report = (phase: BootstrapPhase, message: string): void => {

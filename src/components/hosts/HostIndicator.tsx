@@ -1,7 +1,7 @@
 import Cloud from "lucide-react/dist/esm/icons/cloud";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import { useServerHostName } from "../../bridge/server-set";
-import { LOCAL_HOST_ID } from "../../lib/hosts";
+import { LOCAL_HOST_ID, hostLabel } from "../../lib/hosts";
 import { useHostStore } from "../../store/host-store";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import type { HostDisplay } from "../../lib/host-status";
@@ -75,9 +75,7 @@ export function LocalHostLabel() {
  */
 export function RemoteHostLabel(props: { hostId: string }) {
   const { hostId } = props;
-  const reported = useHostStore(
-    (s) => s.hosts.find((h) => h.hostId === hostId)?.spec?.target ?? hostId,
-  );
+  const reported = useHostStore((s) => hostLabel(hostId, s.hosts));
   const target = useServerHostName(hostId) ?? reported;
   return (
     <span className={styles.local} data-testid="remote-host-label">
@@ -207,7 +205,8 @@ function HostBanner(props: VariantProps) {
       </pre>
       <div className={styles.output}>
         <pre className={styles.line}>
-          <span className={styles.prompt}>manor {"\u276f"}</span> ssh {display.target}
+          <span className={styles.prompt}>manor {"\u276f"}</span>{" "}
+          {display.sshTarget ? `ssh ${display.sshTarget}` : `start ${display.target}`}
           {raw && (
             <>
               {"\n"}

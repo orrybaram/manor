@@ -23,12 +23,21 @@
 
 import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
+import { hostName } from "./hosts";
 
 export type HostTone = "ok" | "warn" | "error";
 
 export interface HostDisplay {
-  /** The ssh target, e.g. `wsl-box` — how the user named the host. */
+  /**
+   * How the user named the host: its ssh target, e.g. `wsl-box`, or a recipe
+   * host's recipe name (ADR-229 D2).
+   */
   target: string;
+  /**
+   * The ssh target, for a host reached at one (`ssh <target>` works from a
+   * terminal). Absent for a host Manor starts from a recipe.
+   */
+  sshTarget?: string;
   /** Anything but connected: the host's panes are read-only. */
   offline: boolean;
   /** Connecting for the first time or after a retry — shown pulsing. */
@@ -72,6 +81,11 @@ const FAILURE_COPY: Record<
     summary: "Connected, but couldn't set Manor up on the host.",
     banner: (target) => `Couldn't set Manor up on ${target}`,
   },
+  recipe: {
+    status: "Couldn't start",
+    summary: "The host's recipe failed. Its output is below.",
+    banner: (target) => `Couldn't start ${target}`,
+  },
 };
 
 /**
@@ -105,7 +119,12 @@ export function describeHost(
   now: number,
 ): HostDisplay | undefined {
   if (!host) return undefined;
-  const target = host.spec?.target ?? host.hostId;
+  const display = describeStatus(host, hostName(host), now);
+  return host.spec?.kind === "ssh" ? { ...display, sshTarget: host.spec.target } : display;
+}
+
+/** `describeHost` for its status alone, `target` naming the host. */
+function describeStatus(host: HostStatusInfo, target: string, now: number): HostDisplay {
   switch (host.status) {
     case "connected": {
       const warnings = host.warnings?.length ? host.warnings.join(" ") : undefined;

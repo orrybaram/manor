@@ -4,7 +4,7 @@ import { liveValue } from "../bridge/resync";
 import { provideHostLookups } from "../bridge/host-lookups";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
-export type HostSpec = { kind: "ssh"; target: string };
+export type HostSpec = { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string };
 
 /** Mirrors `HostStatus` in `electron/backend/registry.ts`. */
 export type HostStatus =
@@ -25,7 +25,7 @@ interface ProviderCapabilities {
 
 /** Mirrors `HostFailure` in `electron/backend/types.ts`. */
 export interface HostFailure {
-  reason: "auth" | "host-key" | "bootstrap";
+  reason: "auth" | "host-key" | "bootstrap" | "recipe";
   code?: string;
   message: string;
 }
@@ -34,6 +34,12 @@ export interface HostFailure {
 export interface HostStatusInfo {
   hostId: string;
   spec: HostSpec | null;
+  /**
+   * How the user names a remote host: its ssh target, or a recipe host's
+   * recipe name (ADR-229 D2). Absent for the local host. Read it through
+   * `hostName` (`lib/hosts.ts`).
+   */
+  label?: string;
   status: HostStatus;
   error?: string;
   failure?: HostFailure;

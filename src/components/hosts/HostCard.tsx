@@ -24,6 +24,7 @@ type HostCardProps = {
 function pendingDisplay(hostId: string): HostDisplay {
   return {
     target: hostId,
+    sshTarget: hostId,
     offline: true,
     busy: true,
     tone: "warn",
@@ -56,7 +57,7 @@ export function HostCard(props: HostCardProps) {
       {children}
       <div className={styles.actions}>
         {remoteId && display?.canRetry && <HostRetryButton hostId={remoteId} />}
-        {display && <CopySshCommand target={display.target} />}
+        {display?.sshTarget && <CopySshCommand target={display.sshTarget} />}
         <span className={styles.spacer} />
         {actions}
       </div>

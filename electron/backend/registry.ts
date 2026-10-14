@@ -31,6 +31,7 @@ import type { HostProxy } from "./host-proxy";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
+import { hostSpecLabel } from "./providers/recipes";
 import type { HostProvider } from "./providers/types";
 import { RemoteBackend } from "./remote-backend";
 import type { BootstrapProgress } from "./remote-bootstrap";
@@ -73,13 +74,19 @@ export type RemoteBackendFactory = (
   },
 ) => RemoteHostBackend;
 
-const defaultCreateProvider: HostProviderFactory = (_hostId, spec, opts) =>
-  createProvider(spec, opts);
+const defaultCreateProvider: HostProviderFactory = (hostId, spec, opts) =>
+  createProvider(spec, { ...opts, hostId });
 
-/** A `RemoteBackend` over the provider's transport. */
+/**
+ * A `RemoteBackend` over the provider's transport. Built at registration,
+ * before anything has brought the box up: for a recipe host (ADR-229 D2)
+ * that transport is the provider's stand-in, which reaches whatever the
+ * last `ensureUp` built. The connection runs `ensureUp` before every
+ * `backend.connect()`, so the backend never dials before there is a way in.
+ */
 const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
   new RemoteBackend({
-    target: spec.target,
+    target: hostSpecLabel(spec),
     version: opts.version,
     transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
@@ -245,6 +252,7 @@ export class BackendRegistry {
       const { provider } = conn;
       return {
         ...info,
+        label: conn.spec ? hostSpecLabel(conn.spec) : conn.hostId,
         ...(this.isAdopted ? { adopted: this.isAdopted(conn.hostId) } : {}),
         providerKind: provider.kind,
         capabilities: { ...provider.capabilities },
@@ -261,13 +269,14 @@ export class BackendRegistry {
   }
 
   /**
-   * How the user names a remote host: its ssh target, as the sidebar does.
-   * Undefined for the local host and unknown ids.
+   * How the user names a remote host: its ssh target, or a recipe host's
+   * recipe name (ADR-229 D2), as the sidebar does. Undefined for the local
+   * host and unknown ids.
    */
   hostDisplayName(hostId: string): string | undefined {
     if (hostId === LOCAL_HOST_ID) return undefined;
-    const target = this.hosts.get(hostId)?.info().spec?.target;
-    return target || undefined;
+    const spec = this.hosts.get(hostId)?.spec;
+    return spec ? hostSpecLabel(spec) || undefined : undefined;
   }
 
   status(hostId: string): HostStatus | undefined {

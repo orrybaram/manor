@@ -4,18 +4,22 @@
  * `ProjectManager`).
  */
 
-import { LOCAL_HOST_ID, type HostSpec } from "../backend/types";
+import { hostSpecLabel } from "../backend/providers/recipes";
+import { isHostSpec, LOCAL_HOST_ID, type HostSpec } from "../backend/types";
 import type { StateStore } from "./state-store";
 
 export class HostRecords {
   constructor(private readonly store: StateStore) {}
 
-  /** Registered remote hosts, in the order they were added. */
+  /**
+   * Registered remote hosts, in the order they were added. A host whose spec
+   * this build doesn't know (a kind from a newer Manor, a hand-edited file)
+   * is left out rather than registered wrong; it stays in the file.
+   */
   list(): Array<{ hostId: string; spec: HostSpec }> {
-    return Object.entries(this.store.state.hosts ?? {}).map(([hostId, host]) => ({
-      hostId,
-      spec: host.spec,
-    }));
+    return Object.entries(this.store.state.hosts ?? {}).flatMap(([hostId, host]) =>
+      isHostSpec(host.spec) ? [{ hostId, spec: host.spec }] : [],
+    );
   }
 
   /** Add a remote host, or replace how an existing one is reached. */
@@ -45,10 +49,14 @@ export class HostRecords {
     this.assertKnown(hostId);
   }
 
-  /** How `hostId` is named in messages: its ssh target, or "this Mac". */
+  /**
+   * How `hostId` is named in messages: its ssh target, a recipe host's
+   * recipe name (ADR-229 D2), or "this Mac".
+   */
   label(hostId: string): string {
     if (hostId === LOCAL_HOST_ID) return "this Mac";
-    return this.store.state.hosts?.[hostId]?.spec.target ?? hostId;
+    const spec = this.store.state.hosts?.[hostId]?.spec;
+    return isHostSpec(spec) ? hostSpecLabel(spec) : hostId;
   }
 
   /**

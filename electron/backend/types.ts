@@ -248,9 +248,11 @@ export type HostConnectionEvent =
  * - `host-key` — the host key is unknown or has changed.
  * - `bootstrap` — the host cannot run the daemon (`code` says why: e.g.
  *   `node-missing`, `unsupported-platform`, `install-failed`).
+ * - `recipe` — the host's recipe failed or said something Manor can't use
+ *   (ADR-229 D2); the message quotes its stderr's tail.
  */
 export interface HostFailure {
-  reason: "auth" | "host-key" | "bootstrap";
+  reason: "auth" | "host-key" | "bootstrap" | "recipe";
   code?: string;
   message: string;
 }
@@ -273,8 +275,21 @@ export type HostId = string;
  * `projects.json`; a `BackendRegistry` turns it into a `WorkspaceBackend`.
  * A discriminated union so other ways of reaching a box (ADR-178's managed
  * providers) are additions, not a migration.
+ *
+ * - `ssh`: a box the user brings, at an ssh target.
+ * - `recipe`: a box Manor starts, stops and deletes with the user's own
+ *   commands in `~/.manor/host-recipes/<recipeId>/` (ADR-229 D2).
  */
-export type HostSpec = { kind: "ssh"; target: string };
+export type HostSpec = { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string };
+
+/** Whether `value` is a `HostSpec` this build knows, e.g. read back from disk. */
+export function isHostSpec(value: unknown): value is HostSpec {
+  if (typeof value !== "object" || value === null) return false;
+  const spec = value as { kind?: unknown; target?: unknown; recipeId?: unknown };
+  if (spec.kind === "ssh") return typeof spec.target === "string" && spec.target !== "";
+  if (spec.kind === "recipe") return typeof spec.recipeId === "string" && spec.recipeId !== "";
+  return false;
+}
 
 // ── Workspace Backend (aggregate) ──
 

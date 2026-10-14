@@ -4,8 +4,12 @@ import { localCtx } from "../../method";
 const statusListeners: Array<(hosts: unknown[]) => void> = [];
 const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = [];
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   hostsAdd,
+  hostsAddRecipeHost,
   hostsHealthCheck,
   hostsPairDevice,
   hostsResetPairingKeys,
@@ -40,6 +44,7 @@ const call =
     (fn as (...args: unknown[]) => unknown)(localCtx(current as never), ...args);
 const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>([
   ["hosts:add", call(hostsAdd)],
+  ["hosts:addRecipeHost", call(hostsAddRecipeHost)],
   ["hosts:retryConnect", call(hostsRetryConnect)],
   ["hosts:healthCheck", call(hostsHealthCheck)],
 ]);
@@ -59,6 +64,7 @@ function makeDeps() {
     register: vi.fn(),
     unregister: vi.fn().mockResolvedValue(undefined),
     connectInBackground: vi.fn(),
+    ensureConnected: vi.fn().mockResolvedValue(undefined),
     retryNow: vi.fn(),
     onHostResumed: vi.fn((cb: (hostId: string, sessionIds: string[]) => void) => {
       resumedListeners.push(cb);
@@ -120,6 +126,62 @@ describe("hosts:add", () => {
     expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.connectInBackground).toHaveBeenCalledWith(result.hostId);
+  });
+});
+
+describe("hosts:addRecipeHost (ADR-229 D2)", () => {
+  let home: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    statusListeners.length = 0;
+    savedHome = process.env.HOME;
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "hosts-recipe-test-"));
+    process.env.HOME = home;
+    const dir = path.join(home, ".manor", "host-recipes", "k8s-dev");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "recipe.json"),
+      JSON.stringify({ schemaVersion: 1, id: "k8s-dev", name: "Dev pod", up: "./up.sh" }),
+    );
+  });
+
+  afterEach(() => {
+    process.env.HOME = savedHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("registers a host for the recipe and connects it, which runs up", () => {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    register(deps as never);
+    const result = handlers.get("hosts:addRecipeHost")!(null, "k8s-dev") as {
+      hostId: string;
+      spec: unknown;
+    };
+    expect(result.spec).toEqual({ kind: "recipe", recipeId: "k8s-dev" });
+    expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
+    expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
+    expect(backendRegistry.ensureConnected).toHaveBeenCalledWith(result.hostId);
+  });
+
+  it("refuses a recipe that isn't in ~/.manor/host-recipes, or an id that leaves it", () => {
+    const { deps, backendRegistry } = makeDeps();
+    register(deps as never);
+    const handler = handlers.get("hosts:addRecipeHost")!;
+    expect(() => handler(null, "nope")).toThrow(/No recipe "nope"/);
+    expect(() => handler(null, "../k8s-dev")).toThrow(/Invalid recipe id/);
+    expect(backendRegistry.register).not.toHaveBeenCalled();
+  });
+
+  it("refuses a recipe another host already uses", () => {
+    const { deps, projectManager } = makeDeps();
+    projectManager.getHosts.mockReturnValue([
+      { hostId: "h1", spec: { kind: "recipe", recipeId: "k8s-dev" } },
+    ]);
+    register(deps as never);
+    expect(() => handlers.get("hosts:addRecipeHost")!(null, "k8s-dev")).toThrow(
+      /Dev pod" already starts a host/,
+    );
   });
 });
 

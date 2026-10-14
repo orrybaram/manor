@@ -37,8 +37,23 @@ export interface ProviderCapabilities {
   autoSleep: boolean;
 }
 
+/** What `HostProvider.status()` says of the box. */
+export interface ProviderStatus {
+  state: ProviderState;
+  detail?: string;
+  /**
+   * The box is gone — deleted outside Manor (ADR-229 D2) — so `state` is
+   * `error`, and the way back is to start it again (`ensureUp`) or remove
+   * the host.
+   */
+  missing?: boolean;
+}
+
 export interface HostProvider {
-  /** `recipe` lands with ADR-229 D2; nothing builds one yet. */
+  /**
+   * How the host was configured: a box the user brings (`ssh`), or one a
+   * recipe starts (`recipe`, ADR-229 D2) — whichever way it is reached.
+   */
   readonly kind: "ssh" | "recipe";
   readonly capabilities: ProviderCapabilities;
   /**
@@ -53,7 +68,7 @@ export interface HostProvider {
    * stops the attempts. Should be cheap; never rejects for a box that is
    * merely away.
    */
-  status(): Promise<{ state: ProviderState; detail?: string }>;
+  status(): Promise<ProviderStatus>;
   /** Whether any agent on the box is working (ADR-229 D7). */
   setBusy?(busy: boolean): void;
   /** Put the box to sleep. Present only with `capabilities.canStop`. */

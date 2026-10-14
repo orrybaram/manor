@@ -2,12 +2,12 @@
  * CommandHostProvider — a box reached through an exec prefix rather than
  * ssh (ADR-229 D3): `kubectl exec -i … --`, `docker exec -i <name>`.
  *
- * Wraps a `CommandTransport`. Nothing builds one from a `HostSpec` yet: the
- * recipe provider (ADR-229 D2) wraps it when a recipe's `up` returns
- * `connection.type: "exec"`, and adds the real lifecycle around it. Here the
- * lifecycle is the no-op one, as for an ssh box: `ensureUp` resolves at once,
- * nothing can be stopped or destroyed, and `status` is the last connect's
- * outcome.
+ * Wraps a `CommandTransport`. Only ever built inside a `RecipeHostProvider`
+ * (ADR-229 D2), when a recipe's `up` returns `connection.type: "exec"`; the
+ * recipe provider is the one the registry holds, and adds the real
+ * lifecycle around this one. Here the lifecycle is the no-op one, as for an
+ * ssh box: `ensureUp` resolves at once, nothing can be stopped or destroyed,
+ * and `status` is the last connect's outcome.
  *
  * Port forwards have no ControlMaster to ride. `forwardPort` listens on a
  * local loopback port and runs one `manor-host port-pipe` child per
@@ -15,6 +15,7 @@
  */
 
 import * as net from "node:net";
+import { basename } from "node:path";
 import type { Duplex } from "node:stream";
 import { errorMessage } from "../../lib/errors";
 import {
@@ -91,7 +92,11 @@ interface CommandForward {
 }
 
 export class CommandHostProvider implements HostProvider {
-  /** Only a recipe hands back an exec prefix (ADR-229 D2). */
+  /**
+   * Only a recipe hands back an exec prefix (ADR-229 D2). Never what
+   * `hosts.list` reports: the registry holds the `RecipeHostProvider`
+   * around this one, whose kind says how the host was configured.
+   */
   readonly kind = "recipe" as const;
   readonly capabilities = COMMAND_CAPABILITIES;
 
@@ -118,7 +123,12 @@ export class CommandHostProvider implements HostProvider {
         // Runs inside every client connect, before the bridge is opened —
         // so connect() installs or upgrades manor-host first, over exec.
         ensureRemoteHost: this.trackingOutcome(
-          opts.ensureRemoteHost ?? remoteHostEnsurer({ onProgress: opts.onBootstrapProgress }),
+          opts.ensureRemoteHost ??
+            remoteHostEnsurer({
+              onProgress: opts.onBootstrapProgress,
+              // A failed channel is kubectl's or docker's, not ssh's.
+              via: basename(argv[0] ?? "exec"),
+            }),
         ),
       });
   }

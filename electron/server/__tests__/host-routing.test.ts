@@ -685,6 +685,15 @@ describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
     expect(sent).toEqual([]);
   });
 
+  it("says a host still coming up is still starting, not offline", async () => {
+    const { routing, wake } = sleepingBox("connecting");
+
+    await expect(
+      routing.invoke("box", "projects", "renameWorkspace", ["box-app", "/w", "x"], WINDOW),
+    ).rejects.toMatchObject({ code: "unavailable:host-away", message: "me@box is still starting" });
+    expect(wake).not.toHaveBeenCalled();
+  });
+
   it("does not wake a host that is merely away", async () => {
     const { routing, wake } = sleepingBox("reconnecting");
 

@@ -84,6 +84,11 @@ export interface HostStatusInfo {
   hostId: string;
   /** How the host is reached; null for the local host. */
   spec: HostSpec | null;
+  /**
+   * How the user names a remote host: its ssh target, or a recipe host's
+   * recipe name (ADR-229 D2). Set on remote hosts by `BackendRegistry.list()`.
+   */
+  label?: string;
   status: HostStatus;
   /** Why the host is in `error`, suitable for display. */
   error?: string;
@@ -147,6 +152,7 @@ type HostState = Omit<
   | "adopted"
   | "providerKind"
   | "capabilities"
+  | "label"
 >;
 
 /**
@@ -621,6 +627,12 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   /**
    * Bring the box up before the backend connects (ADR-229 D1). A background
    * connect asks first, and leaves a sleeping box asleep.
+   *
+   * This order is what lets a recipe host's backend exist before its box
+   * does (ADR-229 D2): the backend's transport only reaches something once
+   * `ensureUp` has run `up` and built the way in, and nothing here dials the
+   * backend before that. A reconnect after a drop rides the way in the last
+   * `ensureUp` built, without running `up` again.
    */
   protected override async bringUp(wake: boolean): Promise<boolean> {
     if (!wake && (await this.providerState()) === "sleeping") return false;

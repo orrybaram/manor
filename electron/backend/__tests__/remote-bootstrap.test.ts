@@ -510,6 +510,16 @@ describe("ensureRemoteHost", () => {
     },
   );
 
+  it("names the exec program, not ssh, when the channel is an exec prefix (ADR-229 D3)", async () => {
+    const { exec } = fakeSsh([[DETECT_COMMAND, fail(255, "error: unable to upgrade connection")]]);
+    const err = await ensureRemoteHost("Dev pod", "0.13.2", exec, { ...baseOpts, via: "kubectl" }).catch(
+      (e) => e,
+    );
+    expect(err).not.toBeInstanceOf(RemoteBootstrapError);
+    expect(err.message).toMatch(/^kubectl for Dev pod failed while bootstrapping \(exit 255/);
+    expect(err.message).not.toContain("ssh");
+  });
+
   it("names the Node requirement when node is missing", async () => {
     const { exec } = fakeSsh([
       [DETECT_COMMAND, ok("Linux x86_64\n")],

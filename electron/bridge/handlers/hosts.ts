@@ -13,6 +13,7 @@
 import crypto from "node:crypto";
 import { assertBoolean, assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
+import { assertRecipeId, readRecipe } from "../../backend/providers/recipes";
 import type { HostStatusInfo } from "../../backend/registry";
 import {
   runHealthChecks,
@@ -59,6 +60,38 @@ export function hostsAdd(
   return { hostId, spec };
 }
 
+/**
+ * Register a host Manor starts from recipe `recipeId` (ADR-229 D2) and
+ * connect it: the connect runs the recipe's `up`, its stderr lines showing
+ * as the host's progress. The recipe is read from `~/.manor/host-recipes/`
+ * and nowhere else, and must be valid; a recipe already used by another
+ * host is refused, since a recipe's state belongs to one host.
+ */
+export function hostsAddRecipeHost(
+  ctx: HandlerCtx<ServerDeps>,
+  recipeId: string,
+): { hostId: string; spec: { kind: "recipe"; recipeId: string } } {
+  const { deps } = ctx;
+  assertString(recipeId, "hosts:addRecipeHost.recipeId");
+  assertRecipeId(recipeId);
+  const recipe = readRecipe(recipeId);
+  const taken = deps.projectManager
+    .getHosts()
+    .find(({ spec }) => spec.kind === "recipe" && spec.recipeId === recipeId);
+  if (taken) {
+    throw new Error(`The recipe "${recipe.name}" already starts a host.`);
+  }
+  const hostId = crypto.randomUUID();
+  const spec = { kind: "recipe" as const, recipeId };
+  deps.projectManager.saveHost(hostId, spec);
+  deps.backendRegistry.register(hostId, spec);
+  // A connect somebody means: it runs `up` even for a box asleep.
+  deps.backendRegistry.ensureConnected(hostId).catch(() => {
+    // Reported through the host's status.
+  });
+  return { hostId, spec };
+}
+
 export function hostsRetryConnect(
   ctx: HandlerCtx<ServerDeps>,
   hostId: string,
@@ -68,29 +101,40 @@ export function hostsRetryConnect(
 }
 
 /**
- * How long `hosts.wake` waits for the host to come up before answering
- * anyway: a box that takes longer goes on starting, and its status says how
- * far it got (ADR-229 D1).
+ * How long `hosts.wake` waits for the host to come up before answering that
+ * it is still starting: a box that takes longer goes on starting, and its
+ * status says how far it got (ADR-229 D1).
  */
 const HOST_WAKE_WAIT_MS = 2 * 60_000;
 
 /**
- * Wake `hostId` and connect it (ADR-229 D1). Answers once it is connected,
- * or after `HOST_WAKE_WAIT_MS` with the box still starting; rejects when it
- * cannot be brought up. A host that is awake already answers at once.
+ * Wake `hostId` and connect it (ADR-229 D1). Answers once it is connected;
+ * rejects when it cannot be brought up, or with "<host> is still starting"
+ * when `HOST_WAKE_WAIT_MS` passes with the box still coming up — a recipe's
+ * `up` may take 15 minutes (ADR-229 D2). The start goes on either way, its
+ * progress in the host's status. A host that is awake already answers at
+ * once.
  */
 async function hostsWake(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<void> {
   assertString(hostId, "hosts:wake.hostId");
+  const registry = ctx.deps.backendRegistry;
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   try {
     await Promise.race([
-      ctx.deps.backendRegistry.wake(hostId),
+      registry.wake(hostId),
       new Promise<void>((resolve) => {
-        timer = setTimeout(resolve, HOST_WAKE_WAIT_MS);
+        timer = setTimeout(() => {
+          timedOut = true;
+          resolve();
+        }, HOST_WAKE_WAIT_MS);
       }),
     ]);
   } finally {
     clearTimeout(timer);
+  }
+  if (timedOut && registry.status(hostId) === "connecting") {
+    throw new Error(`${registry.hostDisplayName(hostId) ?? hostId} is still starting.`);
   }
 }
 
@@ -317,6 +361,9 @@ export function wireHostBroadcasts(
 export const hosts = {
   list: method(hostsList),
   add: method(hostsAdd, { mutating: true }),
+  // Runs the user's own recipe commands on this machine (ADR-229 D2): the
+  // desktop user's call alone, and home's to answer.
+  addRecipeHost: method(hostsAddRecipeHost, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   retryConnect: method(hostsRetryConnect, { mutating: true }),
   // A phone wakes a sleeping host through its home desktop (ADR-229 D7), so
   // `wake` is a `full` device's too: like `retryConnect`, it only connects

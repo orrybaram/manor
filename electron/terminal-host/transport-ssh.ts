@@ -77,6 +77,20 @@ export interface SshTransportOptions {
   handshakeTimeoutMs?: number;
   /** Parent directory for the managed ssh config. For tests. */
   configBaseDir?: string;
+  /**
+   * A `Host <target>` block put first in the managed config, read each time
+   * the config is created: a recipe host's address and its own known_hosts
+   * (ADR-229 D2, `renderHostStanza`). Absent for a plain ssh box.
+   */
+  hostStanza?: () => string;
+  /** How messages name the box. Defaults to the target. */
+  label?: string;
+  /**
+   * The wording of a host-key refusal, for a box whose keys Manor manages
+   * (ADR-229 D2). Defaults to telling the user to accept the key from a
+   * terminal.
+   */
+  hostKeyMessage?: (stderr: string) => string;
 }
 
 const REMOTE_HANDSHAKE_TIMEOUT_MS = 60_000;
@@ -88,6 +102,10 @@ export class SshTransport implements HostTransport {
   private readonly spawnFn: SshSpawn;
   private readonly ensureRemoteHost: EnsureRemoteHost;
   private readonly configBaseDir: string | undefined;
+  private readonly hostStanza: (() => string) | undefined;
+  private readonly hostKeyMessage: ((stderr: string) => string) | undefined;
+  /** How messages name the box. */
+  private readonly label: string;
   private config: ManagedSshConfig | null = null;
   private token: string | null = null;
   /** Spawns, tracks and reads every ssh child but the ControlMaster's own. */
@@ -108,6 +126,9 @@ export class SshTransport implements HostTransport {
     this.ensureRemoteHost = opts.ensureRemoteHost ?? (async () => {});
     this.handshakeTimeoutMs = opts.handshakeTimeoutMs ?? REMOTE_HANDSHAKE_TIMEOUT_MS;
     this.configBaseDir = opts.configBaseDir;
+    this.hostStanza = opts.hostStanza;
+    this.hostKeyMessage = opts.hostKeyMessage;
+    this.label = opts.label ?? target;
     this.spawner = new BridgeSpawner({
       spawn: this.spawnFn,
       // `managedConfig()` throws once disposed, so nothing spawns then.
@@ -115,7 +136,7 @@ export class SshTransport implements HostTransport {
         "ssh",
         ...buildSshArgs(this.managedConfig().configPath, this.target, command),
       ],
-      label: target,
+      label: this.label,
       program: "ssh",
       handshakeTimeoutMs: this.handshakeTimeoutMs,
       exitError: (code, stderr) => this.exitError(code, stderr),
@@ -129,7 +150,9 @@ export class SshTransport implements HostTransport {
     if (this.disposed) {
       throw new Error(`ssh transport to ${this.target} has been disposed`);
     }
-    if (!this.config) this.config = createManagedSshConfig(this.configBaseDir);
+    if (!this.config) {
+      this.config = createManagedSshConfig(this.configBaseDir, this.hostStanza?.());
+    }
     return this.config;
   }
 
@@ -174,7 +197,7 @@ export class SshTransport implements HostTransport {
 
   async ensureRunning(version?: string): Promise<void> {
     this.managedConfig();
-    await this.ensureRemoteHost(this.target, version, (command, opts) =>
+    await this.ensureRemoteHost(this.label, version, (command, opts) =>
       this.exec(command, opts),
     );
   }
@@ -264,10 +287,10 @@ export class SshTransport implements HostTransport {
   /** Translate an ssh child that exited before its hello into a useful error. */
   private exitError(code: number | null, stderr: string): Error {
     if (isRemoteAuthError(stderr)) return new SshAuthError(this.target, stderr);
-    if (isHostKeyError(stderr)) return new SshHostKeyError(this.target, stderr);
+    if (isHostKeyError(stderr)) return this.hostKeyError(stderr);
     const detail = stderr.trim();
     return new Error(
-      `ssh to ${this.target} exited (code ${code ?? "unknown"}) before manor-host answered` +
+      `ssh to ${this.label} exited (code ${code ?? "unknown"}) before manor-host answered` +
         (detail ? `: ${detail}` : ""),
     );
   }
@@ -280,8 +303,12 @@ export class SshTransport implements HostTransport {
       throw new SshAuthError(this.target, stderr);
     }
     if (code === 255 && isHostKeyError(stderr)) {
-      throw new SshHostKeyError(this.target, stderr);
+      throw this.hostKeyError(stderr);
     }
     return result;
+  }
+
+  private hostKeyError(stderr: string): SshHostKeyError {
+    return new SshHostKeyError(this.target, stderr, this.hostKeyMessage?.(stderr));
   }
 }

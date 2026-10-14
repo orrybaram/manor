@@ -465,7 +465,7 @@ export class HostRouting implements BridgeForward {
    * Wake `hostId` if its box is asleep (ADR-229 D1), and wait — at most
    * `WAKE_WAIT_MS` — for it to connect. Never rejects: a host that did not
    * wake in time, or could not, is away, and the call then refuses as for
-   * any host away.
+   * any host away — "still starting" while its start goes on (`refusal`).
    */
   private async wakeIfAsleep(hostId: string): Promise<void> {
     const { registry } = this.opts;
@@ -485,12 +485,19 @@ export class HostRouting implements BridgeForward {
     }
   }
 
-  /** A host that is away, or that refused, as the bridge answers it. */
+  /**
+   * A host that is away, or that refused, as the bridge answers it. A host
+   * still coming up — a woken box whose start outlasted `WAKE_WAIT_MS`, a
+   * recipe's `up` may take 15 minutes (ADR-229 D2) — is away, but says so.
+   */
   private refusal(proxy: HostProxy, err: unknown): unknown {
     if (!(err instanceof HostServerUnavailableError)) return err;
-    return err.state === "refused"
-      ? new BridgeUnavailableRefusal(err.message, UNAVAILABLE_HOST_CODE)
-      : new BridgeUnavailableRefusal(`${proxy.label} is offline`, UNAVAILABLE_HOST_AWAY_CODE);
+    if (err.state === "refused") return new BridgeUnavailableRefusal(err.message, UNAVAILABLE_HOST_CODE);
+    const starting = this.opts.registry.status?.(proxy.hostId) === "connecting";
+    return new BridgeUnavailableRefusal(
+      `${proxy.label} is ${starting ? "still starting" : "offline"}`,
+      UNAVAILABLE_HOST_AWAY_CODE,
+    );
   }
 
   /** `hostId` when calls for it go to its server; null when they stay here. */

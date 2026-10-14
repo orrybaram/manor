@@ -19,6 +19,7 @@ import {
   type EnsureRemoteHost,
   type SshChild,
   type SshSpawn,
+  type SshTransportOptions,
 } from "../../terminal-host/transport-ssh";
 import { remoteHostEnsurer, type BootstrapProgress } from "../remote-bootstrap";
 import type { HostProvider, PortForward, ProviderCapabilities, ProviderState } from "./types";
@@ -91,6 +92,14 @@ export interface SshHostProviderOptions {
   ensureRemoteHost?: EnsureRemoteHost;
   /** Where the transport's managed ssh config goes. For tests. */
   configBaseDir?: string;
+  /**
+   * For a recipe host reached over ssh (ADR-229 D2): its own `Host` block,
+   * how messages name it, and how a host-key refusal reads. See
+   * `SshTransportOptions`.
+   */
+  hostStanza?: SshTransportOptions["hostStanza"];
+  label?: string;
+  hostKeyMessage?: SshTransportOptions["hostKeyMessage"];
   /** Spawns the `ssh -O` control commands. Defaults to `child_process.spawn`. */
   spawn?: SshSpawn;
   /** Picks the local end of a forward. For tests. */
@@ -142,6 +151,9 @@ export class SshHostProvider implements HostProvider {
           opts.ensureRemoteHost ?? remoteHostEnsurer({ onProgress: opts.onBootstrapProgress }),
         ),
         configBaseDir: opts.configBaseDir,
+        hostStanza: opts.hostStanza,
+        label: opts.label,
+        hostKeyMessage: opts.hostKeyMessage,
       });
     this.spawnFn = opts.spawn ?? defaultSpawn;
     this.findFreePort = opts.findFreePort ?? findFreeLocalPort;

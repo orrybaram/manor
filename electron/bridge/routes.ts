@@ -226,6 +226,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   // provider (ADR-229 D1). A phone wakes a host through home (D7).
   "hosts.wake": "home",
   "hosts.stop": "home",
+  // Recipes live on the desktop that runs them (ADR-229 D2).
+  "hosts.addRecipeHost": "home",
 };
 
 /**

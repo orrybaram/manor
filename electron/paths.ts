@@ -315,6 +315,22 @@ export function hostCacheFile(hostId: string, dir: string = hostCacheDir()): str
   return path.join(dir, `${hostId.replace(/[^A-Za-z0-9._-]/g, "_")}.json`);
 }
 
+/**
+ * The user's host recipes (ADR-229 D2): `<recipeId>/recipe.json` and its
+ * scripts. Recipes are only ever read from here — never from a repository.
+ */
+export function hostRecipesDir(): string {
+  return path.join(manorHomeDir(), "host-recipes");
+}
+
+/**
+ * Each recipe host's own `known_hosts` (ADR-229 D2): `<hostId>` holds the
+ * one key Manor trusts for it.
+ */
+export function hostKnownHostsDir(): string {
+  return path.join(manorHomeDir(), "ssh", "known_hosts.d");
+}
+
 export function worktreesDir(): string {
   return path.join(manorHomeDir(), "worktrees");
 }

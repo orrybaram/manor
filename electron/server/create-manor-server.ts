@@ -82,7 +82,7 @@ import { PushManager, type VapidKeys } from "../remote-control/push";
 import { RelayIdentityStore } from "../remote-control/relay/identity";
 import { createBroadcastBus, type BroadcastBus } from "../renderer-broadcast";
 import { StatsStore } from "../stats-store";
-import { countBusyAgents } from "../stats-signals";
+import { countBusyAcross } from "../stats-signals";
 import { TerminalHostClient } from "../terminal-host/client";
 import { LayoutPersistence } from "../terminal-host/layout-persistence";
 import type { ConnectionListener } from "../terminal-host/reconnect-supervisor";
@@ -542,6 +542,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       else set.delete(agent.id);
     }
     notifier.updateDockBadge();
+    // Remote hook events no longer reach `observeHookEvent`, so the busy
+    // gauge is sampled here, once the proxy holds the update (ADR-230 D14).
+    statsStore.recordMax("maxConcurrentAgents", countBusyAcross(agentManager, routing));
     const status = agent.lastAgentStatus;
     const was = previous?.lastAgentStatus ?? null;
     if (status && status !== was) {
@@ -600,7 +603,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       statsStore.observeHookEvent(
         event,
         effects,
-        countBusyAgents(agentManager.getActiveAgents()),
+        countBusyAcross(agentManager, routing),
         isRootSession,
         replacedRootSessionId,
       );

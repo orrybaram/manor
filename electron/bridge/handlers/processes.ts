@@ -34,8 +34,10 @@ export async function processesKillSession(
   sessionId: string,
 ): Promise<void> {
   assertString(sessionId, "sessionId");
-  const { backend, agentManager, statsStore } = ctx.deps;
-  const agent = agentManager.getAgentByPaneId(sessionId);
+  const { backend, agentManager, statsStore, hostRouting } = ctx.deps;
+  const agent =
+    agentManager.getAgentByPaneId(sessionId) ??
+    hostRouting?.agents().find((a) => a.paneId === sessionId);
   if (agent)
     for (const counter of killCounters(agent)) statsStore.record(counter);
   try {
@@ -60,8 +62,8 @@ export function processesRestartPortless(): Promise<void> {
 }
 
 export function processesKillAll(ctx: HandlerCtx<ServerDeps>): Promise<void> {
-  const { backend, agentManager, statsStore, portScanner } = ctx.deps;
-  return killAllProcesses({ backend, agentManager, statsStore, portScanner });
+  const { backend, agentManager, statsStore, portScanner, hostRouting } = ctx.deps;
+  return killAllProcesses({ backend, agentManager, statsStore, portScanner, hostRouting });
 }
 
 // A session, the daemon or the portless proxy dying is exactly "moves state

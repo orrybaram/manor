@@ -11,6 +11,20 @@ import type { AgentHookEvent } from "./agent-hook-events";
 import type { Effect } from "./agent-status/types";
 import type { StatCounter, StatGauge } from "./stats-store";
 
+type AgentLike = { status: string; lastAgentStatus: string | null };
+
+/**
+ * The busy count over the desktop's own agents and every adopted host's
+ * (ADR-230 D14): remote hook events no longer reach the desktop, so the
+ * host proxies' agents are read alongside.
+ */
+export function countBusyAcross(
+  local: { getActiveAgents(): readonly AgentLike[] },
+  remote: { agents(): readonly AgentLike[] } | null | undefined,
+): number {
+  return countBusyAgents([...local.getActiveAgents(), ...(remote?.agents() ?? [])]);
+}
+
 /**
  * Agent statuses that make a termination a *kill*: any live agent that has
  * reported a status. Finished (`responded`, `idle`) agents count too — closing

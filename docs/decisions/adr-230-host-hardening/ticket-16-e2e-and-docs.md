@@ -58,3 +58,30 @@ the ADR.
 - `tests/e2e/remote-host/**`, `scripts/test-remote-e2e.mjs` (only if needed), the recipe fixtures
 - `docs/remote-hosts.md`
 - `docs/decisions/adr-227-*/index.md`, `adr-228-*/index.md`, `adr-229-*/index.md`, `adr-230-*/index.md`
+
+## Carried over from earlier tickets
+
+Record these in ADR-230's "Known limits as built", and in the decisions they
+change:
+- **Ticket 1.** `forwarded` excludes owner connections whose `viewer` is
+  `"desktop"`, because a desktop viewer stream is an owner connection too.
+  Update D1's wording.
+- **Ticket 2.**
+  - The autoSleep check lives in `RecipeHostProvider.refresh()`.
+  - A declined refresh counts as this drop's re-run.
+  - Callers joining an in-flight `ensureUp` don't get its progress lines.
+- **Ticket 11.**
+  - `pendingMints` is a list, not one slot.
+  - Mints still in flight are never reconciled.
+  - `createdAt` matching allows 10 min of clock skew.
+  - Linked pairings now show a 6-hex suffix in the host's device list,
+    e.g. "Orry's phone (a1b2c3)". Note it.
+  - A reset made from elsewhere is caught by the room check. A link pointing
+    at the old room is still only replaced on the phone's next hello.
+- **Ticket 12.**
+  - Phone-mode tests must sit last in `auto-join.test.ts` and
+    `project-store-transfer.test.ts`, because a home server can't be removed
+    from the server set.
+  - Rows inside `ProjectSetUpOnSection`'s map and `TasksView`'s memo don't
+    re-render on a pairing change alone.
+- **Ticket 15.** `withWorkspaceHost` now returns a plain body.

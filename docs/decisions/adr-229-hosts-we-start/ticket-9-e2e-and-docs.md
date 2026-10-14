@@ -1,6 +1,6 @@
 ---
 title: E2E and docs
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [1, 2, 3, 4, 5, 6, 7, 8]
@@ -13,6 +13,13 @@ and the e2e notes for this WSL box in memory (DISPLAY, Node 22,
 pre-existing failures).
 
 ## E2E
+
+**Docker on this machine** is reachable only through the `docker` group,
+which the running shell doesn't have yet: run docker commands, and the
+harness, via `sg docker -c '…'`. The reference image is already built as
+`manor-host:local` (the harness should build `manor-host:e2e` itself).
+Clean up every container, volume and image the E2E creates, except the
+image.
 
 Add a `--recipe` mode to `scripts/test-remote-e2e.mjs`. It builds
 `docker/host-image` as `manor-host:e2e` and needs Docker; skip it with a
@@ -95,6 +102,15 @@ Record failures that also fail on main.
     (ticket 7);
   - the Kubernetes template's scripts were syntax-checked only, never run
     (ticket 7);
+  - **ticket 8:**
+    - "Remove from Manor" without destroy drops the recipe's `resource`,
+      so re-adding the same recipe may build a second box and leave the
+      old one running. Say so in recipes.md.
+    - Removing a host also removes this desktop's project records on it,
+      and their groups shrink or dissolve.
+    - The `loginctl` hint guesses the user name;
+  - `exec-runner.test.ts` ("escalates to SIGKILL") flaked once under load
+    (elapsed below its 1.5 s floor). It is untouched by this ADR;
   - the real `systemctl --user` test is gated behind `MANOR_TEST_SYSTEMD=1`
     and wasn't run, because install turns on lingering for the account.
 

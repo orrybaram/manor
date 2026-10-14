@@ -277,9 +277,13 @@ export class BridgeServer<D extends BridgeServerDeps> {
         // Dropped while the handler ran: anything it attached for this
         // connection (a pane viewer, by `pty.create`) was attached after
         // `drop` released it, so release it again — unless a new connection
-        // has taken the id meanwhile.
+        // has taken the id meanwhile. Disconnect sinks hear of it again for
+        // the same reason (a watch start would otherwise leave a set behind
+        // for an id that never disconnects again, ADR-230 D6), so they must
+        // treat a repeated id as harmless.
         if (!this.connections.has(connection.id)) {
           releaseViewer(connection.id);
+          for (const cb of this.disconnectSinks) cb(connection.id);
         }
         return result;
       }

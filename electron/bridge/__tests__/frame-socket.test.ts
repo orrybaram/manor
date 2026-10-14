@@ -281,4 +281,45 @@ describe("BridgeServer.receive", () => {
     expect(ran).toBe(1);
     server.dispose();
   });
+
+  it("tells disconnect sinks of a connection that dropped while a handler ran", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const server = new BridgeServer(deps, {
+      table: {
+        ...DESKTOP_TABLE,
+        handlers: {
+          "test.slow": (async () => {
+            await gate;
+            return "late";
+          }) as BridgeHandler<HostDeps>,
+        },
+      },
+      events: addRendererBroadcastSink,
+    });
+    const connection = {
+      id: "c-1",
+      callerClass: "device" as const,
+      deviceId: "dev-1",
+      deviceLabel: "Phone",
+      send: () => {},
+    };
+    const told: string[] = [];
+    server.onDisconnect((id) => told.push(id));
+    server.accept(connection);
+    const pending = server.receive(connection, {
+      id: "1",
+      kind: "invoke",
+      ns: "test",
+      method: "slow",
+      args: [],
+    });
+    server.drop(connection.id);
+    expect(told).toEqual(["c-1"]);
+    release();
+    await pending;
+    // Told again, so a set the handler added after the drop is cleared.
+    expect(told).toEqual(["c-1", "c-1"]);
+    server.dispose();
+  });
 });

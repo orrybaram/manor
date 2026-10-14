@@ -73,6 +73,23 @@ ADR-229 D7 (phone) and D8 (UI). Follow `.claude/rules/ui-components.md`: use
 - **Status bar and `HostIndicator`.** Asleep gets its own icon and tone:
   calm, not an error.
 
+## Carried over from ticket 4
+
+- **`missing` doesn't reach the renderer yet.** It is on the provider's
+  status result (`ProviderStatus.missing`), but not on `HostStatusInfo`.
+  Plumb it through `registry.list()` for "\<name\> no longer exists" /
+  **Start it again**.
+- **Remove with destroy** must also delete `host.json` (Manor's record of the
+  `resource` and last state), which lives in the recipe dir. Deleting the
+  dir covers it. "Remove from Manor" without destroy should drop that
+  hostId's entry from it.
+- **Auth-failure wording for SSH recipe hosts.** `SshAuthError` says "Verify
+  that `ssh manor-<uuid>` works from a terminal". That alias exists only in
+  Manor's own config. Pass a recipe-specific message, as `hostKeyMessage` is
+  passed.
+- **There is no preload binding for `hosts.addRecipeHost` yet.** Add it with
+  the rest of the UI.
+
 ## Tests
 
 - Component tests where the repo has them for settings sections. Cover:

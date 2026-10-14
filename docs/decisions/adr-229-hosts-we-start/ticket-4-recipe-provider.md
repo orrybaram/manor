@@ -1,6 +1,6 @@
 ---
 title: The recipe provider
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1, 2]

@@ -50,6 +50,11 @@ and acted on from the box and from the desktop.
     Mac is awake". To know about the hook, the host server reports
     `hooks: {onBusy: boolean, onIdle: boolean}` in its status.
 
+## Carried over from ticket 4
+
+- `RecipeHostProvider` already stores `busy` from `setBusy` (unused). The
+  idle stop should read it there.
+
 ## Tests
 
 - Busy debounce: active → busy now; idle → busy false after 60 s; flap

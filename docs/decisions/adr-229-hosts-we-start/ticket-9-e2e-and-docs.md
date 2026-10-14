@@ -65,7 +65,22 @@ Record failures that also fail on main.
   - `MANOR_INSTANCE_ID`.
 - **`CONTEXT.md`:** add **Recipe**, **Supervisor** and **Asleep** to the
   glossary if they aren't there.
-- **ADR-229 `index.md`:** add "Known limits as built", and set
+- **ADR-229 `index.md`:** add "Known limits as built". Candidates gathered
+  so far:
+  - restoring the visible workspace's panes at launch wakes a sleeping host
+    (ticket 1);
+  - a wake waits 2 min, then answers "\<name\> is still starting" while
+    `up` runs on (ticket 4);
+  - a reconnect after a drop reuses the last way in and doesn't re-run `up`,
+    so a re-addressed box recovers only on the next full connect or wake
+    (ticket 4);
+  - port-pipe drops half-closed connections (ticket 2);
+  - two tests (mirror, branch-watcher) were fixed for load timing in
+    c2a0bafe.
+
+  Also document `MANOR_SECRET_KEY` / `MANOR_SECRET_KEY_FILE` at the
+  "encrypting-pairing-keys" anchor that `HostPhoneAccess` links to (ticket
+  3). Then add, and set
   `status: accepted` after integration verification.
 
 ## Files to touch

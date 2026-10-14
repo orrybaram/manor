@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 
-import { useHostServerHarness } from "./harness";
+import { eventually, useHostServerHarness } from "./harness";
 import { ownerTokenAuthenticator } from "../socket";
 import { HostServerUnavailableError } from "../../backend/host-server-client";
 import type { HostServerStatus } from "../relay";
@@ -62,6 +62,21 @@ describe("the owner channel (ADR-225 D4)", () => {
     expect(h.relay.liveHost?.roomId).toBe(status.roomId);
     const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
     expect(paired.pairingUrl).toContain(`#relay=${status.roomId}.`);
+  });
+
+  it("reports a phone's pane or chat subscription as viewing.device (ADR-230 D1)", async () => {
+    const server = await h.serve();
+    await h.relayUp(server);
+    const client = await h.owner();
+    const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+    const phone = await h.phone(paired.pairingUrl);
+    const viewing = async () =>
+      (await client.invoke<HostServerStatus>("hostServer", "status")).viewing;
+    expect(await viewing()).toEqual({ desktop: false, device: false, forwarded: false });
+
+    phone.viewer.send({ kind: "subscribe", ns: "pty", event: "output", key: "p1" });
+    await eventually(viewing, (v) => v?.device === true, "the phone watching", 3_000);
+    expect(await viewing()).toEqual({ desktop: false, device: true, forwarded: false });
   });
 
   it("names itself in the hello by the box's own name", async () => {

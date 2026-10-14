@@ -1,6 +1,6 @@
 ---
 title: Desktop renderer talks to host servers directly, terminals included
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: [3, 4]

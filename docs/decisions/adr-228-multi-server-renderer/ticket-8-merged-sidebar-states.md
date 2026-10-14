@@ -36,3 +36,9 @@ ADR-228 D3 (groups) and D8 (one sidebar).
   `src/components/hosts/HostIndicator.tsx`
 - `src/utils/sidebar-items.ts`, `src/lib/host-status.ts`
 - tests next to them
+
+## Carried over from ticket 5
+- `ProjectGroupItem` and `home-dashboard-studio` still call `isHostOffline`
+  without direct reachability, so they don't re-render on server-set
+  changes. Switch them to `sourcedHost` / `useDirectReachability`
+  (`src/lib/host-status.ts`, `src/bridge/server-set.ts`).

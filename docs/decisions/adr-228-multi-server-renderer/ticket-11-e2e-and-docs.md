@@ -38,3 +38,11 @@ ADR-228, all decisions.
 - `CONTEXT.md`, `docs/remote-hosts.md`
 - `docs/decisions/adr-228-multi-server-renderer/index.md`
 - `e2e/` as needed
+
+## Carried over from ticket 5
+- `remote-host.spec.ts` "remote restart" fails when it runs after another
+  test in that serial file, because the box keeps the adopted project and
+  there is no onboarding button. It fails on the base too. Add a `beforeEach`
+  box reset. "ports" then runs too.
+- `host-server.spec` and `host-ownership.spec` need `pnpm build:web:relay`
+  first.

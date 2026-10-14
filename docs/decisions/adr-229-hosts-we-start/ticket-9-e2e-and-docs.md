@@ -30,7 +30,10 @@ or Playwright (whichever the harness already uses for each kind):
    host server comes back with no desktop connect: its relay room is
    reachable, and `hostServer.status()` over a fresh `server-bridge` shows
    the same `roomId`. The `key-file` backend is in use, and the key is
-   outside the volume.
+   outside the volume. **Launch an agent after the restart** and check it
+   starts. Under a supervisor the daemon gets a minimal environment, and
+   only the PTY's login shell (`-l`) restores the user's PATH (ticket 5
+   follow-up).
 3. **Stop and wake.**
    - `hosts.stop` → status `sleeping`, and no reconnect attempts for 10 s.
    - A routed write (create a workspace) wakes it and succeeds.
@@ -76,7 +79,12 @@ Record failures that also fail on main.
     (ticket 4);
   - port-pipe drops half-closed connections (ticket 2);
   - two tests (mirror, branch-watcher) were fixed for load timing in
-    c2a0bafe.
+    c2a0bafe, and mirror's `until()` again in ticket 5;
+  - turning the switch on doesn't move running processes under the
+    supervisor: install only enables, and the supervisor takes over at the
+    next restart or boot. Turning it off never stops anything (ticket 5);
+  - the real `systemctl --user` test is gated behind `MANOR_TEST_SYSTEMD=1`
+    and wasn't run, because install turns on lingering for the account.
 
   Also document `MANOR_SECRET_KEY` / `MANOR_SECRET_KEY_FILE` at the
   "encrypting-pairing-keys" anchor that `HostPhoneAccess` links to (ticket

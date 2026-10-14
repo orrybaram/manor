@@ -87,6 +87,10 @@ ADR-229 D7 (phone) and D8 (UI). Follow `.claude/rules/ui-components.md`: use
   that `ssh manor-<uuid>` works from a terminal". That alias exists only in
   Manor's own config. Pass a recipe-specific message, as `hostKeyMessage` is
   passed.
+- **Ticket 5:** `HostServerView` has `supervisor`, but not the persisted
+  `supervise` flag (`PersistedHost.supervise`). Expose it for the switch's
+  state. `hosts.setSupervised` needs the host reachable; disable the switch
+  while it's away.
 - **There is no preload binding for `hosts.addRecipeHost` yet.** Add it with
   the rest of the UI.
 

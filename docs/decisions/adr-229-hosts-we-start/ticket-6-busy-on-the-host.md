@@ -1,6 +1,6 @@
 ---
 title: The host decides when it is busy
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [1, 4]

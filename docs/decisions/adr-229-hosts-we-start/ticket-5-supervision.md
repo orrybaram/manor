@@ -1,6 +1,6 @@
 ---
 title: Supervision that survives a reboot
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1, 2]

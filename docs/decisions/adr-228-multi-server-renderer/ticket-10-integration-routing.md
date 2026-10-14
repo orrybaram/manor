@@ -1,6 +1,6 @@
 ---
 title: Integrations pick their server per call
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4, 7]

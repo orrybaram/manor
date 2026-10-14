@@ -1,6 +1,6 @@
 ---
 title: E2E pass, glossary and docs
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [5, 6, 8, 9, 10]
@@ -101,3 +101,17 @@ ADR-228, all decisions.
 - Known limit: a host-server reset mid-mint can leave the minted host
   device unlinked.
 - `docs/remote-hosts.md#testing` should list `phone-linked-hosts.spec.ts`.
+
+## Carried over from ticket 10
+- E2E coverage for D10: a phone with Linear only on the desktop (call
+  delegated to the desktop), and the refusal text when the desktop is away.
+  Use a fake/stubbed Linear if the suites already have one; otherwise cover
+  routing with the `isConnected` answer only and say so.
+- Known limits: settings and wizard Linear calls (`getViewer`, `getTeams`,
+  `autoMatch`) pass no host, so they use browse order (home first).
+- Delegated `linear.*` methods: `getViewer`, `getTeams`, `getMyIssues`,
+  `getAllIssues`, `getIssueDetail`, `proxyImage`, `autoMatch`, `startIssue`,
+  `closeIssue`. `connect`/`isConnected`/`disconnect` are home. Refusal is
+  `unavailable:host`. Code in `src/bridge/linear-servers.ts`.
+- The refusal wording differs on desktop ("...and Linear isn't connected on
+  This Mac") vs phone ("...and <desktop> is away"); note in D10.

@@ -1,6 +1,6 @@
 /**
- * The `docker` template (ADR-229 D8): a container on a local or remote
- * Docker daemon, its home directory a named volume, reached over
+ * The `docker` template (ADR-229 D8): a container on a local Docker daemon,
+ * its home directory a named volume, reached over
  * `docker exec -i -u manor`. The cheapest way to try the feature.
  *
  * The scripts keep stdout for the one JSON object (fd 3); the container is
@@ -179,14 +179,15 @@ echo '{}' >&3
 export const dockerTemplate: RecipeTemplate = {
   id: "docker",
   name: "Docker container",
-  description: "A container on a local or remote Docker daemon, with a named volume for its home directory.",
+  description: "A container on this computer's Docker daemon, with a named volume for its home directory.",
   fields: [
     { key: "name", label: "Container name", default: shortName, required: true },
     { key: "image", label: "Image", default: "manor-host:local", required: true },
     {
       key: "context",
       label: "Docker context",
-      description: "Optional. Leave blank for the default context.",
+      description:
+        "Optional, such as colima or desktop-linux. Blank for the default. Must be a daemon on this computer: the key file is bind-mounted.",
     },
   ],
   files: {

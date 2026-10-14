@@ -74,4 +74,4 @@ export const NAME_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 /** An image reference: no whitespace or shell metacharacters. */
 export const IMAGE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._\-/:@]{0,254}$/;
 /** A docker or kubectl context name. */
-export const CONTEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._@:/\-]{0,127}$/;
+export const CONTEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._@:/-]{0,127}$/;

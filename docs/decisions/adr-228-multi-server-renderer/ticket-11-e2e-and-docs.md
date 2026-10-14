@@ -46,3 +46,21 @@ ADR-228, all decisions.
   box reset. "ports" then runs too.
 - `host-server.spec` and `host-ownership.spec` need `pnpm build:web:relay`
   first.
+
+## Carried over from ticket 6 (commit c0ac3065): candidates for "Known limits as built"
+- **Callers routed through main share one host viewer.** Every caller main
+  forwards for a remote pane (phones on the desktop, a window falling back)
+  uses main's owner channel. They all get the same `winsizeOwner` and can
+  fight over resizes, because main doesn't rank its own callers for remote
+  panes.
+- **A claim on a remote tab** that leaves the host's tree isn't dropped on
+  main (`dropClaimsOnGoneTabs` runs for local workspaces only). It lasts
+  until the window closes.
+- **Lookup cost.** `HostProxy.layout()` copies entries and calls `claimsFor`
+  on each call, and `workspaceOfPane` is called per routed pane call,
+  keystrokes included. This is fine at today's sizes; index it later.
+- **Older host servers.** A host server older than this branch lacks
+  `pty.reset` and `pty.close` until its tarball upgrade runs.
+- **Panes attached before adoption.** A pane main attached through the
+  daemon before adoption, in the same run, keeps its daemon subscription
+  until main restarts.

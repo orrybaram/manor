@@ -1,6 +1,6 @@
 ---
 title: Main forwards remote pty through the host server; drop daemon attach
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [5]

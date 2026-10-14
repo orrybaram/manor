@@ -13,6 +13,7 @@ import { portlessManager } from "./portless";
 import { killCounters } from "./stats-signals";
 import type { ActivePort, WorkspaceBackend } from "./backend/types";
 import type { AgentManager } from "./agent-persistence";
+import type { HostRouting } from "./server/host-routing";
 import type { StatsStore } from "./stats-store";
 import type { PortScanner } from "./ports";
 import { LayoutPersistence } from "./terminal-host/layout-persistence";
@@ -157,6 +158,8 @@ export interface KillAllProcessesDeps {
   agentManager: AgentManager;
   statsStore: StatsStore;
   portScanner: PortScanner;
+  /** The adopted hosts' agents, for a remote pane's kill (ADR-230 D14). */
+  hostRouting?: Pick<HostRouting, "agents">;
 }
 
 /** Body moved verbatim from `processes:killAll`. */
@@ -165,12 +168,15 @@ export async function killAllProcesses({
   agentManager,
   statsStore,
   portScanner,
+  hostRouting,
 }: KillAllProcessesDeps): Promise<void> {
   // 1. Try to list and kill sessions via daemon (may be unreachable)
   try {
     const sessions = await backend.pty.listSessions();
     for (const session of sessions) {
-      const agent = agentManager.getAgentByPaneId(session.sessionId);
+      const agent =
+        agentManager.getAgentByPaneId(session.sessionId) ??
+        hostRouting?.agents().find((a) => a.paneId === session.sessionId);
       if (agent) for (const counter of killCounters(agent)) statsStore.record(counter);
       try {
         await backend.pty.kill(session.sessionId);

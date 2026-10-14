@@ -135,6 +135,27 @@ describe("processes.killSession / processes.killAll stats", () => {
     });
   });
 
+  describe("remote agents (ADR-230 D14)", () => {
+    const remote = { id: "r1", paneId: "remote-pane", status: "active", lastAgentStatus: "thinking" };
+    const hostRouting = { agents: () => [remote] };
+
+    it("killSession records a remote pane's kill, mid-thought", async () => {
+      await processesKillSession(
+        localCtx({ ...deps, hostRouting } as never),
+        "remote-pane",
+      );
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
+    });
+
+    it("killAll records a remote pane's kill", async () => {
+      deps.backend.pty.listSessions.mockResolvedValue([{ sessionId: "remote-pane" }]);
+      await processesKillAll(localCtx({ ...deps, hostRouting } as never));
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilled");
+      expect(deps.statsStore.record).toHaveBeenCalledWith("agentsKilledMidThought");
+    });
+  });
+
   describe("processes.killAll", () => {
     it("records once per active session being killed", async () => {
       deps.backend.pty.listSessions.mockResolvedValue([

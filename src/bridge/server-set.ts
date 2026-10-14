@@ -75,6 +75,22 @@ export interface ServerEntry {
   readonly roomId: string | null;
   readonly outcome: BridgeOutcome | null;
   readonly lists: ServerLists;
+  readonly aliases: HostAliases;
+}
+
+/**
+ * What a server calls the hosts it lists, as renderer host ids (D2): its own
+ * id for a host → the page's. Empty where the two agree — the desktop's own
+ * bridges. On the phone a desktop's remote host goes by that host's room.
+ */
+export type HostAliases = ReadonlyMap<string, string>;
+
+/**
+ * The renderer host id of a host that server `serverId` lists but names no
+ * room for (D2). Never `/`: a host id may not hold one (`workspace-key.ts`).
+ */
+export function viaServer(serverId: string, hostId: string): string {
+  return `${serverId}~${hostId}`;
 }
 
 /** What the transport tells the set: hand these to `createWsTransport`. */
@@ -119,6 +135,9 @@ export interface ServerSet {
   setOutcome(id: string, outcome: BridgeOutcome): void;
   setRoom(id: string, roomId: string | null): void;
   setLists(id: string, lists: "all" | Iterable<string>): void;
+  setAliases(id: string, aliases: Iterable<readonly [string, string]>): void;
+  /** Make `id`, already added, the home server (D1: the phone's desktop). */
+  setHome(id: string): void;
   /** Any change: a server added or removed, or any of its facts. */
   subscribe(cb: () => void): () => void;
 }
@@ -130,6 +149,7 @@ export interface ServerFacts {
   readonly roomId: string | null;
   readonly outcome: BridgeOutcome | null;
   readonly lists: ServerLists;
+  readonly aliases: HostAliases;
 }
 
 const NO_HELLO: ServerHello = {
@@ -145,6 +165,7 @@ const NO_FACTS: ServerFacts = {
   roomId: null,
   outcome: null,
   lists: new Set(),
+  aliases: new Map(),
 };
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
@@ -289,6 +310,24 @@ export function createServerSet(
         return;
       }
       update(id, { lists: next });
+    },
+
+    setAliases(id, aliases) {
+      const was = factsOf(id).aliases;
+      const next = new Map(aliases);
+      if (
+        was.size === next.size &&
+        [...next].every(([from, to]) => was.get(from) === to)
+      ) {
+        return;
+      }
+      update(id, { aliases: next });
+    },
+
+    setHome(id) {
+      if (id === homeId || !transports.has(id)) return;
+      homeId = id;
+      changed(null);
     },
 
     subscribe(cb) {

@@ -37,7 +37,8 @@
  *   --vitest-only      run only the bridge-level vitest suite
  *   --playwright-only  run only the Playwright specs (remote-host.spec.ts,
  *                      host-server.spec.ts, host-ownership.spec.ts,
- *                      host-direct-bridge.spec.ts), one worker
+ *                      host-direct-bridge.spec.ts,
+ *                      phone-all-pairings.spec.ts), one worker
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -57,6 +58,7 @@ const PLAYWRIGHT_SUITES = [
   "tests/e2e/host-server.spec.ts",
   "tests/e2e/host-ownership.spec.ts",
   "tests/e2e/host-direct-bridge.spec.ts",
+  "tests/e2e/phone-all-pairings.spec.ts",
 ];
 /** What the box's host server dials unless a spec says otherwise: nothing. */
 const CLOSED_RELAY_URL = "http://127.0.0.1:9";

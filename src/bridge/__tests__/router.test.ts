@@ -788,3 +788,233 @@ describe("what main's HostRouting did on the way, done by the router", () => {
     );
   });
 });
+
+describe("on the phone, every server named by its room (D2)", () => {
+  const DESK = "DeskRoom0000000000000a";
+  const BOX = "BoxRoom00000000000000b";
+
+  /** A phone paired with the desktop, which lists `h1` (the box) by its room. */
+  function phone(desk: FakeServer, box?: FakeServer): ServerSet {
+    const set = createServerSet();
+    set.add(DESK, desk.transport, { home: true, roomId: DESK });
+    set.recordHello(DESK, { hostName: "desk.local", hostServer: false });
+    set.setAliases(DESK, [
+      ["h1", BOX],
+      ["h2", `${DESK}~h2`],
+    ]);
+    set.setLists(DESK, [BOX, `${DESK}~h2`]);
+    if (box) {
+      set.add(BOX, box.transport, { roomId: BOX });
+      set.recordHello(BOX, { hostName: "wsl-box", hostServer: true });
+      set.setReachability(BOX, "connected");
+    }
+    return set;
+  }
+
+  it("stamps a lone desktop's answers with its room and its hosts' rooms", async () => {
+    const desk = fakeServer({
+      "projects.getAll": () => [
+        { id: "p0", hostId: "local", name: "Mine" },
+        { id: "p1", hostId: "h1", name: "On box" },
+        { id: "p2", hostId: "h2", name: "No room" },
+      ],
+      "layout.getAll": () => ({
+        "/a": layoutWith("x"),
+        "h1:/b": layoutWith("y"),
+        __home__: layoutWith("z"),
+      }),
+      "layout.getLastActive": () => "h1:/b",
+    });
+    const api = createRouter(phone(desk), fakeResolver({}));
+
+    expect(await api.projects.getAll()).toEqual([
+      { id: "p0", hostId: DESK, name: "Mine" },
+      { id: "p1", hostId: BOX, name: "On box" },
+      { id: "p2", hostId: `${DESK}~h2`, name: "No room" },
+    ]);
+    expect(await api.layout.getAll()).toEqual({
+      [`${DESK}:/a`]: layoutWith("x"),
+      [`${BOX}:/b`]: layoutWith("y"),
+      // Home's own pseudo-workspace keeps its name.
+      __home__: layoutWith("z"),
+    });
+    expect(await api.layout.getLastActive()).toBe(`${BOX}:/b`);
+  });
+
+  it("sends home its own ids back, and stamps what it answers and pushes", async () => {
+    const desk = fakeServer({
+      "layout.reportViewport": () => undefined,
+      "projects.setGroupLastUsedHost": () => undefined,
+      "hosts.list": () => [{ hostId: "h1", status: "connected" }],
+    });
+    const api = createRouter(phone(desk), fakeResolver({}));
+
+    await api.layout.reportViewport(`${DESK}:/a`, {} as never);
+    await api.projects.setGroupLastUsedHost("g", BOX);
+    await api.projects.setGroupLastUsedHost("g", `${DESK}~h2`);
+    expect(desk.invokes.map((i) => i.args)).toEqual([
+      ["/a", {}],
+      ["g", "h1"],
+      ["g", "h2"],
+    ]);
+    expect(await api.hosts.list()).toEqual([{ hostId: BOX, status: "connected" }]);
+
+    const seen = vi.fn();
+    api.hosts.onStatusChanged(seen);
+    desk.emit("hosts.statusChanged", undefined, [{ hostId: "h1", status: "reconnecting" }]);
+    expect(seen).toHaveBeenCalledWith([{ hostId: BOX, status: "reconnecting" }]);
+  });
+
+  it("keeps an answer that comes back after its server's hello", async () => {
+    let answer: (value: unknown) => void = () => {};
+    const desk = fakeServer({
+      "agents.getAll": () => new Promise((resolve) => (answer = resolve)),
+    });
+    const set = phone(desk);
+    const api = createRouter(set, fakeResolver({}));
+    const read = api.agents.getAll();
+    await Promise.resolve();
+    // The hello lands while the read is out: the entry is a new object.
+    set.recordHello(DESK, { hostName: "renamed", hostServer: false });
+    set.setReachability(DESK, "connected");
+    answer([{ id: "a", hostId: "local" }]);
+    expect(await read).toEqual([{ id: "a", hostId: DESK }]);
+  });
+
+  it("hands home only the workspaces of hosts it knows, in its own ids", async () => {
+    const desk = fakeServer({ "branches.start": () => undefined });
+    const api = createRouter(phone(desk), fakeResolver({}));
+    await api.branches.start([
+      { path: "/a", hostId: DESK },
+      { path: "/b", hostId: BOX },
+      { path: "/c", hostId: "OtherRoom0000000000000" },
+    ]);
+    expect(desk.invokes[0].args).toEqual([
+      [
+        { path: "/a", hostId: "local" },
+        { path: "/b", hostId: "h1" },
+      ],
+    ]);
+  });
+
+  it("answers a host from its own pairing, else from the desktop (D3)", async () => {
+    const desk = fakeServer({
+      "projects.getAll": () => [
+        { id: "p0", hostId: "local", name: "Mine" },
+        { id: "p1", hostId: "h1", name: "Stale" },
+      ],
+    });
+    const box = fakeServer({
+      "projects.getAll": () => [{ id: "p1", hostId: "local", name: "Fresh" }],
+      "projects.createWorktree": () => ({ id: "p1", hostId: "local" }),
+    });
+    const set = phone(desk, box);
+    const api = createRouter(
+      set,
+      fakeResolver({ project: { p0: DESK, p1: BOX }, pane: { "new-pane": BOX } }),
+    );
+
+    expect(await api.projects.getAll()).toEqual([
+      { id: "p0", hostId: DESK, name: "Mine" },
+      { id: "p1", hostId: BOX, name: "Fresh" },
+    ]);
+
+    // A launch in the box's workspace goes to the box, in its own form.
+    await api.layout.apply(`${BOX}:/w`, { type: "noop" } as never);
+    await api.pty.create("new-pane", "/w", 80, 24, { hostId: BOX });
+    expect(await api.projects.createWorktree("p1", "feat")).toEqual({ id: "p1", hostId: BOX });
+    expect(box.invokes.slice(1).map((i) => [i.key, i.args])).toEqual([
+      ["layout.apply", ["/w", { type: "noop" }]],
+      ["pty.create", ["new-pane", "/w", 80, 24, { hostId: "local" }]],
+      ["projects.createWorktree", ["p1", "feat"]],
+    ]);
+
+    // The box's pairing away: the desktop answers for it, in its own ids.
+    set.setReachability(BOX, "unreachable");
+    await api.layout.apply(`${BOX}:/w`, { type: "noop" } as never);
+    expect(desk.invokes[desk.invokes.length - 1]).toEqual({
+      key: "layout.apply",
+      args: ["h1:/w", { type: "noop" }],
+    });
+  });
+
+  it("keeps the host's projects live with the desktop away, and refuses its writes", async () => {
+    let deskUp = true;
+    const desk = fakeServer({
+      "projects.getAll": () => {
+        if (!deskUp) throw new BridgeDisconnectedError("gone");
+        return [{ id: "p0", hostId: "local", name: "Mine" }];
+      },
+    });
+    const box = fakeServer({
+      "projects.getAll": () => [{ id: "p1", hostId: "local", name: "Fresh" }],
+    });
+    const set = phone(desk, box);
+    const api = createRouter(set, fakeResolver({ project: { p0: DESK, p1: BOX } }));
+    await api.projects.getAll();
+
+    deskUp = false;
+    set.setReachability(DESK, "unreachable");
+    const calls = desk.invokes.length;
+    // Its last answer, without asking it (D6).
+    expect(await api.projects.getAll()).toEqual([
+      { id: "p0", hostId: DESK, name: "Mine" },
+      { id: "p1", hostId: BOX, name: "Fresh" },
+    ]);
+    expect(desk.invokes).toHaveLength(calls);
+    await expect(api.projects.renameWorkspace("p0", `${DESK}:/a`, "x")).rejects.toMatchObject({
+      code: UNAVAILABLE_HOST_AWAY_CODE,
+      message: "desk.local is offline",
+    });
+  });
+
+  it("answers from the saved last-known while a server is away after a reload", async () => {
+    const saved = new Map<string, Map<string, unknown>>();
+    const store = {
+      read: vi.fn(async (id: string) => saved.get(id) ?? new Map()),
+      write: vi.fn((id: string, memo: string, value: unknown) => {
+        const mine = saved.get(id) ?? new Map<string, unknown>();
+        mine.set(memo, value);
+        saved.set(id, mine);
+      }),
+      forget: vi.fn((id: string) => void saved.delete(id)),
+    };
+    const box = fakeServer({
+      "projects.getAll": () => [{ id: "p1", hostId: "local", name: "Fresh" }],
+    });
+    const desk = fakeServer({ "projects.getAll": () => [{ id: "p0", hostId: "local" }] });
+    await createRouter(phone(desk, box), fakeResolver({}), { lastKnown: store }).projects.getAll();
+    expect(store.write).toHaveBeenCalledWith(BOX, expect.any(String), [
+      { id: "p1", hostId: BOX, name: "Fresh" },
+    ]);
+
+    // The page reloads with both away.
+    const set = phone(fakeServer(), fakeServer());
+    set.setReachability(DESK, "unreachable");
+    set.setReachability(BOX, "unreachable");
+    const api = createRouter(set, fakeResolver({}), { lastKnown: store });
+    expect(await api.projects.getAll()).toEqual([
+      { id: "p0", hostId: DESK },
+      { id: "p1", hostId: BOX, name: "Fresh" },
+    ]);
+
+    // A pairing removed takes its saved answers with it.
+    set.remove(BOX);
+    expect(store.forget).toHaveBeenCalledWith(BOX);
+  });
+
+  it("moves home without losing a listener", () => {
+    const desk = fakeServer();
+    const box = fakeServer();
+    const set = createServerSet();
+    set.add(BOX, box.transport, { home: true, roomId: BOX });
+    set.add(DESK, desk.transport, { roomId: DESK });
+    const api = createRouter(set, fakeResolver({}));
+    const seen = vi.fn();
+    api.agents.onUpdate(seen);
+    set.setHome(DESK);
+    expect(set.homeId).toBe(DESK);
+    desk.emit("agents.updated", undefined, { id: "a", hostId: "local" });
+    expect(seen).toHaveBeenCalledWith({ id: "a", hostId: DESK });
+  });
+});

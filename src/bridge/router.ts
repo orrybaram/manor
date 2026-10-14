@@ -21,8 +21,19 @@
  *   stamped with renderer host ids (D2), its records for a host whose source
  *   is another server are dropped, and the rest are merged. A project's
  *   group is the desktop's (D3). A server that is away, or fails, contributes
- *   its last answer (D6), kept here in memory.
+ *   its last answer (D6), kept here in memory — and, on the phone, in
+ *   IndexedDB (`RouterOptions.lastKnown`), so a reload while it is away
+ *   still shows it.
  * - **Home.** Everything else.
+ *
+ * **Renderer host ids (D2).** On the desktop the local server is `local` and
+ * a host server is the desktop's own id for that host, which is what every
+ * record already says. On the phone every server is named by its room: a
+ * server's `local` becomes its room id, and a host a desktop lists becomes
+ * that host's room (`ServerEntry.aliases`, from the desktop's `hosts.list`),
+ * or `<desktop room>~<hostId>` when it reports none. Every call to such a
+ * server, home calls included, has its arguments turned back into that
+ * server's own ids (`toServerArgs`) and its answer stamped (`stampResult`).
  *
  * **Subscriptions.** A listener of a merged namespace (`layout`, `projects`,
  * `agents`) is opened on every server, replayed on one that joins later, and
@@ -38,18 +49,16 @@
  * below), a project the host answers with carries the desktop's group, and a
  * layout broadcast's origin names this window, not its stream to the host.
  *
- * **One server is a pass-through.** With only the home server in the set —
- * every page, until a host server joins — each call is handed to the home
- * bridge as it was given and its answer returned untouched: no resolving, no
- * re-stamping, no copying. On the desktop main still merges remote hosts
- * itself (`HostRouting`), so that is exactly what the stores got before.
+ * **The desktop's own server alone is a pass-through.** With only it in the
+ * set — every desktop window, until a host server joins — each call is
+ * handed to it as it was given and its answer returned untouched: no
+ * resolving, no re-stamping, no copying. Main still merges remote hosts
+ * itself (`HostRouting`), so that is exactly what the stores got before. A
+ * phone's lone pairing is stamped all the same, so its ids do not change
+ * when a second one joins.
  */
 
-import {
-  keyFor,
-  toDesktopResult,
-  toHostArgs,
-} from "../../electron/bridge/host-rewrite";
+import { keyFor } from "../../electron/bridge/host-rewrite";
 import { byPane, ROUTES, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE } from "../../electron/bridge/types";
@@ -64,7 +73,8 @@ import {
 } from "../lib/workspace-key";
 import { BridgeDisconnectedError, LISTENERS, NOT_MEMBERS, servesItself } from "./client";
 import { hostLookups } from "./host-lookups";
-import type { ServerEntry, ServerSet } from "./server-set";
+import type { LastKnownStore } from "./last-known";
+import { viaServer, type ServerEntry, type ServerSet } from "./server-set";
 
 /** Which host a routed call is for. */
 export interface HostResolver {
@@ -151,6 +161,14 @@ function memberOf(bridge: ElectronAPI, ns: string, name: string): Fn {
   return owner[name] as Fn;
 }
 
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -201,10 +219,22 @@ interface PaneSub {
   off: (() => void) | null;
 }
 
+export interface RouterOptions {
+  /**
+   * Where each server's last answers outlive the page (D6): the phone's
+   * IndexedDB (`./last-known.ts`). Without it they are kept in memory only.
+   */
+  lastKnown?: LastKnownStore;
+}
+
 export function createRouter(
   set: ServerSet,
   resolver: HostResolver = storeResolver,
+  options: RouterOptions = {},
 ): ElectronAPI {
+  const persisted = options.lastKnown ?? null;
+  /** Each server's saved answers, read in once: settles, never rejects. */
+  const restoring = new Map<string, Promise<void>>();
   /** Each server's last answer to each merged read (D6). */
   const lastKnown = new Map<string, Map<string, unknown>>();
   /** Each server's panes, by workspace, as its merged layout says. */
@@ -244,12 +274,25 @@ export function createRouter(
   }
 
   /**
-   * Whether `entry` can be asked now. The home server always can: its own
-   * transport queues, retries and refuses as it did when it was the page's
-   * only bridge, and a router that refused for it would change that.
+   * Whether `entry` can be asked now. The desktop's own server always can,
+   * and so can a lone server: its own transport queues, retries and refuses
+   * as it did when it was the page's only bridge, and a router that refused
+   * for it would change that. A phone's home among others is one server of
+   * several: away is away (D6).
    */
   function reachable(entry: ServerEntry): boolean {
-    return isHome(entry) || entry.reachability !== "unreachable";
+    if (entry.reachability !== "unreachable") return true;
+    return isHome(entry) && (native(entry) || set.list().length === 1);
+  }
+
+  /**
+   * Whether calls go to home as they are: the desktop's own server alone in
+   * the set, whose answers are already in the renderer's form. A phone's
+   * server is stamped even alone (D2), so its ids do not change when a
+   * second pairing joins.
+   */
+  function passThrough(): boolean {
+    return set.list().length === 1 && native(set.home());
   }
 
   function lists(entry: ServerEntry, hostId: string): boolean {
@@ -285,8 +328,17 @@ export function createRouter(
     return id === LOCAL_HOST_ID ? entry.id : id;
   }
 
+  /**
+   * Whether `entry` is the one answering for `hostId`. By id: an entry is a
+   * new object on every change of its facts, and an answer that left before
+   * its server's hello comes back after it.
+   */
+  function answersFor(entry: ServerEntry, hostId: string): boolean {
+    return answerer(hostId).id === entry.id;
+  }
+
   function kept(record: unknown, entry: ServerEntry): boolean {
-    return answerer(hostOfRecord(record, entry)) === entry;
+    return answersFor(entry, hostOfRecord(record, entry));
   }
 
   function hostOfKey(key: string, entry: ServerEntry): string {
@@ -305,12 +357,79 @@ export function createRouter(
 
   // ── stamping (D2) ──
 
-  /** A workspace key from `entry` in the renderer's form. */
+  /**
+   * Whether `entry`'s answers are already in the renderer's form: the
+   * desktop's own server, whose ids are the ones the stores have always held.
+   */
+  function native(entry: ServerEntry): boolean {
+    return entry.id === LOCAL_HOST_ID;
+  }
+
+  /**
+   * The renderer's id for a host `entry` calls `hostId`: its own machine is
+   * `entry.id`; a host it lists goes by its alias (on the phone, that host's
+   * room), else — dialled through a room — by `<room>~<hostId>`; else, on
+   * the desktop, by the id it already is.
+   */
+  function rendererHost(entry: ServerEntry, hostId: string): string {
+    if (native(entry)) return hostId;
+    if (hostId === LOCAL_HOST_ID) return entry.id;
+    const alias = entry.aliases.get(hostId);
+    if (alias !== undefined) return alias;
+    return entry.roomId === null ? hostId : viaServer(entry.id, hostId);
+  }
+
+  /** `rendererHost` backwards: the id `entry` knows `hostId` by, or null. */
+  function serverHost(entry: ServerEntry, hostId: string): string | null {
+    if (native(entry)) return null;
+    if (hostId === entry.id) return LOCAL_HOST_ID;
+    for (const [own, alias] of entry.aliases) if (alias === hostId) return own;
+    const prefix = viaServer(entry.id, "");
+    return entry.roomId !== null && hostId.startsWith(prefix) && hostId.length > prefix.length
+      ? hostId.slice(prefix.length)
+      : null;
+  }
+
+  /** A workspace key from `entry` in the renderer's form, or null to drop it. */
   function stampKey(entry: ServerEntry, key: string): string | null {
-    if (entry.id === LOCAL_HOST_ID) return key;
-    // A key a desktop already gave a remote host stays that host's.
-    if (parseWorkspaceKey(key).hostId !== LOCAL_HOST_ID) return key;
-    return keyFor(entry.id, key);
+    if (native(entry)) return key;
+    const { hostId, path } = parseWorkspaceKey(key);
+    const host = rendererHost(entry, hostId);
+    if (host === hostId) return key;
+    // A key no host can be named in (Home's `__home__`) is the page's own,
+    // and only the home server's copy of it is.
+    return keyFor(host, path) ?? (hostId === LOCAL_HOST_ID && isHome(entry) ? key : null);
+  }
+
+  /** A record (or each record of a list) with its `hostId` stamped. */
+  function stampRecords(entry: ServerEntry, value: unknown): unknown {
+    if (native(entry)) return value;
+    if (Array.isArray(value)) {
+      let changed = false;
+      const out = value.map((item) => {
+        const next = stampRecord(entry, item);
+        if (next !== item) changed = true;
+        return next;
+      });
+      return changed ? out : value;
+    }
+    return stampRecord(entry, value);
+  }
+
+  function stampRecord(entry: ServerEntry, record: unknown): unknown {
+    if (!isPlainObject(record)) return record;
+    let out = record;
+    if (typeof record.hostId === "string") {
+      const host = rendererHost(entry, normalizeHostId(record.hostId));
+      if (host !== record.hostId) out = { ...out, hostId: host };
+    }
+    // A project's group names the host it was last used on.
+    const group = record.group;
+    if (isPlainObject(group) && typeof group.lastUsedHostId === "string") {
+      const host = rendererHost(entry, group.lastUsedHostId);
+      if (host !== group.lastUsedHostId) out = { ...out, group: { ...group, lastUsedHostId: host } };
+    }
+    return out;
   }
 
   function stampResult(
@@ -319,7 +438,7 @@ export function createRouter(
     name: string,
     result: unknown,
   ): unknown {
-    if (entry.id === LOCAL_HOST_ID) return result;
+    if (native(entry)) return result;
     if (ns === "layout" && name === "getAll" && isPlainObject(result)) {
       const out: Record<string, unknown> = {};
       for (const [key, value] of Object.entries(result)) {
@@ -331,7 +450,52 @@ export function createRouter(
     if (ns === "layout" && name === "getLastActive") {
       return typeof result === "string" ? stampKey(entry, result) : result;
     }
-    return toDesktopResult(entry.id, ns, name, result);
+    return stampRecords(entry, result);
+  }
+
+  /**
+   * Arguments for `entry` in its own form: a string naming one of its hosts,
+   * or keyed on one, at the top level and one level into a plain object —
+   * `toHostArgs`'s reach, which is what main's `HostProxy` rewrites too — and
+   * in each object of a top-level list (`branches.start`'s workspaces).
+   */
+  function toServerArgs(entry: ServerEntry, args: unknown[]): unknown[] {
+    if (native(entry)) return args;
+    const value = (v: unknown): unknown => {
+      if (typeof v !== "string") return v;
+      const host = serverHost(entry, v);
+      if (host !== null) return host;
+      const parsed = parseWorkspaceKey(v);
+      if (parsed.hostId === LOCAL_HOST_ID) return v;
+      const own = serverHost(entry, parsed.hostId);
+      if (own === null) return v;
+      return own === LOCAL_HOST_ID ? parsed.path : (keyFor(own, parsed.path) ?? v);
+    };
+    const object = (arg: Record<string, unknown>): Record<string, unknown> => {
+      const out: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(arg)) out[k] = value(v);
+      return out;
+    };
+    return args.map((arg) => {
+      if (Array.isArray(arg)) return arg.map((item) => (isPlainObject(item) ? object(item) : value(item)));
+      return isPlainObject(arg) ? object(arg) : value(arg);
+    });
+  }
+
+  /**
+   * `args` without the records of a top-level list that name a host `entry`
+   * does not know: a list of workspaces to watch (`branches.start`,
+   * `diffs.start`) holds every server's, and a server handed another's
+   * would fail the whole call on a host it never heard of.
+   */
+  function onlyKnownHosts(entry: ServerEntry, args: unknown[]): unknown[] {
+    if (native(entry)) return args;
+    const known = (item: unknown): boolean => {
+      if (!isPlainObject(item) || typeof item.hostId !== "string") return true;
+      const hostId = normalizeHostId(item.hostId);
+      return hostId === LOCAL_HOST_ID || serverHost(entry, hostId) !== null;
+    };
+    return args.map((arg) => (Array.isArray(arg) && !arg.every(known) ? arg.filter(known) : arg));
   }
 
   // ── panes ──
@@ -382,7 +546,7 @@ export function createRouter(
 
   function routed(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
     const home = set.home();
-    if (set.list().length === 1) {
+    if (passThrough()) {
       releaseHeldFor(ns, name, args, home);
       return call(home, ns, name, args);
     }
@@ -404,11 +568,11 @@ export function createRouter(
       if (collides(paneId)) return Promise.reject(collisionError(paneId));
     }
     releaseHeldFor(ns, name, args, target);
-    if (target.id === LOCAL_HOST_ID) return call(target, ns, name, args);
+    if (native(target)) return call(target, ns, name, args);
     const answer = Promise.resolve(
-      call(target, ns, name, toHostArgs(target.id, args)),
+      call(target, ns, name, toServerArgs(target, args)),
     ).then((result) => {
-      const out = toDesktopResult(target.id, ns, name, result);
+      const out = stampResult(target, ns, name, result);
       return ns === "projects" ? withDesktopGroup(out) : out;
     });
     if (!keyboard) return answer;
@@ -480,18 +644,21 @@ export function createRouter(
     let failure: unknown = null;
     await Promise.all(
       set.list().map(async (entry) => {
-        const remembered = lastKnown.get(entry.id);
         if (reachable(entry)) {
           try {
-            const value = stampResult(entry, ns, name, await call(entry, ns, name, args));
-            if (!lastKnown.has(entry.id)) lastKnown.set(entry.id, new Map());
-            lastKnown.get(entry.id)?.set(memo, value);
-            answers.push({ entry, value });
+            const result = await call(entry, ns, name, args);
+            // Its facts as they are now: a hello may have landed meanwhile.
+            const now = set.get(entry.id) ?? entry;
+            const value = stampResult(now, ns, name, result);
+            remember(entry.id, memo, value);
+            answers.push({ entry: now, value });
             return;
           } catch (err) {
             if (isHome(entry)) failure = err;
           }
         }
+        await restore(entry.id);
+        const remembered = lastKnown.get(entry.id);
         if (remembered?.has(memo)) answers.push({ entry, value: remembered.get(memo) });
       }),
     );
@@ -500,6 +667,40 @@ export function createRouter(
     const order = set.list().map((entry) => entry.id);
     answers.sort((a, b) => order.indexOf(a.entry.id) - order.indexOf(b.entry.id));
     return merge(key, answers);
+  }
+
+  // ── last-known (D6) ──
+
+  function remember(serverId: string, memo: string, value: unknown): void {
+    let mine = lastKnown.get(serverId);
+    if (!mine) {
+      mine = new Map();
+      lastKnown.set(serverId, mine);
+    }
+    mine.set(memo, value);
+    persisted?.write(serverId, memo, value);
+  }
+
+  /**
+   * Read `serverId`'s saved answers in, once, under the ones this page has
+   * heard since: what a reload with the server away shows.
+   */
+  function restore(serverId: string): Promise<void> {
+    if (!persisted) return Promise.resolve();
+    let reading = restoring.get(serverId);
+    if (!reading) {
+      reading = persisted.read(serverId).then(
+        (saved) => {
+          if (!members.has(serverId)) return;
+          const mine = lastKnown.get(serverId) ?? new Map<string, unknown>();
+          for (const [memo, value] of saved) if (!mine.has(memo)) mine.set(memo, value);
+          lastKnown.set(serverId, mine);
+        },
+        () => {},
+      );
+      restoring.set(serverId, reading);
+    }
+    return reading;
   }
 
   function merge(key: string, answers: Answer[]): unknown {
@@ -511,7 +712,7 @@ export function createRouter(
         return mergeLayouts(answers);
       case "layout.getLastActive":
         return firstOf(answers, (value, entry) =>
-          typeof value === "string" && answerer(hostOfKey(value, entry)) === entry,
+          typeof value === "string" && answersFor(entry, hostOfKey(value, entry)),
         );
       case "agents.get":
         return firstOf(answers, (value, entry) => kept(value, entry));
@@ -520,7 +721,7 @@ export function createRouter(
           (Array.isArray(value) ? value : []).filter((update: unknown) => {
             const paneId = isPlainObject(update) ? update.paneId : null;
             if (typeof paneId !== "string") return true;
-            return answerer(hostOfPane(paneId, entry)) === entry;
+            return answersFor(entry, hostOfPane(paneId, entry));
           }),
         );
       default:
@@ -574,7 +775,7 @@ export function createRouter(
       }
       const mine: Record<string, unknown> = {};
       for (const [key, layout] of Object.entries(value)) {
-        if (answerer(hostOfKey(key, entry)) !== entry) continue;
+        if (!answersFor(entry, hostOfKey(key, entry))) continue;
         noteLayout(key, layout);
         mine[key] = isHome(entry) ? layout : withHomeClaims(key, layout);
       }
@@ -681,7 +882,7 @@ export function createRouter(
       const key = stampKey(entry, path);
       if (key === null) return null;
       const claimsMoved = holdsClaims(entry) && noteHomeClaims(key, first);
-      if (answerer(hostOfKey(key, entry)) !== entry) {
+      if (!answersFor(entry, hostOfKey(key, entry))) {
         // A desktop window took or let go of a tab of a workspace another
         // server answers for (D7): that server's layout, with the claims.
         const last = lastLayouts.get(key);
@@ -708,14 +909,13 @@ export function createRouter(
       return [{ ...first, workspacePath: key, origin, claims }, ...rest];
     }
     if (event.ns === "agents" && event.event === "updated") {
-      const agent =
-        entry.id === LOCAL_HOST_ID ? first : toDesktopResult(entry.id, "agents", "get", first);
+      const agent = stampRecords(entry, first);
       if (!kept(agent, entry)) return null;
       return agent === first ? args : [agent, ...rest];
     }
     if (event.ns === "agents" && event.event === "status" && isPlainObject(first)) {
       const paneId = first.paneId;
-      if (typeof paneId === "string" && answerer(hostOfPane(paneId, entry)) !== entry) {
+      if (typeof paneId === "string" && !answersFor(entry, hostOfPane(paneId, entry))) {
         return null;
       }
     }
@@ -740,7 +940,7 @@ export function createRouter(
     let live = true;
     const deliver = (...args: unknown[]): void => {
       if (!live) return;
-      if (set.list().length === 1) {
+      if (passThrough()) {
         sub.listener(...args);
         return;
       }
@@ -781,7 +981,7 @@ export function createRouter(
   /** The server a pane's listeners belong on now. */
   function paneTarget(paneId: string): ServerEntry {
     const home = set.home();
-    if (set.list().length === 1) return home;
+    if (passThrough()) return home;
     const hostId = resolver.hostOf(PANE_RULE, [paneId]);
     return hostId === null ? home : answerer(hostId);
   }
@@ -804,7 +1004,7 @@ export function createRouter(
         targets.set(sub.paneId, target);
       }
       const bound = sub.serverId === null ? undefined : set.get(sub.serverId);
-      if (bound !== target || members.get(target.id) !== target.bridge) {
+      if (bound?.id !== target.id || members.get(target.id) !== target.bridge) {
         bindPane(sub, target);
       }
     }
@@ -847,7 +1047,7 @@ export function createRouter(
         event.event === "taskEntry" ? (parseChatTaskKey(first)?.paneId ?? first) : first;
       return subscribePane(ns, name, paneId, args);
     }
-    return call(set.home(), ns, name, args);
+    return callHome(ns, name, args);
   }
 
   // ── the set changing ──
@@ -861,7 +1061,12 @@ export function createRouter(
         sub.offs.delete(id);
       }
       panesByServer.delete(id);
-      if (!now.has(id)) lastKnown.delete(id);
+      if (!now.has(id)) {
+        lastKnown.delete(id);
+        restoring.delete(id);
+        // Gone from the set is gone for good: a pairing removed or refused.
+        persisted?.forget(id);
+      }
     }
     const before = members;
     members = now;
@@ -888,10 +1093,31 @@ export function createRouter(
       ? ROUTES[key]
       : "home";
     if (route === "merge") {
-      return set.list().length === 1 ? call(home, ns, name, args) : merged(ns, name, args);
+      return passThrough() ? call(home, ns, name, args) : merged(ns, name, args);
     }
     if (typeof route === "object") return routed(route, ns, name, args);
-    return call(home, ns, name, args);
+    return callHome(ns, name, args);
+  }
+
+  /**
+   * A call home, in home's form (D2): on the phone the page's ids are rooms,
+   * so the arguments go out as home knows them and the answer — or each
+   * event, for a listener — comes back stamped.
+   */
+  function callHome(ns: string, name: string, args: unknown[]): unknown {
+    const home = set.home();
+    if (native(home)) return call(home, ns, name, args);
+    const out = toServerArgs(home, onlyKnownHosts(home, args)).map((arg) =>
+      typeof arg === "function"
+        ? (...event: unknown[]) =>
+            (arg as Fn)(...event.map((value) => stampRecords(set.get(home.id) ?? home, value)))
+        : arg,
+    );
+    const result = call(home, ns, name, out);
+    if (!isThenable(result)) return result;
+    return Promise.resolve(result).then((value) =>
+      stampResult(set.get(home.id) ?? home, ns, name, value),
+    );
   }
 
   function member(ns: string, name: string): Fn {

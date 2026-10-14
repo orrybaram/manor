@@ -3,6 +3,8 @@ import { PhoneTopBar } from "./PhoneTopBar";
 import { SidebarDrawer } from "./SidebarDrawer";
 import { useSwipeToOpenDrawer } from "./useDrawerSwipe";
 import { NotificationsSheet } from "./NotificationsSheet";
+import { HostsSheet } from "./HostsSheet/HostsSheet";
+import { isWebApp } from "../../lib/platform";
 import { EnableNotifications } from "./EnableNotifications";
 import { KeyboardLift } from "./KeyboardLift";
 import { RenameDialog, type RenameTarget } from "./RenameDialog";
@@ -47,7 +49,8 @@ function renameTarget(request: UiRequest): RenameTarget | null {
 
 /**
  * ADR-181 D3/D5: the phone shell — the top bar, the sidebar drawer it
- * opens, and the notifications sheet the drawer opens. `App` renders it
+ * opens, and the notifications and (in a browser) hosts sheets the drawer
+ * opens. `App` renders it
  * through one slot, at the top of the main column. The drawer and the sheet
  * are Radix dialogs that portal under `<body>`, so only the top bar takes a
  * place in the layout: it sits around the workspace stack, not inside it, so
@@ -72,6 +75,9 @@ export function PhoneChrome(props: PhoneChromeProps) {
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [hostsOpen, setHostsOpen] = useState(false);
+  // Pairings are a browser's: the desktop window is the machine itself.
+  const web = isWebApp();
   const [renaming, setRenaming] = useState<RenameTarget | null>(null);
 
   useSwipeToOpenDrawer(() => setDrawerOpen(true));
@@ -115,8 +121,10 @@ export function PhoneChrome(props: PhoneChromeProps) {
         onOpenSettings={closeThen(onOpenSettings)}
         onOpenSearch={closeThen(onOpenSearch)}
         onOpenNotifications={closeThen(() => setNotificationsOpen(true))}
+        onOpenHosts={web ? closeThen(() => setHostsOpen(true)) : undefined}
       />
       <NotificationsSheet open={notificationsOpen} onOpenChange={setNotificationsOpen} />
+      {web && <HostsSheet open={hostsOpen} onOpenChange={setHostsOpen} />}
       {renaming && (
         <RenameDialog
           key={renaming.kind === "agent" ? renaming.agentId : renaming.path}

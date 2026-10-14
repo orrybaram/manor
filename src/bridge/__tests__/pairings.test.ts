@@ -4,9 +4,12 @@ import { base64urlEncode } from "../../lib/relay-crypto";
 import {
   LEGACY_RELAY_KEY,
   PAIRINGS_KEY,
+  homePairing,
   lastUsedPairing,
   listPairings,
   migrateLegacyPairing,
+  recordPairingHello,
+  recordPairingHosts,
   removePairing,
   renamePairing,
   selectPairing,
@@ -45,8 +48,55 @@ describe("pairings store", () => {
     renamePairing(A, "Studio");
     upsertPairing({ roomId: A, serverKey: KEY, token: "a2" }, 30);
     expect(listPairings()).toEqual([
-      { roomId: A, serverKey: KEY, token: "a2", name: "Studio", addedAt: 10, lastUsedAt: 30 },
+      {
+        roomId: A,
+        serverKey: KEY,
+        token: "a2",
+        name: "Studio",
+        customName: true,
+        addedAt: 10,
+        lastUsedAt: 30,
+      },
     ]);
+  });
+
+  it("takes the host's own name from a hello until the user names it", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    recordPairingHello(A, { hostName: "desk.local", hostServer: false });
+    expect(listPairings()[0]).toMatchObject({ name: "desk.local", hostServer: false });
+    renamePairing(A, "  My Mac ");
+    recordPairingHello(A, { hostName: "desk.local", hostServer: false });
+    expect(listPairings()[0]).toMatchObject({ name: "My Mac", customName: true });
+    // An empty name is no rename.
+    renamePairing(A, "  ");
+    expect(listPairings()[0].name).toBe("My Mac");
+  });
+
+  it("keeps a desktop's host rooms", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    recordPairingHosts(A, { h1: B, h2: null });
+    expect(listPairings()[0].hosts).toEqual({ h1: B, h2: null });
+  });
+
+  it("makes the paired desktop home, else the last used", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    upsertPairing({ roomId: B, serverKey: KEY, token: "b" }, 20);
+    expect(homePairing()?.roomId).toBe(B);
+    recordPairingHello(B, { hostName: null, hostServer: true });
+    expect(homePairing()?.roomId).toBe(B);
+    recordPairingHello(A, { hostName: null, hostServer: false });
+    expect(homePairing()?.roomId).toBe(A);
+  });
+
+  it("drops a stored pairing whose extra fields are malformed", () => {
+    map.set(
+      PAIRINGS_KEY,
+      JSON.stringify([
+        { roomId: A, serverKey: KEY, token: "a", name: "A", addedAt: 1, lastUsedAt: 1, hosts: [] },
+        { roomId: B, serverKey: KEY, token: "b", name: "B", addedAt: 1, lastUsedAt: 1 },
+      ]),
+    );
+    expect(listPairings().map((p) => p.roomId)).toEqual([B]);
   });
 
   it("migrates the legacy single pairing", () => {

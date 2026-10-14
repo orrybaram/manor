@@ -2,8 +2,7 @@
  * What this tab knows about its **home** server: the facts its hello states,
  * as components read them.
  *
- * - `activeRoomId` — the relay room the home server is dialled through (the
- *   switcher marks it).
+ * - `activeRoomId` — the relay room the home server is dialled through.
  * - `hostName` — the server names itself in its hello (ADR-225 D7); both the
  *   desktop and a host server do.
  * - `isHostServer` — the hello says `hostServer: true` only from a host
@@ -17,10 +16,12 @@
  * have to change. The desktop never writes any of it: there every fact keeps
  * its default.
  *
- * TODO(ADR-228): a caller that means "the host this workspace is on", not
- * "the page's home server" — `isHostServer()` gating a new-workspace entry
- * point, say — should read that host's entry in `useServers()` instead, and
- * this module go once none is left.
+ * Every caller left means the home server: the command table's
+ * `hostServer` gate (`App`, `useCommands`, `menu-handlers`,
+ * `keybinding-commands`) asks what the page's own server can do, and on a
+ * phone that holds several pairings home is the paired desktop whenever
+ * there is one (ADR-228 D8). A caller that means "the host this workspace is
+ * on" reads that host's entry in `useServers()` instead.
  */
 
 import { useSyncExternalStore } from "react";
@@ -72,7 +73,7 @@ export function recordHello(hello: {
   servers.recordHello(servers.homeId, hello);
 }
 
-/** The room this page dials, for the switcher to mark. */
+/** The room the home server is dialled through. */
 export function getActiveRoom(): string | null {
   return getConnection().activeRoomId;
 }

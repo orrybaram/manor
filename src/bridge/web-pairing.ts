@@ -92,10 +92,11 @@ export function parseFragment(hash: string): FragmentPairing {
 
 /**
  * Take a pairing out of the fragment on this load, add it to the stored
- * pairings (or update the one for the same room) and strip the fragment so it
- * cannot linger in history or a screenshot. That pairing is the one this tab
- * dials; with no link, the last-used stored pairing is. A link never drops
- * the other pairings (ADR-225 D7).
+ * pairings (or update the one for the same room, and mark it last used) and
+ * strip the fragment so it cannot linger in history or a screenshot. Returns
+ * that pairing; with no link, the last-used stored one, or null with none. A
+ * link never drops the other pairings (ADR-225 D7), and the page dials every
+ * one of them (ADR-228 D8, `listPairings`).
  */
 export function readPairing(): Pairing {
   migrateLegacyPairing();

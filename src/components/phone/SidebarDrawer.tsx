@@ -14,6 +14,8 @@ type SidebarDrawerProps = {
   onOpenSearch: () => void;
   /** The nav group's Notifications row (phone only). */
   onOpenNotifications: () => void;
+  /** The nav group's Hosts icon (a browser only, ADR-228 D8). */
+  onOpenHosts?: () => void;
 };
 
 /**
@@ -35,6 +37,7 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
     onOpenSettings,
     onOpenSearch,
     onOpenNotifications,
+    onOpenHosts,
   } = props;
   const swipe = useSwipeToClose(() => onOpenChange(false));
 
@@ -63,6 +66,7 @@ export function SidebarDrawer(props: SidebarDrawerProps) {
             onOpenSettings={onOpenSettings}
             onOpenSearch={onOpenSearch}
             onOpenNotifications={onOpenNotifications}
+            onOpenHosts={onOpenHosts}
             onNavigate={() => onOpenChange(false)}
           />
         </Dialog.Content>

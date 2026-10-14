@@ -33,7 +33,9 @@ import { closeSettings, pairBrowser, pairHostPhone } from "./helpers/settings";
  *    server's. The page dials both rooms; the sidebar lists the desktop's
  *    project and the box's, the box's answered by its own pairing (D3).
  * 3. The desktop stops. The box's project stays live: the phone asks the box
- *    for a branch made on it after the desktop went, and gets it. A write to
+ *    for a branch made on it after the desktop went, and gets it. A checkout
+ *    on the box reaches the phone's sidebar through the box's own branch
+ *    watcher (ADR-230 D6), with no desktop to watch it. A write to
  *    the desktop's project is refused as the desktop being away (D6), and
  *    its project is still listed from what it last said.
  * 4. The desktop's pairing is removed in the Hosts sheet: its project leaves
@@ -165,6 +167,34 @@ relayTest.describe("a phone with every pairing at once", () => {
           STEP,
         );
         await expect(sidebarProject(page, PROJECT_NAME).first()).toBeVisible();
+
+        // A checkout on the box: only the box's own watcher can see it now
+        // (ADR-230 D6). Its event reaches the phone under the box's room.
+        await page.evaluate(() => {
+          const w = window as unknown as { __branchEvents?: Array<Record<string, string>> };
+          w.__branchEvents = [];
+          window.electronAPI.branches.onChange((branches) => w.__branchEvents!.push(branches));
+        });
+        onRemote(`git -C ~/code/${PROJECT_NAME} checkout -q -b phone-watched`);
+        const watched = await pollFor(
+          "the box's branch change on the phone",
+          () =>
+            page.evaluate(() => {
+              const events =
+                (window as unknown as { __branchEvents?: Array<Record<string, string>> }).__branchEvents ?? [];
+              for (const branches of events) {
+                const key = Object.keys(branches).find((k) => branches[k] === "phone-watched");
+                if (key) return key;
+              }
+              return null;
+            }),
+          STEP,
+        );
+        expect(watched).toContain(boxRoom);
+        await expect(page.getByText("phone-watched", { exact: true }).first()).toBeVisible({
+          timeout: STEP,
+        });
+
         // The desktop's project: still listed from what it last said, and
         // refused as away.
         await expect(sidebarProject(page, LOCAL_PROJECT).first()).toBeVisible();

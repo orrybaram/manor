@@ -117,9 +117,9 @@ const modified = (path: string, indexHash = "i1") =>
 /** Start watching `/app` over `state` and run the first tick. */
 async function watch(state: RepoState, deviceWatching?: () => boolean) {
   const { git, exec, shell, shellExec } = fakeGit(state);
-  const watcher = new DiffWatcher(hostsWith(git, shell), deviceWatching);
+  const watcher = new DiffWatcher(hostsWith(git, shell), { deviceWatching, window: () => window });
   const { window, send, hide, show } = fakeWindow();
-  watcher.start([diffWs("/app")], window);
+  watcher.start([diffWs("/app")]);
   await vi.advanceTimersByTimeAsync(0);
   return { watcher, exec, shellExec, send, hide, show };
 }
@@ -185,6 +185,23 @@ describe("DiffWatcher", () => {
     watcher.stop();
   });
 
+  // ADR-230 D6: one connection's start no longer replaces another's.
+  it("watches every connection's workspaces, and one's stop leaves the rest", async () => {
+    const { git, shell } = fakeGit(repo({ shortstat: " 1 file changed, 2 insertions(+)" }));
+    const watcher = new DiffWatcher(hostsWith(git, shell));
+    const { send } = fakeWindow();
+    watcher.start([diffWs("/app")], "window");
+    watcher.start([diffWs("/lib")], "phone");
+    await vi.advanceTimersByTimeAsync(0);
+    const stats = { added: 2, removed: 0 };
+    expect(last(sentOn(send, "diffs.changed"))).toEqual({ "/app": stats, "/lib": stats });
+
+    watcher.stop("window");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(last(sentOn(send, "diffs.changed"))).toEqual({ "/lib": stats });
+    watcher.dispose();
+  });
+
   it("polls status without taking git's optional locks", async () => {
     const { watcher, exec } = await watch(repo());
     expect(callsOf(exec, "status")[0]?.[1]).toEqual([
@@ -211,11 +228,11 @@ describe("DiffWatcher", () => {
       running--;
       return " 1 file changed, 1 insertion(+)";
     });
-    const watcher = new DiffWatcher(hostsWith({ exec } as unknown as GitBackend));
+    const watcher = new DiffWatcher(hostsWith({ exec } as unknown as GitBackend), { window: () => window });
     const { window, send } = fakeWindow();
     const workspaces = Array.from({ length: 10 }, (_, i) => diffWs(`/ws${i}`));
 
-    watcher.start(workspaces, window);
+    watcher.start(workspaces);
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(callsOf(exec, "diff")).toHaveLength(10);
@@ -370,9 +387,9 @@ describe("DiffWatcher", () => {
       return "";
     });
     const shell = { exec: vi.fn().mockRejectedValue(new Error("wc: gone.txt: No such file")) };
-    const watcher = new DiffWatcher(hostsWith(git, shell));
+    const watcher = new DiffWatcher(hostsWith(git, shell), { window: () => window });
     const { window, send } = fakeWindow();
-    watcher.start([diffWs("/app")], window);
+    watcher.start([diffWs("/app")]);
     await vi.advanceTimersByTimeAsync(0);
     expect(fingerprintsSent(send)).toBe(1);
     watcher.stop();
@@ -382,9 +399,9 @@ describe("DiffWatcher", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const state = repo({ shortstat: " 1 file changed, 1 insertion(+)" });
     const { git } = fakeGit(state);
-    const watcher = new DiffWatcher(hostsWith(git));
+    const watcher = new DiffWatcher(hostsWith(git), { window: () => window });
     const { window, send } = fakeWindow();
-    watcher.start([diffWs("/app")], window);
+    watcher.start([diffWs("/app")]);
     log.mockClear();
 
     await vi.advanceTimersByTimeAsync(0);

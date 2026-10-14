@@ -31,7 +31,6 @@ import type { HostDeps } from "../ipc/types";
 import { flatten, toHandlerTable, type MethodRules } from "./method";
 import { UNAVAILABLE_CODE } from "./types";
 import { SERVER_METHODS } from "./server-methods";
-import { diffs } from "./handlers/branches-diffs";
 import { keybindings } from "./handlers/preferences";
 import { processes } from "./handlers/processes";
 
@@ -41,7 +40,6 @@ import { processes } from "./handlers/processes";
  */
 const DESKTOP_METHODS = flatten({
   keybindings: { runInMainWindow: keybindings.runInMainWindow },
-  diffs: { start: diffs.start },
   processes: { list: processes.list },
 });
 

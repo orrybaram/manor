@@ -4,7 +4,8 @@ import { LOCAL_HOST_ID } from "./backend/types";
 import { HostUnavailableError } from "./backend/host-view";
 import { workspaceKey } from "../src/lib/workspace-key";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
-import { publishRendererBroadcast } from "./renderer-broadcast";
+import { publishRendererBroadcast, type BroadcastBus } from "./renderer-broadcast";
+import { WatchedSets } from "./watched-sets";
 
 /**
  * Local, fs-based HEAD read for `wsPath` (a repo or worktree root). Cheap
@@ -67,22 +68,31 @@ export async function readLocalBranch(wsPath: string): Promise<string | null> {
  */
 export class BranchWatcher {
   private readonly poller: PerHostPoller<Record<string, string>>;
+  /** Each connection's workspaces (ADR-230 D6); the union is polled. */
+  private readonly sets = new WatchedSets<HostPath>();
 
-  constructor(private readonly hosts: HostBackends) {
+  constructor(
+    private readonly hosts: HostBackends,
+    /** Where `branches.changed` goes: the server's bus. */
+    publish: BroadcastBus["publish"] = publishRendererBroadcast,
+  ) {
     this.poller = new PerHostPoller<Record<string, string>>({
       label: "BranchWatcher",
       scan: (hostId, paths) =>
         hostId === LOCAL_HOST_ID ? this.scanLocal(paths) : this.scanRemote(hostId, paths),
       intervalMs: (hostId) => (hostId === LOCAL_HOST_ID ? 2000 : 5000),
       merge: (results) => Object.assign({}, ...results) as Record<string, string>,
-      emit: (branches) => publishRendererBroadcast("branches", "changed", branches),
+      emit: (branches) => publish("branches", "changed", branches),
     });
   }
 
   /**
-   * Watch `workspaces`. With none, `{}` is emitted once so the renderer
-   * clears out any branches left over from before; restarting with the
-   * same branches emits nothing new.
+   * Watch `workspaces` for connection `owner`, beside every other
+   * connection's (ADR-230 D6). With none at all, `{}` is emitted once so the
+   * renderer clears out any branches left over from before. Restarting with
+   * the same branches emits nothing new; a connection whose own list changed
+   * is sent the whole picture again, even what was already watched for
+   * somebody else.
    *
    * ADR-180 D5: there is no window argument. This used to push into one
    * `webContents`; a `branches.changed` broadcast reaches every renderer
@@ -90,14 +100,28 @@ export class BranchWatcher {
    * through the bridge's sink, and the watcher goes back to not knowing
    * anything about windows.
    */
-  start(workspaces: readonly HostPath[]): void {
-    this.poller.reset({ reemit: false });
-    this.poller.setEntries(workspaces);
-    this.poller.start({ immediate: true });
+  start(workspaces: readonly HostPath[], owner = ""): void {
+    const changed = this.sets.set(owner, workspaces);
+    this.apply({ reemit: changed });
   }
 
-  stop(): void {
+  /** `owner` watches nothing now: it stopped, or its connection closed. */
+  stop(owner = ""): void {
+    if (!this.sets.delete(owner)) return;
+    if (this.sets.empty) this.poller.stop();
+    else this.apply({ reemit: false });
+  }
+
+  /** Stop for everyone: the server is shutting down. */
+  dispose(): void {
+    this.sets.clear();
     this.poller.stop();
+  }
+
+  private apply({ reemit }: { reemit: boolean }): void {
+    this.poller.reset({ reemit });
+    this.poller.setEntries(this.sets.union());
+    this.poller.start({ immediate: true });
   }
 
   private async scanLocal(paths: string[]): Promise<Record<string, string>> {

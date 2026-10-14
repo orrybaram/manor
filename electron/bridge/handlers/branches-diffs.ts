@@ -19,8 +19,8 @@ import { assertHostPaths, assertString } from "../../ipc-validate";
 import { publishToRenderer } from "../../renderer-broadcast";
 import type { HostPath } from "../../per-host-poller";
 import type { DiffWorkspace } from "../../diff-watcher";
-import { method, type HandlerCtx } from "../method";
-import type { HostDeps, ServerDeps } from "../../ipc/types";
+import { LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import type { ServerDeps } from "../../ipc/types";
 
 /** What one `git.push.progress` frame carries. */
 export type PushProgressEvent =
@@ -37,33 +37,38 @@ export function killAllActivePushes(): void {
   }
 }
 
-/** The branch and diff watchers. */
-/** Workspaces arrive with their project's host (ADR-183). */
+/**
+ * The branch and diff watchers. Workspaces arrive with their project's host
+ * (ADR-183), and each connection's are its own (ADR-230 D6): the watcher
+ * polls every connection's, and a caller's stop, or its connection closing
+ * (`createManorServer`), takes only the caller's away.
+ */
+type WatcherDeps = Pick<ServerDeps, "branchWatcher" | "diffWatcher">;
+
 export function branchesStart(
-  ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<WatcherDeps>,
   workspaces: readonly HostPath[],
 ): void {
   const value: unknown = workspaces;
   assertHostPaths(value, "workspaces");
-  ctx.deps.branchWatcher.start(value);
+  ctx.deps.branchWatcher.start(value, ctx.caller.id);
 }
 
-export function branchesStop(ctx: HandlerCtx<ServerDeps>): void {
-  ctx.deps.branchWatcher.stop();
+export function branchesStop(ctx: HandlerCtx<WatcherDeps>): void {
+  ctx.deps.branchWatcher.stop(ctx.caller.id);
 }
 
 export function diffsStart(
-  ctx: HandlerCtx<HostDeps>,
+  ctx: HandlerCtx<WatcherDeps>,
   workspaces: readonly DiffWorkspace[],
 ): void {
   const value: unknown = workspaces;
   assertHostPaths(value, "workspaces", ["defaultBranch"]);
-  // The primary window is the visibility gate only (see `DiffWatcher.start`).
-  ctx.deps.diffWatcher.start(value, ctx.deps.mainWindow);
+  ctx.deps.diffWatcher.start(value, ctx.caller.id);
 }
 
-export function diffsStop(ctx: HandlerCtx<ServerDeps>): void {
-  ctx.deps.diffWatcher.stop();
+export function diffsStop(ctx: HandlerCtx<WatcherDeps>): void {
+  ctx.deps.diffWatcher.stop(ctx.caller.id);
 }
 
 export function diffsGetFullDiff(
@@ -199,15 +204,18 @@ export function gitPushCancel(
 }
 
 // The watcher lifecycle and the reads are what a viewer does to its own view,
-// so none of `branches` or `diffs` is audited.
+// so none of `branches` or `diffs` is audited. Each server watches its own
+// machine's workspaces, and a desktop polls its hosts' through their
+// backends: the watch is split by the renderer's router (ADR-230 D6, the
+// `"split"` route), never forwarded by main.
 export const branches = {
-  start: method(branchesStart),
-  stop: method(branchesStop),
+  start: method(branchesStart, { route: LOCAL_ROUTE }),
+  stop: method(branchesStop, { route: LOCAL_ROUTE }),
 };
 
 export const diffs = {
-  start: method(diffsStart),
-  stop: method(diffsStop),
+  start: method(diffsStart, { route: LOCAL_ROUTE }),
+  stop: method(diffsStop, { route: LOCAL_ROUTE }),
   getFullDiff: method(diffsGetFullDiff),
   getLocalDiff: method(diffsGetLocalDiff),
   getStagedFiles: method(diffsGetStagedFiles),

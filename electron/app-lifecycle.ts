@@ -5,8 +5,6 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { layoutFile, manorDataDir } from "./paths";
 import { RemoteForwards, RemoteUrlResolver } from "./remote-forwards";
-import { BranchWatcher } from "./branch-watcher";
-import { DiffWatcher } from "./diff-watcher";
 import { electronSecretBox } from "./platform/electron-secret-box";
 import { JevClient } from "./jev";
 import { bootstrapHost } from "./terminal-host/bootstrap-host";
@@ -207,6 +205,10 @@ export function initApp(devTitle: string | null): void {
       // The tab a detached window holds; its reports are how that takes effect.
       claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
     },
+    // The diff watcher runs no git while the primary window is hidden or
+    // minimized and no paired browser watches (ADR-230 D6). Read at each
+    // start: `mainWindow` is nulled on close and set again on reopen.
+    diffWindow: () => mainWindow,
     remoteHosts: { remoteVersion: manorVersion() },
     playSound: playNotificationSound,
     appCommandResult,
@@ -286,15 +288,6 @@ export function initApp(devTitle: string | null): void {
       if (!hostId) return url;
       return remoteUrlResolver.resolve(url, hostId, NAVIGATE_HOST_WAIT_MS);
     };
-    const branchWatcher = new BranchWatcher(backendRegistry);
-    // Paused while the desktop window is hidden — unless a paired browser is
-    // subscribed to the diff events (read at scan time, once the bridge exists).
-    const diffWatcher = new DiffWatcher(
-      backendRegistry,
-      () =>
-        server.bridge.hasDeviceSubscriber("diffs", "changed") ||
-        server.bridge.hasDeviceSubscriber("diffs", "fingerprintsChange"),
-    );
     const jevClient = new JevClient({
       identityStore: async () => {
         await core.relayStores.identity.init();
@@ -401,8 +394,6 @@ export function initApp(devTitle: string | null): void {
       remoteForwards,
       remoteUrlResolver,
       paneHosts,
-      branchWatcher,
-      diffWatcher,
       jevClient,
       webviewServer,
       // Pane inspection routes' access to WebviewServer's own pane registry

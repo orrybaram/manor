@@ -126,6 +126,12 @@ import {
   type HandlerCtx,
 } from "../bridge/method";
 import type { BridgeServerDeps } from "../bridge/server";
+import {
+  branchesStart,
+  branchesStop,
+  diffsStart,
+  diffsStop,
+} from "../bridge/handlers/branches-diffs";
 import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
@@ -569,6 +575,17 @@ const METHODS = flatten({
       mutating: true,
     }),
     associateProject: method(owned(linearAssociateProject), { mutating: true }),
+  },
+  // This box's own workspaces' branches and diffs, watched here for each
+  // connection that asks (ADR-230 D6): a phone, or a desktop window's own
+  // bridge. A viewer's own view, so none of it is audited.
+  branches: {
+    start: method(branchesStart),
+    stop: method(branchesStop),
+  },
+  diffs: {
+    start: method(diffsStart),
+    stop: method(diffsStop),
   },
   chat: {
     getHistory: method(chatGetHistory),

@@ -74,7 +74,7 @@ describe("BranchWatcher", () => {
 
   afterEach(async () => {
     for (const stop of stopSinks.splice(0)) stop();
-    watcher?.stop();
+    watcher?.dispose();
     vi.useRealTimers();
     await rm(tmpDir, { recursive: true, force: true });
   });
@@ -248,5 +248,27 @@ describe("BranchWatcher", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(sends).toEqual([{ "box:/remote/new": "fresh-branch" }]);
     expect(maxInFlight).toBe(1);
+  });
+
+  // ADR-230 D6: a phone's watch used to replace the desktop window's on the
+  // same server. Each connection keeps its own, and the watcher polls them all.
+  it("watches the union of every connection's workspaces, and one's stop leaves the rest", async () => {
+    const gitBackend = fakeGit(async (p) => `branch-of-${p}`);
+    watcher = new BranchWatcher(hostsWith(gitBackend));
+    const { sends } = captureBranches();
+
+    watcher.start([onBox("/remote/a")], "window");
+    watcher.start([onBox("/remote/b")], "phone");
+    await vi.waitFor(() =>
+      expect(sends[sends.length - 1]).toEqual({
+        "box:/remote/a": "branch-of-/remote/a",
+        "box:/remote/b": "branch-of-/remote/b",
+      }),
+    );
+
+    watcher.stop("window");
+    await vi.waitFor(() =>
+      expect(sends[sends.length - 1]).toEqual({ "box:/remote/b": "branch-of-/remote/b" }),
+    );
   });
 });

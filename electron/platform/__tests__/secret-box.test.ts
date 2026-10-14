@@ -279,7 +279,7 @@ describe("pickHostSecretBox", () => {
         }),
       ).rejects.toThrow(
         new SecretBoxUnavailableError(
-          "Pairing keys were sealed with MANOR_SECRET_KEY, which is not set",
+          "Pairing keys were sealed with a key from MANOR_SECRET_KEY or MANOR_SECRET_KEY_FILE, and neither is set",
         ),
       );
       expect(choice()).toBe("key-file");

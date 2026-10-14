@@ -279,6 +279,7 @@ function readSecretKey(env: NodeJS.ProcessEnv): Buffer | null {
   } catch (err) {
     throw new Error(
       `${KEY_FILE_ENV} (${file}) could not be read: ${(err as Error).message}`,
+      { cause: err },
     );
   }
   // A raw key is exactly 32 bytes; anything else is read as base64 text.
@@ -488,7 +489,7 @@ export async function pickHostSecretBox(
     if (!box) {
       throw new SecretBoxUnavailableError(
         chosen === "key-file"
-          ? `Pairing keys were sealed with ${KEY_ENV}, which is not set`
+          ? `Pairing keys were sealed with a key from ${KEY_ENV} or ${KEY_FILE_ENV}, and neither is set`
           : `Pairing keys were encrypted with ${chosen}, which is no longer available`,
       );
     }

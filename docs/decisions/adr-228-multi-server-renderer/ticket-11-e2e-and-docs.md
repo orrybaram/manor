@@ -1,6 +1,6 @@
 ---
 title: E2E pass, glossary and docs
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [5, 6, 8, 9, 10]

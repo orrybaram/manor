@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -179,7 +179,8 @@ the desktop changes.
   - A server's own `local` becomes that room's id.
   - A remote host that the phone sees only through a desktop becomes that
     host's room id, if the desktop reports one. Otherwise it becomes
-    `<desktop room>/<hostId>`.
+    `<desktop room>~<hostId>`. (`~`, not `/`: `workspaceKey` can't hold a
+    `/` in a host id.)
   - To report it, `hosts.list` gains `roomId`, read from
     `hostServer.status()`.
 - **The phone's per-browser viewport keys change once.** The phone used to
@@ -321,7 +322,7 @@ ControlMaster makes the extra children cheap.
   their host, as linked groups and remote projects are on the desktop.
   `ProjectItem` and `ProjectGroupItem` already render a host row.
 - **`PhoneHostSwitcher` and the reload are deleted.** They are replaced by a
-  **Hosts** sheet in the phone menu. The sheet:
+  **Hosts** sheet, opened from the phone drawer's bottom nav. The sheet:
   - lists each pairing with its name and reachability;
   - renames a pairing;
   - removes a pairing, with a confirm.
@@ -380,7 +381,9 @@ does not send them to the page's server.
      connected. This is the route ADR-225's end-state table asks for. The
      token never leaves the desktop.
   3. **Neither.** The call is refused with a stated reason: "Linear isn't
-     turned on for wsl-box, and This Mac is away".
+     turned on for wsl-box, and This Mac is away". On the desktop the home
+     server is never away, so the same case there reads "…and Linear isn't
+     connected on This Mac".
 - **Linking an issue to a workspace stays host-native.** That is
   `linear.linkIssueToWorkspace` by `byProject`. The link is project state,
   so it goes to H whichever server answered the browse.
@@ -451,6 +454,55 @@ does not send them to the page's server.
   that host is the recovery step, as it is today.
 - **Old host servers.** Until a host upgrades, it is reached through main
   (D3). Both paths must keep working. The E2E covers both.
+
+## Known limits as built
+
+Fixed during slice 3 and no longer limits: the re-mint of a declined host
+room, away state for a host reached only through a desktop (icon, chip and
+terminal write guard), "This machine" labels in the main phone screens, and a
+source stuck "unknown" when it never says hello (now a 15 s first-hello
+deadline in `install-web.ts`).
+
+Still true:
+
+- **Main's forwarded callers share one host viewer.** Phones on the desktop
+  and windows that fell back all use main's owner channel for a remote pane,
+  so they get one `winsizeOwner` and can fight over resizes
+  (`electron/server/host-routing.ts`, `electron/backend/host-proxy.ts`).
+- **Claims on remote tabs** that leave the host's tree aren't dropped on
+  main; `dropClaimsOnGoneTabs` (`electron/layout/layout-store.ts`) runs for
+  local workspaces only. The claim lasts until the window closes.
+- **Lookup cost.** `HostProxy.layout()` copies entries and calls `claimsFor`
+  per call, and `workspaceOfPane` runs per routed pane call, keystrokes
+  included. Fine at today's sizes; index it later.
+- **Older host servers** lack `pty.reset` and `pty.close` until their tarball
+  upgrade runs.
+- **Panes attached before adoption** in the same run keep their daemon
+  subscription until main restarts (`electron/backend/routed-backend.ts`).
+- **Branch and diff watching on the phone.** `branches.start` and
+  `diffs.start` go home only, and home drops workspaces for hosts it doesn't
+  know, so watching is off for workspaces that exist only on a host server.
+  Fix: split per server and merge events.
+- **Selected project.** `projects.getSelectedIndex` and `select` index home's
+  list, not the merged one.
+- **A source that drops after connecting** with a close code the relay pipe
+  doesn't treat as unreachable (e.g. 1006) keeps its last reachability while
+  it redials, so its calls and pane listeners stay on it until the relay
+  says 4404 or 4410 (`src/bridge/transports/ws.ts`, `src/bridge/install-web.ts`).
+- **Reset mid-mint.** A host-server reset while `linkHostPairings` mints can
+  leave the minted host device unlinked (`electron/remote-control/host-links.ts`).
+- **Linear without a host.** Settings and wizard calls (`getViewer`,
+  `getTeams`, `autoMatch`) pass no host and use browse order, home first.
+- **Stale Linear status on an open phone.** `src/bridge/linear-servers.ts`
+  caches each server's `isConnected` and refreshes it only on hello and
+  `hosts.pairingChanged`. Connecting Linear on the desktop isn't seen by an
+  open phone until it reconnects or reloads.
+- **"This machine" elsewhere.** `memberHostName` still says so on the phone in
+  `src/store/auto-join.ts`, `src/store/project-store.ts` toasts and undo
+  labels, `ProjectItem.tsx`'s menu, `ProjectSetUpOnSection.tsx` and
+  `ProjectSettingsPage.tsx`.
+- **E2E.** `web-app.spec.ts` tests at lines 255, 470 and 566 fail on the base
+  commit too; they are not caused by this ADR.
 
 ## Tickets
 

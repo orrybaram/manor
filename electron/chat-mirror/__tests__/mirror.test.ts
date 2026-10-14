@@ -532,7 +532,10 @@ describe("ChatMirror", () => {
       fs.appendFileSync(p, toolResult("u1", "p1", "approved"));
 
       vi.advanceTimersByTime(8_000);
-      // Enough turns for an expiry's read to have run, had it fired.
+      // The watcher's publish of the result can lag under a loaded suite:
+      // wait for it, then enough turns for an expiry's read to have run,
+      // had it fired.
+      await until(() => published.length > 0);
       for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
       expect(published.map((x) => x.entry)).toEqual([
         { kind: "plan", id: "p1", ts: T, plan: "Do it", outcome: "approved" },

@@ -85,10 +85,9 @@ describe("BranchWatcher", () => {
     const { sends } = captureBranches();
 
     watcher.start([local(tmpDir)]);
-    // The initial tick runs synchronously-ish; flush microtasks.
-    await new Promise((r) => setTimeout(r, 10));
-
-    expect(sends).toEqual([{ [tmpDir]: "main" }]);
+    // The initial tick reads HEAD from disk, which a loaded suite can delay
+    // past any fixed wait.
+    await vi.waitFor(() => expect(sends).toEqual([{ [tmpDir]: "main" }]));
   });
 
   it("emits {} once when started with no paths, clearing stale branches", async () => {

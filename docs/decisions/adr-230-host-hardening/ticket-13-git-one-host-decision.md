@@ -1,6 +1,6 @@
 ---
 title: Git runs on the host of the project the route resolved (#269)
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

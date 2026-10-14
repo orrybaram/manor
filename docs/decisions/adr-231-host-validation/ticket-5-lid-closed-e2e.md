@@ -66,3 +66,60 @@ ADR-231 D4. Read Context C2 and Decision D4 first. The new spec is
 - `tests/e2e/helpers/notifications.ts` (new, or an existing helper file): `agentNotifications`, shared with `remote-host.spec.ts`.
 - `tests/e2e/remote-host.spec.ts`: import the moved helper.
 - `scripts/test-remote-e2e.mjs`: `PLAYWRIGHT_SUITES` and the header.
+
+## Found
+
+**The phone does not read a frozen desktop as away.** Step 3's "desktop
+reads as away within 30 s" fails on every run. The spec keeps the
+assertion. It checks it last, and marks the test `test.fail()` only when
+that check is the one that fails, so every other step must still pass.
+Everything else in D4 holds.
+
+What a diagnostic run showed (desktop frozen for 113 s, the phone polled
+every 250 ms):
+
+- **0 to about 90 s.** The phone's line to the desktop's room stays
+  "connected". The relay answers a viewer's `HEARTBEAT_PING` itself (an
+  auto-response, `relay/src/room.ts`), so the phone's heartbeat never
+  notices that the desktop behind the room has gone silent. Any merged read
+  (`agents.getActive`, `projects.getAll`) hangs for that whole time,
+  because `router.ts`'s `merged()` waits on every server it still calls
+  reachable, the frozen desktop included. The spec therefore reads agent
+  statuses from the phone's sidebar (`sidebar-agent-row` / `agent-dot`),
+  which the box's status events keep live.
+- **At about 90 s** the relay drops the silent host (`STALE_AFTER_MS`,
+  90 s, in its alarm sweep). Merged reads answer again from that point.
+- **After that the project is still not dimmed** (checked up to 113 s).
+  The desktop's own project has its room as its `hostId` on the phone.
+  `isHostOffline` (`src/lib/host-status.ts`) marks a host away only when:
+  - a host list reports the host as not connected; or
+  - there is no direct bridge and every server listing the host is
+    unreachable.
+
+  No host list names the desktop's own room. The phone does hold a direct
+  bridge to it, so the second rule never applies either. As far as the
+  code reads, the desktop's own project is never dimmed, even once its
+  socket is closed. Not verified at runtime: what `directReachability`
+  returned at that point.
+
+The fix is a follow-up ticket under ADR-231, in two parts:
+
+1. **Liveness between phone and desktop.** A heartbeat that reaches the
+   desktop end to end, or a relay that tells viewers when its host has gone
+   silent, well inside 30 s.
+2. **The away rule.** `isHostOffline` treats a server the page reaches
+   directly and finds unreachable as away. That covers the desktop's own
+   room.
+
+When it lands, delete the `relayTest.fail` branch at the end of
+`tests/e2e/lid-closed.spec.ts`.
+
+**Two changes outside the file list:**
+
+- **`--docker`.** The container now reaches the local relay.
+  - `reachRelayFromBox` sets up an `ssh -R` on the side channel, using the
+    same port at both ends.
+  - Its sshd sessions source `~/.manor-e2e/env` through a `ForceCommand`
+    wrapper. The image used to fix `MANOR_RELAY_URL` with `SetEnv`, so
+    `pointHostServerAtRelay` had no effect there.
+- **`resetRemoteBox`** also clears `~/.manor/worktrees` on the box.

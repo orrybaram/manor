@@ -131,7 +131,7 @@ export async function openRemoteProject(
  * line typed before the shell is ready is dropped, so this retypes; the
  * marker is computed by the shell, so the typed text never matches it.
  */
-async function awaitRemotePrompt(
+export async function awaitRemotePrompt(
   window: Page,
   request: APIRequestContext,
   tempHome: string,

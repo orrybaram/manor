@@ -1,5 +1,4 @@
 import fs from "fs";
-import path from "path";
 
 import { expect, test } from "./fixtures";
 import {
@@ -10,6 +9,7 @@ import {
   FAKE_CHAT_REPLY,
 } from "./helpers/fake-agent";
 import { readSession } from "./helpers/local-api";
+import { agentNotifications } from "./helpers/notifications";
 import { openWebApp } from "./helpers/phone";
 import { relayTest } from "./helpers/relay-fixture";
 import {
@@ -76,26 +76,6 @@ test.afterEach(() => {
   // A test that failed while the app's alias was blocked must not leave it so.
   setAppTargetReachable(true);
 });
-
-/** Mirrors `notificationsFile()` in electron/paths.ts. */
-function agentNotifications(tempHome: string, agentId: string): { kind: string }[] {
-  const dataDir =
-    process.platform === "darwin"
-      ? path.join(tempHome, "Library", "Application Support", "Manor")
-      : path.join(tempHome, ".local", "share", "Manor");
-  const file = path.join(dataDir, "notifications.json");
-  if (!fs.existsSync(file)) return [];
-  try {
-    const parsed = JSON.parse(fs.readFileSync(file, "utf-8")) as {
-      notifications?: { kind: string; target: { type: string; agentId?: string } | null }[];
-    };
-    return (parsed.notifications ?? []).filter(
-      (n) => n.target?.type === "agent" && n.target.agentId === agentId,
-    );
-  } catch {
-    return []; // Mid-write; the poll comes back.
-  }
-}
 
 test.describe("remote host", () => {
   test.setTimeout(CONNECT_TIMEOUT + 5 * STEP);

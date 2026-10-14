@@ -215,21 +215,23 @@ export async function readSessionMeta(
   request: APIRequestContext,
   tempHome: string,
   target: string,
+  tailLines = 200,
 ): Promise<SessionRead> {
   const res = await request.post(localApiUrl(tempHome, "/sessions/read"), {
-    data: { target, tailLines: 200 },
+    data: { target, tailLines },
   });
   if (!res.ok()) throw new Error(`POST /sessions/read → ${res.status()}`);
   return (await res.json()) as SessionRead;
 }
 
-/** Rendered scrollback for an agent handle or a raw pane id. */
+/** Rendered scrollback for an agent handle or a raw pane id: its last `tailLines` lines. */
 export async function readSession(
   request: APIRequestContext,
   tempHome: string,
   target: string,
+  tailLines = 200,
 ): Promise<string> {
-  return (await readSessionMeta(request, tempHome, target)).text;
+  return (await readSessionMeta(request, tempHome, target, tailLines)).text;
 }
 
 /**

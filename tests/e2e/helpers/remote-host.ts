@@ -1,4 +1,4 @@
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
@@ -117,7 +117,8 @@ const READ_SERVER_PID = 'pid=$(cat "$HOME/.manor/remote/server/server.pid" 2>/de
  * and the stubs.
  *
  * By default the installed host is kept (a reinstall is the bridge suite's
- * job, and costs minutes on Linux) and only its state under `remote/` goes.
+ * job, and costs minutes on Linux) and only its state under `remote/` (and
+ * the worktrees under `worktrees/`) goes.
  * `coldBootstrap` deletes all of `~/.manor` too, so the next connect is a
  * bootstrap from nothing.
  */
@@ -126,7 +127,9 @@ export function resetRemoteBox({ coldBootstrap = false } = {}): void {
   // harness's own throwaway homes, never on a box of your own.
   const agentConfigs =
     coldBootstrap && remoteKind() !== "custom" ? ' "$HOME/.claude" "$HOME/.codex"' : "";
-  const manor = coldBootstrap ? '"$HOME/.manor"' : '"$HOME/.manor/remote"';
+  // Worktrees an earlier test made live outside `remote/`; left behind, a
+  // later `git worktree add` of the same name fails with "already exists".
+  const manor = coldBootstrap ? '"$HOME/.manor"' : '"$HOME/.manor/remote" "$HOME/.manor/worktrees"';
   stopHostServer();
   onRemote(
     '[ -x "$HOME/.manor/bin/manor-host" ] && "$HOME/.manor/bin/manor-host" restart >/dev/null 2>&1; ' +
@@ -176,6 +179,57 @@ export function pointHostServerAtRelay(relayUrl: string): void {
   onRemote(
     `mkdir -p "$HOME/.manor-e2e" && printf "MANOR_RELAY_URL='%s'\\nPATH=\\"$HOME/.manor-e2e/bin:$PATH\\"\\n" '${relayUrl}' > "$HOME/.manor-e2e/env"`,
   );
+}
+
+/**
+ * Make `relayUrl` (a local relay on this machine's loopback) reachable from
+ * the box at the same URL. The private sshd's box shares this machine's
+ * loopback, so there is nothing to do. A container has a loopback of its
+ * own: a reverse forward over the side channel (`ssh -R`, the same port on
+ * both ends) carries it, so the pairing links the box mints name the URL
+ * the phone dials too. The side channel is never cut, so the forward
+ * outlives `killAppSsh`. Returns a function that closes it.
+ */
+export async function reachRelayFromBox(relayUrl: string): Promise<() => void> {
+  if (remoteKind() !== "docker") return () => {};
+  const port = Number(new URL(relayUrl).port);
+  const child = spawn(
+    "ssh",
+    [
+      "-F",
+      sshConfigPath(),
+      "-N",
+      "-o",
+      "ExitOnForwardFailure=yes",
+      "-R",
+      `127.0.0.1:${port}:127.0.0.1:${port}`,
+      DIRECT_TARGET,
+    ],
+    { stdio: "ignore" },
+  );
+  const close = () => {
+    child.kill("SIGTERM");
+  };
+  try {
+    await pollFor(
+      `the relay's port ${port} forwarded onto the box`,
+      () => {
+        if (child.exitCode !== null) throw new Error(`ssh -R exited with ${child.exitCode}`);
+        return onRemote(
+          `node -e "require('net').connect(${port},'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"`,
+          { allowFailure: true },
+        ).code === 0
+          ? true
+          : null;
+      },
+      30_000,
+      500,
+    );
+  } catch (err) {
+    close();
+    throw err;
+  }
+  return close;
 }
 
 /** Where the fake `gh` reads its fixtures on the box. */

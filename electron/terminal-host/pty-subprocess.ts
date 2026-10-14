@@ -18,6 +18,7 @@ import {
 } from "./pty-subprocess-ipc";
 import type { PtySpawnPayload } from "./types";
 import { AGENT_COMMAND_PATTERNS } from "./pane-facts";
+import { KNOWN_SHELLS, processBasename, shellForegroundName } from "./foreground-shell";
 import treeKill from "tree-kill";
 
 const execFileAsync = promisify(execFile);
@@ -28,7 +29,6 @@ let fgProcInterval: ReturnType<typeof setInterval> | null = null;
 let lastFgProcName: string | null = null;
 let fgPollRunning = false;
 
-const KNOWN_SHELLS = new Set(["zsh", "bash", "fish", "sh"]);
 const JS_RUNTIMES = new Set(["node", "deno", "bun"]);
 
 // Some CLIs (e.g. Claude Code) set their process title to a version string
@@ -37,8 +37,9 @@ const VERSION_STRING_RE = /^\d+\.\d+/;
 
 
 /**
- * When the foreground process is a JS runtime (e.g. "node"), inspect the
- * command lines of the shell's child processes to identify known agent CLIs.
+ * When the foreground process is a JS runtime (e.g. "node"), or a shell running
+ * a script, inspect the command lines of that process's children (the pane's
+ * shell's, or the script's shell's) to identify known agent CLIs.
  * e.g. "node /usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.mjs"
  */
 async function detectAgentFromChildArgs(
@@ -153,6 +154,60 @@ async function resolveFgName(fgName: string, shellPid: number): Promise<string> 
   return lastResolved?.fgName === fgName ? lastResolved.agent : fgName;
 }
 
+/**
+ * The pane's foreground process group (its leader's pid), from `tpgid` in the
+ * pane's shell's `/proc/<pid>/stat` on Linux, or `ps -o tpgid=` on macOS.
+ * Null if the lookup fails.
+ */
+async function foregroundLeaderPid(shellPid: number): Promise<number | null> {
+  let raw: string;
+  if (process.platform === "linux") {
+    const stat = await fs.promises.readFile(`/proc/${shellPid}/stat`, "utf-8");
+    // Fields after the parenthesised comm (which may hold spaces): state, ppid,
+    // pgrp, session, tty_nr, tpgid.
+    raw = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[5] ?? "";
+  } else {
+    const { stdout } = await execFileAsync("ps", ["-o", "tpgid=", "-p", String(shellPid)], {
+      encoding: "utf-8",
+      timeout: 200,
+    });
+    raw = stdout;
+  }
+  const pid = Number.parseInt(raw.trim(), 10);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** A process's argv: `/proc/<pid>/cmdline` on Linux, `ps -o args=` elsewhere. */
+async function processArgs(pid: number): Promise<string[]> {
+  if (process.platform === "linux") {
+    const cmdline = await fs.promises.readFile(`/proc/${pid}/cmdline`, "utf-8");
+    return cmdline.split("\0").filter(Boolean);
+  }
+  const { stdout } = await execFileAsync("ps", ["-o", "args=", "-p", String(pid)], {
+    encoding: "utf-8",
+    timeout: 200,
+  });
+  return stdout.trim().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * The foreground name to report while a shell leads the pane's foreground
+ * (ADR-231 D5): null when it is the pane's own shell, otherwise the agent or
+ * script the other shell runs (e.g. a `#!/bin/sh` wrapper that didn't `exec`).
+ * A failed lookup reports null, as before.
+ */
+async function resolveShellForeground(shellPid: number): Promise<string | null> {
+  try {
+    const leaderPid = await foregroundLeaderPid(shellPid);
+    if (leaderPid === null || leaderPid === shellPid) return null;
+    const leaderArgs = await processArgs(leaderPid);
+    const agentBelow = await detectAgentFromChildArgs(leaderPid);
+    return shellForegroundName({ shellPid, leaderPid, leaderArgs, agentBelow });
+  } catch {
+    return null;
+  }
+}
+
 // ── Output batching ──
 // Batch PTY output to reduce frame overhead on high-throughput output
 let outputBatch: Buffer[] = [];
@@ -258,7 +313,7 @@ const decoder = new FrameDecoder((type, payload) => {
 function pollForegroundProcess(): void {
   if (fgProcInterval) clearInterval(fgProcInterval);
 
-  const shellBasename = ptyProcess?.process?.replace(/^-/, "") ?? "";
+  const shellBasename = processBasename(ptyProcess?.process ?? "");
 
   fgProcInterval = setInterval(() => {
     if (fgPollRunning) return;
@@ -272,13 +327,23 @@ function pollForegroundProcess(): void {
         // to correctly resolve the foreground process of the PTY, even when
         // the child has its own process group (interactive shell job control).
         const fgProc = ptyProcess.process;
-        const basename = fgProc?.replace(/^-/, "") ?? "";
+        // On Linux it names the process by argv[0], e.g. "/bin/sh".
+        const basename = processBasename(fgProc ?? "");
 
-        // If the foreground process is the shell itself, report null
+        // A shell in front is the pane's own shell (report null) or a shell
+        // running a script, reported by what it runs. Telling them apart is a
+        // /proc read on Linux but a `ps` elsewhere, so there it is skipped for
+        // the pane's own shell's name: an idle pane spawns nothing.
         const isShell =
           !basename || basename === shellBasename || KNOWN_SHELLS.has(basename);
         if (isShell) lastResolved = null;
-        const fgName = isShell ? null : await resolveFgName(basename, ptyProcess.pid);
+        const mayBeScript =
+          !!basename && (process.platform === "linux" || basename !== shellBasename);
+        const fgName = !isShell
+          ? await resolveFgName(basename, ptyProcess.pid)
+          : mayBeScript
+            ? await resolveShellForeground(ptyProcess.pid)
+            : null;
 
         // Only send if changed
         if (fgName !== lastFgProcName) {

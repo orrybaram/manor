@@ -108,7 +108,10 @@ test.describe("remote host", () => {
     const { hostId, paneId } = await openRemoteProject(window, request, tempHome);
     const agentSession = `laptop-${Date.now()}`;
 
-    await runInTerminal(window, `${REMOTE_AGENT} --session ${agentSession}`);
+    // The stub stays a shell for 1.5 s after its hooks, like a wrapper that
+    // doesn't `exec` its agent: that shell in the foreground is not the pane's
+    // shell, so the agent must not read as gone (ADR-231 D5).
+    await runInTerminal(window, `${REMOTE_AGENT} --linger-ms 1500 --session ${agentSession}`);
     const agent = await pollFor(
       "the remote agent thinking",
       async () => {
@@ -117,6 +120,8 @@ test.describe("remote host", () => {
       },
       STEP,
     );
+    await window.waitForTimeout(2_000);
+    expect((await agentOnPane(request, tempHome, paneId))?.lastAgentStatus).toBe("thinking");
     const before = agentNotifications(tempHome, agent.id).length;
 
     // Lid closed: the box becomes unreachable and the live connection dies.

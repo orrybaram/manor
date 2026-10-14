@@ -14,12 +14,23 @@
 #   manor-e2e-agent --resume ID   what Manor types to resume session ID after
 #                                 the remote daemon restarted (ADR-178 §6);
 #                                 appends ID to ~/.manor-e2e/resumed.log
+#   manor-e2e-agent --linger-ms N ...
+#                                 any of the above, then N ms as a shell after
+#                                 the last hook: the script's shell leads the
+#                                 pane's foreground, as a wrapper that doesn't
+#                                 `exec` its agent would (ADR-231 D5)
 #
 # Then it echoes input lines until killed, so the pane stays in the agent.
 
 set -u
 state="$HOME/.manor-e2e"
 mkdir -p "$state"
+
+linger_ms=0
+if [ "${1:-}" = "--linger-ms" ] && [ -n "${2:-}" ]; then
+  linger_ms="$2"
+  shift 2
+fi
 
 if [ "${1:-}" = "--resume" ] && [ -n "${2:-}" ]; then
   sid="$2"
@@ -43,6 +54,10 @@ hook() {
 hook SessionStart
 hook UserPromptSubmit
 printf 'manor-e2e-agent working\n'
+
+if [ "$linger_ms" -gt 0 ]; then
+  sleep "$(awk -v ms="$linger_ms" 'BEGIN { printf "%.3f", ms / 1000 }')"
+fi
 
 # The loop is not a shell: a pane whose foreground is a shell has no agent
 # in it, to whoever reads the pane's facts — and since ADR-227 D4 the host

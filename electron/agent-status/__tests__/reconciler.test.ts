@@ -847,6 +847,29 @@ describe("reconcile — Pane facts: liveness (every Agent)", () => {
     const r = reconcile(activePane({ status: "error", phase: "none" }), facts({ foreground: null }), ctx());
     expect(r.status).toBe("error");
   });
+
+  // ADR-231 D5: while an agent's wrapper script (a shell that didn't `exec`)
+  // leads the foreground, the sampler reports the script's name, not the shell.
+  it("a script leading the foreground mid-turn → still thinking, nothing persisted", () => {
+    const rs = run([
+      hook(ev("SessionStart")),
+      hook(ev("UserPromptSubmit")),
+      facts({ foreground: fg("manor-e2e-agent") }),
+    ]);
+    expect(last(rs).status).toBe("thinking");
+    expect(rs[2].effects.filter((e) => e.kind === "PersistAgentStatus")).toEqual([]);
+  });
+
+  it("the script's shell reported as /bin/sh mid-turn → idle (why the sampler must not send it)", () => {
+    const rs = run([
+      hook(ev("SessionStart")),
+      hook(ev("UserPromptSubmit")),
+      facts({ foreground: fg("/bin/sh") }),
+    ]);
+    expect(last(rs).status).toBe("idle");
+    expect(last(rs).reason).toBe("agent process exited");
+    expect(persisted(last(rs).effects)).toEqual([respond()]);
+  });
 });
 
 describe("reconcile — Pane facts on a hook-driven pane", () => {

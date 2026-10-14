@@ -192,6 +192,24 @@ describe("install-web on a relay-served page", () => {
     expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
+  it("calls a non-clean drop unreachable after the grace period, and connected again on the next hello", async () => {
+    const { api } = await install(relayHash());
+    const { servers } = await import("../server-set");
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+    expect(servers.facts(ROOM).reachability).toBe("connected");
+
+    FakeRelaySocket.last.drop(1006);
+    vi.advanceTimersByTime(3_999);
+    expect(servers.facts(ROOM).reachability).toBe("connected");
+    vi.advanceTimersByTime(1);
+    expect(servers.facts(ROOM).reachability).toBe("unreachable");
+
+    vi.advanceTimersByTime(30_000);
+    FakeRelaySocket.last.handshake();
+    expect(servers.facts(ROOM).reachability).toBe("connected");
+  });
+
   it("emits a resync on a resumed hello, not the first", async () => {
     const { api } = await install(relayHash());
     // Same module registry as the install above, so the same listener set.

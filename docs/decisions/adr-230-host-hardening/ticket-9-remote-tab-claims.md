@@ -1,6 +1,6 @@
 ---
 title: Remote layouts drop claims on tabs that leave
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3, 8]

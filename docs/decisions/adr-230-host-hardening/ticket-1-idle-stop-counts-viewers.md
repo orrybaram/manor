@@ -1,6 +1,6 @@
 ---
 title: Idle stop counts phones and forwarded viewers
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

@@ -456,6 +456,32 @@ describe("SshTransport", () => {
     expect(child.written).toBe('{"kind":"invoke"}\n');
   });
 
+  it("opens a viewer stream with `server-bridge --viewer`, the server's hello reply its first line (ADR-228 D4)", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.openViewerBridge();
+    const child = await nextChild(children, 0);
+    expect(child.args).toEqual(
+      buildSshArgs(transport.configPath!, "me@box", remoteServerBridgeCommand({ viewer: true })),
+    );
+    child.stdout.write('Welcome to wsl-box!\n{"type":"hello","ok":true,"hostServer":true}\n{"kind":"ev');
+    const duplex = await pending;
+    const got: string[] = [];
+    duplex.on("data", (c: Buffer) => got.push(c.toString("utf-8")));
+    child.stdout.write('ent"}\n');
+    await vi.waitFor(() =>
+      expect(got.join("")).toBe('{"type":"hello","ok":true,"hostServer":true}\n{"kind":"event"}\n'),
+    );
+  });
+
+  it("fails a viewer stream the server refuses, and kills ssh", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.openViewerBridge();
+    const child = await nextChild(children, 0);
+    child.stdout.write('{"kind":"close","code":4401,"reason":"bad token"}\n');
+    await expect(pending).rejects.toThrow(/4401: bad token/);
+    expect(child.killed).toBe(true);
+  });
+
   it("fails the owner channel with ssh's stderr when server-bridge exits non-zero", async () => {
     const { transport, children } = makeTransport();
     const pending = transport.openServerBridge();

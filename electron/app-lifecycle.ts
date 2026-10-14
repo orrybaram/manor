@@ -42,6 +42,7 @@ import * as webviewIpc from "./ipc/webview";
 import * as nativeIpc from "./ipc/native";
 import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
+import * as hostPipeIpc from "./ipc/host-pipe";
 import { appCommandResult } from "./renderer-bridge";
 import { createManorServer, type ManorCore } from "./server/create-manor-server";
 import type { Platform } from "./server/platform";
@@ -407,6 +408,9 @@ export function initApp(devTitle: string | null): void {
   nativeIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
   menuIpc.register(ipcDeps);
+  // Each window's own streams to its hosts' servers (ADR-228 D4): main
+  // carries their frames between IPC and SSH, and reads none of them.
+  const hostPipes = hostPipeIpc.register(ipcDeps);
   // What is left of a few crossed namespaces' `register()` is a subscription
   // that has to run once, at boot, and was never an `ipcMain.handle` — the
   // `wire*` broadcasts debounce or fan out a manager's `onChange` as a bridge
@@ -625,6 +629,7 @@ export function initApp(devTitle: string | null): void {
   function performShutdown(): Promise<void> {
     webviewServer.stop();
     hostServerSync.dispose();
+    hostPipes.dispose();
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.
     const remoteControlDown = remoteControl.shutdown();

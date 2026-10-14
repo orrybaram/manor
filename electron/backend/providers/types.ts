@@ -41,6 +41,14 @@ export interface HostProvider {
    */
   openServerChannel?(): Promise<Duplex>;
   /**
+   * Open a desktop window's own stream to the box's host server (ADR-228
+   * D4): the owner's credential with a desktop viewer's hello. Unlike
+   * `openServerChannel` the stream *starts* with the server's hello reply
+   * line, for the window's transport to read. Rejects as `openServerChannel`
+   * does. Absent for a provider that cannot reach a host server.
+   */
+  openViewerChannel?(): Promise<Duplex>;
+  /**
    * Release what the provider holds of its own (port forwards). Does not
    * dispose the transport — its client owns that.
    */

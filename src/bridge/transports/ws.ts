@@ -112,9 +112,20 @@ const ROOT_VALUES: Record<string, unknown> = {
 };
 
 export interface WsTransportOptions {
-  /** The paired device's token. `null` installs a bridge that never dials. */
+  /**
+   * The paired device's token. `null` installs a bridge that never dials —
+   * unless `preAuthenticated`, which needs none.
+   */
   token: string | null;
-  /** What carries the frames. Never connected while `token` is null. */
+  /**
+   * The far end of the pipe has already said the hello (ADR-228 D4: a
+   * desktop window's `server-bridge --viewer` stream, `./host-pipe.ts`).
+   * The transport sends none, and takes the first `hello` reply frame that
+   * arrives as the handshake; `onHello` hears the same facts as on the web.
+   * `token` is not read.
+   */
+  preAuthenticated?: boolean;
+  /** What carries the frames. Never connected while there is nothing to dial with. */
   pipe: Pipe;
   /**
    * Close 4401: the token is dead. Default logs; `install-web.ts` forgets
@@ -229,8 +240,13 @@ class WsTransport implements WsBridgeTransport {
     this.pipe = options.pipe;
   }
 
+  /** A token to say hello with, or a pipe whose far end said it. */
+  private get canDial(): boolean {
+    return this.options.preAuthenticated === true || this.options.token !== null;
+  }
+
   probeNow(): Promise<ProbeOutcome> {
-    if (this.stopped || this.options.token === null) {
+    if (this.stopped || !this.canDial) {
       return Promise.resolve("stopped");
     }
     if (this.reconnectTimer) {
@@ -289,13 +305,13 @@ class WsTransport implements WsBridgeTransport {
 
   /** Dial, if there is a token and nothing is dialling already. */
   start(): void {
-    if (this.socket || this.stopped || this.options.token === null) return;
+    if (this.socket || this.stopped || !this.canDial) return;
     if (this.reconnectTimer) return;
     this.open();
   }
 
   invoke(ns: string, method: string, args: unknown[]): Promise<unknown> {
-    if (this.options.token === null) {
+    if (!this.canDial) {
       return Promise.reject(
         new BridgeDisconnectedError("This browser is not paired with Manor"),
       );
@@ -348,9 +364,15 @@ class WsTransport implements WsBridgeTransport {
    * holding it, so a selection hint addressed to "the tab that sent this"
    * still finds it after a blip, and this connection's `pty-attachments`
    * viewer identity does not reset.
+   *
+   * Not said at all over a `preAuthenticated` pipe.
    */
   private sayHello(): void {
     this.resuming = this.rendererId !== null;
+    // Said already, at the far end: what comes back is the reply to it. No
+    // `previousId` can go with it, so a resumed connection there is a new
+    // id — which a layout command's origin tolerates (see `rendererId`).
+    if (this.options.preAuthenticated) return;
     this.write(
       JSON.stringify({
         type: "hello",

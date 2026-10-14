@@ -13,6 +13,11 @@ import {
   BRIDGE_RENDERER_ID,
   BRIDGE_SUBSCRIBE,
   BRIDGE_UNSUBSCRIBE,
+  HOST_PIPE_CLOSE,
+  HOST_PIPE_CLOSED,
+  HOST_PIPE_FRAME,
+  HOST_PIPE_OPEN,
+  HOST_PIPE_SEND,
   type ClientFrame,
   type EventFrame,
   type InvokeFrame,
@@ -303,6 +308,28 @@ const nativeApi = {
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
     ) => onChannelArgs("webview:audio-state-changed", callback),
+  },
+
+  /**
+   * This window's own streams to host servers (ADR-228 D4). Main carries
+   * their frames as text and reads none of them; the bridge over one is
+   * `src/bridge/transports/host-pipe.ts`'s. Native because a browser cannot
+   * open SSH, and refused whole in one (`src/bridge/unavailable.ts`).
+   *
+   * `open` answers at once with the pipe's id. Every `frame` and `closed`
+   * for it comes after, and `closed` once: a pipe that cannot be opened is
+   * one that closes.
+   */
+  hostPipe: {
+    open: (hostId: string) => invoke<string>(HOST_PIPE_OPEN, hostId),
+    send: (pipeId: string, text: string) =>
+      ipcRenderer.send(HOST_PIPE_SEND, pipeId, text),
+    /** Done with it. No `closed` follows. */
+    close: (pipeId: string) => ipcRenderer.send(HOST_PIPE_CLOSE, pipeId),
+    onFrame: (callback: (pipeId: string, text: string) => void) =>
+      onChannelArgs(HOST_PIPE_FRAME, callback),
+    onClosed: (callback: (pipeId: string, code: number) => void) =>
+      onChannelArgs(HOST_PIPE_CLOSED, callback),
   },
 
   // Multi-window (ADR-156, ADR-179 D4). Named `window` on electronAPI — this

@@ -455,6 +455,32 @@ does not send them to the page's server.
 - **Old host servers.** Until a host upgrades, it is reached through main
   (D3). Both paths must keep working. The E2E covers both.
 
+## Built beyond the tickets
+
+Three behaviours shipped that no ticket named. Each was needed to make a
+named one work.
+
+- **The renderer holds pending commands (D5, D7).** Main's `HostRouting`
+  used to move a `layout.setPendingCommand` to the host whose `layout.apply`
+  added the pane (`movePendingCommands`). A direct bridge skips main, so the
+  router does the same: it holds the command for a pane no layout holds yet,
+  sends it ahead of the `layout.apply` that names the pane, and sends it home
+  if none comes within `HOLD_PENDING_MS` (`src/bridge/router.ts`,
+  `holdPendingCommand`).
+- **A keystroke lost mid-flight is dropped, not resent (D5).** A `pty.write`
+  whose direct bridge isn't connected goes through home, which forwards it to
+  the host (ticket 6 asked for this fallback). A write that was in flight when
+  its stream dropped may or may not have reached the host, so the router logs
+  it and lets it go rather than risk typing it twice. Nobody awaits a
+  keystroke, so nothing else sees the error.
+- **The terminal daemon only removes its own socket and pid file.** On
+  shutdown, the daemon unlinks them only while its pid file still names it
+  (`electron/terminal-host/index.ts`, `ownsPidFile`, and the matching check
+  in `transport-local.ts` `stop()`). Without it, a daemon started by a host
+  server that reconnected during a slow scrollback flush lost its socket to
+  the old daemon's cleanup, and the next client started a second daemon. The
+  direct-bridge E2E exposed the race.
+
 ## Known limits as built
 
 Fixed during slice 3 and no longer limits: the re-mint of a declined host

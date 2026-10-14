@@ -105,8 +105,9 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
       if (hostId && isRemoteHost(hostId) && !paneRemoteHost(panes, paneId)) {
         panes.setPaneHost(paneId, hostId);
       }
-      // A pane restored at launch, mounting for the first time, is not the
-      // user asking for its host (ADR-230 D3): a sleeping one stays asleep
+      // A pane of the workspace shown at launch, mounting for the first
+      // time, is not the user asking for its host (ADR-230 D3; one opened
+      // later is, see `seedRestoredPanes`): a sleeping one stays asleep
       // and the pane waits behind its banner. Forgotten once that create
       // settles — not as it is sent, so React's dev double-mount sends the
       // same — and every create after it wakes the host as usual.

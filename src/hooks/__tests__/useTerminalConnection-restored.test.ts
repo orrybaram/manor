@@ -8,6 +8,8 @@ import { useAppStore } from "../../store/app-store";
 import { resetFakeLayoutServer, seedLayout } from "../../store/__tests__/fake-layout-server";
 import type { PtyCreateOptions, PtyCreateResult } from "../../electron.d";
 import { workspaceKey } from "../../lib/workspace-key";
+import { emptyViewport } from "../../lib/layout/viewport";
+import type { LayoutEntry } from "../../lib/layout/protocol";
 
 // The hook's React is only `useRef` and `useCallback`: called outside a
 // render, each is what it holds.
@@ -62,6 +64,9 @@ beforeEach(async () => {
     },
   });
   await useAppStore.getState().loadPersistedLayout();
+  // The launch reopens on the workspace (App.tsx), then seeds.
+  useAppStore.getState().setActiveWorkspace(WS_PATH, "local");
+  useAppStore.getState().seedRestoredPanes();
 });
 
 afterEach(() => {
@@ -93,6 +98,46 @@ describe("a pane restored at launch (ADR-230 D3)", () => {
 
     expect(wakeOf(0)).toBe(false);
     expect(wakeOf(1)).toBe(false);
+  });
+
+  it("is only of the workspace the launch shows: one opened later is intent", async () => {
+    const OTHER = "/test/opened-later";
+    const entry = (paneId: string): LayoutEntry => ({
+      version: 1,
+      layout: {
+        panelTree: { type: "leaf", panelId: "panel-1" },
+        panels: {
+          "panel-1": {
+            id: "panel-1",
+            tabs: [{ id: `tab-${paneId}`, title: "Terminal", rootNode: { type: "leaf", paneId } }],
+            pinnedTabIds: [],
+          },
+        },
+      },
+      defaultViewport: emptyViewport(),
+      paneSessions: {},
+      claims: [],
+    });
+    const layout = window.electronAPI.layout;
+    const getAll = vi.spyOn(layout, "getAll").mockResolvedValueOnce({
+      [WS_KEY]: entry("pane-shown"),
+      [workspaceKey("local", OTHER)]: entry("pane-hidden"),
+    });
+    useAppStore.setState({ restoredPaneIds: new Set() });
+
+    await useAppStore.getState().loadPersistedLayout();
+    useAppStore.getState().setActiveWorkspace(WS_PATH, "local");
+    useAppStore.getState().seedRestoredPanes();
+    getAll.mockRestore();
+
+    expect([...useAppStore.getState().restoredPaneIds]).toEqual(["pane-shown"]);
+
+    // Opening the other workspace later seeds nothing, and its pane wakes.
+    useAppStore.getState().setActiveWorkspace(OTHER, "local");
+    useAppStore.getState().seedRestoredPanes();
+    expect(useAppStore.getState().restoredPaneIds.has("pane-hidden")).toBe(false);
+    await useTerminalConnection("pane-hidden", workspaceKey("local", OTHER)).create("/w", 80, 24);
+    expect(wakeOf(0)).toBeUndefined();
   });
 
   it("wakes the host for a pane the user starts", async () => {

@@ -22,7 +22,7 @@
 
 import net from "node:net";
 import { errorMessage } from "../lib/errors";
-import { pump, teardown, type BridgeIO } from "./bridge";
+import type { BridgeIO } from "./bridge";
 
 /** The box addresses a pipe may reach: only ever its loopback. */
 type PipeLoopback = "127.0.0.1" | "::1";
@@ -64,7 +64,7 @@ export function parsePortPipeArgs(args: readonly string[]): PortPipeTarget {
 /** Connect to the target; rejects on any connect failure. */
 function connect({ port, host }: PortPipeTarget): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ port, host });
+    const socket = net.createConnection({ port, host, allowHalfOpen: true });
     const onError = (err: Error): void => {
       socket.destroy();
       reject(err);
@@ -77,9 +77,90 @@ function connect({ port, host }: PortPipeTarget): Promise<net.Socket> {
   });
 }
 
+/** How long one direction may stay open, silent, after the other has ended. */
+export const DEFAULT_LINGER_MS = 5 * 60 * 1000;
+
+export interface PortPipeOptions {
+  /** Linger once one direction has ended; injectable for tests. */
+  lingerMs?: number;
+}
+
 /**
- * Connect to `target` and pump `io` against it until either side closes.
- * Rejects without writing to `io.stdout` when the connect fails.
+ * Pump `io` against `socket` with half-close carried both ways: stdin's EOF
+ * ends the socket's write side, the socket's `end` ends stdout, and each
+ * direction keeps flowing until the other has ended. Resolves once both
+ * have; on an error from either side, destroys both and resolves 1. Once one
+ * direction has ended, `lingerMs` without data from the other destroys the
+ * pipe so a peer that never finishes cannot hold it forever.
+ */
+function pumpHalfClose(
+  io: BridgeIO,
+  socket: net.Socket,
+  log: (msg: string) => void,
+  lingerMs: number,
+): Promise<number> {
+  return new Promise((resolve) => {
+    let stdinDone = false;
+    let socketDone = false;
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+
+    const finish = (code: number): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      io.stdin.unpipe(socket);
+      socket.unpipe(io.stdout);
+      socket.destroy();
+      io.stdin.destroy();
+      resolve(code);
+    };
+    const check = (): void => {
+      if (stdinDone && socketDone) finish(0);
+    };
+    // Armed once a direction has ended; any data from the other re-arms it.
+    const arm = (): void => {
+      if (settled || (!stdinDone && !socketDone)) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        log(`no traffic for ${lingerMs}ms after one side ended; closing`);
+        finish(0);
+      }, lingerMs);
+      timer.unref?.();
+    };
+    const onStdinDone = (): void => {
+      stdinDone = true;
+      arm();
+      check();
+    };
+    const onSocketDone = (): void => {
+      socketDone = true;
+      arm();
+      check();
+    };
+    const onError = (side: string) => (err: Error) => {
+      log(`${side}: ${err.message}`);
+      finish(1);
+    };
+
+    io.stdin.on("end", onStdinDone);
+    io.stdin.on("close", onStdinDone);
+    io.stdin.on("error", onError("stdin"));
+    io.stdin.on("data", arm);
+    socket.on("end", onSocketDone);
+    socket.on("close", onSocketDone);
+    socket.on("error", onError("socket"));
+    socket.on("data", arm);
+    io.stdout.on("error", onError("stdout"));
+
+    io.stdin.pipe(socket, { end: true });
+    socket.pipe(io.stdout, { end: true });
+  });
+}
+
+/**
+ * Connect to `target` and pump `io` against it until both directions have
+ * ended. Rejects without writing to `io.stdout` when the connect fails.
  */
 export async function runPortPipe(
   target: PortPipeTarget,
@@ -88,6 +169,7 @@ export async function runPortPipe(
     stdout: process.stdout,
     stderr: process.stderr,
   },
+  opts: PortPipeOptions = {},
 ): Promise<number> {
   const log = (msg: string): void => {
     try {
@@ -97,9 +179,7 @@ export async function runPortPipe(
     }
   };
   const socket = await connect(target);
-  const code = await pump(io, socket, log);
-  await teardown(io, socket);
-  return code;
+  return pumpHalfClose(io, socket, log, opts.lingerMs ?? DEFAULT_LINGER_MS);
 }
 
 /**

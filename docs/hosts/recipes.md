@@ -286,7 +286,8 @@ The form asks for:
 
 - **Container name** (also the recipe's id, `docker-<name>`);
 - **Image** (default `manor-host:local`);
-- **Docker context** (optional; blank for the default).
+- **Docker context** (optional, such as `colima` or `desktop-linux`; blank
+  for the default). It must name a daemon on this computer: see below.
 
 `up`:
 

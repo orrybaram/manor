@@ -386,7 +386,8 @@ ADR-225 D6, applied. A new `SecretBox` backend, **`key-file`**:
   whenever either variable is set.
 - **ADR-226's persisted-choice rule applies.** A host that sealed with
   `key-file` and later starts without the key fails clearly ("Pairing keys
-  were sealed with MANOR_SECRET_KEY, which is not set"). It never starts
+  were sealed with a key from MANOR_SECRET_KEY or MANOR_SECRET_KEY_FILE, and
+  neither is set"). It never starts
   over with a new identity. A plaintext host upgrades itself to `key-file`
   the first time the key appears, as it already does for systemd-creds.
 - **A key kept on the volume defeats the point.** When
@@ -473,7 +474,8 @@ the lid closed:
   Creating a recipe from one writes its scripts into
   `~/.manor/host-recipes/<id>/` and writes `recipe.json` from a short form.
   This slice ships two:
-  - **`docker`**: a local or remote-daemon Docker container.
+  - **`docker`**: a Docker container on a local daemon (as built: the key
+    file is a bind mount, so a remote daemon can't see it).
     - It is reached over exec (`docker exec -i`), with a named volume on
       `/home/manor`.
     - The entrypoint is `manor-host supervise`, and the key file is
@@ -599,6 +601,10 @@ the lid closed:
   - The desktop's first `supervisor install` raced the container
     entrypoint. `supervise` now records itself as the container supervisor
     when it starts.
+- **Writes that never wake.** Beyond the reads D1 spares, `NEVER_WAKES`
+  in `electron/bridge/routes.ts` keeps a sleeping host asleep for pane
+  writes, resizes, detaches and closes (opening the pane is what wakes it)
+  and for `agents.markSeen` and `agents.setPaneContext`.
 - **Idle time is measured on the box.** Status carries `idleForMs`, so a
   box whose clock is off doesn't stop early or late.
 - **SSH recipe hosts.** They get `HostKeyAlias manor-<hostId>` (the key
@@ -639,16 +645,16 @@ the lid closed:
 - Turning supervision on doesn't move running processes under it; the
   supervisor takes over at the next restart or boot. Turning it off never
   stops anything. In a container it can't be turned off, because
-  `supervise` is the entrypoint.
+  `supervise` is the entrypoint: the switch is shown on and locked, and
+  `supervisor uninstall` refuses while `supervise` runs.
 - Under systemd, a server stopped cleanly with `kill` isn't restarted by
   `Restart=on-failure` until the next connect. Use `systemctl --user
   restart`.
 - `supervisor.env` is read only by systemd and launchd units. On an
   unsupervised SSH box, `MANOR_SECRET_KEY*` and `MANOR_INSTANCE_ID` reach
   the server only from the ssh session's environment.
-- The key-file error always names `MANOR_SECRET_KEY`, even when the key came
-  from `MANOR_SECRET_KEY_FILE`. Setting a key later upgrades only a
-  plaintext host, not one already on systemd-creds or libsecret.
+- Setting a key later upgrades only a plaintext host, not one already on
+  systemd-creds or libsecret.
 - `supervise.pid` lives on the volume. A custom image whose old pid is
   reused by another process after a restart would make `supervise` refuse
   to start. The reference entrypoint doesn't hit this.
@@ -658,7 +664,8 @@ the lid closed:
 **Templates and recipes**
 - The Docker template bind-mounts `secret.key` from the recipe directory.
   It needs a local daemon (Docker Desktop, or Linux with the desktop user at
-  uid 1000). A remote Docker context isn't supported.
+  uid 1000). The form's Docker context must name a daemon on this computer,
+  such as `colima`; a remote one isn't supported.
 - The Kubernetes template was syntax-checked only, never run against a
   cluster.
 - "Remove from Manor" without destroy forgets the recipe's `resource`. A
@@ -669,7 +676,8 @@ the lid closed:
 
 **Coverage**
 - **Docker E2E.** It covers up over exec, restart survival, stop and wake,
-  clone detection, the busy hook, a port forward and destroy, all against a
+  clone detection, the busy hook, a port forward, a forced drop of the exec
+  streams and destroy, all against a
   real daemon (`node scripts/test-remote-e2e.mjs --recipe`).
 - **Gaps in the Docker E2E:**
   - Clone detection copies the volume rather than using `docker commit`.
@@ -688,7 +696,6 @@ the lid closed:
 **Follow-ups**
 - `test-remote-e2e.mjs --docker` uses `--progress=plain`, which needs
   buildx.
-- The key-file error should name the variable it actually read.
 
 ## Tickets
 

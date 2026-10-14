@@ -541,8 +541,8 @@ To make one: `head -c 32 /dev/urandom | base64`.
   usually isn't the key.
 
 A server that sealed its keys with `key-file` and then starts without the
-key stops with "Pairing keys were sealed with MANOR_SECRET_KEY, which is not
-set". It never starts over with a new identity: give it the key again.
+key stops with "Pairing keys were sealed with a key from MANOR_SECRET_KEY or
+MANOR_SECRET_KEY_FILE, and neither is set". It never starts over with a new identity: give it the key again.
 
 **Keep the key off the box's disk.** A `MANOR_SECRET_KEY_FILE` under
 `~/.manor` is on the volume it is meant to protect. The host server notices,
@@ -881,11 +881,11 @@ paired with this host:
 
 3. Open Manor. Once the host connects, pair your phones again.
 
-**"Pairing keys were sealed with MANOR_SECRET_KEY, which is not set"**
+**"Pairing keys were sealed with a key from MANOR_SECRET_KEY or MANOR_SECRET_KEY_FILE, and neither is set"**
 The host server sealed its keys with a key you supplied, and started without
 it (see [A key from outside the box](#a-key-from-outside-the-box)). Give it
 `MANOR_SECRET_KEY` or `MANOR_SECRET_KEY_FILE` again, the same key, and
-restart it. The message names `MANOR_SECRET_KEY` for either variable.
+restart it.
 
 **"No supervisor on this host"**
 "Keep Manor running" found neither a systemd user manager, launchd, nor a
@@ -964,6 +964,9 @@ node scripts/test-remote-e2e.mjs --recipe
     adoption, a workspace and an agent that reports status;
   - the `on-busy` box hook running when the agent works;
   - a port forward over exec (`port-pipe`);
+  - a forced drop: the box's `server-bridge` and `remote-bridge` are
+    killed, and the owner channel and the host reconnect by themselves to
+    the same host server;
   - `docker restart` with the desktop gone: the host server comes back by
     itself in the same relay room, sealed by `key-file` with the key off the
     volume, and an agent launched afterwards starts;

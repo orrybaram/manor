@@ -85,3 +85,30 @@ does.
 - `electron/backend/providers/recipe-templates/kubernetes.ts`: the fixes.
 - `electron/backend/__tests__/recipe-templates.test.ts`: the regression cases.
 - `scripts/test-remote-e2e.mjs`: only if ticket 2 left the suite path open.
+
+## Found
+
+Run on kind v0.33.0 (node v1.37.0, kubectl v1.37.1), before any template
+change: 7 of 8 scenarios passed. One bug.
+
+- **C1 was real (scenario 2, connected half).**
+  - Symptom: about a second after `kubectl delete pod <name>-0 --wait=false`
+    the host's statuses read `reconnecting`, then `sleeping`, and it never
+    came back.
+  - Cause: as predicted. `status.sh` printed `sleeping` for a pod that
+    wasn't Ready (the old pod Terminating, then the new one starting), and
+    `RemoteHostConnection.beforeReconnect` stops the loop on `sleeping`.
+  - Fix: `status.sh` prints `sleeping` only for 0 replicas; with 1 or more
+    and a pod that isn't Ready it prints
+    `{"state":"up","detail":"the pod is not ready yet"}`.
+    `RecipeHostProvider` already passes `detail` through for `up`.
+    Regression case in `recipe-templates.test.ts` runs `status.sh` against
+    a fake `kubectl`.
+- **Nothing else.** `kubectl exec -i` carried bootstrap's tarball and
+  port-pipe's half-close (scenario 10); the claim is owned by uid 1000
+  under `fsGroup`; the key mounted from the Secret with `subPath` and mode
+  `0440` sealed as `key-file`; `rollout status` waking from 0 replicas, and
+  `destroy`'s `home-<name>-0`, both worked as written.
+- **The suite's own check.** A node's `status.images` lags `kind load` by
+  minutes, so the "image is loaded" check asks each kind node's runtime
+  (`docker exec <node> crictl inspecti`) instead.

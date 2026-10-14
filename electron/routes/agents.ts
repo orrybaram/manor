@@ -403,18 +403,13 @@ export const agentRoutes: ServerRoute[] = [
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
       const agentCommand =
         typeof body.agentCommand === "string" ? body.agentCommand : undefined;
-      // The workspace's host: the same path can be on two (ADR-191). A
-      // relayed caller acts on its own host only.
+      // The workspace's host: the same path can be on two (ADR-191).
       const resolved = withWorkspaceHost(deps, {
         workspacePath,
         hostId: body.hostId,
       });
-      if (!resolved.ok) {
-        json(resolved.status, { error: resolved.error });
-        return;
-      }
       const hostId =
-        typeof resolved.body.hostId === "string" ? resolved.body.hostId : undefined;
+        typeof resolved.hostId === "string" ? resolved.hostId : undefined;
       const result = await startAgentInWorkspace(deps, workspacePath, {
         prompt,
         agentCommand,

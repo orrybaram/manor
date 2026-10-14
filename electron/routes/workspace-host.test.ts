@@ -11,18 +11,18 @@ const projectManager = {
 describe("withWorkspaceHost", () => {
   it("names the host of the project that owns the path", () => {
     expect(withWorkspaceHost({ projectManager }, { workspacePath: "/srv/app" })).toEqual({
-      ok: true,
-      body: { workspacePath: "/srv/app", hostId: "box" },
+      workspacePath: "/srv/app",
+      hostId: "box",
     });
   });
 
   it("keeps a host a local caller named", () => {
     const body = { workspacePath: "/srv/app", hostId: "local" };
-    expect(withWorkspaceHost({ projectManager }, body)).toEqual({ ok: true, body });
+    expect(withWorkspaceHost({ projectManager }, body)).toEqual(body);
   });
 
   it("leaves a body with no workspace alone", () => {
     const body = { contentType: "terminal" };
-    expect(withWorkspaceHost({ projectManager }, body)).toEqual({ ok: true, body });
+    expect(withWorkspaceHost({ projectManager }, body)).toEqual(body);
   });
 });

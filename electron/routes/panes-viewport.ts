@@ -11,7 +11,7 @@ import { withWorkspaceHost } from "./workspace-host";
 
 /**
  * Proxy `cmd` to the renderer with `body`'s workspace host resolved by
- * `withWorkspaceHost`, or answer its 403.
+ * `withWorkspaceHost`.
  */
 async function proxyWithWorkspaceHost(
   deps: Pick<RouteDeps, "projectManager">,
@@ -19,12 +19,7 @@ async function proxyWithWorkspaceHost(
   cmd: string,
   body: Record<string, unknown>,
 ): Promise<void> {
-  const resolved = withWorkspaceHost(deps, body);
-  if (!resolved.ok) {
-    json(resolved.status, { error: resolved.error });
-    return;
-  }
-  await proxyToRenderer(json, cmd, resolved.body);
+  await proxyToRenderer(json, cmd, withWorkspaceHost(deps, body));
 }
 
 /** A body-less route that forwards one app command to the primary window. */

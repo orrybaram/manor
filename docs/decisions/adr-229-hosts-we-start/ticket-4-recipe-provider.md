@@ -81,6 +81,24 @@ or exec.
   (`PersistedHost.spec = {kind:"recipe", recipeId}`) and starts a connect,
   so `up` runs with progress in the host status. Ticket 8 adds the UI.
 
+## Carried over from tickets 1 and 2
+
+- **Bootstrap wording over exec.** `remote-bootstrap.ts` reads exit 255 as
+  "ssh to X failed while bootstrapping". Over exec, 255 comes from
+  kubectl/docker. Make the wording depend on the transport (or take it from
+  the transport's `exitError`).
+- **Give `CommandTransport` a friendly `label`**: the recipe's `name`. The
+  default is the joined argv.
+- **`CommandHostProvider.kind` is `"recipe"`** today (ticket 2). Decide
+  whether the outer `RecipeHostProvider` is the only `kind: "recipe"` and the
+  inner providers are internal. Keep `hosts.list`'s `providerKind` meaning
+  "how the host was configured".
+- **Wake timeouts** (ticket 1). `hosts.wake` and `HostRouting` wait 2 min,
+  and the renderer waits 10 s for the bridge. A recipe `up` may run 15 min.
+  Either make the wake wait follow the provider (`ensureUp` progress keeps it
+  alive), or refuse with a stated "\<host\> is still starting" instead of
+  host-away.
+
 ## Tests
 
 - Runner:

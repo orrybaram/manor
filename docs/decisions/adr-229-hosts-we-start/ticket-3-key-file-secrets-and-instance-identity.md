@@ -1,6 +1,6 @@
 ---
 title: key-file SecretBox and one identity per instance
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: []

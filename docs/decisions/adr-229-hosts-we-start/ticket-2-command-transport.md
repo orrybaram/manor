@@ -1,6 +1,6 @@
 ---
 title: Exec transport and port-pipe
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

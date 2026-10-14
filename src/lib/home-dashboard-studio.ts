@@ -11,7 +11,6 @@ import type {
   ProjectInfo,
   WorkspaceInfo,
 } from "../store/project-store";
-import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
 import { buildTopLevelEntries } from "../utils/sidebar-items";
 import {
@@ -23,7 +22,7 @@ import {
   type PrVerdict,
 } from "./pr-readiness";
 import type { ChecksSummary, PrInfo } from "./pr-info";
-import { describeHost, groupHostState, isHostOffline } from "./host-status";
+import { describeHost, groupStateOf, isHostOffline } from "./host-status";
 import { workspaceKey } from "./workspace-key";
 import {
   itemKey,
@@ -428,9 +427,11 @@ export interface ProjectTile {
 export interface ProjectTileDeps extends NeedsYouInput {
   hosts: readonly HostStatusInfo[];
   hostName: (hostId: string) => string;
-  /** Where the page's own bridges and listing servers stand (`isHostOffline`). */
-  direct?: (hostId: string) => Reachability | undefined;
-  via?: (hostId: string) => Reachability | undefined;
+  /**
+   * Whether a host is away, by `hosts` and the page's own servers
+   * (`isHostAway`). Without it, by `hosts` alone (`isHostOffline`).
+   */
+  isAway?: (hostId: string | null | undefined) => boolean;
   /** Listening dev-server ports; the lowest one on a member workspace is shown. */
   ports?: readonly TilePort[];
   snoozed?: ReadonlySet<string>;
@@ -526,8 +527,9 @@ export function projectTiles(
     }
 
     const hostIds = members.map((p) => p.hostId);
-    const state = HOST_TILE_STATE[groupHostState(hostIds, deps.hosts, deps.direct, deps.via)];
-    const awayHost = hostIds.find((id) => isHostOffline(id, deps.hosts, deps.direct, deps.via));
+    const isAway = deps.isAway ?? ((id: string | null | undefined) => isHostOffline(id, deps.hosts));
+    const state = HOST_TILE_STATE[groupStateOf(hostIds, isAway)];
+    const awayHost = hostIds.find(isAway);
     const status = awayHost
       ? describeHost(
           deps.hosts.find((h) => h.hostId === awayHost),

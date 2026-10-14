@@ -29,7 +29,9 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
+import { isHostOffline } from "../lib/host-status";
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
+import type { HostStatusInfo } from "../store/host-store";
 import { createBridge, type BridgeTransport } from "./client";
 import { listPairings, subscribePairings } from "./pairings";
 import { emitBridgeResync } from "./resync";
@@ -384,15 +386,20 @@ export function viaReachability(hostId: string): Reachability | undefined {
 export function useViaReachability(
   hostId: string | null | undefined,
 ): Reachability | undefined {
-  const read = useCallback(
-    (): Reachability | undefined => (hostId ? viaReachability(hostId) : undefined),
-    [hostId],
+  return useSelected(
+    useCallback(() => (hostId ? viaReachability(hostId) : undefined), [hostId]),
   );
-  const subscribe = useCallback(
-    (cb: () => void) => subscribeSelected(servers, read, cb),
-    [read],
-  );
-  return useSyncExternalStore(subscribe, read, read);
+}
+
+/**
+ * Whether host `hostId` is away, by main's `hosts` and this page's servers
+ * (`isHostOffline`, D6). This machine (a missing id) never is.
+ */
+export function isHostAway(
+  hostId: string | null | undefined,
+  hosts: readonly HostStatusInfo[],
+): boolean {
+  return isHostOffline(hostId, hosts, directReachability, viaReachability);
 }
 
 /**
@@ -422,27 +429,12 @@ export function serverHostName(hostId: string | null | undefined): string | null
   return relayServerName(servers.get(hostId));
 }
 
-/** `serverHostName`, live. */
+/** `serverHostName`, live: it reads the stored pairings too. */
 export function useServerHostName(hostId: string | null | undefined): string | null {
-  const read = useCallback(() => serverHostName(hostId), [hostId]);
-  const subscribe = useCallback(
-    (cb: () => void) => {
-      const offSet = subscribeSelected(servers, read, cb);
-      let last = read();
-      const offPairings = subscribePairings(() => {
-        const next = read();
-        if (next === last) return;
-        last = next;
-        cb();
-      });
-      return () => {
-        offSet();
-        offPairings();
-      };
-    },
-    [read],
+  return useSelected(
+    useCallback(() => serverHostName(hostId), [hostId]),
+    subscribePairings,
   );
-  return useSyncExternalStore(subscribe, read, read);
 }
 
 /**
@@ -474,13 +466,37 @@ export function whenDirectSettled(hostId: string, timeoutMs = 5_000): Promise<vo
 export function useDirectReachability(
   hostId: string | null | undefined,
 ): Reachability | undefined {
-  const read = useCallback(
-    (): Reachability | undefined => (hostId ? directReachability(hostId) : undefined),
-    [hostId],
+  return useSelected(
+    useCallback(() => (hostId ? directReachability(hostId) : undefined), [hostId]),
   );
+}
+
+/**
+ * `read`, a value derived from this page's servers, live: the component
+ * re-renders only when the value changes. `read` must be stable
+ * (`useCallback`). `alsoOn` subscribes to anything else it reads.
+ */
+export function useSelected<T>(
+  read: () => T,
+  alsoOn?: (cb: () => void) => () => void,
+): T {
   const subscribe = useCallback(
-    (cb: () => void) => subscribeSelected(servers, read, cb),
-    [read],
+    (cb: () => void) => {
+      const offSet = subscribeSelected(servers, read, cb);
+      if (!alsoOn) return offSet;
+      let last = read();
+      const offOther = alsoOn(() => {
+        const next = read();
+        if (Object.is(next, last)) return;
+        last = next;
+        cb();
+      });
+      return () => {
+        offSet();
+        offOther();
+      };
+    },
+    [read, alsoOn],
   );
   return useSyncExternalStore(subscribe, read, read);
 }

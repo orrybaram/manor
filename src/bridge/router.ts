@@ -21,9 +21,9 @@
  *   stamped with renderer host ids (D2), its records for a host whose source
  *   is another server are dropped, and the rest are merged. A project's
  *   group is the desktop's (D3). A server that is away, or fails, contributes
- *   its last answer (D6), kept here in memory — and, on the phone, in
- *   IndexedDB (`RouterOptions.lastKnown`), so a reload while it is away
- *   still shows it.
+ *   its last answer (D6), kept in memory (`./last-known-cache.ts`) — and, on
+ *   the phone, in IndexedDB (`RouterOptions.lastKnown`), so a reload while
+ *   it is away still shows it.
  * - **Home.** Everything else.
  *
  * **Renderer host ids (D2).** On the desktop the local server is `local` and
@@ -45,8 +45,8 @@
  * **What main did on the way, done here.** A call that used to reach a host
  * through main's `HostRouting` picked up a few things there that a direct
  * call must get here instead: a queued command for a pane no layout holds
- * yet travels with the layout command that adds it (`setPendingCommand`
- * below), a project the host answers with carries the desktop's group, and a
+ * yet travels with the layout command that adds it (`./held-commands.ts`),
+ * a project the host answers with carries the desktop's group, and a
  * layout broadcast's origin names this window, not its stream to the host.
  *
  * **The desktop's own server alone is a pass-through.** With only it in the
@@ -72,9 +72,11 @@ import {
   parseWorkspaceKey,
 } from "../lib/workspace-key";
 import { BridgeDisconnectedError, LISTENERS, NOT_MEMBERS, servesItself } from "./client";
+import { createHeldCommands } from "./held-commands";
 import { hostLookups } from "./host-lookups";
 import { linearServers, type LinearChoice } from "./linear-servers";
 import type { LastKnownStore } from "./last-known";
+import { callKey, createLastKnownCache } from "./last-known-cache";
 import { servers, viaServer, type ServerEntry, type ServerSet } from "./server-set";
 
 /** Which host a routed call is for. */
@@ -147,12 +149,6 @@ const PANE_NAMESPACES: ReadonlySet<string> = new Set(
 
 const PANE_RULE = byPane(0);
 
-/**
- * How long a queued command for a pane no layout holds yet waits for the
- * layout command that adds the pane, before it goes home anyway.
- */
-const HOLD_PENDING_MS = 5_000;
-
 type Fn = (...args: unknown[]) => unknown;
 
 /** `bridge.<ns path>.<name>`, as callable. */
@@ -174,23 +170,6 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-/** Every string in `value`, however deep: a layout command's pane ids among them. */
-function stringsIn(value: unknown, out: string[] = []): string[] {
-  if (typeof value === "string") out.push(value);
-  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
-  else if (isPlainObject(value)) for (const item of Object.values(value)) stringsIn(item, out);
-  return out;
-}
-
-/** A stable key for one call's arguments, for its last-known answer. */
-function callKey(key: string, args: readonly unknown[]): string {
-  try {
-    return `${key}:${JSON.stringify(args)}`;
-  } catch {
-    return key;
-  }
 }
 
 /** One server's answer to a merged read, in the renderer's form. */
@@ -266,26 +245,18 @@ export function createRouter(
   resolver: HostResolver = storeResolver,
   options: RouterOptions = {},
 ): ElectronAPI {
-  const persisted = options.lastKnown ?? null;
-  /** Each server's saved answers, read in once: settles, never rejects. */
-  const restoring = new Map<string, Promise<void>>();
+  let members = new Map(set.list().map((entry) => [entry.id, entry.bridge]));
   /** Each server's last answer to each merged read (D6). */
-  const lastKnown = new Map<string, Map<string, unknown>>();
+  const lastKnown = createLastKnownCache(options.lastKnown ?? null, (id) => members.has(id));
   /** Each server's panes, by workspace, as its merged layout says. */
   const panesByServer = new Map<string, Map<string, Set<string>>>();
   const fanSubs = new Set<FanSub>();
   const paneSubs = new Set<PaneSub>();
-  /**
-   * `layout.setPendingCommand` for panes no layout holds yet, by pane: the
-   * renderer cannot tell which server the pane will be on until the layout
-   * command that adds it goes out, so the queued line waits for it and goes
-   * to the same server first — what main's `HostRouting` does for a pane it
-   * cannot place (`movePendingCommands`).
-   */
-  const heldCommands = new Map<
-    string,
-    { args: unknown[]; timer: ReturnType<typeof setTimeout> }
-  >();
+  /** `layout.setPendingCommand` for panes no layout holds yet (`./held-commands.ts`). */
+  const heldCommands = createHeldCommands<ServerEntry>({
+    send: (target, args) => call(target, "layout", "setPendingCommand", args),
+    home: () => set.home(),
+  });
   /** Each project's group, from the desktop's last `projects.getAll` (D3). */
   let desktopGroups = new Map<unknown, unknown>();
   /**
@@ -299,7 +270,6 @@ export function createRouter(
    * on a workspace home does not answer for: told again with it.
    */
   const lastLayouts = new Map<string, { version: unknown; layout: unknown }>();
-  let members = new Map(set.list().map((entry) => [entry.id, entry.bridge]));
 
   // ── sources (D3) ──
 
@@ -581,12 +551,12 @@ export function createRouter(
   function routed(rule: RouteRule, ns: string, name: string, args: unknown[]): unknown {
     const home = set.home();
     if (passThrough()) {
-      releaseHeldFor(ns, name, args, home);
+      heldCommands.releaseFor(ns, name, args, home);
       return call(home, ns, name, args);
     }
     const hostId = resolver.hostOf(rule, args);
     if (hostId === null && ns === "layout" && name === "setPendingCommand") {
-      return holdPendingCommand(args);
+      return heldCommands.hold(args);
     }
     const keyboard = ns === "pty" && name === "write";
     let target = hostId === null ? home : sourceOf(hostId);
@@ -601,7 +571,7 @@ export function createRouter(
       const paneId = args[rule.arg] as string;
       if (collides(paneId)) return Promise.reject(collisionError(paneId));
     }
-    releaseHeldFor(ns, name, args, target);
+    heldCommands.releaseFor(ns, name, args, target);
     if (native(target)) return call(target, ns, name, args);
     const answer = Promise.resolve(
       call(target, ns, name, toServerArgs(target, args)),
@@ -638,45 +608,6 @@ export function createRouter(
 
   // ── what main's `HostRouting` did on the way ──
 
-  /**
-   * Queue `layout.setPendingCommand` for a pane no layout holds yet, until
-   * the command that adds it (`releaseHeldFor`) — or, if none comes, home,
-   * where main places it as before. Answered at once: the caller only needs
-   * it sent before that command, and this keeps it so.
-   */
-  function holdPendingCommand(args: unknown[]): Promise<void> {
-    const paneId = args[0];
-    if (typeof paneId !== "string") {
-      return Promise.resolve(call(set.home(), "layout", "setPendingCommand", args)).then(
-        () => {},
-      );
-    }
-    releaseHeld(paneId, set.home());
-    const timer = setTimeout(() => releaseHeld(paneId, set.home()), HOLD_PENDING_MS);
-    heldCommands.set(paneId, { args, timer });
-    return Promise.resolve();
-  }
-
-  /** Send `paneId`'s held command to `target`, ahead of whatever follows. */
-  function releaseHeld(paneId: string, target: ServerEntry): void {
-    const held = heldCommands.get(paneId);
-    if (!held) return;
-    heldCommands.delete(paneId);
-    clearTimeout(held.timer);
-    // The line as it was queued: main moves it to a host unchanged, too.
-    void Promise.resolve(call(target, "layout", "setPendingCommand", held.args)).catch(
-      (err: unknown) => {
-        console.error(`[bridge-router] pending command for ${paneId} failed:`, err);
-      },
-    );
-  }
-
-  /** A layout command going to `target` takes the held commands of the panes it names. */
-  function releaseHeldFor(ns: string, name: string, args: unknown[], target: ServerEntry): void {
-    if (heldCommands.size === 0 || ns !== "layout" || name !== "apply") return;
-    for (const paneId of stringsIn(args[1])) releaseHeld(paneId, target);
-  }
-
   /** A host's project, or projects, with the desktop's group on each (D3). */
   function withDesktopGroup(result: unknown): unknown {
     const one = (project: unknown): unknown => {
@@ -701,16 +632,15 @@ export function createRouter(
             // Its facts as they are now: a hello may have landed meanwhile.
             const now = set.get(entry.id) ?? entry;
             const value = stampResult(now, ns, name, result);
-            remember(entry.id, memo, value);
+            lastKnown.remember(entry.id, memo, value);
             answers.push({ entry: now, value });
             return;
           } catch (err) {
             if (isHome(entry)) failure = err;
           }
         }
-        await restore(entry.id);
-        const remembered = lastKnown.get(entry.id);
-        if (remembered?.has(memo)) answers.push({ entry, value: remembered.get(memo) });
+        const remembered = await lastKnown.recall(entry.id, memo);
+        if (remembered) answers.push({ entry, value: remembered.value });
       }),
     );
     if (answers.length === 0) throw failure ?? awayError(set.homeId);
@@ -718,40 +648,6 @@ export function createRouter(
     const order = set.list().map((entry) => entry.id);
     answers.sort((a, b) => order.indexOf(a.entry.id) - order.indexOf(b.entry.id));
     return merge(key, answers);
-  }
-
-  // ── last-known (D6) ──
-
-  function remember(serverId: string, memo: string, value: unknown): void {
-    let mine = lastKnown.get(serverId);
-    if (!mine) {
-      mine = new Map();
-      lastKnown.set(serverId, mine);
-    }
-    mine.set(memo, value);
-    persisted?.write(serverId, memo, value);
-  }
-
-  /**
-   * Read `serverId`'s saved answers in, once, under the ones this page has
-   * heard since: what a reload with the server away shows.
-   */
-  function restore(serverId: string): Promise<void> {
-    if (!persisted) return Promise.resolve();
-    let reading = restoring.get(serverId);
-    if (!reading) {
-      reading = persisted.read(serverId).then(
-        (saved) => {
-          if (!members.has(serverId)) return;
-          const mine = lastKnown.get(serverId) ?? new Map<string, unknown>();
-          for (const [memo, value] of saved) if (!mine.has(memo)) mine.set(memo, value);
-          lastKnown.set(serverId, mine);
-        },
-        () => {},
-      );
-      restoring.set(serverId, reading);
-    }
-    return reading;
   }
 
   function merge(key: string, answers: Answer[]): unknown {
@@ -1112,12 +1008,8 @@ export function createRouter(
         sub.offs.delete(id);
       }
       panesByServer.delete(id);
-      if (!now.has(id)) {
-        lastKnown.delete(id);
-        restoring.delete(id);
-        // Gone from the set is gone for good: a pairing removed or refused.
-        persisted?.forget(id);
-      }
+      // Gone from the set is gone for good: a pairing removed or refused.
+      if (!now.has(id)) lastKnown.forget(id);
     }
     const before = members;
     members = now;

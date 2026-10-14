@@ -265,7 +265,15 @@ export function groupHostState(
   direct?: (hostId: string) => Reachability | undefined,
   via?: (hostId: string) => Reachability | undefined,
 ): GroupHostState {
-  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts, direct, via)).length;
+  return groupStateOf(memberHostIds, (id) => isHostOffline(id, hosts, direct, via));
+}
+
+/** `groupHostState` by a predicate that already knows which hosts are away. */
+export function groupStateOf(
+  memberHostIds: readonly (string | null | undefined)[],
+  isAway: (hostId: string | null | undefined) => boolean,
+): GroupHostState {
+  const offline = memberHostIds.filter(isAway).length;
   if (offline === 0) return "connected";
   return offline === memberHostIds.length ? "offline" : "partially-offline";
 }

@@ -58,14 +58,8 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import {
-  directReachability,
-  useDirectReachability,
-  useServerHostName,
-  useViaReachability,
-  viaReachability,
-} from "../../bridge/server-set";
-import { isHostOffline } from "../../lib/host-status";
+import { useServerHostName } from "../../bridge/server-set";
+import { useHostAway } from "../../hooks/useHostAway";
 import { hostLabel, isRemoteHost, memberHostName } from "../../lib/hosts";
 import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
@@ -444,16 +438,11 @@ export function ProjectItem(props: ProjectItemProps) {
   );
   // On a phone, the name of the machine behind this project: the desktop's
   // for its own projects, a host's own pairing's for a host (ADR-228 D8).
-  const allHostsForState = useHostStore((s) => s.hosts);
   const serverName = useServerHostName(project.hostId);
   const hostRowLabel = serverName ?? (isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine");
   // A lone project on an away host keeps its last workspaces, dimmed; a
   // group's section is dimmed by its group (ADR-228 D6).
-  useDirectReachability(project.hostId);
-  useViaReachability(project.hostId);
-  const hostOffline =
-    !isSection &&
-    isHostOffline(project.hostId, allHostsForState, directReachability, viaReachability);
+  const hostOffline = useHostAway(isSection ? null : project.hostId);
   const showHostHeading = isRemoteHost(project.hostId) || serverName !== null;
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");

@@ -6,12 +6,7 @@ import { useHostStore } from "../../../store/host-store";
 import { usePortsStore, acquirePortsScanner } from "../../../store/ports-store";
 import { useActiveSnoozes } from "../../../store/snooze-store";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import {
-  directReachability,
-  serverHostName,
-  useServers,
-  viaReachability,
-} from "../../../bridge/server-set";
+import { isHostAway, serverHostName, useServers } from "../../../bridge/server-set";
 import { memberHostName } from "../../../lib/hosts";
 import {
   projectTiles,
@@ -70,8 +65,7 @@ export function ProjectTiles(props: ProjectTilesProps) {
         snoozed,
         hosts,
         hostName: (hostId: string) => serverHostName(hostId) ?? memberHostName(hostId, hosts),
-        direct: directReachability,
-        via: viaReachability,
+        isAway: (hostId) => isHostAway(hostId, hosts),
         ports,
         now,
       }),

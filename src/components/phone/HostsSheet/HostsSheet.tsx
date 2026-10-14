@@ -9,7 +9,7 @@ import {
   subscribePairings,
   type StoredPairing,
 } from "../../../bridge/pairings";
-import { useServers, type ServerEntry } from "../../../bridge/server-set";
+import { servers, useServers, type ServerEntry } from "../../../bridge/server-set";
 import { Button } from "../../ui/Button/Button";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { PhoneSheet, PhoneSheetClose } from "../PhoneSheet";
@@ -32,7 +32,8 @@ export function HostsSheet(props: HostsSheetProps) {
   const { open, onOpenChange } = props;
 
   const pairings = useSyncExternalStore(subscribePairings, listPairings, listPairings);
-  const servers = useServers();
+  // Re-read as servers come and go, home moving among them.
+  const entries = useServers();
 
   return (
     <PhoneSheet
@@ -53,8 +54,8 @@ export function HostsSheet(props: HostsSheetProps) {
             <HostRow
               key={pairing.roomId}
               pairing={pairing}
-              server={servers.find((s) => s.id === pairing.roomId)}
-              home={servers[0]?.id === pairing.roomId}
+              server={entries.find((s) => s.id === pairing.roomId)}
+              home={servers.homeId === pairing.roomId}
               last={pairings.length === 1}
             />
           ))
@@ -64,8 +65,11 @@ export function HostsSheet(props: HostsSheetProps) {
   );
 }
 
+/** How a pairing's server is doing, as the row's `data-state` says it. */
+type PairingState = "refused" | "connected" | "unreachable" | "connecting";
+
 /** How a pairing's server is doing, in words. */
-function statusOf(server: ServerEntry | undefined): { label: string; state: string } {
+function statusOf(server: ServerEntry | undefined): { label: string; state: PairingState } {
   if (server?.outcome === "unauthorized") return { label: "No longer paired", state: "refused" };
   if (server?.outcome === "key-mismatch") {
     return { label: "Pairing key changed", state: "refused" };

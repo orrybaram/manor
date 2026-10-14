@@ -222,3 +222,18 @@ export const ROUTES: Record<string, RouteRule | "merge" | "home"> = {
   "linear.unlinkIssueFromWorkspace": byProject(0),
   "linear.associateProject": byProject(0),
 };
+
+/**
+ * Every string in `value`, however deep: the pane ids a layout command names
+ * among them, which is how a command queued for a pane no layout holds yet
+ * finds the layout command that adds it (`layout.setPendingCommand`). Main's
+ * `HostRouting` and the renderer's router both look.
+ */
+export function stringsIn(value: unknown, out: Set<string> = new Set()): Set<string> {
+  if (typeof value === "string") out.add(value);
+  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
+  else if (typeof value === "object" && value !== null) {
+    for (const item of Object.values(value)) stringsIn(item, out);
+  }
+  return out;
+}

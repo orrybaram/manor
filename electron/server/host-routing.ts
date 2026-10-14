@@ -50,6 +50,7 @@ import { HostServerUnavailableError } from "../backend/host-server-client";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { Caller, RouteRule } from "../bridge/method";
+import { stringsIn } from "../bridge/routes";
 import type { BridgeForward } from "../bridge/server";
 import {
   BridgeUnavailableRefusal,
@@ -93,16 +94,6 @@ export interface HostRoutingOptions {
 /** What a layout command's origin is on the host: the desktop's caller. */
 function originOf(caller: Caller): LayoutOrigin {
   return { kind: caller.callerClass === "local" ? "window" : "bridge", id: caller.id };
-}
-
-/** Every string in `value`, however deep: a command's pane ids among them. */
-function stringsIn(value: unknown, out: Set<string> = new Set()): Set<string> {
-  if (typeof value === "string") out.add(value);
-  else if (Array.isArray(value)) for (const item of value) stringsIn(item, out);
-  else if (typeof value === "object" && value !== null) {
-    for (const item of Object.values(value)) stringsIn(item, out);
-  }
-  return out;
 }
 
 /**

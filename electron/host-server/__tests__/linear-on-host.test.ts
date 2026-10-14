@@ -94,4 +94,28 @@ describe("host server: Linear on the host (ADR-227 D7)", () => {
     expect(server.server.status().linear).toBe(false);
     expect(fs.existsSync(h.paths.linearToken)).toBe(false);
   });
+
+  it("publishes linear.connectionChanged when the token is set and cleared (ADR-230 D8)", async () => {
+    await h.serve();
+    const client = await h.owner();
+    client.subscribe("linear", "connectionChanged");
+
+    await client.invoke("hostServer", "setLinearToken", "lin_api_key");
+    await client.waitFor(
+      (f) =>
+        f.kind === "event" &&
+        f.ns === "linear" &&
+        f.event === "connectionChanged" &&
+        JSON.stringify(f.args) === "[true]",
+    );
+
+    await client.invoke("hostServer", "setLinearToken", null);
+    await client.waitFor(
+      (f) =>
+        f.kind === "event" &&
+        f.ns === "linear" &&
+        f.event === "connectionChanged" &&
+        JSON.stringify(f.args) === "[false]",
+    );
+  });
 });

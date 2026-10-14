@@ -61,7 +61,10 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
 
   useMountEffect(() => {
     void useHostStore.getState().refreshServer(hostId);
-    void window.electronAPI.linear.isConnected().then(setDesktopLinear);
+    const refresh = () => void window.electronAPI.linear.isConnected().then(setDesktopLinear);
+    refresh();
+    // The key was saved or cleared elsewhere (ADR-230 D8).
+    return window.electronAPI.linear.onConnectionChanged(refresh);
   });
 
   const run = async (action: () => Promise<void>) => {

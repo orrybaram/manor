@@ -113,6 +113,8 @@ export interface BridgeEvents {
     /** A phone was paired, revoked or the host's keys reset: re-read its status. */
     pairingChanged: [hostId: string];
   };
+  /** The Linear key was saved or cleared on this server (ADR-230 D8). */
+  linear: { connectionChanged: [connected: boolean] };
   /**
    * The selected theme changed somewhere other than this call (ADR-179 ticket
    * 7) — `setSelected`'s own return shape, ready to apply without a round trip.
@@ -246,6 +248,7 @@ export const SUBSCRIPTIONS = {
   "hosts.onReconnected": "hosts.reconnected",
   "hosts.onServerChanged": "hosts.serverChanged",
   "hosts.onPairingChanged": "hosts.pairingChanged",
+  "linear.onConnectionChanged": "linear.connectionChanged",
   "theme.onChanged": "theme.changed",
   "ports.onChange": "ports.changed",
   "branches.onChange": "branches.changed",

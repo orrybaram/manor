@@ -18,6 +18,8 @@
  * Each server's `linear.isConnected()` is cached here, and asked again when
  * its hello lands (it becomes reachable) and on `hosts.pairingChanged`. A
  * server never asked is asked once, on the call that needs the answer.
+ * Each server also pushes `linear.connectionChanged` (ADR-230 D8), which sets
+ * its entry directly; the asks above stay for servers too old to push it.
  */
 
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
@@ -187,34 +189,72 @@ export function createLinearServers(set: ServerSet): LinearServers {
     },
   };
 
-  // A server's hello makes it reachable: ask it again then.
+  /** Each server's `linear.onConnectionChanged` subscription, by id, and the bridge it was made on. */
+  const pushes = new Map<string, { bridge: ServerEntry["bridge"]; off: () => void }>();
+
+  function followPush(entry: ServerEntry): void {
+    if (pushes.get(entry.id)?.bridge === entry.bridge) return;
+    pushes.get(entry.id)?.off();
+    try {
+      const off = entry.bridge.linear.onConnectionChanged((now) => {
+        if (connected.get(entry.id) !== now) {
+          connected.set(entry.id, now);
+          changed();
+        }
+      });
+      pushes.set(entry.id, { bridge: entry.bridge, off });
+    } catch {
+      // A transport that serves no such event has the hello and pairing asks.
+      pushes.delete(entry.id);
+    }
+  }
+
+  /** The home's `hosts.pairingChanged` subscription: a pairing changed, so whether a host has Linear on may have too. */
+  let pairing: { bridge: ServerEntry["bridge"]; off: () => void } | null = null;
+
+  function followPairing(): void {
+    try {
+      const bridge = set.home().bridge;
+      if (pairing?.bridge === bridge) return;
+      pairing?.off();
+      pairing = null;
+      const off = bridge.hosts.onPairingChanged(() => {
+        connected.clear();
+        void api.refreshAll();
+      });
+      pairing = { bridge, off };
+    } catch {
+      // A transport that serves no host events has nothing to refresh on.
+    }
+  }
+
+  // A server's hello makes it reachable: ask it again then. Servers joining
+  // and leaving are followed here too.
   set.subscribe(() => {
     const now = set.list();
     for (const id of [...seen.keys()]) {
       if (!now.some((e) => e.id === id)) {
         seen.delete(id);
+        pushes.get(id)?.off();
+        pushes.delete(id);
         if (connected.delete(id)) changed();
       }
     }
     for (const entry of now) {
       const before = seen.get(entry.id);
       seen.set(entry.id, entry.reachability);
+      followPush(entry);
       if (entry.reachability === "connected" && before !== "connected" && before !== undefined) {
         void ask(entry);
       }
     }
+    followPairing();
   });
-  for (const entry of set.list()) seen.set(entry.id, entry.reachability);
-
-  // A pairing changed: whether a host has Linear on may have too.
-  try {
-    set.home().bridge.hosts.onPairingChanged(() => {
-      connected.clear();
-      void api.refreshAll();
-    });
-  } catch {
-    // A transport that serves no host events has nothing to refresh on.
+  for (const entry of set.list()) {
+    seen.set(entry.id, entry.reachability);
+    followPush(entry);
   }
+  followPairing();
 
   return api;
 }

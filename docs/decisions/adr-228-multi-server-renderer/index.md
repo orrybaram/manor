@@ -499,13 +499,16 @@ deadline in `install-web.ts`).
 
 Still true:
 
-- **Main's forwarded callers share one host viewer.** Phones on the desktop
+- ~~**Main's forwarded callers share one host viewer.** Phones on the desktop
   and windows that fell back all use main's owner channel for a remote pane,
   so they get one `winsizeOwner` and can fight over resizes
-  (`electron/server/host-routing.ts`, `electron/backend/host-proxy.ts`).
-- **Claims on remote tabs** that leave the host's tree aren't dropped on
+  (`electron/server/host-routing.ts`, `electron/backend/host-proxy.ts`).~~
+  Fixed in ADR-230 (D10). A phone paired with the host directly still
+  competes with main as a whole.
+- ~~**Claims on remote tabs** that leave the host's tree aren't dropped on
   main; `dropClaimsOnGoneTabs` (`electron/layout/layout-store.ts`) runs for
-  local workspaces only. The claim lasts until the window closes.
+  local workspaces only. The claim lasts until the window closes.~~ Fixed in
+  ADR-230 (D9).
 - **Lookup cost.** `HostProxy.layout()` copies entries and calls `claimsFor`
   per call, and `workspaceOfPane` runs per routed pane call, keystrokes
   included. Fine at today's sizes; index it later.
@@ -513,18 +516,21 @@ Still true:
   upgrade runs.
 - **Panes attached before adoption** in the same run keep their daemon
   subscription until main restarts (`electron/backend/routed-backend.ts`).
-- **Branch and diff watching on the phone.** `branches.start` and
+- ~~**Branch and diff watching on the phone.** `branches.start` and
   `diffs.start` go home only, and home drops workspaces for hosts it doesn't
   know, so watching is off for workspaces that exist only on a host server.
-  Fix: split per server and merge events.
-- **Selected project.** `projects.getSelectedIndex` and `select` index home's
-  list, not the merged one.
-- **A source that drops after connecting** with a close code the relay pipe
+  Fix: split per server and merge events.~~ Fixed in ADR-230 (D6). The
+  phone's diff-pane reads still go home.
+- ~~**Selected project.** `projects.getSelectedIndex` and `select` index home's
+  list, not the merged one.~~ Fixed in ADR-230 (D7).
+- ~~**A source that drops after connecting** with a close code the relay pipe
   doesn't treat as unreachable (e.g. 1006) keeps its last reachability while
   it redials, so its calls and pane listeners stay on it until the relay
-  says 4404 or 4410 (`src/bridge/transports/ws.ts`, `src/bridge/install-web.ts`).
-- **Reset mid-mint.** A host-server reset while `linkHostPairings` mints can
-  leave the minted host device unlinked (`electron/remote-control/host-links.ts`).
+  says 4404 or 4410 (`src/bridge/transports/ws.ts`, `src/bridge/install-web.ts`).~~
+  Fixed in ADR-230 (D5): unreachable after a 4 s grace.
+- ~~**Reset mid-mint.** A host-server reset while `linkHostPairings` mints can
+  leave the minted host device unlinked (`electron/remote-control/host-links.ts`).~~
+  Fixed in ADR-230 (D11).
 - **Linear without a host.** Settings and wizard calls (`getViewer`,
   `getTeams`, `autoMatch`) pass no host and use browse order, home first.
 - **Grouped projects on a phone whose home is a host server.** Auto-match
@@ -535,14 +541,15 @@ Still true:
   answered by the desktop, but can't tell it from a browse (the desktop would
   answer both), and the refusal for a host call is covered by unit tests
   only: with the desktop gone, Tasks shows its setup hint instead.
-- **Stale Linear status on an open phone.** `src/bridge/linear-servers.ts`
+- ~~**Stale Linear status on an open phone.** `src/bridge/linear-servers.ts`
   caches each server's `isConnected` and refreshes it only on hello and
   `hosts.pairingChanged`. Connecting Linear on the desktop isn't seen by an
-  open phone until it reconnects or reloads.
-- **"This machine" elsewhere.** `memberHostName` still says so on the phone in
+  open phone until it reconnects or reloads.~~ Fixed in ADR-230 (D8), for
+  servers new enough to publish `linear.connectionChanged`.
+- ~~**"This machine" elsewhere.** `memberHostName` still says so on the phone in
   `src/store/auto-join.ts`, `src/store/project-store.ts` toasts and undo
   labels, `ProjectItem.tsx`'s menu, `ProjectSetUpOnSection.tsx` and
-  `ProjectSettingsPage.tsx`.
+  `ProjectSettingsPage.tsx`.~~ Fixed in ADR-230 (D12).
 - **E2E.** `web-app.spec.ts` tests at lines 255, 470 and 566 fail on the base
   commit too; they are not caused by this ADR.
 

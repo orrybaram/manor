@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -182,10 +182,13 @@ One ticket per gap, with three exceptions:
   `{desktop, device, forwarded}`:
   - `desktop`: a `viewer: "desktop"` connection subscribed;
   - `device`: a `device` connection subscribed;
-  - `forwarded`: the `owner` connection subscribed.
+  - `forwarded`: an `owner` connection subscribed whose hello did not say
+    `viewer: "desktop"`.
 
   `HostProxy` subscribes the owner channel to `pty.*` only in `watchPty`, so
-  an owner `pty.output` subscription means a forwarded viewer.
+  an owner `pty.output` subscription means a forwarded viewer. A desktop
+  window's own viewer stream (ADR-228 D4) is an owner connection too; it
+  counts as `desktop` only, never as `forwarded`.
 - A pane is watched if any connection has `pty.output`. A phone that has an
   agent's chat open also counts: `device` subscriptions to `chat.entry` and
   `chat.taskEntry`. Those are the phone's main view of an agent.
@@ -220,11 +223,33 @@ One ticket per gap, with three exceptions:
   connection, as today. The old inner transport is disposed only after the
   client's streams to it have closed. That is the case during a redial,
   because the drop closed them.
+- **As built:**
+  - The provider gains an optional `refresh(onProgress)`, which only
+    `RecipeHostProvider` has. The `autoSleep` check lives there: `refresh`
+    declines (returns false) for a recipe with no `status` whose last `up`
+    said `autoSleep`.
+  - A declined refresh still counts as this drop's re-run, so it isn't
+    asked again before the host comes back or drops anew.
+  - Progress lines go to the caller that started `up`. A caller that joins
+    an `ensureUp` already in flight gets the shared promise, not its
+    progress lines.
+  - **Found by the E2E (ticket 16):** an exec way in whose target is gone
+    (`docker exec` on a renamed container) fails as a bootstrap error,
+    which the reconnect loop treats as permanent. That stopped the loop at
+    attempt 0, before the re-run of `up` could find the new target. Now a
+    host whose provider has `refresh` keeps such failures retrying until
+    this drop's re-run has had its turn
+    (`RemoteHostConnection.retryPermanentFailure`, passed to `RemoteBackend`
+    as `retryPermanentFailure`). After that they stop the loop as before.
+    ssh failures exit 255 and were always retried.
 
 ### D3. Launch restore waits for real intent (L3)
 
 - **A restored pane does not wake its host.** "Restored" means it was
-  mounted from the persisted layout in the first mount after launch.
+  mounted from the persisted layout in the first mount after launch, and
+  belongs to the workspace the window shows at launch. Opening another
+  workspace afterwards is intent: its panes wake the host as before. (This
+  narrowing was decided during implementation, ticket 3.)
 - Waking stays as it is for anything the user starts: a new pane or tab,
   typing in a mounted pane, "wake it", or launching an agent.
 - **How:**
@@ -236,12 +261,18 @@ One ticket per gap, with three exceptions:
       or `connecting` runs a non-waking connect
       (`conn.connectNoWake()` = `startConnect(false)`). If that leaves the
       host `sleeping`, it throws `HostUnavailableError(hostId, "sleeping")`.
-  - The renderer collects the pane ids in the persisted layout at startup,
-    in the app store. `useTerminalConnection.create` passes `wake: false`
-    for an id in that set, and removes the id after its first mount.
+  - The renderer collects the pane ids of the visible workspace's
+    persisted layout at startup, in the app store.
+    `useTerminalConnection.create` passes `wake: false` for an id in that
+    set. The id is forgotten once its first create has settled, not when
+    it is sent, so a StrictMode double mount doesn't wake the host either.
+  - A resync's `attach()` never sends `wake: false`.
   - The reply is `host-unavailable`, so the pane waits behind the existing
-    asleep banner. "Wake it" or the host coming up from elsewhere remounts
-    it through `useRemoteRecovery`. Nothing new is needed there.
+    asleep banner. The renderer router and `HostRouting` answer
+    `{ok: false, reason: "host-unavailable"}` rather than throwing, so the
+    pane reaches `awaitHost`. "Wake it" or the host coming up from
+    elsewhere remounts it through `useRemoteRecovery`. Nothing new is
+    needed there.
 - A host that is merely `disconnected` and not asleep still connects
   without waking, as a background connect does today.
 - Agent resume commands queued for restored panes wait for the wake. That
@@ -311,6 +342,21 @@ One ticket per gap, with three exceptions:
   window with direct host bridges. When a host server is too old for the
   calls (`unavailable:host`), the router gives that server's workspaces to
   a desktop that lists the host, which watches them as today.
+- **As built:**
+  - The router merges `branches.changed` and `diffs.*` payloads across
+    servers and delivers the union, trimmed per server to what it answers
+    for. The consumers treat each payload as the whole picture, so one
+    server's event must not wipe another's entries.
+  - `BranchWatcher` re-emits when a connection's own list changes, even for
+    workspaces already watched for someone else.
+  - Only `start` and `stop` reach host servers. The phone's diff-pane reads
+    (`diffs.getFullDiff`, `getLocalDiff`, `getStagedFiles`) still go home.
+  - A server marked `refused` (too old) is cleared only on a resync or a
+    bridge change.
+  - The watchers moved into `SharedDeps`. The per-connection sets live in
+    `electron/watched-sets.ts`.
+  - A `start` whose connection has already dropped leaves no stale set
+    (ticket 17).
 
 ### D7. The selected project is translated in the router (R3)
 
@@ -326,8 +372,9 @@ The router translates the index. There is no new server method.
 ### D8. Linear publishes its connection state (R4)
 
 - `LinearManager` takes an `onChange(connected)` callback, called from
-  `saveToken` and `clearToken`. `linearConnect` saves only after
-  validation, so a failed connect emits nothing.
+  `saveToken` and `clearToken`. `linearConnect` validates the key first
+  (`getViewer(apiKey)`) and saves only after that, so a failed connect
+  emits nothing.
 - `createManorServer` wires `onChange` to
   `bus.publish("linear", "connectionChanged", connected)`, on both
   platforms.
@@ -374,6 +421,14 @@ change, so older hosts keep working.
   and now covers remote panes too.
 - **A known residue:** a phone paired with the host directly still competes
   with main as a whole. The host decides between them as today.
+- **As built:**
+  - The host's current grid is cached in `HostRouting` (`ptyGrids`).
+  - `PtyAttachments` is now a class. `processAttachments` is the process's
+    instance, which main's local panes and its forwarded callers share.
+  - Forwarded `create`, `attach` and `reset` answers always carry
+    `winsizeOwner`.
+  - Only main's local holders of a pane get per-connection owner flags.
+  - A follower that creates before any grid is cached sends its own size.
 
 ### D11. Linking and resetting a host are serialized, and a mint is checked (R7)
 
@@ -402,6 +457,16 @@ change, so older hosts keep working.
   - If `listDevices` doesn't return a creation time, the ticket adds one.
     That is an additive field, and older hosts are treated as matching on
     label alone.
+- **As built:**
+  - `pendingMints` is a list per host, not one slot.
+  - A mint still in flight is never reconciled; only one whose answer was
+    lost is.
+  - The `createdAt` match allows 10 min of clock skew between the desktop
+    and the box (`MINT_CLOCK_SKEW_MS`).
+  - Linked pairings show their 6-hex suffix in the host's device list, for
+    example "Orry's phone (a1b2c3)".
+  - A reset made from elsewhere is caught by the room check. A link that
+    points at the old room is replaced only on the phone's next hello.
 
 ### D12. The phone names the desktop (R8)
 
@@ -414,6 +479,9 @@ change, so older hosts keep working.
   which is fine for toasts and undo labels.
 - Every site in R8 switches over. On the desktop the strings stay "This
   machine" and "this machine".
+- **As built:** rows inside `ProjectSetUpOnSection`'s map and `TasksView`'s
+  memo don't re-render on a pairing change alone; they pick up the new name
+  on their next render.
 
 ### D13. Git runs on the host of the project the route resolved (R9, #269)
 
@@ -434,7 +502,8 @@ change, so older hosts keep working.
 
 - The busy count reads `[...agentManager.getActiveAgents(),
   ...hostRouting.agents()]`. It is also sampled on `HostProxy`'s agent
-  updates, because remote hook events no longer reach the desktop.
+  updates (`onRemoteAgentUpdate`, through `statsStore.recordMax`), because
+  remote hook events no longer reach the desktop.
 - The kill lookups fall back to `hostRouting.agents()` by pane id.
   `KillAllProcessesDeps` gains `hostRouting`.
 - The desktop is the single recorder. Host servers' own `StatsStore`s are
@@ -447,6 +516,8 @@ change, so older hosts keep working.
 - Before that, replace `context.ts:101`'s `callerMaySee` with an exact-host
   compare (`normalizeHostId(p.hostId) === hostId`).
 - Keep the local-caller tests.
+- **As built:** `withWorkspaceHost` can no longer refuse, so it returns a
+  plain body rather than a result to check.
 
 ### Scope
 
@@ -507,6 +578,112 @@ where the harness can reach.
     watchers and the device creation time;
   - each fix degrades to the old behavior on such a host;
   - the next connect's tarball upgrade brings it up to date.
+
+## Known limits as built
+
+**Timing and version skew**
+- **The 4 s grace (D5)** is a guess, one constant (`DROP_GRACE_MS` in
+  `src/bridge/transports/ws.ts`). Too short on a bad network and the
+  reachability overlay flickers; too long and calls wait on a dead server.
+- **Version skew.** An older host server lacks `viewing`,
+  `linear.connectionChanged`, the branch and diff watchers and the devices'
+  creation time. Each fix degrades to the old behavior on such a host: idle
+  stop counts desktop windows only; an open phone's Linear status updates
+  only on hello and pairing changes; its workspaces' branches are watched
+  by a desktop that lists the host; a lost mint is matched on label alone.
+  The next connect's tarball upgrade brings it up to date.
+
+**Lifecycle**
+- The `autoSleep` check lives in `RecipeHostProvider.refresh()`, and a
+  declined refresh counts as this drop's re-run (D2).
+- Callers that join an `ensureUp` already in flight don't get its progress
+  lines (D2).
+- Only the panes of the workspace a window shows at launch decline to wake.
+  Opening another workspace counts as intent and wakes the host (D3).
+- A restored pane id is forgotten once its first create settles. A resync's
+  `attach()` never sends `wake: false` (D3).
+- The router and `HostRouting` answer `{ok: false, reason:
+  "host-unavailable"}` for a declined wake rather than throwing (D3).
+- `forwarded` (D1) doesn't count a desktop window's own viewer stream,
+  which is an owner connection too; that counts as `desktop`.
+
+**Routing**
+- **The phone's project selection on a project home doesn't hold is
+  page-only** (D7): it isn't persisted across a reload.
+- **A phone paired with a host directly still competes with main as a
+  whole** for a pane's winsize (D10). The host decides between them as it
+  did before.
+- **The phone's diff-pane reads go home** (D6). Only `branches.start/stop`
+  and `diffs.start/stop` are split per server; `diffs.getFullDiff`,
+  `getLocalDiff` and `getStagedFiles` still go to home, which answers only
+  for the hosts it knows.
+- A server marked `refused` for the watchers (an older host server) is
+  cleared only on a resync or a bridge change (D6).
+- The router delivers the union of every server's branch and diff payloads,
+  trimmed per server, because the consumers treat each payload as the whole
+  picture (D6).
+- Rows inside `ProjectSetUpOnSection`'s map and `TasksView`'s memo don't
+  re-render on a pairing change alone (D12); they show the new name on their
+  next render.
+
+**Pairing links (D11)**
+- `pendingMints` is a list per host. A mint still in flight is never
+  reconciled.
+- The `createdAt` match allows 10 min of clock skew.
+- Linked pairings show a 6-hex suffix in the host's device list, for
+  example "Orry's phone (a1b2c3)".
+- A reset made from elsewhere is caught by the room check. A link that
+  still points at the old room is replaced only on the phone's next hello.
+
+**Code shape, for whoever reads it next**
+- The forwarded-winsize grid cache lives in `HostRouting` (`ptyGrids`).
+  `PtyAttachments` is a class and `processAttachments` the process's
+  instance. Forwarded `create`, `attach` and `reset` answers always carry
+  `winsizeOwner`. Only main's local holders of a pane get per-connection
+  owner flags, and a follower that creates before any grid is cached sends
+  its own size (D10).
+- The branch and diff watchers live in `SharedDeps`, and the
+  per-connection sets in `electron/watched-sets.ts`. `BranchWatcher`
+  re-emits when a connection's own list changes (D6).
+- `withWorkspaceHost` returns a plain body (D15).
+- The busy-agent gauge is also sampled in `onRemoteAgentUpdate` through
+  `statsStore.recordMax` (D14). That sampling has no test of its own.
+
+**Tests**
+- Phone-mode tests must sit last in `auto-join.test.ts` and
+  `project-store-transfer.test.ts`: a home server can't be removed from the
+  server set once added.
+- **E2E added (ticket 16):**
+  - recipe suite: a forced drop after the box moved re-runs `up` and finds
+    the new exec target (D2); a port forward carries half-close (D4);
+  - `phone-all-pairings.spec.ts`: a checkout on the box reaches a phone
+    paired with the host while the desktop is stopped (D6).
+- **E2E gaps, covered by unit tests only:**
+  - **Restore doesn't wake (D3).** The recipe suite drives the registry
+    without a renderer, and the Playwright suites have no recipe host, so a
+    relaunch onto a sleeping host isn't reachable.
+    `src/hooks/__tests__/useTerminalConnection-restored.test.ts`,
+    `electron/backend/__tests__/registry.test.ts`,
+    `electron/server/__tests__/host-routing.test.ts` and
+    `src/bridge/__tests__/router.test.ts` cover it.
+  - **Idle stop counting phones (D1):** `host-idle-stop.test.ts`,
+    `events.test.ts`, `owner-channel.test.ts`. The recipe suite doesn't run
+    `HostServerSync`, and the harness's host server has no relay.
+  - **The drop grace (D5):** `ws.test.ts`, `relay-pipe.test.ts`,
+    `install-web-relay.test.ts`.
+  - **The selected project (D7), Linear's event (D8), remote tab claims
+    (D9), forwarded winsize (D10), the pairing links (D11), names on the
+    phone (D12), git on the resolved host (D13) and stats (D14):** unit and
+    component tests only.
+- **Flaky tests seen while building this ADR:**
+  - `remote-host.spec.ts` "laptop closed … one notification" on the private
+    sshd: the desktop never read "thinking". 1 of 6 runs on this branch,
+    0 of 5 on `b128a6fa`; not traced. Recorded in
+    `docs/remote-hosts.md#testing`.
+  - Unit tests under a full parallel run that passed alone:
+    `bridge-process.test.ts` ("keeps its daemon apart", twice),
+    `exec-runner` and `TaskDetail` (once each). None reproduced in the
+    final run.
 
 ## Tickets
 

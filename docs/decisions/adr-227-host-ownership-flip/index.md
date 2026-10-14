@@ -447,9 +447,11 @@ most of them back to the host. Instead:
 - **`github.proxyImage`, `createIssue` and `listRepos` stay on the laptop's
   `gh`.** A private-repo image in a remote project's PR uses the laptop's
   sign-in. The GitHub nudge and settings section check `gh` on the laptop only.
-- **Stats-only reads** (kill counters, busy-agent count) ignore remote agents.
-- **`callerHostId` / `callerMaySee` are never set any more.** Every CLI caller
-  on the box is local to its host server; the scoping branches are dead but kept.
+- ~~**Stats-only reads** (kill counters, busy-agent count) ignore remote
+  agents.~~ Fixed in ADR-230 (D14).
+- ~~**`callerHostId` / `callerMaySee` are never set any more.** Every CLI
+  caller on the box is local to its host server; the scoping branches are
+  dead but kept.~~ Fixed in ADR-230 (D15): the dead branches are deleted.
 - **E2E gaps:** no test for the "Use Linear on \<host\>" toggle (no Linear
   stub) or the "gh isn't signed in" empty state. Known Linux e2e failures that
   also fail on main are listed in `docs/remote-hosts.md#testing`; remote-host

@@ -645,13 +645,31 @@ its workspaces are listed from the cache, read-only, as for any host away.
   pollers and **Retry now** leave it asleep. Its recipe's `status` is asked
   before each reconnect attempt, so a host the provider put to sleep is
   noticed too.
+- **A reconnect re-runs `up` once.** When a recipe host that isn't asleep
+  drops, Manor redials the way in the last `up` returned. Before the third
+  attempt it runs the recipe's `up` again, once per drop, in case the box
+  came back somewhere else (a new address, container or pod). Its progress
+  shows in the host's status while it reconnects. A failing `up` is logged
+  and the redial goes on. A recipe with no `status` whose `up` said
+  `autoSleep` is never re-run this way, because that could wake a box that
+  put itself to sleep.
 - **Using it wakes it.** **Wake** in the host's status does, and so does
   anything that means to use the host: opening one of its panes, creating a
   workspace, launching an agent. Reads never do. The call waits up to two
   minutes for the host to come up, then answers "\<host\> is still starting"
   while it goes on starting.
-- **Restoring the window you had open when Manor starts** opens its panes,
-  so a host whose workspace was on screen is woken then.
+- **Restoring the window you had open when Manor starts doesn't wake it.**
+  The panes of the workspace on screen at launch show the asleep banner
+  instead; **Wake** there brings the host up and the panes reattach.
+  Opening another of its workspaces, or a new pane or tab, is using it and
+  wakes it.
+- **Idle stop counts every viewer.** A recipe's `idleStopMinutes` stops a
+  host only when nobody is looking at it: no desktop window, no phone
+  paired with the host, and no phone or window going through the desktop
+  has one of its terminals open, and no phone has one of its agents' chats
+  open. A phone left open on a terminal keeps the box up. A host server
+  older than ADR-230 reports desktop windows only, so phones don't count
+  there until its next upgrade.
 - **On a phone**, the Hosts sheet shows the host as **Asleep** with
   **Wake**, which asks the desktop to start it. With the desktop away it
   says "\<host\> is asleep, and \<desktop\> is away": nothing on the relay
@@ -730,6 +748,14 @@ local port instead. Forwards:
 Forwards need `AllowTcpForwarding` on the box's sshd. It's enabled by
 default. Agent status does **not** depend on forwarding: the hook journal
 lives on the box.
+
+A host Manor starts with an exec way in (the Docker and Kubernetes
+templates) has no sshd to forward through. Manor listens on a local port
+itself and carries each connection over the exec stream to `port-pipe` on
+the box. These forwards carry half-close both ways: a client that shuts its
+write side after its request (HTTP/1.0-style clients, `nc -N`, some database
+drivers) still gets the reply. Once one side has finished, the other has 5
+minutes of silence before the connection is closed.
 
 ## Legacy boxes
 
@@ -967,6 +993,12 @@ node scripts/test-remote-e2e.mjs --recipe
   - a forced drop: the box's `server-bridge` and `remote-bridge` are
     killed, and the owner channel and the host reconnect by themselves to
     the same host server;
+  - a forced drop after the box moved (ADR-230 D2): the container is
+    renamed and the recipe's `up` and `status` now name the new one, so the
+    old `docker exec` target fails. The reconnect re-runs `up` and finds the
+    same host server under the new name, with no connect from outside;
+  - a port forward that carries half-close (ADR-230 D4): a client that
+    shuts its write side after its request still gets the reply;
   - `docker restart` with the desktop gone: the host server comes back by
     itself in the same relay room, sealed by `key-file` with the key off the
     volume, and an agent launched afterwards starts;
@@ -1019,10 +1051,11 @@ node scripts/test-remote-e2e.mjs --recipe
   every pairing at once (ADR-228 D8). One browser opens the desktop's link and
   the box's host server's, and its sidebar lists the desktop's project and
   the box's. With the desktop stopped, the box's project stays live (a branch
-  made on the box afterwards is listed), a write to the desktop's project is
-  refused as away, and the desktop's project is still listed. Removing the
-  desktop's pairing in the Hosts sheet takes its project out and leaves the
-  box's.
+  made on the box afterwards is listed, and a `git checkout -b` there
+  reaches the phone's sidebar through the box's own branch watcher, ADR-230
+  D6), a write to the desktop's project is refused as away, and the
+  desktop's project is still listed. Removing the desktop's pairing in the
+  Hosts sheet takes its project out and leaves the box's.
 - `tests/e2e/phone-linked-hosts.spec.ts` (Playwright) covers one pairing for
   every host (ADR-228 D9). A browser opens only the desktop's link, is linked
   to the box's room on its first hello, lists the box's project once (under
@@ -1081,6 +1114,18 @@ to the host server, and are not regressions:
 
 The "laptop closed" row on the private sshd is fixed since the ADR-227 branch;
 the rest are not.
+
+**Seen flaky, not known to fail on `main`.** `remote-host.spec.ts` "laptop
+closed … one notification" on the private sshd, with the Docker symptom: the
+desktop never reads "thinking", before any drop. It failed 1 of 6 runs on the
+ADR-230 branch and passed 5 of 5 on its base (`b128a6fa`); not traced. When
+it fails, the two tests after it in the file don't run.
+
+**Flaky unit tests.** Under a full parallel `pnpm test:unit` these have
+failed and then passed when run alone:
+`electron/terminal-host/__tests__/bridge-process.test.ts` ("keeps its daemon
+apart"), `exec-runner.test.ts` ("escalates to SIGKILL"),
+`terminal-host.test.ts` ("new client can attach…") and `TaskDetail`.
 
 The harness writes an ssh config with two aliases, `manor-e2e` (the app's)
 and `manor-e2e-direct` (the tests' side channel), and passes it to the tests

@@ -226,6 +226,48 @@ describe("a table's localOnlyCallers and unavailable", () => {
   });
 });
 
+/**
+ * `bridge.ping` (ADR-231 D8): a page's liveness check, answered by the
+ * server itself for every caller class, whatever its table holds or refuses,
+ * and never handed to a handler.
+ */
+describe("bridge.ping", () => {
+  const tables: Array<[string, Partial<HandlerTable<HostDeps>>]> = [
+    ["the desktop's table", {}],
+    [
+      "a host server's table",
+      {
+        localOnlyCallers: new Set(["owner"]),
+        unavailable: { code: UNAVAILABLE_HOST_CODE, where: "on this host" },
+      },
+    ],
+  ];
+
+  describe.each(tables)("on %s", (_name, overrides) => {
+    it.each(["local", "owner", "device"] as const)(
+      "is answered for a %s caller, before the table",
+      async (callerClass) => {
+        const called: string[] = [];
+        const server = serverOver(stubTable(called), overrides);
+        const connection = makeConnection("c-1", callerClass);
+        server.accept(connection);
+
+        const answer = await server.receive(connection, {
+          kind: "invoke",
+          id: "7",
+          ns: "bridge",
+          method: "ping",
+          args: [],
+        });
+
+        expect(answer).toEqual({ id: "7", kind: "result", ok: true, result: null });
+        expect(called).toEqual([]);
+        server.dispose();
+      },
+    );
+  });
+});
+
 describe("the audit log, by caller class", () => {
   let dir: string;
   let audit: RemoteAuditLog;

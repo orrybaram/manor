@@ -45,6 +45,8 @@ import { byPane, type Caller, type HandlerCtx, type HandlerTable, type RouteRule
 import {
   ALL_KEYS,
   BridgeUnavailableRefusal,
+  PING_METHOD,
+  PING_NS,
   readInvokeFrame,
   readSubscribeFrame,
   type BridgeConnection,
@@ -315,6 +317,11 @@ export class BridgeServer<D extends BridgeServerDeps> {
     frame: InvokeFrame,
   ): Promise<ResultFrame> {
     const id = frame.id;
+    // Liveness, not a method (ADR-231 D8): answered for every caller, and
+    // never routed, audited or looked up in the table.
+    if (frame.ns === PING_NS && frame.method === PING_METHOD) {
+      return { id, kind: "result", ok: true, result: null };
+    }
     const args = frame.args;
     const key = `${frame.ns}.${frame.method}`;
     const handler = this.table.handlers[key];

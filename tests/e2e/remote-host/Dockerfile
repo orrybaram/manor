@@ -26,5 +26,17 @@ COPY sshd_config /etc/ssh/sshd_config.d/manor-e2e.conf
 COPY entrypoint.sh /usr/local/bin/manor-e2e-entrypoint
 RUN chmod 755 /usr/local/bin/manor-e2e-entrypoint
 
+# The sessions' ForceCommand (see sshd_config): the environment a spec chose
+# in ~/.manor-e2e/env, then the command (or a login shell) in the user's shell.
+RUN printf '%s\n' \
+    '#!/bin/sh' \
+    'MANOR_RELAY_URL=http://127.0.0.1:9' \
+    'if [ -f "$HOME/.manor-e2e/env" ]; then . "$HOME/.manor-e2e/env"; fi' \
+    'export MANOR_RELAY_URL PATH' \
+    'if [ -z "${SSH_ORIGINAL_COMMAND:-}" ]; then exec "$SHELL" -l; fi' \
+    'exec "$SHELL" -c "$SSH_ORIGINAL_COMMAND"' \
+    > /usr/local/bin/manor-e2e-session \
+  && chmod 755 /usr/local/bin/manor-e2e-session
+
 EXPOSE 22
 CMD ["/usr/local/bin/manor-e2e-entrypoint"]

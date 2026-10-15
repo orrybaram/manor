@@ -340,9 +340,18 @@ The form asks for:
 `kubectl exec` streams can be cut by the API server's idle timeouts. Manor
 reconnects them with backoff, as it does for a dropped ssh connection.
 
-The Kubernetes scripts are checked for syntax in Manor's tests, but haven't
-been run against a cluster there. The Docker template is what the end-to-end
-tests drive.
+`status` says `sleeping` only for 0 replicas. While a pod is deleted, evicted,
+rescheduled or still starting, it says `up` with the detail "the pod is not
+ready yet", so Manor keeps redialling instead of marking the host asleep.
+
+The template is run against a real cluster by
+`node scripts/test-remote-e2e.mjs --k8s` (see
+[Testing](../remote-hosts.md#testing)). It passed on kind v0.33.0, with the
+node image Kubernetes v1.37.0 and kubectl v1.37.1. kind is a conformant
+cluster, but it isn't a managed one. A cloud cluster's storage classes
+(kind's local-path ignores `fsGroup`), admission policies such as Pod
+Security `restricted`, and exec timeouts can still differ. The suite leaves
+clone detection and a moved box to the Docker suite.
 
 ## A custom recipe for a cloud VM
 

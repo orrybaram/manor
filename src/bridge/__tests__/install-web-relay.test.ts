@@ -262,6 +262,7 @@ describe("install-web on a relay-served page", () => {
     onBridgeResync(resync);
     void api.projects.getAll().catch(() => {});
     FakeRelaySocket.last.handshake();
+    FakeRelaySocket.last.silent = true;
 
     const refreshed = mod.refreshBridge();
     await vi.advanceTimersByTimeAsync(2_000);
@@ -277,6 +278,7 @@ describe("install-web on a relay-served page", () => {
     const { mod, api } = await install(relayHash());
     void api.projects.getAll().catch(() => {});
     FakeRelaySocket.last.handshake();
+    FakeRelaySocket.last.silent = true;
 
     const refreshed = mod.refreshBridge();
     await vi.advanceTimersByTimeAsync(2_000);

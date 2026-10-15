@@ -26,3 +26,22 @@ export const TAB_HIDDEN_STYLE: React.CSSProperties = {
   ...TAB_BASE_STYLE,
   visibility: "hidden",
 };
+
+/**
+ * Marks a hidden layer, so what lives inside it can tell — through any number
+ * of nested layers — that it is not on screen (#300).
+ *
+ * xterm pauses painting while its IntersectionObserver reports the terminal
+ * off screen, and `visibility: hidden` alone still counts as on screen. So a
+ * terminal under a marked layer is translated out of the viewport
+ * (`TerminalPane.module.css`): it keeps parsing, so queries are answered and
+ * the buffer stays current, keeps its layout box, so no resize reaches the
+ * pty, and repaints in full once its layer is shown. Only the terminal moves:
+ * a `<webview>` moved off screen with its layer stops being throttled while
+ * hidden, so the layers themselves stay put.
+ */
+export function hiddenLayerAttr(hidden: boolean): {
+  "data-hidden-layer"?: "";
+} {
+  return hidden ? { "data-hidden-layer": "" } : {};
+}

@@ -211,11 +211,17 @@ describe("the host pipe transport (ADR-228 D4)", () => {
     await expect(transport.probeNow()).resolves.toBe("redialing");
     expect(fake.opened).toHaveLength(1);
 
-    // Probing an open pipe asks nothing of main.
+    // Probing an open pipe asks main nothing, but asks the server behind
+    // it (ADR-231 D8): its answer is what makes the line alive.
     fake.releaseOpens();
     await settle();
     fake.frame("p1", HELLO);
-    await expect(transport.probeNow()).resolves.toBe("alive");
+    const outcome = transport.probeNow();
+    const ping = fake.sent.find((s) => s.frame.ns === "bridge");
+    expect(ping?.frame).toMatchObject({ kind: "invoke", method: "ping" });
+    fake.frame("p1", { id: ping?.frame.id, kind: "result", ok: true, result: null });
+    await expect(outcome).resolves.toBe("alive");
+    expect(fake.opened).toHaveLength(1);
   });
 
   it("tells main when the window closes a pipe before main answered", async () => {

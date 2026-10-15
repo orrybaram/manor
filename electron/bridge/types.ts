@@ -186,6 +186,17 @@ export interface InvokeFrame {
   args: unknown[];
 }
 
+/**
+ * `bridge.ping`: a no-op the server answers itself, before the table, for
+ * every caller class (ADR-231 D8). A page sends it when the far server has
+ * been quiet, because the relay answers the pipe's own heartbeat and so
+ * cannot say whether the server behind it is still there. A server older
+ * than this answers it as an unknown method, with an error frame, which
+ * proves it is alive just as well.
+ */
+export const PING_NS = "bridge";
+export const PING_METHOD = "ping";
+
 /** The answer to exactly one `InvokeFrame`. */
 export type ResultFrame =
   | { id: unknown; kind: "result"; ok: true; result: unknown }

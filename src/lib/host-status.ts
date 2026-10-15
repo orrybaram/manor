@@ -274,6 +274,14 @@ export function sourcedHost(
  * away. `via` reads the servers that list a host the page holds no bridge
  * to: when all of them are gone it is away whatever main last said.
  *
+ * A relay room the page holds a bridge to, and finds `unreachable` (ADR-231
+ * D8: the transport gave up on a silent server), is away unless a server
+ * that lists it is `connected`. `relayed` says which hosts are such rooms.
+ * Whatever a host list says of the room is no defence: on a phone that list
+ * is the room's own last word on itself (its `local` host), or a lister's
+ * that is gone. A desktop window's bridge to a host is no room, and while it
+ * redials main's word stands (ADR-228 D6).
+ *
  * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
  * keystrokes replayed into a shell minutes later, into whatever is then in
  * the foreground, would do more harm than losing them. A linked group's
@@ -284,6 +292,7 @@ export function isHostOffline(
   hosts: readonly HostStatusInfo[],
   direct?: (hostId: string) => Reachability | undefined,
   via?: (hostId: string) => Reachability | undefined,
+  relayed?: (hostId: string) => boolean,
 ): boolean {
   if (!hostId) return false;
   const directly = direct?.(hostId);
@@ -291,9 +300,15 @@ export function isHostOffline(
     hosts.find((h) => h.hostId === hostId),
     directly,
   );
+  const listed = via?.(hostId);
   // With no bridge of its own, a host (or the desktop's own machine, on a
   // phone) is as far away as every server that lists it (D3, source 2).
-  if (directly === undefined && via?.(hostId) === "unreachable") return true;
+  if (directly === undefined && listed === "unreachable") return true;
+  // A room of its own that went unreachable, unless a lister still serves
+  // it (D3, source 2). On a phone, the desktop's own room above all.
+  if (directly === "unreachable" && listed !== "connected" && relayed?.(hostId)) {
+    return true;
+  }
   return host !== undefined && host.status !== "connected";
 }
 
@@ -315,8 +330,9 @@ export function groupHostState(
   hosts: readonly HostStatusInfo[],
   direct?: (hostId: string) => Reachability | undefined,
   via?: (hostId: string) => Reachability | undefined,
+  relayed?: (hostId: string) => boolean,
 ): GroupHostState {
-  return groupStateOf(memberHostIds, (id) => isHostOffline(id, hosts, direct, via));
+  return groupStateOf(memberHostIds, (id) => isHostOffline(id, hosts, direct, via, relayed));
 }
 
 /** `groupHostState` by a predicate that already knows which hosts are away. */

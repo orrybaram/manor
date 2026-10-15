@@ -471,6 +471,7 @@ describe("the relay pipe", () => {
 
     it("lets probeNow find a silently dead socket and redial at once", async () => {
       const { socket, transport } = connected();
+      socket.silent = true;
       void transport.probeNow();
       await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
       expect(socket.closedWith).not.toBeNull();

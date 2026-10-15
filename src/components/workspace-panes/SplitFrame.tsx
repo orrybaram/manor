@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import type { SplitDirection } from "../../lib/layout/pane-tree";
-import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "../../lib/tab-styles";
+import {
+  TAB_HIDDEN_STYLE,
+  TAB_VISIBLE_STYLE,
+  hiddenLayerAttr,
+} from "../../lib/tab-styles";
 import { ShownLayer } from "../../lib/layer-shown";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
@@ -145,7 +149,11 @@ export function SplitFrame(props: SplitFrameProps) {
       style={isPhone ? PHONE_SPLIT_STYLE : undefined}
     >
       {/* Wrapped in both modes, so the tree keeps its shape across them. */}
-      <div className={styles.splitChild} style={firstStyle}>
+      <div
+        className={styles.splitChild}
+        style={firstStyle}
+        {...hiddenLayerAttr(isPhone && focusInSecond)}
+      >
         <ShownLayer shown={!isPhone || !focusInSecond}>{first}</ShownLayer>
       </div>
       <div
@@ -153,7 +161,11 @@ export function SplitFrame(props: SplitFrameProps) {
         style={isPhone ? PHONE_DIVIDER_STYLE : undefined}
         onMouseDown={isPhone ? undefined : handleMouseDown}
       />
-      <div className={styles.splitChild} style={secondStyle}>
+      <div
+        className={styles.splitChild}
+        style={secondStyle}
+        {...hiddenLayerAttr(isPhone && !focusInSecond)}
+      >
         <ShownLayer shown={!isPhone || focusInSecond}>{second}</ShownLayer>
       </div>
     </div>

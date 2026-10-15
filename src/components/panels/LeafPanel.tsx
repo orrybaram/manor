@@ -8,7 +8,11 @@ import {
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { TabBar } from "../tabbar/TabBar/TabBar";
 import { PaneLayout } from "../workspace-panes/PaneLayout/PaneLayout";
-import { TAB_VISIBLE_STYLE, TAB_HIDDEN_STYLE } from "../../lib/tab-styles";
+import {
+  TAB_VISIBLE_STYLE,
+  TAB_HIDDEN_STYLE,
+  hiddenLayerAttr,
+} from "../../lib/tab-styles";
 import { ShownLayer } from "../../lib/layer-shown";
 import styles from "./PanelLayout.module.css";
 
@@ -42,6 +46,7 @@ export const LeafPanel = memo(function LeafPanel(props: LeafPanelProps) {
           <div
             key={tab.id}
             style={tab.id === selectedTabId ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
+            {...hiddenLayerAttr(tab.id !== selectedTabId)}
           >
             <ShownLayer shown={tab.id === selectedTabId}>
               <PaneLayout node={tab.rootNode} tabId={tab.id} workspaceKey={workspaceKey} />

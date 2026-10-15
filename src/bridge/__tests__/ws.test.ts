@@ -24,6 +24,9 @@ import { createBridge } from "../client";
 import {
   createWsTransport,
   DROP_GRACE_MS,
+  PROBE_TIMEOUT_MS,
+  SERVER_SILENCE_MS,
+  SERVER_SILENCE_TIMEOUT_MS,
   type Pipe,
   type WsBridgeTransport,
   type WsTransportOptions,
@@ -31,6 +34,13 @@ import {
 import type { ElectronAPI } from "../../electron";
 
 type Frame = Record<string, unknown>;
+
+/** The transport's liveness ping (ADR-231 D8). */
+function isPing(frame: Frame): boolean {
+  return (
+    frame.kind === "invoke" && frame.ns === "bridge" && frame.method === "ping"
+  );
+}
 
 /** A socket the test drives by hand. Records what the client sent it. */
 class FakeSocket {
@@ -43,6 +53,12 @@ class FakeSocket {
 
   readyState = 0;
   readonly frames: Frame[] = [];
+  /**
+   * The server behind the pipe has gone quiet: it answers no `bridge.ping`,
+   * though the pipe's own `probe()` may still say alive, as a relay's does.
+   * Off, each ping is answered a microtask later, as a live server does.
+   */
+  silent = false;
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: string }) => void) | null = null;
   onclose: ((event: { code: number }) => void) | null = null;
@@ -53,7 +69,14 @@ class FakeSocket {
   }
 
   send(data: string): void {
-    this.frames.push(JSON.parse(data) as Frame);
+    const frame = JSON.parse(data) as Frame;
+    this.frames.push(frame);
+    if (isPing(frame) && !this.silent) {
+      queueMicrotask(() => {
+        if (this.readyState !== 1) return;
+        this.deliver({ id: frame.id, kind: "result", ok: true, result: null });
+      });
+    }
   }
 
   close(): void {
@@ -727,6 +750,137 @@ describe("the socket transport", () => {
       expect(onHello).toHaveBeenLastCalledWith(
         expect.objectContaining({ resumed: true }),
       );
+    });
+  });
+
+  /**
+   * A relay answers the pipe's own heartbeat and probe, so neither can tell
+   * that the server behind it went quiet (ADR-231 D8). Every pipe here says
+   * alive; only the server's silence differs.
+   */
+  describe("noticing a silent server", () => {
+    function transport(
+      options: Partial<WsTransportOptions> = {},
+    ): { t: WsBridgeTransport; socket: FakeSocket } {
+      const t = createWsTransport({
+        token: "full-token",
+        pipe: fakePipe(),
+        ...options,
+      });
+      void t.invoke("projects", "getAll", []).catch(() => {});
+      const socket = FakeSocket.last;
+      socket.handshake();
+      return { t, socket };
+    }
+
+    const pings = (socket: FakeSocket): Frame[] =>
+      socket.of("invoke").filter(isPing);
+
+    it("sends no ping while the server keeps talking", () => {
+      const { socket } = transport();
+      for (let i = 0; i < 10; i++) {
+        vi.advanceTimersByTime(SERVER_SILENCE_MS - 1_000);
+        socket.deliver({ kind: "event", ns: "preferences", event: "changed", args: [] });
+      }
+      expect(pings(socket)).toEqual([]);
+    });
+
+    it("pings after SERVER_SILENCE_MS of silence, and only then", () => {
+      const { socket } = transport();
+      vi.advanceTimersByTime(SERVER_SILENCE_MS - 1);
+      expect(pings(socket)).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(pings(socket)).toEqual([
+        { id: expect.any(String), kind: "invoke", ns: "bridge", method: "ping", args: [] },
+      ]);
+    });
+
+    it("counts the silence from the last frame, not from the hello", () => {
+      const { socket } = transport();
+      vi.advanceTimersByTime(SERVER_SILENCE_MS - 2_000);
+      socket.deliver({ kind: "event", ns: "preferences", event: "changed", args: [] });
+      vi.advanceTimersByTime(SERVER_SILENCE_MS - 1);
+      expect(pings(socket)).toEqual([]);
+      vi.advanceTimersByTime(1);
+      expect(pings(socket)).toHaveLength(1);
+    });
+
+    it("calls an unanswered ping unreachable, fails what was in flight and redials", async () => {
+      const onStatus = vi.fn();
+      const { t, socket } = transport({ onStatus });
+      socket.silent = true;
+      const call = t.invoke("projects", "getAll", []);
+      void call.catch(() => {});
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_MS);
+      expect(pings(socket)).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_TIMEOUT_MS - 1);
+      expect(socket.readyState).toBe(1);
+      expect(FakeSocket.instances).toHaveLength(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(socket.readyState).toBe(3);
+      expect(onStatus).toHaveBeenLastCalledWith("unreachable");
+      await expect(call).rejects.toBeInstanceOf(BridgeDisconnectedError);
+      // Dialled at once; its hello decides.
+      expect(FakeSocket.instances).toHaveLength(2);
+      FakeSocket.last.handshake();
+      expect(onStatus).toHaveBeenLastCalledWith("connected");
+    });
+
+    it("stays ready on an answer, and pings again after the next silence", async () => {
+      const onStatus = vi.fn();
+      const { socket } = transport({ onStatus });
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_MS + SERVER_SILENCE_TIMEOUT_MS);
+      expect(socket.readyState).toBe(1);
+      expect(FakeSocket.instances).toHaveLength(1);
+      expect(onStatus).not.toHaveBeenCalledWith("unreachable");
+      expect(pings(socket)).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_MS);
+      expect(pings(socket)).toHaveLength(2);
+    });
+
+    it("takes an older server's error frame for an unknown method as an answer", async () => {
+      const { socket } = transport();
+      socket.silent = true;
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_MS);
+      const ping = last(pings(socket));
+      socket.deliver({
+        id: ping.id,
+        kind: "result",
+        ok: false,
+        error: "bridge.ping is not available in the browser",
+        code: "unavailable",
+      });
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_TIMEOUT_MS);
+      expect(socket.readyState).toBe(1);
+      expect(FakeSocket.instances).toHaveLength(1);
+    });
+
+    it("sends nothing before the hello, or after the line closed", async () => {
+      const t = createWsTransport({ token: "full-token", pipe: fakePipe() });
+      void t.invoke("projects", "getAll", []).catch(() => {});
+      const socket = FakeSocket.last;
+      socket.accept();
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_MS * 2);
+      expect(pings(socket)).toEqual([]);
+      socket.deliver({ type: "hello", ok: true, v: 1 });
+      t.close();
+      await vi.advanceTimersByTimeAsync(SERVER_SILENCE_MS * 2);
+      expect(pings(socket)).toEqual([]);
+    });
+
+    it("lets a foreground probe call a silent server dead, though the pipe answers", async () => {
+      const onStatus = vi.fn();
+      const { t, socket } = transport({ onStatus });
+      socket.silent = true;
+      const outcome = t.probeNow();
+      expect(pings(socket)).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(PROBE_TIMEOUT_MS);
+      await expect(outcome).resolves.toBe("redialing");
+      expect(socket.readyState).toBe(3);
+      expect(onStatus).toHaveBeenLastCalledWith("unreachable");
+      expect(FakeSocket.instances).toHaveLength(2);
     });
   });
 

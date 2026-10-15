@@ -43,3 +43,10 @@ tests and the user docs along.
 - `tests/e2e/lid-closed.spec.ts`
 - `docs/remote-control.md`
 - `docs/remote-hosts.md`
+
+## Leftovers from tickets 1–3
+- `src/web/screens.tsx` tells the user "Manor → Settings → Remote control": change to "Settings → Devices".
+- Command palette entry "Settings: Remote Control" (`src/components/command-palette/useCommands.tsx`, `src/lib/commands.ts`): relabel to "Settings: Devices"; keep the command id so keybindings survive.
+- `src/utils/ui-request.ts` / the status-bar REMOTE chip opens Settings → Devices; it should open Settings → Hosts with This Mac's row expanded (`goTo({ type: "hosts" }, "host-local")`), since the switch lives there now. Check how the chip routes and fix it.
+- Comments still naming the "Remote Control page" (`src/store/host-store.ts:104`, `remote-control-status.ts`, `ThisMacRow.tsx`): update.
+- Unused CSS in `SettingsModal.module.css`: `remoteResetLink`, `remoteStatusHeader`, `remoteStatusActions`, and any other `remote*` class no longer referenced — delete.

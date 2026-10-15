@@ -659,27 +659,31 @@ where the harness can reach.
   - `phone-all-pairings.spec.ts`: a checkout on the box reaches a phone
     paired with the host while the desktop is stopped (D6).
 - **E2E gaps, covered by unit tests only:**
-  - **Restore doesn't wake (D3).** The recipe suite drives the registry
+  - ~~**Restore doesn't wake (D3).** The recipe suite drives the registry
     without a renderer, and the Playwright suites have no recipe host, so a
     relaunch onto a sleeping host isn't reachable.
     `src/hooks/__tests__/useTerminalConnection-restored.test.ts`,
     `electron/backend/__tests__/registry.test.ts`,
     `electron/server/__tests__/host-routing.test.ts` and
-    `src/bridge/__tests__/router.test.ts` cover it.
-  - **Idle stop counting phones (D1):** `host-idle-stop.test.ts`,
+    `src/bridge/__tests__/router.test.ts` cover it.~~ Covered in ADR-231
+    (`host-restore-asleep.spec.ts`).
+  - ~~**Idle stop counting phones (D1):** `host-idle-stop.test.ts`,
     `events.test.ts`, `owner-channel.test.ts`. The recipe suite doesn't run
-    `HostServerSync`, and the harness's host server has no relay.
-  - **The drop grace (D5):** `ws.test.ts`, `relay-pipe.test.ts`,
-    `install-web-relay.test.ts`.
+    `HostServerSync`, and the harness's host server has no relay.~~ Covered
+    in ADR-231 (`host-idle-stop.spec.ts`), for the `device` class.
+  - ~~**The drop grace (D5):** `ws.test.ts`, `relay-pipe.test.ts`,
+    `install-web-relay.test.ts`.~~ Covered in ADR-231
+    (`phone-drop-grace.spec.ts`).
   - **The selected project (D7), Linear's event (D8), remote tab claims
     (D9), forwarded winsize (D10), the pairing links (D11), names on the
     phone (D12), git on the resolved host (D13) and stats (D14):** unit and
     component tests only.
 - **Flaky tests seen while building this ADR:**
-  - `remote-host.spec.ts` "laptop closed … one notification" on the private
+  - ~~`remote-host.spec.ts` "laptop closed … one notification" on the private
     sshd: the desktop never read "thinking". 1 of 6 runs on this branch,
     0 of 5 on `b128a6fa`; not traced. Recorded in
-    `docs/remote-hosts.md#testing`.
+    `docs/remote-hosts.md#testing`.~~ Fixed in ADR-231 (D5): a shell running
+    a script read as the agent's process exiting.
   - Unit tests under a full parallel run that passed alone:
     `bridge-process.test.ts` ("keeps its daemon apart", twice),
     `exec-runner` and `TaskDetail` (once each). None reproduced in the

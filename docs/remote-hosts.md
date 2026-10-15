@@ -401,6 +401,11 @@ Some more details:
 - **Issue and PR data** is live from the box's own `gh`; Linear is off until
   you turn it on for the host. See [Integrations](#integrations).
 
+When the desktop goes to sleep, its projects on the phone read as away
+(dimmed, writes refused) within about 15 s. The phone checks the line to the
+desktop itself, because the relay keeps answering the phone's heartbeat for
+a desktop that has gone silent.
+
 When the laptop opens again, it doesn't replay anything: it reads the box's
 state through the server, so the sidebar already shows what the phone did,
 including a workspace made while away, its agent's tab and the agent's
@@ -972,14 +977,30 @@ node scripts/test-remote-e2e.mjs --docker
 # manor-host:e2e and runs the recipe-host suite against the Docker daemon.
 # Skipped, with a message, when Docker isn't available.
 node scripts/test-remote-e2e.mjs --recipe
+
+# The Kubernetes template on a real cluster (ADR-231): a kind cluster on the
+# Docker daemon. Needs Docker, like --recipe, and is skipped, with a message,
+# without it. Builds manor-host:e2e, creates the cluster and loads the image.
+sg docker -c 'node scripts/test-remote-e2e.mjs --k8s'
 ```
+
+`--k8s` uses `kind` and `kubectl` from `PATH` when they are there. Otherwise
+it downloads pinned versions into `~/.cache/manor-e2e/bin/` and checks each
+against a SHA-256 written in the script. Nothing is installed system-wide.
+The cluster is a kind cluster named `manor-e2e` with its own kubeconfig in a
+temp dir, so `~/.kube/config` is never read or written. It is deleted at the
+end; set `MANOR_E2E_K8S_KEEP=1` to keep the cluster and the namespace for a
+look after a failure. On a machine where Docker needs a group, run it with `sg docker -c
+'…'`, as above.
 
 - `electron/terminal-host/__tests__/remote-ssh.e2e.test.ts` (vitest) covers
   the bridge: cold bootstrap, reinstall over a stale version, session
   lifecycle, hook journal replay across a dropped connection, snapshot
   resync without duplicated output, and a remote daemon restart.
 - `tests/e2e/remote-host.spec.ts` (Playwright) covers the app: laptop-closed
-  replay with a single notification, pane recovery with the agent's resume
+  replay with a single notification (the stub lingers 1.5 s in a shell
+  running a script, and the test re-reads "thinking" 2 s after first seeing
+  it), pane recovery with the agent's resume
   command after a remote restart, and port forwarding. Each test starts from
   a clean box.
 - `electron/backend/__tests__/recipe-docker.e2e.test.ts` (vitest, `--recipe`)
@@ -1014,6 +1035,52 @@ node scripts/test-remote-e2e.mjs --recipe
   `MANOR_E2E_RECIPE_KEEP=1` to keep the container for a look after a
   failure. The host server's relay is a closed local port, as in the ssh
   suites, so no relay connection is tested there.
+- `electron/backend/__tests__/recipe-kubernetes.e2e.test.ts` (vitest,
+  `--k8s`) covers the `kubernetes` template on a kind cluster, with the same
+  desktop side as the Docker suite (`recipe-e2e-harness.ts`), reached over
+  `kubectl exec`:
+  - `up`, bootstrap over `kubectl exec -i`, the host server under
+    `supervise`, adoption, a workspace and an agent;
+  - the `on-busy` box hook, a port forward over exec, half-close through it
+    and a forced drop of the box's bridges;
+  - the pod deleted (`kubectl delete pod`): with the desktop connected it
+    reconnects without going `sleeping`, and with the desktop gone the host
+    server comes back by itself in the same relay room;
+  - **Stop** scales to 0 and the host stays asleep for 10 s, then a routed
+    write wakes it;
+  - remove with destroy: the StatefulSet, the claim and the Secret are gone.
+
+  It leaves clone detection and the moved box to the Docker suite. It sets
+  `MANOR_E2E_K8S=1` itself through `--k8s`.
+- `tests/e2e/lid-closed.spec.ts` (Playwright) covers a real sleep (ADR-231
+  D4). It freezes the app's process tree with `SIGSTOP` (ssh aside) and cuts
+  its network. While the app is frozen, the box's agent works and a phone
+  paired with the desktop and linked to the box watches and answers it. Then
+  the app thaws with no Retry. The phone must read the desktop as away within
+  30 s of the freeze. After the thaw the host reads `connected` and the final
+  status is `responded`, with one notification for the absence and each
+  ticker line written meanwhile exactly once. It doesn't fake `powerMonitor`'s
+  `resume` event or push delivery.
+- `tests/e2e/recipe-host.spec.ts` (Playwright) checks the recipe host helper
+  (`helpers/recipe-host.ts`): a custom recipe whose `up.sh` returns an ssh
+  way in to the harness's sshd, with no `status` script.
+- `tests/e2e/host-restore-asleep.spec.ts` (Playwright) covers ADR-230 D3 on a
+  recipe host. After the host is stopped and the app relaunched on the same
+  home, the host stays asleep for 10 s and `up` doesn't run again. **Wake**
+  runs it once and the pane reattaches. Opening another workspace of that
+  host wakes it.
+- `tests/e2e/host-idle-stop.spec.ts` (Playwright) covers ADR-230 D1 on a
+  recipe host with `idleStopMinutes: 1`. A phone paired with the host keeps a
+  pane open and no desktop window views it: the host stays connected for
+  150 s and `stop` doesn't run. When the phone closes, the host sleeps. It
+  uses the product's real timers and takes about 4 minutes, so leave it out
+  of a quick run with `-- --grep-invert "idle stop"`. It is skipped in
+  `--docker`, where the container can't reach the local relay on loopback.
+- `tests/e2e/phone-drop-grace.spec.ts` (Playwright) covers ADR-230 D5: a
+  phone behind the latency proxy. After `dropAll()` the relay is reachable at
+  once and the unreachable overlay never shows. After `outage()` it shows
+  within 4 to 8 s, and a call made meanwhile settles instead of hanging.
+  After `restore()` it goes.
 - `tests/e2e/host-server.spec.ts` (Playwright) covers the host server with the
   laptop gone. The desktop clones a project onto the box and starts an agent
   there, and pairs a browser with the box's host server through a local relay
@@ -1083,19 +1150,18 @@ answers are set with `setRemoteGhPrs`).
   WSLg, for example; if `/tmp/.X11-unix/X0` is missing, link it from
   `/mnt/wslg/.X11-unix/X0`).
 - The stub agent (`tests/e2e/remote-host/manor-e2e-agent`) ends with
-  `exec awk`, not a shell loop: a pane whose foreground process is a shell
-  reads as "the agent's process exited" to the host server, which now reads
-  pane facts itself.
+  `exec awk`, not a shell loop. `--linger-ms N` sleeps between its last hook
+  and the `exec`, to keep a shell running a script in the foreground.
 - The specs that pair a browser over a local relay (`host-server`,
   `host-ownership`, the browser test in `host-direct-bridge`, and the two
   phone specs) serve the web app from the relay build: run
   `pnpm build:web:relay` first.
 - Pass Playwright arguments after `--`, for example
   `-- --grep "host owns"`.
-- `--docker` builds its image with `docker build --progress=plain`, which
-  needs the buildx plugin. Without it, build the image once by hand
-  (`docker build -t manor-e2e-remote:<hash> tests/e2e/remote-host`, with the
-  tag the harness prints) and run again.
+- `--docker` builds its image with plain `docker build`, so it needs no
+  buildx plugin. Its sessions source `~/.manor-e2e/env` through a
+  `ForceCommand` wrapper, and a spec that needs the local relay reaches it
+  from the box over an `ssh -R` (`reachRelayFromBox`).
 
 **Known local e2e failures.** These fail on `main` too, for reasons unrelated
 to the host server, and are not regressions:
@@ -1108,18 +1174,11 @@ to the host server, and are not regressions:
 | `bridge.spec.ts` | "two desktop windows on one pane" (presses `Meta+t`); "the CLI lands with every window closed" | Non-macOS quits on the last window close, which removes the port file |
 | `smoke.spec.ts` | "reopening a closed pane reattaches the same shell" | Fails on a clean `main` |
 | `web-app.spec.ts` | "a PC browser pairs, sees the sidebar, and drives a live terminal…"; "the desk's window closes and the browser is told the winsize is its own"; "the browser arranges the desk's layout, the desk follows, and back" | Fail on the ADR-228 branch before the phone held every pairing (`a3058ed1`) too; not caused by it, not yet looked into |
-| `remote-host.spec.ts` | "laptop closed … one notification" | Sent 2 notifications on `main`; it passes since the host server owns the journal |
 | `host-direct-bridge.spec.ts` (`--docker`) | "a host server without viewer-bridge works through main" | Times out waiting for the host's first status. Fails on the ADR-229 base (`4b73fd9b`) too; passes on the private sshd |
-| `remote-host.spec.ts` (`--docker`) | "laptop closed … one notification" | Flaky in Docker mode: right after its ssh is killed the desktop sometimes already reads "responded", or never reads "thinking". Failed 2 of 4 runs on `4b73fd9b` too; passes on the private sshd |
 
-The "laptop closed" row on the private sshd is fixed since the ADR-227 branch;
-the rest are not.
-
-**Seen flaky, not known to fail on `main`.** `remote-host.spec.ts` "laptop
-closed … one notification" on the private sshd, with the Docker symptom: the
-desktop never reads "thinking", before any drop. It failed 1 of 6 runs on the
-ADR-230 branch and passed 5 of 5 on its base (`b128a6fa`); not traced. When
-it fails, the two tests after it in the file don't run.
+The "laptop closed" test used to be flaky on both. A shell running a script
+read as "the agent's process exited" (ADR-231 D5), and that is fixed: it
+passed 10 of 10 on the private sshd and 4 of 4 in `--docker`.
 
 **Flaky unit tests.** Under a full parallel `pnpm test:unit` these have
 failed and then passed when run alone:

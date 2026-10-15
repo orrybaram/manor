@@ -453,8 +453,12 @@ The fix (ticket 11):
   With no answer within 5 s, it treats the line as dead, as a failed probe
   already does. Any answer counts as alive, including an older server's
   error frame for an unknown method.
-- **`isHostOffline` counts an unreachable direct source as away,** unless a
-  server that lists the host is connected.
+- **`isHostOffline` counts a relay room as away** when the page bridges to
+  it directly, finds it unreachable, and no connected server lists the host.
+  The host list is no defence: on a phone the desktop's own `local` entry
+  is stamped with the desktop's room, and its last word (connected) goes
+  stale when the desktop freezes. A desktop window's host pipe is not a
+  room, so there main's status stays the source (ADR-228 D6).
 
 Rejected: the relay telling viewers that their host went quiet. The relay
 only sees ciphertext and its own heartbeats. A desktop whose socket is
@@ -513,6 +517,104 @@ its own 90 s reaping.
 - **The wrapper detection** reads another process's argv. A wrapper that
   changes its own title, or a shell that isn't in `KNOWN_SHELLS`, falls
   back to today's behavior. That is no worse than today.
+
+## Known limits as built
+
+**The Kubernetes template (D3)**
+- Tested on kind v0.33.0 with node image Kubernetes v1.37.0 and kubectl
+  v1.37.1. Two full runs, 8 of 8 each (about 45 s beyond the setup).
+- The only template bug was C1, as predicted. Before the fix the pod-deleted
+  scenario failed with statuses `reconnecting`, `sleeping`. `status` now
+  says `sleeping` only for 0 replicas (`2bb08b0f`), with a regression test.
+- kind is not a managed cluster. Storage classes, Pod Security admission
+  and exec timeouts on EKS or GKE are untested.
+- The suite checks the loaded image with `crictl inspecti` in the node
+  container, which ties it to kind.
+- Not checked: whether any UI shows the `up` detail "the pod is not ready
+  yet".
+- Not in the Kubernetes suite: clone detection and the moved box. The
+  Docker suite covers both.
+
+**Lid closed (D4)**
+- The freeze lasts about 29 s. The host reads `connected` 1.35 to 1.7 s
+  after the thaw, and 1.8 s after a 113 s freeze.
+- It doesn't fake `powerMonitor`'s `resume` event, and the harness has no
+  push service.
+- Ticket 5 found that a phone never read a frozen desktop as away (D8).
+  Fixed in ticket 11: the phone dims the desktop 15.0 to 15.8 s after the
+  freeze (private sshd 3 of 3, `--docker` 1 of 1).
+- The ping costs the relay about 1.5 MB per phone per day, 0.07% of a
+  room's 2 GiB daily budget.
+- Follow-ups from the ping: calls in flight when the line is given up are
+  rejected, and that logs `[pageerror] The connection to Manor dropped`
+  when nothing catches it (also on any other drop). A foreground probe
+  during a pending silence ping sends two pings.
+
+**The flake (D5)**
+- Before the fix, "laptop closed" failed 2 of 2 on the private sshd with
+  `Expected "thinking", Received "responded"`. After: 10 of 10 on the
+  private sshd and 4 of 4 in `--docker`.
+- On Linux the sampler reads `/proc` every 500 ms, and runs `pgrep` each
+  poll while a wrapper script leads the foreground. That is the same cost as
+  the JS-runtime path.
+- On macOS the lookup is skipped when the foreground has the pane shell's
+  own name, so a same-shell wrapper (`#!/bin/zsh` in a zsh pane) still reads
+  as gone there. Untested on a Mac.
+- `KNOWN_SHELLS` is defined in both `foreground-shell.ts` and
+  `reconciler.ts`.
+- `detectAgentFromChildArgs` matches agent names anywhere in a descendant's
+  argv. It now also runs under wrapper shells, so a false match is more
+  likely.
+
+**ADR-230's E2E gaps (D6)**
+- Restore doesn't wake: 3 of 3 per test. Before the fix, the 10 s "still
+  asleep" check failed in both. A remote host's layout lives on the box
+  (ADR-227), so the spec waits for `viewport.json`, not `layout.json`.
+- Idle stop: 2 of 2 on the private sshd, 8.1 min a run. The host slept 23 s
+  after the phone closed. The spec skips in `--docker`: the container can't
+  reach the local relay on loopback. `reachRelayFromBox` (ticket 5) could
+  fix that. The desktop that doesn't view the pane is set up by a relaunch
+  onto a local workspace, because a window that only hides a workspace keeps
+  its panes mounted.
+- Drop grace: 5 of 5. The overlay showed 4.87 to 4.91 s after the outage. A
+  call made during the outage settles when the next redial fails (about
+  2.1 s measured, bounded by the backoff step, up to 8 s), not at the 4 s
+  grace, and `projects.getAll` answers from last-known. The spec bounds it
+  at 9 s.
+- On the ADR-230 base, a 1006 drop never called the host unreachable (only
+  listed relay codes do), so the overlay assertion would fail there. Not run
+  against the old bundle.
+- Product, seen in this setup only: the New Workspace dialog shows no error
+  when `createWorktree` throws on a remote host. It silently stays open.
+
+**Stayed unit-only**
+- D1's `forwarded` class. It would double the slowest spec for one boolean,
+  and it uses the same `viewing()` path as `device` and `desktop`.
+- D5's calls moving to a desktop that lists the host. One latency proxy
+  fronts every room of the local relay. `ws.test.ts` and
+  `relay-pipe.test.ts` keep it.
+- A shorter idle stop. No test override exists, so the spec takes about
+  4 minutes.
+
+**Not covered**
+- Waking a host from the phone while the desktop is away, agents resuming
+  after a reboot, and the Kubernetes suite in CI: still their own
+  decisions.
+
+<!-- integration results -->
+
+## Built beyond the tickets
+
+- The harness's `--docker` build no longer uses `--progress=plain`, so it
+  needs no buildx (`5889f283`).
+- The `--docker` image sources `~/.manor-e2e/env` through a `ForceCommand`
+  wrapper; sessions used to get `MANOR_RELAY_URL` from `SetEnv`. A box
+  reaches the local relay over an `ssh -R` (`reachRelayFromBox`).
+- `resetRemoteBox` also clears `~/.manor/worktrees`, which a second run's
+  `git worktree add` found taken.
+- D8 and ticket 11, found by ticket 5. The away rule is built as `relayed`,
+  not as ticket 11 first wrote it: see D8. `probe()` now needs the pipe's own
+  check and a frame from the server, both within `PROBE_TIMEOUT_MS`.
 
 ## Tickets
 

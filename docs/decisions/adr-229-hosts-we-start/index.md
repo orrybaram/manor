@@ -667,8 +667,9 @@ the lid closed:
   It needs a local daemon (Docker Desktop, or Linux with the desktop user at
   uid 1000). The form's Docker context must name a daemon on this computer,
   such as `colima`; a remote one isn't supported.
-- The Kubernetes template was syntax-checked only, never run against a
-  cluster.
+- ~~The Kubernetes template was syntax-checked only, never run against a
+  cluster.~~ Fixed in ADR-231 (D3): it runs on a kind cluster, and a pod
+  restart no longer reads as asleep.
 - "Remove from Manor" without destroy forgets the recipe's `resource`. A
   custom recipe that finds its box by `resource` may build a second one.
   Both templates find theirs by name.
@@ -689,14 +690,14 @@ the lid closed:
 - **Known failures in `--docker` mode,** recorded in
   `docs/remote-hosts.md#testing`. Both also fail on the base commit:
   - `host-direct-bridge` "without viewer-bridge";
-  - `remote-host` "laptop closed" (flaky).
+  - ~~`remote-host` "laptop closed" (flaky).~~ Fixed in ADR-231 (D5).
 - **Flaky under load, unrelated to this ADR:** `terminal-host.test.ts`
   ("new client can attach…") and `exec-runner.test.ts` ("escalates to
   SIGKILL").
 
 **Follow-ups**
-- `test-remote-e2e.mjs --docker` uses `--progress=plain`, which needs
-  buildx.
+- ~~`test-remote-e2e.mjs --docker` uses `--progress=plain`, which needs
+  buildx.~~ Fixed in ADR-231: the harness builds without buildx.
 
 ## Tickets
 

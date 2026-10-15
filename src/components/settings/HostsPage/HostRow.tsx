@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Moon from "lucide-react/dist/esm/icons/moon";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
@@ -7,7 +7,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { HostServerStatus, HostServerView } from "../../../electron.d";
 import { useHostDisplay } from "../../../hooks/useHostDisplay";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import { pendingDisplay } from "../../../lib/host-status";
+import { pendingDisplay, type HostTone } from "../../../lib/host-status";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { useRemoteControlStore } from "../../../store/remote-control-store";
@@ -47,7 +47,7 @@ type HostRowProps = {
  * whether devices can reach it, its supervision, its pairing-key warnings,
  * its integrations, and what its provider lets Manor do to it.
  *
- * Collapsed until opened, or until a link jumps to its `host-<id>` section.
+ * Its section is `host-<id>`, so a link can open it.
  */
 export function HostRow(props: HostRowProps) {
   const { host, name, readOnly } = props;
@@ -58,16 +58,6 @@ export function HostRow(props: HostRowProps) {
   const display = reported ?? pendingDisplay(hostId);
   const view = useHostStore((s) => s.servers[hostId]) ?? null;
   const deviceCount = useRemoteControlStore((s) => s.status.devices.length);
-
-  // A link to this host opens it, whether the page mounts with the jump or
-  // already shows it.
-  const jump = useSettingsJump();
-  const [open, setOpen] = useState(jump === sectionId);
-  const [seenJump, setSeenJump] = useState(jump);
-  if (jump !== seenJump) {
-    setSeenJump(jump);
-    if (jump === sectionId) setOpen(true);
-  }
 
   const [dialog, setDialog] = useState<"remove" | "reset" | null>(null);
   const [action, setAction] = useState<{ busy: boolean; error: string | null }>({
@@ -112,7 +102,251 @@ export function HostRow(props: HostRowProps) {
   const asleep = display.tone === "asleep";
 
   return (
-    <div className={styles.hostRow} data-testid="host-entry" data-host-id={hostId}>
+    <HostRowShell
+      sectionId={sectionId}
+      testId="host-entry"
+      hostId={hostId}
+      bodyTestId="host-phone-access"
+      icon={<HostStateIcon display={display} size={15} />}
+      tone={display.tone}
+      name={name}
+      status={
+        <>
+          {statusLine(display.status, readOnly ? null : view)}
+          {keyWarnings(status).map((warning) => (
+            <span key={warning} className={styles.rowWarning}>
+              {" · "}
+              {warning}
+            </span>
+          ))}
+        </>
+      }
+      headerActions={
+        (display.canRetry || asleep) && (
+          <>
+            {display.canRetry && <HostRetryButton hostId={hostId} />}
+            {asleep && <HostWakeButton hostId={hostId} />}
+          </>
+        )
+      }
+      footer={
+        !readOnly && (
+          <>
+            {status && (
+              <Button
+                size="sm"
+                variant="ghost"
+                data-testid="host-reset-keys"
+                disabled={busy}
+                onClick={() => setDialog("reset")}
+              >
+                Reset pairing keys…
+              </Button>
+            )}
+            {display.sshTarget && <CopySshCommand target={display.sshTarget} />}
+            {canStop && (
+              <Button
+                size="sm"
+                variant="secondary"
+                data-testid="host-stop"
+                disabled={busy}
+                onClick={() => run(() => useHostStore.getState().stop(hostId))}
+              >
+                <Moon size={11} aria-hidden className={styles.buttonIcon} />
+                Stop
+              </Button>
+            )}
+            {missing && (
+              <Button
+                size="sm"
+                variant="primary"
+                data-testid="host-start-again"
+                disabled={busy}
+                onClick={() => run(() => useHostStore.getState().wake(hostId))}
+              >
+                <RotateCcw size={11} aria-hidden className={styles.buttonIcon} />
+                Start it again
+              </Button>
+            )}
+            <span className={styles.spacer} />
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid="host-remove"
+              disabled={busy}
+              onClick={() => setDialog("remove")}
+            >
+              <Trash2 size={11} aria-hidden className={styles.buttonIcon} />
+              Remove…
+            </Button>
+          </>
+        )
+      }
+      dialogs={
+        !readOnly && (
+          <>
+            <RemoveHostDialog
+              open={dialog === "remove"}
+              hostId={hostId}
+              hostName={name}
+              canDestroy={host.capabilities?.canDestroy === true}
+              onRemove={(destroy) => useHostStore.getState().removeHost(hostId, destroy)}
+              onClose={() => setDialog(null)}
+            />
+            <ResetRelayDialog
+              open={dialog === "reset"}
+              devices={view?.devices.length ?? 0}
+              hostName={name}
+              onCancel={() => setDialog(null)}
+              onConfirm={() => {
+                setDialog(null);
+                run(async () => {
+                  await window.electronAPI.hosts.resetPairingKeys(hostId);
+                });
+              }}
+            />
+          </>
+        )
+      }
+    >
+      {summary && (
+        <div className={`${styles.rowSummary} ${styles[display.tone]}`}>{summary}</div>
+      )}
+
+      <div className={styles.group}>
+        <div className={styles.groupLabel}>Device access</div>
+        {!readOnly && view !== null && (
+          <SettingRow
+            label={`Devices can reach ${name}`}
+            hint={`${devicesReach(deviceCount)} ${name} directly, so they keep working while this Mac sleeps.`}
+          >
+            <Switch
+              data-testid="host-link-phones-toggle"
+              checked={view.linkPhones}
+              disabled={busy}
+              onCheckedChange={(on) =>
+                run(() => useHostStore.getState().setLinkPhones(hostId, on))
+              }
+            />
+          </SettingRow>
+        )}
+        {!readOnly && (
+          <SettingRow
+            label={`Keep running when ${name} restarts`}
+            hint={<span data-testid="host-supervisor-status">{supervisorLine ?? hint}</span>}
+          >
+            <Switch
+              data-testid="host-supervise-toggle"
+              checked={supervised}
+              disabled={!connected || busy || view === null || inContainer}
+              onCheckedChange={(on) =>
+                run(() => useHostStore.getState().setSupervised(hostId, on))
+              }
+            />
+          </SettingRow>
+        )}
+        {status && <KeyWarnings status={status} hostName={name} />}
+        {host.idleStopNote && (
+          <div className={settingsStyles.fieldHint} data-testid="host-idle-stop-note">
+            {idleStopText(host.idleStopMinutes, DESKTOP_NAME)}
+          </div>
+        )}
+        {!readOnly && status === null && (
+          <div className={settingsStyles.fieldHint} data-testid="host-phone-access-state">
+            {mutedLine(view?.state ?? null)}
+          </div>
+        )}
+      </div>
+
+      {!readOnly && status && (desktopLinear || status.linear) && (
+        <div className={styles.group}>
+          <div className={styles.groupLabel}>Integrations</div>
+          <SettingRow
+            label="Linear"
+            hint={`Copies this Mac's Linear key to ${name}, so devices can browse and start issues there while this Mac sleeps.`}
+          >
+            <Switch
+              data-testid="host-linear-toggle"
+              checked={status.linear}
+              disabled={busy}
+              onCheckedChange={(on) =>
+                run(async () => {
+                  await window.electronAPI.hosts.setLinearOnHost(hostId, on);
+                })
+              }
+            />
+          </SettingRow>
+        </div>
+      )}
+
+      {error && (
+        <div className={settingsStyles.linearError} data-testid="host-entry-error">
+          {error}
+        </div>
+      )}
+    </HostRowShell>
+  );
+}
+
+type HostRowShellProps = {
+  /** The row's `data-settings-section`; a jump to it opens the row. */
+  sectionId: string;
+  testId: string;
+  /** Set on the row as `data-host-id`, for a remote host. */
+  hostId?: string;
+  bodyTestId?: string;
+  /** The header's tile. */
+  icon: ReactNode;
+  /** Colours the tile and the status dot; neutral when null. */
+  tone: HostTone | null;
+  name: string;
+  /** The header's one line, after the dot. */
+  status: ReactNode;
+  /** Buttons that sit beside the header, outside the toggle. */
+  headerActions?: ReactNode;
+  /** The buttons along the bottom of the open row. */
+  footer?: ReactNode;
+  /** Dialogs the row opens; portalled, so outside the collapsing body. */
+  dialogs?: ReactNode;
+  /** The open row's groups. */
+  children: ReactNode;
+};
+
+/**
+ * What every row on the Hosts page shares (ADR-233 D1, D2): the header that
+ * opens and closes it, the collapsing body and its footer. Collapsed until
+ * opened, or until a link jumps to its section.
+ */
+export function HostRowShell(props: HostRowShellProps) {
+  const {
+    sectionId,
+    testId,
+    hostId,
+    bodyTestId,
+    icon,
+    tone,
+    name,
+    status,
+    headerActions,
+    footer,
+    dialogs,
+    children,
+  } = props;
+
+  // A link to this row opens it, whether the page mounts with the jump or
+  // already shows it.
+  const jump = useSettingsJump();
+  const [open, setOpen] = useState(jump === sectionId);
+  const [seenJump, setSeenJump] = useState(jump);
+  if (jump !== seenJump) {
+    setSeenJump(jump);
+    if (jump === sectionId) setOpen(true);
+  }
+
+  const toneClass = tone ? styles[tone] : "";
+
+  return (
+    <div className={styles.hostRow} data-testid={testId} data-host-id={hostId}>
       <div className={styles.rowHeader}>
         <Button
           variant="ghost"
@@ -122,20 +356,12 @@ export function HostRow(props: HostRowProps) {
           data-settings-section={sectionId}
           onClick={() => setOpen((v) => !v)}
         >
-          <span className={`${styles.rowIcon} ${styles[display.tone]}`}>
-            <HostStateIcon display={display} size={15} />
-          </span>
+          <span className={`${styles.rowIcon} ${toneClass}`}>{icon}</span>
           <span className={styles.rowText}>
             <span className={styles.rowName}>{name}</span>
             <span className={styles.rowStatus} data-testid="host-row-status">
-              <span className={`${styles.statusDot} ${styles[display.tone]}`} aria-hidden />
-              {statusLine(display.status, readOnly ? null : view)}
-              {keyWarnings(status).map((warning) => (
-                <span key={warning} className={styles.rowWarning}>
-                  {" · "}
-                  {warning}
-                </span>
-              ))}
+              <span className={`${styles.statusDot} ${toneClass}`} aria-hidden />
+              {status}
             </span>
           </span>
           <ChevronRight
@@ -144,170 +370,15 @@ export function HostRow(props: HostRowProps) {
             className={`${styles.chevron} ${open ? styles.chevronOpen : ""}`}
           />
         </Button>
-        {(display.canRetry || asleep) && (
-          <div className={styles.rowHeaderActions}>
-            {display.canRetry && <HostRetryButton hostId={hostId} />}
-            {asleep && <HostWakeButton hostId={hostId} />}
-          </div>
-        )}
+        {headerActions && <div className={styles.rowHeaderActions}>{headerActions}</div>}
       </div>
       <Collapse open={open}>
-        <div className={styles.rowBody} data-testid="host-phone-access">
-          {summary && (
-            <div className={`${styles.rowSummary} ${styles[display.tone]}`}>{summary}</div>
-          )}
-
-          <div className={styles.group}>
-            <div className={styles.groupLabel}>Device access</div>
-            {!readOnly && view !== null && (
-              <SettingRow
-                label={`Devices can reach ${name}`}
-                hint={`${devicesReach(deviceCount)} ${name} directly, so they keep working while this Mac sleeps.`}
-              >
-                <Switch
-                  data-testid="host-link-phones-toggle"
-                  checked={view.linkPhones}
-                  disabled={busy}
-                  onCheckedChange={(on) =>
-                    run(() => useHostStore.getState().setLinkPhones(hostId, on))
-                  }
-                />
-              </SettingRow>
-            )}
-            {!readOnly && (
-              <SettingRow
-                label={`Keep running when ${name} restarts`}
-                hint={
-                  <span data-testid="host-supervisor-status">{supervisorLine ?? hint}</span>
-                }
-              >
-                <Switch
-                  data-testid="host-supervise-toggle"
-                  checked={supervised}
-                  disabled={!connected || busy || view === null || inContainer}
-                  onCheckedChange={(on) =>
-                    run(() => useHostStore.getState().setSupervised(hostId, on))
-                  }
-                />
-              </SettingRow>
-            )}
-            {status && <KeyWarnings status={status} hostName={name} />}
-            {host.idleStopNote && (
-              <div className={settingsStyles.fieldHint} data-testid="host-idle-stop-note">
-                {idleStopText(host.idleStopMinutes, DESKTOP_NAME)}
-              </div>
-            )}
-            {!readOnly && status === null && (
-              <div className={settingsStyles.fieldHint} data-testid="host-phone-access-state">
-                {mutedLine(view?.state ?? null)}
-              </div>
-            )}
-          </div>
-
-          {!readOnly && status && (desktopLinear || status.linear) && (
-            <div className={styles.group}>
-              <div className={styles.groupLabel}>Integrations</div>
-              <SettingRow
-                label="Linear"
-                hint={`Copies this Mac's Linear key to ${name}, so devices can browse and start issues there while this Mac sleeps.`}
-              >
-                <Switch
-                  data-testid="host-linear-toggle"
-                  checked={status.linear}
-                  disabled={busy}
-                  onCheckedChange={(on) =>
-                    run(async () => {
-                      await window.electronAPI.hosts.setLinearOnHost(hostId, on);
-                    })
-                  }
-                />
-              </SettingRow>
-            </div>
-          )}
-
-          {error && (
-            <div className={settingsStyles.linearError} data-testid="host-entry-error">
-              {error}
-            </div>
-          )}
-
-          {!readOnly && (
-            <div className={styles.rowFooter}>
-              {status && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  data-testid="host-reset-keys"
-                  disabled={busy}
-                  onClick={() => setDialog("reset")}
-                >
-                  Reset pairing keys…
-                </Button>
-              )}
-              {display.sshTarget && <CopySshCommand target={display.sshTarget} />}
-              {canStop && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  data-testid="host-stop"
-                  disabled={busy}
-                  onClick={() => run(() => useHostStore.getState().stop(hostId))}
-                >
-                  <Moon size={11} aria-hidden className={styles.buttonIcon} />
-                  Stop
-                </Button>
-              )}
-              {missing && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  data-testid="host-start-again"
-                  disabled={busy}
-                  onClick={() => run(() => useHostStore.getState().wake(hostId))}
-                >
-                  <RotateCcw size={11} aria-hidden className={styles.buttonIcon} />
-                  Start it again
-                </Button>
-              )}
-              <span className={styles.spacer} />
-              <Button
-                size="sm"
-                variant="ghost"
-                data-testid="host-remove"
-                disabled={busy}
-                onClick={() => setDialog("remove")}
-              >
-                <Trash2 size={11} aria-hidden className={styles.buttonIcon} />
-                Remove…
-              </Button>
-            </div>
-          )}
+        <div className={styles.rowBody} data-testid={bodyTestId}>
+          {children}
+          {footer && <div className={styles.rowFooter}>{footer}</div>}
         </div>
       </Collapse>
-      {!readOnly && (
-        <>
-          <RemoveHostDialog
-            open={dialog === "remove"}
-            hostId={hostId}
-            hostName={name}
-            canDestroy={host.capabilities?.canDestroy === true}
-            onRemove={(destroy) => useHostStore.getState().removeHost(hostId, destroy)}
-            onClose={() => setDialog(null)}
-          />
-          <ResetRelayDialog
-            open={dialog === "reset"}
-            devices={view?.devices.length ?? 0}
-            hostName={name}
-            onCancel={() => setDialog(null)}
-            onConfirm={() => {
-              setDialog(null);
-              run(async () => {
-                await window.electronAPI.hosts.resetPairingKeys(hostId);
-              });
-            }}
-          />
-        </>
-      )}
+      {dialogs}
     </div>
   );
 }

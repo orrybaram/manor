@@ -6,20 +6,21 @@ import { hostName } from "../../../lib/hosts";
 import { isWebApp } from "../../../lib/platform";
 import { Button } from "../../ui/Button/Button";
 import { Row, Stack } from "../../ui/Layout/Layout";
-import { HostCard } from "../../hosts/HostCard";
 import { SectionTitle } from "../SectionTitle";
 import { AddSshHostForm } from "./AddSshHostForm";
 import { HostRow } from "./HostRow";
 import { StartHostForm } from "./StartHostForm";
+import { ThisMacRow } from "./ThisMacRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
 
 /**
- * Settings → Hosts (ADR-229 D8): every host Manor runs workspaces on, this
- * computer first (read-only), each remote one a collapsible row holding all
- * of its settings (ADR-233 D1) — device access, supervision, integrations,
- * Wake, Stop, Remove — and **Add host**: an SSH box, or a host Manor starts from a
- * template or a custom recipe.
+ * Settings → Hosts (ADR-229 D8): every host Manor runs workspaces on, each a
+ * collapsible row holding all of its settings (ADR-233 D1, D2) — this
+ * computer first, with its remote-control switch, then each remote host's
+ * device access, supervision, integrations, Wake, Stop, Remove — and **Add
+ * host**: an SSH box, or a host Manor starts from a template or a custom
+ * recipe.
  *
  * Adding, stopping, supervising and removing are this desktop's alone
  * (`localOnly`), so a browser sees the list and can wake a host, no more.
@@ -36,14 +37,12 @@ export function HostsPage() {
         <div className={settingsStyles.fieldHint}>
           Where your projects' files, git, terminals and agents run.
         </div>
-        <HostCard hostId={null} />
-        {remote.length > 0 && (
-          <div className={styles.hostList}>
-            {remote.map((host) => (
-              <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
-            ))}
-          </div>
-        )}
+        <div className={styles.hostList}>
+          <ThisMacRow />
+          {remote.map((host) => (
+            <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
+          ))}
+        </div>
       </Stack>
       {!readOnly && <AddHost />}
     </Stack>

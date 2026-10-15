@@ -10,6 +10,7 @@ import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
+import { claimWebgl, type WebglClaim } from "../terminal/webgl-contexts";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
@@ -45,6 +46,8 @@ export function useTerminalLifecycle(
   onOpenSearch?: () => void,
   /** Key of the workspace the pane belongs to; its host is where the pane runs. */
   workspaceKey?: WorkspaceKey,
+  /** Whether the pane is on screen (`useLayerShown`); WebGL follows it. */
+  shown = true,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
@@ -136,7 +139,7 @@ export function useTerminalLifecycle(
 
   // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
   // both called: see ADR-178 D5, and each hook's own comment.
-  useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
+  const refitOwner = useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
   useFollowerFit(containerRef, term, follower, follower !== null);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
@@ -178,6 +181,15 @@ export function useTerminalLifecycle(
     // in the sidebar.
     t.refresh(0, t.rows - 1);
   }, [isFocusedPane, paneFocusNonce]);
+
+  // WebGL is held within the window's context budget, and given back to a
+  // pane that lost it when it is shown (`terminal/webgl-contexts`, #307).
+  const webglRef = useRef<WebglClaim | null>(null);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  useEffect(() => {
+    webglRef.current?.setShown(shown);
+  }, [shown]);
 
   // Update theme without recreating the terminal or the PTY session.
   // Ref-based render-time check: when theme changes, apply it immediately.
@@ -259,13 +271,11 @@ export function useTerminalLifecycle(
 
       // Post-open addons (require DOM/canvas)
       if (addons.WebglAddon) {
-        try {
-          const webgl = new addons.WebglAddon();
-          webgl.onContextLoss(() => webgl.dispose());
-          t.loadAddon(webgl);
-        } catch (e) {
-          console.warn("WebGL addon failed, using DOM renderer", e);
-        }
+        webglRef.current = claimWebgl(t, addons.WebglAddon, {
+          shown: shownRef.current,
+          // The swap re-measures the cell, so the fit may have moved.
+          onRendererChange: refitOwner,
+        });
       }
 
       try {
@@ -553,6 +563,8 @@ export function useTerminalLifecycle(
         setFitAddon(null);
         termRef.current = null;
         unregisterTerminal(paneId);
+        webglRef.current?.dispose();
+        webglRef.current = null;
         // Detach, never kill: the session stays alive in the daemon and this pane
         // may be about to mount again somewhere else. Ending a session is the
         // Manor server's job — it kills the panes a `close-pane` orphaned

@@ -15,6 +15,7 @@ import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import { useTerminalTouch } from "../../../hooks/useTerminalTouch";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
+import { useLayerShown } from "../../../lib/layer-shown";
 import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { Button } from "../../ui/Button/Button";
@@ -60,6 +61,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     });
   }, [paneId, openSearch]);
 
+  const shown = useLayerShown();
   const { ptyError, term, write, reset, follower } = useTerminalLifecycle(
     containerRef,
     paneId,
@@ -67,6 +69,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     theme,
     openSearch,
     workspaceKey,
+    shown,
   );
   const [dismissed, setDismissed] = useState(false);
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);

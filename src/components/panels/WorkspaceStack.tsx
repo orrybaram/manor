@@ -3,6 +3,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../store/app-store";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "../../lib/tab-styles";
+import { ShownLayer } from "../../lib/layer-shown";
 import { PanelLayout } from "./PanelLayout";
 
 type WorkspaceStackProps = {
@@ -59,11 +60,13 @@ const WorkspacePanelTree = memo(function WorkspacePanelTree(
   if (!panelTree) return null;
   return (
     <div style={visible ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}>
-      <PanelLayout
-        node={panelTree}
-        workspaceKey={workspaceKey}
-        onNewAgent={onNewAgent}
-      />
+      <ShownLayer shown={visible}>
+        <PanelLayout
+          node={panelTree}
+          workspaceKey={workspaceKey}
+          onNewAgent={onNewAgent}
+        />
+      </ShownLayer>
     </div>
   );
 });

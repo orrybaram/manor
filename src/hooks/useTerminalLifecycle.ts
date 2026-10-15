@@ -175,7 +175,9 @@ export function useTerminalLifecycle(
     // Force a full viewport refresh — TUIs (neovim, claude code) using the
     // WebGL renderer can have a stale canvas after being visibility:hidden.
     // The pane became visible either way, so this runs even when focus stayed
-    // in the sidebar.
+    // in the sidebar. A pane just shown from a hidden layer is still paused
+    // here (tab-styles.ts `hiddenLayerAttr`), so for it this only marks the
+    // full repaint xterm does itself once its observer sees it on screen.
     t.refresh(0, t.rows - 1);
   }, [isFocusedPane, paneFocusNonce]);
 

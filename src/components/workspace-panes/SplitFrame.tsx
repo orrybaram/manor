@@ -1,6 +1,10 @@
 import { useCallback, useRef, useState, type ReactNode } from "react";
 import type { SplitDirection } from "../../lib/layout/pane-tree";
-import { TAB_HIDDEN_STYLE, TAB_VISIBLE_STYLE } from "../../lib/tab-styles";
+import {
+  TAB_HIDDEN_STYLE,
+  TAB_VISIBLE_STYLE,
+  hiddenLayerAttr,
+} from "../../lib/tab-styles";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import paneStyles from "./PaneLayout/PaneLayout.module.css";
@@ -143,7 +147,11 @@ export function SplitFrame(props: SplitFrameProps) {
       className={`${styles.split} ${isHorizontal ? styles.splitHorizontal : styles.splitVertical}`}
       style={isPhone ? PHONE_SPLIT_STYLE : undefined}
     >
-      <div className={styles.splitChild} style={firstStyle}>
+      <div
+        className={styles.splitChild}
+        style={firstStyle}
+        {...hiddenLayerAttr(isPhone && focusInSecond)}
+      >
         {first}
       </div>
       <div
@@ -151,7 +159,11 @@ export function SplitFrame(props: SplitFrameProps) {
         style={isPhone ? PHONE_DIVIDER_STYLE : undefined}
         onMouseDown={isPhone ? undefined : handleMouseDown}
       />
-      <div className={styles.splitChild} style={secondStyle}>
+      <div
+        className={styles.splitChild}
+        style={secondStyle}
+        {...hiddenLayerAttr(isPhone && !focusInSecond)}
+      >
         {second}
       </div>
     </div>

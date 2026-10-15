@@ -6,6 +6,7 @@ export type SettingsPageId =
   | "keybindings"
   | "notifications"
   | "integrations"
+  | "hosts"
   | "remote";
 
 export type SettingsSection = {
@@ -130,6 +131,23 @@ const PAGE_SECTIONS: {
         id: "integrations-linear",
         label: "Linear",
         keywords: ["linear", "issues", "tasks", "tickets", "api key"],
+      },
+    ],
+  },
+  {
+    page: "hosts",
+    pageLabel: "Hosts",
+    pageKeywords: ["hosts", "remote", "ssh", "server", "machine", "vm", "container", "pod", "docker", "kubernetes"],
+    sections: [
+      {
+        id: "hosts-list",
+        label: "Hosts",
+        keywords: ["wake", "stop", "asleep", "remove", "destroy", "restart", "supervise", "systemd", "launchd"],
+      },
+      {
+        id: "hosts-add",
+        label: "Add host",
+        keywords: ["add", "ssh", "start", "recipe", "template", "docker", "kubernetes", "new host"],
       },
     ],
   },

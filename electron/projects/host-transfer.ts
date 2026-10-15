@@ -17,7 +17,7 @@ import { toDirSlug } from "../branch-name";
 import type { ProjectContext } from "./context";
 import { planClone, type ClonePlan } from "./host-move";
 import { originKey } from "./origin-links";
-import { groupOf, resolveShared } from "./project-groups";
+import { groupOf, memberHostId, resolveShared } from "./project-groups";
 import { remoteDirIsCloneOf, remoteDirState, validateRepoUrl } from "./remote-clone";
 import type {
   PersistedProject,
@@ -115,7 +115,7 @@ function hostTaken(
   const member = memberOnHost(
     group?.memberIds ?? [project.id],
     hostId,
-    (id) => ctx.find(id)?.hostId,
+    (id) => memberHostId(ctx, id),
   );
   // A move onto the project's own host re-clones its checkout there (the
   // "Repository not found" repair in Project Settings), so it doesn't
@@ -157,7 +157,8 @@ export async function planTransfer(
   mode: TransferMode = "copy",
 ): Promise<TransferPlan> {
   ctx.hosts.assertKnown(hostId);
-  const project = ctx.find(projectId);
+  // A remote host's project too (ADR-227 D4): planning only reads it.
+  const project = ctx.member(projectId);
   if (!project) throw new Error(`Unknown project "${projectId}".`);
 
   const mirrored = await mirrorDir(ctx, project);
@@ -182,7 +183,7 @@ export async function planTransfer(
   const key = originKey(repoUrl);
   if (key) {
     const state = ctx.store.state;
-    for (const other of state.projects) {
+    for (const other of ctx.all()) {
       if (other.id === projectId || other.hostId !== hostId) continue;
       if (groupOf(state, other.id)) continue;
       if ((await deps.originKeyOf(other)) === key) {
@@ -237,7 +238,7 @@ export async function transferProject(
   overrides?: { repoUrl: string; targetDir: string },
 ): Promise<TransferResult> {
   ctx.hosts.assertKnown(hostId);
-  const project = ctx.find(projectId);
+  const project = ctx.member(projectId);
   if (!project) throw new Error(`Unknown project "${projectId}".`);
   const ask = (plan: NeedsInput): TransferResult => ({
     ok: false,
@@ -279,7 +280,7 @@ export async function transferProject(
     return { ok: true, project: moved };
   }
 
-  const before = new Set(ctx.store.state.projects.map((p) => p.id));
+  const before = new Set(ctx.all().map((p) => p.id));
   const cloned = await deps.cloneProject({
     hostId,
     repoUrl,
@@ -292,6 +293,8 @@ export async function transferProject(
     if (!before.has(cloned.id)) await deps.removeProject(cloned.id);
     throw err;
   }
+  // A copy onto an adopted host lives on its server (ADR-227 D4), which
+  // keeps whatever the clone set up there.
   const linked = ctx.find(cloned.id);
   if (linked && carryMainMetadata(project, linked)) ctx.store.save();
   return { ok: true, project: linked ? await ctx.info(linked) : cloned };

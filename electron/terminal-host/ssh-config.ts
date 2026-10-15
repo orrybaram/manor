@@ -117,9 +117,14 @@ function defaultBaseDir(): string {
 export function renderSshConfig(
   controlPath: string,
   testConfig: string | undefined = process.env.MANOR_E2E_SSH_CONFIG,
+  hostStanza?: string,
 ): string {
   return [
     "# Written by Manor for its remote host bridge. Safe to delete.",
+    // A recipe host's own stanza (ADR-229 D2) goes first: ssh keeps the
+    // first value it reads, so neither `Host *` below nor the user's config
+    // can change where the alias points or which key it trusts.
+    ...(hostStanza ? [hostStanza] : []),
     "Host *",
     "  ControlMaster auto",
     `  ControlPath ${controlPath}`,
@@ -145,16 +150,115 @@ function testIncludePath(file: string): string {
   return file;
 }
 
-/** Create a fresh 0700 config directory with its config file inside. */
+/**
+ * Create a fresh 0700 config directory with its config file inside.
+ * `hostStanza` is a recipe host's own `Host` block (`renderHostStanza`).
+ */
 export function createManagedSshConfig(
   baseDir: string = defaultBaseDir(),
+  hostStanza?: string,
 ): ManagedSshConfig {
   const dir = fs.mkdtempSync(path.join(baseDir, "manor-ssh-"));
   fs.chmodSync(dir, 0o700);
   const controlPath = path.join(dir, "%C");
   const configPath = path.join(dir, "config");
-  fs.writeFileSync(configPath, renderSshConfig(controlPath), { mode: 0o600 });
+  fs.writeFileSync(configPath, renderSshConfig(controlPath, undefined, hostStanza), {
+    mode: 0o600,
+  });
   return { dir, configPath, controlPath };
+}
+
+// ── A recipe host's own stanza (ADR-229 D2) ──
+
+/** Where a recipe's `up` says the box is, as its stanza needs it. */
+export interface ManagedHostTarget {
+  host: string;
+  port: number;
+  username: string;
+  identityFile?: string;
+  identitiesOnly?: boolean;
+  jumpHost?: string;
+  proxyCommand?: string;
+}
+
+/** The alias a recipe host is reached by: `manor-<hostId>`. */
+export function recipeHostAlias(hostId: string): string {
+  const alias = `manor-${hostId}`;
+  assertValidTarget(alias);
+  return alias;
+}
+
+/** A config value, double-quoted when it has spaces. Refuses what can't be. */
+function configValue(value: string, what: string): string {
+  if (/["\r\n\0]/.test(value)) throw new Error(`Invalid ${what} for ssh config: ${JSON.stringify(value)}`);
+  return /\s/.test(value) ? `"${value}"` : value;
+}
+
+/**
+ * The `Host <alias>` block for a recipe host (ADR-229 D2): where the box is,
+ * and its own `known_hosts`. Keys are stored under the alias
+ * (`HostKeyAlias`), so a box re-provisioned at a new address keeps its
+ * entry, and nothing else in the user's `known_hosts` is read or written.
+ *
+ * `strict` is `StrictHostKeyChecking yes`: the file already holds the key,
+ * or `up` returned one. Otherwise `accept-new`, which takes the first key
+ * into that file and refuses a changed one after.
+ */
+export function renderHostStanza(
+  alias: string,
+  target: ManagedHostTarget,
+  knownHostsFile: string,
+  strict: boolean,
+): string {
+  assertValidTarget(alias);
+  const lines = [
+    `Host ${alias}`,
+    `  HostName ${configValue(target.host, "host")}`,
+    `  Port ${target.port}`,
+    `  User ${configValue(target.username, "user")}`,
+  ];
+  if (target.identityFile) lines.push(`  IdentityFile ${configValue(target.identityFile, "identity file")}`);
+  if (target.identitiesOnly !== undefined) {
+    lines.push(`  IdentitiesOnly ${target.identitiesOnly ? "yes" : "no"}`);
+  }
+  if (target.jumpHost) lines.push(`  ProxyJump ${configValue(target.jumpHost, "jump host")}`);
+  else if (target.proxyCommand) {
+    if (/[\r\n\0]/.test(target.proxyCommand)) throw new Error("Invalid proxy command for ssh config");
+    lines.push(`  ProxyCommand ${target.proxyCommand}`);
+  }
+  lines.push(
+    `  HostKeyAlias ${alias}`,
+    `  UserKnownHostsFile ${configValue(knownHostsFile, "known_hosts path")}`,
+    "  GlobalKnownHostsFile /dev/null",
+    `  StrictHostKeyChecking ${strict ? "yes" : "accept-new"}`,
+    "  CheckHostIP no",
+  );
+  return lines.join("\n");
+}
+
+/** Whether `file` holds a host key already (a non-comment line). */
+export function knownHostsHasKey(file: string): boolean {
+  try {
+    return fs
+      .readFileSync(file, "utf-8")
+      .split(/\r?\n/)
+      .some((line) => line.trim() !== "" && !line.trimStart().startsWith("#"));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Trust `hostKey` (`<type> <base64>`) for `alias` alone: `file` is replaced
+ * with that one line, dropping any key it held before. Only the recipe that
+ * started the box can vouch for a new key (ADR-229 D2).
+ */
+export function writeKnownHostKey(file: string, alias: string, hostKey: string): void {
+  if (/[\r\n]/.test(hostKey)) throw new Error("A host key must be one line");
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, `${alias} ${hostKey}\n`, { mode: 0o600 });
+  fs.renameSync(tmp, file);
 }
 
 /** Remove a managed config directory. Never throws. */
@@ -196,10 +300,11 @@ export function remoteBridgeCommand(): string {
 /**
  * The remote command that opens the owner channel to the box's host server
  * (ADR-225 D4): `manor-host server-bridge` pipes the stream to the server's
- * socket after saying the owner hello for us.
+ * socket after saying the owner hello for us. `viewer` opens a desktop
+ * window's own viewer stream instead (ADR-228 D4).
  */
-export function remoteServerBridgeCommand(): string {
-  return `exec ${REMOTE_HOST_BIN} server-bridge`;
+export function remoteServerBridgeCommand(opts: { viewer?: boolean } = {}): string {
+  return `exec ${REMOTE_HOST_BIN} server-bridge${opts.viewer ? " --viewer" : ""}`;
 }
 
 /**
@@ -288,14 +393,17 @@ export class SshHostKeyError extends Error {
   constructor(
     readonly target: string,
     readonly stderr: string,
+    /** Replaces the wording, for a host whose keys Manor manages (ADR-229 D2). */
+    message?: string,
   ) {
     super(
-      stderr.includes("REMOTE HOST IDENTIFICATION HAS CHANGED")
+      message ??
+      (stderr.includes("REMOTE HOST IDENTIFICATION HAS CHANGED")
         ? `The host key for ${target} has changed since you last connected. ` +
             "If that is expected, remove the old key with `ssh-keygen -R <host>` " +
             `and then ssh to ${target} once from a terminal to accept the new one.`
         : `${target}'s host key is not trusted yet. ssh to ${target} once from a ` +
-            "terminal to accept its host key, then try again.",
+            "terminal to accept its host key, then try again."),
     );
     this.name = "SshHostKeyError";
   }
@@ -306,12 +414,18 @@ export class SshAuthError extends Error {
   constructor(
     readonly target: string,
     readonly stderr: string,
+    /**
+     * Replaces the wording, for a host reached at an alias only Manor's own
+     * config has, where `ssh <alias>` from a terminal means nothing (ADR-229 D2).
+     */
+    message?: string,
   ) {
     super(
-      `ssh could not authenticate to ${target}. ` +
-        `Verify that \`ssh ${shellQuote(target)}\` works from a terminal first. ` +
-        "If your key is passphrase-protected, add it to your agent with `ssh-add` — " +
-        "Manor cannot answer a passphrase prompt.",
+      message ??
+        `ssh could not authenticate to ${target}. ` +
+          `Verify that \`ssh ${shellQuote(target)}\` works from a terminal first. ` +
+          "If your key is passphrase-protected, add it to your agent with `ssh-add` — " +
+          "Manor cannot answer a passphrase prompt.",
     );
     this.name = "SshAuthError";
   }

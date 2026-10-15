@@ -18,10 +18,18 @@ import { execFile } from "node:child_process";
 
 import "../../terminal-host/xterm-env-polyfill";
 
+/** The PTY subprocesses the daemon forked, in order (see `ptySubprocess`). */
+const forked = vi.hoisted(
+  () => [] as Array<{ stdin: PassThrough; stdout: PassThrough; written: Buffer[] }>,
+);
+
 vi.mock("node:child_process", () => ({
   fork: vi.fn(() => {
     const stdin = new PassThrough();
     const stdout = new PassThrough();
+    const written: Buffer[] = [];
+    stdin.on("data", (chunk: Buffer) => written.push(chunk));
+    forked.push({ stdin, stdout, written });
     return { stdin, stdout, on: vi.fn(), kill: vi.fn(), pid: 77777 };
   }),
   // No secret helper exists here: the plaintext host's probe for a stronger
@@ -52,14 +60,44 @@ import { readPastServerHello } from "./hello-stream";
 import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { HostServerClient } from "../../backend/host-server-client";
 import { runServe, type RunningServer } from "../serve";
+import { writeOwnership } from "../ownership";
 import {
   FakeRelay,
   FakeViewer,
 } from "../../remote-control/relay/__tests__/fake-relay";
 import { base64urlDecode } from "../../../src/lib/relay-crypto";
 import { WebSocket as WsWebSocket, type ClientOptions } from "ws";
+import { FrameDecoder, MSG, encodeFrame } from "../../terminal-host/pty-subprocess-ipc";
 
 export type Frame = Record<string, unknown>;
+
+/**
+ * The newest PTY subprocess the daemon forked, seen from the shell's side:
+ * what the daemon typed into it, and a way to make the shell print (the
+ * output a `writeAfterReady` waits for). Mocked, as the rest of the PTY is.
+ */
+export function ptySubprocess(): {
+  /** Everything written to the terminal so far, as text. */
+  typed(): string;
+  /** The shell printed `data`: its first output makes it "ready". */
+  output(data: string): void;
+} {
+  const sub = forked[forked.length - 1];
+  if (!sub) throw new Error("no PTY subprocess was forked");
+  return {
+    typed() {
+      let text = "";
+      const decoder = new FrameDecoder((type, payload) => {
+        if (type === MSG.WRITE) text += payload.toString("utf-8");
+      });
+      for (const chunk of sub.written) decoder.push(chunk);
+      return text;
+    },
+    output(data) {
+      sub.stdout.write(encodeFrame(MSG.DATA, data));
+    },
+  };
+}
 
 /** Sockets to an already-running `E2EDaemon`; nothing is ever spawned. */
 export class HarnessTransport implements HostTransport {
@@ -152,6 +190,32 @@ export function withoutGit(): void {
 }
 
 /**
+ * Real git in this test: `execFile` runs the command, answering the way the
+ * backends' `promisify(execFile)` of a plain mock reads it — one value,
+ * `{ stdout, stderr }`.
+ */
+export async function withGit(): Promise<void> {
+  const real =
+    await vi.importActual<typeof import("node:child_process")>("node:child_process");
+  vi.mocked(execFile).mockImplementation(((...args: unknown[]) => {
+    const callback = args[args.length - 1] as (
+      err: Error | null,
+      out?: { stdout: string; stderr: string },
+    ) => void;
+    const [cmd, cmdArgs, opts] = args as [string, string[], object | undefined];
+    return real.execFile(
+      cmd,
+      cmdArgs,
+      { ...(typeof opts === "object" && opts !== null ? opts : {}), encoding: "utf-8" },
+      (err, stdout, stderr) => callback(err, { stdout, stderr }),
+    );
+  }) as never);
+  onTestFinished(() => {
+    vi.mocked(execFile).mockReset();
+  });
+}
+
+/**
  * One owner stream on `server.sock`, as `SshTransport.openServerBridge`
  * gives it: the owner hello sent, the server's reply read, the stream
  * handed over past it. Rejects when the server refuses the token.
@@ -185,7 +249,10 @@ export interface OwnerHandle {
     method: string,
     ...args: unknown[]
   ): Promise<T>;
-  /** Subscribe to a bridge event; the client has no events of its own. */
+  /**
+   * Subscribe to a bridge event through the client, which keeps it across
+   * reconnects; the events land in `frames`.
+   */
   subscribe(ns: string, event: string): void;
   waitFor(match: (frame: Frame) => boolean): Promise<Frame>;
 }
@@ -208,6 +275,11 @@ export interface HostServerHarness {
   /** The server, if one is up. */
   readonly running: RunningServer | null;
   serve(): Promise<RunningServer>;
+  /**
+   * Mark the host adopted (ADR-227 D3) before the next `serve()`, as an
+   * empty `hostServer.adopt` would: its project and layout writes open.
+   */
+  adopt(): void;
   /** Stop the running server (and forget it). */
   stop(): Promise<void>;
   /** Wait for the server's relay connector to hold its room. */
@@ -313,6 +385,10 @@ export function useHostServerHarness(): HostServerHarness {
       return running;
     },
 
+    adopt() {
+      writeOwnership(paths.ownership, "host");
+    },
+
     async stop() {
       await running?.stop();
       running = null;
@@ -329,11 +405,10 @@ export function useHostServerHarness(): HostServerHarness {
     async owner() {
       const token = fs.readFileSync(paths.ownerToken, "utf-8").trim();
       const frames: Frame[] = [];
-      let socket!: net.Socket;
       const client = new HostServerClient({
         hostId: "box",
         open: async () => {
-          socket = await openOwnerStream(paths.socket, token);
+          const socket = await openOwnerStream(paths.socket, token);
           socket.on(
             "data",
             createLineReader((line) => {
@@ -359,7 +434,7 @@ export function useHostServerHarness(): HostServerHarness {
         invoke: async <T>(ns: string, method: string, ...args: unknown[]) =>
           (await namespaces[ns][method](...args)) as T,
         subscribe: (ns, event) => {
-          socket.write(JSON.stringify({ kind: "subscribe", ns, event }) + "\n");
+          client.subscribe(ns, event, undefined, () => {});
         },
         waitFor: (match) =>
           eventually(

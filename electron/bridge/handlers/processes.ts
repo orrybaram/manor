@@ -1,6 +1,7 @@
 import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { method, type HandlerCtx } from "../method";
+import type { HostDeps, ServerDeps } from "../../ipc/types";
 import {
   type ProcessesSnapshot,
   listProcesses,
@@ -16,7 +17,9 @@ import {
  * reachable by a `full` device on the bridge and nowhere else (ADR-182 D2),
  * and is `mutating`.
  */
-export function processesList(ctx: HandlerCtx): Promise<ProcessesSnapshot> {
+export function processesList(
+  ctx: HandlerCtx<HostDeps>,
+): Promise<ProcessesSnapshot> {
   const { backend, agentHookServer, webviewServer, portScanner } = ctx.deps;
   return listProcesses({
     backend,
@@ -27,12 +30,14 @@ export function processesList(ctx: HandlerCtx): Promise<ProcessesSnapshot> {
 }
 
 export async function processesKillSession(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   sessionId: string,
 ): Promise<void> {
   assertString(sessionId, "sessionId");
-  const { backend, agentManager, statsStore } = ctx.deps;
-  const agent = agentManager.getAgentByPaneId(sessionId);
+  const { backend, agentManager, statsStore, hostRouting } = ctx.deps;
+  const agent =
+    agentManager.getAgentByPaneId(sessionId) ??
+    hostRouting?.agents().find((a) => a.paneId === sessionId);
   if (agent)
     for (const counter of killCounters(agent)) statsStore.record(counter);
   try {
@@ -43,7 +48,7 @@ export async function processesKillSession(
 }
 
 export function processesCleanupDead(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<{ success: boolean }> {
   return cleanupDeadProcesses(ctx.deps.backend);
 }
@@ -56,9 +61,9 @@ export function processesRestartPortless(): Promise<void> {
   return restartPortless();
 }
 
-export function processesKillAll(ctx: HandlerCtx): Promise<void> {
-  const { backend, agentManager, statsStore, portScanner } = ctx.deps;
-  return killAllProcesses({ backend, agentManager, statsStore, portScanner });
+export function processesKillAll(ctx: HandlerCtx<ServerDeps>): Promise<void> {
+  const { backend, agentManager, statsStore, portScanner, hostRouting } = ctx.deps;
+  return killAllProcesses({ backend, agentManager, statsStore, portScanner, hostRouting });
 }
 
 // A session, the daemon or the portless proxy dying is exactly "moves state

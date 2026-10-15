@@ -11,6 +11,7 @@
 
 import { fork, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import type net from "node:net";
 import "./xterm-env-polyfill";
@@ -99,6 +100,24 @@ export function prependManorBinDir(basePath: string | undefined): string {
 /** How long to wait for the pty subprocess to confirm a resize before giving up. */
 const RESIZE_ACK_TIMEOUT_MS = 2_000;
 
+
+/**
+ * The shell a pane runs: `$SHELL`, else the user's login shell from the
+ * password database, else zsh. A daemon started over `docker exec` or
+ * `kubectl exec` (ADR-229 D3), or by a supervisor, has no `$SHELL` — only
+ * sshd sets it — and a zsh the box doesn't have fails every pane.
+ */
+export function defaultShell(env: NodeJS.ProcessEnv = process.env, userShell: () => string | null = passwdShell): string {
+  return env.SHELL || userShell() || "/bin/zsh";
+}
+
+function passwdShell(): string | null {
+  try {
+    return os.userInfo().shell || null;
+  } catch {
+    return null;
+  }
+}
 export class Session {
   readonly sessionId: string;
   prewarmed = false;
@@ -280,7 +299,7 @@ export class Session {
       case MSG.READY: {
         // Subprocess is ready — send spawn command
         const zdotdir = ShellManager.zdotdirPath();
-        const shell = process.env.SHELL || "/bin/zsh";
+        const shell = defaultShell();
 
         // HISTFILE for shared history is set directly in the generated .zshrc
         // (see ShellManager.setupZdotdir), not injected here — so it can't go
@@ -293,6 +312,8 @@ export class Session {
           rows: this.rows,
           env: buildShellEnv(process.env, {
             MANOR_PANE_ID: this.sessionId,
+            // What the pane runs, for the programs in it that ask.
+            SHELL: shell,
             TERM: "xterm-256color",
             ZDOTDIR: zdotdir,
             REAL_ZDOTDIR: ShellManager.realZdotdir(),

@@ -11,9 +11,9 @@
 
 import { withProject } from "./projects";
 import { ghRepoOf } from "../../src/lib/gh-repo";
-import type { Route } from "./types";
+import type { ServerRoute } from "./types";
 
-export const integrationRoutes: Route[] = [
+export const integrationRoutes: ServerRoute[] = [
   {
     method: "POST",
     path: "/linear/issues/:id/start",

@@ -94,6 +94,13 @@ const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
 
 /**
+ * How long a drop with no listed close code is tolerated before the server is
+ * called unreachable (ADR-230 D5). Long enough that a one-second blip does not
+ * flash the reachability overlay or bounce pane listeners home and back.
+ */
+export const DROP_GRACE_MS = 4_000;
+
+/**
  * How long a foreground check waits for the far end before calling an
  * open-looking socket dead (ADR-220 D4). iOS kills a backgrounded socket
  * without a close event; this finds out in seconds, not a heartbeat or two.
@@ -112,9 +119,20 @@ const ROOT_VALUES: Record<string, unknown> = {
 };
 
 export interface WsTransportOptions {
-  /** The paired device's token. `null` installs a bridge that never dials. */
+  /**
+   * The paired device's token. `null` installs a bridge that never dials —
+   * unless `preAuthenticated`, which needs none.
+   */
   token: string | null;
-  /** What carries the frames. Never connected while `token` is null. */
+  /**
+   * The far end of the pipe has already said the hello (ADR-228 D4: a
+   * desktop window's `server-bridge --viewer` stream, `./host-pipe.ts`).
+   * The transport sends none, and takes the first `hello` reply frame that
+   * arrives as the handshake; `onHello` hears the same facts as on the web.
+   * `token` is not read.
+   */
+  preAuthenticated?: boolean;
+  /** What carries the frames. Never connected while there is nothing to dial with. */
   pipe: Pipe;
   /**
    * Close 4401: the token is dead. Default logs; `install-web.ts` forgets
@@ -169,6 +187,11 @@ export interface WsBridgeTransport extends BridgeTransport {
    * open, redialing at once if it does not answer (ADR-220 D4, D5).
    */
   probeNow(): Promise<ProbeOutcome>;
+  /**
+   * Stop for good: close the socket, fail what is in flight and dial no more.
+   * For a server that leaves the page's set (ADR-228 D4, a host removed).
+   */
+  close(): void;
 }
 
 interface Pending {
@@ -201,6 +224,8 @@ class WsTransport implements WsBridgeTransport {
   private stopped = false;
   private attempt = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Pending "call it unreachable" after a drop with no listed code. */
+  private graceTimer: ReturnType<typeof setTimeout> | null = null;
   /** Whether the hello in flight carried `previousId`. */
   private resuming = false;
   /** The probe in flight, so a burst of foreground events sends only one. */
@@ -229,8 +254,13 @@ class WsTransport implements WsBridgeTransport {
     this.pipe = options.pipe;
   }
 
+  /** A token to say hello with, or a pipe whose far end said it. */
+  private get canDial(): boolean {
+    return this.options.preAuthenticated === true || this.options.token !== null;
+  }
+
   probeNow(): Promise<ProbeOutcome> {
-    if (this.stopped || this.options.token === null) {
+    if (this.stopped || !this.canDial) {
       return Promise.resolve("stopped");
     }
     if (this.reconnectTimer) {
@@ -287,15 +317,27 @@ class WsTransport implements WsBridgeTransport {
     this.open();
   }
 
+  close(): void {
+    this.stopped = true;
+    this.clearGrace();
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    const socket = this.socket;
+    // Whatever the pipe reports after this is about a connection now gone.
+    this.generation += 1;
+    this.teardown();
+    socket?.close();
+  }
+
   /** Dial, if there is a token and nothing is dialling already. */
   start(): void {
-    if (this.socket || this.stopped || this.options.token === null) return;
+    if (this.socket || this.stopped || !this.canDial) return;
     if (this.reconnectTimer) return;
     this.open();
   }
 
   invoke(ns: string, method: string, args: unknown[]): Promise<unknown> {
-    if (this.options.token === null) {
+    if (!this.canDial) {
       return Promise.reject(
         new BridgeDisconnectedError("This browser is not paired with Manor"),
       );
@@ -348,9 +390,15 @@ class WsTransport implements WsBridgeTransport {
    * holding it, so a selection hint addressed to "the tab that sent this"
    * still finds it after a blip, and this connection's `pty-attachments`
    * viewer identity does not reset.
+   *
+   * Not said at all over a `preAuthenticated` pipe.
    */
   private sayHello(): void {
     this.resuming = this.rendererId !== null;
+    // Said already, at the far end: what comes back is the reply to it. No
+    // `previousId` can go with it, so a resumed connection there is a new
+    // id — which a layout command's origin tolerates (see `rendererId`).
+    if (this.options.preAuthenticated) return;
     this.write(
       JSON.stringify({
         type: "hello",
@@ -414,6 +462,7 @@ class WsTransport implements WsBridgeTransport {
    * would open that gap on every reconnect.
    */
   private onReady(): void {
+    this.clearGrace();
     this.ready = true;
     this.attempt = 0;
     for (const frame of this.registry.keys()) this.send(frame);
@@ -447,17 +496,29 @@ class WsTransport implements WsBridgeTransport {
 
     if (code === CLOSE_UNAUTHORIZED) {
       this.stopped = true;
+      this.clearGrace();
       (this.options.onUnauthorized ?? defaultUnauthorized)();
       return;
     }
     if (code === CLOSE_KEY_MISMATCH && this.options.onKeyMismatch) {
       this.stopped = true;
+      this.clearGrace();
       this.options.onKeyMismatch();
       return;
     }
     if (code === CLOSE_KEY_MISMATCH) this.options.onStatus?.("unreachable");
     if (this.pipe.unreachableCodes?.has(code)) {
+      this.clearGrace();
       this.options.onStatus?.("unreachable");
+    } else if (this.graceTimer === null) {
+      // Any other drop that leads to a redial: give the redial a moment, then
+      // stop pretending the server is reachable (ADR-230 D5). Host pipes end
+      // every pipe with a listed code, so they never get here.
+      this.graceTimer = setTimeout(() => {
+        this.graceTimer = null;
+        if (this.stopped) return;
+        this.options.onStatus?.("unreachable");
+      }, DROP_GRACE_MS);
     }
 
     // Capped exponential backoff: a laptop that closed its lid should not
@@ -472,6 +533,11 @@ class WsTransport implements WsBridgeTransport {
       if (this.stopped) return;
       this.open();
     }, delay);
+  }
+
+  private clearGrace(): void {
+    if (this.graceTimer) clearTimeout(this.graceTimer);
+    this.graceTimer = null;
   }
 
   private sendOrQueue(frame: ClientFrame): void {

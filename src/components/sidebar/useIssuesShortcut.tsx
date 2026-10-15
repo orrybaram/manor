@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
+import { onBehalfOf } from "../../bridge/router";
 import { useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { ghRepoOf } from "../../lib/gh-repo";
-import { useMountEffect } from "../../hooks/useMountEffect";
+import { isRemoteHost } from "../../lib/hosts";
 import { entryLookup } from "../../lib/task-list";
 import type { ActionItem } from "./EmptyStateShell";
 
@@ -36,32 +37,42 @@ export function useIssuesShortcut() {
   const teamIdsKey = teamIds.join(",");
   const linearLinked = teamIds.length > 0;
 
-  const [githubAvailable, setGithubAvailable] = useState(false);
-  const [githubNotInstalled, setGithubNotInstalled] = useState(false);
+  /** What `gh` said on one host; ignored once the project's host differs. */
+  const [ghStatus, setGhStatus] = useState<{
+    hostId: string | undefined;
+    installed: boolean;
+    authenticated: boolean;
+  } | null>(null);
+  // `gh` runs on the project's own host with that host's sign-in (ADR-227
+  // D7): a remote project asks its box, not this machine.
+  const remoteHostId = repoHostId && isRemoteHost(repoHostId) ? repoHostId : undefined;
+  const current = ghStatus?.hostId === remoteHostId ? ghStatus : null;
+  const githubAvailable = !!current?.installed && current.authenticated;
+  // The nudge installs `gh` on this machine; it can't do that for a box.
+  const githubNotInstalled = current !== null && !current.installed && remoteHostId === undefined;
   /** Probe key that came back with at least one issue — null while unknown. */
   const [issuesForKey, setIssuesForKey] = useState<string | null>(null);
 
-  useMountEffect(() => {
+  useEffect(() => {
     let cancelled = false;
-
     window.electronAPI.github
-      .checkStatus()
+      .checkStatus(remoteHostId)
       .then((status) => {
-        if (cancelled) return;
-        if (!status.installed) {
-          setGithubNotInstalled(true);
-        } else if (status.authenticated) {
-          setGithubAvailable(true);
+        if (!cancelled) {
+          setGhStatus({
+            hostId: remoteHostId,
+            installed: status.installed,
+            authenticated: status.authenticated,
+          });
         }
       })
       .catch((err) =>
         console.error("[EmptyState] Failed to check GitHub status:", err),
       );
-
     return () => {
       cancelled = true;
     };
-  });
+  }, [remoteHostId]);
 
   // Probe the active tracker for at least one assigned issue.
   const tracker: "linear" | "github" | null = linearLinked
@@ -80,9 +91,11 @@ export function useIssuesShortcut() {
     let cancelled = false;
     const probe =
       tracker === "linear"
-        ? window.electronAPI.linear.getMyIssues(teamIdsKey.split(","), {
-            limit: 1,
-          })
+        ? onBehalfOf(repoHostId, () =>
+            window.electronAPI.linear.getMyIssues(teamIdsKey.split(","), {
+              limit: 1,
+            }),
+          )
         : window.electronAPI.github.getMyIssues(repo!, 1);
 
     probe
@@ -97,11 +110,10 @@ export function useIssuesShortcut() {
     return () => {
       cancelled = true;
     };
-  }, [probeKey, tracker, teamIdsKey, repo]);
+  }, [probeKey, tracker, teamIdsKey, repo, repoHostId]);
 
   const handleGitHubInstalled = useCallback(() => {
-    setGithubNotInstalled(false);
-    setGithubAvailable(true);
+    setGhStatus({ hostId: undefined, installed: true, authenticated: true });
   }, []);
 
   // While the probe is in flight the row is rendered but reserved — it holds

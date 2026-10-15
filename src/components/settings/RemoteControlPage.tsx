@@ -23,6 +23,7 @@ import { DeviceRow } from "./DeviceRow";
 import { HostPhoneAccess } from "./HostPhoneAccess";
 import { SectionTitle } from "./SectionTitle";
 import { isWebApp } from "../../lib/platform";
+import { hostName } from "../../lib/hosts";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 /**
@@ -222,7 +223,7 @@ function HostPhoneAccessList() {
         <HostPhoneAccess
           key={host.hostId}
           hostId={host.hostId}
-          hostName={host.spec?.target ?? host.hostId}
+          hostName={hostName(host)}
         />
       ))}
     </Stack>

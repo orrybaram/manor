@@ -6,8 +6,9 @@ import { useCallback, useRef } from "react";
 import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
 import { isRemoteHost, type HostId } from "../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
+import { useAppStore } from "../store/app-store";
 import { useHostStore } from "../store/host-store";
-import { isHostOffline } from "../lib/host-status";
+import { isHostAway } from "../bridge/server-set";
 import type { PtyAttachResult, PtyCreateResult } from "../electron.d";
 
 /**
@@ -62,8 +63,10 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
     const paneId = paneIdRef.current;
     // Read-only while the pane's remote host is away (ADR-178 §6): input is
     // dropped, not queued for a shell that may be gone by the time it lands.
+    // A host reached only through servers that are all gone is away too
+    // (ADR-228 D6).
     if (
-      isHostOffline(
+      isHostAway(
         paneRemoteHost(useRemotePaneStore.getState(), paneId),
         useHostStore.getState().hosts,
       )
@@ -102,8 +105,23 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
       if (hostId && isRemoteHost(hostId) && !paneRemoteHost(panes, paneId)) {
         panes.setPaneHost(paneId, hostId);
       }
+      // A pane of the workspace shown at launch, mounting for the first
+      // time, is not the user asking for its host (ADR-230 D3; one opened
+      // later is, see `seedRestoredPanes`): a sleeping one stays asleep
+      // and the pane waits behind its banner. Forgotten once that create
+      // settles — not as it is sent, so React's dev double-mount sends the
+      // same — and every create after it wakes the host as usual.
+      const app = useAppStore.getState();
+      const restored = app.restoredPaneIds.has(paneId);
       return window.electronAPI.pty
-        .create(paneId, cwd, cols, rows, { agentKind, hostId })
+        .create(paneId, cwd, cols, rows, {
+          agentKind,
+          hostId,
+          ...(restored && { wake: false }),
+        })
+        .finally(() => {
+          if (restored) app.forgetRestoredPane(paneId);
+        })
         .then((result: PtyCreateResult) => recordPaneHost(paneId, result));
     },
     [],

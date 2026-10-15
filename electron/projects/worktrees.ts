@@ -10,7 +10,6 @@ import { workspaceKey } from "../../src/lib/workspace-key";
 import { sanitizeBranchName, toDirSlug } from "../branch-name";
 import { errorMessage } from "../lib/errors";
 import type { ProjectContext } from "./context";
-import { emitSetupProgress } from "./progress";
 import type { SetupStep, StepStatus } from "../../src/store/project-store";
 import type {
   CreateWorktreeOptions,
@@ -109,7 +108,7 @@ export async function createWorktree(
     origin = null,
   } = opts;
   const progress = (step: SetupStep, status: StepStatus, message?: string) =>
-    emitSetupProgress(origin, step, status, message);
+    ctx.progress.setup(origin, step, status, message);
   const project = ctx.find(projectId);
   if (!project) return null;
   const git = gitOf(ctx, project);

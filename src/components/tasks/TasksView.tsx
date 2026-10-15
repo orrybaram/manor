@@ -49,6 +49,9 @@ import {
   type TaskSort,
 } from "../../lib/tasks";
 import { entryLookup, taskList } from "../../lib/task-list";
+import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
+import { hostSentenceName } from "../../bridge/server-set";
+import { useHostStore } from "../../store/host-store";
 import { TRACKER_STATUS_KEY, trackerFor } from "../../lib/trackers";
 import { useTaskScope, useTasks } from "./useTasks";
 import { TaskFilterChip, TaskFilterMenu } from "./TaskFilterMenu";
@@ -130,6 +133,12 @@ export function TasksView(props: TasksViewProps) {
   });
 
   const projects = useProjectStore((s) => s.projects);
+  const missingGh = useGhHostStore((s) => s.missing);
+  const hostList = useHostStore((s) => s.hosts);
+  const missingGhHosts = useMemo(
+    () => Object.keys(missingGh).map((id) => hostSentenceName(id, hostList)),
+    [missingGh, hostList],
+  );
 
   const sort = prefs.sorts[provider];
   const filters = prefs.filtersBy[provider];
@@ -349,9 +358,10 @@ export function TasksView(props: TasksViewProps) {
               Connect a tracker to see your tasks from every project here.
             </p>
             <GitHubNudge onInstalled={handleGitHubInstalled} />
-            <p className={styles.setupHint}>
-              To use Linear, connect it in Settings and link a team to a
-              project.
+            <p className={styles.setupHint} data-testid="tasks-setup-hint">
+              {scope.linearWhy
+                ? `${scope.linearWhy}.`
+                : "To use Linear, connect it in Settings and link a team to a project."}
             </p>
           </div>
         ) : (
@@ -558,6 +568,14 @@ export function TasksView(props: TasksViewProps) {
                 </ResizableDrawerFrame>
               )}
             </div>
+
+            {missingGhHosts.length > 0 && (
+              <div className={styles.ghNotice} role="status" data-testid="gh-not-signed-in">
+                {missingGhHosts.map((label) => (
+                  <span key={label}>{ghNotSignedInText(label)}</span>
+                ))}
+              </div>
+            )}
 
             {(loadingMore || failedCount > 0 || current.pageCount > 1) && (
               <div className={styles.footer}>

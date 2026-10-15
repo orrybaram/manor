@@ -5,10 +5,11 @@
  * The CLI talks HTTP to Manor desktop's webview server, which on a remote
  * host is on another machine, with no route back to it (ADR-178 dropped
  * reverse forwards). So the daemon listens instead and relays each request to
- * main over the stream connection it already has: the request goes out as a
- * `controlRequest` stream event, main runs it through its own control routes
- * and answers with a `controlResponse`, and the listener replies to the CLI
- * with that status and body.
+ * the host server over the stream connection it already has (ADR-227 D8; it
+ * was the desktop until then): the request goes out as a `controlRequest`
+ * stream event, the host server runs it through its own control routes and
+ * answers with a `controlResponse`, and the listener replies to the CLI with
+ * that status and body.
  *
  * Loopback only, and authenticated the same way as `HookListener`: a remote
  * box may be shared, and another user there must not be able to change this
@@ -45,10 +46,10 @@ export const CONTROL_TOKEN_HEADER = "x-manor-control-token";
 /** Request bodies larger than this are refused with 413. */
 export const MAX_CONTROL_BODY_BYTES = 1024 * 1024;
 
-/** How long a relayed request waits for main's answer before a 504. */
+/** How long a relayed request waits for an answer before a 504. */
 export const CONTROL_RELAY_TIMEOUT_MS = 30_000;
 
-/** One CLI request, as relayed to main. `path` includes the query string. */
+/** One CLI request, as relayed. `path` includes the query string. */
 export interface RelayedControlRequest {
   method: string;
   path: string;
@@ -63,8 +64,8 @@ export interface ControlRelayResult {
 }
 
 /**
- * Hand a request to main. Null when there is no relay stream to send it on
- * (the laptop is disconnected, or runs an app too old to relay); the promise
+ * Hand a request to the host server. Null when there is no relay stream to
+ * send it on (the host server isn't running); the promise
  * never rejects — timeouts and dropped streams resolve with a 504 / 503.
  */
 export type ControlRelay = (
@@ -82,12 +83,12 @@ export interface ControlRelayListenerOptions {
 
 const NOT_CONNECTED: ControlRelayResult = {
   status: 503,
-  body: { error: "Manor desktop is not connected to this host" },
+  body: { error: "Manor's host server isn't running on this host" },
 };
 
 const TIMED_OUT: ControlRelayResult = {
   status: 504,
-  body: { error: "Manor desktop did not answer in time" },
+  body: { error: "Manor did not answer in time" },
 };
 
 function writePortFileAtomic(file: string, port: number, token: string): void {
@@ -103,12 +104,12 @@ function tokenMatches(header: string | string[] | undefined, token: string): boo
 
 function reply(res: http.ServerResponse, status: number, body: unknown): void {
   if (res.headersSent) return;
-  // `status` came over the wire from main; an invalid one would make
+  // `status` came over the wire; an invalid one would make
   // writeHead throw rather than answer the CLI at all.
   const valid = Number.isInteger(status) && status >= 200 && status <= 599;
   const payload = valid
     ? body
-    : { error: `Manor desktop answered with an invalid status: ${String(status)}` };
+    : { error: `Manor answered with an invalid status: ${String(status)}` };
   res.writeHead(valid ? status : 502, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload ?? null));
 }
@@ -278,27 +279,42 @@ export interface ControlRelayStreamsOptions<S> {
   timeoutMs?: number;
 }
 
+/** Who asked for relayed requests: the host server, or a desktop app. */
+export type ControlRelayRole = "server" | "app";
+
 /**
  * The daemon's half of the relay: which stream socket gets `controlRequest`s,
  * and the requests still waiting on its `controlResponse`.
  *
  * The relay stream is the most recent stream socket that sent
- * `enableControlRelay`. Only one gets each request — relaying to every
- * connected app would run the request once per app. A reconnecting app
- * re-enables on its new socket, which takes over; requests already sent to
- * the old socket still resolve if it answers, or with a 503 when it closes.
+ * `enableControlRelay` with `role: "server"` — the host server, which owns
+ * this host (ADR-227 D8) — while one is open; otherwise the most recent one
+ * that sent it without (a desktop from before ADR-227, ADR-189). Only one
+ * gets each request — relaying to every connected client would run the
+ * request once per client. A reconnecting client re-enables on its new
+ * socket, which takes over; requests already sent to the old socket still
+ * resolve if it answers, or with a 503 when it closes.
  *
  * Generic over the socket type so it is testable without a daemon.
  */
 export class ControlRelayStreams<S> {
-  private relayStream: S | null = null;
+  private readonly streams: Record<ControlRelayRole, S | null> = { server: null, app: null };
   private readonly pending = new Map<string, PendingRelay<S>>();
 
   constructor(private readonly opts: ControlRelayStreamsOptions<S>) {}
 
   /** `stream` sent `enableControlRelay`: relay to it from now on. */
-  enable(stream: S): void {
-    this.relayStream = stream;
+  enable(stream: S, role: ControlRelayRole = "app"): void {
+    // One socket holds one role: a socket re-enabling as the other drops the first.
+    for (const r of ["server", "app"] as const) {
+      if (this.streams[r] === stream) this.streams[r] = null;
+    }
+    this.streams[role] = stream;
+  }
+
+  /** The stream requests go to: the host server's, else an app's. */
+  private get relayStream(): S | null {
+    return this.streams.server ?? this.streams.app;
   }
 
   /**
@@ -314,7 +330,9 @@ export class ControlRelayStreams<S> {
 
   /** `stream` closed: stop relaying to it and fail what it still owes with 503. */
   closed(stream: S): void {
-    if (this.relayStream === stream) this.relayStream = null;
+    for (const r of ["server", "app"] as const) {
+      if (this.streams[r] === stream) this.streams[r] = null;
+    }
     for (const [id, entry] of this.pending) {
       if (entry.stream === stream) this.settle(id, NOT_CONNECTED);
     }

@@ -42,19 +42,18 @@ vi.mock("electron", () => ({
 }));
 
 import { WebviewServer } from "../webview-server";
-import {
-  appCommandResult,
-  notifyProjectsChanged,
-  requestRenderer,
-  runSetupScript,
-} from "../renderer-bridge";
+import { appCommandResult, requestRenderer } from "../renderer-bridge";
 import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
 import type { AppCommand, AppCommandResult } from "../renderer-bridge";
 import {
   addRendererBroadcastSink,
+  publishRendererBroadcast,
   setRendererWindowResolver,
   type RendererBroadcast,
 } from "../renderer-broadcast";
+
+/** The desktop's `ServerDeps.notifyProjectsChanged`: the server's bus is the renderers'. */
+const notifyProjectsChanged = (): void => publishRendererBroadcast("projects", "changed");
 import { webContents, BrowserWindow } from "electron";
 import { webviewModule } from "../mcp/tools-webview";
 import type { Http } from "../mcp/types";
@@ -207,6 +206,7 @@ function serverWith(
       ({
         webviewServer: server,
         webviewPanes: server,
+        notifyProjectsChanged,
         ...deps,
       }) as unknown as HostDeps,
   );
@@ -216,12 +216,16 @@ function serverWith(
 
 // ── Tests ──
 
+/** The server's setup-script runner (ADR-227 D5), as the routes reach it. */
+const runSetupScript = vi.fn<WorkspaceOpsDeps["runSetupScript"]>(async () => {});
+
 /**
- * The workspace ops `app-lifecycle.ts` builds (ADR-203), over the test's fake
- * manager and the real (electron-mocked) renderer bridge, so the create /
+ * The workspace ops `createManorServer` builds (ADR-203), over the test's
+ * fake manager and the real (electron-mocked) renderer bridge, so the create /
  * remove / batch routes run end to end.
  */
 function workspaceOpsFor(pm: unknown): HostDeps["workspaceOps"] {
+  runSetupScript.mockClear();
   return createWorkspaceOps({
     projectManager: pm as WorkspaceOpsDeps["projectManager"],
     statsStore: { record: vi.fn() },
@@ -557,7 +561,6 @@ describe("WebviewServer project/workspace routes", () => {
   });
 
   it("POST /projects/:id/workspaces runs the project's setup script in the new workspace", async () => {
-    const bridge = bridgeHarness();
     pm.createWorktree.mockResolvedValueOnce({
       ...PROJECT,
       hostId: "box",
@@ -577,27 +580,17 @@ describe("WebviewServer project/workspace routes", () => {
       name: "feature",
     });
 
-    expect(bridge.commands()).toEqual([
-      {
-        cmd: "run-setup-script",
-        workspacePath: "/repos/demo-ws",
-        // The project's host: the path alone may be on two hosts.
-        hostId: "box",
-        script: "npm install",
-      },
-    ]);
-    bridge.stop();
+    // On the server, with no renderer round trip (ADR-227 D5); the
+    // project's host, as the path alone may be on two hosts.
+    expect(runSetupScript).toHaveBeenCalledWith("/repos/demo-ws", "npm install", "box", null);
   });
 
   it("POST /projects/:id/workspaces skips the setup script when the project has none", async () => {
-    const bridge = bridgeHarness();
-
     await mcpHttpPost(baseUrl, "/projects/proj-1/workspaces", {
       name: "feature",
     });
 
-    expect(bridge.commands()).toEqual([]);
-    bridge.stop();
+    expect(runSetupScript).not.toHaveBeenCalled();
   });
 
   it("POST /projects/:id/workspaces tells every renderer its project list is stale", async () => {

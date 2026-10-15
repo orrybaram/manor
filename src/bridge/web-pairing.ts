@@ -30,7 +30,7 @@ import {
   isRelayCredentials,
   lastUsedPairing,
   migrateLegacyPairing,
-  removePairing,
+  declinePairing,
   upsertPairing,
   type RelayCredentials,
 } from "./pairings";
@@ -92,10 +92,11 @@ export function parseFragment(hash: string): FragmentPairing {
 
 /**
  * Take a pairing out of the fragment on this load, add it to the stored
- * pairings (or update the one for the same room) and strip the fragment so it
- * cannot linger in history or a screenshot. That pairing is the one this tab
- * dials; with no link, the last-used stored pairing is. A link never drops
- * the other pairings (ADR-225 D7).
+ * pairings (or update the one for the same room, and mark it last used) and
+ * strip the fragment so it cannot linger in history or a screenshot. Returns
+ * that pairing; with no link, the last-used stored one, or null with none. A
+ * link never drops the other pairings (ADR-225 D7), and the page dials every
+ * one of them (ADR-228 D8, `listPairings`).
  */
 export function readPairing(): Pairing {
   migrateLegacyPairing();
@@ -111,9 +112,12 @@ export function readPairing(): Pairing {
  * The host refused `pairing` (4401): drop it — but only if it is still what
  * is stored. Another tab may have taken a newer link since this one loaded,
  * and a stale tab's refusal must not erase that. The other pairings stay.
+ * The room is remembered as declined: revoked on its host (a "via This Mac"
+ * row, say), it must not be minted again by the desktop (ADR-228 D9). A
+ * host's reset keys give it a new room, which is not declined.
  */
 export function forgetPairing(pairing: Pairing): void {
-  if (pairing !== null) removePairing(pairing);
+  if (pairing !== null) declinePairing(pairing);
 }
 
 /** A version that can be put in a path without saying anything else. */

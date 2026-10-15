@@ -6,8 +6,21 @@
  */
 
 import { proxyToRenderer } from "../renderer-bridge";
-import type { Route } from "./types";
-import { proxyWithWorkspaceHost } from "./workspace-host";
+import type { Json, RouteDeps, Route } from "./types";
+import { withWorkspaceHost } from "./workspace-host";
+
+/**
+ * Proxy `cmd` to the renderer with `body`'s workspace host resolved by
+ * `withWorkspaceHost`.
+ */
+async function proxyWithWorkspaceHost(
+  deps: Pick<RouteDeps, "projectManager">,
+  json: Json,
+  cmd: string,
+  body: Record<string, unknown>,
+): Promise<void> {
+  await proxyToRenderer(json, cmd, withWorkspaceHost(deps, body));
+}
 
 /** A body-less route that forwards one app command to the primary window. */
 function proxy(path: string, command: string): Route {

@@ -12,30 +12,41 @@ shows what they did while you were away: final statuses and one notification
 per agent.
 
 And you don't have to wait for the lid to open. Every box runs its own small
-Manor server, the **host server**. A phone paired with it sees that box's
-agents and can type into them while your laptop sleeps (see
+Manor server, the **host server**, and it is the authority for that box: it
+owns the box's projects, workspaces, folders, linked issues, layout and
+agents, and your laptop is a client of it. A phone paired with it can see the
+box's agents, type into them, create a workspace and launch a new agent while
+your laptop sleeps (see
 [Your phone with the lid closed](#your-phone-with-the-lid-closed)).
 
 Design background is in [ADR-160](decisions/adr-160-remote-workspace-backends/index.md)
 (the transport and the remote daemon),
 [ADR-178](decisions/adr-178-always-on-remote-projects/index.md) (the
 always-on behavior: hook journal, onboarding, ports, reconnect) and
-[ADR-225](decisions/adr-225-host-server/index.md) (the host server).
+[ADR-225](decisions/adr-225-host-server/index.md) (the host server),
+[ADR-227](decisions/adr-227-host-ownership-flip/index.md) (the host owns its
+host) and [ADR-229](decisions/adr-229-hosts-we-start/index.md) (hosts Manor
+starts itself, surviving a reboot, asleep hosts).
 
 ## Choosing a box
 
-Manor doesn't host anything. You bring the box, and it only needs to be
-reachable over ssh.
+Manor doesn't host anything. You bring the box. Either it is already running
+and reachable over ssh, or you give Manor a **recipe**: your own commands that
+start it, stop it and delete it (see [Host recipes](hosts/recipes.md)).
 
 - **A VPS** (Hetzner CX33 or similar). Always on and cheap. A good default
   for agents that run overnight.
 - **exe.dev, or a Coder workspace**. Fine, as long as the box stays up while
-  you're away. Manor can't wake a box that has been stopped.
+  you're away. Manor can only start a box that was stopped if it has a
+  recipe for it.
 - **A spare Mac.** macOS hosts are supported. Enable Remote Login in System
   Settings → General → Sharing.
+- **A container or a pod** that Manor starts itself, from the Docker or
+  Kubernetes template, or a cloud VM or sandbox from a custom recipe. See
+  [Host recipes](hosts/recipes.md).
 
-Managed sandbox providers (Fly Sprites, Daytona, E2B) aren't supported yet.
-See [What isn't supported](#what-isnt-supported).
+Managed sandbox providers (Fly Sprites, Daytona, E2B) have no built-in
+support. A recipe can drive their CLIs.
 
 ## Requirements
 
@@ -64,11 +75,17 @@ On your laptop:
   `ssh-add --apple-use-keychain` on macOS).
 - Host aliases, users, ports, keys and `ProxyJump` from `~/.ssh/config` all
   apply. Manor includes your config and doesn't change it.
+- A host Manor starts from a [recipe](hosts/recipes.md) and reaches over a
+  command (`docker exec`, `kubectl exec`) needs that CLI, signed in, instead
+  of ssh.
 
 ## Adding a host and a remote project
 
-1. **Add the host.** Open Project Settings → Host and enter an ssh target:
-   `user@box`, `box` (an alias from `~/.ssh/config`) or `ssh://user@box:2222`.
+1. **Add the host.** Open Settings → Hosts → **Add host** → **An SSH box**
+   (or Project Settings → Host) and enter an ssh target: `user@box`, `box`
+   (an alias from `~/.ssh/config`) or `ssh://user@box:2222`. To have Manor
+   start the host instead, choose **Start a host** (see
+   [Host recipes](hosts/recipes.md)).
    Manor starts connecting in the background. The first connection installs
    Manor's host package on the box (see [What runs where](#what-runs-where)),
    and the status bar shows its progress. On Linux the first install
@@ -103,9 +120,11 @@ On the box, everything Manor installs lives under `~/.manor/`:
 | `~/.manor/bin/manor-host` | Launcher that pins the version and the absolute path to `node` |
 | `~/.manor/bin/manor` | The `manor` CLI shim for remote use |
 | `~/.manor/remote/daemon/` | The remote daemon's socket, auth token, pid and log, plus the hook journal |
-| `~/.manor/remote/server/` | The host server: its socket, owner token, pid, logs, its own relay keys and paired phones, and what the desktop last told it (see [The host server](#the-host-server)) |
+| `~/.manor/remote/server/` | The host server: its socket, owner token, pid, logs, its own relay keys and paired phones, and the box's projects (`projects.json`), layout (`layout.json`) and agents (`agents.json`) (see [The host server](#the-host-server)) |
 | `~/.manor/remote/hook-port` | The hook listener's port and token (mode 0600) |
 | `~/.manor/remote/control-port` | The CLI relay's port and token (mode 0600) |
+| `~/.manor/remote/supervisor.json`, `supervisor.env` | What keeps Manor running across a reboot, and the variables it passes on (see [Surviving a reboot](#surviving-a-reboot)) |
+| `~/.manor/remote/hooks/` | The box hooks `on-busy` and `on-idle` (see [Box hooks](hosts/recipes.md#box-hooks)) |
 | `~/.manor/hooks/notify.{sh,js}` | The hook script agents call |
 | `~/.manor/sessions/` | Terminal scrollback |
 
@@ -119,7 +138,10 @@ If a Manor desktop also runs on the box, it isn't affected. Its daemon
 
 On your laptop there's one ssh connection per host, multiplexed through a
 ControlMaster socket in a temporary ssh config that Manor owns. Terminals,
-git, file reads and port scans all use that connection.
+git, file reads and port scans all use that connection. A recipe host reached
+over a command such as `docker exec` has no ControlMaster: each stream is its
+own process. Recipes themselves live in `~/.manor/host-recipes/`, and a recipe
+host reached over ssh has its own `~/.manor/ssh/known_hosts.d/<hostId>`.
 
 **Your credentials stay on your laptop.** Manor doesn't copy `~/.ssh`,
 tokens or agent credentials to the box. It doesn't enable ssh agent
@@ -128,8 +150,8 @@ and it exposes your keys to anyone with root on the box. You sign in to
 `gh`, `claude` and `codex` on the box yourself, once. The one key the desktop
 does send is its Web Push signing key, so the host server can send phone
 notifications (see [Where secrets live](#where-secrets-live)). Integration
-tokens such as Linear's API key never go to the box (see
-[Integrations](#integrations)).
+tokens such as Linear's API key go to the box only if you turn on "Use Linear
+on \<host\>" (see [Integrations](#integrations)).
 
 Upgrades happen automatically. When the app version changes, the next
 connect installs the matching host package next to the old one and swaps it
@@ -141,11 +163,12 @@ The host package ships two programs, and Manor keeps both running on the box:
 
 - **The daemon** owns the terminals, their scrollback and the hook journal.
 - **The host server** is a headless Manor server: Node, no Electron. It
-  connects to the daemon on the box like any other client does, and runs
-  what a phone needs to reach that box with your laptop closed. That covers
-  agent status (it reads the same hook journal the desktop replays), the chat
-  view, push notifications, and its own room on the Manor relay with its own
-  paired phones.
+  connects to the daemon on the box like any other client does, and it owns
+  the box's side of Manor. That covers the projects, workspaces and layout;
+  creating worktrees and running their setup scripts; starting agents and
+  reading their status from the hook journal; the chat view; GitHub through
+  the box's own `gh`; push notifications; the `manor` CLI on the box; and its
+  own room on the Manor relay with its own paired phones.
 
 They are separate processes on purpose. A daemon restart ends every terminal,
 so the daemon only restarts when it has to. The host server restarts on every
@@ -161,23 +184,86 @@ host server of the same version is running (`manor-host remote-bridge` and
 - If it isn't running, Manor starts it, detached from the ssh session, so it
   keeps running after the desktop disconnects.
 
-Like the daemon, it doesn't survive a reboot of the box. It comes back the
-next time the desktop connects.
+When a supervisor keeps Manor running on the box, these starts, stops and
+restarts go through it instead, and the daemon and the host server come back
+after a reboot with no desktop. See [Surviving a reboot](#surviving-a-reboot).
 
 **The owner channel.** The desktop talks to the host server over the box's
 existing ssh connection: `ssh <box> manor-host server-bridge`, which pipes to
 the server's socket at `~/.manor/remote/server/server.sock`. Being able to
 run that command as you over ssh is the authentication, so the desktop is the
-server's **owner** and may do what a phone may not: pair and revoke phones,
-and reset the server's keys. On every connect, and whenever they change, the
-desktop sends it:
+server's **owner** and may do what a phone may not: add and remove projects,
+pair and revoke phones, and reset the server's keys. The desktop pushes
+nothing to the server any more (it used to send a manifest and a layout
+snapshot). It reads and writes the box's state through the server, and hears
+changes as events. It keeps a cache of the last answers, so the sidebar still
+shows the box's workspaces while it is away.
 
-- **the manifest**: this box's projects, workspace names, linked issues, the
-  last-known PR for each workspace, and the host's name;
-- **a layout snapshot**: the tabs and panes of this box's workspaces.
+**Viewer streams.** Each desktop window also talks to the host server
+directly, over a stream of its own: `ssh <box> 'exec manor-host server-bridge
+--viewer'`, on the same ControlMaster as the owner channel. It authenticates
+the same way (SSH, then the 0600 token file on the box) and its hello marks
+it as a desktop window. The window's reads, writes and terminal bytes for the
+box's projects go over it straight to the host server, one hop. Main only
+moves frames between the window and ssh (the `hostPipe` preload namespace);
+it doesn't parse or route them. A window opens a stream once the host is
+connected and its server says it takes one (`viewer-bridge` in its status),
+and main closes it when the window closes or the host drops.
 
-The host server caches both, so a phone that connects with the lid closed
-sees the sidebar and panes the desktop last had.
+- **Terminal size.** The host server ranks a desktop window's stream like a
+  local window, above every phone, so the desktop still decides a pane's size
+  while it has the pane mounted, and a phone follows. One registry on the box
+  decides that for every viewer.
+- **When a stream drops**, the window falls back to main for that host: main
+  forwards its calls over the owner channel (`HostRouting`) and serves the
+  cache while the host is away. The window dials the stream again with
+  backoff, and at once when the host reconnects, then redraws its panes over
+  it.
+- **Main keeps the owner channel** for what needs one bridge: a phone paired
+  only with the desktop (its terminals for the box are forwarded by main to
+  the host server), the `manor` CLI and MCP routes, notifications and the
+  dock badge, and the cache. The desktop's daemon connection to the box is
+  for lifecycle only now: starting the daemon, upgrades, port forwards and
+  the CLI relay. Remote panes are no longer attached over it.
+
+### Older host servers
+
+A host server from before multi-server support doesn't report
+`viewer-bridge`, so a desktop window opens no stream to it. The window
+reaches that box through main, as it did before: main forwards every call
+over the owner channel, and attaches the box's terminals through the host
+server. The same applies to a box that hasn't been adopted yet. The next
+connect upgrades the host package, and the window opens its stream once the
+new server reports `viewer-bridge`. Until its upgrade runs, an older server
+also lacks `pty.reset` and `pty.close`.
+
+### Adoption
+
+The first time the desktop connects to a box whose server owns nothing yet, it
+hands over what it holds for that host: the host's projects (with their
+workspace names, folders, linked issues, hidden flags and settings), its
+agents and its layout. This is **adoption**. The server merges the records by
+id and wins every conflict, so adopting twice, or from a second laptop, adds
+what the box lacks and overwrites nothing.
+
+Only after the server has acknowledged does the desktop let go. It first
+writes a backup of what it removed to
+`~/.manor/backups/pre-adr-227-<hostId>.json` on your laptop, then drops the
+projects from its `projects.json` (their place in the sidebar and in linked
+groups is kept), drops the agents, and releases the layout. Sessions are not
+touched: terminals and agents carry on where they were. If the desktop stops
+part-way, the next connect finishes the job. You don't have to do anything,
+and the sidebar looks the same afterwards.
+
+Agents the desktop had recorded as active are checked against the box's
+daemon right away: one whose terminal is gone is marked abandoned, rather
+than waiting for the next boot sweep.
+
+**Upgrading an old box.** A box whose host server predates this (no
+ownership in its status) is left alone and keeps working as before. The
+desktop reaches it with the older behavior until the box has a current host
+server, which the next connect installs. See
+[Legacy boxes](#legacy-boxes).
 
 **Logs** are at `~/.manor/remote/server/logs/host-server.log` (rotated).
 Startup failures, before that log is open, go to `host-server-spawn.log` in
@@ -191,52 +277,157 @@ secret backend in use:
 To restart it by hand, stop it with
 `kill "$(cat ~/.manor/remote/server/server.pid)"`. A connected desktop notices
 the owner channel drop and starts a fresh one within seconds; otherwise the
-next connect does. Unlike `manor-host restart`, this doesn't touch the
-terminals.
+next connect does (a container's `supervise` restarts it at once). Under
+systemd, use `systemctl --user restart manor-host-server` instead: a server
+stopped with `kill` stays stopped there until the next connect. Unlike
+`manor-host restart`, this doesn't touch the terminals.
+
+## Surviving a reboot
+
+**Keep Manor running when \<host\> restarts** (Settings → Hosts) puts the
+box's daemon and host server under the box's own supervisor. After a reboot
+they start again with no desktop: the host server rejoins its relay room, so
+a phone sees the host and can start new agents with the lid closed.
+
+- **On by default** for hosts added from now on, ssh boxes and recipe hosts
+  alike. Hosts you added before stay off until you turn it on. The setting
+  shows a line saying what keeps Manor running there, or why nothing does.
+- Turning it on runs `manor-host supervisor install` on the box. It picks the
+  first that works: systemd, launchd, then a container's `supervise`. If none
+  does, it says "No supervisor on this host", and the switch stays off. Manor
+  also installs it on connect when the switch is on and the box has none.
+- **It doesn't move what's running.** The supervisor takes over the next
+  time the daemon or the server restarts, or at the next boot. Turning the
+  switch off removes the units but stops nothing.
+- **After a reboot** the daemon starts with no terminals. The host server
+  marks the agents whose sessions are gone, as it does after a daemon
+  restart, and a pane comes back (with its agent's resume command) when
+  someone opens it. Agents aren't restarted by themselves.
+
+**Linux with systemd.** Two user units in `~/.config/systemd/user/`,
+`manor-host-daemon.service` and `manor-host-server.service`. Each runs the
+`~/.manor/bin/manor-host` shim, so an upgrade takes effect at the next
+restart, with `Restart=on-failure` and
+`EnvironmentFile=-~/.manor/remote/supervisor.env`.
+
+- A user's units only start at boot when the user **lingers**. `install`
+  runs `loginctl enable-linger`, which polkit often refuses. Then the setting
+  says "Starts after you log in to \<host\>. Run
+  `sudo loginctl enable-linger <user>` there to start it at boot." Run that
+  once on the box. (The user name in that hint comes from the ssh target, or
+  `$USER`, which your shell on the box fills in.)
+- `systemctl --user status manor-host-server` shows how it's doing.
+
+**macOS with launchd.** Two LaunchAgents in `~/Library/LaunchAgents/`,
+`sh.manor.host-daemon.plist` and `sh.manor.host-server.plist`, with
+`RunAtLoad` and `KeepAlive`. A LaunchAgent starts at login, so a Mac with no
+one logged in needs automatic login (System Settings → Users & Groups).
+
+**Containers.** A container has no init system, so `manor-host supervise`
+is its entrypoint (the reference image runs it; see
+[The host image](hosts/recipes.md#the-host-image)). It starts the daemon and
+the server, restarts either one when it exits (1 s backoff, doubling to
+30 s), passes SIGTERM on, and adopts a daemon or server that is already
+running instead of starting a second. Its pid is in
+`~/.manor/remote/supervise.pid`, and it records itself in `supervisor.json`
+when it starts, so the switch reads on from the first connect. After a node
+reboot, the container's restart policy brings it back. The switch can't turn
+it off: it is the container's entrypoint.
+
+**`supervisor.env`** passes `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and
+`MANOR_INSTANCE_ID` to the units (see
+[Encrypting pairing keys](#encrypting-pairing-keys)). `install` writes the
+ones it finds in its own environment, and keeps the ones already in the
+file. You can add them by hand, one `KEY='value'` line each.
 
 ## Your phone with the lid closed
 
-Pair a phone with the box from **Settings → Remote control**. Each remote host
-has its own section there (see
+Pair a phone with the desktop from **Settings → Remote control**, and it is
+paired with your remote hosts too (see
+[One pairing for every host](#one-pairing-for-every-host)). You can also pair
+it with one box directly, from that host's own section there (see
 [Pairing a phone with a host](remote-control.md#pairing-a-phone-with-a-host)).
-That phone reaches the box's host server directly, through the Manor relay,
-whether or not your laptop is awake.
+Either way the phone reaches the box's host server directly, through the
+Manor relay, whether or not your laptop is awake.
+
+**One sidebar.** The phone connects to every pairing it holds at once and
+shows their projects together, each under its host's name. A box's project is
+answered by the box's own pairing while that is reachable, and through the
+desktop otherwise. With the desktop away, the desktop's own projects stay
+listed, dimmed, from what it last said, and writes to them are refused; a box
+that is awake keeps working. The **Hosts** sheet (from the bottom of the
+drawer) lists each pairing with its reachability, and renames or removes one.
 
 **What it can do:**
 
 - See the box's projects, workspaces and agents, with live status.
+- Create a workspace (a worktree, with the project's setup script run on the
+  box) and launch an agent in it with a prompt, from the New agent composer.
 - Open any terminal and type into it.
 - Use the chat view and reply, slash commands included.
+- Rearrange the layout (split, close, move tabs); the box owns it.
 - Get push notifications when an agent needs input or hits an error.
-- Switch between hosts, if it's paired with more than one.
+- Use Linear through the desktop while the desktop is awake, even on a box
+  that doesn't have Linear (see
+  [Linear through the desktop](#linear-through-the-desktop)).
 
-**What it can't do yet:**
+**What it can't do:**
 
-- Create a workspace or launch an agent.
-- Rearrange the layout (split, close, move tabs).
+- Add or remove a project, or set one up on a box. That needs the desktop (it
+  is an owner-only action). Until the box has been adopted, the server
+  answers *This host is being set up* and the phone sees no projects.
+- Use Linear with the desktop away, until you turn on **Use Linear on
+  \<host\>** from the desktop (see [Integrations](#integrations)).
+- Reach the desktop's own features: the box's server has no browser panes,
+  windows or system integration.
 
-Creating a workspace or starting an agent from the phone says *Not yet
-available from the phone for remote hosts* instead of failing, and the host
-server refuses layout changes from a phone. These need the box to own its
-projects and layout, and today the desktop owns them. A change made on the box
-while the desktop is away would have nowhere to go.
+If the box is away, or its server refuses something, the phone says so
+(a toast naming the host and the reason) instead of failing quietly. A host
+Manor put to sleep shows as **Asleep** in the Hosts sheet, with **Wake** while
+the desktop is awake (see [Asleep hosts](#asleep-hosts)).
 
 Some more details:
 
-- **Layout.** The phone shows the layout the desktop last sent. A terminal
-  started after that, for example by an agent on the box, appears under a
-  separate **Started while away** tab.
-- **Terminal size.** While another client (the desktop, say) is attached to a
-  terminal, the phone follows its size and shrinks the font rather than
-  resizing it. When the phone is the only one attached, the terminal takes the
-  phone's size.
-- **Projects set up while the desktop was away** don't show up until the
-  desktop next connects.
-- **Issue and PR data** is the snapshot the desktop last sent, not live. See
-  [Integrations](#integrations).
+- **Layout.** The layout is the box's own, so a terminal an agent starts on
+  the box is in it from the start. The old **Started while away** tab is
+  gone.
+- **Terminal size.** While the desktop has a terminal open, or another client
+  is attached to it, the phone follows its size and shrinks the font rather
+  than resizing it. When the phone is the only one attached, the terminal
+  takes the phone's size.
+- **Projects the desktop sets up while connected** are on the box at once.
+  One set up on the box (by its `manor` CLI, say) shows on the phone and, the
+  next time the desktop connects, on the laptop.
+- **Issue and PR data** is live from the box's own `gh`; Linear is off until
+  you turn it on for the host. See [Integrations](#integrations).
 
-When the laptop opens again, the desktop replays the same hook journal the
-host server reads, so the two agree on every agent's status.
+When the laptop opens again, it doesn't replay anything: it reads the box's
+state through the server, so the sidebar already shows what the phone did,
+including a workspace made while away, its agent's tab and the agent's
+status, with no restart.
+
+### One pairing for every host
+
+A phone paired with the desktop doesn't need a QR code per host. Every time
+it connects to the desktop, it asks the desktop to pair it with each host it
+doesn't already hold (`remoteControl.linkHostPairings`). For each host whose
+server is connected and whose relay is up, the desktop pairs the phone there
+over the owner channel, under the phone's own label, and hands the phone that
+room's key and token inside the phone's own encrypted channel. A host added
+later, or one that was away, is picked up on a later connect.
+
+- **On the host's device list**, such a phone shows "via This Mac".
+- **Revoking the phone on the desktop** revokes it on every host it was
+  linked to. A host that is away then is revoked on its next connect.
+- **Phones paired with this Mac can reach \<host\>.** Each host's section of
+  Settings → Remote control has this switch, on by default. Turning it off
+  stops linking phones to that host and revokes the ones already linked.
+- **Removing a host on the phone** (the Hosts sheet) is remembered: the
+  desktop won't link that room again. The same goes for a pairing the host
+  revoked. Pairing that host again by its QR code undoes it.
+- **Reset pairing keys** on a host drops every phone there and moves the host
+  to a new room. Phones still paired with the desktop are linked to the new
+  room on their next connect.
 
 ## Where secrets live
 
@@ -249,6 +440,7 @@ own 0600 file:
 | `remote-devices.enc` | Phones paired with this host. Device tokens are stored only as SHA-256 hashes |
 | `remote-vapid.enc` | The Web Push signing key. The desktop sends its own, so one browser push subscription works for every host. A host uses a key of its own until the desktop's arrives |
 | `secret-backend` | Which backend encrypted the files above |
+| `instance.json` | The instance id the server was created under, when it has one (see [Host recipes](hosts/recipes.md#never-snapshot-a-host-that-has-run-manor)) |
 | `owner-token` | The token the owner channel presents on the server's socket. New on every start |
 
 Device tokens are hashed, so the secrets worth protecting are the relay
@@ -267,16 +459,20 @@ with it. Pair them again afterwards.
 The host server encrypts its keys with the first of these that works on the
 box, checked on first start (and, while it is on plaintext, on every start):
 
-1. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
+1. **A key you supply** (`key-file`), whenever `MANOR_SECRET_KEY` or
+   `MANOR_SECRET_KEY_FILE` is set in the server's environment. See
+   [A key from outside the box](#a-key-from-outside-the-box). This is what
+   hosts Manor starts from a template use.
+2. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
    derived from the machine's own credential secret, and uses the TPM2 chip
    when the machine has one. You can decrypt the files without root, but a
    copy of them is useless on any other machine.
-2. **libsecret**, when an unlocked Secret Service keyring (GNOME Keyring,
+3. **libsecret**, when an unlocked Secret Service keyring (GNOME Keyring,
    KWallet) is reachable over D-Bus and `secret-tool` is installed. Manor keeps
    one random key in the keyring and encrypts the files with it (AES-256-GCM).
    A server started over ssh usually has no D-Bus session, so on a headless
    box this rarely applies.
-3. **Plaintext files, mode 0600**, as a last resort. This is never silent:
+4. **Plaintext files, mode 0600**, as a last resort. This is never silent:
    the host's section of Settings → Remote control says *Pairing keys on
    \<host\> are stored unencrypted*.
 
@@ -285,7 +481,8 @@ box, checked on first start (and, while it is on plaintext, on every start):
 - Look for the warning in Settings → Remote control. No warning means the keys
   are encrypted.
 - On the box, run `cat ~/.manor/remote/server/secret-backend`, which prints
-  `{"backend":"systemd-creds"}`, `"libsecret"` or `"plaintext"`.
+  `{"backend":"key-file"}`, `"systemd-creds"`, `"libsecret"` or
+  `"plaintext"`.
 - Or read the `secrets:` field on the startup line of
   `~/.manor/remote/server/logs/host-server.log`.
 
@@ -296,13 +493,15 @@ systemd-creds --version | head -1        # needs 256 or newer
 echo probe | systemd-creds --user encrypt --name=manor - - >/dev/null && echo ok
 ```
 
-**The choice is remembered.** Once systemd-creds or libsecret has encrypted
-the keys, the host server keeps using it. If it later stops working, the server
-reports an error naming it, and doesn't fall back to writing plaintext.
+**The choice is remembered.** Once a backend other than plaintext has
+encrypted the keys, the host server keeps using it. If it later stops working,
+the server reports an error naming it, and doesn't fall back to writing
+plaintext or start over with new keys. Setting `MANOR_SECRET_KEY` later
+doesn't move a box off systemd-creds or libsecret.
 
 **Plaintext upgrades itself.** Plaintext is only ever a last resort, so a host
-server on plaintext checks for systemd-creds and then libsecret every time it
-starts. When one works, it encrypts the existing key files with it and
+server on plaintext checks for a key, then systemd-creds, then libsecret every
+time it starts. When one works, it encrypts the existing key files with it and
 switches to it. Your phones stay paired. So to move a box off plaintext,
 make one of them work (for example, upgrade systemd to 256 or newer), then
 restart the host server:
@@ -315,43 +514,113 @@ A connected desktop starts it again within seconds. Check that the warning in
 Settings → Remote control is gone, or that `secret-backend` names the new
 backend.
 
+### A key from outside the box
+
+The `key-file` backend seals the files with AES-256-GCM under a 32-byte key
+you supply, so a copy of the box's disk, volume or snapshot holds nothing
+usable without the key. It reads the key from one of:
+
+- **`MANOR_SECRET_KEY`**: the key, base64 encoded;
+- **`MANOR_SECRET_KEY_FILE`**: a file holding the key, as 32 raw bytes or
+  base64 text. Typically a mounted Kubernetes Secret or Docker secret.
+
+`MANOR_SECRET_KEY` wins when both are set. A key that is set but isn't 32
+bytes, or a file that can't be read, is an error: the server doesn't fall
+back to a weaker backend.
+
+To make one: `head -c 32 /dev/urandom | base64`.
+
+**The host server must have the variable every time it starts:**
+
+- in a container, from the container's environment (the Docker and
+  Kubernetes templates set `MANOR_SECRET_KEY_FILE=/run/secrets/manor-key`
+  and mount the key there);
+- on a box with systemd or launchd, from `~/.manor/remote/supervisor.env`
+  (see [Surviving a reboot](#surviving-a-reboot));
+- otherwise the server gets only what the desktop's ssh session has, which
+  usually isn't the key.
+
+A server that sealed its keys with `key-file` and then starts without the
+key stops with "Pairing keys were sealed with a key from MANOR_SECRET_KEY or
+MANOR_SECRET_KEY_FILE, and neither is set". It never starts over with a new identity: give it the key again.
+
+**Keep the key off the box's disk.** A `MANOR_SECRET_KEY_FILE` under
+`~/.manor` is on the volume it is meant to protect. The host server notices,
+and Settings → Remote control says *The key sealing pairing keys on \<host\>
+is stored on its own disk*. `MANOR_SECRET_KEY` written into
+`supervisor.env` is on that disk too: prefer a mounted file.
+
 ## Integrations
 
 Every integration is one of two kinds:
 
 - **Host-native**: the credential is already on the box because your agents
-  use it, such as `gh` and git. Agents keep using the box's own sign-ins, as
-  they always have. A future host server may run these with the box's own
-  sign-in, and nothing gets copied. If `gh` isn't signed in on the box, it
-  will say so rather than fail.
+  use it, such as `gh` and git. The host server runs these with the box's own
+  sign-in, in the checkout, and nothing gets copied. If `gh` isn't signed in on
+  the box, Manor says so ("gh isn't signed in on \<host\>") rather than
+  failing. PR badges for a remote workspace come from the box's `gh`, and a
+  workspace row shows a small warning icon in place of the badge while `gh`
+  isn't signed in there. Three things still use your laptop's `gh`: showing a
+  private-repo image from a PR or issue, creating an issue, and listing the
+  repos you can pick from.
 - **User-delegated**: a credential you gave Manor itself, such as Linear's API
-  key. It stays on your laptop. Copying one to a box will be an explicit,
-  per-host choice ("Use Linear on \<host\>"), stored through the box's secret
-  backend and deleted by **Reset pairing keys**.
+  key. It stays on your laptop unless you choose otherwise. Settings → Remote
+  control → the host has a **Use Linear on \<host\>** switch (shown when Linear
+  is connected on this computer). Turning it on copies your Linear key to the
+  box, sealed by the box's secret backend (see
+  [Where secrets live](#where-secrets-live)); Linear has no narrower key to
+  send. Until then every Linear call on the host answers "Linear isn't turned
+  on for \<host\>". Turning the switch off, or **Reset pairing keys**, deletes
+  the copy. Linear on your laptop for a remote project always uses your laptop's
+  key; the copy is only for phones and the box's own server.
 
-**Today the host server makes no integration calls at all.** With the lid
-closed, a phone sees each workspace's linked issue (id, title, link) and its
-PR (number, state, checks) as the desktop last knew them, sent in the
-manifest with the time they were taken. Browsing issues, starting work from an
-issue and issue images aren't available from a host server yet.
+### Linear through the desktop
+
+A phone that reaches a box without Linear can still use Linear, through the
+desktop. Linear calls aren't tied to a box, so each one goes to whichever
+server has Linear:
+
+1. the box's own server, if you turned on **Use Linear on \<host\>**;
+2. else the desktop that lists the box, if it is awake and has Linear
+   connected. The key never leaves the desktop;
+3. else nowhere, and the phone says why, naming the desktop as its pairing
+   does: for example "Linear isn't turned on for wsl-box, and my-laptop is
+   away".
+
+Browsing issues with no box in mind (the Tasks view) asks the desktop first,
+then any box with Linear on. When none has it, the Tasks view names the
+reason ("Linear isn't connected on This Mac, and no host has it turned on").
+Linking an issue to a workspace is still the box's own: the link is stored
+with the project on the box, whichever server answered the browse. On the
+desktop nothing changes: its own server is always there and holds the key.
+
+### Linear without a key on the box
+
+If you don't want the key on the box, skip the switch and use Linear's MCP
+server in the agent instead. It needs nothing from Manor: add the Linear MCP
+server to the agent's own configuration on the box and sign in there. The
+trade-off is that Manor doesn't see those issues, so there is no issue link on
+the workspace and no "start work from an issue" flow.
 
 ## Laptop closed
 
 - **Agents keep running.** They run on the box, not the laptop.
-- **Status is journaled on the box.** An agent's hooks (started, working,
+- **Status is decided on the box.** An agent's hooks (started, working,
   finished, needs permission) go to a loopback listener run by the remote
   daemon. The daemon appends each one to
-  `~/.manor/remote/daemon/hook-journal.ndjson`. The journal keeps at most
+  `~/.manor/remote/daemon/hook-journal.ndjson`, and the host server reads
+  that journal and keeps the agent's status. The journal keeps at most
   5,000 entries, and none older than 7 days.
 - **While you're away**, the host's projects show a *disconnected —
-  reconnecting* badge. Its panes keep their last screen, read-only, under a
-  banner. Manor retries with backoff (1s, 2s, 4s, and so on, up to every
-  30s) for as long as the app is open. **Retry now** skips the wait.
-- **When the connection is back**, Manor replays the journal from where it
-  left off, then reattaches the panes from their snapshots. Replayed hooks
-  update the sidebar exactly as live ones would. Notifications are
-  coalesced: after a night away you get at most one per agent, for its
-  final state.
+  reconnecting* badge. The sidebar keeps the box's last-known workspaces and
+  agents, and its panes keep their last screen, read-only, under a banner.
+  Manor retries with backoff (1s, 2s, 4s, and so on, up to every 30s) for as
+  long as the app is open. **Retry now** skips the wait.
+- **When the connection is back**, Manor reads the box's state through its
+  server (nothing is replayed) and reattaches the panes from their
+  snapshots. Whatever happened while you were away, including a phone's work,
+  is already there. Notifications are coalesced: after a night away you get
+  at most one per agent, for its final state.
 - **If the box rebooted, or the daemon was restarted**, the daemon's
   terminals are gone, but files and agent session ids survive. Manor treats
   each lost pane as it does on an app relaunch: a fresh shell in the same
@@ -360,9 +629,51 @@ issue and issue images aren't available from a host server yet.
   — N sessions resumed*.
 
 A box that stops (a VM that was shut down, a machine that powered off) takes
-running agents down with it, and they resume only when you reconnect.
-Managed providers with keep-awake support are planned. See
-[What isn't supported](#what-isnt-supported).
+running agents down with it, and they resume only when you reconnect. With
+[supervision](#surviving-a-reboot) on, its daemon and host server come back
+by themselves when the box boots again.
+
+### Asleep hosts
+
+A host Manor starts from a recipe can be put to sleep: **Stop** on Settings →
+Hosts, the box's own [`on-idle` hook](hosts/recipes.md#box-hooks), the
+recipe's `idleStopMinutes`, or the provider itself. An asleep host shows as
+**Asleep** (a moon) in the status bar, the sidebar and the Hosts page, and
+its workspaces are listed from the cache, read-only, as for any host away.
+
+- **Manor doesn't wake it by itself.** Reconnecting after the lid opens,
+  pollers and **Retry now** leave it asleep. Its recipe's `status` is asked
+  before each reconnect attempt, so a host the provider put to sleep is
+  noticed too.
+- **A reconnect re-runs `up` once.** When a recipe host that isn't asleep
+  drops, Manor redials the way in the last `up` returned. Before the third
+  attempt it runs the recipe's `up` again, once per drop, in case the box
+  came back somewhere else (a new address, container or pod). Its progress
+  shows in the host's status while it reconnects. A failing `up` is logged
+  and the redial goes on. A recipe with no `status` whose `up` said
+  `autoSleep` is never re-run this way, because that could wake a box that
+  put itself to sleep.
+- **Using it wakes it.** **Wake** in the host's status does, and so does
+  anything that means to use the host: opening one of its panes, creating a
+  workspace, launching an agent. Reads never do. The call waits up to two
+  minutes for the host to come up, then answers "\<host\> is still starting"
+  while it goes on starting.
+- **Restoring the window you had open when Manor starts doesn't wake it.**
+  The panes of the workspace on screen at launch show the asleep banner
+  instead; **Wake** there brings the host up and the panes reattach.
+  Opening another of its workspaces, or a new pane or tab, is using it and
+  wakes it.
+- **Idle stop counts every viewer.** A recipe's `idleStopMinutes` stops a
+  host only when nobody is looking at it: no desktop window, no phone
+  paired with the host, and no phone or window going through the desktop
+  has one of its terminals open, and no phone has one of its agents' chats
+  open. A phone left open on a terminal keeps the box up. A host server
+  older than ADR-230 reports desktop windows only, so phones don't count
+  there until its next upgrade.
+- **On a phone**, the Hosts sheet shows the host as **Asleep** with
+  **Wake**, which asks the desktop to start it. With the desktop away it
+  says "\<host\> is asleep, and \<desktop\> is away": nothing on the relay
+  can start a stopped box.
 
 ## The `manor` CLI
 
@@ -370,14 +681,16 @@ Agents on the box can run the `manor` CLI to look up their project, manage
 workspaces and folders, link issues, and list and launch agents. The CLI is
 installed at `~/.manor/bin/manor` and is on PATH in every remote PTY.
 
-Requests go to a loopback listener run by the remote daemon. The listener reads
-the request and relays it over the existing ssh connection to Manor on your
-laptop, which processes it the same way it handles requests from the local
-client. The result comes back over the same connection.
+Requests go to a loopback listener run by the remote daemon. The listener
+passes each one to the box's host server, which answers it the way the desktop
+would for a local project. The result comes back the same way. Your laptop
+isn't involved, so the CLI works with the lid closed, and a workspace made
+with it shows on a phone paired with the box straight away.
 
-This only works while your laptop is connected. If it disconnects, CLI commands
-fail with "Manor desktop is not connected to this host" — there is no queueing
-or journal for CLI requests, unlike hooks.
+If the host server isn't running, CLI commands fail with "Manor's host server
+isn't running on this host". Before the box's first adoption, the server
+answers "This host is being set up" until the desktop has connected once.
+There is no queueing or journal for CLI requests, unlike hooks.
 
 No new port is opened on your laptop and it doesn't require `AllowTcpForwarding`
 in sshd's config. The relay keeps other users on a shared box out: the token is
@@ -404,6 +717,14 @@ Everything else fails with "`<METHOD> <path>` isn't available from remote
 hosts". That covers adding, deleting or updating projects, converting or
 quick-merging workspaces, git, panes, browser panes, system commands, and
 controlling other agents' sessions (sending input, interrupting, ending).
+A route that only exists in the desktop app (the webview, panes, browser and
+system routes) says "needs Manor desktop; it isn't available from remote
+hosts".
+
+The other direction works too: the desktop's own CLI and MCP, run on your
+laptop, act on a remote project through its host server. If a box runs an
+older host server (without the control relay), those writes fail with a 502
+or 503 until the box is upgraded.
 
 ## Ports and forwarding
 
@@ -428,11 +749,41 @@ Forwards need `AllowTcpForwarding` on the box's sshd. It's enabled by
 default. Agent status does **not** depend on forwarding: the hook journal
 lives on the box.
 
+A host Manor starts with an exec way in (the Docker and Kubernetes
+templates) has no sshd to forward through. Manor listens on a local port
+itself and carries each connection over the exec stream to `port-pipe` on
+the box. These forwards carry half-close both ways: a client that shuts its
+write side after its request (HTTP/1.0-style clients, `nc -N`, some database
+drivers) still gets the reply. Once one side has finished, the other has 5
+minutes of silence before the connection is closed.
+
+## Legacy boxes
+
+A box that has no current host server running (it failed to start, or its
+upgrade failed, so it still has one from before ADR-227) no longer gets the
+desktop's help. The desktop stopped replaying its journal, polling its agent
+status, chat and worktrees, and caching its workspaces itself, because the
+host server does those now. On such a box you'll see:
+
+- no agent status, chat view or worktree list updates in the sidebar;
+- no last-known workspaces while the box is away;
+- removing a project while its box is away only tears down the main path's
+  layout;
+- the desktop's CLI and MCP writes for its projects fail until the box is
+  upgraded (a 502 or 503).
+
+**The fix is to upgrade the box.** Connect the desktop to it: the next connect
+installs the matching host package and starts a current host server, and
+adoption does the rest. Nothing on the box needs to be done by hand.
+
 ## What isn't supported
 
-- **Managed providers** (Fly Sprites, Daytona, E2B). Hosts are ssh only for
-  now. Manor already models hosts as providers internally, so these can be
-  added later.
+- **Built-in managed providers** (Fly Sprites, Daytona, E2B, Codespaces).
+  Use a [recipe](hosts/recipes.md) that drives their CLI.
+- **Waking a stopped host from the phone while the desktop is away.** The
+  relay holds no provider credentials.
+- **Resuming agents by themselves after a reboot.** Their panes come back
+  when opened, with the agent's resume command.
 - **Windows hosts.** Linux and macOS only.
 - **Remote MCP.** Agents on the box don't get Manor's MCP server. Hooks
   work, and the `manor` CLI works for the commands listed in "The `manor` CLI"
@@ -441,6 +792,12 @@ lives on the box.
   file sync to a local editor either. Use your editor's own remote mode (VS
   Code Remote-SSH, Zed remote) against the same box.
 - **One box per project.** A project's workspaces all live on its host.
+- **Moving a project off an adopted host** ends its panes there and loses its
+  remembered path, since the box's layout goes with the project. A transfer
+  onto an adopted host doesn't carry the source's main-workspace name or
+  issue links.
+- **Detached windows** of a remote workspace keep their viewport on the
+  desktop; a phone's view of the box's layout is its own.
 - **Prewarmed sessions** are only kept for local projects.
 
 ## Security notes
@@ -469,8 +826,8 @@ lives on the box.
 
 ## Troubleshooting
 
-Each failure mode below is shown on the host (status bar and Project
-Settings → Host) with the message quoted here.
+Each failure mode below is shown on the host (status bar and Settings → Hosts)
+with the message quoted here.
 
 **"ssh could not authenticate to …"**
 Your key isn't available non-interactively. Check that
@@ -550,6 +907,37 @@ paired with this host:
 
 3. Open Manor. Once the host connects, pair your phones again.
 
+**"Pairing keys were sealed with a key from MANOR_SECRET_KEY or MANOR_SECRET_KEY_FILE, and neither is set"**
+The host server sealed its keys with a key you supplied, and started without
+it (see [A key from outside the box](#a-key-from-outside-the-box)). Give it
+`MANOR_SECRET_KEY` or `MANOR_SECRET_KEY_FILE` again, the same key, and
+restart it.
+
+**"No supervisor on this host"**
+"Keep Manor running" found neither a systemd user manager, launchd, nor a
+running `manor-host supervise`. On a container, use an image whose entrypoint
+runs `manor-host supervise` (see
+[The host image](hosts/recipes.md#the-host-image)).
+
+**"Starts after you log in to \<host\>"**
+systemd runs the units, but the user doesn't linger, so they start only at
+login. Run `sudo loginctl enable-linger <user>` on the box once.
+
+**"\<host\> no longer exists"**
+The recipe's `status` says the box was deleted outside Manor. **Start it
+again** runs `up`, which creates a new one; **Remove…** forgets it.
+
+**"\<host\> is still starting"**
+A woken host took longer than two minutes. Its recipe's `up` goes on (up to
+15 minutes), with its progress in the host's status. Try again once it's
+connected.
+
+**A recipe command fails**
+The message names the command and quotes the end of what it printed on
+stderr. "printed nothing on stdout" or "must print exactly one JSON object"
+means the script wrote something other than its one JSON result to stdout.
+See [Host recipes](hosts/recipes.md#how-a-command-runs).
+
 **A phone paired with a host can't connect**
 In the host's section of Settings → Remote control, check that the summary
 says *relay connected*. The host server dials the Manor relay from the box, so
@@ -579,6 +967,11 @@ node scripts/test-remote-e2e.mjs --docker
 
 # Options: --no-build, --vitest-only, --playwright-only, --smoke (check the
 # sshd and exit), --serve (keep it up and print the env to export).
+
+# Hosts Manor starts (ADR-229): no sshd. Builds docker/host-image as
+# manor-host:e2e and runs the recipe-host suite against the Docker daemon.
+# Skipped, with a message, when Docker isn't available.
+node scripts/test-remote-e2e.mjs --recipe
 ```
 
 - `electron/terminal-host/__tests__/remote-ssh.e2e.test.ts` (vitest) covers
@@ -587,23 +980,152 @@ node scripts/test-remote-e2e.mjs --docker
   resync without duplicated output, and a remote daemon restart.
 - `tests/e2e/remote-host.spec.ts` (Playwright) covers the app: laptop-closed
   replay with a single notification, pane recovery with the agent's resume
-  command after a remote restart, and port forwarding.
+  command after a remote restart, and port forwarding. Each test starts from
+  a clean box.
+- `electron/backend/__tests__/recipe-docker.e2e.test.ts` (vitest, `--recipe`)
+  covers hosts Manor starts. It writes a recipe from the `docker` template
+  and drives the desktop's `BackendRegistry`, `HostServerClient` and
+  `HostRouting` against the container it starts:
+  - `up` over `docker exec`, bootstrap, the host server under `supervise`,
+    adoption, a workspace and an agent that reports status;
+  - the `on-busy` box hook running when the agent works;
+  - a port forward over exec (`port-pipe`);
+  - a forced drop: the box's `server-bridge` and `remote-bridge` are
+    killed, and the owner channel and the host reconnect by themselves to
+    the same host server;
+  - a forced drop after the box moved (ADR-230 D2): the container is
+    renamed and the recipe's `up` and `status` now name the new one, so the
+    old `docker exec` target fails. The reconnect re-runs `up` and finds the
+    same host server under the new name, with no connect from outside;
+  - a port forward that carries half-close (ADR-230 D4): a client that
+    shuts its write side after its request still gets the reply;
+  - `docker restart` with the desktop gone: the host server comes back by
+    itself in the same relay room, sealed by `key-file` with the key off the
+    volume, and an agent launched afterwards starts;
+  - **Stop**: the host stays asleep for 10 s with no reconnect, then a
+    routed write (create a workspace) wakes it and succeeds;
+  - a second container on a copy of the volume, with another
+    `MANOR_INSTANCE_ID`: a new relay room, its projects kept;
+  - remove with destroy: the container, volume and recipe are gone, and the
+    host is no longer listed.
+
+  It removes every container and volume it makes, and keeps the image. Run
+  as a user in the `docker` group (or with `sg docker -c '…'`). Set
+  `MANOR_E2E_RECIPE_KEEP=1` to keep the container for a look after a
+  failure. The host server's relay is a closed local port, as in the ssh
+  suites, so no relay connection is tested there.
 - `tests/e2e/host-server.spec.ts` (Playwright) covers the host server with the
-  laptop gone. The desktop starts an agent on the box and pairs a browser with
-  the box's host server through a local relay (`wrangler dev`). Then the
-  desktop loses the box, and the browser alone checks three things: the agent
-  is listed with its status, a hook fired on the box changes that status, and
-  typing reaches the agent's terminal. When the desktop reconnects, its agent
-  state must match the host server's. It needs the private-sshd target, not
-  `--docker`, because the box must reach the relay on the test machine's
-  loopback. It also needs `pnpm build:web:relay` and Node 22 on `PATH`
-  (wrangler).
+  laptop gone. The desktop clones a project onto the box and starts an agent
+  there, and pairs a browser with the box's host server through a local relay
+  (`wrangler dev`). Then the desktop loses the box, and the browser alone
+  checks that the project is in its sidebar, the agent is listed with its
+  status, a hook fired on the box changes that status, and typing into the
+  agent's pane reaches it. When the desktop reconnects, its agent state must
+  match the host server's.
+- `tests/e2e/host-ownership.spec.ts` (Playwright) covers the ownership flip.
+  A desktop is launched holding a remote project (named workspaces, a folder,
+  a linked issue, a setup script) in its own `projects.json`. It connects, and
+  the spec asserts adoption: the box's `projects.json` has it all, the
+  desktop's doesn't, the backup file exists, and the sidebar still shows it.
+  Then the desktop's ssh is killed and a phone paired with the host server
+  makes a worktree and launches an agent in it from the New agent composer.
+  The setup script runs on the box, the agent goes from thinking to working to
+  requires-input, the box's `manor list-workspaces` lists the new worktree, and
+  a PR badge for it (from the box's fake `gh`) shows on the phone's tab menu.
+  When the desktop reconnects, the workspace, its agent tab and the agent
+  appear without a restart, with the badge.
+  Same requirements as `host-server.spec.ts`.
+- `tests/e2e/host-direct-bridge.spec.ts` (Playwright) covers a desktop
+  window's own bridge to the host server (ADR-228 D4, D5). A pane on the box
+  is typed into and resized over the window's `server-bridge --viewer`
+  stream. When that stream is killed, typing and output still go through
+  main, which forwards the pane's terminal to the box's server, and the
+  window dials the stream again and redraws the pane over it.
+  A host server that does not report `viewer-bridge` (the test-only
+  `MANOR_E2E_HOST_CAPABILITIES` in `~/.manor-e2e/env` stands in for an older
+  one) gets no stream, and its pane works through main. A browser paired
+  only with the desktop (over a local relay, as in `host-server.spec.ts`)
+  types into the box's pane and sees its output, through main. Each test
+  starts from a clean box.
+- `tests/e2e/phone-all-pairings.spec.ts` (Playwright) covers a phone holding
+  every pairing at once (ADR-228 D8). One browser opens the desktop's link and
+  the box's host server's, and its sidebar lists the desktop's project and
+  the box's. With the desktop stopped, the box's project stays live (a branch
+  made on the box afterwards is listed, and a `git checkout -b` there
+  reaches the phone's sidebar through the box's own branch watcher, ADR-230
+  D6), a write to the desktop's project is refused as away, and the
+  desktop's project is still listed. Removing the desktop's pairing in the
+  Hosts sheet takes its project out and leaves the box's.
+- `tests/e2e/phone-linked-hosts.spec.ts` (Playwright) covers one pairing for
+  every host (ADR-228 D9). A browser opens only the desktop's link, is linked
+  to the box's room on its first hello, lists the box's project once (under
+  the box's room) and shows on the box's device list "via This Mac". With the
+  desktop stopped it keeps reaching the box. It also covers Linear through
+  the desktop (D10): with Linear connected on the desktop only (main's
+  Linear API is a stub there), the phone's Linear call is answered by the
+  desktop, and with the desktop stopped it is refused as away. A call on
+  behalf of one box is covered by unit tests
+  (`src/bridge/__tests__/router.test.ts`), not end to end.
 
 The Playwright specs share one box, so the harness runs them with one worker.
 The box's host server dials `MANOR_RELAY_URL` from its environment, and the
 harness sets that to a closed local port, so a test box never dials the
-production relay. `host-server.spec.ts` points it at its own relay through
-`~/.manor-e2e/env` on the box, which the harness's ssh wrapper sources.
+production relay. `host-server.spec.ts`, `host-ownership.spec.ts` and the
+phone specs point it at their own relay through `~/.manor-e2e/env` on the box, which the harness's
+ssh wrapper sources. The same file puts `~/.manor-e2e/bin` first on the
+server's `PATH`, so the box's `gh` is a fake (`installRemoteStubs`; its
+answers are set with `setRemoteGhPrs`).
+
+**On this kind of machine.**
+
+- The runner needs a display for the Electron app: run it as
+  `DISPLAY=:0 node scripts/test-remote-e2e.mjs --playwright-only` (WSL2 with
+  WSLg, for example; if `/tmp/.X11-unix/X0` is missing, link it from
+  `/mnt/wslg/.X11-unix/X0`).
+- The stub agent (`tests/e2e/remote-host/manor-e2e-agent`) ends with
+  `exec awk`, not a shell loop: a pane whose foreground process is a shell
+  reads as "the agent's process exited" to the host server, which now reads
+  pane facts itself.
+- The specs that pair a browser over a local relay (`host-server`,
+  `host-ownership`, the browser test in `host-direct-bridge`, and the two
+  phone specs) serve the web app from the relay build: run
+  `pnpm build:web:relay` first.
+- Pass Playwright arguments after `--`, for example
+  `-- --grep "host owns"`.
+- `--docker` builds its image with `docker build --progress=plain`, which
+  needs the buildx plugin. Without it, build the image once by hand
+  (`docker build -t manor-e2e-remote:<hash> tests/e2e/remote-host`, with the
+  tag the harness prints) and run again.
+
+**Known local e2e failures.** These fail on `main` too, for reasons unrelated
+to the host server, and are not regressions:
+
+| Spec | Test | Why |
+|---|---|---|
+| `read-state.spec.ts` | "switching back to the agent's tab stops its tab dot pulsing"; "…workspace stops its sidebar dot pulsing" | They assert `app.dock.getBadge()`, which is macOS-only |
+| `pr-badge-matrix.spec.ts` | "every PR badge state" (`g-queued-mergequeue readiness` expects queued, gets ready) | Fails on a clean `main` |
+| `sidebar-pr-tweaks.spec.ts` | "sidebar PR badge, popover, notifications, folders and diff tree" | Fails on a clean `main` |
+| `bridge.spec.ts` | "two desktop windows on one pane" (presses `Meta+t`); "the CLI lands with every window closed" | Non-macOS quits on the last window close, which removes the port file |
+| `smoke.spec.ts` | "reopening a closed pane reattaches the same shell" | Fails on a clean `main` |
+| `web-app.spec.ts` | "a PC browser pairs, sees the sidebar, and drives a live terminal…"; "the desk's window closes and the browser is told the winsize is its own"; "the browser arranges the desk's layout, the desk follows, and back" | Fail on the ADR-228 branch before the phone held every pairing (`a3058ed1`) too; not caused by it, not yet looked into |
+| `remote-host.spec.ts` | "laptop closed … one notification" | Sent 2 notifications on `main`; it passes since the host server owns the journal |
+| `host-direct-bridge.spec.ts` (`--docker`) | "a host server without viewer-bridge works through main" | Times out waiting for the host's first status. Fails on the ADR-229 base (`4b73fd9b`) too; passes on the private sshd |
+| `remote-host.spec.ts` (`--docker`) | "laptop closed … one notification" | Flaky in Docker mode: right after its ssh is killed the desktop sometimes already reads "responded", or never reads "thinking". Failed 2 of 4 runs on `4b73fd9b` too; passes on the private sshd |
+
+The "laptop closed" row on the private sshd is fixed since the ADR-227 branch;
+the rest are not.
+
+**Seen flaky, not known to fail on `main`.** `remote-host.spec.ts` "laptop
+closed … one notification" on the private sshd, with the Docker symptom: the
+desktop never reads "thinking", before any drop. It failed 1 of 6 runs on the
+ADR-230 branch and passed 5 of 5 on its base (`b128a6fa`); not traced. When
+it fails, the two tests after it in the file don't run.
+
+**Flaky unit tests.** Under a full parallel `pnpm test:unit` these have
+failed and then passed when run alone:
+`electron/terminal-host/__tests__/bridge-process.test.ts` ("keeps its daemon
+apart"), `exec-runner.test.ts` ("escalates to SIGKILL"),
+`terminal-host.test.ts` ("new client can attach…") and `TaskDetail`.
 
 The harness writes an ssh config with two aliases, `manor-e2e` (the app's)
 and `manor-e2e-direct` (the tests' side channel), and passes it to the tests

@@ -8,7 +8,22 @@
  */
 
 import type { HostDeps } from "../ipc/types";
-import type { CallerClass, UnavailableCode } from "./types";
+import { LOCAL_ROUTE, type RouteRule } from "./routes";
+import type { CallerClass, UnavailableCode, ViewerKind } from "./types";
+
+// The route rules live in `./routes.ts` (ADR-228 D1) so the renderer can read
+// them; the tables import them from here.
+export {
+  LOCAL_ROUTE,
+  byAgent,
+  byGhRepo,
+  byHost,
+  byPane,
+  byProject,
+  delegated,
+  byWorkspaceKey,
+  type RouteRule,
+} from "./routes";
 
 /**
  * Who is calling, as the transport saw it — never as the frame says.
@@ -25,6 +40,12 @@ export interface Caller {
    * server's owner channel (ADR-225 D4); `device` = a paired `full` device.
    */
   callerClass: CallerClass;
+  /**
+   * A desktop window's own stream to a host server (ADR-228 D4): an `owner`
+   * that ranks as the desk for the winsize and is its own layout origin.
+   * Absent for everyone else.
+   */
+  viewer?: ViewerKind;
   /** The paired device behind a `device` caller; null/absent for `local`. */
   deviceId?: string | null;
 }
@@ -81,6 +102,12 @@ export interface MethodRules {
    * browser in `./local-only.ts`.
    */
   localOnly?: true;
+  /**
+   * Which host answers it on the desktop (ADR-227 D4): a `RouteRule`, or
+   * `LOCAL_ROUTE` for one this server answers whatever host it touches.
+   * Absent is local too; a routed namespace says so explicitly.
+   */
+  route?: RouteRule | typeof LOCAL_ROUTE;
 }
 
 export interface Method<
@@ -133,7 +160,7 @@ export function flatten<const T extends Record<string, Table>>(
 /** The keys of `methods` whose entry carries `rule`. */
 function ruleSet(
   methods: Record<string, Method>,
-  rule: keyof MethodRules,
+  rule: Exclude<keyof MethodRules, "route">,
 ): ReadonlySet<string> {
   return new Set(
     Object.entries(methods)
@@ -156,6 +183,11 @@ export interface HandlerTable<D> {
   mutating: ReadonlySet<string>;
   /** First argument is a credential; never written to the audit line. */
   secretFirstArg: ReadonlySet<string>;
+  /**
+   * The methods that name their host in an argument (ADR-227 D4): what the
+   * desktop's `forward` reads to send a call to a remote host's server.
+   */
+  routes: ReadonlyMap<string, RouteRule>;
   /**
    * How a method absent from the table (or refused as `localOnly`) is
    * answered: `unavailable:web`, "in the browser" on the desktop;
@@ -189,6 +221,12 @@ export function toHandlerTable<D>(
     localOnly: ruleSet(methods, "localOnly"),
     mutating: ruleSet(methods, "mutating"),
     secretFirstArg: ruleSet(methods, "secretFirstArg"),
+    routes: new Map(
+      Object.entries(methods).flatMap(([key, entry]) => {
+        const route = entry.rules.route;
+        return route && route !== LOCAL_ROUTE ? [[key, route] as const] : [];
+      }),
+    ),
     ...surface,
   };
 }
@@ -197,6 +235,6 @@ export function toHandlerTable<D>(
  * A context for a caller at this machine that is not a bridge connection —
  * a test, or a host-side path that calls a handler directly.
  */
-export function localCtx(deps: HostDeps, id = "local"): HandlerCtx {
+export function localCtx<D = HostDeps>(deps: D, id = "local"): HandlerCtx<D> {
   return { deps, caller: { id, callerClass: "local" } };
 }

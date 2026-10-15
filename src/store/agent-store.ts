@@ -5,6 +5,7 @@ import { useAppStore, selectVisiblePaneIds } from "./app-store";
 import { navigateToAgent } from "../utils/agent-navigation";
 import { cleanAgentTitle } from "../utils/agent-title";
 import { bootAndResync } from "../bridge/resync";
+import { provideHostLookups } from "../bridge/host-lookups";
 
 /** Page size used for the initial agent load and for `loadMoreAgents`. */
 const TASK_PAGE_SIZE = 100;
@@ -86,6 +87,17 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
   // let `receiveAgentUpdate` skip cache reconciliation in that case.
   window.electronAPI?.agents.onUpdate((agent, unseen) => {
     get().receiveAgentUpdate(agent, unseen);
+  });
+
+  // Agents a host's server adopted left the list under their old ids
+  // (ADR-227 D3): the host's own copies arrive as updates.
+  window.electronAPI?.agents.onRemoved?.((agentIds) => {
+    const gone = new Set(agentIds);
+    set((state) => ({
+      agents: state.agents.filter((a) => !gone.has(a.id)),
+      unseenRespondedAgentIds: new Set([...state.unseenRespondedAgentIds].filter((id) => !gone.has(id))),
+      unseenInputAgentIds: new Set([...state.unseenInputAgentIds].filter((id) => !gone.has(id))),
+    }));
   });
 
   // Whatever is on screen has been read. Structure (`workspaceLayouts`) and
@@ -420,4 +432,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       get().markVisibleAgentsSeen();
     },
   };
+});
+
+// Which host's server holds an agent, for the bridge router (ADR-228 D1).
+provideHostLookups({
+  agent: (agentId) => useAgentStore.getState().agents.find((a) => a.id === agentId)?.hostId,
 });

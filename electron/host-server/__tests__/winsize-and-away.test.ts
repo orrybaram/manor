@@ -9,14 +9,13 @@ import {
   resetAttachments,
   setForeign,
 } from "../../pty-attachments";
-import type { LayoutEntry } from "../../../src/lib/layout/protocol";
 import type { SessionInfo } from "../../terminal-host/types";
-import { HOST_TABLE, type HostServerDeps } from "../handlers";
 import {
-  STARTED_WHILE_AWAY_TITLE,
-  withStartedWhileAway,
-  missingSessions,
-} from "../started-while-away";
+  BridgeUnavailableRefusal,
+  UNAVAILABLE_HOST_CODE,
+} from "../../bridge/types";
+import { HOST_TABLE, type HostServerDeps } from "../handlers";
+import { LayoutStore, type LayoutFile } from "../../layout/layout-store";
 import { createHostWinsize, hasOtherClients } from "../winsize";
 
 const device = {
@@ -44,31 +43,6 @@ function session(
   return { sessionId, cwd, cols: 100, rows: 30, alive: true, attachedClients };
 }
 
-function entryWith(paneId: string, panelId = "p1"): LayoutEntry {
-  return {
-    version: 3,
-    layout: {
-      panelTree: { type: "leaf", panelId },
-      panels: {
-        [panelId]: {
-          id: panelId,
-          pinnedTabIds: [],
-          tabs: [
-            {
-              id: "t1",
-              title: "shell",
-              rootNode: { type: "leaf", paneId, contentType: "terminal" },
-            },
-          ],
-        },
-      },
-    },
-    defaultViewport: { activePanelId: null, selectedTabIds: {}, focusedPaneIds: {} },
-    paneSessions: { [paneId]: { daemonSessionId: paneId, lastCwd: null, lastTitle: null } },
-    claims: [],
-  };
-}
-
 describe("hasOtherClients", () => {
   it("excludes this server's own socket, and unknown is someone else", () => {
     expect(hasOtherClients(1, 1)).toBe(false);
@@ -82,7 +56,7 @@ describe("hasOtherClients", () => {
 
 describe("host pty.create winsize (ADR-225 D5)", () => {
   let sessions: SessionInfo[];
-  let createOrAttach: ReturnType<typeof vi.fn>;
+  let createOrAttachWith: ReturnType<typeof vi.fn>;
   let watched: Array<[string, number | undefined]>;
   let deps: HostServerDeps;
   let winsize: ReturnType<typeof createHostWinsize>;
@@ -92,23 +66,38 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
     sessions = [];
     watched = [];
     winsize = createHostWinsize({ listSessions: async () => sessions });
-    createOrAttach = vi.fn(async () => ({ snapshot: null }));
-    deps = {
-      backend: {
-        pty: {
-          listSessions: async () => sessions,
-          createOrAttach,
-          attachExisting: vi.fn(async (id: string) =>
-            sessions.some((s) => s.sessionId === id && s.alive)
-              ? { screenAnsi: "$ ", seq: 7, cols: 90, rows: 20 }
-              : null,
-          ),
-          getSnapshot: async () => ({ cols: 90, rows: 20 }),
-          write: vi.fn(),
-          resize: vi.fn(async () => {}),
-          detach: vi.fn(async () => {}),
-        },
+    // The shared `pty.create` spawns through `createOrAttachWith` (ADR-227
+    // D6); a session the daemon already runs answers with its snapshot.
+    createOrAttachWith = vi.fn(async (id: string) => ({
+      snapshot: sessions.some((s) => s.sessionId === id && s.alive)
+        ? { screenAnsi: "$ ", seq: 7 }
+        : null,
+      hostId: "local",
+    }));
+    const noFile = {
+      load: () => null,
+      save: () => {},
+      removeWorkspace: () => {},
+    } as unknown as LayoutFile;
+    const backend = {
+      pty: {
+        listSessions: async () => sessions,
+        createOrAttachWith,
+        attachExisting: vi.fn(async (id: string) =>
+          sessions.some((s) => s.sessionId === id && s.alive)
+            ? { screenAnsi: "$ ", seq: 7, cols: 90, rows: 20 }
+            : null,
+        ),
+        getSnapshot: async () => ({ cols: 90, rows: 20 }),
+        write: vi.fn(),
+        resize: vi.fn(async () => {}),
+        detach: vi.fn(async () => {}),
       },
+    };
+    deps = {
+      backend,
+      // Spawning a pane records and delivers through the layout.
+      layoutStore: new LayoutStore(noFile, () => {}, backend as never),
       winsize: {
         watch: (id: string, attachedClients: number | undefined) => {
           watched.push([id, attachedClients]);
@@ -134,7 +123,13 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
       cols: 120,
       rows: 40,
     });
-    expect(createOrAttach).toHaveBeenCalledWith("pane-1", expect.anything(), 120, 40);
+    expect(createOrAttachWith).toHaveBeenCalledWith(
+      "pane-1",
+      expect.anything(),
+      120,
+      40,
+      expect.anything(),
+    );
   });
 
   it("is a follower when another client is attached, and does not resize", async () => {
@@ -145,14 +140,23 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
       cols: 90,
       rows: 20,
     });
-    expect(createOrAttach).toHaveBeenCalledWith("pane-1", expect.anything(), 90, 20);
+    expect(createOrAttachWith).toHaveBeenCalledWith(
+      "pane-1",
+      expect.anything(),
+      90,
+      20,
+      expect.anything(),
+    );
     expect(watched).toEqual([["pane-1", 1]]);
     expect(ownerOf("pane-1")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
   });
 
   it("is a follower when an old daemon reports no count", async () => {
     sessions = [session("pane-1", undefined)];
-    expect(await create(device)).toMatchObject({ ok: true, winsizeOwner: false });
+    expect(await create(device)).toMatchObject({
+      ok: true,
+      winsizeOwner: false,
+    });
   });
 
   it("does not count its own subscription once a device already holds the pane", async () => {
@@ -188,7 +192,7 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
       rows: 20,
     });
     expect(ownerOf("pane-1")?.connectionId).toBe("phone-2");
-    expect(createOrAttach).toHaveBeenCalledTimes(2);
+    expect(createOrAttachWith).toHaveBeenCalledTimes(2);
   });
 
   it("answers exited for a session that is gone", async () => {
@@ -207,6 +211,29 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
     // A `local` arrival would have outranked it; a device among equals does.
     const third = await create({ ...device, id: "phone-2" } as Caller);
     expect(third).toMatchObject({ winsizeOwner: true });
+  });
+
+  it("ranks a desktop viewer stream above a device, and does not count it as foreign (ADR-228 D5)", async () => {
+    const deskViewer = { ...owner, id: "desk-viewer", viewer: "desktop" } as Caller;
+    sessions = [session("pane-1", 0)];
+    expect(await create(device)).toMatchObject({ winsizeOwner: true });
+    // The daemon shows one socket, this server's own: the viewer stream
+    // reaches the session through it, not as another daemon client.
+    sessions = [session("pane-1", 1)];
+    expect(await create(deskViewer)).toMatchObject({
+      winsizeOwner: true,
+      cols: 120,
+      rows: 40,
+    });
+    expect(ownerOf("pane-1")).toMatchObject({ connectionId: "desk-viewer" });
+    // A phone arriving later follows the desk.
+    const later = await create({ ...device, id: "phone-2" } as Caller);
+    expect(later).toMatchObject({ winsizeOwner: false });
+    await handler("pty.resize")({ deps, caller: device }, "pane-1", 50, 10);
+    expect(deps.backend.pty.resize).not.toHaveBeenCalled();
+    // The viewer lets go: a device owns the pane again.
+    release("pane-1", { connectionId: "desk-viewer", callerClass: "owner", viewer: "desktop" });
+    expect(ownerOf("pane-1")?.callerClass).toBe("device");
   });
 
   it("drops a device's resize and claim while another client holds the pane", async () => {
@@ -311,98 +338,80 @@ describe("createHostWinsize poll", () => {
   });
 });
 
-describe("Started while away (ADR-225 D5)", () => {
-  const paths = ["/ws/a", "/ws/a/sub", "/ws/b"];
+describe("layout writes on the host (ADR-227 D6)", () => {
+  const writes = [
+    "layout.apply",
+    "layout.setPaneTitle",
+    "layout.setPendingCommand",
+    "layout.reportViewport",
+  ];
 
-  it("appends a missing live session to the workspace it runs in", () => {
-    const snapshot = { "/ws/a": entryWith("known") };
-    const missing = missingSessions(snapshot, [
-      session("known", 1),
-      session("new-1", 0, "/ws/a/src"),
-      { ...session("dead", 0), alive: false },
-    ]);
-    expect(missing.map((s) => s.sessionId)).toEqual(["new-1"]);
-
-    const out = withStartedWhileAway(snapshot, missing, paths);
-    const tabs = out["/ws/a"].layout.panels.p1.tabs;
-    expect(tabs.map((t) => t.title)).toEqual(["shell", STARTED_WHILE_AWAY_TITLE]);
-    expect(tabs[1].rootNode).toMatchObject({ type: "leaf", paneId: "new-1" });
-    expect(out["/ws/a"].paneSessions["new-1"].daemonSessionId).toBe("new-1");
-    // The input is untouched.
-    expect(snapshot["/ws/a"].layout.panels.p1.tabs).toHaveLength(1);
+  it("lists every layout write but `save`, which no server has", () => {
+    for (const key of writes) expect(HOST_TABLE.handlers[key]).toBeDefined();
+    expect(HOST_TABLE.handlers["layout.save"]).toBeUndefined();
   });
 
-  it("uses the longest workspace path and ignores sessions outside every workspace", () => {
-    const out = withStartedWhileAway(
-      {},
-      [session("s1", 0, "/ws/a/sub/x"), session("s2", 0, "/elsewhere")],
-      paths,
-    );
-    expect(Object.keys(out)).toEqual(["/ws/a/sub"]);
-  });
-
-  it("has stable ids across calls", () => {
-    const snapshot = { "/ws/a": entryWith("known") };
-    const sessions = [session("n2", 0), session("n1", 0)];
-    const first = withStartedWhileAway(snapshot, missingSessions(snapshot, sessions), paths);
-    const second = withStartedWhileAway(
-      snapshot,
-      missingSessions(snapshot, [...sessions].reverse()),
-      paths,
-    );
-    expect(second).toEqual(first);
-    const tab = first["/ws/a"].layout.panels.p1.tabs[1];
-    expect(tab.id).toBe("away:/ws/a");
-    expect(tab.rootNode).toMatchObject({ type: "split", first: { paneId: "n1" } });
-  });
-
-  it("builds a panel per workspace with live sessions when there is no snapshot", () => {
-    const out = withStartedWhileAway(
-      {},
-      [session("s1", 0, "/ws/a"), session("s2", 0, "/ws/b")],
-      paths,
-    );
-    expect(Object.keys(out).sort()).toEqual(["/ws/a", "/ws/b"]);
-    const panel = out["/ws/b"].layout.panels["away-panel:/ws/b"];
-    expect(panel.tabs).toHaveLength(1);
-    expect(panel.tabs[0].title).toBe(STARTED_WHILE_AWAY_TITLE);
-  });
-
-  it("is served by layout.getAll, and falls back to the bare snapshot when git fails", async () => {
-    const snapshot = { "/ws/a": entryWith("known") };
+  it("refuses each with the named state until the host is adopted, then runs it", async () => {
+    let ownership: "pending" | "host" = "pending";
+    const apply = vi.fn(async () => ({ version: 1 }));
     const deps = {
-      layout: () => ({ workspaces: snapshot, lastActiveWorkspacePath: null }),
-      backend: {
-        pty: { listSessions: async () => [session("known", 1), session("new-1", 0)] },
+      ownership: { current: () => ownership },
+      layoutStore: {
+        apply,
+        setPaneTitle: vi.fn(),
+        reportViewport: vi.fn(),
+        pendingCommands: { set: vi.fn() },
       },
-      projects: async () => [{ workspaces: [{ path: "/ws/a" }] }],
     } as unknown as HostServerDeps;
-    const out = (await handler("layout.getAll")({
-      deps,
-      caller: device,
-    })) as Record<string, LayoutEntry>;
-    expect(out["/ws/a"].layout.panels.p1.tabs).toHaveLength(2);
+    const args: Record<string, unknown[]> = {
+      "layout.apply": ["/ws/a", { type: "new-tab", tab: {} }],
+      "layout.setPaneTitle": ["pane-1", "title"],
+      "layout.setPendingCommand": ["pane-1", "claude", "agent-startup"],
+      "layout.reportViewport": ["/ws/a", {}],
+    };
+    for (const key of writes) {
+      let refusal: unknown;
+      try {
+        await handler(key)({ deps, caller: device }, ...args[key]);
+      } catch (err) {
+        refusal = err;
+      }
+      expect(refusal, key).toBeInstanceOf(BridgeUnavailableRefusal);
+      expect(refusal).toMatchObject({
+        code: UNAVAILABLE_HOST_CODE,
+        message: "This host is being set up",
+      });
+    }
+    expect(apply).not.toHaveBeenCalled();
 
-    const broken = {
-      ...deps,
-      projects: async () => {
-        throw new Error("git");
-      },
-    } as unknown as HostServerDeps;
-    expect(
-      await handler("layout.getAll")({ deps: broken, caller: device }),
-    ).toBe(snapshot);
+    ownership = "host";
+    await handler("layout.apply")(
+      { deps, caller: device },
+      ...args["layout.apply"],
+    );
+    expect(apply).toHaveBeenCalledWith(
+      "/ws/a",
+      { type: "new-tab", tab: {} },
+      expect.objectContaining({ id: "phone-1" }),
+    );
   });
 
-  it("refuses every layout write from a device with the named state", () => {
-    for (const key of [
-      "layout.apply",
-      "layout.save",
-      "layout.setPaneTitle",
-      "layout.setPendingCommand",
-      "layout.reportViewport",
-    ]) {
-      expect(HOST_TABLE.handlers[key]).toBeUndefined();
-    }
+  it("takes a forwarded origin from main's owner channel only, never from a viewer stream (ADR-228 D4)", async () => {
+    const apply = vi.fn(async () => ({ version: 1 }));
+    const deps = {
+      ownership: { current: () => "host" },
+      layoutStore: { apply },
+    } as unknown as HostServerDeps;
+    const forwarded = { kind: "window", id: "7" };
+    const command = { type: "new-tab", tab: {} };
+    await handler("layout.apply")({ deps, caller: owner }, "/ws/a", command, forwarded);
+    expect(apply).toHaveBeenLastCalledWith("/ws/a", command, forwarded);
+
+    const deskViewer = { ...owner, id: "desk-viewer", viewer: "desktop" } as Caller;
+    await handler("layout.apply")({ deps, caller: deskViewer }, "/ws/a", command, forwarded);
+    expect(apply).toHaveBeenLastCalledWith("/ws/a", command, {
+      kind: "bridge",
+      id: "desk-viewer",
+    });
   });
 });

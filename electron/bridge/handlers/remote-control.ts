@@ -22,6 +22,7 @@
  */
 
 import { assertBoolean, assertString } from "../../ipc-validate";
+import type { LinkedHostPairing } from "../../remote-control/host-links";
 import type {
   RemoteControlController,
   RemoteControlStatus,
@@ -29,7 +30,7 @@ import type {
 import type { PairResult } from "../../remote-control/relay-room";
 import { asPushSubscription } from "../../remote-control/push";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { HostDeps } from "../../ipc/types";
+import type { ServerDeps } from "../../ipc/types";
 import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
@@ -47,7 +48,9 @@ type RemoteControlCtx<K extends keyof RemoteControlController> = HandlerCtx<{
  * is paired (device labels, never tokens), the same view the desktop settings
  * panel gets.
  */
-export function remoteControlGetStatus(ctx: HandlerCtx): RemoteControlStatus {
+export function remoteControlGetStatus(
+  ctx: HandlerCtx<ServerDeps>,
+): RemoteControlStatus {
   return ctx.deps.remoteControl.status();
 }
 
@@ -61,14 +64,16 @@ export function remoteControlGetStatus(ctx: HandlerCtx): RemoteControlStatus {
  * paired device through the one sink — `remoteControl.status`, which is what
  * `remoteControl.onStatus(cb)` subscribes to on both platforms.
  */
-export function wireRemoteControlStatus(deps: HostDeps): void {
+export function wireRemoteControlStatus(
+  deps: Pick<ServerDeps, "remoteControl">,
+): void {
   deps.remoteControl.onChange((status: RemoteControlStatus) => {
     publishRendererBroadcast("remoteControl", "status", status);
   });
 }
 
 export function remoteControlSetEnabled(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   enabled: boolean,
 ): Promise<RemoteControlStatus> {
   assertBoolean(enabled, "remoteControl.setEnabled.enabled");
@@ -95,8 +100,13 @@ export function remoteControlPair(
   return ctx.deps.remoteControl.pair(trimmed);
 }
 
+/**
+ * Revoking a device also revokes the pairings it was given on each remote
+ * host (ADR-228 D9): the device store hands them to `HostPairingLinks`,
+ * which revokes each now, or on that host's next connect.
+ */
 export function remoteControlRevoke(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   id: string,
 ): Promise<RemoteControlStatus> {
   assertString(id, "remoteControl.revoke.id");
@@ -104,20 +114,20 @@ export function remoteControlRevoke(
 }
 
 export function remoteControlStartRelay(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<RemoteControlStatus> {
   return ctx.deps.remoteControl.startRelay();
 }
 
 export function remoteControlStopRelay(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<RemoteControlStatus> {
   return ctx.deps.remoteControl.stopRelay();
 }
 
 /** New relay address; every paired device is revoked. */
 export function remoteControlResetRelayAddress(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
 ): Promise<RemoteControlStatus> {
   return ctx.deps.remoteControl.resetRelayAddress();
 }
@@ -148,6 +158,47 @@ export function remoteControlSubscribePush(
   return true;
 }
 
+/** How many held rooms a device may name: far more than anyone pairs. */
+const MAX_HELD_ROOMS = 256;
+
+/**
+ * One pairing covers every host (ADR-228 D9): pair the calling device with
+ * each remote host's server it can reach and does not already hold a room
+ * for, and hand it what it needs to dial each — inside its own Noise
+ * channel. The phone calls it on every hello from this desktop, so a host
+ * added later, or away the last time, is picked up on a later connect.
+ *
+ * **Not `localOnly`**, though it hands out pairings, which is what keeps
+ * `pair` local (ADR-228 D9):
+ * - a `full` device on this desktop already reaches every host through
+ *   `HostRouting`. A direct pairing adds no reach; it only lets the device
+ *   keep it while this desktop sleeps;
+ * - it pairs only the caller, whose device this desktop paired itself, under
+ *   that device's own label — never a device the frame names;
+ * - every pairing is linked to the caller's device here, so revoking the
+ *   device revokes them too (`HostPairingLinks`). A stolen token that mints
+ *   host pairings loses them with its own revocation.
+ *
+ * `mutating`, for the audit line: it adds a phone to each host's list. A
+ * desktop window has no device to pair, and gets an empty list.
+ */
+export function remoteControlLinkHostPairings(
+  ctx: HandlerCtx<ServerDeps>,
+  heldRooms: string[],
+): Promise<LinkedHostPairing[]> {
+  if (
+    !Array.isArray(heldRooms as unknown) ||
+    heldRooms.length > MAX_HELD_ROOMS ||
+    !heldRooms.every((room) => typeof room === "string")
+  ) {
+    throw new Error("remoteControl.linkHostPairings.heldRooms must be a list of room ids");
+  }
+  const { callerClass, deviceId } = ctx.caller;
+  const links = ctx.deps.hostLinks;
+  if (callerClass !== "device" || !deviceId || !links) return Promise.resolve([]);
+  return links.link(deviceId, heldRooms);
+}
+
 function assertDevice({ callerClass, deviceId }: Caller): string {
   if (callerClass !== "device" || !deviceId) {
     throw new Error("Push subscriptions are for paired devices only.");
@@ -162,6 +213,8 @@ export const remoteControl = {
   // are trying to take back: the six that change the exposure stay local.
   vapidPublicKey: method(remoteControlVapidPublicKey),
   subscribePush: method(remoteControlSubscribePush),
+  // A device's own pairings on the hosts; why it is not local, in the doc.
+  linkHostPairings: method(remoteControlLinkHostPairings, { mutating: true }),
   setEnabled: method(remoteControlSetEnabled, { localOnly: true }),
   pair: method(remoteControlPair, { localOnly: true }),
   revoke: method(remoteControlRevoke, { localOnly: true }),

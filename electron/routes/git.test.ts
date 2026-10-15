@@ -3,6 +3,7 @@ import { gitRoutes } from "./git";
 import type { RouteDeps, Route } from "./types";
 import type { ProjectInfo } from "../persistence";
 import type { GitBackend } from "../backend/types";
+import { HostUnavailableError, unavailableBackend } from "../backend/host-view";
 
 function route(method: Route["method"], path: string): Route {
   const found = gitRoutes.find((r) => r.method === method && r.path === path);
@@ -104,6 +105,7 @@ function makeGit() {
 function deps(
   git: GitBackend,
   projects: ProjectInfo[] = [makeProject()],
+  hostGits: Record<string, GitBackend> = {},
 ): RouteDeps {
   const projectManager = {
     async getProjects() {
@@ -111,7 +113,19 @@ function deps(
     },
   };
   return {
+    // The old single-backend wiring: git on whichever host `PathRouter`
+    // guesses, here always the local one. The route must not use it.
     backend: { git } as unknown as RouteDeps["backend"],
+    // `git` is the local host's; `hostGits` adds others. A host in neither
+    // is unregistered, as in `BackendRegistry.get`.
+    backendRegistry: {
+      get: (hostId: string) =>
+        hostId === "local"
+          ? { git }
+          : hostGits[hostId]
+            ? { git: hostGits[hostId] }
+            : unavailableBackend(hostId),
+    } as unknown as RouteDeps["backendRegistry"],
     projectManager: projectManager as unknown as RouteDeps["projectManager"],
   } as unknown as RouteDeps;
 }
@@ -127,6 +141,7 @@ async function call(
     url.searchParams.set(k, v);
   }
   await r.handler({
+    method: r.method,
     deps: d,
     params: {},
     url,
@@ -270,6 +285,7 @@ describe("git routes", () => {
     // project, further from `cwd` by path but with an actual workspace
     // there, must still resolve rather than 400ing.
     const { git, calls } = makeGit();
+    const { git: boxGit, calls: boxCalls } = makeGit();
     const localProject = makeProject({
       id: "local-p",
       hostId: "local",
@@ -287,10 +303,57 @@ describe("git routes", () => {
     const cwd = "/home/u/repo/x";
     const res = await call(
       route("GET", "/git/diff"),
-      deps(git, [remoteProject, localProject]),
+      deps(git, [remoteProject, localProject], { box: boxGit }),
       { query: { cwd, scope: "full" } },
     );
     expect(res).toEqual({ status: 200, body: "full diff" });
     expect(calls.getFullDiff).toEqual([[cwd, "local-main"]]);
+    expect(boxCalls.getFullDiff).toBeUndefined();
+  });
+
+  it("runs git on the box when the box project's workspace holds cwd", async () => {
+    const { git, calls } = makeGit();
+    const { git: boxGit, calls: boxCalls } = makeGit();
+    const localProject = makeProject({
+      id: "local-p",
+      hostId: "local",
+      path: "/home/u",
+      defaultBranch: "local-main",
+      workspaces: [{ path: "/home/u", branch: "main", isMain: true, name: null }],
+    });
+    const remoteProject = makeProject({
+      id: "box-p",
+      hostId: "box",
+      path: "/home/u/repo",
+      defaultBranch: "box-main",
+      workspaces: [
+        { path: "/home/u/repo", branch: "main", isMain: true, name: null },
+      ],
+    });
+    const cwd = "/home/u/repo/x";
+    const res = await call(
+      route("GET", "/git/diff"),
+      deps(git, [remoteProject, localProject], { box: boxGit }),
+      { query: { cwd, scope: "full" } },
+    );
+    expect(res).toEqual({ status: 200, body: "full diff" });
+    expect(boxCalls.getFullDiff).toEqual([[cwd, "box-main"]]);
+    expect(calls.getFullDiff).toBeUndefined();
+  });
+
+  it("fails as an unavailable host when the resolved project's host is unregistered", async () => {
+    const { git, calls } = makeGit();
+    const remoteProject = makeProject({
+      id: "box-p",
+      hostId: "box",
+      path: "/repo",
+      workspaces: [{ path: "/repo", branch: "main", isMain: true, name: null }],
+    });
+    await expect(
+      call(route("GET", "/git/diff"), deps(git, [remoteProject]), {
+        query: { cwd: "/repo", scope: "full" },
+      }),
+    ).rejects.toBeInstanceOf(HostUnavailableError);
+    expect(calls.getFullDiff).toBeUndefined();
   });
 });

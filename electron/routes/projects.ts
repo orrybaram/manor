@@ -16,12 +16,14 @@ import type {
   ProjectGroupInfo,
 } from "../persistence";
 import { LOCAL_HOST_ID } from "../backend/types";
-import { callerMaySee, OWN_HOST_ONLY } from "./caller-host";
+import { hostSpecLabel } from "../backend/providers/recipes";
 import { isIssueSource } from "../issue-sources";
 import { ghRepoOf } from "../../src/lib/gh-repo";
-import { notifyProjectsChanged } from "../renderer-bridge";
 import { startAgentInWorkspace } from "./agents";
-import type { Json, Route, RouteContext } from "./types";
+import { forwardToHost, onAdoptedHost } from "./host-forward";
+import type { Json, RouteContext, ServerRoute, ServerRouteDeps } from "./types";
+
+type Ctx = RouteContext<ServerRouteDeps>;
 
 /** 404 unless `folderId` names one of the project's folders. */
 export function requireFolder(
@@ -45,19 +47,29 @@ export function requireWorkspace(
   return false;
 }
 
+/** Answer a request here even for an adopted host's project (`withProject`). */
+export const HERE = (): boolean => true;
+
 /**
  * The preamble every `/projects/:projectId/…` route ran inline: an id that
  * resolves to nothing is the caller's mistake (404). Resolving the project
  * here means it is fetched exactly once per request, as before.
+ *
+ * A project on an adopted host is its server's (ADR-227 D4): the request
+ * goes there whole and runs through this same route (`./host-forward.ts`),
+ * unless `here` says this one is answered here — a read the merged list
+ * already has, a write `ProjectManager` fans out itself, or a create that
+ * picks its host first.
  */
 export function withProject(
   handler: (
-    ctx: RouteContext,
+    ctx: Ctx,
     pm: ProjectManager,
     project: ProjectInfo,
     projects: ProjectInfo[],
   ) => Promise<void>,
-): Route["handler"] {
+  opts: { here?: (ctx: Ctx) => boolean } = {},
+): ServerRoute["handler"] {
   return async (ctx) => {
     const pm = ctx.deps.projectManager;
     const projects = await pm.getProjects();
@@ -66,8 +78,43 @@ export function withProject(
       ctx.json(404, { error: "Project not found" });
       return;
     }
+    if (onAdoptedHost(ctx.deps, project.hostId) && !opts.here?.(ctx)) {
+      await forwardToHost(
+        ctx.deps,
+        ctx.json,
+        project.hostId,
+        ctx.method,
+        ctx.url.pathname + ctx.url.search,
+        await ctx.readBody(),
+      );
+      return;
+    }
     await handler(ctx, pm, project, projects);
   };
+}
+
+/**
+ * A create request (single or batch) whose target landed on an adopted host:
+ * sent there for that project, without the `host` that picked it. True when
+ * it went.
+ */
+async function createOnHost(
+  { deps, json }: Ctx,
+  project: ProjectInfo,
+  suffix: "workspaces" | "workspaces/batch",
+  body: Record<string, unknown>,
+): Promise<boolean> {
+  if (!onAdoptedHost(deps, project.hostId)) return false;
+  const { host: _host, ...rest } = body;
+  await forwardToHost(
+    deps,
+    json,
+    project.hostId,
+    "POST",
+    `/projects/${encodeURIComponent(project.id)}/${suffix}`,
+    rest,
+  );
+  return true;
 }
 
 // ── Linked-project groups on the control surface (ADR-192 ticket 8) ──
@@ -102,14 +149,10 @@ function withHostLabel(
 
 /**
  * `projects` with each group's `members` spelled out: id, name and host.
- * A relayed caller (ADR-189) sees only its own host (`callerMaySee`), so
- * its groups list only its own host's members, and a last-used host that
- * isn't its own reads as null.
  */
 function withGroupMembers(
   pm: ProjectManager,
   projects: ProjectInfo[],
-  callerHostId: string | undefined,
 ): ProjectListing[] {
   const byId = new Map(projects.map((p) => [p.id, p]));
   return projects.map((project) => {
@@ -118,7 +161,7 @@ function withGroupMembers(
     if (!group) return { ...listed, group: null };
     const members = group.memberIds.flatMap((id): GroupMemberListing[] => {
       const member = byId.get(id);
-      if (!member || !callerMaySee(callerHostId, member.hostId)) return [];
+      if (!member) return [];
       return [
         {
           projectId: member.id,
@@ -134,9 +177,7 @@ function withGroupMembers(
         id: group.id,
         name: group.name,
         memberIds: members.map((m) => m.projectId),
-        lastUsedHostId: callerMaySee(callerHostId, group.lastUsedHostId)
-          ? group.lastUsedHostId
-          : null,
+        lastUsedHostId: group.lastUsedHostId,
         members,
       },
     };
@@ -157,7 +198,7 @@ function resolveHostArg(pm: ProjectManager, arg: string): HostArg {
   const hosts = [
     // The local label ("this Mac") is what listings show, so it names local too.
     { hostId: LOCAL_HOST_ID, target: pm.hostLabel(LOCAL_HOST_ID) as string | undefined },
-    ...pm.getHosts().map(({ hostId, spec }) => ({ hostId, target: spec.target })),
+    ...pm.getHosts().map(({ hostId, spec }) => ({ hostId, target: hostSpecLabel(spec) })),
   ];
   const matches = new Set(
     hosts
@@ -176,8 +217,6 @@ interface WorkspaceTargetRequest {
   projects: ProjectInfo[];
   /** The `host` argument, if the caller passed one. */
   host?: string;
-  /** Set when the request was relayed from a remote host (ADR-189). */
-  callerHostId?: string;
   /** Whether a host is away (registered, not connected). */
   isAway?: (hostId: string) => boolean;
 }
@@ -189,8 +228,8 @@ type WorkspaceTargetResult =
 /**
  * Which project a create-workspace request lands in. An unlinked project is
  * its own and only target. For a linked one, `host` picks that host's
- * member; without it, the caller's own host (a relayed remote CLI), then the
- * group's last-used host if it isn't away, then any member whose host isn't
+ * member; without it, the group's last-used host if it isn't away, then any
+ * member whose host isn't
  * (this machine first), then the last-used host anyway — so the create
  * explains why it can't go ahead — then the project named in the path. The
  * New Workspace dialog's `defaultHostChoice` follows the same order.
@@ -201,16 +240,12 @@ function workspaceTarget(
     project,
     projects,
     host,
-    callerHostId,
     isAway = () => false,
   }: WorkspaceTargetRequest,
 ): WorkspaceTargetResult {
   const members = (project.group?.memberIds ?? [project.id])
     .map((id) => projects.find((p) => p.id === id))
-    .filter(
-      (p): p is ProjectInfo =>
-        p !== undefined && callerMaySee(callerHostId, p.hostId),
-    );
+    .filter((p): p is ProjectInfo => p !== undefined);
   const onHost = (hostId: string | null | undefined) =>
     hostId ? members.find((m) => m.hostId === hostId) : undefined;
 
@@ -224,7 +259,6 @@ function workspaceTarget(
           Number(b.hostId !== LOCAL_HOST_ID),
       );
     const target =
-      onHost(callerHostId) ??
       (lastUsed && !isAway(lastUsed.hostId) ? lastUsed : undefined) ??
       reachable[0] ??
       lastUsed ??
@@ -233,14 +267,6 @@ function workspaceTarget(
   }
 
   const resolved = resolveHostArg(pm, host);
-  // A relayed caller must not learn which other hosts exist, so every host
-  // but its own — unknown, ambiguous or real — gets the same answer.
-  if (
-    callerHostId &&
-    !(resolved.ok && callerMaySee(callerHostId, resolved.hostId))
-  ) {
-    return { ok: false, status: 403, error: OWN_HOST_ONLY };
-  }
   if (!resolved.ok) {
     return {
       ok: false,
@@ -268,7 +294,7 @@ function workspaceTarget(
  * `undefined`, so the caller just returns.
  */
 function resolveCreateTarget(
-  { deps, json }: RouteContext,
+  { deps, json }: Ctx,
   pm: ProjectManager,
   named: ProjectInfo,
   projects: ProjectInfo[],
@@ -281,7 +307,6 @@ function resolveCreateTarget(
           project: named,
           projects,
           host: typeof body.host === "string" && body.host ? body.host : undefined,
-          callerHostId: deps.callerHostId,
           isAway: (hostId) => {
             if (hostId === LOCAL_HOST_ID) return false;
             const status = deps.hostStatus?.(hostId);
@@ -374,7 +399,7 @@ function renderPrompt(
  * agent in every one.
  */
 async function batchCreateWorkspaces(
-  ctx: RouteContext,
+  ctx: Ctx,
   pm: ProjectManager,
   named: ProjectInfo,
   projects: ProjectInfo[],
@@ -403,6 +428,8 @@ async function batchCreateWorkspaces(
   // like `source`, a bad or foreign host is the caller's mistake to hear first.
   const project = resolveCreateTarget(ctx, pm, named, projects, body);
   if (!project) return;
+  // Its issues are read with that host's `gh`, and its worktrees made there.
+  if (await createOnHost(ctx, project, "workspaces/batch", body)) return;
   const github = deps.githubManager;
   const ops = deps.workspaceOps;
 
@@ -507,16 +534,13 @@ async function batchCreateWorkspaces(
   json(200, { results });
 }
 
-export const projectRoutes: Route[] = [
+export const projectRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/projects",
     async handler({ deps, json }) {
       const pm = deps.projectManager;
-      json(
-        200,
-        withGroupMembers(pm, await pm.getProjects(), deps.callerHostId),
-      );
+      json(200, withGroupMembers(pm, await pm.getProjects()));
     },
   },
 
@@ -532,7 +556,7 @@ export const projectRoutes: Route[] = [
         return;
       }
       const project = await deps.projectManager.addProject(name, projectPath);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, project);
     },
   },
@@ -540,23 +564,30 @@ export const projectRoutes: Route[] = [
   {
     method: "GET",
     path: "/projects/:projectId",
-    handler: withProject(async ({ json }, pm, project) => {
-      json(200, withHostLabel(pm, project));
-    }),
+    handler: withProject(
+      async ({ json }, pm, project) => {
+        json(200, withHostLabel(pm, project));
+      },
+      { here: HERE },
+    ),
   },
 
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/batch",
-    handler: withProject(batchCreateWorkspaces),
+    // Picks its target first: `createOnHost` sends it there.
+    handler: withProject(batchCreateWorkspaces, { here: HERE }),
   },
 
   {
     method: "GET",
     path: "/projects/:projectId/workspaces",
-    handler: withProject(async ({ json }, _pm, project) => {
-      json(200, project.workspaces);
-    }),
+    handler: withProject(
+      async ({ json }, _pm, project) => {
+        json(200, project.workspaces);
+      },
+      { here: HERE },
+    ),
   },
 
   {
@@ -567,6 +598,7 @@ export const projectRoutes: Route[] = [
       const body = await readBody();
       const project = resolveCreateTarget(ctx, pm, named, projects, body);
       if (!project) return;
+      if (await createOnHost(ctx, project, "workspaces", body)) return;
       const branch = typeof body.branch === "string" ? body.branch : undefined;
       // Either field alone is enough — each falls back to the other, matching
       // the new-workspace dialog where the branch tracks the name.
@@ -584,14 +616,17 @@ export const projectRoutes: Route[] = [
           ? body.useExistingBranch
           : undefined;
       const ops = ctx.deps.workspaceOps;
-      // The UI runs `worktreeStartScript` from the renderer itself; a CLI /
-      // MCP create has no renderer flow, so the op round-trips it (ADR-203).
-      const { project: updated } = await ops.create(
-        { projectId: project.id, name, branch, baseBranch, useExistingBranch },
-        { runSetupScript: true },
-      );
+      // The op starts `worktreeStartScript` on the server, as it does for
+      // the UI (ADR-227 D5): no window need be open.
+      const { project: updated } = await ops.create({
+        projectId: project.id,
+        name,
+        branch,
+        baseBranch,
+        useExistingBranch,
+      });
       json(200, updated && withHostLabel(pm, updated));
-    }),
+    }, { here: HERE }),
   },
 
   {
@@ -616,7 +651,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/rename",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm, project) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       const name = body.name;
@@ -628,7 +663,7 @@ export const projectRoutes: Route[] = [
       }
       if (!requireWorkspace(project, workspacePath, json)) return;
       pm.renameWorkspace(params.projectId, workspacePath, name);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -636,7 +671,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/hidden",
-    handler: withProject(async ({ params, json, readBody }, pm, project) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm, project) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       const hidden = body.hidden;
@@ -649,7 +684,7 @@ export const projectRoutes: Route[] = [
       }
       if (!requireWorkspace(project, workspacePath, json)) return;
       pm.setWorkspaceHidden(params.projectId, workspacePath, hidden);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -657,7 +692,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/reorder",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       const body = await readBody();
       const orderedKeys = body.orderedKeys;
       if (
@@ -670,7 +705,7 @@ export const projectRoutes: Route[] = [
         return;
       }
       pm.reorderWorkspaces(params.projectId, orderedKeys);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -678,7 +713,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/convert-main",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       const body = await readBody();
       const name = body.name;
       if (typeof name !== "string" || !name.trim()) {
@@ -690,7 +725,7 @@ export const projectRoutes: Route[] = [
         json(404, { error: "Project not found" });
         return;
       }
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, updated);
     }),
   },
@@ -741,7 +776,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/workspaces/issues",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       if (typeof workspacePath !== "string") {
@@ -757,7 +792,7 @@ export const projectRoutes: Route[] = [
         return;
       }
       pm.linkIssueToWorkspace(params.projectId, workspacePath, issue);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -765,7 +800,7 @@ export const projectRoutes: Route[] = [
   {
     method: "DELETE",
     path: "/projects/:projectId/workspaces/issues",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       const body = await readBody();
       const workspacePath = body.workspacePath;
       const issueId = body.issueId;
@@ -776,7 +811,7 @@ export const projectRoutes: Route[] = [
         return;
       }
       pm.unlinkIssueFromWorkspace(params.projectId, workspacePath, issueId);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     }),
   },
@@ -801,7 +836,7 @@ export const projectRoutes: Route[] = [
   {
     method: "POST",
     path: "/projects/:projectId/update",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       const body = await readBody();
       const updates: ProjectUpdatableFields = {};
       for (const key of UPDATABLE_PROJECT_FIELDS) {
@@ -814,20 +849,20 @@ export const projectRoutes: Route[] = [
         json(404, { error: "Project not found" });
         return;
       }
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, updated);
-    }),
+    }, { here: HERE }),
   },
 
   {
     method: "DELETE",
     path: "/projects/:projectId",
-    handler: withProject(async ({ params, json, readBody }, pm) => {
+    handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       await readBody();
       await pm.removeProject(params.projectId);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
-    }),
+    }, { here: HERE }),
   },
 
   {
@@ -846,7 +881,7 @@ export const projectRoutes: Route[] = [
         return;
       }
       deps.projectManager.reorderProjects(orderedIds);
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     },
   },
@@ -857,7 +892,7 @@ export const projectRoutes: Route[] = [
     async handler({ deps, json, readBody }) {
       await readBody();
       await deps.projectManager.resyncDefaultBranches();
-      notifyProjectsChanged();
+      deps.notifyProjectsChanged();
       json(200, { ok: true });
     },
   },

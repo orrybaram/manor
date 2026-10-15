@@ -60,6 +60,19 @@ export interface ReconnectTarget {
   giveUp(): void;
 }
 
+/** What `setPolicy` takes besides the schedule; see `TerminalHostClient.setReconnectPolicy`. */
+export interface ReconnectPolicyOptions {
+  isPermanentFailure?: (err: unknown) => boolean;
+  /**
+   * Asked before each attempt, after its wait. False stops the loop quietly:
+   * no `onFailed`, nothing reported as exited — the sessions stay wanted, so
+   * a later successful `connect()` reports them through `onReconnected`.
+   * A rejection counts as true. `attempt` is the attempt it precedes,
+   * 0-based, counted from the drop.
+   */
+  beforeAttempt?: (attempt: number) => Promise<boolean>;
+}
+
 /** Three quick attempts, then give up. */
 const DEFAULT_DELAYS_MS = [250, 1_000, 2_000];
 
@@ -77,6 +90,8 @@ export class ReconnectSupervisor {
   private policy: ReconnectPolicy = (attempt) => DEFAULT_DELAYS_MS[attempt] ?? null;
   /** Errors the loop must not retry (see `setPolicy`). */
   private isPermanentFailure: ((err: unknown) => boolean) | null = null;
+  /** Whether to go on attempting (see `setPolicy`). */
+  private beforeAttempt: ((attempt: number) => Promise<boolean>) | null = null;
   /**
    * The loop stopped on a permanent failure with sessions still wanted. The
    * next successful connect reports them via `onReconnected`.
@@ -94,12 +109,10 @@ export class ReconnectSupervisor {
   }
 
   /** See `TerminalHostClient.setReconnectPolicy`. */
-  setPolicy(
-    policy: ReconnectPolicy,
-    opts: { isPermanentFailure?: (err: unknown) => boolean } = {},
-  ): void {
+  setPolicy(policy: ReconnectPolicy, opts: ReconnectPolicyOptions = {}): void {
     this.policy = policy;
     this.isPermanentFailure = opts.isPermanentFailure ?? null;
+    this.beforeAttempt = opts.beforeAttempt ?? null;
   }
 
   setListener(listener: ConnectionListener | null): void {
@@ -168,6 +181,15 @@ export class ReconnectSupervisor {
         await this.sleep(delay);
         // disconnect() was called while we slept: the caller is done with us.
         if (generation !== target.generation()) return;
+        if (!(await this.mayAttempt(attempt))) {
+          if (generation !== target.generation()) return;
+          console.warn(
+            `[terminal-host] reconnect stopped before attempt ${attempt + 1}: not to be attempted now`,
+          );
+          this.recoveryPending = target.wantedSessions().length > 0;
+          return;
+        }
+        if (generation !== target.generation()) return;
         try {
           await target.connect();
           // disconnect() landed after connect() finished. It already tore
@@ -211,6 +233,17 @@ export class ReconnectSupervisor {
       target.giveUp();
     } finally {
       this.running = false;
+    }
+  }
+
+  /** `beforeAttempt`'s answer; true without one, or when it rejects. */
+  private async mayAttempt(attempt: number): Promise<boolean> {
+    if (!this.beforeAttempt) return true;
+    try {
+      return await this.beforeAttempt(attempt);
+    } catch (err) {
+      console.warn(`[terminal-host] reconnect pre-attempt check failed: ${errorMessage(err)}`);
+      return true;
     }
   }
 

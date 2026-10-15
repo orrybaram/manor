@@ -2,7 +2,8 @@ import { useMemo } from "react";
 import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import type { ProjectInfo } from "../../../store/project-store";
-import { describeHost } from "../../../lib/host-status";
+import { describeHost, sourcedHost } from "../../../lib/host-status";
+import { useServers, viaReachability } from "../../../bridge/server-set";
 import { Button } from "../../ui/Button/Button";
 import styles from "./HostAlert.module.css";
 
@@ -26,6 +27,9 @@ export function HostAlert(props: HostAlertProps) {
 
   const hosts = useHostStore((s) => s.hosts);
   const retryConnect = useHostStore((s) => s.retryConnect);
+  // A host this window holds its own bridge to is away only when that is
+  // too (ADR-228 D6).
+  const servers = useServers();
 
   const away = useMemo(() => {
     const workspaces = new Map<string, number>();
@@ -34,14 +38,17 @@ export function HostAlert(props: HostAlertProps) {
       workspaces.set(project.hostId, (workspaces.get(project.hostId) ?? 0) + visible);
     }
     const out: { host: HostStatusInfo; workspaces: number }[] = [];
-    for (const host of hosts) {
+    for (const reported of hosts) {
+      const direct = servers.find((entry) => entry.id === reported.hostId);
+      const host =
+        sourcedHost(reported, direct?.reachability, viaReachability(reported.hostId)) ?? reported;
       const count = workspaces.get(host.hostId);
       if (count == null) continue;
       if (host.status === "connected" || host.status === "connecting") continue;
       out.push({ host, workspaces: count });
     }
     return out.slice(0, MAX_ALERTS);
-  }, [projects, hosts]);
+  }, [projects, hosts, servers]);
 
   if (away.length === 0) return null;
 

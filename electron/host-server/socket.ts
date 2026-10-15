@@ -17,7 +17,8 @@
  *
  * **Authentication is the hello**, exactly as on the relay
  * (`transports/ws.ts`): `{"type":"hello","token":<owner-token>}` first, within
- * the hello timeout, or the socket is closed. The token is the 0600
+ * the hello timeout, or the socket is closed. A desktop window's viewer
+ * stream adds `"viewer":"desktop"` (ADR-228 D4). The token is the 0600
  * `dataDir/owner-token`, and it is the whole credential: whoever can read it
  * is this box's user, and that user already reaches every terminal here.
  */
@@ -92,18 +93,39 @@ const OWNER_CALLER = {
 } as const;
 
 /**
+ * A desktop window's own stream (ADR-228 D4): the owner, and a desk viewer.
+ * `server-bridge --viewer` says `viewer: "desktop"` in its hello.
+ */
+const DESKTOP_VIEWER_CALLER = {
+  ...OWNER_CALLER,
+  viewer: "desktop",
+} as const;
+
+/**
  * The hello check for the owner socket (ADR-225 D4): the token must be the
  * owner token, compared in constant time. Answers an `owner` caller, which
- * the host table lets call `LOCAL_ONLY` methods such as pairing and the
- * manifest sync.
+ * the host table lets call `LOCAL_ONLY` methods such as pairing and adding
+ * a project.
+ *
+ * A hello that also says `viewer: "desktop"` is a desktop window's viewer
+ * stream (ADR-228 D4): still the owner, with the viewer fact recorded on the
+ * connection. Only an owner may say so — the token is checked first — and a
+ * hello without it (an older desktop) is main's owner channel, as before.
  */
 export function ownerTokenAuthenticator(token: string): BridgeAuthenticator {
   const expected = digest(token);
-  return (presented) =>
-    typeof presented === "string" &&
-    crypto.timingSafeEqual(digest(presented), expected)
-      ? { ok: true, caller: OWNER_CALLER }
-      : { ok: false, code: CLOSE_UNAUTHORIZED };
+  return (presented, hello) => {
+    if (
+      typeof presented !== "string" ||
+      !crypto.timingSafeEqual(digest(presented), expected)
+    ) {
+      return { ok: false, code: CLOSE_UNAUTHORIZED };
+    }
+    return {
+      ok: true,
+      caller: hello?.viewer === "desktop" ? DESKTOP_VIEWER_CALLER : OWNER_CALLER,
+    };
+  };
 }
 
 function trySetUmask(mask: number): number | null {

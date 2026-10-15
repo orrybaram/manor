@@ -238,6 +238,12 @@
   min-width: 0;
 }
 
+.ghMissing {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
 .workspaceName {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -548,6 +554,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* A sleeping host (ADR-229 D7): calm, like its glyph. */
+.sectionHostAsleep {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--blue, #89b4fa);
 }
 
 /* The heading stays dim even while its host is away; doubled to beat

@@ -1,150 +1,56 @@
 /**
  * What the desktop pushes to each remote host's host server over the owner
- * channel (ADR-225 D4, D5, D8), and when.
+ * channel (ADR-225 D3, D4), and when.
  *
- * **The manifest** (`buildHostManifest`) is that host's projects as
- * `projects.json` holds them, `hostId` rewritten to `local`, plus an
- * integration snapshot: each workspace's linked issue and its PR as the
- * desktop last saw them. Built from memory only — `ProjectManager`'s
- * records and last worktree listings, `GitHubManager`'s last-seen PRs — so
- * building one never costs a call to GitHub, Linear or the box.
+ * - **The desktop's VAPID pair**, whole, after every connect of the owner
+ *   channel — the first, and each after a host reconnect
+ *   (`BackendRegistry.onHostServerStateChange` reporting `connected`) — so a
+ *   phone's one browser subscription is valid in every room.
+ * - **Adoption** (ADR-227 D3), after the key: what the desktop still holds
+ *   for the host — its projects, agents and layout, the layout in the shape
+ *   `hostLayoutSnapshot` builds, below — handed to the host's server and
+ *   then let go of (`./host-adoption.ts`). Once a host is adopted, this is
+ *   one status read.
+ * - **The host's push endpoints** are read back after it, and again whenever
+ *   a phone is paired or revoked (`pairingChanged`): the desktop skips its
+ *   own push to those for that host's agents. The same status read gives
+ *   the host's relay room and whether it takes desktop viewer streams
+ *   (ADR-228 D2, D3), which `hosts.list` carries.
+ * - **Owed revokes** (ADR-228 D9): a pairing this desktop minted on the host
+ *   for one of its own devices, whose revoke could not reach the host —
+ *   the device was revoked, or "Phones paired with this Mac can reach" turned
+ *   off, while the host was away. Stored on the host's record, and revoked
+ *   on the next connect, before the endpoints are read.
+ * - **Lost mints** (ADR-230 D11): a pairing the desktop asked the host for,
+ *   whose answer never came back — the owner channel dropped after the host
+ *   committed it. The mint's label is unique (a random suffix), so on the
+ *   next connect every device on the host under that label, made since the
+ *   mint started, and that no desktop link points to, is revoked.
  *
- * **The layout** (`hostLayoutSnapshot`) is that host's workspaces out of
- * the `LayoutStore`, rekeyed from `<hostId>:<path>` to the bare path.
+ * - **Supervision** (ADR-229 D4): a host whose record says `supervise`, and
+ *   whose server reports no supervisor, gets `manor-host supervisor install`
+ *   run on it, after the rest. A host where it fails (no supervisor there)
+ *   is tried again on its next connect.
  *
- * **When** (`HostServerSync`):
- * - both, whole, after every connect of the owner channel — the first, and
- *   each after a host reconnect (`BackendRegistry.onHostServerStateChange`
- *   reporting `connected`);
- * - the manifest when a project on that host changes or that host's cached
- *   PR data does, debounced (~1 s), and only if it actually differs from
- *   what was last sent: `projects.json` is written for many reasons (a hook
- *   cursor, a selection), and none of them is news to the box;
- * - the layout on the `LayoutStore`'s own save debounce, for each host
- *   whose part of the layout differs from what it was last sent.
+ * The host server owns its projects and layout (ADR-227 D2), so neither is
+ * pushed any more.
  */
 
-import type { WorkspaceInfo } from "../projects/types";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
-import type { PrInfo } from "../../src/lib/pr-info";
-import { LOCAL_HOST_ID } from "./types";
 import { parseWorkspaceKey } from "../../src/lib/workspace-key";
 import { errorMessage } from "../lib/errors";
 import {
   HOST_LAYOUT_VERSION,
   type HostLayoutSnapshot,
 } from "../host-server/layout";
-import {
-  HOST_MANIFEST_VERSION,
-  type HostManifest,
-  type IssueSnapshot,
-  type ManifestProject,
-  type PrSnapshot,
-  type WorkspaceIntegrationSnapshot,
-} from "../host-server/manifest";
 import type { VapidKeys } from "../remote-control/push";
 import { HostPushEndpoints } from "../remote-control/host-push-endpoints";
+import { hasViewerBridge } from "../host-server/capabilities";
+import type { HostServerStatus } from "../host-server/relay";
+import type { HostAdoption } from "./host-adoption";
+import type { HostServerFacts } from "./host-connection";
+import { HostIdleStop } from "./host-idle-stop";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
-
-/** What the manifest is built from: the desktop's memory, never the network. */
-export interface ManifestSources {
-  /** `ProjectManager.manifestRecords`: the host's projects, groups resolved. */
-  projects(hostId: string): ManifestProject[];
-  /** `ProjectManager.knownWorkspaces`: a project's last worktree listing. */
-  workspaces(projectId: string): Pick<WorkspaceInfo, "path" | "branch">[];
-  /** The user's name for the host (its ssh target); absent if it has none. */
-  hostName?(hostId: string): string | undefined;
-  /** `GitHubManager.cachedPr`: a branch's last-seen PR, and when. */
-  cachedPr(
-    repo: { path: string; hostId: string },
-    branch: string,
-  ): { pr: PrInfo | null; at: number } | undefined;
-}
-
-function prSnapshot(pr: PrInfo): PrSnapshot {
-  return {
-    number: pr.number,
-    state: pr.state,
-    title: pr.title,
-    url: pr.url,
-    ...(pr.isDraft !== undefined && { isDraft: pr.isDraft }),
-    ...(pr.checks !== undefined && { checks: pr.checks }),
-  };
-}
-
-/**
- * The manifest for `hostId` (ADR-225 D4, D8). `now` stamps `sentAt`, and
- * `takenAt` for a workspace whose snapshot has only an issue (issues are
- * persisted, so the desktop's copy is as fresh as the manifest); a PR's
- * `takenAt` is when the desktop last fetched it.
- */
-export function buildHostManifest(
-  hostId: string,
-  sources: ManifestSources,
-  now: Date = new Date(),
-): HostManifest {
-  const sentAt = now.toISOString();
-  const projects: ManifestProject[] = [];
-  const integrationSnapshot: Record<string, WorkspaceIntegrationSnapshot> = {};
-
-  for (const record of sources.projects(hostId)) {
-    projects.push(record);
-
-    const branchOf = new Map<string, string>();
-    for (const ws of sources.workspaces(record.id)) branchOf.set(ws.path, ws.branch);
-    const paths = new Set<string>([
-      ...branchOf.keys(),
-      ...Object.keys(record.workspaceIssues ?? {}),
-    ]);
-    for (const path of paths) {
-      const linked = record.workspaceIssues?.[path]?.[0];
-      const issue: IssueSnapshot | null = linked
-        ? {
-            id: linked.id,
-            title: linked.title,
-            url: linked.url,
-            ...(linked.identifier !== undefined && { identifier: linked.identifier }),
-          }
-        : null;
-      const branch = branchOf.get(path);
-      // Keyed by the branch as the renderer's PR watcher asked for it, which
-      // is the branch this same listing gave it.
-      const seen =
-        branch !== undefined
-          ? sources.cachedPr({ path: record.path, hostId }, branch)
-          : undefined;
-      const pr = seen?.pr ? prSnapshot(seen.pr) : null;
-      if (!issue && !pr) continue;
-      integrationSnapshot[path] = {
-        takenAt: pr && seen ? new Date(seen.at).toISOString() : sentAt,
-        issue,
-        pr,
-      };
-    }
-  }
-
-  const hostName = sources.hostName?.(hostId);
-  return {
-    version: HOST_MANIFEST_VERSION,
-    sentAt,
-    ...(hostName && { hostName }),
-    projects,
-    integrationSnapshot,
-  };
-}
-
-/** A manifest without its timestamps, to tell a real change from a re-stamp. */
-function manifestFingerprint(manifest: HostManifest): string {
-  const snapshot: Record<string, Omit<WorkspaceIntegrationSnapshot, "takenAt">> = {};
-  for (const [path, entry] of Object.entries(manifest.integrationSnapshot)) {
-    snapshot[path] = { issue: entry.issue, pr: entry.pr };
-  }
-  return JSON.stringify([manifest.projects, snapshot, manifest.hostName ?? null]);
-}
-
-function layoutFingerprint(snapshot: HostLayoutSnapshot): string {
-  return JSON.stringify([snapshot.workspaces, snapshot.lastActiveWorkspacePath]);
-}
 
 /** The registry's side of the push: each remote host's owner channel. */
 export interface HostServerRegistry {
@@ -153,96 +59,201 @@ export interface HostServerRegistry {
   onHostServerStateChange(
     listener: (hostId: string, state: HostServerClientState) => void,
   ): () => void;
+  /**
+   * Record what a host's server said in its last status (ADR-228 D2, D3), so
+   * `hosts.list` carries its room and whether it takes viewer streams.
+   * Optional: a registry that does not list hosts has nowhere to put them.
+   */
+  setServerFacts?(hostId: string, facts: HostServerFacts | null): void;
+  /**
+   * The busy side (ADR-229 D7): the provider is told, and the idle stop reads
+   * the rest. All optional: a registry without them has no idle stop.
+   */
+  setBusy?(hostId: string, busy: boolean): void;
+  isBusy?(hostId: string): boolean;
+  idleStopMinutes?(hostId: string): number | undefined;
+  status?(hostId: string): string | undefined;
+  stop?(hostId: string): Promise<void>;
+}
+
+/**
+ * The facts `hosts.list` carries, from one status (ADR-228 D2, D3). A host
+ * still waiting to be adopted takes no viewer stream yet (main refuses one,
+ * `electron/ipc/host-pipe.ts`), so it does not say it does: a window would
+ * only dial it to be turned away.
+ */
+export function serverFactsOf(
+  status: Pick<HostServerStatus, "roomId" | "capabilities" | "relay"> &
+    Partial<Pick<HostServerStatus, "ownership" | "busy" | "hooks">>,
+): HostServerFacts {
+  return {
+    // From a server that has ADR-229 D7 (an older one has neither).
+    ...(status.busy !== undefined ? { busy: status.busy } : {}),
+    ...(status.hooks ? { hooks: status.hooks } : {}),
+    // A server from before ADR-228 has no top-level `roomId`; its relay's is
+    // the same room.
+    roomId: status.roomId !== undefined ? status.roomId : (status.relay?.roomId ?? null),
+    viewerBridge: hasViewerBridge(status) && status.ownership !== "pending",
+  };
+}
+
+/**
+ * The linked pairings each host is owed a revoke of (ADR-228 D9), by the
+ * host's own device id: `PersistedHost.pendingRevokes`, through
+ * `ProjectManager`.
+ */
+export interface PendingRevokes {
+  list(hostId: string): readonly string[];
+  /** `hostDeviceIds` were revoked on `hostId`. */
+  clear(hostId: string, hostDeviceIds: readonly string[]): void;
+  /** Some were: the host's phone list changed. */
+  revoked?(hostId: string): void;
+}
+
+/**
+ * A pairing this desktop started minting on a host (ADR-230 D11):
+ * `PersistedHost.pendingMints`, until the answer is recorded.
+ */
+export interface PendingMint {
+  /** The label it was minted under; unique to this mint. */
+  label: string;
+  /** When the mint started, ms since the epoch on this desktop's clock. */
+  startedAt: number;
+}
+
+/** The mints whose answer may have been lost, by host (`HostPairingLinks.pendingMints`). */
+export interface PendingMints {
+  /** Those not still in flight. */
+  list(hostId: string): readonly PendingMint[];
+  /** The mints under `labels` were reconciled. */
+  clear(hostId: string, labels: readonly string[]): void;
+  /** The host's device ids a desktop link points to: never revoked here. */
+  linked(hostId: string): readonly string[];
+}
+
+/**
+ * How far behind this desktop's clock a host's may run and still have a
+ * device it made count as made since a mint started. The label alone is
+ * unique to the mint; the time only keeps the match tight.
+ */
+export const MINT_CLOCK_SKEW_MS = 10 * 60_000;
+
+/** Which hosts should be supervised, and how to install it on one (ADR-229 D4). */
+export interface HostSupervision {
+  /** `PersistedHost.supervise`. */
+  wanted(hostId: string): boolean;
+  /** Run `supervisor install` on the host. */
+  install(hostId: string): Promise<void>;
 }
 
 export interface HostServerSyncOptions {
   registry: HostServerRegistry;
-  /** The manifest for a host, now (`buildHostManifest`). */
-  manifest(hostId: string): HostManifest;
-  /** The layout for a host, now (`hostLayoutSnapshot` over the store). */
-  layout(hostId: string): HostLayoutSnapshot;
   /**
    * The desktop's VAPID pair, sent so the host server signs pushes with it
    * (D3). Null when it cannot be stored safely; nothing is sent then.
    */
   vapidKeys?(): Promise<VapidKeys | null>;
-  /** Manifest debounce. Defaults to 1 s. */
-  debounceMs?: number;
+  /** Hands each host's records to its server (ADR-227 D3). */
+  adoption?: Pick<HostAdoption, "run">;
+  /** Revokes owed to each host, sent on every connect (ADR-228 D9). */
+  pendingRevokes?: PendingRevokes;
+  /** Mints whose answer was lost, reconciled on every connect (ADR-230 D11). */
+  pendingMints?: PendingMints;
+  /** Installs supervision on connect where it is wanted and missing (ADR-229 D4). */
+  supervision?: HostSupervision;
   log?: Pick<Console, "warn">;
 }
 
 export class HostServerSync {
   private readonly registry: HostServerRegistry;
-  private readonly buildManifest: (hostId: string) => HostManifest;
-  private readonly buildLayout: (hostId: string) => HostLayoutSnapshot;
   private readonly vapidKeys: (() => Promise<VapidKeys | null>) | undefined;
-  private readonly debounceMs: number;
+  private readonly adoption: Pick<HostAdoption, "run"> | undefined;
+  private readonly pending: PendingRevokes | undefined;
+  private readonly mints: PendingMints | undefined;
+  private readonly supervision: HostSupervision | undefined;
   private readonly log: Pick<Console, "warn">;
-  /** What each host's server was last sent, without timestamps. */
-  private readonly sentManifest = new Map<string, string>();
-  private readonly sentLayout = new Map<string, string>();
-  private readonly manifestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private unsubscribe: (() => void) | null = null;
+  /** Clients whose `busyChanged` is already listened to (subscriptions outlive channels). */
+  private readonly busyWatched = new WeakSet<HostServerClient>();
+  private readonly idleStop: HostIdleStop;
   /** The push endpoints each host's server sends to (ADR-225 D3). */
   private readonly endpoints: HostPushEndpoints;
 
   constructor(opts: HostServerSyncOptions) {
     this.registry = opts.registry;
-    this.buildManifest = opts.manifest;
-    this.buildLayout = opts.layout;
     this.vapidKeys = opts.vapidKeys;
+    this.adoption = opts.adoption;
+    this.pending = opts.pendingRevokes;
+    this.mints = opts.pendingMints;
+    this.supervision = opts.supervision;
     this.endpoints = new HostPushEndpoints({
+      // The one status read per connect and pairing change: its room and
+      // capabilities are recorded for `hosts.list` on the way past.
       status: async (hostId) => {
         const client = opts.registry.hostServer(hostId);
-        return client?.state === "connected" ? client.api.hostServer.status() : null;
+        if (client?.state !== "connected") return null;
+        const status = await client.api.hostServer.status();
+        opts.registry.setServerFacts?.(hostId, serverFactsOf(status));
+        this.noteBusy(hostId, status);
+        return status;
       },
     });
-    this.debounceMs = opts.debounceMs ?? 1_000;
     this.log = opts.log ?? console;
+    const registry = opts.registry;
+    this.idleStop = new HostIdleStop({
+      minutes: (hostId) => registry.idleStopMinutes?.(hostId),
+      status: async (hostId) => {
+        const client = registry.hostServer(hostId);
+        return client?.state === "connected" ? client.api.hostServer.status() : null;
+      },
+      providerBusy: (hostId) => registry.isBusy?.(hostId) ?? false,
+      isSleeping: (hostId) => registry.status?.(hostId) === "sleeping",
+      stop: (hostId) => registry.stop?.(hostId) ?? Promise.resolve(),
+      log: this.log,
+    });
+  }
+
+  /** A status or `busyChanged` said whether `hostId` is busy (ADR-229 D7). */
+  private noteBusy(hostId: string, state: { busy?: boolean; idleForMs?: number | null }): void {
+    if (state.busy === undefined) return;
+    this.registry.setBusy?.(hostId, state.busy);
+    if (state.busy) this.idleStop.busy(hostId);
+    // The box measured how long; turn it into a time on this clock.
+    else this.idleStop.idle(hostId, Date.now() - (state.idleForMs ?? 0));
+  }
+
+  /** Listen to `client`'s `busyChanged`, once; the subscription outlives its channels. */
+  private watchBusy(client: HostServerClient): void {
+    if (this.busyWatched.has(client)) return;
+    this.busyWatched.add(client);
+    client.subscribe("hostServer", "busyChanged", undefined, (info) => {
+      const busy = (info as { busy?: unknown } | null)?.busy;
+      if (typeof busy !== "boolean") return;
+      // The server debounces, so the transition is now.
+      this.noteBusy(client.hostId, { busy, idleForMs: 0 });
+    });
   }
 
   /**
-   * Re-send both, whole, after every connect of a host's owner channel —
-   * channels already up included.
+   * Send the key after every connect of a host's owner channel — channels
+   * already up included.
    */
   start(): void {
     this.unsubscribe?.();
     this.unsubscribe = this.registry.onHostServerStateChange((hostId, state) => {
+      const client = this.registry.hostServer(hostId);
+      if (client) this.watchBusy(client);
+      if (state !== "connected") this.idleStop.forget(hostId);
       if (state === "connected") void this.sendAll(hostId);
-      else if (state === "unsupported") this.endpoints.forget(hostId);
+      else if (state === "unsupported") {
+        this.endpoints.forget(hostId);
+        // No host server on the box: no room, no viewer streams.
+        this.registry.setServerFacts?.(hostId, null);
+      }
     });
     for (const client of this.registry.hostServers()) {
+      this.watchBusy(client);
       if (client.state === "connected") void this.sendAll(client.hostId);
-    }
-  }
-
-  /**
-   * Something the manifest is built from changed — a project, a PR — for
-   * `hostId`, or for every host when none is named. Debounced per host.
-   */
-  manifestChanged(hostId?: string): void {
-    const ids = hostId
-      ? [hostId]
-      : this.registry.hostServers().map((client) => client.hostId);
-    for (const id of ids) {
-      if (id === LOCAL_HOST_ID || this.manifestTimers.has(id)) continue;
-      const timer = setTimeout(() => {
-        this.manifestTimers.delete(id);
-        void this.pushManifest(id);
-      }, this.debounceMs);
-      timer.unref?.();
-      this.manifestTimers.set(id, timer);
-    }
-  }
-
-  /**
-   * The layout store saved: send each connected host whose part of the
-   * layout differs from what it was last sent.
-   */
-  layoutPersisted(): void {
-    for (const client of this.registry.hostServers()) {
-      if (client.state !== "connected") continue;
-      void this.pushLayout(client.hostId, client, false);
     }
   }
 
@@ -262,26 +273,127 @@ export class HostServerSync {
     return this.endpoints.refresh(hostId);
   }
 
+  /**
+   * Revoke what `hostId` is owed, now if its owner channel is up; whatever
+   * does not go through stays owed for the next connect. Resolves once the
+   * endpoint cache is current again, if anything was revoked.
+   */
+  async revokePending(hostId: string): Promise<void> {
+    const pending = this.pending;
+    const client = this.registry.hostServer(hostId);
+    if (!pending || client?.state !== "connected") return;
+    const owed = pending.list(hostId);
+    if (owed.length === 0) return;
+    const done: string[] = [];
+    for (const id of owed) {
+      try {
+        // A device the host no longer has (its keys were reset) revokes as
+        // a no-op, and is no longer owed either.
+        await client.api.remoteControl.revoke(id);
+        done.push(id);
+      } catch (err) {
+        this.log.warn(`[host-server-sync] ${hostId}: revoke failed: ${errorMessage(err)}`);
+      }
+    }
+    if (done.length === 0) return;
+    pending.clear(hostId, done);
+    await this.endpoints.refresh(hostId);
+    pending.revoked?.(hostId);
+  }
+
+  /**
+   * Revoke what each lost mint left on `hostId` (ADR-230 D11): every device
+   * under the mint's label, made at or after it started (on an older host
+   * that does not say when, the label alone), that no desktop link points
+   * to. A mint is let go of once all of its are revoked; one that could not
+   * be is tried again on the next connect.
+   */
+  async reconcileMints(hostId: string): Promise<void> {
+    const mints = this.mints;
+    const client = this.registry.hostServer(hostId);
+    if (!mints || client?.state !== "connected") return;
+    const owed = mints.list(hostId);
+    if (owed.length === 0) return;
+    let listed: ReadonlyArray<{ id: string; label: string; createdAt?: number }>;
+    try {
+      listed = await client.api.remoteControl.listDevices();
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: listing devices failed: ${errorMessage(err)}`);
+      return;
+    }
+    const linked = new Set(mints.linked(hostId));
+    const done: string[] = [];
+    let revoked = false;
+    for (const mint of owed) {
+      const left = listed.filter(
+        (d) =>
+          d.label === mint.label &&
+          !linked.has(d.id) &&
+          (typeof d.createdAt !== "number" ||
+            d.createdAt >= mint.startedAt - MINT_CLOCK_SKEW_MS),
+      );
+      let failed = false;
+      for (const device of left) {
+        try {
+          await client.api.remoteControl.revoke(device.id);
+          revoked = true;
+        } catch (err) {
+          failed = true;
+          this.log.warn(`[host-server-sync] ${hostId}: revoke failed: ${errorMessage(err)}`);
+        }
+      }
+      if (!failed) done.push(mint.label);
+    }
+    if (done.length > 0) mints.clear(hostId, done);
+    if (!revoked) return;
+    await this.endpoints.refresh(hostId);
+    this.pending?.revoked?.(hostId);
+  }
+
   dispose(): void {
+    this.idleStop.dispose();
     this.unsubscribe?.();
     this.unsubscribe = null;
-    for (const timer of this.manifestTimers.values()) clearTimeout(timer);
-    this.manifestTimers.clear();
   }
 
   private async sendAll(hostId: string): Promise<void> {
     const client = this.registry.hostServer(hostId);
     if (!client) return;
-    // A new connection may be a new server that has nothing: send whole.
-    this.sentManifest.delete(hostId);
-    this.sentLayout.delete(hostId);
-    await Promise.all([
-      this.pushManifest(hostId, client),
-      this.pushLayout(hostId, client, true),
-      // A changed key clears the host's subscriptions, so its endpoints are
-      // read only after the key is in.
-      this.pushVapidKeys(hostId, client).then(() => this.endpoints.refresh(hostId)),
-    ]);
+    // A changed key clears the host's subscriptions, so its endpoints are
+    // read only after the key is in.
+    await this.pushVapidKeys(hostId, client);
+    await this.adopt(hostId, client);
+    await this.reconcileMints(hostId);
+    await this.revokePending(hostId);
+    await this.endpoints.refresh(hostId);
+    await this.ensureSupervised(hostId, client);
+  }
+
+  /**
+   * Install supervision when the host's record wants it and its server
+   * reports none. An older server, whose status has no `supervisor` at all,
+   * is left alone: its `manor-host` may not know the command.
+   */
+  private async ensureSupervised(hostId: string, client: HostServerClient): Promise<void> {
+    const supervision = this.supervision;
+    if (!supervision?.wanted(hostId) || client.state !== "connected") return;
+    try {
+      const status = await client.api.hostServer.status();
+      if (status.supervisor !== null) return;
+      await supervision.install(hostId);
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: installing supervision failed: ${errorMessage(err)}`);
+    }
+  }
+
+  /** Every connect: a status read, and a hand-over when one is owed. */
+  private async adopt(hostId: string, client: HostServerClient): Promise<void> {
+    if (!this.adoption) return;
+    try {
+      await this.adoption.run(hostId, client);
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: adoption failed: ${errorMessage(err)}`);
+    }
   }
 
   /** Whole, every connect: idempotent on the server unless the key changed. */
@@ -294,63 +406,16 @@ export class HostServerSync {
       this.log.warn(`[host-server-sync] ${hostId}: setVapidKeys failed: ${errorMessage(err)}`);
     }
   }
-
-  private async pushManifest(
-    hostId: string,
-    client = this.registry.hostServer(hostId),
-  ): Promise<void> {
-    if (!client || client.state !== "connected") return;
-    let manifest: HostManifest;
-    try {
-      manifest = this.buildManifest(hostId);
-    } catch (err) {
-      this.log.warn(`[host-server-sync] building ${hostId}'s manifest failed: ${errorMessage(err)}`);
-      return;
-    }
-    const fingerprint = manifestFingerprint(manifest);
-    if (this.sentManifest.get(hostId) === fingerprint) return;
-    this.sentManifest.set(hostId, fingerprint);
-    try {
-      await client.api.hostServer.syncManifest(manifest);
-    } catch (err) {
-      // Sent again on the next change or connect.
-      if (this.sentManifest.get(hostId) === fingerprint) this.sentManifest.delete(hostId);
-      this.log.warn(`[host-server-sync] ${hostId}: syncManifest failed: ${errorMessage(err)}`);
-    }
-  }
-
-  private async pushLayout(
-    hostId: string,
-    client: HostServerClient,
-    force: boolean,
-  ): Promise<void> {
-    let snapshot: HostLayoutSnapshot;
-    try {
-      snapshot = this.buildLayout(hostId);
-    } catch (err) {
-      this.log.warn(`[host-server-sync] building ${hostId}'s layout failed: ${errorMessage(err)}`);
-      return;
-    }
-    const fingerprint = layoutFingerprint(snapshot);
-    if (!force && this.sentLayout.get(hostId) === fingerprint) return;
-    this.sentLayout.set(hostId, fingerprint);
-    try {
-      await client.api.hostServer.syncLayout(snapshot);
-    } catch (err) {
-      if (this.sentLayout.get(hostId) === fingerprint) this.sentLayout.delete(hostId);
-      this.log.warn(`[host-server-sync] ${hostId}: syncLayout failed: ${errorMessage(err)}`);
-    }
-  }
 }
 
 /**
- * The layout snapshot for `hostId` (ADR-225 D5): the entries of the desktop's
- * layout (`LayoutStore.getAll()`, keyed `<hostId>:<path>` for a remote
- * workspace) that belong to `hostId`, rekeyed to their bare path, with no
- * window claims (a claim is a desktop window's, and means nothing on the
+ * The layout snapshot for `hostId`, for adoption (ADR-227 D3): the entries of
+ * the desktop's layout (`LayoutStore.getAll()`, keyed `<hostId>:<path>` for a
+ * remote workspace) that belong to `hostId`, rekeyed to their bare path, with
+ * no window claims (a claim is a desktop window's, and means nothing on the
  * box). `lastActiveWorkspacePath` survives only when it is on this host. The
- * box's reader (`host-server/owner.ts` `assertHostLayoutSnapshot`) must
- * accept what this builds.
+ * box's check (`host-server/owner.ts` `assertBareLayoutEntries`) must accept
+ * what this builds.
  */
 export function hostLayoutSnapshot(
   all: Readonly<Record<string, LayoutEntry>>,

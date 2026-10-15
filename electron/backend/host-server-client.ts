@@ -7,11 +7,20 @@
  * on the shared ControlMaster). The box's end says the owner hello for us
  * and the provider reads the server's reply, so the stream this side gets is
  * the bridge protocol itself (`bridge/types.ts`), one JSON frame per line —
- * the same frames the phone speaks, as an invoke client: `invoke` frames
- * answered by `result` frames by id. Calls are typed from the host server's
- * own table (`api`, `HostServerApi`).
+ * the same frames the phone speaks: `invoke` frames answered by `result`
+ * frames by id, and `subscribe` / `unsubscribe` frames answered by `event`
+ * frames (ADR-227 D4). Calls are typed from the host server's own table
+ * (`api`, `HostServerApi`).
  *
- * `RemoteHostConnection` owns one per remote host, beside its hook feed, and
+ * **Subscriptions outlive the channel.** `subscribe` files the listener in a
+ * `SubscriptionRegistry` (the one the web transport keeps), which is the
+ * truth of what the server should be sending: every channel that comes up
+ * is told all of it before `connected` is reported, so a server restart or
+ * a host that drops and comes back loses no subscription. Events sent while
+ * the channel was down are not replayed; whoever cares re-reads on
+ * `connected` (`HostProxy` takes a fresh snapshot).
+ *
+ * `RemoteHostConnection` owns one per remote host, beside its proxy, and
  * drives it with the host's lifecycle: `hostConnected` when the host
  * connects or comes back, `hostLost` when it drops, `dispose` with it.
  *
@@ -33,9 +42,15 @@ import type { Duplex } from "node:stream";
 import { errorMessage } from "../lib/errors";
 import type { ClientOf } from "../bridge/contract";
 import { BridgeUnavailableError, settleResult } from "../bridge/settle";
-import type { ResultFrame } from "../bridge/types";
+import type {
+  EventFrame,
+  ResultFrame,
+  SubscribeFrame,
+  UnsubscribeFrame,
+} from "../bridge/types";
 import type { HostHandlers } from "../host-server/handlers";
 import { createLineReader } from "../terminal-host/line-reader";
+import { SubscriptionRegistry, type Listener } from "../../src/bridge/subscription-registry";
 
 /**
  * The host server's table as the owner calls it: `api.hostServer.status()`,
@@ -116,6 +131,11 @@ export class HostServerClient {
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
   private readonly stateListeners = new Set<(state: HostServerClientState) => void>();
+  /** Every live event listener; told to each channel as it comes up. */
+  private readonly subscriptions = new SubscriptionRegistry(
+    (frame) => this.tellSubscription(frame),
+    "host-server-client",
+  );
 
   constructor(opts: HostServerClientOptions) {
     this.hostId = opts.hostId;
@@ -187,11 +207,18 @@ export class HostServerClient {
   // ── calls ──
 
   /**
-   * `ns.method(...args)` on the host server, for `api`. Rejects with
-   * `HostServerUnavailableError` when the channel is not up or the server
-   * answers `unavailable:*`.
+   * `ns.method(...args)` on the host server: what `api` calls, and what a
+   * caller holding a method only by name (`HostProxy.invoke`) uses. Rejects
+   * with `HostServerUnavailableError` when the channel is not up or the
+   * server answers `unavailable:*`. `timeoutMs` overrides the client's
+   * request timeout, for a call that clones or fetches.
    */
-  private invoke(ns: string, methodName: string, args: unknown[]): Promise<unknown> {
+  invoke(
+    ns: string,
+    methodName: string,
+    args: unknown[],
+    opts: { timeoutMs?: number } = {},
+  ): Promise<unknown> {
     const stream = this.stream;
     if (!stream || this.stateValue !== "connected") {
       return Promise.reject(new HostServerUnavailableError(this.hostId, this.stateValue));
@@ -201,11 +228,33 @@ export class HostServerClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`${ns}.${methodName} on ${this.hostId}'s host server timed out`));
-      }, this.requestTimeoutMs);
+      }, opts.timeoutMs ?? this.requestTimeoutMs);
       timer.unref?.();
       this.pending.set(id, { resolve, reject, timer });
       this.write(stream, { kind: "invoke", id, ns, method: methodName, args });
     });
+  }
+
+  // ── events ──
+
+  /**
+   * Hear the host server's `ns.event`, for one `key` or (none) every key.
+   * Kept across reconnects; returns the release, which is idempotent. The
+   * listener gets the event's `args`, spread.
+   */
+  subscribe(
+    ns: string,
+    event: string,
+    key: string | undefined,
+    listener: Listener,
+  ): () => void {
+    return this.subscriptions.subscribe(ns, event, key, listener);
+  }
+
+  /** A first listener in or a last one out: tell the channel, if it is up. */
+  private tellSubscription(frame: SubscribeFrame | UnsubscribeFrame): void {
+    const stream = this.stream;
+    if (stream && this.stateValue === "connected") this.write(stream, frame);
   }
 
   // ── the channel ──
@@ -239,12 +288,16 @@ export class HostServerClient {
       createLineReader((line) => {
         const frame = parseFrame(line);
         if (frame?.kind === "result") this.onResult(frame as unknown as ResultFrame);
+        else if (frame?.kind === "event") this.subscriptions.deliver(frame as unknown as EventFrame);
       }),
     );
     stream.on("error", () => {
       // Its `close` follows, and reports the drop.
     });
     stream.on("close", () => this.onDropped(stream));
+    // What this side listens to, before anyone hears `connected` and reads:
+    // an event raised after their read is then never missed.
+    for (const frame of this.subscriptions.keys()) this.write(stream, frame);
 
     this.connectedThisEpoch = true;
     this.retryAttempt = 0;

@@ -1,0 +1,115 @@
+/*
+ * The Hosts sheet (`HostsSheet`): a header like the notifications sheet's,
+ * and one 52px row per pairing, sized for a thumb.
+ */
+.header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 4px 4px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.title {
+  flex: 1;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+}
+
+.empty {
+  padding: 24px 6px;
+  font-size: 14px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 52px;
+  padding: 0 4px 0 10px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.row[aria-current="true"] .name {
+  font-weight: 600;
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+}
+
+.dot[data-state="connected"] {
+  background: var(--green);
+}
+
+/* Asleep (ADR-229 D7) is where the host was meant to be: calm, not red. */
+.dot[data-state="asleep"] {
+  background: var(--blue, #89b4fa);
+}
+
+.dot[data-state="unreachable"],
+.dot[data-state="refused"] {
+  background: var(--red);
+}
+
+.text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.name,
+.status,
+.confirmText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.name {
+  color: var(--text-primary);
+}
+
+.status {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.confirmText {
+  flex: 1;
+  min-width: 0;
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+}
+
+/* A 44px touch target, as the top bar's icon buttons. */
+button.iconButton {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+}

@@ -3,10 +3,12 @@
  * against a real host server in this process, reached exactly as over ssh —
  * `runServerBridge` (what `manor-host server-bridge` runs) on in-memory
  * stdio, piping to the server's unix socket — but with no ssh and no daemon.
- * And the manifest the desktop builds for it (D8), from memory only.
+ * And the records the desktop will hand it on adoption (ADR-227 D3), from
+ * memory only.
  */
 
 import fs from "node:fs";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { Duplex, PassThrough } from "node:stream";
@@ -20,9 +22,8 @@ import {
   writeOwnerToken,
   type HostSocketListener,
 } from "../../host-server/socket";
-import type { HostManifest } from "../../host-server/manifest";
-import type { HostLayoutSnapshot } from "../../host-server/layout";
 import type { HostRelay } from "../../host-server/relay";
+import type { OwnershipState } from "../../host-server/ownership";
 import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { plainFileSecretBox } from "../../platform/secret-box";
 import type { HostTransport } from "../../terminal-host/transport";
@@ -33,19 +34,15 @@ import {
   HostServerUnavailableError,
   type HostServerClientOptions,
 } from "../host-server-client";
-import {
-  HostServerSync,
-  buildHostManifest,
-  layoutSnapshotFor,
-  type ManifestSources,
-} from "../host-server-sync";
+import { HostServerSync, layoutSnapshotFor, serverFactsOf } from "../host-server-sync";
 import { BackendRegistry } from "../registry";
 import type { HostProvider } from "../providers/types";
 import type { HostConnectionEvent, RemoteHostBackend, StreamEvent } from "../types";
 import { ProjectManager } from "../../projects/project-manager";
 import type { PersistedProject } from "../../projects/types";
 import type { LayoutEntry } from "../../../src/lib/layout/protocol";
-import type { PrInfo } from "../../../src/lib/pr-info";
+import type { ProjectInfo } from "../../projects/types";
+import { createTab } from "../../../src/lib/layout/ids";
 
 /** One `Duplex` writing to `writable` and reading from `readable`. */
 function joined(writable: NodeJS.WritableStream, readable: NodeJS.ReadableStream): Duplex {
@@ -83,27 +80,6 @@ async function bridgeStream(paths: HostServerPaths): Promise<Duplex> {
   return joined(stdin, stdout);
 }
 
-function manifest(projectPath: string): HostManifest {
-  return {
-    version: 1,
-    sentAt: new Date().toISOString(),
-    projects: [
-      {
-        id: "p1",
-        name: "Manor",
-        path: projectPath,
-        hostId: "local",
-        selectedWorkspaceIndex: 0,
-        workspaces: [],
-        defaultBranch: "main",
-        defaultRunCommand: null,
-        worktreePath: null,
-      },
-    ],
-    integrationSnapshot: {},
-  };
-}
-
 function entry(version: number): LayoutEntry {
   return {
     version,
@@ -120,6 +96,7 @@ describe("HostServerClient over server-bridge", () => {
   let tmp: string;
   let paths: HostServerPaths;
   let server: HostServer;
+  let ownership: OwnershipState;
   let listener: HostSocketListener | null;
   const clients: HostServerClient[] = [];
 
@@ -165,6 +142,7 @@ describe("HostServerClient over server-bridge", () => {
       transport: noDaemon,
       internals: (parts) => {
         relay = parts.relay;
+        ownership = parts.ownership;
       },
     });
     // Its identity and device stores, without dialling the relay.
@@ -179,7 +157,7 @@ describe("HostServerClient over server-bridge", () => {
     fs.rmSync(tmp, { recursive: true, force: true });
   });
 
-  it("connects as the owner, asks for status and syncs both payloads", async () => {
+  it("connects as the owner, asks for status, and sets up a project once the host is adopted", async () => {
     const c = client();
     const states: string[] = [];
     c.onStateChange((state) => states.push(state));
@@ -188,26 +166,40 @@ describe("HostServerClient over server-bridge", () => {
     expect(states).toEqual(["connecting", "connected"]);
 
     const status = await c.api.hostServer.status();
-    expect(status).toMatchObject({ version: "9.9.9-test", devices: 0, pushEndpoints: [] });
+    expect(status).toMatchObject({
+      version: "9.9.9-test",
+      ownership: "pending",
+      devices: 0,
+      pushEndpoints: [],
+    });
     expect(await c.api.remoteControl.listDevices()).toEqual([]);
 
-    expect(await c.api.hostServer.syncManifest(manifest(tmp))).toBe(true);
-    expect(JSON.parse(fs.readFileSync(paths.manifest, "utf-8")).projects[0].id).toBe("p1");
-
-    const layout: HostLayoutSnapshot = {
-      version: 1,
-      takenAt: new Date().toISOString(),
-      workspaces: { [tmp]: entry(4) },
-      lastActiveWorkspacePath: tmp,
-    };
-    expect(await c.api.hostServer.syncLayout(layout)).toBe(true);
-    expect(JSON.parse(fs.readFileSync(paths.layout, "utf-8")).workspaces[tmp].version).toBe(4);
-
-    // A refused payload is an error, not a dropped channel.
-    await expect(c.api.hostServer.syncLayout({ ...layout, version: 2 } as never)).rejects.toThrow(
-      /layout.version/,
-    );
+    // Not adopted yet (ADR-227 D3): no projects, and a write is a stated
+    // refusal, not an error and not a dropped channel.
+    expect(await c.api.projects.getAll()).toEqual([]);
+    await expect(c.api.projects.add("Manor", tmp)).rejects.toMatchObject({
+      name: "HostServerUnavailableError",
+      message: expect.stringMatching(/being set up/),
+    });
     expect(c.state).toBe("connected");
+
+    // Adopted: the owner adds a project, and the server's own layout store
+    // persists to `layout.json` (ADR-227 D2).
+    ownership.set("host");
+    expect((await c.api.hostServer.status()).ownership).toBe("host");
+    expect(JSON.parse(fs.readFileSync(paths.ownership, "utf-8"))).toEqual({ ownership: "host" });
+    const project = (await c.api.projects.add("Manor", tmp)) as ProjectInfo;
+    expect(project).toMatchObject({ name: "Manor", path: tmp, hostId: "local" });
+    expect(JSON.parse(fs.readFileSync(paths.projects, "utf-8")).projects[0].path).toBe(tmp);
+
+    await c.api.layout.apply(tmp, { type: "new-tab", tab: createTab(undefined, "pane-a") });
+    await vi.waitFor(() => {
+      const file = JSON.parse(fs.readFileSync(paths.layout, "utf-8")) as {
+        workspaces: Array<{ workspacePath: string }>;
+      };
+      // Keyed by the bare path: to the host server its own host is local.
+      expect(file.workspaces.map((ws) => ws.workspacePath)).toEqual([tmp]);
+    });
   });
 
   it("is unsupported, quietly and once, on a box with no host server, until the host reconnects", async () => {
@@ -249,13 +241,13 @@ describe("HostServerClient over server-bridge", () => {
     expect(c.state).toBe("connected");
   });
 
-  it("re-sends the manifest and layout after every connect, and redials a dropped channel", async () => {
+  it("re-sends the VAPID pair after every connect, and redials a dropped channel", async () => {
     const c = client();
     const connected = vi.fn();
     c.onStateChange((state) => {
       if (state === "connected") connected();
     });
-    let manifestBuilds = 0;
+    const vapidKeys = vi.fn(async () => ({ publicKey: "desktop-pub", privateKey: "desktop-priv" }));
     const sync = new HostServerSync({
       // The registry's part: every state change of the one host's channel.
       registry: {
@@ -264,52 +256,163 @@ describe("HostServerClient over server-bridge", () => {
         onHostServerStateChange: (listener) =>
           c.onStateChange((state) => listener("box", state)),
       },
-      manifest: () => {
-        manifestBuilds++;
-        return manifest(tmp);
-      },
-      layout: () => ({
-        version: 1,
-        takenAt: new Date().toISOString(),
-        workspaces: { [tmp]: entry(1) },
-        lastActiveWorkspacePath: null,
-      }),
-      vapidKeys: async () => ({ publicKey: "desktop-pub", privateKey: "desktop-priv" }),
-      debounceMs: 10,
+      vapidKeys,
       log: quiet,
     });
     sync.start();
 
     c.hostConnected();
-    await vi.waitFor(() => expect(fs.existsSync(paths.layout)).toBe(true));
-    // The desktop's VAPID pair rides along with the manifest and layout.
     await vi.waitFor(() => expect(fs.existsSync(paths.vapid)).toBe(true));
-    expect(fs.existsSync(paths.manifest)).toBe(true);
+    expect(vapidKeys).toHaveBeenCalledTimes(1);
+    // Neither projects nor layout are pushed: the host server owns them.
+    expect(fs.existsSync(paths.projects)).toBe(false);
 
-    // An unchanged manifest is not sent again on a change notice.
-    fs.rmSync(paths.manifest);
-    sync.manifestChanged("box");
-    await new Promise((r) => setTimeout(r, 50));
-    expect(manifestBuilds).toBe(2);
-    expect(fs.existsSync(paths.manifest)).toBe(false);
-
-    // The host reconnects: both are sent whole again.
+    // The host reconnects: the key is sent again.
     c.hostLost();
     expect(c.state).toBe("idle");
     c.hostConnected();
-    await vi.waitFor(() => expect(fs.existsSync(paths.manifest)).toBe(true));
+    await vi.waitFor(() => expect(vapidKeys).toHaveBeenCalledTimes(2));
     expect(connected).toHaveBeenCalledTimes(2);
 
     // The server restarts under a connected host: the channel is redialled
-    // (not marked unsupported) and both are sent again.
-    fs.rmSync(paths.manifest);
+    // (not marked unsupported) and the key is sent again.
     await unlisten();
     await vi.waitFor(() => expect(c.state).not.toBe("connected"));
     await listen();
     await vi.waitFor(() => expect(c.state).toBe("connected"));
-    await vi.waitFor(() => expect(fs.existsSync(paths.manifest)).toBe(true));
+    await vi.waitFor(() => expect(vapidKeys).toHaveBeenCalledTimes(3));
     expect(connected).toHaveBeenCalledTimes(3);
     sync.dispose();
+  });
+
+  it("records the host's room and viewer-bridge capability from its status (ADR-228)", async () => {
+    const c = client();
+    const setServerFacts = vi.fn();
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+        setServerFacts,
+      },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    await vi.waitFor(() => expect(setServerFacts).toHaveBeenCalled());
+    const status = await c.api.hostServer.status();
+    // It says it takes viewer streams, but not before it is adopted.
+    expect(status.capabilities).toContain("viewer-bridge");
+    expect(status.ownership).toBe("pending");
+    // A current server also says whether it is busy and which box hooks it has (ADR-229 D7).
+    expect(setServerFacts).toHaveBeenLastCalledWith("box", {
+      roomId: status.relay.roomId,
+      viewerBridge: false,
+      busy: false,
+      hooks: { onBusy: false, onIdle: false },
+    });
+    expect(status.roomId).toMatch(/^[A-Za-z0-9_-]{22}$/);
+    sync.dispose();
+  });
+
+  it("installs supervision on connect where the record wants it and the host has none (ADR-229 D4)", async () => {
+    const c = client();
+    const install = vi.fn(async () => {});
+    const wanted = vi.fn((hostId: string) => hostId === "box");
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+      },
+      supervision: { wanted, install },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    await vi.waitFor(() => expect(install).toHaveBeenCalledWith("box"));
+    // Nothing supervises the test box: its status says so.
+    expect((await c.api.hostServer.status()).supervisor).toBeNull();
+    sync.dispose();
+  });
+
+  it("leaves a host whose record does not want supervision alone", async () => {
+    const c = client();
+    const install = vi.fn(async () => {});
+    const wanted = vi.fn(() => false);
+    const setServerFacts = vi.fn();
+    const sync = new HostServerSync({
+      registry: {
+        hostServer: () => c,
+        hostServers: () => [c],
+        onHostServerStateChange: (listener) =>
+          c.onStateChange((state) => listener("box", state)),
+        setServerFacts,
+      },
+      supervision: { wanted, install },
+      log: quiet,
+    });
+    sync.start();
+    c.hostConnected();
+    // Asked once the rest of the connect's sync is done; nothing installed.
+    await vi.waitFor(() => expect(wanted).toHaveBeenCalledWith("box"));
+    expect(setServerFacts).toHaveBeenCalled();
+    expect(install).not.toHaveBeenCalled();
+    sync.dispose();
+  });
+
+  it("says the viewer hello for `server-bridge --viewer`, and the owner's otherwise", async () => {
+    const sock = path.join(tmp, "probe.sock");
+    const hellos: unknown[] = [];
+    const probe = net.createServer((s) => {
+      s.once("data", (chunk) => {
+        hellos.push(JSON.parse(chunk.toString("utf-8").split("\n")[0]));
+        s.end();
+      });
+    });
+    await new Promise<void>((resolve) => probe.listen(sock, resolve));
+    const run = (viewer: boolean) =>
+      runServerBridge(
+        { stdin: new PassThrough(), stdout: new PassThrough(), stderr: new PassThrough() },
+        {
+          paths: { socket: sock, ownerToken: paths.ownerToken },
+          ensureServerRunning: async () => {},
+          viewer,
+        },
+      );
+    try {
+      await run(true);
+      await run(false);
+    } finally {
+      await new Promise<void>((resolve) => probe.close(() => resolve()));
+    }
+    const token = fs.readFileSync(paths.ownerToken, "utf-8").trim();
+    expect(hellos).toEqual([
+      { type: "hello", token, viewer: "desktop" },
+      { type: "hello", token },
+    ]);
+  });
+});
+
+describe("serverFactsOf (ADR-228)", () => {
+  it("reads an older host's status as no viewer bridge, with its relay's room", () => {
+    const relay = { roomId: "room-1", connected: true, error: null };
+    expect(serverFactsOf({ relay })).toEqual({ roomId: "room-1", viewerBridge: false });
+    expect(serverFactsOf({ relay, capabilities: ["other"] })).toMatchObject({
+      viewerBridge: false,
+    });
+    expect(
+      serverFactsOf({ relay, roomId: "room-1", capabilities: ["viewer-bridge"] }),
+    ).toEqual({ roomId: "room-1", viewerBridge: true });
+  });
+
+  it("says no viewer bridge until the host is adopted", () => {
+    const relay = { roomId: "room-1", connected: true, error: null };
+    const status = { relay, capabilities: ["viewer-bridge"] };
+    expect(serverFactsOf({ ...status, ownership: "pending" }).viewerBridge).toBe(false);
+    expect(serverFactsOf({ ...status, ownership: "host" }).viewerBridge).toBe(true);
   });
 });
 
@@ -320,7 +423,6 @@ describe("BackendRegistry's owner channels", () => {
     const backend = {
       pty: {
         onEvent: (_h: (event: StreamEvent) => void) => () => {},
-        replayHooks: async () => ({ entries: [], lastSeq: 0, epoch: "e0" }),
         listSessions: async () => [],
       },
       connect: vi.fn(async () => {}),
@@ -329,8 +431,6 @@ describe("BackendRegistry's owner channels", () => {
         hostHandlers.push(handler);
         return () => {};
       },
-      onStreamConnected: () => () => {},
-      sendControlRelayCommand: () => true,
       retryNow: () => false,
       checkLiveness: async () => true,
     };
@@ -351,6 +451,9 @@ describe("BackendRegistry's owner channels", () => {
       createProvider: () =>
         ({
           kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
           transport: () => {
             throw new Error("unused");
           },
@@ -386,26 +489,96 @@ describe("BackendRegistry's owner channels", () => {
     await registry.unregister("box");
     expect(registry.hostServer("box")).toBeUndefined();
   });
+
+  it("lists a host's server facts once a status has said them, and announces the change", () => {
+    const registry = new BackendRegistry({
+      local: fakeRemote().backend,
+      remoteVersion: "0.0.1",
+      createProvider: () =>
+        ({
+          kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
+          transport: () => {
+            throw new Error("unused");
+          },
+          forwardPort: vi.fn(),
+          dispose: async () => {},
+          openServerChannel: null,
+        }) as unknown as HostProvider,
+      createRemote: () => fakeRemote().backend,
+      hostServerClient: { log: quiet },
+    });
+    registry.register("box", { kind: "ssh", target: "me@box" });
+    const box = () => registry.list().find((h) => h.hostId === "box")!;
+    expect(box()).not.toHaveProperty("viewerBridge");
+    expect(box()).not.toHaveProperty("roomId");
+
+    const changes = vi.fn();
+    registry.onStatusChange(changes);
+    registry.setServerFacts("box", { roomId: "room-1", viewerBridge: true });
+    expect(box()).toMatchObject({ roomId: "room-1", viewerBridge: true });
+    expect(changes).toHaveBeenCalledTimes(1);
+    // The same facts again are no change.
+    registry.setServerFacts("box", { roomId: "room-1", viewerBridge: true });
+    expect(changes).toHaveBeenCalledTimes(1);
+    // The local host has no server; ignored.
+    registry.setServerFacts("local", { roomId: "x", viewerBridge: true });
+    expect(registry.list()[0]).not.toHaveProperty("roomId");
+
+    registry.setServerFacts("box", null);
+    expect(box()).not.toHaveProperty("viewerBridge");
+    expect(changes).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists whether each remote host is adopted, and announces adoption", () => {
+    const adopted = new Set<string>();
+    const registry = new BackendRegistry({
+      local: fakeRemote().backend,
+      remoteVersion: "0.0.1",
+      createProvider: () =>
+        ({
+          kind: "ssh",
+          capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+          ensureUp: async () => {},
+          status: async () => ({ state: "up" }),
+          transport: () => {
+            throw new Error("unused");
+          },
+          forwardPort: vi.fn(),
+          dispose: async () => {},
+          openServerChannel: null,
+        }) as unknown as HostProvider,
+      createRemote: () => fakeRemote().backend,
+      hostServerClient: { log: quiet },
+      isAdopted: (hostId) => adopted.has(hostId),
+    });
+    registry.register("box", { kind: "ssh", target: "me@box" });
+    const box = () => registry.list().find((h) => h.hostId === "box")!;
+    expect(box().adopted).toBe(false);
+    expect(registry.list()[0]).not.toHaveProperty("adopted");
+
+    const changes = vi.fn();
+    registry.onStatusChange(changes);
+    adopted.add("box");
+    registry.adoptionChanged("box");
+    expect(changes).toHaveBeenCalledOnce();
+    expect(changes.mock.calls[0][0].find((h: { hostId: string }) => h.hostId === "box")).toMatchObject({
+      adopted: true,
+    });
+    registry.adoptionChanged("nowhere");
+    expect(changes).toHaveBeenCalledOnce();
+  });
 });
 
-describe("buildHostManifest", () => {
+describe("adoption's records (ADR-227 D3)", () => {
   let tmp: string;
 
   beforeEach(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), "manor-manifest-"));
   });
   afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
-
-  const pr: PrInfo = {
-    number: 42,
-    state: "open",
-    title: "Add the thing",
-    url: "https://github.com/o/r/pull/42",
-    isDraft: false,
-    checks: { total: 3, passing: 2, failing: 1, pending: 0 },
-    recentComments: [],
-    additions: 10,
-  };
 
   function record(over: Partial<PersistedProject>): PersistedProject {
     return {
@@ -455,100 +628,15 @@ describe("buildHostManifest", () => {
     const git = { worktreeList: vi.fn(async () => []) };
     const pm = new ProjectManager(git as never, tmp);
     const records = pm.manifestRecords("box");
-    expect(records.map((p) => p.id)).toEqual(["on-box"]);
+    expect(records.map((p) => [p.id, p.hostId])).toEqual([["on-box", "local"]]);
     expect(records[0]).toMatchObject({ name: "Manor", color: "#0f0" });
     expect(records[0]).not.toHaveProperty("hostPaths");
-    // Copies: the manifest cannot reach back into projects.json's state.
+    // Copies: the records cannot reach back into projects.json's state.
     records[0].workspaceNames!["/home/me/wt/a"] = "changed";
     expect(pm.manifestRecords("box")[0].workspaceNames).toEqual({
       "/home/me/wt/a": "Feature A",
     });
     expect(git.worktreeList).not.toHaveBeenCalled();
-
-    const built = buildHostManifest("box", {
-      projects: (id) => pm.manifestRecords(id),
-      workspaces: () => [],
-      cachedPr: () => undefined,
-    });
-    expect(built.version).toBe(1);
-    expect(built.hostName).toBeUndefined();
-    expect(
-      buildHostManifest("box", {
-        projects: (id) => pm.manifestRecords(id),
-        workspaces: () => [],
-        cachedPr: () => undefined,
-        hostName: () => "me@box",
-      }).hostName,
-    ).toBe("me@box");
-    expect(built.projects.map((p) => [p.id, p.hostId, p.name])).toEqual([
-      ["on-box", "local", "Manor"],
-    ]);
-  });
-
-  it("assembles the integration snapshot from what is cached, never asking for more", () => {
-    const issue = {
-      id: "lin-1",
-      identifier: "ENG-412",
-      title: "Do the thing",
-      url: "https://linear.app/x/issue/ENG-412",
-    };
-    const prAt = Date.parse("2026-10-12T09:00:00.000Z");
-    const cachedPr = vi.fn<ManifestSources["cachedPr"]>((repo, branch) => {
-      expect(repo).toEqual({ path: "/home/me/manor", hostId: "box" });
-      if (branch === "feat-a") return { pr, at: prAt };
-      if (branch === "feat-b") return { pr: null, at: prAt };
-      return undefined;
-    });
-    const now = new Date("2026-10-12T10:00:00.000Z");
-    const built = buildHostManifest(
-      "box",
-      {
-        projects: () => [
-          {
-            ...record({
-              id: "on-box",
-              path: "/home/me/manor",
-              workspaceIssues: { "/home/me/wt/b": [issue] },
-            }),
-            hostId: "local" as const,
-          },
-        ],
-        workspaces: () => [
-          { path: "/home/me/manor", branch: "main" },
-          { path: "/home/me/wt/a", branch: "feat-a" },
-          { path: "/home/me/wt/b", branch: "feat-b" },
-        ],
-        cachedPr,
-      },
-      now,
-    );
-    expect(built.sentAt).toBe(now.toISOString());
-    expect(built.projects[0]).not.toHaveProperty("hostPaths");
-    expect(built.integrationSnapshot).toEqual({
-      "/home/me/wt/a": {
-        takenAt: "2026-10-12T09:00:00.000Z",
-        issue: null,
-        pr: {
-          number: 42,
-          state: "open",
-          title: "Add the thing",
-          url: "https://github.com/o/r/pull/42",
-          isDraft: false,
-          checks: { total: 3, passing: 2, failing: 1, pending: 0 },
-        },
-      },
-      "/home/me/wt/b": {
-        takenAt: now.toISOString(),
-        issue: {
-          id: "lin-1",
-          identifier: "ENG-412",
-          title: "Do the thing",
-          url: "https://linear.app/x/issue/ENG-412",
-        },
-        pr: null,
-      },
-    });
-    expect(cachedPr).toHaveBeenCalledTimes(3);
   });
 
   it("builds a layout snapshot of the host's keys from the store", () => {

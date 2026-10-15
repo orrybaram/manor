@@ -31,6 +31,7 @@ import Pin from "lucide-react/dist/esm/icons/pin";
 import Play from "lucide-react/dist/esm/icons/play";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import RadioTower from "lucide-react/dist/esm/icons/radio-tower";
+import Server from "lucide-react/dist/esm/icons/server";
 import Rows2 from "lucide-react/dist/esm/icons/rows-2";
 import Settings from "lucide-react/dist/esm/icons/settings";
 import SquareArrowOutUpRight from "lucide-react/dist/esm/icons/square-arrow-out-up-right";
@@ -690,6 +691,24 @@ export function useCommands({
           "token",
         ],
         action: openSettingsPage("integrations"),
+      },
+      {
+        id: "settings-hosts",
+        label: "Settings: Hosts",
+        icon: <Server size={14} />,
+        keywords: [
+          "settings",
+          "hosts",
+          "ssh",
+          "remote",
+          "wake",
+          "stop",
+          "remove",
+          "docker",
+          "kubernetes",
+          "recipe",
+        ],
+        action: openSettingsPage("hosts"),
       },
       {
         id: "settings-remote",

@@ -23,7 +23,9 @@ import { ProjectSetUpMenu } from "./ProjectSetUpMenu";
 import { RemoveProjectDialog } from "./RemoveProjectDialog";
 import { useGroupAgentStatus } from "../../hooks/useProjectAgentStatus";
 import { useHostStore } from "../../store/host-store";
-import { groupHostState, isHostOffline } from "../../lib/host-status";
+import { groupStateOf } from "../../lib/host-status";
+import { serverHostName } from "../../bridge/server-set";
+import { useAwayHosts } from "../../hooks/useHostAway";
 import { projectColorStyle, useProjectHeaderRow } from "../../hooks/useProjectHeaderRow";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { ProjectChevron } from "./ProjectChevron";
@@ -116,7 +118,10 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const members = useMemo(() => sections.map((section) => section.project), [sections]);
   const { status, pulse } = useGroupAgentStatus(members);
   const hosts = useHostStore((s) => s.hosts);
-  const hostState = groupHostState(members.map((m) => m.hostId), hosts);
+  const memberHostIds = useMemo(() => members.map((m) => m.hostId), [members]);
+  const awayHosts = useAwayHosts(memberHostIds);
+  const isAway = (hostId: string | null | undefined): boolean => !!hostId && awayHosts.has(hostId);
+  const hostState = groupStateOf(memberHostIds, isAway);
   const indicator = toWorkspaceIndicator(status, pulse);
   const lead = members[0];
   // Copy sources from the local member when the group has one.
@@ -234,7 +239,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
                             {ws.name || ws.branch || "main"}
                           </span>
                           <span className={styles.workspaceBranch}>
-                            {memberHostName(project.hostId, hosts)}
+                            {serverHostName(project.hostId) ?? memberHostName(project.hostId, hosts)}
                           </span>
                         </div>
                       </ContextMenu.Item>
@@ -259,7 +264,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           {sections.map((section) => {
             // An away host's section keeps its last known workspaces, dimmed;
             // the other sections stay as they are (ADR-192 §5).
-            const offline = isHostOffline(section.project.hostId, hosts);
+            const offline = isAway(section.project.hostId);
             return (
               <div
                 key={section.project.id}

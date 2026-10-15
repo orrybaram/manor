@@ -2,6 +2,8 @@ import { spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
 
+import { fakeGhFixturesJson, fakeGhScript, type FakeGhFixtures } from "./fake-gh";
+
 /**
  * The remote box the remote-host suite talks to (ADR-160 ticket 12, ADR-178
  * ticket 8) — a real sshd started by `scripts/test-remote-e2e.mjs`, either a
@@ -34,6 +36,9 @@ const DIRECT_TARGET = "manor-e2e-direct";
  * network, no credentials.
  */
 export const SEED_REPO_URL = "https://manor-e2e.invalid/seed.git";
+
+/** The same seed, as a GitHub URL (also rewritten to the seed). */
+export const GITHUB_SEED_URL = "https://github.com/manor-e2e/seed.git";
 
 /** Where the stubs live on the box. `~`-relative so a shell expands it. */
 export const REMOTE_AGENT = "~/.manor-e2e/bin/manor-e2e-agent";
@@ -165,19 +170,48 @@ export function hostServerPid(): number | null {
  * session, and `remote-bridge` starts the server with that environment.
  */
 export function pointHostServerAtRelay(relayUrl: string): void {
+  // The stubs' directory leads PATH, so the box's `gh` is the fake one
+  // (`installRemoteStubs`) — what a host server's GitHub reads shell out to
+  // (ADR-227 D7).
   onRemote(
-    `mkdir -p "$HOME/.manor-e2e" && printf "MANOR_RELAY_URL='%s'\\n" '${relayUrl}' > "$HOME/.manor-e2e/env"`,
+    `mkdir -p "$HOME/.manor-e2e" && printf "MANOR_RELAY_URL='%s'\\nPATH=\\"$HOME/.manor-e2e/bin:$PATH\\"\\n" '${relayUrl}' > "$HOME/.manor-e2e/env"`,
   );
 }
 
-/** Install the stub agent and the hook trigger under ~/.manor-e2e/bin. */
+/** Where the fake `gh` reads its fixtures on the box. */
+const GH_FIXTURES = '"$HOME/.manor-e2e/gh-fixtures.json"';
+
+/** Put `content` on the box at `target` (a shell word), executable if asked. */
+function uploadToRemote(target: string, content: string | Buffer, executable = false): void {
+  onRemote(`cat > ${target}${executable ? ` && chmod 755 ${target}` : ""}`, { stdin: content });
+}
+
+/**
+ * Install the stub agent, the hook trigger and a fake `gh` under
+ * ~/.manor-e2e/bin. The fake is signed in and knows no PR until a spec calls
+ * `setRemoteGhPrs`; it is only on the host server's PATH when
+ * `pointHostServerAtRelay` made it so.
+ */
 export function installRemoteStubs(): void {
   onRemote('mkdir -p "$HOME/.manor-e2e/bin"');
   for (const name of ["manor-e2e-agent", "fire-hook"]) {
-    onRemote(`cat > "$HOME/.manor-e2e/bin/${name}" && chmod 755 "$HOME/.manor-e2e/bin/${name}"`, {
-      stdin: fs.readFileSync(path.join(STUB_DIR, name)),
-    });
+    uploadToRemote(`"$HOME/.manor-e2e/bin/${name}"`, fs.readFileSync(path.join(STUB_DIR, name)), true);
   }
+  uploadToRemote(
+    '"$HOME/.manor-e2e/bin/gh"',
+    fakeGhScript("/usr/bin/env node", 'require("os").homedir() + "/.manor-e2e/gh-fixtures.json"'),
+    true,
+  );
+  setRemoteGhPrs({ prs: {} });
+}
+
+/**
+ * Change what the box's fake `gh` answers: the newest PR of each branch (and
+ * the PRs' conversations). Read afresh on every call, so it takes effect at
+ * the host server's next poll.
+ */
+export function setRemoteGhPrs(fixtures: FakeGhFixtures): void {
+  uploadToRemote(GH_FIXTURES, fakeGhFixturesJson(fixtures));
 }
 
 /**
@@ -202,7 +236,13 @@ export function seedRemoteRepo(): void {
       'git push -q "$HOME/manor-e2e-seed.git" main',
       'cd "$HOME"',
       'rm -rf "$HOME/manor-e2e-seed-work"',
-      `git config --global url."$HOME/manor-e2e-seed.git".insteadOf ${SEED_REPO_URL}`,
+      // Both URLs map to the seed; `--unset-all` first so a rerun on the same
+      // box does not trip over the two values.
+      `git config --global --unset-all url."$HOME/manor-e2e-seed.git".insteadOf || true`,
+      `git config --global --add url."$HOME/manor-e2e-seed.git".insteadOf ${SEED_REPO_URL}`,
+      // A project whose origin is on GitHub, so the host's GitHub reads have
+      // a repo to ask about, still clones and fetches from the seed.
+      `git config --global --add url."$HOME/manor-e2e-seed.git".insteadOf ${GITHUB_SEED_URL}`,
     ].join("; "),
     { timeoutMs: 60_000 },
   );

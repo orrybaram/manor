@@ -99,11 +99,19 @@ function side(uuid: string, text: string): string {
 }
 
 /** Let the mirror's file reads settle without touching (possibly fake) timers. */
+/**
+ * Wait for `cond`, turning the event loop, for up to 5 s of wall time (not a
+ * count of turns: the mirror's file reads go through the thread pool, which a
+ * loaded suite can hold up for longer than any fixed number of turns).
+ * `Date` is never faked here, only the timers.
+ */
 async function until(cond: () => boolean): Promise<void> {
-  for (let i = 0; i < 500; i++) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
     if (cond()) return;
     await new Promise((r) => setImmediate(r));
   }
+  if (cond()) return;
   throw new Error("condition never became true");
 }
 
@@ -532,7 +540,10 @@ describe("ChatMirror", () => {
       fs.appendFileSync(p, toolResult("u1", "p1", "approved"));
 
       vi.advanceTimersByTime(8_000);
-      // Enough turns for an expiry's read to have run, had it fired.
+      // The watcher's publish of the result can lag under a loaded suite:
+      // wait for it, then enough turns for an expiry's read to have run,
+      // had it fired.
+      await until(() => published.length > 0);
       for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
       expect(published.map((x) => x.entry)).toEqual([
         { kind: "plan", id: "p1", ts: T, plan: "Do it", outcome: "approved" },

@@ -23,6 +23,15 @@
  * renderer), so this is the one place a path's host is inferred (ADR-183);
  * everything that knows a workspace's host passes it along instead.
  *
+ * **A session on an adopted remote host is that host's server's** (ADR-228
+ * D5): a viewer's create, attach and reset for one are forwarded there
+ * (`HostRouting`), and its bytes come back through `HostProxy`, so this
+ * process never creates or attaches one over the host's daemon stream —
+ * `ServedByHost` says which hosts, and a create or attach for one is refused.
+ * The daemon connection stays for the host's lifecycle, and for the odd
+ * request about a running session (a write, a snapshot) made here. A host not
+ * yet adopted, or one with no server, has its sessions made here, as always.
+ *
  * With no remote host registered every route ends at the local backend,
  * called with exactly the arguments it was called with before.
  */
@@ -59,11 +68,28 @@ export interface RoutedCreateOptions {
    * goes to the host its cwd belongs to (local wins a path both hosts have).
    */
   hostId?: HostId;
+  /** False for a create nobody meant: a sleeping host stays asleep (`PtyConnectOptions`). */
+  wake?: boolean;
 }
 
 type CreateOrAttachResult = Awaited<ReturnType<PtyBackend["createOrAttach"]>> & {
   hostId: HostId;
 };
+
+/**
+ * Whether `hostId`'s sessions are its own server's to create and attach
+ * (ADR-228 D5): an adopted host whose server this desktop is a client of.
+ */
+export type ServedByHost = (hostId: string) => boolean;
+
+/**
+ * The remote host whose layout holds pane `sessionId`, or null (ADR-228 D5).
+ * A desktop window starts and attaches a remote pane's session on that
+ * host's server itself, so this process may never have claimed it; a call
+ * made here for it — a control route's read, a fallback write — still
+ * reaches the host it runs on.
+ */
+export type PaneHostOf = (sessionId: string) => string | null;
 
 /** A `PtyBackend` whose `createOrAttach` also says which host it used. */
 export interface RoutedPtyBackend extends PtyBackend {
@@ -95,12 +121,19 @@ export class RoutedBackend implements WorkspaceBackend {
     private readonly registry: BackendRegistry,
     hostForPath: HostForPath,
     pidHosts: PidHosts = () => [],
+    servedByHost: ServedByHost = () => false,
+    paneHostOf: PaneHostOf = () => null,
   ) {
     const { sessions } = registry;
     const local = () => registry.get(LOCAL_HOST_ID);
     const bySession = (sessionId: string) =>
-      registry.get(sessions.ownerOf(sessionId) ?? LOCAL_HOST_ID).pty;
+      registry.get(sessions.ownerOf(sessionId) ?? paneHostOf(sessionId) ?? LOCAL_HOST_ID).pty;
     const byPath = (cwd: string) => registry.get(hostForPath(cwd));
+    /** Refuse to create or attach `sessionId` on a host whose server owns it. */
+    const notServedHere = (hostId: string, sessionId: string): void => {
+      if (hostId === LOCAL_HOST_ID || !servedByHost(hostId)) return;
+      throw new Error(`${sessionId} runs on ${hostId}, whose own server attaches it`);
+    };
 
     this.pty = {
       createOrAttachWith: async (sessionId, cwd, cols, rows, opts = {}) => {
@@ -108,17 +141,27 @@ export class RoutedBackend implements WorkspaceBackend {
         // Then the host the caller asked for, since a path alone can't tell
         // two hosts with the same directory apart (local wins that tie).
         const hostId = sessions.ownerOf(sessionId) ?? opts.hostId ?? hostForPath(cwd);
-        const result = await registry
-          .get(hostId)
-          .pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env);
+        notServedHere(hostId, sessionId);
+        const { pty } = registry.get(hostId);
+        // The connect option only when asked, so every other create's call is as it was.
+        const result = await (opts.wake === false
+          ? pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env, { wake: false })
+          : pty.createOrAttach(sessionId, cwd, cols, rows, opts.shellArgs, opts.env));
         sessions.claim(sessionId, hostId);
         return { ...result, hostId };
       },
-      createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env) =>
-        this.pty.createOrAttachWith(sessionId, cwd, cols, rows, { shellArgs, env }),
+      createOrAttach: (sessionId, cwd, cols, rows, shellArgs, env, connect) =>
+        this.pty.createOrAttachWith(sessionId, cwd, cols, rows, {
+          shellArgs,
+          env,
+          ...(connect?.wake === false && { wake: false }),
+        }),
       // Never a new session, so only ever where an existing one runs.
-      attachExisting: (sessionId) =>
-        bySession(sessionId).attachExisting(sessionId),
+      attachExisting: async (sessionId, connect) => {
+        notServedHere(sessions.ownerOf(sessionId) ?? paneHostOf(sessionId) ?? LOCAL_HOST_ID, sessionId);
+        const pty = bySession(sessionId);
+        return connect ? pty.attachExisting(sessionId, connect) : pty.attachExisting(sessionId);
+      },
       write: (sessionId, data) => bySession(sessionId).write(sessionId, data),
       writeAfterReady: (sessionId, data) =>
         bySession(sessionId).writeAfterReady(sessionId, data),

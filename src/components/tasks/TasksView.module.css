@@ -768,3 +768,13 @@
 :global(:root[data-layout="phone"]) .searchInput {
   height: 40px;
 }
+
+/* gh isn't signed in on a host: stated, not an error (ADR-227 D7). */
+.ghNotice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}

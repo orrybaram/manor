@@ -18,6 +18,7 @@ import {
 } from "../bridge/handlers/projects";
 import {
   addRendererBroadcastSink,
+  publishToRenderer,
   type RendererBroadcast,
 } from "../renderer-broadcast";
 
@@ -26,6 +27,9 @@ import {
 function makeDeps(overrides: Record<string, unknown> = {}) {
   return {
     workspaceOps: {
+      // The server's bus, in the real wiring; here the renderer broadcast.
+      publishRemoveProgress: (origin: string | null, step: string) =>
+        publishToRenderer(origin, "projects", "removeWorktreeProgress", step),
       create: vi.fn(),
       remove: vi.fn(),
       quickMerge: vi.fn(),
@@ -58,7 +62,7 @@ describe("projects worktree calls", () => {
   });
 
   describe("createWorktree", () => {
-    it("creates through workspaceOps without the setup script and returns the project", async () => {
+    it("creates through workspaceOps and returns the project", async () => {
       const info = { id: "p1" };
       deps.workspaceOps.create.mockResolvedValue({ project: info, workspacePath: "/wt" });
 
@@ -67,7 +71,6 @@ describe("projects worktree calls", () => {
       expect(result).toBe(info);
       expect(deps.workspaceOps.create).toHaveBeenCalledWith(
         expect.objectContaining({ projectId: "p1", name: "feature" }),
-        { runSetupScript: false },
       );
     });
 

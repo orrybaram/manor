@@ -4,6 +4,7 @@ import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { autoMatchLinearTeams } from "../../lib/linear-auto-match";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { Input } from "../ui/Input";
@@ -24,17 +25,23 @@ export function LinearIntegrationSection() {
   const addToast = useToastStore((s) => s.addToast);
 
   useMountEffect(() => {
-    window.electronAPI.linear.isConnected().then(async (isConnected) => {
-      setConnected(isConnected);
-      if (isConnected) {
-        try {
-          const v = await window.electronAPI.linear.getViewer();
-          setViewer(v);
-        } catch {
-          // token may be stale
+    const refresh = () =>
+      window.electronAPI.linear.isConnected().then(async (isConnected) => {
+        setConnected(isConnected);
+        if (isConnected) {
+          try {
+            const v = await window.electronAPI.linear.getViewer();
+            setViewer(v);
+          } catch {
+            // token may be stale
+          }
+        } else {
+          setViewer(null);
         }
-      }
-    });
+      });
+    void refresh();
+    // The key was saved or cleared elsewhere (ADR-230 D8).
+    return window.electronAPI.linear.onConnectionChanged(() => void refresh());
   });
 
   const handleConnect = async () => {
@@ -46,9 +53,8 @@ export function LinearIntegrationSection() {
       setViewer(v);
       setConnected(true);
       setApiKey("");
-      // Auto-match projects
-      const matches = await window.electronAPI.linear.autoMatch();
-      const count = Object.keys(matches).length;
+      // Auto-match projects, each written to its own server.
+      const count = await autoMatchLinearTeams(useProjectStore.getState().projects);
       setMatchCount(count);
       loadProjects();
       addToast({

@@ -86,8 +86,7 @@ describe("host server: its own relay room (ADR-225 D3)", () => {
       ["remoteControl", "revoke", paired.device.id],
       ["hostServer", "status"],
       ["hostServer", "resetIdentity"],
-      ["hostServer", "syncManifest", { version: 1 }],
-      ["hostServer", "syncLayout", { version: 1 }],
+      ["projects", "add", "Manor", "/tmp"],
       ["hostServer", "setVapidKeys", { publicKey: "a", privateKey: "b" }],
     ] as Array<[string, string, ...unknown[]]>) {
       expect(await p.call(ns, methodName, ...args)).toMatchObject({

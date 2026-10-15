@@ -4,15 +4,11 @@ import Loader2 from "lucide-react/dist/esm/icons/loader-2";
 import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
 import { useAppStore } from "../../store/app-store";
-import { useProjectStore } from "../../store/project-store";
 import type { SetupStep, StepStatus } from "../../store/project-store";
 import { useToastStore } from "../../store/toast-store";
-import { workspaceKey } from "../../lib/workspace-key";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
-import { MiniTerminal } from "../ui/MiniTerminal";
-import { workspaceDisplayName } from "../../lib/workspace-display-name";
 import styles from "./WorkspaceSetupView.module.css";
 
 interface WorkspaceSetupViewProps {
@@ -81,19 +77,6 @@ function SetupChecklist({
   );
 }
 
-/**
- * The setup view only shows for the active workspace, so `wsPath` is on the
- * active host. `worktreeSetupState` is still keyed by bare path (ADR-204 §4).
- */
-function resolveWorkspaceName(wsPath: string): string {
-  if (wsPath === "__pending__") return "workspace";
-  const { activeWorkspaceHostId } = useAppStore.getState();
-  return workspaceDisplayName(
-    workspaceKey(activeWorkspaceHostId, wsPath),
-    useProjectStore.getState().projects,
-  );
-}
-
 export function WorkspaceSetupView({
   workspacePath,
   onComplete,
@@ -103,13 +86,6 @@ export function WorkspaceSetupView({
   const completeSetup = useAppStore((s) => s.completeWorktreeSetup);
 
   const steps = setupState?.steps ?? [];
-  const startScript = setupState?.startScript;
-
-  const hasSetupScriptStep = steps.some((s) => s.step === "setup-script");
-  const setupScriptStep = steps.find((s) => s.step === "setup-script");
-  const allNonScriptDone = steps
-    .filter((s) => s.step !== "setup-script")
-    .every((s) => s.status === "done");
   const allDone = steps.length > 0 && steps.every((s) => s.status === "done");
 
   // Derive fading from whether all steps are done
@@ -119,43 +95,6 @@ export function WorkspaceSetupView({
   useEffect(() => {
     useToastStore.getState().removeToast(`worktree-setup-${workspacePath}`);
   }, [workspacePath]);
-
-  // Emit a persistent toast when the view unmounts while setup is still running
-  useEffect(() => {
-    return () => {
-      const latest = useAppStore.getState().worktreeSetupState[workspacePath];
-      if (!latest || latest.completed) return;
-      const setupScriptStep = latest.steps.find((s) => s.step === "setup-script");
-      const stillRunning =
-        setupScriptStep &&
-        (setupScriptStep.status === "in-progress" || setupScriptStep.status === "pending");
-      if (!stillRunning) return;
-      const wsName = resolveWorkspaceName(workspacePath);
-      useToastStore.getState().addToast({
-        id: `worktree-setup-${workspacePath}`,
-        message: `Setting up "${wsName}"…`,
-        status: "loading",
-        persistent: true,
-      });
-    };
-  }, [workspacePath]);
-
-  // Transition setup-script to in-progress when all other steps are done
-  useEffect(() => {
-    if (
-      hasSetupScriptStep &&
-      allNonScriptDone &&
-      setupScriptStep?.status === "pending"
-    ) {
-      updateStep(workspacePath, "setup-script", "in-progress");
-    }
-  }, [
-    hasSetupScriptStep,
-    allNonScriptDone,
-    setupScriptStep?.status,
-    updateStep,
-    workspacePath,
-  ]);
 
   // Mark setup as complete in the store when all steps finish
   useEffect(() => {
@@ -170,10 +109,6 @@ export function WorkspaceSetupView({
     }
   }, [fading, onComplete]);
 
-  const handleTerminalExit = useCallback(() => {
-    updateStep(workspacePath, "setup-script", "done");
-  }, [updateStep, workspacePath]);
-
   const handleSkip = useCallback(() => {
     // Force all steps to done so the setup view can dismiss
     for (const s of steps) {
@@ -182,12 +117,6 @@ export function WorkspaceSetupView({
       }
     }
   }, [steps, updateStep, workspacePath]);
-
-  const terminalSessionId = `setup-${workspacePath.replace(/\//g, "-")}`;
-  const showTerminal =
-    hasSetupScriptStep &&
-    startScript &&
-    setupScriptStep?.status === "in-progress";
 
   return (
     <div
@@ -204,22 +133,6 @@ export function WorkspaceSetupView({
         </div>
 
         <SetupChecklist steps={steps} />
-
-        {showTerminal && (
-          <div className={styles.terminalContainer}>
-            <MiniTerminal
-              sessionId={terminalSessionId}
-              cwd={workspacePath}
-              command={startScript}
-              interactive={false}
-              exitOnComplete
-              attach
-              onExit={handleTerminalExit}
-              autoStart
-              className={styles.terminal}
-            />
-          </div>
-        )}
 
         {!fading && (
           <Button variant="ghost" size="sm" onClick={handleSkip}>

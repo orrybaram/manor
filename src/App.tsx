@@ -52,11 +52,7 @@ import {
   OWN_CLAIM,
   resyncLayout,
 } from "./store/app-store";
-import {
-  useProjectStore,
-  runWorkspaceSetupScript,
-  type ProjectInfo,
-} from "./store/project-store";
+import { useProjectStore, type ProjectInfo } from "./store/project-store";
 import { ownerOf } from "./lib/workspace-directory";
 import { workspaceDisplayName } from "./lib/workspace-display-name";
 import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
@@ -144,6 +140,8 @@ function App() {
         // clears the macOS traffic lights through the `:root` default of
         // `--window-lead-inset` (ADR-196).
         useProjectStore.setState({ sidebarMode: "hidden" });
+        // Its panes reopen without waking a sleeping host (ADR-230 D3).
+        useAppStore.getState().seedRestoredPanes();
         setAppReady(true);
         window.electronAPI.agents.reconcileStale().catch(console.error);
         return;
@@ -164,6 +162,9 @@ function App() {
           if (ws) setActiveWorkspace(ws.path, project.hostId);
         }
       }
+      // The workspace this window reopened on: its panes reopen without
+      // waking a sleeping host; any opened later is the user's (ADR-230 D3).
+      useAppStore.getState().seedRestoredPanes();
       setAppReady(true);
       window.electronAPI.agents.reconcileStale().catch(console.error);
     });
@@ -550,24 +551,12 @@ function App() {
     [],
   );
 
-  // App-commands from the main process (e.g. MCP start_agent). Main cannot
-  // create panes directly, so it round-trips over the "app-command" channel.
-  // Payloads carrying a `requestId` are answered by `appCommandHandlers`;
-  // `run-setup-script` is the last fire-and-forget straggler, kept here
-  // because it needs this component's `runWorkspaceSetupScript`.
+  // App-commands from the main process, answered by `appCommandHandlers`.
+  // A new workspace's setup script no longer comes this way: the server runs
+  // it itself, in a tab of its own (ADR-227 D5).
   useEffect(() => {
     const cleanup = window.electronAPI.appCommands.onCommand(
-      async ({ cmd, requestId, workspacePath, hostId, script, args }) => {
-        if (cmd === "run-setup-script" && workspacePath && script) {
-          await loadProjects(); // ensure a freshly-created workspace is visible
-          setActiveWorkspace(workspacePath, hostId);
-          // Main names the workspace's project host: the path alone may be
-          // on two hosts.
-          runWorkspaceSetupScript(workspacePath, script, hostId);
-          return;
-        }
-
-        if (!requestId) return;
+      async ({ cmd, requestId, args }) => {
         try {
           const handler = appCommandHandlers[cmd];
           // Must reject before an optional-chained call yields `undefined`:
@@ -585,7 +574,7 @@ function App() {
       },
     );
     return cleanup;
-  }, [loadProjects, setActiveWorkspace]);
+  }, []);
 
   // Keybindings
   // One command ID → action map for the keyboard, the native menu AND the

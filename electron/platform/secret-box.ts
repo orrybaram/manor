@@ -16,6 +16,7 @@
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import { writeFileAtomic, writeFileAtomicAsync } from "../lib/fs-atomic";
@@ -24,6 +25,7 @@ export type SecretBackend =
   | "safeStorage"
   | "systemd-creds"
   | "libsecret"
+  | "key-file"
   | "plaintext";
 
 export interface SecretBox {
@@ -249,11 +251,117 @@ export async function libsecretSecretBox(
   };
 }
 
+// ── key-file ──
+
+const KEY_FILE_HEADER = Buffer.from("MKF1");
+const KEY_ENV = "MANOR_SECRET_KEY";
+const KEY_FILE_ENV = "MANOR_SECRET_KEY_FILE";
+
+function keyFromBase64(text: string, source: string): Buffer {
+  const key = Buffer.from(text.trim(), "base64");
+  if (key.length !== DATA_KEY_BYTES) {
+    throw new Error(
+      `${source} must be ${DATA_KEY_BYTES} bytes (base64 encoded); got ${key.length}`,
+    );
+  }
+  return key;
+}
+
+/** The 32-byte key from `MANOR_SECRET_KEY`, else the file `MANOR_SECRET_KEY_FILE` names. */
+function readSecretKey(env: NodeJS.ProcessEnv): Buffer | null {
+  const inline = env[KEY_ENV];
+  if (inline) return keyFromBase64(inline, KEY_ENV);
+  const file = env[KEY_FILE_ENV];
+  if (!file) return null;
+  let raw: Buffer;
+  try {
+    raw = fs.readFileSync(file);
+  } catch (err) {
+    throw new Error(
+      `${KEY_FILE_ENV} (${file}) could not be read: ${(err as Error).message}`,
+      { cause: err },
+    );
+  }
+  // A raw key is exactly 32 bytes; anything else is read as base64 text.
+  if (raw.length === DATA_KEY_BYTES) return Buffer.from(raw);
+  return keyFromBase64(raw.toString("utf8"), `${KEY_FILE_ENV} (${file})`);
+}
+
+/**
+ * AES-256-GCM under a key the operator supplies (ADR-229 D5): `MANOR_SECRET_KEY`
+ * (base64), or the file `MANOR_SECRET_KEY_FILE` names (raw 32 bytes or base64
+ * text), such as a mounted Kubernetes or Docker secret. Null when neither is
+ * set; a key that is set but unusable throws, so a typo is never a silent
+ * fall back to a weaker backend.
+ *
+ * Sealed layout: `MKF1` + nonce (12) + tag (16) + ciphertext.
+ */
+export function keyFileSecretBox(
+  env: NodeJS.ProcessEnv = process.env,
+): SecretBox | null {
+  const key = readSecretKey(env);
+  if (!key) return null;
+  const headerLen = KEY_FILE_HEADER.length;
+  return {
+    available: () => true,
+    backend: () => "key-file",
+    encrypt: async (plain) => {
+      const iv = crypto.randomBytes(GCM_IV_BYTES);
+      const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+      const body = Buffer.concat([cipher.update(plain), cipher.final()]);
+      return Buffer.concat([KEY_FILE_HEADER, iv, cipher.getAuthTag(), body]);
+    },
+    decrypt: async (sealed) => {
+      if (
+        sealed.length < headerLen + GCM_IV_BYTES + GCM_TAG_BYTES ||
+        !sealed.subarray(0, headerLen).equals(KEY_FILE_HEADER)
+      ) {
+        throw new Error("sealed data is not key-file sealed");
+      }
+      const ivEnd = headerLen + GCM_IV_BYTES;
+      const iv = sealed.subarray(headerLen, ivEnd);
+      const tag = sealed.subarray(ivEnd, ivEnd + GCM_TAG_BYTES);
+      const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+      decipher.setAuthTag(tag);
+      return Buffer.concat([
+        decipher.update(sealed.subarray(ivEnd + GCM_TAG_BYTES)),
+        decipher.final(),
+      ]);
+    },
+  };
+}
+
+/**
+ * Whether `MANOR_SECRET_KEY_FILE` lives under `<home>/.manor`: a key kept on
+ * the volume it seals defeats the point (ADR-229 D5). Symlinks are resolved,
+ * so a mounted secret linked into the data dir is seen for what it is. False
+ * when the key comes from the environment or the file cannot be resolved.
+ */
+export function secretKeyOnVolume(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = os.homedir(),
+): boolean {
+  const file = env[KEY_FILE_ENV];
+  if (!file || env[KEY_ENV]) return false;
+  try {
+    const manor = fs.realpathSync(path.join(home, ".manor"));
+    const rel = path.relative(manor, fs.realpathSync(file));
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  } catch {
+    return false;
+  }
+}
+
 // ── choosing one ──
 
 type HostBackend = Exclude<SecretBackend, "safeStorage">;
 
-const BACKEND_ORDER: HostBackend[] = ["systemd-creds", "libsecret", "plaintext"];
+const BACKEND_ORDER: HostBackend[] = [
+  "key-file",
+  "systemd-creds",
+  "libsecret",
+  "plaintext",
+];
 
 export interface PickHostSecretBoxOptions {
   /**
@@ -341,7 +449,9 @@ async function upgradeFromPlaintext(
 }
 
 /**
- * The first working backend: systemd-creds, then libsecret, then plaintext.
+ * The first working backend: key-file when `MANOR_SECRET_KEY` or
+ * `MANOR_SECRET_KEY_FILE` is set (ADR-229 D5), then systemd-creds, then
+ * libsecret, then plaintext.
  * The pick is persisted: a backend that later disappears is an error naming
  * it, not a silent fall back to writing plaintext over keys that are still
  * sealed with the old one.
@@ -356,6 +466,7 @@ export async function pickHostSecretBox(
 ): Promise<SecretBox> {
   const exec = opts.exec ?? defaultExec;
   const probes: Record<HostBackend, () => Promise<SecretBox | null>> = {
+    "key-file": async () => keyFileSecretBox(opts.env),
     "systemd-creds": () => systemdCredsSecretBox(exec),
     libsecret: () => libsecretSecretBox(exec, opts.env),
     plaintext: async () => plainFileSecretBox,
@@ -377,7 +488,9 @@ export async function pickHostSecretBox(
     const box = await probes[chosen]();
     if (!box) {
       throw new SecretBoxUnavailableError(
-        `Pairing keys were encrypted with ${chosen}, which is no longer available`,
+        chosen === "key-file"
+          ? `Pairing keys were sealed with a key from ${KEY_ENV} or ${KEY_FILE_ENV}, and neither is set`
+          : `Pairing keys were encrypted with ${chosen}, which is no longer available`,
       );
     }
     return box;

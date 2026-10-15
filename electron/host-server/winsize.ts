@@ -12,9 +12,14 @@
  * (`TerminalHostClient`'s subscriptions are per session, not per viewer). So
  * this server accounts for exactly one of a session's `attachedClients` while
  * a device holds the pane (`isHeld` in `pty-attachments.ts` — the last
- * device's detach is what unsubscribes) and none before the first attach.
+ * device's detach is what unsubscribes), or while the server itself is
+ * subscribed with nobody viewing — a session it launched (ADR-227 D5) — and
+ * none otherwise.
  * Two phones on one pane are therefore not "someone else" to each other here;
- * the registry's own most-recent-attach rule still orders them.
+ * the registry's own most-recent-attach rule still orders them. Nor is a
+ * desktop window's viewer stream (ADR-228 D4): it is a connection on this
+ * server, holding the pane through the same socket, and the registry ranks it
+ * above every phone (D5). The hold is left for clients this server cannot see.
  *
  * **The answer lives in the registry.** Whether someone else holds the pane is
  * `setForeign` on `pty-attachments.ts`, so the desktop pty handlers this
@@ -51,9 +56,16 @@ export function hasOtherClients(
   return attachedClients - ownSockets > 0;
 }
 
-/** Hold or free `paneId` in the registry from the daemon's attach count. */
-function applyCount(paneId: string, attachedClients: number | undefined): void {
-  const ownSockets = isHeld(paneId) ? 1 : 0;
+/**
+ * Hold or free `paneId` in the registry from the daemon's attach count.
+ * `subscribed` says whether this server's stream socket is on the session.
+ */
+function applyCount(
+  paneId: string,
+  attachedClients: number | undefined,
+  subscribed: (paneId: string) => boolean,
+): void {
+  const ownSockets = isHeld(paneId) || subscribed(paneId) ? 1 : 0;
   setForeign(paneId, hasOtherClients(attachedClients, ownSockets));
 }
 
@@ -68,6 +80,11 @@ export interface HostWinsize {
 
 export interface HostWinsizeOptions {
   listSessions(): Promise<readonly SessionInfo[]>;
+  /**
+   * Whether this server's stream socket is subscribed to a session
+   * (`TerminalHostClient.isSubscribed`). Absent: only while a device holds it.
+   */
+  isSubscribed?(sessionId: string): boolean;
   intervalMs?: number;
 }
 
@@ -75,6 +92,7 @@ export function createHostWinsize(opts: HostWinsizeOptions): HostWinsize {
   const watched = new Set<string>();
   let timer: ReturnType<typeof setInterval> | null = null;
   let polling = false;
+  const subscribed = (paneId: string): boolean => opts.isSubscribed?.(paneId) ?? false;
 
   function unwatch(paneId: string): void {
     watched.delete(paneId);
@@ -95,7 +113,7 @@ export function createHostWinsize(opts: HostWinsizeOptions): HostWinsize {
           unwatch(paneId);
           continue;
         }
-        applyCount(paneId, session.attachedClients);
+        applyCount(paneId, session.attachedClients, subscribed);
       }
     } catch {
       // The daemon is unreachable: keep the last answer, look again.
@@ -114,7 +132,7 @@ export function createHostWinsize(opts: HostWinsizeOptions): HostWinsize {
   return {
     watch(paneId, attachedClients) {
       watched.add(paneId);
-      applyCount(paneId, attachedClients);
+      applyCount(paneId, attachedClients, subscribed);
       if (timer) return;
       timer = setInterval(() => void tick(), opts.intervalMs ?? WINSIZE_POLL_MS);
       timer.unref?.();

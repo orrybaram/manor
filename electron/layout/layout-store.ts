@@ -138,6 +138,20 @@ export interface AgentService {
 const NO_AGENTS: AgentService = { abandonForPanes() {} };
 
 /**
+ * Starts a pane's session on the server (ADR-227 D5): told about every pane a
+ * command adds whose queued command launches on apply — an agent's startup
+ * line, a setup script. Told before the broadcast that makes a renderer mount
+ * the pane, so its spawn is already under way when the renderer's
+ * `pty.create` arrives, and that create attaches. Backed by
+ * `createServerLaunches` in `../server/spawn-pane.ts`.
+ */
+export interface PaneLauncher {
+  launch(workspacePath: string, paneId: string): void;
+}
+
+const NO_LAUNCHER: PaneLauncher = { launch() {} };
+
+/**
  * What main knows about a desktop window, by renderer id (D4).
  *
  * Asked rather than told, because both answers change as windows come and
@@ -237,6 +251,10 @@ export class LayoutStore {
   private persistTimer: ReturnType<typeof setTimeout> | null = null;
   private dirty = false;
   private readonly persistListeners = new Set<() => void>();
+  /** Told when a claim moves on a workspace this store does not hold. */
+  private readonly foreignClaimListeners = new Set<
+    (workspacePath: string, origin: LayoutOrigin) => void
+  >();
 
   /**
    * @param windows Which renderer is the primary window, and which tab a
@@ -264,6 +282,12 @@ export class LayoutStore {
      * passes the real one.
      */
     private readonly agents: AgentService = NO_AGENTS,
+    /**
+     * Spawns the sessions of panes whose queued command is a launch.
+     * Defaults to doing nothing — the pane then waits for a renderer, as
+     * every pane did before ADR-227; `createManorServer` passes the real one.
+     */
+    private readonly launcher: PaneLauncher = NO_LAUNCHER,
   ) {}
 
   /**
@@ -378,17 +402,27 @@ export class LayoutStore {
     };
   }
 
+  /** The key of the workspace whose tree holds `paneId`, or null. */
+  workspaceOf(paneId: string): string | null {
+    return this.find({ paneId })?.workspacePath ?? null;
+  }
+
   /**
    * Run one command against one workspace.
    *
    * Serialized per workspace: the returned promise is chained onto the
    * previous command's, so a split that is still killing panes cannot have a
    * close land in the middle of it.
+   *
+   * A close the server makes itself (a setup script's tab, when its shell
+   * exits) passes `remember: false`: nobody closed that tab, so "reopen
+   * closed pane" must not bring it back.
    */
   apply(
     workspacePath: string,
     command: LayoutCommand,
     origin: LayoutOrigin,
+    { remember = true }: { remember?: boolean } = {},
   ): Promise<LayoutApplyResult> {
     // Home is the Dashboard and never holds tabs (ADR-197 §1).
     if (isHomePath(workspacePath)) {
@@ -403,7 +437,7 @@ export class LayoutStore {
       .catch(() => {})
       .then(() =>
         (this.removals.get(workspacePath) ?? 0) === removals
-          ? this.applyNow(workspacePath, command, origin)
+          ? this.applyNow(workspacePath, command, origin, remember)
           : { error: `Workspace was removed: ${workspacePath}` },
       );
     this.queues.set(
@@ -516,6 +550,87 @@ export class LayoutStore {
   }
 
   /**
+   * On a host server: take in the layout the desktop held for this host
+   * (ADR-227 D3), keyed by bare path. The host wins: a workspace it already
+   * has keeps its own layout, and only the rest are added — each broadcast,
+   * so a connected phone sees it. `lastActive` is taken only when this store
+   * has none. Written at once. Returns the workspaces added.
+   */
+  async adopt(
+    workspaces: Readonly<Record<string, LayoutEntry>>,
+    lastActive: string | null,
+  ): Promise<string[]> {
+    await this.loaded;
+    const origin: LayoutOrigin = { kind: "route", id: "layout-adopt" };
+    const added: string[] = [];
+    for (const [workspacePath, entry] of Object.entries(workspaces)) {
+      if (isHomePath(workspacePath) || this.entries.has(workspacePath)) continue;
+      const layout = structuredClone(entry.layout);
+      const firstPanelId = Object.keys(layout.panels)[0] ?? null;
+      const state: WorkspaceState = {
+        version: entry.version,
+        layout,
+        defaultViewport: entry.defaultViewport
+          ? structuredClone(entry.defaultViewport)
+          : { activePanelId: firstPanelId, selectedTabIds: {}, focusedPaneIds: {} },
+        paneSessions: structuredClone(entry.paneSessions),
+        closedStack: [],
+      };
+      this.entries.set(workspacePath, state);
+      added.push(workspacePath);
+      this.broadcast({
+        workspacePath,
+        version: state.version,
+        layout: state.layout,
+        claims: this.claimsFor(workspacePath),
+        origin,
+      });
+    }
+    if (this.lastActiveWorkspacePath === null && lastActive !== null) {
+      this.lastActiveWorkspacePath = lastActive;
+    }
+    this.dirty = true;
+    this.persistNow();
+    return added;
+  }
+
+  /**
+   * Let go of workspaces whose layout now lives on another server — a remote
+   * host's, once it has adopted them (ADR-227 D3). Unlike `remove` this ends
+   * nothing: their panes, sessions and agents carry on, on that host. Every
+   * renderer drops its copy, as on `remove`, and a command still queued for
+   * one is refused. Written at once.
+   */
+  async release(workspacePaths: readonly string[]): Promise<void> {
+    await this.loaded;
+    for (const workspacePath of workspacePaths) {
+      const state = this.entries.get(workspacePath);
+      if (!state) continue;
+      this.removals.set(workspacePath, (this.removals.get(workspacePath) ?? 0) + 1);
+      this.entries.delete(workspacePath);
+      this.queues.delete(workspacePath);
+      this.windowViewports.delete(workspacePath);
+      this.primaryViewports.delete(workspacePath);
+      for (const [windowId, claim] of [...this.claims]) {
+        if (claim.workspacePath === workspacePath) this.claims.delete(windowId);
+      }
+      if (this.lastActiveWorkspacePath === workspacePath) {
+        this.lastActiveWorkspacePath = null;
+      }
+      this.broadcast({
+        workspacePath,
+        version: state.version,
+        layout: state.layout,
+        claims: [],
+        origin: { kind: "route", id: "layout-release" },
+        removed: true,
+      });
+    }
+    this.dirty = true;
+    this.persistNow();
+  }
+
+  /**
    * A PTY event, folded into the owning pane's `paneSessions` (D3).
    *
    * Deliberately silent: every renderer already receives this same event
@@ -535,6 +650,18 @@ export class LayoutStore {
         previous.lastTitle === title ? previous : { ...previous, lastTitle: title },
       );
     }
+  }
+
+  /**
+   * A session the server just spawned for a pane (ADR-227 D5), folded into
+   * its `paneSessions` row so the file names it from the start — before the
+   * shell's first `cwd` event, and with no renderer to have seen it. Silent,
+   * like {@link onPtyEvent}.
+   */
+  recordSpawn(paneId: string, cwd: string): void {
+    this.updateSession(paneId, (previous) =>
+      previous.lastCwd !== null ? previous : { ...previous, lastCwd: cwd },
+    );
   }
 
   /**
@@ -645,6 +772,19 @@ export class LayoutStore {
   }
 
   /**
+   * Told when a window's claim moves on a workspace this store does not hold
+   * — a remote host's, whose layout is its server's (ADR-228 D7). The claim
+   * is still kept here (`claimsFor`); whoever publishes that workspace's
+   * layout says it again. Returns the unsubscribe.
+   */
+  onForeignClaims(listener: (workspacePath: string, origin: LayoutOrigin) => void): () => void {
+    this.foreignClaimListeners.add(listener);
+    return () => {
+      this.foreignClaimListeners.delete(listener);
+    };
+  }
+
+  /**
    * A window is gone: whatever it held comes back to the primary (D4).
    *
    * Called when the window's bridge connection drops
@@ -724,7 +864,10 @@ export class LayoutStore {
    */
   private broadcastClaims(workspacePath: string, origin: LayoutOrigin): void {
     const state = this.entries.get(workspacePath);
-    if (!state) return;
+    if (!state) {
+      for (const listener of this.foreignClaimListeners) listener(workspacePath, origin);
+      return;
+    }
     this.broadcast({
       workspacePath,
       version: state.version,
@@ -747,12 +890,37 @@ export class LayoutStore {
     before: WorkspaceLayout,
     after: WorkspaceLayout,
   ): boolean {
-    const had = layoutTabIds(before);
-    const has = layoutTabIds(after);
+    return this.dropClaims(workspacePath, before, after);
+  }
+
+  /**
+   * Drop the claims on a remote workspace's tabs that left (ADR-230 D9).
+   * `after` null means the workspace was removed: every claim for the key
+   * goes. With no `before`, nothing is dropped. Doesn't broadcast: the layout
+   * publish that follows carries the claims.
+   */
+  dropForeignClaims(
+    key: string,
+    before: WorkspaceLayout | undefined,
+    after: WorkspaceLayout | null,
+  ): boolean {
+    if (after === null) return this.dropClaims(key, null, null);
+    if (!before) return false;
+    return this.dropClaims(key, before, after);
+  }
+
+  /** The shared tab-difference rule; `after` null drops every claim. */
+  private dropClaims(
+    workspacePath: string,
+    before: WorkspaceLayout | null,
+    after: WorkspaceLayout | null,
+  ): boolean {
+    const had = before ? layoutTabIds(before) : null;
+    const has = after ? layoutTabIds(after) : null;
     let dropped = false;
     for (const [windowId, claim] of [...this.claims]) {
       if (claim.workspacePath !== workspacePath) continue;
-      if (!had.has(claim.tabId) || has.has(claim.tabId)) continue;
+      if (has && (!had || !had.has(claim.tabId) || has.has(claim.tabId))) continue;
       this.claims.delete(windowId);
       dropped = true;
     }
@@ -763,6 +931,7 @@ export class LayoutStore {
     workspacePath: string,
     command: LayoutCommand,
     origin: LayoutOrigin,
+    remember: boolean,
   ): Promise<LayoutApplyResult> {
     if (
       !command ||
@@ -783,7 +952,9 @@ export class LayoutStore {
       { layout: before, closedStack: state.closedStack },
       command,
     );
-    state.closedStack = titleClosedPane(state, result.closedStack);
+    state.closedStack = remember
+      ? titleClosedPane(state, result.closedStack)
+      : state.closedStack;
     // What the command implies about the *sender's* selection, to travel back
     // with the broadcast (D3) — and in the answer, for a command that changed
     // nothing and so broadcasts nothing.
@@ -811,6 +982,16 @@ export class LayoutStore {
       command.type === "reopen-closed-pane"
         ? this.reclaim(state, addedPaneIds)
         : undefined;
+
+    // A launch starts here, not in whichever renderer mounts the pane first
+    // (ADR-227 D5). Before the broadcast: the spawn is then in flight when a
+    // renderer's `pty.create` for the pane arrives, which waits for it and
+    // attaches. A reopened pane's command was cleared when it closed.
+    for (const paneId of addedPaneIds) {
+      if (this.pendingCommands.launchesOnApply(paneId)) {
+        this.launcher.launch(workspacePath, paneId);
+      }
+    }
 
     // Ending sessions is the server's job now (D2): the renderer sends the
     // command after its confirmation dialog, and the effect lands here. Not

@@ -9,8 +9,8 @@
  * 4. Hook script (curl) → HTTP server → IPC to renderer
  *
  * Remote hosts (ADR-178 §2) never reach this server: their daemon journals
- * hooks itself, and the host's hook feed hands each one to
- * `ingestHookPayload`, the same path the HTTP handler takes.
+ * hooks itself, and the host's own server hands each one to its
+ * `ingestHookPayload`, the same path the HTTP handler takes (ADR-227 D4).
  */
 
 import * as http from "node:http";
@@ -69,7 +69,7 @@ export class AgentHookServer {
   /**
    * Feed one hook into the relay — the single entry point for hooks from
    * every host (ADR-178 §2). The local HTTP server calls it for each request;
-   * a remote host's hook feed calls it for each journaled entry, replayed or
+   * a host server's hook feed calls it for each journaled entry, replayed or
    * live. `payload` is the hook request's query parameters.
    *
    * Returns what became of it: `relayed` (or queued until `setRelay`),

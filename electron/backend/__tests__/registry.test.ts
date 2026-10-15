@@ -8,7 +8,6 @@ import {
 import { RoutedBackend } from "../routed-backend";
 import type { HostConnection } from "../host-connection";
 import type {
-  ControlRelayCommand,
   ScannedPort,
   HostConnectionEvent,
   HostSpec,
@@ -17,13 +16,12 @@ import type {
   PaneFacts,
 } from "../types";
 import { SshAuthError } from "../../terminal-host/ssh-config";
-import type { HostProvider } from "../providers/types";
+import type { HostProvider, ProviderState } from "../providers/types";
 
 /** A WorkspaceBackend whose every call is a spy, plus handles to drive it. */
 function fakeBackend(name: string) {
   let streamHandler: ((event: StreamEvent) => void) | null = null;
   const hostHandlers: Array<(event: HostConnectionEvent) => void> = [];
-  const streamConnectedHandlers: Array<() => void> = [];
   const raw = {
     pty: {
       createOrAttach: vi.fn(async (sessionId: string, cwd: string) => ({
@@ -45,7 +43,6 @@ function fakeBackend(name: string) {
         };
       }),
       updateEnv: vi.fn(async () => {}),
-      replayHooks: vi.fn(async () => ({ entries: [], lastSeq: 0, epoch: "e0" })),
     },
     git: {
       exec: vi.fn(async () => `${name}-out`),
@@ -75,14 +72,6 @@ function fakeBackend(name: string) {
     }),
     retryNow: vi.fn(() => false),
     checkLiveness: vi.fn(async () => true),
-    onStreamConnected: vi.fn((handler: () => void) => {
-      streamConnectedHandlers.push(handler);
-      return () => {
-        const i = streamConnectedHandlers.indexOf(handler);
-        if (i >= 0) streamConnectedHandlers.splice(i, 1);
-      };
-    }),
-    sendControlRelayCommand: vi.fn((_cmd: ControlRelayCommand) => true),
   };
   return {
     raw,
@@ -91,13 +80,9 @@ function fakeBackend(name: string) {
     hostEvent: (event: HostConnectionEvent) => {
       for (const h of hostHandlers) h(event);
     },
-    /** The backend's stream socket (re)connected. */
-    streamConnected: () => {
-      for (const h of streamConnectedHandlers) h();
-    },
     /** Whether anything is still subscribed to this backend's events. */
     listening: () =>
-      streamHandler !== null || hostHandlers.length > 0 || streamConnectedHandlers.length > 0,
+      streamHandler !== null || hostHandlers.length > 0,
   };
 }
 
@@ -105,6 +90,9 @@ function fakeBackend(name: string) {
 function fakeProvider() {
   const provider = {
     kind: "ssh" as const,
+    capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+    ensureUp: vi.fn(async (_onProgress?: (line: string) => void) => {}),
+    status: vi.fn(async (): Promise<{ state: ProviderState; detail?: string; missing?: boolean }> => ({ state: "up" })),
     transport: vi.fn(() => {
       throw new Error("fake provider has no transport");
     }),
@@ -150,6 +138,16 @@ function setup() {
 }
 
 const box: HostSpec = { kind: "ssh", target: "me@box" };
+
+/**
+ * What `list()` stamps on `box`, a plain ssh box: its provider's kind and
+ * capabilities (ADR-229 D1), and its name (D2).
+ */
+const SSH_FACTS = {
+  label: "me@box",
+  providerKind: "ssh",
+  capabilities: { canStop: false, canDestroy: false, autoSleep: false },
+} as const;
 
 describe("BackendRegistry", () => {
   it("always has the local host, handing out the local backend unwrapped in behavior", async () => {
@@ -209,7 +207,7 @@ describe("BackendRegistry", () => {
     registry.onStatusChange((hosts) => seen.push(hosts));
 
     registry.register("box", box);
-    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected" });
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected", ...SSH_FACTS });
     // Registering the same spec again is a no-op.
     registry.register("box", box);
     expect(remotes.size).toBe(1);
@@ -228,7 +226,7 @@ describe("BackendRegistry", () => {
     });
     finishConnect();
     await connecting;
-    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "connected" });
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "connected", ...SSH_FACTS });
 
     const remote = remotes.get("box")!;
     remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
@@ -251,6 +249,7 @@ describe("BackendRegistry", () => {
       status: "error",
       error: "Node 20+ is required",
       failure: { reason: "bootstrap", code: "node-missing", message: "Node 20+ is required" },
+      ...SSH_FACTS,
     });
 
     const statuses = seen.map((hosts) => hosts.find((h) => h.hostId === "box")?.status);
@@ -409,7 +408,7 @@ describe("BackendRegistry", () => {
     // Disposing the client makes the in-flight connect reject.
     failConnect(new Error("client disposed"));
     await expect(connecting).rejects.toBeInstanceOf(HostUnavailableError);
-    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected" });
+    expect(registry.list()[1]).toEqual({ hostId: "box", spec: box, status: "disconnected", ...SSH_FACTS });
 
     // An explicit connect afterwards still works, and the stale attempt
     // does not interfere with it.
@@ -570,6 +569,28 @@ describe("RoutedBackend", () => {
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
   });
 
+  it("reaches a pane this process never attached on the host whose layout holds it (ADR-228 D5)", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    const backend = new RoutedBackend(
+      ctx.registry,
+      () => "local",
+      () => [],
+      undefined,
+      (paneId) => (paneId === "pane-w" ? "box" : null),
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
+
+    await backend.pty.getSnapshot("pane-w");
+    backend.pty.write("pane-w", "ls\n");
+    expect(remote.raw.pty.getSnapshot).toHaveBeenCalledWith("pane-w");
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-w", "ls\n");
+    // A pane no layout holds is still this machine's.
+    backend.pty.write("pane-x", "y");
+    expect(ctx.local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
+  });
+
   it("routes getPaneFacts to the host that owns the pane (ADR-184)", async () => {
     const { backend, local, box: remote } = routed();
     const facts: PaneFacts = {
@@ -645,6 +666,45 @@ describe("RoutedBackend", () => {
     });
   });
 
+  it("never creates or attaches a session its host's server serves (ADR-228 D5)", async () => {
+    const ctx = setup();
+    ctx.registry.register("box", box);
+    let served = true;
+    const backend = new RoutedBackend(
+      ctx.registry,
+      (p) => (p.startsWith("/remote") ? "box" : "local"),
+      () => [],
+      (hostId) => served && hostId === "box",
+      (paneId) => (paneId === "pane-placed" ? "box" : null),
+    );
+    const remote = ctx.remotes.get("box")!;
+    await ctx.registry.ensureConnected("box");
+
+    // `box`'s server creates and attaches its panes, over its own bridge.
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).rejects.toThrow(
+      /whose own server attaches it/,
+    );
+    await expect(backend.pty.attachExisting("pane-placed")).rejects.toThrow(
+      /whose own server attaches it/,
+    );
+    expect(remote.raw.pty.createOrAttach).not.toHaveBeenCalled();
+    // A request about a running session still reaches the host it runs on.
+    backend.pty.write("pane-placed", "ls\r");
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-placed", "ls\r");
+    // The desktop's own sessions are its own.
+    await backend.pty.createOrAttach("pane-l", "/Users/me/app", 80, 24);
+    expect(ctx.local.raw.pty.createOrAttach).toHaveBeenCalled();
+
+    // A host not served by its own server: the daemon creates it, as before.
+    served = false;
+    await expect(backend.pty.createOrAttach("pane-r", "/remote/app", 80, 24)).resolves.toMatchObject({
+      hostId: "box",
+    });
+    expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith(
+      "pane-r", "/remote/app", 80, 24, undefined, undefined,
+    );
+  });
+
   it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {
     const { backend, registry, box: remote } = routed();
     remote.raw.connect.mockRejectedValueOnce(new Error("ssh: connection refused"));
@@ -682,109 +742,49 @@ describe("RoutedBackend", () => {
   });
 });
 
-describe("BackendRegistry — remote agent hooks (ADR-178 §2)", () => {
-  function hookSetup() {
+describe("BackendRegistry — remote agent hooks (ADR-227 D4)", () => {
+  it("ignores a remote daemon's hookEvents: the host's server reads its journal", async () => {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
-    const replayHooks = vi.fn(async (_sinceSeq: number) => ({
-      entries: [{ seq: 1, receivedAt: 0, payload: { tag: "1" } }],
-      lastSeq: 1,
-      epoch: "e0",
-    }));
+    const replayHooks = vi.fn();
     (remote.raw.pty as Record<string, unknown>).replayHooks = replayHooks;
-    const seqs = new Map<string, number>([["box", 0]]);
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: {
-        get: (hostId) => {
-          const seq = seqs.get(hostId);
-          return seq === undefined ? null : { seq, epoch: "e0" };
-        },
-        set: (hostId, cursor) => void seqs.set(hostId, cursor.seq),
-      },
-    });
-    const ingested: Array<{ hostId: string; tag: string; replay: boolean }> = [];
-    registry.setHookSink({
-      ingest: (payload, ctx) => ingested.push({ hostId: ctx.hostId, tag: payload.tag, replay: ctx.replay }),
     });
     registry.register("box", box);
-    return { registry, local, remote, replayHooks, seqs, ingested };
-  }
-
-  it("replays the journal on connect, then feeds live hookEvents without re-publishing them", async () => {
-    const { registry, remote, replayHooks, seqs, ingested } = hookSetup();
     const listener = vi.fn();
     registry.onEvent(listener);
 
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(ingested).toHaveLength(1));
-    expect(replayHooks).toHaveBeenCalledWith(0);
-    expect(ingested[0]).toEqual({ hostId: "box", tag: "1", replay: true });
+    remote.stream({ type: "hookEvent", seq: 1, payload: { tag: "1" } });
 
-    remote.stream({ type: "hookEvent", seq: 2, payload: { tag: "2" } });
-    expect(ingested[1]).toEqual({ hostId: "box", tag: "2", replay: false });
-    expect(seqs.get("box")).toBe(2);
+    expect(replayHooks).not.toHaveBeenCalled();
     expect(listener).not.toHaveBeenCalled();
   });
 
-  it("holds hooks while reconnecting and catches up once the host is back", async () => {
-    const { registry, remote, replayHooks, ingested } = hookSetup();
-    await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(ingested).toHaveLength(1));
-
-    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
-    remote.stream({ type: "hookEvent", seq: 3, payload: { tag: "3" } });
-    expect(ingested).toHaveLength(1);
-
-    replayHooks.mockResolvedValueOnce({
-      entries: [2, 3].map((seq) => ({ seq, receivedAt: 0, payload: { tag: String(seq) } })),
-      lastSeq: 3,
-      epoch: "e0",
-    });
-    remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
-    await vi.waitFor(() => expect(ingested.map((i) => i.tag)).toEqual(["1", "2", "3"]));
-    expect(replayHooks).toHaveBeenLastCalledWith(1);
-  });
-  it("records the host's sessions before replaying, so replayed hooks relay to the remote daemon", async () => {
+  it("records the host's sessions on connect, so calls for a pane reach the remote daemon", async () => {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
-    const order: string[] = [];
-    remote.raw.pty.listSessions.mockImplementation(async () => {
-      order.push("listSessions");
-      return [{ sessionId: "pane-remote" }];
-    });
-    (remote.raw.pty as Record<string, unknown>).replayHooks = vi.fn(async () => {
-      order.push("replayHooks");
-      return {
-        entries: [{ seq: 1, receivedAt: 0, payload: { paneId: "pane-remote" } }],
-        lastSeq: 1,
-        epoch: "e0",
-      };
-    });
+    remote.raw.pty.listSessions.mockResolvedValue([{ sessionId: "pane-remote" }]);
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
     const routed = new RoutedBackend(registry, () => "local");
-    // What the hook relay does for each ingested hook: route by pane.
-    registry.setHookSink({
-      ingest: (payload) => routed.pty.write(payload.paneId, "hook"),
-    });
     registry.register("box", box);
 
     // A fresh launch: nothing has been created or attached on the box yet.
     expect(registry.sessions.ownerOf("pane-remote")).toBeUndefined();
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(remote.raw.pty.write).toHaveBeenCalled());
+    await vi.waitFor(() => expect(registry.sessions.ownerOf("pane-remote")).toBe("box"));
 
-    expect(order).toEqual(["listSessions", "replayHooks"]);
-    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-remote", "hook");
+    routed.pty.write("pane-remote", "x");
+    expect(remote.raw.pty.write).toHaveBeenCalledWith("pane-remote", "x");
     expect(local.raw.pty.write).not.toHaveBeenCalled();
   });
 });
@@ -819,64 +819,39 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
   function resumeSetup() {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
-    const order: string[] = [];
-    let releaseReplay: (() => void) | null = null;
-    (remote.raw.pty as Record<string, unknown>).replayHooks = vi.fn(async () => {
-      order.push("replay-start");
-      await new Promise<void>((resolve) => {
-        releaseReplay = resolve;
-      });
-      order.push("replay-done");
-      return { entries: [], lastSeq: 0, epoch: "e0" };
-    });
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
       createProvider: () => fakeProvider() as unknown as HostProvider,
       createRemote: () => remote.backend,
-      hookSeqStore: { get: () => ({ seq: 0, epoch: "e0" }), set: () => {} },
     });
-    registry.setHookSink({ ingest: () => {} });
     registry.register("box", box);
     const resumed: Array<{ hostId: string; sessionIds: string[] }> = [];
     registry.onHostResumed((hostId, sessionIds) => {
-      order.push("resumed");
       resumed.push({ hostId, sessionIds });
     });
-    return { registry, remote, order, resumed, release: () => releaseReplay?.() };
+    return { registry, remote, resumed };
   }
 
-  it("announces a resumed host only after its hook replay, with every live session", async () => {
-    const { registry, remote, order, resumed, release } = resumeSetup();
+  it("announces a resumed host with every live session", async () => {
+    const { registry, remote, resumed } = resumeSetup();
     await registry.ensureConnected("box");
-    await vi.waitFor(() => expect(order).toContain("replay-start"));
-    release();
-    await vi.waitFor(() => expect(order).toContain("replay-done"));
-    order.length = 0;
     // The initial connect is not a reconnect: nothing to reattach.
     expect(resumed).toEqual([]);
 
     remote.raw.pty.listSessions.mockResolvedValue([{ sessionId: "pane-a" }]);
     remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a", "pane-b"], retryInMs: 1000 });
     remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
-    await vi.waitFor(() => expect(order).toContain("replay-start"));
-    await new Promise((r) => setTimeout(r, 10));
-    expect(resumed).toEqual([]);
-
-    release();
     await vi.waitFor(() => expect(resumed).toHaveLength(1));
-    expect(order).toEqual(["replay-start", "replay-done", "resumed"]);
     expect(resumed[0]).toEqual({ hostId: "box", sessionIds: ["pane-a"] });
   });
 
-  it("drops the announcement when the host drops again before its replay is in", async () => {
-    const { registry, remote, resumed, release } = resumeSetup();
+  it("drops the announcement when the host drops again before it is made", async () => {
+    const { registry, remote, resumed } = resumeSetup();
     await registry.ensureConnected("box");
-    release();
     remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
     remote.hostEvent({ type: "hostReconnected", sessionIds: [] });
     remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
-    release();
     await new Promise((r) => setTimeout(r, 10));
     expect(resumed).toEqual([]);
   });
@@ -1041,84 +1016,460 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
   });
 });
 
-describe("BackendRegistry — control relay (ADR-189 §2)", () => {
-  function relaySetup() {
+describe("provider lifecycle (ADR-229 D1)", () => {
+  /** A registry with one remote host, `box`, whose provider can stop it. */
+  function lifecycleSetup(opts: { canStop?: boolean } = {}) {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
+    const provider = {
+      ...fakeProvider(),
+      capabilities: { canStop: opts.canStop ?? true, canDestroy: false, autoSleep: false },
+      stop: vi.fn(async () => {}),
+    };
+    let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    let retryPermanentFailure: ((err: unknown) => boolean) | undefined;
     const registry = new BackendRegistry({
       local: local.backend,
       remoteVersion: "0.1.0",
-      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createProvider: () => provider as unknown as HostProvider,
+      createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
+        beforeReconnect = factoryOpts.beforeReconnect;
+        retryPermanentFailure = factoryOpts.retryPermanentFailure;
+        return remote.backend;
+      },
+    });
+    registry.register("box", box);
+    const asleep = () => provider.status.mockResolvedValue({ state: "sleeping" });
+    return {
+      registry,
+      remote,
+      provider,
+      asleep,
+      beforeReconnect: (attempt = 0) => beforeReconnect!(attempt),
+      retryPermanentFailure: () => retryPermanentFailure!(new Error("Permission denied")),
+    };
+  }
+
+  /**
+   * A registry with one recipe host, `pod`, whose every `up` says the box is
+   * at the next address in `addresses` (ADR-230 D2). `reached()` is where
+   * the backend's transport would dial now.
+   */
+  function recipeSetup(addresses: string[] = ["10.0.0.1", "10.0.0.2", "10.0.0.3"]) {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("pod");
+    let ups = 0;
+    let reached: string | null = null;
+    const provider = {
+      ...fakeProvider(),
+      kind: "recipe" as const,
+      ensureUp: vi.fn(async (_onProgress?: (line: string) => void) => {
+        reached = addresses[ups++] ?? null;
+      }),
+      // Re-runs `up` unless that might wake a box that put itself to sleep.
+      refresh: vi.fn(async (onProgress?: (line: string) => void) => {
+        await provider.ensureUp(onProgress);
+        return true;
+      }),
+    };
+    let beforeReconnect: ((attempt: number) => Promise<boolean>) | undefined;
+    let retryPermanentFailure: ((err: unknown) => boolean) | undefined;
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => provider as unknown as HostProvider,
+      createRemote: (_hostId, _spec: HostSpec, factoryOpts) => {
+        beforeReconnect = factoryOpts.beforeReconnect;
+        retryPermanentFailure = factoryOpts.retryPermanentFailure;
+        return remote.backend;
+      },
+    });
+    registry.register("pod", { kind: "recipe", recipeId: "k8s-dev" });
+    const drop = () =>
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
+    return {
+      registry,
+      remote,
+      provider,
+      drop,
+      reached: () => reached,
+      beforeReconnect: (attempt: number) => beforeReconnect!(attempt),
+      retryPermanentFailure: () => retryPermanentFailure!(new Error("No such container")),
+    };
+  }
+
+  describe("a recipe host re-runs up once per drop (ADR-230 D2)", () => {
+    it("finds a box that came back at a new address", async () => {
+      const { registry, remote, provider, drop, reached, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      expect(reached()).toBe("10.0.0.1");
+      drop();
+
+      for (const attempt of [0, 1, 2]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      expect(reached()).toBe("10.0.0.2");
+      expect(registry.status("pod")).toBe("reconnecting");
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      expect(registry.status("pod")).toBe("connected");
+    });
+
+    it("runs up once per drop, and not before the third attempt", async () => {
+      const { registry, remote, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+
+      await beforeReconnect(0);
+      await beforeReconnect(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      await beforeReconnect(2);
+      await beforeReconnect(3);
+      await beforeReconnect(4);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+
+      // Back, then dropped again: a new drop gets its own re-run.
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      drop();
+      await beforeReconnect(0);
+      await beforeReconnect(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      await beforeReconnect(2);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps a failure that would stop the loop going until this drop's up has run", async () => {
+      // An exec target that no longer exists fails as a bootstrap error,
+      // which alone would stop the loop before attempt 2's re-run of `up`.
+      const { registry, remote, drop, reached, beforeReconnect, retryPermanentFailure } =
+        recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+
+      await beforeReconnect(0);
+      expect(retryPermanentFailure()).toBe(true);
+      await beforeReconnect(1);
+      expect(retryPermanentFailure()).toBe(true);
+      await beforeReconnect(2);
+      expect(reached()).toBe("10.0.0.2");
+      expect(retryPermanentFailure()).toBe(false);
+
+      // A new drop gets its own turn.
+      remote.hostEvent({ type: "hostReconnected", sessionIds: ["pane-a"] });
+      drop();
+      expect(retryPermanentFailure()).toBe(true);
+    });
+
+    it("never keeps the loop going for a host without refresh (ssh)", async () => {
+      const { registry, remote, retryPermanentFailure } = lifecycleSetup();
+      await registry.ensureConnected("box");
+      remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+      expect(retryPermanentFailure()).toBe(false);
+    });
+
+    it("does not run up for a box that may have put itself to sleep", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      // The recipe is autoSleep with no `status`: the provider declines.
+      provider.refresh.mockResolvedValue(false);
+      await registry.ensureConnected("pod");
+      drop();
+
+      for (const attempt of [0, 1, 2, 3]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.refresh).toHaveBeenCalledTimes(1);
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(registry.status("pod")).toBe("reconnecting");
+    });
+
+    it("does not re-run up for a box that is asleep", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+      provider.status.mockResolvedValue({ state: "sleeping" });
+
+      await expect(beforeReconnect(2)).resolves.toBe(false);
+
+      expect(provider.refresh).not.toHaveBeenCalled();
+      expect(registry.status("pod")).toBe("sleeping");
+    });
+
+    it("keeps redialling when up fails, without failing the host", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      await registry.ensureConnected("pod");
+      drop();
+      provider.ensureUp.mockRejectedValueOnce(new Error("quota exceeded"));
+
+      for (const attempt of [0, 1, 2, 3]) await expect(beforeReconnect(attempt)).resolves.toBe(true);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+      expect(registry.status("pod")).toBe("reconnecting");
+      warn.mockRestore();
+    });
+
+    it("shows up's progress while reconnecting", async () => {
+      const { registry, provider, drop, beforeReconnect } = recipeSetup();
+      await registry.ensureConnected("pod");
+      drop();
+      let shown: string | undefined;
+      provider.ensureUp.mockImplementationOnce(async (onProgress) => {
+        onProgress?.("Resuming the pod…");
+        shown = registry.list()[1].progress;
+      });
+
+      await beforeReconnect(2);
+
+      expect(shown).toBe("Resuming the pod…");
+      expect(registry.status("pod")).toBe("reconnecting");
+    });
+  });
+
+  it("brings the box up before the backend connects, showing its progress", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    const order: string[] = [];
+    let shown: string | undefined;
+    provider.ensureUp.mockImplementation(async (onProgress) => {
+      order.push("ensureUp");
+      onProgress?.("Starting the pod…");
+      shown = registry.list()[1].progress;
+    });
+    remote.raw.connect.mockImplementation(async () => {
+      order.push("connect");
+    });
+
+    await registry.ensureConnected("box");
+
+    expect(order).toEqual(["ensureUp", "connect"]);
+    expect(shown).toBe("Starting the pod…");
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("fails the connect when the box cannot be brought up, without connecting", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    provider.ensureUp.mockRejectedValueOnce(new Error("quota exceeded"));
+
+    await expect(registry.ensureConnected("box")).rejects.toThrow("quota exceeded");
+
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+    expect(registry.list()[1]).toMatchObject({ status: "error", error: "quota exceeded" });
+  });
+
+  it("stops reconnecting once the box is asleep, and leaves it asleep for pollers", async () => {
+    const { registry, remote, provider, asleep, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: ["pane-a"], retryInMs: 1000 });
+    expect(registry.status("box")).toBe("reconnecting");
+
+    // While the box is up, the loop goes on.
+    await expect(beforeReconnect()).resolves.toBe(true);
+    expect(registry.status("box")).toBe("reconnecting");
+
+    asleep();
+    await expect(beforeReconnect()).resolves.toBe(false);
+    expect(registry.status("box")).toBe("sleeping");
+    expect(provider.dispose).toHaveBeenCalled();
+
+    // Neither a background connect nor a poller's git call wakes it.
+    registry.connectInBackground("box");
+    await expect(registry.get("box").git.exec("/p", ["status"])).rejects.toBeInstanceOf(
+      HostUnavailableError,
+    );
+    // Nor does a pty call on its own: waking is the router's, for a call that means it.
+    await expect(registry.get("box").pty.listSessions()).rejects.toBeInstanceOf(
+      HostUnavailableError,
+    );
+    await new Promise((r) => setTimeout(r, 10));
+    expect(remote.raw.connect).toHaveBeenCalledTimes(1);
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("sleeping");
+  });
+
+  it("wakes a sleeping host on wake(), bringing the box up and connecting", async () => {
+    const { registry, remote, provider, asleep, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    asleep();
+    await beforeReconnect();
+    expect(registry.status("box")).toBe("sleeping");
+
+    await registry.wake("box");
+
+    expect(provider.ensureUp).toHaveBeenCalledTimes(2);
+    expect(remote.raw.connect).toHaveBeenCalledTimes(2);
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("leaves a box it finds asleep asleep on a background connect", async () => {
+    const { registry, remote, provider, asleep } = lifecycleSetup();
+    asleep();
+
+    registry.connectInBackground("box");
+    await vi.waitFor(() => expect(registry.status("box")).toBe("sleeping"));
+
+    expect(provider.ensureUp).not.toHaveBeenCalled();
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+
+    // A connect somebody means wakes it.
+    await registry.ensureConnected("box");
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  describe("a pty call that declines to wake (ADR-230 D3)", () => {
+    const create = (registry: BackendRegistry, connect?: { wake?: boolean }) =>
+      connect
+        ? registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24, undefined, undefined, connect)
+        : registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24);
+
+    it("leaves a box it finds asleep asleep, and says the host is sleeping", async () => {
+      const { registry, remote, provider, asleep } = lifecycleSetup();
+      asleep();
+
+      await expect(create(registry, { wake: false })).rejects.toMatchObject({
+        name: "HostUnavailableError",
+        status: "sleeping",
+      });
+
+      expect(provider.ensureUp).not.toHaveBeenCalled();
+      expect(remote.raw.connect).not.toHaveBeenCalled();
+      expect(remote.raw.pty.createOrAttach).not.toHaveBeenCalled();
+      expect(registry.status("box")).toBe("sleeping");
+    });
+
+    it("does not turn a background connect it joins into a waking one", async () => {
+      const { registry, provider } = lifecycleSetup();
+      let answer!: (state: { state: ProviderState }) => void;
+      provider.status.mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+
+      registry.connectInBackground("box");
+      await vi.waitFor(() => expect(answer).toBeDefined());
+      expect(registry.status("box")).toBe("connecting");
+      const restored = create(registry, { wake: false });
+      answer({ state: "sleeping" });
+
+      await expect(restored).rejects.toMatchObject({ status: "sleeping" });
+      expect(provider.ensureUp).not.toHaveBeenCalled();
+    });
+
+    it("connects a box that is up, as a background connect does", async () => {
+      const { registry, remote, provider } = lifecycleSetup();
+
+      await create(registry, { wake: false });
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(remote.raw.pty.createOrAttach).toHaveBeenCalledTimes(1);
+      expect(registry.status("box")).toBe("connected");
+    });
+
+    it("still wakes the box without the option", async () => {
+      const { registry, remote, provider, asleep } = lifecycleSetup();
+      asleep();
+
+      await create(registry);
+
+      expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+      expect(remote.raw.pty.createOrAttach).toHaveBeenCalledTimes(1);
+      expect(registry.status("box")).toBe("connected");
+    });
+  });
+
+  it("stop() disconnects, has the provider stop the box, and sleeps", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    await registry.ensureConnected("box");
+
+    await registry.stop("box");
+
+    expect(remote.raw.disconnect).toHaveBeenCalled();
+    expect(provider.stop).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("sleeping");
+    // A disconnect (app quit) keeps it asleep.
+    await registry.disconnect("box");
+    expect(registry.status("box")).toBe("sleeping");
+  });
+
+  it("refuses to stop a box its provider cannot stop", async () => {
+    const { registry, provider } = lifecycleSetup({ canStop: false });
+    await registry.ensureConnected("box");
+
+    await expect(registry.stop("box")).rejects.toThrow("can't be stopped");
+
+    expect(provider.stop).not.toHaveBeenCalled();
+    expect(registry.status("box")).toBe("connected");
+  });
+
+  it("reports a box deleted outside Manor as missing, and starts it again only on wake (ADR-229 D2)", async () => {
+    const { registry, remote, provider } = lifecycleSetup();
+    provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
+
+    // A background connect does not run `up`, which would create it anew.
+    registry.connectInBackground("box");
+    await vi.waitFor(() => expect(registry.status("box")).toBe("error"));
+    expect(registry.list()[1]).toMatchObject({
+      status: "error",
+      error: "Dev pod no longer exists",
+      missing: true,
+    });
+    expect(provider.ensureUp).not.toHaveBeenCalled();
+    expect(remote.raw.connect).not.toHaveBeenCalled();
+
+    // "Start it again".
+    await registry.wake("box");
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
+    expect(registry.list()[1]).not.toHaveProperty("missing");
+  });
+
+  it("stops reconnecting to a box that went missing (ADR-229 D2)", async () => {
+    const { registry, remote, provider, beforeReconnect } = lifecycleSetup();
+    await registry.ensureConnected("box");
+    remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
+    provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
+
+    await expect(beforeReconnect()).resolves.toBe(false);
+
+    expect(registry.list()[1]).toMatchObject({ status: "error", missing: true });
+    expect(provider.dispose).toHaveBeenCalled();
+  });
+
+  it("names a recipe host by its recipe, falling back to the recipe id (ADR-229 D2)", () => {
+    const { registry } = setup();
+    registry.register("pod", { kind: "recipe", recipeId: "no-such-recipe" });
+    expect(registry.list()[1]).toMatchObject({ hostId: "pod", label: "no-such-recipe" });
+    expect(registry.hostDisplayName("pod")).toBe("no-such-recipe");
+  });
+
+  it("stamps the provider's kind and capabilities on each remote host", () => {
+    const { registry } = lifecycleSetup();
+    expect(registry.list()[1]).toMatchObject({
+      providerKind: "ssh",
+      capabilities: { canStop: true, canDestroy: false, autoSleep: false },
+    });
+    expect(registry.list()[0]).not.toHaveProperty("providerKind");
+  });
+});
+
+describe("provider lifecycle: a meant connect joining a background one (ADR-229 D1)", () => {
+  it("wakes the host once the background attempt has left it asleep", async () => {
+    const local = fakeBackend("local");
+    const remote = fakeBackend("box");
+    const provider = fakeProvider();
+    let answer!: (state: { state: ProviderState }) => void;
+    provider.status.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve)),
+    );
+    const registry = new BackendRegistry({
+      local: local.backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => provider as unknown as HostProvider,
       createRemote: () => remote.backend,
     });
     registry.register("box", box);
-    const request = (id: string) =>
-      remote.stream({ type: "controlRequest", id, method: "GET", path: "/context?cwd=/x", body: undefined });
-    return { registry, local, remote, request };
-  }
 
-  it("asks for relayed requests on every stream (re)connect", () => {
-    const { remote } = relaySetup();
-    expect(remote.raw.sendControlRelayCommand).not.toHaveBeenCalled();
-    remote.streamConnected();
-    remote.streamConnected();
-    expect(remote.raw.sendControlRelayCommand.mock.calls).toEqual([
-      [{ type: "enableControlRelay" }],
-      [{ type: "enableControlRelay" }],
-    ]);
-  });
+    registry.connectInBackground("box");
+    const meant = registry.ensureConnected("box");
+    answer({ state: "sleeping" });
+    await meant;
 
-  it("answers a request through the sink, tagged with the host, and does not re-publish it", async () => {
-    const { registry, remote, request } = relaySetup();
-    const listener = vi.fn();
-    registry.onEvent(listener);
-    const sink = vi.fn(async () => ({ status: 200, body: { projectId: "p1" } }));
-    registry.setControlRelaySink(sink);
-
-    request("r1");
-    await vi.waitFor(() =>
-      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith({
-        type: "controlResponse",
-        id: "r1",
-        status: 200,
-        body: { projectId: "p1" },
-      }),
-    );
-    expect(sink).toHaveBeenCalledWith("box", {
-      method: "GET",
-      path: "/context?cwd=/x",
-      body: undefined,
-    });
-    expect(listener).not.toHaveBeenCalled();
-  });
-
-  it("answers 503 with no sink and 500 when the sink throws", async () => {
-    const { registry, remote, request } = relaySetup();
-    request("r1");
-    await vi.waitFor(() =>
-      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "controlResponse", id: "r1", status: 503 }),
-      ),
-    );
-
-    registry.setControlRelaySink(async () => {
-      throw new Error("boom");
-    });
-    request("r2");
-    await vi.waitFor(() =>
-      expect(remote.raw.sendControlRelayCommand).toHaveBeenCalledWith({
-        type: "controlResponse",
-        id: "r2",
-        status: 500,
-        body: { error: "boom" },
-      }),
-    );
-  });
-
-  it("stops asking once the host is unregistered", async () => {
-    const { registry, remote } = relaySetup();
-    await registry.unregister("box");
-    remote.streamConnected();
-    expect(remote.raw.sendControlRelayCommand).not.toHaveBeenCalled();
+    expect(provider.ensureUp).toHaveBeenCalledTimes(1);
+    expect(registry.status("box")).toBe("connected");
   });
 });

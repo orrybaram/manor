@@ -1,4 +1,8 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { BridgeTransport } from "../../bridge/client";
+import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
+import { servers } from "../../bridge/server-set";
+import { base64urlEncode } from "../../lib/relay-crypto";
 import { useHostStore } from "../host-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
@@ -59,6 +63,26 @@ function project(id: string, hostId: string): ProjectInfo {
     folders: [],
     sidebarOrder: [],
     group: null,
+  };
+}
+
+/** A phone whose home server is the relay room of a desktop called desk.local. */
+function onPhone(): () => void {
+  const map = new Map<string, string>();
+  const prior = (globalThis as { localStorage?: Storage }).localStorage;
+  vi.stubGlobal("localStorage", {
+    getItem: (k: string) => map.get(k) ?? null,
+    setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
+  });
+  const room = "AbCdEfGhIjKlMnOpQr_-01";
+  upsertPairing({ roomId: room, serverKey: base64urlEncode(new Uint8Array(32)), token: "t" });
+  recordPairingHello(room, { hostName: "desk.local", hostServer: false });
+  const transport = { invoke: () => new Promise(() => {}), subscribe: () => () => {} };
+  servers.add(room, transport as unknown as BridgeTransport, { home: true, roomId: room });
+  return () => {
+    servers.remove(room);
+    vi.stubGlobal("localStorage", prior);
   };
 }
 
@@ -233,5 +257,27 @@ describe("transferProject", () => {
     });
     useProjectStore.getState().closeTransferDialog();
     expect(useProjectStore.getState().transferDialog).toBeNull();
+  });
+});
+
+// Last: the home server of a phone cannot be removed again, so it outlives the test.
+describe("transferProject on a phone", () => {
+  beforeEach(() => {
+    useToastStore.setState({ toasts: [] } as never);
+  });
+
+  it("names the desktop in the toast on a phone", async () => {
+    const off = onPhone();
+    try {
+      const onBox = project("app", "box");
+      useProjectStore.setState({ projects: [onBox] });
+      api.getAll.mockResolvedValue([project("app", "local")]);
+      api.transfer.mockResolvedValue({ ok: true, project: project("app", "local") });
+      const done = useProjectStore.getState().transferProject("app", "local", "move");
+      expect(toasts()[0].message).toBe("Moving app to desk.local…");
+      await done;
+    } finally {
+      off();
+    }
   });
 });

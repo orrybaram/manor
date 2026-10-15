@@ -27,6 +27,7 @@ import {
   ReconnectSupervisor,
   type ConnectionListener,
   type ReconnectPolicy,
+  type ReconnectPolicyOptions,
 } from "./reconnect-supervisor";
 import {
   ExecStreamRegistry,
@@ -194,11 +195,12 @@ export class TerminalHostClient {
    * credentials, a changed host key, a host that cannot run the daemon). On
    * one the loop stops and reports `onFailed` instead of retrying, and —
    * unlike running out of attempts — does not report sessions as exited.
+   *
+   * `beforeAttempt` is asked before each attempt; false stops the loop
+   * without reporting anything — no `onFailed`, no session exited — for a
+   * host put to sleep (ADR-229 D1). A later `connect()` resumes the sessions.
    */
-  setReconnectPolicy(
-    policy: ReconnectPolicy,
-    opts: { isPermanentFailure?: (err: unknown) => boolean } = {},
-  ): void {
+  setReconnectPolicy(policy: ReconnectPolicy, opts: ReconnectPolicyOptions = {}): void {
     this.supervisor.setPolicy(policy, opts);
   }
 
@@ -228,6 +230,14 @@ export class TerminalHostClient {
   /** Observe unexpected connection loss and recovery. */
   setConnectionListener(listener: ConnectionListener | null): void {
     this.supervisor.setListener(listener);
+  }
+
+  /**
+   * Whether this client's stream socket is subscribed to `sessionId` — one of
+   * the session's `attachedClients` is then this client (ADR-225 D5).
+   */
+  isSubscribed(sessionId: string): boolean {
+    return this.subscriptions.has(sessionId);
   }
 
   /** Subscribe to stream events (data, exit, cwd, error). Returns an unsubscribe. */

@@ -22,6 +22,7 @@ import {
   assertGhRepo,
   assertString,
   assertStringArray,
+  isLinearAssociation,
 } from "../../ipc-validate";
 import type {
   GitHubIssue,
@@ -38,7 +39,13 @@ import type {
 } from "../../linear";
 import type { PrInfo } from "../../../src/lib/pr-info";
 import { proxyGitHubImage } from "../../github-images";
-import { method, type HandlerCtx } from "../method";
+import { byGhRepo, byHost, byProject, delegated, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import type { SharedDeps } from "../../ipc/types";
+
+/** What `gh` needs: the host server carries this and no more of `ServerDeps`. */
+type GithubDeps = Pick<SharedDeps, "githubManager">;
+/** What Linear needs: the host server carries this and no more of `ServerDeps`. */
+type LinearDeps = Pick<SharedDeps, "linearManager" | "projectManager">;
 
 type IssueState = "open" | "closed" | "all";
 type LinearIssueOptions = { stateTypes?: string[]; limit?: number };
@@ -57,7 +64,7 @@ function assertRepo(repo: GhRepo): void {
  * is checked here, for every caller — the handler is the boundary.
  */
 export function githubGetPrsForBranches(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   branches: string[],
 ): Promise<[string, PrInfo | null][]> {
@@ -69,16 +76,23 @@ export function githubGetPrsForBranches(
 }
 
 /** The user's clonable repos, newest push first (ADR-194). */
-export function githubListRepos(ctx: HandlerCtx): Promise<GitHubRepo[]> {
+export function githubListRepos(
+  ctx: HandlerCtx<GithubDeps>,
+): Promise<GitHubRepo[]> {
   return ctx.deps.githubManager.listRepos();
 }
 
 /** The profile's display name, raw; the phone layer picks the first name. */
-export function githubGetViewerName(ctx: HandlerCtx): Promise<string | null> {
+export function githubGetViewerName(
+  ctx: HandlerCtx<GithubDeps>,
+): Promise<string | null> {
   return ctx.deps.githubManager.getViewerName();
 }
 
-export function githubCheckStatus(ctx: HandlerCtx): Promise<{
+export function githubCheckStatus(
+  ctx: HandlerCtx<GithubDeps>,
+  _hostId?: string | null,
+): Promise<{
   installed: boolean;
   authenticated: boolean;
   username?: string;
@@ -97,7 +111,7 @@ export function githubCheckStatus(ctx: HandlerCtx): Promise<{
  * actual defaults; this only says "not given".
  */
 export function githubGetMyIssues(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   limit?: number | null,
   state?: IssueState | null,
@@ -111,7 +125,7 @@ export function githubGetMyIssues(
 }
 
 export function githubGetAllIssues(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   limit?: number | null,
   state?: IssueState | null,
@@ -125,7 +139,7 @@ export function githubGetAllIssues(
 }
 
 export function githubGetIssueDetail(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   issueNumber: number,
   issueUrl?: string | null,
@@ -139,7 +153,7 @@ export function githubGetIssueDetail(
 }
 
 export function githubAssignIssue(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   issueNumber: number,
 ): Promise<void> {
@@ -148,7 +162,7 @@ export function githubAssignIssue(
 }
 
 export function githubCloseIssue(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   repo: GhRepo,
   issueNumber: number,
 ): Promise<void> {
@@ -157,7 +171,7 @@ export function githubCloseIssue(
 }
 
 export function githubCreateIssue(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   title: string,
   body: string,
   labels: string[],
@@ -166,7 +180,7 @@ export function githubCreateIssue(
 }
 
 export function githubUploadFeedbackImages(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<GithubDeps>,
   images: { base64: string; name: string }[],
 ): Promise<string[]> {
   return ctx.deps.githubManager.uploadFeedbackImages(images);
@@ -175,48 +189,45 @@ export function githubUploadFeedbackImages(
 // ── Linear ───────────────────────────────────────────────────────────────────
 
 /**
- * Store an API key and prove it works, or store nothing.
+ * Prove an API key works, then store it, or store nothing.
  *
- * The key is written before it is tested because testing it *is* using it —
- * `getViewer` reads the stored token — so the failure path has to undo the
- * write. That is the whole of the ceremony here, and it is why a half-typed
- * key never leaves a connected-looking Linear panel behind.
+ * The key is tested before it is saved (`getViewer` takes it directly), so a
+ * failed connect writes nothing and emits no `connectionChanged`, and a
+ * half-typed key never leaves a connected-looking Linear panel behind.
  */
 export async function linearConnect(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   apiKey: string,
 ): Promise<{ name: string; email: string }> {
   assertString(apiKey, "apiKey");
+  const viewer = await ctx.deps.linearManager.getViewer(apiKey);
   await ctx.deps.linearManager.saveToken(apiKey);
-  try {
-    return await ctx.deps.linearManager.getViewer();
-  } catch (err) {
-    ctx.deps.linearManager.clearToken();
-    throw err;
-  }
+  return viewer;
 }
 
 /** Forget the key. Carries no credential in either direction. */
-export function linearDisconnect(ctx: HandlerCtx): void {
+export function linearDisconnect(ctx: HandlerCtx<LinearDeps>): void {
   ctx.deps.linearManager.clearToken();
 }
 
-export function linearIsConnected(ctx: HandlerCtx): boolean {
+export function linearIsConnected(ctx: HandlerCtx<LinearDeps>): boolean {
   return ctx.deps.linearManager.isConnected();
 }
 
 export function linearGetViewer(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
 ): Promise<{ name: string; email: string }> {
   return ctx.deps.linearManager.getViewer();
 }
 
-export function linearGetTeams(ctx: HandlerCtx): Promise<LinearTeam[]> {
+export function linearGetTeams(
+  ctx: HandlerCtx<LinearDeps>,
+): Promise<LinearTeam[]> {
   return ctx.deps.linearManager.getTeams();
 }
 
 export function linearGetMyIssues(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   teamIds: string[],
   options?: LinearIssueOptions,
 ): Promise<LinearIssue[]> {
@@ -224,14 +235,14 @@ export function linearGetMyIssues(
 }
 
 export function linearGetIssueDetail(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   issueId: string,
 ): Promise<LinearIssueDetail> {
   return ctx.deps.linearManager.getIssueDetail(issueId);
 }
 
 export function linearGetAllIssues(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   teamIds: string[],
   options?: LinearIssueOptions,
 ): Promise<LinearIssue[]> {
@@ -239,21 +250,21 @@ export function linearGetAllIssues(
 }
 
 export function linearStartIssue(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   issueId: string,
 ): Promise<void> {
   return ctx.deps.linearManager.startIssue(issueId);
 }
 
 export function linearCloseIssue(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   issueId: string,
 ): Promise<void> {
   return ctx.deps.linearManager.closeIssue(issueId);
 }
 
 export function linearLinkIssueToWorkspace(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   issue: LinkedIssue,
@@ -266,7 +277,7 @@ export function linearLinkIssueToWorkspace(
 }
 
 export function linearUnlinkIssueFromWorkspace(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SharedDeps>,
   projectId: string,
   workspacePath: string,
   issueId: string,
@@ -284,7 +295,7 @@ export function linearUnlinkIssueFromWorkspace(
  * `linearProxyImage`.
  */
 export function githubProxyImage(
-  _ctx: HandlerCtx,
+  _ctx: HandlerCtx<GithubDeps>,
   url: string,
 ): Promise<string> {
   assertString(url, "url");
@@ -300,58 +311,105 @@ export function githubProxyImage(
  * credential crossing under another name.
  */
 export function linearProxyImage(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
   url: string,
 ): Promise<string> {
   assertString(url, "url");
   return ctx.deps.linearManager.proxyImage(url);
 }
 
+/** A project `linearAutoMatch` is asked to find a team for. */
+export interface LinearMatchCandidate {
+  id: string;
+  name: string;
+}
+
+function assertCandidates(value: unknown): asserts value is LinearMatchCandidate[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (p: unknown) =>
+        typeof p === "object" &&
+        p !== null &&
+        typeof (p as LinearMatchCandidate).id === "string" &&
+        typeof (p as LinearMatchCandidate).name === "string",
+    )
+  ) {
+    throw new Error("projects must be a list of { id, name }");
+  }
+}
+
 /**
- * Guess a Linear team for every project that has none yet.
+ * Guess a Linear team for each of `projects` by name — by default, this
+ * server's own projects that have none yet.
  *
- * Writes — it sets `linearAssociations` on the projects it matched — so it is
- * `mutating` alongside the issue actions, not with the reads its name
- * suggests.
+ * A read: it writes nothing. Its caller is the renderer, which may have had
+ * it answered by whichever server holds the token (ADR-228 D10) and writes
+ * each match to its project's own server with `linear.associateProject`.
  */
 export async function linearAutoMatch(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<LinearDeps>,
+  projects?: LinearMatchCandidate[],
 ): Promise<Record<string, LinearAssociation>> {
-  const projects = await ctx.deps.projectManager.getProjects();
-  const teams = await ctx.deps.linearManager.getTeams();
-  const matches = ctx.deps.linearManager.autoMatchProjects(
-    projects.map((p) => ({ id: p.id, name: p.name })),
-    teams,
-  );
-  for (const [projectId, association] of Object.entries(matches)) {
-    const project = projects.find((p) => p.id === projectId);
-    if (project && project.linearAssociations.length === 0) {
-      ctx.deps.projectManager.updateProject(projectId, {
-        linearAssociations: [association],
-      });
-    }
+  let candidates: LinearMatchCandidate[];
+  if (projects === undefined) {
+    candidates = (await ctx.deps.projectManager.getProjects())
+      .filter((p) => p.linearAssociations.length === 0)
+      .map((p) => ({ id: p.id, name: p.name }));
+  } else {
+    assertCandidates(projects);
+    candidates = projects.map(({ id, name }) => ({ id, name }));
   }
-  return matches;
+  if (candidates.length === 0) return {};
+  const teams = await ctx.deps.linearManager.getTeams();
+  return ctx.deps.linearManager.autoMatchProjects(candidates, teams);
+}
+
+/**
+ * Give `projectId` the Linear team `association`, if it has none yet: an
+ * auto-match's write, made on the project's own server (ADR-228 D10). True
+ * when it was written.
+ */
+export async function linearAssociateProject(
+  ctx: HandlerCtx<Pick<SharedDeps, "projectManager">>,
+  projectId: string,
+  association: LinearAssociation,
+): Promise<boolean> {
+  assertString(projectId, "projectId");
+  if (!isLinearAssociation(association)) throw new Error("association must be a Linear team");
+  const project = (await ctx.deps.projectManager.getProjects()).find((p) => p.id === projectId);
+  if (!project || project.linearAssociations.length > 0) return false;
+  await ctx.deps.projectManager.updateProject(projectId, { linearAssociations: [association] });
+  return true;
 }
 
 // Assigning, closing or opening an issue is a change every viewer's picker
 // shows next time it opens, and a feedback upload puts bytes in a public
 // release. The PR and issue reads are not audited.
+//
+// A `GhRepo` call goes to its host with `byGhRepo`, so a remote workspace's
+// PR badge and issues use the box's own `gh` sign-in (ADR-227 D7);
+// `checkStatus` takes the host it is asking about. The rest ask this
+// machine: the clone dialog's repo list, the viewer's name, new issues and
+// the feedback flow.
 export const github = {
-  getPrsForBranches: method(githubGetPrsForBranches),
+  getPrsForBranches: method(githubGetPrsForBranches, { route: byGhRepo(0) }),
   // The clone dialog's repo list (ADR-194): what `gh` can see, no writes.
-  listRepos: method(githubListRepos),
-  checkStatus: method(githubCheckStatus),
+  listRepos: method(githubListRepos, { route: LOCAL_ROUTE }),
+  checkStatus: method(githubCheckStatus, { route: byHost(0) }),
   // The phone greeting's name, from the signed-in profile: no writes.
-  getViewerName: method(githubGetViewerName),
-  getMyIssues: method(githubGetMyIssues),
-  getAllIssues: method(githubGetAllIssues),
-  getIssueDetail: method(githubGetIssueDetail),
-  proxyImage: method(githubProxyImage),
-  assignIssue: method(githubAssignIssue, { mutating: true }),
-  closeIssue: method(githubCloseIssue, { mutating: true }),
-  createIssue: method(githubCreateIssue, { mutating: true }),
-  uploadFeedbackImages: method(githubUploadFeedbackImages, { mutating: true }),
+  getViewerName: method(githubGetViewerName, { route: LOCAL_ROUTE }),
+  getMyIssues: method(githubGetMyIssues, { route: byGhRepo(0) }),
+  getAllIssues: method(githubGetAllIssues, { route: byGhRepo(0) }),
+  getIssueDetail: method(githubGetIssueDetail, { route: byGhRepo(0) }),
+  proxyImage: method(githubProxyImage, { route: LOCAL_ROUTE }),
+  assignIssue: method(githubAssignIssue, { mutating: true, route: byGhRepo(0) }),
+  closeIssue: method(githubCloseIssue, { mutating: true, route: byGhRepo(0) }),
+  createIssue: method(githubCreateIssue, { mutating: true, route: LOCAL_ROUTE }),
+  uploadFeedbackImages: method(githubUploadFeedbackImages, {
+    mutating: true,
+    route: LOCAL_ROUTE,
+  }),
 };
 
 export const linear = {
@@ -359,21 +417,32 @@ export const linear = {
   // flight is the credential itself, so connecting Linear is done at the
   // machine whose keychain will hold it; and it is never `mutating`, because
   // the audit line records the first argument — the key.
-  connect: method(linearConnect, { localOnly: true, secretFirstArg: true }),
+  connect: method(linearConnect, { localOnly: true, secretFirstArg: true, route: LOCAL_ROUTE }),
   // Drops the integration for every viewer.
-  disconnect: method(linearDisconnect, { mutating: true }),
-  isConnected: method(linearIsConnected),
-  getViewer: method(linearGetViewer),
-  getTeams: method(linearGetTeams),
-  getMyIssues: method(linearGetMyIssues),
-  getIssueDetail: method(linearGetIssueDetail),
-  getAllIssues: method(linearGetAllIssues),
-  proxyImage: method(linearProxyImage),
-  autoMatch: method(linearAutoMatch, { mutating: true }),
-  startIssue: method(linearStartIssue, { mutating: true }),
-  closeIssue: method(linearCloseIssue, { mutating: true }),
-  linkIssueToWorkspace: method(linearLinkIssueToWorkspace, { mutating: true }),
+  disconnect: method(linearDisconnect, { mutating: true, route: LOCAL_ROUTE }),
+  isConnected: method(linearIsConnected, { route: LOCAL_ROUTE }),
+  // Path-free: the renderer's router picks the server that holds the token
+  // (ADR-228 D10); main answers them itself.
+  getViewer: method(linearGetViewer, { route: delegated("linear") }),
+  getTeams: method(linearGetTeams, { route: delegated("linear") }),
+  getMyIssues: method(linearGetMyIssues, { route: delegated("linear") }),
+  getIssueDetail: method(linearGetIssueDetail, { route: delegated("linear") }),
+  getAllIssues: method(linearGetAllIssues, { route: delegated("linear") }),
+  proxyImage: method(linearProxyImage, { route: delegated("linear") }),
+  // A read: its matches are written by `associateProject`, below.
+  autoMatch: method(linearAutoMatch, { route: delegated("linear") }),
+  startIssue: method(linearStartIssue, { mutating: true, route: delegated("linear") }),
+  closeIssue: method(linearCloseIssue, { mutating: true, route: delegated("linear") }),
+  // A workspace's linked issues are its project's record: a remote
+  // project's host server's (ADR-227 D4).
+  linkIssueToWorkspace: method(linearLinkIssueToWorkspace, {
+    mutating: true,
+    route: byProject(0),
+  }),
   unlinkIssueFromWorkspace: method(linearUnlinkIssueFromWorkspace, {
     mutating: true,
+    route: byProject(0),
   }),
+  // A project's team is its record too, whichever server matched it.
+  associateProject: method(linearAssociateProject, { mutating: true, route: byProject(0) }),
 };

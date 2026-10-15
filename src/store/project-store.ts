@@ -1,16 +1,18 @@
 import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
+import { provideHostLookups } from "../bridge/host-lookups";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { useToastStore } from "./toast-store";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { splitShared } from "../lib/project-groups";
-import { isRemoteHost, memberHostName, type HostId } from "../lib/hosts";
+import { memberDisplayName } from "../bridge/server-set";
+import { isRemoteHost } from "../lib/hosts";
 import { requestUi } from "../utils/ui-request";
 import { useHostStore } from "./host-store";
 import type { TransferInputReason, TransferMode } from "../electron";
-import { hostForPath, patch, reconcile } from "../lib/workspace-directory";
+import { patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
 import { pickDirectory } from "../lib/pick-directory";
 import { DEFAULT_AGENT_COMMAND } from "../lib/agent-command";
@@ -241,116 +243,77 @@ function saveCollapsedFolderKeys(keys: Set<string>): void {
   localStorage.setItem(COLLAPSED_FOLDER_KEYS_KEY, JSON.stringify([...keys]));
 }
 
-/**
- * Store-level orchestrator for the workspace setup-script PTY.
- *
- * Owns creation, command submission, and exit handling for the setup script
- * at store scope so its lifetime is decoupled from any view. The MiniTerminal
- * rendered by WorkspaceSetupView attaches (via `attach` prop) to the same
- * session for live display but never creates or closes the PTY.
- */
-function startSetupScript(
-  wsPath: string,
-  script: string,
-  hostId?: HostId,
-): void {
-  const sessionId = `setup-${wsPath.replace(/\//g, "-")}`;
-  // Reasonable defaults; the view re-fits xterm when/if it mounts.
-  const DEFAULT_COLS = 80;
-  const DEFAULT_ROWS = 24;
-
-  let commandSent = false;
-  let unsubCwd: (() => void) | null = null;
-  let unsubExit: (() => void) | null = null;
-  let fallbackTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const disposeCommandWaiters = () => {
-    if (unsubCwd) {
-      unsubCwd();
-      unsubCwd = null;
-    }
-    if (fallbackTimer) {
-      clearTimeout(fallbackTimer);
-      fallbackTimer = null;
-    }
-  };
-
-  const sendCommand = () => {
-    if (commandSent) return;
-    commandSent = true;
-    disposeCommandWaiters();
-    window.electronAPI.pty.write(sessionId, `${script}; exit\r`);
-  };
-
-  const handleExit = () => {
-    disposeCommandWaiters();
-    useAppStore
-      .getState()
-      .updateWorktreeSetupStep(wsPath, "setup-script", "done");
-    useAppStore.getState().completeWorktreeSetup(wsPath);
-    // Remove the background persistent toast (ticket 2 creates it; unconditional
-    // remove is a no-op if absent).
-    useToastStore.getState().removeToast(`worktree-setup-${wsPath}`);
-    // Success toast — fires regardless of whether the setup view is mounted.
-    useToastStore.getState().addToast({
-      id: `workspace-setup-${Date.now()}`,
-      message: "Workspace setup complete",
-      status: "success",
-    });
-    if (unsubExit) {
-      unsubExit();
-      unsubExit = null;
-    }
-  };
-
-  // Subscribe to exit BEFORE pty.create so no events are missed.
-  unsubExit = window.electronAPI.pty.onExit(sessionId, handleExit);
-
-  // Wait for the shell-ready signal (first CWD event from the zsh precmd hook)
-  // before writing the command. Fallback send after 3s for non-zsh shells.
-  unsubCwd = window.electronAPI.pty.onCwd(sessionId, () => {
-    sendCommand();
-  });
-  fallbackTimer = setTimeout(() => {
-    fallbackTimer = null;
-    sendCommand();
-  }, 3000);
-
-  // Kick off the PTY. The promise resolves after main process spawns it.
-  // Errors here are rare and we let the view's own exit observation (or the
-  // lack of onExit) surface them; keeping this simple.
-  void window.electronAPI.pty.create(
-    sessionId,
-    wsPath,
-    DEFAULT_COLS,
-    DEFAULT_ROWS,
-    { hostId: hostId ?? hostForPath(useProjectStore.getState(), wsPath) },
-  );
+/** A new workspace's setup script, followed from the renderer. */
+interface SetupScriptWatch {
+  /** The workspace `createWorktree` made: follow its script to the end. */
+  follow(wsPath: string, name: string, offscreen: boolean): void;
+  /** No workspace came of it: stop listening. */
+  cancel(): void;
 }
 
 /**
- * Run a project's setup script in a workspace created outside `createWorktree`
- * — i.e. by the main process on behalf of MCP. The git steps already succeeded
- * by the time main hands off, so seed them as done and show only the script.
+ * Follow a new workspace's setup script, which the server runs in a tab of
+ * its own (ADR-227 D5), until it reports the script done. When that tab is
+ * not what the user is looking at — an agent tab took its place, or the
+ * workspace was made in the background — a persistent toast stands in for
+ * it meanwhile. Either way the end is a success toast.
+ *
+ * Listening starts before `projects.createWorktree` is sent, while the
+ * workspace's path is not known yet: a short script can end before the
+ * answer arrives, so an end heard early is kept for `follow`.
  */
-export function runWorkspaceSetupScript(
-  wsPath: string,
-  script: string,
-  hostId?: HostId,
-): void {
-  const app = useAppStore.getState();
-  app.initWorktreeSetup(wsPath, true, script);
-  const doneSteps: SetupStep[] = [
-    "prune",
-    "fetch",
-    "create-worktree",
-    "persist",
-    "switch",
-  ];
-  for (const step of doneSteps) {
-    app.updateWorktreeSetupStep(wsPath, step, "done");
-  }
-  startSetupScript(wsPath, script, hostId);
+function watchSetupScript(): SetupScriptWatch {
+  let followed: { wsPath: string; toastId: string } | null = null;
+  const endedEarly = new Map<string, SetupProgressEvent>();
+
+  const finish = (event: SetupProgressEvent, toastId: string) => {
+    unsubscribe();
+    useToastStore.getState().removeToast(toastId);
+    useToastStore.getState().addToast(
+      event.status === "done"
+        ? {
+            id: `workspace-setup-${Date.now()}`,
+            message: "Workspace setup complete",
+            status: "success",
+          }
+        : {
+            id: `workspace-setup-${Date.now()}`,
+            message: "Workspace setup script failed",
+            status: "error",
+            detail: event.message,
+          },
+    );
+  };
+
+  const unsubscribe = window.electronAPI.projects.onWorktreeSetupProgress(
+    (event: SetupProgressEvent) => {
+      if (event.step !== "setup-script" || !event.workspacePath) return;
+      if (event.status !== "done" && event.status !== "error") return;
+      if (!followed) endedEarly.set(event.workspacePath, event);
+      else if (event.workspacePath === followed.wsPath) finish(event, followed.toastId);
+    },
+  );
+
+  return {
+    follow(wsPath, name, offscreen) {
+      const toastId = `worktree-setup-${wsPath}`;
+      followed = { wsPath, toastId };
+      const ended = endedEarly.get(wsPath);
+      if (ended) {
+        finish(ended, toastId);
+        return;
+      }
+      if (offscreen) {
+        useToastStore.getState().addToast({
+          id: toastId,
+          message: `Setting up "${name}"…`,
+          status: "loading",
+          persistent: true,
+        });
+      }
+    },
+    cancel: () => unsubscribe(),
+  };
 }
 
 export interface CustomCommand {
@@ -543,6 +506,11 @@ export type SetupProgressEvent = {
   step: SetupStep;
   status: StepStatus;
   message?: string;
+  /**
+   * The workspace the step is for. Set on the `setup-script` step, which the
+   * server reports after `createWorktree` has answered (ADR-227 D5).
+   */
+  workspacePath?: string;
 };
 
 export type ProjectUpdatableFields = Partial<
@@ -976,7 +944,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const toastId = `transfer-${projectId}`;
     // Main's "copy" is the dialog's "setUp".
     const dialogMode = mode === "copy" ? "setUp" : "move";
-    const hostName = memberHostName(hostId, useHostStore.getState().hosts);
+    const hostName = memberDisplayName(hostId, useHostStore.getState().hosts);
     toasts.addToast({
       id: toastId,
       message: `${mode === "copy" ? "Copying" : "Moving"} ${source.name} to ${hostName}…`,
@@ -1051,7 +1019,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       ...(mode === "copy" && {
         duration: 15_000,
         action: {
-          label: `Remove from ${memberHostName(source.hostId, useHostStore.getState().hosts)}`,
+          label: `Remove from ${memberDisplayName(source.hostId, useHostStore.getState().hosts)}`,
           onClick: () => {
             useToastStore.getState().removeToast(toastId);
             get().openRemoveFromHost(projectId);
@@ -1107,7 +1075,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   removeFromHost: async (memberId) => {
     const member = get().projects.find((p) => p.id === memberId);
     if (!member) return;
-    const hostName = memberHostName(member.hostId, useHostStore.getState().hosts);
+    const hostName = memberDisplayName(member.hostId, useHostStore.getState().hosts);
     try {
       await get().removeProject(memberId);
     } catch (err) {
@@ -1243,10 +1211,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const launchPrompt = opts.agentCommand ? undefined : prompt;
     const startScript = project?.worktreeStartScript ?? null;
 
-    // Init setup state before IPC call
-    useAppStore
-      .getState()
-      .initWorktreeSetup("__pending__", !!startScript, startScript);
+    // Init setup state before IPC call. The setup script is not one of its
+    // steps: the server starts it in a tab of its own (ADR-227 D5).
+    useAppStore.getState().initWorktreeSetup("__pending__");
+    const setupWatch = startScript ? watchSetupScript() : null;
 
     // Subscribe to progress events BEFORE calling IPC
     const unsubProgress = window.electronAPI.projects.onWorktreeSetupProgress(
@@ -1271,6 +1239,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       );
     } catch (err) {
       unsubProgress();
+      setupWatch?.cancel();
       useAppStore.getState().clearWorktreeSetup("__pending__");
       const detail = ipcErrorMessage(err);
       useToastStore.getState().addToast({
@@ -1285,6 +1254,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     unsubProgress();
 
     if (!updated) {
+      setupWatch?.cancel();
       useAppStore.getState().clearWorktreeSetup("__pending__");
       return null;
     }
@@ -1349,37 +1319,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       // Mark switch as done
       useAppStore.getState().updateWorktreeSetupStep(wsPath, "switch", "done");
+      useAppStore.getState().clearWorktreeSetup(wsPath);
 
-      if (startScript) {
-        // Kick off the setup script at store scope so its PTY outlives the
-        // WorkspaceSetupView — the view renders an `attach`-mode MiniTerminal
-        // to observe the same session without owning its lifecycle.
-        startSetupScript(wsPath, startScript, project?.hostId);
-        if (agentCommand) addAgentTab(agentCommand);
-        if (agentCommand || background) {
-          // The agent doesn't wait for the script: both run in parallel. Its
-          // tab replaces the setup view (and a background workspace's setup
-          // view isn't on screen), so progress moves to the background
-          // toast that `startSetupScript`'s exit handler removes.
-          // The launch line waits on the server for the new tab's pane
-          // (ADR-179 ticket 11).
-          useToastStore.getState().addToast({
-            id: `worktree-setup-${wsPath}`,
-            message: `Setting up "${name}"…`,
-            status: "loading",
-            persistent: true,
-          });
-        }
-      } else if (agentCommand) {
-        // No start script — open the agent tab and let the server type the
-        // launch line into it (ADR-179 ticket 11).
-        addAgentTab(agentCommand);
-        useAppStore.getState().clearWorktreeSetup(wsPath);
-      } else {
-        // No commands at all — clear setup state
-        useAppStore.getState().clearWorktreeSetup(wsPath);
-      }
+      // The setup script is already running on the server, in a "Setup" tab
+      // the server opened before answering (ADR-227 D5). The agent doesn't
+      // wait for it: both run in parallel, and the server types the launch
+      // line into the agent's tab (ADR-179 ticket 11).
+      setupWatch?.follow(wsPath, name, !!agentCommand || !!background);
+      if (agentCommand) addAgentTab(agentCommand);
     } else {
+      setupWatch?.cancel();
       useAppStore.getState().clearWorktreeSetup("__pending__");
     }
 
@@ -2029,3 +1978,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return { collapsedFolderKeys: next };
     }),
 }));
+
+// Which host a project is on, for the bridge router (ADR-228 D1).
+provideHostLookups({
+  project: (projectId) =>
+    useProjectStore.getState().projects.find((p) => p.id === projectId)?.hostId,
+});

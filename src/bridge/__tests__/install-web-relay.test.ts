@@ -192,6 +192,24 @@ describe("install-web on a relay-served page", () => {
     expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
+  it("calls a non-clean drop unreachable after the grace period, and connected again on the next hello", async () => {
+    const { api } = await install(relayHash());
+    const { servers } = await import("../server-set");
+    void api.projects.getAll().catch(() => {});
+    FakeRelaySocket.last.handshake();
+    expect(servers.facts(ROOM).reachability).toBe("connected");
+
+    FakeRelaySocket.last.drop(1006);
+    vi.advanceTimersByTime(3_999);
+    expect(servers.facts(ROOM).reachability).toBe("connected");
+    vi.advanceTimersByTime(1);
+    expect(servers.facts(ROOM).reachability).toBe("unreachable");
+
+    vi.advanceTimersByTime(30_000);
+    FakeRelaySocket.last.handshake();
+    expect(servers.facts(ROOM).reachability).toBe("connected");
+  });
+
   it("emits a resync on a resumed hello, not the first", async () => {
     const { api } = await install(relayHash());
     // Same module registry as the install above, so the same listener set.
@@ -297,5 +315,236 @@ describe("install-web on a relay-served page", () => {
     }
     expect(outcome).toHaveBeenCalledExactlyOnceWith("key-mismatch");
     expect(local.has(PAIRINGS_KEY)).toBe(true);
+  });
+
+  describe("with several pairings (ADR-228 D8)", () => {
+    const DESK = "DeskRoom0000000000000a";
+    const BOX = "BoxRoom00000000000000b";
+
+    function store(...pairings: Array<{ roomId: string; lastUsedAt: number; hostServer?: boolean }>): void {
+      const serverKey = base64urlEncode(FakeRelaySocket.key.pub);
+      local.set(
+        PAIRINGS_KEY,
+        JSON.stringify(
+          pairings.map((p, i) => ({
+            serverKey,
+            token: `tok-${p.roomId}`,
+            name: `Host ${i + 1}`,
+            addedAt: 1,
+            ...p,
+          })),
+        ),
+      );
+    }
+
+    function socketFor(roomId: string): FakeRelaySocket {
+      const sockets = FakeRelaySocket.instances.filter((s) => s.url.endsWith(`/join/${roomId}`));
+      const socket = sockets[sockets.length - 1];
+      if (!socket) throw new Error(`no socket for ${roomId}`);
+      return socket;
+    }
+
+    function stored(): Array<Record<string, unknown>> {
+      return JSON.parse(local.get(PAIRINGS_KEY) ?? "[]");
+    }
+
+    it("dials every pairing, each a server named by its room", async () => {
+      store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      expect(servers.list().map((s) => s.id)).toEqual([BOX, DESK]);
+      socketFor(DESK).handshake({ hostName: "desk.local" });
+      socketFor(BOX).handshake({ hostName: "wsl-box", hostServer: true });
+      expect(socketFor(DESK).frames[0]).toEqual({ type: "hello", token: `tok-${DESK}` });
+      expect(socketFor(BOX).frames[0]).toEqual({ type: "hello", token: `tok-${BOX}` });
+    });
+
+    it("makes the desktop home once it says hello, and remembers it", async () => {
+      store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      const connection = await import("../connection");
+      void api.projects.getAll().catch(() => {});
+      expect(connection.getActiveRoom()).toBe(BOX);
+      socketFor(BOX).handshake({ hostServer: true });
+      socketFor(DESK).handshake({ hostName: "desk.local" });
+      expect(connection.getActiveRoom()).toBe(DESK);
+      expect(stored().find((p) => p.roomId === DESK)).toMatchObject({
+        name: "desk.local",
+        hostServer: false,
+      });
+
+      // The next load starts there.
+      vi.resetModules();
+      await install("");
+      expect((await import("../connection")).getActiveRoom()).toBe(DESK);
+    });
+
+    it("follows only home's version", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      socketFor(BOX).handshake({ hostServer: true, appVersion: "0.9.0" });
+      expect(replace).not.toHaveBeenCalled();
+      expect(servers.facts(BOX).hello.version).toBe("0.9.0");
+      socketFor(DESK).handshake({ appVersion: "1.1.0" });
+      expect(replace).toHaveBeenCalledExactlyOnceWith("/app/1.1.0/");
+    });
+
+    it("names a desktop's hosts by their rooms", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false });
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      const socket = socketFor(DESK);
+      socket.handshake();
+      const list = socket.frames.find((f) => f.ns === "hosts" && f.method === "list");
+      expect(list).toBeDefined();
+      socket.deliver({
+        kind: "result",
+        id: list?.id,
+        ok: true,
+        result: [
+          { hostId: "h1", status: "connected", roomId: BOX },
+          { hostId: "h2", status: "connected", roomId: null },
+        ],
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect([...servers.facts(DESK).aliases]).toEqual([
+        ["h1", BOX],
+        ["h2", `${DESK}~h2`],
+      ]);
+      expect(stored()[0].hosts).toEqual({ h1: BOX, h2: null });
+    });
+
+    it("asks a desktop for its hosts' pairings on every hello, and dials each (ADR-228 D9)", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false });
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      const socket = socketFor(DESK);
+      socket.handshake();
+      const ask = socket.frames.find(
+        (f) => f.ns === "remoteControl" && f.method === "linkHostPairings",
+      );
+      expect(ask?.args).toEqual([[DESK]]);
+      socket.deliver({
+        kind: "result",
+        id: ask?.id,
+        ok: true,
+        result: [
+          {
+            roomId: BOX,
+            serverKey: base64urlEncode(FakeRelaySocket.key.pub),
+            token: "minted",
+            name: "me@box",
+          },
+        ],
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stored().find((p) => p.roomId === BOX)).toMatchObject({
+        token: "minted",
+        name: "me@box",
+        hostServer: true,
+      });
+      expect(servers.list().map((s) => s.id)).toEqual([DESK, BOX]);
+      socketFor(BOX).handshake({ hostServer: true });
+      expect(socketFor(BOX).frames[0]).toEqual({ type: "hello", token: "minted" });
+      // A host server is never asked.
+      expect(
+        socketFor(BOX).frames.some((f) => f.ns === "remoteControl" && f.method === "linkHostPairings"),
+      ).toBe(false);
+    });
+
+    it("sends rooms the user removed as held, so the desktop does not mint them again (ADR-228 D9)", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 0 });
+      const { api } = await install("");
+      const pairings = await import("../pairings");
+      void api.projects.getAll().catch(() => {});
+      const box = pairings.listPairings().find((p) => p.roomId === BOX);
+      if (!box) throw new Error("no box pairing");
+      pairings.declinePairing(box);
+      const socket = socketFor(DESK);
+      socket.handshake();
+      const ask = socket.frames.find(
+        (f) => f.ns === "remoteControl" && f.method === "linkHostPairings",
+      );
+      expect(ask?.args).toEqual([[DESK, BOX]]);
+    });
+
+    it("forgets only the pairing refused with 4401, and drops its server", async () => {
+      store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
+      const { mod, api } = await install("");
+      const { servers } = await import("../server-set");
+      const outcome = vi.fn();
+      mod.onBridgeOutcome(outcome);
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).handshake();
+      const box = socketFor(BOX);
+      box.accept();
+      box.respond();
+      box.hostClose(4401);
+      expect(stored().map((p) => p.roomId)).toEqual([DESK]);
+      // Revoked on its host: no desktop hands it back (ADR-228 D9).
+      const { declinedRooms } = await import("../pairings");
+      expect(declinedRooms()).toEqual([BOX]);
+      expect(servers.list().map((s) => s.id)).toEqual([DESK]);
+      expect(servers.homeId).toBe(DESK);
+      expect(outcome).not.toHaveBeenCalled();
+    });
+
+    it("gives up on a host pairing that never says hello, so the desktop answers for it", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 0 });
+      const list = JSON.parse(local.get(PAIRINGS_KEY) ?? "[]");
+      list[0].hosts = { h1: BOX };
+      local.set(PAIRINGS_KEY, JSON.stringify(list));
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).handshake();
+      expect(servers.facts(BOX).reachability).toBe("unknown");
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(servers.facts(BOX).reachability).toBe("unreachable");
+      expect(servers.facts(DESK).reachability).toBe("connected");
+      void api.github.checkStatus(BOX).catch(() => {});
+      const ask = socketFor(DESK).frames.find(
+        (f) => f.ns === "github" && f.method === "checkStatus",
+      );
+      expect(ask?.args).toEqual(["h1"]);
+      // Its hello, late, makes it the host's source again.
+      socketFor(BOX).handshake({ hostServer: true });
+      expect(servers.facts(BOX).reachability).toBe("connected");
+    });
+
+    it("reads as reachable while any pairing is", async () => {
+      store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
+      const { mod, api } = await install("");
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).drop(4404);
+      expect(mod.getReachability()).toBe("unknown");
+      socketFor(BOX).handshake({ hostServer: true });
+      expect(mod.getReachability()).toBe("connected");
+      socketFor(BOX).drop(4404);
+      expect(mod.getReachability()).toBe("unreachable");
+    });
+
+    it("follows the stored list: a removed pairing leaves, a new one joins", async () => {
+      store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      const { servers } = await import("../server-set");
+      const pairings = await import("../pairings");
+      void api.projects.getAll().catch(() => {});
+      const box = pairings.listPairings().find((p) => p.roomId === BOX);
+      if (!box) throw new Error("no box pairing");
+      pairings.removePairing(box);
+      expect(servers.list().map((s) => s.id)).toEqual([DESK]);
+      expect(socketFor(BOX).closedWith).not.toBeNull();
+
+      pairings.upsertPairing({ roomId: BOX, serverKey: box.serverKey, token: "new" });
+      expect(servers.list().map((s) => s.id)).toEqual([DESK, BOX]);
+      socketFor(BOX).handshake({ hostServer: true });
+      expect(socketFor(BOX).frames[0]).toEqual({ type: "hello", token: "new" });
+    });
   });
 });

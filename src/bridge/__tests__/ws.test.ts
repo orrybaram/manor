@@ -23,6 +23,7 @@ import { BridgeDisconnectedError, BridgeUnavailableError } from "../client";
 import { createBridge } from "../client";
 import {
   createWsTransport,
+  DROP_GRACE_MS,
   type Pipe,
   type WsBridgeTransport,
   type WsTransportOptions,
@@ -426,6 +427,32 @@ describe("the socket transport", () => {
     });
   });
 
+  describe("closing for good", () => {
+    it("closes the socket, fails what is in flight and never dials again", async () => {
+      const onStatus = vi.fn();
+      const transport = createWsTransport({
+        token: "full-token",
+        pipe: fakePipe(),
+        onStatus,
+      });
+      const api = createBridge(transport);
+      void api.projects.getAll().catch(() => {});
+      const socket = FakeSocket.last;
+      socket.handshake();
+      const pending = api.projects.getAll();
+
+      transport.close();
+      await expect(pending).rejects.toBeInstanceOf(BridgeDisconnectedError);
+      expect(socket.readyState).toBe(3);
+      // The pipe's own close, reported late, is about a connection now gone.
+      expect(onStatus).not.toHaveBeenCalledWith("unreachable");
+      vi.advanceTimersByTime(60_000);
+      expect(FakeSocket.instances).toHaveLength(1);
+      await expect(api.projects.getAll()).rejects.toBeInstanceOf(BridgeDisconnectedError);
+      expect(await transport.probeNow()).toBe("stopped");
+    });
+  });
+
   describe("reconnecting", () => {
     /**
      * Sending back the id the host gave it lets the server reuse it when
@@ -507,6 +534,42 @@ describe("the socket transport", () => {
       const opened = FakeSocket.instances.length;
       vi.advanceTimersByTime(1_000);
       expect(FakeSocket.instances).toHaveLength(opened + 1);
+    });
+
+    it("reports unreachable only if no hello comes within the grace period", () => {
+      const onStatus = vi.fn();
+      const { socket } = connected({ onStatus });
+      socket.drop(1006);
+      vi.advanceTimersByTime(DROP_GRACE_MS - 1);
+      expect(onStatus).not.toHaveBeenCalledWith("unreachable");
+      vi.advanceTimersByTime(1);
+      expect(onStatus).toHaveBeenLastCalledWith("unreachable");
+    });
+
+    it("reports no unreachable when a hello lands within the grace period", () => {
+      const onStatus = vi.fn();
+      const { socket } = connected({ onStatus });
+      socket.drop(1006);
+      vi.advanceTimersByTime(1_000);
+      FakeSocket.last.handshake();
+      vi.advanceTimersByTime(DROP_GRACE_MS * 2);
+      expect(onStatus).not.toHaveBeenCalledWith("unreachable");
+    });
+
+    it("reports no unreachable when closed within the grace period", () => {
+      const onStatus = vi.fn();
+      const transport = createWsTransport({
+        token: "full-token",
+        pipe: fakePipe(),
+        onStatus,
+      });
+      void createBridge(transport).projects.getAll().catch(() => {});
+      const socket = FakeSocket.last;
+      socket.handshake();
+      socket.drop(1006);
+      transport.close();
+      vi.advanceTimersByTime(DROP_GRACE_MS * 2);
+      expect(onStatus).not.toHaveBeenCalledWith("unreachable");
     });
 
     it("rejects the calls that were in flight", async () => {

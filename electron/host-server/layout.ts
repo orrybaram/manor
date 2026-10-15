@@ -1,17 +1,14 @@
 /**
- * The layout snapshot a host server serves (ADR-225 D5).
+ * A host's part of the desktop's layout, as the desktop hands it to that
+ * host's server (ADR-227 D3).
  *
- * In slice 1 the desktop owns layout. It pushes this host's part of it with
- * the manifest (`hostServer.syncLayout`, `./owner.ts`): the layout v3 entries
- * whose workspace key is `<hostId>:<path>` for this host, rekeyed to the bare
- * `<path>`, because to the host server its own host is local. The server
- * caches it in `dataDir/layout.json` (`./owner-snapshot.ts`) and the phone
- * walks it (ADR-181).
- *
- * Read-only here. The synthetic "Started while away" tab for daemon sessions
- * the snapshot lacks is added when the layout is served
- * (`./started-while-away.ts`, `./handlers.ts`); a device's layout writes are
- * refused as unavailable on the host.
+ * The host server owns its layout (ADR-227 D2): a real `LayoutStore`,
+ * persisted to `dataDir/layout.json` (`hostServerPaths().layout`) and keyed
+ * by bare workspace paths, because to the host server its own host is
+ * local. Before the flip that layout lived in the desktop's `layout.json`,
+ * under `<hostId>:<path>` keys; adoption (`hostServer.adopt`, `./adopt.ts`)
+ * moves it onto the box in this shape — rekeyed to the bare path, window
+ * claims cleared (`hostLayoutSnapshot` in `../backend/host-server-sync.ts`).
  */
 
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
@@ -27,13 +24,4 @@ export interface HostLayoutSnapshot {
   workspaces: Record<string, LayoutEntry>;
   /** The workspace the desktop last showed, if it is on this host. */
   lastActiveWorkspacePath: string | null;
-}
-
-export function emptyLayoutSnapshot(): HostLayoutSnapshot {
-  return {
-    version: HOST_LAYOUT_VERSION,
-    takenAt: new Date(0).toISOString(),
-    workspaces: {},
-    lastActiveWorkspacePath: null,
-  };
 }

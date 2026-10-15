@@ -1,5 +1,6 @@
 import { useMountEffect } from "./useMountEffect";
 import { recoverHostPanes, windowPaneIds } from "../lib/remote-recovery";
+import { whenDirectSettled } from "../bridge/server-set";
 import { useAppStore } from "../store/app-store";
 import { useHostStore } from "../store/host-store";
 import { remoteHostByPane, useRemotePaneStore } from "../store/remote-pane-store";
@@ -13,37 +14,44 @@ const thisWindowsPanes = () => windowPaneIds(useAppStore.getState().workspaceLay
  * a drop (ADR-178 §6; see `lib/remote-recovery`), and create the panes that
  * were waiting for a host that was away when they opened — the app launched
  * while it was down, or a pane opened on it since — once it connects.
+ *
+ * A host this window holds its own bridge to (ADR-228 D4) is its pane's
+ * source once that bridge is back, so both wait for it first
+ * (`whenDirectSettled`): a remount any sooner would go through main.
  */
 export function useRemoteRecovery() {
   useMountEffect(() => {
+    const recover = (hostId: string, sessionIds: string[]): Promise<unknown> => {
+      const inThisWindow = thisWindowsPanes();
+      return recoverHostPanes(hostId, sessionIds, {
+        remoteHostByPane: () => remoteHostByPane(useRemotePaneStore.getState()),
+        // A pane still waiting never had a session to lose: the host
+        // connecting creates it (below).
+        includePane: (paneId) =>
+          inThisWindow.has(paneId) &&
+          !useRemotePaneStore.getState().panes[paneId]?.awaiting,
+        getActiveAgents: () => window.electronAPI.agents.getAll({ status: "active" }),
+        markResumed: (agentId) => window.electronAPI.agents.markResumed(agentId),
+        buildResumeCommand: (agentId) =>
+          window.electronAPI.agents.buildResumeCommand(agentId),
+        setPendingPaneCommand: (paneId, command) =>
+          useAppStore.getState().setPendingPaneCommand(paneId, command),
+        reattach: (paneIds) =>
+          useRemotePaneStore.getState().reattach(paneIds, "host-recovered"),
+        notify: (message) =>
+          useToastStore.getState().addToast({
+            id: `host-restarted-${hostId}`,
+            message,
+            status: "success",
+            // Lands as the user comes back to the laptop — give them time
+            // to see it.
+            duration: 10_000,
+          }),
+      });
+    };
     const unsubscribe = window.electronAPI?.hosts?.onReconnected?.(
       ({ hostId, sessionIds }) => {
-        const inThisWindow = thisWindowsPanes();
-        void recoverHostPanes(hostId, sessionIds, {
-          remoteHostByPane: () => remoteHostByPane(useRemotePaneStore.getState()),
-          // A pane still waiting never had a session to lose: the host
-          // connecting creates it (below).
-          includePane: (paneId) =>
-            inThisWindow.has(paneId) &&
-            !useRemotePaneStore.getState().panes[paneId]?.awaiting,
-          getActiveAgents: () => window.electronAPI.agents.getAll({ status: "active" }),
-          markResumed: (agentId) => window.electronAPI.agents.markResumed(agentId),
-          buildResumeCommand: (agentId) =>
-            window.electronAPI.agents.buildResumeCommand(agentId),
-          setPendingPaneCommand: (paneId, command) =>
-            useAppStore.getState().setPendingPaneCommand(paneId, command),
-          reattach: (paneIds) =>
-            useRemotePaneStore.getState().reattach(paneIds, "host-recovered"),
-          notify: (message) =>
-            useToastStore.getState().addToast({
-              id: `host-restarted-${hostId}`,
-              message,
-              status: "success",
-              // Lands as the user comes back to the laptop — give them time
-              // to see it.
-              duration: 10_000,
-            }),
-        });
+        void whenDirectSettled(hostId).then(() => recover(hostId, sessionIds));
       },
     );
 
@@ -70,7 +78,10 @@ export function useRemoteRecovery() {
         const panes = remotePanes.takePanesAwaitingHost(host.hostId, (paneId) =>
           windowPanes.has(paneId),
         );
-        if (panes.length > 0) remotePanes.reattach(panes, "host-recovered");
+        if (panes.length === 0) continue;
+        void whenDirectSettled(host.hostId).then(() =>
+          useRemotePaneStore.getState().reattach(panes, "host-recovered"),
+        );
       }
     });
 

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import type { BrowserWindow } from "electron";
 import { HostUnavailableError } from "./backend/host-view";
 import { workspaceKey, type WorkspaceKey } from "../src/lib/workspace-key";
 import { PerHostPoller, type HostBackends, type HostPath } from "./per-host-poller";
@@ -7,7 +6,8 @@ import type { WorkspaceBackend } from "./backend/types";
 import { MergeBaseCache, resolveBasePoint, type BasePoint } from "./backend/merge-base";
 import { settleWithConcurrency } from "./lib/concurrency";
 import { errorMessage } from "./lib/errors";
-import { publishRendererBroadcast } from "./renderer-broadcast";
+import { publishRendererBroadcast, type BroadcastBus } from "./renderer-broadcast";
+import { WatchedSets } from "./watched-sets";
 
 export interface DiffStats {
   added: number;
@@ -17,6 +17,37 @@ export interface DiffStats {
 /** A workspace to watch: its path, its host, and the branch to diff against. */
 export interface DiffWorkspace extends HostPath {
   defaultBranch: string;
+}
+
+/**
+ * The window whose being hidden pauses the watcher: the desktop's primary.
+ * Only what the watcher reads of a `BrowserWindow`, so this file stays
+ * Electron-free and a host server, which has none, can build one.
+ */
+export interface DiffGateWindow {
+  isDestroyed(): boolean;
+  isVisible(): boolean;
+  isMinimized(): boolean;
+  on(event: "show", listener: () => void): unknown;
+  on(event: "restore", listener: () => void): unknown;
+  off(event: "show", listener: () => void): unknown;
+  off(event: "restore", listener: () => void): unknown;
+}
+
+export interface DiffWatcherOptions {
+  /**
+   * Whether a paired device is subscribed to the diff events — a browser
+   * still needs fresh stats while the desktop window is hidden. Defaults
+   * to nobody.
+   */
+  deviceWatching?: () => boolean;
+  /**
+   * The window that gates the polling (`Platform.diffWindow`), read on each
+   * start. Absent, as on a host server: nothing pauses it.
+   */
+  window?: () => DiffGateWindow | null;
+  /** Where the diff events go: the server's bus. */
+  publish?: BroadcastBus["publish"];
 }
 
 /**
@@ -68,7 +99,11 @@ interface WorkspaceScan {
  */
 export class DiffWatcher {
   private readonly poller: PerHostPoller<DiffScan>;
-  private window: BrowserWindow | null = null;
+  private window: DiffGateWindow | null = null;
+  /** Each connection's workspaces (ADR-230 D6); the union is polled. */
+  private readonly sets = new WatchedSets<DiffWorkspace>();
+  private readonly deviceWatching: () => boolean;
+  private readonly publish: BroadcastBus["publish"];
   /** Each watched workspace's default branch, by key. */
   private defaultBranches = new Map<WorkspaceKey, string>();
   // Paths discovered to not be git repos — skipped on subsequent ticks so we
@@ -90,13 +125,10 @@ export class DiffWatcher {
 
   constructor(
     private readonly hosts: HostBackends,
-    /**
-     * Whether a paired device is subscribed to the diff events — a browser
-     * still needs fresh stats while the desktop window is hidden. Defaults
-     * to nobody.
-     */
-    private readonly deviceWatching: () => boolean = () => false,
+    private readonly opts: DiffWatcherOptions = {},
   ) {
+    this.deviceWatching = opts.deviceWatching ?? (() => false);
+    this.publish = opts.publish ?? publishRendererBroadcast;
     this.poller = new PerHostPoller<DiffScan>({
       label: "DiffWatcher",
       scan: (hostId, paths) => this.scan(hostId, paths),
@@ -110,16 +142,40 @@ export class DiffWatcher {
   }
 
   /**
+   * Watch `workspaces` for connection `owner`, beside every other
+   * connection's (ADR-230 D6).
+   *
    * ADR-180 D5: results are published as `diffs.changed` /
    * `diffs.fingerprintsChange` to every renderer — desktop windows and paired
-   * browsers alike — rather than pushed at one window. `window` is only the
-   * visibility gate: while it is hidden or minimized, and no paired device
-   * is subscribed (`deviceWatching`), no git runs (each host keeps its last
-   * result). The handler passes the primary window; a browser watching while
-   * the desk is minimized keeps the polling going.
+   * browsers alike — rather than pushed at one window. The window
+   * (`DiffWatcherOptions.window`) is only the visibility gate: while it is
+   * hidden or minimized, and no paired device is subscribed
+   * (`deviceWatching`), no git runs (each host keeps its last result). A
+   * browser watching while the desk is minimized keeps the polling going.
    */
-  start(workspaces: readonly DiffWorkspace[], window: BrowserWindow | null): void {
+  start(workspaces: readonly DiffWorkspace[], owner = ""): void {
+    this.sets.set(owner, workspaces);
+    this.apply();
+  }
+
+  /** `owner` watches nothing now: it stopped, or its connection closed. */
+  stop(owner = ""): void {
+    if (!this.sets.delete(owner)) return;
+    if (this.sets.empty) this.poller.stop();
+    else this.apply();
+  }
+
+  /** Stop for everyone: the server is shutting down. */
+  dispose(): void {
+    this.sets.clear();
+    this.poller.stop();
+    this.watchWindow(null);
+  }
+
+  private apply(): void {
+    const window = this.opts.window?.();
     if (window) this.watchWindow(window);
+    const workspaces = this.sets.union();
     // Force the first result to emit so a fresh/reloaded renderer gets stats.
     this.poller.reset({ reemit: true });
     this.lastSent = null;
@@ -136,19 +192,15 @@ export class DiffWatcher {
     this.poller.start({ immediate: true });
   }
 
-  stop(): void {
-    this.poller.stop();
-  }
-
-  private watchWindow(window: BrowserWindow): void {
+  private watchWindow(window: DiffGateWindow | null): void {
     if (this.window === window) return;
     if (this.window && !this.window.isDestroyed()) {
       this.window.off("show", this.onWindowShown);
       this.window.off("restore", this.onWindowShown);
     }
     this.window = window;
-    window.on("show", this.onWindowShown);
-    window.on("restore", this.onWindowShown);
+    window?.on("show", this.onWindowShown);
+    window?.on("restore", this.onWindowShown);
   }
 
   private windowHidden(): boolean {
@@ -162,10 +214,10 @@ export class DiffWatcher {
     const prev = this.lastSent;
     this.lastSent = { stats, fingerprints };
     if (prev?.fingerprints !== fingerprints) {
-      publishRendererBroadcast("diffs", "fingerprintsChange", merged.fingerprints);
+      this.publish("diffs", "fingerprintsChange", merged.fingerprints);
     }
     if (prev?.stats !== stats) {
-      publishRendererBroadcast("diffs", "changed", merged.stats);
+      this.publish("diffs", "changed", merged.stats);
     }
   }
 

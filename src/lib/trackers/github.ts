@@ -5,6 +5,7 @@
  */
 
 import type { GitHubIssue } from "../../electron.d";
+import { noteGhStatus } from "../gh-host-status";
 import { ghRepoOf } from "../gh-repo";
 import { startGitHubIssueWork } from "../start-issue-work";
 import { githubImageFetchUrl } from "../task-images";
@@ -102,10 +103,18 @@ export const githubTracker: TaskTracker = {
       ],
       queryFn: async () => {
         const repo = ghRepoOf(member);
-        const issues =
-          scope === "assigned"
-            ? await window.electronAPI.github.getMyIssues(repo, LIMIT, "open")
-            : await window.electronAPI.github.getAllIssues(repo, LIMIT, "open");
+        let issues: GitHubIssue[];
+        try {
+          issues =
+            scope === "assigned"
+              ? await window.electronAPI.github.getMyIssues(repo, LIMIT, "open")
+              : await window.electronAPI.github.getAllIssues(repo, LIMIT, "open");
+        } catch (err) {
+          // `gh` isn't usable on that host: a stated empty state, not a
+          // failed source (ADR-227 D7).
+          if (!(await noteGhStatus(repo.hostId))) return [];
+          throw err;
+        }
         return issues.map((i) => ({
           ...toRow(i, ctx),
           assignedToMe: scope === "assigned",

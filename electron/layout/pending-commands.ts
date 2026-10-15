@@ -14,17 +14,25 @@
  * reach it — the structural routes, `POST /agents`, and the desktop through
  * `layout.setPendingCommand`.
  *
- * The consumer is `ptyCreate` (`electron/ipc/pty.ts`): the moment a *fresh*
- * session exists for the pane, it takes the entry and writes it. `take` is
- * destructive, so a second viewer's `pty.create` for the same pane finds
- * nothing and nobody's command is typed twice.
+ * The consumer is `spawnPane` (`electron/server/spawn-pane.ts`): the moment a
+ * *fresh* session exists for the pane, it takes the entry and writes it.
+ * `take` is destructive, so a second viewer's `pty.create` for the same pane
+ * finds nothing and nobody's command is typed twice.
+ *
+ * Most entries wait for a renderer to mount their pane. A launch does not
+ * (ADR-227 D5): an agent's startup line or a new workspace's setup script
+ * starts its session on the server as soon as its pane is in a tree
+ * (`launchesOnApply`), so a host with no viewer still runs it.
  *
  * Not persisted, deliberately: a command that outlives the process would run
  * in a shell the user opened days later, having forgotten they asked for it.
  */
 
-/** What kind of line this is — a shell command, or an agent launch. */
-export type PendingCommandKind = "shell" | "agent-startup";
+/**
+ * What kind of line this is — a shell command, an agent launch, or a new
+ * workspace's setup script (`script; exit`, queued by the server only).
+ */
+export type PendingCommandKind = "shell" | "agent-startup" | "setup-script";
 
 export interface PendingCommand {
   text: string;
@@ -95,6 +103,22 @@ export class PendingCommands {
   requeue(paneId: string, entry: PendingCommand): void {
     if (this.byPane.has(paneId)) return;
     this.byPane.set(paneId, { ...entry, requeued: true });
+  }
+
+  /**
+   * Whether the pane's queued command starts its session the moment its pane
+   * joins a tree, rather than when a renderer mounts it (ADR-227 D5): an
+   * agent launch or a setup script. A plain shell line still waits for a
+   * viewer, who is the one that asked to watch it run.
+   */
+  launchesOnApply(paneId: string): boolean {
+    const kind = this.byPane.get(paneId)?.kind;
+    return kind === "agent-startup" || kind === "setup-script";
+  }
+
+  /** The pane's queued command, left in place. */
+  peek(paneId: string): PendingCommand | null {
+    return this.byPane.get(paneId) ?? null;
   }
 
   /** Whether the pane's queued command is one `requeue` put back. */

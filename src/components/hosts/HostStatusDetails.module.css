@@ -37,6 +37,11 @@
   background: color-mix(in srgb, var(--red, var(--danger)) 14%, transparent);
 }
 
+.glyphBox.asleep {
+  color: var(--blue, #89b4fa);
+  background: color-mix(in srgb, var(--blue, #89b4fa) 10%, transparent);
+}
+
 .glyphBox.local {
   color: var(--text-primary);
   background: var(--surface);
@@ -67,6 +72,10 @@
 
 .status.error {
   color: var(--red, var(--danger));
+}
+
+.status.asleep {
+  color: var(--blue, #89b4fa);
 }
 
 .summary {

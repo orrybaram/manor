@@ -11,9 +11,11 @@ import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
+import Server from "lucide-react/dist/esm/icons/server";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
+import { serverHostName } from "../../../bridge/server-set";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
@@ -21,6 +23,7 @@ import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { RemoteControlPage } from "../RemoteControlPage";
+import { HostsPage } from "../HostsPage/HostsPage";
 import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
 import { HostIndicator } from "../../hosts/HostIndicator";
 import { Button } from "../../ui/Button/Button";
@@ -34,6 +37,7 @@ import {
   type SettingsProjectEntry,
   type SettingsSearchResult,
 } from "./settings-search";
+import { SettingsNavContext, type GoToSettings } from "./settings-nav";
 import styles from "./SettingsModal.module.css";
 
 /** A page as a stable key, for React keys and the nav's active state. */
@@ -136,7 +140,7 @@ export function SettingsModal(props: SettingsModalProps) {
         members: members.map((m) => ({
           id: m.id,
           hostId: m.hostId,
-          hostLabel: memberHostName(m.hostId, hosts),
+          hostLabel: serverHostName(m.hostId) ?? memberHostName(m.hostId, hosts),
         })),
       });
     }
@@ -154,6 +158,15 @@ export function SettingsModal(props: SettingsModalProps) {
     setPendingJump({ id: result.id, nonce: Date.now() });
     setQuery("");
     setHighlight(0);
+  }, []);
+
+  // A link from one page to another's section (`useSettingsNav`).
+  const goTo = useCallback<GoToSettings>((target, section) => {
+    setPage(target);
+    if (target.type === "project" || target.type === "group") {
+      setProjectsExpanded(true);
+    }
+    setPendingJump({ id: section ?? null, nonce: Date.now() });
   }, []);
 
   // Jump to the picked target once its page renders: a section scrolls into
@@ -399,6 +412,16 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-hosts"
+                    className={`${styles.navItem} ${page.type === "hosts" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "hosts" ? "page" : undefined}
+                    onClick={() => setPage({ type: "hosts" })}
+                  >
+                    <Server size={14} />
+                    <span>Hosts</span>
+                  </button>
+
+                  <button
                     data-testid="settings-nav-remote"
                     className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
                     aria-current={page.type === "remote" ? "page" : undefined}
@@ -479,27 +502,30 @@ export function SettingsModal(props: SettingsModalProps) {
               )}
             </div>
 
-            <div className={styles.content} ref={contentRef} tabIndex={-1}>
-              {page.type === "general" && <GeneralSettingsPage />}
-              {page.type === "app" && <AppSettingsPage />}
-              {page.type === "keybindings" && <KeybindingsPage />}
-              {page.type === "notifications" && <NotificationsPage />}
-              {page.type === "integrations" && <IntegrationsPage />}
-              {page.type === "remote" && <RemoteControlPage />}
-              {page.type === "group" && currentGroup && (
-                <GroupSettingsPage
-                  key={currentGroup.id}
-                  group={currentGroup}
-                  members={currentGroupMembers}
-                />
-              )}
-              {page.type === "project" && currentProject && (
-                <ProjectSettingsPage
-                  key={currentProject.id}
-                  project={currentProject}
-                />
-              )}
-            </div>
+            <SettingsNavContext.Provider value={goTo}>
+              <div className={styles.content} ref={contentRef} tabIndex={-1}>
+                {page.type === "general" && <GeneralSettingsPage />}
+                {page.type === "app" && <AppSettingsPage />}
+                {page.type === "keybindings" && <KeybindingsPage />}
+                {page.type === "notifications" && <NotificationsPage />}
+                {page.type === "integrations" && <IntegrationsPage />}
+                {page.type === "hosts" && <HostsPage />}
+                {page.type === "remote" && <RemoteControlPage />}
+                {page.type === "group" && currentGroup && (
+                  <GroupSettingsPage
+                    key={currentGroup.id}
+                    group={currentGroup}
+                    members={currentGroupMembers}
+                  />
+                )}
+                {page.type === "project" && currentProject && (
+                  <ProjectSettingsPage
+                    key={currentProject.id}
+                    project={currentProject}
+                  />
+                )}
+              </div>
+            </SettingsNavContext.Provider>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

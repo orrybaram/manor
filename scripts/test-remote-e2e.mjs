@@ -17,6 +17,13 @@
  *                    the Linux paths: `uname` → Linux, node-pty compiled from
  *                    source during bootstrap, `ss` + /proc port scanning.
  *                    Select with --docker or MANOR_E2E_SSH_TARGET_KIND=docker.
+ *   recipe           no sshd: a host Manor starts itself (ADR-229). Builds
+ *                    docker/host-image as manor-host:e2e and runs the
+ *                    recipe-host vitest suite, which creates a recipe from the
+ *                    `docker` template and drives the desktop's registry
+ *                    against the container it starts (over `docker exec`).
+ *                    Select with --recipe. Skipped, with a message, when
+ *                    Docker is absent.
  *
  * Either way the harness writes an ssh config file with two host aliases —
  * `manor-e2e` (what the app connects to) and `manor-e2e-direct` (a side
@@ -31,12 +38,16 @@
  *
  * Options:
  *   --docker           Linux container target instead of the macOS sshd
+ *   --recipe           the recipe-host suite instead (needs Docker; no sshd)
  *   --no-build         skip `pnpm build` + scripts/build-host-tarball.mjs
  *   --smoke            start the target, run `ssh manor-e2e …` once, stop
  *   --serve            start the target, print the env to export, wait for ^C
  *   --vitest-only      run only the bridge-level vitest suite
  *   --playwright-only  run only the Playwright specs (remote-host.spec.ts,
- *                      host-server.spec.ts), one worker
+ *                      host-server.spec.ts, host-ownership.spec.ts,
+ *                      host-direct-bridge.spec.ts,
+ *                      phone-all-pairings.spec.ts,
+ *                      phone-linked-hosts.spec.ts), one worker
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -50,8 +61,18 @@ import { fileURLToPath } from "node:url";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DOCKER_CONTEXT = path.join(ROOT, "tests/e2e/remote-host");
 const VITEST_SUITE = "electron/terminal-host/__tests__/remote-ssh.e2e.test.ts";
+const RECIPE_SUITE = "electron/backend/__tests__/recipe-docker.e2e.test.ts";
+const HOST_IMAGE_CONTEXT = path.join(ROOT, "docker/host-image");
+const RECIPE_IMAGE = "manor-host:e2e";
 /** Run one file at a time (`--workers=1`): every spec shares the one box. */
-const PLAYWRIGHT_SUITES = ["tests/e2e/remote-host.spec.ts", "tests/e2e/host-server.spec.ts"];
+const PLAYWRIGHT_SUITES = [
+  "tests/e2e/remote-host.spec.ts",
+  "tests/e2e/host-server.spec.ts",
+  "tests/e2e/host-ownership.spec.ts",
+  "tests/e2e/host-direct-bridge.spec.ts",
+  "tests/e2e/phone-all-pairings.spec.ts",
+  "tests/e2e/phone-linked-hosts.spec.ts",
+];
 /** What the box's host server dials unless a spec says otherwise: nothing. */
 const CLOSED_RELAY_URL = "http://127.0.0.1:9";
 const APP_ALIAS = "manor-e2e";
@@ -394,7 +415,38 @@ function runSuite(label, cmd, args, env) {
   return res.status === 0;
 }
 
+/**
+ * `--recipe`: build the reference host image and run the recipe-host suite
+ * against the Docker daemon. The suite removes every container and volume
+ * it makes; the image is kept, and rebuilt from cache on the next run.
+ */
+function runRecipe() {
+  const version = run("docker", ["version", "--format", "{{.Server.Version}}"]);
+  if (version.status !== 0) {
+    log(
+      "skipping the recipe-host suite: Docker is not available " +
+        `(${(version.stderr ?? "").trim().split("\n")[0] || "no daemon"}). ` +
+        "Start Docker, or run it as a user in the docker group.",
+    );
+    return;
+  }
+  if (!flags.has("--no-build")) build();
+  log(`building ${RECIPE_IMAGE} from docker/host-image…`);
+  const res = spawnSync("docker", ["build", "-t", RECIPE_IMAGE, HOST_IMAGE_CONTEXT], { stdio: "inherit" });
+  if (res.status !== 0) die("docker build failed");
+  const ok = runSuite("vitest recipe-host suite", "pnpm", ["exec", "vitest", "run", RECIPE_SUITE], {
+    MANOR_E2E_RECIPE: "1",
+    MANOR_E2E_RECIPE_IMAGE: RECIPE_IMAGE,
+  });
+  process.exitCode = ok ? 0 : 1;
+}
+
 async function main() {
+  if (flags.has("--recipe")) {
+    runRecipe();
+    return;
+  }
+
   if (flags.has("--smoke")) {
     const env = await startTarget();
     const probe =

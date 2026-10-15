@@ -14,8 +14,6 @@ import type {
   SessionInfo,
   TerminalSnapshot,
   StreamEvent,
-  StreamCommand,
-  HookReplay,
   PaneFacts,
 } from "../terminal-host/types";
 import type { MachineFacts } from "./machine-facts";
@@ -25,6 +23,16 @@ export type { MachineFacts } from "./machine-facts";
 // ── Pty Backend ──
 
 export type StreamEventHandler = (event: StreamEvent) => void;
+
+/**
+ * How a pty call that opens a session may reach its host (ADR-230 D3).
+ * `wake: false` is a call nobody meant — a pane restored at launch — which a
+ * remote host's gate answers without waking a sleeping box. Every backend
+ * but that gate ignores it.
+ */
+export interface PtyConnectOptions {
+  wake?: boolean;
+}
 
 export interface PtyBackend {
   /**
@@ -46,6 +54,7 @@ export interface PtyBackend {
     rows: number,
     shellArgs?: string[],
     env?: Record<string, string>,
+    connect?: PtyConnectOptions,
   ): Promise<{ session: SessionInfo; snapshot: TerminalSnapshot | null }>;
 
   /**
@@ -53,7 +62,7 @@ export interface PtyBackend {
    * spawns and never resizes; null when there is no such live session
    * (ADR-220).
    */
-  attachExisting(sessionId: string): Promise<TerminalSnapshot | null>;
+  attachExisting(sessionId: string, connect?: PtyConnectOptions): Promise<TerminalSnapshot | null>;
 
   write(sessionId: string, data: string): void;
 
@@ -89,15 +98,6 @@ export interface PtyBackend {
   onEvent(handler: StreamEventHandler): () => void;
 
   updateEnv(env: Record<string, string>): Promise<void>;
-}
-
-/** A remote host's pty backend: its daemon journals agent hooks (ADR-178 §2). */
-export interface HookJournalPtyBackend extends PtyBackend {
-  /**
-   * The host daemon's hook journal after `sinceSeq`. `headOnly` returns the
-   * journal's position with no entries.
-   */
-  replayHooks(sinceSeq: number, opts?: { headOnly?: boolean }): Promise<HookReplay>;
 }
 
 // ── Git Backend ──
@@ -259,9 +259,11 @@ export type HostConnectionEvent =
  * - `host-key` — the host key is unknown or has changed.
  * - `bootstrap` — the host cannot run the daemon (`code` says why: e.g.
  *   `node-missing`, `unsupported-platform`, `install-failed`).
+ * - `recipe` — the host's recipe failed or said something Manor can't use
+ *   (ADR-229 D2); the message quotes its stderr's tail.
  */
 export interface HostFailure {
-  reason: "auth" | "host-key" | "bootstrap";
+  reason: "auth" | "host-key" | "bootstrap" | "recipe";
   code?: string;
   message: string;
 }
@@ -284,8 +286,21 @@ export type HostId = string;
  * `projects.json`; a `BackendRegistry` turns it into a `WorkspaceBackend`.
  * A discriminated union so other ways of reaching a box (ADR-178's managed
  * providers) are additions, not a migration.
+ *
+ * - `ssh`: a box the user brings, at an ssh target.
+ * - `recipe`: a box Manor starts, stops and deletes with the user's own
+ *   commands in `~/.manor/host-recipes/<recipeId>/` (ADR-229 D2).
  */
-export type HostSpec = { kind: "ssh"; target: string };
+export type HostSpec = { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string };
+
+/** Whether `value` is a `HostSpec` this build knows, e.g. read back from disk. */
+export function isHostSpec(value: unknown): value is HostSpec {
+  if (typeof value !== "object" || value === null) return false;
+  const spec = value as { kind?: unknown; target?: unknown; recipeId?: unknown };
+  if (spec.kind === "ssh") return typeof spec.target === "string" && spec.target !== "";
+  if (spec.kind === "recipe") return typeof spec.recipeId === "string" && spec.recipeId !== "";
+  return false;
+}
 
 // ── Workspace Backend (aggregate) ──
 
@@ -304,11 +319,9 @@ export interface WorkspaceBackend {
 
 /**
  * A remote host's backend (ADR-160): it reconnects by itself and reports how
- * that goes, and its daemon journals the host's agent hooks.
+ * that goes.
  */
 export interface RemoteHostBackend extends WorkspaceBackend {
-  readonly pty: HookJournalPtyBackend;
-
   /**
    * Observe loss and recovery of the host connection (see
    * `HostConnectionEvent`). Returns an unsubscribe.
@@ -329,25 +342,5 @@ export interface RemoteHostBackend extends WorkspaceBackend {
    * tick going unanswered.
    */
   checkLiveness(): Promise<boolean>;
-
-  /**
-   * Called each time the host's stream socket (re)connects (ADR-189 §2).
-   * The daemon relays control requests to one stream socket, the one that
-   * last asked, so the ask is repeated on every new socket. Returns an
-   * unsubscribe.
-   */
-  onStreamConnected(handler: () => void): () => void;
-
-  /**
-   * Send a control-relay stream command on the current stream socket; false
-   * when there is none. A `controlResponse` is only accepted on the socket
-   * its request came in on, so one sent after a reconnect is dropped.
-   */
-  sendControlRelayCommand(cmd: ControlRelayCommand): boolean;
 }
 
-/** The stream commands a remote host's connection sends for the control relay. */
-export type ControlRelayCommand = Extract<
-  StreamCommand,
-  { type: "enableControlRelay" } | { type: "controlResponse" }
->;

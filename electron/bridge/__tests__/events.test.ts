@@ -36,11 +36,16 @@ import { FrameSerialiser } from "../transports/ws";
 import type { BridgeConnection, EventFrame } from "../types";
 
 /** A connection that remembers what it was sent. Neither socket nor window. */
-function makeConnection(id: string, callerClass: "local" | "device" = "local") {
+function makeConnection(
+  id: string,
+  callerClass: "local" | "device" | "owner" = "local",
+  viewer?: "desktop",
+) {
   const frames: EventFrame[] = [];
   const connection: BridgeConnection = {
     id,
     callerClass,
+    ...(viewer ? { viewer } : {}),
     deviceId: null,
     deviceLabel: null,
     send: (frame) => {
@@ -83,6 +88,32 @@ describe("bridge events", () => {
 
     server.drop("phone");
     expect(server.hasDeviceSubscriber("diffs", "changed")).toBe(false);
+  });
+
+  it("says which kinds of viewer are subscribed (ADR-230 D1)", () => {
+    const none = { desktop: false, device: false, forwarded: false };
+    expect(server.viewing("pty", "output")).toEqual(none);
+
+    const win = makeConnection("win", "owner", "desktop");
+    const phone = makeConnection("phone", "device");
+    const main = makeConnection("main", "owner");
+    for (const c of [win, phone, main]) server.accept(c.connection);
+
+    server.subscribe(win.connection, "pty", "output", "p1");
+    expect(server.viewing("pty", "output")).toEqual({ ...none, desktop: true });
+    server.subscribe(phone.connection, "pty", "output", "p1");
+    expect(server.viewing("pty", "output")).toEqual({ ...none, desktop: true, device: true });
+    server.subscribe(main.connection, "pty", "output", "p1");
+    expect(server.viewing("pty", "output")).toEqual({ desktop: true, device: true, forwarded: true });
+    // Another event is its own question.
+    expect(server.viewing("pty", "exit")).toEqual(none);
+
+    server.unsubscribe(win.connection, "pty", "output", "p1");
+    expect(server.viewing("pty", "output")).toEqual({ desktop: false, device: true, forwarded: true });
+    server.unsubscribe(phone.connection, "pty", "output", "p1");
+    expect(server.viewing("pty", "output")).toEqual({ ...none, forwarded: true });
+    server.drop("main");
+    expect(server.viewing("pty", "output")).toEqual(none);
   });
 
   it("reports keyed subscribers coming and going, and publishes to that key", () => {

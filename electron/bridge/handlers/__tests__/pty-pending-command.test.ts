@@ -79,8 +79,8 @@ describe("ptyCreate and pending commands", () => {
       },
       layoutStore: {
         pendingCommands,
-        locate: ({ paneId }: { paneId: string }) =>
-          laidOut.has(paneId) ? { workspacePath: "/repo", entry: {} } : null,
+        workspaceOf: (paneId: string) => (laidOut.has(paneId) ? "/repo" : null),
+        recordSpawn: () => {},
       },
       prewarmManager: {
         claimAdopted: (paneId: string) => adopted.delete(paneId),

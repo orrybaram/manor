@@ -77,3 +77,21 @@ export function relayPairingUrl(link: {
 }): string {
   return `${relayAppUrl(link.origin, link.appVersion)}#relay=${link.roomId}.${link.x25519Pub}&t=${link.rawToken}`;
 }
+
+/**
+ * The room, key and token back out of a `relayPairingUrl` link, or null for
+ * anything else. What the desktop hands a device for a host it pairs it with
+ * (ADR-228 D9): the parts, in the device's own channel, not a link to open.
+ */
+export function parseRelayPairingUrl(
+  url: string,
+): { roomId: string; x25519Pub: string; rawToken: string } | null {
+  const hash = url.indexOf("#");
+  if (hash < 0) return null;
+  const params = new URLSearchParams(url.slice(hash + 1));
+  const relay = params.get("relay") ?? "";
+  const dot = relay.indexOf(".");
+  const rawToken = params.get("t") ?? "";
+  if (dot <= 0 || dot === relay.length - 1 || rawToken === "") return null;
+  return { roomId: relay.slice(0, dot), x25519Pub: relay.slice(dot + 1), rawToken };
+}

@@ -356,6 +356,43 @@ export class AgentManager {
   }
 
   /**
+   * On a host server: take in the desktop's agents for this host (ADR-227
+   * D3). The host wins: an agent it already has — by `id`, or by agent
+   * session, since its own hook feed may have made one for the same session
+   * — keeps its record, and only the rest are added. Written at once.
+   * Returns the agents added.
+   */
+  adoptAgents(agents: readonly AgentInfo[]): AgentInfo[] {
+    const added: AgentInfo[] = [];
+    for (const agent of agents) {
+      if (this.idIndex.has(agent.id) || this.agents.has(agent.agentSessionId)) continue;
+      const copy = structuredClone(agent);
+      this.agents.set(copy.agentSessionId, copy);
+      this.idIndex.set(copy.id, copy.agentSessionId);
+      added.push(copy);
+    }
+    this.flushNow();
+    return added;
+  }
+
+  /**
+   * Forget `ids` at once, written through: their host's server has adopted
+   * them (ADR-227 D3). Returns how many were removed.
+   */
+  removeAgents(ids: readonly string[]): number {
+    let removed = 0;
+    for (const id of ids) {
+      const sessionId = this.idIndex.get(id);
+      if (!sessionId) continue;
+      this.agents.delete(sessionId);
+      this.idIndex.delete(id);
+      removed += 1;
+    }
+    if (removed > 0) this.flushNow();
+    return removed;
+  }
+
+  /**
    * Removes non-active agents whose `completedAt` is older than `days` days.
    * Returns the number of agents pruned. Setting `days <= 0` disables pruning.
    */

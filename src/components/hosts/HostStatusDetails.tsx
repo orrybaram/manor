@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
+import Sunrise from "lucide-react/dist/esm/icons/sunrise";
 import { useHostStore } from "../../store/host-store";
 import type { HostDisplay } from "../../lib/host-status";
 import { Button } from "../ui/Button/Button";
@@ -84,6 +85,35 @@ export function HostRetryButton(props: HostRetryButtonProps) {
     <Button size="sm" variant="primary" onClick={() => void retryConnect(hostId)}>
       <RefreshCw size={11} aria-hidden className={styles.buttonIcon} />
       Retry
+    </Button>
+  );
+}
+
+type HostWakeButtonProps = {
+  hostId: string;
+};
+
+/**
+ * Wake a sleeping host (ADR-229 D1). Its progress, or why it could not
+ * start, shows in the host's status.
+ */
+export function HostWakeButton(props: HostWakeButtonProps) {
+  const { hostId } = props;
+
+  const wake = useHostStore((s) => s.wake);
+  return (
+    <Button
+      size="sm"
+      variant="primary"
+      data-testid="host-wake"
+      onClick={() => {
+        wake(hostId).catch(() => {
+          // Reported through the host's status.
+        });
+      }}
+    >
+      <Sunrise size={11} aria-hidden className={styles.buttonIcon} />
+      Wake
     </Button>
   );
 }

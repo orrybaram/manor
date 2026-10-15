@@ -8,7 +8,7 @@
  * back from `./index.ts` — the shared declarations live here instead.
  */
 
-import type { HostDeps } from "../ipc/types";
+import type { HostDeps, SharedDeps } from "../ipc/types";
 
 /**
  * A route runs over the same non-null deps a bridge handler does (ADR-182
@@ -18,19 +18,16 @@ import type { HostDeps } from "../ipc/types";
  */
 export type { HostDeps };
 
+/** What one request runs over: the shared `HostDeps`. */
+export type RouteDeps = HostDeps;
+
 /**
- * What one request runs over: the shared `HostDeps`, plus the one fact that
- * belongs to the request rather than the host.
+ * What a route every Manor server answers runs over (ADR-227 D8): the
+ * window-free deps `createManorServer` builds on every platform, so the host
+ * server dispatches the same routes for its box's `manor` CLI
+ * (`./server-routes.ts`). `RouteDeps` has all of it.
  */
-export interface RouteDeps extends HostDeps {
-  /**
-   * Set per request when it was relayed from a remote host's `manor` CLI
-   * (ADR-189 §2): the host it came from. Routes that infer "the caller's
-   * project" from a path use it to only consider that host's projects, since
-   * the same path can exist on this machine too. Unset for local callers.
-   */
-  callerHostId?: string;
-}
+export type ServerRouteDeps = SharedDeps;
 
 /** One buffered `console-message` from a webview's `WebContents`. */
 export interface ConsoleEntry {
@@ -59,8 +56,10 @@ export type Json = (status: number, body: unknown) => void;
 export type ReadBody = () => Promise<Record<string, unknown>>;
 
 /** Everything a route handler is given. `params` are already decoded. */
-export interface RouteContext {
-  deps: RouteDeps;
+export interface RouteContext<D = RouteDeps> {
+  deps: D;
+  /** The request's method, as the route matched it. */
+  method: Route["method"];
   params: Record<string, string>;
   url: URL;
   json: Json;
@@ -74,8 +73,11 @@ export interface RouteContext {
  * Handlers return `void`, not `boolean`: a handler that ran *is* the response.
  * The dispatcher owns the `true`/`false` the HTTP listener switches on.
  */
-export interface Route {
+export interface Route<D = RouteDeps> {
   method: "GET" | "POST" | "DELETE";
   path: string;
-  handler: (ctx: RouteContext) => Promise<void>;
+  handler: (ctx: RouteContext<D>) => Promise<void>;
 }
+
+/** A route every server answers: it reads only `ServerRouteDeps`. */
+export type ServerRoute = Route<ServerRouteDeps>;

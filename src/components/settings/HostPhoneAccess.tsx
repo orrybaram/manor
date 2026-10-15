@@ -6,6 +6,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { Button } from "../ui/Button/Button";
 import { Link } from "../ui/Link/Link";
 import { Row, Stack } from "../ui/Layout/Layout";
+import { Switch } from "../ui/Switch/Switch";
 import type {
   HostServerStatus,
   HostServerView,
@@ -18,6 +19,7 @@ import {
   ResetRelayDialog,
 } from "./RemoteControlDialogs";
 import { DeviceRow } from "./DeviceRow";
+import { SettingRow } from "./SettingRow";
 import { SectionTitle } from "./SectionTitle";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
@@ -32,11 +34,17 @@ const SECRETS_DOCS_URL =
  * computer sleeps. A host that is not reachable, or that has no server yet,
  * gets one quiet line instead of an error: both resolve themselves when the
  * host reconnects.
+ *
+ * Above it, "Phones paired with this Mac can reach <host>" (ADR-228 D9): the
+ * phones paired with this computer are paired here too, and listed "via This
+ * Mac". It works with the host away, since turning it off is a revoke the host
+ * is then owed.
  */
 export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
   const { hostId, hostName } = props;
   const view = useHostStore((s) => s.servers[hostId]) ?? null;
   const devices = view?.devices ?? [];
+  const linked = new Set(view?.linkedDeviceIds ?? []);
   // The store refreshes on the server and pairing events, so the calls below
   // only await; nothing here reloads.
   const [action, setAction] = useState<{ busy: boolean; error: string | null }>({
@@ -48,8 +56,15 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
   const addOpen = dialog === "add";
 
+  // Whether this computer has a Linear key to hand the host (ADR-227 D7).
+  const [desktopLinear, setDesktopLinear] = useState(false);
+
   useMountEffect(() => {
     void useHostStore.getState().refreshServer(hostId);
+    const refresh = () => void window.electronAPI.linear.isConnected().then(setDesktopLinear);
+    refresh();
+    // The key was saved or cleared elsewhere (ADR-230 D8).
+    return window.electronAPI.linear.onConnectionChanged(refresh);
   });
 
   const run = async (action: () => Promise<void>) => {
@@ -70,6 +85,21 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
   return (
     <Stack gap="xs" data-testid="host-phone-access">
       <SectionTitle id={`remote-host-${hostId}`}>{hostName}</SectionTitle>
+      {view !== null && (
+        <SettingRow
+          label={`Phones paired with this Mac can reach ${hostName}`}
+          hint={`Each phone paired in Remote control is paired with ${hostName} too, so it keeps reaching ${hostName} while this computer sleeps. Turning this off unpairs them from ${hostName}.`}
+        >
+          <Switch
+            data-testid="host-link-phones-toggle"
+            checked={view.linkPhones}
+            disabled={busy}
+            onCheckedChange={(on) =>
+              void run(() => useHostStore.getState().setLinkPhones(hostId, on))
+            }
+          />
+        </SettingRow>
+      )}
       {status === null ? (
         <div className={styles.fieldHint} data-testid="host-phone-access-state">
           {mutedLine(view?.state ?? null)}
@@ -103,12 +133,30 @@ export function HostPhoneAccess(props: { hostId: string; hostName: string }) {
               Pair a phone
             </Button>
           </Row>
+          {(desktopLinear || status.linear) && (
+            <SettingRow
+              label={`Use Linear on ${hostName}`}
+              hint={`Copies this computer's Linear key to ${hostName}, so its phones can browse and start issues. Turn off, or reset pairing keys, to delete the copy.`}
+            >
+              <Switch
+                data-testid="host-linear-toggle"
+                checked={status.linear}
+                disabled={busy}
+                onCheckedChange={(on) =>
+                  void run(async () => {
+                    await window.electronAPI.hosts.setLinearOnHost(hostId, on);
+                  })
+                }
+              />
+            </SettingRow>
+          )}
           {devices.length > 0 && (
             <div className={styles.remoteDeviceList}>
               {devices.map((device) => (
                 <DeviceRow
                   key={device.id}
                   device={device}
+                  via={linked.has(device.id) ? "This Mac" : undefined}
                   busy={busy}
                   onRevoke={() =>
                     void run(async () => {
@@ -199,6 +247,22 @@ function HostSummary(props: {
           ? ` (${status.relay.error})`
           : ""}
       </div>
+      {status.secretKeyOnVolume && (
+        <div className={styles.remoteWarning} data-testid="host-key-on-volume">
+          <ShieldAlert size={14} />
+          <span>
+            The key sealing pairing keys on {hostName} is stored on its own
+            disk.{" "}
+            <Link href={SECRETS_DOCS_URL}>How to keep it elsewhere</Link>
+          </span>
+        </div>
+      )}
+      {status.identityReset === "cloned" && (
+        <div className={styles.fieldHint} data-testid="host-identity-reset">
+          {hostName} was copied from another machine, so it got new pairing
+          keys. Phones paired with this Mac re-link on their own.
+        </div>
+      )}
       {status.secretBackend === "plaintext" && (
         <div className={styles.remoteWarning} data-testid="host-plaintext-keys">
           <ShieldAlert size={14} />

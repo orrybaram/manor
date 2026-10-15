@@ -97,6 +97,34 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(reloaded.remoteHostIdsInUse()).toEqual(["box"]);
   });
 
+  it("keeps each host's phone-link switch and the revokes it is owed (ADR-228 D9)", () => {
+    const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    expect(mgr.hostLinksPhones("box")).toBe(true);
+    mgr.setHostLinksPhones("box", false);
+    mgr.addPendingHostRevokes("box", ["d1", "d2"]);
+    mgr.addPendingHostRevokes("box", ["d2"]);
+
+    const reloaded = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    expect(reloaded.hostLinksPhones("box")).toBe(false);
+    expect(reloaded.pendingHostRevokes("box")).toEqual(["d1", "d2"]);
+    reloaded.clearPendingHostRevokes("box", ["d1", "d2"]);
+    reloaded.setHostLinksPhones("box", true);
+    const raw = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+    expect(raw.hosts.box).toEqual({ spec: { kind: "ssh", target: "me@box" } });
+  });
+
+  it("keeps each host's supervise switch; absent is off (ADR-229 D4)", () => {
+    const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    expect(mgr.hostSupervised("box")).toBe(false);
+    mgr.setHostSupervised("box", true);
+    const reloaded = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    expect(reloaded.hostSupervised("box")).toBe(true);
+    reloaded.setHostSupervised("box", false);
+    expect(reloaded.hostSupervised("box")).toBe(false);
+  });
+
   it("lists only remote projects' worktrees for a remote refresh", async () => {
     const gits = new Map<string, GitBackend>();
     const resolver = (hostId: string) => {
@@ -124,46 +152,36 @@ describe("ProjectManager hosts (ADR-160)", () => {
       JSON.stringify({
         projects: [],
         selectedProjectIndex: 0,
-        hosts: { box: { spec: { kind: "ssh", target: "old" }, lastHookSeq: 42 } },
+        hosts: { box: { spec: { kind: "ssh", target: "old" }, adopted: true } },
       }),
     );
     const mgr = new ProjectManager(gitNamed("local"), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "new" });
     const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
-    expect(saved.hosts.box).toEqual({ spec: { kind: "ssh", target: "new" }, lastHookSeq: 42 });
+    expect(saved.hosts.box).toEqual({ spec: { kind: "ssh", target: "new" }, adopted: true });
     expect(() => mgr.saveHost("local", { kind: "ssh", target: "x" })).toThrow();
   });
 
-  it("records each host's hook cursor, debounced, and flushes it on demand", () => {
+  it("drops a host's old hook position on load: its server reads the journal now", () => {
+    fs.writeFileSync(
+      path.join(tmpDir, "projects.json"),
+      JSON.stringify({
+        projects: [],
+        selectedProjectIndex: 0,
+        hosts: {
+          box: {
+            spec: { kind: "ssh", target: "me@box" },
+            lastHookSeq: 7,
+            hookJournalEpoch: "e1",
+            adopted: true,
+          },
+        },
+      }),
+    );
     const mgr = new ProjectManager(gitNamed("local"), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
-    // Never met: null, not 0, so the hook feed can tell first contact apart.
-    expect(mgr.getHostHookCursor("box")).toBeNull();
-    mgr.setHostHookCursor("box", { seq: 7, epoch: "e1" });
-    expect(mgr.getHostHookCursor("box")).toEqual({ seq: 7, epoch: "e1" });
-    // Unknown hosts are ignored rather than created.
-    mgr.setHostHookCursor("ghost", { seq: 3, epoch: null });
-    expect(mgr.getHostHookCursor("ghost")).toBeNull();
-
-    const read = () =>
-      JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8")).hosts.box;
-    expect(read().lastHookSeq).toBeUndefined();
-    mgr.flushHostHookSeqs();
-    expect(read()).toEqual({
-      spec: { kind: "ssh", target: "me@box" },
-      lastHookSeq: 7,
-      hookJournalEpoch: "e1",
-    });
-    expect(new ProjectManager(gitNamed("local"), tmpDir).getHostHookCursor("box")).toEqual({
-      seq: 7,
-      epoch: "e1",
-    });
-
-    // A seq stored before epochs existed reads back with a null epoch.
-    mgr.setHostHookCursor("box", { seq: 0, epoch: null });
-    mgr.flushHostHookSeqs();
-    expect(read()).toEqual({ spec: { kind: "ssh", target: "me@box" }, lastHookSeq: 0 });
-    expect(mgr.getHostHookCursor("box")).toEqual({ seq: 0, epoch: null });
+    const saved = JSON.parse(fs.readFileSync(path.join(tmpDir, "projects.json"), "utf-8"));
+    expect(saved.hosts.box).toEqual({ spec: { kind: "ssh", target: "me@box" }, adopted: true });
   });
 
   it("does not route a local project's worktrees to a same-named remote project", () => {

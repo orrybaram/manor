@@ -3,17 +3,26 @@
  *
  * Every store reads its state once and then lives on push events. A browser
  * socket that dropped and came back missed whatever was pushed while it was
- * gone, so `install-web.ts` emits this on every accepted hello after the
- * first, and on a manual refresh; each store re-runs its fetch.
+ * gone, so this is emitted on every accepted hello after the first, and on a
+ * manual refresh; each store re-runs its fetch.
  *
- * Desktop-safe, with no platform checks: the desktop never emits a resync and
- * never registers a refresher, so the listeners its stores register simply
- * never fire and a refresh is a no-op. `install-web.ts` installs
+ * **Per server** (ADR-228 D1). The page holds a bridge per server
+ * (`./server-set.ts`), and a resumed hello on any one of them emits this —
+ * the home server's from `install-web.ts`, every other one's from its
+ * `servers.hooks(id)`. Stores re-fetch with merged reads, so a resync after
+ * one server's blip reloads everyone's state; that is cheap at a few hosts.
+ * A listener that cares which server it was is handed its id.
+ *
+ * Desktop-safe, with no platform checks: the desktop's own server is IPC,
+ * which never drops, and the desktop registers no refresher, so with only
+ * that server the listeners its stores register never fire and a refresh is
+ * a no-op. A host server's bridge on the desktop resyncs like any other. `install-web.ts` installs
  * `window.electronAPI` as a side effect of being imported, so a component
  * shared with the desktop reaches the refresh through here, never through it.
  */
 
-type ResyncListener = () => void | Promise<unknown>;
+/** `serverId`: the server whose hello resumed, or undefined for a refresh. */
+type ResyncListener = (serverId?: string) => void | Promise<unknown>;
 
 const listeners = new Set<ResyncListener>();
 
@@ -34,11 +43,11 @@ export function onBridgeResync(cb: ResyncListener): () => void {
  * unsubscribes mid-run does not skip its neighbour, and one that throws does
  * not stop the rest.
  */
-export async function emitBridgeResync(): Promise<void> {
+export async function emitBridgeResync(serverId?: string): Promise<void> {
   const runs: Promise<unknown>[] = [];
   for (const cb of [...listeners]) {
     try {
-      runs.push(Promise.resolve(cb()));
+      runs.push(Promise.resolve(cb(serverId)));
     } catch (err) {
       console.error("[bridge-resync] a resync listener threw", err);
     }
@@ -64,7 +73,7 @@ export function bootAndResync(load: () => void | Promise<unknown>): () => void {
     }
   };
   void run();
-  return onBridgeResync(run);
+  return onBridgeResync(() => run());
 }
 
 /**

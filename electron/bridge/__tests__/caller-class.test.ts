@@ -382,6 +382,25 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hosts.pairDevice",
         "hosts.revokeDevice",
         "hosts.resetPairingKeys",
+        // ADR-227 D7: sends this computer's Linear key to a host.
+        "hosts.setLinearOnHost",
+        // ADR-228 D9: lets the desktop pair its phones on a host, or revokes them.
+        "hosts.setLinkPhones",
+        // ADR-229 D1: stopping a box is the desktop user's call; waking one
+        // is not refused, since a phone wakes a host through home (D7).
+        "hosts.stop",
+        // ADR-229 D2: runs the user's recipe commands on this machine.
+        "hosts.addRecipeHost",
+        // ADR-229 D8: writes scripts that this machine will run.
+        "hosts.createRecipe",
+        "hosts.listTemplates",
+        // ADR-229 D4: writes units onto a host and runs commands there.
+        "hosts.setSupervised",
+        // ADR-229 D8: writes a recipe this machine will run; forgets a host
+        // for every viewer and may destroy its box; names what that loses.
+        "hosts.createCustomRecipe",
+        "hosts.remove",
+        "hosts.projectsOnHost",
       ].sort(),
     );
   });

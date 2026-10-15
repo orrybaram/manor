@@ -1,11 +1,13 @@
 /**
  * Every host this browser is paired with (ADR-225 D7), kept in `localStorage`
  * keyed by relay room id. A phone can hold a pairing for the desktop and one
- * for each host server; the tab dials one at a time, and switching reloads
- * the page against another (`selectPairing`, then `location.reload()`).
+ * for each host server, and the page dials them all at once (ADR-228 D8):
+ * `install-web.ts` holds a server per pairing, and follows this list as it
+ * changes — a pairing removed in the Hosts sheet, or added in another tab.
  *
- * The last-used pairing is simply the one with the greatest `lastUsedAt`: a
- * fresh link or a switch stamps it, and a load with no link opens that one.
+ * Which one is the page's **home** server (D1): the paired desktop, known
+ * from an earlier hello (`hostServer: false`), else the most recently used —
+ * the one with the greatest `lastUsedAt`, which a fresh link stamps.
  * Before this list existed a single pairing lived at `manor.web.relay`; the
  * first load carries it into the list (named "Host 1") and drops the old key
  * (`migrateLegacyPairing`, run by `readPairing` at boot).
@@ -20,6 +22,18 @@ import { ROOM_ID_LENGTH, base64urlDecode } from "../lib/relay-crypto";
 /** The pairing list: `StoredPairing[]` as JSON. */
 export const PAIRINGS_KEY = "manor.web.pairings";
 
+/**
+ * Rooms this browser has let go of (ADR-228 D9): a pairing removed in the
+ * Hosts sheet, or refused with 4401 (revoked on its host). Sent with the held
+ * rooms to `remoteControl.linkHostPairings`, so a desktop does not mint the
+ * room again on its next hello. A link for the room (`upsertPairing`, a QR
+ * re-pair) takes it back. JSON `string[]`, newest last.
+ */
+export const DECLINED_KEY = "manor.web.declinedRooms";
+
+/** At most this many declined rooms are remembered; the oldest go first. */
+const MAX_DECLINED = 64;
+
 /** The single pairing an earlier build kept: `{ roomId, serverKey, token }`. */
 export const LEGACY_RELAY_KEY = "manor.web.relay";
 
@@ -31,12 +45,22 @@ export interface RelayCredentials {
   token: string;
 }
 
-/** One host in the list: its credentials and what the switcher shows. */
+/** One host in the list: its credentials and what the Hosts sheet shows. */
 export interface StoredPairing extends RelayCredentials {
-  /** The host's own `hostName`, else "Host N". */
+  /** The host's own `hostName`, else "Host N" — or the user's own name. */
   name: string;
   addedAt: number;
   lastUsedAt: number;
+  /** The user named it (`renamePairing`): a hello's name no longer applies. */
+  customName?: boolean;
+  /** What its last hello said: a host server, not a desktop. */
+  hostServer?: boolean;
+  /**
+   * A desktop's remote hosts, by its id for each, with the room each one's
+   * server reported, or null (ADR-228 D2) — so a reload names them as before
+   * its `hosts.list` has answered.
+   */
+  hosts?: Record<string, string | null>;
 }
 
 const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
@@ -75,7 +99,19 @@ function isStoredPairing(value: unknown): value is StoredPairing {
   return (
     typeof v.name === "string" &&
     typeof v.addedAt === "number" &&
-    typeof v.lastUsedAt === "number"
+    typeof v.lastUsedAt === "number" &&
+    (v.customName === undefined || typeof v.customName === "boolean") &&
+    (v.hostServer === undefined || typeof v.hostServer === "boolean") &&
+    (v.hosts === undefined || isHostRooms(v.hosts))
+  );
+}
+
+function isHostRooms(value: unknown): value is Record<string, string | null> {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((room) => room === null || typeof room === "string")
   );
 }
 
@@ -171,6 +207,24 @@ export function lastUsedPairing(): StoredPairing | null {
   return best;
 }
 
+/**
+ * The page's home server (ADR-228 D1): the most recently used pairing whose
+ * last hello came from a desktop, else the most recently used of all.
+ */
+export function homePairing(list: readonly StoredPairing[] = listPairings()): StoredPairing | null {
+  let best: StoredPairing | null = null;
+  for (const p of list) {
+    if (best === null) {
+      best = p;
+      continue;
+    }
+    const desktop = p.hostServer === false;
+    const bestDesktop = best.hostServer === false;
+    if (desktop !== bestDesktop ? desktop : p.lastUsedAt >= best.lastUsedAt) best = p;
+  }
+  return best;
+}
+
 /** "Host 1", "Host 2", … — the smallest number no stored pairing uses. */
 function fallbackName(list: StoredPairing[]): string {
   const used = new Set(list.map((p) => p.name));
@@ -188,6 +242,7 @@ export function upsertPairing(
   now: number = Date.now(),
 ): StoredPairing {
   const { roomId, serverKey, token } = link;
+  undeclineRoom(roomId);
   const list = listPairings();
   const existing = list.find((p) => p.roomId === roomId);
   const next: StoredPairing = existing
@@ -197,6 +252,45 @@ export function upsertPairing(
   return next;
 }
 
+/**
+ * A pairing a desktop minted for this browser on one of its hosts
+ * (`remoteControl.linkHostPairings`, ADR-228 D9): added, or its key and
+ * token renewed. Named as the desktop names the host, unless the user named
+ * it; known to be a host server before its first hello; and never marked last
+ * used, which is the user's choice of where to land. A room the user let go
+ * of (`declinedRooms`) is not taken back this way.
+ */
+export function linkPairing(
+  link: RelayCredentials & { name: string },
+  now: number = Date.now(),
+): void {
+  if (!isRelayCredentials(link)) return;
+  if (declinedRooms().includes(link.roomId)) return;
+  const { roomId, serverKey, token } = link;
+  const name = link.name.trim();
+  const list = listPairings();
+  const existing = list.find((p) => p.roomId === roomId);
+  const next: StoredPairing = existing
+    ? {
+        ...existing,
+        serverKey,
+        token,
+        name: name && !existing.customName ? name : existing.name,
+        hostServer: true,
+      }
+    : {
+        roomId,
+        serverKey,
+        token,
+        name: name || fallbackName(list),
+        addedAt: now,
+        lastUsedAt: 0,
+        hostServer: true,
+      };
+  if (existing && JSON.stringify(next) === JSON.stringify(existing)) return;
+  write(existing ? list.map((p) => (p === existing ? next : p)) : [...list, next]);
+}
+
 /** Mark `roomId` the last used, so the next load opens it. */
 export function selectPairing(roomId: string, now: number = Date.now()): void {
   const list = listPairings();
@@ -204,21 +298,55 @@ export function selectPairing(roomId: string, now: number = Date.now()): void {
   write(list.map((p) => (p.roomId === roomId ? { ...p, lastUsedAt: now } : p)));
 }
 
-/** Show the host's own name for `roomId`, once its hello has told us. */
+/** `roomId`'s pairing with `change` made, unless that changes nothing. */
+function updatePairing(
+  roomId: string,
+  change: (current: StoredPairing) => StoredPairing,
+): void {
+  const list = listPairings();
+  const current = list.find((p) => p.roomId === roomId);
+  if (!current) return;
+  const next = change(current);
+  if (JSON.stringify(next) === JSON.stringify(current)) return;
+  write(list.map((p) => (p === current ? next : p)));
+}
+
+/** The user's own name for `roomId`'s host, which a hello no longer replaces. */
 export function renamePairing(roomId: string, name: string): void {
   const trimmed = name.trim();
   if (!trimmed) return;
-  const list = listPairings();
-  const current = list.find((p) => p.roomId === roomId);
-  if (!current || current.name === trimmed) return;
-  write(list.map((p) => (p === current ? { ...p, name: trimmed } : p)));
+  updatePairing(roomId, (p) => ({ ...p, name: trimmed, customName: true }));
+}
+
+/**
+ * What `roomId`'s hello said: the host's own name (shown unless the user
+ * named it) and whether it is a host server.
+ */
+export function recordPairingHello(
+  roomId: string,
+  hello: { hostName: string | null; hostServer: boolean },
+): void {
+  const name = hello.hostName?.trim();
+  updatePairing(roomId, (p) => ({
+    ...p,
+    name: name && !p.customName ? name : p.name,
+    hostServer: hello.hostServer,
+  }));
+}
+
+/** A desktop's remote hosts and their rooms, as its `hosts.list` said. */
+export function recordPairingHosts(
+  roomId: string,
+  hosts: Record<string, string | null>,
+): void {
+  updatePairing(roomId, (p) => ({ ...p, hosts }));
 }
 
 /**
  * Drop the pairing with exactly these credentials. A stale tab refused by
  * the host must not erase a newer link another tab took for the same room.
  */
-export function removePairing(credentials: RelayCredentials): void {
+export function removePairing(credentials: RelayCredentials): boolean {
   const list = listPairings();
   const next = list.filter(
     (p) =>
@@ -228,7 +356,45 @@ export function removePairing(credentials: RelayCredentials): void {
         p.token === credentials.token
       ),
   );
-  if (next.length !== list.length) write(next);
+  if (next.length === list.length) return false;
+  write(next);
+  return true;
+}
+
+/**
+ * The user removed `credentials`' pairing, or its host refused it: drop it
+ * (as `removePairing`) and remember the room as declined, so a desktop's
+ * `linkHostPairings` does not hand it back (ADR-228 D9).
+ */
+export function declinePairing(credentials: RelayCredentials): void {
+  // A stale tab's refusal removes nothing, and declines nothing either.
+  if (!removePairing(credentials)) return;
+  const declined = declinedRooms().filter((room) => room !== credentials.roomId);
+  declined.push(credentials.roomId);
+  storageSet(DECLINED_KEY, JSON.stringify(declined.slice(-MAX_DECLINED)));
+}
+
+/** Rooms this browser has let go of, which no desktop should mint again. */
+export function declinedRooms(): string[] {
+  const raw = storageGet(DECLINED_KEY);
+  if (raw === null) return [];
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((room): room is string => typeof room === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** A fresh link for `roomId`: it is no longer declined. */
+function undeclineRoom(roomId: string): void {
+  const declined = declinedRooms();
+  if (!declined.includes(roomId)) return;
+  const next = declined.filter((room) => room !== roomId);
+  if (next.length === 0) storageRemove(DECLINED_KEY);
+  else storageSet(DECLINED_KEY, JSON.stringify(next));
 }
 
 export function subscribePairings(cb: () => void): () => void {

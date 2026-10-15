@@ -12,6 +12,11 @@
  * authentication: whoever can run this command as the box's user can read
  * the token anyway.
  *
+ * `manor-host server-bridge --viewer` is a desktop window's own stream to the
+ * server (ADR-228 D4): the same token and the same pump, but its hello says
+ * `"viewer":"desktop"`, so the server ranks the connection as a desk window
+ * for the winsize and as its own layout origin.
+ *
  * Framing on the stream is the socket's, untouched: newline-delimited JSON
  * bridge frames (`host-server/socket.ts`). Unlike `remote-bridge` it writes
  * no preamble of its own — the first line the desktop reads is the server's
@@ -57,6 +62,21 @@ export interface ServerBridgeOptions {
    * token is read. Defaults to `ensureServerRunning` (`../host-server/lifecycle`).
    */
   ensureServerRunning?: () => Promise<void>;
+  /**
+   * Say the hello as a desktop window's viewer stream (`--viewer`, ADR-228
+   * D4) rather than as main's owner channel.
+   */
+  viewer?: boolean;
+}
+
+/** The hello `server-bridge` says on the desktop's behalf. */
+export function serverBridgeHello(
+  token: string,
+  opts: { viewer?: boolean } = {},
+): { type: "hello"; token: string; viewer?: "desktop" } {
+  return opts.viewer
+    ? { type: "hello", token, viewer: "desktop" }
+    : { type: "hello", token };
 }
 
 /** The owner token, or `HostServerNotRunningError` when there is none. */
@@ -122,7 +142,7 @@ export async function runServerBridge(
 
   // The hello goes to the server, not to stdout: the desktop's first line
   // is the server's reply to it.
-  socket.write(JSON.stringify({ type: "hello", token }) + "\n");
+  socket.write(JSON.stringify(serverBridgeHello(token, { viewer: opts.viewer })) + "\n");
 
   const code = await pump(io, socket, log);
   await teardown(io, socket);
@@ -130,14 +150,17 @@ export async function runServerBridge(
 }
 
 /**
- * Process wrapper for `manor-host server-bridge`: run the bridge on this
- * process's stdio and exit once it is done — non-zero, with one stderr
- * line, when there is no server to reach.
+ * Process wrapper for `manor-host server-bridge [--viewer]`: run the bridge
+ * on this process's stdio and exit once it is done — non-zero, with one
+ * stderr line, when there is no server to reach. `args` is what followed
+ * `server-bridge` on the command line.
  */
-export async function runServerBridgeProcess(): Promise<never> {
+export async function runServerBridgeProcess(
+  args: readonly string[] = [],
+): Promise<never> {
   let code = 1;
   try {
-    code = await runServerBridge();
+    code = await runServerBridge(undefined, { viewer: args.includes("--viewer") });
   } catch (err) {
     if (err instanceof HostServerNotRunningError) code = SERVER_NOT_RUNNING_EXIT;
     try {

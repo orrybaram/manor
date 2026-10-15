@@ -113,6 +113,8 @@ export interface BridgeEvents {
     /** A phone was paired, revoked or the host's keys reset: re-read its status. */
     pairingChanged: [hostId: string];
   };
+  /** The Linear key was saved or cleared on this server (ADR-230 D8). */
+  linear: { connectionChanged: [connected: boolean] };
   /**
    * The selected theme changed somewhere other than this call (ADR-179 ticket
    * 7) — `setSelected`'s own return shape, ready to apply without a round trip.
@@ -136,7 +138,17 @@ export interface BridgeEvents {
     ];
     /** The Status reconciler published a pane's Agent status (ADR-184). */
     status: [update: PaneAgentStatusUpdate];
+    /**
+     * Agents left the list for good, by id: a host's server adopted them
+     * (ADR-227 D3), so a copy a renderer holds under the old id is stale.
+     */
+    removed: [agentIds: string[]];
   };
+  /**
+   * A host server's keep-awake flag changed (ADR-229 D7), after its idle
+   * debounce: what the desktop tells the host's provider (`setBusy`).
+   */
+  hostServer: { busyChanged: [info: { busy: boolean }] };
   /** The full snapshot, after a burst of transitions settles (ADR-199 §2). */
   agentActivity: { changed: [snapshot: AgentActivitySnapshot] };
   preferences: { changed: [prefs: AppPreferences] };
@@ -236,6 +248,7 @@ export const SUBSCRIPTIONS = {
   "hosts.onReconnected": "hosts.reconnected",
   "hosts.onServerChanged": "hosts.serverChanged",
   "hosts.onPairingChanged": "hosts.pairingChanged",
+  "linear.onConnectionChanged": "linear.connectionChanged",
   "theme.onChanged": "theme.changed",
   "ports.onChange": "ports.changed",
   "branches.onChange": "branches.changed",
@@ -244,6 +257,7 @@ export const SUBSCRIPTIONS = {
   "git.push.onProgress": "git.push.progress",
   "agents.onUpdate": "agents.updated",
   "agents.onStatus": "agents.status",
+  "agents.onRemoved": "agents.removed",
   "agentActivity.onChanged": "agentActivity.changed",
   "preferences.onChange": "preferences.changed",
   "keybindings.onChange": "keybindings.changed",

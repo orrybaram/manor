@@ -51,6 +51,7 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: any }> = [];
   await route.handler({
+    method: route.method,
     deps,
     params,
     url: new URL(`http://localhost${route.path}${query}`),

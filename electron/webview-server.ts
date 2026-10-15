@@ -38,9 +38,7 @@ export class WebviewServer {
    * `HostDeps` the bridge handlers get too (ADR-182 D8). A getter rather than
    * the object because that object holds this server — `app-lifecycle.ts`
    * builds it after constructing us — and the first request cannot arrive
-   * before `start()`, which runs once it exists. Public so requests relayed
-   * from remote hosts (ADR-189 §2) run with exactly what this server's own
-   * requests do.
+   * before `start()`, which runs once it exists.
    */
   constructor(
     /** paneId → webContentsId. Part of `HostDeps.webviewPanes` (ADR-183). */

@@ -14,7 +14,7 @@ import {
   assertWorkspaceMeta,
 } from "../../ipc-validate";
 import { publishRendererBroadcast } from "../../renderer-broadcast";
-import type { HostDeps, WorkspaceMeta } from "../../ipc/types";
+import type { ServerDeps, WorkspaceMeta } from "../../ipc/types";
 import type { HostPath } from "../../per-host-poller";
 import { method, type HandlerCtx } from "../method";
 
@@ -22,7 +22,7 @@ import { method, type HandlerCtx } from "../method";
  * The port scanner, whole, as the `ports` namespace of the
  * handler table.
  *
- * `deps` is the one long-lived `HostDeps` object app-lifecycle builds once
+ * `deps` is the one long-lived deps object app-lifecycle builds once
  * and hands to every table entry, so `deps.workspaceMeta` is where the latest
  * metadata lives, and `portsUpdateWorkspaceMetadata` writes straight through
  * to it.
@@ -33,7 +33,7 @@ import { method, type HandlerCtx } from "../method";
  * the proxy's routes at them. Returns new objects: the scanner's own results
  * are never modified.
  */
-function enrichPorts(deps: HostDeps, ports: ActivePort[]): ActivePort[] {
+function enrichPorts(deps: ServerDeps, ports: ActivePort[]): ActivePort[] {
   const { backendRegistry, remoteForwards } = deps;
   const proxyPort = portlessManager.proxyPort;
   const routes: { hostname: string; port: number }[] = [];
@@ -55,7 +55,7 @@ function enrichPorts(deps: HostDeps, ports: ActivePort[]): ActivePort[] {
     const target =
       host.kind === "local"
         ? port.port
-        : remoteForwards.localPort(port.hostId, port.port);
+        : remoteForwards?.localPort(port.hostId, port.port);
     if (target !== undefined) routes.push({ hostname, port: target });
     // Include proxy port in hostname so renderer can build correct URLs
     return { ...port, hostname: `${hostname}:${proxyPort}` };
@@ -73,24 +73,24 @@ function enrichPorts(deps: HostDeps, ports: ActivePort[]): ActivePort[] {
  * going away re-dresses the latest ports because it changes where portless
  * routes point.
  */
-export function installPortEnricher(deps: HostDeps): void {
+export function installPortEnricher(deps: ServerDeps): void {
   deps.portScanner.setEnricher((ports) => enrichPorts(deps, ports));
-  deps.remoteForwards.onChange(() => {
+  deps.remoteForwards?.onChange(() => {
     deps.portScanner.refresh();
   });
 }
 
-export function portsStartScanner(ctx: HandlerCtx): void {
+export function portsStartScanner(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.portScanner.start();
 }
 
-export function portsStopScanner(ctx: HandlerCtx): void {
+export function portsStopScanner(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.portScanner.stop();
 }
 
 /** Every open workspace, with its project's host (ADR-183). */
 export function portsUpdateWorkspaces(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   workspaces: readonly HostPath[],
 ): void {
   const value: unknown = workspaces;
@@ -99,7 +99,7 @@ export function portsUpdateWorkspaces(
 }
 
 export function portsUpdateWorkspaceMetadata(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   meta: WorkspaceMeta[],
 ): void {
   const value: unknown = meta;
@@ -107,7 +107,9 @@ export function portsUpdateWorkspaceMetadata(
   ctx.deps.workspaceMeta = value;
 }
 
-export function portsScanNow(ctx: HandlerCtx): Promise<ActivePort[]> {
+export function portsScanNow(
+  ctx: HandlerCtx<ServerDeps>,
+): Promise<ActivePort[]> {
   return ctx.deps.portScanner.scanNow();
 }
 
@@ -120,7 +122,7 @@ export function portsScanNow(ctx: HandlerCtx): Promise<ActivePort[]> {
  * remote pane) uses the very same instance (ADR-183).
  */
 export function portsResolveUrl(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   url: string,
   hostId: string,
 ): Promise<string> {
@@ -135,7 +137,7 @@ export function portsResolveUrl(
  * earlier), which means something after a restart; `url` otherwise.
  */
 export function portsRemoteUrl(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   url: string,
   hostId: string,
 ): string {
@@ -144,7 +146,7 @@ export function portsRemoteUrl(
   assertString(hostId, "hostId");
   if (hostId === LOCAL_HOST_ID) return url;
   return remoteFormOfUrl(url, (localPort) =>
-    deps.remoteForwards.remotePortFor(hostId, localPort),
+    deps.remoteForwards?.remotePortFor(hostId, localPort),
   );
 }
 
@@ -154,7 +156,7 @@ export function portsRemoteUrl(
  * that put `projects.remove` there.
  */
 export async function portsKillPort(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   pid: number,
 ): Promise<void> {
   const { deps } = ctx;

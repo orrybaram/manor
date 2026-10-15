@@ -4,8 +4,7 @@
  * A three-rung ladder: the caller's pane id, then its cwd, then a 404 carrying
  * the candidate list so the model can retry with an explicit `projectId`.
  *
- * Every caller has a host (ADR-191 §4): `deps.callerHostId` for a request
- * relayed from a remote host's `manor` CLI (ADR-189 §2), else the host that
+ * Every caller has a host (ADR-191 §4): the host that
  * owns the calling pane (`SessionOwners`, keyed by pane id — a pane ADR-183
  * moved to another host still answers to its session owner), else local.
  * That host's projects are the only candidates on rungs 2 and 3 — a project
@@ -30,8 +29,7 @@ import {
   type WorkspaceKey,
 } from "../../src/lib/workspace-key";
 import { availableSources } from "../issue-backends";
-import { callerMaySee } from "./caller-host";
-import type { Route } from "./types";
+import type { ServerRoute } from "./types";
 
 /**
  * Rung 1: the pane id is authoritative — it names the *caller's* pane, not
@@ -43,21 +41,17 @@ import type { Route } from "./types";
  * The workspace key names its own host, so it — not the caller's guessed
  * host — is what `matchProjectByPath` matches against: a pane recorded on
  * "box" resolves against "box"'s projects even if the caller somehow looked
- * local. A relayed caller still only ever sees its own host's panes.
+ * local.
  */
 function resolveByPane(
   layout: { store: LayoutStore | null; persistence: LayoutPersistence | null },
   projects: ProjectInfo[],
   paneId: string | null,
-  relayedFrom: string | undefined,
 ): { project: ProjectInfo; workspace: WorkspaceInfo } | null {
   if (!paneId) return null;
   const key = workspaceOfPane(layout, paneId);
   if (!key) return null;
   const { hostId, path } = parseWorkspaceKey(key);
-  // A relayed caller sees only its own host (ADR-189 §2): naming another
-  // host's pane id must not hand it that host's project.
-  if (!callerMaySee(relayedFrom, normalizeHostId(hostId))) return null;
   return matchProjectByPath(projects, hostId, path);
 }
 
@@ -81,7 +75,7 @@ function workspaceOfPane(
   return file ? findWorkspaceForPane(file, paneId) : null;
 }
 
-export const contextRoutes: Route[] = [
+export const contextRoutes: ServerRoute[] = [
   {
     method: "GET",
     path: "/context",
@@ -90,25 +84,21 @@ export const contextRoutes: Route[] = [
       const cwd = url.searchParams.get("cwd");
       const projects = await deps.projectManager.getProjects();
 
-      const callerHostId =
-        deps.callerHostId ??
+      const callerHost =
         (paneId ? deps.sessionOwners.ownerOf(paneId) : undefined) ??
         LOCAL_HOST_ID;
 
-      // `callerHostId` here is always resolved (never undefined), so this
-      // is an exact-host filter, not `callerMaySee`'s "a local caller sees
-      // everything" — a local caller here is scoped to its own host too.
-      const candidates = projects.filter((p) =>
-        callerMaySee(callerHostId, normalizeHostId(p.hostId)),
+      // Exact-host filter: a local caller is scoped to its own host too.
+      const candidates = projects.filter(
+        (p) => normalizeHostId(p.hostId) === callerHost,
       );
       const resolved =
         resolveByPane(
           { store: deps.layoutStore, persistence: deps.layoutPersistence },
           projects,
           paneId,
-          deps.callerHostId,
         ) ??
-        (cwd ? matchProjectByPath(projects, callerHostId, cwd) : null);
+        (cwd ? matchProjectByPath(projects, callerHost, cwd) : null);
 
       // Rung 3: hand back the candidate list so the model can retry explicitly.
       if (!resolved) {

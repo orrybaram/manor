@@ -21,6 +21,7 @@ import {
 } from "../transports/relay-pipe";
 import {
   createWsTransport,
+  DROP_GRACE_MS,
   PROBE_TIMEOUT_MS,
   type PipeConnection,
   type WsBridgeTransport,
@@ -538,9 +539,12 @@ describe("the relay pipe", () => {
       expect(FakeRelaySocket.instances).toHaveLength(2);
     });
 
-    it("does not call an ordinary drop unreachable", () => {
+    it("calls an ordinary drop unreachable after the grace period, and not before", () => {
       connected().socket.drop(1006);
+      vi.advanceTimersByTime(DROP_GRACE_MS - 1);
       expect(options.onStatus).not.toHaveBeenCalledWith("unreachable");
+      vi.advanceTimersByTime(1);
+      expect(options.onStatus).toHaveBeenLastCalledWith("unreachable");
     });
   });
 });

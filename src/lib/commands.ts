@@ -436,7 +436,6 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     defaultCombo: metaCombo("n"),
     scope: "any",
-    hostServer: false,
     run: unlessHome((ctx) => ctx.startNewAgent()),
   },
   {
@@ -445,7 +444,6 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     defaultCombo: metaCombo("n", true),
     scope: "primary",
-    hostServer: false,
     run: (ctx) => ctx.chrome.openNewWorkspace(),
   },
   {

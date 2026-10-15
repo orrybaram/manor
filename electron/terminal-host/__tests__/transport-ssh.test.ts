@@ -391,6 +391,53 @@ describe("SshTransport", () => {
     await expect(running).rejects.toBeInstanceOf(SshHostKeyError);
   });
 
+  it("words an auth failure for a recipe host, whose alias no terminal knows (ADR-229 D2)", async () => {
+    const { transport, children } = makeTransport({
+      label: "Dev pod",
+      authMessage: () => "ssh could not log in to Dev pod as dev@203.0.113.7.",
+    });
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    child.stderr.write("dev@203.0.113.7: Permission denied (publickey).\r\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SshAuthError);
+    expect((err as Error).message).toBe("ssh could not log in to Dev pod as dev@203.0.113.7.");
+  });
+
+  it("words a host-key refusal as the box's owner says, for a recipe host (ADR-229 D2)", async () => {
+    const { transport, children } = makeTransport({
+      label: "Dev pod",
+      hostKeyMessage: () => "Dev pod's host key changed and the recipe didn't vouch for the new one.",
+    });
+    const pending = transport.connectControl();
+    const child = await nextChild(children, 0);
+    child.stderr.write("@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @\r\n");
+    await new Promise((r) => setImmediate(r));
+    child.exit(255);
+    const err = await pending.catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SshHostKeyError);
+    expect((err as Error).message).toBe(
+      "Dev pod's host key changed and the recipe didn't vouch for the new one.",
+    );
+  });
+
+  it("puts a recipe host's own stanza ahead of Host * (ADR-229 D2)", async () => {
+    const { transport } = makeTransport({ hostStanza: () => "Host manor-h1\n  HostName 10.0.0.9" });
+    await transport.ensureRunning("1.2.3");
+    const text = fs.readFileSync(transport.managedConfig().configPath, "utf-8");
+    expect(text.indexOf("Host manor-h1")).toBeGreaterThan(-1);
+    expect(text.indexOf("Host manor-h1")).toBeLessThan(text.indexOf("Host *"));
+  });
+
+  it("writes no stanza for a plain ssh box", async () => {
+    const { transport } = makeTransport();
+    await transport.ensureRunning("1.2.3");
+    const text = fs.readFileSync(transport.managedConfig().configPath, "utf-8");
+    expect(text.split("\n").filter((line) => line.startsWith("Host "))).toEqual(["Host *"]);
+  });
+
   it("gives up once 64KB of pre-hello noise has gone by, even in short lines", async () => {
     const { transport, children } = makeTransport();
     const pending = transport.connectControl();
@@ -454,6 +501,32 @@ describe("SshTransport", () => {
     duplex.write('{"kind":"invoke"}\n');
     await vi.waitFor(() => expect(got.join("")).toBe('{"kind":"result","id":1}\n'));
     expect(child.written).toBe('{"kind":"invoke"}\n');
+  });
+
+  it("opens a viewer stream with `server-bridge --viewer`, the server's hello reply its first line (ADR-228 D4)", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.openViewerBridge();
+    const child = await nextChild(children, 0);
+    expect(child.args).toEqual(
+      buildSshArgs(transport.configPath!, "me@box", remoteServerBridgeCommand({ viewer: true })),
+    );
+    child.stdout.write('Welcome to wsl-box!\n{"type":"hello","ok":true,"hostServer":true}\n{"kind":"ev');
+    const duplex = await pending;
+    const got: string[] = [];
+    duplex.on("data", (c: Buffer) => got.push(c.toString("utf-8")));
+    child.stdout.write('ent"}\n');
+    await vi.waitFor(() =>
+      expect(got.join("")).toBe('{"type":"hello","ok":true,"hostServer":true}\n{"kind":"event"}\n'),
+    );
+  });
+
+  it("fails a viewer stream the server refuses, and kills ssh", async () => {
+    const { transport, children } = makeTransport();
+    const pending = transport.openViewerBridge();
+    const child = await nextChild(children, 0);
+    child.stdout.write('{"kind":"close","code":4401,"reason":"bad token"}\n');
+    await expect(pending).rejects.toThrow(/4401: bad token/);
+    expect(child.killed).toBe(true);
   });
 
   it("fails the owner channel with ssh's stderr when server-bridge exits non-zero", async () => {

@@ -9,11 +9,9 @@
  * `pty-attachments.ts`).
  */
 
-import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString, assertPositiveInt } from "../../ipc-validate";
-import { resolveSpawnCwd } from "../../paths";
 import {
   attach,
   claim,
@@ -24,25 +22,28 @@ import {
   wouldOwn,
   type Viewer,
 } from "../../pty-attachments";
-import { HostUnavailableError } from "../../backend/host-view";
-import { LOCAL_HOST_ID, type HostId, type PtyBackend } from "../../backend/types";
+import { LOCAL_HOST_ID, type PtyBackend } from "../../backend/types";
 import type { TerminalSnapshot } from "../../terminal-host/types";
 import { errorMessage } from "../../lib/errors";
 import { isHomePath } from "../../../src/lib/home-path";
+import { resolveSpawnCwd } from "../../paths";
+import type { ServerDeps } from "../../ipc/types";
 import {
-  agentCommandWithPrompt,
-  agentCommandWithPromptFile,
-} from "../../../src/lib/agent-command";
-import type { HostDeps } from "../../ipc/types";
+  requestedHost,
+  spawnPane,
+  toPtyFailure,
+  validatePtyArgs,
+  type SpawnPaneDeps,
+} from "../../server/spawn-pane";
 import type {
+  PtyAttachOptions,
   PtyAttachResult,
   PtyCreateOptions,
   PtyCreateResult,
-  PtyFailure,
   PtyResetOptions,
   PtyWinsize,
 } from "../../../src/electron.d";
-import { method, type Caller, type HandlerCtx } from "../method";
+import { byPane, method, type Caller, type HandlerCtx } from "../method";
 import { sessionGrid, type BridgeServerDeps } from "../server";
 
 /**
@@ -82,38 +83,9 @@ export function readBranchSync(repoPath: string): string | null {
   }
 }
 
-function validatePtyArgs(
-  paneId: string,
-  cwd: string | null,
-  cols: number,
-  rows: number,
-): string {
-  assertString(paneId, "paneId");
-  if (cwd !== null) assertString(cwd, "cwd");
-  assertPositiveInt(cols, "cols");
-  assertPositiveInt(rows, "rows");
-  if (isHomePath(cwd)) throw new Error("The Dashboard can't host panes");
-  return resolveSpawnCwd(cwd);
-}
-
-/**
- * The host a new session should run on, as the renderer named it — the host
- * of the workspace its pane belongs to — or undefined when it didn't, so
- * `RoutedBackend` falls back to the host the cwd belongs to.
- */
-function requestedHost(
-  opts: PtyResetOptions | null | undefined,
-): HostId | undefined {
-  if (opts === undefined || opts === null) return undefined;
-  if (typeof opts !== "object") throw new Error("opts must be an object");
-  if (opts.hostId === undefined) return undefined;
-  assertString(opts.hostId, "hostId");
-  return opts.hostId;
-}
-
 /**
  * What a viewer's own calls on a session read — write, resize, detach — and
- * nothing else (ADR-225 D6). `HostDeps` has it, and so does the host
+ * nothing else (ADR-225 D6). `ServerDeps` has it, and so does the host
  * server's `HostServerDeps`, which reuses these handlers as they are.
  */
 export interface PtyViewerDeps {
@@ -124,11 +96,15 @@ export interface PtyViewerDeps {
 
 /**
  * The caller, as the viewer `pty-attachments.ts` holds a pane under. Who
- * outranks whom — only an Electron renderer window (`local`) does — is the
- * registry's rule, not decided here.
+ * outranks whom — only a desk window (`local`, or a desktop viewer stream on
+ * a host server) does — is the registry's rule, not decided here.
  */
 function asViewer(caller: Caller): Viewer {
-  return { connectionId: caller.id, callerClass: caller.callerClass };
+  return {
+    connectionId: caller.id,
+    callerClass: caller.callerClass,
+    ...(caller.viewer !== undefined && { viewer: caller.viewer }),
+  };
 }
 
 /** What a create-shaped call tells the caller about the winsize (D5). */
@@ -178,149 +154,36 @@ export async function createShaped<T extends { ok: boolean }>(
 }
 
 /**
- * Whether this create is the one that brought the pane's shell into being.
- *
- * Two ways for that to be true, and the second is not obvious: a session the
- * prewarm manager warmed in the background already exists when the pane that
- * adopts it is created, so it reports a snapshot like any warm reattach. The
- * manager knows which pane it just handed out and says so once
- * (`claimAdopted`), which keeps the *second* viewer of that same pane a
- * reattach — the thing this predicate exists to exclude.
- */
-function isFreshSession(
-  deps: HostDeps,
-  paneId: string,
-  hadSnapshot: boolean,
-): boolean {
-  const adopted = deps.prewarmManager?.claimAdopted(paneId) ?? false;
-  return !hadSnapshot || adopted;
-}
-
-/**
- * Type the pane's pending command, once, when its shell reaches a prompt.
- *
- * `writeAfterReady` rather than a plain write because the session was spawned
- * a moment ago and its line editor may not have initialised: the daemon holds
- * the bytes until the shell's first output. The trailing `\r` is what an Enter
- * keypress sends — `\n` is not reliably `accept-line` under zsh's ZLE. Text
- * queued with `submit: false` (a fix-it command the user reviews, ADR-183)
- * is typed without it.
- *
- * Never fatal to the create: a pane that opened without running its command is
- * a worse outcome than a pane that never opened, but only slightly, and the
- * caller has already got its session.
- *
- * Not lost to a remote host that drops before the shell is ready, either
- * (ADR-178 §6): the command goes back on the queue for the pane's next
- * create, as long as the pane is still in a layout and nothing newer was
- * queued for it meanwhile — the server's form of the renderer requeue
- * (`shouldRequeuePaneCommand`) this queue replaced.
- *
- * An agent launch queued with a `prompt` (ADR-209) has it written to a file
- * on the pane's host first, and the typed line only names that file
- * (`promptLaunchLine`). `writeAfterReady` fires on the shell's first output,
- * which is not "line editor ready": a prompt theme can draw before `.zshrc`
- * loads, while the tty is still canonical, and the kernel drops whatever of
- * a typed line runs past `MAX_CANON` — 1024 bytes on macOS.
- */
-async function deliverPendingCommand(
-  deps: HostDeps,
-  paneId: string,
-  hostId: HostId,
-): Promise<void> {
-  const layoutStore = deps.layoutStore;
-  const pending = layoutStore?.pendingCommands.take(paneId);
-  if (!layoutStore || !pending) return;
-  try {
-    const line =
-      pending.prompt !== undefined
-        ? await promptLaunchLine(deps, paneId, hostId, pending.text, pending.prompt)
-        : pending.text;
-    await deps.backend.pty.writeAfterReady(
-      paneId,
-      pending.submit ? line + "\r" : line,
-    );
-  } catch (err) {
-    if (
-      hostId !== LOCAL_HOST_ID &&
-      layoutStore.locate({ paneId }) !== null
-    ) {
-      layoutStore.pendingCommands.requeue(paneId, pending);
-      return;
-    }
-    console.error(
-      `[pty] failed to send the ${pending.kind} command queued for ${paneId}:`,
-      err,
-    );
-  }
-}
-
-/**
- * The launch line for an agent whose first prompt goes through a file
- * (ADR-209): the prompt is written to `~/.manor/prompts/` on the host the
- * session runs on, and the line is `<harness> "$(cat '<file>'; rm -f
- * '<file>')"` — short whatever the prompt's length, and the shell deletes the
- * file as it reads it.
- *
- * `backendRegistry.get(hostId)`, not `RoutedBackend.shell`, for ADR-187's
- * paste-image reason (`electron/ipc/paste-image.ts`): the session's host owns
- * the home directory and the write, and `RoutedBackend` would pick a host by
- * path instead.
- *
- * A failed write on the local host falls back to the inline line — a short
- * prompt still launches, and a long one is no worse off than before. On a
- * remote host it throws, so `deliverPendingCommand` requeues the command,
- * prompt and all, for when the host is back.
- */
-async function promptLaunchLine(
-  deps: HostDeps,
-  paneId: string,
-  hostId: HostId,
-  base: string,
-  prompt: string,
-): Promise<string> {
-  try {
-    const host = deps.backendRegistry.get(hostId);
-    const home = await host.shell.homeDir();
-    const dir = `${home}/.manor/prompts`;
-    const file = path.posix.join(
-      dir,
-      `${paneId}-${crypto.randomBytes(4).toString("hex")}.txt`,
-    );
-    await host.shell.writeFile(file, Buffer.from(prompt, "utf-8"));
-    // Fire and forget: sweep files whose launch line never ran (the pane
-    // closed before its shell did). A failure here does not undo the write.
-    host.shell
-      .exec("find", [dir, "-type", "f", "-mtime", "+7", "-delete"])
-      .catch(() => {});
-    return agentCommandWithPromptFile(base, file);
-  } catch (err) {
-    if (hostId !== LOCAL_HOST_ID) throw err;
-    console.warn(
-      `[pty] could not write the prompt file for ${paneId}; typing it inline:`,
-      err,
-    );
-    return agentCommandWithPrompt(base, prompt);
-  }
-}
-
-/**
  * Open (or reattach to) a pane's session.
  *
  * A renderer window and a paired device go through the same `assert*`
  * validation — a browser on the far end of the relay is not more trusted than
  * a renderer, it is less.
+ *
+ * Reads only what spawning does (`SpawnPaneDeps`), so a host server — which
+ * has no prewarm — runs it as it is (ADR-227 D6).
  */
 export function ptyCreate(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<SpawnPaneDeps & BridgeServerDeps>,
   paneId: string,
   cwd: string | null,
   cols: number,
   rows: number,
   opts?: PtyCreateOptions | null,
 ): Promise<PtyCreateResult> {
+  // The same spawn the server's own launches use (ADR-227 D5): a pane the
+  // server already started is attached here, its command not typed again.
+  // A remote pane on an adopted host never gets here: its create is that
+  // host's server's (ADR-228 D5, `HostRouting`).
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
-    createSession(ctx.deps, paneId, cwd, c, r, opts ?? undefined),
+    spawnPane(ctx.deps, paneId, {
+      cwd,
+      cols: c,
+      rows: r,
+      hostId: requestedHost(opts),
+      agentKind: opts?.agentKind,
+      ...(opts?.wake === false && { wake: false }),
+    }),
   );
 }
 
@@ -336,14 +199,18 @@ export function ptyCreate(
  * own grid, which is the owner's.
  */
 export async function ptyAttach(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   paneId: string,
+  opts?: PtyAttachOptions | null,
 ): Promise<PtyAttachResult> {
   assertString(paneId, "paneId");
   const { deps } = ctx;
   const { sessions } = deps.backendRegistry;
   try {
-    const snapshot = await deps.backend.pty.attachExisting(paneId);
+    // A restored pane's first attach leaves a sleeping host asleep (ADR-230 D3).
+    const snapshot = await (opts?.wake === false
+      ? deps.backend.pty.attachExisting(paneId, { wake: false })
+      : deps.backend.pty.attachExisting(paneId));
     if (!snapshot) {
       return {
         ok: false,
@@ -380,78 +247,6 @@ export function attachReturning(
     cols: snapshot.cols,
     rows: snapshot.rows,
   };
-}
-
-/**
- * A `pty.create` or `pty.attach` that threw, as the failure it answers with.
- *
- * A registered remote host that is not connected is not a broken terminal
- * (ADR-178 §6): the renderer shows the host's offline banner and creates the
- * pane once the host is back. A remote pty call rejects with
- * `HostUnavailableError` whenever its host is away (ADR-183); "unknown" is a
- * host nobody registered.
- */
-function toPtyFailure(err: unknown, paneId: string): PtyFailure {
-  const error = errorMessage(err);
-  if (err instanceof HostUnavailableError && err.status !== "unknown") {
-    return { ok: false, reason: "host-unavailable", hostId: err.hostId, error };
-  }
-  console.error(`Failed to create/attach PTY for ${paneId}:`, err);
-  return { ok: false, reason: "error", error };
-}
-
-async function createSession(
-  deps: HostDeps,
-  paneId: string,
-  cwd: string | null,
-  cols: number,
-  rows: number,
-  opts?: PtyCreateOptions,
-): Promise<PtyCreateResult> {
-  const resolvedCwd = validatePtyArgs(paneId, cwd, cols, rows);
-  const hostId = requestedHost(opts);
-  const agentKind = opts?.agentKind;
-  const env: Record<string, string> | undefined = agentKind
-    ? { MANOR_AGENT_KIND: agentKind }
-    : undefined;
-  try {
-    const result = await deps.backend.pty.createOrAttachWith(
-      paneId,
-      resolvedCwd,
-      cols,
-      rows,
-      { env, hostId },
-    );
-    // A pane opened "with a command" — `POST /tabs { command }`, a split with
-    // an agent, `POST /agents` — has its line waiting on the server. This is
-    // the moment it has a shell to be typed into. A command put back after
-    // its remote host dropped is typed on a reattach too: the session it was
-    // meant for may have survived on the host, without it.
-    const fresh = isFreshSession(deps, paneId, result.snapshot !== null);
-    if (fresh || deps.layoutStore?.pendingCommands.isRequeued(paneId)) {
-      await deliverPendingCommand(deps, paneId, result.hostId);
-    }
-
-    // Return snapshot to the renderer so it can write it exactly once,
-    // avoiding duplicate writes from StrictMode double-mounting.
-    // A non-null snapshot means the session already existed (prewarmed).
-    return {
-      ok: true,
-      snapshot: result.snapshot?.screenAnsi || null,
-      // Stream position the snapshot reflects — the renderer drops queued
-      // output at or below it (ADR-159). Absent when there is no snapshot,
-      // or when an older daemon does not report one.
-      snapshotSeq: result.snapshot?.seq,
-      prewarmed: result.snapshot !== null,
-      // The host the session actually runs on — not its project's
-      // current host, which may have changed since (ADR-160). The
-      // renderer badges a tab from this, so a pane that predates a
-      // project move keeps its true host.
-      hostId: result.hostId,
-    };
-  } catch (err) {
-    return toPtyFailure(err, paneId);
-  }
 }
 
 export function ptyWrite(
@@ -509,7 +304,16 @@ export async function ptyResize(
   }
 }
 
-export async function ptyClose(ctx: HandlerCtx, paneId: string): Promise<void> {
+/**
+ * What ending or replacing a session reads: the backend alone, so a host
+ * server's table answers both as well (ADR-228 D5).
+ */
+type PtySessionDeps = Pick<ServerDeps, "backend">;
+
+export async function ptyClose(
+  ctx: HandlerCtx<PtySessionDeps>,
+  paneId: string,
+): Promise<void> {
   release(paneId, asViewer(ctx.caller));
   assertString(paneId, "paneId");
   try {
@@ -556,7 +360,7 @@ export async function ptyDetach(
  * so it is decorated with the same winsize ownership `pty.create` gets (D5).
  */
 export function ptyReset(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<PtySessionDeps & BridgeServerDeps>,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -579,7 +383,7 @@ export type PtyResetResult = {
 } & PtyWinsize;
 
 async function resetSession(
-  deps: HostDeps,
+  deps: PtySessionDeps,
   paneId: string,
   cwd: string | null,
   cols: number,
@@ -617,6 +421,7 @@ async function resetSession(
       const result = await backend.pty.createOrAttachWith(
         paneId, resolvedCwd, cols, rows, { hostId },
       );
+      // Started fresh: there was nothing to snapshot.
       if (!result.snapshot) {
         return {
           ok: true,
@@ -649,7 +454,7 @@ async function resetSession(
  * workspace's host alongside its cwd (ADR-183).
  */
 export function ptyConsumePrewarmed(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   cwd: string | null,
   hostId?: string | null,
 ): { paneId: string; commandInjected: boolean } | null {
@@ -662,7 +467,7 @@ export function ptyConsumePrewarmed(
 
 /** Point the prewarmed session at a different workspace, respawning it. */
 export async function ptyUpdatePrewarmCwd(
-  ctx: HandlerCtx,
+  ctx: HandlerCtx<ServerDeps>,
   cwd: string,
   hostId: string,
   agentCommand?: string | null,
@@ -680,19 +485,25 @@ export async function ptyUpdatePrewarmCwd(
   );
 }
 
+/**
+ * Routed by pane (ADR-228 D5): a pane on an adopted host is that host
+ * server's terminal, so on the desktop each call for one is forwarded there
+ * (`HostRouting`), and its events come back keyed by pane (`HostProxy`). A
+ * new pane's create and reset name the host in their options.
+ */
 export const pty = {
   // Starting or ending a session is audited; `write` is the keyboard, and a
   // line per keystroke is a keylogger (ADR-161). `resize` and `detach` are
   // what a viewer does to its own view.
-  create: method(ptyCreate, { mutating: true }),
+  create: method(ptyCreate, { mutating: true, route: byPane(0, 4) }),
   // Never starts a session: a viewer coming back to one, like `detach`.
-  attach: method(ptyAttach),
-  reset: method(ptyReset, { mutating: true }),
-  write: method(ptyWrite),
-  resize: method(ptyResize),
-  claimWinsize: method(ptyClaimWinsize),
-  close: method(ptyClose, { mutating: true }),
-  detach: method(ptyDetach),
+  attach: method(ptyAttach, { route: byPane(0) }),
+  reset: method(ptyReset, { mutating: true, route: byPane(0, 4) }),
+  write: method(ptyWrite, { route: byPane(0) }),
+  resize: method(ptyResize, { route: byPane(0) }),
+  claimWinsize: method(ptyClaimWinsize, { route: byPane(0) }),
+  close: method(ptyClose, { mutating: true, route: byPane(0) }),
+  detach: method(ptyDetach, { route: byPane(0) }),
   // One prewarmed session per host, and its cwd tracks the primary window's
   // workspace: a device adopting it gets a shell somewhere else, and a device
   // moving it moves the desktop's out from under it.

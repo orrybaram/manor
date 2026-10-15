@@ -6,7 +6,7 @@
  * (`createLocalBackend`); remote hosts are registered from their persisted `HostSpec` and
  * connected lazily, in the background, never on the launch path.
  *
- * Each host is a `HostConnection` (status, connecting, hook feed, reconnect
+ * Each host is a `HostConnection` (status, connecting, proxy, reconnect
  * handling — `host-connection.ts`), and `get(hostId)` hands out its view
  * (gated for a remote host — `host-view.ts`). The registry keeps the hosts,
  * which host owns each session (`SessionOwners`), and the listeners every
@@ -18,18 +18,21 @@
  */
 
 import { Emitter } from "./emitter";
-import { memoryHookSeqStore, type HookSeqStore, type HookSink } from "./hook-feed";
 import {
   HostConnection,
   RemoteHostConnection,
-  type ControlRelaySink,
+  type HostProxyContext,
+  type HostServerFacts,
   type HostStatus,
   type HostStatusInfo,
   type RemoteHostContext,
 } from "./host-connection";
+import type { HostProxy } from "./host-proxy";
 import type { HostServerClient, HostServerClientState } from "./host-server-client";
 import { HostUnavailableError, unavailableBackend } from "./host-view";
 import { createProvider } from "./providers";
+import { hostSpecLabel } from "./providers/recipes";
+import { RecipeHostProvider } from "./providers/recipe-provider";
 import type { HostProvider } from "./providers/types";
 import { RemoteBackend } from "./remote-backend";
 import type { BootstrapProgress } from "./remote-bootstrap";
@@ -43,7 +46,7 @@ import {
   type WorkspaceBackend,
 } from "./types";
 
-export type { ControlRelaySink, HostStatus, HostStatusInfo } from "./host-connection";
+export type { HostServerFacts, HostStatus, HostStatusInfo } from "./host-connection";
 export { HostUnavailableError } from "./host-view";
 export { isRemoteSessionLoss } from "./session-owners";
 
@@ -64,20 +67,39 @@ export type RemoteBackendFactory = (
     onBootstrapWarning: (warnings: string[]) => void;
     /** The host's daemon is about to be replaced (ADR-185 §A). */
     onDaemonReplacing: (sessionIds: string[]) => void;
+    /**
+     * Asked before each reconnect attempt; false stops the loop, the box
+     * being asleep (ADR-229 D1). `attempt` is 0-based, counted from the
+     * drop. See `RemoteHostConnection.beforeReconnect`.
+     */
+    beforeReconnect: (attempt: number) => Promise<boolean>;
+    /**
+     * Asked when a reconnect attempt fails in a way that would stop the
+     * loop; true retries it. See `RemoteHostConnection.retryPermanentFailure`.
+     */
+    retryPermanentFailure: (err: unknown) => boolean;
   },
 ) => RemoteHostBackend;
 
-const defaultCreateProvider: HostProviderFactory = (_hostId, spec, opts) =>
-  createProvider(spec, opts);
+const defaultCreateProvider: HostProviderFactory = (hostId, spec, opts) =>
+  createProvider(spec, { ...opts, hostId });
 
-/** A `RemoteBackend` over the provider's transport. */
+/**
+ * A `RemoteBackend` over the provider's transport. Built at registration,
+ * before anything has brought the box up: for a recipe host (ADR-229 D2)
+ * that transport is the provider's stand-in, which reaches whatever the
+ * last `ensureUp` built. The connection runs `ensureUp` before every
+ * `backend.connect()`, so the backend never dials before there is a way in.
+ */
 const createRemoteBackend: RemoteBackendFactory = (_hostId, spec, opts) =>
   new RemoteBackend({
-    target: spec.target,
+    target: hostSpecLabel(spec),
     version: opts.version,
     transport: opts.provider.transport(),
     onBootstrapWarning: opts.onBootstrapWarning,
     onDaemonReplacing: opts.onDaemonReplacing,
+    beforeReconnect: opts.beforeReconnect,
+    retryPermanentFailure: opts.retryPermanentFailure,
   });
 
 export interface BackendRegistryOptions {
@@ -97,15 +119,39 @@ export interface BackendRegistryOptions {
   createRemote?: RemoteBackendFactory;
   /** Builds a remote host's provider. Defaults to `createProvider`. For tests. */
   createProvider?: HostProviderFactory;
-  /** Each remote host's last ingested hook seq. Defaults to in-memory. */
-  hookSeqStore?: HookSeqStore;
-  /** Retry delay for a failed hook replay (see `HostHookFeed`). For tests. */
-  hookReplayRetryDelayMs?: (attempt: number) => number;
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: RemoteHostContext["hostServerClient"];
+  /**
+   * Gives every remote host a `HostProxy` publishing here (ADR-227 D4). The
+   * desktop passes its bus; without it (a host server, most tests) there
+   * are none, and nothing is cached.
+   */
+  hostProxy?: HostProxyContext;
+  /**
+   * Whether a remote host has adopted its records (ADR-227 D3), stamped on
+   * each remote host in `list()` as `adopted`. The desktop passes its
+   * `ProjectManager`'s; without it (a host server, most tests) none is.
+   */
+  isAdopted?: (hostId: string) => boolean;
 }
 
 const LOG = "[backend-registry]";
+
+/**
+ * `HostStatusInfo.idleStopNote` for a host's provider: true when a recipe has
+ * `idleStopMinutes` but nothing to stop the box with the lid closed — neither
+ * `autoSleep` nor a box hook — and so stops only while the desktop is awake.
+ * Undefined for a host that has no idle stop.
+ */
+function idleStopNoteOf(
+  provider: HostProvider,
+  hooks: { onBusy: boolean; onIdle: boolean } | undefined,
+): boolean | undefined {
+  if (!(provider instanceof RecipeHostProvider) || provider.idleStopMinutes === undefined) {
+    return undefined;
+  }
+  return !provider.capabilities.autoSleep && !hooks?.onBusy && !hooks?.onIdle;
+}
 
 export class BackendRegistry {
   /** Which host owns each session we have seen created, listed or streaming. */
@@ -122,16 +168,16 @@ export class BackendRegistry {
   private readonly createRemote: RemoteBackendFactory;
   private readonly createProvider: HostProviderFactory;
   private readonly remoteVersion: string;
+  private readonly isAdopted: ((hostId: string) => boolean) | undefined;
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
-  private hookSink: HookSink | null = null;
-  private controlRelaySink: ControlRelaySink | null = null;
   private readonly serverStates = new Emitter<[string, HostServerClientState]>(
     `${LOG} host server state listener`,
   );
 
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
+    this.isAdopted = opts.isAdopted;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
     this.createProvider = opts.createProvider ?? defaultCreateProvider;
     this.ctx = {
@@ -141,11 +187,8 @@ export class BackendRegistry {
       hostEvents: this.hostEvents,
       resumed: this.resumed,
       daemonReplacing: this.daemonReplacing,
-      hookSeqStore: opts.hookSeqStore ?? memoryHookSeqStore(),
-      hookSink: () => this.hookSink,
-      hookReplayRetryDelayMs: opts.hookReplayRetryDelayMs,
-      controlRelaySink: () => this.controlRelaySink,
       hostServerClient: opts.hostServerClient,
+      hostProxy: opts.hostProxy,
     };
     this.add(new HostConnection(LOCAL_HOST_ID, null, opts.local, this.ctx));
   }
@@ -201,6 +244,9 @@ export class BackendRegistry {
       provider,
       onBootstrapWarning: (warnings) => built.conn?.reportWarnings(warnings),
       onDaemonReplacing: (sessionIds) => built.conn?.reportDaemonReplacing(sessionIds),
+      beforeReconnect: (attempt) =>
+        built.conn?.beforeReconnect(attempt) ?? Promise.resolve(true),
+      retryPermanentFailure: () => built.conn?.retryPermanentFailure() ?? false,
     });
     built.conn = new RemoteHostConnection(hostId, spec, provider, backend, this.ctx);
     built.conn.serverClient.onStateChange((state) => this.serverStates.emit(hostId, state));
@@ -220,19 +266,73 @@ export class BackendRegistry {
     await conn.dispose();
   }
 
-  /** Every host and its connection status, local first. */
+  /**
+   * Every host and its connection status, local first. A remote host carries
+   * its provider's kind and capabilities (ADR-229 D1), and whether it was
+   * adopted when the registry knows.
+   */
   list(): HostStatusInfo[] {
-    return Array.from(this.hosts.values(), (conn) => conn.info());
+    return Array.from(this.hosts.values(), (conn) => {
+      const info = conn.info();
+      if (!(conn instanceof RemoteHostConnection)) return info;
+      const { provider } = conn;
+      const idleStopNote = idleStopNoteOf(provider, info.hooks);
+      const idleStopMinutes =
+        provider instanceof RecipeHostProvider ? provider.idleStopMinutes : undefined;
+      return {
+        ...info,
+        label: conn.spec ? hostSpecLabel(conn.spec) : conn.hostId,
+        ...(this.isAdopted ? { adopted: this.isAdopted(conn.hostId) } : {}),
+        providerKind: provider.kind,
+        capabilities: { ...provider.capabilities },
+        ...(idleStopNote !== undefined ? { idleStopNote } : {}),
+        ...(idleStopMinutes !== undefined ? { idleStopMinutes } : {}),
+      };
+    });
   }
 
   /**
-   * How the user names a remote host: its ssh target, as the sidebar does.
-   * Undefined for the local host and unknown ids.
+   * `hostId`'s server said whether the host is busy (ADR-229 D7): the
+   * provider is told (`setBusy`) and `list()` carries it.
+   */
+  setBusy(hostId: string, busy: boolean): void {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return;
+    conn.provider.setBusy?.(busy);
+    conn.setServerBusy(busy);
+  }
+
+  /** What the provider was last told by `setBusy`; false when it cannot be asked. */
+  isBusy(hostId: string): boolean {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return false;
+    return conn.provider instanceof RecipeHostProvider && conn.provider.busy;
+  }
+
+  /** `hostId`'s recipe's `idleStopMinutes`, when it has one (ADR-229 D7). */
+  idleStopMinutes(hostId: string): number | undefined {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) return undefined;
+    return conn.provider instanceof RecipeHostProvider ? conn.provider.idleStopMinutes : undefined;
+  }
+
+  /**
+   * `hostId` was adopted (ADR-227 D3): `list()`'s `adopted` changed, so its
+   * listeners hear it — a window adds its own stream to the host then.
+   */
+  adoptionChanged(hostId: string): void {
+    if (this.hosts.has(hostId)) this.emitStatus();
+  }
+
+  /**
+   * How the user names a remote host: its ssh target, or a recipe host's
+   * recipe name (ADR-229 D2), as the sidebar does. Undefined for the local
+   * host and unknown ids.
    */
   hostDisplayName(hostId: string): string | undefined {
     if (hostId === LOCAL_HOST_ID) return undefined;
-    const target = this.hosts.get(hostId)?.info().spec?.target;
-    return target || undefined;
+    const spec = this.hosts.get(hostId)?.spec;
+    return spec ? hostSpecLabel(spec) || undefined : undefined;
   }
 
   status(hostId: string): HostStatus | undefined {
@@ -249,7 +349,8 @@ export class BackendRegistry {
   /**
    * Connect `hostId` if it is not already. Concurrent callers share one
    * attempt. Rejects with the connect error, which `list()` also reports.
-   * Always tries — including after `error` — so this is the retry.
+   * Always tries — including after `error`, and on a sleeping host, which
+   * it wakes (ADR-229 D1) — so this is the retry.
    */
   async ensureConnected(hostId: string): Promise<void> {
     const conn = this.hosts.get(hostId);
@@ -260,19 +361,19 @@ export class BackendRegistry {
   /**
    * The user's "Retry now". A host its backend is already reconnecting
    * attempts at once instead of waiting out the backoff; any other host that
-   * is not connected gets a fresh `connect()` (`connectInBackground`).
+   * is not connected gets a fresh `connect()` (`connectInBackground`). A
+   * sleeping host is left asleep: `wake` is what wakes it (ADR-229 D1).
    */
   retryNow(hostId: string): void {
-    const conn = this.hosts.get(hostId);
-    if (conn) conn.retryNow();
-    else this.connectInBackground(hostId);
+    this.hosts.get(hostId)?.retryNow();
   }
 
-  /** `ensureConnected` without waiting; failures land in `list()`. */
+  /**
+   * A background connect; failures land in `list()`. Unlike
+   * `ensureConnected` it never wakes a sleeping host (ADR-229 D1).
+   */
   connectInBackground(hostId: string): void {
-    this.ensureConnected(hostId).catch(() => {
-      // Reported through status.
-    });
+    this.hosts.get(hostId)?.connectInBackground();
   }
 
   /**
@@ -285,6 +386,40 @@ export class BackendRegistry {
     for (const conn of this.hosts.values()) {
       if (conn instanceof RemoteHostConnection) conn.checkLiveness();
     }
+  }
+
+  /**
+   * Wake `hostId` and connect it (ADR-229 D1): what a call that means to use
+   * a sleeping host does first. Resolves once the host is connected and its
+   * owner channel has been dialled (whether or not the box has a server);
+   * rejects with the connect error. The local host is always awake.
+   */
+  async wake(hostId: string): Promise<void> {
+    if (hostId === LOCAL_HOST_ID) return;
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) {
+      throw new HostUnavailableError(hostId, "unknown");
+    }
+    await conn.wake();
+    if (conn.status === "connected") await conn.serverClient.connect();
+  }
+
+  /**
+   * Put `hostId`'s box to sleep (ADR-229 D1): the connection is dropped, the
+   * provider stops the box, and the host waits in `sleeping` until something
+   * wakes it. Refused unless its provider `canStop`.
+   */
+  async stop(hostId: string): Promise<void> {
+    const conn = this.hosts.get(hostId);
+    if (!(conn instanceof RemoteHostConnection)) {
+      throw new Error(
+        hostId === LOCAL_HOST_ID ? "This computer can't be stopped." : `Unknown remote host ${hostId}.`,
+      );
+    }
+    if (!conn.provider.capabilities.canStop) {
+      throw new Error(`${this.hostDisplayName(hostId) ?? hostId} can't be stopped by Manor.`);
+    }
+    await conn.stop();
   }
 
   /** Drop a remote host's connection. Its remote sessions keep running. */
@@ -310,6 +445,27 @@ export class BackendRegistry {
     return conn instanceof RemoteHostConnection ? conn.serverClient : undefined;
   }
 
+  /**
+   * `hostId`'s state as its host server holds it (ADR-227 D4): reads that
+   * answer from the cache while it is away, and calls in the desktop's
+   * form. Undefined for the local host, an unknown one, or a registry built
+   * without `hostProxy`.
+   */
+  hostProxy(hostId: string): HostProxy | undefined {
+    const conn = this.hosts.get(hostId);
+    return conn instanceof RemoteHostConnection ? (conn.proxy ?? undefined) : undefined;
+  }
+
+  /**
+   * Record what `hostId`'s server said in its last status (ADR-228 D2, D3):
+   * `hosts.list` carries it, and a change is a status change. Null forgets
+   * it. The local host and unknown ones are ignored.
+   */
+  setServerFacts(hostId: string, facts: HostServerFacts | null): void {
+    const conn = this.hosts.get(hostId);
+    if (conn instanceof RemoteHostConnection) conn.setServerFacts(facts);
+  }
+
   /** Every remote host's owner channel, in registration order. */
   hostServers(): HostServerClient[] {
     const clients: HostServerClient[] = [];
@@ -332,25 +488,6 @@ export class BackendRegistry {
 
   // ── Events ──
 
-  /**
-   * Where remote hosts' agent hooks go (ADR-178 §2). Hosts already connected
-   * catch up from their journals now; the rest do on connect.
-   */
-  setHookSink(sink: HookSink): void {
-    this.hookSink = sink;
-    for (const conn of this.hosts.values()) {
-      if (conn.status === "connected") void conn.catchUpHooks();
-    }
-  }
-
-  /**
-   * Where control requests relayed from remote hosts' `manor` CLIs go
-   * (ADR-189 §2). Until it is set they are answered 503.
-   */
-  setControlRelaySink(sink: ControlRelaySink): void {
-    this.controlRelaySink = sink;
-  }
-
   /** Stream events from every host, tagged with the host they came from. */
   onEvent(handler: (hostId: string, event: StreamEvent) => void): () => void {
     return this.streamEvents.on(handler);
@@ -362,8 +499,8 @@ export class BackendRegistry {
   }
 
   /**
-   * A remote host came back after a drop and its hook replay is done (or
-   * took too long). `sessionIds` are every session its daemon has now: a
+   * A remote host came back after a drop and its proxy has read the host's
+   * state again (or took too long). `sessionIds` are every session its daemon has now: a
    * pane the app had on that host whose session is not among them was lost
    * (the daemon restarted); the rest should reattach, having missed output.
    */

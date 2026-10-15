@@ -11,6 +11,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import FolderGit2 from "lucide-react/dist/esm/icons/folder-git-2";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
@@ -57,7 +58,11 @@ import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
 import { HostIndicator } from "../hosts/HostIndicator";
-import { isRemoteHost, memberHostName } from "../../lib/hosts";
+import { hostSentenceName, memberDisplayName, useServerHostName } from "../../bridge/server-set";
+import { useHostAway } from "../../hooks/useHostAway";
+import { isRemoteHost } from "../../lib/hosts";
+import { ghNotSignedInText, useGhHostStore } from "../../lib/gh-host-status";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
   remoteTargetForProject,
   workspaceDisplayName,
@@ -88,6 +93,7 @@ import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import { AnimatedCount } from "../ui/AnimatedCount/AnimatedCount";
 import { Button } from "../ui/Button/Button";
 import { Collapse } from "../ui/Collapse/Collapse";
+import { useHostDisplay } from "../../hooks/useHostDisplay";
 import styles from "./ProjectItem.module.css";
 import { CountBadge } from "../ui/CountBadge/CountBadge";
 
@@ -164,6 +170,11 @@ const WorkspaceItem = React.forwardRef<
     workspaceKey(hostId, ws.path),
   );
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
+  // A remote workspace's PR badge comes from the box's own `gh`; where that
+  // isn't signed in there is none to show, and this says why (ADR-227 D7).
+  const ghMissing = useGhHostStore((s) => !!s.missing[hostId]);
+  const ghHostServerName = useServerHostName(hostId);
+  const ghHostName = useHostStore((s) => ghHostServerName ?? hostSentenceName(hostId, s.hosts));
   const {
     handleKeyDown: handleEmojiKeyDown,
     fieldProps: emojiFieldProps,
@@ -278,6 +289,18 @@ const WorkspaceItem = React.forwardRef<
                   onOpen={() => openExternal(ws.pr!.url)}
                 />
               )}
+              {!ws.pr && ghMissing && (
+                <Tooltip label={ghNotSignedInText(ghHostName)}>
+                  <span
+                    className={styles.ghMissing}
+                    role="status"
+                    aria-label={ghNotSignedInText(ghHostName)}
+                    data-testid="gh-not-signed-in-badge"
+                  >
+                    <TriangleAlert size={11} />
+                  </span>
+                </Tooltip>
+              )}
             </div>
           </div>
           {isDragging && dragGroupCount > 1 && (
@@ -312,6 +335,9 @@ function SectionHostLabel(props: {
 }) {
   const { hostId, projectId, path, label, collapsedCount } = props;
   const remote = isRemoteHost(hostId);
+  // A sleeping host says so in words: its glyph alone is easy to miss on a
+  // phone (ADR-229 D7).
+  const asleep = useHostDisplay(remote ? hostId : null)?.tone === "asleep";
 
   return (
     <span
@@ -326,6 +352,11 @@ function SectionHostLabel(props: {
         <Laptop size={11} aria-hidden />
       )}
       <span className={styles.sectionHostName}>{label}</span>
+      {asleep && (
+        <span className={styles.sectionHostAsleep} data-testid="host-asleep-label">
+          Asleep
+        </span>
+      )}
       {collapsedCount !== null && (
         <CountBadge count={collapsedCount} size="xs" />
       )}
@@ -415,6 +446,14 @@ export function ProjectItem(props: ProjectItemProps) {
   const remoteTarget = useHostStore((state) =>
     remoteTargetForProject(project, state),
   );
+  // On a phone, the name of the machine behind this project: the desktop's
+  // for its own projects, a host's own pairing's for a host (ADR-228 D8).
+  const serverName = useServerHostName(project.hostId);
+  const hostRowLabel = serverName ?? (isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine");
+  // A lone project on an away host keeps its last workspaces, dimmed; a
+  // group's section is dimmed by its group (ADR-228 D6).
+  const hostOffline = useHostAway(isSection ? null : project.hostId);
+  const showHostHeading = isRemoteHost(project.hostId) || serverName !== null;
   const [editingPath, setEditingPath] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -477,7 +516,7 @@ export function ProjectItem(props: ProjectItemProps) {
   }, [project, allProjects]);
   const openRemoveFromHost = useProjectStore((s) => s.openRemoveFromHost);
   const allHosts = useHostStore((s) => s.hosts);
-  const hostName = memberHostName(project.hostId, allHosts);
+  const hostName = memberDisplayName(project.hostId, allHosts);
 
   const { status: projectStatus, pulse: projectPulse } = useProjectAgentStatus(project);
   const projectIndicator = toWorkspaceIndicator(projectStatus, projectPulse);
@@ -1172,8 +1211,11 @@ export function ProjectItem(props: ProjectItemProps) {
       className={
         isSection
           ? styles.section
-          : `${styles.project} ${isSelected ? styles.projectSelected : ""}`
+          : `${styles.project} ${isSelected ? styles.projectSelected : ""} ${
+              hostOffline ? styles.sectionOffline : ""
+            }`
       }
+      data-host-offline={hostOffline || undefined}
       style={projectColorStyle(project.color)}
     >
       <ContextMenu.Root>
@@ -1199,7 +1241,7 @@ export function ProjectItem(props: ProjectItemProps) {
                 hostId={project.hostId}
                 projectId={project.id}
                 path={project.path}
-                label={isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine"}
+                label={hostRowLabel}
                 collapsedCount={expanded ? null : project.workspaces.length}
               />
             ) : (
@@ -1312,18 +1354,18 @@ export function ProjectItem(props: ProjectItemProps) {
       {isSection ? (
         <Collapse open={expanded && items.length > 0}>{workspaceList}</Collapse>
       ) : (
-        <Collapse open={expanded && (isRemoteHost(project.hostId) || items.length > 0)}>
+        <Collapse open={expanded && (showHostHeading || items.length > 0)}>
           {/* Hangs off a guide line under the chevron (ADR-193 §3). */}
           <div className={styles.projectBody}>
             {/* A remote-only project names its host above its workspaces,
                 the way a linked group's sections do. */}
-            {isRemoteHost(project.hostId) && (
+            {showHostHeading && (
               <div className={styles.hostHeading} data-testid="project-host-heading">
                 <SectionHostLabel
                   hostId={project.hostId}
                   projectId={project.id}
                   path={project.path}
-                  label={remoteTarget ?? project.hostId}
+                  label={hostRowLabel}
                   collapsedCount={null}
                 />
               </div>

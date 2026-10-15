@@ -4,6 +4,7 @@ import {
   groupHostState,
   isHostOffline,
   secondsUntilRetry,
+  sourcedHost,
 } from "../host-status";
 import type { HostStatusInfo } from "../../store/host-store";
 
@@ -166,6 +167,18 @@ describe("describeHost", () => {
       canRetry: true,
     });
   });
+
+  it("reads a sleeping host as asleep: away, calm, and nothing to retry (ADR-229 D1)", () => {
+    expect(describeHost(host({ status: "sleeping" }), 0)).toMatchObject({
+      offline: true,
+      busy: false,
+      tone: "asleep",
+      status: "Asleep",
+      banner: "me@box is asleep",
+      canRetry: false,
+    });
+    expect(isHostOffline("box", [host({ status: "sleeping" })])).toBe(true);
+  });
 });
 
 describe("secondsUntilRetry", () => {
@@ -209,6 +222,40 @@ describe("isHostOffline", () => {
     expect(isHostOffline(null, hosts)).toBe(false);
     expect(isHostOffline("unknown", hosts)).toBe(false);
   });
+
+  it("takes a connected bridge of the page's own to the host as the host answering (ADR-228 D6)", () => {
+    const direct = (hostId: string) => (hostId === "box" ? ("connected" as const) : undefined);
+    expect(isHostOffline("box", hosts, direct)).toBe(false);
+    // An unreachable bridge says nothing main does not: main is the source.
+    expect(isHostOffline("box", hosts, () => "unreachable")).toBe(true);
+    expect(isHostOffline("up", hosts, () => "unreachable")).toBe(false);
+  });
+});
+
+describe("sourcedHost", () => {
+  it("is main's status unless the page's own bridge to the host is connected", () => {
+    const away = host({ status: "reconnecting", retryAt: 5 });
+    expect(sourcedHost(away, undefined)).toBe(away);
+    expect(sourcedHost(away, "unreachable")).toBe(away);
+    expect(sourcedHost(away, "connected")).toEqual({
+      hostId: "box",
+      spec: away.spec,
+      status: "connected",
+    });
+    expect(sourcedHost(undefined, "connected")).toBeUndefined();
+  });
+
+  it("reads a host with no bridge of its own as away once every server listing it is", () => {
+    const up = host({ status: "connected" });
+    expect(sourcedHost(up, undefined, "unreachable")).toEqual({
+      hostId: "box",
+      spec: up.spec,
+      status: "disconnected",
+    });
+    expect(sourcedHost(up, undefined, "unknown")).toBe(up);
+    // Its own bridge answering wins over what the listers say.
+    expect(sourcedHost(up, "connected", "unreachable")).toBe(up);
+  });
 });
 
 describe("groupHostState", () => {
@@ -240,5 +287,30 @@ describe("groupHostState", () => {
 
   it("is connected for an empty member list", () => {
     expect(groupHostState([], hosts)).toBe("connected");
+  });
+});
+
+describe("isHostOffline with servers that list the host", () => {
+  const hosts = [host({ hostId: "box", status: "connected" })];
+
+  it("is away when every server that lists it is unreachable", () => {
+    expect(isHostOffline("box", hosts, () => undefined, () => "unreachable")).toBe(true);
+  });
+
+  it("stays as main says while any lister answers", () => {
+    expect(isHostOffline("box", hosts, () => undefined, () => "connected")).toBe(false);
+    expect(isHostOffline("box", hosts, () => undefined, () => undefined)).toBe(false);
+  });
+
+  it("ignores the listers when the page holds a bridge of its own", () => {
+    expect(isHostOffline("box", hosts, () => "connected", () => "unreachable")).toBe(false);
+  });
+
+  it("counts a group's host reachable only through a lister as connected", () => {
+    expect(groupHostState(["box", "box"], hosts, () => undefined, () => "connected")).toBe(
+      "connected",
+    );
+    expect(groupHostState(["box", "local"], hosts, () => undefined, (id) =>
+      id === "box" ? "unreachable" : undefined)).toBe("partially-offline");
   });
 });

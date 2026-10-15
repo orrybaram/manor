@@ -1,17 +1,30 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { localCtx } from "../../method";
 
+// `hosts.remove` deletes files under `~/.manor`; its own test uses temp dirs.
+const forgetHostFiles = vi.hoisted(() => vi.fn());
+vi.mock("../../../backend/host-removal", () => ({ forgetHostFiles }));
+
 const statusListeners: Array<(hosts: unknown[]) => void> = [];
 const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = [];
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   hostsAdd,
+  hostsAddRecipeHost,
   hostsHealthCheck,
   hostsPairDevice,
+  hostsProjectsOnHost,
+  hostsRemove,
   hostsResetPairingKeys,
   hostsRevokeDevice,
   hostsRetryConnect,
   hostsServerStatus,
+  hostsSetLinearOnHost,
+  hostsSetLinkPhones,
+  hostsSetSupervised,
   wireHostBroadcasts,
 } from "../hosts";
 import {
@@ -38,6 +51,7 @@ const call =
     (fn as (...args: unknown[]) => unknown)(localCtx(current as never), ...args);
 const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>([
   ["hosts:add", call(hostsAdd)],
+  ["hosts:addRecipeHost", call(hostsAddRecipeHost)],
   ["hosts:retryConnect", call(hostsRetryConnect)],
   ["hosts:healthCheck", call(hostsHealthCheck)],
 ]);
@@ -57,12 +71,14 @@ function makeDeps() {
     register: vi.fn(),
     unregister: vi.fn().mockResolvedValue(undefined),
     connectInBackground: vi.fn(),
+    ensureConnected: vi.fn().mockResolvedValue(undefined),
     retryNow: vi.fn(),
     onHostResumed: vi.fn((cb: (hostId: string, sessionIds: string[]) => void) => {
       resumedListeners.push(cb);
       return () => {};
     }),
     onHostServerStateChange: vi.fn(() => () => {}),
+    setServerFacts: vi.fn(),
     onStatusChange: vi.fn((cb: (hosts: unknown[]) => void) => {
       statusListeners.push(cb);
       return () => {};
@@ -75,6 +91,10 @@ function makeDeps() {
     saveHost: vi.fn(),
     remoteHostIdsInUse: vi.fn().mockReturnValue([]),
     getHosts: vi.fn().mockReturnValue([]),
+    hostLinksPhones: vi.fn().mockReturnValue(true),
+    setHostLinksPhones: vi.fn(),
+    setHostSupervised: vi.fn(),
+    hostSupervised: vi.fn().mockReturnValue(false),
   };
   const deps = {
     backendRegistry,
@@ -115,6 +135,71 @@ describe("hosts:add", () => {
     expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.connectInBackground).toHaveBeenCalledWith(result.hostId);
+  });
+
+  it("keeps a newly added host's Manor running across reboots by default (ADR-229 D4)", () => {
+    const { deps, projectManager } = makeDeps();
+    register(deps as never);
+    const result = handlers.get("hosts:add")!(null, "me@box") as { hostId: string };
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith(result.hostId, true);
+  });
+});
+
+describe("hosts:addRecipeHost (ADR-229 D2)", () => {
+  let home: string;
+  let savedHome: string | undefined;
+
+  beforeEach(() => {
+    statusListeners.length = 0;
+    savedHome = process.env.HOME;
+    home = fs.mkdtempSync(path.join(os.tmpdir(), "hosts-recipe-test-"));
+    process.env.HOME = home;
+    const dir = path.join(home, ".manor", "host-recipes", "k8s-dev");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "recipe.json"),
+      JSON.stringify({ schemaVersion: 1, id: "k8s-dev", name: "Dev pod", up: "./up.sh" }),
+    );
+  });
+
+  afterEach(() => {
+    process.env.HOME = savedHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  });
+
+  it("registers a host for the recipe and connects it, which runs up", () => {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    register(deps as never);
+    const result = handlers.get("hosts:addRecipeHost")!(null, "k8s-dev") as {
+      hostId: string;
+      spec: unknown;
+    };
+    expect(result.spec).toEqual({ kind: "recipe", recipeId: "k8s-dev" });
+    expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
+    expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
+    expect(backendRegistry.ensureConnected).toHaveBeenCalledWith(result.hostId);
+    // A box Manor starts is supervised (ADR-229 D4).
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith(result.hostId, true);
+  });
+
+  it("refuses a recipe that isn't in ~/.manor/host-recipes, or an id that leaves it", () => {
+    const { deps, backendRegistry } = makeDeps();
+    register(deps as never);
+    const handler = handlers.get("hosts:addRecipeHost")!;
+    expect(() => handler(null, "nope")).toThrow(/No recipe "nope"/);
+    expect(() => handler(null, "../k8s-dev")).toThrow(/Invalid recipe id/);
+    expect(backendRegistry.register).not.toHaveBeenCalled();
+  });
+
+  it("refuses a recipe another host already uses", () => {
+    const { deps, projectManager } = makeDeps();
+    projectManager.getHosts.mockReturnValue([
+      { hostId: "h1", spec: { kind: "recipe", recipeId: "k8s-dev" } },
+    ]);
+    register(deps as never);
+    expect(() => handlers.get("hosts:addRecipeHost")!(null, "k8s-dev")).toThrow(
+      /Dev pod" already starts a host/,
+    );
   });
 });
 
@@ -196,11 +281,16 @@ describe("hosts phone access", () => {
       listDevices: vi.fn().mockResolvedValue([]),
       revoke: vi.fn().mockResolvedValue([]),
       resetIdentity: vi.fn().mockResolvedValue({ devices: 0 }),
+      setLinearToken: vi.fn().mockImplementation(async (t: string | null) => t !== null),
     };
     const server = {
       state,
       api: {
-        hostServer: { status: client.status, resetIdentity: client.resetIdentity },
+        hostServer: {
+          status: client.status,
+          resetIdentity: client.resetIdentity,
+          setLinearToken: client.setLinearToken,
+        },
         remoteControl: {
           pair: client.pair,
           listDevices: client.listDevices,
@@ -212,8 +302,33 @@ describe("hosts phone access", () => {
       hostServer: vi.fn((id: string) => (id === "box" ? server : undefined)),
     });
     const hostServerSync = { pairingChanged: vi.fn().mockResolvedValue(undefined) };
-    return { ctx: localCtx({ ...deps, hostServerSync } as never), client, hostServerSync };
+    const linearManager = { getToken: vi.fn().mockReturnValue("lin_key") };
+    return {
+      ctx: localCtx({ ...deps, hostServerSync, linearManager } as never),
+      backendRegistry,
+      client,
+      hostServerSync,
+      linearManager,
+    };
   }
+
+  it("sends the desktop's Linear key to the host, or deletes the copy", async () => {
+    const { ctx, client } = withServer("connected");
+    await expect(hostsSetLinearOnHost(ctx, "box", true)).resolves.toBe(true);
+    expect(client.setLinearToken).toHaveBeenLastCalledWith("lin_key");
+    await expect(hostsSetLinearOnHost(ctx, "box", false)).resolves.toBe(false);
+    expect(client.setLinearToken).toHaveBeenLastCalledWith(null);
+  });
+
+  it("will not turn Linear on without a key here, or on a dropped host", async () => {
+    const { ctx, client, linearManager } = withServer("connected");
+    linearManager.getToken.mockReturnValue(null);
+    await expect(hostsSetLinearOnHost(ctx, "box", true)).rejects.toThrow(/Connect Linear/);
+    const dropped = withServer("disconnected");
+    await expect(hostsSetLinearOnHost(dropped.ctx, "box", true)).rejects.toThrow(/Phone access/);
+    expect(client.setLinearToken).not.toHaveBeenCalled();
+    expect(dropped.client.setLinearToken).not.toHaveBeenCalled();
+  });
 
   it("reports an unknown host plainly", async () => {
     const { ctx } = withServer("connected");
@@ -227,6 +342,10 @@ describe("hosts phone access", () => {
       state: "unsupported",
       status: null,
       devices: [],
+      linkPhones: true,
+      linkedDeviceIds: [],
+      supervisor: null,
+      supervise: false,
     });
     expect(client.status).not.toHaveBeenCalled();
   });
@@ -250,6 +369,28 @@ describe("hosts phone access", () => {
     expect(hostServerSync.pairingChanged).not.toHaveBeenCalled();
   });
 
+  it("records the status's room and capability for hosts.list; an older host has no viewer bridge (ADR-228)", async () => {
+    const { ctx, client, backendRegistry: registry } = withServer("connected");
+    // An older host: no `capabilities`, no top-level `roomId`.
+    client.status.mockResolvedValueOnce({ devices: 0, relay: { roomId: "room-old" } });
+    await hostsServerStatus(ctx, "box");
+    expect(registry.setServerFacts).toHaveBeenLastCalledWith("box", {
+      roomId: "room-old",
+      viewerBridge: false,
+    });
+    client.status.mockResolvedValueOnce({
+      devices: 0,
+      roomId: "room-new",
+      capabilities: ["viewer-bridge"],
+      relay: { roomId: "room-new" },
+    });
+    await hostsServerStatus(ctx, "box");
+    expect(registry.setServerFacts).toHaveBeenLastCalledWith("box", {
+      roomId: "room-new",
+      viewerBridge: true,
+    });
+  });
+
   it("tells the sync the pairing changed after pair, revoke and reset", async () => {
     const { ctx, client, hostServerSync } = withServer("connected");
     await hostsPairDevice(ctx, "box", "  my phone ");
@@ -258,5 +399,166 @@ describe("hosts phone access", () => {
     await hostsResetPairingKeys(ctx, "box");
     expect(hostServerSync.pairingChanged).toHaveBeenCalledTimes(3);
     expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
+  });
+
+  it("resets a host's pairing keys through the links' queue (ADR-230 D11)", async () => {
+    const { ctx, client, hostServerSync } = withServer("connected");
+    const hostLinks = {
+      resetHost: vi.fn(async (_hostId: string, reset: () => Promise<unknown>) => reset()),
+    };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    const status = await hostsResetPairingKeys(linkedCtx, "box");
+    expect(hostLinks.resetHost).toHaveBeenCalledWith("box", expect.any(Function));
+    expect(client.resetIdentity).toHaveBeenCalledTimes(1);
+    expect(status).toEqual({ devices: 0 });
+    expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
+  });
+
+  it("carries the phone-link switch and which phones this desktop linked (ADR-228 D9)", async () => {
+    const { ctx } = withServer("connected");
+    const hostLinks = { linkedOn: vi.fn().mockReturnValue(["d1"]), setLinkPhones: vi.fn() };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    const view = await hostsServerStatus(linkedCtx, "box");
+    expect(view.linkPhones).toBe(true);
+    expect(view.linkedDeviceIds).toEqual(["d1"]);
+    expect(hostLinks.linkedOn).toHaveBeenCalledWith("box");
+  });
+
+  it("sets the phone-link switch through the links, away host included, and says the pairing changed", async () => {
+    const { ctx } = withServer("disconnected");
+    const hostLinks = { linkedOn: vi.fn(), setLinkPhones: vi.fn().mockResolvedValue(undefined) };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    await hostsSetLinkPhones(linkedCtx, "box", false);
+    expect(hostLinks.setLinkPhones).toHaveBeenCalledWith("box", false);
+    expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
+    await expect(hostsSetLinkPhones(linkedCtx, "nope", false)).rejects.toThrow(/Unknown remote host/);
+    await expect(hostsSetLinkPhones(linkedCtx, "box", "no" as never)).rejects.toThrow();
+  });
+
+  it("carries what supervises the host from its status (ADR-229 D4)", async () => {
+    const { ctx, client } = withServer("connected");
+    client.status.mockResolvedValueOnce({ devices: 0, supervisor: { kind: "systemd", linger: false } });
+    expect((await hostsServerStatus(ctx, "box")).supervisor).toEqual({ kind: "systemd", linger: false });
+    // An older server says nothing: none.
+    expect((await hostsServerStatus(ctx, "box")).supervisor).toBeNull();
+  });
+
+  it("carries the switch's remembered state, read with the host away too (ADR-229 D4)", async () => {
+    const { ctx } = withServer("disconnected");
+    const pm = (ctx.deps as unknown as { projectManager: { hostSupervised: ReturnType<typeof vi.fn> } })
+      .projectManager;
+    pm.hostSupervised.mockReturnValue(true);
+    expect((await hostsServerStatus(ctx, "box")).supervise).toBe(true);
+    expect(pm.hostSupervised).toHaveBeenCalledWith("box");
+  });
+});
+
+describe("hosts:setSupervised (ADR-229 D4)", () => {
+  function withTransport(stdout: string, code = 0) {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    const exec = vi.fn().mockResolvedValue({ code, stdout, stderr: "" });
+    Object.assign(backendRegistry, {
+      provider: vi.fn((id: string) => (id === "box" ? { transport: () => ({ exec }) } : undefined)),
+    });
+    return { ctx: localCtx(deps as never), exec, projectManager };
+  }
+
+  it("runs supervisor install on the host, remembers it, and answers the facts", async () => {
+    const { ctx, exec, projectManager } = withTransport('{"supervisor":{"kind":"systemd","linger":true}}\n');
+    await expect(hostsSetSupervised(ctx, "box", true)).resolves.toEqual({ kind: "systemd", linger: true });
+    expect(exec.mock.calls[0][0]).toBe('exec "$HOME/.manor/bin/manor-host" supervisor install --json');
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith("box", true);
+    expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
+  });
+
+  it("runs uninstall to turn it off", async () => {
+    const { ctx, exec, projectManager } = withTransport('{"supervisor":null}\n');
+    await expect(hostsSetSupervised(ctx, "box", false)).resolves.toBeNull();
+    expect(exec.mock.calls[0][0]).toContain("supervisor uninstall --json");
+    expect(projectManager.setHostSupervised).toHaveBeenCalledWith("box", false);
+  });
+
+  it("leaves the choice as it was when the host has no supervisor", async () => {
+    const { ctx, projectManager } = withTransport('{"error":"No supervisor on this host"}\n', 1);
+    await expect(hostsSetSupervised(ctx, "box", true)).rejects.toThrow("No supervisor on this host");
+    expect(projectManager.setHostSupervised).not.toHaveBeenCalled();
+  });
+
+  it("refuses an unknown host or a non-boolean", async () => {
+    const { ctx } = withTransport("{}");
+    await expect(hostsSetSupervised(ctx, "nope", true)).rejects.toThrow(/Unknown host/);
+    await expect(hostsSetSupervised(ctx, "box", "yes" as never)).rejects.toThrow();
+  });
+});
+
+describe("hosts:remove (ADR-229 D8)", () => {
+  const spec = { kind: "recipe", recipeId: "dev-pod" };
+
+  function withHost(provider: unknown) {
+    const { deps, backendRegistry, projectManager } = makeDeps();
+    const order: string[] = [];
+    const pm = Object.assign(projectManager, {
+      getHosts: vi.fn().mockReturnValue([{ hostId: "box", spec }]),
+      removeHost: vi.fn(() => void order.push("forget")),
+      projectNamesOnHost: vi.fn().mockReturnValue(["App"]),
+    });
+    Object.assign(backendRegistry, {
+      provider: vi.fn((id: string) => (id === "box" ? provider : undefined)),
+      hostDisplayName: vi.fn().mockReturnValue("Dev pod"),
+      unregister: vi.fn(async () => void order.push("unregister")),
+    });
+    forgetHostFiles.mockReset().mockImplementation(() => void order.push("files"));
+    return { ctx: localCtx(deps as never), backendRegistry, projectManager: pm, order };
+  }
+
+  it("destroys the box first, then forgets the host, its connection and its files", async () => {
+    const box = { capabilities: { canDestroy: true }, destroy: vi.fn() };
+    const { ctx, order } = withHost(box);
+    box.destroy.mockImplementation(async () => void order.push("destroy"));
+    await hostsRemove(ctx, "box", { destroy: true });
+    expect(order).toEqual(["destroy", "forget", "unregister", "files"]);
+    expect(forgetHostFiles).toHaveBeenCalledWith("box", spec, { destroyed: true });
+    expect(frames).toContainEqual({ ns: "projects", event: "changed", args: [], to: null });
+  });
+
+  it("removes nothing when the destroy fails", async () => {
+    const { ctx, backendRegistry, projectManager } = withHost({
+      capabilities: { canDestroy: true },
+      destroy: vi.fn().mockRejectedValue(new Error("destroy.sh exited 1")),
+    });
+    await expect(hostsRemove(ctx, "box", { destroy: true })).rejects.toThrow("destroy.sh exited 1");
+    expect(projectManager.removeHost).not.toHaveBeenCalled();
+    expect(backendRegistry.unregister).not.toHaveBeenCalled();
+    expect(forgetHostFiles).not.toHaveBeenCalled();
+  });
+
+  it("refuses to destroy a host its provider cannot", async () => {
+    const { ctx, projectManager } = withHost({ capabilities: { canDestroy: false } });
+    await expect(hostsRemove(ctx, "box", { destroy: true })).rejects.toThrow(/can't be destroyed/);
+    expect(projectManager.removeHost).not.toHaveBeenCalled();
+  });
+
+  it("removes from Manor without touching the box", async () => {
+    const destroy = vi.fn();
+    const { ctx, order } = withHost({ capabilities: { canDestroy: true }, destroy });
+    await hostsRemove(ctx, "box", { destroy: false });
+    expect(destroy).not.toHaveBeenCalled();
+    expect(order).toEqual(["forget", "unregister", "files"]);
+    expect(forgetHostFiles).toHaveBeenCalledWith("box", spec, { destroyed: false });
+  });
+
+  it("refuses this computer, an unknown host and a bad argument", async () => {
+    const { ctx } = withHost(undefined);
+    await expect(hostsRemove(ctx, "local", { destroy: false })).rejects.toThrow(/can't be removed/);
+    await expect(hostsRemove(ctx, "nope", { destroy: false })).rejects.toThrow(/Unknown remote host/);
+    await expect(hostsRemove(ctx, "box", { destroy: "yes" } as never)).rejects.toThrow();
+    await expect(hostsRemove(ctx, "box", null as never)).rejects.toThrow();
+  });
+
+  it("names the projects on a host", () => {
+    const { ctx, projectManager } = withHost(undefined);
+    expect(hostsProjectsOnHost(ctx, "box")).toEqual(["App"]);
+    expect(projectManager.projectNamesOnHost).toHaveBeenCalledWith("box");
+    expect(() => hostsProjectsOnHost(ctx, "nope")).toThrow(/Unknown host/);
   });
 });

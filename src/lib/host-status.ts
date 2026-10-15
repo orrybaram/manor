@@ -16,16 +16,32 @@
  * settings card.
  *
  * Being away is a normal state, not an error (ADR-178 §6): a routine drop
- * reads "reconnecting", in the warning tone, never "failed".
+ * reads "reconnecting", in the warning tone, never "failed". Neither is
+ * being asleep (ADR-229 D1): a box put to sleep reads "Asleep", and nothing
+ * retries it — using it wakes it.
  */
 
+import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
+import { hostName } from "./hosts";
 
-export type HostTone = "ok" | "warn" | "error";
+/**
+ * How a host's state is coloured. `asleep` is calm, unlike `warn`: a box
+ * put to sleep is where it was meant to be (ADR-229 D1).
+ */
+export type HostTone = "ok" | "warn" | "error" | "asleep";
 
 export interface HostDisplay {
-  /** The ssh target, e.g. `wsl-box` — how the user named the host. */
+  /**
+   * How the user named the host: its ssh target, e.g. `wsl-box`, or a recipe
+   * host's recipe name (ADR-229 D2).
+   */
   target: string;
+  /**
+   * The ssh target, for a host reached at one (`ssh <target>` works from a
+   * terminal). Absent for a host Manor starts from a recipe.
+   */
+  sshTarget?: string;
   /** Anything but connected: the host's panes are read-only. */
   offline: boolean;
   /** Connecting for the first time or after a retry — shown pulsing. */
@@ -69,6 +85,11 @@ const FAILURE_COPY: Record<
     summary: "Connected, but couldn't set Manor up on the host.",
     banner: (target) => `Couldn't set Manor up on ${target}`,
   },
+  recipe: {
+    status: "Couldn't start",
+    summary: "The host's recipe failed. Its output is below.",
+    banner: (target) => `Couldn't start ${target}`,
+  },
 };
 
 /**
@@ -102,7 +123,12 @@ export function describeHost(
   now: number,
 ): HostDisplay | undefined {
   if (!host) return undefined;
-  const target = host.spec?.target ?? host.hostId;
+  const display = describeStatus(host, hostName(host), now);
+  return host.spec?.kind === "ssh" ? { ...display, sshTarget: host.spec.target } : display;
+}
+
+/** `describeHost` for its status alone, `target` naming the host. */
+function describeStatus(host: HostStatusInfo, target: string, now: number): HostDisplay {
   switch (host.status) {
     case "connected": {
       const warnings = host.warnings?.length ? host.warnings.join(" ") : undefined;
@@ -145,6 +171,20 @@ export function describeHost(
       };
     }
     case "error": {
+      // Deleted outside Manor (ADR-229 D2): starting it again is the user's
+      // call, from the Hosts page — retrying would not.
+      if (host.missing) {
+        return {
+          target,
+          offline: true,
+          busy: false,
+          tone: "error",
+          status: "No longer exists",
+          banner: `${target} no longer exists`,
+          summary: `${target} no longer exists. Start it again, or remove it, in Settings → Hosts.`,
+          canRetry: false,
+        };
+      }
       const copy = host.failure ? FAILURE_COPY[host.failure.reason] : null;
       const unreachable = copy ? null : describeUnreachable(host.error);
       const summary = copy?.summary ?? unreachable;
@@ -162,6 +202,18 @@ export function describeHost(
         canRetry: true,
       };
     }
+    case "sleeping":
+      // Away for routing, but nothing to retry: a write for it wakes it.
+      return {
+        target,
+        offline: true,
+        busy: false,
+        tone: "asleep",
+        status: "Asleep",
+        banner: `${target} is asleep`,
+        summary: "The host is asleep. Opening a pane or starting work on it wakes it.",
+        canRetry: false,
+      };
     case "disconnected":
     default:
       return {
@@ -189,10 +241,38 @@ export function secondsUntilRetry(
 }
 
 /**
- * Whether host `hostId` is away: main reported it and it is not connected.
- * `connecting`, `reconnecting`, `error` and `disconnected` all count as away,
- * as `describeHost` marks them `offline`. This machine (a missing id) and a
- * host main has not reported yet are never away.
+ * `host` as its source says it is (ADR-228 D6). A desktop window that holds
+ * its own bridge to the host's server (`src/bridge/desktop-hosts.ts`) has the
+ * host answering it while that bridge is `connected`, whatever main's last
+ * status said; otherwise main's status is the host's. Main closes a window's
+ * stream the moment a host leaves `connected`, so the two disagree only
+ * while that news is on its way — and then the host that is answering wins.
+ *
+ * `via` is how the servers that list the host are doing (`viaReachability`).
+ * A host the page holds no bridge to is reached only through them, so when
+ * every one is gone it reads "Not connected", whatever their last word was.
+ */
+export function sourcedHost(
+  host: HostStatusInfo | undefined,
+  direct: Reachability | undefined,
+  via?: Reachability,
+): HostStatusInfo | undefined {
+  if (!host) return host;
+  if (direct === undefined && via === "unreachable" && host.status === "connected") {
+    return { hostId: host.hostId, spec: host.spec, status: "disconnected" };
+  }
+  if (direct !== "connected" || host.status === "connected") return host;
+  return { hostId: host.hostId, spec: host.spec, status: "connected" };
+}
+
+/**
+ * Whether host `hostId` is away: main reported it and it is not connected,
+ * and no bridge of this page's own to its server is (`sourcedHost`; `direct`
+ * reads the page's server set). `connecting`, `reconnecting`, `error`,
+ * `sleeping` and `disconnected` all count as away, as `describeHost` marks them `offline`.
+ * This machine (a missing id) and a host main has not reported yet are never
+ * away. `via` reads the servers that list a host the page holds no bridge
+ * to: when all of them are gone it is away whatever main last said.
  *
  * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
  * keystrokes replayed into a shell minutes later, into whatever is then in
@@ -202,9 +282,18 @@ export function secondsUntilRetry(
 export function isHostOffline(
   hostId: string | null | undefined,
   hosts: readonly HostStatusInfo[],
+  direct?: (hostId: string) => Reachability | undefined,
+  via?: (hostId: string) => Reachability | undefined,
 ): boolean {
   if (!hostId) return false;
-  const host = hosts.find((h) => h.hostId === hostId);
+  const directly = direct?.(hostId);
+  const host = sourcedHost(
+    hosts.find((h) => h.hostId === hostId),
+    directly,
+  );
+  // With no bridge of its own, a host (or the desktop's own machine, on a
+  // phone) is as far away as every server that lists it (D3, source 2).
+  if (directly === undefined && via?.(hostId) === "unreachable") return true;
   return host !== undefined && host.status !== "connected";
 }
 
@@ -224,8 +313,18 @@ export type GroupHostState = "connected" | "partially-offline" | "offline";
 export function groupHostState(
   memberHostIds: readonly (string | null | undefined)[],
   hosts: readonly HostStatusInfo[],
+  direct?: (hostId: string) => Reachability | undefined,
+  via?: (hostId: string) => Reachability | undefined,
 ): GroupHostState {
-  const offline = memberHostIds.filter((id) => isHostOffline(id, hosts)).length;
+  return groupStateOf(memberHostIds, (id) => isHostOffline(id, hosts, direct, via));
+}
+
+/** `groupHostState` by a predicate that already knows which hosts are away. */
+export function groupStateOf(
+  memberHostIds: readonly (string | null | undefined)[],
+  isAway: (hostId: string | null | undefined) => boolean,
+): GroupHostState {
+  const offline = memberHostIds.filter(isAway).length;
   if (offline === 0) return "connected";
   return offline === memberHostIds.length ? "offline" : "partially-offline";
 }

@@ -24,6 +24,7 @@ import {
   findPanelWithPane,
   findPanelWithTab,
   layoutLeaves,
+  layoutPaneIds,
 } from "../lib/layout/workspace-layout";
 import type { LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
@@ -47,6 +48,8 @@ import {
   isTabVisible,
   visibleTabsFor,
 } from "../lib/layout/visible-tabs";
+import { BridgeUnavailableError } from "../bridge/client";
+import { provideHostLookups } from "../bridge/host-lookups";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
   LayoutChangedPayload,
@@ -197,6 +200,23 @@ export interface AppState {
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
+  /**
+   * The panes of the workspace this window shows at launch, as the layout
+   * read at launch has them, whose first `pty.create` has not settled yet
+   * (ADR-230 D3). That create is not one the user meant, so it leaves a
+   * sleeping host asleep (`wake: false`). `forgetRestoredPane` drops a pane
+   * once it has, so every later create wakes as usual. A workspace the user
+   * opens later is intent, so its panes are never here.
+   */
+  restoredPaneIds: ReadonlySet<string>;
+  /**
+   * The launch has picked the workspace this window shows (the active one):
+   * its panes of the layout read at launch become `restoredPaneIds`. Once
+   * per launch; any later call does nothing.
+   */
+  seedRestoredPanes: () => void;
+  /** `paneId`'s first create after launch is done, whatever its answer. */
+  forgetRestoredPane: (paneId: string) => void;
   /** Pane ID awaiting close confirmation (when agent is active) */
   pendingCloseConfirmPaneId: string | null;
   /** Tab ID awaiting close confirmation (when agent is active in a pane) */
@@ -436,15 +456,14 @@ export interface AppState {
     {
       steps: Array<{ step: SetupStep; status: StepStatus; message?: string }>;
       completed: boolean;
-      startScript?: string | null;
       workspacePath?: string;
     }
   >;
-  initWorktreeSetup: (
-    wsPathHint: string,
-    hasStartScript: boolean,
-    startScript?: string | null,
-  ) => void;
+  /**
+   * The checklist of a workspace being created. Its setup script is not a
+   * step: the server runs it in a tab of its own (ADR-227 D5).
+   */
+  initWorktreeSetup: (wsPathHint: string) => void;
   updateWorktreeSetupStep: (
     wsPath: string,
     step: SetupStep,
@@ -1199,6 +1218,18 @@ function selectTabLocally(
 // window?" to give them.
 
 /**
+ * A layout write the host refused (`unavailable:host-away`, `unavailable:host`)
+ * becomes the once-per-session toast, keyed by the refusal's code so an away
+ * host and a refused method each speak once. Anything else is not handled
+ * here and returns false.
+ */
+function refuseLayoutWrite(err: unknown): boolean {
+  if (!(err instanceof BridgeUnavailableError)) return false;
+  handleBridgeUnavailable(`layout-write:${err.code}`, err.message)(err);
+  return true;
+}
+
+/**
  * Send one command for one workspace, and forget it.
  *
  * Nothing waits for the answer: what the caller actually wants — the new
@@ -1235,6 +1266,7 @@ function sendLayoutCommand(
       });
     })
     .catch((err: unknown) => {
+      if (refuseLayoutWrite(err)) return;
       console.error(`[layout] ${command.type} failed:`, err);
     });
 }
@@ -1266,6 +1298,7 @@ export function sendPendingCommand(
   void window.electronAPI?.layout
     ?.setPendingCommand(paneId, text, kind, opts)
     ?.catch((err: unknown) => {
+      if (refuseLayoutWrite(err)) return;
       console.error(`[layout] pending command for ${paneId} failed:`, err);
     });
 }
@@ -1426,6 +1459,13 @@ function checkOwnClaim(
  */
 let lastActiveWorkspacePath: string | null = null;
 
+/**
+ * The pane ids of each workspace in the layout read at launch, by workspace
+ * key, until `seedRestoredPanes` takes the shown one's (ADR-230 D3). Null
+ * before the read and after the seed, so only the launch's pick seeds.
+ */
+let launchPanes: Map<string, Set<string>> | null = null;
+
 export function getPersistedActiveWorkspacePath(): string | null {
   return lastActiveWorkspacePath;
 }
@@ -1551,6 +1591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   panePickedElement: {},
   webviewFocusedPaneId: null,
   layoutLoaded: false,
+  restoredPaneIds: new Set<string>(),
   paneFocusNonce: 0,
   pendingCloseConfirmPaneId: null,
   pendingCloseConfirmTabId: null,
@@ -1570,12 +1611,33 @@ export const useAppStore = create<AppState>((set, get) => ({
         ]);
         lastActiveWorkspacePath =
           ownViewport?.activeWorkspacePath ?? lastActive;
+        // What this launch restores, by workspace, until the launch picks
+        // the one it shows (`seedRestoredPanes`, ADR-230 D3).
+        launchPanes = new Map(
+          Object.entries(entries).map(([key, entry]) => [key, layoutPaneIds(entry.layout)]),
+        );
         return { entries, seedViewports: ownViewport?.workspaces ?? {} };
       });
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
     }
     set({ layoutLoaded: true });
+  },
+
+  seedRestoredPanes: () => {
+    const panes = launchPanes;
+    launchPanes = null;
+    const key = selectActiveWorkspaceKey(get());
+    const restored = key ? panes?.get(key) : undefined;
+    if (restored) set({ restoredPaneIds: new Set(restored) });
+  },
+
+  forgetRestoredPane: (paneId) => {
+    const { restoredPaneIds } = get();
+    if (!restoredPaneIds.has(paneId)) return;
+    const rest = new Set(restoredPaneIds);
+    rest.delete(paneId);
+    set({ restoredPaneIds: rest });
   },
 
   setActiveWorkspace: (path: string, hostId?: HostId | null) =>
@@ -2356,11 +2418,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       return { panePickedElement: rest };
     }),
 
-  initWorktreeSetup: (
-    wsPathHint: string,
-    hasStartScript: boolean,
-    startScript?: string | null,
-  ) =>
+  initWorktreeSetup: (wsPathHint: string) =>
     set((state) => {
       const baseSteps: SetupStep[] = [
         "prune",
@@ -2369,7 +2427,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         "persist",
         "switch",
       ];
-      if (hasStartScript) baseSteps.push("setup-script");
       const steps = baseSteps.map((step) => ({
         step,
         status: "pending" as StepStatus,
@@ -2380,7 +2437,6 @@ export const useAppStore = create<AppState>((set, get) => ({
           [wsPathHint]: {
             steps,
             completed: false,
-            startScript: startScript ?? null,
             workspacePath: wsPathHint,
           },
         },
@@ -2447,6 +2503,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     }),
 
 }));
+
+// Where a pane lives, for the bridge router (ADR-228 D1): the workspace whose
+// layout holds it, whose key names its host.
+provideHostLookups({
+  paneWorkspace: (paneId) => workspaceOfPane(useAppStore.getState(), paneId),
+});
 
 // ── The server's broadcasts land here (ADR-179 D1) ──
 //

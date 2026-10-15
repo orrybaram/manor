@@ -5,6 +5,7 @@ import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
 import ListTodo from "lucide-react/dist/esm/icons/list-todo";
 import Search from "lucide-react/dist/esm/icons/search";
 import Bell from "lucide-react/dist/esm/icons/bell";
+import Server from "lucide-react/dist/esm/icons/server";
 import { refreshState } from "../../../bridge/resync";
 import type { AgentInfo } from "../../../electron.d";
 import { useVisibleAgents } from "../../../hooks/useVisibleAgents";
@@ -35,6 +36,8 @@ type PhoneAgentsPanelProps = {
   onOpenSettings: () => void;
   onOpenSearch?: () => void;
   onOpenNotifications?: () => void;
+  /** The paired hosts (ADR-228 D8); only a browser has any. */
+  onOpenHosts?: () => void;
   /** Closes the drawer after any navigation. */
   onNavigate: () => void;
 };
@@ -52,6 +55,7 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
     onOpenSettings,
     onOpenSearch,
     onOpenNotifications,
+    onOpenHosts,
     onNavigate,
   } = props;
 
@@ -174,6 +178,11 @@ export function PhoneAgentsPanel(props: PhoneAgentsPanelProps) {
             </NavIcon>
           )}
           {onOpenNotifications && <NotificationsIcon onOpen={onOpenNotifications} />}
+          {onOpenHosts && (
+            <NavIcon label="Hosts" testId="hosts-row" onClick={onOpenHosts}>
+              <Server size={18} />
+            </NavIcon>
+          )}
         </nav>
       </div>
     </div>

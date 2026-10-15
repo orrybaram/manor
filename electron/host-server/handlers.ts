@@ -1,27 +1,37 @@
 /**
- * The host server's handler table (ADR-225 D5, D6): an explicit allowlist,
- * in the style of `remote-control/allowlist.ts`.
+ * The host server's handler table (ADR-225 D5, D6; ADR-227 D6): an explicit
+ * allowlist, in the style of `remote-control/allowlist.ts`.
  *
  * The desktop's table (`bridge/handlers.ts`) is everything Manor can do. A
- * host server in slice 1 can do much less, on purpose: the desktop owns
- * projects and layout, so a phone with the lid closed may watch and steer
- * what is already running — terminals, agents, the chat view — and may not
- * create a workspace, launch an agent or rearrange a layout. Every
- * `ns.method` not listed here is answered `unavailable:host`, which the
- * renderer shows as a stated empty state (`src/bridge/client.ts`).
+ * host server owns its host's projects, workspaces and layout (ADR-227 D2),
+ * so a phone with the lid closed may create and remove a workspace, launch an
+ * agent and rearrange a layout there, as well as watch and steer what is
+ * running — terminals, agents, the chat view. Adding a project to the box,
+ * or changing one, stays the owner's: the desktop does it over the owner
+ * channel. Every `ns.method` not listed here is answered `unavailable:host`,
+ * which the renderer shows as a stated empty state (`src/bridge/client.ts`).
  *
  * Adding a method here is the decision ADR-225's "Harder" section warns
  * about: a feature that should work with the lid closed has to be added on
  * purpose. Each entry either reuses the desktop's handler as it is — those
- * declare only the slice of deps they read (`PtyViewerDeps`, `ChatDeps`,
- * `AgentReadDeps`) —
- * or is a host-server read over `HostServerDeps`, which carries no window,
- * menu or Electron object of any kind.
+ * declare only the slice of deps they read (`SharedDeps`, `PtyViewerDeps`,
+ * `ChatDeps`, `AgentReadDeps`) — or is a host-server one over
+ * `HostServerDeps`, which carries no window, menu or Electron object of any
+ * kind.
+ *
+ * **Until the host is adopted** (`ownership: "pending"`, ADR-227 D3) its
+ * project and layout writes answer `unavailable:host` with "This host is
+ * being set up", and `projects.getAll` is empty (`./ownership.ts`).
  */
 
-import { assertPositiveInt, assertString } from "../ipc-validate";
+import { assertString } from "../ipc-validate";
 import type { HostStatusInfo } from "../backend/host-connection";
-import { LOCAL_HOST_ID, type PtyBackend } from "../backend/types";
+import { LOCAL_HOST_ID } from "../backend/types";
+import type { RoutedBackend } from "../backend/routed-backend";
+import type { AgentManager } from "../agent-persistence";
+import type { UnseenAgents } from "../agent-status/unseen-agents";
+import type { ChatMirror } from "../chat-mirror/mirror";
+import type { SharedDeps } from "../ipc/types";
 import {
   chatAnswer,
   chatGetCommands,
@@ -34,13 +44,81 @@ import {
 } from "../bridge/handlers/chat";
 import {
   attachReturning,
-  createShaped,
   ptyClaimWinsize,
+  ptyClose,
+  ptyCreate,
   ptyDetach,
+  ptyReset,
   ptyResize,
   ptyWrite,
+  type PtyResetResult,
   type PtyViewerDeps,
 } from "../bridge/handlers/pty";
+import {
+  projectsAdd,
+  projectsCanQuickMerge,
+  projectsClone,
+  projectsConvertMainToWorktree,
+  projectsCreateWorkspaceFolder,
+  projectsCreateWorktree,
+  projectsDeleteWorkspaceFolder,
+  projectsGetAll,
+  projectsGetSelectedIndex,
+  projectsListLocalBranches,
+  projectsListRemoteBranches,
+  projectsQuickMergeWorktree,
+  projectsRemove,
+  projectsRemoveWorktree,
+  projectsRenameWorkspace,
+  projectsRenameWorkspaceFolder,
+  projectsReorderWorkspaces,
+  projectsSelectWorkspace,
+  projectsSetFolderParent,
+  projectsSetWorkspaceFolder,
+  projectsSetWorkspaceHidden,
+  projectsUpdate,
+} from "../bridge/handlers/projects";
+import {
+  layoutApply,
+  layoutGetAll,
+  layoutGetLastActive,
+  layoutReportViewport,
+  layoutSetPaneTitle,
+  layoutSetPendingCommand,
+} from "../bridge/handlers/layout";
+import {
+  agentsDelete,
+  agentsMarkResumed,
+  agentsMarkSeen,
+  agentsSetPaneContext,
+  agentsUpdate,
+} from "../bridge/handlers/agents";
+import {
+  githubAssignIssue,
+  githubCheckStatus,
+  githubCloseIssue,
+  githubCreateIssue,
+  githubGetAllIssues,
+  githubGetIssueDetail,
+  githubGetMyIssues,
+  githubGetPrsForBranches,
+  githubGetViewerName,
+  githubListRepos,
+  githubProxyImage,
+  linearAssociateProject,
+  linearAutoMatch,
+  linearCloseIssue,
+  linearGetAllIssues,
+  linearGetIssueDetail,
+  linearGetMyIssues,
+  linearGetTeams,
+  linearGetViewer,
+  linearIsConnected,
+  linearLinkIssueToWorkspace,
+  linearProxyImage,
+  linearStartIssue,
+  linearUnlinkIssueFromWorkspace,
+} from "../bridge/handlers/integrations";
 import {
   flatten,
   method,
@@ -48,16 +126,21 @@ import {
   type HandlerCtx,
 } from "../bridge/method";
 import type { BridgeServerDeps } from "../bridge/server";
-import { UNAVAILABLE_HOST_CODE } from "../bridge/types";
+import {
+  branchesStart,
+  branchesStop,
+  diffsStart,
+  diffsStop,
+} from "../bridge/handlers/branches-diffs";
+import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
-import { resolveSpawnCwd } from "../paths";
 import type { Theme, ThemeColors } from "../theme";
-import type { LayoutEntry } from "../../src/lib/layout/protocol";
 import type {
   PtyAttachResult,
   PtyCreateOptions,
   PtyCreateResult,
+  PtyResetOptions,
 } from "../../src/electron.d";
 import { errorMessage } from "../lib/errors";
 import {
@@ -76,50 +159,32 @@ import {
 } from "../bridge/handlers/remote-control";
 import type { RemoteDeviceInfo } from "../remote-control/devices";
 import type { VapidKeys } from "../remote-control/push";
-import type { HostLayoutSnapshot } from "./layout";
-import type { HostManifest } from "./manifest";
-import {
-  assertHostLayoutSnapshot,
-  assertHostManifest,
-  assertVapidKeys,
-  type OwnerSync,
-} from "./owner";
+import type { Adopt, AdoptionBundle } from "./adopt";
+import { answerOwnerRequest } from "./cli-relay";
+import type { ControlRelayResult } from "../terminal-host/control-relay-listener";
+import { assertAdoptionBundle, assertVapidKeys } from "./owner";
+import { assertOwned, type OwnershipState } from "./ownership";
 import type { HostRelay, HostRemoteControl, HostServerStatus } from "./relay";
-import {
-  missingSessions,
-  withStartedWhileAway,
-} from "./started-while-away";
 import type { HostWinsize } from "./winsize";
 
-/** The daemon calls the host server's handlers make. */
-export type HostPty = Pick<
-  PtyBackend,
-  | "write"
-  | "resize"
-  | "detach"
-  | "getSnapshot"
-  | "createOrAttach"
-  | "attachExisting"
-  | "listSessions"
->;
-
 /**
- * Everything the host table reads (ADR-225 D6). Not `HostDeps`: no
- * `BrowserWindow`, no app menu, no registry of other hosts — this server is
- * one host, local to itself.
+ * Everything the host table reads (ADR-225 D6): what every server composes
+ * (`SharedDeps`, built by `createManorServer`) plus this server's own parts.
+ * Not `HostDeps`: no `BrowserWindow`, no app menu, no registry of other
+ * hosts — this server is one host, local to itself.
  */
 export interface HostServerDeps
-  extends BridgeServerDeps, PtyViewerDeps, ChatDeps, AgentReadDeps {
-  backend: { pty: HostPty };
+  extends SharedDeps, BridgeServerDeps, PtyViewerDeps, ChatDeps, AgentReadDeps {
+  // The shared parts, which satisfy each handler's narrower slice.
+  backend: RoutedBackend;
+  agentManager: AgentManager;
+  agentStatus: SharedDeps["agentStatus"];
+  unseen: UnseenAgents;
+  chatMirror: ChatMirror;
+  getPaneHostId: SharedDeps["getPaneHostId"];
+  hostStatus: SharedDeps["hostStatus"];
   /** Whether the daemon is reachable right now. */
   daemonStatus(): HostStatusInfo;
-  /** The manifest's projects over git's worktrees on this box. */
-  projects(): Promise<ProjectInfo[]>;
-  /** The desktop's last layout snapshot for this host. */
-  layout(): {
-    workspaces: Record<string, LayoutEntry>;
-    lastActiveWorkspacePath: string | null;
-  };
   /** The daemon's attach count decides who owns a pane's winsize (D5). */
   winsize: HostWinsize;
   /** This server's preferences: the defaults until the desktop syncs any. */
@@ -130,42 +195,70 @@ export interface HostServerDeps
   remoteControl: HostRemoteControl;
   /** The same room's owner-only side: reset, the desktop's VAPID pair. */
   relay: Pick<HostRelay, "resetIdentity" | "setVapidKeys">;
-  /** Persists and announces what the owner synced (`./owner.ts`). */
-  ownerSync: OwnerSync;
+  /** Whether this host has been adopted yet (ADR-227 D3, `./ownership.ts`). */
+  ownership: OwnershipState;
+  /** Merge the desktop's records for this host into its stores (`./adopt.ts`). */
+  adopt: Adopt;
   /** What `hostServer.status` answers the owner (ADR-225 D4). */
   serverStatus(): HostServerStatus;
+  /** The owner has read `identityReset`; stop reporting it (ADR-229 D6). */
+  acknowledgeIdentityReset(): void;
+  /** This box's name, for the messages that say which host refused. */
+  hostName(): string;
 }
 
 type Ctx = HandlerCtx<HostServerDeps>;
 
+// ── ownership (ADR-227 D3) ──
+
+/** What the ownership gate reads. */
+interface OwnershipDeps {
+  ownership: Pick<OwnershipState, "current">;
+}
+
+/**
+ * `fn`, refused with "This host is being set up" until the host has been
+ * adopted: a project or layout write made before adoption would be one the
+ * desktop's records then have to merge with.
+ */
+function owned<D, A extends unknown[], R>(
+  fn: (ctx: HandlerCtx<D>, ...args: A) => R,
+): (ctx: HandlerCtx<D & OwnershipDeps>, ...args: A) => R {
+  return (ctx, ...args) => {
+    assertOwned(ctx.deps.ownership);
+    return fn(ctx, ...args);
+  };
+}
+
+/** No projects until the host is adopted: the desktop still has them. */
+function hostProjectsGetAll(ctx: Ctx): Promise<ProjectInfo[]> {
+  if (ctx.deps.ownership.current() !== "host") return Promise.resolve([]);
+  return projectsGetAll(ctx);
+}
+
 // ── pty ──
 
 /**
- * Attach to a session the daemon already runs, as a viewer — never spawn
- * one. Starting terminals from the phone waits for slice 2, when the host
- * server owns the layout a new pane would go into (ADR-225 D5).
- *
- * The winsize answer is the daemon's (ADR-225 D5, `./winsize.ts`): a follower
- * whenever a client other than this server is attached to the session — or
- * the daemon does not say — and the owner otherwise. The count goes into the
- * registry's foreign hold, and `createShaped` reads it from there.
+ * Open a pane's session — the desktop's `pty.create`, which spawns one the
+ * daemon does not have (ADR-227 D6) — with the daemon's winsize answer set
+ * first (ADR-225 D5, `./winsize.ts`): a follower whenever a client other than
+ * this server is attached to the session — or the daemon does not say — and
+ * the owner otherwise. The count goes into the registry's foreign hold, and
+ * `createShaped` reads it from there. A session not yet running has nobody
+ * else on it.
  */
-export async function hostPtyCreate(
+export async function ptyCreateWithHold(
   ctx: Ctx,
   paneId: string,
   cwd: string | null,
   cols: number,
   rows: number,
-  _opts?: PtyCreateOptions | null,
+  opts?: PtyCreateOptions | null,
 ): Promise<PtyCreateResult> {
   assertString(paneId, "paneId");
-  if (cwd !== null) assertString(cwd, "cwd");
-  assertPositiveInt(cols, "cols");
-  assertPositiveInt(rows, "rows");
-  const { pty } = ctx.deps.backend;
   let session: { alive: boolean; attachedClients?: number } | undefined;
   try {
-    const sessions = await pty.listSessions();
+    const sessions = await ctx.deps.backend.pty.listSessions();
     session = sessions.find((s) => s.sessionId === paneId);
   } catch (err) {
     return {
@@ -175,39 +268,9 @@ export async function hostPtyCreate(
       error: errorMessage(err),
     };
   }
-  if (!session?.alive) {
-    return {
-      ok: false,
-      reason: "error",
-      error:
-        "This terminal isn't running on the host. Starting terminals from here comes in a later version.",
-    };
-  }
   // Into the registry before the call, so `createShaped` reads the hold.
-  ctx.deps.winsize.watch(paneId, session.attachedClients);
-  return createShaped(ctx, paneId, cols, rows, async (c, r) => {
-    try {
-      const result = await pty.createOrAttach(
-        paneId,
-        resolveSpawnCwd(cwd),
-        c,
-        r,
-      );
-      return {
-        ok: true as const,
-        hostId: LOCAL_HOST_ID,
-        snapshot: result.snapshot?.screenAnsi || null,
-        snapshotSeq: result.snapshot?.seq,
-        prewarmed: result.snapshot !== null,
-      };
-    } catch (err) {
-      return {
-        ok: false as const,
-        reason: "error" as const,
-        error: errorMessage(err),
-      };
-    }
-  });
+  ctx.deps.winsize.watch(paneId, session?.alive ? session.attachedClients : 0);
+  return ptyCreate(ctx, paneId, cwd, cols, rows, opts);
 }
 
 /**
@@ -241,47 +304,23 @@ export async function hostPtyAttach(ctx: Ctx, paneId: string): Promise<PtyAttach
   }
 }
 
-// ── projects, layout ──
-
-function projectsGetAll(ctx: Ctx): Promise<ProjectInfo[]> {
-  return ctx.deps.projects();
-}
-
-/** Selection is a desktop window's; a phone starts at the first project. */
-function projectsGetSelectedIndex(): number {
-  return 0;
-}
-
 /**
- * The desktop's snapshot, plus a "Started while away" tab for each live
- * daemon session it does not place (ADR-225 D5). Only the snapshot when the
- * daemon or git cannot be asked: a phone still gets its layout.
+ * A pane's session killed and started afresh in place (`pty.reset`), for a
+ * desktop window that holds this server's bridge itself (ADR-228 D5). The
+ * fresh session has nobody else on it, so the hold says so before the
+ * create-shaped answer reads it.
  */
-async function layoutGetAll(ctx: Ctx): Promise<Record<string, LayoutEntry>> {
-  const { workspaces } = ctx.deps.layout();
-  try {
-    const missing = missingSessions(
-      workspaces,
-      await ctx.deps.backend.pty.listSessions(),
-    );
-    if (missing.length === 0) return workspaces;
-    // Bounded: a git that hangs must not hold up the layout the phone needs.
-    const projects = await Promise.race([
-      ctx.deps.projects(),
-      new Promise<never>((_, reject) => {
-        const t = setTimeout(() => reject(new Error("projects timed out")), 3_000);
-        t.unref?.();
-      }),
-    ]);
-    const paths = projects.flatMap((p) => p.workspaces.map((w) => w.path));
-    return withStartedWhileAway(workspaces, missing, paths);
-  } catch {
-    return workspaces;
-  }
-}
-
-function layoutGetLastActive(ctx: Ctx): string | null {
-  return ctx.deps.layout().lastActiveWorkspacePath;
+function hostPtyReset(
+  ctx: Ctx,
+  paneId: string,
+  cwd: string | null,
+  cols: number,
+  rows: number,
+  opts?: PtyResetOptions | null,
+): Promise<PtyResetResult> {
+  assertString(paneId, "paneId");
+  ctx.deps.winsize.watch(paneId, 0);
+  return ptyReset(ctx, paneId, cwd, cols, rows, opts);
 }
 
 // ── preferences, theme ──
@@ -336,30 +375,23 @@ function remoteControlRevoke(
 // ── the owner's view of this server (ADR-225 D4) ──
 
 function hostServerStatus(ctx: Ctx): HostServerStatus {
-  return ctx.deps.serverStatus();
+  const status = ctx.deps.serverStatus();
+  // `identityReset` is for the owner's next read only (ADR-229 D6).
+  ctx.deps.acknowledgeIdentityReset();
+  return status;
 }
 
 /**
  * New relay identity; every phone and push subscription revoked.
  *
- * Owner-only, like pairing. When delegated integration tokens arrive (ADR-225
- * D8, slice 2) this must delete those too: "Reset pairing keys" is the
- * recovery step for a box that may be compromised.
+ * Owner-only, like pairing. It deletes the delegated Linear token too:
+ * "Reset pairing keys" is the recovery step for a box that may be
+ * compromised (ADR-227 D7).
  */
 async function hostServerResetIdentity(ctx: Ctx): Promise<HostServerStatus> {
   await ctx.deps.relay.resetIdentity();
+  ctx.deps.linearManager.clearToken();
   return ctx.deps.serverStatus();
-}
-
-/**
- * The desktop's projects on this host (ADR-225 D4, D8): persisted to
- * `manifest.json` and served by `projects.getAll`; every phone hears
- * `projects.changed`. The payload is checked whole before anything is
- * written (`./owner.ts`).
- */
-function hostServerSyncManifest(ctx: Ctx, manifest: HostManifest): true {
-  assertHostManifest(manifest);
-  return ctx.deps.ownerSync.syncManifest(manifest);
 }
 
 /**
@@ -373,20 +405,77 @@ function hostServerSetVapidKeys(ctx: Ctx, keys: VapidKeys): Promise<boolean> {
 }
 
 /**
- * The desktop's layout for this host's workspaces, keys already bare paths
- * (ADR-225 D5): persisted to `layout.json` and served by `layout.getAll`;
- * every phone hears `layout.changed` for the workspaces that changed.
+ * The desktop's Linear key for this host (ADR-227 D7), sealed in this host's
+ * `SecretBox`; null deletes it. Answers whether Linear is on. `secretFirstArg`
+ * keeps the key out of the audit line.
  */
-function hostServerSyncLayout(ctx: Ctx, snapshot: HostLayoutSnapshot): true {
-  assertHostLayoutSnapshot(snapshot);
-  return ctx.deps.ownerSync.syncLayout(snapshot);
+async function hostServerSetLinearToken(ctx: Ctx, token: string | null): Promise<boolean> {
+  if (token === null) {
+    ctx.deps.linearManager.clearToken();
+  } else {
+    assertString(token, "hostServer.setLinearToken.token");
+    if (token.trim() === "") throw new Error("hostServer.setLinearToken.token is empty");
+    await ctx.deps.linearManager.saveToken(token);
+  }
+  return ctx.deps.linearManager.isConnected();
+}
+
+/**
+ * `fn`, refused `unavailable:host` until the user has turned Linear on for
+ * this host: no token is here, so there is nothing to call Linear with.
+ */
+function withLinear<A extends unknown[], R>(
+  fn: (ctx: HandlerCtx<Pick<SharedDeps, "linearManager" | "projectManager">>, ...args: A) => R,
+): (ctx: Ctx, ...args: A) => R {
+  return (ctx, ...args) => {
+    if (!ctx.deps.linearManager.isConnected()) {
+      throw new BridgeUnavailableRefusal(
+        `Linear isn't turned on for ${ctx.deps.hostName()}`,
+        UNAVAILABLE_HOST_CODE,
+      );
+    }
+    return fn(ctx, ...args);
+  };
+}
+
+/**
+ * Adoption (ADR-227 D3): the desktop's projects, agents and layout for this
+ * host, merged into this server's stores with the host winning every
+ * conflict, then `ownership: "host"`. Checked whole first: a bad bundle
+ * writes nothing. Sending it again is harmless. Answers the new status.
+ */
+async function hostServerAdopt(ctx: Ctx, bundle: AdoptionBundle): Promise<HostServerStatus> {
+  assertAdoptionBundle(bundle);
+  await ctx.deps.adopt(bundle);
+  return ctx.deps.serverStatus();
+}
+
+/**
+ * A control request (`electron/routes/`) about one of this host's projects
+ * or agents, from the desktop's MCP or CLI (ADR-227 D4, D8): run through the
+ * same server routes the box's own CLI reaches (`./cli-relay.ts`). Answers
+ * the HTTP status and body; never rejects.
+ */
+function hostServerControl(
+  ctx: Ctx,
+  method: string,
+  path: string,
+  body: unknown,
+): Promise<ControlRelayResult> {
+  assertString(method, "hostServer.control.method");
+  assertString(path, "hostServer.control.path");
+  return answerOwnerRequest({ routes: ctx.deps, ownership: ctx.deps.ownership }, { method, path, body });
 }
 
 const METHODS = flatten({
   pty: {
-    // Attaching is audited like the desktop's create; typing is not.
-    create: method(hostPtyCreate, { mutating: true }),
+    // Spawns, or attaches; audited like the desktop's create. Typing is not.
+    create: method(ptyCreateWithHold, { mutating: true }),
     attach: method(hostPtyAttach),
+    // A desktop window's own bridge (ADR-228 D5) resets and ends its panes
+    // here, as it does on its own server.
+    reset: method(hostPtyReset, { mutating: true }),
+    close: method(ptyClose, { mutating: true }),
     write: method(ptyWrite),
     // The registry's foreign hold drops a device's resize and claim while
     // another client of the daemon has the session (`./winsize.ts`).
@@ -401,18 +490,102 @@ const METHODS = flatten({
     getRecent: method(agentsGetRecent),
     getUnseen: method(agentsGetUnseen),
     getPaneStatuses: method(agentsGetPaneStatuses),
+    // A renderer's word on a pane's project overrides the server's own
+    // (ADR-227 D5).
+    setPaneContext: method(agentsSetPaneContext, { mutating: true }),
+    // The desktop forwards its writes by agent id for the host's agents here
+    // (ADR-227 D4).
+    update: method(agentsUpdate, { mutating: true }),
+    delete: method(agentsDelete, { mutating: true }),
+    markSeen: method(agentsMarkSeen, { mutating: true }),
+    markResumed: method(agentsMarkResumed, { mutating: true }),
   },
+  // A device works inside the projects on this host (ADR-227 D6): makes and
+  // removes workspaces and arranges them. Adding a project to the box, or
+  // changing or removing one — group settings arrive as project updates
+  // (ADR-227 D2) — is the owner's (`localOnly`).
   projects: {
-    getAll: method(projectsGetAll),
+    getAll: method(hostProjectsGetAll),
     getSelectedIndex: method(projectsGetSelectedIndex),
+    listLocalBranches: method(projectsListLocalBranches),
+    listRemoteBranches: method(projectsListRemoteBranches),
+    canQuickMerge: method(projectsCanQuickMerge),
+    createWorktree: method(owned(projectsCreateWorktree), { mutating: true }),
+    // The desktop forwards these for its projects here (ADR-227 D4).
+    quickMergeWorktree: method(owned(projectsQuickMergeWorktree), { mutating: true }),
+    convertMainToWorktree: method(owned(projectsConvertMainToWorktree), { mutating: true }),
+    selectWorkspace: method(owned(projectsSelectWorkspace), { mutating: true }),
+    removeWorktree: method(owned(projectsRemoveWorktree), { mutating: true }),
+    renameWorkspace: method(owned(projectsRenameWorkspace), { mutating: true }),
+    reorderWorkspaces: method(owned(projectsReorderWorkspaces), { mutating: true }),
+    setWorkspaceHidden: method(owned(projectsSetWorkspaceHidden), { mutating: true }),
+    createWorkspaceFolder: method(owned(projectsCreateWorkspaceFolder), { mutating: true }),
+    renameWorkspaceFolder: method(owned(projectsRenameWorkspaceFolder), { mutating: true }),
+    setFolderParent: method(owned(projectsSetFolderParent), { mutating: true }),
+    deleteWorkspaceFolder: method(owned(projectsDeleteWorkspaceFolder), { mutating: true }),
+    setWorkspaceFolder: method(owned(projectsSetWorkspaceFolder), { mutating: true }),
+    add: method(owned(projectsAdd), { mutating: true, localOnly: true }),
+    clone: method(owned(projectsClone), { mutating: true, localOnly: true }),
+    update: method(owned(projectsUpdate), { mutating: true, localOnly: true }),
+    remove: method(owned(projectsRemove), { mutating: true, localOnly: true }),
   },
-  // Reads only. Every layout write (`apply`, `setPaneTitle`,
-  // `setPendingCommand`) and the viewport report are absent, so a device is
-  // answered `unavailable:host` — the renderer's once-per-session "read and
-  // type" toast (`handleBridgeUnavailable`), not an error (ADR-225 D5).
+  // The layout is this server's (ADR-227 D2): an agent tab applied here
+  // spawns on the server, whoever is looking (ADR-227 D5).
   layout: {
     getAll: method(layoutGetAll),
     getLastActive: method(layoutGetLastActive),
+    apply: method(owned(layoutApply), { mutating: true }),
+    setPaneTitle: method(owned(layoutSetPaneTitle), { mutating: true }),
+    setPendingCommand: method(owned(layoutSetPendingCommand), { mutating: true }),
+    reportViewport: method(owned(layoutReportViewport)),
+  },
+  // `gh` runs here, in the checkout, with the box's own sign-in (ADR-227 D7).
+  // The feedback upload is the desktop's flow and stays off the table.
+  github: {
+    getPrsForBranches: method(githubGetPrsForBranches),
+    listRepos: method(githubListRepos),
+    getViewerName: method(githubGetViewerName),
+    checkStatus: method(githubCheckStatus),
+    getMyIssues: method(githubGetMyIssues),
+    getAllIssues: method(githubGetAllIssues),
+    getIssueDetail: method(githubGetIssueDetail),
+    proxyImage: method(githubProxyImage),
+    assignIssue: method(githubAssignIssue, { mutating: true }),
+    closeIssue: method(githubCloseIssue, { mutating: true }),
+    createIssue: method(githubCreateIssue, { mutating: true }),
+  },
+  // A workspace's linked issues are project records; the rest of Linear is
+  // not on this host yet.
+  //
+  // The rest of `linear.*` runs here with the token the user delegated (D7);
+  // `connect` and `disconnect` stay the desktop's.
+  linear: {
+    isConnected: method(linearIsConnected),
+    getViewer: method(withLinear(linearGetViewer)),
+    getTeams: method(withLinear(linearGetTeams)),
+    getMyIssues: method(withLinear(linearGetMyIssues)),
+    getIssueDetail: method(withLinear(linearGetIssueDetail)),
+    getAllIssues: method(withLinear(linearGetAllIssues)),
+    proxyImage: method(withLinear(linearProxyImage)),
+    autoMatch: method(withLinear(linearAutoMatch)),
+    startIssue: method(withLinear(linearStartIssue), { mutating: true }),
+    closeIssue: method(withLinear(linearCloseIssue), { mutating: true }),
+    linkIssueToWorkspace: method(owned(linearLinkIssueToWorkspace), { mutating: true }),
+    unlinkIssueFromWorkspace: method(owned(linearUnlinkIssueFromWorkspace), {
+      mutating: true,
+    }),
+    associateProject: method(owned(linearAssociateProject), { mutating: true }),
+  },
+  // This box's own workspaces' branches and diffs, watched here for each
+  // connection that asks (ADR-230 D6): a phone, or a desktop window's own
+  // bridge. A viewer's own view, so none of it is audited.
+  branches: {
+    start: method(branchesStart),
+    stop: method(branchesStop),
+  },
+  diffs: {
+    start: method(diffsStart),
+    stop: method(diffsStop),
   },
   chat: {
     getHistory: method(chatGetHistory),
@@ -448,13 +621,14 @@ const METHODS = flatten({
   },
   // The owner's alone (ADR-225 D4): `localOnly` admits the `owner` caller
   // this server's socket authenticates (`./socket.ts`), and refuses every
-  // device. A phone may read what the owner synced, never write it.
+  // device.
   hostServer: {
     status: method(hostServerStatus, { localOnly: true }),
     resetIdentity: method(hostServerResetIdentity, { localOnly: true }),
-    syncManifest: method(hostServerSyncManifest, { localOnly: true }),
-    syncLayout: method(hostServerSyncLayout, { localOnly: true }),
     setVapidKeys: method(hostServerSetVapidKeys, { localOnly: true, secretFirstArg: true }),
+    setLinearToken: method(hostServerSetLinearToken, { localOnly: true, secretFirstArg: true }),
+    adopt: method(hostServerAdopt, { localOnly: true }),
+    control: method(hostServerControl, { localOnly: true, mutating: true }),
   },
 });
 
@@ -471,7 +645,8 @@ export type HostHandlers = {
  * checked against `HostServerDeps` here, so a desktop handler that reads more
  * than this server has fails to compile rather than at a phone's first call.
  * Refusals read `unavailable:host`; only the owner may call a `localOnly`
- * method (the desktop on the owner socket pairs, revokes and syncs, D4).
+ * method (the desktop on the owner socket pairs, revokes and sets up
+ * projects, D4).
  */
 export const HOST_TABLE = toHandlerTable<HostServerDeps>(METHODS, {
   unavailable: { code: UNAVAILABLE_HOST_CODE, where: "on this host" },

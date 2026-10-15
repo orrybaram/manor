@@ -123,9 +123,9 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
     fade === "done" && setupActive ? "setup" : fade;
 
   const handleSetupComplete = useCallback(() => {
-    // The orchestrator (startSetupScript in project-store) owns the success
-    // toast now so it fires even when this view is unmounted. Here we only
-    // drive the fade-out transition.
+    // The setup script's success toast is `createWorktree`'s, which follows
+    // the script the server runs (ADR-227 D5). Here we only drive the
+    // fade-out transition.
     setFade("transitioning");
   }, []);
 

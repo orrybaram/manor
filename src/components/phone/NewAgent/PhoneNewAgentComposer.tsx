@@ -12,6 +12,7 @@ import { useHostDisplay } from "../../../hooks/useHostDisplay";
 import { resumeAgent } from "../../../lib/agent-resume";
 import { greeting } from "../../../lib/greeting";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
+import { serverHostName } from "../../../bridge/server-set";
 import { workspaceHostChoices } from "../../../lib/workspace-host-choices";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { useAgentStore } from "../../../store/agent-store";
@@ -270,7 +271,7 @@ function TargetChips(props: TargetChipsProps) {
   const hosts = useHostStore((s) => s.hosts);
   const { project, workspace } = resolved;
   const showHost = workspaceHostChoices(project, projects, hosts) !== null;
-  const hostName = memberHostName(project.hostId, hosts);
+  const hostName = serverHostName(project.hostId) ?? memberHostName(project.hostId, hosts);
   const projectName = project.group?.name ?? project.name;
 
   return (
@@ -368,7 +369,7 @@ function choiceRows(
   if (kind === "host") {
     return (workspaceHostChoices(resolved.project, projects, hosts) ?? []).map((choice) => ({
       key: choice.projectId,
-      label: memberHostName(choice.hostId, hosts),
+      label: serverHostName(choice.hostId) ?? memberHostName(choice.hostId, hosts),
       description: choice.disabledReason,
       leading: <HostGlyph hostId={choice.hostId} />,
       checked: choice.projectId === target.projectId,

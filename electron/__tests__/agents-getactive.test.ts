@@ -8,12 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
-
-vi.mock("../notifications", () => ({
-  updateDockBadge: vi.fn(),
-  markAgentNotificationsRead: vi.fn(),
-  sendAgentUpdate: vi.fn(),
-}));
+import { UnseenAgents } from "../agent-status/unseen-agents";
 
 vi.mock("../ipc-validate", () => ({
   assertString: vi.fn(),
@@ -47,8 +42,13 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
       set: vi.fn(),
     },
     paneContextMap: new Map(),
-    unseenRespondedAgents: new Set(),
-    unseenInputAgents: new Set(),
+    unseen: new UnseenAgents(),
+    notifier: {
+      sendAgentUpdate: vi.fn(),
+      updateDockBadge: vi.fn(),
+      markAgentNotificationsRead: vi.fn(),
+      sendNotificationsUpdate: vi.fn(),
+    },
     ...overrides,
   };
 }

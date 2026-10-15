@@ -62,10 +62,11 @@ test.skip(skipReason !== null, skipReason ?? "");
 
 test.describe.configure({ mode: "serial" });
 
-test.beforeAll(() => {
-  // A clean slate on the box, keeping the installed host: stop its daemon and
-  // host server, drop its journal, earlier runs' clones and the stubs, then
-  // set up again.
+test.beforeEach(() => {
+  // A clean slate on the box before every test, keeping the installed host:
+  // stop its daemon and host server, drop its journal, earlier tests' clones
+  // and the stubs, then set up again. Each test opens the project through
+  // onboarding, which a box still holding the last test's project skips.
   resetRemoteBox();
   installRemoteStubs();
   seedRemoteRepo();
@@ -189,7 +190,7 @@ test.describe("remote host", () => {
     // The notice shows when recovery starts and auto-dismisses; watch for it
     // now rather than after the resume lands (slower on Linux).
     const notice = expect(
-      window.getByText(/Remote host restarted — 1 session resumed/),
+      window.getByText(/Remote host restarted — \d+ sessions? resumed/),
     ).toBeVisible({ timeout: 2 * STEP });
 
     // The pane is recovered on a fresh shell, and Manor types the resume

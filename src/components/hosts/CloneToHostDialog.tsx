@@ -3,7 +3,8 @@ import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
-import { hostLabel, isRemoteHost } from "../../lib/hosts";
+import { hostSentenceName } from "../../bridge/server-set";
+import { isRemoteHost } from "../../lib/hosts";
 import type { TransferInputReason } from "../../electron";
 import type { CloneHostChoice } from "../../lib/workspace-host-choices";
 import { toDirSlug } from "../../utils/branch-name";
@@ -128,7 +129,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
   );
   const isLocal = !isRemoteHost(hostId);
   const banner = reasonBanner(reason, failure);
-  const hostName = hostLabel(hostId, hosts);
+  const hostName = hostSentenceName(hostId, hosts);
   const hostUnavailable = hostChoices.find((c) => c.hostId === hostId)?.disabledReason ?? null;
 
   // Pre-fill the repo URL from the project's current `origin`, unless the

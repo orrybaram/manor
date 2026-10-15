@@ -14,16 +14,31 @@
  * Two bridges connecting at once serialise on `server.lock` (O_EXCL, with
  * stale-lock recovery); `runServe`'s refusal to start over a live pid is the
  * backstop.
+ *
+ * Under a supervisor (`supervisor.json`, ADR-229 D4) nothing is spawned
+ * detached beside it: down becomes `supervisor.start("server")`, and another
+ * version becomes a stop of the old pid (it may be a detached server from
+ * before `install`, which the supervisor cannot reach) then
+ * `supervisor.restart("server")`. The supervised server runs the shim, so it
+ * comes up as the installed version. A supervisor that fails, or starts
+ * nothing that listens, falls back to the detached spawn with a warning.
  */
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
+import { errorMessage } from "../lib/errors";
 import { hostServerPaths, remoteServerDir, type HostServerPaths } from "../paths";
 import { isAlive, readPid, removeIfOurs } from "./pid-file";
+import { loadSupervisor, type Supervisor } from "./supervisor";
 
 const SOCKET_WAIT_MS = 5000;
+/**
+ * A supervisor starts the server through the shim and a unit manager: more
+ * room, but with the fallback still inside a waiting bridge's `LOCK_WAIT_MS`.
+ */
+const SUPERVISED_WAIT_MS = 8000;
 const KILL_GRACE_MS = 5000;
 const LOCK_WAIT_MS = 15000;
 /** A lock older than this is abandoned even if its pid is alive (pid reuse). */
@@ -42,6 +57,14 @@ export interface LifecycleDeps {
   probeSocket(socketPath: string): Promise<boolean>;
   sleep(ms: number): Promise<void>;
   now(): number;
+  /**
+   * The supervisor `supervisor.json` names (ADR-229 D4), asked once per
+   * `ensureServerRunning`; null when nothing supervises this box. Absent
+   * means none.
+   */
+  supervisor?(): Supervisor | null;
+  /** Where the fallback from a broken supervisor is reported. Defaults to `console.warn`. */
+  warn?(message: string): void;
 }
 
 function readTrimmed(file: string): string | null {
@@ -104,6 +127,7 @@ export function defaultDeps(dataDir: string = remoteServerDir()): LifecycleDeps 
     probeSocket,
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),
+    supervisor: () => loadSupervisor(),
   };
 }
 
@@ -209,12 +233,47 @@ export async function ensureServerRunning(
     if (release === null) throw new Error("timed out waiting for another process starting the host server");
 
     if (state === "stale-version" && pid !== null) await stopOld(deps, pid);
+    const supervisor = deps.supervisor?.() ?? null;
+    if (supervisor && (await startSupervised(deps, supervisor, state))) return;
     deps.spawnServer(deps.paths);
-    const up = await waitFor(deps, SOCKET_WAIT_MS, async () => {
-      return (await deps.probeSocket(deps.paths.socket)) && readTrimmed(deps.paths.version) === deps.version;
-    });
-    if (!up) throw new Error(`host server did not start listening on ${deps.paths.socket}`);
+    if (!(await listening(deps, SOCKET_WAIT_MS))) {
+      throw new Error(`host server did not start listening on ${deps.paths.socket}`);
+    }
   } finally {
     release?.();
   }
+}
+
+/** Whether a server of this version is listening within `timeoutMs`. */
+function listening(deps: LifecycleDeps, timeoutMs: number): Promise<boolean> {
+  return waitFor(deps, timeoutMs, async () => {
+    return (await deps.probeSocket(deps.paths.socket)) && readTrimmed(deps.paths.version) === deps.version;
+  });
+}
+
+/**
+ * Start (down) or restart (another version, already stopped) the server
+ * through `supervisor`. False, with a warning, when that did not bring up a
+ * server of this version: the caller spawns one detached instead.
+ */
+async function startSupervised(
+  deps: LifecycleDeps,
+  supervisor: Supervisor,
+  state: Exclude<State, "healthy">,
+): Promise<boolean> {
+  const warn = deps.warn ?? ((m: string) => console.warn(m));
+  try {
+    if (state === "stale-version") await supervisor.restart("server");
+    else await supervisor.start("server");
+  } catch (err) {
+    warn(
+      `[host-server] the ${supervisor.kind} supervisor could not start the server (${errorMessage(err)}); spawning it detached`,
+    );
+    return false;
+  }
+  if (await listening(deps, SUPERVISED_WAIT_MS)) return true;
+  warn(
+    `[host-server] the ${supervisor.kind} supervisor started no server on ${deps.paths.socket}; spawning it detached`,
+  );
+  return false;
 }

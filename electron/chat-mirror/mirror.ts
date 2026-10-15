@@ -37,7 +37,6 @@
  * the streams, so a pane's streams can be dropped and rebuilt under it.
  */
 
-import { LOCAL_HOST_ID } from "../backend/types";
 import type { AgentKind } from "../terminal-host/types";
 import { adapterFor } from "./adapters";
 import type { TranscriptAdapter } from "./adapters/types";
@@ -47,10 +46,6 @@ import {
   encodePlanApproval,
   type PickerAnswer,
 } from "./picker-keys";
-import {
-  RemoteTranscriptSource,
-  type TranscriptExec,
-} from "./remote-transcript-source";
 import { chatTaskKey } from "./task-key";
 import {
   type ChatEntry,
@@ -139,29 +134,6 @@ export interface ChatMirrorDeps {
 const DEFAULT_ANSWER_TIMEOUT_MS = 8_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_UNWATCHED_POLL_INTERVAL_MS = 2_000;
-
-/**
- * `ChatMirrorDeps.sourceFor` over every host: `local` for this machine, and
- * for a remote host one `RemoteTranscriptSource` (kept per host) reading
- * through whatever `execFor(hostId)` answers at the time of each read, so a
- * host that reconnects with a new backend is picked up.
- */
-export function transcriptSources(
-  local: TranscriptSource,
-  execFor: (hostId: string) => TranscriptExec | null,
-): (agent: PaneAgent) => TranscriptSource {
-  const remote = new Map<string, RemoteTranscriptSource>();
-  return (agent) => {
-    if (agent.hostId === LOCAL_HOST_ID) return local;
-    let source = remote.get(agent.hostId);
-    if (!source) {
-      const { hostId } = agent;
-      source = new RemoteTranscriptSource(() => execFor(hostId));
-      remote.set(hostId, source);
-    }
-    return source;
-  };
-}
 
 type StreamIntervals = { pollIntervalMs: number; unwatchedPollIntervalMs: number };
 

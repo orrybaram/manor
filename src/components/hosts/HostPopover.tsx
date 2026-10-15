@@ -4,7 +4,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import { Button } from "../ui/Button/Button";
 import { requestUi } from "../../utils/ui-request";
-import { HostRetryButton, HostStatusDetails } from "./HostStatusDetails";
+import { HostRetryButton, HostStatusDetails, HostWakeButton } from "./HostStatusDetails";
 import styles from "./HostPopover.module.css";
 
 type HostPopoverProps = {
@@ -23,7 +23,7 @@ const CLOSE_DELAY_MS = 200;
 
 /**
  * What a host chip or icon opens, on hover or click: the host's state in
- * plain words, Retry, and a way to its settings. The chip itself only names
+ * plain words, Retry (or Wake, for a host asleep), and a way to its settings. The chip itself only names
  * the host.
  */
 export function HostPopover(props: HostPopoverProps) {
@@ -112,9 +112,10 @@ export function HostPopover(props: HostPopoverProps) {
           onClick={(e) => e.stopPropagation()}
         >
           <HostStatusDetails display={display} />
-          {(display.canRetry || projectId) && (
+          {(display.canRetry || display.tone === "asleep" || projectId) && (
             <div className={styles.actions}>
               {display.canRetry && <HostRetryButton hostId={hostId} />}
+              {display.tone === "asleep" && <HostWakeButton hostId={hostId} />}
               {projectId && (
                 <Button
                   size="sm"

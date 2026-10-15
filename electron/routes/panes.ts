@@ -20,19 +20,13 @@ import { withWorkspaceHost } from "./workspace-host";
 
 /**
  * Resolve the host of the workspace a request body names before its handler
- * runs (ADR-191, ADR-189): `body.hostId` becomes the caller's own host for a
- * relayed request — a body naming another host is the generic 403 — else the
- * host it named, else the host of the project that owns `workspacePath`. The
- * handler reads the resolved body through the same `readBody`.
+ * runs (ADR-191): `body.hostId` is the host it named, else the host of the
+ * project that owns `workspacePath`. The handler reads the resolved body through the same `readBody`.
  */
 function hostScoped(handler: Route["handler"]): Route["handler"] {
   return async (ctx) => {
     const resolved = withWorkspaceHost(ctx.deps, await ctx.readBody());
-    if (!resolved.ok) {
-      ctx.json(resolved.status, { error: resolved.error });
-      return;
-    }
-    await handler({ ...ctx, readBody: async () => resolved.body });
+    await handler({ ...ctx, readBody: async () => resolved });
   };
 }
 

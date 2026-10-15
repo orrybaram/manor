@@ -79,6 +79,8 @@ function answer() {
   if (sub === "auth status") {
     return "Logged in to github.com account tester (keyring)";
   }
+  // The empty-state probe ("any issue assigned to me?") finds none.
+  if (sub === "issue list") return "[]";
   if (sub !== "api graphql") return null;
   const fields = {};
   for (let i = 0; i < args.length - 1; i++) {
@@ -117,6 +119,26 @@ if (reply === null) {
 }
 `;
 
+/** The fixtures file's JSON, in the shape the fake `gh` script reads. */
+export function fakeGhFixturesJson(fixtures: FakeGhFixtures): string {
+  return JSON.stringify({
+    prs: Object.fromEntries(
+      Object.entries(fixtures.prs).map(([branch, pr]) => [branch, toGraphqlPr(pr)]),
+    ),
+    conversations: fixtures.conversations ?? {},
+    quiet: QUIET_CONVERSATION,
+  });
+}
+
+/**
+ * The fake `gh` as an executable script, reading its fixtures from the
+ * JavaScript expression `fixturesPath` (a string literal, or code that
+ * computes a path), under the interpreter `shebang`.
+ */
+export function fakeGhScript(shebang: string, fixturesPath: string): string {
+  return `#!${shebang}\nconst FIXTURES = ${fixturesPath};\n${SCRIPT}`;
+}
+
 /**
  * Writes the fake `gh` and its fixtures under `tempHome`, returning the
  * directory to put first on PATH.
@@ -125,20 +147,11 @@ export function installFakeGh(tempHome: string, fixtures: FakeGhFixtures): strin
   const binDir = path.join(tempHome, "bin");
   fs.mkdirSync(binDir, { recursive: true });
   const fixturesPath = path.join(tempHome, "gh-fixtures.json");
-  fs.writeFileSync(
-    fixturesPath,
-    JSON.stringify({
-      prs: Object.fromEntries(
-        Object.entries(fixtures.prs).map(([branch, pr]) => [branch, toGraphqlPr(pr)]),
-      ),
-      conversations: fixtures.conversations ?? {},
-      quiet: QUIET_CONVERSATION,
-    }),
-  );
+  fs.writeFileSync(fixturesPath, fakeGhFixturesJson(fixtures));
   // The test runner's own node, so the fake works whatever PATH the app has.
   fs.writeFileSync(
     path.join(binDir, "gh"),
-    `#!${process.execPath}\nconst FIXTURES = ${JSON.stringify(fixturesPath)};\n${SCRIPT}`,
+    fakeGhScript(process.execPath, JSON.stringify(fixturesPath)),
     { mode: 0o755 },
   );
   return binDir;

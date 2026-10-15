@@ -2,7 +2,7 @@
  * Away and back (ADR-178 §6): what a window does when one of its remote
  * hosts comes back after a drop.
  *
- * Main announces `hosts:reconnected` once the host's hook replay is in, with
+ * Main announces `hosts:reconnected` once the host's state is in, with
  * every session the host's daemon still has. Every pane this window runs on
  * that host is then one of two things:
  *

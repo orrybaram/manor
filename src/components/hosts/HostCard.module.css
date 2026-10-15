@@ -16,6 +16,10 @@
   border-color: color-mix(in srgb, var(--yellow, #d29922) 30%, var(--border));
 }
 
+.card.asleep {
+  border-color: color-mix(in srgb, var(--blue, #89b4fa) 25%, var(--border));
+}
+
 .section {
   padding: 12px 14px;
 }

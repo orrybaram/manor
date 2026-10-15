@@ -1,10 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("../renderer-bridge", () => ({
-  notifyProjectsChanged: vi.fn(),
-  startAgent: vi.fn(),
-}));
-
 import { projectRoutes } from "./projects";
 import { createWorkspaceOps, type WorkspaceOpsDeps } from "../workspace-ops";
 import type { RouteDeps, Route } from "./types";
@@ -114,18 +109,18 @@ const github = {
  * which project id the create landed in. Its own side effects are covered by
  * `../workspace-ops.test.ts`.
  */
-function deps(pm: Pm, callerHostId?: string): RouteDeps {
+function deps(pm: Pm): RouteDeps {
   const workspaceOps = createWorkspaceOps({
     projectManager: pm as unknown as WorkspaceOpsDeps["projectManager"],
     statsStore: { record: vi.fn() },
     notifyProjectsChanged: vi.fn(),
-    runSetupScript: vi.fn(),
+    runSetupScript: vi.fn(async () => {}),
   });
   return {
     projectManager: pm,
     githubManager: github,
     workspaceOps,
-    callerHostId,
+    notifyProjectsChanged: vi.fn(),
   } as unknown as RouteDeps;
 }
 
@@ -137,6 +132,7 @@ async function call(
 ) {
   const calls: Array<{ status: number; body: unknown }> = [];
   await r.handler({
+    method: r.method,
     deps: d,
     params,
     url: new URL("http://localhost/"),
@@ -164,32 +160,6 @@ describe("GET /projects", () => {
     });
     expect(solo.group).toBeNull();
     expect((solo as unknown as { host: string }).host).toBe("this Mac");
-  });
-
-  it("shows a relayed caller only its own host's members", async () => {
-    const res = await call(
-      route("GET", "/projects"),
-      deps(makeProjectManager(), "box"),
-    );
-    const [local] = res.body as Array<{
-      group: {
-        memberIds: string[];
-        lastUsedHostId: string | null;
-        members: Array<{ projectId: string }>;
-      };
-    }>;
-    expect(local.group.memberIds).toEqual(["box-app"]);
-    expect(local.group.members.map((m) => m.projectId)).toEqual(["box-app"]);
-    expect(local.group.lastUsedHostId).toBe("box");
-  });
-
-  it("hides another host's last-used id from a relayed caller", async () => {
-    const res = await call(
-      route("GET", "/projects"),
-      deps(makeProjectManager("local"), "box"),
-    );
-    const [local] = res.body as Array<{ group: { lastUsedHostId: string | null } }>;
-    expect(local.group.lastUsedHostId).toBeNull();
   });
 });
 
@@ -230,12 +200,6 @@ describe("POST /projects/:projectId/workspaces", () => {
       host: "local",
     });
     expect(pm.createWorktree.mock.calls[0][0]).toBe("local-app");
-  });
-
-  it("defaults to a relayed caller's own host over the last-used host", async () => {
-    pm = makeProjectManager("local");
-    await call(create, deps(pm, "box"), { projectId: "box-app" }, { name: "feat" });
-    expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
   });
 
   it("defaults to the group's last-used host for a local caller", async () => {
@@ -316,33 +280,6 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect(pm.createWorktree).not.toHaveBeenCalled();
   });
 
-  it("answers a relayed caller the same for every other host, real or not", async () => {
-    const answers = [];
-    for (const host of ["local", "me@mini", "nowhere"]) {
-      answers.push(
-        await call(create, deps(pm, "box"), { projectId: "box-app" }, {
-          name: "feat",
-          host,
-        }),
-      );
-    }
-    expect(answers[0]).toEqual({
-      status: 403,
-      body: { error: "A remote host can only act on its own host." },
-    });
-    expect(answers[1]).toEqual(answers[0]);
-    expect(answers[2]).toEqual(answers[0]);
-    expect(pm.createWorktree).not.toHaveBeenCalled();
-  });
-
-  it("lets a relayed caller name its own host", async () => {
-    await call(create, deps(pm, "box"), { projectId: "box-app" }, {
-      name: "feat",
-      host: "me@box",
-    });
-    expect(pm.createWorktree.mock.calls[0][0]).toBe("box-app");
-  });
-
   it("creates an unlinked project in itself, and refuses another host for it", async () => {
     await call(create, deps(pm), { projectId: "solo" }, { name: "feat" });
     expect(pm.createWorktree.mock.calls[0][0]).toBe("solo");
@@ -365,12 +302,8 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
     pm = makeProjectManager();
   });
 
-  function batchCall(
-    projectId: string,
-    body: Record<string, unknown>,
-    callerHostId?: string,
-  ) {
-    return call(batch, deps(pm, callerHostId), { projectId }, {
+  function batchCall(projectId: string, body: Record<string, unknown>) {
+    return call(batch, deps(pm), { projectId }, {
       issues: [1, 2],
       startAgent: false,
       ...body,
@@ -389,11 +322,7 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
     ).toEqual(["/box-app/issue-1", "/box-app/issue-2"]);
   });
 
-  it("defaults to a relayed caller's own host, then last-used, then the named project", async () => {
-    pm = makeProjectManager("local");
-    await batchCall("local-app", {}, "box");
-    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
-
+  it("defaults to the last-used host, then the named project", async () => {
     pm = makeProjectManager("box");
     await batchCall("local-app", {});
     expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
@@ -435,19 +364,6 @@ describe("POST /projects/:projectId/workspaces/batch", () => {
 
     expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
     expect(pm.setGroupLastUsedHost).not.toHaveBeenCalled();
-  });
-
-  it("answers a relayed caller the same 403 for every other host", async () => {
-    for (const host of ["local", "me@mini", "nowhere"]) {
-      expect(await batchCall("box-app", { host }, "box")).toEqual({
-        status: 403,
-        body: { error: "A remote host can only act on its own host." },
-      });
-    }
-    expect(pm.createWorkspacesFromIssues).not.toHaveBeenCalled();
-
-    await batchCall("box-app", { host: "me@box" }, "box");
-    expect(pm.createWorkspacesFromIssues.mock.calls[0][0]).toBe("box-app");
   });
 });
 

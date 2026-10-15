@@ -41,9 +41,10 @@ import type {
 } from "../renderer-broadcast";
 import { onAttachmentChange, ownerOf, releaseViewer } from "../pty-attachments";
 import type { EventArgs, EventNs, EventOf } from "./events";
-import type { HandlerCtx, HandlerTable } from "./method";
+import { byPane, type Caller, type HandlerCtx, type HandlerTable, type RouteRule } from "./method";
 import {
   ALL_KEYS,
+  BridgeUnavailableRefusal,
   readInvokeFrame,
   readSubscribeFrame,
   type BridgeConnection,
@@ -97,9 +98,36 @@ interface Registered {
   subscriptions: Map<string, Set<string>>;
 }
 
+/**
+ * Where a routed call goes when it names a remote host (ADR-227 D4). Only
+ * the desktop has one: it answers such a call through that host's
+ * `HostProxy` instead of running the handler here. A host server has no
+ * hosts of its own, so it never forwards.
+ */
+export interface BridgeForward {
+  /**
+   * The remote host `rule` reads off `args`, or null to answer here — the
+   * argument names this machine, a host not yet adopted, or nothing known.
+   */
+  target(rule: RouteRule, args: readonly unknown[]): string | null;
+  /**
+   * `ns.method(...args)` on `hostId`'s server, for `caller`. Rejects with
+   * a `BridgeUnavailableRefusal` while that host is away.
+   */
+  invoke(
+    hostId: string,
+    ns: string,
+    method: string,
+    args: unknown[],
+    caller: Caller,
+  ): Promise<unknown>;
+}
+
 interface BridgeServerOptions<D> {
   /** What this server dispatches, and what kind of server it is. */
   table: HandlerTable<D>;
+  /** Remote hosts' calls, on the desktop (see `BridgeForward`). */
+  forward?: BridgeForward;
   /**
    * Where keyless pushes come from: `addRendererBroadcastSink` on the
    * desktop, the host server's own bus there.
@@ -113,10 +141,18 @@ interface BridgeServerOptions<D> {
  * the server itself reads from `D` is `BridgeServerDeps`: a session's grid,
  * for the winsize push.
  */
+/** What `BridgeServer.viewing` reports. */
+export interface ViewingState {
+  desktop: boolean;
+  device: boolean;
+  forwarded: boolean;
+}
+
 export class BridgeServer<D extends BridgeServerDeps> {
   private readonly connections = new Map<string, Registered>();
   private readonly audit: RemoteAuditLog;
   private readonly table: HandlerTable<D>;
+  private readonly forward: BridgeForward | undefined;
   private readonly unsubscribeBroadcasts: () => void;
   private readonly unsubscribeAttachments: () => void;
   private readonly disconnectSinks = new Set<(connectionId: string) => void>();
@@ -130,6 +166,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
   ) {
     this.audit = options.audit ?? new RemoteAuditLog();
     this.table = options.table;
+    this.forward = options.forward;
     this.unsubscribeBroadcasts = options.events((broadcast) =>
       this.onBroadcast(broadcast),
     );
@@ -240,9 +277,13 @@ export class BridgeServer<D extends BridgeServerDeps> {
         // Dropped while the handler ran: anything it attached for this
         // connection (a pane viewer, by `pty.create`) was attached after
         // `drop` released it, so release it again — unless a new connection
-        // has taken the id meanwhile.
+        // has taken the id meanwhile. Disconnect sinks hear of it again for
+        // the same reason (a watch start would otherwise leave a set behind
+        // for an id that never disconnects again, ADR-230 D6), so they must
+        // treat a repeated id as harmless.
         if (!this.connections.has(connection.id)) {
           releaseViewer(connection.id);
+          for (const cb of this.disconnectSinks) cb(connection.id);
         }
         return result;
       }
@@ -306,9 +347,18 @@ export class BridgeServer<D extends BridgeServerDeps> {
     }
 
     const audited = this.table.mutating.has(key);
+    // A call that names a remote host is that host's server's to answer
+    // (ADR-227 D4): the same rules above, audited here, run there.
+    const route = this.table.routes.get(key);
+    const remote = route ? this.routeTarget(route, args) : null;
+    const forward = this.forward;
     // Widened here and nowhere else — see `BridgeHandler`. Every handler
     // validates what it is given before it does anything with it.
-    const call = handler as (ctx: HandlerCtx<D>, ...args: unknown[]) => unknown;
+    const call =
+      remote !== null && forward
+        ? (c: HandlerCtx<D>, ...a: unknown[]) =>
+            forward.invoke(remote, frame.ns, frame.method, a, c.caller)
+        : (handler as (ctx: HandlerCtx<D>, ...args: unknown[]) => unknown);
     // Who sent it comes from the connection, never from the frame: a caller
     // does not get to say which caller it is (ADR-179 D3).
     const ctx: HandlerCtx<D> = {
@@ -316,6 +366,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
       caller: {
         id: connection.id,
         callerClass: connection.callerClass,
+        ...(connection.viewer !== undefined && { viewer: connection.viewer }),
         deviceId: connection.deviceId,
       },
     };
@@ -324,14 +375,30 @@ export class BridgeServer<D extends BridgeServerDeps> {
       if (audited) this.auditInvoke(connection, key, args, "sent", 200);
       return { id, kind: "result", ok: true, result };
     } catch (err) {
-      if (audited) this.auditInvoke(connection, key, args, "failed", 500);
+      // A handler's refusal is the same stated empty state as a method
+      // absent from the table, with the handler's own words.
+      const refused = err instanceof BridgeUnavailableRefusal;
+      if (audited) {
+        this.auditInvoke(connection, key, args, refused ? "rejected" : "failed", refused ? 403 : 500);
+      }
       return {
         id,
         kind: "result",
         ok: false,
         error: err instanceof Error ? err.message : String(err),
-        code: "failed",
+        code: refused ? err.code : "failed",
       };
+    }
+  }
+
+  /** Where `forward` sends a routed call; here (null) when it cannot say. */
+  private routeTarget(route: RouteRule, args: readonly unknown[]): string | null {
+    if (!this.forward) return null;
+    try {
+      return this.forward.target(route, args);
+    } catch (err) {
+      console.error("[bridge] route lookup threw:", err);
+      return null;
     }
   }
 
@@ -390,6 +457,22 @@ export class BridgeServer<D extends BridgeServerDeps> {
   }
 
   /**
+   * `ns.event` to one connection, if it asked for it (at `key`, for a keyed
+   * event): a push whose arguments differ per connection. `HostRouting` tells
+   * each caller viewing a remote pane its own `winsizeOwner` this way
+   * (ADR-230 D10).
+   */
+  publishTo<N extends EventNs, E extends EventOf<N>>(
+    connectionId: string,
+    ns: N,
+    event: E,
+    args: EventArgs<N, E>,
+    key?: string,
+  ): void {
+    this.deliverTo(connectionId, eventFrame(ns, event, args, key));
+  }
+
+  /**
    * Whether a paired device (not a desktop window) is subscribed to
    * `ns.event` — someone is watching through a browser, which a hidden
    * desktop window says nothing about (the `DiffWatcher` asks before it
@@ -403,6 +486,36 @@ export class BridgeServer<D extends BridgeServerDeps> {
       }
     }
     return false;
+  }
+
+  /**
+   * Whether a desktop window's viewer stream (ADR-228 D4) is subscribed to
+   * `ns.event` at any key — for `pty.output`, a window has a pane of this
+   * server's mounted (ADR-229 D7).
+   */
+  hasDesktopViewerSubscriber(ns: string, event: string): boolean {
+    const name = `${ns}.${event}`;
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (connection.viewer === "desktop" && subscriptions.has(name)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Who is subscribed to `ns.event` at any key, by kind of viewer (ADR-230
+   * D1): a desktop window's viewer stream, a paired device, and the owner
+   * channel (main forwarding a pane it watches for another window).
+   */
+  viewing(ns: string, event: string): ViewingState {
+    const name = `${ns}.${event}`;
+    const state: ViewingState = { desktop: false, device: false, forwarded: false };
+    for (const { connection, subscriptions } of this.connections.values()) {
+      if (!subscriptions.has(name)) continue;
+      if (connection.viewer === "desktop") state.desktop = true;
+      else if (connection.callerClass === "owner") state.forwarded = true;
+      if (connection.callerClass === "device") state.device = true;
+    }
+    return state;
   }
 
   /** Stop. An unsubscribe for something never subscribed to is not an error. */
@@ -486,6 +599,9 @@ export class BridgeServer<D extends BridgeServerDeps> {
    */
   private async onOwnerChanged(paneId: string): Promise<void> {
     if (this.connections.size === 0) return;
+    // A pane on a host server is `HostRouting`'s to tell (ADR-230 D10): the
+    // host's answer goes with this side's.
+    if (this.routeTarget(byPane(0), [paneId]) !== null) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
     // A pane held elsewhere (ADR-225 D5) answers a foreign owner no

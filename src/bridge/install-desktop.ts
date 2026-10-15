@@ -19,6 +19,14 @@
  * module whose evaluation does the work, and not a function somebody has to
  * remember to call early enough.
  *
+ * What it installs is the router over the page's server set (ADR-228 D1,
+ * `./router.ts`), with the home server alone in it at first. The router
+ * answers from that one server synchronously, so a store's `create()` sees no
+ * difference; and it imports no store, which would undo the ordering this
+ * module exists for — the stores hand it their lookups (`./host-lookups.ts`)
+ * instead. Each remote host that takes this window's own viewer stream joins
+ * the set once main lists it so (`./desktop-hosts.ts`, D4).
+ *
  * The browser holds the same invariant the same way: `install-web.ts` is
  * `web-main.tsx`'s copy of this module, imported first for the identical
  * reason. The two differ only in how they find their
@@ -28,7 +36,10 @@
  * other still answers "before any store" the same way.
  */
 
-import { createBridge } from "./client";
+import { LOCAL_HOST_ID } from "../lib/workspace-key";
+import { watchDesktopHosts } from "./desktop-hosts";
+import { createRouter } from "./router";
+import { servers } from "./server-set";
 import { createIpcTransport } from "./transports/ipc";
 
 /**
@@ -39,6 +50,18 @@ import { createIpcTransport } from "./transports/ipc";
 export const bridgeInstalled: boolean = (() => {
   const host = window.manorHost;
   if (!host) return false;
-  window.electronAPI = createBridge(createIpcTransport(host));
+  // The home server: this desktop's own, in main, which still merges and
+  // routes every remote host itself (ADR-227 D4) — so it lists them all, and
+  // answers for a host whose own server is away (D6). IPC is up before the
+  // page.
+  servers.add(LOCAL_HOST_ID, createIpcTransport(host), { home: true, lists: "all" });
+  servers.setReachability(LOCAL_HOST_ID, "connected");
+  window.electronAPI = createRouter(servers);
+  // Host servers join as main lists them able to take this window (D4).
+  watchDesktopHosts({
+    set: servers,
+    pipes: host.native.hostPipe,
+    hosts: window.electronAPI.hosts,
+  });
   return true;
 })();

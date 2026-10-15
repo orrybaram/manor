@@ -1,5 +1,6 @@
-import { appCommandResult, type AppCommandResult } from "../../renderer-bridge";
+import type { AppCommandResult } from "../../renderer-bridge";
 import { method, type HandlerCtx } from "../method";
+import type { ServerDeps } from "../../ipc/types";
 
 /**
  * The renderer answering an `appCommands.command` that carried a `requestId`
@@ -9,8 +10,11 @@ import { method, type HandlerCtx } from "../method";
  * `requestId` is a UUID main generated and told exactly one connection, so an
  * answer to one is an answer from the renderer that was asked.
  */
-function appCommandsResult(_ctx: HandlerCtx, result: AppCommandResult): void {
-  appCommandResult(result);
+function appCommandsResult(
+  ctx: HandlerCtx<Pick<ServerDeps, "appCommandResult">>,
+  result: AppCommandResult,
+): void {
+  ctx.deps.appCommandResult?.(result);
 }
 
 export const appCommands = {

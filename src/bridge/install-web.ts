@@ -25,40 +25,120 @@
  *
  * The page is served only by the relay origin (ADR-206, ADR-207 D2): paired
  * by a `#relay=…` link, it dials the relay's `/join/<roomId>` through a Noise
- * channel. `./web-pairing.ts` reads the link; this module builds the pipe,
+ * channel. `./web-pairing.ts` reads the link; this module builds the pipes,
  * reports reachability (relay 4404/4429) and follows the version redirect.
+ *
+ * **Every pairing at once** (ADR-228 D8). The page holds one relay bridge per
+ * stored pairing, each a server in the page's set (`./server-set.ts`) under
+ * its room id, and installs the router over them (`./router.ts`):
+ *
+ * - **Home** is the paired desktop (a hello with `hostServer: false`), else
+ *   the most recently used pairing (`homePairing`). A desktop's hello moves
+ *   home to it, if home was not a desktop already.
+ * - **A desktop's remote hosts** are named by the rooms its `hosts.list`
+ *   reports (D2), and listed as its (D3): a host with a pairing of its own is
+ *   answered by that pairing while it is reachable, else by the desktop.
+ * - **4401** forgets only that pairing and takes its server out of the set;
+ *   the pairing screen shows only once no pairing is left. Likewise
+ *   key-mismatch: its screen shows once every pairing has been refused.
+ * - **The version redirect** follows the home server only. Another server on
+ *   another version stays in the set, its version recorded.
+ * - **The list is followed.** A pairing removed in the Hosts sheet leaves the
+ *   set; one added in another tab (or by a later link) joins it.
+ * - **One pairing covers every host** (D9). Every hello from a desktop asks
+ *   it for pairings with its hosts this page does not hold
+ *   (`remoteControl.linkHostPairings`); each joins the list, and so the set.
+ *   Rooms the user removed, or a host refused, are sent as held
+ *   (`declinedRooms`), so they are not minted again.
+ *
+ * Each server's last merged answers are kept in IndexedDB (`./last-known.ts`),
+ * so a reload with a server away still shows what it last said (D6).
  */
 
-import { createBridge } from "./client";
-import { recordHello, setActiveRoom } from "./connection";
-import { decodeX25519, renamePairing } from "./pairings";
+import type { HostStatusInfo } from "../store/host-store";
+import { LOCAL_HOST_ID } from "../lib/workspace-key";
+import { createLastKnownStore } from "./last-known";
+import {
+  declinedRooms,
+  decodeX25519,
+  homePairing,
+  linkPairing,
+  listPairings,
+  recordPairingHello,
+  recordPairingHosts,
+  subscribePairings,
+  type StoredPairing,
+} from "./pairings";
 import { emitBridgeResync, registerRefresh } from "./resync";
+import { createRouter } from "./router";
+import {
+  servers,
+  subscribeSelected,
+  viaServer,
+  type BridgeOutcome,
+  type Reachability,
+} from "./server-set";
 import { relayJoinUrl, relayPipe } from "./transports/relay-pipe";
-import { createWsTransport, type Pipe } from "./transports/ws";
+import {
+  createWsTransport,
+  type HelloReply,
+  type Pipe,
+  type WsBridgeTransport,
+} from "./transports/ws";
 import {
   forgetPairing,
   readPairing,
   versionRedirectTarget,
 } from "./web-pairing";
 
-const pairing = readPairing();
-
-/**
- * The relay pipe, or null with no pairing. A stored key that no longer
- * decodes is treated as no pairing at all.
- */
-function relayPipeFor(): Pipe | null {
-  if (pairing === null) return null;
-  const serverKey = decodeX25519(pairing.serverKey);
-  if (serverKey === null) return null;
-  return relayPipe({ url: relayJoinUrl(pairing.roomId), serverKey });
+/** One pairing the page holds a bridge for. */
+interface Held {
+  pairing: StoredPairing;
+  transport: WsBridgeTransport;
+  /** What its hellos said it is, or null before one (and none stored). */
+  kind: "desktop" | "host" | null;
+  /**
+   * Whether its next hello re-fetches: it joined after the stores' boot
+   * fetches, or a dial failed before it answered — either way the stores
+   * have not heard from it.
+   */
+  needsResync: boolean;
+  /** Stops following a desktop's `hosts.onStatusChanged`. */
+  stopHosts: (() => void) | null;
+  /** Gives up on its first hello (`FIRST_HELLO_DEADLINE_MS`). */
+  helloDeadline: ReturnType<typeof setTimeout> | null;
 }
 
-const pipe = relayPipeFor();
+/**
+ * How long a pairing other than home may go without its first hello before
+ * it counts as unreachable. A dial the relay never answers with a close it
+ * lists (a socket that just fails, a host that never says hello) would
+ * otherwise leave it "unknown" for good — which the router takes as
+ * reachable, so its panes' `pty`/`chat` listeners and its calls would stay
+ * on it rather than falling back to a desktop that lists the host (D3). The
+ * dial keeps retrying; its hello makes it `connected`, and the router moves
+ * them back.
+ */
+const FIRST_HELLO_DEADLINE_MS = 15_000;
+
+/** The pairings the page holds, by room. */
+const held = new Map<string, Held>();
+
+/** A stored pairing whose key no longer decodes is no pairing at all. */
+function dialable(): StoredPairing[] {
+  return listPairings().filter((p) => decodeX25519(p.serverKey) !== null);
+}
+
+readPairing();
+const atBoot = dialable();
+const homeAtBoot = homePairing(atBoot);
+
+/** A pairing token this tab dials with, or `null` for none found. */
+export const webToken: string | null = homeAtBoot?.token ?? null;
 
 /**
  * Unpaired: the transport never dials (its token is null), so this is never
- * connected. It exists only so there is always a pipe to hand over.
+ * connected. It exists only so there is always a home server to hand over.
  */
 const UNPAIRED_PIPE: Pipe = {
   connect() {
@@ -66,23 +146,16 @@ const UNPAIRED_PIPE: Pipe = {
   },
 };
 
-/** The pairing token this tab is dialling with, or `null` for none found. */
-export const webToken: string | null = pipe && pairing ? pairing.token : null;
-
-/** The room this tab dials, or `null` when unpaired. */
-const webRoomId: string | null = pipe && pairing ? pairing.roomId : null;
-
-setActiveRoom(webRoomId);
-
 /** What the socket has said about `webToken`, once it has said anything. */
-export type BridgeOutcome = "unauthorized" | "key-mismatch";
+export type { BridgeOutcome };
 
-let outcome: BridgeOutcome | null = null;
-let listener: ((outcome: BridgeOutcome) => void) | null = null;
-
-function settle(next: BridgeOutcome): void {
-  outcome = next;
-  listener?.(next);
+/** The page's refusal: home's, once every pairing has been refused. */
+function pageOutcome(): BridgeOutcome | null {
+  if (held.size === 0) return null;
+  for (const roomId of held.keys()) {
+    if (servers.facts(roomId).outcome === null) return null;
+  }
+  return servers.facts(servers.homeId).outcome;
 }
 
 /**
@@ -92,34 +165,40 @@ function settle(next: BridgeOutcome): void {
  * `cb` runs exactly once, with whichever refusal arrives first.
  */
 export function onBridgeOutcome(cb: (outcome: BridgeOutcome) => void): void {
-  listener = cb;
-  if (outcome) cb(outcome);
+  const now = pageOutcome();
+  if (now) {
+    cb(now);
+    return;
+  }
+  const off = subscribeSelected(servers, pageOutcome, () => {
+    const next = pageOutcome();
+    if (!next) return;
+    off();
+    cb(next);
+  });
 }
 
 /**
- * Whether the host can be reached right now, for the "not reachable"
- * overlay. Unlike a refusal this comes and goes: `unreachable` on a relay
- * 4404/4429 (the dial keeps retrying), `connected` on the next hello. Shaped
- * for `useSyncExternalStore`.
+ * Whether the page can reach anything right now, for the "not reachable"
+ * overlay: `connected` while any pairing is, `unreachable` once every one is
+ * (each dial keeps retrying), else `unknown`. Shaped for
+ * `useSyncExternalStore`. One server's own reachability is its entry's.
  */
-export type Reachability = "unknown" | "connected" | "unreachable";
-
-let reachability: Reachability = "unknown";
-const reachabilityListeners = new Set<() => void>();
+export type { Reachability };
 
 export function getReachability(): Reachability {
-  return reachability;
+  if (held.size === 0) return servers.facts(servers.homeId).reachability;
+  let unknown = false;
+  for (const roomId of held.keys()) {
+    const reachability = servers.facts(roomId).reachability;
+    if (reachability === "connected") return "connected";
+    if (reachability === "unknown") unknown = true;
+  }
+  return unknown ? "unknown" : "unreachable";
 }
 
 export function subscribeReachability(cb: () => void): () => void {
-  reachabilityListeners.add(cb);
-  return () => reachabilityListeners.delete(cb);
-}
-
-function setReachability(next: Reachability): void {
-  if (next === reachability) return;
-  reachability = next;
-  for (const cb of [...reachabilityListeners]) cb();
+  return subscribeSelected(servers, getReachability, cb);
 }
 
 /** How long a refresh waits for a redial's hello and its resync. */
@@ -128,58 +207,291 @@ const REFRESH_REDIAL_TIMEOUT_MS = 10_000;
 /** Refreshes waiting on the next hello, handed that hello's resync. */
 const helloWaiters: ((resynced: Promise<void>) => void)[] = [];
 
-/** The next hello's resync settling, or `timeoutMs`, whichever is first. */
-function nextHelloResync(timeoutMs: number): Promise<void> {
+/**
+ * The next hello's resync settling — true — or `timeoutMs` passing — false
+ * — whichever is first.
+ */
+function nextHelloResync(timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     const waiter = (resynced: Promise<void>): void => {
       void resynced.then(() => {
         clearTimeout(timer);
-        resolve();
+        resolve(true);
       });
     };
     const timer = setTimeout(() => {
       const at = helloWaiters.indexOf(waiter);
       if (at !== -1) helloWaiters.splice(at, 1);
-      resolve();
+      resolve(false);
     }, timeoutMs);
     helloWaiters.push(waiter);
   });
 }
 
-const transport = createWsTransport({
-  token: webToken,
-  pipe: pipe ?? UNPAIRED_PIPE,
-  onUnauthorized: () => {
-    // The token was revoked, the host forgot it, or the desktop's key is
-    // no longer the one this page was paired with. Drop it —
-    // `web-main` renders `NoTokenScreen` rather than reconnecting forever
-    // against an answer that will not change.
-    forgetPairing(pairing);
-    settle("unauthorized");
-  },
-  // Repeated bad Noise message 2s: the desktop's relay address was reset.
-  // The pairing is kept (this may just be a stale tab); the transport has
-  // stopped, so the screen offers a reload rather than a redial.
-  onKeyMismatch: () => settle("key-mismatch"),
-  onStatus: setReachability,
-  onHello: ({ appVersion, resumed, hostName, hostServer }) => {
-    // The host names itself (ADR-225 D7) so the switcher shows the name
-    // instead of "Host N"; `hostServer` alone says it is a host server.
-    recordHello({ hostName, hostServer });
-    if (webRoomId && hostName) renamePairing(webRoomId, hostName);
-    const target = versionRedirectTarget(__APP_VERSION__, appVersion);
-    if (target) {
-      // This page is going away; nothing here needs to re-fetch.
-      location.replace(target);
+// ── home ──
+
+/**
+ * Who should be home among the pairings held now, skipping refused ones:
+ * a desktop first, then the most recently used.
+ */
+function bestHome(except?: string): string | null {
+  const candidates = [...held.values()].filter(
+    (h) => h.pairing.roomId !== except && servers.facts(h.pairing.roomId).outcome === null,
+  );
+  const best = homePairing(
+    candidates.map((h) => ({
+      ...h.pairing,
+      hostServer: h.kind === null ? h.pairing.hostServer : h.kind === "host",
+    })),
+  );
+  return best?.roomId ?? null;
+}
+
+/**
+ * Make `roomId` home. Every home-answered store (preferences, the selected
+ * project, …) re-reads from it, and its version is the one the page follows.
+ */
+function moveHome(roomId: string): void {
+  if (servers.homeId === roomId) return;
+  servers.setHome(roomId);
+  const hello = servers.facts(roomId).hello;
+  if (followVersion(hello.version)) return;
+  void emitBridgeResync();
+}
+
+/** Go to the build of `version`, if it is not this one. True when leaving. */
+function followVersion(version: string | null): boolean {
+  const target = versionRedirectTarget(__APP_VERSION__, version);
+  if (!target) return false;
+  location.replace(target);
+  return true;
+}
+
+// ── a desktop's hosts (D2, D3) ──
+
+/**
+ * Name and list a desktop's remote hosts: `hosts` is its id for each → the
+ * room that host's server reported, or null.
+ */
+function applyHosts(roomId: string, hosts: Record<string, string | null>): boolean {
+  const before = servers.facts(roomId).aliases;
+  const aliases = Object.entries(hosts).map(
+    ([hostId, room]) => [hostId, room ?? viaServer(roomId, hostId)] as const,
+  );
+  servers.setAliases(roomId, aliases);
+  servers.setLists(roomId, aliases.map(([, alias]) => alias));
+  return servers.facts(roomId).aliases !== before;
+}
+
+/** A desktop's `hosts.list`, as the room each one goes by. */
+function hostRooms(
+  roomId: string,
+  list: readonly HostStatusInfo[],
+): Record<string, string | null> {
+  const known = held.get(roomId)?.pairing.hosts ?? {};
+  const out: Record<string, string | null> = {};
+  for (const host of list) {
+    if (host.hostId === LOCAL_HOST_ID) continue;
+    // Absent until the desktop has read the host's status: keep what it said.
+    out[host.hostId] = host.roomId === undefined ? (known[host.hostId] ?? null) : host.roomId;
+  }
+  return out;
+}
+
+/**
+ * One pairing covers every host (ADR-228 D9): ask desktop `entry` to pair
+ * this browser with each of its hosts whose room it does not hold, and keep
+ * what comes back. Each joins the set through `syncPairings`, and the
+ * desktop's alias for the host already names its room (D2), so the host's
+ * projects keep their id and are answered by the new pairing (D3). Asked on
+ * every hello, so a host added later, or away the last time, is picked up.
+ */
+function linkHosts(entry: Held): void {
+  const { roomId } = entry.pairing;
+  const bridge = servers.get(roomId)?.bridge;
+  if (!bridge) return;
+  // Rooms let go of count as held: the desktop must not hand them back.
+  const heldRooms = [...listPairings().map((p) => p.roomId), ...declinedRooms()];
+  bridge.remoteControl.linkHostPairings(heldRooms).then(
+    (linked) => {
+      if (held.get(roomId) !== entry || !Array.isArray(linked)) return;
+      for (const pairing of linked) linkPairing(pairing);
+    },
+    // A desktop from before ADR-228 has no such method; the phone simply
+    // holds what it was paired with.
+    () => {},
+  );
+}
+
+/** Follow desktop `roomId`'s hosts: listed now, and as they change. */
+function watchHosts(entry: Held): void {
+  const { roomId } = entry.pairing;
+  const bridge = servers.get(roomId)?.bridge;
+  if (!bridge) return;
+  const apply = (list: readonly HostStatusInfo[]): void => {
+    if (held.get(roomId) !== entry || !Array.isArray(list)) return;
+    const hosts = hostRooms(roomId, list);
+    recordPairingHosts(roomId, hosts);
+    // A host now goes by another name: the stores re-read in it.
+    if (applyHosts(roomId, hosts)) void emitBridgeResync(roomId);
+  };
+  entry.stopHosts ??= bridge.hosts.onStatusChanged(apply);
+  void bridge.hosts.list().then(apply, () => {});
+}
+
+// ── each pairing ──
+
+function onHello(entry: Held, reply: HelloReply): void {
+  const { roomId } = entry.pairing;
+  if (held.get(roomId) !== entry) return;
+  clearHelloDeadline(entry);
+  servers.recordHello(roomId, reply);
+  servers.setReachability(roomId, "connected");
+  recordPairingHello(roomId, reply);
+  entry.kind = reply.hostServer ? "host" : "desktop";
+  if (entry.kind === "desktop") {
+    watchHosts(entry);
+    linkHosts(entry);
+  }
+
+  const home = held.get(servers.homeId);
+  const rehome = entry.kind === "desktop" && home !== entry && home?.kind !== "desktop";
+  if (rehome) {
+    servers.setHome(roomId);
+  }
+  // The version redirect is home's alone; anyone else's is just recorded.
+  if (servers.homeId === roomId && followVersion(reply.appVersion)) return;
+
+  // The first hello of a server the stores booted with is the cold start
+  // their boot fetches cover; a resumed one is a reconnect after which pushes
+  // may have been missed, and one that joined later has not been read at all
+  // (ADR-220 D1). A new home re-reads everything home answers.
+  let resynced = Promise.resolve();
+  if (rehome) resynced = emitBridgeResync();
+  else if (reply.resumed || entry.needsResync) resynced = emitBridgeResync(roomId);
+  entry.needsResync = false;
+  for (const waiter of helloWaiters.splice(0)) waiter(resynced);
+}
+
+/** Refused: 4401 (the pairing is dead) or key-mismatch (it may not be). */
+function refuse(entry: Held, outcome: BridgeOutcome): void {
+  const { roomId } = entry.pairing;
+  if (held.get(roomId) !== entry) return;
+  if (outcome === "unauthorized") {
+    // The token was revoked, the host forgot it, or the host's key is no
+    // longer the one this page was paired with. Drop it — only it — and its
+    // server, rather than reconnecting forever against an answer that will
+    // not change. The last one left stays, for `web-main` to say so.
+    if (held.size === 1) servers.setOutcome(roomId, outcome);
+    forgetPairing(entry.pairing);
+    if (held.size > 1) {
+      drop(roomId);
       return;
     }
-    // The first hello is the cold start the stores' boot fetches already
-    // cover; a resumed one is a reconnect after which pushes may have been
-    // missed, so the stores re-fetch (ADR-220 D1).
-    const resynced = resumed ? emitBridgeResync() : Promise.resolve();
-    for (const waiter of helloWaiters.splice(0)) waiter(resynced);
-  },
-});
+  }
+  // Repeated bad Noise message 2s: the host's relay address was reset. The
+  // pairing is kept (this may just be a stale tab); its transport has
+  // stopped, and the screen offers a reload once nothing else answers.
+  servers.setOutcome(roomId, outcome);
+  if (servers.homeId === roomId) {
+    const next = bestHome(roomId);
+    if (next) moveHome(next);
+  }
+}
+
+/** Hold a bridge to `pairing`'s room. */
+function open(pairing: StoredPairing, options: { home?: boolean; joined: boolean }): void {
+  const { roomId } = pairing;
+  const serverKey = decodeX25519(pairing.serverKey);
+  if (serverKey === null) return;
+  const hooks = servers.hooks(roomId);
+  const entry: Held = {
+    pairing,
+    transport: null as unknown as WsBridgeTransport,
+    kind: pairing.hostServer === undefined ? null : pairing.hostServer ? "host" : "desktop",
+    needsResync: options.joined,
+    stopHosts: null,
+    helloDeadline: null,
+  };
+  entry.transport = createWsTransport({
+    token: pairing.token,
+    pipe: relayPipe({ url: relayJoinUrl(roomId), serverKey }),
+    onUnauthorized: () => refuse(entry, "unauthorized"),
+    onKeyMismatch: () => refuse(entry, "key-mismatch"),
+    onStatus: (status) => {
+      if (held.get(roomId) !== entry) return;
+      if (status === "unreachable") entry.needsResync = true;
+      hooks.onStatus(status);
+    },
+    onHello: (reply) => onHello(entry, reply),
+  });
+  held.set(roomId, entry);
+  servers.add(roomId, entry.transport, { home: options.home, roomId });
+  applyHosts(roomId, pairing.hosts ?? {});
+  entry.helloDeadline = setTimeout(() => {
+    entry.helloDeadline = null;
+    if (held.get(roomId) !== entry || servers.homeId === roomId) return;
+    if (servers.facts(roomId).reachability !== "unknown") return;
+    entry.needsResync = true;
+    hooks.onStatus("unreachable");
+  }, FIRST_HELLO_DEADLINE_MS);
+  if (options.joined) entry.transport.start();
+}
+
+function clearHelloDeadline(entry: Held): void {
+  if (entry.helloDeadline === null) return;
+  clearTimeout(entry.helloDeadline);
+  entry.helloDeadline = null;
+}
+
+/** Let go of `roomId`'s bridge: the set, the stores and the transport. */
+function drop(roomId: string): void {
+  const entry = held.get(roomId);
+  if (!entry || held.size === 1) return;
+  if (servers.homeId === roomId) {
+    const next = bestHome(roomId) ?? [...held.keys()].find((id) => id !== roomId);
+    if (next) moveHome(next);
+  }
+  held.delete(roomId);
+  servers.remove(roomId);
+  entry.stopHosts?.();
+  clearHelloDeadline(entry);
+  entry.transport.close();
+  // Its projects, agents and layouts leave the merged stores.
+  void emitBridgeResync();
+}
+
+/** Follow the stored list: removed pairings leave, new ones join. */
+function syncPairings(): void {
+  const stored = dialable();
+  if (stored.length === 0) {
+    // The last pairing was removed — unless refused, which `web-main` is
+    // already saying — and there is nothing left to show.
+    if (pageOutcome() === null) location.reload();
+    return;
+  }
+  for (const pairing of stored) {
+    const entry = held.get(pairing.roomId);
+    if (!entry) {
+      open(pairing, { joined: true });
+    } else if (
+      entry.pairing.token !== pairing.token ||
+      entry.pairing.serverKey !== pairing.serverKey
+    ) {
+      // A newer link for the same room: dial with it instead.
+      entry.stopHosts?.();
+      clearHelloDeadline(entry);
+      entry.transport.close();
+      held.delete(pairing.roomId);
+      open(pairing, { joined: true });
+    } else {
+      entry.pairing = pairing;
+    }
+  }
+  for (const roomId of [...held.keys()]) {
+    if (!stored.some((p) => p.roomId === roomId)) drop(roomId);
+  }
+}
 
 /**
  * "Try again now" on the not-reachable overlay, and a phone that comes back
@@ -189,7 +501,7 @@ const transport = createWsTransport({
  * often kills a backgrounded one without a close event.
  */
 export function retryBridgeNow(): void {
-  void transport.probeNow();
+  for (const entry of held.values()) void entry.transport.probeNow();
 }
 window.addEventListener("online", retryBridgeNow);
 window.addEventListener("pageshow", retryBridgeNow);
@@ -200,18 +512,40 @@ if (typeof document !== "undefined") {
 }
 
 /**
- * The manual refresh (ADR-220 D5): probe the line, and re-fetch everything
- * over it if it is alive. If it is not, the transport is redialling, and the
- * hello that ends that emits the resync itself; either way this resolves once
- * the stores have re-fetched (or the redial took too long to wait on).
+ * The manual refresh (ADR-220 D5): probe every line, and re-fetch everything
+ * over them if they are alive. A line that is not is redialling, and the
+ * hello that ends that emits the resync itself; this waits for it (or a
+ * redial that takes too long), then re-fetches over the live ones if that
+ * hello never came. Resolves once the stores have re-fetched.
  */
 export async function refreshBridge(): Promise<void> {
-  const outcome = await transport.probeNow();
-  if (outcome === "alive") await emitBridgeResync();
-  else if (outcome === "redialing") {
-    await nextHelloResync(REFRESH_REDIAL_TIMEOUT_MS);
+  const outcomes = await Promise.all(
+    [...held.values()].map((entry) => entry.transport.probeNow()),
+  );
+  const alive = outcomes.includes("alive");
+  if (outcomes.includes("redialing")) {
+    const resynced = await nextHelloResync(REFRESH_REDIAL_TIMEOUT_MS);
+    if (!resynced && alive) await emitBridgeResync();
+  } else if (alive) {
+    await emitBridgeResync();
   }
 }
 registerRefresh(refreshBridge);
 
-window.electronAPI = createBridge(transport);
+if (homeAtBoot === null) {
+  servers.add(
+    LOCAL_HOST_ID,
+    createWsTransport({ token: null, pipe: UNPAIRED_PIPE }),
+    { home: true, lists: "all" },
+  );
+  window.electronAPI = createRouter(servers);
+} else {
+  open(homeAtBoot, { home: true, joined: false });
+  for (const pairing of atBoot) {
+    if (pairing.roomId !== homeAtBoot.roomId) open(pairing, { joined: false });
+  }
+  subscribePairings(syncPairings);
+  window.electronAPI = createRouter(servers, undefined, {
+    lastKnown: createLastKnownStore(),
+  });
+}

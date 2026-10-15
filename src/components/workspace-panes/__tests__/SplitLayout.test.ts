@@ -199,6 +199,9 @@ describe("SplitLayout in phone mode", () => {
     // workspace must not paint itself back in (tab-styles.ts).
     expect(first.style.visibility).toBe("inherit");
     expect(second.style.visibility).toBe("hidden");
+    // Marked, so a terminal in it moves off screen and stops painting (#300).
+    expect(first.hasAttribute("data-hidden-layer")).toBe(false);
+    expect(second.hasAttribute("data-hidden-layer")).toBe(true);
     expect(divider.style.display).toBe("none");
   });
 

@@ -319,3 +319,11 @@
   margin: 4px 0;
   background: var(--border);
 }
+
+/* A terminal in a hidden layer, however deeply nested (`hiddenLayerAttr` in
+   tab-styles.ts): off screen to xterm's IntersectionObserver, so it pauses
+   painting until shown. A transform leaves the layout box, and so the pty
+   size, alone. */
+:global([data-hidden-layer]) .container {
+  transform: translateX(-200vw);
+}

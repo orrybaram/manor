@@ -1,4 +1,5 @@
 import { useState, useRef, useMemo, useCallback } from "react";
+import { addErrorToast } from "../../store/toast-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import Check from "lucide-react/dist/esm/icons/check";
 import { useThemeStore, type Theme } from "../../store/theme-store";
@@ -52,6 +53,9 @@ export function ThemeSection() {
         const el = itemRefs.current.get(selectedThemeName);
         el?.scrollIntoView({ block: "center" });
       });
+    }, (err: unknown) => {
+      // Not an empty list: say the themes couldn't be read (ADR-232 D8).
+      addErrorToast("theme-list", "Couldn't load themes", err);
     });
   });
 

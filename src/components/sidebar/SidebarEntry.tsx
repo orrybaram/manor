@@ -153,12 +153,10 @@ export function SidebarEntry(props: SidebarEntryProps) {
         setWorkspaceHidden(project.id, ws.path, false)
       }
       onOpenSettings={() => onOpenProjectSettings?.(entry.sections[0].project.id)}
-      onRemove={() => {
-        void (async () => {
-          for (const section of entry.sections) {
-            await removeProject(section.project.id);
-          }
-        })();
+      onRemove={async () => {
+        for (const section of entry.sections) {
+          await removeProject(section.project.id);
+        }
       }}
     />
   );

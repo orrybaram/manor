@@ -4,6 +4,7 @@ import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
 import { useToastStore } from "../../../store/toast-store";
 import { openExternal } from "../../../lib/open-external";
+import { ipcErrorMessage } from "../../../lib/ipc-error";
 import styles from "./FeedbackModal.module.css";
 
 const REPO = "orrybaram/manor";
@@ -97,68 +98,88 @@ export function FeedbackModal(props: FeedbackModalProps) {
       status: "loading",
     });
 
-    // Upload screenshots if any
-    if (screenshots.length > 0) {
-      try {
-        const ts = Date.now();
-        const images = screenshots.map((s, i) => ({
-          base64: s.base64,
-          name: `feedback-${ts}-${i}.png`,
-        }));
-        const urls =
-          await window.electronAPI.github.uploadFeedbackImages(images);
-        if (urls.length > 0) {
-          body +=
-            "\n\n---\n\n" +
-            urls.map((url, i) => `![screenshot-${i + 1}](${url})`).join("\n");
+    // Every failure ends the loading toast and frees the form (ADR-232 D7);
+    // the modal stays open with what was typed, so the user can try again.
+    const fail = (message: string, err: unknown) => {
+      updateToast(toastId, {
+        message,
+        status: "error",
+        detail: ipcErrorMessage(err),
+      });
+    };
+
+    try {
+      // Upload screenshots if any. Uploading needs gh with push rights to the
+      // repo, which most users lack, so a failed upload still files the
+      // feedback — and the result says the screenshots were left out.
+      let screenshotNote: string | null = null;
+      if (screenshots.length > 0) {
+        try {
+          const ts = Date.now();
+          const images = screenshots.map((s, i) => ({
+            base64: s.base64,
+            name: `feedback-${ts}-${i}.png`,
+          }));
+          const urls =
+            await window.electronAPI.github.uploadFeedbackImages(images);
+          if (urls.length > 0) {
+            body +=
+              "\n\n---\n\n" +
+              urls.map((url, i) => `![screenshot-${i + 1}](${url})`).join("\n");
+          }
+        } catch (err) {
+          screenshotNote = `Sent without screenshots: ${ipcErrorMessage(err)}`;
         }
-      } catch {
-        // Continue without screenshots
       }
-    }
 
-    // Try gh CLI first
-    const status = await window.electronAPI.github.checkStatus();
+      // Try gh CLI first
+      const status = await window.electronAPI.github.checkStatus();
 
-    if (status.installed && status.authenticated) {
-      const result = await window.electronAPI.github.createIssue(
-        title.trim(),
+      if (status.installed && status.authenticated) {
+        const result = await window.electronAPI.github.createIssue(
+          title.trim(),
+          body,
+          labels,
+        );
+        if (result?.url) {
+          updateToast(toastId, {
+            message: "Feedback submitted!",
+            status: "success",
+            detail: screenshotNote ?? undefined,
+            action: {
+              label: "View",
+              onClick: () => openExternal(result.url),
+            },
+          });
+          reset();
+          onOpenChange(false);
+          return;
+        }
+      }
+
+      // Fallback: open pre-filled GitHub URL in browser
+      const params = new URLSearchParams({
+        title: title.trim(),
         body,
-        labels,
-      );
-      if (result?.url) {
-        updateToast(toastId, {
-          message: "Feedback submitted!",
-          status: "success",
-          action: {
-            label: "View",
-            onClick: () => openExternal(result.url),
-          },
-        });
-        reset();
-        onOpenChange(false);
-        setSubmitting(false);
-        return;
-      }
+        labels: labels.join(","),
+      });
+      const url = `https://github.com/${REPO}/issues/new?${params.toString()}`;
+      openExternal(url);
+
+      updateToast(toastId, {
+        message: "Opened in browser",
+        status: "success",
+        detail: screenshotNote
+          ? `Complete the issue on GitHub. ${screenshotNote}`
+          : "Complete the issue on GitHub",
+      });
+      reset();
+      onOpenChange(false);
+    } catch (err) {
+      fail("Couldn't submit feedback", err);
+    } finally {
+      setSubmitting(false);
     }
-
-    // Fallback: open pre-filled GitHub URL in browser
-    const params = new URLSearchParams({
-      title: title.trim(),
-      body,
-      labels: labels.join(","),
-    });
-    const url = `https://github.com/${REPO}/issues/new?${params.toString()}`;
-    openExternal(url);
-
-    updateToast(toastId, {
-      message: "Opened in browser",
-      status: "success",
-      detail: "Complete the issue on GitHub",
-    });
-    reset();
-    onOpenChange(false);
-    setSubmitting(false);
   }, [
     title,
     description,

@@ -16,8 +16,12 @@ import { useStatsStore } from "../store/stats-store";
 export async function navigateToNotification(
   record: NotificationRecord,
 ): Promise<void> {
+  // A failed mark-read must not strand the click (ADR-232 D7): go anyway.
   if (!record.read) {
-    await useNotificationStore.getState().markRead(record.id);
+    await useNotificationStore
+      .getState()
+      .markRead(record.id)
+      .catch((err: unknown) => console.warn("[notifications] markRead failed:", err));
   }
 
   const target = record.target;

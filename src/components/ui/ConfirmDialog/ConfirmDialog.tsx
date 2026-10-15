@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "../Button/Button";
+import { addErrorToast, wasReported } from "../../../store/toast-store";
 import dialogStyles from "../../sidebar/dialogs.module.css";
 
 type ConfirmDialogProps = {
@@ -12,7 +13,13 @@ type ConfirmDialogProps = {
   cancelLabel?: string;
   /** `danger` for destructive actions; `primary` otherwise. */
   confirmVariant?: "primary" | "danger";
-  onConfirm: () => void;
+  /**
+   * May return a promise (ADR-232 D6): the dialog then waits, its confirm
+   * button disabled, and stays open if it rejects — so it never closes on a
+   * failure. Closing on success is still the caller's, through `open`.
+   * Cancel stays live, so an answer that never comes can't trap the user.
+   */
+  onConfirm: () => void | Promise<void>;
   /** Called on Cancel, Escape and clicking outside. */
   onCancel: () => void;
 };
@@ -33,6 +40,21 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     onCancel,
   } = props;
 
+  const [pending, setPending] = useState(false);
+
+  const confirm = () => {
+    const result = onConfirm();
+    if (!result) return;
+    setPending(true);
+    result
+      .catch((err: unknown) => {
+        // The action usually reports its own failure; anything it didn't
+        // still reaches the user.
+        if (!wasReported(err)) addErrorToast("confirm-dialog", "Something went wrong", err);
+      })
+      .finally(() => setPending(false));
+  };
+
   return (
     <Dialog.Root
       open={open}
@@ -51,7 +73,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             <Button variant="secondary" onClick={onCancel}>
               {cancelLabel}
             </Button>
-            <Button variant={confirmVariant} onClick={onConfirm}>
+            <Button variant={confirmVariant} onClick={confirm} disabled={pending}>
               {confirmLabel}
             </Button>
           </div>

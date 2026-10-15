@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { provideHostLookups } from "../bridge/host-lookups";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
-import { useToastStore } from "./toast-store";
+import { addErrorToast, useToastStore } from "./toast-store";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
@@ -575,6 +575,11 @@ interface ProjectState {
   agentsCollapsed: boolean;
   loading: boolean;
   initialLoadDone: boolean;
+  /**
+   * Why the first `loadProjects` failed, until one succeeds (ADR-232 D4).
+   * With no projects loaded, `App` shows a retry screen — never onboarding.
+   */
+  loadError: string | null;
   collapsedProjectIds: Set<string>;
   collapsedFolderKeys: Set<string>;
 
@@ -716,7 +721,7 @@ interface ProjectState {
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   /**
    * ADR-192 ticket 2: set a group's shared settings, shown on every member
-   * at once. Errors roll the change back and are shown as a toast.
+   * at once. Errors roll the change back, are shown as a toast, and reject.
    */
   updateGroup: (
     groupId: string,
@@ -803,14 +808,12 @@ function closeWorkspacesLeftBehind(
   for (const key of gone) useAppStore.getState().removeWorkspaceLayout(key);
 }
 
-/** An error toast for a failed link or unlink (ADR-192). */
+/**
+ * An error toast for a failed link or unlink (ADR-192). Through
+ * `addErrorToast`, so a rethrow isn't toasted again (ADR-232 D1).
+ */
 function groupErrorToast(id: string, message: string, err: unknown): void {
-  useToastStore.getState().addToast({
-    id,
-    message,
-    status: "error",
-    detail: ipcErrorMessage(err),
-  });
+  addErrorToast(id, message, err);
 }
 
 /**
@@ -873,6 +876,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   agentsCollapsed: loadFlag(AGENTS_COLLAPSED_KEY),
   loading: false,
   initialLoadDone: false,
+  loadError: null,
   collapsedProjectIds: loadCollapsedIds(),
   collapsedFolderKeys: loadCollapsedFolderKeys(),
 
@@ -891,12 +895,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         selectedProjectIndex: selectedIndex,
         loading: false,
         initialLoadDone: true,
+        loadError: null,
       }));
       // ADR-214: join existing same-origin duplicates, now and as each
       // remote host first connects.
       if (firstLoad) void startAutoJoin(autoJoinDeps());
-    } catch {
-      set({ loading: false, initialLoadDone: true });
+    } catch (err) {
+      console.error("[projects] failed to load:", err);
+      // A failed first load is not an empty list: `initialLoadDone` stays
+      // false and `loadError` says why. A later re-read that fails keeps the
+      // projects it already has.
+      set((s) => ({
+        loading: false,
+        loadError: s.initialLoadDone ? s.loadError : ipcErrorMessage(err),
+      }));
     }
   },
 
@@ -1079,6 +1091,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await get().removeProject(memberId);
     } catch (err) {
+      // `removeProject` toasted already; this one names the host instead.
+      useToastStore.getState().removeToast(`remove-project-${memberId}`);
       groupErrorToast(
         `remove-from-host-${memberId}`,
         `Couldn't remove ${member.name} from ${hostName}`,
@@ -1135,8 +1149,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   removeProject: async (projectId: string) => {
-    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
-    await window.electronAPI.projects.remove(projectId);
+    const project = get().projects.find((p) => p.id === projectId);
+    const groupId = project?.group?.id;
+    try {
+      await window.electronAPI.projects.remove(projectId);
+    } catch (err) {
+      addErrorToast(
+        `remove-project-${projectId}`,
+        `Couldn't remove ${project?.name ?? "project"}`,
+        err,
+      );
+      throw err;
+    }
     if (groupId) {
       // The other members' group summaries changed (or the group dissolved).
       await get().loadProjects();
@@ -1471,7 +1495,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         "Couldn't save shared settings",
         err,
       );
-      return;
+      // Rethrown, as `updateProject` does, so an awaiting caller (the setup
+      // wizard) knows it failed; the toast marked it reported (ADR-232 D6).
+      throw err;
     }
     // Only the shared settings changed; take those, and keep the rest (the
     // watchers' PR and diff state on each workspace, say) as it is.
@@ -1601,11 +1627,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     workspacePath: string,
     newName: string,
   ) => {
-    await window.electronAPI.projects.renameWorkspace(
-      projectId,
-      workspacePath,
-      newName,
-    );
+    try {
+      await window.electronAPI.projects.renameWorkspace(
+        projectId,
+        workspacePath,
+        newName,
+      );
+    } catch (err) {
+      addErrorToast(`rename-workspace-${workspacePath}`, "Couldn't rename workspace", err);
+      throw err;
+    }
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -1623,11 +1654,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setWorkspaceHidden: async (projectId, workspacePath, hidden) => {
-    await window.electronAPI.projects.setWorkspaceHidden(
-      projectId,
-      workspacePath,
-      hidden,
-    );
+    try {
+      await window.electronAPI.projects.setWorkspaceHidden(
+        projectId,
+        workspacePath,
+        hidden,
+      );
+    } catch (err) {
+      addErrorToast(
+        `hide-workspace-${workspacePath}`,
+        hidden ? "Couldn't hide workspace" : "Couldn't unhide workspace",
+        err,
+      );
+      throw err;
+    }
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -1648,11 +1688,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     anchorKeys?: string[],
     parentId?: string | null,
   ) => {
-    const folder = await window.electronAPI.projects.createWorkspaceFolder(
-      projectId,
-      name,
-      parentId ?? null,
-    );
+    let folder;
+    try {
+      folder = await window.electronAPI.projects.createWorkspaceFolder(
+        projectId,
+        name,
+        parentId ?? null,
+      );
+    } catch (err) {
+      addErrorToast(`create-folder-${projectId}`, `Couldn't create folder "${name}"`, err);
+      throw err;
+    }
     if (!folder) return folder;
 
     // Main appends the id to the persisted order; mirror that locally.
@@ -1834,6 +1880,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           }),
         }));
       }
+      // Every settings field saves through here, mostly fire-and-forget:
+      // say why it snapped back (ADR-232 D6).
+      addErrorToast(
+        `update-project-${projectId}`,
+        "Couldn't save project settings — your change was undone",
+        err,
+      );
       throw err;
     }
     if (updated) {

@@ -50,6 +50,20 @@ describe("useStatsStore", () => {
     expect(useStatsStore.getState().loaded).toBe(true);
   });
 
+  it("records a failed read and clears it on a successful retry (ADR-232 D7)", async () => {
+    useStatsStore.setState({ loadError: null });
+    statsApi.getSummary.mockRejectedValueOnce(new Error("main is busy"));
+    await useStatsStore.getState().retry();
+    expect(useStatsStore.getState().loadError).toBe("main is busy");
+    expect(useStatsStore.getState().summary).toBeNull();
+
+    const summary = makeSummary();
+    statsApi.getSummary.mockResolvedValueOnce(summary);
+    await useStatsStore.getState().retry();
+    expect(useStatsStore.getState().loadError).toBeNull();
+    expect(useStatsStore.getState().summary).toEqual(summary);
+  });
+
   it("proxies reset straight to IPC", async () => {
     await useStatsStore.getState().reset();
 

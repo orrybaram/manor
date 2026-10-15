@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useProjectStore } from "../project-store";
+import { useToastStore, wasReported } from "../toast-store";
 
 const electronAPI = (window as unknown as { electronAPI: Record<string, unknown> })
   .electronAPI;
@@ -32,6 +33,23 @@ describe("updateProject rollback", () => {
     expect(project().name).toBe("renamed");
     await expect(pending).rejects.toThrow("write failed");
     expect(project().name).toBe("app");
+  });
+
+  it("explains the rollback with a toast, marking the error reported (ADR-232 D6)", async () => {
+    useToastStore.setState({ toasts: [] });
+    const err = new Error("write failed");
+    electronAPI.projects = { update: vi.fn().mockRejectedValue(err) };
+
+    await expect(
+      useProjectStore.getState().updateProject("p1", { name: "renamed" }),
+    ).rejects.toBe(err);
+
+    const toast = useToastStore.getState().toasts.find((t) => t.id === "update-project-p1");
+    expect(toast?.status).toBe("error");
+    expect(toast?.message).toMatch(/undone/);
+    expect(toast?.detail).toBe("write failed");
+    // The rethrow, if nothing catches it, is not toasted a second time.
+    expect(wasReported(err)).toBe(true);
   });
 
   it("does not clobber a newer update that landed meanwhile", async () => {

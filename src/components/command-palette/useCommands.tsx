@@ -1,4 +1,5 @@
 import { useMemo, type ReactNode } from "react";
+import { forwardedUrl } from "../../lib/port-forward-open";
 import { usePreferencesStore } from "../../store/preferences-store";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
@@ -398,10 +399,12 @@ export function useCommands({
         ],
         action: () => {
           // A remote host's port opens through its forward (ADR-178 §5).
+          // One that can't be forwarded toasts and opens nothing — the box's
+          // localhost is not this machine's (ADR-232 D8).
           if (isRemoteHost(p.hostId)) {
-            window.electronAPI.ports
-              .resolveUrl(url, p.hostId)
-              .then(addBrowserTab, () => addBrowserTab(url));
+            void forwardedUrl(url, p.hostId).then((target) => {
+              if (target) addBrowserTab(target);
+            });
           } else {
             addBrowserTab(url);
           }

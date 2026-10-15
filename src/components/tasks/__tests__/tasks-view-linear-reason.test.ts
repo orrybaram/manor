@@ -8,6 +8,7 @@ import { servers } from "../../../bridge/server-set";
 import { useProjectStore } from "../../../store/project-store";
 import { makeProject } from "../../../test-utils/fixtures";
 import { createTestRoot, type TestRoot } from "../../../test-utils/react-root";
+import { TooltipProvider } from "../../ui/Tooltip/Tooltip";
 
 const { TasksView } = await import("../TasksView");
 
@@ -66,7 +67,12 @@ describe("TasksView with Linear on no server (ADR-228 D10)", () => {
       createElement(
         QueryClientProvider,
         { client: new QueryClient() },
-        createElement(TasksView, { onNewWorkspace: () => {} }),
+        // The GitHub nudge's buttons carry tooltips; `App` provides this.
+        createElement(
+          TooltipProvider,
+          null,
+          createElement(TasksView, { onNewWorkspace: () => {} }),
+        ),
       ),
     );
     await settle();

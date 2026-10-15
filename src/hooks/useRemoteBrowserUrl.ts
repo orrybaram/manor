@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { selectPaneUrl, useAppStore } from "../store/app-store";
 import { useHostStore, selectHost } from "../store/host-store";
-import { isLocalhostHttpUrl, resolveUrlForHost } from "../lib/hosts";
+import { isLocalhostHttpUrl } from "../lib/hosts";
+import { forwardedUrl } from "../lib/port-forward-open";
 import { useHostDisplay } from "./useHostDisplay";
 import { useMountEffect } from "./useMountEffect";
 
@@ -110,11 +111,13 @@ export function useRemoteBrowserUrl(
     if (!hostId) return;
     const seq = ++resolveSeqRef.current;
     setWaitingForHost(true);
-    resolveUrlForHost(remoteUrl, hostId).then((target) => {
+    void forwardedUrl(remoteUrl, hostId).then((target) => {
       if (seq !== resolveSeqRef.current) return;
       setWaitingForHost(false);
       const wv = webviewRef.current;
-      if (!wv) return;
+      // No forward: the toast says why, and nothing loads — this machine's
+      // own localhost is not the box's (ADR-232 D8).
+      if (!wv || !target) return;
       wv.src = target;
       setLoadedUrl(target);
     });
@@ -178,10 +181,10 @@ export function useRemoteBrowserUrl(
     const remembered = selectPaneUrl(useAppStore.getState(), paneId);
     if (!hostId || !remembered || !isLocalhostHttpUrl(remembered)) return;
     const seq = ++resolveSeqRef.current;
-    resolveUrlForHost(remembered, hostId).then((target) => {
+    void forwardedUrl(remembered, hostId).then((target) => {
       if (seq !== resolveSeqRef.current) return;
       const wv = webviewRef.current;
-      if (!wv || sameHost(target, loadedUrlRef.current)) return;
+      if (!wv || !target || sameHost(target, loadedUrlRef.current)) return;
       wv.src = target;
       setLoadedUrl(target);
     });

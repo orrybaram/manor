@@ -72,6 +72,7 @@ import {
 } from "../lib/workspace-key";
 import { useProjectStore } from "./project-store";
 import { bootAndResync } from "../bridge/resync";
+import { ipcErrorMessage } from "../lib/ipc-error";
 import { useRemotePaneStore } from "./remote-pane-store";
 import {
   type SnapshotResult,
@@ -200,6 +201,12 @@ export interface AppState {
   panePickedElement: Record<string, PickedElementResult>;
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
+  /**
+   * Why the boot read of the layout failed, if it did (ADR-232 D7). A
+   * detached window then shows "Couldn't load this window" instead of its
+   * splash forever.
+   */
+  layoutLoadError: string | null;
   /**
    * The panes of the workspace this window shows at launch, as the layout
    * read at launch has them, whose first `pty.create` has not settled yet
@@ -1591,6 +1598,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   panePickedElement: {},
   webviewFocusedPaneId: null,
   layoutLoaded: false,
+  layoutLoadError: null,
   restoredPaneIds: new Set<string>(),
   paneFocusNonce: 0,
   pendingCloseConfirmPaneId: null,
@@ -1620,6 +1628,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       });
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
+      set({ layoutLoadError: ipcErrorMessage(err) });
+      // A detached window has nothing to show without it (ADR-232 D7).
     }
     set({ layoutLoaded: true });
   },

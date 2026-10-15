@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { ipcErrorMessage } from "../lib/ipc-error";
 
 export interface Toast {
   id: string;
@@ -26,17 +27,31 @@ interface ToastState {
 
 /**
  * Surface an error to the user as a toast. Normalizes `unknown` to a string
- * detail (`Error.message`, else `String(err)`) — the shape every catch block was
- * hand-rolling. Pass a stable `id` so a repeated failure replaces its toast
+ * detail without Electron's IPC wrapper (`ipcErrorMessage`) — the shape every
+ * catch block was hand-rolling. Pass a stable `id` so a repeated failure replaces its toast
  * rather than stacking (see `addToast`'s dedupe).
  */
 export function addErrorToast(id: string, message: string, err: unknown): void {
+  markReported(err);
   useToastStore.getState().addToast({
     id,
     message,
     status: "error",
-    detail: err instanceof Error ? err.message : String(err),
+    detail: ipcErrorMessage(err),
   });
+}
+
+// Errors `addErrorToast` already showed, so a rethrow that goes on to reject
+// unhandled doesn't toast a second time (ADR-232 D1).
+const reported = new WeakSet<object>();
+
+function markReported(err: unknown): void {
+  if (typeof err === "object" && err !== null) reported.add(err);
+}
+
+/** Whether `err` already reached the user through `addErrorToast`. */
+export function wasReported(err: unknown): boolean {
+  return typeof err === "object" && err !== null && reported.has(err);
 }
 
 export const useToastStore = create<ToastState>((set) => ({

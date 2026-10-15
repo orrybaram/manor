@@ -6,6 +6,9 @@ import Download from "lucide-react/dist/esm/icons/download";
 import Check from "lucide-react/dist/esm/icons/check";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
 import { Link } from "../ui/Link/Link";
+import { Button } from "../ui/Button/Button";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
+import { ipcErrorMessage } from "../../lib/ipc-error";
 import { MiniTerminal, type MiniTerminalHandle } from "../ui/MiniTerminal";
 import styles from "../EmptyState.module.css";
 
@@ -28,6 +31,8 @@ export function GitHubNudge(props: GitHubNudgeProps) {
     }
   });
   const [phase, setPhase] = useState<Phase>("idle");
+  /** Why the install or sign-in failed, shown in the error phase. */
+  const [errorReason, setErrorReason] = useState<string | null>(null);
   const phaseRef = useRef<Phase>("idle");
   const terminalHandleRef = useRef<MiniTerminalHandle | null>(null);
   const authCompleteRef = useRef(false);
@@ -67,14 +72,20 @@ export function GitHubNudge(props: GitHubNudgeProps) {
 
   const handleExit = useCallback(() => {
     if (authCompleteRef.current) return;
-    window.electronAPI.github.checkStatus().then((status) => {
-      if (status.installed && status.authenticated) {
-        finishAuth();
-      } else {
-        setPhase("error");
-        phaseRef.current = "error";
-      }
-    });
+    const fail = (reason: string) => {
+      setErrorReason(reason);
+      setPhase("error");
+      phaseRef.current = "error";
+    };
+    window.electronAPI.github.checkStatus().then(
+      (status) => {
+        if (status.installed && status.authenticated) finishAuth();
+        else if (!status.installed) fail("The GitHub CLI didn't install. See the output below.");
+        else fail("GitHub sign-in didn't finish. See the output below.");
+      },
+      // A check that throws must not leave the nudge "installing" (ADR-232 D8).
+      (err: unknown) => fail(`Couldn't check the GitHub CLI: ${ipcErrorMessage(err)}`),
+    );
   }, [finishAuth]);
 
   const startInstall = useCallback(() => {
@@ -109,13 +120,17 @@ export function GitHubNudge(props: GitHubNudgeProps) {
             GitHub CLI installed and authenticated!
           </span>
         </div>
-        <button
-          className={styles.nudgeDismiss}
-          onClick={handleDismiss}
-          title="Close"
-        >
-          <X size={14} />
-        </button>
+        <Tooltip label="Close">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.nudgeDismiss}
+            onClick={handleDismiss}
+            aria-label="Close"
+          >
+            <X size={14} />
+          </Button>
+        </Tooltip>
       </div>
     );
   }
@@ -125,7 +140,9 @@ export function GitHubNudge(props: GitHubNudgeProps) {
       <div className={styles.nudge}>
         <Github size={16} className={styles.nudgeIcon} />
         <div className={styles.nudgeContent}>
-          {phase === "authenticating" ? (
+          {phase === "error" ? (
+            <span className={styles.nudgeText}>{errorReason}</span>
+          ) : phase === "authenticating" ? (
             <span className={styles.nudgeText}>
               Authenticate with GitHub to continue
             </span>
@@ -143,24 +160,28 @@ export function GitHubNudge(props: GitHubNudgeProps) {
           )}
         </div>
         {phase === "idle" && (
-          <button className={styles.nudgeInstallBtn} onClick={startInstall}>
+          <Button size="sm" className={styles.nudgeInstallBtn} onClick={startInstall}>
             <Download size={13} />
             Install
-          </button>
+          </Button>
         )}
         {phase === "error" && (
-          <button className={styles.nudgeInstallBtn} onClick={handleRetry}>
+          <Button size="sm" className={styles.nudgeInstallBtn} onClick={handleRetry}>
             <RotateCcw size={13} />
             Retry
-          </button>
+          </Button>
         )}
-        <button
-          className={styles.nudgeDismiss}
-          onClick={handleDismiss}
-          title="Dismiss"
-        >
-          <X size={14} />
-        </button>
+        <Tooltip label="Dismiss">
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.nudgeDismiss}
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </Button>
+        </Tooltip>
       </div>
       <div
         className={`${styles.nudgeTerminalWrapper} ${phase !== "idle" ? styles.nudgeTerminalOpen : ""}`}

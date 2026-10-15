@@ -297,8 +297,9 @@ relayTest.describe("the lid closes", () => {
           fire("Stop");
           await statusOnPhone("responded");
 
-          // The desktop's project reads as away; the box's stays live. Its
-          // verdict is asserted at the end, so the thaw is checked either way.
+          // The desktop's project reads as away; the box's stays live. The
+          // phone's transport pings the silent desktop and gives up on its
+          // line (ADR-231 D8), well before the relay reaps it (90 s).
           let awayAfterMs: number | null = null;
           try {
             await expect
@@ -308,11 +309,12 @@ relayTest.describe("the lid closes", () => {
               .toBe(true);
             awayAfterMs = Date.now() - frozenAt;
           } catch {
-            // Not within the 30 s: recorded, and failed below.
+            // Not within the 30 s: recorded, and failed just below.
           }
           console.log(
             `[lid-closed] desktop away on the phone: ${awayAfterMs === null ? `not within ${AWAY_WITHIN} ms` : `${awayAfterMs} ms`} after the freeze`,
           );
+          expect(awayAfterMs, `the desktop's project away on the phone within ${AWAY_WITHIN} ms`).not.toBeNull();
           expect(await projectAway(page, PROJECT_NAME)).toBe(false);
 
           // 4. The lid opens. No Retry: the app finds its own way back.
@@ -367,20 +369,6 @@ relayTest.describe("the lid closes", () => {
               .slice(before)
               .map((n) => n.kind),
           ).toEqual(["agent-responded"]);
-
-          // Everything else held. The desktop's project did not read as
-          // away within 30 s, which is a known failure (ticket 5's "Found",
-          // a follow-up under ADR-231): the relay answers the phone's
-          // heartbeat itself, so the phone's line to a frozen desktop looks
-          // alive, and the relay drops the silent desktop only after
-          // `STALE_AFTER_MS` (90 s). Even then the sidebar does not dim it:
-          // `isHostOffline` counts a host away only when a host list reports
-          // it, and none lists the desktop's own room. Expected to fail only
-          // here, so a regression in any step above still fails the test.
-          if (awayAfterMs === null) {
-            relayTest.fail(true, "the phone does not read a frozen desktop as away (ADR-231 ticket 5, Found)");
-          }
-          expect(awayAfterMs, `the desktop's project away on the phone within ${AWAY_WITHIN} ms`).not.toBeNull();
         } catch (err) {
           console.log(`[lid-closed.spec] phone log:\n${client.log.join("\n")}`);
           await client.page

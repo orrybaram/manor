@@ -19,6 +19,8 @@
     "knip:fix": "knip --fix",
     "test:watch": "vitest",
     "test:e2e": "pnpm build && pnpm build:web:relay && playwright test --project=e2e && playwright test --project=perf",
+    "test:e2e:smoke": "pnpm build && pnpm build:web:relay && playwright test --project=e2e --grep @smoke",
+    "e2e:smoke": "playwright test --project=e2e --grep @smoke",
     "test:e2e:remote-host": "node scripts/test-remote-e2e.mjs",
     "test:e2e:remote-host:docker": "node scripts/test-remote-e2e.mjs --docker",
     "test:e2e:web": "pnpm build && pnpm build:web:relay && playwright test tests/e2e/web-app.spec.ts",

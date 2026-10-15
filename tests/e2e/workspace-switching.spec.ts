@@ -35,7 +35,7 @@ async function visiblePaneIds(window: Page): Promise<string[]> {
     );
 }
 
-test("switching workspaces keeps every terminal mounted but only one visible", async ({
+test("switching workspaces keeps every terminal mounted but only one visible", { tag: "@smoke" }, async ({
   app,
   window,
   tempHome,
@@ -81,7 +81,7 @@ test("switching workspaces keeps every terminal mounted but only one visible", a
     .toBe(2);
 });
 
-test("switching tabs within a workspace shows only the selected tab", async ({
+test("switching tabs within a workspace shows only the selected tab", { tag: "@smoke" }, async ({
   app,
   window,
   tempHome,

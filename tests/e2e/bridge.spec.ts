@@ -113,7 +113,7 @@ test.describe("the desktop on the bridge (ADR-180)", () => {
    * at its ceiling throughout, so the size it sends when it takes the pane
    * back is the size it sent when it opened it.
    */
-  test("two desktop windows on one pane: the more recent attach owns the winsize, the other follows", async ({
+  test("two desktop windows on one pane: the more recent attach owns the winsize, the other follows", { tag: "@smoke" }, async ({
     app,
     window,
     tempHome,

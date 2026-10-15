@@ -250,7 +250,7 @@ test.describe("relay (ADR-206)", () => {
     expect(relay.payloads().length).toBe(before);
   });
 
-  test("a browser pairs through the relay, drives a live terminal, and the relay sees none of it", async ({
+  test("a browser pairs through the relay, drives a live terminal, and the relay sees none of it", { tag: "@smoke" }, async ({
     app,
     window,
     tempHome,

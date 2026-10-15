@@ -29,7 +29,7 @@ async function typeInPane(
   await window.keyboard.press("Enter");
 }
 
-test("pane lifecycle", async ({ app, window, tempHome }) => {
+test("pane lifecycle", { tag: "@smoke" }, async ({ app, window, tempHome }) => {
   await bootWorkspaceWithTerminal(app, window, tempHome, "smoke-test-workspace");
 
   // split-panel-right (Meta+Alt+\): add a second panel beside the first.
@@ -48,7 +48,7 @@ test("pane lifecycle", async ({ app, window, tempHome }) => {
  * the kill and reattaches the same session. A shell variable is the proof
  * that nothing respawned: a fresh zsh would print an empty one.
  */
-test("reopening a closed pane reattaches the same shell", async ({
+test("reopening a closed pane reattaches the same shell", { tag: "@smoke" }, async ({
   app,
   window,
   tempHome,

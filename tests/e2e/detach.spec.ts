@@ -33,7 +33,7 @@ async function detachTab(window: Page, index: number): Promise<void> {
   await window.getByRole("menuitem", { name: "Move to New Window" }).click();
 }
 
-test("a tab popped into its own window is still the workspace's", async ({
+test("a tab popped into its own window is still the workspace's", { tag: "@smoke" }, async ({
   app,
   window,
   tempHome,

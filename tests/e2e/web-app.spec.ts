@@ -252,7 +252,7 @@ async function runPaletteCommand(page: Page, label: string): Promise<void> {
 test.describe("web app (ADR-178 slice 1)", () => {
   test.setTimeout(240_000);
 
-  test("a PC browser pairs, sees the sidebar, and drives a live terminal without moving the winsize or leaving a keystroke trail", async ({
+  test("a PC browser pairs, sees the sidebar, and drives a live terminal without moving the winsize or leaving a keystroke trail", { tag: "@smoke" }, async ({
     app,
     window,
     tempHome,

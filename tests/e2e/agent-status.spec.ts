@@ -33,7 +33,7 @@ async function startAgent(window: Page, tempHome: string): Promise<string> {
 test.describe("agent status", () => {
   test.setTimeout(120_000);
 
-  test("a turn shows thinking with its reason, then responded", async ({
+  test("a turn shows thinking with its reason, then responded", { tag: "@smoke" }, async ({
     app,
     window,
     tempHome,
@@ -74,7 +74,7 @@ test.describe("agent status", () => {
     await expect(tooltip).toHaveText("Stop hook", { timeout: 5_000 });
   });
 
-  test("agent exit parks the pane in idle and the agent completed", async ({
+  test("agent exit parks the pane in idle and the agent completed", { tag: "@smoke" }, async ({
     app,
     window,
     tempHome,

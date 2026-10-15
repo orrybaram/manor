@@ -8,6 +8,14 @@
  * itself back in, and every workspace's selected tab would stack on screen at
  * once. The visible layer therefore inherits rather than asserting `visible`:
  * "be as visible as whatever contains me".
+ *
+ * A hidden layer is also translated out of the viewport. `visibility: hidden`
+ * alone still counts as on screen to IntersectionObserver, which is what
+ * xterm uses to pause painting (it keeps parsing, so queries are answered and
+ * the buffer stays current, and repaints in full once back on screen). A
+ * transform moves the layer without touching layout, so it keeps its full
+ * size and no resize reaches the pty. -200vw clears the viewport from any
+ * left offset, and a layer nested in a hidden one is carried off with it.
  */
 
 const TAB_BASE_STYLE: React.CSSProperties = {
@@ -25,4 +33,5 @@ export const TAB_VISIBLE_STYLE: React.CSSProperties = {
 export const TAB_HIDDEN_STYLE: React.CSSProperties = {
   ...TAB_BASE_STYLE,
   visibility: "hidden",
+  transform: "translateX(-200vw)",
 };

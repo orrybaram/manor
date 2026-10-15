@@ -40,13 +40,19 @@ function timestamp(now: Date): string {
  * reports why there is nothing to upload: `local` (the pane's own host reads
  * its own clipboard), `none` (the clipboard has no image), or `error` (the
  * upload failed, e.g. the host is away).
+ *
+ * `paneHostId` is the host the renderer says the pane runs on. Main's own
+ * `sessions` only learns of a remote session when it lists the host's daemon
+ * (on connect and reconnect): a pane made since then, through the renderer's
+ * viewer stream (ADR-228 D5), is unknown here and would read as local.
  */
 export async function uploadClipboardImage(
   registry: BackendRegistry,
   paneId: string,
   clipboardImage: ClipboardImage,
+  paneHostId?: string,
 ): Promise<PasteClipboardImageResult> {
-  const hostId = registry.sessions.ownerOf(paneId);
+  const hostId = paneHostId ?? registry.sessions.ownerOf(paneId);
   if (hostId === undefined || hostId === LOCAL_HOST_ID)
     return { kind: "local" };
 

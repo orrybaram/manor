@@ -223,8 +223,8 @@ const nativeApi = {
    * paste.
    */
   terminal: {
-    pasteClipboardImage: (paneId: string) =>
-      invoke<PasteClipboardImageResult>("terminal:pasteClipboardImage", paneId),
+    pasteClipboardImage: (paneId: string, hostId?: string) =>
+      invoke<PasteClipboardImageResult>("terminal:pasteClipboardImage", paneId, hostId),
   },
 
   webview: {

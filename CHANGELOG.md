@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.1] - 2026-10-15
+
+### Fixes
+
+- Pasting an image from the clipboard into a remote pane now uploads it to that pane's host
+- Remote panes on hosts running an older daemon are no longer all treated as foreign, so they size correctly again
+- `manor-host` now rejects an unknown mode with an error instead of starting a daemon
+
 ## [0.22.0] - 2026-10-15
 
 ### Features

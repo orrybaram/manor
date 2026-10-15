@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { DayBucket, StatCounter, StatsSummary } from "../electron.d";
 import type { BadgeSection } from "../lib/badges";
+import { ipcErrorMessage } from "../lib/ipc-error";
 
 /**
  * Renderer cache of main's usage-stats summary (ADR-168 §5).
@@ -13,6 +14,13 @@ interface StatsState {
   /** `null` until the first summary arrives (broadcast or initial fetch). */
   summary: StatsSummary | null;
   loaded: boolean;
+  /**
+   * Why the summary couldn't be read, while there is none (ADR-232 D7): the
+   * Stats view shows it with Retry instead of "Loading…" forever.
+   */
+  loadError: string | null;
+  /** Read the summary again. */
+  retry: () => Promise<void>;
   /**
    * Where the Badges tab should open (ADR-212): a track, or its Summary.
    * `null` opens the room on its default Stats tab. Consumed — cleared —
@@ -34,16 +42,17 @@ export const useStatsStore = create<StatsState>((set) => {
   const api = window.electronAPI?.stats;
 
   api?.onChanged((summary) => {
-    set({ summary, loaded: true });
+    set({ summary, loaded: true, loadError: null });
   });
 
   const init = async (): Promise<void> => {
     if (!api) return;
     try {
       const summary = await api.getSummary();
-      set({ summary, loaded: true });
-    } catch {
-      // leave summary null; the next broadcast (or a manual retry) recovers
+      set({ summary, loaded: true, loadError: null });
+    } catch (err) {
+      // Keep whatever summary we have; the next broadcast or a retry recovers.
+      set({ loadError: ipcErrorMessage(err) });
     }
   };
   void init();
@@ -51,6 +60,8 @@ export const useStatsStore = create<StatsState>((set) => {
   return {
     summary: null,
     loaded: false,
+    loadError: null,
+    retry: init,
     focusSection: null,
     focusSeq: 0,
 

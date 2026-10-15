@@ -1,6 +1,6 @@
 ---
 title: Store mutations report failures; async ConfirmDialog
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

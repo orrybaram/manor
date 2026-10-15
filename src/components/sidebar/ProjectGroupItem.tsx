@@ -66,7 +66,7 @@ type ProjectGroupItemProps = {
   /** Opens the group's settings page. */
   onOpenSettings: () => void;
   /** Removes every member of the group from the sidebar. */
-  onRemove: () => void;
+  onRemove: () => Promise<void>;
 };
 
 /**

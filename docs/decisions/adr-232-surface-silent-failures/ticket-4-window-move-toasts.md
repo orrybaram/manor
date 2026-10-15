@@ -1,6 +1,6 @@
 ---
 title: Window moves toast on failure
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [1]

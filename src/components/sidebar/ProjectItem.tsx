@@ -7,6 +7,7 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { ipcErrorMessage } from "../../lib/ipc-error";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -376,7 +377,7 @@ type ProjectItemProps = {
   collapsed: boolean;
   onToggleCollapsed: () => void;
   onSelect: () => void;
-  onRemove: () => void;
+  onRemove: () => Promise<void>;
   onSelectWorkspace: (index: number) => void;
   /** Resolves to whether the worktree was removed. */
   onRemoveWorktree: (ws: WorkspaceInfo, deleteBranch: boolean) => Promise<boolean>;
@@ -894,8 +895,13 @@ export function ProjectItem(props: ProjectItemProps) {
               .getState()
               .canQuickMerge(project.id, ws.path)
               .then(setMergeState)
-              .catch(() =>
-                setMergeState({ canMerge: false, reason: "Error checking merge eligibility" }),
+              .catch((err: unknown) =>
+                // The cause, not just that it failed; reopening the menu
+                // checks again (ADR-232 D8).
+                setMergeState({
+                  canMerge: false,
+                  reason: `Couldn't check merge eligibility: ${ipcErrorMessage(err)}. Reopen this menu to retry.`,
+                }),
               );
           } else {
             setMergeState(null);

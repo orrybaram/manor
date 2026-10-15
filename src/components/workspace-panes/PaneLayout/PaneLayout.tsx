@@ -2,6 +2,7 @@ import { memo } from "react";
 import type { PaneNode } from "../../../lib/layout/pane-tree";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
 import { LeafPane } from "../LeafPane";
+import { PaneErrorBoundary } from "../PaneErrorBoundary";
 import { SplitLayout } from "../SplitLayout";
 
 type PaneLayoutProps = {
@@ -16,11 +17,9 @@ export const PaneLayout = memo(function PaneLayout(props: PaneLayoutProps) {
 
   if (node.type === "leaf") {
     return (
-      <LeafPane
-        key={node.paneId}
-        paneId={node.paneId}
-        workspaceKey={workspaceKey}
-      />
+      <PaneErrorBoundary key={node.paneId} paneId={node.paneId}>
+        <LeafPane paneId={node.paneId} workspaceKey={workspaceKey} />
+      </PaneErrorBoundary>
     );
   }
 

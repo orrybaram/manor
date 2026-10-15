@@ -10,6 +10,9 @@ import type { ManorProcessInfo } from "../../electron.d";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Button } from "../ui/Button/Button";
+import { FallbackScreen } from "../ui/ErrorBoundary/FallbackScreen";
+import { addErrorToast } from "../../store/toast-store";
+import { ipcErrorMessage } from "../../lib/ipc-error";
 import styles from "./CommandPalette.module.css";
 import dialogStyles from "../sidebar/dialogs.module.css";
 
@@ -78,62 +81,104 @@ const INTERNAL_SERVER_DESCRIPTIONS: Record<string, string> = {
 export function ProcessesView() {
   const [info, setInfo] = useState<ManorProcessInfo | null>(null);
   const [cleaningUp, setCleaningUp] = useState(false);
+  // Why the list couldn't be read; shown in place of it only while there is
+  // no list yet, so a failed refresh keeps the last one on screen.
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const fetchInfo = useCallback(async () => {
     try {
       const data = await window.electronAPI.processes.list();
       setInfo(data);
-    } catch {
-      // ignore
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(ipcErrorMessage(err));
     }
   }, []);
+
+  /** Run a kill or restart, toast its failure, then refresh the list either way. */
+  const runAction = useCallback(
+    async (id: string, failure: string, action: () => Promise<unknown>) => {
+      try {
+        await action();
+      } catch (err) {
+        addErrorToast(id, failure, err);
+      }
+      void fetchInfo();
+    },
+    [fetchInfo],
+  );
 
   useMountEffect(() => {
     void fetchInfo();
   });
 
-  const handleKillDaemon = useCallback(async () => {
-    await window.electronAPI.processes.killDaemon();
-    void fetchInfo();
-  }, [fetchInfo]);
+  const handleKillDaemon = useCallback(
+    () =>
+      runAction("kill-daemon", "Couldn't stop the terminal host", () =>
+        window.electronAPI.processes.killDaemon(),
+      ),
+    [runAction],
+  );
 
   const handleKillSession = useCallback(
-    async (sessionId: string) => {
-      await window.electronAPI.processes.killSession(sessionId);
-      void fetchInfo();
-    },
-    [fetchInfo],
+    (sessionId: string) =>
+      runAction(`kill-session-${sessionId}`, "Couldn't kill the session", () =>
+        window.electronAPI.processes.killSession(sessionId),
+      ),
+    [runAction],
   );
 
   const handleKillPort = useCallback(
-    async (pid: number) => {
-      await window.electronAPI.ports.killPort(pid);
-      void fetchInfo();
-    },
-    [fetchInfo],
+    (pid: number) =>
+      runAction(`kill-port-${pid}`, "Couldn't kill the process", () =>
+        window.electronAPI.ports.killPort(pid),
+      ),
+    [runAction],
   );
 
-  const handleRestartPortless = useCallback(async () => {
-    await window.electronAPI.processes.restartPortless();
-    void fetchInfo();
-  }, [fetchInfo]);
+  const handleRestartPortless = useCallback(
+    () =>
+      runAction("restart-portless", "Couldn't restart the portless proxy", () =>
+        window.electronAPI.processes.restartPortless(),
+      ),
+    [runAction],
+  );
 
   const handleCleanupDead = useCallback(async () => {
     setCleaningUp(true);
-    const { success } = await window.electronAPI.processes.cleanupDead();
-    await fetchInfo();
-    if (!success) {
-      // Daemon unreachable — filter dead sessions client-side
-      setInfo((prev) =>
-        prev
-          ? { ...prev, sessions: prev.sessions.filter((s) => s.alive) }
-          : prev,
-      );
+    try {
+      const { success } = await window.electronAPI.processes.cleanupDead();
+      await fetchInfo();
+      if (!success) {
+        // Daemon unreachable — filter dead sessions client-side
+        setInfo((prev) =>
+          prev
+            ? { ...prev, sessions: prev.sessions.filter((s) => s.alive) }
+            : prev,
+        );
+      }
+    } catch (err) {
+      addErrorToast("cleanup-dead-sessions", "Couldn't clean up dead sessions", err);
+    } finally {
+      setCleaningUp(false);
     }
-    setCleaningUp(false);
   }, [fetchInfo]);
 
   if (!info) {
+    if (loadError !== null) {
+      return (
+        <FallbackScreen
+          data-testid="processes-load-failed"
+          title="Couldn't list processes"
+          message={loadError}
+          actions={
+            <Button size="sm" variant="primary" onClick={() => void fetchInfo()}>
+              Retry
+            </Button>
+          }
+        />
+      );
+    }
     return <div className={styles.empty}>Loading...</div>;
   }
 

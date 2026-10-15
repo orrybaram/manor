@@ -2,7 +2,8 @@ import { useCallback, useRef } from "react";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import { Link } from "../ui/Link/Link";
-import { isRemoteHost, resolveUrlForHost } from "../../lib/hosts";
+import { isRemoteHost } from "../../lib/hosts";
+import { killPortWithToast, forwardedUrl } from "../../lib/port-forward-open";
 import { openExternal } from "../../lib/open-external";
 import { useAppStore } from "../../store/app-store";
 import { isHomePath } from "../../lib/home-path";
@@ -37,9 +38,12 @@ export function PortBadge(props: PortBadgeProps) {
         open(url);
         return;
       }
-      void resolveUrlForHost(url, hostId).then(open);
+      // A forward that fails toasts and opens nothing (ADR-232 D8).
+      void forwardedUrl(url, hostId, port.port).then((target) => {
+        if (target) open(target);
+      });
     },
-    [url, hostId, isRemote],
+    [url, hostId, isRemote, port.port],
   );
 
   const handleOpenInTab = useCallback(() => {
@@ -62,8 +66,8 @@ export function PortBadge(props: PortBadgeProps) {
   );
 
   const handleKillPort = useCallback(() => {
-    window.electronAPI.ports.killPort(port.pid);
-  }, [port.pid]);
+    void killPortWithToast(port.pid, port.port);
+  }, [port.pid, port.port]);
 
   // Extract project name from hostname (remove .localhost:port suffix)
   const projectName = port.hostname

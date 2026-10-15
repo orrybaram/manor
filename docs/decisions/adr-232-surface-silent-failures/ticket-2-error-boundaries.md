@@ -1,6 +1,6 @@
 ---
 title: Pane and root error boundaries
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

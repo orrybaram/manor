@@ -114,6 +114,35 @@ describe("useNotificationStore", () => {
     expect(shellApi.openExternal).toHaveBeenCalledWith("https://x/pull/1");
   });
 
+  it("keeps its list when a native click's re-read fails (ADR-232 D7)", async () => {
+    onChangedCallback?.([makeRecord({ id: "kept" })]);
+    notificationsApi.getAll.mockRejectedValueOnce(new Error("main is busy"));
+
+    await onNavigateCallback?.("not-here-yet");
+
+    expect(useNotificationStore.getState().notifications.map((n) => n.id)).toEqual([
+      "kept",
+    ]);
+  });
+
+  it("records a failed read, keeps the list, and clears it on retry (ADR-232 D7)", async () => {
+    onChangedCallback?.([makeRecord({ id: "kept" })]);
+    notificationsApi.getAll.mockRejectedValueOnce(new Error("main is busy"));
+
+    await useNotificationStore.getState().retry();
+    expect(useNotificationStore.getState().loadError).toBe("main is busy");
+    expect(useNotificationStore.getState().notifications.map((n) => n.id)).toEqual([
+      "kept",
+    ]);
+
+    notificationsApi.getAll.mockResolvedValueOnce([makeRecord({ id: "fresh" })]);
+    await useNotificationStore.getState().retry();
+    expect(useNotificationStore.getState().loadError).toBeNull();
+    expect(useNotificationStore.getState().notifications.map((n) => n.id)).toEqual([
+      "fresh",
+    ]);
+  });
+
   it("actions proxy straight to IPC — main is the writer", async () => {
     await useNotificationStore.getState().markRead("a");
     await useNotificationStore.getState().markAllRead();
@@ -128,6 +157,16 @@ describe("useNotificationStore", () => {
 });
 
 describe("navigateToNotification", () => {
+  it("navigates even when markRead rejects (ADR-232 D7)", async () => {
+    notificationsApi.markRead.mockRejectedValueOnce(new Error("main is busy"));
+
+    await navigateToNotification(
+      makeRecord({ target: { type: "url", url: "https://x/pull/3" } }),
+    );
+
+    expect(shellApi.openExternal).toHaveBeenCalledWith("https://x/pull/3");
+  });
+
   it("opens a url target externally", async () => {
     await navigateToNotification(
       makeRecord({ target: { type: "url", url: "https://x/pull/2" } }),

@@ -49,6 +49,14 @@
   flex: 1;
 }
 
+.stepReason {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.9em;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+
 /* Status variants */
 .stepPending {
   color: var(--text-dim);

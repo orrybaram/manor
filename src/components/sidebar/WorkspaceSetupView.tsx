@@ -25,9 +25,14 @@ const STEP_LABELS: Record<SetupStep, string> = {
   "setup-script": "Running setup script",
 };
 
-function getStepLabel(step: SetupStep, message?: string): string {
+function getStepLabel(
+  step: SetupStep,
+  status: StepStatus,
+  message?: string,
+): string {
   const base = STEP_LABELS[step];
-  if (step === "create-worktree" && message) {
+  // An errored step's message is its reason, shown under it instead.
+  if (step === "create-worktree" && message && status !== "error") {
     return `${base} (${message})`;
   }
   return base;
@@ -69,7 +74,13 @@ function SetupChecklist({
             <StepIcon status={s.status} />
           </span>
           <span className={styles.stepLabel}>
-            {getStepLabel(s.step, s.message)}
+            {getStepLabel(s.step, s.status, s.message)}
+            {s.status === "error" && (
+              // Why it failed, not just a red X (ADR-232 D8).
+              <span className={styles.stepReason}>
+                {s.message || "No reason given"}
+              </span>
+            )}
           </span>
         </div>
       ))}

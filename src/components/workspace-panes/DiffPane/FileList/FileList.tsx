@@ -21,6 +21,7 @@ import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
 import { useToastStore } from "../../../../store/toast-store";
 import { openInEditor } from "../../../../lib/editor";
+import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import styles from "./FileList.module.css";
 import { Collapse } from "../../../ui/Collapse/Collapse";
 
@@ -170,7 +171,7 @@ export function FileList(props: FileListProps) {
           message: `Staged ${fileLabel(targetFiles.length)}`,
           status: "success",
         });
-      } catch {
+      } catch (err) {
         // Revert optimistic update
         onStagedFilesChange((prev) => {
           const next = new Set(prev);
@@ -181,6 +182,7 @@ export function FileList(props: FileListProps) {
           id: toastId,
           message: "Failed to stage files",
           status: "error",
+          detail: ipcErrorMessage(err),
         });
       } finally {
         setActionInProgress(false);
@@ -216,7 +218,7 @@ export function FileList(props: FileListProps) {
           message: `Unstaged ${fileLabel(targetFiles.length)}`,
           status: "success",
         });
-      } catch {
+      } catch (err) {
         // Revert optimistic update
         onStagedFilesChange((prev) => {
           const next = new Set(prev);
@@ -227,6 +229,7 @@ export function FileList(props: FileListProps) {
           id: toastId,
           message: "Failed to unstage files",
           status: "error",
+          detail: ipcErrorMessage(err),
         });
       } finally {
         setActionInProgress(false);
@@ -302,11 +305,12 @@ export function FileList(props: FileListProps) {
         message: `Discarded changes in ${fileLabel(targetFiles.length)}`,
         status: "success",
       });
-    } catch {
+    } catch (err) {
       addToast({
         id: toastId,
         message: "Failed to discard changes",
         status: "error",
+        detail: ipcErrorMessage(err),
       });
     } finally {
       setActionInProgress(false);

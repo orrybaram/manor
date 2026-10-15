@@ -96,11 +96,16 @@ import { useLayoutMode } from "./hooks/useLayoutMode";
 import { WorkspaceWatchers } from "./components/WorkspaceWatchers";
 import { PhoneNewAgentComposer } from "./components/phone/NewAgent/PhoneNewAgentComposer";
 import { PhoneChrome } from "./components/phone/PhoneChrome";
+import { FallbackScreen } from "./components/ui/ErrorBoundary/FallbackScreen";
+import { DetachedWindowPending } from "./components/DetachedWindowPending";
+import { Button } from "./components/ui/Button/Button";
+import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
 import "./App.css";
 
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
+  const projectsLoadError = useProjectStore((s) => s.loadError);
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
@@ -115,6 +120,9 @@ function App() {
 
   // The selected theme, kept live, and re-read on a bridge resync.
   useMountEffect(() => startThemeSync());
+
+  // A rejection nothing caught reaches the user as a toast (ADR-232 D2).
+  useMountEffect(() => installUnhandledRejectionToasts());
 
   // A reconnected browser missed whatever was pushed while it was gone
   // (ADR-220 D2): re-read the projects and every workspace. The layout's
@@ -476,7 +484,10 @@ function App() {
   // always rendered, even if a stale layout were somehow keyed to it.
   const hasTabs = !isHomePath(activeWorkspacePath) && activePanelHasTabs;
   // With zero projects the onboarding screen (ADR-194 §3) replaces everything.
-  const showOnboarding = !hasProjects;
+  // A failed load is not a fresh install (ADR-232 D4): it gets a retry
+  // screen in onboarding's place.
+  const projectsLoadFailed = projectsLoadError !== null && !hasProjects;
+  const showOnboarding = !hasProjects && !projectsLoadFailed;
   // The Tasks view (ADR-198) covers the active workspace, which stays active
   // (and mounted) underneath.
   const showTasksView = tasksViewShown && hasProjects;
@@ -744,13 +755,8 @@ function App() {
     ) : (
       // The tab is not here yet (the first broadcast is in flight) or
       // not here any more — in which case the store has already asked
-      // this window to close.
-      <div className="splash-screen" style={{ flex: 1 }}>
-        <div className="drag-region" />
-        <div className="splash-logo">
-          <ManorLogo />
-        </div>
-      </div>
+      // this window to close. If it never comes, this says so.
+      <DetachedWindowPending />
     );
   } else {
     content = (
@@ -811,18 +817,20 @@ function App() {
                   {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
                   <WorkspaceStack
                     visibleKey={
-                      hasTabs && !showOnboarding && !showTasksView && !composerShown
+                      hasTabs && !showOnboarding && !projectsLoadFailed && !showTasksView && !composerShown
                         ? activeWorkspaceKey
                         : null
                     }
                     onNewAgent={handleNewAgent}
                   />
-                  {(showOnboarding || showTasksView || composerShown || !(activeWorkspacePath && hasTabs)) && (
+                  {(showOnboarding || projectsLoadFailed || showTasksView || composerShown || !(activeWorkspacePath && hasTabs)) && (
                     <div className="empty-surface">
                       <div className="surface-header">
                         <span className="surface-title">
                           {wizardStillValid && wizardProjectId
                             ? "Project setup"
+                            : projectsLoadFailed
+                            ? "Projects"
                             : showOnboarding
                             ? "Welcome"
                             : showTasksView
@@ -835,6 +843,19 @@ function App() {
                       <div className="terminal-container">
                         {wizardStillValid && wizardProjectId
                           ? <Suspense fallback={null}><ProjectSetupWizard projectId={wizardProjectId} onClose={closeWizard} /></Suspense>
+                          : projectsLoadFailed
+                          ? (
+                              <FallbackScreen
+                                data-testid="projects-load-failed"
+                                title="Couldn't load your projects"
+                                message={projectsLoadError}
+                                actions={
+                                  <Button variant="primary" onClick={() => void loadProjects()}>
+                                    Retry
+                                  </Button>
+                                }
+                              />
+                            )
                           : showOnboarding
                           ? <Onboarding onAddLocal={handleAddLocalProject} onClone={handleCloneRepository} />
                           : showTasksView

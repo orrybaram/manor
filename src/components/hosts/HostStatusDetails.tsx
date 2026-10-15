@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { addErrorToast } from "../../store/toast-store";
 import Laptop from "lucide-react/dist/esm/icons/laptop";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import Sunrise from "lucide-react/dist/esm/icons/sunrise";
@@ -82,7 +83,15 @@ export function HostRetryButton(props: HostRetryButtonProps) {
 
   const retryConnect = useHostStore((s) => s.retryConnect);
   return (
-    <Button size="sm" variant="primary" onClick={() => void retryConnect(hostId)}>
+    <Button
+      size="sm"
+      variant="primary"
+      onClick={() =>
+        void retryConnect(hostId).catch((err: unknown) =>
+          addErrorToast(`host-retry-${hostId}`, "Couldn't reconnect", err),
+        )
+      }
+    >
       <RefreshCw size={11} aria-hidden className={styles.buttonIcon} />
       Retry
     </Button>

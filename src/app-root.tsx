@@ -1,5 +1,9 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ErrorBoundary } from "./components/ui/ErrorBoundary/ErrorBoundary";
+import { FallbackScreen } from "./components/ui/ErrorBoundary/FallbackScreen";
+import { Button } from "./components/ui/Button/Button";
+import { ipcErrorMessage } from "./lib/ipc-error";
 
 /**
  * What `main.tsx` and `web-main.tsx` render identically (ADR-182 D11): the
@@ -33,9 +37,28 @@ export function AppRoot(props: {
 }) {
   return (
     <QueryClientProvider client={props.queryClient}>
-      <Suspense fallback={props.fallback ?? null}>
-        <App />
-      </Suspense>
+      {/* Every window — a detached one included — is this `App`, so one
+          boundary covers them all (ADR-232 D3). */}
+      <ErrorBoundary
+        label="app"
+        fallback={(error) => (
+          <FallbackScreen
+            fullWindow
+            data-testid="app-crashed"
+            title="Manor hit an unexpected error"
+            message={ipcErrorMessage(error)}
+            actions={
+              <Button variant="primary" onClick={() => window.location.reload()}>
+                Reload window
+              </Button>
+            }
+          />
+        )}
+      >
+        <Suspense fallback={props.fallback ?? null}>
+          <App />
+        </Suspense>
+      </ErrorBoundary>
     </QueryClientProvider>
   );
 }

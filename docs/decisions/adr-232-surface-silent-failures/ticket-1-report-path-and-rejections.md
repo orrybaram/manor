@@ -1,6 +1,6 @@
 ---
 title: Reported-error mark and global unhandledrejection toast
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

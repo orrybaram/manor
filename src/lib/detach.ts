@@ -17,6 +17,7 @@
 
 import { useAppStore, OWN_CLAIM } from "../store/app-store";
 import { useRemotePaneStore } from "../store/remote-pane-store";
+import { addErrorToast } from "../store/toast-store";
 import { allPaneIds } from "./layout/pane-tree";
 import {
   findPanelWithPane,
@@ -111,7 +112,9 @@ export async function detachTabToNewWindow(
     await openClaimWindow(workspacePath, tabId, spawnBounds);
     if (found) forgetPanes(allPaneIds(found.tab.rootNode));
   } catch (err) {
+    // The tab never left this window (D4), so there is nothing to put back.
     console.error("Failed to move tab to a new window", err);
+    addErrorToast(`detach-tab-${tabId}`, "Couldn't move tab to a new window", err);
   }
 }
 
@@ -139,7 +142,14 @@ export async function movePaneToNewWindow(
     await openClaimWindow(workspacePath, tabId, spawnBounds);
     forgetPanes([paneId]);
   } catch (err) {
+    // The pane is already a tab of its own here (`extractPaneToTab`); that
+    // tab stays, so the pane is not lost — only not where it was (ADR-232 D5).
     console.error("Failed to move pane to a new window", err);
+    addErrorToast(
+      `detach-pane-${paneId}`,
+      "Couldn't move pane to a new window",
+      err,
+    );
   }
 }
 

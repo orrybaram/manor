@@ -1,6 +1,6 @@
 ---
 title: Project load failure shows a retry screen
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

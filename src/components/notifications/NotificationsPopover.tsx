@@ -308,6 +308,8 @@ export function NotificationsPanel(props: NotificationsPanelProps) {
   const unreadCount = useNotificationStore((s) => s.unreadCount);
   const markAllRead = useNotificationStore((s) => s.markAllRead);
   const clear = useNotificationStore((s) => s.clear);
+  const loadError = useNotificationStore((s) => s.loadError);
+  const retry = useNotificationStore((s) => s.retry);
 
   const visible = notifications.filter(
     (n) => matchesFilter(n.kind, filter) && !isEmptyComment(n),
@@ -388,7 +390,15 @@ export function NotificationsPanel(props: NotificationsPanelProps) {
       </div>
 
       <div className={styles.scrollArea} onKeyDown={handleListKeyDown}>
-        {visible.length === 0 && (
+        {notifications.length === 0 && loadError !== null && (
+          <div className={styles.empty} data-testid="notifications-load-failed">
+            Couldn't load notifications. {loadError}{" "}
+            <Button variant="link" onClick={() => void retry()}>
+              Retry
+            </Button>
+          </div>
+        )}
+        {visible.length === 0 && !(notifications.length === 0 && loadError !== null) && (
           <div className={styles.empty} data-testid="notifications-empty">
             {notifications.length === 0
               ? "Nothing here yet."

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { provideHostLookups } from "../bridge/host-lookups";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
-import { useToastStore } from "./toast-store";
+import { addErrorToast, useToastStore } from "./toast-store";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
@@ -575,6 +575,11 @@ interface ProjectState {
   agentsCollapsed: boolean;
   loading: boolean;
   initialLoadDone: boolean;
+  /**
+   * Why the first `loadProjects` failed, until one succeeds (ADR-232 D4).
+   * With no projects loaded, `App` shows a retry screen — never onboarding.
+   */
+  loadError: string | null;
   collapsedProjectIds: Set<string>;
   collapsedFolderKeys: Set<string>;
 
@@ -873,6 +878,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   agentsCollapsed: loadFlag(AGENTS_COLLAPSED_KEY),
   loading: false,
   initialLoadDone: false,
+  loadError: null,
   collapsedProjectIds: loadCollapsedIds(),
   collapsedFolderKeys: loadCollapsedFolderKeys(),
 
@@ -891,12 +897,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         selectedProjectIndex: selectedIndex,
         loading: false,
         initialLoadDone: true,
+        loadError: null,
       }));
       // ADR-214: join existing same-origin duplicates, now and as each
       // remote host first connects.
       if (firstLoad) void startAutoJoin(autoJoinDeps());
-    } catch {
-      set({ loading: false, initialLoadDone: true });
+    } catch (err) {
+      console.error("[projects] failed to load:", err);
+      // A failed first load is not an empty list: `initialLoadDone` stays
+      // false and `loadError` says why. A later re-read that fails keeps the
+      // projects it already has.
+      set((s) => ({
+        loading: false,
+        loadError: s.initialLoadDone ? s.loadError : ipcErrorMessage(err),
+      }));
     }
   },
 
@@ -1135,8 +1149,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   removeProject: async (projectId: string) => {
-    const groupId = get().projects.find((p) => p.id === projectId)?.group?.id;
-    await window.electronAPI.projects.remove(projectId);
+    const project = get().projects.find((p) => p.id === projectId);
+    const groupId = project?.group?.id;
+    try {
+      await window.electronAPI.projects.remove(projectId);
+    } catch (err) {
+      addErrorToast(
+        `remove-project-${projectId}`,
+        `Couldn't remove ${project?.name ?? "project"}`,
+        err,
+      );
+      throw err;
+    }
     if (groupId) {
       // The other members' group summaries changed (or the group dissolved).
       await get().loadProjects();
@@ -1601,11 +1625,16 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     workspacePath: string,
     newName: string,
   ) => {
-    await window.electronAPI.projects.renameWorkspace(
-      projectId,
-      workspacePath,
-      newName,
-    );
+    try {
+      await window.electronAPI.projects.renameWorkspace(
+        projectId,
+        workspacePath,
+        newName,
+      );
+    } catch (err) {
+      addErrorToast(`rename-workspace-${workspacePath}`, "Couldn't rename workspace", err);
+      throw err;
+    }
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -1623,11 +1652,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   setWorkspaceHidden: async (projectId, workspacePath, hidden) => {
-    await window.electronAPI.projects.setWorkspaceHidden(
-      projectId,
-      workspacePath,
-      hidden,
-    );
+    try {
+      await window.electronAPI.projects.setWorkspaceHidden(
+        projectId,
+        workspacePath,
+        hidden,
+      );
+    } catch (err) {
+      addErrorToast(
+        `hide-workspace-${workspacePath}`,
+        hidden ? "Couldn't hide workspace" : "Couldn't unhide workspace",
+        err,
+      );
+      throw err;
+    }
     set((s) => ({
       projects: s.projects.map((p) =>
         p.id === projectId
@@ -1648,11 +1686,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     anchorKeys?: string[],
     parentId?: string | null,
   ) => {
-    const folder = await window.electronAPI.projects.createWorkspaceFolder(
-      projectId,
-      name,
-      parentId ?? null,
-    );
+    let folder;
+    try {
+      folder = await window.electronAPI.projects.createWorkspaceFolder(
+        projectId,
+        name,
+        parentId ?? null,
+      );
+    } catch (err) {
+      addErrorToast(`create-folder-${projectId}`, `Couldn't create folder "${name}"`, err);
+      throw err;
+    }
     if (!folder) return folder;
 
     // Main appends the id to the persisted order; mirror that locally.
@@ -1834,6 +1878,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           }),
         }));
       }
+      // Every settings field saves through here, mostly fire-and-forget:
+      // say why it snapped back (ADR-232 D6).
+      addErrorToast(
+        `update-project-${projectId}`,
+        "Couldn't save project settings — your change was undone",
+        err,
+      );
       throw err;
     }
     if (updated) {

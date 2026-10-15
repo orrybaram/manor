@@ -1,6 +1,6 @@
 ---
 title: Low-priority sweep
-status: todo
+status: done
 priority: low
 assignee: sonnet
 blocked_by: [1]

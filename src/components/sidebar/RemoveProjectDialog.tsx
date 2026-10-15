@@ -1,48 +1,33 @@
-import * as Dialog from "@radix-ui/react-dialog";
-import styles from "./dialogs.module.css";
-import { Button } from "../ui/Button/Button";
+import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 
 type RemoveProjectDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   projectName: string;
-  onConfirm: () => void;
+  /** Awaited: the dialog closes once it resolves and stays open if it rejects. */
+  onConfirm: () => Promise<void>;
 };
 
 export function RemoveProjectDialog(props: RemoveProjectDialogProps) {
   const { open, onOpenChange, projectName, onConfirm } = props;
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className={styles.confirmOverlay} />
-        <Dialog.Content className={styles.confirmDialog}>
-          <Dialog.Title className={styles.confirmTitle}>
-            Remove Project
-          </Dialog.Title>
-          <Dialog.Description className={styles.confirmDescription}>
-            Remove <strong>{projectName}</strong> from the sidebar? This won't
-            delete any files on disk.
-          </Dialog.Description>
-          <div className={styles.confirmActions}>
-            <Button
-              variant="secondary"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="danger"
-              onClick={() => {
-                onOpenChange(false);
-                onConfirm();
-              }}
-            >
-              Remove
-            </Button>
-          </div>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <ConfirmDialog
+      open={open}
+      title="Remove Project"
+      description={
+        <>
+          Remove <strong>{projectName}</strong> from the sidebar? This won't
+          delete any files on disk.
+        </>
+      }
+      confirmLabel="Remove"
+      confirmVariant="danger"
+      onConfirm={async () => {
+        await onConfirm();
+        onOpenChange(false);
+      }}
+      onCancel={() => onOpenChange(false)}
+    />
   );
 }

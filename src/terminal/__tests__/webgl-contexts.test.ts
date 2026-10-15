@@ -15,7 +15,7 @@ function fakeCanvas() {
     getExtension: (name: string) =>
       name === "WEBGL_lose_context" ? { loseContext } : null,
   };
-  return { canvas: { getContext: () => gl }, loseContext };
+  return { canvas: { getContext: () => gl, remove: () => {} }, loseContext };
 }
 
 /** A terminal whose element lists the canvases its add-ons put in it. */
@@ -30,6 +30,8 @@ function fakeTerm() {
 
 let created: FakeWebgl[] = [];
 let failLoad = false;
+/** The renderer throws after it has put its canvas in the terminal. */
+let failAfterCanvas = false;
 
 class FakeWebgl {
   disposed = false;
@@ -47,10 +49,16 @@ class FakeWebgl {
   activate(_term: unknown, canvases: unknown[]) {
     if (failLoad) throw new Error("WebGL2 not supported");
     const { canvas, loseContext } = fakeCanvas();
+    this.loseContext = loseContext;
+    canvas.remove = () => {
+      const at = canvases.indexOf(canvas);
+      if (at >= 0) canvases.splice(at, 1);
+    };
+    canvases.push(canvas);
+    // Before the addon holds its renderer, so its dispose leaves the canvas.
+    if (failAfterCanvas) throw new Error("initializing WebGL state failed");
     this.canvas = canvas;
     this.canvases = canvases;
-    this.loseContext = loseContext;
-    canvases.push(canvas);
   }
   dispose() {
     this.disposed = true;
@@ -76,6 +84,7 @@ function asTerm(t: ReturnType<typeof fakeTerm>) {
 beforeEach(() => {
   created = [];
   failLoad = false;
+  failAfterCanvas = false;
 });
 
 afterEach(() => {
@@ -274,5 +283,88 @@ describe("claimWebgl", () => {
     expect(claim.active).toBe(false);
     expect(created).toHaveLength(1);
     expect(liveWebglContexts()).toBe(0);
+  });
+
+  it("tries again on the next show when a recovery fails, rather than giving up", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { claimWebgl } = await freshModule();
+      const claim = claimWebgl(asTerm(fakeTerm()), Addon, { shown: false });
+
+      created[0].loseFromOutside();
+      // The GPU process is still coming back: the first recovery fails.
+      failLoad = true;
+      claim.setShown(true);
+      expect(claim.active).toBe(false);
+
+      failLoad = false;
+      claim.setShown(false);
+      claim.setShown(true);
+      expect(claim.active).toBe(true);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("hands a lost context's slot to a shown pane waiting for one", async () => {
+    const { claimWebgl, WEBGL_CONTEXT_BUDGET } = await freshModule();
+    const shown = Array.from({ length: WEBGL_CONTEXT_BUDGET }, () =>
+      claimWebgl(asTerm(fakeTerm()), Addon, { shown: true }),
+    );
+    const waiting = claimWebgl(asTerm(fakeTerm()), Addon, { shown: true });
+    expect(waiting.active).toBe(false);
+
+    created[3].loseFromOutside();
+
+    expect(shown[3].active).toBe(false);
+    expect(waiting.active).toBe(true);
+  });
+
+  it("keeps handing out free contexts past a pane whose load fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { claimWebgl, WEBGL_CONTEXT_BUDGET } = await freshModule();
+      const shown = Array.from({ length: WEBGL_CONTEXT_BUDGET }, () =>
+        claimWebgl(asTerm(fakeTerm()), Addon, { shown: true }),
+      );
+      // Three panes wait, the most recent first in line.
+      const waiting = [0, 1, 2].map(() =>
+        claimWebgl(asTerm(fakeTerm()), Addon, { shown: true }),
+      );
+      expect(waiting.some((c) => c.active)).toBe(false);
+
+      // Loads fail once, for whoever is first in line.
+      let failures = 1;
+      const realActivate = FakeWebgl.prototype.activate;
+      const spy = vi
+        .spyOn(FakeWebgl.prototype, "activate")
+        .mockImplementation(function (this: FakeWebgl, term, canvases) {
+          if (failures-- > 0) throw new Error("lost the GPU again");
+          realActivate.call(this, term, canvases);
+        });
+      shown[0].dispose();
+      shown[1].dispose();
+      spy.mockRestore();
+
+      expect(waiting.filter((c) => c.active)).toHaveLength(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("frees the context of a canvas a failed load left behind", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { claimWebgl } = await freshModule();
+      failAfterCanvas = true;
+      const term = fakeTerm();
+      const claim = claimWebgl(asTerm(term), Addon, { shown: true });
+
+      expect(claim.active).toBe(false);
+      expect(created[0].loseContext).toHaveBeenCalled();
+      expect(term.element.querySelectorAll()).toHaveLength(0);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

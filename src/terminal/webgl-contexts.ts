@@ -39,7 +39,7 @@ export interface WebglClaim {
   setShown(shown: boolean): void;
   /** Whether the pane draws with WebGL right now. */
   readonly active: boolean;
-  /** Release the context; call before disposing the terminal. */
+  /** Release the context; call after disposing the terminal. */
   dispose(): void;
 }
 
@@ -52,7 +52,14 @@ interface Entry {
   shown: boolean;
   /** When the pane was last shown, on {@link clock}; higher is more recent. */
   lastShown: number;
-  /** The addon failed to load here: this pane stays on the DOM renderer. */
+  /** WebGL has loaded on this pane at least once. */
+  loadedOnce: boolean;
+  /**
+   * The addon failed on this pane's first load (no WebGL2 here): it stays on
+   * the DOM renderer. A failed *recovery* is not this — the GPU process can
+   * refuse contexts for a moment after a reset — and is tried again when the
+   * pane is next shown.
+   */
   broken: boolean;
   /** A lost context's retry is spent until the pane is shown again. */
   retried: boolean;
@@ -70,20 +77,24 @@ function liveCount(): number {
 }
 
 /**
- * The context of the canvas the addon just added. Asked only of canvases that
- * are new since the addon loaded, all of which already have a context — so
- * this never creates one — and a 2D canvas answers null.
+ * The canvas the addon just added, and its context. Asked only of canvases
+ * that are new since the addon loaded, all of which already have a context —
+ * so this never creates one — and a 2D canvas answers null.
  */
-function webglContextAmong(
+function webglCanvasAmong(
   term: Terminal,
   before: ReadonlySet<HTMLCanvasElement>,
-): WebGL2RenderingContext | null {
+): { canvas: HTMLCanvasElement; gl: WebGL2RenderingContext } | null {
   for (const canvas of term.element?.querySelectorAll("canvas") ?? []) {
     if (before.has(canvas)) continue;
     const gl = canvas.getContext("webgl2");
-    if (gl) return gl;
+    if (gl) return { canvas, gl };
   }
   return null;
+}
+
+function loseContext(gl: WebGL2RenderingContext) {
+  if (!gl.isContextLost()) gl.getExtension("WEBGL_lose_context")?.loseContext();
 }
 
 /** Drop the entry's addon. `release` also frees a context that is still live. */
@@ -96,9 +107,7 @@ function drop(e: Entry, release: boolean) {
   } catch {
     // ignored: the renderer is going either way
   }
-  if (release && gl && !gl.isContextLost()) {
-    gl.getExtension("WEBGL_lose_context")?.loseContext();
-  }
+  if (release && gl) loseContext(gl);
 }
 
 /** The hidden pane with a context that was shown longest ago, if any. */
@@ -111,14 +120,17 @@ function evictionCandidate(): Entry | null {
   return victim;
 }
 
-/** Give the entry a context if the budget allows. True when it has one. */
-function attach(e: Entry, notify: boolean): boolean {
-  if (e.addon) return true;
-  if (e.broken) return false;
+/**
+ * Give the entry a context if the budget allows: `"ok"` when it has one,
+ * `"full"` when the budget turned it away, `"failed"` when the addon did.
+ */
+function attach(e: Entry, notify: boolean): "ok" | "full" | "failed" {
+  if (e.addon) return "ok";
+  if (e.broken) return "failed";
   if (liveCount() >= WEBGL_CONTEXT_BUDGET) {
-    if (!e.shown) return false;
+    if (!e.shown) return "full";
     const victim = evictionCandidate();
-    if (!victim) return false;
+    if (!victim) return "full";
     drop(victim, true);
     victim.onRendererChange();
   }
@@ -139,26 +151,40 @@ function attach(e: Entry, notify: boolean): boolean {
     } catch {
       // ignored
     }
-    e.broken = true;
-    return false;
+    // A renderer that threw part-way may have left its canvas behind, which
+    // the addon never learned of and so did not remove: its context would
+    // count against Chromium's limit while the budget counted it free.
+    const leftover = webglCanvasAmong(e.term, before);
+    if (leftover) {
+      loseContext(leftover.gl);
+      leftover.canvas.remove();
+    }
+    if (!e.loadedOnce) e.broken = true;
+    return "failed";
   }
   e.addon = addon;
-  e.gl = webglContextAmong(e.term, before);
+  e.loadedOnce = true;
+  e.gl = webglCanvasAmong(e.term, before)?.gl ?? null;
   if (notify) e.onRendererChange();
-  return true;
+  return "ok";
 }
 
-/** Shown panes without a context take one, most recently shown first. */
-function rebalance() {
+/**
+ * Shown panes without a context take one, most recently shown first, until
+ * the budget runs out. `skip` waits for its own retry instead.
+ */
+function rebalance(skip?: Entry) {
   const waiting = [...entries]
-    .filter((e) => e.shown && !e.addon && !e.broken)
+    .filter((e) => e !== skip && e.shown && !e.addon && !e.broken)
     .sort((a, b) => b.lastShown - a.lastShown);
-  for (const e of waiting) if (!attach(e, true)) break;
+  for (const e of waiting) if (attach(e, true) === "full") break;
 }
 
 function lost(e: Entry) {
   drop(e, false);
   e.onRendererChange();
+  // Its slot is free: a shown pane the budget turned away may take it.
+  rebalance(e);
   if (!e.shown || e.retried) return;
   e.retried = true;
   e.retryTimer = setTimeout(() => {
@@ -184,6 +210,7 @@ export function claimWebgl(
     gl: null,
     shown: options.shown,
     lastShown: options.shown ? ++clock : 0,
+    loadedOnce: false,
     broken: false,
     retried: false,
     retryTimer: null,
@@ -208,6 +235,10 @@ export function claimWebgl(
     get active() {
       return e.addon !== null;
     },
+    /**
+     * Call after disposing the terminal, which disposes the addon itself
+     * without building a DOM renderer for a terminal that is going away.
+     */
     dispose() {
       if (!entries.delete(e)) return;
       if (e.retryTimer) clearTimeout(e.retryTimer);

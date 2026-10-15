@@ -60,7 +60,8 @@
  *                      host-direct-bridge.spec.ts,
  *                      phone-all-pairings.spec.ts,
  *                      phone-linked-hosts.spec.ts, recipe-host.spec.ts,
- *                      host-restore-asleep.spec.ts, lid-closed.spec.ts),
+ *                      host-restore-asleep.spec.ts, lid-closed.spec.ts,
+ *                      host-idle-stop.spec.ts),
  *                      one worker
  */
 
@@ -90,6 +91,7 @@ const PLAYWRIGHT_SUITES = [
   "tests/e2e/recipe-host.spec.ts",
   "tests/e2e/host-restore-asleep.spec.ts",
   "tests/e2e/lid-closed.spec.ts",
+  "tests/e2e/host-idle-stop.spec.ts",
 ];
 const K8S_CLUSTER = "manor-e2e";
 const KIND_VERSION = "v0.33.0";

@@ -344,3 +344,17 @@ export function groupStateOf(
   if (offline === 0) return "connected";
   return offline === memberHostIds.length ? "offline" : "partially-offline";
 }
+
+/** A remote host main hasn't reported yet: never drawn as this machine. */
+export function pendingDisplay(hostId: string): HostDisplay {
+  return {
+    target: hostId,
+    sshTarget: hostId,
+    offline: true,
+    busy: true,
+    tone: "warn",
+    status: "Checking…",
+    banner: "",
+    canRetry: false,
+  };
+}

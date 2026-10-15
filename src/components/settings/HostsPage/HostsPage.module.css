@@ -1,23 +1,5 @@
 /* Settings → Hosts (ADR-229 D8). */
 
-/* A host's settings under its card, indented to sit with it. */
-.hostSettings {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  max-width: 520px;
-  padding: 0 4px 8px;
-}
-
-.hostSettings > * {
-  align-self: stretch;
-}
-
-.hostSettings > button {
-  align-self: flex-start;
-}
-
 .buttonIcon {
   margin-right: 4px;
 }
@@ -34,4 +16,197 @@
   font-size: 12px;
   color: var(--text-primary);
   overflow-wrap: anywhere;
+}
+
+/* ── Remote host rows (ADR-233 D1) ──
+   One bordered card, a row per host, rows split by hairlines. */
+.hostList {
+  display: flex;
+  flex-direction: column;
+  max-width: 520px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--dim) 70%, var(--bg));
+  overflow: hidden;
+}
+
+.hostRow + .hostRow {
+  border-top: 1px solid var(--border);
+}
+
+.rowHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+}
+
+button.rowToggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 12px;
+  height: auto;
+  padding: 12px 14px;
+  border-radius: 0;
+  text-align: left;
+  color: var(--text-primary);
+}
+
+button.rowToggle:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface) 40%, transparent);
+}
+
+.rowIcon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+
+.rowIcon.ok,
+.rowIcon.asleep {
+  color: var(--blue, #89b4fa);
+  background: color-mix(in srgb, var(--blue, #89b4fa) 12%, transparent);
+}
+
+.rowIcon.warn {
+  color: var(--yellow, #d29922);
+  background: color-mix(in srgb, var(--yellow, #d29922) 14%, transparent);
+}
+
+.rowIcon.error {
+  color: var(--red, var(--danger));
+  background: color-mix(in srgb, var(--red, var(--danger)) 14%, transparent);
+}
+
+.rowText {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rowName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--text-selected, var(--text-primary));
+}
+
+.rowStatus {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.rowWarning {
+  color: var(--yellow, #d29922);
+}
+
+.statusDot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: var(--text-dim);
+}
+
+.statusDot.ok {
+  background: var(--blue, #89b4fa);
+}
+
+.statusDot.warn {
+  background: var(--yellow, #d29922);
+}
+
+.statusDot.error {
+  background: var(--red, var(--danger));
+}
+
+.statusDot.asleep {
+  background: var(--blue, #89b4fa);
+}
+
+.chevron {
+  flex-shrink: 0;
+  color: var(--text-dim);
+  transition: transform 150ms ease;
+}
+
+.chevronOpen {
+  transform: rotate(90deg);
+}
+
+.rowHeaderActions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Indented under the name: tile (30px) + gap (12px) + the row's padding. */
+.rowBody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 14px 12px 56px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.rowSummary {
+  padding-top: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.rowSummary.warn {
+  color: var(--yellow, #d29922);
+}
+
+.rowSummary.error {
+  color: var(--red, var(--danger));
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.groupLabel {
+  padding-top: 10px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.rowFooter {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--surface);
+}
+
+.spacer {
+  flex: 1;
 }

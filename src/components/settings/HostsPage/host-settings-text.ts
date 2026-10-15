@@ -54,7 +54,7 @@ export function supervisionHint(
   if (!view || view.supervisor) return null;
   return view.supervise
     ? `Not set up on ${hostName} yet: Manor sets it up on the next connect.`
-    : `Off: after ${hostName} restarts, phones can't reach it until this computer connects again.`;
+    : `Off: after ${hostName} restarts, devices can't reach it until this computer connects again.`;
 }
 
 /** The idle-stop caveat for a recipe with nothing to stop it with the lid closed (D7). */

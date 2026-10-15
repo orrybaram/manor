@@ -9,15 +9,16 @@ import { Row, Stack } from "../../ui/Layout/Layout";
 import { HostCard } from "../../hosts/HostCard";
 import { SectionTitle } from "../SectionTitle";
 import { AddSshHostForm } from "./AddSshHostForm";
-import { HostEntry } from "./HostEntry";
+import { HostRow } from "./HostRow";
 import { StartHostForm } from "./StartHostForm";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
+import styles from "./HostsPage.module.css";
 
 /**
  * Settings → Hosts (ADR-229 D8): every host Manor runs workspaces on, this
- * computer first (read-only), each remote one with its status and what can
- * be done to it — Wake, Stop, "Keep Manor running when <host> restarts",
- * Remove — and **Add host**: an SSH box, or a host Manor starts from a
+ * computer first (read-only), each remote one a collapsible row holding all
+ * of its settings (ADR-233 D1) — device access, supervision, integrations,
+ * Wake, Stop, Remove — and **Add host**: an SSH box, or a host Manor starts from a
  * template or a custom recipe.
  *
  * Adding, stopping, supervising and removing are this desktop's alone
@@ -36,9 +37,13 @@ export function HostsPage() {
           Where your projects' files, git, terminals and agents run.
         </div>
         <HostCard hostId={null} />
-        {remote.map((host) => (
-          <HostEntry key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
-        ))}
+        {remote.length > 0 && (
+          <div className={styles.hostList}>
+            {remote.map((host) => (
+              <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
+            ))}
+          </div>
+        )}
       </Stack>
       {!readOnly && <AddHost />}
     </Stack>

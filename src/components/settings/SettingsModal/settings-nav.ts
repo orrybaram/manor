@@ -16,3 +16,14 @@ export function useSettingsNav(): GoToSettings {
   if (!goTo) throw new Error("useSettingsNav must be used inside SettingsModal");
   return goTo;
 }
+
+/**
+ * The section a link or search is about to scroll to, until it has: lets a
+ * collapsed section (a host row on the Hosts page) open itself first.
+ */
+export const SettingsJumpContext = createContext<string | null>(null);
+
+/** The section being jumped to, or null. */
+export function useSettingsJump(): string | null {
+  return useContext(SettingsJumpContext);
+}

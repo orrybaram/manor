@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
- * ADR-229 D8: Settings → Hosts. A host offers only what its provider can do
- * (Stop, Start it again, Wake), says what keeps its Manor running, and is
- * destroyed only once its name is typed.
+ * ADR-229 D8, ADR-233 D1: Settings → Hosts. A host's row offers only what
+ * its provider can do (Stop, Start it again, Wake), says what keeps its Manor
+ * running and whether devices reach it, and is destroyed only once its name
+ * is typed.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -27,16 +28,23 @@ const api = vi.hoisted(() => {
     stop: vi.fn(),
     wake: vi.fn(),
     setSupervised: vi.fn(),
+    setLinkPhones: vi.fn(),
+    setLinearOnHost: vi.fn(),
+    resetPairingKeys: vi.fn(),
   };
-  (window as unknown as { electronAPI: unknown }).electronAPI = { hosts };
+  const linear = {
+    isConnected: vi.fn(() => Promise.resolve(false)),
+    onConnectionChanged: () => () => {},
+  };
+  (window as unknown as { electronAPI: unknown }).electronAPI = { hosts, linear };
   return hosts;
 });
 
 import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
 import type { HostServerView } from "../../../../electron.d";
-import { SettingsNavContext } from "../../SettingsModal/settings-nav";
+import { SettingsJumpContext } from "../../SettingsModal/settings-nav";
 import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
-import { HostEntry } from "../HostEntry";
+import { HostRow } from "../HostRow";
 import { idleStopText, supervisionHint, supervisorStatusText } from "../host-settings-text";
 
 function view(over: Partial<HostServerView> = {}): HostServerView {
@@ -64,10 +72,9 @@ function host(over: Partial<HostStatusInfo> = {}): HostStatusInfo {
   };
 }
 
-describe("HostEntry", () => {
+describe("HostRow", () => {
   let container: HTMLDivElement;
   let root: Root;
-  const goTo = vi.fn();
 
   const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
   const click = (el: HTMLElement | null) =>
@@ -82,7 +89,12 @@ describe("HostEntry", () => {
     });
   const flush = () => act(async () => {});
 
-  async function render(info: HostStatusInfo, server: HostServerView = view()) {
+  /** Renders the row and opens it, unless `jump` names the section to open it by. */
+  async function render(
+    info: HostStatusInfo,
+    server: HostServerView = view(),
+    opts: { jump?: string; open?: boolean } = {},
+  ) {
     api.serverStatus.mockResolvedValue(server);
     useHostStore.setState({ hosts: [info], servers: {} });
     await act(async () => {
@@ -91,13 +103,15 @@ describe("HostEntry", () => {
           TooltipProvider,
           null,
           createElement(
-            SettingsNavContext.Provider,
-            { value: goTo },
-            createElement(HostEntry, { host: info, name: info.label ?? info.hostId, readOnly: false }),
+            SettingsJumpContext.Provider,
+            { value: opts.jump ?? null },
+            createElement(HostRow, { host: info, name: info.label ?? info.hostId, readOnly: false }),
           ),
         ),
       );
     });
+    await flush();
+    if (opts.open ?? opts.jump === undefined) click(q("host-row-toggle"));
     await flush();
   }
 
@@ -160,10 +174,55 @@ describe("HostEntry", () => {
       expect(q("host-idle-stop-note")?.textContent).toBe("Stops after 30 min idle only while This Mac is awake");
     });
 
-    it("links to the host's phone access", async () => {
+  });
+
+  describe("the row", () => {
+    it("starts collapsed, and opens from its header", async () => {
+      await render(host(), view(), { open: false });
+      const toggle = q("host-row-toggle");
+      expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+      expect(q("host-supervise-toggle")).toBeNull();
+      click(toggle);
+      await flush();
+      expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+      expect(q("host-supervise-toggle")).not.toBeNull();
+    });
+
+    it("starts open when a link jumps to its section", async () => {
+      await render(host(), view(), { jump: "host-pod" });
+      expect(q("host-row-toggle")?.getAttribute("aria-expanded")).toBe("true");
+      expect(q("host-row-toggle")?.getAttribute("data-settings-section")).toBe("host-pod");
+    });
+
+    it.each([
+      [{ linkPhones: true, supervise: true }, "Connected · devices reach it anytime"],
+      [{ linkPhones: true, supervise: false }, "Connected · devices reach it"],
+      [{ linkPhones: false }, "Connected · devices off"],
+    ])("says in words whether devices reach the host (%o)", async (over, line) => {
+      await render(host(), view(over), { open: false });
+      expect(q("host-row-status")?.textContent).toBe(line);
+    });
+
+    it("warns of unencrypted pairing keys in the header and the body", async () => {
+      const status = {
+        version: "1.2.3",
+        relay: { connected: true },
+        secretBackend: "plaintext",
+        linear: false,
+      } as unknown as NonNullable<HostServerView["status"]>;
+      await render(host(), view({ status }));
+      expect(q("host-row-status")?.textContent).toContain("pairing keys unencrypted");
+      expect(q("host-plaintext-keys")).not.toBeNull();
+      expect(q("host-phone-summary")?.textContent).toBe("Manor 1.2.3 · relay connected");
+      expect(q("host-reset-keys")).not.toBeNull();
+    });
+
+    it("turns devices' reach off with its switch", async () => {
+      api.setLinkPhones.mockResolvedValue(undefined);
       await render(host());
-      click(q("host-phone-access-link"));
-      expect(goTo).toHaveBeenCalledWith({ type: "remote" }, "remote-host-pod");
+      click(q("host-link-phones-toggle"));
+      await flush();
+      expect(api.setLinkPhones).toHaveBeenCalledWith("pod", false);
     });
   });
 

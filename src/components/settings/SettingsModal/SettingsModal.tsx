@@ -37,7 +37,7 @@ import {
   type SettingsProjectEntry,
   type SettingsSearchResult,
 } from "./settings-search";
-import { SettingsNavContext, type GoToSettings } from "./settings-nav";
+import { SettingsJumpContext, SettingsNavContext, type GoToSettings } from "./settings-nav";
 import styles from "./SettingsModal.module.css";
 
 /** A page as a stable key, for React keys and the nav's active state. */
@@ -503,28 +503,30 @@ export function SettingsModal(props: SettingsModalProps) {
             </div>
 
             <SettingsNavContext.Provider value={goTo}>
-              <div className={styles.content} ref={contentRef} tabIndex={-1}>
-                {page.type === "general" && <GeneralSettingsPage />}
-                {page.type === "app" && <AppSettingsPage />}
-                {page.type === "keybindings" && <KeybindingsPage />}
-                {page.type === "notifications" && <NotificationsPage />}
-                {page.type === "integrations" && <IntegrationsPage />}
-                {page.type === "hosts" && <HostsPage />}
-                {page.type === "remote" && <RemoteControlPage />}
-                {page.type === "group" && currentGroup && (
-                  <GroupSettingsPage
-                    key={currentGroup.id}
-                    group={currentGroup}
-                    members={currentGroupMembers}
-                  />
-                )}
-                {page.type === "project" && currentProject && (
-                  <ProjectSettingsPage
-                    key={currentProject.id}
-                    project={currentProject}
-                  />
-                )}
-              </div>
+              <SettingsJumpContext.Provider value={pendingJump?.id ?? null}>
+                <div className={styles.content} ref={contentRef} tabIndex={-1}>
+                  {page.type === "general" && <GeneralSettingsPage />}
+                  {page.type === "app" && <AppSettingsPage />}
+                  {page.type === "keybindings" && <KeybindingsPage />}
+                  {page.type === "notifications" && <NotificationsPage />}
+                  {page.type === "integrations" && <IntegrationsPage />}
+                  {page.type === "hosts" && <HostsPage />}
+                  {page.type === "remote" && <RemoteControlPage />}
+                  {page.type === "group" && currentGroup && (
+                    <GroupSettingsPage
+                      key={currentGroup.id}
+                      group={currentGroup}
+                      members={currentGroupMembers}
+                    />
+                  )}
+                  {page.type === "project" && currentProject && (
+                    <ProjectSettingsPage
+                      key={currentProject.id}
+                      project={currentProject}
+                    />
+                  )}
+                </div>
+              </SettingsJumpContext.Provider>
             </SettingsNavContext.Provider>
           </div>
         </Dialog.Content>

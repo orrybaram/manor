@@ -41,12 +41,18 @@ import type { ControlRequest, ControlResponse } from "./types";
  */
 class TestDaemon {
   private server: net.Server;
-  private host = new TerminalHost();
+  private host: TerminalHost;
   private token: string;
   private authenticatedSockets = new WeakSet<net.Socket>();
   readonly socketPath: string;
+  /** Session files land here, never in the default sessions dir (#310). */
+  private readonly sessionsDir: string;
 
   constructor() {
+    this.sessionsDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "manor-daemon-sessions-"),
+    );
+    this.host = new TerminalHost(this.sessionsDir);
     this.socketPath = path.join(
       os.tmpdir(),
       `manor-test-${crypto.randomUUID()}.sock`,
@@ -71,7 +77,8 @@ class TestDaemon {
   }
 
   async stop(): Promise<void> {
-    this.host.disposeAll();
+    await this.host.disposeAll();
+    fs.rmSync(this.sessionsDir, { recursive: true, force: true });
     return new Promise((resolve) => {
       this.server.close(() => {
         try {

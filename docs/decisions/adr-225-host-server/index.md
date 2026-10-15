@@ -219,6 +219,13 @@ daemon adds `attachedClients` to its session info. A host-server viewer is a
 **follower** whenever any other client is attached to the session, and the
 owner otherwise.
 
+> **Amended 2026-10-15.** A daemon older than the field reports no count, and
+> a daemon outlives a host upgrade. The original rule read "no count" as
+> "someone else is attached", which held every pane foreign and dropped every
+> resize once ADR-228 D5 made the desktop a viewer on the host server instead
+> of a daemon client. Now "no count" means nobody else
+> (`electron/host-server/winsize.ts`).
+
 ### D6. Ports for the four Electron dependencies the host server meets
 
 - **`SecretBox`** (`electron/platform/secret-box.ts`): `encrypt` and `decrypt`

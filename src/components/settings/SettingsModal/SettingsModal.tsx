@@ -22,7 +22,7 @@ import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
-import { RemoteControlPage } from "../RemoteControlPage";
+import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
 import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
 import { HostIndicator } from "../../hosts/HostIndicator";
@@ -422,13 +422,13 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
-                    data-testid="settings-nav-remote"
-                    className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
-                    aria-current={page.type === "remote" ? "page" : undefined}
-                    onClick={() => setPage({ type: "remote" })}
+                    data-testid="settings-nav-devices"
+                    className={`${styles.navItem} ${page.type === "devices" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "devices" ? "page" : undefined}
+                    onClick={() => setPage({ type: "devices" })}
                   >
                     <Smartphone size={14} />
-                    <span>Remote control</span>
+                    <span>Devices</span>
                   </button>
 
                   <button
@@ -511,7 +511,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   {page.type === "notifications" && <NotificationsPage />}
                   {page.type === "integrations" && <IntegrationsPage />}
                   {page.type === "hosts" && <HostsPage />}
-                  {page.type === "remote" && <RemoteControlPage />}
+                  {page.type === "devices" && <DevicesPage />}
                   {page.type === "group" && currentGroup && (
                     <GroupSettingsPage
                       key={currentGroup.id}

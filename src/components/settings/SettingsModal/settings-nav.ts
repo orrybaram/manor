@@ -4,7 +4,7 @@ import type { SettingsPage } from "./settings-search";
 /**
  * Move the settings modal to `page`, scrolled to `section` when given: how
  * one page links to another's section (the project Host section to the
- * Hosts page, a host on the Hosts page to its Remote control section).
+ * Hosts page, a host on the Devices page to its row on Hosts).
  */
 export type GoToSettings = (page: SettingsPage, section?: string) => void;
 

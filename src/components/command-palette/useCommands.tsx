@@ -725,7 +725,7 @@ export function useCommands({
           "ssh",
           "mobile",
         ],
-        action: openSettingsPage("remote"),
+        action: openSettingsPage("devices"),
       },
     ];
 

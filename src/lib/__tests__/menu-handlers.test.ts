@@ -343,7 +343,7 @@ describe("createMenuHandlers", () => {
     expect(chrome.addProject).toHaveBeenCalled();
     expect(chrome.openAgents).toHaveBeenCalled();
     expect(chrome.openSettings).toHaveBeenCalledWith("keybindings");
-    expect(chrome.openSettings).toHaveBeenCalledWith("remote");
+    expect(chrome.openSettings).toHaveBeenCalledWith("devices");
     expect(chrome.resumeAgent).toHaveBeenCalledWith("agent-7");
     expect(chrome.openPaletteView).toHaveBeenCalledWith("stats");
   });

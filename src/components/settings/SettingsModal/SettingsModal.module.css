@@ -1249,3 +1249,45 @@ button.remoteResetLink:hover:not(:disabled) {
   min-width: 44px;
   min-height: 44px;
 }
+
+/* Hosts your devices can reach: compact rows that scroll inside their card. */
+.deviceHostList {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+}
+
+.deviceHostRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  justify-content: flex-start;
+  padding: 8px 12px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.deviceHostDot {
+  margin-top: 0;
+}
+
+.deviceHostName {
+  color: var(--text-selected);
+  font-weight: 500;
+}
+
+.deviceHostKind {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.deviceHostReach {
+  flex: 1;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 12px;
+}

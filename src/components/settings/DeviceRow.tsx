@@ -12,13 +12,8 @@ export function DeviceRow(props: {
   device: RemoteDeviceInfo;
   busy: boolean;
   onRevoke: () => void;
-  /**
-   * Who paired it, when not the user here: "This Mac" for a pairing the
-   * desktop minted on a host for one of its own phones (ADR-228 D9).
-   */
-  via?: string;
 }) {
-  const { device, busy, onRevoke, via } = props;
+  const { device, busy, onRevoke } = props;
   return (
     <div data-testid="remote-device-row" className={styles.remoteDeviceRow}>
       <Smartphone size={14} className={styles.remoteDeviceIcon} />
@@ -27,11 +22,6 @@ export function DeviceRow(props: {
           <span>{device.label}</span>
           {device.hasPush && (
             <span className={styles.remoteSendBadge}>push</span>
-          )}
-          {via && (
-            <span className={styles.remoteSendBadge} data-testid="remote-device-via">
-              via {via}
-            </span>
           )}
         </div>
         <div className={styles.fieldHint}>

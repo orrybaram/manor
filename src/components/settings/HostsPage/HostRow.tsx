@@ -19,6 +19,7 @@ import { CopySshCommand } from "../../hosts/HostCard";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
 import { HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
 import { ResetRelayDialog } from "../RemoteControlDialogs";
+import { isSupervised } from "../reach";
 import { SettingRow } from "../SettingRow";
 import { useSettingsJump } from "../SettingsModal/settings-nav";
 import { RemoveHostDialog } from "./RemoveHostDialog";
@@ -94,7 +95,7 @@ export function HostRow(props: HostRowProps) {
 
   // `supervise` is the container's entrypoint: there is nothing to turn off.
   const inContainer = view?.supervisor?.kind === "container";
-  const supervised = inContainer || (view?.supervise ?? false);
+  const supervised = isSupervised(view);
   const supervisorLine = supervisorStatusText(view?.supervisor ?? null, name, host.spec);
   const hint = supervisionHint(view, name, connected);
 
@@ -390,7 +391,7 @@ export function HostRowShell(props: HostRowShellProps) {
  */
 function statusLine(state: string, view: HostServerView | null): string {
   if (!view) return state;
-  const supervised = view.supervisor?.kind === "container" || view.supervise;
+  const supervised = isSupervised(view);
   const reach = !view.linkPhones
     ? "devices off"
     : supervised

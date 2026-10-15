@@ -425,7 +425,7 @@ function App() {
         if (request.type === "open-project-settings") {
           handleOpenProjectSettings(request.projectId, request.section);
         }
-        if (request.type === "open-remote-settings") handleOpenSettings("remote");
+        if (request.type === "open-remote-settings") handleOpenSettings("devices");
       }),
     [
       triggerGhosts,

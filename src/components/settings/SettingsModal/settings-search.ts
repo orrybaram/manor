@@ -7,7 +7,7 @@ export type SettingsPageId =
   | "notifications"
   | "integrations"
   | "hosts"
-  | "remote";
+  | "devices";
 
 export type SettingsSection = {
   /**
@@ -145,6 +145,11 @@ const PAGE_SECTIONS: {
         keywords: ["wake", "stop", "asleep", "remove", "destroy", "restart", "supervise", "systemd", "launchd"],
       },
       {
+        id: "host-local",
+        label: "This Mac",
+        keywords: ["relay", "remote control", "expose", "url", "remote", "address", "devices", "pairing keys", "reset"],
+      },
+      {
         id: "hosts-add",
         label: "Add host",
         keywords: ["add", "ssh", "start", "recipe", "template", "docker", "kubernetes", "new host"],
@@ -152,19 +157,19 @@ const PAGE_SECTIONS: {
     ],
   },
   {
-    page: "remote",
-    pageLabel: "Remote control",
-    pageKeywords: ["remote", "remote control", "devices", "phone", "relay", "mobile"],
+    page: "devices",
+    pageLabel: "Devices",
+    pageKeywords: ["devices", "remote", "remote control", "phone", "relay", "mobile"],
     sections: [
       {
         id: "remote-devices",
-        label: "Devices",
+        label: "Paired devices",
         keywords: ["device", "pairing", "token", "qr", "phone", "revoke"],
       },
       {
-        id: "remote-relay",
-        label: "Relay",
-        keywords: ["relay", "expose", "url", "remote", "address"],
+        id: "devices-hosts",
+        label: "Hosts your devices can reach",
+        keywords: ["reach", "hosts", "allow", "phone"],
       },
     ],
   },

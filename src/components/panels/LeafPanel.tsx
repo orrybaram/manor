@@ -13,6 +13,7 @@ import {
   TAB_HIDDEN_STYLE,
   hiddenLayerAttr,
 } from "../../lib/tab-styles";
+import { ShownLayer } from "../../lib/layer-shown";
 import styles from "./PanelLayout.module.css";
 
 type LeafPanelProps = {
@@ -47,7 +48,9 @@ export const LeafPanel = memo(function LeafPanel(props: LeafPanelProps) {
             style={tab.id === selectedTabId ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
             {...hiddenLayerAttr(tab.id !== selectedTabId)}
           >
-            <PaneLayout node={tab.rootNode} tabId={tab.id} workspaceKey={workspaceKey} />
+            <ShownLayer shown={tab.id === selectedTabId}>
+              <PaneLayout node={tab.rootNode} tabId={tab.id} workspaceKey={workspaceKey} />
+            </ShownLayer>
           </div>
         ))}
       </div>

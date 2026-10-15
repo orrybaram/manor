@@ -33,6 +33,7 @@ import {
 } from "../../lib/detach-drag";
 import { usePaneDrag } from "./PaneDragContext";
 import { TerminalPane } from "./TerminalPane/TerminalPane";
+import { ShownLayer } from "../../lib/layer-shown";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
@@ -694,12 +695,16 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             )}
           </PaneContextMenu>
         ) : (
-          <TerminalPane
-            key={reattachEpoch}
-            paneId={paneId}
-            cwd={paneCwd || workspacePath}
-            workspaceKey={workspaceKey}
-          />
+          // Under a shown chat the terminal is hidden: it lets its WebGL
+          // context go before a pane on screen does.
+          <ShownLayer shown={!showChat}>
+            <TerminalPane
+              key={reattachEpoch}
+              paneId={paneId}
+              cwd={paneCwd || workspacePath}
+              workspaceKey={workspaceKey}
+            />
+          </ShownLayer>
         )}
         {/* After the terminal, and always in this slot, so it showing or not
             never remounts the terminal (ADR-181 D1). */}

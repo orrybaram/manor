@@ -39,7 +39,7 @@
  * are judged against the last size *sent*; see `shouldSendFit`.
  */
 
-import { useLayoutEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
 
@@ -177,9 +177,11 @@ export function useOwnerFit(
   term: Terminal | null,
   resizePty: (cols: number, rows: number) => Promise<void>,
   enabled: boolean,
-) {
+): () => void {
   /** The last size handed to the pty — what a new measurement is judged against. */
   const lastSentRef = useRef<Dimensions | null>(null);
+  /** The live effect's re-fit, for the `refit` returned below; null while disabled. */
+  const refitRef = useRef<(() => void) | null>(null);
   /** Kept in a ref so a new `resizePty` identity does not re-run the effect. */
   const resizePtyRef = useRef(resizePty);
   resizePtyRef.current = resizePty;
@@ -249,6 +251,13 @@ export function useOwnerFit(
     });
     observer.observe(container);
 
+    // A shown pane's re-fit, for a change the container never sees.
+    refitRef.current = () => {
+      const el = containerRef.current;
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return;
+      sendFit();
+    };
+
     /**
      * Re-fit once the grid has actually moved.
      *
@@ -277,6 +286,7 @@ export function useOwnerFit(
       }) ?? null;
 
     return () => {
+      refitRef.current = null;
       if (observerFrame) cancelAnimationFrame(observerFrame);
       if (refitFrame) cancelAnimationFrame(refitFrame);
       if (settle) clearTimeout(settle);
@@ -284,6 +294,17 @@ export function useOwnerFit(
       grid?.dispose();
     };
   }, [containerRef, fitAddon, term, enabled]);
+
+  /**
+   * Measure again now. For a change in the cell rather than the container —
+   * the renderer swapping between WebGL and DOM (`terminal/webgl-contexts`)
+   * re-measures it — which no observer above fires on. A no-op while
+   * disabled, collapsed to 0×0, or when the fit has not moved. Stable.
+   *
+   * A pane in a `visibility: hidden` layer keeps its box, so this *does*
+   * send from one: callers hold it until the pane is shown.
+   */
+  return useCallback(() => refitRef.current?.(), []);
 }
 
 /**
@@ -329,7 +350,9 @@ export function useFollowerFit(
   term: Terminal | null,
   target: Dimensions | null,
   enabled: boolean,
-) {
+): () => void {
+  /** The live effect's re-fit, for the `refit` returned below; null while disabled. */
+  const refitRef = useRef<(() => void) | null>(null);
   /**
    * The grid to render. Reset every time the effect (re)starts and moved by
    * the stream from then on: when the owner resizes, `useTerminalStream`
@@ -400,6 +423,7 @@ export function useFollowerFit(
     };
 
     fitFollower();
+    refitRef.current = () => fitFollower();
 
     const observer = new ResizeObserver(() => {
       if (observerFrame) cancelAnimationFrame(observerFrame);
@@ -431,6 +455,7 @@ export function useFollowerFit(
     });
 
     return () => {
+      refitRef.current = null;
       if (observerFrame) cancelAnimationFrame(observerFrame);
       if (refitFrame) cancelAnimationFrame(refitFrame);
       if (fontFrame) cancelAnimationFrame(fontFrame);
@@ -446,4 +471,7 @@ export function useFollowerFit(
       configuredFontSizeRef.current = null;
     };
   }, [containerRef, term, target, enabled]);
+
+  /** Fit the font again now, as `useOwnerFit`'s refit does the pty. Stable. */
+  return useCallback(() => refitRef.current?.(), []);
 }

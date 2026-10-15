@@ -5,6 +5,7 @@ import {
   TAB_VISIBLE_STYLE,
   hiddenLayerAttr,
 } from "../../lib/tab-styles";
+import { ShownLayer } from "../../lib/layer-shown";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import paneStyles from "./PaneLayout/PaneLayout.module.css";
@@ -147,12 +148,13 @@ export function SplitFrame(props: SplitFrameProps) {
       className={`${styles.split} ${isHorizontal ? styles.splitHorizontal : styles.splitVertical}`}
       style={isPhone ? PHONE_SPLIT_STYLE : undefined}
     >
+      {/* Wrapped in both modes, so the tree keeps its shape across them. */}
       <div
         className={styles.splitChild}
         style={firstStyle}
         {...hiddenLayerAttr(isPhone && focusInSecond)}
       >
-        {first}
+        <ShownLayer shown={!isPhone || !focusInSecond}>{first}</ShownLayer>
       </div>
       <div
         className={`${styles.divider} ${isHorizontal ? styles.dividerHorizontal : styles.dividerVertical} ${isDragging ? styles.dividerActive : ""}`}
@@ -164,7 +166,7 @@ export function SplitFrame(props: SplitFrameProps) {
         style={secondStyle}
         {...hiddenLayerAttr(isPhone && !focusInSecond)}
       >
-        {second}
+        <ShownLayer shown={!isPhone || focusInSecond}>{second}</ShownLayer>
       </div>
     </div>
   );

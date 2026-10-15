@@ -7,6 +7,7 @@ import {
   TAB_VISIBLE_STYLE,
   hiddenLayerAttr,
 } from "../../lib/tab-styles";
+import { ShownLayer } from "../../lib/layer-shown";
 import { PanelLayout } from "./PanelLayout";
 
 type WorkspaceStackProps = {
@@ -66,11 +67,13 @@ const WorkspacePanelTree = memo(function WorkspacePanelTree(
       style={visible ? TAB_VISIBLE_STYLE : TAB_HIDDEN_STYLE}
       {...hiddenLayerAttr(!visible)}
     >
-      <PanelLayout
-        node={panelTree}
-        workspaceKey={workspaceKey}
-        onNewAgent={onNewAgent}
-      />
+      <ShownLayer shown={visible}>
+        <PanelLayout
+          node={panelTree}
+          workspaceKey={workspaceKey}
+          onNewAgent={onNewAgent}
+        />
+      </ShownLayer>
     </div>
   );
 });

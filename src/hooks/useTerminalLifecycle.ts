@@ -3,13 +3,14 @@
  * PTY connection, event subscriptions, and cleanup.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
+import { claimWebgl, type WebglClaim } from "../terminal/webgl-contexts";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
 import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
@@ -45,6 +46,8 @@ export function useTerminalLifecycle(
   onOpenSearch?: () => void,
   /** Key of the workspace the pane belongs to; its host is where the pane runs. */
   workspaceKey?: WorkspaceKey,
+  /** Whether the pane is on screen (`useLayerShown`); WebGL follows it. */
+  shown = true,
 ) {
   const [term, setTerm] = useState<Terminal | null>(null);
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
@@ -136,8 +139,8 @@ export function useTerminalLifecycle(
 
   // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
   // both called: see ADR-178 D5, and each hook's own comment.
-  useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
-  useFollowerFit(containerRef, term, follower, follower !== null);
+  const refitOwner = useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
+  const refitFollower = useFollowerFit(containerRef, term, follower, follower !== null);
 
   // Auto-focus terminal when this pane becomes the focused pane of the active tab.
   // Uses a selector + useEffect so focus() runs after React commits DOM changes
@@ -180,6 +183,31 @@ export function useTerminalLifecycle(
     // full repaint xterm does itself once its observer sees it on screen.
     t.refresh(0, t.rows - 1);
   }, [isFocusedPane, paneFocusNonce]);
+
+  // WebGL is held within the window's context budget, and given back to a
+  // pane that lost it when it is shown (`terminal/webgl-contexts`, #307).
+  const webglRef = useRef<WebglClaim | null>(null);
+  const shownRef = useRef(shown);
+  shownRef.current = shown;
+  // A renderer swap re-measures the cell, so the fit may have moved. Not
+  // while hidden: a hidden layer keeps its box, and a fit sent from there is
+  // a SIGWINCH a TUI repaints into its scrollback — twice, when showing the
+  // pane swaps it straight back. Held until it is shown instead.
+  const refitPendingRef = useRef(false);
+  const refitAfterSwap = useCallback(() => {
+    if (!shownRef.current) {
+      refitPendingRef.current = true;
+      return;
+    }
+    refitPendingRef.current = false;
+    refitOwner();
+    refitFollower();
+  }, [refitOwner, refitFollower]);
+  // Before paint, so a pane coming back onto WebGL never shows a DOM frame.
+  useLayoutEffect(() => {
+    webglRef.current?.setShown(shown);
+    if (shown && refitPendingRef.current) refitAfterSwap();
+  }, [shown, refitAfterSwap]);
 
   // Update theme without recreating the terminal or the PTY session.
   // Ref-based render-time check: when theme changes, apply it immediately.
@@ -261,13 +289,10 @@ export function useTerminalLifecycle(
 
       // Post-open addons (require DOM/canvas)
       if (addons.WebglAddon) {
-        try {
-          const webgl = new addons.WebglAddon();
-          webgl.onContextLoss(() => webgl.dispose());
-          t.loadAddon(webgl);
-        } catch (e) {
-          console.warn("WebGL addon failed, using DOM renderer", e);
-        }
+        webglRef.current = claimWebgl(t, addons.WebglAddon, {
+          shown: shownRef.current,
+          onRendererChange: refitAfterSwap,
+        });
       }
 
       try {
@@ -570,6 +595,10 @@ export function useTerminalLifecycle(
           detach();
         }
         t.dispose();
+        // After the terminal, which takes the addon down without building a
+        // DOM renderer it would never draw with; this frees the context.
+        webglRef.current?.dispose();
+        webglRef.current = null;
       };
     };
 

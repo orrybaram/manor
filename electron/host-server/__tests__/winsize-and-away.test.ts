@@ -44,13 +44,13 @@ function session(
 }
 
 describe("hasOtherClients", () => {
-  it("excludes this server's own socket, and unknown is someone else", () => {
+  it("excludes this server's own socket, and unknown is nobody else", () => {
     expect(hasOtherClients(1, 1)).toBe(false);
     expect(hasOtherClients(2, 1)).toBe(true);
     expect(hasOtherClients(0, 0)).toBe(false);
     expect(hasOtherClients(1, 0)).toBe(true);
-    expect(hasOtherClients(undefined, 1)).toBe(true);
-    expect(hasOtherClients(undefined, 0)).toBe(true);
+    expect(hasOtherClients(undefined, 1)).toBe(false);
+    expect(hasOtherClients(undefined, 0)).toBe(false);
   });
 });
 
@@ -151,11 +151,11 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
     expect(ownerOf("pane-1")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
   });
 
-  it("is a follower when an old daemon reports no count", async () => {
+  it("owns the winsize when an old daemon reports no count", async () => {
     sessions = [session("pane-1", undefined)];
     expect(await create(device)).toMatchObject({
       ok: true,
-      winsizeOwner: false,
+      winsizeOwner: true,
     });
   });
 
@@ -306,7 +306,7 @@ describe("createHostWinsize poll", () => {
     w.dispose();
   });
 
-  it("keeps an old daemon's follower answer and does not flap", async () => {
+  it("never holds a pane for an old daemon, and does not flap", async () => {
     const w = createHostWinsize({
       listSessions: async () => [session("pane-1", undefined)],
     });
@@ -315,7 +315,7 @@ describe("createHostWinsize poll", () => {
     const { changed, stop } = listen();
     await vi.advanceTimersByTimeAsync(6000);
     expect(changed).toEqual([]);
-    expect(isForeign("pane-1")).toBe(true);
+    expect(isForeign("pane-1")).toBe(false);
     stop();
     w.dispose();
   });
@@ -331,7 +331,7 @@ describe("createHostWinsize poll", () => {
     await vi.advanceTimersByTimeAsync(2000);
     expect(ownerOf("pane-1")).toBeNull();
 
-    w.watch("pane-2", undefined);
+    w.watch("pane-2", 1);
     expect(isForeign("pane-2")).toBe(true);
     w.dispose();
     expect(ownerOf("pane-2")).toBeNull();

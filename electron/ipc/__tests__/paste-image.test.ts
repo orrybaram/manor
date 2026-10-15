@@ -52,6 +52,20 @@ describe("uploadClipboardImage", () => {
     expect(get).not.toHaveBeenCalled();
   });
 
+  it("uploads to the host the caller names when main has never seen the pane", async () => {
+    // A pane made through the renderer's viewer stream (ADR-228 D5): main's
+    // session owners only learn of it on the next reconnect.
+    const { registry, get } = makeRegistry({ ownerOf: undefined });
+    const result = await uploadClipboardImage(
+      registry as never,
+      "pane-a",
+      makeImage(),
+      "box",
+    );
+    expect(result.kind).toBe("uploaded");
+    expect(get).toHaveBeenCalledWith("box");
+  });
+
   it("returns none when the clipboard has no image, without touching the host", async () => {
     const { registry, get } = makeRegistry({ ownerOf: "box" });
     const result = await uploadClipboardImage(

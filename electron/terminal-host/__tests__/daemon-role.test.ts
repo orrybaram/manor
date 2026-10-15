@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { localRole, remoteRole, type DaemonRole } from "../daemon-role";
+import { isDaemonArgv, localRole, remoteRole, type DaemonRole } from "../daemon-role";
 import { daemonDir, hooksDir, remoteControlPortFile } from "../../paths";
 import { ShellManager } from "../../shell";
 
@@ -134,5 +134,20 @@ describe("remoteRole", () => {
     await role.bootstrap();
     expect(fs.existsSync(path.join(hooksDir(), "notify.sh"))).toBe(true);
     expect(fs.readFileSync(hookJs, "utf-8")).toBe(current);
+  });
+});
+
+describe("isDaemonArgv", () => {
+  it("launches a daemon with no args or flags only", () => {
+    expect(isDaemonArgv([])).toBe(true);
+    expect(isDaemonArgv(["--namespace", "remote"])).toBe(true);
+  });
+
+  it("does not launch one for a mode, known or not", () => {
+    // An older bundle's view of a newer desktop's mode: this used to start
+    // a stray local daemon.
+    expect(isDaemonArgv(["server-bridge"])).toBe(false);
+    expect(isDaemonArgv(["server-bridge", "--viewer"])).toBe(false);
+    expect(isDaemonArgv(["some-future-mode"])).toBe(false);
   });
 });

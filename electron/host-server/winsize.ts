@@ -26,8 +26,13 @@
  * server reuses — create, resize, claim — and the bridge server's ownership
  * push all read it from the one place they already read the winsize owner.
  *
- * **Unknown is a follower.** A daemon that predates the field omits it. The
- * safe default is never to resize a session someone else may be viewing.
+ * **Unknown is nobody else.** A daemon that predates the field omits it —
+ * and a daemon outlives a host upgrade, so a freshly upgraded host runs one
+ * for as long as its sessions live. ADR-225 D5 made that a follower, when the
+ * desktop was a daemon client this server could not see. Since ADR-228 D5 the
+ * desktop is a viewer here, ranked by the registry, so the client an unknown
+ * count was guarding against no longer exists — and treating it as present
+ * held every pane foreign, dropping every resize from every viewer.
  *
  * **Poll, not event.** A change has to reach a phone that is already
  * attached (the desktop connected, or let go). The daemon could emit an
@@ -46,13 +51,13 @@ export const WINSIZE_POLL_MS = 2_000;
 /**
  * Whether a client other than this server is attached, given the daemon's
  * count and how many of those sockets are this server's own. A missing count
- * is unknown, which counts as someone else.
+ * (a daemon older than the field) counts as nobody else.
  */
 export function hasOtherClients(
   attachedClients: number | undefined,
   ownSockets: number,
 ): boolean {
-  if (attachedClients === undefined) return true;
+  if (attachedClients === undefined) return false;
   return attachedClients - ownSockets > 0;
 }
 

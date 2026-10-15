@@ -36,7 +36,12 @@ export async function pasteClipboardImage(
   paneId: string,
   fallback: () => void,
 ): Promise<void> {
-  const result = await window.electronAPI.terminal.pasteClipboardImage(paneId);
+  // Name the host: main may never have heard of a pane made through the
+  // host's viewer stream (ADR-228 D5), and would take it for a local one.
+  const result = await window.electronAPI.terminal.pasteClipboardImage(
+    paneId,
+    paneRemoteHost(useRemotePaneStore.getState(), paneId),
+  );
   switch (result.kind) {
     case "uploaded":
       // Trailing space so the path stands alone as its own shell token —

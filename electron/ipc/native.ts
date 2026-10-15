@@ -130,8 +130,12 @@ export function register(deps: HostDeps): void {
   // touched: the agent already reads its own machine's clipboard. Native
   // (ADR-180 D8) because the clipboard it reads is this machine's; a browser
   // answers it itself (`src/bridge/unavailable.ts`) with "nothing to paste".
-  ipcMain.handle("terminal:pasteClipboardImage", (_event, paneId: string) => {
-    assertString(paneId, "paneId");
-    return uploadClipboardImage(backendRegistry, paneId, clipboard.readImage());
-  });
+  ipcMain.handle(
+    "terminal:pasteClipboardImage",
+    (_event, paneId: string, hostId?: string) => {
+      assertString(paneId, "paneId");
+      if (hostId !== undefined) assertString(hostId, "hostId");
+      return uploadClipboardImage(backendRegistry, paneId, clipboard.readImage(), hostId);
+    },
+  );
 }

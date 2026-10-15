@@ -7,7 +7,7 @@ import { isRemotePane, pasteClipboardImage } from "../remote-image-paste";
 import type { PasteClipboardImageResult } from "../../electron.d";
 
 const pasteClipboardImageIpc = vi.fn<
-  (paneId: string) => Promise<PasteClipboardImageResult>
+  (paneId: string, hostId?: string) => Promise<PasteClipboardImageResult>
 >();
 (window as unknown as Record<string, unknown>).electronAPI = {
   ...(window.electronAPI as unknown as Record<string, unknown>),
@@ -52,6 +52,15 @@ describe("isRemotePane", () => {
 // ---------------------------------------------------------------------------
 
 describe("pasteClipboardImage", () => {
+  it("names the pane's host, which main may not know (ADR-228 D5)", async () => {
+    useRemotePaneStore.getState().setPaneHost(PANE_ID, "box");
+    pasteClipboardImageIpc.mockResolvedValue({ kind: "none" });
+
+    await pasteClipboardImage(makeTerm(), PANE_ID, vi.fn());
+
+    expect(pasteClipboardImageIpc).toHaveBeenCalledWith(PANE_ID, "box");
+  });
+
   it("pastes the uploaded path with a trailing space", async () => {
     pasteClipboardImageIpc.mockResolvedValue({
       kind: "uploaded",
@@ -62,7 +71,7 @@ describe("pasteClipboardImage", () => {
 
     await pasteClipboardImage(term, PANE_ID, fallback);
 
-    expect(pasteClipboardImageIpc).toHaveBeenCalledWith(PANE_ID);
+    expect(pasteClipboardImageIpc).toHaveBeenCalledWith(PANE_ID, undefined);
     expect(term.paste).toHaveBeenCalledWith(
       "/home/user/.manor/pasted-images/20260101-000000-abcd1234.png ",
     );

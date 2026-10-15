@@ -18,6 +18,7 @@ import type { BridgeTransport } from "../../bridge/client";
 import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
 import {
   directReachability,
+  isHostAway,
   servers,
   viaReachability,
 } from "../../bridge/server-set";
@@ -121,6 +122,18 @@ describe("the phone's merged sidebar, per source", () => {
     act(() => servers.setReachability(DESKTOP, "unreachable"));
     expect(offline("via-id", hosts)).toBe(true);
     expect(offline(LOCAL_HOST_ID, hosts)).toBe(true);
+  });
+
+  it("the desktop's own room, gone silent, is away though its last word says connected (ADR-231 D8)", () => {
+    // The router stamps the desktop's `local` with its room, and the frozen
+    // desktop's last `hosts.list` still says it is connected.
+    const hosts = [host(DESKTOP, "local"), host(BOX, "me@box")];
+    servers.setLists(DESKTOP, [BOX]);
+    expect(isHostAway(DESKTOP, hosts)).toBe(false);
+
+    servers.setReachability(DESKTOP, "unreachable");
+    expect(isHostAway(DESKTOP, hosts)).toBe(true);
+    expect(isHostAway(BOX, hosts)).toBe(false);
   });
 
   it("the desktop's own page never reads as a phone", () => {

@@ -32,6 +32,13 @@ export function desktopKey(): DesktopKey {
   return { priv, pub: x25519.getPublicKey(priv) };
 }
 
+/** The transport's liveness ping (ADR-231 D8). */
+function isPing(frame: Frame): boolean {
+  return (
+    frame.kind === "invoke" && frame.ns === "bridge" && frame.method === "ping"
+  );
+}
+
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.slice().buffer;
 }
@@ -69,6 +76,12 @@ export class FakeRelaySocket {
 
   /** Heartbeats the page sent (the room answers them; see `pong`). */
   pings = 0;
+  /**
+   * The desktop behind the room has gone quiet (frozen, asleep): it answers
+   * no `bridge.ping`, though the room still answers heartbeats. Off, it
+   * answers each one, a microtask later, as a live server does.
+   */
+  silent = false;
 
   send(data: unknown): void {
     if (data === HEARTBEAT_PING) {
@@ -82,7 +95,15 @@ export class FakeRelaySocket {
     if (this.desktop === null) return;
     for (const chunk of unpackBatch(data)) {
       const text = this.desktop.openFrame(chunk);
-      if (text !== null) this.frames.push(JSON.parse(text) as Frame);
+      if (text === null) continue;
+      const frame = JSON.parse(text) as Frame;
+      this.frames.push(frame);
+      if (isPing(frame) && !this.silent) {
+        queueMicrotask(() => {
+          if (this.readyState !== 1) return;
+          this.deliver({ id: frame.id, kind: "result", ok: true, result: null });
+        });
+      }
     }
   }
 

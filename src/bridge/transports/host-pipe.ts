@@ -17,7 +17,9 @@
  * **Liveness is main's.** There is no heartbeat on this line: the ssh child
  * exiting, or the host leaving `connected` (which a wake from sleep checks,
  * ADR-188), closes the pipe from main's side. So `probe` reports whether the
- * pipe is still open, and nothing more.
+ * pipe is still open, and nothing more. A server that is open but silent is
+ * the transport's to notice: it pings one quiet for long enough (ADR-231 D8),
+ * which a live host server answers in milliseconds.
  */
 
 import { CLOSE_HOST_UNREACHABLE } from "../../../electron/bridge/types";

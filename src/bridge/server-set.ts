@@ -383,6 +383,15 @@ export function viaReachability(hostId: string): Reachability | undefined {
   return listers.every((e) => e.reachability === "unreachable") ? "unreachable" : "unknown";
 }
 
+/**
+ * Whether the page's own bridge to `hostId`'s server runs through a relay
+ * room (a phone's pairing), rather than a desktop window's host pipe.
+ */
+export function relayedServer(hostId: string): boolean {
+  const roomId = servers.get(hostId)?.roomId;
+  return roomId !== null && roomId !== undefined;
+}
+
 /** `viaReachability`, live. */
 export function useViaReachability(
   hostId: string | null | undefined,
@@ -400,7 +409,7 @@ export function isHostAway(
   hostId: string | null | undefined,
   hosts: readonly HostStatusInfo[],
 ): boolean {
-  return isHostOffline(hostId, hosts, directReachability, viaReachability);
+  return isHostOffline(hostId, hosts, directReachability, viaReachability, relayedServer);
 }
 
 /**

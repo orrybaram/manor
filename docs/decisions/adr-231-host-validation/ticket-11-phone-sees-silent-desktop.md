@@ -1,6 +1,6 @@
 ---
 title: The phone sees a silent server as away
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [5, 8]

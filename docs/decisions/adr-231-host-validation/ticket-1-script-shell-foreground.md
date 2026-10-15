@@ -1,6 +1,6 @@
 ---
 title: A shell running a script is not the pane's shell (the laptop-closed flake)
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

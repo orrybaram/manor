@@ -1,6 +1,6 @@
 ---
 title: The harness's --k8s mode on a kind cluster
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

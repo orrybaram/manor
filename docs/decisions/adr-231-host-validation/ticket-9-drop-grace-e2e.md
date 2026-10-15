@@ -1,6 +1,6 @@
 ---
 title: E2E for the phone's drop grace (ADR-230 D5)
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

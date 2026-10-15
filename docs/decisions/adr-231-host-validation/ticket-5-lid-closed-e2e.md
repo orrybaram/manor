@@ -1,6 +1,6 @@
 ---
 title: A full lid-closed E2E (freeze, cut, work, thaw)
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

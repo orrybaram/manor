@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -522,7 +522,8 @@ its own 90 s reaping.
 
 **The Kubernetes template (D3)**
 - Tested on kind v0.33.0 with node image Kubernetes v1.37.0 and kubectl
-  v1.37.1. Two full runs, 8 of 8 each (about 45 s beyond the setup).
+  v1.37.1. Two full runs, 8 of 8 each. The suite took about 45 s a run
+  once the cluster was up.
 - The only template bug was C1, as predicted. Before the fix the pod-deleted
   scenario failed with statuses `reconnecting`, `sleeping`. `status` now
   says `sleeping` only for 0 replicas (`2bb08b0f`), with a regression test.
@@ -601,7 +602,23 @@ its own 90 s reaping.
   after a reboot, and the Kubernetes suite in CI: still their own
   decisions.
 
-<!-- integration results -->
+**Integration check** (at `91c46f95`, 2026-10-15, on this WSL2 machine)
+- `pnpm typecheck`, `pnpm build`, `pnpm lint` and `pnpm knip:ci`: clean.
+- Unit tests: 17 failures, the same as the baseline at `d122359b`
+  (`hook-script`, `keybinding-commands`, `workspace-stack-renders`), plus
+  the same three load errors (`mcp-webview-server`, `webview-server`,
+  `routes/router`). No new ones.
+- `--recipe` (Docker): 10 of 10. `--k8s` (kind): 8 of 8.
+- Playwright, private sshd: 16 of 17. The miss was `remote-host.spec.ts`
+  "ports": it timed out waiting for the box's port scan to list the dev
+  server, while other sessions were building and running E2E on the same
+  machine. Alone it passed 4 of 4, and it passed in the `--docker` run and
+  in ticket 6's full run. Seen once, not traced.
+- Playwright, `--docker`: 12 passed, 5 skipped. The skips are the specs
+  that need the local relay from inside the container (`host-ownership`,
+  `host-server`, the two phone specs and `host-idle-stop`).
+  `lid-closed.spec.ts` reaches it through `reachRelayFromBox` and runs.
+- `phone-drop-grace.spec.ts`: passed.
 
 ## Built beyond the tickets
 

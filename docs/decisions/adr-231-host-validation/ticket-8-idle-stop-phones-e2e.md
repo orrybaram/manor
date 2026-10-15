@@ -1,6 +1,6 @@
 ---
 title: E2E for idle stop counting phones (ADR-230 D1)
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [6]

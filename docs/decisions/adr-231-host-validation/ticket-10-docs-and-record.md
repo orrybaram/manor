@@ -1,6 +1,6 @@
 ---
 title: Docs, struck limits and ADR-231's known limits
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [1, 4, 5, 7, 8, 9, 11]

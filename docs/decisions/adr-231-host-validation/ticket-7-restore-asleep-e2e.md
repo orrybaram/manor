@@ -1,6 +1,6 @@
 ---
 title: E2E for restore not waking a sleeping host (ADR-230 D3)
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [6]

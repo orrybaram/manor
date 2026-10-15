@@ -1,6 +1,6 @@
 ---
 title: A recipe host in Playwright, over the harness's sshd
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

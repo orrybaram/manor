@@ -1,6 +1,6 @@
 ---
 title: Share the recipe E2E's desktop side
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

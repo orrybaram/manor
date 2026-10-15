@@ -1,6 +1,6 @@
 ---
 title: The Kubernetes recipe suite, and the template fixes it finds
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [2, 3]

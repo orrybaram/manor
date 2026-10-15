@@ -1,17 +1,7 @@
-/**
- * Whether the `tab-styles` layer a component sits in is on screen.
- *
- * The layers nest (a workspace's layer holds its panels' tab layers) and a
- * hidden one is still mounted, so being rendered says nothing about being
- * seen. Each layer that can hide wraps its children in {@link ShownLayer}; a
- * component inside is shown only while every layer around it is. Outside any
- * layer, it is shown.
- */
+import { useContext } from "react";
+import { LayerShownContext } from "./layer-shown-context";
 
-import { createContext, useContext } from "react";
-
-const LayerShownContext = createContext(true);
-
+/** A layer that can hide: its children are shown only while it and its parents are. */
 export function ShownLayer(props: { shown: boolean; children: React.ReactNode }) {
   const parentShown = useContext(LayerShownContext);
   return (
@@ -19,9 +9,4 @@ export function ShownLayer(props: { shown: boolean; children: React.ReactNode })
       {props.children}
     </LayerShownContext.Provider>
   );
-}
-
-/** True while every layer around the caller is shown. */
-export function useLayerShown(): boolean {
-  return useContext(LayerShownContext);
 }

@@ -15,7 +15,7 @@ import { useThemeStore } from "../../../store/theme-store";
 import { useTerminalLifecycle } from "../../../hooks/useTerminalLifecycle";
 import { useTerminalTouch } from "../../../hooks/useTerminalTouch";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
-import { useLayerShown } from "../../../lib/layer-shown";
+import { useLayerShown } from "../../../lib/layer-shown-context";
 import { useAppStore } from "../../../store/app-store";
 import { Row } from "../../ui/Layout/Layout";
 import { Button } from "../../ui/Button/Button";

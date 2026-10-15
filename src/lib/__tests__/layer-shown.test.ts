@@ -1,7 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { ShownLayer, useLayerShown } from "../layer-shown";
+import { ShownLayer } from "../layer-shown";
+import { useLayerShown } from "../layer-shown-context";
 
 function Probe() {
   return useLayerShown() ? "shown" : "hidden";

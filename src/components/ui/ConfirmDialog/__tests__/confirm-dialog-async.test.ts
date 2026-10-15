@@ -41,13 +41,14 @@ describe("ConfirmDialog with an async onConfirm", () => {
     return onCancel;
   }
 
-  it("disables both buttons while pending, then re-enables on failure", async () => {
+  it("disables confirm while pending, then re-enables it on failure", async () => {
     let reject!: (err: Error) => void;
     const onCancel = render(() => new Promise<void>((_r, rej) => (reject = rej)));
 
     act(() => button("Remove").click());
     expect(button("Remove").disabled).toBe(true);
-    expect(button("Cancel").disabled).toBe(true);
+    // Cancel stays live: a promise that never settles can't trap the user.
+    expect(button("Cancel").disabled).toBe(false);
 
     await act(async () => {
       reject(new Error("locked"));

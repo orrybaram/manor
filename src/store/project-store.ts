@@ -721,7 +721,7 @@ interface ProjectState {
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   /**
    * ADR-192 ticket 2: set a group's shared settings, shown on every member
-   * at once. Errors roll the change back and are shown as a toast.
+   * at once. Errors roll the change back, are shown as a toast, and reject.
    */
   updateGroup: (
     groupId: string,
@@ -808,14 +808,12 @@ function closeWorkspacesLeftBehind(
   for (const key of gone) useAppStore.getState().removeWorkspaceLayout(key);
 }
 
-/** An error toast for a failed link or unlink (ADR-192). */
+/**
+ * An error toast for a failed link or unlink (ADR-192). Through
+ * `addErrorToast`, so a rethrow isn't toasted again (ADR-232 D1).
+ */
 function groupErrorToast(id: string, message: string, err: unknown): void {
-  useToastStore.getState().addToast({
-    id,
-    message,
-    status: "error",
-    detail: ipcErrorMessage(err),
-  });
+  addErrorToast(id, message, err);
 }
 
 /**
@@ -1093,6 +1091,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await get().removeProject(memberId);
     } catch (err) {
+      // `removeProject` toasted already; this one names the host instead.
+      useToastStore.getState().removeToast(`remove-project-${memberId}`);
       groupErrorToast(
         `remove-from-host-${memberId}`,
         `Couldn't remove ${member.name} from ${hostName}`,
@@ -1495,7 +1495,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         "Couldn't save shared settings",
         err,
       );
-      return;
+      // Rethrown, as `updateProject` does, so an awaiting caller (the setup
+      // wizard) knows it failed; the toast marked it reported (ADR-232 D6).
+      throw err;
     }
     // Only the shared settings changed; take those, and keep the rest (the
     // watchers' PR and diff state on each workspace, say) as it is.

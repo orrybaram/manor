@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -113,6 +113,8 @@ A failed tab move needs no restore, because the tab never left. A failed pane
 move leaves the pane in the tab that `extractPaneToTab` made for it. The pane
 is not lost, and the toast says where it is.
 
+A Retry that succeeds reopens the workspace the launch would have opened.
+
 ### D6. Store mutations report their own failures
 
 These actions catch the error, call `addErrorToast` with specific copy, and
@@ -130,9 +132,14 @@ already reported. Callers that await can still react. The setup wizard stays on
 its step when a save fails.
 
 `ConfirmDialog` accepts an `onConfirm` that returns a promise. While it is
-pending the dialog disables its buttons. It closes only when the promise
-resolves. On rejection it stays open, and reports the error unless D1 already
-marked it. `RemoveProjectDialog` uses this, and its callers pass the async
+pending the dialog disables its confirm button. Cancel stays live, so a
+promise that never settles can't trap the user. It closes only when the
+promise resolves. On rejection it stays open, and reports the error unless D1
+already marked it.
+
+`updateGroup` already toasted and rolled back; it now also rethrows, so a
+grouped project's setup wizard stays on its step too. `groupErrorToast`
+goes through `addErrorToast`, so its errors carry the D1 mark. `RemoveProjectDialog` uses this, and its callers pass the async
 remove.
 
 ### D7. No stuck states
@@ -150,8 +157,9 @@ remove.
   - The whole submit runs in try/catch/finally. On failure the loading toast
     becomes an error toast, and `submitting` always resets.
   - A failed screenshot upload no longer files silently without screenshots.
-    The toast stops with "Couldn't upload screenshots", and the modal stays
-    open so the user can retry or remove them.
+    The upload needs gh with push rights to the repo, which most users lack,
+    so the feedback is still filed. The result toast says it was sent without
+    screenshots, and why.
 - **Notification store:**
   - A failed `getAll` keeps the current list and sets `loadError`. The popover
     shows "Couldn't load notifications" with Retry when the list is empty.
@@ -162,9 +170,9 @@ remove.
 
 - **FileList:** the stage, unstage and discard toasts carry
   `ipcErrorMessage(err)` as their detail.
-- **Port forwards:** a new helper, `openThroughForward` in
-  `src/lib/port-forward-open.ts`, is used by `PortBadge` and the palette's
-  port items. When a remote port can't be forwarded it toasts "Couldn't
+- **Port forwards:** a new helper, `forwardedUrl` in
+  `src/lib/port-forward-open.ts`, replaces `resolveUrlForHost`. It is used by
+  `PortBadge`, the palette's port items and `useRemoteBrowserUrl`. When a remote port can't be forwarded it toasts "Couldn't
   forward port N", and does not open the box's localhost on this machine.
   `killPort` failures toast too.
 - **GitHubNudge:**

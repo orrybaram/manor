@@ -34,8 +34,8 @@ describe("PaneErrorBoundary", () => {
       createElement(
         "div",
         null,
-        createElement(PaneErrorBoundary, { paneId: "a" }, createElement(Bomb, { label: "bad" })),
-        createElement(PaneErrorBoundary, { paneId: "b" }, createElement(Bomb, { label: "good" })),
+        createElement(PaneErrorBoundary, { paneId: "a", children: createElement(Bomb, { label: "bad" }) }),
+        createElement(PaneErrorBoundary, { paneId: "b", children: createElement(Bomb, { label: "good" }) }),
       ),
     );
 
@@ -46,7 +46,7 @@ describe("PaneErrorBoundary", () => {
 
   it("Reload pane remounts the pane", () => {
     root.render(
-      createElement(PaneErrorBoundary, { paneId: "a" }, createElement(Bomb, { label: "bad" })),
+      createElement(PaneErrorBoundary, { paneId: "a", children: createElement(Bomb, { label: "bad" }) }),
     );
     shouldThrow = false;
     const reload = [...root.container.querySelectorAll("button")].find(

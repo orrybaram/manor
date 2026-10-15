@@ -109,8 +109,10 @@ export function FeedbackModal(props: FeedbackModalProps) {
     };
 
     try {
-      // Upload screenshots if any. A failed upload stops here rather than
-      // filing the issue without the screenshots the user attached.
+      // Upload screenshots if any. Uploading needs gh with push rights to the
+      // repo, which most users lack, so a failed upload still files the
+      // feedback — and the result says the screenshots were left out.
+      let screenshotNote: string | null = null;
       if (screenshots.length > 0) {
         try {
           const ts = Date.now();
@@ -126,8 +128,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
               urls.map((url, i) => `![screenshot-${i + 1}](${url})`).join("\n");
           }
         } catch (err) {
-          fail("Couldn't upload screenshots — remove them to send without", err);
-          return;
+          screenshotNote = `Sent without screenshots: ${ipcErrorMessage(err)}`;
         }
       }
 
@@ -144,6 +145,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
           updateToast(toastId, {
             message: "Feedback submitted!",
             status: "success",
+            detail: screenshotNote ?? undefined,
             action: {
               label: "View",
               onClick: () => openExternal(result.url),
@@ -167,7 +169,9 @@ export function FeedbackModal(props: FeedbackModalProps) {
       updateToast(toastId, {
         message: "Opened in browser",
         status: "success",
-        detail: "Complete the issue on GitHub",
+        detail: screenshotNote
+          ? `Complete the issue on GitHub. ${screenshotNote}`
+          : "Complete the issue on GitHub",
       });
       reset();
       onOpenChange(false);

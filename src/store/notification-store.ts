@@ -57,8 +57,20 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
     }
   };
 
+  // Counted so a retry whose answer is older than a push drops it, as
+  // `liveValue`'s own fetches do.
+  let pushes = 0;
+
   if (api) {
-    liveValue(fetchAll, (cb) => api.onChanged(cb), apply);
+    liveValue(
+      fetchAll,
+      (cb) =>
+        api.onChanged((list) => {
+          pushes += 1;
+          cb(list);
+        }),
+      apply,
+    );
   }
 
   // A native banner was clicked. Same destination resolution as an in-app row
@@ -87,8 +99,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
     retry: async () => {
       if (!api) return;
       set({ loading: true });
+      const before = pushes;
       try {
-        apply(await fetchAll());
+        const list = await fetchAll();
+        if (pushes === before) apply(list);
+        else set({ loading: false, loadError: null });
       } catch {
         // `fetchAll` recorded why.
       }

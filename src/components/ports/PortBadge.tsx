@@ -39,11 +39,11 @@ export function PortBadge(props: PortBadgeProps) {
         return;
       }
       // A forward that fails toasts and opens nothing (ADR-232 D8).
-      void forwardedUrl(url, hostId, port.port).then((target) => {
+      void forwardedUrl(url, hostId).then((target) => {
         if (target) open(target);
       });
     },
-    [url, hostId, isRemote, port.port],
+    [url, hostId, isRemote],
   );
 
   const handleOpenInTab = useCallback(() => {

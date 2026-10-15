@@ -130,6 +130,8 @@ export async function movePaneToNewWindow(
   paneId: string,
   spawnBounds?: SpawnBounds,
 ): Promise<void> {
+  // Set once the pane is a tab of its own, which outlives a failed open.
+  let extracted = false;
   try {
     // The workspace is read from the *pane*, which is in the tree right now;
     // the tab the command creates is not there yet, and will not be until the
@@ -139,15 +141,19 @@ export async function movePaneToNewWindow(
     if (!workspacePath) return;
     const tabId = useAppStore.getState().extractPaneToTab(paneId);
     if (!tabId) return;
+    extracted = true;
     await openClaimWindow(workspacePath, tabId, spawnBounds);
     forgetPanes([paneId]);
   } catch (err) {
-    // The pane is already a tab of its own here (`extractPaneToTab`); that
-    // tab stays, so the pane is not lost — only not where it was (ADR-232 D5).
+    // Once extracted, the pane is a tab of its own here and that tab stays:
+    // the pane is not lost, only not where it was — the toast says so
+    // (ADR-232 D5).
     console.error("Failed to move pane to a new window", err);
     addErrorToast(
       `detach-pane-${paneId}`,
-      "Couldn't move pane to a new window",
+      extracted
+        ? "Couldn't move pane to a new window — it's in a tab of its own here"
+        : "Couldn't move pane to a new window",
       err,
     );
   }

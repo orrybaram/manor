@@ -143,6 +143,20 @@ describe("useNotificationStore", () => {
     ]);
   });
 
+  it("a retry drops its answer when a push landed meanwhile", async () => {
+    let resolve!: (list: NotificationRecord[]) => void;
+    notificationsApi.getAll.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+
+    const pending = useNotificationStore.getState().retry();
+    onChangedCallback?.([makeRecord({ id: "pushed" })]);
+    resolve([makeRecord({ id: "older" })]);
+    await pending;
+
+    expect(useNotificationStore.getState().notifications.map((n) => n.id)).toEqual([
+      "pushed",
+    ]);
+  });
+
   it("actions proxy straight to IPC — main is the writer", async () => {
     await useNotificationStore.getState().markRead("a");
     await useNotificationStore.getState().markAllRead();

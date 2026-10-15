@@ -16,7 +16,11 @@ const DETACHED_TAB_TIMEOUT_MS = 10_000;
  * (ADR-232 D7) rather than showing a dimmed logo forever.
  */
 export function DetachedWindowPending() {
-  const layoutLoadError = useAppStore((s) => s.layoutLoadError);
+  // The boot read's failure only counts while no layout has arrived since:
+  // a broadcast or resync that delivered one makes it stale.
+  const layoutLoadError = useAppStore((s) =>
+    Object.keys(s.workspaceLayouts).length === 0 ? s.layoutLoadError : null,
+  );
   const [timedOut, setTimedOut] = useState(false);
 
   useMountEffect(() => {

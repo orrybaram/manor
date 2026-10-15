@@ -118,7 +118,9 @@ describe("linked-project groups in the project store", () => {
     it("rolls a failed group edit back and shows a toast", async () => {
       api.updateGroup.mockRejectedValueOnce(new Error("nope"));
 
-      await useProjectStore.getState().updateGroup("g1", { name: "Renamed", color: "green" });
+      await expect(
+        useProjectStore.getState().updateGroup("g1", { name: "Renamed", color: "green" }),
+      ).rejects.toThrow("nope");
 
       expect(byId("local-app")).toMatchObject({ name: "local-app", color: null, group: GROUP });
       expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([

@@ -102,6 +102,27 @@ import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
 import "./App.css";
 
+/** Open the selected project's selected workspace, as a launch does. */
+function openSelectedProjectWorkspace(): void {
+  const { projects: ps, selectedProjectIndex: idx } = useProjectStore.getState();
+  const project = ps[idx];
+  if (!project) return;
+  const ws =
+    project.workspaces[project.selectedWorkspaceIndex] ?? project.workspaces[0];
+  if (ws) useAppStore.getState().setActiveWorkspace(ws.path, project.hostId);
+}
+
+/**
+ * Retry a project load that failed at launch (ADR-232 D4). Once it works,
+ * reopen what the launch would have, since the launch found nothing to open.
+ */
+async function retryLoadProjects(): Promise<void> {
+  await useProjectStore.getState().loadProjects();
+  if (useProjectStore.getState().loadError !== null) return;
+  if (!useAppStore.getState().activeWorkspacePath) openSelectedProjectWorkspace();
+  useAppStore.getState().seedRestoredPanes();
+}
+
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
@@ -160,19 +181,15 @@ function App() {
       if (isHomePath(getPersistedActiveWorkspacePath())) {
         setActiveWorkspace(HOME_PATH);
       } else {
-        const { projects: ps, selectedProjectIndex: idx } =
-          useProjectStore.getState();
-        const project = ps[idx];
-        if (project) {
-          const ws =
-            project.workspaces[project.selectedWorkspaceIndex] ??
-            project.workspaces[0];
-          if (ws) setActiveWorkspace(ws.path, project.hostId);
-        }
+        openSelectedProjectWorkspace();
       }
       // The workspace this window reopened on: its panes reopen without
       // waking a sleeping host; any opened later is the user's (ADR-230 D3).
-      useAppStore.getState().seedRestoredPanes();
+      // A failed project load has reopened nothing yet: the Retry that
+      // succeeds does it (ADR-232 D4).
+      if (useProjectStore.getState().loadError === null) {
+        useAppStore.getState().seedRestoredPanes();
+      }
       setAppReady(true);
       window.electronAPI.agents.reconcileStale().catch(console.error);
     });
@@ -850,7 +867,7 @@ function App() {
                                 title="Couldn't load your projects"
                                 message={projectsLoadError}
                                 actions={
-                                  <Button variant="primary" onClick={() => void loadProjects()}>
+                                  <Button variant="primary" onClick={() => void retryLoadProjects()}>
                                     Retry
                                   </Button>
                                 }

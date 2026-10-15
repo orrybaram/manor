@@ -11,6 +11,7 @@ import { useMountEffect } from "../../hooks/useMountEffect";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Button } from "../ui/Button/Button";
 import { FallbackScreen } from "../ui/ErrorBoundary/FallbackScreen";
+import { killPortWithToast } from "../../lib/port-forward-open";
 import { addErrorToast } from "../../store/toast-store";
 import { ipcErrorMessage } from "../../lib/ipc-error";
 import styles from "./CommandPalette.module.css";
@@ -129,11 +130,11 @@ export function ProcessesView() {
   );
 
   const handleKillPort = useCallback(
-    (pid: number) =>
-      runAction(`kill-port-${pid}`, "Couldn't kill the process", () =>
-        window.electronAPI.ports.killPort(pid),
-      ),
-    [runAction],
+    async (pid: number, port: number) => {
+      await killPortWithToast(pid, port);
+      void fetchInfo();
+    },
+    [fetchInfo],
   );
 
   const handleRestartPortless = useCallback(
@@ -430,7 +431,7 @@ export function ProcessesView() {
               key={`${p.port}-${p.pid}`}
               value={`port ${p.port} ${p.processName} ${p.pid}`}
               className={styles.item}
-              onSelect={() => void handleKillPort(p.pid)}
+              onSelect={() => void handleKillPort(p.pid, p.port)}
             >
               <span className={styles.icon}>
                 <Globe size={14} />
@@ -447,7 +448,7 @@ export function ProcessesView() {
                   aria-label={`Kill PID ${p.pid}`}
                   onClick={(e) => {
                     e.stopPropagation();
-                    void handleKillPort(p.pid);
+                    void handleKillPort(p.pid, p.port);
                   }}
                 >
                   <X size={12} />

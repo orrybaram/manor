@@ -14,9 +14,10 @@ type ConfirmDialogProps = {
   /** `danger` for destructive actions; `primary` otherwise. */
   confirmVariant?: "primary" | "danger";
   /**
-   * May return a promise (ADR-232 D6): the dialog then waits, buttons
-   * disabled, and stays open if it rejects — so it never closes on a failure.
-   * Closing on success is still the caller's, through `open`.
+   * May return a promise (ADR-232 D6): the dialog then waits, its confirm
+   * button disabled, and stays open if it rejects — so it never closes on a
+   * failure. Closing on success is still the caller's, through `open`.
+   * Cancel stays live, so an answer that never comes can't trap the user.
    */
   onConfirm: () => void | Promise<void>;
   /** Called on Cancel, Escape and clicking outside. */
@@ -58,7 +59,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next && !pending) onCancel();
+        if (!next) onCancel();
       }}
     >
       <Dialog.Portal>
@@ -69,7 +70,7 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
             {description}
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
-            <Button variant="secondary" onClick={onCancel} disabled={pending}>
+            <Button variant="secondary" onClick={onCancel}>
               {cancelLabel}
             </Button>
             <Button variant={confirmVariant} onClick={confirm} disabled={pending}>

@@ -402,7 +402,7 @@ export function useCommands({
           // One that can't be forwarded toasts and opens nothing — the box's
           // localhost is not this machine's (ADR-232 D8).
           if (isRemoteHost(p.hostId)) {
-            void forwardedUrl(url, p.hostId, p.port).then((target) => {
+            void forwardedUrl(url, p.hostId).then((target) => {
               if (target) addBrowserTab(target);
             });
           } else {

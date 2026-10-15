@@ -1,6 +1,6 @@
 ---
 title: Collapsible remote host rows that own device access and integrations
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

@@ -39,5 +39,5 @@
       "ignoreDependencies": ["cloudflare"]
     }
   },
-  "ignoreBinaries": ["afplay", "pgrep", "pkill"]
+  "ignoreBinaries": ["afplay", "kind", "kubectl", "pgrep", "pkill"]
 }

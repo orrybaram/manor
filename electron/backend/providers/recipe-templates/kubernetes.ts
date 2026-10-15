@@ -172,11 +172,14 @@ if [ "\${out:-0}" = "0" ]; then
   echo '{"state":"sleeping"}' >&3
   exit 0
 fi
+# Scaled up but not Ready is a pod being (re)started: deleted, evicted or
+# rescheduled. It comes back by itself, so it is up; "sleeping" would stop
+# Manor reconnecting to it (ADR-231 C1).
 ready=$("\${kube[@]}" get pod "$name-0" -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
 if [ "$ready" = "True" ]; then
   echo '{"state":"up"}' >&3
 else
-  echo '{"state":"sleeping","detail":"the pod is not ready"}' >&3
+  echo '{"state":"up","detail":"the pod is not ready yet"}' >&3
 fi
 `;
 

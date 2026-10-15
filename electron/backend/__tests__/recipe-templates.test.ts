@@ -105,6 +105,38 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(() => RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" })).toThrow(/storage size/);
   });
 
+  it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas (ADR-231 C1)", () => {
+    const status = path.join(base, "status.sh");
+    fs.writeFileSync(status, RECIPE_TEMPLATES[1].files["status.sh"].content, { mode: 0o755 });
+    // A kubectl that answers the StatefulSet's replicas and the pod's Ready.
+    const bin = path.join(base, "bin");
+    fs.mkdirSync(bin);
+    fs.writeFileSync(
+      path.join(bin, "kubectl"),
+      '#!/bin/sh\ncase "$*" in\n  *statefulset*) printf %s "$FAKE_REPLICAS" ;;\n  *pod*) printf %s "$FAKE_READY" ;;\nesac\n',
+      { mode: 0o755 },
+    );
+    const run = (replicas: string, ready: string) =>
+      JSON.parse(
+        execFileSync("bash", [status], {
+          env: {
+            ...process.env,
+            PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+            MANOR_K8S_NAME: "box1",
+            MANOR_K8S_NAMESPACE: "manor",
+            FAKE_REPLICAS: replicas,
+            FAKE_READY: ready,
+          },
+          encoding: "utf-8",
+        }),
+      ) as unknown;
+    expect(run("1", "True")).toEqual({ state: "up" });
+    expect(run("1", "False")).toEqual({ state: "up", detail: "the pod is not ready yet" });
+    // The pod deleted and not yet recreated: no Ready condition at all.
+    expect(run("1", "")).toEqual({ state: "up", detail: "the pod is not ready yet" });
+    expect(run("0", "")).toEqual({ state: "sleeping" });
+  });
+
   it("custom: writes a recipe to finish, named for the host, never over another", () => {
     const first = createCustomRecipe("  Build VM ", base);
     expect(first).toEqual({ recipeId: "build-vm", file: path.join(base, "build-vm", "recipe.json") });

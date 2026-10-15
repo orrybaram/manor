@@ -4,7 +4,13 @@ import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, openTerminalTab } from "../fixtures";
 import { readSession, type AgentSummary } from "./local-api";
-import { APP_TARGET, onRemote, pollFor, remoteKind, SEED_REPO_URL } from "./remote-host";
+import {
+  APP_TARGET,
+  onRemote,
+  pollFor,
+  remoteKind,
+  SEED_REPO_URL,
+} from "./remote-host";
 import { setAgentCommand } from "./settings";
 import { runInTerminal, activePaneId } from "./terminal";
 
@@ -16,7 +22,8 @@ import { runInTerminal, activePaneId } from "./terminal";
  */
 
 /** A first connect to the Linux box compiles node-pty. */
-export const CONNECT_TIMEOUT = remoteKind() === "docker" ? 15 * 60_000 : 5 * 60_000;
+export const CONNECT_TIMEOUT =
+  remoteKind() === "docker" ? 15 * 60_000 : 5 * 60_000;
 export const STEP = 60_000;
 export const PROJECT_NAME = "remote-e2e";
 const REMOTE_DIR = `~/code/${PROJECT_NAME}`;
@@ -28,15 +35,23 @@ interface HostInfo {
 }
 
 async function listHosts(window: Page): Promise<HostInfo[]> {
-  return (await window.evaluate(() => window.electronAPI.hosts.list())) as HostInfo[];
+  return (await window.evaluate(() =>
+    window.electronAPI.hosts.list(),
+  )) as HostInfo[];
 }
 
-export async function hostStatus(window: Page, hostId: string): Promise<HostInfo | undefined> {
+export async function hostStatus(
+  window: Page,
+  hostId: string,
+): Promise<HostInfo | undefined> {
   return (await listHosts(window)).find((h) => h.hostId === hostId);
 }
 
 export async function retryHost(window: Page, hostId: string): Promise<void> {
-  await window.evaluate((id) => window.electronAPI.hosts.retryConnect(id), hostId);
+  await window.evaluate(
+    (id) => window.electronAPI.hosts.retryConnect(id),
+    hostId,
+  );
 }
 
 /**
@@ -48,19 +63,32 @@ export async function openRemoteProject(
   window: Page,
   request: APIRequestContext,
   tempHome: string,
-  { agentCommand }: { agentCommand?: string } = {},
+  {
+    agentCommand,
+    host,
+  }: {
+    agentCommand?: string;
+    /** An already-registered host (a recipe host) to use instead of the ssh box. */
+    host?: { hostId: string; hostLabel: string };
+  } = {},
 ): Promise<{ hostId: string; paneId: string }> {
   // Registering a host is Project Settings → Host in the UI; it has no
   // bearing on what this suite tests, so it goes straight through the API.
-  const { hostId } = await window.evaluate(
-    (target) => window.electronAPI.hosts.add(target),
-    APP_TARGET,
-  );
+  const hostLabel = host?.hostLabel ?? APP_TARGET;
+  const hostId =
+    host?.hostId ??
+    (
+      await window.evaluate(
+        (target) => window.electronAPI.hosts.add(target),
+        APP_TARGET,
+      )
+    ).hostId;
   await pollFor(
-    `${APP_TARGET} connected`,
+    `${hostLabel} connected`,
     async () => {
       const host = await hostStatus(window, hostId);
-      if (host?.status === "error") throw new Error(`host failed: ${host.error}`);
+      if (host?.status === "error")
+        throw new Error(`host failed: ${host.error}`);
       return host?.status === "connected" ? host : null;
     },
     CONNECT_TIMEOUT,
@@ -73,7 +101,7 @@ export async function openRemoteProject(
   const dialog = window.getByTestId("add-project-dialog");
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await dialog.locator("#add-project-host").click();
-  await window.getByRole("option", { name: APP_TARGET, exact: true }).click();
+  await window.getByRole("option", { name: hostLabel, exact: true }).click();
   await dialog.locator("#add-project-repo-url").fill(SEED_REPO_URL);
   await dialog.locator("#add-project-location").fill(REMOTE_DIR);
   await dialog.locator("#add-project-name").fill(PROJECT_NAME);
@@ -81,7 +109,9 @@ export async function openRemoteProject(
 
   // Clone, then the host health check. Its results depend on what CLIs the
   // box has, which is not this test's business — only that it ran.
-  await expect(dialog.getByTestId("health-check-list")).toBeVisible({ timeout: STEP });
+  await expect(dialog.getByTestId("health-check-list")).toBeVisible({
+    timeout: STEP,
+  });
   await dialog.getByRole("button", { name: "Done", exact: true }).click();
   await expect(dialog).not.toBeVisible({ timeout: 5_000 });
   onRemote(`test -f ${REMOTE_DIR}/README.md`);
@@ -101,7 +131,7 @@ export async function openRemoteProject(
  * line typed before the shell is ready is dropped, so this retypes; the
  * marker is computed by the shell, so the typed text never matches it.
  */
-async function awaitRemotePrompt(
+export async function awaitRemotePrompt(
   window: Page,
   request: APIRequestContext,
   tempHome: string,
@@ -113,7 +143,9 @@ async function awaitRemotePrompt(
       await pollFor(
         "the remote shell's prompt",
         async () =>
-          (await readSession(request, tempHome, paneId)).includes("READY_42") ? true : null,
+          (await readSession(request, tempHome, paneId)).includes("READY_42")
+            ? true
+            : null,
         5_000,
       );
       return;
@@ -131,7 +163,12 @@ export async function agentOnPane(
   paneId: string,
 ): Promise<AgentSummary | undefined> {
   const port = Number(
-    fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim(),
+    fs
+      .readFileSync(
+        path.join(tempHome, ".manor", "webview-server-port"),
+        "utf-8",
+      )
+      .trim(),
   );
   const res = await request.get(`http://127.0.0.1:${port}/agents`);
   if (!res.ok()) return undefined;

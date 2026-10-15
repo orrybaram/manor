@@ -27,6 +27,8 @@
 
 import {
   CLOSE_UNAUTHORIZED,
+  PING_METHOD,
+  PING_NS,
   type ClientFrame,
   type EventFrame,
   type HelloReplyFrame,
@@ -106,6 +108,26 @@ export const DROP_GRACE_MS = 4_000;
  * without a close event; this finds out in seconds, not a heartbeat or two.
  */
 export const PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * How long the far server may say nothing before the transport asks it
+ * something (ADR-231 D8). A relay answers the pipe's heartbeat itself, so an
+ * open line proves only the leg to the relay; a frozen desktop behind it
+ * looks alive for as long as the relay keeps its socket (about 90 s).
+ *
+ * Only silence costs a ping: a line carrying anything never sends one. Idle,
+ * that is one ping and one answer per 10 s: 8,640 round trips of about 175
+ * bytes sealed, about 1.5 MB a day per viewer, under 0.1% of a room's daily
+ * byte budget (`DEFAULT_DAILY_BYTES`, 2 GiB).
+ */
+export const SERVER_SILENCE_MS = 10_000;
+
+/**
+ * How long, after a `bridge.ping`, a frame of any kind may take to arrive
+ * before the line is called dead and redialled, as a failed probe is. So a
+ * silent server reads unreachable about 15 s after it went quiet.
+ */
+export const SERVER_SILENCE_TIMEOUT_MS = 5_000;
 
 /** Plain, non-function root members of `ElectronAPI`, answered from here. */
 const ROOT_VALUES: Record<string, unknown> = {
@@ -230,6 +252,12 @@ class WsTransport implements WsBridgeTransport {
   private resuming = false;
   /** The probe in flight, so a burst of foreground events sends only one. */
   private probing: Promise<ProbeOutcome> | null = null;
+  /** When the far server last sent a frame, by `Date.now()`. */
+  private lastHeard = 0;
+  /** The next look at how long the far server has been quiet. */
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Each waits for the next frame from the far server (`heardFromServer`). */
+  private readonly heardWaiters = new Set<(heard: boolean) => void>();
   private nextId = 1;
   private readonly pending = new Map<string, Pending>();
   /** Invoke frames raised before the socket was ready. */
@@ -280,29 +308,104 @@ class WsTransport implements WsBridgeTransport {
   /**
    * Probe the current socket. A socket that does not answer, and is still
    * the current one, is closed and redialled at once.
+   *
+   * Alive takes both the pipe's own check and a frame from the far server
+   * (ADR-231 D8): over the relay the first proves only the leg to the
+   * relay, which answers it whether or not the desktop behind it is there.
    */
   private async probe(socket: PipeConnection): Promise<ProbeOutcome> {
     const generation = this.generation;
     const current = (): boolean =>
       this.generation === generation && this.socket === socket;
     try {
+      // Both asked at once, within the one `PROBE_TIMEOUT_MS`.
+      const server = this.heardFromServer(PROBE_TIMEOUT_MS);
       let alive: boolean;
       try {
         alive = await socket.probe(PROBE_TIMEOUT_MS);
       } catch {
         alive = false;
       }
+      if (alive) alive = await server;
       if (!current()) return "redialing";
       if (alive) return "alive";
-      // Reported through `onClose` like any drop — teardown, and an
-      // unreachable code the page shows until the redial's hello — whose
-      // backoff timer the redial then skips.
-      socket.close();
-      this.redialNow();
+      this.giveUp(socket);
       return "redialing";
     } finally {
       this.probing = null;
     }
+  }
+
+  /**
+   * The current line does not answer: report it through `onClose` like any
+   * drop — teardown, and an unreachable code the page shows until the
+   * redial's hello — and dial again now, skipping the backoff timer.
+   */
+  private giveUp(socket: PipeConnection): void {
+    socket.close();
+    this.redialNow();
+  }
+
+  /**
+   * Ask the far server something it must answer, and resolve true on the
+   * next frame of any kind from it within `timeoutMs`: the answer, an older
+   * server's error frame for a method it does not have, or anything else it
+   * happened to send. False on a timeout, or if the line closes first.
+   */
+  private heardFromServer(timeoutMs: number): Promise<boolean> {
+    if (!this.ready) return Promise.resolve(false);
+    return new Promise<boolean>((resolve) => {
+      const done = (heard: boolean): void => {
+        clearTimeout(timer);
+        this.heardWaiters.delete(done);
+        resolve(heard);
+      };
+      const timer = setTimeout(() => done(false), timeoutMs);
+      this.heardWaiters.add(done);
+      // Not in `pending`: its answer matters only as a frame that arrived.
+      this.send({
+        id: String(this.nextId++),
+        kind: "invoke",
+        ns: PING_NS,
+        method: PING_METHOD,
+        args: [],
+      });
+    });
+  }
+
+  /** Look again at the far server's silence in `delayMs`. */
+  private armSilence(delayMs: number): void {
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = setTimeout(() => {
+      this.silenceTimer = null;
+      void this.checkSilence();
+    }, delayMs);
+  }
+
+  /**
+   * Quiet for `SERVER_SILENCE_MS`: ping, and give the line up if nothing
+   * comes back within `SERVER_SILENCE_TIMEOUT_MS` (ADR-231 D8). The redial's
+   * hello then decides; a frozen desktop gives none, and the first-hello
+   * deadline and the backoff take it from there.
+   */
+  private async checkSilence(): Promise<void> {
+    const socket = this.socket;
+    if (!this.ready || !socket) return;
+    const quiet = Date.now() - this.lastHeard;
+    if (quiet < SERVER_SILENCE_MS) {
+      this.armSilence(SERVER_SILENCE_MS - quiet);
+      return;
+    }
+    const generation = this.generation;
+    const heard = await this.heardFromServer(SERVER_SILENCE_TIMEOUT_MS);
+    if (this.generation !== generation || this.socket !== socket) return;
+    if (!heard) {
+      this.giveUp(socket);
+      return;
+    }
+    this.armSilence(
+      Math.max(0, SERVER_SILENCE_MS - (Date.now() - this.lastHeard)),
+    );
   }
 
   /**
@@ -409,6 +512,10 @@ class WsTransport implements WsBridgeTransport {
   }
 
   private onFrame(text: string): void {
+    // Anything at all from the far end says it is there.
+    this.lastHeard = Date.now();
+    for (const heard of [...this.heardWaiters]) heard(true);
+
     let frame: Record<string, unknown>;
     try {
       const parsed: unknown = JSON.parse(text);
@@ -465,6 +572,7 @@ class WsTransport implements WsBridgeTransport {
     this.clearGrace();
     this.ready = true;
     this.attempt = 0;
+    this.armSilence(SERVER_SILENCE_MS);
     for (const frame of this.registry.keys()) this.send(frame);
     for (const payload of this.outbox.splice(0)) this.write(payload);
   }
@@ -485,6 +593,9 @@ class WsTransport implements WsBridgeTransport {
   private teardown(): void {
     this.socket = null;
     this.ready = false;
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+    for (const heard of [...this.heardWaiters]) heard(false);
     const dropped = new BridgeDisconnectedError();
     for (const pending of [...this.pending.values()]) pending.reject(dropped);
     this.pending.clear();

@@ -290,6 +290,39 @@ describe("groupHostState", () => {
   });
 });
 
+/**
+ * A relay room the page reaches directly and finds unreachable (ADR-231 D8):
+ * on a phone, the desktop's own room. Its own last word in the host list
+ * (its `local` host, stamped with the room) still says connected.
+ */
+describe("isHostOffline with an unreachable room of the page's own", () => {
+  const room = () => true;
+  const stale = [host({ hostId: "room", status: "connected" })];
+
+  it("is away with no lister, whatever the host list last said", () => {
+    expect(isHostOffline("room", stale, () => "unreachable", () => undefined, room)).toBe(true);
+    expect(isHostOffline("room", [], () => "unreachable", () => undefined, room)).toBe(true);
+  });
+
+  it("is not away while a lister that serves it is connected", () => {
+    expect(isHostOffline("room", stale, () => "unreachable", () => "connected", room)).toBe(false);
+  });
+
+  it("is away when every lister is gone too", () => {
+    expect(isHostOffline("room", stale, () => "unreachable", () => "unreachable", room)).toBe(true);
+  });
+
+  it("is not away while its bridge is connected, or still dialling", () => {
+    expect(isHostOffline("room", stale, () => "connected", () => undefined, room)).toBe(false);
+    expect(isHostOffline("room", stale, () => "unknown", () => undefined, room)).toBe(false);
+  });
+
+  it("leaves a desktop window's own bridge to main's word (ADR-228 D6)", () => {
+    expect(isHostOffline("room", stale, () => "unreachable", () => undefined, () => false)).toBe(false);
+    expect(isHostOffline("room", stale, () => "unreachable")).toBe(false);
+  });
+});
+
 describe("isHostOffline with servers that list the host", () => {
   const hosts = [host({ hostId: "box", status: "connected" })];
 

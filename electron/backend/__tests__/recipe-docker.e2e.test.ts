@@ -48,33 +48,37 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import type { Caller, HandlerCtx } from "../../bridge/method";
+import type { HandlerCtx } from "../../bridge/method";
 import { hostsRemove } from "../../bridge/handlers/hosts";
 import type { ServerDeps } from "../../ipc/types";
 import { hostRecipesDir } from "../../paths";
-import { HostRouting } from "../../server/host-routing";
-import { HostServerClient } from "../host-server-client";
-import { CommandHostProvider } from "../providers/command-provider";
-import { RecipeHostProvider } from "../providers/recipe-provider";
+import type { HostRouting } from "../../server/host-routing";
+import type { HostServerClient } from "../host-server-client";
+import type { RecipeHostProvider } from "../providers/recipe-provider";
 import { createRecipeFromTemplate } from "../providers/recipe-templates";
 import { readRecipeHostState, recipeDir } from "../providers/recipes";
-import { BackendRegistry, type HostStatusInfo } from "../registry";
-import { ensureRemoteHost, hostTarballPath } from "../remote-bootstrap";
+import type { BackendRegistry, HostStatusInfo } from "../registry";
 import { runHostSupervisor } from "../host-supervisor";
-import type { HostSpec, WorkspaceBackend } from "../types";
-import type { EnsureRemoteHost } from "../../terminal-host/bridge-spawner";
 import { pollFor } from "../../../tests/e2e/helpers/remote-host";
+import {
+  BOOTSTRAP_TIMEOUT_MS,
+  CALLER,
+  CLOSED_RELAY_URL,
+  STEP_MS,
+  STEP_TIMEOUT_MS,
+  VERSION,
+  createRecipeHarness,
+  freshServerClient,
+  parentCommand,
+  requireTarball,
+  seedProjectAndWorkspace,
+  serverPid,
+  type BoxExec,
+  type RecipeHarness,
+  type Result,
+} from "./recipe-e2e-harness";
 
-const ROOT = path.resolve(__dirname, "..", "..", "..");
-const VERSION = (
-  JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")) as { version: string }
-).version;
-const TARBALL = hostTarballPath(VERSION, path.join(ROOT, "dist-electron"));
-const STUB_DIR = path.join(ROOT, "tests", "e2e", "remote-host");
 const IMAGE = process.env.MANOR_E2E_RECIPE_IMAGE ?? "manor-host:e2e";
-/** What the box's host server dials: never the production relay. */
-const CLOSED_RELAY_URL = "http://127.0.0.1:9";
-const REMOTE_AGENT = "~/.manor-e2e/bin/manor-e2e-agent";
 
 function skipReason(): string | null {
   if (process.env.MANOR_E2E_RECIPE !== "1") {
@@ -97,11 +101,6 @@ if (SKIP && process.env.MANOR_E2E_RECIPE === "1") {
   throw new Error(SKIP);
 }
 
-/** node-pty compiles from source during the first bootstrap. */
-const BOOTSTRAP_TIMEOUT_MS = 15 * 60_000;
-const STEP_TIMEOUT_MS = 90_000;
-const STEP_MS = 60_000;
-
 const suffix = crypto.randomBytes(3).toString("hex");
 const NAME = `manor-e2e-${suffix}`;
 const CLONE = `manor-e2e-${suffix}-clone`;
@@ -112,14 +111,9 @@ const MOVED_TO_FILE = "e2e-moved-to";
 const VOLUME = `manor-${NAME}-home`;
 const CLONE_VOLUME = `manor-${CLONE}-home`;
 const HOST_ID = `recipe-e2e-${suffix}`;
+const onBox = dockerBox(NAME);
 
 // ── Docker ──
-
-interface Result {
-  code: number | null;
-  stdout: string;
-  stderr: string;
-}
 
 function docker(args: string[], opts: { input?: string; allowFailure?: boolean; timeoutMs?: number } = {}): Result {
   const res = spawnSync("docker", args, {
@@ -135,13 +129,9 @@ function docker(args: string[], opts: { input?: string; allowFailure?: boolean; 
   return out;
 }
 
-/** Run `command` in `container` as `manor`, through `sh -c`. */
-function onBox(
-  container: string,
-  command: string,
-  opts: { input?: string; allowFailure?: boolean } = {},
-): Result {
-  return docker(["exec", "-i", "-u", "manor", container, "sh", "-c", command], opts);
+/** Runs `sh -c command` in `container` as `manor`. */
+function dockerBox(container: string): BoxExec {
+  return (command, opts = {}) => docker(["exec", "-i", "-u", "manor", container, "sh", "-c", command], opts);
 }
 
 function containerState(container: string): string {
@@ -149,125 +139,24 @@ function containerState(container: string): string {
   return res.code === 0 ? res.stdout.trim() : "missing";
 }
 
-/** The host server's pid when it runs and its socket is there, else null. */
-function serverPid(container: string): number | null {
-  const res = onBox(
-    container,
-    'p=$(cat "$HOME/.manor/remote/server/server.pid" 2>/dev/null) && kill -0 "$p" 2>/dev/null && ' +
-      'test -S "$HOME/.manor/remote/server/server.sock" && echo "$p"',
-    { allowFailure: true },
-  );
-  const pid = Number(res.stdout.trim());
-  return res.code === 0 && Number.isInteger(pid) && pid > 0 ? pid : null;
-}
-
-/** The command line of `pid`'s parent, on the box. */
-function parentCommand(container: string, pid: number): string {
-  return onBox(container, `ps -o args= -p "$(ps -o ppid= -p ${pid} | tr -d ' ')"`, { allowFailure: true })
-    .stdout.trim();
-}
-
-// ── The desktop's side ──
-
-const ensureHost: EnsureRemoteHost = async (target, version, exec) => {
-  if (!version) return;
-  await ensureRemoteHost(target, version, exec, {
-    via: "docker",
-    loadTarball: () => fs.readFileSync(TARBALL),
-  });
-};
-
-/** A local backend nothing here calls: the registry only listens to it. */
-const LOCAL_STUB = { pty: { onEvent: () => () => {} } } as unknown as WorkspaceBackend;
-
-const CALLER: Caller = { id: "recipe-e2e", callerClass: "local" };
-
-/** An owner channel of its own to `container`'s host server, as a fresh desktop dials it. */
-async function freshServerClient(container: string): Promise<{
-  client: HostServerClient;
-  dispose: () => Promise<void>;
-}> {
-  const provider = new CommandHostProvider(["docker", "exec", "-i", "-u", "manor", container], {
-    label: container,
-    ensureRemoteHost: ensureHost,
-  });
-  const client = new HostServerClient({
-    hostId: `${container}-fresh`,
-    open: () => provider.openServerChannel(),
-  });
-  await pollFor("a fresh owner channel", async () => ((await client.connect()) ? true : null), STEP_MS, 1_000);
-  return {
-    client,
-    dispose: async () => {
-      client.dispose();
-      await provider.dispose();
-      await provider.transport().dispose();
-    },
-  };
-}
-
 describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
+  let harness: RecipeHarness;
   let registry: BackendRegistry;
   let routing: HostRouting;
   let statuses: Array<HostStatusInfo["status"]>;
   let projectId: string;
-  let projectPath: string;
   let workspacePath: string;
   let roomId: string | null;
   const recipeId = `docker-${NAME}`;
 
-  function provider(): RecipeHostProvider {
-    const p = registry.provider(HOST_ID);
-    if (!(p instanceof RecipeHostProvider)) throw new Error("the host has no recipe provider");
-    return p;
-  }
-
-  function server(): HostServerClient {
-    const client = registry.hostServer(HOST_ID);
-    if (!client) throw new Error("the host has no owner channel");
-    return client;
-  }
-
-  async function serverConnected(): Promise<HostServerClient> {
-    const client = server();
-    await pollFor("the owner channel", () => (client.state === "connected" ? true : null), STEP_MS);
-    return client;
-  }
-
-  /** Launch the stub agent in `workspace` through the server's own route, as the CLI does. */
-  async function launchAgent(workspace: string): Promise<string> {
-    const answer = await server().api.hostServer.control("POST", "/agents", {
-      workspacePath: workspace,
-      agentCommand: REMOTE_AGENT,
-    });
-    expect(answer.status, JSON.stringify(answer.body)).toBe(200);
-    const paneId = (answer.body as { paneId?: unknown }).paneId;
-    expect(typeof paneId).toBe("string");
-    return paneId as string;
-  }
-
-  async function agentActive(paneId: string): Promise<void> {
-    await pollFor(
-      `the agent in ${paneId} reporting status`,
-      async () => {
-        const agents = await server().api.agents.getAll();
-        const agent = agents.find((a) => a.paneId === paneId);
-        return agent && ["thinking", "working", "requires_input"].includes(agent.lastAgentStatus ?? "")
-          ? agent
-          : null;
-      },
-      STEP_MS,
-      500,
-    );
-  }
+  const provider = (): RecipeHostProvider => harness.provider();
+  const server = (): HostServerClient => harness.server();
+  const serverConnected = (): Promise<HostServerClient> => harness.serverConnected();
+  const launchAgent = (workspace: string): Promise<string> => harness.launchAgent(workspace);
+  const agentActive = (paneId: string): Promise<void> => harness.agentActive(paneId);
 
   beforeAll(() => {
-    if (!fs.existsSync(TARBALL)) {
-      throw new Error(
-        `${TARBALL} is missing — run \`pnpm build && node scripts/build-host-tarball.mjs\` ` +
-          "(scripts/test-remote-e2e.mjs does both unless --no-build).",
-      );
-    }
+    requireTarball();
     // The recipe, from the bundled template, as the Hosts page writes it —
     // under the worker's own $HOME (`setup-isolated-home.ts`).
     createRecipeFromTemplate("docker", { name: NAME, image: IMAGE });
@@ -295,36 +184,8 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     expect(statusScript).toContain(nameLine);
     fs.writeFileSync(status, statusScript.replace(nameLine, () => `${nameLine}${moved}`));
 
-    statuses = [];
-    registry = new BackendRegistry({
-      local: LOCAL_STUB,
-      remoteVersion: VERSION,
-      createProvider: (hostId, spec: HostSpec, opts) => {
-        if (spec.kind !== "recipe") throw new Error("a recipe host only");
-        return new RecipeHostProvider(hostId, spec.recipeId, {
-          onBootstrapProgress: opts.onBootstrapProgress,
-          ensureRemoteHost: ensureHost,
-        });
-      },
-      hostProxy: {
-        bus: { publish: () => {} } as never,
-        label: () => NAME,
-      },
-      isAdopted: () => true,
-    });
-    registry.onStatusChange((hosts) => {
-      const mine = hosts.find((h) => h.hostId === HOST_ID);
-      if (mine) statuses.push(mine.status);
-    });
-    routing = new HostRouting({
-      registry,
-      isAdopted: () => true,
-      hasLocalProject: () => false,
-      pendingCommands: { peek: () => undefined, take: () => undefined } as never,
-      decorateProject: (result) => result,
-      bus: { publish: () => {}, publishTo: () => {} } as never,
-      handOver: async () => {},
-    });
+    harness = createRecipeHarness({ hostId: HOST_ID, label: NAME, via: "docker" });
+    ({ registry, routing, statuses } = harness);
   });
 
   afterAll(async () => {
@@ -347,7 +208,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       await registry.ensureConnected(HOST_ID);
       expect(registry.status(HOST_ID)).toBe("connected");
       expect(containerState(NAME)).toBe("running");
-      expect(onBox(NAME, '"$HOME/.manor/bin/manor-host" --version').stdout.trim()).toBe(VERSION);
+      expect(onBox('"$HOME/.manor/bin/manor-host" --version').stdout.trim()).toBe(VERSION);
 
       const client = await serverConnected();
       // The entrypoint waited for the shim, then became `manor-host supervise`,
@@ -358,8 +219,8 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         async () => ((await client.api.hostServer.status()).supervisor?.kind === "container" ? true : null),
         STEP_MS,
       );
-      onBox(NAME, 'kill -0 "$(cat "$HOME/.manor/remote/supervise.pid")"');
-      const pid = serverPid(NAME);
+      onBox('kill -0 "$(cat "$HOME/.manor/remote/supervise.pid")"');
+      const pid = serverPid(onBox);
       expect(pid).not.toBeNull();
       // What `HostServerSync` (or the Hosts page's switch) runs: harmless now.
       expect(await runHostSupervisor(provider().transport(), "install")).toEqual({ kind: "container" });
@@ -374,49 +235,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       roomId = adopted.relay.roomId;
 
       // A project on the box, then a workspace in it.
-      const stubs = ["manor-e2e-agent", "fire-hook"];
-      onBox(NAME, 'mkdir -p "$HOME/.manor-e2e/bin"');
-      for (const stub of stubs) {
-        onBox(NAME, `cat > "$HOME/.manor-e2e/bin/${stub}" && chmod 755 "$HOME/.manor-e2e/bin/${stub}"`, {
-          input: fs.readFileSync(path.join(STUB_DIR, stub), "utf-8"),
-        });
-      }
-      onBox(
-        NAME,
-        [
-          "set -e",
-          'git config --global user.email e2e@manor.local',
-          'git config --global user.name "Manor E2E"',
-          // A bare origin on the box, so a worktree's fetch has somewhere to go.
-          'git init -q --bare -b main "$HOME/seed.git"',
-          'git init -q -b main "$HOME/seed-work"',
-          'cd "$HOME/seed-work"',
-          "echo seeded > README.md",
-          "git add README.md",
-          "git commit -q -m init",
-          'git push -q "$HOME/seed.git" main',
-          'cd "$HOME"',
-          'rm -rf "$HOME/seed-work"',
-          'git clone -q "$HOME/seed.git" "$HOME/proj"',
-        ].join("; "),
-      );
-      projectPath = "/home/manor/proj";
-      const project = await client.api.projects.add("proj", projectPath);
-      projectId = project.id;
-      const withWorkspace = await client.api.projects.createWorktree(projectId, "e2e-one");
-      workspacePath =
-        withWorkspace?.workspaces.find((w) => w.path !== projectPath)?.path ??
-        (() => {
-          throw new Error(`no worktree in ${JSON.stringify(withWorkspace?.workspaces)}`);
-        })();
-      onBox(NAME, `test -d '${workspacePath}'`);
-
-      // The box hook scenario 5 checks: the template wrote a no-op on-busy.
-      onBox(NAME, 'test -x "$HOME/.manor/remote/hooks/on-busy"');
-      onBox(
-        NAME,
-        'printf \'#!/bin/sh\\ntouch "$HOME/busy-hook-ran"\\n\' > "$HOME/.manor/remote/hooks/on-busy"',
-      );
+      ({ projectId, workspacePath } = await seedProjectAndWorkspace(onBox, client));
 
       const paneId = await launchAgent(workspacePath);
       await agentActive(paneId);
@@ -429,13 +248,13 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     async () => {
       await pollFor(
         "the on-busy hook's file",
-        () => (onBox(NAME, 'test -f "$HOME/busy-hook-ran"', { allowFailure: true }).code === 0 ? true : null),
+        () => (onBox('test -f "$HOME/busy-hook-ran"', { allowFailure: true }).code === 0 ? true : null),
         STEP_MS,
       );
       const status = await server().api.hostServer.status();
       expect(status.busy).toBe(true);
       expect(status.hooks).toEqual({ onBusy: true, onIdle: true });
-      expect(onBox(NAME, 'cat "$HOME/.manor/remote/server/logs/hooks.log"').stdout).toContain("on-busy");
+      expect(onBox('cat "$HOME/.manor/remote/server/logs/hooks.log"').stdout).toContain("on-busy");
       // The desktop hearing it (`HostServerSync` → `setBusy`) is unit-tested
       // (host-idle-stop, registry); nothing here runs that sync.
     },
@@ -533,13 +352,13 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     "8. reconnects by itself after its exec streams are cut, to the same host server",
     async () => {
       const client = await serverConnected();
-      const pid = serverPid(NAME);
+      const pid = serverPid(onBox);
       expect(pid).not.toBeNull();
       const seen: string[] = [];
       const unsubscribe = client.onStateChange((state) => seen.push(state));
       try {
         // The brackets keep `sh -c`'s own command line from matching.
-        const killed = onBox(NAME, 'pkill -9 -f "[s]erver-bridge|[r]emote-bridge"', {
+        const killed = onBox('pkill -9 -f "[s]erver-bridge|[r]emote-bridge"', {
           allowFailure: true,
         });
         expect(killed.code, "no bridge process to kill").toBe(0);
@@ -550,7 +369,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         unsubscribe();
       }
       // The supervised server never noticed: only the streams to it went.
-      expect(serverPid(NAME)).toBe(pid);
+      expect(serverPid(onBox)).toBe(pid);
       expect((await client.api.hostServer.status()).relay.roomId).toBe(roomId);
       const paneId = await launchAgent(workspacePath);
       await agentActive(paneId);
@@ -562,7 +381,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     "9. re-runs up while reconnecting after the box moved, and finds it at its new exec target",
     async () => {
       const client = await serverConnected();
-      const pid = serverPid(NAME);
+      const pid = serverPid(onBox);
       expect(pid).not.toBeNull();
       const movedTo = path.join(recipeDir(recipeId), MOVED_TO_FILE);
       const seen: string[] = [];
@@ -574,7 +393,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         // ride the container's id, so cut them as scenario 8 does.
         fs.writeFileSync(movedTo, MOVED);
         docker(["rename", NAME, MOVED]);
-        const killed = onBox(MOVED, 'pkill -9 -f "[s]erver-bridge|[r]emote-bridge"', { allowFailure: true });
+        const killed = dockerBox(MOVED)('pkill -9 -f "[s]erver-bridge|[r]emote-bridge"', { allowFailure: true });
         expect(killed.code, "no bridge process to kill").toBe(0);
 
         await pollFor(
@@ -589,7 +408,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         expect(seen.some((s) => s !== "connected")).toBe(true);
         expect(readRecipeHostState(recipeDir(recipeId), HOST_ID)?.resource).toEqual({ container: MOVED });
         // The same host server, now reached under the new name.
-        expect(serverPid(MOVED)).toBe(pid);
+        expect(serverPid(dockerBox(MOVED))).toBe(pid);
         expect((await client.api.hostServer.status()).relay.roomId).toBe(roomId);
         const paneId = await launchAgent(workspacePath);
         await agentActive(paneId);
@@ -602,7 +421,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         await registry.ensureConnected(HOST_ID);
       }
       await serverConnected();
-      expect(serverPid(NAME)).toBe(pid);
+      expect(serverPid(onBox)).toBe(pid);
     },
     STEP_TIMEOUT_MS * 4,
   );
@@ -614,21 +433,21 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       // The desktop lets go first: whatever runs after the restart, nothing
       // here started it.
       await registry.disconnect(HOST_ID);
-      const before = serverPid(NAME);
+      const before = serverPid(onBox);
       expect(before).not.toBeNull();
 
       docker(["restart", NAME], { timeoutMs: STEP_TIMEOUT_MS });
-      const pid = await pollFor("the host server after the restart", () => serverPid(NAME), STEP_MS, 1_000);
-      expect(parentCommand(NAME, pid)).toContain("supervise");
+      const pid = await pollFor("the host server after the restart", () => serverPid(onBox), STEP_MS, 1_000);
+      expect(parentCommand(onBox, pid)).toContain("supervise");
       expect(registry.status(HOST_ID)).toBe("disconnected");
 
-      const backend = onBox(NAME, 'cat "$HOME/.manor/remote/server/secret-backend"').stdout;
+      const backend = onBox('cat "$HOME/.manor/remote/server/secret-backend"').stdout;
       expect(JSON.parse(backend)).toEqual({ backend: "key-file" });
       // The key is a bind mount from the recipe's directory, not on the volume.
-      onBox(NAME, 'test "$MANOR_SECRET_KEY_FILE" = /run/secrets/manor-key && test -s "$MANOR_SECRET_KEY_FILE"');
+      onBox('test "$MANOR_SECRET_KEY_FILE" = /run/secrets/manor-key && test -s "$MANOR_SECRET_KEY_FILE"');
       expect(fs.existsSync(path.join(recipeDir(recipeId), "secret.key"))).toBe(true);
 
-      const fresh = await freshServerClient(NAME);
+      const fresh = await freshServerClient(["docker", "exec", "-i", "-u", "manor", NAME], NAME);
       try {
         const status = await fresh.client.api.hostServer.status();
         expect(status.relay.roomId).toBe(roomId);
@@ -674,7 +493,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       expect(containerState(NAME)).toBe("running");
       const woken = result?.workspaces.find((w) => w.path.endsWith("woken"));
       expect(woken, JSON.stringify(result?.workspaces)).toBeTruthy();
-      onBox(NAME, `test -d '${woken!.path}'`);
+      onBox(`test -d '${woken!.path}'`);
     },
     STEP_TIMEOUT_MS * 3,
   );
@@ -716,9 +535,9 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         `MANOR_RELAY_URL=${CLOSED_RELAY_URL}`,
         IMAGE,
       ]);
-      await pollFor("the clone's host server", () => serverPid(CLONE), STEP_MS, 1_000);
+      await pollFor("the clone's host server", () => serverPid(dockerBox(CLONE)), STEP_MS, 1_000);
 
-      const fresh = await freshServerClient(CLONE);
+      const fresh = await freshServerClient(["docker", "exec", "-i", "-u", "manor", CLONE], CLONE);
       try {
         const status = await fresh.client.api.hostServer.status();
         expect(status.identityReset).toBe("cloned");
@@ -730,7 +549,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       } finally {
         await fresh.dispose();
       }
-      expect(onBox(CLONE, 'grep -c "cloned data dir: identity reset" "$HOME/.manor/remote/server/logs/host-server.log"').stdout.trim()).not.toBe("0");
+      expect(dockerBox(CLONE)('grep -c "cloned data dir: identity reset" "$HOME/.manor/remote/server/logs/host-server.log"').stdout.trim()).not.toBe("0");
       // The original keeps its own room.
       expect((await server().api.hostServer.status()).relay.roomId).toBe(roomId);
       docker(["rm", "-f", CLONE]);

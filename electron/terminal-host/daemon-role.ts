@@ -131,6 +131,23 @@ const CLIENT_MACHINE_ENV_KEYS: ReadonlySet<string> = new Set([
   "MANOR_PORTLESS_PORT",
 ]);
 
+/**
+ * Whether `argv` (what followed the script) launches a daemon: nothing, as
+ * `LocalTransport` spawns the local one, or flags only (`--namespace remote`,
+ * as it and the supervisors spawn the remote one).
+ *
+ * A leading bare word is a mode — `remote-bridge`, `server-bridge`, … —
+ * and one `main()` doesn't know must not start a daemon in its place. A
+ * desktop that runs a newer mode against an older bundle with the same
+ * version (a dev build: bootstrap doesn't upgrade on an unchanged version)
+ * would otherwise leave behind, on every connect, a stray local-namespace
+ * daemon that outlives its ssh session.
+ */
+export function isDaemonArgv(argv: readonly string[]): boolean {
+  const [mode] = argv;
+  return mode === undefined || mode.startsWith("--");
+}
+
 export function remoteRole(log: Log): DaemonRole {
   let journal: HookJournal | null = null;
   let listener: HookListener | null = null;

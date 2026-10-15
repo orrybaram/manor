@@ -38,7 +38,7 @@ import { runSupervisorCommand } from "../host-server/supervisor";
 import { runSuperviseProcess } from "../host-server/supervisor/supervise";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
-import { localRole, remoteRole, type DaemonRole } from "./daemon-role";
+import { isDaemonArgv, localRole, remoteRole, type DaemonRole } from "./daemon-role";
 import { ControlRelayStreams } from "./control-relay-listener";
 import { errorMessage } from "../lib/errors";
 import { createLineReader } from "./line-reader";
@@ -781,6 +781,12 @@ async function main(): Promise<void> {
 
   if (mode === "restart") {
     await new LocalTransport({ namespace: "remote" }).stop();
+    return;
+  }
+
+  if (!isDaemonArgv(argv)) {
+    process.stderr.write(`manor-host: unknown mode "${mode}"\n`);
+    process.exitCode = 2;
     return;
   }
 

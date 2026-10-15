@@ -9,13 +9,15 @@ import styles from "../SettingsModal/SettingsModal.module.css";
 type AddSshHostFormProps = {
   /** The host was registered; it goes on connecting in the background. */
   onAdded: (hostId: string) => void;
-  onCancel: () => void;
+  /** Without it the form has no Cancel: the Add a host wizard owns one. */
+  onCancel?: () => void;
 };
 
 /**
  * "An SSH box" (ADR-229 D8): an ssh target, registered as a host and
- * connected in the background. Shared by the Hosts page's Add host and a
- * project's Host section, which adds one inline to set the project up there.
+ * connected in the background. Shared by the Hosts page's Add a host wizard
+ * and a project's Host section, which adds one inline to set the project up
+ * there.
  */
 export function AddSshHostForm(props: AddSshHostFormProps) {
   const { onAdded, onCancel } = props;
@@ -49,7 +51,7 @@ export function AddSshHostForm(props: AddSshHostFormProps) {
         onChange={(e) => setTarget(e.target.value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
-          if (e.key === "Escape") {
+          if (e.key === "Escape" && onCancel) {
             // Cancel the form, not the settings modal.
             e.stopPropagation();
             onCancel();
@@ -66,9 +68,11 @@ export function AddSshHostForm(props: AddSshHostFormProps) {
         >
           Connect
         </Button>
-        <Button variant="ghost" size="sm" onClick={onCancel}>
-          Cancel
-        </Button>
+        {onCancel && (
+          <Button variant="ghost" size="sm" onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
       </Row>
       {error && <div className={styles.linearError}>{error}</div>}
     </Stack>

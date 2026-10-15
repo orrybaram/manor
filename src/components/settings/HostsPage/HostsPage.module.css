@@ -210,3 +210,137 @@ button.rowToggle:hover:not(:disabled) {
 .spacer {
   flex: 1;
 }
+
+/* ── Add a host… wizard (ADR-233 D4) ── */
+.addHostDialog {
+  min-width: 0;
+  width: 520px;
+  max-width: calc(100vw - 48px);
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+}
+
+/* "Where · Connect · Device access". */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stepDot {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--surface);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.step_current {
+  color: var(--text-selected, var(--text-primary));
+}
+
+.step_current .stepDot {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.step_done .stepDot {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pathCards {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+button.pathCard {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  height: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
+  white-space: normal;
+  color: var(--text-primary);
+}
+
+button.pathCardSelected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.pathRadio {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+}
+
+.pathCardSelected .pathRadio {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--bg);
+}
+
+.pathText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pathTitle {
+  font-weight: 600;
+  color: var(--text-selected, var(--text-primary));
+}
+
+.pathDescription {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.wizardBody {
+  margin-bottom: 16px;
+}
+
+/* The new host's state while it connects, or why it didn't. */
+.wizardStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.wizardStatus.warn {
+  color: var(--yellow, #d29922);
+}
+
+.wizardStatus.error {
+  color: var(--red, var(--danger));
+}

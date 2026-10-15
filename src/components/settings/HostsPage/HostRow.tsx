@@ -6,9 +6,7 @@ import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { HostServerStatus, HostServerView } from "../../../electron.d";
 import { useHostDisplay } from "../../../hooks/useHostDisplay";
-import { useMountEffect } from "../../../hooks/useMountEffect";
 import { pendingDisplay, type HostTone } from "../../../lib/host-status";
-import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { useRemoteControlStore } from "../../../store/remote-control-store";
 import { Button } from "../../ui/Button/Button";
@@ -24,6 +22,7 @@ import { SettingRow } from "../SettingRow";
 import { useSettingsJump } from "../SettingsModal/settings-nav";
 import { RemoveHostDialog } from "./RemoveHostDialog";
 import { idleStopText, supervisionHint, supervisorStatusText } from "./host-settings-text";
+import { useHostAction, useHostSettings, type RunAction } from "./useHostSettings";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
 
@@ -57,47 +56,15 @@ export function HostRow(props: HostRowProps) {
   const sectionId = `host-${hostId}`;
   const reported = useHostDisplay(hostId);
   const display = reported ?? pendingDisplay(hostId);
-  const view = useHostStore((s) => s.servers[hostId]) ?? null;
-  const deviceCount = useRemoteControlStore((s) => s.status.devices.length);
+  const { view, desktopLinear } = useHostSettings(hostId, readOnly);
+  const { busy, error, run } = useHostAction();
 
   const [dialog, setDialog] = useState<"remove" | "reset" | null>(null);
-  const [action, setAction] = useState<{ busy: boolean; error: string | null }>({
-    busy: false,
-    error: null,
-  });
-  const { busy, error } = action;
-
-  // Whether this computer has a Linear key to hand the host (ADR-227 D7).
-  const [desktopLinear, setDesktopLinear] = useState(false);
-
-  useMountEffect(() => {
-    // The switches read the server's view; a browser can't ask.
-    if (readOnly) return;
-    void useHostStore.getState().refreshServer(hostId);
-    const refresh = () => void window.electronAPI.linear.isConnected().then(setDesktopLinear);
-    refresh();
-    // The key was saved or cleared elsewhere (ADR-230 D8).
-    return window.electronAPI.linear.onConnectionChanged(refresh);
-  });
-
-  const run = (work: () => Promise<void>) => {
-    setAction({ busy: true, error: null });
-    work().then(
-      () => setAction({ busy: false, error: null }),
-      (err: unknown) => setAction({ busy: false, error: ipcErrorMessage(err) }),
-    );
-  };
 
   const connected = host.status === "connected";
   const canStop = host.capabilities?.canStop === true && connected;
   const missing = host.status === "error" && host.missing === true;
   const status = view?.status ?? null;
-
-  // `supervise` is the container's entrypoint: there is nothing to turn off.
-  const inContainer = view?.supervisor?.kind === "container";
-  const supervised = isSupervised(view);
-  const supervisorLine = supervisorStatusText(view?.supervisor ?? null, name, host.spec);
-  const hint = supervisionHint(view, name, connected);
 
   const summary = display.summary ?? display.detail;
   const asleep = display.tone === "asleep";
@@ -214,71 +181,16 @@ export function HostRow(props: HostRowProps) {
         <div className={`${styles.rowSummary} ${styles[display.tone]}`}>{summary}</div>
       )}
 
-      <div className={styles.group}>
-        <div className={styles.groupLabel}>Device access</div>
-        {!readOnly && view !== null && (
-          <SettingRow
-            label={`Devices can reach ${name}`}
-            hint={`${devicesReach(deviceCount)} ${name} directly, so they keep working while this Mac sleeps.`}
-          >
-            <Switch
-              data-testid="host-link-phones-toggle"
-              checked={view.linkPhones}
-              disabled={busy}
-              onCheckedChange={(on) =>
-                run(() => useHostStore.getState().setLinkPhones(hostId, on))
-              }
-            />
-          </SettingRow>
-        )}
-        {!readOnly && (
-          <SettingRow
-            label={`Keep running when ${name} restarts`}
-            hint={<span data-testid="host-supervisor-status">{supervisorLine ?? hint}</span>}
-          >
-            <Switch
-              data-testid="host-supervise-toggle"
-              checked={supervised}
-              disabled={!connected || busy || view === null || inContainer}
-              onCheckedChange={(on) =>
-                run(() => useHostStore.getState().setSupervised(hostId, on))
-              }
-            />
-          </SettingRow>
-        )}
-        {status && <KeyWarnings status={status} hostName={name} />}
-        {host.idleStopNote && (
-          <div className={settingsStyles.fieldHint} data-testid="host-idle-stop-note">
-            {idleStopText(host.idleStopMinutes, DESKTOP_NAME)}
-          </div>
-        )}
-        {!readOnly && status === null && (
-          <div className={settingsStyles.fieldHint} data-testid="host-phone-access-state">
-            {mutedLine(view?.state ?? null)}
-          </div>
-        )}
-      </div>
-
-      {!readOnly && status && (desktopLinear || status.linear) && (
-        <div className={styles.group}>
-          <div className={styles.groupLabel}>Integrations</div>
-          <SettingRow
-            label="Linear"
-            hint={`Copies this Mac's Linear key to ${name}, so devices can browse and start issues there while this Mac sleeps.`}
-          >
-            <Switch
-              data-testid="host-linear-toggle"
-              checked={status.linear}
-              disabled={busy}
-              onCheckedChange={(on) =>
-                run(async () => {
-                  await window.electronAPI.hosts.setLinearOnHost(hostId, on);
-                })
-              }
-            />
-          </SettingRow>
-        </div>
-      )}
+      <HostDeviceAccess host={host} name={name} readOnly={readOnly} view={view} busy={busy} run={run} />
+      <HostIntegrations
+        hostId={hostId}
+        name={name}
+        readOnly={readOnly}
+        view={view}
+        desktopLinear={desktopLinear}
+        busy={busy}
+        run={run}
+      />
 
       {error && (
         <div className={settingsStyles.linearError} data-testid="host-entry-error">
@@ -286,6 +198,122 @@ export function HostRow(props: HostRowProps) {
         </div>
       )}
     </HostRowShell>
+  );
+}
+
+type HostDeviceAccessProps = {
+  host: HostStatusInfo;
+  name: string;
+  readOnly: boolean;
+  view: HostServerView | null;
+  busy: boolean;
+  run: RunAction;
+};
+
+/**
+ * A host's Device access group (ADR-233 D1): whether devices reach it, what
+ * keeps its Manor running, its pairing-key warnings. Shared by its row and
+ * the Add a host wizard's last step (D4).
+ */
+export function HostDeviceAccess(props: HostDeviceAccessProps) {
+  const { host, name, readOnly, view, busy, run } = props;
+
+  const { hostId } = host;
+  const deviceCount = useRemoteControlStore((s) => s.status.devices.length);
+
+  const connected = host.status === "connected";
+  const status = view?.status ?? null;
+
+  // `supervise` is the container's entrypoint: there is nothing to turn off.
+  const inContainer = view?.supervisor?.kind === "container";
+  const supervised = isSupervised(view);
+  const supervisorLine = supervisorStatusText(view?.supervisor ?? null, name, host.spec);
+  const hint = supervisionHint(view, name, connected);
+
+  return (
+    <div className={styles.group} data-testid="host-device-access">
+      <div className={styles.groupLabel}>Device access</div>
+      {!readOnly && view !== null && (
+        <SettingRow
+          label={`Devices can reach ${name}`}
+          hint={`${devicesReach(deviceCount)} ${name} directly, so they keep working while this Mac sleeps.`}
+        >
+          <Switch
+            data-testid="host-link-phones-toggle"
+            checked={view.linkPhones}
+            disabled={busy}
+            onCheckedChange={(on) => run(() => useHostStore.getState().setLinkPhones(hostId, on))}
+          />
+        </SettingRow>
+      )}
+      {!readOnly && (
+        <SettingRow
+          label={`Keep running when ${name} restarts`}
+          hint={<span data-testid="host-supervisor-status">{supervisorLine ?? hint}</span>}
+        >
+          <Switch
+            data-testid="host-supervise-toggle"
+            checked={supervised}
+            disabled={!connected || busy || view === null || inContainer}
+            onCheckedChange={(on) => run(() => useHostStore.getState().setSupervised(hostId, on))}
+          />
+        </SettingRow>
+      )}
+      {status && <KeyWarnings status={status} hostName={name} />}
+      {host.idleStopNote && (
+        <div className={settingsStyles.fieldHint} data-testid="host-idle-stop-note">
+          {idleStopText(host.idleStopMinutes, DESKTOP_NAME)}
+        </div>
+      )}
+      {!readOnly && status === null && (
+        <div className={settingsStyles.fieldHint} data-testid="host-phone-access-state">
+          {mutedLine(view?.state ?? null)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type HostIntegrationsProps = {
+  hostId: string;
+  name: string;
+  readOnly: boolean;
+  view: HostServerView | null;
+  /** This computer has a Linear key to hand the host. */
+  desktopLinear: boolean;
+  busy: boolean;
+  run: RunAction;
+};
+
+/**
+ * A host's Integrations group (ADR-233 D1): today only Linear, shown when
+ * this computer has it or the host already holds a copy. Nothing otherwise.
+ */
+export function HostIntegrations(props: HostIntegrationsProps) {
+  const { hostId, name, readOnly, view, desktopLinear, busy, run } = props;
+
+  const status = view?.status ?? null;
+  if (readOnly || !status || !(desktopLinear || status.linear)) return null;
+
+  return (
+    <div className={styles.group}>
+      <div className={styles.groupLabel}>Integrations</div>
+      <SettingRow
+        label="Linear"
+        hint={`Copies this Mac's Linear key to ${name}, so devices can browse and start issues there while this Mac sleeps.`}
+      >
+        <Switch
+          data-testid="host-linear-toggle"
+          checked={status.linear}
+          disabled={busy}
+          onCheckedChange={(on) =>
+            run(async () => {
+              await window.electronAPI.hosts.setLinearOnHost(hostId, on);
+            })
+          }
+        />
+      </SettingRow>
+    </div>
   );
 }
 

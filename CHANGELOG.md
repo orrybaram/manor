@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.22.0] - 2026-10-15
+
+### Features
+
+- **Remote host servers:** each remote host now runs its own Manor server, which keeps projects, workspaces, layouts and agents going while your laptop is closed.
+- **Desktop to host servers:** the desktop app talks to every host server directly, terminals included, and shows one merged sidebar labelled by host.
+- **Phone with several hosts:** pair once from the desktop to reach every host. The phone connects to all of them at once and names your desktop instead of "This machine".
+- **Phone actions on hosts:** create workspaces and launch agents on a remote host from your phone. A new "Started while away" tab shows agents that started while you were gone.
+- **Self-started hosts:** Manor can start, stop, sleep and wake hosts itself using Docker or Kubernetes templates, custom recipes, or a supplied host image. Manage them from the new Hosts settings page.
+- **Idle stop:** hosts stop automatically when they're idle, and they count phones and other viewers as active.
+- **Host-side integrations:** GitHub runs directly on the remote host, and Linear can be turned on per host with "Use Linear on <host>".
+- **CLI on remote hosts:** the `manor` CLI works on remote hosts and is answered by the host server.
+- **Background tasks in chat:** the phone's chat mirror shows an agent's background and delegated tasks, with task cards, a detail sheet and a running-tasks chip.
+- **Remote stats:** stats now include agents running on remote hosts.
+- **Error surfacing:** silent failures, crashes and stuck states are now shown instead of failing quietly.
+- **Animations:** token counts and diff stats animate when they change.
+
+### Fixes
+
+- Seeded project commands use bun when the project uses bun.
+- Opening the app no longer wakes a sleeping host.
+- A host that drops without disconnecting cleanly shows as unreachable after a short grace period, and the phone shows a silent server as away.
+- Hosts started from a recipe start up again after a dropped connection or after the host moves.
+- Pairing links keep working after a reset.
+- Git commands run on the host of the right project.
+- Branches, diffs and the selected project stay correct across several servers.
+- Terminal size is settled properly when several clients view the same pane.
+- Port forwarding closes correctly when one side closes its end.
+- Panes start on hosts that don't have `/bin/bash`.
+- Kubernetes hosts show as up, not sleeping, while a pod restarts.
+- A shell running a script is no longer mistaken for the pane's own shell.
+- Fixes to the Docker and Kubernetes templates.
+- Clearer error when a key file is missing.
+
+### Improvements
+
+- Hidden terminals pause drawing, which cuts background CPU use.
+- Terminals stay within a WebGL context limit and recover their WebGL rendering when shown again.
+
 ## [0.21.1] - 2026-10-11
 
 ### Features

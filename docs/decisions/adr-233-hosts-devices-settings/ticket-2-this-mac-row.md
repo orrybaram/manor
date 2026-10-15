@@ -1,6 +1,6 @@
 ---
 title: This Mac row holds the remote-control switch and reset
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

@@ -101,7 +101,7 @@ interface HostState {
   hosts: HostStatusInfo[];
   busy: boolean;
   /**
-   * Each remote host's server as the Remote Control page shows it, for the
+   * Each remote host's server as the Hosts page shows it, for the
    * hosts something has asked about (`refreshServer`). Kept current by the
    * two server events.
    */

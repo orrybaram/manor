@@ -934,7 +934,7 @@ export const COMMANDS: readonly CommandDef[] = [
   },
   {
     id: "remote-control",
-    label: "Remote Control",
+    label: "Devices",
     category: "app",
     scope: "primary",
     run: (ctx) => ctx.chrome.openSettings("devices"),

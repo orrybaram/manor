@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * ADR-233 D4: Settings → Hosts' "Add a host…" wizard. Where, then the ssh
- * or start form, then the new host's device access; Done opens its row.
+ * or start form, then the new host's device access; Closing it opens its row.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -174,5 +174,35 @@ describe("AddHostDialog", () => {
     click(q("add-host-done"));
     expect(onClose).toHaveBeenCalled();
     expect(goTo).toHaveBeenCalledWith({ type: "hosts" }, "host-box");
+  });
+
+  it("opens the new host's row however the dialog closes after adding", async () => {
+    api.add.mockImplementation(async () => {
+      useHostStore.setState({ hosts: [box] });
+      return { hostId: "box", spec: box.spec };
+    });
+    api.serverStatus.mockResolvedValue(boxView);
+    await render();
+    click(q("hosts-add-ssh"));
+    click(q("add-host-continue"));
+    type(q("add-ssh-host-target"), "me@box");
+    click(q("add-ssh-host-connect"));
+    await flush();
+    await flush();
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClose).toHaveBeenCalled();
+    expect(goTo).toHaveBeenCalledWith({ type: "hosts" }, "host-box");
+  });
+
+  it("opens no row when the dialog closes before a host was added", async () => {
+    await render();
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClose).toHaveBeenCalled();
+    expect(goTo).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import Check from "lucide-react/dist/esm/icons/check";
 import { useHostDisplay } from "../../../hooks/useHostDisplay";
@@ -46,16 +46,28 @@ type AddHostDialogProps = {
 /**
  * "Add a host…" (ADR-233 D4): where the host is, then connecting to it over
  * ssh or starting it from a template or recipe, then its device access —
- * the same groups its row shows, live as it connects. Done opens its row.
+ * the same groups its row shows, live as it connects. Closing it, however, opens its row.
  */
 export function AddHostDialog(props: AddHostDialogProps) {
   const { open, onClose } = props;
+
+  const goTo = useSettingsNav();
+  // The host this opening added, once step 3 is reached. However the dialog
+  // closes after that, its row opens: the host exists either way.
+  const addedRef = useRef<string | null>(null);
+
+  const close = () => {
+    const id = addedRef.current;
+    addedRef.current = null;
+    onClose();
+    if (id) goTo({ type: "hosts" }, `host-${id}`);
+  };
 
   return (
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!next) onClose();
+        if (!next) close();
       }}
     >
       <Dialog.Portal>
@@ -66,7 +78,7 @@ export function AddHostDialog(props: AddHostDialogProps) {
           aria-describedby={undefined}
         >
           {/* Mounted per opening: every add starts at Where. */}
-          <AddHostBody onClose={onClose} />
+          <AddHostBody onClose={close} onAdded={(id) => (addedRef.current = id)} />
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
@@ -75,25 +87,20 @@ export function AddHostDialog(props: AddHostDialogProps) {
 
 type AddHostBodyProps = {
   onClose: () => void;
+  onAdded: (hostId: string) => void;
 };
 
 function AddHostBody(props: AddHostBodyProps) {
-  const { onClose } = props;
+  const { onClose, onAdded } = props;
 
-  const goTo = useSettingsNav();
   const [step, setStep] = useState(0);
   const [path, setPath] = useState<Path | null>(null);
   const [hostId, setHostId] = useState<string | null>(null);
 
   const added = (id: string) => {
     setHostId(id);
+    onAdded(id);
     setStep(2);
-  };
-
-  // Close, opening the new host's row and scrolling it into view.
-  const done = (id: string) => {
-    onClose();
-    goTo({ type: "hosts" }, `host-${id}`);
   };
 
   return (
@@ -158,7 +165,7 @@ function AddHostBody(props: AddHostBodyProps) {
           </div>
         </>
       )}
-      {step === 2 && hostId && <NewHostAccess hostId={hostId} onDone={() => done(hostId)} />}
+      {step === 2 && hostId && <NewHostAccess hostId={hostId} onDone={onClose} />}
     </>
   );
 }

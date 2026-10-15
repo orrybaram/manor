@@ -20,7 +20,7 @@ import {
   STEP,
   openRemoteProject,
 } from "./helpers/remote-project";
-import { closeSettings, openRemoteControlSettings, pairBrowser } from "./helpers/settings";
+import { closeSettings, openDevicesSettings, openHostRow, pairBrowser } from "./helpers/settings";
 
 /**
  * One pairing covers every host (ADR-228 D9): a phone paired with the
@@ -165,7 +165,8 @@ relayTest.describe("a phone paired with the desktop only", () => {
       // 2. The desktop's link, and nothing else.
       const desk = await pairBrowser(window, { label: "linked phone" });
       // The box's relay is up, so the minted pairing works as soon as it lands.
-      const section = window.getByTestId("host-phone-access").filter({ hasText: APP_TARGET });
+      // The box's row on Settings → Hosts holds its device access.
+      const section = await openHostRow(window, { hostId });
       await expect(section.getByTestId("host-phone-summary")).toContainText("relay connected", {
         timeout: 60_000,
       });
@@ -218,10 +219,16 @@ relayTest.describe("a phone paired with the desktop only", () => {
         });
 
         // 3. The box lists the phone, via this desktop.
-        await openRemoteControlSettings(window);
+        // Settings has no per-host device list since ADR-233, so the device
+        // shows once on Devices, and the box's reach on its Hosts row says
+        // devices reach it.
+        await openDevicesSettings(window);
         await expect(
-          section.getByTestId("remote-device-row").filter({ hasText: "linked phone" }),
-        ).toContainText("via This Mac", { timeout: STEP });
+          window.getByTestId("remote-device-row").filter({ hasText: "linked phone" }),
+        ).toHaveCount(1, { timeout: STEP });
+        await expect(
+          window.getByTestId("devices-host-row").filter({ hasText: APP_TARGET }),
+        ).toBeVisible({ timeout: STEP });
         await closeSettings(window);
 
         // Linear, which the box's server does not have, answered by the desktop.

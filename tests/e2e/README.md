@@ -102,7 +102,7 @@ installation's zdotdir out of a home that no longer exists.
 
 ## Selector strategy
 
-`data-testid` first: `window.getByTestId("settings-nav-remote")`. Text and role
+`data-testid` first: `window.getByTestId("settings-nav-devices")`. Text and role
 selectors are fine for things a user reads by name (a button labelled "Send").
 Add a test id when a test needs one — not a set of them for tests that do not
 exist yet.
@@ -169,8 +169,10 @@ The specs that drive a live session (`web-app.spec.ts`, `phone.spec.ts`,
   (`WebviewServer`), for state the DOM does not hold, and as an independent
   witness that a send reached the pty rather than only the view that asked for
   it. Its response types are the app's own, imported rather than re-declared.
-- **`helpers/settings.ts`** — turning remote control on and pairing a device
-  through the real dialog.
+- **`helpers/settings.ts`** — turning remote control on (Settings → Hosts →
+  This Mac), pairing and revoking a device through the real dialog (Settings →
+  Devices), and opening a host's row. Adding a host is `hosts-add` → a card
+  (`hosts-add-ssh` / `hosts-add-start`) → `add-host-continue` → the form.
 - **`helpers/phone.ts`** — a browser in its own Chromium context, with its
   console and any failed request captured.
 - **`helpers/filmstrip.ts`** — numbered screenshots into

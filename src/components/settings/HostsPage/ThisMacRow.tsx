@@ -25,7 +25,7 @@ const TONE: Record<StatusView["tone"], HostTone | null> = {
 
 /**
  * This computer on the Hosts page (ADR-233 D2): a host row like the remote
- * ones, holding what was Remote control's status card — whether devices can
+ * ones, holding what the old Remote control page's status card did — whether devices can
  * reach This Mac (through the relay, confirmed before it turns on), and
  * resetting its pairing keys.
  *

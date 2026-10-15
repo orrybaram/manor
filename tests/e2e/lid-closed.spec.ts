@@ -10,7 +10,6 @@ import { agentNotifications } from "./helpers/notifications";
 import { openWebApp } from "./helpers/phone";
 import { relayTest } from "./helpers/relay-fixture";
 import {
-  APP_TARGET,
   REMOTE_AGENT,
   installRemoteStubs,
   killAppSsh,
@@ -32,7 +31,7 @@ import {
   hostStatus,
   openRemoteProject,
 } from "./helpers/remote-project";
-import { closeSettings, pairBrowser } from "./helpers/settings";
+import { closeSettings, openHostRow, pairBrowser } from "./helpers/settings";
 import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
 
 /**
@@ -189,7 +188,7 @@ relayTest.describe("the lid closes", () => {
 
         // The desktop's link only; the box's room joins on its first hello.
         const desk = await pairBrowser(window, { label: "lid-closed phone" });
-        const section = window.getByTestId("host-phone-access").filter({ hasText: APP_TARGET });
+        const section = await openHostRow(window, { hostId });
         await expect(section.getByTestId("host-phone-summary")).toContainText("relay connected", {
           timeout: 60_000,
         });

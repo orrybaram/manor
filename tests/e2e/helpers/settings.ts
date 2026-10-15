@@ -4,8 +4,9 @@ import type { Filmstrip } from "./filmstrip";
 
 /**
  * Driving Manor's Settings modal: the agent command a project launches, and
- * the whole remote-control surface — turning it on (which starts the relay),
- * turning it off, and pairing and revoking a device (ADR-206, ADR-207).
+ * the whole remote-control surface — turning it on (which starts the relay,
+ * on Hosts → This Mac), turning it off, and pairing and revoking a device
+ * (on Devices; ADR-206, ADR-207, ADR-233).
  *
  * Everything here goes through the app's own UI on purpose. A token minted any
  * other way, or an agent command written straight to disk, would not prove the
@@ -32,11 +33,58 @@ export async function closeSettings(window: Page): Promise<void> {
   await expect(modal).not.toBeVisible({ timeout: 5_000 });
 }
 
-/** Open Settings → Remote control. Leaves the modal open. */
-export async function openRemoteControlSettings(window: Page): Promise<void> {
+/** Open Settings → Hosts. Leaves the modal open. */
+export async function openHostsSettings(window: Page): Promise<void> {
   await openSettings(window);
-  await window.getByTestId("settings-nav-remote").click();
+  await window.getByTestId("settings-nav-hosts").click();
+  await expect(window.getByTestId("hosts-page")).toBeVisible({
+    timeout: 5_000,
+  });
+}
+
+/** Open a collapsed host row's body; a row already open is left alone. */
+async function expandRow(row: Locator): Promise<void> {
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  const toggle = row.getByTestId("host-row-toggle");
+  if ((await toggle.getAttribute("aria-expanded")) !== "true") {
+    await toggle.click();
+  }
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+}
+
+/**
+ * Open Settings → Hosts and expand one remote host's row (ADR-233 D1): by id
+ * when the spec knows it, else by the name on its header (an ssh target, or a
+ * label). Returns the row; leaves the modal open.
+ */
+export async function openHostRow(
+  window: Page,
+  host: { hostId: string } | { hostName: string },
+): Promise<Locator> {
+  await openHostsSettings(window);
+  const entries = window.getByTestId("host-entry");
+  const row =
+    "hostId" in host
+      ? window.locator(`[data-testid="host-entry"][data-host-id="${host.hostId}"]`)
+      : entries.filter({ hasText: host.hostName });
+  await expandRow(row);
+  return row;
+}
+
+/** Open Settings → Hosts with This Mac's row expanded. Leaves the modal open. */
+export async function openRemoteControlSettings(window: Page): Promise<void> {
+  await openHostsSettings(window);
+  await expandRow(window.getByTestId("host-local"));
   await expect(window.getByTestId("remote-control-switch")).toBeVisible({
+    timeout: 5_000,
+  });
+}
+
+/** Open Settings → Devices. Leaves the modal open. */
+export async function openDevicesSettings(window: Page): Promise<void> {
+  await openSettings(window);
+  await window.getByTestId("settings-nav-devices").click();
+  await expect(window.getByTestId("remote-add-device")).toBeVisible({
     timeout: 5_000,
   });
 }
@@ -139,21 +187,19 @@ export async function pairDevice(
   window: Page,
   { label, film }: { label: string; film?: Filmstrip },
 ): Promise<PairedDevice> {
-  await openRemoteControlSettings(window);
+  await openDevicesSettings(window);
 
   await window.getByTestId("remote-add-device").click();
-  return completePairingDialog(window, window, label, film);
+  return completePairingDialog(window, label, film);
 }
 
 /**
  * The rest of pairing, after a trigger has opened the Add device dialog:
  * name it, submit, read the link and token off the pairing dialog, close it,
- * and wait for the device's row under `scope` (the whole window, or one
- * host's section).
+ * and wait for the device's row on the Devices page.
  */
 async function completePairingDialog(
   window: Page,
-  scope: Page | Locator,
   label: string,
   film?: Filmstrip,
 ): Promise<PairedDevice> {
@@ -183,7 +229,7 @@ async function completePairingDialog(
   // A paired device that does not appear in the list cannot be revoked, so
   // the row is part of pairing rather than a separate thing to check for.
   await expect(
-    scope.getByTestId("remote-device-row").filter({ hasText: label }),
+    window.getByTestId("remote-device-row").filter({ hasText: label }),
   ).toHaveCount(1, { timeout: 10_000 });
 
   return { label, token, link };
@@ -203,35 +249,40 @@ export async function pairBrowser(
 }
 
 /**
- * Pair a device with a remote host's own Manor server (ADR-225 D3), from that
- * host's section of Settings → Remote control: the pairing is minted on the
- * box, and the desktop only shows it. Waits until the host server says its
- * relay is connected, so the link works as soon as it is opened. Leaves
- * Settings open.
+ * Pair a device with a remote host's own Manor server alone (ADR-225 D3): the
+ * pairing is minted on the box and the link names the box's own room. Settings
+ * has no button for this since ADR-233 (a device pairs on Devices and reaches
+ * every host that allows devices), so the pairing goes through the host
+ * bridge, which still serves it. First waits, on that host's row of Settings
+ * → Hosts, until its server says its relay is connected, so the link works as
+ * soon as it is opened. Leaves Settings open.
  */
 export async function pairHostPhone(
   window: Page,
   { hostName, label }: { hostName: string; label: string },
 ): Promise<PairedDevice> {
-  await openRemoteControlSettings(window);
-  const section = window
-    .getByTestId("host-phone-access")
-    .filter({ hasText: hostName });
-  await expect(section.getByTestId("host-phone-summary")).toContainText(
-    "relay connected",
-    { timeout: 60_000 },
-  );
-  await expect(section.getByTestId("host-phone-summary")).not.toContainText(
-    "relay not connected",
-  );
+  const row = await openHostRow(window, { hostName });
+  const summary = row.getByTestId("host-phone-summary");
+  await expect(summary).toContainText("relay connected", { timeout: 60_000 });
+  await expect(summary).not.toContainText("relay not connected");
 
-  await section.getByTestId("host-pair-phone").click();
-  return completePairingDialog(window, section, label);
+  const hostId = await row.getAttribute("data-host-id");
+  if (!hostId) throw new Error(`Host row "${hostName}" carried no host id`);
+  const link = await window.evaluate(
+    async ([id, name]) => (await window.electronAPI.hosts.pairDevice(id, name)).pairingUrl,
+    [hostId, label] as const,
+  );
+  if (!link.includes("#relay=")) {
+    throw new Error(`Host pairing showed no relay link (got "${link}")`);
+  }
+  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("t") ?? "";
+  if (!token) throw new Error("Host pairing link carried no token");
+  return { label, token, link };
 }
 
 /** Revoke a paired device by its label, from its row's trash button. */
 export async function revokeDevice(window: Page, label: string): Promise<void> {
-  await openRemoteControlSettings(window);
+  await openDevicesSettings(window);
   await window
     .getByTestId("remote-device-row")
     .filter({ hasText: label })

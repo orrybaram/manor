@@ -151,7 +151,7 @@ const PAGE_SECTIONS: {
       },
       {
         id: "hosts-add",
-        label: "Add host",
+        label: "Add a host",
         keywords: ["add", "ssh", "start", "recipe", "template", "docker", "kubernetes", "new host"],
       },
     ],

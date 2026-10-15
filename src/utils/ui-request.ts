@@ -29,7 +29,7 @@ export type UiRequest =
   | { type: "clone-repository" }
   /** Open a project's settings, scrolled to `section` (a `data-settings-section` id). */
   | { type: "open-project-settings"; projectId: string; section?: string }
-  /** Open Settings → Remote control (the status-bar REMOTE chip). */
+  /** Open Settings → Hosts on This Mac's row (the status-bar REMOTE chip). */
   | { type: "open-remote-settings" };
 
 type Listener = (request: UiRequest) => void;

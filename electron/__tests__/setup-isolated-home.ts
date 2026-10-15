@@ -24,6 +24,15 @@ const isolatedHome = fs.mkdtempSync(
 fs.mkdirSync(path.join(isolatedHome, ".manor"), { recursive: true });
 process.env.HOME = isolatedHome;
 
+// Tripwire (#310): the default sessions directory (`scrollbackSessionsDir()`,
+// `~/.manor/sessions`) is a plain file, so a test that builds a
+// `TerminalHost` or `ScrollbackWriter` without its own temp dir fails at once
+// with ENOTDIR instead of quietly sharing session files across tests.
+fs.writeFileSync(
+  path.join(isolatedHome, ".manor", "sessions"),
+  "Test tripwire: pass a temp sessions dir to TerminalHost / ScrollbackWriter.\n",
+);
+
 process.on("exit", () => {
   try {
     fs.rmSync(isolatedHome, { recursive: true, force: true });

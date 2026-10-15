@@ -43,7 +43,7 @@ const MAX_WRITE_FILE_BYTES = 20 * 1024 * 1024;
 
 class TestDaemon {
   private server: net.Server;
-  private host = new TerminalHost();
+  private host: TerminalHost;
   private token: string;
   private authenticatedSockets = new WeakSet<net.Socket>();
   private activeSockets = new Set<net.Socket>();
@@ -71,6 +71,7 @@ class TestDaemon {
     this.socketPath = path.join(os.tmpdir(), `mc-${shortId}.sock`);
     this.tokenPath = path.join(dir, "terminal-host.token");
     this.pidPath = path.join(dir, "terminal-host.pid");
+    this.host = new TerminalHost(path.join(dir, "sessions"));
     this.token = crypto.randomBytes(16).toString("hex");
     this.server = net.createServer((socket) => this.handleConnection(socket));
   }

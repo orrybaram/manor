@@ -40,13 +40,16 @@ function feedSessionData(
 }
 
 describe("TerminalHost", () => {
+  let hostSessionsDir: string;
   let host: TerminalHost;
 
   beforeEach(() => {
-    host = new TerminalHost();
+    hostSessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-host-"));
+    host = new TerminalHost(hostSessionsDir);
   });
-  afterEach(() => {
-    host.disposeAll();
+  afterEach(async () => {
+    await host.disposeAll();
+    fs.rmSync(hostSessionsDir, { recursive: true, force: true });
   });
 
   describe("create", () => {

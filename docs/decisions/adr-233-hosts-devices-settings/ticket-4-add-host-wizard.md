@@ -1,6 +1,6 @@
 ---
 title: One "Add a host…" wizard
-status: todo
+status: done
 priority: medium
 assignee: opus
 blocked_by: [1]

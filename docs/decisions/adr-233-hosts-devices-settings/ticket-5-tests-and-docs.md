@@ -1,6 +1,6 @@
 ---
 title: Update e2e specs, helpers and docs for the new pages
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3, 4]

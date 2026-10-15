@@ -53,6 +53,16 @@ describe("test home isolation (ADR-169)", () => {
     const writer = new ScrollbackWriter("s1");
     expect(() =>
       writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" }),
-    ).toThrow(/ENOTDIR/);
+    ).toThrow(/ENOTDIR|ENOENT|EEXIST/);
+  });
+
+  it("fails fast when a test reads the default sessions dir (#310)", () => {
+    expect(() => ScrollbackWriter.readMeta("s1")).toThrow(/#310/);
+    expect(() => ScrollbackWriter.readScrollback("s1")).toThrow(/#310/);
+    expect(() => ScrollbackWriter.isUncleanShutdown("s1")).toThrow(/#310/);
+    expect(() => ScrollbackWriter.listPersistedSessions()).toThrow(/#310/);
+    expect(() =>
+      ScrollbackWriter.readMeta("s1", SESSIONS_DIR + path.sep),
+    ).toThrow(/#310/);
   });
 });

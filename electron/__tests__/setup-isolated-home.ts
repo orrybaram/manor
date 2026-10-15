@@ -27,7 +27,8 @@ process.env.HOME = isolatedHome;
 // Tripwire (#310): the default sessions directory (`scrollbackSessionsDir()`,
 // `~/.manor/sessions`) is a plain file, so a test that builds a
 // `TerminalHost` or `ScrollbackWriter` without its own temp dir fails at once
-// with ENOTDIR instead of quietly sharing session files across tests.
+// with ENOTDIR instead of quietly sharing session files across tests. This
+// catches writes only; `setup-sessions-guard.ts` catches reads.
 fs.writeFileSync(
   path.join(isolatedHome, ".manor", "sessions"),
   "Test tripwire: pass a temp sessions dir to TerminalHost / ScrollbackWriter.\n",

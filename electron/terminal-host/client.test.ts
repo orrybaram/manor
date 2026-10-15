@@ -94,7 +94,7 @@ class TestDaemon {
   }
 
   async stop(): Promise<void> {
-    this.host.disposeAll();
+    await this.host.disposeAll();
     // Force-close all active connections so server.close() can complete
     for (const socket of this.activeSockets) {
       socket.destroy();

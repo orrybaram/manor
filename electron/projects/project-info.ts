@@ -39,11 +39,51 @@ export async function listGitWorkspaces(
   }
 }
 
+/** How each package manager runs a `package.json` script. */
+const SCRIPT_RUNNERS = {
+  bun: "bun run",
+  pnpm: "pnpm run",
+  yarn: "yarn",
+  npm: "npm run",
+} as const;
+
+type PackageManager = keyof typeof SCRIPT_RUNNERS;
+
+/** Each package manager's lockfiles, in the order they're looked for. */
+const LOCKFILES: ReadonlyArray<[PackageManager, string]> = [
+  ["bun", "bun.lock"],
+  ["bun", "bun.lockb"],
+  ["pnpm", "pnpm-lock.yaml"],
+  ["yarn", "yarn.lock"],
+  ["npm", "package-lock.json"],
+];
+
+/**
+ * The package manager a project uses: the one `package.json`'s
+ * `packageManager` field names (`"bun@1.2.0"` → bun), else the one whose
+ * lockfile is present, else npm.
+ */
+async function detectPackageManager(
+  facts: MachineFacts,
+  projectPath: string,
+  packageJson: { packageManager?: unknown },
+): Promise<PackageManager> {
+  if (typeof packageJson.packageManager === "string") {
+    const name = packageJson.packageManager.split("@")[0];
+    if (name in SCRIPT_RUNNERS) return name as PackageManager;
+  }
+  for (const [manager, lockfile] of LOCKFILES) {
+    if (await facts.exists(facts.join(projectPath, lockfile))) return manager;
+  }
+  return "npm";
+}
+
 /**
  * One command per `package.json` script at `projectPath`, run with the
- * package manager its lockfile names; empty when there is no
- * `package.json`. Read through the project's host (ADR-178 §3), which for
- * a remote project is not this filesystem.
+ * package manager its `packageManager` field or lockfile names (see
+ * `detectPackageManager`); empty when there is no `package.json`. Read
+ * through the project's host (ADR-178 §3), which for a remote project is
+ * not this filesystem.
  */
 export async function seedCommands(
   facts: MachineFacts,
@@ -55,23 +95,23 @@ export async function seedCommands(
   if (text === null) return [];
   try {
     const packageJson: unknown = JSON.parse(text);
-    const scripts =
-      packageJson && typeof packageJson === "object"
-        ? (packageJson as { scripts?: unknown }).scripts
-        : undefined;
+    if (!packageJson || typeof packageJson !== "object") return [];
+    const { scripts } = packageJson as { scripts?: unknown };
     if (!scripts || typeof scripts !== "object") return [];
-    const runner = (await facts.exists(facts.join(projectPath, "pnpm-lock.yaml")))
-      ? "pnpm run"
-      : (await facts.exists(facts.join(projectPath, "yarn.lock")))
-        ? "yarn"
-        : "npm run";
+    const runner =
+      SCRIPT_RUNNERS[
+        await detectPackageManager(facts, projectPath, packageJson)
+      ];
     return Object.keys(scripts).map((scriptName) => ({
       id: crypto.randomUUID(),
       name: scriptName,
       command: `${runner} ${scriptName}`,
     }));
   } catch (err) {
-    console.error("[ProjectManager] failed to read package.json:", errorMessage(err));
+    console.error(
+      "[ProjectManager] failed to read package.json:",
+      errorMessage(err),
+    );
     return [];
   }
 }
@@ -134,7 +174,9 @@ export async function buildProjectInfo(
       linkedIssues: issues[ws.path] ?? [],
       hidden: hiddenMap[ws.path] ?? false,
       folderId:
-        mappedFolderId && folderIdSet.has(mappedFolderId) ? mappedFolderId : null,
+        mappedFolderId && folderIdSet.has(mappedFolderId)
+          ? mappedFolderId
+          : null,
     };
   });
   const shared = resolveShared(group, p);

@@ -25,7 +25,7 @@ import { sanitizeBranchName } from "../../../utils/branch-name";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { useHostStore } from "../../../store/host-store";
 import { hostSentenceName } from "../../../bridge/server-set";
-import { newHostTargets, transferTargets } from "../../../lib/transfer-targets";
+import { hasHiddenPods, newHostTargets, transferTargets } from "../../../lib/transfer-targets";
 import { useHostProfileStore } from "../../../store/host-profile-store";
 import {
   memberAfterClone,
@@ -187,10 +187,16 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const activeHostChoice = hostChoices?.find(
     (c) => c.projectId === activeProjectId,
   );
+  // Other projects' pods are left out of the targets until asked for.
+  const [showAllHosts, setShowAllHosts] = useState(false);
   const cloneTargets = useMemo(
-    () => (activeProject ? transferTargets(activeProject, projects, hosts, "copy") : []),
-    [activeProject, projects, hosts],
+    () =>
+      activeProject
+        ? transferTargets(activeProject, projects, hosts, "copy", { showAllHosts })
+        : [],
+    [activeProject, projects, hosts, showAllHosts],
   );
+  const hiddenPods = activeProject ? hasHiddenPods(activeProject, hosts) : false;
   const profiles = useHostProfileStore((s) => s.profiles);
   const podTargets = useMemo(() => newHostTargets(profiles), [profiles]);
   const openInNewHost = useProjectStore((s) => s.openInNewHost);
@@ -207,8 +213,11 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     ? projects.find((p) => p.id === cloneSession.projectId)
     : undefined;
   const cloneSourceTargets = useMemo(
-    () => (cloneSource ? transferTargets(cloneSource, projects, hosts, "copy") : []),
-    [cloneSource, projects, hosts],
+    () =>
+      cloneSource
+        ? transferTargets(cloneSource, projects, hosts, "copy", { showAllHosts })
+        : [],
+    [cloneSource, projects, hosts, showAllHosts],
   );
 
   const openClone = (projectId: string) =>
@@ -567,6 +576,9 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                         ? () => openClone(activeProjectId)
                         : undefined
                     }
+                    showHiddenHostsToggle={hiddenPods}
+                    showAllHosts={showAllHosts}
+                    onToggleShowAllHosts={() => setShowAllHosts((v) => !v)}
                     newHostTargets={podTargets}
                     onSetUpInNewHost={(target) =>
                       void openInNewHost({

@@ -3,7 +3,7 @@ import { useProjectStore, type ProjectInfo } from "../../../store/project-store"
 import { useHostStore, selectHost } from "../../../store/host-store";
 import { HostCard, HostCardRow } from "../../hosts/HostCard";
 import { isRemoteHost } from "../../../lib/hosts";
-import { transferTargets } from "../../../lib/transfer-targets";
+import { hasHiddenPods, transferTargets } from "../../../lib/transfer-targets";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
 import { SearchableSelect } from "../../ui/SearchableSelect/SearchableSelect";
@@ -45,6 +45,7 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
   const hosts = useHostStore((s) => s.hosts);
   const goTo = useSettingsNav();
 
+  const [showAllHosts, setShowAllHosts] = useState(false);
   const [adding, setAdding] = useState(false);
   const [repairError, setRepairError] = useState<string | null>(null);
   const [pathMissing, setPathMissing] = useState(false);
@@ -77,13 +78,14 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
   // Every host the project can be set up on (ADR-214), plus a way to add one.
   const options = useMemo(
     () => [
-      ...transferTargets(project, projects, hosts, "copy")
+      ...transferTargets(project, projects, hosts, "copy", { showAllHosts })
         .filter((t) => !t.disabledReason)
         .map((t) => ({ value: t.hostId, label: t.label })),
       { value: ADD_HOST_VALUE, label: "Add new host…" },
     ],
-    [project, projects, hosts],
+    [project, projects, hosts, showAllHosts],
   );
+  const hiddenPods = hasHiddenPods(project, hosts);
 
   // Repair for a missing repo: re-clone it in place, or point at a folder.
   const cloneAgain = useCallback(
@@ -163,6 +165,17 @@ export function ProjectHostSection(props: ProjectHostSectionProps) {
           </HostCardRow>
         )}
       </HostCard>
+      {hiddenPods && (
+        <div>
+          <Button
+            variant="link"
+            data-testid="project-host-show-all-hosts"
+            onClick={() => setShowAllHosts((v) => !v)}
+          >
+            {showAllHosts ? "Hide other projects' hosts" : "Show all hosts"}
+          </Button>
+        </div>
+      )}
       {adding && (
         <AddSshHostForm onAdded={handleAdded} onCancel={() => setAdding(false)} />
       )}

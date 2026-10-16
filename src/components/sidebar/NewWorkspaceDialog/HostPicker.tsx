@@ -18,6 +18,10 @@ type HostPickerProps = {
    * registered host already has a member, which hides the action.
    */
   onSetUpOnAnotherHost?: () => void;
+  /** Whether other projects' hosts are being left out of "Set up on another host…". */
+  showHiddenHostsToggle?: boolean;
+  showAllHosts?: boolean;
+  onToggleShowAllHosts?: () => void;
   /** "In a new pod · <profile>" entries (ADR-235 D4), after the hosts. */
   newHostTargets?: NewHostTarget[];
   onSetUpInNewHost?: (target: NewHostTarget) => void;
@@ -37,6 +41,9 @@ export function HostPicker(props: HostPickerProps) {
     onSetUpOnAnotherHost,
     newHostTargets = [],
     onSetUpInNewHost,
+    showHiddenHostsToggle,
+    showAllHosts,
+    onToggleShowAllHosts,
   } = props;
 
   const labelId = useId();
@@ -87,6 +94,16 @@ export function HostPicker(props: HostPickerProps) {
               {target.label}
             </Button>
           ))}
+        {showHiddenHostsToggle && onToggleShowAllHosts && (
+          <Button
+            variant="link"
+            type="button"
+            onClick={onToggleShowAllHosts}
+            data-testid="new-workspace-show-all-hosts"
+          >
+            {showAllHosts ? "Hide other projects' hosts" : "Show all hosts"}
+          </Button>
+        )}
       </Row>
     </Stack>
   );

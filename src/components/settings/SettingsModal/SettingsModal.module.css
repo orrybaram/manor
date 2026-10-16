@@ -174,7 +174,7 @@
   padding-left: 32px;
 }
 
-/* A linked group's member row, one level under its group row (ADR-193). */
+/* A project row's name, cut short (ADR-237 D1). */
 .navItemLabel {
   overflow: hidden;
   text-overflow: ellipsis;

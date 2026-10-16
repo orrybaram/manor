@@ -53,7 +53,7 @@ describe("buildSettingsIndex", () => {
 });
 
 describe("searchSettings", () => {
-  it.each(["worktree", "port", "separate"])(
+  it.each(["worktree", "port", "separate", "keep separate", "set up on"])(
     "sends %s to each project's Hosts section",
     (query) => {
       const hits = searchSettings(index, query).filter(isProjectPage);

@@ -236,6 +236,12 @@ export function SettingsModal(props: SettingsModalProps) {
     page.type === "project"
       ? projects.find((p) => p.id === page.projectId)
       : null;
+  // A project page whose project is now set up on several hosts (it was just
+  // set up on another, or an old link named one host's copy) becomes its
+  // group's page, the project's one page (ADR-237 D1).
+  if (page.type === "project" && currentProject?.group) {
+    setPage({ type: "group", groupId: currentProject.group.id });
+  }
   const currentGroupMembers = useMemo(() => {
     if (page.type !== "group") return [];
     const lead = projects.find((p) => p.group?.id === page.groupId);

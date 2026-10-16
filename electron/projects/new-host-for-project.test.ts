@@ -225,6 +225,7 @@ describe("openInNewHost (ADR-235 D3)", () => {
     expect(recipe.name).toBe("app");
     expect(recipe.env?.MANOR_K8S_NAME).toBe("app");
     expect(recipe.idleStopMinutes).toBe(60);
+    expect(recipe.env?.MANOR_K8S_SIGNIN_SECRET).toBe(`manor-signin-${profile.id}`);
     expect(mgr.hostProfileId(hostId)).toBe(profile.id);
     expect(mgr.hostSupervised(hostId)).toBe(true);
     expect(registry.register).toHaveBeenCalledWith(hostId, {

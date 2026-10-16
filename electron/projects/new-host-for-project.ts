@@ -30,6 +30,7 @@ import type { BackendRegistry } from "../backend/registry";
 import type { HostAdoption } from "../backend/host-adoption";
 import { hostRecipesDir } from "../paths";
 import { toDirSlug } from "../branch-name";
+import { signInSecretName } from "../backend/providers/recipe-templates/signin";
 import type { ProjectManager } from "./project-manager";
 import type { ProjectInfo, TransferResult } from "./types";
 
@@ -235,9 +236,22 @@ export async function openInNewHost(
         ctx,
         recipesDir,
       );
-      if (profile.idleStopMinutes !== undefined) {
+      const isKube = profile.templateId === "kubernetes";
+      if (profile.idleStopMinutes !== undefined || isKube) {
         const recipe = readRecipe(recipeId, recipesDir);
-        writeRecipe({ ...recipe, idleStopMinutes: profile.idleStopMinutes }, recipesDir);
+        writeRecipe(
+          {
+            ...recipe,
+            ...(profile.idleStopMinutes !== undefined
+              ? { idleStopMinutes: profile.idleStopMinutes }
+              : {}),
+            // The pod reads this profile's sign-in Secret (ADR-235 D9).
+            ...(isKube
+              ? { env: { ...recipe.env, MANOR_K8S_SIGNIN_SECRET: signInSecretName(profile.id) } }
+              : {}),
+          },
+          recipesDir,
+        );
       }
       // 3. Host.
       hostId = addRecipeHost(deps, recipeId, {

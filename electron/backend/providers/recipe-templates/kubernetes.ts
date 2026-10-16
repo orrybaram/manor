@@ -5,7 +5,7 @@
  * scales it to 0, `up` to 1, `destroy` deletes the set, the claim and the
  * Secret.
  *
- * The pod also reads the namespace's optional `manor-signin` Secret into its
+ * The pod also reads the profile's optional `manor-signin-<profileId>` Secret into its
  * environment (ADR-235 D9, `signin.ts`).
  *
  * The scripts keep stdout for the one JSON object (fd 3).
@@ -42,6 +42,14 @@ fi
 kube=("\${kubectl_cmd[@]}" -n "$namespace")
 image=\${MANOR_K8S_IMAGE:?MANOR_K8S_IMAGE is not set}
 storage=\${MANOR_K8S_STORAGE:-20Gi}
+# The profile's sign-in Secret (ADR-235 D9). A recipe made before it was named
+# per profile has none, and the default covers it. It goes into YAML below, so
+# it must be a DNS name.
+signin_secret=\${MANOR_K8S_SIGNIN_SECRET:-manor-signin}
+if ! [[ "$signin_secret" =~ ^[a-z0-9]([a-z0-9-]{0,251}[a-z0-9])?$ ]]; then
+  echo "manor: MANOR_K8S_SIGNIN_SECRET is not a valid Secret name" >&2
+  exit 1
+fi
 storage_class_line=""
 if [ -n "\${MANOR_K8S_STORAGE_CLASS:-}" ]; then
   storage_class_line="storageClassName: $MANOR_K8S_STORAGE_CLASS"
@@ -139,7 +147,7 @@ spec:
           # the pod starts the same without the Secret.
           envFrom:
             - secretRef:
-                name: manor-signin
+                name: $signin_secret
                 optional: true
           volumeMounts:
             - name: home

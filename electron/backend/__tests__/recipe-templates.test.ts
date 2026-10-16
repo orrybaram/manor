@@ -191,9 +191,10 @@ describe("recipe templates (ADR-229 D8)", () => {
   });
 
   /** Runs up.sh against a `kubectl` that records the manifests it is given. */
-  function renderManifest(env: Record<string, string>): string {
+  function renderManifest(env: Record<string, string>, expectStatus = 0): string {
     const bin = path.join(base, "bin");
-    fs.mkdirSync(bin);
+    fs.mkdirSync(bin, { recursive: true });
+    fs.rmSync(path.join(base, "applied.yaml"), { force: true });
     const out = path.join(base, "applied.yaml");
     fs.writeFileSync(
       path.join(bin, "kubectl"),
@@ -206,8 +207,8 @@ describe("recipe templates (ADR-229 D8)", () => {
       env: { PATH: `${bin}:${process.env.PATH}`, ...env },
       encoding: "utf-8",
     });
-    expect(result.status, result.stderr).toBe(0);
-    return fs.readFileSync(out, "utf-8");
+    expect(result.status, result.stderr).toBe(expectStatus);
+    return fs.existsSync(out) ? fs.readFileSync(out, "utf-8") : "";
   }
 
   const K8S_ENV = {
@@ -266,10 +267,18 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(destroy).not.toContain("manor-deny-ingress");
   });
 
+  it("kubernetes: up refuses a sign-in Secret name that is not a DNS name", () => {
+    expect(renderManifest({ ...K8S_ENV, MANOR_K8S_SIGNIN_SECRET: "x\ninjected: 1" }, 1)).toBe("");
+  });
+
   it("kubernetes: the pod reads the optional manor-signin Secret, and up sets up gh for git (ADR-235 D9)", () => {
     const manifest = renderManifest(K8S_ENV);
     expect(manifest).toContain(
       "          envFrom:\n            - secretRef:\n                name: manor-signin\n                optional: true\n",
+    );
+    // A profile's own Secret comes from the recipe's env; a bad name is refused before any YAML.
+    expect(renderManifest({ ...K8S_ENV, MANOR_K8S_SIGNIN_SECRET: "manor-signin-hp-ab12" })).toContain(
+      "                name: manor-signin-hp-ab12\n                optional: true\n",
     );
     const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
     const hooks = up.slice(up.indexOf("<<'HOOKS'"), up.lastIndexOf("HOOKS"));
@@ -299,7 +308,8 @@ describe("recipe templates (ADR-229 D8)", () => {
     });
     // A kubectl that answers the StatefulSet's replicas and the pod's Ready.
     const bin = path.join(base, "bin");
-    fs.mkdirSync(bin);
+    fs.mkdirSync(bin, { recursive: true });
+    fs.rmSync(path.join(base, "applied.yaml"), { force: true });
     fs.writeFileSync(
       path.join(bin, "kubectl"),
       '#!/bin/sh\ncase "$*" in\n  *statefulset*) printf %s "$FAKE_REPLICAS" ;;\n  *pod*) printf %s "$FAKE_READY" ;;\nesac\n',

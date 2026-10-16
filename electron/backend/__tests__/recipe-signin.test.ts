@@ -58,13 +58,13 @@ function fakeCluster(opts: { secret?: Record<string, string>; namespace?: boolea
         return "";
       }
       if (verb === "get" && kind === "secret") {
-        if (!secret) throw fail('Error from server (NotFound): secrets "manor-signin" not found');
+        if (!secret) throw fail('Error from server (NotFound): secrets "manor-signin-hp-1" not found');
         return Object.keys(secret).map((k) => `${k}\n`).join("");
       }
       if (verb === "apply") {
         const doc = JSON.parse(o?.input ?? "") as { data: Record<string, string> };
         secret = { ...doc.data };
-        return "secret/manor-signin created\n";
+        return "secret/manor-signin-hp-1 created\n";
       }
       if (verb === "patch") {
         if (!secret) throw fail("NotFound");
@@ -73,7 +73,7 @@ function fakeCluster(opts: { secret?: Record<string, string>; namespace?: boolea
           if (v === null) delete secret[k];
           else secret[k] = v;
         }
-        return "secret/manor-signin patched\n";
+        return "secret/manor-signin-hp-1 patched\n";
       }
       if (verb === "delete" && kind === "secret") {
         secret = null;
@@ -106,14 +106,14 @@ function expectNoTokenInArgv(calls: Call[]): void {
 
 describe("sign-in Secret (ADR-235 D9)", () => {
   it("builds a Secret of base64 data that no token can break out of", () => {
-    const doc = JSON.parse(buildSignInSecret("team", { GH_TOKEN: 'a"b\nc' })) as {
+    const doc = JSON.parse(buildSignInSecret("manor-signin-hp-1", "team", { GH_TOKEN: 'a"b\nc' })) as {
       kind: string;
       metadata: { name: string; namespace: string };
       type: string;
       data: Record<string, string>;
     };
     expect(doc.kind).toBe("Secret");
-    expect(doc.metadata).toMatchObject({ name: "manor-signin", namespace: "team" });
+    expect(doc.metadata).toMatchObject({ name: "manor-signin-hp-1", namespace: "team" });
     expect(doc.type).toBe("Opaque");
     expect(Buffer.from(doc.data.GH_TOKEN, "base64").toString()).toBe('a"b\nc');
   });
@@ -133,7 +133,9 @@ describe("sign-in Secret (ADR-235 D9)", () => {
     expect(profileKubeTarget({ ...PROFILE, values: { context: "dev" } })).toEqual({
       context: "dev",
       namespace: "manor",
+      secret: "manor-signin-hp-1",
     });
+    expect(() => profileKubeTarget({ ...PROFILE, id: "bad id" })).toThrow(/id/);
   });
 
   it("creates the Secret (and namespace) on stdin, with the gh token, never in argv", async () => {
@@ -166,7 +168,7 @@ describe("sign-in Secret (ADR-235 D9)", () => {
       "team",
       "patch",
       "secret",
-      "manor-signin",
+      "manor-signin-hp-1",
       "--type",
       "merge",
       "--patch-file",
@@ -223,7 +225,7 @@ describe("sign-in Secret (ADR-235 D9)", () => {
       "team",
       "delete",
       "secret",
-      "manor-signin",
+      "manor-signin-hp-1",
       "--ignore-not-found",
     ]);
   });
@@ -239,9 +241,9 @@ describe("sign-in Secret (ADR-235 D9)", () => {
   });
 
   it("lists key names, or null without the Secret", async () => {
-    expect(await signInSecretKeys({ context: "dev", namespace: "team" }, fakeCluster().deps)).toBeNull();
+    expect(await signInSecretKeys({ context: "dev", namespace: "team", secret: "manor-signin-hp-1" }, fakeCluster().deps)).toBeNull();
     expect(
-      await signInSecretKeys({ context: "dev", namespace: "team" }, fakeCluster({ secret: { A: "1", B: "2" } }).deps),
+      await signInSecretKeys({ context: "dev", namespace: "team", secret: "manor-signin-hp-1" }, fakeCluster({ secret: { A: "1", B: "2" } }).deps),
     ).toEqual(["A", "B"]);
   });
 

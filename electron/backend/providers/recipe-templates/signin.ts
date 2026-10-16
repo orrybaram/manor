@@ -1,7 +1,7 @@
 /**
  * "Sign new pods in for me" (ADR-235 D9), Kubernetes profiles only.
  *
- * Manor writes one Secret, `manor-signin`, in the profile's namespace, with
+ * Manor writes one Secret per profile, `manor-signin-<profileId>`, in the profile's namespace, with
  * keys `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`. The `kubernetes` template's
  * pod reads it with `envFrom` (optional), and its hooks step runs
  * `gh auth setup-git` when `GH_TOKEN` is set. The laptop keeps no copy: the
@@ -27,8 +27,8 @@
  *   error message is scrubbed of the token before it is thrown.
  *
  * The trade (the ADR's copy): anyone who can read Secrets in the namespace,
- * or exec into any of its pods, can read both tokens. Two profiles on the
- * same context and namespace share the one Secret.
+ * or exec into any of its pods, can read both tokens. Each profile has its own
+ * Secret, so removing a token through one never touches another's.
  */
 
 import { execFile } from "node:child_process";
@@ -38,8 +38,17 @@ import type { SignInKind } from "../../../projects/host-profiles";
 import { failureLine, probeFailure } from "./checks/deps";
 import { CONTEXT_PATTERN, NAME_PATTERN } from "./types";
 
-/** The Secret's name, which the template's `envFrom` names too. */
-export const SIGNIN_SECRET = "manor-signin";
+/**
+ * The profile's Secret name: `manor-signin-<profileId>`. The template's
+ * `envFrom` names it through `MANOR_K8S_SIGNIN_SECRET`. A profile id is `hp-`
+ * plus hex, so the name is a valid DNS name; anything else is refused.
+ */
+export function signInSecretName(profileId: string): string {
+  if (!/^hp-[0-9a-f]+$/.test(profileId)) throw new Error("The profile's id is not valid.");
+  const name = `manor-signin-${profileId}`;
+  if (name.length > 253) throw new Error("The profile's id is too long.");
+  return name;
+}
 
 /** Which Secret key holds each token. */
 export const SIGNIN_KEYS: Readonly<Record<SignInKind, string>> = {
@@ -57,6 +66,8 @@ export interface SignInInput {
 export interface KubeTarget {
   context: string;
   namespace: string;
+  /** The profile's Secret. */
+  secret: string;
 }
 
 /** How long one kubectl or gh call may take. */
@@ -112,20 +123,20 @@ export function profileKubeTarget(profile: HostProfile): KubeTarget {
   const namespace = profile.values.namespace?.trim() || "manor";
   if (!CONTEXT_PATTERN.test(context)) throw new Error("The profile's cluster is not valid.");
   if (!NAME_PATTERN.test(namespace)) throw new Error("The profile's namespace is not valid.");
-  return { context, namespace };
+  return { context, namespace, secret: signInSecretName(profile.id) };
 }
 
 /**
- * A new `manor-signin` Secret holding `data` (key → plain token), for
+ * A new sign-in Secret holding `data` (key → plain token), for
  * `kubectl apply -f -`. JSON, which is YAML too, so no token can break out of
  * its string.
  */
-export function buildSignInSecret(namespace: string, data: Record<string, string>): string {
+export function buildSignInSecret(secret: string, namespace: string, data: Record<string, string>): string {
   return JSON.stringify({
     apiVersion: "v1",
     kind: "Secret",
     metadata: {
-      name: SIGNIN_SECRET,
+      name: secret,
       namespace,
       labels: { "app.kubernetes.io/managed-by": "manor" },
     },
@@ -189,7 +200,7 @@ export async function signInSecretKeys(target: KubeTarget, deps: SignInDeps): Pr
       ...kubectlBase(target),
       "get",
       "secret",
-      SIGNIN_SECRET,
+      target.secret,
       "-o",
       'go-template={{range $k, $v := .data}}{{$k}}{{"\\n"}}{{end}}',
     ]);
@@ -276,12 +287,12 @@ export async function writeSignIn(
   try {
     if (existing === null) {
       await deps.run("kubectl", [...kubectlBase(target), "apply", "-f", "-"], {
-        input: buildSignInSecret(target.namespace, tokens),
+        input: buildSignInSecret(target.secret, target.namespace, tokens),
       });
     } else {
       await deps.run(
         "kubectl",
-        [...kubectlBase(target), "patch", "secret", SIGNIN_SECRET, "--type", "merge", "--patch-file", "/dev/stdin"],
+        [...kubectlBase(target), "patch", "secret", target.secret, "--type", "merge", "--patch-file", "/dev/stdin"],
         { input: buildSignInPatch(tokens) },
       );
     }
@@ -306,11 +317,11 @@ export async function removeSignIn(
   if (existing === null || !existing.includes(key)) return;
   try {
     if (existing.every((k) => k === key)) {
-      await deps.run("kubectl", [...kubectlBase(target), "delete", "secret", SIGNIN_SECRET, "--ignore-not-found"]);
+      await deps.run("kubectl", [...kubectlBase(target), "delete", "secret", target.secret, "--ignore-not-found"]);
     } else {
       await deps.run(
         "kubectl",
-        [...kubectlBase(target), "patch", "secret", SIGNIN_SECRET, "--type", "merge", "--patch-file", "/dev/stdin"],
+        [...kubectlBase(target), "patch", "secret", target.secret, "--type", "merge", "--patch-file", "/dev/stdin"],
         { input: buildSignInPatch({ [key]: null }) },
       );
     }

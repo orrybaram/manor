@@ -1,6 +1,6 @@
 ---
 title: projectHostStatus helper and its test
-status: in-progress
+status: done
 priority: medium
 assignee: haiku
 blocked_by: []

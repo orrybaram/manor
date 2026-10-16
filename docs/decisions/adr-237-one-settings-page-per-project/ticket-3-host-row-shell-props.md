@@ -1,6 +1,6 @@
 ---
 title: HostRowShell gains defaultOpen and a detail line
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

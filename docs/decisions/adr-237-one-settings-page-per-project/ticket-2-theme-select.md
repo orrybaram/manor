@@ -1,6 +1,6 @@
 ---
 title: Project theme picker becomes a select; General section two-column
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

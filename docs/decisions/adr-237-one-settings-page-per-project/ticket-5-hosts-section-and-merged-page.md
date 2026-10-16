@@ -1,6 +1,6 @@
 ---
 title: Hosts section with per-host rows; one project page
-status: todo
+status: in-progress
 priority: critical
 assignee: opus
 blocked_by: [2, 3, 4]

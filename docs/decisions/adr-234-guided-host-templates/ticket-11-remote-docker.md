@@ -1,6 +1,6 @@
 ---
 title: Remote Docker over SSH in the Docker Connect step
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: [9, 10]

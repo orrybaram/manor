@@ -602,6 +602,9 @@ export function initApp(devTitle: string | null): void {
     // the old zero-windows test never fired, so a user who closed the main
     // window could not get it back without quitting.
     app.on("activate", () => {
+      // Not once a quit has begun: its IPC is gone, and a window opened now
+      // would be a blank page nothing can reach.
+      if (shutdownRun) return;
       if (!mainWindow || mainWindow.isDestroyed()) {
         openPrimaryWindow();
       }
@@ -649,6 +652,12 @@ export function initApp(devTitle: string | null): void {
     clearTimeout(timer);
   };
 
+  /**
+   * How long after the first quit the process is ended outright if it is
+   * still alive: the flush's bound, plus a margin for the quit itself.
+   */
+  const QUIT_BACKSTOP_MS = QUIT_FLUSH_TIMEOUT_MS + 5_000;
+
   /** Tears everything down once, then lets the next quit through. */
   const runShutdown = (): Promise<void> => {
     shutdownRun ??= performShutdown().finally(() => {
@@ -660,7 +669,20 @@ export function initApp(devTitle: string | null): void {
   app.on("before-quit", (event) => {
     if (shutDown) return;
     event.preventDefault();
-    void runShutdown().then(() => app.quit());
+    // A second Cmd+Q while the first is still shutting down: already handled.
+    if (shutdownRun) return;
+    console.log("[shutdown] quit requested");
+    void runShutdown().then(() => {
+      console.log("[shutdown] done; quitting");
+      app.quit();
+    });
+    // The bridge is torn down by now, so a quit that does not finish leaves
+    // a window nothing answers. Whatever held it — a window refusing to
+    // close, a step that never returned — the process ends anyway.
+    setTimeout(() => {
+      console.warn("[shutdown] quit did not complete; exiting");
+      app.exit(0);
+    }, QUIT_BACKSTOP_MS).unref();
   });
 
   // An update install quits through `before-quit` too, and re-quitting with
@@ -669,23 +691,38 @@ export function initApp(devTitle: string | null): void {
   // through, untouched.
   setBeforeInstallHook(runShutdown);
 
+  /**
+   * Run one shutdown step. A step that throws is logged and the rest still
+   * run: thrown out of `before-quit`, after its `preventDefault`, it would
+   * cancel the quit with half the app already torn down.
+   */
+  function step<T>(name: string, fn: () => T): T | undefined {
+    try {
+      return fn();
+    } catch (err) {
+      console.error(`[shutdown] ${name} failed:`, err);
+      return undefined;
+    }
+  }
+
   function performShutdown(): Promise<void> {
-    webviewServer.stop();
-    hostServerSync.dispose();
-    hostLinks.dispose();
-    hostPipes.dispose();
+    step("webview server", () => webviewServer.stop());
+    step("host server sync", () => hostServerSync.dispose());
+    step("host links", () => hostLinks.dispose());
+    step("host pipes", () => hostPipes.dispose());
     // Takes the relay down first, then the connections it carried. Nothing
     // reachable may outlive the app that opened it.
-    const remoteControlDown = remoteControl.shutdown();
+    const remoteControlDown =
+      step("remote control", () => remoteControl.shutdown()) ?? Promise.resolve();
     // Bridge sockets close with remote control above; the server's shared
     // stop then disposes the surface they attached to.
-    wsBridge?.dispose();
-    ipcBridge.dispose();
-    server.stop();
-    portlessManager.stop();
-    prewarmManager.dispose().catch(() => {});
+    step("ws bridge", () => wsBridge?.dispose());
+    step("ipc bridge", () => ipcBridge.dispose());
+    step("server", () => server.stop());
+    step("portless", () => portlessManager.stop());
+    step("prewarm", () => prewarmManager.dispose().catch(() => {}));
     // Background `docker pull` / `docker build` a template fix started (ADR-234 D8).
-    stopTemplateJobs();
+    step("template jobs", () => stopTemplateJobs());
     // Last: the relay is down by now, so nothing new joins the queues.
     return flushSealedStores(remoteControlDown);
   }

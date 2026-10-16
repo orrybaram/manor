@@ -18,6 +18,7 @@ import { ToggleGroup } from "../../ui/ToggleGroup/ToggleGroup";
 import { SettingField } from "../SettingRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
+import { ProfileSignIn } from "./ProfileSignIn";
 import { TemplateChecklist } from "./TemplateChecklist";
 
 /** Where the recipe contract and a worked ssh example are (ADR-229 D8). */
@@ -424,6 +425,8 @@ function TemplateForm(props: TemplateFormProps) {
           </Collapse>
         </div>
       )}
+      {/* Tokens need a saved profile to belong to. */}
+      {isProfile && profile && template.id === "kubernetes" && <ProfileSignIn profile={profile} />}
       <Row gap="xs" align="center">
         <Button
           variant="primary"

@@ -71,3 +71,21 @@ export function profileSummary(templateName: string, values: Record<string, stri
   const where = [values.context, values.namespace].filter((v) => v);
   return [templateName, ...(where.length > 0 ? [where.join(" / ")] : [])].join(" · ");
 }
+
+/** ADR-235 D9: the trade of "Sign new pods in for me", shown while it is on. */
+export function signInWarningText(namespace: string): string {
+  const where = namespace === "" ? "the profile's namespace" : namespace;
+  return `Anyone who can read Secrets in ${where} or open a terminal in its pods can use these. Every agent in every pod can use them too. They are your own tokens, not scoped to a pod, so a namespace you share with other people is the wrong place for this.`;
+}
+
+/** "Set 3/14/2026 · from this computer" (ADR-235 D9): when and how a token was set. */
+export function signInStatusText(meta: { setAt: number; source: "gh" | "pasted" }): string {
+  const when = new Date(meta.setAt).toLocaleDateString();
+  return `Set ${when} · ${meta.source === "gh" ? "from this computer" : "pasted token"}`;
+}
+
+/** What the Restart button reported (ADR-235 D9). */
+export function restartedPodsText(count: number): string {
+  if (count === 0) return "No pods were running.";
+  return `Restarted ${count} ${count === 1 ? "pod" : "pods"}.`;
+}

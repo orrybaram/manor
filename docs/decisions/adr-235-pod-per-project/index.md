@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -362,6 +362,20 @@ desktop is away (ADR-229, ADR-225 D8), and moving a project between pods
   means a bad `/opt` only costs time.
 - **Profiles don't update existing recipes**, which is the recipe contract.
   A changed image or size applies to new pods only.
+
+**Found in review (2026-10-15)**
+
+- `kubectl apply` keeps a full copy of an object in its
+  `last-applied-configuration` annotation, so a token "removed" by a merge
+  patch stayed readable. The sign-in Secret is now made with `kubectl
+  create -f -`. Never `apply` an object that holds a secret.
+- Still open, needing a decision: removing a profile leaves its
+  `manor-signin-<id>` Secret in the cluster. A pod set up through the "Set up
+  on" fallback dialog never gets `forProject`. New Workspace and Project
+  Settings hide other projects' pods with no "Show all hosts" toggle.
+- Not yet run for real: the release `host-image` job (app and tarball build
+  on Ubuntu, arm64 under QEMU), sign-in against a real cluster (`gh auth
+  setup-git` with only `GH_TOKEN`), and the new UI in the running app.
 
 ## Tickets
 

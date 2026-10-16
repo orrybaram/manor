@@ -1,6 +1,6 @@
 ---
 title: Sign-in section in the profile editor
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2, 9]

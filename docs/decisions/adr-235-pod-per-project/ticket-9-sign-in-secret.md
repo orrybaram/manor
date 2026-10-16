@@ -1,6 +1,6 @@
 ---
 title: "Sign new pods in for me" — namespace Secret, envFrom, gh setup-git (main)
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [8]

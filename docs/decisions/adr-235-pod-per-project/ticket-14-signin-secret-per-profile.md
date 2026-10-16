@@ -1,6 +1,6 @@
 ---
 title: Name the sign-in Secret per profile
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [9, 3]

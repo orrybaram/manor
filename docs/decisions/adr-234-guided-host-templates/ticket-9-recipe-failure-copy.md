@@ -1,6 +1,6 @@
 ---
 title: Plain-sentence summaries for common recipe failures
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [8]

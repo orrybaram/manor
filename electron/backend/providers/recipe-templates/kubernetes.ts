@@ -243,7 +243,12 @@ export const kubernetesTemplate: RecipeTemplate = {
   name: "Kubernetes StatefulSet",
   description: "A one-replica StatefulSet with a persistent volume for its home directory.",
   fields: [
-    { key: "context", label: "kubectl context", description: "Optional. Leave blank for the current context." },
+    {
+      key: "context",
+      label: "kubectl context",
+      type: "choice",
+      description: "Optional. Leave blank for the current context.",
+    },
     { key: "namespace", label: "Namespace", default: "manor", required: true },
     { key: "name", label: "Name", default: shortName, required: true },
     { key: "image", label: "Image", default: defaultHostImage, required: true },

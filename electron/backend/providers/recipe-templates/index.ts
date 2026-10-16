@@ -10,9 +10,20 @@ import { hostRecipesDir } from "../../../paths";
 import { parseRecipe, recipeDir, writeRecipe } from "../recipes";
 import { dockerTemplate } from "./docker";
 import { kubernetesTemplate } from "./kubernetes";
-import type { RecipeTemplate, TemplateContext, TemplateInfo } from "./types";
+import { runTemplateChecks, type CheckDeps } from "./checks";
+import type { RecipeTemplate, TemplateCheckResult, TemplateContext, TemplateInfo } from "./types";
 
-export type { FormField, RecipeTemplate, TemplateContext, TemplateFile, TemplateInfo } from "./types";
+export type {
+  Choice,
+  FormField,
+  FormFieldType,
+  RecipeTemplate,
+  TemplateCheck,
+  TemplateCheckResult,
+  TemplateContext,
+  TemplateFile,
+  TemplateInfo,
+} from "./types";
 export { createCustomRecipe } from "./custom";
 
 export const RECIPE_TEMPLATES: readonly RecipeTemplate[] = [dockerTemplate, kubernetesTemplate];
@@ -28,6 +39,22 @@ export function listTemplates(ctx: TemplateContext): TemplateInfo[] {
       ...(def !== undefined ? { default: typeof def === "function" ? def(ctx) : def } : {}),
     })),
   }));
+}
+
+/**
+ * Template `templateId`'s checklist and its `choice` fields' options for the
+ * form's `values` (ADR-234 D6). Probes never throw for a missing CLI or a
+ * broken config; they list nothing. An unknown template is an error.
+ */
+export function checkTemplate(
+  templateId: string,
+  values: Record<string, string>,
+  deps?: CheckDeps,
+): Promise<TemplateCheckResult> {
+  if (!RECIPE_TEMPLATES.some((t) => t.id === templateId)) {
+    return Promise.reject(new Error(`Unknown template: ${JSON.stringify(templateId)}`));
+  }
+  return runTemplateChecks(templateId, values, deps);
 }
 
 /**

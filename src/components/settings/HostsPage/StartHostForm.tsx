@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
-import type { TemplateInfo } from "../../../electron.d";
+import type { Choice, TemplateInfo } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
@@ -8,7 +8,11 @@ import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Input } from "../../ui/Input";
 import { Link } from "../../ui/Link/Link";
 import { Row, Stack } from "../../ui/Layout/Layout";
-import { SearchableSelect } from "../../ui/SearchableSelect/SearchableSelect";
+import {
+  SearchableSelect,
+  type SearchableSelectOption,
+} from "../../ui/SearchableSelect/SearchableSelect";
+import { ToggleGroup } from "../../ui/ToggleGroup/ToggleGroup";
 import { SettingField } from "../SettingRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 
@@ -39,7 +43,6 @@ export function StartHostForm(props: StartHostFormProps) {
 
   const [templates, setTemplates] = useState<TemplateInfo[] | null>(null);
   const [choice, setChoice] = useState("");
-  const [values, setValues] = useState<Record<string, string>>({});
   const [action, setAction] = useState<{ busy: boolean; error: string | null }>({
     busy: false,
     error: null,
@@ -72,10 +75,6 @@ export function StartHostForm(props: StartHostFormProps) {
   const pick = (id: string) => {
     setChoice(id);
     setAction({ busy: false, error: null });
-    const picked = templates?.find((t) => t.id === id);
-    setValues(
-      Object.fromEntries((picked?.fields ?? []).map((f) => [f.key, f.default ?? ""])),
-    );
   };
 
   const run = (work: () => Promise<void>) => {
@@ -85,15 +84,6 @@ export function StartHostForm(props: StartHostFormProps) {
       (err: unknown) => setAction({ busy: false, error: ipcErrorMessage(err) }),
     );
   };
-
-  const startFromTemplate = (picked: TemplateInfo) =>
-    run(async () => {
-      const recipeId = await window.electronAPI.hosts.createRecipe(picked.id, values);
-      const { hostId } = await window.electronAPI.hosts.addRecipeHost(recipeId);
-      onStarted(hostId);
-    });
-
-  const missing = template?.fields.some((f) => f.required && !(values[f.key] ?? "").trim()) ?? false;
 
   return (
     <Stack gap="sm" data-testid="start-host-form">
@@ -108,38 +98,15 @@ export function StartHostForm(props: StartHostFormProps) {
         data-testid="start-host-template"
       />
       {template && (
-        <>
-          <div className={settingsStyles.fieldHint}>{template.description}</div>
-          {template.fields.map((field) => (
-            <SettingField key={field.key} label={field.label} hint={field.description}>
-              <Input
-                data-testid={`start-host-field-${field.key}`}
-                value={values[field.key] ?? ""}
-                disabled={busy}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setValues((v) => ({ ...v, [field.key]: value }));
-                }}
-              />
-            </SettingField>
-          ))}
-          <Row gap="xs">
-            <Button
-              variant="primary"
-              size="sm"
-              data-testid="start-host-submit"
-              disabled={busy || missing}
-              onClick={() => startFromTemplate(template)}
-            >
-              {busy ? "Starting…" : "Start host"}
-            </Button>
-            {onCancel && (
-              <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-                Cancel
-              </Button>
-            )}
-          </Row>
-        </>
+        // Keyed, so picking another template starts its form afresh.
+        <TemplateForm
+          key={template.id}
+          template={template}
+          busy={busy}
+          run={run}
+          onStarted={onStarted}
+          onCancel={onCancel}
+        />
       )}
       {choice === CUSTOM && (
         <CustomRecipe busy={busy} run={run} onStarted={onStarted} onCancel={onCancel} />
@@ -157,6 +124,174 @@ export function StartHostForm(props: StartHostFormProps) {
         </div>
       )}
     </Stack>
+  );
+}
+
+type TemplateFormProps = {
+  template: TemplateInfo;
+  busy: boolean;
+  run: (work: () => Promise<void>) => void;
+  onStarted: (hostId: string) => void;
+  onCancel?: () => void;
+};
+
+/**
+ * A template's fields and Start. `choice` fields list their options from
+ * `hosts.checkTemplate` (ADR-234 D6), asked when the form opens and again
+ * whenever the window regains focus, so a context made in a terminal shows
+ * up without reopening the form.
+ */
+function TemplateForm(props: TemplateFormProps) {
+  const { template, busy, run, onStarted, onCancel } = props;
+
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(template.fields.map((f) => [f.key, f.default ?? ""])),
+  );
+  // Null until the first check answers.
+  const [choices, setChoices] = useState<Record<string, Choice[]> | null>(null);
+  // The answers as of the last edit, for a refresh started by focus.
+  const valuesRef = useRef(values);
+  // Only the latest request's answer is kept.
+  const requestRef = useRef(0);
+
+  useMountEffect(() => {
+    let live = true;
+    const refresh = () => {
+      const request = ++requestRef.current;
+      window.electronAPI.hosts.checkTemplate(template.id, valuesRef.current).then(
+        (result) => {
+          if (live && request === requestRef.current) setChoices(result.choices);
+        },
+        () => {
+          // Nothing to list: choice fields fall back to typing.
+          if (live && request === requestRef.current) setChoices((prev) => prev ?? {});
+        },
+      );
+    };
+    refresh();
+    window.addEventListener("focus", refresh);
+    return () => {
+      live = false;
+      window.removeEventListener("focus", refresh);
+    };
+  });
+
+  const setValue = (key: string, value: string) => {
+    const next = { ...valuesRef.current, [key]: value };
+    valuesRef.current = next;
+    setValues(next);
+  };
+
+  const start = () =>
+    run(async () => {
+      const recipeId = await window.electronAPI.hosts.createRecipe(template.id, values);
+      const { hostId } = await window.electronAPI.hosts.addRecipeHost(recipeId);
+      onStarted(hostId);
+    });
+
+  const missing = template.fields.some((f) => f.required && !(values[f.key] ?? "").trim());
+
+  return (
+    <>
+      <div className={settingsStyles.fieldHint}>{template.description}</div>
+      {template.fields.map((field) => (
+        <SettingField key={field.key} label={field.label} hint={field.description}>
+          <FieldControl
+            field={field}
+            value={values[field.key] ?? ""}
+            choices={choices === null ? null : (choices[field.key] ?? [])}
+            disabled={busy}
+            onChange={(value) => setValue(field.key, value)}
+          />
+        </SettingField>
+      ))}
+      <Row gap="xs">
+        <Button
+          variant="primary"
+          size="sm"
+          data-testid="start-host-submit"
+          disabled={busy || missing}
+          onClick={start}
+        >
+          {busy ? "Starting…" : "Start host"}
+        </Button>
+        {onCancel && (
+          <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+        )}
+      </Row>
+    </>
+  );
+}
+
+type FieldControlProps = {
+  field: TemplateInfo["fields"][number];
+  value: string;
+  /** A `choice` field's options; null while they are being listed. */
+  choices: Choice[] | null;
+  disabled: boolean;
+  onChange: (value: string) => void;
+};
+
+/**
+ * One field's control, by its type (ADR-234 D6). A `choice` field with
+ * nothing listed, or a `size` field without options, is typed instead, so
+ * no field is ever left unfillable.
+ */
+function FieldControl(props: FieldControlProps) {
+  const { field, value, choices, disabled, onChange } = props;
+
+  const testId = `start-host-field-${field.key}`;
+
+  if (field.type === "size" && field.options && field.options.length > 0) {
+    return (
+      <ToggleGroup
+        value={value}
+        onChange={onChange}
+        options={field.options.map((o) => ({ value: o.value, label: o.label }))}
+        size="sm"
+        aria-label={field.label}
+        data-testid={testId}
+      />
+    );
+  }
+
+  if (field.type === "choice" && (choices === null || choices.length > 0)) {
+    const options: SearchableSelectOption[] = [
+      // An optional field can be left blank: the template's default applies.
+      ...(field.required ? [] : [{ value: "", label: "Default" }]),
+      ...(choices ?? []),
+      // A value typed in, or no longer listed, stays visible and picked.
+      ...(value !== "" && !(choices ?? []).some((c) => c.value === value)
+        ? [{ value, label: value }]
+        : []),
+    ];
+    return (
+      <SearchableSelect
+        value={value}
+        onChange={(next) => {
+          if (!disabled) onChange(next);
+        }}
+        options={options}
+        placeholder={field.required ? "Pick one…" : "Default"}
+        maxWidth={360}
+        loading={choices === null}
+        onCreate={disabled ? undefined : onChange}
+        createLabel={(q) => `Use "${q}"`}
+        aria-label={field.label}
+        data-testid={testId}
+      />
+    );
+  }
+
+  return (
+    <Input
+      data-testid={testId}
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+    />
   );
 }
 

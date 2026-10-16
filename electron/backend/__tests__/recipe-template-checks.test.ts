@@ -1,0 +1,121 @@
+/**
+ * ADR-234 D6: each template's checks list its `choice` fields' options from
+ * the CLI, and list nothing (never throw) when the CLI is missing or its
+ * output is unreadable.
+ */
+import { describe, expect, it, vi } from "vitest";
+import { checkTemplate, listTemplates } from "../providers/recipe-templates";
+import type { CheckDeps } from "../providers/recipe-templates/checks";
+
+/** A fake `execFile`: `answers[file]` is its stdout, or the error it fails with. */
+function fakeDeps(answers: Record<string, string | Error>) {
+  const execFile = vi.fn<CheckDeps["execFile"]>(async (file) => {
+    const answer = answers[file];
+    if (answer === undefined) {
+      throw Object.assign(new Error(`spawn ${file} ENOENT`), { code: "ENOENT" });
+    }
+    if (answer instanceof Error) throw answer;
+    return answer;
+  });
+  return { execFile };
+}
+
+const KUBECONFIG = JSON.stringify({
+  kind: "Config",
+  "current-context": "prod",
+  clusters: [
+    { name: "prod-cluster", cluster: { server: "https://prod.example:6443" } },
+    { name: "kind-dev", cluster: { server: "https://127.0.0.1:41234" } },
+  ],
+  contexts: [
+    { name: "prod", context: { cluster: "prod-cluster", user: "me" } },
+    { name: "kind-dev", context: { cluster: "kind-dev", user: "kind-dev" } },
+    { name: "orphan", context: { cluster: "gone", user: "me" } },
+  ],
+  users: [],
+});
+
+describe("kubernetes checks", () => {
+  it("lists kubeconfig's contexts with their servers, labelling the current one", async () => {
+    const deps = fakeDeps({ kubectl: KUBECONFIG });
+    const result = await checkTemplate("kubernetes", {}, deps);
+    expect(deps.execFile).toHaveBeenCalledWith("kubectl", ["config", "view", "-o", "json"]);
+    expect(result.checks).toEqual([]);
+    expect(result.choices.context).toEqual([
+      { value: "prod", label: "prod · kubectl's current", hint: "https://prod.example:6443" },
+      { value: "kind-dev", label: "kind-dev", hint: "https://127.0.0.1:41234" },
+      { value: "orphan", label: "orphan" },
+    ]);
+  });
+
+  it("lists nothing when kubectl is missing", async () => {
+    const result = await checkTemplate("kubernetes", {}, fakeDeps({}));
+    expect(result).toEqual({ checks: [], choices: { context: [] } });
+  });
+
+  it("lists nothing for a broken kubeconfig", async () => {
+    const failing = await checkTemplate(
+      "kubernetes",
+      {},
+      fakeDeps({ kubectl: new Error("error loading config file") }),
+    );
+    expect(failing.choices.context).toEqual([]);
+    const garbled = await checkTemplate("kubernetes", {}, fakeDeps({ kubectl: "not json" }));
+    expect(garbled.choices.context).toEqual([]);
+    const empty = await checkTemplate("kubernetes", {}, fakeDeps({ kubectl: "{}" }));
+    expect(empty.choices.context).toEqual([]);
+  });
+});
+
+describe("docker checks", () => {
+  const LINES = [
+    JSON.stringify({ Name: "default", Current: false, DockerEndpoint: "unix:///var/run/docker.sock" }),
+    JSON.stringify({ Name: "colima", Current: true, DockerEndpoint: "unix:///home/me/.colima/docker.sock" }),
+    JSON.stringify({ Name: "remote", Current: false, DockerEndpoint: "" }),
+  ].join("\n");
+
+  it("lists docker's contexts, one JSON object per line", async () => {
+    const deps = fakeDeps({ docker: `${LINES}\n` });
+    const result = await checkTemplate("docker", {}, deps);
+    expect(deps.execFile).toHaveBeenCalledWith("docker", ["context", "ls", "--format", "{{json .}}"]);
+    expect(result.choices.context).toEqual([
+      { value: "default", label: "default", hint: "unix:///var/run/docker.sock" },
+      { value: "colima", label: "colima · Docker's current", hint: "unix:///home/me/.colima/docker.sock" },
+      { value: "remote", label: "remote" },
+    ]);
+  });
+
+  it("reads a JSON array too, and skips unreadable rows", async () => {
+    const out = JSON.stringify([{ Name: "default", Current: true }, { Current: false }, 3]);
+    const result = await checkTemplate("docker", {}, fakeDeps({ docker: out }));
+    expect(result.choices.context).toEqual([{ value: "default", label: "default · Docker's current" }]);
+    const mixed = await checkTemplate(
+      "docker",
+      {},
+      fakeDeps({ docker: `garbage\n${JSON.stringify({ Name: "x" })}` }),
+    );
+    expect(mixed.choices.context).toEqual([{ value: "x", label: "x" }]);
+  });
+
+  it("lists nothing when docker is missing or times out", async () => {
+    expect((await checkTemplate("docker", {}, fakeDeps({}))).choices.context).toEqual([]);
+    const timedOut = await checkTemplate(
+      "docker",
+      {},
+      fakeDeps({ docker: Object.assign(new Error("killed"), { killed: true, signal: "SIGTERM" }) }),
+    );
+    expect(timedOut.choices.context).toEqual([]);
+  });
+});
+
+describe("checkTemplate", () => {
+  it("rejects an unknown template", async () => {
+    await expect(checkTemplate("nope", {}, fakeDeps({}))).rejects.toThrow(/Unknown template/);
+  });
+
+  it("describes both templates' context fields as choices", () => {
+    for (const template of listTemplates({ appVersion: "1.2.3" })) {
+      expect(template.fields.find((f) => f.key === "context")?.type).toBe("choice");
+    }
+  });
+});

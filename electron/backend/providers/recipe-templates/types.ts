@@ -19,6 +19,26 @@ export function defaultHostImage(ctx: TemplateContext): string {
   return `${HOST_IMAGE_REPOSITORY}:${ctx.appVersion.replace(/^v/, "")}`;
 }
 
+/**
+ * One option for a field (ADR-234 D6): a `choice` field's, listed by main
+ * (`checkTemplate`), or a `size` field's, fixed in the template.
+ */
+export interface Choice {
+  /** What the field's answer becomes when this is picked. */
+  value: string;
+  label: string;
+  /** A second line that tells similar options apart, e.g. a cluster's server. */
+  hint?: string;
+}
+
+/**
+ * How the form renders a field (ADR-234 D6): free `text` (the default), a
+ * `choice` among options main lists (`TemplateCheckResult.choices`; the user
+ * may still type one that isn't listed), or a `size` among the template's
+ * own fixed `options`.
+ */
+export type FormFieldType = "text" | "choice" | "size";
+
 /** One answer the form asks for. */
 export interface FormField {
   /** The key of the answer in `values`. */
@@ -28,6 +48,38 @@ export interface FormField {
   /** A function is called each time the form is described (a fresh name). */
   default?: string | ((ctx: TemplateContext) => string);
   required?: boolean;
+  /** Absent means `text`. */
+  type?: FormFieldType;
+  /** Shown under the form's "Advanced" disclosure rather than up front (ADR-234 D7). */
+  advanced?: boolean;
+  /** A `size` field's options, in the order shown. */
+  options?: Choice[];
+}
+
+/**
+ * One row of a template's readiness checklist (ADR-234 D8): a plain
+ * sentence, its state, and at most one fix. Later checks are `todo` until
+ * the earlier ones pass.
+ */
+export interface TemplateCheck {
+  id: string;
+  state: "ok" | "bad" | "todo" | "busy";
+  /** A plain sentence: "Docker isn't running". */
+  title: string;
+  /** "Context desktop-linux", "280 of 450 MB". A shell command is only ever shown here. */
+  detail?: string;
+  /** What `hosts.runTemplateFix` runs, or the renderer applies. */
+  fix?: { id: string; label: string };
+}
+
+/**
+ * What `hosts.checkTemplate` answers for a template and the form's values
+ * (ADR-234 D6): its checklist, and the options of its `choice` fields, by
+ * field key. One round trip per refresh.
+ */
+export interface TemplateCheckResult {
+  checks: TemplateCheck[];
+  choices: Record<string, Choice[]>;
 }
 
 /** One script a template writes into the recipe's directory. */

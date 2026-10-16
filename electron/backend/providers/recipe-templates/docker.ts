@@ -200,6 +200,7 @@ export const dockerTemplate: RecipeTemplate = {
     {
       key: "context",
       label: "Docker context",
+      type: "choice",
       description:
         "Optional, such as colima or desktop-linux. Blank for the default.",
     },

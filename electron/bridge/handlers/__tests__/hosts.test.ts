@@ -14,6 +14,7 @@ import * as path from "node:path";
 import {
   hostsAdd,
   hostsAddRecipeHost,
+  hostsCheckTemplate,
   hostsHealthCheck,
   hostsPairDevice,
   hostsProjectsOnHost,
@@ -200,6 +201,22 @@ describe("hosts:addRecipeHost (ADR-229 D2)", () => {
     expect(() => handlers.get("hosts:addRecipeHost")!(null, "k8s-dev")).toThrow(
       /Dev pod" already starts a host/,
     );
+  });
+});
+
+describe("hosts:checkTemplate (ADR-234 D6)", () => {
+  const check = (...args: unknown[]) =>
+    (hostsCheckTemplate as (...a: unknown[]) => unknown)(localCtx(makeDeps().deps as never), ...args);
+
+  it("refuses values that aren't an object of strings", () => {
+    expect(() => check("docker", null)).toThrow(/object of strings/);
+    expect(() => check("docker", ["x"])).toThrow(/object of strings/);
+    expect(() => check("docker", { context: 1 })).toThrow(/values\.context/);
+    expect(() => check(7, {})).toThrow(/templateId/);
+  });
+
+  it("rejects an unknown template", async () => {
+    await expect(check("nope", {})).rejects.toThrow(/Unknown template/);
   });
 });
 

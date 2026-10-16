@@ -1,6 +1,6 @@
 ---
 title: Docs and glossary — profiles, pods per project, sign-in trade-off
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [4, 6, 7, 10, 12]

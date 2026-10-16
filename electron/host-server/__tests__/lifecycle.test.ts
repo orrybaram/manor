@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hostServerPaths } from "../../paths";
-import { ensureServerRunning, probeSocket, type LifecycleDeps } from "../lifecycle";
+import { ensureServerRunning, probeSocket, restartServer, type LifecycleDeps } from "../lifecycle";
 import type { SupervisedUnit, Supervisor } from "../supervisor";
 
 /**
@@ -273,6 +273,127 @@ describe("ensureServerRunning", () => {
       );
       expect(spawned).toBe(1);
       expect(warnings.join("\n")).toMatch(/started no server/);
+    });
+  });
+  describe("restartServer (ADR-236 D4)", () => {
+    /** A live 2.0.0 server whose kill (or supervised stop) takes it down. */
+    async function liveServer() {
+      const paths = hostServerPaths(dir);
+      await listen(paths.socket, "2.0.0", process.pid);
+      const state = { dead: false };
+      const takeDown = () => {
+        state.dead = true;
+        servers.pop()?.close();
+        fs.rmSync(paths.socket, { force: true });
+      };
+      const over: Partial<LifecycleDeps> = {
+        isAlive: (pid) => pid === process.pid && !state.dead,
+        kill: (pid, sig) => {
+          killed.push([pid, sig]);
+          takeDown();
+        },
+        spawnServer: () => {
+          spawned++;
+          state.dead = false;
+          void listen(paths.socket, "2.0.0", process.pid);
+        },
+      };
+      return { state, takeDown, over };
+    }
+
+    it("detached: SIGTERMs the live server, then starts a new one", async () => {
+      const { over } = await liveServer();
+      await restartServer(makeDeps(over));
+      expect(killed).toEqual([[process.pid, "SIGTERM"]]);
+      expect(spawned).toBe(1);
+    });
+
+    it("supervised: stops and starts through the supervisor, signalling nothing", async () => {
+      const paths = hostServerPaths(dir);
+      const { state, takeDown, over } = await liveServer();
+      const calls: Array<[string, SupervisedUnit]> = [];
+      const supervisor: Supervisor = {
+        kind: "systemd",
+        install: async () => {},
+        uninstall: async () => {},
+        status: async () => ({ kind: "systemd", running: { daemon: true, server: true } }),
+        start: async (unit) => {
+          calls.push(["start", unit]);
+          state.dead = false;
+          await listen(paths.socket, "2.0.0", process.pid);
+        },
+        restart: async (unit) => {
+          calls.push(["restart", unit]);
+        },
+        stop: async (unit) => {
+          calls.push(["stop", unit]);
+          takeDown();
+        },
+      };
+      await restartServer(makeDeps({ ...over, supervisor: () => supervisor }));
+      expect(calls).toEqual([
+        ["stop", "server"],
+        ["start", "server"],
+      ]);
+      expect(killed).toEqual([]);
+      expect(spawned).toBe(0);
+    });
+
+    it("supervised: signals the pid when the supervisor's stop leaves it alive", async () => {
+      const { over } = await liveServer();
+      let clock = 0;
+      const supervisor: Supervisor = {
+        kind: "systemd",
+        install: async () => {},
+        uninstall: async () => {},
+        status: async () => ({ kind: "systemd", running: { daemon: true, server: true } }),
+        start: async () => {
+          throw new Error("no unit");
+        },
+        restart: async () => {},
+        stop: async () => {},
+      };
+      await restartServer(
+        makeDeps({
+          ...over,
+          supervisor: () => supervisor,
+          warn: () => {},
+          now: () => clock,
+          sleep: async (ms) => {
+            clock += ms * 100;
+            await new Promise((r) => setTimeout(r, 1));
+          },
+        }),
+      );
+      expect(killed).toEqual([[process.pid, "SIGTERM"]]);
+      expect(spawned).toBe(1);
+    });
+
+    it("SIGKILLs a server that ignores SIGTERM", async () => {
+      const { takeDown, over } = await liveServer();
+      let clock = 0;
+      await restartServer(
+        makeDeps({
+          ...over,
+          kill: (pid, sig) => {
+            killed.push([pid, sig]);
+            if (sig === "SIGKILL") takeDown();
+          },
+          now: () => clock,
+          sleep: async (ms) => {
+            clock += ms * 100;
+            await new Promise((r) => setTimeout(r, 1));
+          },
+        }),
+      );
+      expect(killed.map((k) => k[1])).toEqual(["SIGTERM", "SIGKILL"]);
+      expect(spawned).toBe(1);
+    });
+
+    it("with no server running, just starts one", async () => {
+      await restartServer(makeDeps());
+      expect(killed).toEqual([]);
+      expect(spawned).toBe(1);
     });
   });
 });

@@ -22,6 +22,10 @@
  * `supervisor.restart("server")`. The supervised server runs the shim, so it
  * comes up as the installed version. A supervisor that fails, or starts
  * nothing that listens, falls back to the detached spawn with a warning.
+ *
+ * `restartServer()` (`manor-host restart-server`, ADR-236 D4) stops a live
+ * server, through the supervisor when there is one, then ensures one again:
+ * a fresh start re-reads `supervisor.env` and re-probes the secret backends.
  */
 
 import { spawn } from "node:child_process";
@@ -276,4 +280,31 @@ async function startSupervised(
     `[host-server] the ${supervisor.kind} supervisor started no server on ${deps.paths.socket}; spawning it detached`,
   );
   return false;
+}
+
+/**
+ * Stop the live server, then start one of this version (ADR-236 D4). Under
+ * a supervisor the stop goes through it, so a unit with `Restart=` does not
+ * bring the old process straight back; a supervisor that fails, or leaves
+ * the pid alive, falls back to SIGTERM then SIGKILL. With no server running
+ * this only ensures one. Throws as `ensureServerRunning` does.
+ */
+export async function restartServer(deps: LifecycleDeps = defaultDeps()): Promise<void> {
+  const { state, pid } = await inspect(deps);
+  if (state !== "down" && pid !== null) {
+    const supervisor = deps.supervisor?.() ?? null;
+    let stopped = false;
+    if (supervisor) {
+      try {
+        await supervisor.stop("server");
+        stopped = await waitFor(deps, KILL_GRACE_MS, () => !deps.isAlive(pid));
+      } catch (err) {
+        (deps.warn ?? ((m: string) => console.warn(m)))(
+          `[host-server] the ${supervisor.kind} supervisor could not stop the server (${errorMessage(err)}); signalling it`,
+        );
+      }
+    }
+    if (!stopped) await stopOld(deps, pid);
+  }
+  await ensureServerRunning(deps);
 }

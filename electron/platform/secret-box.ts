@@ -409,6 +409,22 @@ export function secretKeyPlace(
 }
 
 /**
+ * The key file `env` names, for display (ADR-236 D5), with `home` shortened
+ * to `~`; null when an inline `MANOR_SECRET_KEY` is the key, as it wins.
+ */
+export function shownSecretKeyFile(
+  env: NodeJS.ProcessEnv,
+  home: string = os.homedir(),
+): string | null {
+  const file = env[KEY_ENV] ? undefined : env[KEY_FILE_ENV];
+  if (!file) return null;
+  if (home && (file === home || file.startsWith(home + path.sep))) {
+    return `~${file.slice(home.length)}`;
+  }
+  return file;
+}
+
+/**
  * Whether the key sits on the volume it seals (`secretKeyPlace` is
  * `data-dir`), which defeats the point (ADR-229 D5). Kept for an older
  * desktop's warning (ADR-236 D5).
@@ -453,6 +469,14 @@ function readChoice(file: string): HostBackend | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The backend `secret-backend` (`choiceFile`) records, or null when there is
+ * none yet or it is unreadable.
+ */
+export function readSecretBackendChoice(file: string): Exclude<SecretBackend, "safeStorage"> | null {
+  return readChoice(file);
 }
 
 function writeChoice(file: string, backend: HostBackend): void {

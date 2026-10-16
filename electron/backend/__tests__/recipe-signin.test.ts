@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSignInPatch,
   buildSignInSecret,
+  deleteSignInSecret,
   profileKubeTarget,
   removeSignIn,
   restartPods,
@@ -346,6 +347,34 @@ describe("sign-in Secret (ADR-235 D9)", () => {
     await removeSignIn(PROFILE, "github", other.deps);
     expect(other.decoded()).toEqual({ CLAUDE_CODE_OAUTH_TOKEN: CLAUDE });
     expect(other.calls).toHaveLength(1);
+  });
+
+  it("deletes the whole Secret with one kubectl call, and nothing else", async () => {
+    const k = fakeCluster({ secret: { GH_TOKEN: GH } });
+    await deleteSignInSecret(PROFILE, k.deps);
+    expect(k.decoded()).toBeNull();
+    expect(k.calls).toHaveLength(1);
+    expect(k.calls[0]?.args).toEqual([
+      "--context",
+      "dev",
+      "-n",
+      "team",
+      "delete",
+      "secret",
+      "manor-signin-hp-1",
+      "--ignore-not-found",
+    ]);
+  });
+
+  it("fails when kubectl can't delete the Secret", async () => {
+    const deps: SignInDeps = {
+      run: async () => {
+        throw fail("Unable to connect to the server");
+      },
+    };
+    await expect(deleteSignInSecret(PROFILE, deps)).rejects.toThrow(
+      /could not delete the sign-in Secret/,
+    );
   });
 
   it("lists key names, or null without the Secret", async () => {

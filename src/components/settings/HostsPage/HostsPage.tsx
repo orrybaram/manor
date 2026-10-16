@@ -20,7 +20,7 @@ import { HostRow } from "./HostRow";
 import { ThisMacRow } from "./ThisMacRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
-import { profileSummary, REMOVE_PROFILE_TEXT } from "./host-settings-text";
+import { profileSummary, removeProfileText } from "./host-settings-text";
 
 /**
  * Settings → Hosts (ADR-229 D8): every host Manor runs workspaces on, each a
@@ -186,7 +186,7 @@ function ProfileActions(props: { profile: HostProfile }) {
       <ConfirmDialog
         open={removing}
         title={`Remove ${profile.name}?`}
-        description={REMOVE_PROFILE_TEXT}
+        description={removeProfileText(profile)}
         confirmLabel="Remove"
         confirmVariant="danger"
         onCancel={() => setRemoving(false)}

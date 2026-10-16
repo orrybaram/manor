@@ -333,6 +333,23 @@ export async function removeSignIn(
   }
 }
 
+/**
+ * Delete the profile's whole `manor-signin` Secret, for when the profile is
+ * removed. A missing Secret is fine (`--ignore-not-found`). Throws when the
+ * cluster can't be reached, so the caller can keep the profile.
+ */
+export async function deleteSignInSecret(
+  profile: HostProfile,
+  deps: SignInDeps = defaultSignInDeps,
+): Promise<void> {
+  const target = profileKubeTarget(profile);
+  try {
+    await deps.run("kubectl", [...kubectlBase(target), "delete", "secret", target.secret, "--ignore-not-found"]);
+  } catch (err) {
+    throw runError("kubectl could not delete the sign-in Secret", err, []);
+  }
+}
+
 /** One host of the profile: its id and its recipe. */
 export interface ProfileHost {
   hostId: string;

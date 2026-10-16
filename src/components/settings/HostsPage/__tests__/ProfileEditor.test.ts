@@ -46,7 +46,7 @@ import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
 import { HostsPage } from "../HostsPage";
 import { useHostProfileStore, openProfileEditor } from "../../../../store/host-profile-store";
 import { ProfileEditorDialog } from "../ProfileEditorDialog";
-import { profileSummary } from "../host-settings-text";
+import { profileSummary, removeProfileText } from "../host-settings-text";
 
 const kubernetes: TemplateInfo = {
   id: "kubernetes",
@@ -210,5 +210,21 @@ describe("profiles on the Hosts page", () => {
     click(confirm ?? null);
     await flush();
     expect(api.hostProfiles.remove).toHaveBeenCalledWith("hp-1");
+  });
+
+  it("says the sign-in tokens are deleted only when the profile has sign-in set", async () => {
+    await render(HostsPage);
+    click(q("host-profile-remove-hp-1"));
+    await flush();
+    expect(document.body.textContent).not.toContain("sign-in tokens are deleted");
+    expect(removeProfileText(work)).toBe("Its hosts keep running. They'll no longer be grouped.");
+    api.hostProfiles.list.mockResolvedValue([{ ...work, signIn: { github: { setAt: 1, source: "gh" } } }]);
+    await act(async () => {
+      await useHostProfileStore.getState().refresh();
+    });
+    await flush();
+    expect(document.body.textContent).toContain(
+      "Its sign-in tokens are deleted from manor. Running pods keep them until they restart.",
+    );
   });
 });

@@ -66,6 +66,16 @@ export function idleStopText(minutes: number | undefined, desktopName: string): 
 /** The confirmation for removing a host profile (ADR-235 D2). */
 export const REMOVE_PROFILE_TEXT = "Its hosts keep running. They'll no longer be grouped.";
 
+/** The remove confirmation for a profile; one that signs new pods in also loses its Secret (ADR-235 D9). */
+export function removeProfileText(profile: {
+  values: Record<string, string>;
+  signIn?: { github?: unknown; claude?: unknown };
+}): string {
+  if (!profile.signIn?.github && !profile.signIn?.claude) return REMOVE_PROFILE_TEXT;
+  const namespace = profile.values.namespace?.trim() || "manor";
+  return `${REMOVE_PROFILE_TEXT} Its sign-in tokens are deleted from ${namespace}. Running pods keep them until they restart.`;
+}
+
 /** A profile's template and where it points, for its row: "Kubernetes · prod / manor". */
 export function profileSummary(templateName: string, values: Record<string, string>): string {
   const where = [values.context, values.namespace].filter((v) => v);

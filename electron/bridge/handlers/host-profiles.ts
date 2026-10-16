@@ -14,6 +14,7 @@ import type { HostProfileInput, SignInKind } from "../../projects/host-profiles"
 import { readRecipe } from "../../backend/providers/recipes";
 import {
   defaultSignInDeps,
+  deleteSignInSecret,
   profileKubeTarget,
   removeSignIn,
   restartPods,
@@ -66,9 +67,25 @@ export function hostProfilesSave(
   return saved;
 }
 
-/** Forget a profile. Its hosts stay, and lose their `profileId`. */
-export function hostProfilesRemove(ctx: HandlerCtx<ServerDeps>, profileId: string): void {
+/**
+ * Forget a profile. Its hosts stay, and lose their `profileId`. A Kubernetes
+ * profile with sign-in set has its Secret deleted first; when that fails the
+ * profile is kept, so no tokens are left behind with nothing to reach them.
+ */
+export async function hostProfilesRemove(ctx: HandlerCtx<ServerDeps>, profileId: string): Promise<void> {
   assertString(profileId, "hostProfiles:remove.profileId");
+  const profile = ctx.deps.projectManager.getHostProfile(profileId);
+  if (profile && profile.templateId === "kubernetes" && (profile.signIn?.github || profile.signIn?.claude)) {
+    try {
+      await deleteSignInSecret(profile, signInDeps);
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Couldn't reach the cluster to delete this profile's sign-in tokens, so it was not removed. Fix access and try again. (${detail})`,
+        { cause: err },
+      );
+    }
+  }
   ctx.deps.projectManager.removeHostProfile(profileId);
   publishRendererBroadcast("hostProfiles", "changed");
 }

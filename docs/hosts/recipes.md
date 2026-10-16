@@ -266,26 +266,32 @@ edit. Each generated script says so at the top.
 
 ### The host image
 
-Both templates run `docker/host-image` from Manor's repo: Node 22, git, gh,
+Both templates run Manor's host image, `ghcr.io/orrybaram/manor-host:<version>`
+(the version of your Manor app; published by each release): Node 22, git, gh,
 the `node-pty` toolchain, tini, and a `manor` user (uid 1000, home
 `/home/manor`). Nothing of Manor's is baked in. The entrypoint waits for the
 first connect to install `~/.manor/bin/manor-host` on the home volume, then
 runs `manor-host supervise`. Add the agent CLIs you use: the Dockerfile has a
 commented line for each.
 
+You do not need to build anything: the Docker template's `up.sh` pulls the
+image when the daemon does not have it (printing `manor-stage: Getting
+Manor's host image`), and a cluster's nodes pull it themselves. To customise
+it, build it from `docker/host-image` (the app ships that folder as
+`host-image/` in its resources), then give your own image name in the form:
+
 ```bash
 docker build -t manor-host:local docker/host-image
 ```
 
-For a cluster, push it somewhere the cluster can pull from, and give that
-name in the form.
+For a cluster, push it somewhere the cluster can pull from.
 
 ### Docker
 
 The form asks for:
 
 - **Container name** (also the recipe's id, `docker-<name>`);
-- **Image** (default `manor-host:local`);
+- **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; an image the daemon already has is not pulled);
 - **Docker context** (optional, such as `colima` or `desktop-linux`; blank
   for the default). It must name a daemon on this computer: see below.
 
@@ -319,7 +325,7 @@ The form asks for:
 - **kubectl context** (optional; blank for the current one);
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
-- **Image** (default `manor-host:local`; the cluster must be able to pull it);
+- **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
 - **Storage size** (default `20Gi`) and **Storage class** (optional).
 
 `up`:

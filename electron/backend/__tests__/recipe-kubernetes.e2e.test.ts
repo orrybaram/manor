@@ -191,7 +191,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Kubernetes cluster", () 
     // The recipe, from the bundled template, as the Hosts page writes it —
     // under the worker's own $HOME (`setup-isolated-home.ts`). No context:
     // KUBECONFIG picks the cluster.
-    createRecipeFromTemplate("kubernetes", { namespace: NAMESPACE, name: NAME, image: IMAGE, storage: "1Gi" });
+    createRecipeFromTemplate("kubernetes", { namespace: NAMESPACE, name: NAME, image: IMAGE, storage: "1Gi" }, { appVersion: "0.0.0" });
     const up = path.join(recipeDir(recipeId), "up.sh");
     const script = fs.readFileSync(up, "utf-8");
     const marker = '            - name: MANOR_INSTANCE_ID\n              value: "$namespace/$name"\n';

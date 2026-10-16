@@ -12,6 +12,7 @@
 import type { Recipe } from "../recipes";
 import {
   answer,
+  defaultHostImage,
   CONTEXT_PATTERN,
   IMAGE_PATTERN,
   NAME_PATTERN,
@@ -54,6 +55,13 @@ if [ ! -s "$key_file" ]; then
   (umask 077 && head -c 32 /dev/urandom >"$key_file.tmp" && mv "$key_file.tmp" "$key_file")
 fi
 chmod 600 "$key_file"
+
+# Get the image first, so the download is a named step and not buried in
+# \`docker run\`'s output. A locally built image is found and not pulled.
+if ! "\${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1; then
+  echo "manor-stage: Getting Manor's host image" >&2
+  "\${docker_cmd[@]}" pull "$image"
+fi
 
 state=$("\${docker_cmd[@]}" inspect -f '{{.State.Status}}' "$name" 2>/dev/null || true)
 case "$state" in
@@ -182,7 +190,7 @@ export const dockerTemplate: RecipeTemplate = {
   description: "A container on this computer's Docker daemon, with a named volume for its home directory.",
   fields: [
     { key: "name", label: "Container name", default: shortName, required: true },
-    { key: "image", label: "Image", default: "manor-host:local", required: true },
+    { key: "image", label: "Image", default: defaultHostImage, required: true },
     {
       key: "context",
       label: "Docker context",
@@ -196,9 +204,9 @@ export const dockerTemplate: RecipeTemplate = {
     "stop.sh": { content: STOP, mode: 0o755 },
     "destroy.sh": { content: DESTROY, mode: 0o755 },
   },
-  recipe(values): Recipe {
+  recipe(values, ctx): Recipe {
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The container name" });
-    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: "manor-host:local" });
+    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
     const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
     return {
       schemaVersion: 1,

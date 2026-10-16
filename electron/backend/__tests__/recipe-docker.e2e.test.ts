@@ -159,7 +159,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     requireTarball();
     // The recipe, from the bundled template, as the Hosts page writes it —
     // under the worker's own $HOME (`setup-isolated-home.ts`).
-    createRecipeFromTemplate("docker", { name: NAME, image: IMAGE });
+    createRecipeFromTemplate("docker", { name: NAME, image: IMAGE }, { appVersion: "0.0.0" });
     const up = path.join(recipeDir(recipeId), "up.sh");
     const script = fs.readFileSync(up, "utf-8");
     const marker = '-e "MANOR_INSTANCE_ID=$name" \\\n';

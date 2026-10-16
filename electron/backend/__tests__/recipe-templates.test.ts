@@ -19,6 +19,8 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
 
+const CTX = { appVersion: "1.2.3" };
+
 const FORMS: Record<string, Record<string, string>> = {
   docker: { name: "box1", image: "manor-host:local", context: "remote-1" },
   kubernetes: {
@@ -33,23 +35,39 @@ const FORMS: Record<string, Record<string, string>> = {
 
 describe("recipe templates (ADR-229 D8)", () => {
   it("lists both templates with resolved defaults", () => {
-    const templates = listTemplates();
+    const templates = listTemplates(CTX);
     expect(templates.map((t) => t.id)).toEqual(["docker", "kubernetes"]);
     const docker = templates[0];
-    expect(docker.fields.find((f) => f.key === "name")?.default).toMatch(/^manor-[0-9a-f]{6}$/);
-    expect(docker.fields.find((f) => f.key === "image")?.default).toBe("manor-host:local");
-    expect(templates[1].fields.find((f) => f.key === "namespace")?.default).toBe("manor");
+    expect(docker.fields.find((f) => f.key === "name")?.default).toMatch(
+      /^manor-[0-9a-f]{6}$/,
+    );
+    expect(docker.fields.find((f) => f.key === "image")?.default).toBe(
+      "ghcr.io/orrybaram/manor-host:1.2.3",
+    );
+    expect(
+      templates[1].fields.find((f) => f.key === "namespace")?.default,
+    ).toBe("manor");
     expect(JSON.stringify(templates)).not.toContain("secret.key");
   });
 
   for (const template of RECIPE_TEMPLATES) {
     describe(template.id, () => {
       it("writes a recipe that validates, with its scripts executable", () => {
-        const id = createRecipeFromTemplate(template.id, FORMS[template.id], base);
+        const id = createRecipeFromTemplate(
+          template.id,
+          FORMS[template.id],
+          CTX,
+          base,
+        );
         const dir = path.join(base, id);
         const recipe = readRecipe(id, base);
         expect(recipe.template).toBe(template.id);
-        expect(parseRecipe(JSON.parse(fs.readFileSync(path.join(dir, "recipe.json"), "utf-8")), dir)).toEqual(recipe);
+        expect(
+          parseRecipe(
+            JSON.parse(fs.readFileSync(path.join(dir, "recipe.json"), "utf-8")),
+            dir,
+          ),
+        ).toEqual(recipe);
         for (const file of ["up.sh", "status.sh", "stop.sh", "destroy.sh"]) {
           expect(fs.statSync(path.join(dir, file)).mode & 0o777).toBe(0o755);
         }
@@ -74,17 +92,35 @@ describe("recipe templates (ADR-229 D8)", () => {
       });
 
       it("refuses a bad name, and an existing recipe", () => {
-        expect(() => createRecipeFromTemplate(template.id, { ...FORMS[template.id], name: "A b; rm" }, base)).toThrow(
-          /not valid/,
-        );
-        createRecipeFromTemplate(template.id, FORMS[template.id], base);
-        expect(() => createRecipeFromTemplate(template.id, FORMS[template.id], base)).toThrow(/already exists/);
+        expect(() =>
+          createRecipeFromTemplate(
+            template.id,
+            { ...FORMS[template.id], name: "A b; rm" },
+            CTX,
+            base,
+          ),
+        ).toThrow(/not valid/);
+        createRecipeFromTemplate(template.id, FORMS[template.id], CTX, base);
+        expect(() =>
+          createRecipeFromTemplate(template.id, FORMS[template.id], CTX, base),
+        ).toThrow(/already exists/);
       });
     });
   }
 
+  it("a blank image falls back to the published image for this version", () => {
+    for (const template of RECIPE_TEMPLATES) {
+      const values = { ...FORMS[template.id], image: "" };
+      expect(Object.values(template.recipe(values, CTX).env ?? {})).toContain(
+        "ghcr.io/orrybaram/manor-host:1.2.3",
+      );
+    }
+  });
+
   it("refuses an unknown template", () => {
-    expect(() => createRecipeFromTemplate("vm", {}, base)).toThrow(/Unknown template/);
+    expect(() => createRecipeFromTemplate("vm", {}, CTX, base)).toThrow(
+      /Unknown template/,
+    );
   });
 
   it("docker: the exec argv runs as manor, and the container is the instance", () => {
@@ -92,7 +128,11 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(up).toContain('"exec","-i","-u","manor"');
     expect(up).toContain('-e "MANOR_INSTANCE_ID=$name"');
     expect(up).toContain("/run/secrets/manor-key:ro");
-    expect(RECIPE_TEMPLATES[0].recipe(FORMS.docker).env).toMatchObject({
+    // The image is pulled as a named stage, before `run`, when missing.
+    expect(up).toContain('image inspect "$image"');
+    expect(up).toContain("manor-stage: Getting Manor's host image");
+    expect(up.indexOf("pull")).toBeLessThan(up.indexOf("run -d"));
+    expect(RECIPE_TEMPLATES[0].recipe(FORMS.docker, CTX).env).toMatchObject({
       MANOR_DOCKER_NAME: "box1",
       MANOR_DOCKER_CONTEXT: "remote-1",
     });
@@ -102,12 +142,16 @@ describe("recipe templates (ADR-229 D8)", () => {
     const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
     expect(up).toContain('value: "$namespace/$name"');
     expect(up).toContain("--timeout=10m");
-    expect(() => RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" })).toThrow(/storage size/);
+    expect(() =>
+      RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" }, CTX),
+    ).toThrow(/storage size/);
   });
 
   it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas (ADR-231 C1)", () => {
     const status = path.join(base, "status.sh");
-    fs.writeFileSync(status, RECIPE_TEMPLATES[1].files["status.sh"].content, { mode: 0o755 });
+    fs.writeFileSync(status, RECIPE_TEMPLATES[1].files["status.sh"].content, {
+      mode: 0o755,
+    });
     // A kubectl that answers the StatefulSet's replicas and the pod's Ready.
     const bin = path.join(base, "bin");
     fs.mkdirSync(bin);
@@ -131,15 +175,24 @@ describe("recipe templates (ADR-229 D8)", () => {
         }),
       ) as unknown;
     expect(run("1", "True")).toEqual({ state: "up" });
-    expect(run("1", "False")).toEqual({ state: "up", detail: "the pod is not ready yet" });
+    expect(run("1", "False")).toEqual({
+      state: "up",
+      detail: "the pod is not ready yet",
+    });
     // The pod deleted and not yet recreated: no Ready condition at all.
-    expect(run("1", "")).toEqual({ state: "up", detail: "the pod is not ready yet" });
+    expect(run("1", "")).toEqual({
+      state: "up",
+      detail: "the pod is not ready yet",
+    });
     expect(run("0", "")).toEqual({ state: "sleeping" });
   });
 
   it("custom: writes a recipe to finish, named for the host, never over another", () => {
     const first = createCustomRecipe("  Build VM ", base);
-    expect(first).toEqual({ recipeId: "build-vm", file: path.join(base, "build-vm", "recipe.json") });
+    expect(first).toEqual({
+      recipeId: "build-vm",
+      file: path.join(base, "build-vm", "recipe.json"),
+    });
     expect(readRecipe("build-vm", base)).toEqual({
       schemaVersion: 1,
       id: "build-vm",
@@ -150,7 +203,9 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(fs.statSync(up).mode & 0o777).toBe(0o755);
     expect(fs.readFileSync(up, "utf-8")).toContain("exec 3>&1 1>&2");
     expect(createCustomRecipe("Build VM", base).recipeId).toBe("build-vm-2");
-    expect(createCustomRecipe("🚀", base).recipeId).toMatch(/^manor-[0-9a-f]{6}$/);
+    expect(createCustomRecipe("🚀", base).recipeId).toMatch(
+      /^manor-[0-9a-f]{6}$/,
+    );
     expect(() => createCustomRecipe("  ", base)).toThrow(/name is required/);
   });
 

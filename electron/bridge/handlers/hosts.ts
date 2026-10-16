@@ -112,7 +112,7 @@ export function hostsAddRecipeHost(
  * `addRecipeHost` is what starts a host from it.
  */
 export function hostsCreateRecipe(
-  _ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<ServerDeps>,
   templateId: string,
   values: Record<string, string>,
 ): string {
@@ -123,7 +123,7 @@ export function hostsCreateRecipe(
   for (const [key, value] of Object.entries(values)) {
     assertString(value, `hosts:createRecipe.values.${key}`);
   }
-  return createRecipeFromTemplate(templateId, values);
+  return createRecipeFromTemplate(templateId, values, { appVersion: ctx.deps.backendRegistry.version });
 }
 
 /**
@@ -140,8 +140,8 @@ export function hostsCreateCustomRecipe(
 }
 
 /** The bundled templates' names and form fields (ADR-229 D8). */
-export function hostsListTemplates(_ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
-  return listTemplates();
+export function hostsListTemplates(ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
+  return listTemplates({ appVersion: ctx.deps.backendRegistry.version });
 }
 
 /**

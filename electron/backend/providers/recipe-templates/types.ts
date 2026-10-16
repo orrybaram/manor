@@ -5,6 +5,20 @@
 
 import type { Recipe } from "../recipes";
 
+/** What a template needs from the running app when it is described or written. */
+export interface TemplateContext {
+  /** Manor's version: the host image is tagged with it. */
+  appVersion: string;
+}
+
+/** The repository of the published host image (built by `release.yml`). */
+export const HOST_IMAGE_REPOSITORY = "ghcr.io/orrybaram/manor-host";
+
+/** The image a new host starts from: the published one, pinned to this app. */
+export function defaultHostImage(ctx: TemplateContext): string {
+  return `${HOST_IMAGE_REPOSITORY}:${ctx.appVersion.replace(/^v/, "")}`;
+}
+
 /** One answer the form asks for. */
 export interface FormField {
   /** The key of the answer in `values`. */
@@ -12,7 +26,7 @@ export interface FormField {
   label: string;
   description?: string;
   /** A function is called each time the form is described (a fresh name). */
-  default?: string | (() => string);
+  default?: string | ((ctx: TemplateContext) => string);
   required?: boolean;
 }
 
@@ -31,7 +45,7 @@ export interface RecipeTemplate {
   /** File name in the recipe's directory -> its content. */
   files: Record<string, TemplateFile>;
   /** The recipe for `values`; throws if an answer is not acceptable. */
-  recipe: (values: Record<string, string>) => Recipe;
+  recipe: (values: Record<string, string>, ctx: TemplateContext) => Recipe;
 }
 
 /** A template as the form needs it: no scripts, defaults resolved. */

@@ -239,6 +239,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hosts.projectsOnHost": "home",
   // Run through the host's transport, which the desktop holds (ADR-229 D4).
   "hosts.setSupervised": "home",
+  // Likewise: `manor-host secrets encrypt` through the transport (ADR-236 D7).
+  "hosts.encryptKeys": "home",
 
   // Each server watches the workspaces it answers for (ADR-230 D6); a
   // desktop window alone still hands its whole list to its own server,

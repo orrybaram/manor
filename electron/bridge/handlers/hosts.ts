@@ -36,6 +36,8 @@ import {
 import type { HostServerStatus } from "../../host-server/relay";
 import { serverFactsOf } from "../../backend/host-server-sync";
 import { runHostSupervisor } from "../../backend/host-supervisor";
+import { runHostSecrets } from "../../backend/host-secrets";
+import type { SecretsFacts } from "../../host-server/secrets-command";
 import type { SupervisorFacts } from "../../host-server/supervisor/types";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
@@ -390,6 +392,50 @@ export async function hostsSetSupervised(
   return facts;
 }
 
+/** How long to wait for the server to reconnect after it restarts. */
+const SERVER_RECONNECT_WAIT_MS = 15_000;
+
+/**
+ * "Encrypt keys" (ADR-236 D7): run `manor-host secrets encrypt` on the host
+ * through its transport. The host's server restarts to pick the key up, so
+ * wait (up to about 15 s) for the channel to come back, then tell the page
+ * to re-read the server's status. Answers the key facts.
+ */
+export async function hostsEncryptKeys(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+): Promise<SecretsFacts> {
+  assertString(hostId, "hosts:encryptKeys.hostId");
+  const { deps } = ctx;
+  deps.projectManager.assertKnownHost(hostId);
+  const provider = deps.backendRegistry.provider(hostId);
+  if (!provider) throw new Error(`Unknown remote host ${hostId}.`);
+  const transport = provider.transport();
+  if (!transport.exec) throw new Error("This host can't run commands.");
+  const facts = await runHostSecrets(transport, "encrypt");
+  await waitForServerConnected(ctx, hostId);
+  publishRendererBroadcast("hosts", "pairingChanged", hostId);
+  return facts;
+}
+
+/** Resolves once `hostId`'s server channel is `connected`, or after the wait. */
+function waitForServerConnected(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<void> {
+  const client = ctx.deps.backendRegistry.hostServer(hostId);
+  if (!client || client.state === "connected") return Promise.resolve();
+  return new Promise((resolve) => {
+    let off: () => void = () => {};
+    const done = () => {
+      clearTimeout(timer);
+      off();
+      resolve();
+    };
+    const timer = setTimeout(done, SERVER_RECONNECT_WAIT_MS);
+    off = client.onStateChange((state) => {
+      if (state === "connected") done();
+    });
+  });
+}
+
 export async function hostsPairDevice(
   ctx: HandlerCtx<ServerDeps>,
   hostId: string,
@@ -550,4 +596,7 @@ export const hosts = {
   // commands there: the owner's call, and home's, which holds the transport
   // (ADR-229 D4).
   setSupervised: method(hostsSetSupervised, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
+  // Runs `manor-host secrets encrypt` on the host through its transport,
+  // which home holds (ADR-236 D7).
+  encryptKeys: method(hostsEncryptKeys, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
 };

@@ -14,6 +14,7 @@ import * as path from "node:path";
 import {
   hostsAdd,
   hostsAddRecipeHost,
+  hostsEncryptKeys,
   hostsHealthCheck,
   hostsPairDevice,
   hostsProjectsOnHost,
@@ -488,6 +489,46 @@ describe("hosts:setSupervised (ADR-229 D4)", () => {
     const { ctx } = withTransport("{}");
     await expect(hostsSetSupervised(ctx, "nope", true)).rejects.toThrow(/Unknown host/);
     await expect(hostsSetSupervised(ctx, "box", "yes" as never)).rejects.toThrow();
+  });
+});
+
+describe("hosts:encryptKeys (ADR-236 D7)", () => {
+  const OK =
+    '{"secrets":{"backend":"key-file","keyFile":"~/.manor/secret.key","place":"beside"}}\n';
+  function withTransport(stdout: string, code = 0, execDisabled = false) {
+    const { deps, backendRegistry } = makeDeps();
+    const exec = vi.fn().mockResolvedValue({ code, stdout, stderr: "" });
+    Object.assign(backendRegistry, {
+      provider: vi.fn((id: string) =>
+        id === "box" ? { transport: () => (execDisabled ? {} : { exec }) } : undefined,
+      ),
+      hostServer: vi.fn(() => ({ state: "connected", onStateChange: vi.fn(() => () => {}) })),
+    });
+    return { ctx: localCtx(deps as never), exec };
+  }
+
+  it("runs secrets encrypt on the host, answers the facts, and broadcasts", async () => {
+    const { ctx, exec } = withTransport(OK);
+    await expect(hostsEncryptKeys(ctx, "box")).resolves.toEqual({
+      backend: "key-file",
+      keyFile: "~/.manor/secret.key",
+      place: "beside",
+    });
+    expect(exec.mock.calls[0][0]).toBe('exec "$HOME/.manor/bin/manor-host" secrets encrypt --json');
+    expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
+  });
+
+  it("passes the command's error through", async () => {
+    const { ctx } = withTransport('{"error":"Key file is not writable"}\n', 1);
+    await expect(hostsEncryptKeys(ctx, "box")).rejects.toThrow("Key file is not writable");
+    expect(frames).not.toContainEqual(expect.objectContaining({ event: "pairingChanged" }));
+  });
+
+  it("refuses an unknown host and a transport without exec", async () => {
+    const { ctx } = withTransport(OK);
+    await expect(hostsEncryptKeys(ctx, "nope")).rejects.toThrow(/Unknown host/);
+    const noExec = withTransport(OK, 0, true);
+    await expect(hostsEncryptKeys(noExec.ctx, "box")).rejects.toThrow(/can't run commands/);
   });
 });
 

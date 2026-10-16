@@ -44,6 +44,7 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.createRecipe",
   "hosts.listTemplates",
   "hosts.setSupervised",
+  "hosts.encryptKeys",
   "hosts.createCustomRecipe",
   "hosts.remove",
   "hosts.projectsOnHost",

@@ -4,55 +4,24 @@ import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import GripVertical from "lucide-react/dist/esm/icons/grip-vertical";
-import Cloud from "lucide-react/dist/esm/icons/cloud";
-import Laptop from "lucide-react/dist/esm/icons/laptop";
 import {
   useProjectStore,
   type ProjectInfo,
-  type ProjectGroupInfo,
   type CustomCommand,
 } from "../../store/project-store";
 import { useListDrag } from "../../hooks/useListDrag";
-import { useHostStore } from "../../store/host-store";
-import { useMemberDisplayName } from "../../bridge/server-set";
-import { isRemoteHost } from "../../lib/hosts";
-import {
-  hostSegments,
-  portlessHostFor,
-  portlessHostname,
-} from "../../lib/portless-hostname";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
-import { ProjectHostSection } from "./ProjectHostSection/ProjectHostSection";
-import { ProjectSetUpOnSection } from "./ProjectSetUpOnSection";
+import { ProjectHostsSection } from "./ProjectHostsSection/ProjectHostsSection";
 import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
-import { Input, Textarea } from "../ui/Input";
+import { Input } from "../ui/Input";
 import { EmojiInput } from "../ui/EmojiAutocomplete";
 import { SearchableSelect } from "../ui/SearchableSelect/SearchableSelect";
-import { Switch } from "../ui/Switch/Switch";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
-import { SettingRow } from "./SettingRow";
 import styles from "./SettingsModal/SettingsModal.module.css";
-
-const worktreeScriptFields: Array<{
-  field: "worktreeStartScript" | "worktreeTeardownScript";
-  label: string;
-  placeholder: string;
-}> = [
-  {
-    field: "worktreeStartScript",
-    label: "Start Script",
-    placeholder: "Runs in the terminal when a new worktree is created",
-  },
-  {
-    field: "worktreeTeardownScript",
-    label: "Teardown Script",
-    placeholder: "Runs before a worktree is deleted",
-  },
-];
 
 type ThemeColors = Pick<
   Theme,
@@ -189,42 +158,6 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
   );
 }
 
-/**
- * The hostname a project's main workspace gets, by the rules portless routes
- * with — display only. A remote project's carries its host's segment, found
- * among every registered host so a shared prefix shows the full id.
- */
-function previewHostname(
-  project: Pick<ProjectInfo, "name" | "path" | "hostId">,
-  hosts: readonly { hostId: string }[],
-): string {
-  const remoteIds = hosts.map((h) => h.hostId).filter((id) => isRemoteHost(id));
-  // The host list may not have loaded yet; the project's own host is always known.
-  if (isRemoteHost(project.hostId) && !remoteIds.includes(project.hostId)) {
-    remoteIds.push(project.hostId);
-  }
-  const host = portlessHostFor(project.hostId, hostSegments(remoteIds));
-  return portlessHostname(
-    {
-      path: project.path,
-      projectName: project.name,
-      branch: null,
-      isMain: true,
-    },
-    host.kind === "unknown" ? { kind: "local" } : host,
-  );
-}
-
-function defaultWorktreePath(projectName: string): string {
-  const slug = projectName
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return `~/.manor/worktrees/${slug}`;
-}
-
 type ProjectFieldProps = {
   project: ProjectInfo;
 };
@@ -247,19 +180,6 @@ function NameField(props: ProjectFieldProps) {
         }}
       />
     </Stack>
-  );
-}
-
-function PathFields(props: ProjectFieldProps) {
-  const { project } = props;
-
-  return (
-    <>
-      <label className={styles.fieldLabel}>Path</label>
-      <div className={styles.fieldStatic}>{project.path}</div>
-      <label className={styles.fieldLabel}>Default Branch</label>
-      <div className={styles.fieldStatic}>{project.defaultBranch}</div>
-    </>
   );
 }
 
@@ -312,37 +232,6 @@ function AgentSection(props: ProjectFieldProps) {
         }}
         placeholder={DEFAULT_AGENT_COMMAND}
       />
-    </Stack>
-  );
-}
-
-function PortsSection(props: ProjectFieldProps) {
-  const { project } = props;
-
-  const updateProject = useProjectStore((s) => s.updateProject);
-  const hosts = useHostStore((s) => s.hosts);
-
-  return (
-    <Stack gap="xs">
-      <SectionTitle id="project-ports">Ports</SectionTitle>
-      <SettingRow
-        label="Named preview URLs"
-        hint={
-          <>
-            Route this project's dev servers through the portless proxy so each
-            workspace gets a stable hostname like{" "}
-            <code>{previewHostname(project, hosts)}</code>. When off, ports open
-            as <code>localhost:&lt;port&gt;</code>.
-          </>
-        }
-      >
-        <Switch
-          checked={project.portlessEnabled !== false}
-          onCheckedChange={(checked) =>
-            updateProject(project.id, { portlessEnabled: checked })
-          }
-        />
-      </SettingRow>
     </Stack>
   );
 }
@@ -459,161 +348,39 @@ function CommandsSection(props: ProjectFieldProps) {
   );
 }
 
-function WorktreesSection(props: ProjectFieldProps) {
-  const { project } = props;
-
-  const updateProject = useProjectStore((s) => s.updateProject);
-
-  const saveField = (
-    field: "worktreePath" | "worktreeStartScript" | "worktreeTeardownScript",
-    value: string,
-  ) => {
-    const normalized = value.trim() || null;
-    if (normalized !== (project[field] ?? null)) {
-      updateProject(project.id, { [field]: normalized });
-    }
-  };
-
-  return (
-    <Stack gap="xl">
-      <SectionTitle id="project-worktrees">Worktrees</SectionTitle>
-      <Stack gap="xs">
-        <label className={styles.fieldLabel}>Worktree Path</label>
-        <Input
-          defaultValue={project.worktreePath ?? ""}
-          onBlur={(e) => saveField("worktreePath", e.target.value)}
-          placeholder={defaultWorktreePath(project.name)}
-        />
-        <div className={styles.fieldHint}>
-          Directory where new worktrees are created. Defaults to{" "}
-          {defaultWorktreePath(project.name)}
-        </div>
-      </Stack>
-      {worktreeScriptFields.map(({ field, label, placeholder }) => (
-        <Stack key={field} gap="xs">
-          <label className={styles.fieldLabel}>{label}</label>
-          <Textarea
-            monospace
-            defaultValue={project[field] ?? ""}
-            onBlur={(e) => saveField(field, e.target.value)}
-            placeholder={placeholder}
-            rows={4}
-          />
-        </Stack>
-      ))}
-    </Stack>
-  );
-}
-
-type GroupSettingsPageProps = {
-  group: ProjectGroupInfo;
-  /** The group's members in `memberIds` order; at least one. */
+type ProjectSettingsPageProps = {
+  /** The project, or for one set up on several hosts its first member. */
+  lead: ProjectInfo;
+  /** Every host's copy of the project in `memberIds` order; `[lead]` when alone. */
   members: ProjectInfo[];
 };
 
 /**
- * A linked group's page (ADR-193): the settings every member shares, and the
- * members themselves. Every member carries the group's values for the shared
- * fields, and `updateProject` sends them to the group, so the fields read
- * and write through the first member.
+ * A project's one settings page (ADR-237 D2), whether it is set up on one
+ * host or several. A group's members all carry the group's values for the
+ * shared fields, and `updateProject` sends them to the group (ADR-193), so
+ * the shared fields read and write through the lead member. What differs per
+ * host lives in the Hosts section, one row per host (D3).
  */
-export function GroupSettingsPage(props: GroupSettingsPageProps) {
-  const { group, members } = props;
-
-  const lead = members[0];
-  if (!lead) return null;
+export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
+  const { lead, members } = props;
 
   // The name field is keyed by the group's name, so a rename made
   // elsewhere (the CLI, say) shows here instead of the stale value.
   return (
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
-        <SectionTitle id="project-general">Shared</SectionTitle>
-        <div className={styles.sectionDescription}>
-          Shared by every host this project is set up on. What differs per machine (path,
-          host, worktrees, ports) is on each host's page.
-        </div>
+        <SectionTitle id="project-general">General</SectionTitle>
         <div className={styles.generalGrid}>
-          <NameField key={group.name} project={lead} />
+          <NameField key={lead.group?.name ?? lead.name} project={lead} />
           <ProjectThemeSelector project={lead} />
         </div>
         <ColorField project={lead} />
       </Stack>
       <LinearProjectSection project={lead} />
+      <ProjectHostsSection project={lead} members={members} />
       <AgentSection project={lead} />
       <CommandsSection project={lead} />
-      <ProjectSetUpOnSection project={lead} members={members} />
-    </Stack>
-  );
-}
-
-type MemberSettingsPageProps = ProjectFieldProps & {
-  group: ProjectGroupInfo;
-};
-
-/**
- * A linked member's page (ADR-193): only what can differ between machines —
- * where the clone lives, its host, worktrees and ports. The shared settings
- * are on the group's page.
- */
-function MemberSettingsPage(props: MemberSettingsPageProps) {
-  const { project, group } = props;
-
-  const hosts = useHostStore((s) => s.hosts);
-  const memberHost = useMemberDisplayName(project.hostId, hosts);
-  const HostIcon = isRemoteHost(project.hostId) ? Cloud : Laptop;
-
-  // Plain text in the heading's own type, not a host chip, so the host name
-  // sits on the same baseline as the project name.
-  return (
-    <Stack className={styles.pageContent}>
-      <Row gap="xs" align="center" className={styles.memberHeading}>
-        <span>{group.name}</span>
-        <span className={styles.memberHeadingOn}>on</span>
-        <HostIcon size={14} aria-hidden className={styles.memberHeadingIcon} />
-        <span>{memberHost}</span>
-      </Row>
-      <Stack gap="xs">
-        <SectionTitle id="project-location">Location</SectionTitle>
-        <PathFields project={project} />
-      </Stack>
-      <ProjectHostSection project={project} />
-      <WorktreesSection project={project} />
-      <PortsSection project={project} />
-    </Stack>
-  );
-}
-
-type ProjectSettingsPageProps = {
-  project: ProjectInfo;
-};
-
-/** A lone project's page, or a linked member's machine-specific page. */
-export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
-  const { project } = props;
-
-  if (project.group) {
-    return <MemberSettingsPage project={project} group={project.group} />;
-  }
-
-  return (
-    <Stack className={styles.pageContent}>
-      <Stack gap="xs">
-        <SectionTitle id="project-general">General</SectionTitle>
-        <div className={styles.generalGrid}>
-          <NameField project={project} />
-          <ProjectThemeSelector project={project} />
-        </div>
-        <PathFields project={project} />
-        <ColorField project={project} />
-      </Stack>
-      <LinearProjectSection project={project} />
-      <ProjectHostSection project={project} />
-      <AgentSection project={project} />
-      <PortsSection project={project} />
-      <CommandsSection project={project} />
-      <WorktreesSection project={project} />
-      <ProjectSetUpOnSection project={project} members={[]} />
     </Stack>
   );
 }

@@ -24,7 +24,7 @@ import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
-import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
+import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { HostIndicator } from "../../hosts/HostIndicator";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
@@ -512,17 +512,18 @@ export function SettingsModal(props: SettingsModalProps) {
                   {page.type === "integrations" && <IntegrationsPage />}
                   {page.type === "hosts" && <HostsPage />}
                   {page.type === "devices" && <DevicesPage />}
-                  {page.type === "group" && currentGroup && (
-                    <GroupSettingsPage
+                  {page.type === "group" && currentGroup && currentGroupMembers.length > 0 && (
+                    <ProjectSettingsPage
                       key={currentGroup.id}
-                      group={currentGroup}
+                      lead={currentGroupMembers[0]}
                       members={currentGroupMembers}
                     />
                   )}
                   {page.type === "project" && currentProject && (
                     <ProjectSettingsPage
                       key={currentProject.id}
-                      project={currentProject}
+                      lead={currentProject}
+                      members={[currentProject]}
                     />
                   )}
                 </div>

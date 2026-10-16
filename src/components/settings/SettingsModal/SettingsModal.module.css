@@ -245,6 +245,18 @@
   margin-bottom: 10px;
 }
 
+/* A section title with a control on its right (ADR-237 D3). */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sectionHeader .sectionTitle {
+  margin-bottom: 0;
+}
+
 .sectionDescription {
   font-size: 12px;
   color: var(--text-dim);

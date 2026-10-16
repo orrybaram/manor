@@ -19,6 +19,9 @@ export type SearchableSelectOption = {
   icon?: React.ReactNode;
   /** A dimmer second line in the list that tells similar options apart. */
   hint?: string;
+  /** Shown after the label, before the check mark, and on the trigger when
+   *  selected (ADR-237 D4). */
+  trailing?: React.ReactNode;
 };
 
 type SearchableSelectProps = {
@@ -45,6 +48,8 @@ type SearchableSelectProps = {
   /** The trigger's accessible name when no `<label>` points at it: a
    *  combobox is not named by the value it shows. */
   "aria-label"?: string;
+  /** Max height of the options list in px (ADR-237 D4). */
+  listMaxHeight?: number;
 };
 
 const LISTBOX_ID = "searchable-select-listbox";
@@ -64,6 +69,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
     id,
     onCreate,
     createLabel = (q) => `Create "${q}"`,
+    listMaxHeight = 200,
   } = props;
 
   const [open, setOpen] = useState(false);
@@ -72,10 +78,11 @@ export function SearchableSelect(props: SearchableSelectProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const selectedLabel = useMemo(() => {
-    const found = options.find((o) => o.value === value);
-    return found ? found.label : placeholder;
-  }, [options, value, placeholder]);
+  const selected = useMemo(
+    () => options.find((o) => o.value === value),
+    [options, value],
+  );
+  const selectedLabel = selected ? selected.label : placeholder;
 
   // The selected option leads the list, above a divider.
   const filtered = useMemo(() => {
@@ -193,8 +200,11 @@ export function SearchableSelect(props: SearchableSelectProps) {
           }}
         >
           <div className={styles.triggerContent}>
-            {icon}
+            {icon ?? selected?.icon}
             <span className={styles.triggerText}>{selectedLabel}</span>
+            {selected?.trailing && (
+              <span className={styles.triggerTrailing}>{selected.trailing}</span>
+            )}
           </div>
           <ChevronDown size={14} className={styles.chevron} />
         </button>
@@ -222,6 +232,7 @@ export function SearchableSelect(props: SearchableSelectProps) {
         <div
           ref={listRef}
           className={styles.optionsList}
+          style={{ maxHeight: listMaxHeight }}
           role="listbox"
           id={LISTBOX_ID}
         >
@@ -253,6 +264,11 @@ export function SearchableSelect(props: SearchableSelectProps) {
                     <span className={styles.optionHint}>{option.hint}</span>
                   )}
                 </span>
+                {option.trailing && (
+                  <span className={styles.optionTrailing}>
+                    {option.trailing}
+                  </span>
+                )}
                 {option.value === value && (
                   <Check size={12} className={styles.optionCheck} />
                 )}

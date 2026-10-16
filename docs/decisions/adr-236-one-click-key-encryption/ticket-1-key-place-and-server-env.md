@@ -1,6 +1,6 @@
 ---
 title: Honest key place in status, and the server reads supervisor.env
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

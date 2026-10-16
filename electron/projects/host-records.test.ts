@@ -97,6 +97,16 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(reloaded.remoteHostIdsInUse()).toEqual(["box"]);
   });
 
+  it("counts an adopted host as in use with none of its projects listed here", () => {
+    const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
+    mgr.saveHost("box", { kind: "ssh", target: "me@box" });
+    expect(mgr.remoteHostIdsInUse()).toEqual([]);
+    // Its projects live on its server; with the host cache gone nothing
+    // here lists them, and the host must still connect to say what it has.
+    mgr.markHostAdopted("box");
+    expect(mgr.remoteHostIdsInUse()).toEqual(["box"]);
+  });
+
   it("keeps each host's phone-link switch and the revokes it is owed (ADR-228 D9)", () => {
     const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });

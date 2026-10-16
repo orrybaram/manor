@@ -355,6 +355,13 @@ export class ProjectManager {
       if (project.hostId !== LOCAL_HOST_ID) ids.add(project.hostId);
     }
     for (const project of this.remoteInfos()) ids.add(project.hostId);
+    // An adopted host's projects are known only from its server, through
+    // a cache that may be gone: it is in use whether or not one is listed,
+    // or it would never connect to say what it has (ADR-227 D3).
+    for (const hostId of adoptedProjectHosts(this.store.state).values()) ids.add(hostId);
+    for (const [hostId, host] of Object.entries(this.store.state.hosts ?? {})) {
+      if (host?.adopted) ids.add(hostId);
+    }
     return Array.from(ids);
   }
 

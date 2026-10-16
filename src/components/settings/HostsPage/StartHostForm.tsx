@@ -1,9 +1,11 @@
 import { useRef, useState } from "react";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
-import type { Choice, TemplateInfo } from "../../../electron.d";
+import type { Choice, TemplateCheck, TemplateInfo } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
+import { Collapse } from "../../ui/Collapse/Collapse";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Input } from "../../ui/Input";
 import { Link } from "../../ui/Link/Link";
@@ -15,6 +17,8 @@ import {
 import { ToggleGroup } from "../../ui/ToggleGroup/ToggleGroup";
 import { SettingField } from "../SettingRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
+import styles from "./HostsPage.module.css";
+import { TemplateChecklist } from "./TemplateChecklist";
 
 /** Where the recipe contract and a worked ssh example are (ADR-229 D8). */
 export const RECIPES_DOCS_URL = "https://github.com/orrybaram/manor/blob/main/docs/hosts/recipes.md";
@@ -135,11 +139,21 @@ type TemplateFormProps = {
   onCancel?: () => void;
 };
 
+/** How long after the last edit the checklist is asked again. */
+const EDIT_DEBOUNCE_MS = 300;
+/** How often the checklist is asked again while a check is `busy`. */
+const BUSY_POLL_MS = 2000;
+
+type Field = TemplateInfo["fields"][number];
+
 /**
- * A template's fields and Start. `choice` fields list their options from
- * `hosts.checkTemplate` (ADR-234 D6), asked when the form opens and again
- * whenever the window regains focus, so a context made in a terminal shows
- * up without reopening the form.
+ * A template's Connect step (ADR-234 D7): its everyday fields, the readiness
+ * checklist (`hosts.checkTemplate`), an "Advanced" disclosure with the rest,
+ * and Start, which waits until every check is `ok` and every required field
+ * is filled. The checklist, and the options of `choice` fields, are asked
+ * when the form opens, when the window regains focus, shortly after a field
+ * changes, right after a fix, and every 2 s while a check is `busy`; only
+ * the latest answer is kept.
  */
 function TemplateForm(props: TemplateFormProps) {
   const { template, busy, run, onStarted, onCancel } = props;
@@ -149,47 +163,78 @@ function TemplateForm(props: TemplateFormProps) {
   );
   // Null until the first check answers.
   const [choices, setChoices] = useState<Record<string, Choice[]> | null>(null);
+  const [checks, setChecks] = useState<TemplateCheck[] | null>(null);
+  // The test id of the `run` fix being carried out.
+  const [fixing, setFixing] = useState<string | null>(null);
+  const [fixError, setFixError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   // The answers as of the last edit, for a refresh started by focus.
   const valuesRef = useRef(values);
   // Only the latest request's answer is kept.
   const requestRef = useRef(0);
   // Fields the user has edited: a suggested default never overwrites one.
   const touchedRef = useRef(new Set<string>());
+  // Ask again now, or once edits pause. Null once unmounted.
+  const refreshRef = useRef<{ now: () => void; soon: () => void } | null>(null);
 
   // A suggested answer fills a field only while it is blank and untouched.
-  const applyDefaults = (defaults: Record<string, string> | undefined) => {
-    if (!defaults) return;
+  // True when something was filled, so the checklist is asked again.
+  const applyDefaults = (defaults: Record<string, string> | undefined): boolean => {
+    if (!defaults) return false;
     const current = valuesRef.current;
     const fill = Object.entries(defaults).filter(
       ([key, value]) =>
         value !== "" && (current[key] ?? "") === "" && !touchedRef.current.has(key),
     );
-    if (fill.length === 0) return;
+    if (fill.length === 0) return false;
     const next = { ...current, ...Object.fromEntries(fill) };
     valuesRef.current = next;
     setValues(next);
+    return true;
   };
 
   useMountEffect(() => {
     let live = true;
+    let debounce: number | undefined;
+    let poll: number | undefined;
     const refresh = () => {
+      window.clearTimeout(debounce);
+      window.clearTimeout(poll);
       const request = ++requestRef.current;
       window.electronAPI.hosts.checkTemplate(template.id, valuesRef.current).then(
         (result) => {
           if (!live || request !== requestRef.current) return;
           setChoices(result.choices);
-          applyDefaults(result.defaults);
+          setChecks(result.checks);
+          // A filled-in cluster changes what the checks find: ask again now.
+          if (applyDefaults(result.defaults)) {
+            refresh();
+            return;
+          }
+          if (result.checks.some((c) => c.state === "busy")) {
+            poll = window.setTimeout(refresh, BUSY_POLL_MS);
+          }
         },
         () => {
-          // Nothing to list: choice fields fall back to typing.
-          if (live && request === requestRef.current) setChoices((prev) => prev ?? {});
+          // Nothing to list or check: choice fields fall back to typing.
+          if (!live || request !== requestRef.current) return;
+          setChoices((prev) => prev ?? {});
+          setChecks((prev) => prev ?? []);
         },
       );
     };
+    const soon = () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(refresh, EDIT_DEBOUNCE_MS);
+    };
+    refreshRef.current = { now: refresh, soon };
     refresh();
     window.addEventListener("focus", refresh);
     return () => {
       live = false;
+      refreshRef.current = null;
+      window.clearTimeout(debounce);
+      window.clearTimeout(poll);
       window.removeEventListener("focus", refresh);
     };
   });
@@ -201,6 +246,37 @@ function TemplateForm(props: TemplateFormProps) {
     setValues(next);
   };
 
+  const edit = (key: string, value: string) => {
+    setValue(key, value);
+    refreshRef.current?.soon();
+  };
+
+  const fix = (check: TemplateCheck) => {
+    const action = check.fix;
+    if (!action || action.kind === "url") return;
+    setFixError(null);
+    if (action.kind === "set") {
+      setValue(action.key, action.value);
+      // Show what changed when it is a field under Advanced.
+      if (template.fields.some((f) => f.key === action.key && f.advanced)) setAdvancedOpen(true);
+      refreshRef.current?.now();
+      return;
+    }
+    setFixing(action.id);
+    window.electronAPI.hosts.runTemplateFix(template.id, action.id, valuesRef.current).then(
+      () => {
+        setFixing(null);
+        // A started job reports `busy`, and polling takes over from there.
+        refreshRef.current?.now();
+      },
+      (err: unknown) => {
+        setFixing(null);
+        setFixError(ipcErrorMessage(err));
+        refreshRef.current?.now();
+      },
+    );
+  };
+
   const start = () =>
     run(async () => {
       const recipeId = await window.electronAPI.hosts.createRecipe(template.id, values);
@@ -208,28 +284,72 @@ function TemplateForm(props: TemplateFormProps) {
       onStarted(hostId);
     });
 
-  const missing = template.fields.some((f) => f.required && !(values[f.key] ?? "").trim());
+  const visible = template.fields.filter((f) => !f.advanced);
+  const advanced = template.fields.filter((f) => f.advanced);
+  const missing = template.fields.filter((f) => f.required && !(values[f.key] ?? "").trim());
+  const checksReady = checks !== null && checks.every((c) => c.state === "ok");
+  const gateHint =
+    checks === null
+      ? null
+      : !checksReady
+        ? "Fix the items above to start."
+        : missing.length > 0
+          ? `Fill in ${missing.map((f) => f.label).join(", ")}${
+              missing.some((f) => f.advanced) ? " under Advanced" : ""
+            } to start.`
+          : null;
+
+  const renderField = (field: Field) => (
+    <SettingField key={field.key} label={field.label} hint={field.description}>
+      <FieldControl
+        field={field}
+        value={values[field.key] ?? ""}
+        choices={choices === null ? null : (choices[field.key] ?? [])}
+        disabled={busy}
+        onChange={(value) => edit(field.key, value)}
+      />
+    </SettingField>
+  );
 
   return (
     <>
       <div className={settingsStyles.fieldHint}>{template.description}</div>
-      {template.fields.map((field) => (
-        <SettingField key={field.key} label={field.label} hint={field.description}>
-          <FieldControl
-            field={field}
-            value={values[field.key] ?? ""}
-            choices={choices === null ? null : (choices[field.key] ?? [])}
-            disabled={busy}
-            onChange={(value) => setValue(field.key, value)}
-          />
-        </SettingField>
-      ))}
-      <Row gap="xs">
+      {visible.map(renderField)}
+      <TemplateChecklist checks={checks} fixing={fixing} disabled={busy} onFix={fix} />
+      {fixError && (
+        <div className={settingsStyles.linearError} data-testid="start-host-fix-error">
+          {fixError}
+        </div>
+      )}
+      {advanced.length > 0 && (
+        <div>
+          <Button
+            variant="ghost"
+            size="sm"
+            aria-expanded={advancedOpen}
+            data-testid="start-host-advanced"
+            onClick={() => setAdvancedOpen((open) => !open)}
+          >
+            <ChevronRight
+              size={12}
+              aria-hidden
+              className={`${styles.chevron} ${advancedOpen ? styles.chevronOpen : ""}`}
+            />
+            Advanced
+          </Button>
+          <Collapse open={advancedOpen}>
+            <Stack gap="sm" className={styles.advancedFields}>
+              {advanced.map(renderField)}
+            </Stack>
+          </Collapse>
+        </div>
+      )}
+      <Row gap="xs" align="center">
         <Button
           variant="primary"
           size="sm"
           data-testid="start-host-submit"
-          disabled={busy || missing}
+          disabled={busy || missing.length > 0 || !checksReady}
           onClick={start}
         >
           {busy ? "Starting…" : "Start host"}
@@ -239,13 +359,18 @@ function TemplateForm(props: TemplateFormProps) {
             Cancel
           </Button>
         )}
+        {gateHint && !busy && (
+          <span className={styles.startHint} data-testid="start-host-gate-hint">
+            {gateHint}
+          </span>
+        )}
       </Row>
     </>
   );
 }
 
 type FieldControlProps = {
-  field: TemplateInfo["fields"][number];
+  field: Field;
   value: string;
   /** A `choice` field's options; null while they are being listed. */
   choices: Choice[] | null;
@@ -268,7 +393,18 @@ function FieldControl(props: FieldControlProps) {
       <ToggleGroup
         value={value}
         onChange={onChange}
-        options={field.options.map((o) => ({ value: o.value, label: o.label }))}
+        // Each size says what it is ("Small · 1 CPU, 2 GiB").
+        options={field.options.map((o) => ({
+          value: o.value,
+          label: o.hint ? (
+            <>
+              {o.label}
+              <span className={styles.sizeHint}>· {o.hint}</span>
+            </>
+          ) : (
+            o.label
+          ),
+        }))}
         size="sm"
         aria-label={field.label}
         data-testid={testId}

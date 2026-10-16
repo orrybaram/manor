@@ -355,3 +355,22 @@ button.pathCardSelected {
 .wizardStatus.error {
   color: var(--red, var(--danger));
 }
+
+/* ── Start a host: a template's Connect step (ADR-234 D7) ── */
+
+/* What a size gives the host, dimmer than its name. */
+.sizeHint {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.advancedFields {
+  padding: 8px 0 2px 18px;
+}
+
+/* Why Start is still disabled. */
+.startHint {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}

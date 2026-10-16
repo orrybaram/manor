@@ -4,7 +4,8 @@
  *
  * - **`ensureUp` runs `up`** before every connect. `up` is idempotent: it
  *   creates the box if missing, resumes it if stopped, and says how to reach
- *   it. Its stderr lines are the host's progress.
+ *   it. Its stderr lines are the host's progress, or once it names a stage
+ *   (`manor-stage: <text>`, ADR-234 D9), that stage.
  * - **The way in is an inner provider**, rebuilt only when `up` says
  *   something different:
  *   - `ssh`: a `Host manor-<hostId>` block first in the transport's managed
@@ -107,6 +108,33 @@ export function recipeInstanceId(hostId: string, resource: unknown): string {
     if (typeof id === "number") return String(id);
   }
   return hostId;
+}
+
+/** What a recipe prints on stderr to name the stage it is at (ADR-234 D9). */
+const STAGE_PREFIX = "manor-stage: ";
+
+/**
+ * The progress for one run of a recipe command, given its stderr lines
+ * (ADR-234 D9). A `manor-stage: <text>` line sets the progress to `<text>`;
+ * once one has, other lines no longer replace it during that run. Before
+ * any, every line is the progress, as before stages. Each run gets its own,
+ * so a stage never carries over to the next. The lines themselves still
+ * reach the command's output untouched: this only decides what is shown.
+ */
+export function stageProgress(onProgress?: (line: string) => void): ((line: string) => void) | undefined {
+  if (!onProgress) return undefined;
+  let staged = false;
+  return (line) => {
+    const bare = line.trimStart();
+    if (bare.startsWith(STAGE_PREFIX)) {
+      const stage = bare.slice(STAGE_PREFIX.length).trim();
+      if (stage === "") return;
+      staged = true;
+      onProgress(stage);
+    } else if (!staged) {
+      onProgress(line);
+    }
+  };
 }
 
 /**
@@ -282,7 +310,7 @@ export class RecipeHostProvider implements HostProvider {
     const prev = this.lastKnown;
     this.lastKnown = { state: "starting" };
     try {
-      const raw = await this.run("up", onProgress);
+      const raw = await this.run("up", stageProgress(onProgress));
       let result;
       try {
         result = parseUpResult(raw);

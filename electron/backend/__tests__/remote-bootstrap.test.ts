@@ -429,7 +429,21 @@ describe("ensureRemoteHost", () => {
       "install",
       "done",
     ]);
-    expect(progress[3].message).toBe("Installing Manor host 0.13.2 on me@box…");
+    // Linux has no node-pty prebuild: the install compiles it, and says so.
+    expect(progress[3].message).toBe(
+      "Installing Manor — building terminal support, this only happens once (about 2 minutes)",
+    );
+  });
+
+  it("keeps the plain install message where node-pty has a prebuild", async () => {
+    const { exec } = fakeSsh([
+      [DETECT_COMMAND, ok("Darwin arm64\n")],
+      [NODE_CHECK_COMMAND, ok("/usr/local/bin/node\nv20.11.1\n")],
+      [HOST_VERSION_COMMAND, fail(127)],
+    ]);
+    const progress: BootstrapProgress[] = [];
+    await ensureRemoteHost("me@box", "0.13.2", exec, { ...baseOpts, onProgress: (p) => progress.push(p) });
+    expect(progress.find((p) => p.phase === "install")?.message).toBe("Installing Manor host 0.13.2 on me@box…");
   });
 
   it("reinstalls over a mismatched version", async () => {

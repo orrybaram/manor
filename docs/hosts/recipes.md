@@ -102,6 +102,12 @@ A recipe lives in `~/.manor/host-recipes/<id>/`, next to its scripts:
   `echo` is an error, and Manor quotes it.
 - **Stderr is progress.** Each line shows in the host's status while `up`
   runs. When a command fails, the message quotes the last 2 KB.
+- **Named stages (optional).** A stderr line `manor-stage: <text>` sets the
+  host's status to `<text>`, such as `manor-stage: Getting a disk`. Once
+  `up` has printed one, its other lines no longer replace the stage in the
+  status (they still go to the output, stage lines included); a later
+  `manor-stage:` line replaces it. Each run of `up` starts without a stage.
+  A recipe that prints none shows every line, as above.
 - **A non-zero exit is a failure.**
 - **Timeouts:**
 
@@ -305,7 +311,8 @@ The form asks for:
   [Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys));
 - sets `MANOR_INSTANCE_ID` to the container's name;
 - runs the container with `--restart unless-stopped`, or starts it if it
-  exists and is stopped;
+  exists and is stopped. Pulling the image, creating the container and
+  starting it are named stages (`manor-stage:`);
 - writes no-op `on-busy` and `on-idle` hooks if there are none (see
   [Box hooks](#box-hooks));
 - returns `docker exec -i -u manor <name>` as the way in.
@@ -345,7 +352,20 @@ The form asks for:
   capabilities dropped. The size becomes `MANOR_K8S_CPU` and
   `MANOR_K8S_MEMORY`: the pod requests both, and its memory is limited to
   the request. There is no CPU limit, so a build isn't throttled;
-- scales it to 1 and waits for the rollout (up to 10 minutes);
+- scales it to 1 and waits for the pod to be Ready, every 3 seconds,
+  naming the stage it is at: "Getting a disk" (the claim `home-<name>-0`
+  isn't bound), "Finding room on the cluster" (the pod isn't scheduled),
+  "Downloading the image on the node" (the container is being created),
+  then "Starting". It stops at once, printing the cluster's own reason, when
+  the pod can't start: the claim still Pending after 60 seconds with a
+  `ProvisioningFailed` or `FailedBinding` event (no storage class, or one
+  that doesn't work); the pod unscheduled after 60 seconds with a
+  `FailedScheduling` event (no node has room); the pod refused (a
+  `FailedCreate` event, such as a policy or quota); the container waiting on
+  `ErrImagePull`, `ImagePullBackOff`, `InvalidImageName` or
+  `CreateContainerConfigError`; or killed `OOMKilled`. It gives up 14
+  minutes after `up` started, naming the stage it was stuck at, a minute
+  before Manor's own timeout;
 - writes no-op hooks if there are none;
 - returns `kubectl [--context …] -n <namespace> exec -i <name>-0 -c host --`
   as the way in.

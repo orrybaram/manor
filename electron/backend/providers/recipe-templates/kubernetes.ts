@@ -138,7 +138,125 @@ spec:
 YAML
 
 "\${kube[@]}" scale statefulset "$name" --replicas=1
-"\${kube[@]}" rollout status statefulset "$name" --timeout=10m
+
+# Wait for the pod to be Ready, naming each stage as it goes ("manor-stage:"
+# lines are what Manor shows), and stopping early, with the cluster's own
+# reason, when the pod is never going to start (ADR-234 D9).
+pod="$name-0"
+claim="home-$name-0"
+pod_fields='jsonpath={.status.conditions[?(@.type=="PodScheduled")].status}|{.status.conditions[?(@.type=="Ready")].status}|{.status.containerStatuses[0].state.waiting.reason}|{.status.containerStatuses[0].state.terminated.reason}|{.status.containerStatuses[0].lastState.terminated.reason}|{.status.containerStatuses[0].state.waiting.message}'
+stage=""
+claim_pending_since=""
+unscheduled_since=""
+missing_since=""
+errf=$(mktemp)
+trap 'rm -f "$errf"' EXIT
+
+set_stage() {
+  if [ "$1" != "$stage" ]; then
+    stage=$1
+    echo "manor-stage: $stage" >&2
+  fi
+}
+
+fail() {
+  echo "manor: $1" >&2
+  exit 1
+}
+
+# The latest event about object $1 whose reason matches $2 (a regex), as its
+# message; empty when there is none.
+latest_event() {
+  "\${kube[@]}" get events --field-selector "involvedObject.name=$1" \\
+    -o jsonpath='{range .items[*]}{.lastTimestamp}{.eventTime}{"\\t"}{.reason}{"\\t"}{.message}{"\\n"}{end}' 2>/dev/null \\
+    | awk -F '\\t' -v want="^($2)\\$" '$2 ~ want' | sort | tail -n 1 | cut -f 3- || true
+}
+
+while :; do
+  # Manor gives \`up\` 15 minutes in all, then kills it: give up a minute
+  # before, so the reason is ours. SECONDS counts from the script's start.
+  if [ "$SECONDS" -ge 840 ]; then
+    fail "the host's pod still wasn't ready after 14 minutes; it was stuck at: \${stage:-Starting}"
+  fi
+
+  claim_phase=$("\${kube[@]}" get pvc "$claim" -o 'jsonpath={.status.phase}' 2>/dev/null || true)
+  # A claim that stays Pending with a provisioning failure is a disk the
+  # cluster can't make: no storage class, or one that doesn't work.
+  if [ "$claim_phase" != "Bound" ]; then
+    claim_pending_since=\${claim_pending_since:-$SECONDS}
+    if [ $((SECONDS - claim_pending_since)) -gt 60 ]; then
+      msg=$(latest_event "$claim" 'ProvisioningFailed|FailedBinding')
+      [ -n "$msg" ] && fail "the cluster couldn't make the host's disk: $msg"
+    fi
+  else
+    claim_pending_since=""
+  fi
+
+  if ! pod_state=$("\${kube[@]}" get pod "$pod" -o "$pod_fields" 2>"$errf"); then
+    if grep -q -e NotFound -e 'not found' "$errf"; then
+      # Not created yet. One the cluster keeps refusing to create (a policy,
+      # a quota) never will be.
+      missing_since=\${missing_since:-$SECONDS}
+      if [ $((SECONDS - missing_since)) -gt 15 ]; then
+        msg=$(latest_event "$name" 'FailedCreate')
+        [ -n "$msg" ] && fail "the cluster refused to create the host's pod: $msg"
+      fi
+      if [ "$claim_phase" = "Bound" ]; then set_stage "Finding room on the cluster"; else set_stage "Getting a disk"; fi
+    else
+      cat "$errf" >&2
+      if grep -qi forbidden "$errf"; then
+        fail "kubectl isn't allowed to read the host's pod: $(head -n 1 "$errf")"
+      fi
+    fi
+    sleep 3
+    continue
+  fi
+  missing_since=""
+  IFS='|' read -r scheduled ready waiting terminated last_terminated waiting_message <<<"$pod_state" || true
+
+  if [ "$ready" = "True" ]; then
+    break
+  fi
+
+  if [ "$terminated" = "OOMKilled" ] || [ "$last_terminated" = "OOMKilled" ]; then
+    fail "the host ran out of memory and was stopped (OOMKilled); pick a bigger size"
+  fi
+  case "$waiting" in
+    ErrImagePull | ImagePullBackOff | InvalidImageName)
+      msg=$(latest_event "$pod" 'Failed|InspectFailed')
+      fail "the cluster couldn't get the host image ($waiting): \${msg:-$waiting_message}"
+      ;;
+    CreateContainerConfigError)
+      fail "the cluster couldn't start the host ($waiting): \${waiting_message:-$(latest_event "$pod" 'Failed')}"
+      ;;
+  esac
+
+  if [ "$scheduled" != "True" ]; then
+    unscheduled_since=\${unscheduled_since:-$SECONDS}
+    if [ $((SECONDS - unscheduled_since)) -gt 60 ]; then
+      msg=$(latest_event "$pod" 'FailedScheduling')
+      [ -n "$msg" ] && fail "the cluster has no room for the host: $msg"
+    fi
+    # A claim waiting for its pod is made once the pod has a node: until
+    # then, it is finding room that takes the time.
+    if [ "$claim_phase" != "Bound" ] && [ -z "$(latest_event "$claim" 'WaitForFirstConsumer')" ]; then
+      set_stage "Getting a disk"
+    else
+      set_stage "Finding room on the cluster"
+    fi
+  else
+    unscheduled_since=""
+    if [ "$claim_phase" != "Bound" ]; then
+      set_stage "Getting a disk"
+    elif [ "$waiting" = "ContainerCreating" ] || [ "$waiting" = "PodInitializing" ]; then
+      set_stage "Downloading the image on the node"
+    else
+      set_stage "Starting"
+    fi
+  fi
+  sleep 3
+done
+set_stage "Starting"
 
 # No-op examples of the hooks the host runs when it turns busy or idle
 # (ADR-229 D7). Written only if absent: they are yours to edit.

@@ -135,6 +135,7 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(up).toContain('-v "$key_volume:/run/secrets/manor:ro"');
     expect(up).toContain("MANOR_SECRET_KEY_FILE=/run/secrets/manor/secret.key");
     expect(up).toContain("manor-stage: Creating the container");
+    expect(up).toContain("manor-stage: Starting the container");
     expect(up.indexOf("pull")).toBeLessThan(up.indexOf("run --rm -u 0"));
     expect(up.indexOf("run --rm -u 0")).toBeLessThan(up.indexOf("run -d"));
     const destroy = RECIPE_TEMPLATES[0].files["destroy.sh"].content;
@@ -156,7 +157,8 @@ describe("recipe templates (ADR-229 D8)", () => {
   it("kubernetes: the instance id is namespace/name and storage is validated", () => {
     const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
     expect(up).toContain('value: "$namespace/$name"');
-    expect(up).toContain("--timeout=10m");
+    // The rollout wait is Manor's own loop now, with stages (ADR-234 D9).
+    expect(up).not.toContain("rollout status");
     expect(() =>
       RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" }, CTX),
     ).toThrow(/storage size/);
@@ -190,14 +192,18 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(field?.options?.map((o) => o.value)).toEqual(["small", "medium", "large"]);
   });
 
-  /** Runs up.sh against a `kubectl` that records the manifests it is given. */
+  /**
+   * Runs up.sh against a `kubectl` that records the manifests it is given,
+   * and says the pod is Ready so the wait ends.
+   */
   function renderManifest(env: Record<string, string>): string {
     const bin = path.join(base, "bin");
     fs.mkdirSync(bin);
     const out = path.join(base, "applied.yaml");
     fs.writeFileSync(
       path.join(bin, "kubectl"),
-      `#!/usr/bin/env bash\nfor a in "$@"; do if [ "$a" = apply ]; then cat >>"${out}"; fi; done\nexit 0\n`,
+      `#!/usr/bin/env bash\nfor a in "$@"; do if [ "$a" = apply ]; then cat >>"${out}"; fi; done\n` +
+        `case "$*" in *"get pod"*) printf 'True|True||||' ;; esac\nexit 0\n`,
       { mode: 0o755 },
     );
     const up = path.join(base, "up.sh");
@@ -237,6 +243,91 @@ describe("recipe templates (ADR-229 D8)", () => {
     // The volume claim's own resources stay.
     expect(manifest).toContain("            storage: 20Gi");
     expect(manifest).toContain("          volumeMounts:");
+  });
+
+  it("kubernetes: up waits in named stages and fails fast with the cluster's reason (ADR-234 D9)", () => {
+    const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
+    for (const stage of [
+      "Getting a disk",
+      "Finding room on the cluster",
+      "Downloading the image on the node",
+      "Starting",
+    ]) {
+      expect(up).toContain(`set_stage "${stage}"`);
+    }
+    for (const reason of [
+      "ProvisioningFailed",
+      "FailedBinding",
+      "FailedScheduling",
+      "FailedCreate",
+      "ErrImagePull",
+      "ImagePullBackOff",
+      "InvalidImageName",
+      "CreateContainerConfigError",
+      "OOMKilled",
+    ]) {
+      expect(up).toContain(reason);
+    }
+    expect(up).toContain('"$SECONDS" -ge 840');
+    expect(up).toContain("it was stuck at:");
+    expect(up).toContain('--field-selector "involvedObject.name=$1"');
+  });
+
+  it("kubernetes: up stops at once on a pod that can't start, and goes on once it is Ready", () => {
+    const up = path.join(base, "up.sh");
+    fs.writeFileSync(up, RECIPE_TEMPLATES[1].files["up.sh"].content, { mode: 0o755 });
+    // A kubectl that answers the claim's phase, the pod's fields and its events.
+    const bin = path.join(base, "bin");
+    fs.mkdirSync(bin);
+    fs.writeFileSync(
+      path.join(bin, "kubectl"),
+      [
+        "#!/bin/sh",
+        'case "$*" in',
+        "  *apply* | *exec*) cat >/dev/null ;;",
+        '  *"get pvc"*) printf Bound ;;',
+        '  *"get pod"*) printf %s "$FAKE_POD" ;;',
+        '  *"get events"*) printf "%b" "$FAKE_EVENTS" ;;',
+        "esac",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const run = (pod: string, events = "") =>
+      spawnSync("bash", [up], {
+        env: {
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          MANOR_K8S_NAME: "box1",
+          MANOR_K8S_NAMESPACE: "manor",
+          MANOR_K8S_IMAGE: "ghcr.io/x/host:1",
+          FAKE_POD: pod,
+          FAKE_EVENTS: events,
+        },
+        encoding: "utf-8",
+      });
+
+    const pull = run(
+      "True|False|ErrImagePull|||rpc error",
+      "2026-01-01T00:00:00Z\\tFailed\\tFailed to pull image: not found\\n",
+    );
+    expect(pull.status).toBe(1);
+    expect(pull.stderr).toContain(
+      "manor: the cluster couldn't get the host image (ErrImagePull): Failed to pull image: not found",
+    );
+
+    const config = run('True|False|CreateContainerConfigError|||secret "box1-key" not found');
+    expect(config.status).toBe(1);
+    expect(config.stderr).toContain('secret "box1-key" not found');
+
+    const oom = run("True|False|CrashLoopBackOff||OOMKilled|");
+    expect(oom.status).toBe(1);
+    expect(oom.stderr).toContain("OOMKilled");
+
+    const ready = run("True|True||||");
+    expect(ready.status).toBe(0);
+    expect(ready.stderr).toContain("manor-stage: Starting");
+    expect(JSON.parse(ready.stdout)).toMatchObject({ resource: { namespace: "manor", name: "box1" } });
   });
 
   it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas (ADR-231 C1)", () => {

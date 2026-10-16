@@ -81,6 +81,7 @@ case "$state" in
     ;;
   running | restarting) ;;
   *)
+    echo "manor-stage: Starting the container" >&2
     echo "Starting container $name"
     "\${docker_cmd[@]}" start "$name"
     ;;

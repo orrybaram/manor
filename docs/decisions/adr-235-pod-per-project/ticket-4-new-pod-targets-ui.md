@@ -1,6 +1,6 @@
 ---
 title: "In a new pod" targets in Add Project, Set up on and New Workspace
-status: in-progress
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [2, 3]

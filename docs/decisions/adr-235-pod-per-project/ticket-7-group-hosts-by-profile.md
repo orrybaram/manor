@@ -1,6 +1,6 @@
 ---
 title: Group profile hosts on the Hosts page and in the status bar
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [2]

@@ -1,6 +1,6 @@
 ---
 name: adr-workflow
-description: "Use before implementing a large feature: research, write an ADR with tickets, get approval through a plain-language artifact, then execute the tickets with subagents, review, and fix."
+description: "Use before implementing a large feature: research, write an ADR with tickets, get approval through a plain-language artifact, then execute the tickets with subagents, review, fix, and publish visually verified evidence of the result."
 disable-model-invocation: false
 ---
 
@@ -183,11 +183,41 @@ With every ticket done, spawn a verifier on the branch. On FAIL, create `ticket-
 
 Spawn `subagent_type: "code-reviewer"` on the branch with the ADR folder path. It reviews everything since the merge-base with `main`, fixes every finding, and commits. Then run the verifier once more; on FAIL, send the output back to the reviewer with `SendMessage`.
 
-Findings the reviewer marks **needs decision** go to the user in Step 9.
+Findings the reviewer marks **needs decision** go to the user in Step 10.
 
-## Step 9: Close out
+## Step 9: Evidence
+
+Once review passes, prove the feature works with hard evidence, not test counts.
+
+### 9a. Capture
+
+Drive the built app through every user-facing change the ADR promised (load the `run` skill to launch it; reuse or write a Playwright script for multi-step flows). For each change capture:
+
+- **Screenshots** of the before and after states, and of every new screen, dialog and state (empty, loading, error).
+- **Videos** of multi-step flows when the environment can record them (Playwright `video: "on"` or `recordVideo`). Skip video, and say so in the artifact, when it can't.
+- For changes with no UI (host, CLI, IPC): terminal output of the behaviour running, e.g. CLI output or a log excerpt.
+
+Save captures under the scratchpad directory, never in the repo.
+
+### 9b. Visually verify
+
+Open every screenshot with `Read`. `Read` cannot play video: for each video, also take screenshots at its key steps (or extract frames with `ffmpeg` if installed) and read those. Check each capture against the ADR's "What changes for the user": layout, text, theme in both light and dark, nothing clipped or overlapping, no error toasts or console errors, and the state matches the step that produced it.
+
+Each defect becomes a `ticket-N-fix-*.md`, run through 7b and 7c, then the verifier. Afterwards recapture everything the fix could touch and verify again. Repeat until a full pass finds nothing.
+
+### 9c. Publish the evidence artifact
+
+Publish a second artifact (separate page file from Step 5) with:
+
+- **What was built**: a plain-language summary, one line per ticket, and anything that changed from the approved plan.
+- **Evidence**: each capture with a caption naming what it proves; screenshots and videos go in through `files`.
+- **Verification**: test and verifier results, review findings (fixed, skipped, needs decision), and what could not be shown and why.
+
+Read the published page back (`Artifact` `action: "read"`, and `scope: "files"` to list its files) and check every image and video path in the page resolves to a published file and every caption matches its capture. Fix and republish until it does.
+
+## Step 10: Close out
 
 1. Set the ADR `status: accepted`, and add any reviewer findings worth remembering to Consequences.
 2. Save or update a `project` memory for the ADR: number, branch, ticket count, state.
-3. Report to the user: tickets done, review findings (fixed, skipped, needs decision), and the commit range.
-4. Offer next steps, each run only on a yes: `pnpm test:e2e` for user-facing flows, a PR via the `pr` skill, a comment on the originating GitHub issue.
+3. Report to the user: the evidence artifact link, tickets done, review findings (fixed, skipped, needs decision), and the commit range.
+4. Offer next steps, each run only on a yes: `pnpm test:e2e` for user-facing flows, a PR via the `pr` skill, a comment on the originating GitHub issue. The PR body links the evidence artifact.

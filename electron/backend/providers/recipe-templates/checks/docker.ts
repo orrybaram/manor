@@ -19,7 +19,7 @@ import {
   isRemoteAuthError,
   remoteShellCommand,
 } from "../../../../terminal-host/ssh-config";
-import { dockerWhere, remoteContextName, SSH_TARGET_PATTERN, sshTargetParts } from "../docker";
+import { createContextArgs, dockerWhere, remoteContextName, SSH_TARGET_PATTERN, sshTargetParts } from "../docker";
 import { defaultHostImage, type Choice, type TemplateCheck, type TemplateCheckResult } from "../types";
 import {
   DEFAULT_PROBE_TIMEOUT_MS,
@@ -522,13 +522,39 @@ const COMMAND_NOT_FOUND = /docker: (?:command )?not found|command not found: doc
 const SOCKET_DENIED = /permission denied[^\n]*docker[^\n]*(?:sock|daemon)/i;
 const DAEMON_DOWN = /Cannot connect to the Docker daemon|Is the docker daemon running/i;
 
+/** How long a passing machine probe is reused: a pull's 2 s refreshes shouldn't each open an ssh connection. */
+const PROBE_CACHE_MS = 15_000;
+const probeCache = new Map<string, { rows: TemplateCheck[]; expires: number }>();
+
+/** Forget cached machine probes. For tests. */
+export function clearProbeCache(): void {
+  probeCache.clear();
+}
+
+/**
+ * The machine's three rows, reusing a passing answer for `PROBE_CACHE_MS`.
+ * Failures are never cached, so a fix shows up at once.
+ */
+async function machineChecks(machine: RemoteMachine, deps: CheckDeps): Promise<TemplateCheck[]> {
+  const now = (deps.now ?? Date.now)();
+  const cached = probeCache.get(machine.target);
+  if (cached && cached.expires > now) return cached.rows;
+  const rows = await probeMachine(machine, deps);
+  if (rows.every((c) => c.state === "ok")) {
+    probeCache.set(machine.target, { rows, expires: now + PROBE_CACHE_MS });
+  } else {
+    probeCache.delete(machine.target);
+  }
+  return rows;
+}
+
 /**
  * The machine's three rows from one `ssh … docker version`: it answers
  * over SSH (host-key and sign-in failures told apart with the SSH path's own
  * `isHostKeyError` / `isRemoteAuthError`),
  * Docker is installed there, and the user may use it.
  */
-async function machineChecks(machine: RemoteMachine, deps: CheckDeps): Promise<TemplateCheck[]> {
+async function probeMachine(machine: RemoteMachine, deps: CheckDeps): Promise<TemplateCheck[]> {
   const { target, host } = machine;
   const titles = remoteTitles(target, host);
   const reachBad = (title: string, detail?: string): TemplateCheck[] => [
@@ -756,15 +782,7 @@ async function createContext(values: Record<string, string>, deps: CheckDeps): P
       `A Docker context called ${context} already points at ${endpoint || "something else"}. Manor won't change it.`,
     );
   }
-  await deps.execFile("docker", [
-    "context",
-    "create",
-    context,
-    "--description",
-    `Made by Manor for ssh://${target}`,
-    "--docker",
-    `host=ssh://${target}`,
-  ]);
+  await deps.execFile("docker", createContextArgs(context, target));
 }
 
 /**

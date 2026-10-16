@@ -23,6 +23,8 @@ export interface CheckDeps {
   jobs?: TemplateJobs;
   /** The host image's Dockerfile directory; absent means `hostImageDir()`. */
   hostImageDir?: string;
+  /** The clock, in ms; absent means `Date.now`. A seam for tests of cached probes. */
+  now?: () => number;
   /**
    * Run `file` with `args` (on the login PATH the app already uses) and
    * resolve with its stdout. Rejects when it is not found (`code: "ENOENT"`),

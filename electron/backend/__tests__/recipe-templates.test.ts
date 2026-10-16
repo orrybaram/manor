@@ -189,6 +189,94 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(() => context({ where: "mars" })).toThrow(/Run it on/);
   });
 
+  it("docker: the recipe records the SSH target, and marks the context as Manor's own only when derived (ADR-234 D12)", () => {
+    const env = (values: Record<string, string>) =>
+      RECIPE_TEMPLATES[0].recipe({ name: "box1", ...values }, CTX).env;
+    expect(env({ where: "ssh", sshTarget: "me@Build.Box:2222" })).toMatchObject({
+      MANOR_DOCKER_CONTEXT: "manor-build-box",
+      MANOR_DOCKER_SSH_TARGET: "me@Build.Box:2222",
+      MANOR_DOCKER_CONTEXT_MANAGED: "1",
+    });
+    const explicit = env({ where: "ssh", sshTarget: "me@build-box", context: "mine" });
+    expect(explicit).toMatchObject({ MANOR_DOCKER_CONTEXT: "mine", MANOR_DOCKER_SSH_TARGET: "me@build-box" });
+    expect(explicit).not.toHaveProperty("MANOR_DOCKER_CONTEXT_MANAGED");
+    const local = env({ where: "local", sshTarget: "me@ignored" });
+    expect(local).not.toHaveProperty("MANOR_DOCKER_SSH_TARGET");
+    expect(local).not.toHaveProperty("MANOR_DOCKER_CONTEXT_MANAGED");
+  });
+
+  describe("docker up.sh: a removed context", () => {
+    // A fake `docker` that logs its arguments; `volume` stops the script, so
+    // only the context step runs. `context inspect` answers $INSPECT, or fails.
+    const run = (env: Record<string, string>, inspect: "missing" | string) => {
+      const bin = fs.mkdtempSync(path.join(base, "bin-"));
+      const log = path.join(bin, "log");
+      fs.writeFileSync(
+        path.join(bin, "docker"),
+        `#!/bin/sh
+echo "$*" >> "${log}"
+case "$1 $2" in
+  "context inspect") [ "$INSPECT" = missing ] && { echo 'context "x": context not found' >&2; exit 1; }; echo "$INSPECT"; exit 0 ;;
+  "context create") exit 0 ;;
+esac
+exit 99
+`,
+        { mode: 0o755 },
+      );
+      fs.writeFileSync(path.join(bin, "up.sh"), RECIPE_TEMPLATES[0].files["up.sh"].content, { mode: 0o755 });
+      const result = spawnSync("bash", [path.join(bin, "up.sh")], {
+        env: {
+          PATH: `${bin}:${process.env.PATH}`,
+          MANOR_DOCKER_NAME: "box1",
+          MANOR_DOCKER_IMAGE: "img",
+          INSPECT: inspect,
+          ...env,
+        },
+        encoding: "utf-8",
+      });
+      const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf-8").trim().split("\n") : [];
+      return { ...result, calls };
+    };
+    const MANAGED = {
+      MANOR_DOCKER_CONTEXT: "manor-build-box",
+      MANOR_DOCKER_SSH_TARGET: "me@build-box:2222",
+      MANOR_DOCKER_CONTEXT_MANAGED: "1",
+    };
+
+    it("creates the context before any other docker call when it is missing", () => {
+      const r = run(MANAGED, "missing");
+      expect(r.stderr).toContain("manor-stage: Setting up Docker on build-box");
+      expect(r.calls[1]).toBe(
+        "context create manor-build-box --description Made by Manor for ssh://me@build-box:2222 --docker host=ssh://me@build-box:2222",
+      );
+      expect(r.calls[2]).toMatch(/^--context manor-build-box volume inspect/);
+    });
+
+    it("leaves a context that already points there alone", () => {
+      const r = run(MANAGED, "ssh://me@build-box:2222/");
+      expect(r.calls.some((c) => c.startsWith("context create"))).toBe(false);
+      expect(r.stderr).not.toContain("Setting up");
+    });
+
+    it("refuses, in one line, a context of that name pointing elsewhere", () => {
+      const r = run(MANAGED, "ssh://someone@other-box");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/^manor: Docker context manor-build-box already points at ssh:\/\/someone@other-box/m);
+      expect(r.calls.some((c) => c.startsWith("context create"))).toBe(false);
+    });
+
+    it("does nothing for an explicit context, or without a target", () => {
+      const { MANOR_DOCKER_CONTEXT_MANAGED: _m, ...explicit } = MANAGED;
+      expect(run(explicit, "missing").calls.some((c) => c.startsWith("context"))).toBe(false);
+      const { MANOR_DOCKER_SSH_TARGET: _t, ...local } = MANAGED;
+      expect(run(local, "missing").calls.some((c) => c.startsWith("context"))).toBe(false);
+    });
+  });
+
+  it("docker status.sh: a missing context reads as not set up, not a broken container", () => {
+    expect(RECIPE_TEMPLATES[0].files["status.sh"].content).toContain("start the host to set it up");
+  });
+
   it("agents: the choice becomes MANOR_AGENTS, an unknown id is refused, blank installs none (ADR-234 D11)", () => {
     for (const template of RECIPE_TEMPLATES) {
       const field = template.fields.find((f) => f.key === "agents");

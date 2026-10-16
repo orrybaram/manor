@@ -3,9 +3,10 @@
  * check, with a faked `execFile` — and its `run` fixes.
  */
 import { EventEmitter } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { checkTemplate, runTemplateFix } from "../providers/recipe-templates";
 import type { CheckDeps } from "../providers/recipe-templates/checks";
+import { clearProbeCache } from "../providers/recipe-templates/checks/docker";
 import {
   TemplateJobs,
   type JobChild,
@@ -570,6 +571,35 @@ const REMOTE_HEALTHY: Array<[string, Answer]> = [
 const NO_CONTEXT = failed('context "manor-build-box": context not found: open /home/me/.docker/contexts/meta/x/meta.json: no such file or directory');
 
 describe("docker checklist over SSH", () => {
+  beforeEach(clearProbeCache);
+
+  it("reuses a passing machine probe for 15 s, per target, and never a failing one", async () => {
+    let clock = 1_000;
+    const sshCalls = (deps: { execFile: { mock: { calls: unknown[][] } } }) =>
+      deps.execFile.mock.calls.filter(([file]) => file === "ssh").length;
+    const deps = dockerDeps(REMOTE_HEALTHY, { now: () => clock });
+    await checkTemplate("docker", SSH, deps);
+    clock += 14_000;
+    await checkTemplate("docker", SSH, deps);
+    expect(sshCalls(deps)).toBe(1);
+    // Another target is probed on its own.
+    await checkTemplate("docker", { ...SSH, sshTarget: "me@other-box" }, deps);
+    expect(sshCalls(deps)).toBe(2);
+    // Expired.
+    clock += 2_000;
+    await checkTemplate("docker", SSH, deps);
+    expect(sshCalls(deps)).toBe(3);
+
+    // A failure is not remembered: the next refresh asks again and sees the fix.
+    clearProbeCache();
+    let answer: string | Error = exited(255, "Permission denied (publickey).");
+    const flaky = dockerDeps([["ssh", () => answer], ...REMOTE_HEALTHY.slice(1)], { now: () => clock });
+    expect((await checkTemplate("docker", SSH, flaky)).checks[0].state).toBe("bad");
+    answer = "27.3.1\n";
+    expect((await checkTemplate("docker", SSH, flaky)).checks[0].state).toBe("ok");
+    expect(sshCalls(flaky)).toBe(2);
+  });
+
   it("checks the machine, then its context, daemon and image, all through that context", async () => {
     const deps = dockerDeps([...REMOTE_HEALTHY, ["docker --context manor-build-box image inspect", "sha256:abc"]]);
     const { checks } = await checkTemplate("docker", SSH, deps);

@@ -347,9 +347,13 @@ Docker context. Before Start, the checklist checks, in order:
    build fallback builds there too (`docker --context manor-<host> build`
    sends the build files over ssh).
 
-`up` can't create the context itself, so it has to exist when the host
-starts: Start waits for the checklist. If you remove the context later,
-recreate it with the command above.
+If you remove the context later, `up` makes it again before any other
+docker call (`manor-stage: Setting up Docker on <host>`), from the target
+the recipe records in `MANOR_DOCKER_SSH_TARGET`. That applies only to the
+context Manor derived (`MANOR_DOCKER_CONTEXT_MANAGED=1`), not to one you
+chose under Advanced. A context of that name that points somewhere else is
+left alone and `up` fails with a one-line reason. The ssh check above is
+reused for 15 seconds while the form refreshes, and only when it passed.
 
 `up`:
 

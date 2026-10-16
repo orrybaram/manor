@@ -1,6 +1,6 @@
 ---
 title: Flat project nav, deep-link jump id, search index rewrite
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [5]

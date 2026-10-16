@@ -1,6 +1,6 @@
 ---
 title: Remove HostCard and dead settings CSS
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [5, 6]

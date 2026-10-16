@@ -40,6 +40,85 @@ Each host on the Hosts page offers what its recipe allows:
 - **Remove…**: **Remove from Manor**, or **Destroy host and its disk** when
   the recipe has a `destroy` (see [stop and destroy](#stop-and-destroy)).
 
+## Host profiles
+
+A **host profile** is a template plus the answers you give it once. Use one
+when you start many hosts the same way, such as a pod for every project on
+one cluster.
+
+Open **Settings → Hosts**, then **New profile…** under Profiles. The form is
+the same as Start a new host, with the same checks and Advanced section, and
+these changes:
+
+- the per-host fields are hidden. For both templates that is the **Name**,
+  which Manor picks for each host;
+- you give the profile a name, such as "Work cluster";
+- **Stop when idle for** is Off, 30, 60 or 120 minutes. The default is 60;
+- **Save profile** is disabled until every check passes.
+
+A profile works with any template. Kubernetes is the main case, and a Docker
+profile gives you a container for each project. A profile holds no secrets.
+
+Editing a profile changes only the hosts made after the edit. Recipes that
+are already written are your files, and Manor doesn't touch them. Removing a
+profile leaves its hosts alone. They just lose their heading on the Hosts
+page.
+
+On the Hosts page, a profile's hosts sit under its heading with a count such
+as "3 of 7 running", and the heading has Edit and Remove. The status bar
+shows one entry for the profile, such as "Work cluster: 3 of 7 running", and
+a host in error is still shown on its own.
+
+The idle stop is written into each new recipe as `idleStopMinutes`. A stopped
+pod keeps its disk, and opening its project wakes it. The disk keeps billing
+while the host is stopped.
+
+## A project in its own pod
+
+With a profile saved, a project can get its own host in one step. Each
+project then has its own CPU, memory and disk. For a Docker profile it is a
+container and a volume.
+
+Pick the profile in either place:
+
+- **Add Project → Clone repository**: in the Host list, choose "In a new pod ·
+  Work cluster" ("In a new container · …" for Docker). With no profile yet,
+  "In a new pod…" opens the profile form and brings you back with it picked.
+  Location is hidden, because Manor clones to `~/code/<name>`;
+- **Set up on** in a project's menu, or **Set up on another host…** in New
+  Workspace: the same entries, after the hosts. The new checkout joins the
+  project it came from.
+
+Manor then:
+
+1. names the host after the repository, cut to fit the template's name rules.
+   A taken name gets `-2`, `-3` and so on;
+2. writes a recipe from the profile, with its idle stop;
+3. saves the host and runs `up`. The dialog shows the host's own progress;
+4. waits for it to connect, then clones the repository (or copies the source
+   project) and runs the health check.
+
+If a step fails, Manor keeps the host and says which step it was. Use
+**Retry** to run again from that step. `up` can be repeated safely, and the
+clone adopts a checkout that is already there. Use **Delete** to destroy the
+host. Nothing is destroyed unless you ask, because the recipe output is what
+you need to fix the problem.
+
+The host is kept for its project. It is left out of other projects' Set up on
+and host lists, behind **Show all hosts**. Nothing is refused: it is still an
+ordinary host.
+
+### Removing a project
+
+When you remove a project that has its own pod, the dialog offers **Also
+delete its pod and disk** ("its container and volume" for Docker). It is
+checked, and there is no undo. Checked removes the project, then runs the
+recipe's `destroy`. Unchecked stops the host, keeps its disk, and turns it
+into an ordinary host.
+
+If the destroy fails, the project is still removed. The host stays in error
+with its output, and you can retry **Remove…** from Settings.
+
 ## The contract
 
 ### Files
@@ -451,6 +530,15 @@ without a context kubectl uses its current one, and without
 `stop` scales the StatefulSet to 0 and keeps the claim and the Secret.
 `destroy` deletes the StatefulSet, the claim `home-<name>-0` and the Secret.
 
+Every pod carries the labels `app.kubernetes.io/managed-by: manor` and
+`manor.sh/host: <name>`. `up` also applies, once per namespace, a
+NetworkPolicy named `manor-deny-ingress`. It selects those pods and allows no
+ingress, so nothing can connect to them. Manor only reaches a pod through
+`kubectl exec`. Egress stays open, because git, npm and agents need it. The
+policy only works if the cluster has a network policy controller, such as
+Calico or Cilium. Without one, the cluster ignores it. All pods of a
+namespace share it, and there is no ResourceQuota.
+
 `kubectl exec` streams can be cut by the API server's idle timeouts. Manor
 reconnects them with backoff, as it does for a dropped ssh connection.
 
@@ -613,8 +701,12 @@ hosts started from one snapshot, image or copied volume of that directory
 would share one relay room, and each one's phones would see the other's
 agents.
 
-- **Build images before Manor first connects.** The reference image has
-  nothing of Manor's in it; the first connect installs it on the volume.
+- **Build images before Manor first connects.** An image may hold Manor
+  *code*, never Manor *state*. The reference image carries the version's
+  host package in `/opt/manor/host-<version>/`, which the first connect
+  copies onto the volume. `~/.manor/remote/server/` is only ever on the home
+  volume, so sharing that image is safe. A snapshot of a volume, or of a
+  machine where Manor has run, is not.
 - **Give every host its own `MANOR_INSTANCE_ID`.** The host server records
   the id it was created under. When it starts under a different one, it
   keeps the projects, agents and layout, and resets everything sealed: the

@@ -167,6 +167,15 @@ export interface HostStatusInfo {
   idleStopNote?: boolean;
   /** The recipe's `idleStopMinutes` (ADR-229 D7), for that note. Set on recipe hosts that have one. */
   idleStopMinutes?: number;
+  /**
+   * The host profile the host was made from (ADR-235 D1), and the project it
+   * was made for (D5): `PersistedHost`'s, set on a desktop's remote hosts
+   * that have them.
+   */
+  profileId?: string;
+  forProject?: string;
+  /** The recipe's bundled template (`docker`, `kubernetes`), if it has one. */
+  template?: string;
 }
 
 /**
@@ -193,6 +202,9 @@ type HostState = Omit<
   | "roomId"
   | "viewerBridge"
   | "adopted"
+  | "profileId"
+  | "forProject"
+  | "template"
   | "providerKind"
   | "capabilities"
   | "label"

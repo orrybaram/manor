@@ -362,6 +362,7 @@ export const dockerTemplate: RecipeTemplate = {
         "Which Docker to use when you have more than one, such as colima. Default is Docker's current one, or the one Manor sets up for the SSH machine.",
     },
   ],
+  perHost: ["name"],
   files: {
     "up.sh": { content: UP, mode: 0o755 },
     "status.sh": { content: STATUS, mode: 0o755 },

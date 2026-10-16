@@ -314,6 +314,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
         projectName={group.name}
+        members={sections.map((s) => s.project)}
         onConfirm={onRemove}
       />
     </div>

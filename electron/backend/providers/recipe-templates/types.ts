@@ -126,6 +126,11 @@ export interface RecipeTemplate {
   name: string;
   description: string;
   fields: FormField[];
+  /**
+   * The keys of the fields that differ for each host made from a profile
+   * (ADR-235 D1): a profile never stores them, and its editor hides them.
+   */
+  perHost: string[];
   /** File name in the recipe's directory -> its content. */
   files: Record<string, TemplateFile>;
   /** The recipe for `values`; throws if an answer is not acceptable. */
@@ -138,6 +143,8 @@ export interface TemplateInfo {
   name: string;
   description: string;
   fields: Array<Omit<FormField, "default"> & { default?: string }>;
+  /** As `RecipeTemplate.perHost`. */
+  perHost: string[];
 }
 
 /** `manor-` and six random hex digits: a name that is unlikely to be taken. */

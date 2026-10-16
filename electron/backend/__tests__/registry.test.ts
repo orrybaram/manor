@@ -189,6 +189,27 @@ describe("BackendRegistry", () => {
     expect(local.raw.connect).toHaveBeenCalledWith();
   });
 
+  it("stamps a remote host's profile and project marks, and re-lists on recordChanged (ADR-235)", () => {
+    const marks: Record<string, { profileId?: string; forProject?: string }> = {
+      box: { profileId: "hp-1" },
+    };
+    const registry = new BackendRegistry({
+      local: fakeBackend("local").backend,
+      remoteVersion: "0.1.0",
+      createProvider: () => fakeProvider() as unknown as HostProvider,
+      createRemote: (hostId) => fakeBackend(hostId).backend,
+      hostMarks: (hostId) => marks[hostId] ?? {},
+    });
+    registry.register("box", box);
+    expect(registry.list()[1]).toMatchObject({ hostId: "box", profileId: "hp-1" });
+    expect(registry.list()[1]).not.toHaveProperty("forProject");
+    const heard: HostStatusInfo[][] = [];
+    registry.onStatusChange((hosts) => heard.push(hosts));
+    marks.box = { profileId: "hp-1", forProject: "p1" };
+    registry.recordChanged("box");
+    expect(heard[heard.length - 1]?.[1]).toMatchObject({ profileId: "hp-1", forProject: "p1" });
+  });
+
   it("fails every call on an unregistered host instead of throwing synchronously", async () => {
     const { registry } = setup();
     const ghost = registry.get("ghost");

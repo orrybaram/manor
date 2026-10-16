@@ -5,6 +5,9 @@
  * scales it to 0, `up` to 1, `destroy` deletes the set, the claim and the
  * Secret.
  *
+ * The pod also reads the profile's optional `manor-signin-<profileId>` Secret into its
+ * environment (ADR-235 D9, `signin.ts`).
+ *
  * The scripts keep stdout for the one JSON object (fd 3).
  */
 
@@ -40,6 +43,14 @@ fi
 kube=("\${kubectl_cmd[@]}" -n "$namespace")
 image=\${MANOR_K8S_IMAGE:?MANOR_K8S_IMAGE is not set}
 storage=\${MANOR_K8S_STORAGE:-20Gi}
+# The profile's sign-in Secret (ADR-235 D9). A recipe made before it was named
+# per profile has none, and the default covers it. It goes into YAML below, so
+# it must be a DNS name.
+signin_secret=\${MANOR_K8S_SIGNIN_SECRET:-manor-signin}
+if ! [[ "$signin_secret" =~ ^[a-z0-9]([a-z0-9-]{0,251}[a-z0-9])?$ ]]; then
+  echo "manor: MANOR_K8S_SIGNIN_SECRET is not a valid Secret name" >&2
+  exit 1
+fi
 storage_class_line=""
 if [ -n "\${MANOR_K8S_STORAGE_CLASS:-}" ]; then
   storage_class_line="storageClassName: $MANOR_K8S_STORAGE_CLASS"
@@ -62,6 +73,21 @@ if ! "\${kubectl_cmd[@]}" get namespace "$namespace" >/dev/null 2>&1; then
   echo "Creating namespace $namespace"
   "\${kubectl_cmd[@]}" create namespace "$namespace"
 fi
+
+# Pods Manor manages accept no traffic from inside the cluster. The policy is
+# shared by the namespace, so destroy leaves it in place. Idempotent.
+"\${kube[@]}" apply -f - <<YAML
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: manor-deny-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: manor
+  policyTypes: [Ingress]
+  ingress: []
+YAML
 
 # The key that seals the host's secrets (ADR-229 D5), generated once. A Secret
 # is not on the home volume, so a copy of the volume cannot read them.
@@ -95,6 +121,8 @@ spec:
     metadata:
       labels:
         app: $name
+        app.kubernetes.io/managed-by: manor
+        manor.sh/host: $name
     spec:
       securityContext:
         runAsNonRoot: true
@@ -116,6 +144,13 @@ spec:
               value: /run/secrets/manor-key
             - name: MANOR_INSTANCE_ID
               value: "$namespace/$name"
+          # "Sign new pods in for me" (ADR-235 D9): GH_TOKEN and
+          # CLAUDE_CODE_OAUTH_TOKEN, when the profile set them. Optional, so
+          # the pod starts the same without the Secret.
+          envFrom:
+            - secretRef:
+                name: $signin_secret
+                optional: true
           volumeMounts:
             - name: home
               mountPath: /home/manor
@@ -272,6 +307,12 @@ for hook in on-idle on-busy; do
     chmod 755 "$hooks/$hook"
   fi
 done
+# With a GitHub token from manor-signin (ADR-235 D9), let gh be git's
+# credential helper: the clone and git push then use the token. Idempotent;
+# it lands in ~/.gitconfig on the home volume. Runs as the container's user.
+if [ -n "\${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
+  gh auth setup-git || echo "manor: gh auth setup-git failed" >&2
+fi
 HOOKS
 
 ${agentInstallScript('"${kube[@]}" exec -i "$name-0" -c host --')}
@@ -467,6 +508,7 @@ export const kubernetesTemplate: RecipeTemplate = {
       description: "The kind of disk the cluster makes. Blank uses the cluster's default.",
     },
   ],
+  perHost: ["name"],
   files: {
     "up.sh": { content: UP, mode: 0o755 },
     "status.sh": { content: STATUS, mode: 0o755 },

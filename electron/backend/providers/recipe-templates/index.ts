@@ -40,6 +40,7 @@ export function listTemplates(ctx: TemplateContext): TemplateInfo[] {
       ...field,
       ...(def !== undefined ? { default: typeof def === "function" ? def(ctx) : def } : {}),
     })),
+    perHost: [...template.perHost],
   }));
 }
 

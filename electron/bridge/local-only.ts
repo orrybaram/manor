@@ -50,6 +50,13 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.createCustomRecipe",
   "hosts.remove",
   "hosts.projectsOnHost",
+  "hostProfiles.list",
+  "hostProfiles.save",
+  "hostProfiles.remove",
+  "hostProfiles.setSignIn",
+  "hostProfiles.removeSignIn",
+  "hostProfiles.restartPods",
+  "projects.openInNewHost",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

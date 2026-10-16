@@ -1,7 +1,7 @@
 import { useCallback, useId, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
-import { useProjectStore, type ProjectInfo } from "../../store/project-store";
+import { useProjectStore, type NewHostPod, type ProjectInfo } from "../../store/project-store";
 import { useHostStore } from "../../store/host-store";
 import { hostSentenceName } from "../../bridge/server-set";
 import { isRemoteHost } from "../../lib/hosts";
@@ -83,6 +83,11 @@ type CloneToHostDialogProps = {
    * not: the caller checks the store for the new project.
    */
   onSetUp?: (hostId: string) => void;
+  /**
+   * The pod `openInNewHost` opened this dialog on (ADR-235): a `setUp` onto
+   * it finishes through `openInNewHost`, which marks it as the project's.
+   */
+  newHost?: NewHostPod;
   /** Where focus goes once the dialog has closed; Radix's default when omitted. */
   onCloseAutoFocus?: (e: Event) => void;
 };
@@ -108,6 +113,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
     error: failure,
     onClose,
     onSetUp,
+    newHost,
     onCloseAutoFocus,
   } = props;
 
@@ -167,7 +173,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
     const overrides = { repoUrl: repoUrl.trim(), targetDir: remoteDir.trim() };
     onClose();
     if (mode === "setUp") {
-      await setUpOnHost(project.id, hostId, overrides);
+      await setUpOnHost(project.id, hostId, overrides, newHost);
       onSetUp?.(hostId);
       return;
     }
@@ -183,6 +189,7 @@ export function CloneToHostDialog(props: CloneToHostDialogProps) {
     project.id,
     hostId,
     onSetUp,
+    newHost,
   ]);
 
   return (

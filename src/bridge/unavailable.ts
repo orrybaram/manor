@@ -206,4 +206,11 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.createCustomRecipe"
   | "hosts.remove"
   | "hosts.projectsOnHost"
+  | "hostProfiles.list"
+  | "hostProfiles.save"
+  | "hostProfiles.remove"
+  | "hostProfiles.setSignIn"
+  | "hostProfiles.removeSignIn"
+  | "hostProfiles.restartPods"
+  | "projects.openInNewHost"
 >;

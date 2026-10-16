@@ -394,9 +394,10 @@ exit 99
    * Runs up.sh against a `kubectl` that records the manifests it is given,
    * and says the pod is Ready so the wait ends.
    */
-  function renderManifest(env: Record<string, string>): string {
+  function renderManifest(env: Record<string, string>, expectStatus = 0): string {
     const bin = path.join(base, "bin");
-    fs.mkdirSync(bin);
+    fs.mkdirSync(bin, { recursive: true });
+    fs.rmSync(path.join(base, "applied.yaml"), { force: true });
     const out = path.join(base, "applied.yaml");
     fs.writeFileSync(
       path.join(bin, "kubectl"),
@@ -410,8 +411,8 @@ exit 99
       env: { PATH: `${bin}:${process.env.PATH}`, ...env },
       encoding: "utf-8",
     });
-    expect(result.status, result.stderr).toBe(0);
-    return fs.readFileSync(out, "utf-8");
+    expect(result.status, result.stderr).toBe(expectStatus);
+    return fs.existsSync(out) ? fs.readFileSync(out, "utf-8") : "";
   }
 
   const K8S_ENV = {
@@ -437,6 +438,67 @@ exit 99
     }
     // No CPU limit.
     expect(manifest).not.toMatch(/limits:\n\s+cpu/);
+  });
+
+  it("kubernetes: the pod template carries Manor's labels, and the selector is left alone", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).toContain(
+      "      labels:\n        app: box1\n        app.kubernetes.io/managed-by: manor\n        manor.sh/host: box1\n",
+    );
+    // Selectors are immutable: the labels are only on the pod template.
+    expect(manifest).toContain("  selector:\n    matchLabels:\n      app: box1\n");
+    expect(manifest).not.toMatch(/matchLabels:\n\s+app: box1\n\s+app\.kubernetes/);
+  });
+
+  it("kubernetes: up applies an ingress-deny NetworkPolicy for Manor's pods, before the pod", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).toContain(
+      [
+        "apiVersion: networking.k8s.io/v1",
+        "kind: NetworkPolicy",
+        "metadata:",
+        "  name: manor-deny-ingress",
+        "spec:",
+        "  podSelector:",
+        "    matchLabels:",
+        "      app.kubernetes.io/managed-by: manor",
+        "  policyTypes: [Ingress]",
+        "  ingress: []",
+        "",
+      ].join("\n"),
+    );
+    expect(manifest.indexOf("kind: NetworkPolicy")).toBeLessThan(
+      manifest.indexOf("kind: StatefulSet"),
+    );
+    // The policy is shared by the namespace: destroy never deletes it.
+    const destroy = RECIPE_TEMPLATES[1].files["destroy.sh"].content;
+    expect(destroy).not.toContain("networkpolicy");
+    expect(destroy).not.toContain("manor-deny-ingress");
+  });
+
+  it("kubernetes: up refuses a sign-in Secret name that is not a DNS name", () => {
+    expect(renderManifest({ ...K8S_ENV, MANOR_K8S_SIGNIN_SECRET: "x\ninjected: 1" }, 1)).toBe("");
+  });
+
+  it("kubernetes: the pod reads the optional manor-signin Secret, and up sets up gh for git (ADR-235 D9)", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).toContain(
+      "          envFrom:\n            - secretRef:\n                name: manor-signin\n                optional: true\n",
+    );
+    // A profile's own Secret comes from the recipe's env; a bad name is refused before any YAML.
+    expect(renderManifest({ ...K8S_ENV, MANOR_K8S_SIGNIN_SECRET: "manor-signin-hp-ab12" })).toContain(
+      "                name: manor-signin-hp-ab12\n                optional: true\n",
+    );
+    const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
+    const hooks = up.slice(up.indexOf("<<'HOOKS'"), up.lastIndexOf("HOOKS"));
+    // Inside the quoted heredoc, so GH_TOKEN is the pod's, not the laptop's.
+    expect(hooks).toContain('if [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then');
+    expect(hooks).toContain("gh auth setup-git ||");
+    // The recipe never handles a token: no `env:` entry reads the Secret.
+    expect(up).not.toContain("secretKeyRef");
+    const destroy = RECIPE_TEMPLATES[1].files["destroy.sh"].content;
+    // Shared by the namespace's pods: destroy leaves it.
+    expect(destroy).not.toContain("manor-signin");
   });
 
   it("kubernetes: a recipe without a memory limit is limited to its request", () => {
@@ -545,7 +607,8 @@ exit 99
     });
     // A kubectl that answers the StatefulSet's replicas and the pod's Ready.
     const bin = path.join(base, "bin");
-    fs.mkdirSync(bin);
+    fs.mkdirSync(bin, { recursive: true });
+    fs.rmSync(path.join(base, "applied.yaml"), { force: true });
     fs.writeFileSync(
       path.join(bin, "kubectl"),
       '#!/bin/sh\ncase "$*" in\n  *statefulset*) printf %s "$FAKE_REPLICAS" ;;\n  *pod*) printf %s "$FAKE_READY" ;;\nesac\n',

@@ -23,6 +23,12 @@ const api = vi.hoisted(() => {
     runTemplateFix: vi.fn(),
     createRecipe: vi.fn(),
     addRecipeHost: vi.fn(),
+    // The host store, which the profile editor's sign-in section reads.
+    // vi.fn, as beforeEach resets every one; the store subscribes once, on import.
+    list: vi.fn(() => new Promise(() => {})),
+    onStatusChanged: vi.fn(() => () => {}),
+    onServerChanged: vi.fn(() => () => {}),
+    onPairingChanged: vi.fn(() => () => {}),
   };
   (window as unknown as { electronAPI: unknown }).electronAPI = { hosts };
   return hosts;
@@ -35,6 +41,7 @@ const docker: TemplateInfo = {
   id: "docker",
   name: "Docker container",
   description: "A container on this computer's Docker.",
+  perHost: ["name"],
   fields: [
     {
       key: "where",
@@ -72,6 +79,7 @@ const kubernetes: TemplateInfo = {
   id: "kubernetes",
   name: "Kubernetes cluster",
   description: "Pods on a cluster you have access to.",
+  perHost: ["name"],
   fields: [
     { key: "context", label: "Cluster", type: "choice", required: true },
     {

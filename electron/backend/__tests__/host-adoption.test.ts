@@ -109,6 +109,30 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(desktop.projectManager.isHostAdopted("mac")).toBe(false);
   });
 
+  it("whenAdopted resolves once a run adopts the host, at once after (ADR-235 D3)", async () => {
+    const desktop = openDesktop(dir);
+    const waiting = desktop.adoption.whenAdopted("box", 10_000);
+    let settled: boolean | undefined;
+    void waiting.then((v) => (settled = v));
+    await Promise.resolve();
+    expect(settled).toBeUndefined();
+    await desktop.adoption.run("box", fakeChannel("pending").channel);
+    expect(await waiting).toBe(true);
+    expect(await desktop.adoption.whenAdopted("box", 0)).toBe(true);
+  });
+
+  it("whenAdopted answers false when no run adopts the host in time", async () => {
+    vi.useFakeTimers();
+    try {
+      const desktop = openDesktop(dir);
+      const waiting = desktop.adoption.whenAdopted("box", 1_000);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(await waiting).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says a host was adopted once, so a window may stream to it (ADR-228 D3)", async () => {
     const onAdopted = vi.fn();
     const desktop = openDesktop(dir, { onAdopted });

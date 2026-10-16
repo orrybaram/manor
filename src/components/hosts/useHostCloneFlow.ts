@@ -4,7 +4,7 @@ import type { ProjectInfo } from "../../store/project-store";
 import type { HealthCheckResult } from "../../lib/hosts";
 import { ipcErrorMessage } from "../../lib/ipc-error";
 
-export type HostCloneStep = "form" | "cloning" | "health";
+export type HostCloneStep = "form" | "starting" | "cloning" | "health";
 
 export type UseHostCloneFlowOptions = {
   hostId: string;
@@ -16,6 +16,12 @@ export type UseHostCloneFlowOptions = {
    * returns to "form" and the caller takes it from there.
    */
   skipHealthChecks?: boolean;
+  /**
+   * `run` starts a new pod first (ADR-235 D4): the flow opens on a
+   * "Starting <profile> pod" step and moves on to "cloning" when the clone's
+   * first progress arrives.
+   */
+  newPod?: boolean;
 };
 
 export type UseHostCloneFlowResult = {
@@ -43,7 +49,7 @@ export type UseHostCloneFlowResult = {
  * callers: `cloneProject` or `moveProjectToHost`.
  */
 export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostCloneFlowResult {
-  const { hostId, run, skipHealthChecks = false } = options;
+  const { hostId, run, skipHealthChecks = false, newPod = false } = options;
 
   const [step, setStep] = useState<HostCloneStep>("form");
   const [progressLines, setProgressLines] = useState<string[]>([]);
@@ -62,10 +68,10 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
   }, []);
 
   const runHealthChecks = useCallback(
-    async (path: string) => {
+    async (path: string, onHostId: string = hostId) => {
       setChecksRunning(true);
       try {
-        const results = await window.electronAPI.hosts.healthCheck(hostId, path);
+        const results = await window.electronAPI.hosts.healthCheck(onHostId, path);
         setChecks(results);
       } catch (err) {
         setError(ipcErrorMessage(err));
@@ -79,14 +85,17 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
   const start = useCallback(async () => {
     setError(null);
     setProgressLines([]);
-    setStep("cloning");
+    setStep(newPod ? "starting" : "cloning");
 
     const unsub = window.electronAPI.projects.onCloneProgress((event) => {
       if (event.status === "error") {
         setError(event.message ?? "Clone failed");
         return;
       }
-      if (event.message) setProgressLines((lines) => [...lines, event.message!]);
+      if (event.message) {
+        setProgressLines((lines) => [...lines, event.message!]);
+        setStep((current) => (current === "starting" ? "cloning" : current));
+      }
     });
 
     try {
@@ -98,7 +107,8 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
         return result;
       }
       setStep("health");
-      void runHealthChecks(result.path);
+      // A new pod's host is only known once it is made.
+      void runHealthChecks(result.path, newPod ? result.hostId : hostId);
       return result;
     } catch (err) {
       unsub();
@@ -106,11 +116,11 @@ export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostClone
       setStep("form");
       return null;
     }
-  }, [run, runHealthChecks, skipHealthChecks]);
+  }, [run, runHealthChecks, skipHealthChecks, newPod, hostId]);
 
   const rerun = useCallback(() => {
-    if (project) void runHealthChecks(project.path);
-  }, [project, runHealthChecks]);
+    if (project) void runHealthChecks(project.path, newPod ? project.hostId : hostId);
+  }, [project, runHealthChecks, newPod, hostId]);
 
   const fix = useCallback(
     (check: HealthCheckResult) => {

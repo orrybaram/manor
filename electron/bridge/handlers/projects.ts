@@ -33,6 +33,12 @@ import type {
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { workspaceKey } from "../../../src/lib/workspace-key";
 import type { TransferMode, TransferResult } from "../../projects/types";
+import {
+  openInNewHost,
+  type OpenInNewHostInput,
+  type OpenInNewHostResult,
+} from "../../projects/new-host-for-project";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 
@@ -101,11 +107,16 @@ export function projectsAdd(
   return ctx.deps.projectManager.addProject(name, projectPath);
 }
 
-export function projectsRemove(
+export async function projectsRemove(
   ctx: HandlerCtx<SharedDeps>,
   projectId: string,
 ): Promise<void> {
-  return ctx.deps.projectManager.removeProject(projectId);
+  const { projectManager, backendRegistry } = ctx.deps;
+  // Removing a project clears `forProject` on the hosts made for it
+  // (ADR-235 D6); the host list is re-sent so no one shows a stale mark.
+  const marked = projectManager.hostsMadeFor(projectId);
+  await projectManager.removeProject(projectId);
+  for (const hostId of marked) backendRegistry.recordChanged(hostId);
 }
 
 /**
@@ -200,6 +211,68 @@ export async function projectsTransfer(
     opts.mode,
     overrides,
   );
+}
+
+/**
+ * "In a new pod" (ADR-235 D3): make a host from profile `profileId`, bring
+ * it up, and clone `repoUrl` onto it — or, with `sourceProjectId` (Set up
+ * on), copy that project there, joining its group. A failure keeps the host
+ * and answers the stage; `retryFrom` resumes on that host, with the
+ * fallback dialog's `overrides` for a copy that needed input.
+ */
+export async function projectsOpenInNewHost(
+  ctx: HandlerCtx<ServerDeps>,
+  input: OpenInNewHostInput,
+): Promise<OpenInNewHostResult> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw new Error("projects:openInNewHost.input must be an object");
+  }
+  assertString(input.profileId, "profileId");
+  assertString(input.repoUrl, "repoUrl");
+  if (input.repoUrl.trim() === "") throw new Error("A repository URL is required.");
+  if (input.sourceProjectId !== undefined) {
+    assertString(input.sourceProjectId, "sourceProjectId");
+  }
+  let retryFrom: OpenInNewHostInput["retryFrom"];
+  if (input.retryFrom !== undefined) {
+    const { hostId, stage, overrides } = input.retryFrom ?? {};
+    assertString(hostId, "retryFrom.hostId");
+    if (stage !== "up" && stage !== "clone") {
+      throw new Error("retryFrom.stage must be 'up' or 'clone'");
+    }
+    if (overrides !== undefined) {
+      if (stage !== "clone") throw new Error("retryFrom.overrides is only for stage 'clone'");
+      if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) {
+        throw new Error("retryFrom.overrides must be an object");
+      }
+      assertString(overrides.repoUrl, "retryFrom.overrides.repoUrl");
+      assertString(overrides.targetDir, "retryFrom.overrides.targetDir");
+      const repoUrl = overrides.repoUrl.trim();
+      const targetDir = overrides.targetDir.trim();
+      if (repoUrl === "" || targetDir === "") {
+        throw new Error("retryFrom.overrides needs a repoUrl and a targetDir");
+      }
+      retryFrom = { hostId, stage, overrides: { repoUrl, targetDir } };
+    } else {
+      retryFrom = { hostId, stage };
+    }
+  }
+  const { deps } = ctx;
+  const result = await openInNewHost(
+    {
+      projectManager: deps.projectManager,
+      backendRegistry: deps.backendRegistry,
+      ...(deps.hostAdoption ? { hostAdoption: deps.hostAdoption } : {}),
+    },
+    {
+      profileId: input.profileId,
+      repoUrl: input.repoUrl.trim(),
+      ...(input.sourceProjectId !== undefined ? { sourceProjectId: input.sourceProjectId } : {}),
+      ...(retryFrom ? { retryFrom } : {}),
+    },
+  );
+  if (result.ok) publishRendererBroadcast("projects", "changed");
+  return result;
 }
 
 export function projectsGetOriginUrl(
@@ -617,6 +690,13 @@ export const projects = {
   clone: method(projectsClone, { mutating: true, route: LOCAL_ROUTE }),
   moveToHost: method(projectsMoveToHost, { mutating: true, route: LOCAL_ROUTE }),
   transfer: method(projectsTransfer, { mutating: true, route: LOCAL_ROUTE }),
+  // Runs a recipe on this machine to start a box (ADR-235 D3, ADR-229 D2):
+  // the desktop user's call alone, like `hosts.addRecipeHost`.
+  openInNewHost: method(projectsOpenInNewHost, {
+    localOnly: true,
+    mutating: true,
+    route: LOCAL_ROUTE,
+  }),
   // Read with the project's host's git, over its daemon, wherever it lives.
   getOriginUrl: method(projectsGetOriginUrl, { route: LOCAL_ROUTE }),
   pathExists: method(projectsPathExists, { route: LOCAL_ROUTE }),

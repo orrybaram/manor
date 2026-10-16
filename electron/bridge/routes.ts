@@ -164,6 +164,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "projects.clone": "home",
   "projects.moveToHost": "home",
   "projects.transfer": "home",
+  // Starts a box from a profile on this desktop (ADR-235 D3).
+  "projects.openInNewHost": "home",
   "projects.getOriginUrl": "home",
   "projects.pathExists": "home",
   "projects.switchHost": "home",
@@ -243,6 +245,14 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hosts.setSupervised": "home",
   // Likewise: `manor-host secrets encrypt` through the transport (ADR-236 D7).
   "hosts.encryptKeys": "home",
+  // Profiles are this desktop's, which runs the recipes made from them
+  // (ADR-235 D1).
+  "hostProfiles.list": "home",
+  "hostProfiles.save": "home",
+  "hostProfiles.remove": "home",
+  "hostProfiles.setSignIn": "home",
+  "hostProfiles.removeSignIn": "home",
+  "hostProfiles.restartPods": "home",
 
   // Each server watches the workspaces it answers for (ADR-230 D6); a
   // desktop window alone still hands its whole list to its own server,

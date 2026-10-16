@@ -322,7 +322,13 @@ so remote Docker contexts, colima and Rancher Desktop work.
 
 The form asks for:
 
-- **kubectl context** (optional; blank for the current one);
+- **Cluster** (required): kubectl's saved login for the cluster to run the
+  host on, listed from your kubeconfig with each cluster's server. The
+  form starts on the cluster your most recent Kubernetes recipe used, if
+  it is still listed, and otherwise on none; it never picks kubectl's
+  current context for you;
+- **Size**: Small (1 CPU, 2 GiB), Medium (2 CPUs, 4 GiB, the default) or
+  Large (4 CPUs, 8 GiB);
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
@@ -332,13 +338,22 @@ The form asks for:
 
 - creates the Secret `<name>-key` with 32 random bytes, once, and mounts it
   at `/run/secrets/manor-key`;
-- applies a StatefulSet of one replica, running as uid 1000, with a volume
-  claim `home` on `/home/manor`, `MANOR_SECRET_KEY_FILE` and
-  `MANOR_INSTANCE_ID=<namespace>/<name>`;
+- applies a StatefulSet of one replica with a volume claim `home` on `/home/manor`, `MANOR_SECRET_KEY_FILE` and
+  `MANOR_INSTANCE_ID=<namespace>/<name>`. The pod passes Pod Security
+  "restricted": it runs as non-root uid/gid 1000 (`fsGroup` 1000) with the
+  `RuntimeDefault` seccomp profile, no privilege escalation and all
+  capabilities dropped. The size becomes `MANOR_K8S_CPU` and
+  `MANOR_K8S_MEMORY`: the pod requests both, and its memory is limited to
+  the request. There is no CPU limit, so a build isn't throttled;
 - scales it to 1 and waits for the rollout (up to 10 minutes);
 - writes no-op hooks if there are none;
 - returns `kubectl [--context …] -n <namespace> exec -i <name>-0 -c host --`
   as the way in.
+
+Every command passes `--context` when the recipe has `MANOR_K8S_CONTEXT`.
+Recipes made before the cluster was required, or before sizes, keep working:
+without a context kubectl uses its current one, and without
+`MANOR_K8S_CPU` / `MANOR_K8S_MEMORY` the pod has no `resources` block.
 
 `stop` scales the StatefulSet to 0 and keeps the claim and the Secret.
 `destroy` deletes the StatefulSet, the claim `home-<name>-0` and the Secret.

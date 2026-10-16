@@ -10,6 +10,8 @@ import { execFile } from "node:child_process";
 export const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 
 export interface CheckDeps {
+  /** Where existing recipes live; absent means `hostRecipesDir()`. A seam for tests. */
+  recipesDir?: string;
   /**
    * Run `file` with `args` (on the login PATH the app already uses) and
    * resolve with its stdout. Rejects when it is not found, exits non-zero

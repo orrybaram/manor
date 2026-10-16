@@ -80,6 +80,12 @@ export interface TemplateCheck {
 export interface TemplateCheckResult {
   checks: TemplateCheck[];
   choices: Record<string, Choice[]>;
+  /**
+   * Answers to start a field with, by field key (e.g. the cluster the last
+   * Kubernetes recipe used). The form applies one only while the field is
+   * still blank and the user hasn't touched it.
+   */
+  defaults?: Record<string, string>;
 }
 
 /** One script a template writes into the recipe's directory. */

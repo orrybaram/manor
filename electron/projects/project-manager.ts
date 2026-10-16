@@ -26,6 +26,8 @@ import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { mergeAdoptedProject } from "./adopt-records";
 import { moveAcrossServers } from "./host-move";
 import { HostRecords } from "./host-records";
+import { HostProfiles, type HostProfileInput } from "./host-profiles";
+import type { TemplateContext } from "../backend/providers/recipe-templates/types";
 import {
   OriginLinks,
   forgetLinkDismissals,
@@ -53,6 +55,7 @@ import * as worktrees from "./worktrees";
 import type {
   CreateWorktreeOptions,
   GroupUpdatableFields,
+  HostProfile,
   IssueSeed,
   LinkedIssue,
   LinkSuggestion,
@@ -98,6 +101,7 @@ function restoreShared(p: PersistedProject, own: SharedSettings): void {
 export class ProjectManager {
   private readonly store: StateStore;
   private readonly hosts: HostRecords;
+  private readonly profiles: HostProfiles;
   private readonly paths: PathRouter;
   private readonly ctx: ProjectContext;
   private readonly origins: OriginLinks;
@@ -145,6 +149,7 @@ export class ProjectManager {
     }
     this.store = new StateStore(dataDir ?? manorDataDir());
     this.hosts = new HostRecords(this.store);
+    this.profiles = new HostProfiles(this.store);
     // Remote hosts' projects route their paths too (ADR-227 D4).
     this.paths = new PathRouter(
       () => this.allRecords(),
@@ -474,6 +479,43 @@ export class ProjectManager {
 
   setHostSupervised(hostId: string, on: boolean): void {
     this.hosts.setSupervise(hostId, on);
+  }
+
+  /** The host profile `hostId` was made from (ADR-235 D1), if any. */
+  hostProfileId(hostId: string): string | undefined {
+    return this.hosts.profileId(hostId);
+  }
+
+  setHostProfileId(hostId: string, profileId: string | undefined): void {
+    this.hosts.setProfileId(hostId, profileId);
+  }
+
+  /** The project `hostId` was made for (ADR-235 D5), if any. */
+  hostForProject(hostId: string): string | undefined {
+    return this.hosts.forProject(hostId);
+  }
+
+  setHostForProject(hostId: string, projectId: string | undefined): void {
+    this.hosts.setForProject(hostId, projectId);
+  }
+
+  /** Every host profile (ADR-235 D1). */
+  listHostProfiles(): HostProfile[] {
+    return this.profiles.list();
+  }
+
+  getHostProfile(profileId: string): HostProfile | undefined {
+    return this.profiles.get(profileId);
+  }
+
+  /** Make or update a host profile; throws if the template refuses its answers. */
+  saveHostProfile(input: HostProfileInput, ctx: TemplateContext): HostProfile {
+    return this.profiles.save(input, ctx);
+  }
+
+  /** Forget a host profile; its hosts stay, without a `profileId`. */
+  removeHostProfile(profileId: string): void {
+    this.profiles.remove(profileId);
   }
 
   /** Linked pairings on `hostId` still to revoke (ADR-228 D9). */

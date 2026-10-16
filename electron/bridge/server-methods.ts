@@ -21,6 +21,7 @@ import { chat } from "./handlers/chat";
 import { github, linear } from "./handlers/integrations";
 import { jev } from "./handlers/jev";
 import { hosts } from "./handlers/hosts";
+import { hostProfiles } from "./handlers/host-profiles";
 import { layout } from "./handlers/layout";
 import { notifications } from "./handlers/notifications";
 import { ports } from "./handlers/ports";
@@ -45,6 +46,7 @@ export const SERVER_METHODS = flatten({
   viewport,
   projects,
   hosts,
+  hostProfiles,
   theme,
   preferences,
   keybindings: serverKeybindings,

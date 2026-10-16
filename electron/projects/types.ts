@@ -313,6 +313,46 @@ export interface PersistedHost {
    * absent (off) for ssh hosts added before, whose boxes the user set up.
    */
   supervise?: boolean;
+  /**
+   * The host profile this host was made from (ADR-235 D1), which it groups
+   * under in Settings and the status bar (D7). Cleared when the profile is
+   * removed. Absent for hosts made otherwise.
+   */
+  profileId?: string;
+  /**
+   * The project this host was made for by `openInNewHost` (ADR-235 D5): kept
+   * out of other projects' host lists, softly. Cleared when that project is
+   * removed without deleting the host. Absent for ordinary hosts.
+   */
+  forProject?: string;
+}
+
+/**
+ * When and how a sign-in token was put into a profile's cluster (ADR-235
+ * D9). The token itself is never kept here.
+ */
+export interface SignInMeta {
+  setAt: number;
+  source: "gh" | "pasted";
+}
+
+/**
+ * A host profile (ADR-235 D1): a recipe template plus saved answers, from
+ * which a new host is made per project. Holds no secrets.
+ */
+export interface HostProfile {
+  /** `hp-` and random hex. */
+  id: string;
+  /** "Work cluster". */
+  name: string;
+  /** A bundled template's id: `kubernetes`, `docker`. */
+  templateId: string;
+  /** Every field's answer except the template's `perHost` ones. */
+  values: Record<string, string>;
+  /** One of 30, 60 or 120; absent is off. 60 when a profile is created. */
+  idleStopMinutes?: number;
+  /** D9's sign-in metadata; nothing writes it before ADR-235 ticket 9. */
+  signIn?: { github?: SignInMeta; claude?: SignInMeta };
 }
 
 /**
@@ -366,6 +406,8 @@ export interface PersistedState {
    * (ADR-192 ticket 5), each in sorted order. Absent when there are none.
    */
   dismissedLinkSuggestions?: Array<[string, string]>;
+  /** Host profiles by id (ADR-235 D1). Absent when there are none. */
+  hostProfiles?: Record<string, HostProfile>;
 }
 
 /**

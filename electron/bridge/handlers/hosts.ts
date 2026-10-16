@@ -109,7 +109,7 @@ export function hostsAddRecipeHost(
 }
 
 /** A template form's answers, as they arrive over IPC: an object of strings. */
-function assertFormValues(
+export function assertFormValues(
   values: unknown,
   label: string,
 ): asserts values is Record<string, string> {

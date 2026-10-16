@@ -14,6 +14,7 @@
  * adds — its windows, its menu, its webview server. `HostDeps` is both.
  */
 import type { HostServerSync } from "../backend/host-server-sync";
+import type { HostAdoption } from "../backend/host-adoption";
 import type { HostRouting } from "../server/host-routing";
 import type { BrowserWindow } from "electron";
 import type { RoutedBackend } from "../backend/routed-backend";
@@ -76,6 +77,11 @@ export interface ServerDeps {
    * server with no remote hosts.
    */
   hostRouting?: HostRouting;
+  /**
+   * The desktop's half of adoption (ADR-227 D3): `projects.openInNewHost`
+   * waits on it (ADR-235 D3). Absent on a server with no remote hosts.
+   */
+  hostAdoption?: HostAdoption;
   /** A pane's session owner, if any host has claimed it (ADR-191 §5). */
   getPaneHostId: PaneHostLookup;
   layoutPersistence: LayoutPersistence;

@@ -13,7 +13,7 @@
 import crypto from "node:crypto";
 import { assertBoolean, assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
-import { assertRecipeId, readRecipe } from "../../backend/providers/recipes";
+import { addRecipeHost } from "../../projects/new-host-for-project";
 import {
   checkTemplate,
   createCustomRecipe,
@@ -85,27 +85,8 @@ export function hostsAddRecipeHost(
   ctx: HandlerCtx<ServerDeps>,
   recipeId: string,
 ): { hostId: string; spec: { kind: "recipe"; recipeId: string } } {
-  const { deps } = ctx;
   assertString(recipeId, "hosts:addRecipeHost.recipeId");
-  assertRecipeId(recipeId);
-  const recipe = readRecipe(recipeId);
-  const taken = deps.projectManager
-    .getHosts()
-    .find(({ spec }) => spec.kind === "recipe" && spec.recipeId === recipeId);
-  if (taken) {
-    throw new Error(`The recipe "${recipe.name}" already starts a host.`);
-  }
-  const hostId = crypto.randomUUID();
-  const spec = { kind: "recipe" as const, recipeId };
-  deps.projectManager.saveHost(hostId, spec);
-  // A box Manor starts is Manor's to keep running (ADR-229 D4).
-  deps.projectManager.setHostSupervised(hostId, true);
-  deps.backendRegistry.register(hostId, spec);
-  // A connect somebody means: it runs `up` even for a box asleep.
-  deps.backendRegistry.ensureConnected(hostId).catch(() => {
-    // Reported through the host's status.
-  });
-  return { hostId, spec };
+  return addRecipeHost(ctx.deps, recipeId);
 }
 
 /** A template form's answers, as they arrive over IPC: an object of strings. */

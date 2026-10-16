@@ -390,6 +390,7 @@ export function initApp(devTitle: string | null): void {
       getRendererWindows,
       registerDetachedWindow,
       hostServerSync,
+      ...(core.hostAdoption ? { hostAdoption: core.hostAdoption } : {}),
       hostLinks,
       remoteForwards,
       remoteUrlResolver,

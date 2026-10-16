@@ -89,6 +89,13 @@ export interface HostStatusInfo {
   idleStopNote?: boolean;
   /** The recipe's `idleStopMinutes`, for that note. */
   idleStopMinutes?: number;
+  /** The host profile the host was made from (ADR-235 D1). */
+  profileId?: string;
+  /**
+   * The project the host was made for (ADR-235 D5): other projects' host
+   * lists leave it out, softly.
+   */
+  forProject?: string;
 }
 
 /**

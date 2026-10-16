@@ -449,6 +449,8 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hostProfiles.list",
         "hostProfiles.save",
         "hostProfiles.remove",
+        // ADR-235 D3: starts a box from a profile on this machine.
+        "projects.openInNewHost",
       ].sort(),
     );
   });

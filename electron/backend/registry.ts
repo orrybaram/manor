@@ -133,6 +133,12 @@ export interface BackendRegistryOptions {
    * `ProjectManager`'s; without it (a host server, most tests) none is.
    */
   isAdopted?: (hostId: string) => boolean;
+  /**
+   * A remote host's ADR-235 marks — its profile and the project it was made
+   * for — stamped on it in `list()`. The desktop passes its
+   * `ProjectManager`'s; without it none are.
+   */
+  hostMarks?: (hostId: string) => { profileId?: string; forProject?: string };
 }
 
 const LOG = "[backend-registry]";
@@ -169,6 +175,7 @@ export class BackendRegistry {
   private readonly createProvider: HostProviderFactory;
   private readonly remoteVersion: string;
   private readonly isAdopted: ((hostId: string) => boolean) | undefined;
+  private readonly hostMarks: BackendRegistryOptions["hostMarks"];
   /** What every remote host's connection reports to. */
   private readonly ctx: RemoteHostContext;
   private readonly serverStates = new Emitter<[string, HostServerClientState]>(
@@ -183,6 +190,7 @@ export class BackendRegistry {
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
     this.isAdopted = opts.isAdopted;
+    this.hostMarks = opts.hostMarks;
     this.createRemote = opts.createRemote ?? createRemoteBackend;
     this.createProvider = opts.createProvider ?? defaultCreateProvider;
     this.ctx = {
@@ -284,6 +292,7 @@ export class BackendRegistry {
       const idleStopNote = idleStopNoteOf(provider, info.hooks);
       const idleStopMinutes =
         provider instanceof RecipeHostProvider ? provider.idleStopMinutes : undefined;
+      const marks = this.hostMarks?.(conn.hostId);
       return {
         ...info,
         label: conn.spec ? hostSpecLabel(conn.spec) : conn.hostId,
@@ -292,6 +301,8 @@ export class BackendRegistry {
         capabilities: { ...provider.capabilities },
         ...(idleStopNote !== undefined ? { idleStopNote } : {}),
         ...(idleStopMinutes !== undefined ? { idleStopMinutes } : {}),
+        ...(marks?.profileId !== undefined ? { profileId: marks.profileId } : {}),
+        ...(marks?.forProject !== undefined ? { forProject: marks.forProject } : {}),
       };
     });
   }
@@ -326,6 +337,14 @@ export class BackendRegistry {
    * listeners hear it — a window adds its own stream to the host then.
    */
   adoptionChanged(hostId: string): void {
+    if (this.hosts.has(hostId)) this.emitStatus();
+  }
+
+  /**
+   * `hostId`'s record changed in a way `list()` shows — its ADR-235 profile
+   * or project mark — so its listeners hear it.
+   */
+  recordChanged(hostId: string): void {
     if (this.hosts.has(hostId)) this.emitStatus();
   }
 

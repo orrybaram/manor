@@ -51,6 +51,7 @@ export const LOCAL_ONLY_METHODS = [
   "hostProfiles.list",
   "hostProfiles.save",
   "hostProfiles.remove",
+  "projects.openInNewHost",
 ] as const;
 
 export type LocalOnlyMethod = (typeof LOCAL_ONLY_METHODS)[number];

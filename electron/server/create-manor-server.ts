@@ -235,6 +235,19 @@ export function createManorServer<D extends BridgeServerDeps>(
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
     // `hosts.list` says which hosts a window may stream to (ADR-228 D3).
     ...(remoteHosts ? { isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId) } : {}),
+    // A host's profile and the project it was made for (ADR-235 D1, D5).
+    ...(remoteHosts
+      ? {
+          hostMarks: (hostId: string): { profileId?: string; forProject?: string } => {
+            const profileId: string | undefined = projectManager.hostProfileId(hostId);
+            const forProject: string | undefined = projectManager.hostForProject(hostId);
+            return {
+              ...(profileId !== undefined ? { profileId } : {}),
+              ...(forProject !== undefined ? { forProject } : {}),
+            };
+          },
+        }
+      : {}),
     // Each remote host's state, from its own server (ADR-227 D4), heard by
     // this server's renderers under the desktop's keys and the user's name
     // for the host. The host's server reads its own hook journal, so its

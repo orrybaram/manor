@@ -207,4 +207,5 @@ export type HostRefusedMethod = LocalOnly<
   | "hostProfiles.list"
   | "hostProfiles.save"
   | "hostProfiles.remove"
+  | "projects.openInNewHost"
 >;

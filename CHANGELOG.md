@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.22.3] - 2026-10-16
+
+### Features
+
+- **Pairing keys row:** Settings → Hosts now shows pairing keys as a **Pairing keys** setting row. It shows each state, and when the keys aren't encrypted it has an **Encrypt** button that replaces the old warning box.
+- **New SSH hosts are encrypted automatically:** when you add an SSH host whose pairing keys aren't encrypted, the **Device access** step of **Add a host** encrypts them for you. It shows Encrypting… and then Encrypted. If encryption fails, the step shows the error and the **Encrypt** button.
+- **One settings page per project:** each project now has a single settings page, and the project list in Settings is flat. The page includes a Hosts section with a row for each host, and the project theme picker is now a select.
+
+### Fixes
+
+- After you remove a host and add the same machine back, its tabs work again. Before, typing in them or closing them failed because they still pointed at the removed host.
+
+### Improvements
+
+- Settings → Hosts: Profiles is now its own section, and hovering a row highlights it all the way to the card's edge. In the Remove host dialog, the buttons are now right-aligned and line up with Cancel.
+
 ## [0.22.2] - 2026-10-16
 
 ### Features

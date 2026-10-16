@@ -4,6 +4,9 @@ import type { HostProfile } from "../electron.d";
 /** What `hostProfiles.save` takes (ADR-235 D1). */
 export type HostProfileSave = Parameters<Window["electronAPI"]["hostProfiles"]["save"]>[0];
 
+/** What `hostProfiles.setSignIn` takes (ADR-235 D9). Tokens pass through; nothing keeps them. */
+export type HostProfileSignIn = Parameters<Window["electronAPI"]["hostProfiles"]["setSignIn"]>[1];
+
 export type ProfileEditorRequest = {
   /** The profile to edit; absent makes a new one. */
   profile?: HostProfile;
@@ -18,6 +21,11 @@ interface HostProfileState {
   refresh: () => Promise<void>;
   save: (input: HostProfileSave) => Promise<HostProfile>;
   remove: (profileId: string) => Promise<void>;
+  /** Writes tokens into the cluster; resolves to the profile with its new metadata. */
+  setSignIn: (profileId: string, input: HostProfileSignIn) => Promise<HostProfile>;
+  removeSignIn: (profileId: string, which: "github" | "claude") => Promise<HostProfile>;
+  /** Names of the pods restarted. */
+  restartPods: (profileId: string) => Promise<string[]>;
   openEditor: (request?: ProfileEditorRequest) => void;
   closeEditor: () => void;
 }
@@ -44,6 +52,12 @@ export const useHostProfileStore = create<HostProfileState>((set, get) => {
 
     save: (input) => window.electronAPI.hostProfiles.save(input),
     remove: (profileId) => window.electronAPI.hostProfiles.remove(profileId),
+
+    setSignIn: (profileId, input) => window.electronAPI.hostProfiles.setSignIn(profileId, input),
+    removeSignIn: (profileId, which) =>
+      window.electronAPI.hostProfiles.removeSignIn(profileId, which),
+    restartPods: async (profileId) =>
+      (await window.electronAPI.hostProfiles.restartPods(profileId)).restarted,
 
     openEditor: (editor = {}) => set({ editor }),
     closeEditor: () => set({ editor: null }),

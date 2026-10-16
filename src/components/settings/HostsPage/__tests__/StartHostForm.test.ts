@@ -35,6 +35,7 @@ const docker: TemplateInfo = {
   id: "docker",
   name: "Docker container",
   description: "A container on this computer's Docker.",
+  perHost: ["name"],
   fields: [
     { key: "name", label: "Container name", default: "manor-abc123", required: true, advanced: true },
     { key: "image", label: "Image", default: "ghcr.io/orrybaram/manor-host:1.0.0", required: true, advanced: true },
@@ -46,6 +47,7 @@ const kubernetes: TemplateInfo = {
   id: "kubernetes",
   name: "Kubernetes cluster",
   description: "Pods on a cluster you have access to.",
+  perHost: ["name"],
   fields: [
     { key: "context", label: "Cluster", type: "choice", required: true },
     {

@@ -34,8 +34,13 @@ Manor doesn't host anything. You bring the box. Either it is already running
 and reachable over ssh, or you give Manor a **recipe**: your own commands that
 start it, stop it and delete it (see [Host recipes](hosts/recipes.md)).
 
-- **A VPS** (Hetzner CX33 or similar). Always on and cheap. A good default
-  for agents that run overnight.
+- **A VPS** (Contabo, OVHcloud or similar, with 4 vCPU and 8 GB). Always on
+  and cheap. A good default for agents that run overnight. Memory matters
+  more than CPU: an idle agent needs little, but a lint or test run can
+  use several GB.
+- **A machine you already own**, such as an old PC or a Raspberry Pi with
+  8 GB, reached over [Tailscale](https://tailscale.com) or your LAN. Free,
+  but it is only up while it has power and a network.
 - **exe.dev, or a Coder workspace**. Fine, as long as the box stays up while
   you're away. Manor can only start a box that was stopped if it has a
   recipe for it.

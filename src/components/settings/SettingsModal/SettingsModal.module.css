@@ -175,16 +175,6 @@
 }
 
 /* A linked group's member row, one level under its group row (ADR-193). */
-.navItemNested2 {
-  padding-left: 44px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.navItemNested2 svg {
-  flex-shrink: 0;
-}
-
 .navItemLabel {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1213,8 +1203,7 @@ button.keybindingActionBtn:hover:not(:disabled) {
 }
 
 :global(:root[data-layout="phone"]) .navItem,
-:global(:root[data-layout="phone"]) .navItemNested,
-:global(:root[data-layout="phone"]) .navItemNested2 {
+:global(:root[data-layout="phone"]) .navItemNested {
   width: auto;
   flex-shrink: 0;
   min-height: 40px;

@@ -4,7 +4,7 @@ import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
 import { servers } from "../../bridge/server-set";
 import { base64urlEncode } from "../relay-crypto";
 import type { HostStatusInfo } from "../../store/host-store";
-import { transferTargets } from "../transfer-targets";
+import { newHostTargets, transferTargets } from "../transfer-targets";
 
 function host(hostId: string, status: HostStatusInfo["status"] = "connected"): HostStatusInfo {
   return { hostId, spec: { kind: "ssh", target: `me@${hostId}` }, status };
@@ -80,5 +80,23 @@ describe("transferTargets", () => {
       servers.remove(room);
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe("newHostTargets", () => {
+  it("makes one target per profile, worded for its template", () => {
+    expect(
+      newHostTargets([
+        { id: "hp-1", name: "Work cluster", templateId: "kubernetes" },
+        { id: "hp-2", name: "Laptop", templateId: "docker" },
+      ]),
+    ).toEqual([
+      { kind: "newHost", profileId: "hp-1", label: "In a new pod · Work cluster" },
+      { kind: "newHost", profileId: "hp-2", label: "In a new container · Laptop" },
+    ]);
+  });
+
+  it("is empty without profiles", () => {
+    expect(newHostTargets([])).toEqual([]);
   });
 });

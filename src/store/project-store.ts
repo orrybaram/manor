@@ -11,6 +11,7 @@ import { memberDisplayName } from "../bridge/server-set";
 import { isRemoteHost } from "../lib/hosts";
 import { requestUi } from "../utils/ui-request";
 import { useHostStore } from "./host-store";
+import { useHostProfileStore } from "./host-profile-store";
 import type { TransferInputReason, TransferMode } from "../electron";
 import { patch, reconcile } from "../lib/workspace-directory";
 import { sharedRefresh } from "../lib/shared-refresh";
@@ -561,6 +562,16 @@ function patchWorkspaces<V>(
   return projects === s.projects ? s : { projects };
 }
 
+/** What `projects.openInNewHost` takes (ADR-235 D3); `repoUrl` may be left to the origin. */
+export type NewHostRequest = Omit<
+  Parameters<Window["electronAPI"]["projects"]["openInNewHost"]>[0],
+  "repoUrl"
+> & { repoUrl?: string };
+export type NewHostResult = Awaited<
+  ReturnType<Window["electronAPI"]["projects"]["openInNewHost"]>
+>;
+export type NewHostFailure = Extract<NewHostResult, { ok: false }>;
+
 interface ProjectState {
   projects: ProjectInfo[];
   selectedProjectIndex: number;
@@ -623,6 +634,26 @@ interface ProjectState {
     mode: TransferMode,
     overrides?: { repoUrl: string; targetDir: string },
   ) => Promise<void>;
+  /**
+   * ADR-235 D4: "In a new pod". Makes a host from `profileId` and clones
+   * `repoUrl` onto it, or, with `sourceProjectId`, sets that project up there
+   * (its origin is the repo). Like `transferProject` it reports through a
+   * toast: loading, then a success, the `needsInput` fallback dialog, or an
+   * error that keeps the pod and offers Retry and "Delete the pod". Resolves
+   * with the project on success.
+   */
+  openInNewHost: (request: NewHostRequest) => Promise<ProjectInfo | null>;
+  /**
+   * `openInNewHost` without toasts, for a caller with its own progress view
+   * (Add Project). A success is loaded into the list and selected.
+   */
+  runOpenInNewHost: (request: NewHostRequest) => Promise<NewHostResult>;
+  /** The failure toast of `openInNewHost` for a `{ok: false}` result. */
+  reportNewHostFailure: (request: NewHostRequest, failure: NewHostFailure) => void;
+  /** The typed "Delete the pod" confirm, for the pod `hostId`. */
+  deletePodDialog: { hostId: string } | null;
+  openDeletePod: (hostId: string) => void;
+  closeDeletePod: () => void;
   /**
    * ADR-179: switch a project to a host without cloning — to `path`, or the
    * path it last had there.
@@ -1076,6 +1107,112 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         });
     }
   },
+
+  openInNewHost: async (request) => {
+    const toastId = `new-host-${request.sourceProjectId ?? request.profileId}`;
+    const profile = useHostProfileStore
+      .getState()
+      .profiles.find((p) => p.id === request.profileId);
+    const podName = profile ? `${profile.name} pod` : "pod";
+    useToastStore.getState().addToast({
+      id: toastId,
+      message: `Starting ${podName}…`,
+      status: "loading",
+      persistent: true,
+    });
+    const unsubscribe = window.electronAPI.projects.onCloneProgress((event) => {
+      if (event.status !== "error" && event.message) {
+        useToastStore.getState().updateToast(toastId, { detail: event.message });
+      }
+    });
+    let result: NewHostResult;
+    try {
+      result = await get().runOpenInNewHost(request);
+    } catch (err) {
+      useToastStore.getState().removeToast(toastId);
+      addErrorToast(toastId, `Couldn't start ${podName}`, err);
+      return null;
+    } finally {
+      unsubscribe();
+    }
+    useToastStore.getState().removeToast(toastId);
+    if (!result.ok) {
+      get().reportNewHostFailure(request, result);
+      return null;
+    }
+    useToastStore.getState().addToast({
+      id: toastId,
+      message: `${result.project.name} is set up in ${podName}`,
+      status: "success",
+    });
+    return result.project;
+  },
+
+  runOpenInNewHost: async (request) => {
+    let repoUrl = request.repoUrl?.trim() ?? "";
+    if (!repoUrl && request.sourceProjectId) {
+      repoUrl = (await window.electronAPI.projects.getOriginUrl(request.sourceProjectId)) ?? "";
+      if (!repoUrl) {
+        throw new Error("This project has no origin remote, so there is nothing to clone.");
+      }
+    }
+    const result = await window.electronAPI.projects.openInNewHost({ ...request, repoUrl });
+    if (result.ok) {
+      await get().loadProjects();
+      const index = get().projects.findIndex((p) => p.id === result.project.id);
+      if (index >= 0 && !request.sourceProjectId) set({ selectedProjectIndex: index });
+    }
+    return result;
+  },
+
+  reportNewHostFailure: (request, failure) => {
+    const toastId = `new-host-${request.sourceProjectId ?? request.profileId}`;
+    const { hostId, stage, error, needsInput } = failure;
+    if (needsInput && hostId && request.sourceProjectId) {
+      // The copy needs an answer: the fallback dialog asks, and runs the
+      // transfer onto the pod itself.
+      useToastStore.getState().removeToast(toastId);
+      get().openTransferDialog({
+        projectId: request.sourceProjectId,
+        hostId,
+        mode: "setUp",
+        reason: needsInput.reason,
+        repoUrl: needsInput.repoUrl,
+        targetDir: needsInput.targetDir,
+      });
+      return;
+    }
+    useToastStore.getState().addToast({
+      id: toastId,
+      message: stage === "up" ? "The pod didn't start" : "The pod started, but the clone failed",
+      status: "error",
+      detail: error,
+      persistent: true,
+      action: {
+        label: "Retry",
+        onClick: () => {
+          useToastStore.getState().removeToast(toastId);
+          void get().openInNewHost({
+            ...request,
+            ...(hostId ? { retryFrom: { hostId, stage } } : {}),
+          });
+        },
+      },
+      ...(hostId && {
+        secondaryAction: {
+          label: "Delete the pod",
+          onClick: () => {
+            useToastStore.getState().removeToast(toastId);
+            get().openDeletePod(hostId);
+          },
+        },
+      }),
+    });
+  },
+
+  deletePodDialog: null,
+  openDeletePod: (hostId) => set({ deletePodDialog: { hostId } }),
+  closeDeletePod: () => set({ deletePodDialog: null }),
 
   setUpOnHost: (projectId, hostId, overrides) =>
     get().transferProject(projectId, hostId, "copy", overrides),

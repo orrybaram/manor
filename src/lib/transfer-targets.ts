@@ -63,3 +63,32 @@ export function transferTargets(
       return { hostId, label, disabledReason };
     });
 }
+
+/** "In a new pod" for one host profile (ADR-235 D4). */
+export interface NewHostTarget {
+  kind: "newHost";
+  profileId: string;
+  /** "In a new pod · Work cluster"; a Docker profile says "container". */
+  label: string;
+}
+
+/** What the new-host targets need of a profile. */
+interface TargetProfile {
+  id: string;
+  name: string;
+  templateId: string;
+}
+
+/** "pod" for a Kubernetes profile, "container" for Docker. */
+export function podNoun(templateId: string): "pod" | "container" {
+  return templateId === "docker" ? "container" : "pod";
+}
+
+/** One "In a new pod · <profile>" target per profile, in the profiles' order. */
+export function newHostTargets(profiles: readonly TargetProfile[]): NewHostTarget[] {
+  return profiles.map((profile) => ({
+    kind: "newHost",
+    profileId: profile.id,
+    label: `In a new ${podNoun(profile.templateId)} · ${profile.name}`,
+  }));
+}

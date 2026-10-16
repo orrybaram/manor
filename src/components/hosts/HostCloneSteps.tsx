@@ -1,15 +1,20 @@
 import type { ReactNode } from "react";
 import CircleAlert from "lucide-react/dist/esm/icons/circle-alert";
+import Loader2 from "lucide-react/dist/esm/icons/loader-2";
+import { useHostStore } from "../../store/host-store";
 import type { HealthCheckResult } from "../../lib/hosts";
 import { Button } from "../ui/Button/Button";
 import { Input } from "../ui/Input";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { CloneProgressLog } from "./CloneProgressLog";
 import { HealthCheckList } from "./HealthCheckList";
+import logStyles from "./CloneProgressLog.module.css";
 import styles from "./HostCloneSteps.module.css";
 
 type HostCloneStepsProps = {
-  step: "cloning" | "health";
+  step: "starting" | "cloning" | "health";
+  /** With the "starting" step: the pod being made, for its heading and detail. */
+  starting?: { profileId: string; profileName: string };
   progressLines: string[];
   checks: HealthCheckResult[] | null;
   checksRunning: boolean;
@@ -24,7 +29,11 @@ type HostCloneStepsProps = {
  * 10) — everything after the form, driven by `useHostCloneFlow`.
  */
 export function HostCloneSteps(props: HostCloneStepsProps) {
-  const { step, progressLines, checks, checksRunning, onRerun, onFix, onDone } = props;
+  const { step, starting, progressLines, checks, checksRunning, onRerun, onFix, onDone } = props;
+
+  if (step === "starting") {
+    return <StartingPod profileId={starting?.profileId} profileName={starting?.profileName} />;
+  }
 
   if (step === "cloning") {
     return <CloneProgressLog lines={progressLines} />;
@@ -38,6 +47,36 @@ export function HostCloneSteps(props: HostCloneStepsProps) {
           Done
         </Button>
       </Row>
+    </Stack>
+  );
+}
+
+/**
+ * "Starting <profile> pod": the new host's own progress (`host.progress`),
+ * or its status while it has none. The host isn't named yet, so it is the
+ * newest connecting one made from the profile.
+ */
+function StartingPod(props: { profileId?: string; profileName?: string }) {
+  const { profileId, profileName } = props;
+  const detail = useHostStore((s) => {
+    const host = s.hosts
+      .filter(
+        (h) =>
+          h.profileId === profileId && (h.status === "connecting" || h.status === "reconnecting"),
+      )
+      .pop();
+    return host ? (host.progress ?? "Waiting for it to come up…") : "Making its recipe…";
+  });
+
+  return (
+    <Stack gap="sm">
+      <Row gap="xs" align="center">
+        <Loader2 size={14} className={logStyles.spinner} />
+        <span>Starting {profileName ?? "new"} pod</span>
+      </Row>
+      <div className={styles.fieldHint} data-testid="starting-pod-detail">
+        {detail}
+      </div>
     </Stack>
   );
 }

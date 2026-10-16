@@ -15,7 +15,6 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { SectionTitle } from "../SectionTitle";
 import { AddHostDialog } from "./AddHostDialog";
 import { HostRow } from "./HostRow";
-import { ProfileEditorDialog } from "./ProfileEditorDialog";
 import { ThisMacRow } from "./ThisMacRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
@@ -164,7 +163,6 @@ function Profiles() {
           New profile…
         </Button>
       </div>
-      <ProfileEditorDialog />
       <ConfirmDialog
         open={removing !== null}
         title={removing ? `Remove ${removing.name}?` : "Remove profile?"}

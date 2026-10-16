@@ -3,7 +3,9 @@ import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
+import { useHostProfileStore, openProfileEditor } from "../../../store/host-profile-store";
 import { addErrorToast } from "../../../store/toast-store";
+import { newHostTargets } from "../../../lib/transfer-targets";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
 import type { GitHubRepo } from "../../../electron.d.ts";
 import { Button } from "../../ui/Button/Button";
@@ -12,7 +14,12 @@ import { SearchableSelect } from "../../ui/SearchableSelect";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import { Row, Stack } from "../../ui/Layout/Layout";
 import { useHostCloneFlow } from "../../hosts/useHostCloneFlow";
-import { CloneDirField, CloneError, HostCloneSteps, RepoUrlField } from "../../hosts/HostCloneSteps";
+import {
+  CloneDirField,
+  CloneError,
+  HostCloneSteps,
+  RepoUrlField,
+} from "../../hosts/HostCloneSteps";
 import styles from "../../hosts/HostCloneSteps.module.css";
 import { isWebApp } from "../../../lib/platform";
 import { pickDirectory } from "../../../lib/pick-directory";
@@ -34,9 +41,17 @@ type AddProjectDialogProps = {
 
 const DEFAULT_CLONE_PARENT = "~/code";
 
+/** A host-select value that means "in a new pod" for a profile (ADR-235 D4). */
+const POD_PREFIX = "pod:";
+/** With no profiles yet: opens the profile editor. */
+const NEW_POD_VALUE = "pod:new";
+
 /** A repo URL's last path segment without `.git`, or "" when there is none. */
 function repoNameFromUrl(repoUrl: string): string {
-  const trimmed = repoUrl.trim().replace(/\/+$/, "").replace(/\.git$/, "");
+  const trimmed = repoUrl
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\.git$/, "");
   return trimmed.split(/[/:]/).pop() ?? "";
 }
 
@@ -95,12 +110,39 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const projects = useProjectStore((s) => s.projects);
   const cloneProject = useProjectStore((s) => s.cloneProject);
 
+  const profiles = useHostProfileStore((s) => s.profiles);
+  const runOpenInNewHost = useProjectStore((s) => s.runOpenInNewHost);
+  const reportNewHostFailure = useProjectStore((s) => s.reportNewHostFailure);
+
+  // After the hosts, "In a new pod · <profile>" for each profile; with none,
+  // "In a new pod…" makes one.
   const hostOptions = useMemo(
-    () => [{ value: LOCAL_HOST_ID, label: "This Mac" }, ...remoteHostOptions(hosts)],
-    [hosts],
+    () => [
+      { value: LOCAL_HOST_ID, label: "This Mac" },
+      ...remoteHostOptions(hosts),
+      ...(profiles.length === 0
+        ? [{ value: NEW_POD_VALUE, label: "In a new pod…" }]
+        : newHostTargets(profiles).map((t) => ({
+            value: `${POD_PREFIX}${t.profileId}`,
+            label: t.label,
+          }))),
+    ],
+    [hosts, profiles],
   );
 
   const [hostId, setHostId] = useState<string>(LOCAL_HOST_ID);
+  const podProfile = hostId.startsWith(POD_PREFIX)
+    ? profiles.find((p) => p.id === hostId.slice(POD_PREFIX.length))
+    : undefined;
+  const inNewPod = podProfile !== undefined;
+
+  const handleHostChange = useCallback((value: string) => {
+    if (value === NEW_POD_VALUE) {
+      openProfileEditor({ onSaved: (profile) => setHostId(`${POD_PREFIX}${profile.id}`) });
+      return;
+    }
+    setHostId(value);
+  }, []);
   const [repoUrl, setRepoUrl] = useState("");
   const [pickedRepo, setPickedRepo] = useState("");
   const [name, setName] = useState("");
@@ -115,7 +157,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const [repos, setRepos] = useState<GitHubRepo[] | null>(null);
   const [reposRequested, setReposRequested] = useState(false);
 
-  const isLocal = !isRemoteHost(hostId);
+  const isLocal = !inNewPod && !isRemoteHost(hostId);
   const repoName = repoNameFromUrl(repoUrl);
   const effectiveName = nameEdited ? name : repoName;
 
@@ -146,13 +188,26 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const flow = useHostCloneFlow({
     hostId,
     skipHealthChecks: isLocal,
-    run: () =>
-      cloneProject({
-        hostId,
-        repoUrl: repoUrl.trim(),
-        targetDir: targetDir.trim(),
-        name: effectiveName.trim() || nameFromRepoUrl(repoUrl),
-      }),
+    newPod: inNewPod,
+    run: async () => {
+      if (!podProfile) {
+        return cloneProject({
+          hostId,
+          repoUrl: repoUrl.trim(),
+          targetDir: targetDir.trim(),
+          name: effectiveName.trim() || nameFromRepoUrl(repoUrl),
+        });
+      }
+      // The pod is made, then the repo cloned onto it (ADR-235 D3). A failure
+      // keeps the pod: the toast offers Retry and "Delete the pod".
+      const request = { profileId: podProfile.id, repoUrl: repoUrl.trim() };
+      const result = await runOpenInNewHost(request);
+      if (!result.ok) {
+        reportNewHostFailure(request, result);
+        throw new Error(result.error);
+      }
+      return result.project;
+    },
   });
 
   const reset = useCallback(() => {
@@ -170,7 +225,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
 
   const handleOpenChange = useCallback(
     (isOpen: boolean) => {
-      if (!isOpen && flow.step !== "cloning") {
+      if (!isOpen && flow.step !== "cloning" && flow.step !== "starting") {
         onClose();
         reset();
       }
@@ -215,7 +270,8 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     setLocationEdited(false);
   }, []);
 
-  const canClone = !!hostId && !!repoUrl.trim() && !!targetDir.trim();
+  const canClone =
+    !!hostId && !!repoUrl.trim() && (inNewPod || !!targetDir.trim()) && hostId !== NEW_POD_VALUE;
 
   const handleClone = useCallback(async () => {
     if (!canClone) return;
@@ -278,15 +334,9 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                 )}
                 {mode === "folder" ? (
                   <Stack gap="sm">
-                    <div className={styles.fieldHint}>
-                      Choose a folder on this machine.
-                    </div>
+                    <div className={styles.fieldHint}>Choose a folder on this machine.</div>
                     <Row justify="flex-end">
-                      <Button
-                        variant="primary"
-                        disabled={addingLocal}
-                        onClick={handleAddLocal}
-                      >
+                      <Button variant="primary" disabled={addingLocal} onClick={handleAddLocal}>
                         {addingLocal ? "Adding…" : "Choose Folder…"}
                       </Button>
                     </Row>
@@ -300,7 +350,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                       <SearchableSelect
                         id="add-project-host"
                         value={hostId}
-                        onChange={setHostId}
+                        onChange={handleHostChange}
                         options={hostOptions}
                         maxWidth={440}
                         placeholder="Select a host…"
@@ -331,38 +381,47 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                         setPickedRepo("");
                       }}
                     />
-                    <CloneDirField
-                      id="add-project-location"
-                      label="Location"
-                      value={targetDir}
-                      onChange={(value) => {
-                        setLocation(value);
-                        setLocationEdited(true);
-                      }}
-                      placeholder={joinPath(parent, "repo")}
-                      action={
-                        isLocal && !webApp ? (
-                          <Button variant="secondary" onClick={handleBrowse}>
-                            Browse…
-                          </Button>
-                        ) : undefined
-                      }
-                    />
-                    <Stack>
-                      <label className={styles.fieldLabel} htmlFor="add-project-name">
-                        Name
-                      </label>
-                      <Input
-                        id="add-project-name"
-                        value={effectiveName}
-                        onChange={(e) => {
-                          setName(e.target.value);
-                          setNameEdited(true);
+                    {!inNewPod && (
+                      <CloneDirField
+                        id="add-project-location"
+                        label="Location"
+                        value={targetDir}
+                        onChange={(value) => {
+                          setLocation(value);
+                          setLocationEdited(true);
                         }}
-                        placeholder="Project name"
+                        placeholder={joinPath(parent, "repo")}
+                        action={
+                          isLocal && !webApp ? (
+                            <Button variant="secondary" onClick={handleBrowse}>
+                              Browse…
+                            </Button>
+                          ) : undefined
+                        }
                       />
-                    </Stack>
-                    {!isLocal && (
+                    )}
+                    {!inNewPod && (
+                      <Stack>
+                        <label className={styles.fieldLabel} htmlFor="add-project-name">
+                          Name
+                        </label>
+                        <Input
+                          id="add-project-name"
+                          value={effectiveName}
+                          onChange={(e) => {
+                            setName(e.target.value);
+                            setNameEdited(true);
+                          }}
+                          placeholder="Project name"
+                        />
+                      </Stack>
+                    )}
+                    {inNewPod && (
+                      <div className={styles.fieldHint}>
+                        Manor starts the pod, then clones the repo into it.
+                      </div>
+                    )}
+                    {!isLocal && !inNewPod && (
                       <div className={styles.fieldHint}>
                         Log in on the box — Manor doesn't copy your keys.
                       </div>
@@ -381,9 +440,14 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
               </>
             )}
 
-            {(flow.step === "cloning" || flow.step === "health") && (
+            {(flow.step === "starting" || flow.step === "cloning" || flow.step === "health") && (
               <HostCloneSteps
                 step={flow.step}
+                starting={
+                  podProfile
+                    ? { profileId: podProfile.id, profileName: podProfile.name }
+                    : undefined
+                }
                 progressLines={flow.progressLines}
                 checks={flow.checks}
                 checksRunning={flow.checksRunning}

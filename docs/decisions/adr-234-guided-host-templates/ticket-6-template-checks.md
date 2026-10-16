@@ -1,6 +1,6 @@
 ---
 title: Template readiness checks and one-click fixes in main
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [5]

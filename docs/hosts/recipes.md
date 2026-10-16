@@ -15,8 +15,9 @@ Design background is in
 
 Open **Settings → Hosts**, then **Add a host… → Start a new host**. Pick one of:
 
-- **Docker container**: a container on this computer's Docker daemon. The
-  quickest way to try it. See [Docker](#docker).
+- **Docker container**: a container on this computer's Docker daemon, or
+  on another machine's over SSH. The quickest way to try it. See
+  [Docker](#docker).
 - **Kubernetes cluster**: a pod with its own disk, on a cluster you can reach. See
   [Kubernetes](#kubernetes).
 - **Custom recipe**: anything else, for example a cloud VM with sshd. Manor
@@ -303,10 +304,52 @@ For a cluster, push it somewhere the cluster can pull from.
 
 The form asks for:
 
+- **Run it on**: *This computer* (the default) or *Another machine over
+  SSH*;
+- **SSH target**, for another machine only: `you@build-box`,
+  `you@build-box:2222`, or a `Host` from your `~/.ssh/config`;
 - **Container name** (also the recipe's id, `docker-<name>`);
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; an image the daemon already has is not pulled);
 - **Docker context** (optional, such as `colima` or `desktop-linux`; blank
   for the default). A remote daemon works too.
+
+The recipe's context (`MANOR_DOCKER_CONTEXT`) is, in order: the Docker
+context field when you fill it in; for another machine, `manor-<host>`
+(the target's host, lowercased, anything but letters, digits and `-`
+turned into `-`); otherwise none, which is Docker's current context.
+
+#### Docker on another machine over SSH
+
+If all you want is Manor on another machine, **Add a host… → A machine I
+can SSH into** is simpler: Manor installs itself there directly. Use this
+when you want a container there that Manor starts, stops and can throw
+away.
+
+Docker on your computer talks to the machine's Docker over ssh, through a
+Docker context. Before Start, the checklist checks, in order:
+
+1. the target answers over SSH (`ssh -o BatchMode=yes -o ConnectTimeout=5`,
+   with your `~/.ssh/config`). Manor can't answer a host-key or passphrase
+   prompt: if the machine's key isn't trusted yet, run `ssh <target>` once
+   in a terminal and accept it; for a passphrase, `ssh-add` your key;
+2. Docker is installed on the machine;
+3. you can use it there. If Docker refuses you (permission denied on
+   `docker.sock`), run `sudo usermod -aG docker $USER` on the machine, then
+   log out of it and back in;
+4. Docker is installed on this computer (only the CLI is needed);
+5. Docker on the machine is set up for Manor. **Set up Docker on
+   *host*** runs `docker context create manor-<host> --docker
+   host=ssh://<target>`. An existing `manor-<host>` that already points
+   there is reused; one pointing somewhere else is yours, so Manor leaves
+   it alone and asks you to pick a context under Advanced or remove it;
+6. Manor can reach Docker through that context, and the host image is on
+   the machine. The image is pulled there, for the machine's own CPU; the
+   build fallback builds there too (`docker --context manor-<host> build`
+   sends the build files over ssh).
+
+`up` can't create the context itself, so it has to exist when the host
+starts: Start waits for the checklist. If you remove the context later,
+recreate it with the command above.
 
 `up`:
 

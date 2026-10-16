@@ -148,6 +148,15 @@ const BUSY_POLL_MS = 2000;
 type Field = TemplateInfo["fields"][number];
 
 /**
+ * Whether `field` is shown for these answers: always, unless it has a
+ * `showWhen` whose field has another answer (the SSH target, while "Run it
+ * on" is "This computer"). A hidden field is not required.
+ */
+function isFieldShown(field: Field, values: Record<string, string>): boolean {
+  return !field.showWhen || (values[field.showWhen.key] ?? "") === field.showWhen.value;
+}
+
+/**
  * A template's Connect step (ADR-234 D7): its everyday fields, the readiness
  * checklist (`hosts.checkTemplate`), an "Advanced" disclosure with the rest,
  * and Start, which waits until every check is `ok` and every required field
@@ -285,9 +294,10 @@ function TemplateForm(props: TemplateFormProps) {
       onStarted(hostId);
     });
 
-  const visible = template.fields.filter((f) => !f.advanced);
-  const advanced = template.fields.filter((f) => f.advanced);
-  const missing = template.fields.filter((f) => f.required && !(values[f.key] ?? "").trim());
+  const shown = template.fields.filter((f) => isFieldShown(f, values));
+  const visible = shown.filter((f) => !f.advanced);
+  const advanced = shown.filter((f) => f.advanced);
+  const missing = shown.filter((f) => f.required && !(values[f.key] ?? "").trim());
   const checksReady = checks !== null && checks.every((c) => c.state === "ok");
   const gateHint =
     checks === null
@@ -389,7 +399,7 @@ function FieldControl(props: FieldControlProps) {
 
   const testId = `start-host-field-${field.key}`;
 
-  if (field.type === "size" && field.options && field.options.length > 0) {
+  if ((field.type === "size" || field.type === "segmented") && field.options && field.options.length > 0) {
     return (
       <ToggleGroup
         value={value}

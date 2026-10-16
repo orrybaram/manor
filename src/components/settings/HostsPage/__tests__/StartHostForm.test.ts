@@ -36,6 +36,22 @@ const docker: TemplateInfo = {
   name: "Docker container",
   description: "A container on this computer's Docker.",
   fields: [
+    {
+      key: "where",
+      label: "Run it on",
+      type: "segmented",
+      default: "local",
+      options: [
+        { value: "local", label: "This computer" },
+        { value: "ssh", label: "Another machine over SSH" },
+      ],
+    },
+    {
+      key: "sshTarget",
+      label: "SSH target",
+      required: true,
+      showWhen: { key: "where", value: "ssh" },
+    },
     { key: "name", label: "Container name", default: "manor-abc123", required: true, advanced: true },
     { key: "image", label: "Image", default: "ghcr.io/orrybaram/manor-host:1.0.0", required: true, advanced: true },
     { key: "context", label: "Docker context", type: "choice", advanced: true },
@@ -236,6 +252,40 @@ describe("StartHostForm — a template's Connect step", () => {
       submit().dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(api.createRecipe.mock.calls[0][1]).toMatchObject({ agents: "codex" });
+  });
+
+  it("shows a field only while its showWhen answer holds, and only then requires it", async () => {
+    api.checkTemplate.mockResolvedValue(result([ok("docker-cli")]));
+    await open(docker);
+    const where = q("start-host-field-where");
+    expect(where?.textContent).toContain("This computer");
+    // This computer: no SSH target, and nothing to fill in.
+    expect(q("start-host-field-sshTarget")).toBeNull();
+    expect(submit().disabled).toBe(false);
+
+    const ssh = where?.querySelector<HTMLElement>('[data-value="ssh"]') ?? null;
+    click(ssh);
+    expect(ssh?.getAttribute("aria-checked")).toBe("true");
+    const target = q("start-host-field-sshTarget") as HTMLInputElement;
+    expect(target).not.toBeNull();
+    expect(submit().disabled).toBe(true);
+    expect(q("start-host-gate-hint")?.textContent).toBe("Fill in SSH target to start.");
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(target, "me@build-box");
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(submit().disabled).toBe(false);
+
+    // Back to this computer: the target is hidden again, and kept.
+    click(where?.querySelector<HTMLElement>('[data-value="local"]') ?? null);
+    expect(q("start-host-field-sshTarget")).toBeNull();
+    api.createRecipe.mockResolvedValue("docker-manor-abc123");
+    api.addRecipeHost.mockResolvedValue({ hostId: "h1" });
+    await act(async () => {
+      submit().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(api.createRecipe.mock.calls[0][1]).toMatchObject({ where: "local", sshTarget: "me@build-box" });
   });
 
   it("shows each size's resources in its option", async () => {

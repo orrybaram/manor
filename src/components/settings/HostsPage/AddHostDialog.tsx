@@ -35,7 +35,7 @@ const PATHS: { path: Path; testId: string; title: string; description: string }[
     testId: "hosts-add-start",
     title: "Start a new host",
     description:
-      "Manor starts it for you: a Docker container, a Kubernetes pod, or your own script. Sleeps when idle, wakes on demand.",
+      "Manor starts it for you: a Docker container, a Kubernetes pod, or your own script. Sleeps when idle, wakes on demand. If you only want Manor on another machine, “A machine I can SSH into” is simpler.",
   },
 ];
 

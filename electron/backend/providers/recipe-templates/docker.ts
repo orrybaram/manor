@@ -1,5 +1,6 @@
 /**
- * The `docker` template (ADR-229 D8): a container on a local Docker daemon,
+ * The `docker` template (ADR-229 D8): a container on a Docker daemon — this
+ * computer's, or another machine's reached over SSH (ADR-234 D12) —
  * its home directory a named volume, reached over
  * `docker exec -i -u manor`. The cheapest way to try the feature.
  *
@@ -193,12 +194,96 @@ fi
 echo '{}' >&3
 `;
 
+/** "Run it on": this computer's Docker, or another machine's over SSH (ADR-234 D12). */
+type DockerWhere = "local" | "ssh";
+
+/**
+ * An SSH target for remote Docker: `user@host`, `user@host:port`, or a
+ * `Host` alias from `~/.ssh/config`. No spaces, no shell metacharacters,
+ * nothing ssh would read as an option. It becomes `ssh://<target>` in a
+ * docker context, so the port is written docker's way, after a colon.
+ */
+export const SSH_TARGET_PATTERN = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9._-]{0,252}(?::[0-9]{1,5})?$/;
+
+/** An SSH target's parts. */
+interface SshTargetParts {
+  user?: string;
+  host: string;
+  port?: string;
+}
+
+/** Split a target that matches `SSH_TARGET_PATTERN`. */
+export function sshTargetParts(target: string): SshTargetParts {
+  const at = target.lastIndexOf("@");
+  const user = at >= 0 ? target.slice(0, at) : undefined;
+  const rest = at >= 0 ? target.slice(at + 1) : target;
+  const colon = rest.lastIndexOf(":");
+  const host = colon >= 0 ? rest.slice(0, colon) : rest;
+  const port = colon >= 0 ? rest.slice(colon + 1) : undefined;
+  return { ...(user ? { user } : {}), host, ...(port ? { port } : {}) };
+}
+
+/**
+ * The docker context Manor makes for a target: `manor-` and the target's
+ * host, lowercased, with anything but letters, digits and `-` turned into
+ * `-` (`you@Build.Box:2222` → `manor-build-box`).
+ */
+export function remoteContextName(target: string): string {
+  const host = sshTargetParts(target)
+    .host.toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60)
+    .replace(/-$/, "");
+  return `manor-${host || "remote"}`;
+}
+
+/** "Run it on", read from the form; blank is this computer. Throws for anything else. */
+export function dockerWhere(values: Record<string, string>): DockerWhere {
+  const where = (values.where ?? "").trim();
+  if (where === "" || where === "local") return "local";
+  if (where === "ssh") return "ssh";
+  throw new Error(`"Run it on" is not valid: ${JSON.stringify(where)}`);
+}
+
+/**
+ * The docker context a form's answers run against. Precedence: the
+ * Advanced "Docker context" field when the user filled it in; otherwise,
+ * for "Another machine over SSH", the context Manor makes for the target
+ * (`remoteContextName`); otherwise none (Docker's current context).
+ * Throws when an answer is not acceptable.
+ */
+function dockerContextFor(values: Record<string, string>): string {
+  const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
+  if (context !== "") return context;
+  if (dockerWhere(values) !== "ssh") return "";
+  return remoteContextName(answer(values, "sshTarget", { pattern: SSH_TARGET_PATTERN, what: "The SSH target" }));
+}
+
 export const dockerTemplate: RecipeTemplate = {
   id: "docker",
   name: "Docker container",
   description:
-    "A container on this computer's Docker. Manor sets it up and keeps its files between restarts.",
+    "A container on this computer's Docker, or on another machine's over SSH. Manor sets it up and keeps its files between restarts.",
   fields: [
+    {
+      key: "where",
+      label: "Run it on",
+      type: "segmented",
+      default: "local",
+      options: [
+        { value: "local", label: "This computer" },
+        { value: "ssh", label: "Another machine over SSH" },
+      ],
+    },
+    {
+      key: "sshTarget",
+      label: "SSH target",
+      required: true,
+      showWhen: { key: "where", value: "ssh" },
+      description: "Like you@build-box, or a Host from your ~/.ssh/config.",
+    },
     {
       key: "agents",
       label: "Agents to install",
@@ -230,7 +315,7 @@ export const dockerTemplate: RecipeTemplate = {
       type: "choice",
       advanced: true,
       description:
-        "Which Docker to use when you have more than one, such as colima. Default is Docker's current one.",
+        "Which Docker to use when you have more than one, such as colima. Default is Docker's current one, or the one Manor sets up for the SSH machine.",
     },
   ],
   files: {
@@ -242,7 +327,8 @@ export const dockerTemplate: RecipeTemplate = {
   recipe(values, ctx): Recipe {
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The container name" });
     const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
-    const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
+    // The Advanced field wins; else the SSH machine's own context (`dockerContextFor`).
+    const context = dockerContextFor(values);
     const agents = parseAgents(values.agents).join(",");
     return {
       schemaVersion: 1,

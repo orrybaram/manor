@@ -71,10 +71,10 @@ function dockerDeps(
 ) {
   const execFile = fakeExec([["docker context ls", ""], ...rules]);
   return {
-    execFile,
     appVersion: "1.2.3",
     platform: "darwin" as const,
     ...extra,
+    execFile,
   };
 }
 
@@ -551,6 +551,271 @@ describe("docker fixes", () => {
     await expect(
       runTemplateFix("nope", "pull-image", {}, dockerDeps([])),
     ).rejects.toThrow(/Unknown template/);
+  });
+});
+
+// ─── Docker on another machine over SSH (ADR-234 D12) ────────────────────
+
+const exited = (code: number, stderr: string) =>
+  Object.assign(new Error(`Command failed: ssh\n${stderr}`), { code, stderr, stdout: "" });
+
+const SSH = { where: "ssh", sshTarget: "me@build-box", image: IMAGE };
+const CONTEXT_INSPECT = "docker context inspect --format {{.Endpoints.docker.Host}} manor-build-box";
+const REMOTE_HEALTHY: Array<[string, Answer]> = [
+  ["ssh", "27.3.1\n"],
+  ["docker --version", "Docker version 27.3.1, build ce12230\n"],
+  [CONTEXT_INSPECT, "ssh://me@build-box\n"],
+  ["docker --context manor-build-box info", INFO],
+];
+const NO_CONTEXT = failed('context "manor-build-box": context not found: open /home/me/.docker/contexts/meta/x/meta.json: no such file or directory');
+
+describe("docker checklist over SSH", () => {
+  it("checks the machine, then its context, daemon and image, all through that context", async () => {
+    const deps = dockerDeps([...REMOTE_HEALTHY, ["docker --context manor-build-box image inspect", "sha256:abc"]]);
+    const { checks } = await checkTemplate("docker", SSH, deps);
+    expect(checks.map((c) => [c.id, c.state, c.title])).toEqual([
+      ["ssh-reach", "ok", "me@build-box answers over SSH"],
+      ["remote-docker", "ok", "Docker is installed on build-box"],
+      ["remote-docker-access", "ok", "You can use Docker on build-box"],
+      ["docker-cli", "ok", "Docker is installed on this computer"],
+      ["docker-context", "ok", "Docker on build-box is set up for Manor"],
+      ["docker-daemon", "ok", "Manor can reach Docker on build-box"],
+      ["docker-image", "ok", "Manor's host image is on build-box"],
+    ]);
+    expect(checks[1].detail).toBe("Docker 27.3.1");
+    // BatchMode, a short ConnectTimeout, the target split as docker splits it.
+    expect(deps.execFile).toHaveBeenCalledWith(
+      "ssh",
+      [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-T",
+        "-l",
+        "me",
+        "--",
+        "build-box",
+        `exec sh -c 'docker version --format '"'"'{{.Server.Version}}'"'"''`,
+      ],
+      { timeoutMs: 10_000 },
+    );
+    expect(deps.execFile).toHaveBeenCalledWith("docker", [
+      "--context",
+      "manor-build-box",
+      "image",
+      "inspect",
+      "--format",
+      "{{.Id}}",
+      IMAGE,
+    ]);
+  });
+
+  it("passes a docker-style port to ssh with -p", async () => {
+    const deps = dockerDeps([["ssh", "27.3.1"]]);
+    await checkTemplate("docker", { ...SSH, sshTarget: "build-box:2222" }, deps);
+    const args = deps.execFile.mock.calls.find(([file]) => file === "ssh")?.[1];
+    expect(args?.slice(4, 8)).toEqual(["-T", "-p", "2222", "--"]);
+    expect(args?.[8]).toBe("build-box");
+  });
+
+  it("asks for a target, and refuses one that doesn't look right, before running anything", async () => {
+    const deps = dockerDeps([]);
+    const blank = await checkTemplate("docker", { where: "ssh", sshTarget: " " }, deps);
+    expect(blank.checks[0]).toMatchObject({ id: "ssh-reach", state: "bad", title: "Enter the machine's SSH target" });
+    expect(blank.checks.slice(1).every((c) => c.state === "todo")).toBe(true);
+    expect(blank.checks).toHaveLength(7);
+    const bad = await checkTemplate("docker", { where: "ssh", sshTarget: "me@box; reboot" }, deps);
+    expect(bad.checks[0]).toMatchObject({ state: "bad", title: "That SSH target doesn't look right" });
+    expect(deps.execFile.mock.calls.some(([file]) => file === "ssh")).toBe(false);
+  });
+
+  it("tells an untrusted host key, a refused key, an unknown name and a dead machine apart", async () => {
+    const run = async (answer: Answer) =>
+      (await checkTemplate("docker", SSH, dockerDeps([["ssh", answer]]))).checks;
+
+    const hostKey = await run(exited(255, "Host key verification failed."));
+    expect(hostKey[0]).toMatchObject({ state: "bad", title: "Manor doesn't trust build-box yet" });
+    expect(hostKey[0].detail).toMatch(/Run ssh me@build-box once in a terminal/);
+    const changed = await run(exited(255, "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@\nHost key verification failed."));
+    expect(changed[0].detail).toContain("ssh-keygen -R build-box");
+    // Plain ssh doesn't read host:port: the command says -p.
+    const ported = await checkTemplate(
+      "docker",
+      { ...SSH, sshTarget: "me@build-box:2222" },
+      dockerDeps([["ssh", exited(255, "Host key verification failed.")]]),
+    );
+    expect(ported.checks[0].detail).toContain("Run ssh -p 2222 me@build-box once");
+    expect(hostKey.slice(1).every((c) => c.state === "todo")).toBe(true);
+
+    const auth = await run(exited(255, "me@build-box: Permission denied (publickey)."));
+    expect(auth[0]).toMatchObject({ title: "build-box didn't let Manor sign in" });
+    expect(auth[0].detail).toMatch(/ssh-add/);
+
+    expect((await run(exited(255, "ssh: Could not resolve hostname build-box: Name or service not known")))[0])
+      .toMatchObject({ title: "Manor couldn't find build-box" });
+    expect((await run(exited(255, "ssh: connect to host build-box port 22: Connection refused")))[0]).toMatchObject({
+      title: "me@build-box isn't answering over SSH",
+      detail: "ssh: connect to host build-box port 22: Connection refused",
+    });
+    expect((await run(timeout()))[0]).toMatchObject({ title: "me@build-box didn't answer within 10 seconds" });
+    expect((await run(enoent()))[0]).toMatchObject({ title: "SSH isn't installed on this computer" });
+  });
+
+  it("says when Docker is missing on the machine, refuses the user, or isn't running", async () => {
+    const run = async (answer: Answer) =>
+      (await checkTemplate("docker", SSH, dockerDeps([["ssh", answer]]))).checks;
+
+    const missing = await run(exited(127, "sh: 1: docker: not found"));
+    expect(missing.map((c) => c.state).slice(0, 3)).toEqual(["ok", "bad", "todo"]);
+    expect(missing[1]).toMatchObject({
+      title: "Docker isn't installed on build-box",
+      fix: { kind: "url", label: "How to install Docker" },
+    });
+
+    const denied = await run(
+      exited(1, "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock"),
+    );
+    expect(denied.map((c) => c.state).slice(0, 4)).toEqual(["ok", "ok", "bad", "todo"]);
+    expect(denied[2]).toMatchObject({ title: "Docker on build-box won't let you in" });
+    expect(denied[2].detail).toContain("sudo usermod -aG docker $USER");
+
+    const down = await run(exited(1, "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?"));
+    expect(down[2]).toMatchObject({ state: "bad", title: "Docker isn't running on build-box" });
+  });
+
+  it("offers to set up the context when it is missing, and refuses one pointing elsewhere", async () => {
+    const missing = await checkTemplate(
+      "docker",
+      SSH,
+      dockerDeps([...REMOTE_HEALTHY.slice(0, 2), [CONTEXT_INSPECT, NO_CONTEXT]]),
+    );
+    expect(missing.checks[4]).toMatchObject({
+      id: "docker-context",
+      state: "bad",
+      title: "Docker on build-box isn't set up for Manor yet",
+      fix: { kind: "run", id: "create-context", label: "Set up Docker on build-box" },
+    });
+    expect(missing.checks.slice(5).map((c) => c.state)).toEqual(["todo", "todo"]);
+
+    const elsewhere = await checkTemplate(
+      "docker",
+      SSH,
+      dockerDeps([...REMOTE_HEALTHY.slice(0, 2), [CONTEXT_INSPECT, "ssh://someone@other-box\n"]]),
+    );
+    expect(elsewhere.checks[4]).toMatchObject({
+      state: "bad",
+      title: "Another Docker context is already called manor-build-box",
+    });
+    expect(elsewhere.checks[4].detail).toContain("ssh://someone@other-box");
+    expect(elsewhere.checks[4].fix).toBeUndefined();
+  });
+
+  it("uses the Advanced context as it is, without making one", async () => {
+    const deps = dockerDeps([
+      ["ssh", "27.3.1"],
+      ["docker --version", "Docker version 27"],
+      ["docker --context mine info", INFO],
+      ["docker --context mine image inspect", "sha256:abc"],
+    ]);
+    const { checks } = await checkTemplate("docker", { ...SSH, context: "mine" }, deps);
+    expect(checks.every((c) => c.state === "ok")).toBe(true);
+    expect(checks[4].detail).toBe("Uses Docker context mine, chosen under Advanced.");
+    expect(deps.execFile.mock.calls.some(([, args]) => args.includes("inspect") && args.includes("manor-build-box"))).toBe(false);
+  });
+
+  it("says plainly when Docker can't be reached through the context", async () => {
+    const { checks } = await checkTemplate(
+      "docker",
+      SSH,
+      dockerDeps([
+        ...REMOTE_HEALTHY.slice(0, 3),
+        [
+          "docker --context manor-build-box info",
+          failed("error during connect: ssh: connect to host build-box port 22: Connection refused"),
+        ],
+      ]),
+    );
+    expect(checks[5]).toMatchObject({
+      state: "bad",
+      title: "Manor can't reach Docker on build-box",
+      detail: "error during connect: ssh: connect to host build-box port 22: Connection refused",
+    });
+    expect(checks[5].fix).toBeUndefined();
+
+    // As docker 29 really says it, with JSON on stdout.
+    const viaSsh = await checkTemplate(
+      "docker",
+      SSH,
+      dockerDeps([
+        ...REMOTE_HEALTHY.slice(0, 3),
+        [
+          "docker --context manor-build-box info",
+          failed(
+            'error during connect: Get "http://docker.example.com/v1.52/info": command [ssh -l me -o ConnectTimeout=30 -T -- build-box docker system dial-stdio] has exited with exit status 255, make sure the URL is valid, and Docker 18.09 or later is installed on the remote host: stderr=Host key verification failed.',
+            JSON.stringify({ ID: "", ServerVersion: "", Swarm: { Error: "" } }),
+          ),
+        ],
+      ]),
+    );
+    expect(viaSsh.checks[5].detail).toBe("Docker's SSH connection to build-box failed: Host key verification failed.");
+  });
+
+  it("pulls and builds on the machine, keyed by its context", async () => {
+    const { jobs, spawn } = fakeJobs();
+    await runTemplateFix("docker", "pull-image", SSH, dockerDeps([], { jobs }));
+    expect(spawn).toHaveBeenCalledWith("docker", ["--context", "manor-build-box", "pull", IMAGE]);
+    const { checks } = await checkTemplate(
+      "docker",
+      SSH,
+      dockerDeps(
+        [...REMOTE_HEALTHY, ["docker --context manor-build-box image inspect", failed(`No such image: ${IMAGE}`)]],
+        { jobs },
+      ),
+    );
+    expect(checks[6]).toMatchObject({ state: "busy", title: "Getting Manor's host image" });
+    await expect(
+      runTemplateFix("docker", "pull-image", { where: "ssh", sshTarget: "", image: IMAGE }, dockerDeps([], { jobs })),
+    ).rejects.toThrow(/SSH target/);
+  });
+});
+
+describe("docker fix: set up the SSH machine's context", () => {
+  it("creates manor-<host> pointing at ssh://<target> when it is missing", async () => {
+    const deps = dockerDeps([[CONTEXT_INSPECT, NO_CONTEXT], ["docker context create", ""]]);
+    await runTemplateFix("docker", "create-context", SSH, deps);
+    expect(deps.execFile).toHaveBeenCalledWith("docker", [
+      "context",
+      "create",
+      "manor-build-box",
+      "--description",
+      "Made by Manor for ssh://me@build-box",
+      "--docker",
+      "host=ssh://me@build-box",
+    ]);
+  });
+
+  it("keeps one that already points there", async () => {
+    const deps = dockerDeps([[CONTEXT_INSPECT, "ssh://me@build-box/\n"]]);
+    await runTemplateFix("docker", "create-context", SSH, deps);
+    expect(deps.execFile.mock.calls.some(([, args]) => args[1] === "create")).toBe(false);
+  });
+
+  it("refuses to touch one of that name pointing elsewhere", async () => {
+    const deps = dockerDeps([[CONTEXT_INSPECT, "ssh://someone@other-box"]]);
+    await expect(runTemplateFix("docker", "create-context", SSH, deps)).rejects.toThrow(
+      /already points at ssh:\/\/someone@other-box/,
+    );
+    expect(deps.execFile.mock.calls.some(([, args]) => args[1] === "create")).toBe(false);
+  });
+
+  it("needs a usable target, and docker to answer", async () => {
+    await expect(
+      runTemplateFix("docker", "create-context", { where: "local" }, dockerDeps([])),
+    ).rejects.toThrow(/SSH target/);
+    await expect(
+      runTemplateFix("docker", "create-context", SSH, dockerDeps([[CONTEXT_INSPECT, timeout()]])),
+    ).rejects.toThrow();
   });
 });
 

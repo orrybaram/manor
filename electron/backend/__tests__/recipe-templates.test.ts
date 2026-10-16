@@ -155,6 +155,40 @@ describe("recipe templates (ADR-229 D8)", () => {
     });
   });
 
+  it("docker: another machine over SSH runs against its own context, unless Advanced names one (ADR-234 D12)", () => {
+    const docker = RECIPE_TEMPLATES[0];
+    const where = docker.fields.find((f) => f.key === "where");
+    expect(where).toMatchObject({ type: "segmented", label: "Run it on", default: "local" });
+    expect(where?.advanced).toBeFalsy();
+    expect(where?.options?.map((o) => [o.value, o.label])).toEqual([
+      ["local", "This computer"],
+      ["ssh", "Another machine over SSH"],
+    ]);
+    expect(docker.fields.find((f) => f.key === "sshTarget")).toMatchObject({
+      label: "SSH target",
+      showWhen: { key: "where", value: "ssh" },
+    });
+
+    const context = (values: Record<string, string>) =>
+      docker.recipe({ name: "box1", ...values }, CTX).env?.MANOR_DOCKER_CONTEXT;
+    // This computer: Docker's current context, or the one named under Advanced.
+    expect(context({})).toBeUndefined();
+    expect(context({ where: "local", sshTarget: "me@ignored" })).toBeUndefined();
+    expect(context({ where: "local", context: "colima" })).toBe("colima");
+    // Another machine: manor-<host>, from the host part, lowercased.
+    expect(context({ where: "ssh", sshTarget: "me@Build.Box:2222" })).toBe("manor-build-box");
+    expect(context({ where: "ssh", sshTarget: "build_box" })).toBe("manor-build-box");
+    expect(context({ where: "ssh", sshTarget: "10.0.0.7" })).toBe("manor-10-0-0-7");
+    // The Advanced field still wins.
+    expect(context({ where: "ssh", sshTarget: "me@build-box", context: "mine" })).toBe("mine");
+    // The target is required, and strict.
+    expect(() => context({ where: "ssh" })).toThrow(/SSH target is required/);
+    for (const bad of ["me@box; rm -rf /", "me @box", "-oProxyCommand=x", "me@box:port", "$(id)"]) {
+      expect(() => context({ where: "ssh", sshTarget: bad })).toThrow(/SSH target is not valid/);
+    }
+    expect(() => context({ where: "mars" })).toThrow(/Run it on/);
+  });
+
   it("agents: the choice becomes MANOR_AGENTS, an unknown id is refused, blank installs none (ADR-234 D11)", () => {
     for (const template of RECIPE_TEMPLATES) {
       const field = template.fields.find((f) => f.key === "agents");

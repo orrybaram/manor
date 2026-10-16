@@ -30,8 +30,32 @@ interface Rule {
 
 const url = (label: string, href: string): RecipeFailureAction => ({ kind: "url", label, href });
 
+/**
+ * Docker's own ssh helper, when a remote context's connection fails:
+ * `command [ssh … -- build-box docker system dial-stdio] has exited with …`.
+ * The capture is the machine's host.
+ */
+const DOCKER_OVER_SSH = String.raw`\[ssh [^\]\n]*?-- ([^\s\]]+) docker system dial-stdio\]`;
+
 /** More specific rules come first: the first that matches wins. */
 const RULES: Rule[] = [
+  // Docker on another machine over SSH (ADR-234 D12): before the local
+  // rules, which would otherwise say "this computer".
+  {
+    pattern: new RegExp(String.raw`${DOCKER_OVER_SSH}[^\n]*?(?:exit status 127|docker: (?:command )?not found|command not found: docker)`, "i"),
+    summary: (m) => `Docker isn't installed on ${m[1]}.`,
+    action: url("How to install Docker Engine", "https://docs.docker.com/engine/install/"),
+  },
+  {
+    pattern: new RegExp(String.raw`${DOCKER_OVER_SSH}[^\n]*?exit status 255`, "i"),
+    summary: (m) => `Manor couldn't reach ${m[1]} over SSH.`,
+    action: { kind: "retry" },
+  },
+  {
+    pattern: /error during connect[^\n]*ssh: (?:connect to host |Could not resolve hostname )([^\s:]+)/i,
+    summary: (m) => `Manor couldn't reach ${m[1]} over SSH.`,
+    action: { kind: "retry" },
+  },
   // Docker
   {
     pattern: /permission denied while trying to connect to the (?:Docker|docker) daemon socket/i,

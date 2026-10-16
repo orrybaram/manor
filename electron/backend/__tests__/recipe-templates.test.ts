@@ -9,6 +9,7 @@ import {
   listTemplates,
   RECIPE_TEMPLATES,
 } from "../providers/recipe-templates";
+import { agentInstallScript } from "../providers/recipe-templates/agents";
 import { parseRecipe, readRecipe } from "../providers/recipes";
 
 // Optional: used when it is installed (knip would flag a literal binary name).
@@ -152,6 +153,75 @@ describe("recipe templates (ADR-229 D8)", () => {
       MANOR_DOCKER_NAME: "box1",
       MANOR_DOCKER_CONTEXT: "remote-1",
     });
+  });
+
+  it("agents: the choice becomes MANOR_AGENTS, an unknown id is refused, blank installs none (ADR-234 D11)", () => {
+    for (const template of RECIPE_TEMPLATES) {
+      const field = template.fields.find((f) => f.key === "agents");
+      expect(field).toMatchObject({ type: "multi", label: "Agents to install" });
+      expect(field?.advanced).toBeFalsy();
+      expect(field?.options?.map((o) => o.value)).toEqual(["claude", "codex"]);
+      expect(typeof field?.default === "function" ? "" : field?.default).toBe("claude");
+      const agents = (value: string | undefined) =>
+        template.recipe({ ...FORMS[template.id], ...(value === undefined ? {} : { agents: value }) }, CTX).env
+          ?.MANOR_AGENTS;
+      expect(agents("codex, claude")).toBe("claude,codex");
+      expect(agents("claude")).toBe("claude");
+      expect(agents("")).toBeUndefined();
+      expect(agents(undefined)).toBeUndefined();
+      expect(() => agents("claude,gemini")).toThrow(/agent is not valid/);
+      expect(() => agents("claude; rm -rf /")).toThrow(/agent is not valid/);
+    }
+  });
+
+  it("agents: up.sh installs a missing CLI as manor, and a failed install only warns", () => {
+    const docker = RECIPE_TEMPLATES[0].files["up.sh"].content;
+    const k8s = RECIPE_TEMPLATES[1].files["up.sh"].content;
+    expect(docker).toContain('"${docker_cmd[@]}" exec -i -u manor "$name" sh -c');
+    expect(k8s).toContain('"${kube[@]}" exec -i "$name-0" -c host -- sh -c');
+    for (const up of [docker, k8s]) {
+      expect(up).toContain("claude) label=\"Claude Code\"; bin=claude; pkg=@anthropic-ai/claude-code");
+      expect(up).toContain("codex) label=\"Codex\"; bin=codex; pkg=@openai/codex");
+      expect(up).toContain('npm i -g --prefix "$HOME/.local"');
+      expect(up.indexOf("HOOKS\n")).toBeLessThan(up.indexOf("Installing $label"));
+    }
+
+    // Run the block itself, with `env` standing in for the exec prefix.
+    const home = path.join(base, "home");
+    const bin = path.join(base, "bin");
+    fs.mkdirSync(path.join(home, ".local", "bin"), { recursive: true });
+    fs.mkdirSync(bin);
+    // codex is already installed; the fake npm succeeds for claude only.
+    fs.writeFileSync(path.join(home, ".local", "bin", "codex"), "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(
+      path.join(bin, "npm"),
+      '#!/bin/sh\necho "npm $*" >>"$HOME/npm.log"\ncase "$*" in *claude-code*) exit 0 ;; *) exit 1 ;; esac\n',
+      { mode: 0o755 },
+    );
+    const run = (agents: string) =>
+      spawnSync("bash", ["-c", `set -e\n${agentInstallScript("env")}\necho done`], {
+        env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, MANOR_AGENTS: agents },
+        encoding: "utf8",
+      });
+    const both = run("claude,codex");
+    expect(both.status).toBe(0);
+    expect(both.stdout).toBe("done\n");
+    expect(both.stderr).toContain("manor-stage: Installing Claude Code");
+    expect(both.stderr).not.toContain("Installing Codex");
+    expect(fs.readFileSync(path.join(home, "npm.log"), "utf8")).toContain(
+      "npm i -g --prefix " + path.join(home, ".local") + " --no-fund --no-audit --loglevel=error @anthropic-ai/claude-code",
+    );
+
+    fs.rmSync(path.join(home, ".local", "bin", "codex"));
+    const failed = run("codex");
+    expect(failed.status).toBe(0);
+    expect(failed.stderr).toContain("manor-stage: Installing Codex");
+    expect(failed.stderr).toContain("manor: couldn't install Codex;");
+    expect(failed.stdout).toBe("done\n");
+
+    fs.rmSync(path.join(home, "npm.log"));
+    expect(run("").status).toBe(0);
+    expect(fs.existsSync(path.join(home, "npm.log"))).toBe(false);
   });
 
   it("kubernetes: the instance id is namespace/name and storage is validated", () => {

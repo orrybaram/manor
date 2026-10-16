@@ -358,6 +358,14 @@ button.pathCardSelected {
 
 /* ── Start a host: a template's Connect step (ADR-234 D7) ── */
 
+/* One checkbox and its name in a multi-select field. */
+.multiOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
 /* What a size gives the host, dimmer than its name. */
 .sizeHint {
   font-weight: 400;

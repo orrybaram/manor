@@ -13,6 +13,7 @@
  */
 
 import type { Recipe } from "../recipes";
+import { AGENT_OPTIONS, DEFAULT_AGENTS, agentInstallScript, parseAgents } from "./agents";
 import {
   answer,
   defaultHostImage,
@@ -101,6 +102,7 @@ for hook in on-idle on-busy; do
 done
 HOOKS
 
+${agentInstallScript('"${docker_cmd[@]}" exec -i -u manor "$name"')}
 argv='"docker"'
 if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
   argv="$argv,\\"--context\\",\\"$MANOR_DOCKER_CONTEXT\\""
@@ -198,6 +200,15 @@ export const dockerTemplate: RecipeTemplate = {
     "A container on this computer's Docker. Manor sets it up and keeps its files between restarts.",
   fields: [
     {
+      key: "agents",
+      label: "Agents to install",
+      type: "multi",
+      default: DEFAULT_AGENTS,
+      description:
+        "Installed into the host's own storage the first time it starts, so they survive restarts.",
+      options: AGENT_OPTIONS,
+    },
+    {
       key: "name",
       label: "Container name",
       default: shortName,
@@ -232,6 +243,7 @@ export const dockerTemplate: RecipeTemplate = {
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The container name" });
     const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
     const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
+    const agents = parseAgents(values.agents).join(",");
     return {
       schemaVersion: 1,
       id: `docker-${name}`,
@@ -245,6 +257,7 @@ export const dockerTemplate: RecipeTemplate = {
         MANOR_DOCKER_NAME: name,
         MANOR_DOCKER_IMAGE: image,
         ...(context !== "" ? { MANOR_DOCKER_CONTEXT: context } : {}),
+        ...(agents !== "" ? { MANOR_AGENTS: agents } : {}),
       },
     };
   },

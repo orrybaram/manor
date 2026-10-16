@@ -5,6 +5,7 @@ import type { Choice, TemplateCheck, TemplateInfo } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
+import { Checkbox } from "../../ui/Checkbox/Checkbox";
 import { Collapse } from "../../ui/Collapse/Collapse";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Input } from "../../ui/Input";
@@ -409,6 +410,34 @@ function FieldControl(props: FieldControlProps) {
         aria-label={field.label}
         data-testid={testId}
       />
+    );
+  }
+
+  if (field.type === "multi" && field.options && field.options.length > 0) {
+    // The answer is the checked values, comma-separated, in the options' order.
+    const checked = value.split(",").map((v) => v.trim());
+    const toggle = (optionValue: string, on: boolean) =>
+      onChange(
+        field
+          .options!.map((o) => o.value)
+          .filter((v) => (v === optionValue ? on : checked.includes(v)))
+          .join(","),
+      );
+    return (
+      <Stack gap="sm" data-testid={testId}>
+        {field.options.map((o) => (
+          <label key={o.value} className={styles.multiOption}>
+            <Checkbox
+              size="md"
+              checked={checked.includes(o.value)}
+              disabled={disabled}
+              onCheckedChange={(on) => toggle(o.value, on === true)}
+              data-testid={`${testId}-${o.value}`}
+            />
+            {o.label}
+          </label>
+        ))}
+      </Stack>
     );
   }
 

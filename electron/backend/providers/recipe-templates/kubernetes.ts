@@ -9,6 +9,7 @@
  */
 
 import type { Recipe } from "../recipes";
+import { AGENT_OPTIONS, DEFAULT_AGENTS, agentInstallScript, parseAgents } from "./agents";
 import {
   answer,
   defaultHostImage,
@@ -272,6 +273,7 @@ for hook in on-idle on-busy; do
 done
 HOOKS
 
+${agentInstallScript('"${kube[@]}" exec -i "$name-0" -c host --')}
 argv='"kubectl"'
 if [ -n "\${MANOR_K8S_CONTEXT:-}" ]; then
   argv="$argv,\\"--context\\",\\"$MANOR_K8S_CONTEXT\\""
@@ -410,6 +412,15 @@ export const kubernetesTemplate: RecipeTemplate = {
       ],
     },
     {
+      key: "agents",
+      label: "Agents to install",
+      type: "multi",
+      default: DEFAULT_AGENTS,
+      description:
+        "Installed into the host's own storage the first time it starts, so they survive restarts.",
+      options: AGENT_OPTIONS,
+    },
+    {
       key: "namespace",
       label: "Namespace",
       default: "manor",
@@ -467,6 +478,7 @@ export const kubernetesTemplate: RecipeTemplate = {
       what: "The storage class",
       fallback: "",
     });
+    const agents = parseAgents(values.agents).join(",");
     return {
       schemaVersion: 1,
       id: `kubernetes-${namespace}-${name}`.slice(0, 64),
@@ -485,6 +497,7 @@ export const kubernetesTemplate: RecipeTemplate = {
         MANOR_K8S_CPU: cpu,
         MANOR_K8S_MEMORY: memory,
         ...(storageClass !== "" ? { MANOR_K8S_STORAGE_CLASS: storageClass } : {}),
+        ...(agents !== "" ? { MANOR_AGENTS: agents } : {}),
       },
     };
   },

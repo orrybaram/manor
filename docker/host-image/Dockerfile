@@ -18,9 +18,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends gh \
  && rm -rf /var/lib/apt/lists/*
 
-# The agent CLIs are yours to add. Uncomment the ones you use.
-# RUN npm install -g @anthropic-ai/claude-code
-# RUN npm install -g @openai/codex
+# No agent CLIs are baked in. Pick them under "Agents to install" when you
+# start a host: they go onto the home volume (~/.local) the first time it starts.
 
 # The base image's `node` user is uid 1000; `manor` takes its place.
 RUN userdel -r node \
@@ -31,6 +30,7 @@ RUN chmod 755 /usr/local/bin/manor-host-entrypoint.sh
 
 USER manor
 ENV HOME=/home/manor
+ENV PATH=/home/manor/.local/bin:$PATH
 WORKDIR /home/manor
 
 ENTRYPOINT ["tini", "--", "/usr/local/bin/manor-host-entrypoint.sh"]

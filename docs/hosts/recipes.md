@@ -277,8 +277,15 @@ Both templates run Manor's host image, `ghcr.io/orrybaram/manor-host:<version>`
 the `node-pty` toolchain, tini, and a `manor` user (uid 1000, home
 `/home/manor`). Nothing of Manor's is baked in. The entrypoint waits for the
 first connect to install `~/.manor/bin/manor-host` on the home volume, then
-runs `manor-host supervise`. Add the agent CLIs you use: the Dockerfile has a
-commented line for each.
+runs `manor-host supervise`. The image has no agent CLIs.
+Both templates ask "Agents to install" (Claude Code, on by default, and
+Codex), recorded as `MANOR_AGENTS=claude,codex` in `recipe.json`. After the
+container or pod is up, `up.sh` installs each one that is missing as the
+`manor` user onto the home volume (`npm i -g --prefix ~/.local`, printing
+`manor-stage: Installing Claude Code`); `~/.local/bin` is on the image's
+`PATH`. It runs once and survives restarts and image upgrades. A failed
+install is a warning on stderr, not a failed `up`. Leave both unchecked to
+install none, or edit `MANOR_AGENTS` in the recipe.
 
 You do not need to build anything: the Docker template's `up.sh` pulls the
 image when the daemon does not have it (printing `manor-stage: Getting

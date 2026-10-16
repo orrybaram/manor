@@ -39,6 +39,16 @@ const docker: TemplateInfo = {
     { key: "name", label: "Container name", default: "manor-abc123", required: true, advanced: true },
     { key: "image", label: "Image", default: "ghcr.io/orrybaram/manor-host:1.0.0", required: true, advanced: true },
     { key: "context", label: "Docker context", type: "choice", advanced: true },
+    {
+      key: "agents",
+      label: "Agents to install",
+      type: "multi",
+      default: "claude",
+      options: [
+        { value: "claude", label: "Claude Code" },
+        { value: "codex", label: "Codex" },
+      ],
+    },
   ],
 };
 
@@ -204,6 +214,28 @@ describe("StartHostForm — a template's Connect step", () => {
     expect(api.checkTemplate.mock.calls[1][1]).toMatchObject({ context: "kind-dev" });
     expect(q("start-host-check-cluster")?.dataset.state).toBe("ok");
     expect(submit().disabled).toBe(false);
+  });
+
+  it("renders a multi field as checkboxes that edit a comma-separated answer", async () => {
+    api.checkTemplate.mockResolvedValue(result([]));
+    await open(docker);
+    const claude = () => q("start-host-field-agents-claude");
+    const codex = () => q("start-host-field-agents-codex");
+    expect(q("start-host-field-agents")?.textContent).toContain("Claude Code");
+    expect(claude()?.getAttribute("aria-checked")).toBe("true");
+    expect(codex()?.getAttribute("aria-checked")).toBe("false");
+
+    click(codex());
+    expect(codex()?.getAttribute("aria-checked")).toBe("true");
+    click(claude());
+    expect(claude()?.getAttribute("aria-checked")).toBe("false");
+
+    api.createRecipe.mockResolvedValue("docker-manor-abc123");
+    api.addRecipeHost.mockResolvedValue({ hostId: "h1" });
+    await act(async () => {
+      submit().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(api.createRecipe.mock.calls[0][1]).toMatchObject({ agents: "codex" });
   });
 
   it("shows each size's resources in its option", async () => {

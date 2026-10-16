@@ -39,7 +39,9 @@ the first connect, and then runs `manor-host supervise`. Later versions
 arrive through the normal upgrade, onto the volume. So the image holds no
 host identity: a snapshot of it, or a clone of the image, cannot make two
 hosts share a relay room (ADR-229 D6). The agent CLIs (Claude Code, Codex)
-are yours to add: see the commented `RUN` lines in the Dockerfile.
+are not baked in: the Docker and Kubernetes templates install the ones chosen
+under "Agents to install" onto the home volume (`~/.local`, which the image
+puts on `PATH`) the first time a host starts.
 
 ## `/home/manor` must be persistent
 

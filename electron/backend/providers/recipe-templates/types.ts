@@ -35,9 +35,10 @@ export interface Choice {
  * How the form renders a field (ADR-234 D6): free `text` (the default), a
  * `choice` among options main lists (`TemplateCheckResult.choices`; the user
  * may still type one that isn't listed), or a `size` among the template's
- * own fixed `options`.
+ * own fixed `options`, or a `multi` of the template's fixed `options` with
+ * any number checked (the answer is their values, comma-separated).
  */
-export type FormFieldType = "text" | "choice" | "size";
+export type FormFieldType = "text" | "choice" | "size" | "multi";
 
 /** One answer the form asks for. */
 export interface FormField {
@@ -52,7 +53,7 @@ export interface FormField {
   type?: FormFieldType;
   /** Shown under the form's "Advanced" disclosure rather than up front (ADR-234 D7). */
   advanced?: boolean;
-  /** A `size` field's options, in the order shown. */
+  /** A `size` or `multi` field's options, in the order shown. */
   options?: Choice[];
 }
 

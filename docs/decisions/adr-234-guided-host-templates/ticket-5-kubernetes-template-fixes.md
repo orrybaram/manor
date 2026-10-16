@@ -1,6 +1,6 @@
 ---
 title: Kubernetes template — required cluster, hardened pod, sizes
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3, 4]

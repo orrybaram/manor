@@ -153,6 +153,22 @@ function TemplateForm(props: TemplateFormProps) {
   const valuesRef = useRef(values);
   // Only the latest request's answer is kept.
   const requestRef = useRef(0);
+  // Fields the user has edited: a suggested default never overwrites one.
+  const touchedRef = useRef(new Set<string>());
+
+  // A suggested answer fills a field only while it is blank and untouched.
+  const applyDefaults = (defaults: Record<string, string> | undefined) => {
+    if (!defaults) return;
+    const current = valuesRef.current;
+    const fill = Object.entries(defaults).filter(
+      ([key, value]) =>
+        value !== "" && (current[key] ?? "") === "" && !touchedRef.current.has(key),
+    );
+    if (fill.length === 0) return;
+    const next = { ...current, ...Object.fromEntries(fill) };
+    valuesRef.current = next;
+    setValues(next);
+  };
 
   useMountEffect(() => {
     let live = true;
@@ -160,7 +176,9 @@ function TemplateForm(props: TemplateFormProps) {
       const request = ++requestRef.current;
       window.electronAPI.hosts.checkTemplate(template.id, valuesRef.current).then(
         (result) => {
-          if (live && request === requestRef.current) setChoices(result.choices);
+          if (!live || request !== requestRef.current) return;
+          setChoices(result.choices);
+          applyDefaults(result.defaults);
         },
         () => {
           // Nothing to list: choice fields fall back to typing.
@@ -177,6 +195,7 @@ function TemplateForm(props: TemplateFormProps) {
   });
 
   const setValue = (key: string, value: string) => {
+    touchedRef.current.add(key);
     const next = { ...valuesRef.current, [key]: value };
     valuesRef.current = next;
     setValues(next);

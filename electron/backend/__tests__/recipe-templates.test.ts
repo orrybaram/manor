@@ -25,6 +25,7 @@ const FORMS: Record<string, Record<string, string>> = {
   docker: { name: "box1", image: "manor-host:local", context: "remote-1" },
   kubernetes: {
     context: "dev",
+    size: "large",
     namespace: "manor",
     name: "box1",
     image: "ghcr.io/me/manor-host:1",
@@ -159,6 +160,83 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(() =>
       RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" }, CTX),
     ).toThrow(/storage size/);
+  });
+
+  it("kubernetes: the cluster is required, and the size becomes the pod's resources (ADR-234 D5)", () => {
+    const k8s = RECIPE_TEMPLATES[1];
+    const { context: _context, ...noContext } = FORMS.kubernetes;
+    expect(() => k8s.recipe(noContext, CTX)).toThrow(/cluster is required/);
+    expect(k8s.fields.find((f) => f.key === "context")).toMatchObject({
+      type: "choice",
+      required: true,
+      label: "Cluster",
+    });
+    const sizes = { small: ["1", "2Gi"], medium: ["2", "4Gi"], large: ["4", "8Gi"] };
+    for (const [size, [cpu, memory]] of Object.entries(sizes)) {
+      expect(k8s.recipe({ ...FORMS.kubernetes, size }, CTX).env).toMatchObject({
+        MANOR_K8S_CONTEXT: "dev",
+        MANOR_K8S_CPU: cpu,
+        MANOR_K8S_MEMORY: memory,
+      });
+    }
+    // Medium unless said otherwise; anything else is refused.
+    expect(k8s.recipe({ ...FORMS.kubernetes, size: "" }, CTX).env).toMatchObject({
+      MANOR_K8S_CPU: "2",
+      MANOR_K8S_MEMORY: "4Gi",
+    });
+    expect(() => k8s.recipe({ ...FORMS.kubernetes, size: "huge" }, CTX)).toThrow(/size/);
+    const field = k8s.fields.find((f) => f.key === "size");
+    expect(field).toMatchObject({ type: "size", default: "medium" });
+    expect(field?.options?.map((o) => o.value)).toEqual(["small", "medium", "large"]);
+  });
+
+  /** Runs up.sh against a `kubectl` that records the manifests it is given. */
+  function renderManifest(env: Record<string, string>): string {
+    const bin = path.join(base, "bin");
+    fs.mkdirSync(bin);
+    const out = path.join(base, "applied.yaml");
+    fs.writeFileSync(
+      path.join(bin, "kubectl"),
+      `#!/usr/bin/env bash\nfor a in "$@"; do if [ "$a" = apply ]; then cat >>"${out}"; fi; done\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    const up = path.join(base, "up.sh");
+    fs.writeFileSync(up, RECIPE_TEMPLATES[1].files["up.sh"].content);
+    const result = spawnSync("bash", [up], {
+      env: { PATH: `${bin}:${process.env.PATH}`, ...env },
+      encoding: "utf-8",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    return fs.readFileSync(out, "utf-8");
+  }
+
+  const K8S_ENV = {
+    MANOR_K8S_NAME: "box1",
+    MANOR_K8S_NAMESPACE: "manor",
+    MANOR_K8S_IMAGE: "img:1",
+    MANOR_K8S_CONTEXT: "dev",
+  };
+
+  it("kubernetes: the pod is hardened and asks for its size", () => {
+    const manifest = renderManifest({ ...K8S_ENV, MANOR_K8S_CPU: "2", MANOR_K8S_MEMORY: "4Gi" });
+    for (const block of [
+      "      securityContext:\n        runAsNonRoot: true\n        runAsUser: 1000\n        runAsGroup: 1000\n        fsGroup: 1000\n        seccompProfile:\n          type: RuntimeDefault\n",
+      '          securityContext:\n            allowPrivilegeEscalation: false\n            capabilities:\n              drop: ["ALL"]\n',
+      '          resources:\n            requests:\n              cpu: "2"\n              memory: "4Gi"\n            limits:\n              memory: "4Gi"\n',
+    ]) {
+      expect(manifest).toContain(block);
+    }
+    // No CPU limit.
+    expect(manifest).not.toMatch(/limits:\n\s+cpu/);
+  });
+
+  it("kubernetes: an old recipe without a size renders no resources block", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).not.toContain("limits:");
+    expect(manifest).not.toContain("cpu:");
+    // The volume claim's own resources stay.
+    expect(manifest).toContain("            storage: 20Gi");
+    expect(manifest).toContain("          volumeMounts:");
   });
 
   it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas (ADR-231 C1)", () => {

@@ -236,6 +236,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hosts.createRecipe": "home",
   "hosts.listTemplates": "home",
   "hosts.checkTemplate": "home",
+  "hosts.runTemplateFix": "home",
   "hosts.createCustomRecipe": "home",
   // Removing a host is the desktop's that lists it (ADR-229 D8).
   "hosts.remove": "home",

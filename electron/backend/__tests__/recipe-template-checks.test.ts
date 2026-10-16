@@ -3,7 +3,10 @@
  * the CLI, and list nothing (never throw) when the CLI is missing or its
  * output is unreadable.
  */
-import { describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { checkTemplate, listTemplates } from "../providers/recipe-templates";
 import type { CheckDeps } from "../providers/recipe-templates/checks";
 
@@ -40,7 +43,6 @@ describe("kubernetes checks", () => {
     const deps = fakeDeps({ kubectl: KUBECONFIG });
     const result = await checkTemplate("kubernetes", {}, deps);
     expect(deps.execFile).toHaveBeenCalledWith("kubectl", ["config", "view", "-o", "json"]);
-    expect(result.checks).toEqual([]);
     expect(result.choices.context).toEqual([
       { value: "prod", label: "prod · kubectl's current", hint: "https://prod.example:6443" },
       { value: "kind-dev", label: "kind-dev", hint: "https://127.0.0.1:41234" },
@@ -50,7 +52,7 @@ describe("kubernetes checks", () => {
 
   it("lists nothing when kubectl is missing", async () => {
     const result = await checkTemplate("kubernetes", {}, fakeDeps({}));
-    expect(result).toEqual({ checks: [], choices: { context: [] } });
+    expect(result.choices).toEqual({ context: [] });
   });
 
   it("lists nothing for a broken kubeconfig", async () => {
@@ -64,6 +66,48 @@ describe("kubernetes checks", () => {
     expect(garbled.choices.context).toEqual([]);
     const empty = await checkTemplate("kubernetes", {}, fakeDeps({ kubectl: "{}" }));
     expect(empty.choices.context).toEqual([]);
+  });
+});
+
+describe("kubernetes checks: the last used cluster (ADR-234 D5)", () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "k8s-recipes-"));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  function recipe(id: string, template: string, context: string | undefined, mtimeSec: number) {
+    fs.mkdirSync(path.join(dir, id));
+    const file = path.join(dir, id, "recipe.json");
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ template, env: context === undefined ? {} : { MANOR_K8S_CONTEXT: context } }),
+    );
+    fs.utimesSync(file, mtimeSec, mtimeSec);
+  }
+
+  const run = () =>
+    checkTemplate("kubernetes", {}, { ...fakeDeps({ kubectl: KUBECONFIG }), recipesDir: dir });
+
+  it("preselects the newest Kubernetes recipe's context, never kubectl's current one", async () => {
+    recipe("old", "kubernetes", "prod", 1000);
+    recipe("new", "kubernetes", "kind-dev", 2000);
+    recipe("docker-newest", "docker", "orphan", 3000);
+    expect((await run()).defaults).toEqual({ context: "kind-dev" });
+  });
+
+  it("skips contexts that are no longer listed, and recipes without one", async () => {
+    recipe("gone", "kubernetes", "deleted-context", 3000);
+    recipe("plain", "kubernetes", undefined, 2500);
+    recipe("kept", "kubernetes", "orphan", 1000);
+    expect((await run()).defaults).toEqual({ context: "orphan" });
+  });
+
+  it("preselects nothing without a Kubernetes recipe", async () => {
+    recipe("docker", "docker", "prod", 1000);
+    expect((await run()).defaults).toBeUndefined();
+    fs.rmSync(dir, { recursive: true });
+    expect((await run()).defaults).toBeUndefined();
   });
 });
 

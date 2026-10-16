@@ -22,6 +22,7 @@ import {
   hostsResetPairingKeys,
   hostsRevokeDevice,
   hostsRetryConnect,
+  hostsRunTemplateFix,
   hostsServerStatus,
   hostsSetLinearOnHost,
   hostsSetLinkPhones,
@@ -217,6 +218,23 @@ describe("hosts:checkTemplate (ADR-234 D6)", () => {
 
   it("rejects an unknown template", async () => {
     await expect(check("nope", {})).rejects.toThrow(/Unknown template/);
+  });
+});
+
+describe("hosts:runTemplateFix (ADR-234 D8)", () => {
+  const fix = (...args: unknown[]) =>
+    (hostsRunTemplateFix as (...a: unknown[]) => unknown)(localCtx(makeDeps().deps as never), ...args);
+
+  it("refuses arguments of the wrong shape", () => {
+    expect(() => fix(7, "pull-image", {})).toThrow(/templateId/);
+    expect(() => fix("docker", null, {})).toThrow(/fixId/);
+    expect(() => fix("docker", "pull-image", null)).toThrow(/object of strings/);
+    expect(() => fix("docker", "pull-image", { image: 1 })).toThrow(/values\.image/);
+  });
+
+  it("rejects an unknown template or fix", async () => {
+    await expect(fix("nope", "pull-image", {})).rejects.toThrow(/Unknown template/);
+    await expect(fix("docker", "nope", {})).rejects.toThrow(/Unknown fix/);
   });
 });
 

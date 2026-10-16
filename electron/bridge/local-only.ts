@@ -44,6 +44,7 @@ export const LOCAL_ONLY_METHODS = [
   "hosts.createRecipe",
   "hosts.listTemplates",
   "hosts.checkTemplate",
+  "hosts.runTemplateFix",
   "hosts.setSupervised",
   "hosts.createCustomRecipe",
   "hosts.remove",

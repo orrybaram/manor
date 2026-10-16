@@ -43,6 +43,17 @@ storage_class_line=""
 if [ -n "\${MANOR_K8S_STORAGE_CLASS:-}" ]; then
   storage_class_line="storageClassName: $MANOR_K8S_STORAGE_CLASS"
 fi
+# What the pod asks for (the size picked in the form). A recipe made before
+# sizes existed has none, and the pod asks for nothing.
+resources_block=""
+if [ -n "\${MANOR_K8S_CPU:-}" ] && [ -n "\${MANOR_K8S_MEMORY:-}" ]; then
+  resources_block="resources:
+            requests:
+              cpu: \\"$MANOR_K8S_CPU\\"
+              memory: \\"$MANOR_K8S_MEMORY\\"
+            limits:
+              memory: \\"$MANOR_K8S_MEMORY\\""
+fi
 
 # The namespace is Manor's to create when it is missing.
 if ! "\${kubectl_cmd[@]}" get namespace "$namespace" >/dev/null 2>&1; then
@@ -84,11 +95,20 @@ spec:
         app: $name
     spec:
       securityContext:
+        runAsNonRoot: true
         runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: host
           image: $image
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          $resources_block
           env:
             - name: MANOR_SECRET_KEY_FILE
               value: /run/secrets/manor-key
@@ -236,6 +256,14 @@ echo '{}' >&3
 
 /** A Kubernetes quantity of storage: `20Gi`, `500Mi`. */
 const STORAGE_PATTERN = /^[1-9][0-9]{0,5}(?:Mi|Gi|Ti)$/;
+/** What each size asks of the pod: `MANOR_K8S_CPU` and `MANOR_K8S_MEMORY`. */
+const SIZES = {
+  small: { cpu: "1", memory: "2Gi" },
+  medium: { cpu: "2", memory: "4Gi" },
+  large: { cpu: "4", memory: "8Gi" },
+} as const;
+const DEFAULT_SIZE = "medium";
+
 const STORAGE_CLASS_PATTERN = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 
 export const kubernetesTemplate: RecipeTemplate = {
@@ -245,15 +273,33 @@ export const kubernetesTemplate: RecipeTemplate = {
   fields: [
     {
       key: "context",
-      label: "kubectl context",
+      label: "Cluster",
       type: "choice",
-      description: "Optional. Leave blank for the current context.",
+      required: true,
+      description: "kubectl's saved login for the cluster to run the host on.",
     },
-    { key: "namespace", label: "Namespace", default: "manor", required: true },
-    { key: "name", label: "Name", default: shortName, required: true },
-    { key: "image", label: "Image", default: defaultHostImage, required: true },
-    { key: "storage", label: "Storage size", default: "20Gi", required: true },
-    { key: "storageClass", label: "Storage class", description: "Optional. Leave blank for the cluster default." },
+    {
+      key: "size",
+      label: "Size",
+      type: "size",
+      default: DEFAULT_SIZE,
+      description: "What the host asks the cluster for: 1, 2 or 4 CPUs.",
+      options: [
+        { value: "small", label: "Small", hint: "1 CPU, 2 GiB" },
+        { value: "medium", label: "Medium", hint: "2 CPUs, 4 GiB" },
+        { value: "large", label: "Large", hint: "4 CPUs, 8 GiB" },
+      ],
+    },
+    { key: "namespace", label: "Namespace", default: "manor", required: true, advanced: true },
+    { key: "name", label: "Name", default: shortName, required: true, advanced: true },
+    { key: "image", label: "Image", default: defaultHostImage, required: true, advanced: true },
+    { key: "storage", label: "Storage size", default: "20Gi", required: true, advanced: true },
+    {
+      key: "storageClass",
+      label: "Storage class",
+      description: "Optional. Leave blank for the cluster default.",
+      advanced: true,
+    },
   ],
   perHost: ["name"],
   files: {
@@ -263,7 +309,9 @@ export const kubernetesTemplate: RecipeTemplate = {
     "destroy.sh": { content: DESTROY, mode: 0o755 },
   },
   recipe(values, ctx): Recipe {
-    const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The kubectl context", fallback: "" });
+    const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The cluster" });
+    const size = answer(values, "size", { pattern: /^(?:small|medium|large)$/, what: "The size", fallback: DEFAULT_SIZE });
+    const { cpu, memory } = SIZES[size as keyof typeof SIZES];
     const namespace = answer(values, "namespace", { pattern: NAME_PATTERN, what: "The namespace", fallback: "manor" });
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The name" });
     const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
@@ -287,7 +335,9 @@ export const kubernetesTemplate: RecipeTemplate = {
         MANOR_K8S_NAME: name,
         MANOR_K8S_IMAGE: image,
         MANOR_K8S_STORAGE: storage,
-        ...(context !== "" ? { MANOR_K8S_CONTEXT: context } : {}),
+        MANOR_K8S_CONTEXT: context,
+        MANOR_K8S_CPU: cpu,
+        MANOR_K8S_MEMORY: memory,
         ...(storageClass !== "" ? { MANOR_K8S_STORAGE_CLASS: storageClass } : {}),
       },
     };

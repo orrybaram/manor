@@ -11,6 +11,7 @@
 import type { Recipe } from "../recipes";
 import {
   answer,
+  defaultHostImage,
   CONTEXT_PATTERN,
   IMAGE_PATTERN,
   NAME_PATTERN,
@@ -242,10 +243,15 @@ export const kubernetesTemplate: RecipeTemplate = {
   name: "Kubernetes StatefulSet",
   description: "A one-replica StatefulSet with a persistent volume for its home directory.",
   fields: [
-    { key: "context", label: "kubectl context", description: "Optional. Leave blank for the current context." },
+    {
+      key: "context",
+      label: "kubectl context",
+      type: "choice",
+      description: "Optional. Leave blank for the current context.",
+    },
     { key: "namespace", label: "Namespace", default: "manor", required: true },
     { key: "name", label: "Name", default: shortName, required: true },
-    { key: "image", label: "Image", default: "manor-host:local", required: true },
+    { key: "image", label: "Image", default: defaultHostImage, required: true },
     { key: "storage", label: "Storage size", default: "20Gi", required: true },
     { key: "storageClass", label: "Storage class", description: "Optional. Leave blank for the cluster default." },
   ],
@@ -255,11 +261,11 @@ export const kubernetesTemplate: RecipeTemplate = {
     "stop.sh": { content: STOP, mode: 0o755 },
     "destroy.sh": { content: DESTROY, mode: 0o755 },
   },
-  recipe(values): Recipe {
+  recipe(values, ctx): Recipe {
     const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The kubectl context", fallback: "" });
     const namespace = answer(values, "namespace", { pattern: NAME_PATTERN, what: "The namespace", fallback: "manor" });
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The name" });
-    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: "manor-host:local" });
+    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
     const storage = answer(values, "storage", { pattern: STORAGE_PATTERN, what: "The storage size", fallback: "20Gi" });
     const storageClass = answer(values, "storageClass", {
       pattern: STORAGE_CLASS_PATTERN,

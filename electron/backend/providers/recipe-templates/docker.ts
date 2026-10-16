@@ -5,13 +5,17 @@
  *
  * The scripts keep stdout for the one JSON object (fd 3); the container is
  * created from the host image (`docker/host-image`), whose entrypoint waits
- * for the server and runs `manor-host supervise`. They are plain files the
+ * for the server and runs `manor-host supervise`. The key that seals the
+ * host's secrets lives in a second named volume, `manor-<name>-key`, filled
+ * once by the image and mounted read-only; nothing is bind-mounted from the
+ * recipe directory, so remote daemons, colima and Rancher work (ADR-234 D4). They are plain files the
  * user owns once written: nothing about a template is special afterwards.
  */
 
 import type { Recipe } from "../recipes";
 import {
   answer,
+  defaultHostImage,
   CONTEXT_PATTERN,
   IMAGE_PATTERN,
   NAME_PATTERN,
@@ -37,6 +41,7 @@ if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
 fi
 image=\${MANOR_DOCKER_IMAGE:?MANOR_DOCKER_IMAGE is not set}
 volume="manor-$name-home"
+key_volume="manor-$name-key"
 
 # The home directory lives on a named volume, so it survives the container.
 if ! "\${docker_cmd[@]}" volume inspect "$volume" >/dev/null 2>&1; then
@@ -44,25 +49,32 @@ if ! "\${docker_cmd[@]}" volume inspect "$volume" >/dev/null 2>&1; then
   "\${docker_cmd[@]}" volume create "$volume"
 fi
 
-# The key that seals the host's secrets (ADR-229 D5). It lives beside the
-# recipe, outside the volume, so a copy of the volume cannot read them.
-# Note: the file is bind-mounted, so the Docker daemon must see this path
-# (a local daemon, or Docker Desktop).
-key_file="\${MANOR_RECIPE_DIR:?MANOR_RECIPE_DIR is not set}/secret.key"
-if [ ! -s "$key_file" ]; then
-  echo "Generating $key_file"
-  (umask 077 && head -c 32 /dev/urandom >"$key_file.tmp" && mv "$key_file.tmp" "$key_file")
+# Get the image first, so the download is a named step and not buried in
+# \`docker run\`'s output. A locally built image is found and not pulled.
+if ! "\${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1; then
+  echo "manor-stage: Getting Manor's host image" >&2
+  "\${docker_cmd[@]}" pull "$image"
 fi
-chmod 600 "$key_file"
+
+# The key that seals the host's secrets (ADR-229 D5) lives in its own volume
+# on the daemon, apart from the home volume, so a copy of the home cannot read
+# it. Nothing is bind-mounted, so a remote daemon works too. It is filled once,
+# by the host image itself; a fresh volume is root-owned, hence \`-u 0\`.
+if ! "\${docker_cmd[@]}" volume inspect "$key_volume" >/dev/null 2>&1; then
+  "\${docker_cmd[@]}" volume create "$key_volume"
+fi
 
 state=$("\${docker_cmd[@]}" inspect -f '{{.State.Status}}' "$name" 2>/dev/null || true)
 case "$state" in
   "")
+    echo "manor-stage: Creating the container" >&2
+    "\${docker_cmd[@]}" run --rm -u 0 --entrypoint sh -v "$key_volume:/k" "$image" -c \\
+      'test -s /k/secret.key || (umask 077; head -c 32 /dev/urandom >/k/secret.key; chown 1000:1000 /k/secret.key; chmod 400 /k/secret.key)'
     echo "Starting container $name from $image"
     "\${docker_cmd[@]}" run -d --name "$name" \\
       -v "$volume:/home/manor" \\
-      -v "$key_file:/run/secrets/manor-key:ro" \\
-      -e MANOR_SECRET_KEY_FILE=/run/secrets/manor-key \\
+      -v "$key_volume:/run/secrets/manor:ro" \\
+      -e MANOR_SECRET_KEY_FILE=/run/secrets/manor/secret.key \\
       -e "MANOR_INSTANCE_ID=$name" \\
       --restart unless-stopped \\
       "$image"
@@ -167,12 +179,14 @@ if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
   docker_cmd+=(--context "$MANOR_DOCKER_CONTEXT")
 fi
 
-# Deletes the container, its home volume and the key. There is no undo.
+# Deletes the container, its home volume and its key volume. There is no undo.
 "\${docker_cmd[@]}" rm -f "$name"
 if "\${docker_cmd[@]}" volume inspect "manor-$name-home" >/dev/null 2>&1; then
   "\${docker_cmd[@]}" volume rm "manor-$name-home"
 fi
-rm -f "\${MANOR_RECIPE_DIR:?MANOR_RECIPE_DIR is not set}/secret.key"
+if "\${docker_cmd[@]}" volume inspect "manor-$name-key" >/dev/null 2>&1; then
+  "\${docker_cmd[@]}" volume rm "manor-$name-key"
+fi
 echo '{}' >&3
 `;
 
@@ -182,12 +196,13 @@ export const dockerTemplate: RecipeTemplate = {
   description: "A container on this computer's Docker daemon, with a named volume for its home directory.",
   fields: [
     { key: "name", label: "Container name", default: shortName, required: true },
-    { key: "image", label: "Image", default: "manor-host:local", required: true },
+    { key: "image", label: "Image", default: defaultHostImage, required: true },
     {
       key: "context",
       label: "Docker context",
+      type: "choice",
       description:
-        "Optional, such as colima or desktop-linux. Blank for the default. Must be a daemon on this computer: the key file is bind-mounted.",
+        "Optional, such as colima or desktop-linux. Blank for the default.",
     },
   ],
   files: {
@@ -196,9 +211,9 @@ export const dockerTemplate: RecipeTemplate = {
     "stop.sh": { content: STOP, mode: 0o755 },
     "destroy.sh": { content: DESTROY, mode: 0o755 },
   },
-  recipe(values): Recipe {
+  recipe(values, ctx): Recipe {
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The container name" });
-    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: "manor-host:local" });
+    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
     const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
     return {
       schemaVersion: 1,

@@ -266,35 +266,42 @@ edit. Each generated script says so at the top.
 
 ### The host image
 
-Both templates run `docker/host-image` from Manor's repo: Node 22, git, gh,
+Both templates run Manor's host image, `ghcr.io/orrybaram/manor-host:<version>`
+(the version of your Manor app; published by each release): Node 22, git, gh,
 the `node-pty` toolchain, tini, and a `manor` user (uid 1000, home
 `/home/manor`). Nothing of Manor's is baked in. The entrypoint waits for the
 first connect to install `~/.manor/bin/manor-host` on the home volume, then
 runs `manor-host supervise`. Add the agent CLIs you use: the Dockerfile has a
 commented line for each.
 
+You do not need to build anything: the Docker template's `up.sh` pulls the
+image when the daemon does not have it (printing `manor-stage: Getting
+Manor's host image`), and a cluster's nodes pull it themselves. To customise
+it, build it from `docker/host-image` (the app ships that folder as
+`host-image/` in its resources), then give your own image name in the form:
+
 ```bash
 docker build -t manor-host:local docker/host-image
 ```
 
-For a cluster, push it somewhere the cluster can pull from, and give that
-name in the form.
+For a cluster, push it somewhere the cluster can pull from.
 
 ### Docker
 
 The form asks for:
 
 - **Container name** (also the recipe's id, `docker-<name>`);
-- **Image** (default `manor-host:local`);
+- **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; an image the daemon already has is not pulled);
 - **Docker context** (optional, such as `colima` or `desktop-linux`; blank
-  for the default). It must name a daemon on this computer: see below.
+  for the default). A remote daemon works too.
 
 `up`:
 
 - creates the volume `manor-<name>-home` and mounts it on `/home/manor`;
-- creates `secret.key` (32 random bytes, mode 0600) in the recipe's folder,
-  and mounts it read-only at `/run/secrets/manor-key`, with
-  `MANOR_SECRET_KEY_FILE` pointing there (see
+- creates the volume `manor-<name>-key` and, once, fills it with
+  `secret.key` (32 random bytes, readable only by uid 1000) using the host
+  image itself. It is mounted read-only at `/run/secrets/manor`, with
+  `MANOR_SECRET_KEY_FILE` pointing at the file (see
   [Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys));
 - sets `MANOR_INSTANCE_ID` to the container's name;
 - runs the container with `--restart unless-stopped`, or starts it if it
@@ -304,13 +311,12 @@ The form asks for:
 - returns `docker exec -i -u manor <name>` as the way in.
 
 `status` reads `docker inspect`. `stop` runs `docker stop` and keeps the
-container and its volume. `destroy` removes the container, the volume and
-`secret.key`.
+container and its volumes. `destroy` removes the container, the home volume
+and the key volume.
 
-**The daemon must be local.** The key is a bind mount from your computer, so
-the daemon has to see this computer's files: Docker Desktop, or a Linux
-daemon where uid 1000 in the container can read a file your user owns.
-A remote Docker context isn't supported by this template.
+The key lives on the daemon, in a volume apart from the home volume, so a
+copy of the home cannot read it. Nothing is bind-mounted from your computer,
+so remote Docker contexts, colima and Rancher Desktop work.
 
 ### Kubernetes
 
@@ -319,7 +325,7 @@ The form asks for:
 - **kubectl context** (optional; blank for the current one);
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
-- **Image** (default `manor-host:local`; the cluster must be able to pull it);
+- **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
 - **Storage size** (default `20Gi`) and **Storage class** (optional).
 
 `up`:

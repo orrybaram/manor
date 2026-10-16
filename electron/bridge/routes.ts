@@ -233,6 +233,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   // Templates write into this desktop's recipes directory (ADR-229 D8).
   "hosts.createRecipe": "home",
   "hosts.listTemplates": "home",
+  "hosts.checkTemplate": "home",
   "hosts.createCustomRecipe": "home",
   // Removing a host is the desktop's that lists it (ADR-229 D8).
   "hosts.remove": "home",

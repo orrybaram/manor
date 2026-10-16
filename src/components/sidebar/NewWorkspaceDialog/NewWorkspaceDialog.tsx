@@ -25,7 +25,8 @@ import { sanitizeBranchName } from "../../../utils/branch-name";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { useHostStore } from "../../../store/host-store";
 import { hostSentenceName } from "../../../bridge/server-set";
-import { transferTargets } from "../../../lib/transfer-targets";
+import { newHostTargets, transferTargets } from "../../../lib/transfer-targets";
+import { useHostProfileStore } from "../../../store/host-profile-store";
 import {
   memberAfterClone,
   startingMemberId,
@@ -190,14 +191,17 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     () => (activeProject ? transferTargets(activeProject, projects, hosts, "copy") : []),
     [activeProject, projects, hosts],
   );
+  const profiles = useHostProfileStore((s) => s.profiles);
+  const podTargets = useMemo(() => newHostTargets(profiles), [profiles]);
+  const openInNewHost = useProjectStore((s) => s.openInNewHost);
   // A lone project gets a one-choice picker, so it has the button too.
   const pickerChoices = useMemo(
     () =>
       hostChoices ??
-      (activeProject && cloneTargets.length > 0
+      (activeProject && (cloneTargets.length > 0 || podTargets.length > 0)
         ? [{ projectId: activeProject.id, hostId: activeProject.hostId, disabledReason: null }]
         : null),
-    [hostChoices, activeProject, cloneTargets],
+    [hostChoices, activeProject, cloneTargets, podTargets],
   );
   const cloneSource = cloneSession
     ? projects.find((p) => p.id === cloneSession.projectId)
@@ -562,6 +566,13 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                       cloneTargets.length > 0
                         ? () => openClone(activeProjectId)
                         : undefined
+                    }
+                    newHostTargets={podTargets}
+                    onSetUpInNewHost={(target) =>
+                      void openInNewHost({
+                        profileId: target.profileId,
+                        sourceProjectId: activeProjectId,
+                      })
                     }
                   />
                 )}

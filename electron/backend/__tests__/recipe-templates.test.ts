@@ -277,18 +277,24 @@ describe("recipe templates (ADR-229 D8)", () => {
       required: true,
       label: "Cluster",
     });
-    const sizes = { small: ["1", "2Gi"], medium: ["2", "4Gi"], large: ["4", "8Gi"] };
-    for (const [size, [cpu, memory]] of Object.entries(sizes)) {
+    const sizes = {
+      small: ["250m", "512Mi", "2Gi"],
+      medium: ["500m", "1Gi", "4Gi"],
+      large: ["1", "2Gi", "8Gi"],
+    };
+    for (const [size, [cpu, memory, memoryLimit]] of Object.entries(sizes)) {
       expect(k8s.recipe({ ...FORMS.kubernetes, size }, CTX).env).toMatchObject({
         MANOR_K8S_CONTEXT: "dev",
         MANOR_K8S_CPU: cpu,
         MANOR_K8S_MEMORY: memory,
+        MANOR_K8S_MEMORY_LIMIT: memoryLimit,
       });
     }
     // Medium unless said otherwise; anything else is refused.
     expect(k8s.recipe({ ...FORMS.kubernetes, size: "" }, CTX).env).toMatchObject({
-      MANOR_K8S_CPU: "2",
-      MANOR_K8S_MEMORY: "4Gi",
+      MANOR_K8S_CPU: "500m",
+      MANOR_K8S_MEMORY: "1Gi",
+      MANOR_K8S_MEMORY_LIMIT: "4Gi",
     });
     expect(() => k8s.recipe({ ...FORMS.kubernetes, size: "huge" }, CTX)).toThrow(/size/);
     const field = k8s.fields.find((f) => f.key === "size");
@@ -328,16 +334,26 @@ describe("recipe templates (ADR-229 D8)", () => {
   };
 
   it("kubernetes: the pod is hardened and asks for its size", () => {
-    const manifest = renderManifest({ ...K8S_ENV, MANOR_K8S_CPU: "2", MANOR_K8S_MEMORY: "4Gi" });
+    const manifest = renderManifest({
+      ...K8S_ENV,
+      MANOR_K8S_CPU: "500m",
+      MANOR_K8S_MEMORY: "1Gi",
+      MANOR_K8S_MEMORY_LIMIT: "4Gi",
+    });
     for (const block of [
       "      securityContext:\n        runAsNonRoot: true\n        runAsUser: 1000\n        runAsGroup: 1000\n        fsGroup: 1000\n        seccompProfile:\n          type: RuntimeDefault\n",
       '          securityContext:\n            allowPrivilegeEscalation: false\n            capabilities:\n              drop: ["ALL"]\n',
-      '          resources:\n            requests:\n              cpu: "2"\n              memory: "4Gi"\n            limits:\n              memory: "4Gi"\n',
+      '          resources:\n            requests:\n              cpu: "500m"\n              memory: "1Gi"\n            limits:\n              memory: "4Gi"\n',
     ]) {
       expect(manifest).toContain(block);
     }
     // No CPU limit.
     expect(manifest).not.toMatch(/limits:\n\s+cpu/);
+  });
+
+  it("kubernetes: a recipe without a memory limit is limited to its request", () => {
+    const manifest = renderManifest({ ...K8S_ENV, MANOR_K8S_CPU: "2", MANOR_K8S_MEMORY: "4Gi" });
+    expect(manifest).toContain('            limits:\n              memory: "4Gi"\n');
   });
 
   it("kubernetes: an old recipe without a size renders no resources block", () => {

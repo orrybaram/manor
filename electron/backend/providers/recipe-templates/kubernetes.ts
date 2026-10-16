@@ -45,7 +45,8 @@ if [ -n "\${MANOR_K8S_STORAGE_CLASS:-}" ]; then
   storage_class_line="storageClassName: $MANOR_K8S_STORAGE_CLASS"
 fi
 # What the pod asks for (the size picked in the form). A recipe made before
-# sizes existed has none, and the pod asks for nothing.
+# sizes existed has none, and the pod asks for nothing. Memory may grow past
+# the request up to MANOR_K8S_MEMORY_LIMIT (the request, for older recipes).
 resources_block=""
 if [ -n "\${MANOR_K8S_CPU:-}" ] && [ -n "\${MANOR_K8S_MEMORY:-}" ]; then
   resources_block="resources:
@@ -53,7 +54,7 @@ if [ -n "\${MANOR_K8S_CPU:-}" ] && [ -n "\${MANOR_K8S_MEMORY:-}" ]; then
               cpu: \\"$MANOR_K8S_CPU\\"
               memory: \\"$MANOR_K8S_MEMORY\\"
             limits:
-              memory: \\"$MANOR_K8S_MEMORY\\""
+              memory: \\"\${MANOR_K8S_MEMORY_LIMIT:-$MANOR_K8S_MEMORY}\\""
 fi
 
 # The namespace is Manor's to create when it is missing.
@@ -376,11 +377,17 @@ echo '{}' >&3
 
 /** A Kubernetes quantity of storage: `20Gi`, `500Mi`. */
 const STORAGE_PATTERN = /^[1-9][0-9]{0,5}(?:Mi|Gi|Ti)$/;
-/** What each size asks of the pod: `MANOR_K8S_CPU` and `MANOR_K8S_MEMORY`. */
+/**
+ * What each size asks of the pod: `MANOR_K8S_CPU` and `MANOR_K8S_MEMORY` are
+ * requests, `MANOR_K8S_MEMORY_LIMIT` caps memory. Measured agents idle near
+ * zero CPU and burst to many cores while building, so requests stay low and
+ * CPU is never limited; memory spikes to ~3.5 GiB linting a large repo, so the
+ * limit sits well above the request.
+ */
 const SIZES = {
-  small: { cpu: "1", memory: "2Gi" },
-  medium: { cpu: "2", memory: "4Gi" },
-  large: { cpu: "4", memory: "8Gi" },
+  small: { cpu: "250m", memory: "512Mi", memoryLimit: "2Gi" },
+  medium: { cpu: "500m", memory: "1Gi", memoryLimit: "4Gi" },
+  large: { cpu: "1", memory: "2Gi", memoryLimit: "8Gi" },
 } as const;
 const DEFAULT_SIZE = "medium";
 
@@ -404,11 +411,12 @@ export const kubernetesTemplate: RecipeTemplate = {
       label: "Size",
       type: "size",
       default: DEFAULT_SIZE,
-      description: "How much of the cluster the host may use. Medium suits most work.",
+      description:
+        "What the host reserves on the cluster. It can use spare CPU beyond that, and memory up to its limit. Medium suits most work.",
       options: [
-        { value: "small", label: "Small", hint: "1 CPU, 2 GiB" },
-        { value: "medium", label: "Medium", hint: "2 CPUs, 4 GiB" },
-        { value: "large", label: "Large", hint: "4 CPUs, 8 GiB" },
+        { value: "small", label: "Small", hint: "¼ CPU, 512 MiB, up to 2 GiB" },
+        { value: "medium", label: "Medium", hint: "½ CPU, 1 GiB, up to 4 GiB" },
+        { value: "large", label: "Large", hint: "1 CPU, 2 GiB, up to 8 GiB" },
       ],
     },
     {
@@ -468,7 +476,7 @@ export const kubernetesTemplate: RecipeTemplate = {
   recipe(values, ctx): Recipe {
     const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The cluster" });
     const size = answer(values, "size", { pattern: /^(?:small|medium|large)$/, what: "The size", fallback: DEFAULT_SIZE });
-    const { cpu, memory } = SIZES[size as keyof typeof SIZES];
+    const { cpu, memory, memoryLimit } = SIZES[size as keyof typeof SIZES];
     const namespace = answer(values, "namespace", { pattern: NAME_PATTERN, what: "The namespace", fallback: "manor" });
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The name" });
     const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
@@ -496,6 +504,7 @@ export const kubernetesTemplate: RecipeTemplate = {
         MANOR_K8S_CONTEXT: context,
         MANOR_K8S_CPU: cpu,
         MANOR_K8S_MEMORY: memory,
+        MANOR_K8S_MEMORY_LIMIT: memoryLimit,
         ...(storageClass !== "" ? { MANOR_K8S_STORAGE_CLASS: storageClass } : {}),
         ...(agents !== "" ? { MANOR_AGENTS: agents } : {}),
       },

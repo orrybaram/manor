@@ -384,8 +384,10 @@ The form asks for:
   form starts on the cluster your most recent Kubernetes recipe used, if
   it is still listed, and otherwise on none; it never picks kubectl's
   current context for you;
-- **Size**: Small (1 CPU, 2 GiB), Medium (2 CPUs, 4 GiB, the default) or
-  Large (4 CPUs, 8 GiB);
+- **Size**: what the pod reserves and how far its memory may grow. Small
+  (¼ CPU, 512 MiB, up to 2 GiB), Medium (½ CPU, 1 GiB, up to 4 GiB, the
+  default) or Large (1 CPU, 2 GiB, up to 8 GiB). Agents sit near idle and
+  burst while building, so requests are low and several hosts share a node;
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
@@ -399,9 +401,10 @@ The form asks for:
   `MANOR_INSTANCE_ID=<namespace>/<name>`. The pod passes Pod Security
   "restricted": it runs as non-root uid/gid 1000 (`fsGroup` 1000) with the
   `RuntimeDefault` seccomp profile, no privilege escalation and all
-  capabilities dropped. The size becomes `MANOR_K8S_CPU` and
-  `MANOR_K8S_MEMORY`: the pod requests both, and its memory is limited to
-  the request. There is no CPU limit, so a build isn't throttled;
+  capabilities dropped. The size becomes `MANOR_K8S_CPU`,
+  `MANOR_K8S_MEMORY` and `MANOR_K8S_MEMORY_LIMIT`: the pod requests the
+  first two, and its memory is limited to the third (to the request in a
+  recipe without it). There is no CPU limit, so a build isn't throttled;
 - scales it to 1 and waits for the pod to be Ready, every 3 seconds,
   naming the stage it is at: "Getting a disk" (the claim `home-<name>-0`
   isn't bound), "Finding room on the cluster" (the pod isn't scheduled),

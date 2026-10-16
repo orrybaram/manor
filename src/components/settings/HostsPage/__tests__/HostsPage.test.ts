@@ -28,6 +28,7 @@ const api = vi.hoisted(() => {
     stop: vi.fn(),
     wake: vi.fn(),
     setSupervised: vi.fn(),
+    encryptKeys: vi.fn(),
     setLinkPhones: vi.fn(),
     setLinearOnHost: vi.fn(),
     resetPairingKeys: vi.fn(),
@@ -45,7 +46,14 @@ import type { HostServerView } from "../../../../electron.d";
 import { SettingsJumpContext } from "../../SettingsModal/settings-nav";
 import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
 import { HostRow } from "../HostRow";
-import { idleStopText, supervisionHint, supervisorStatusText } from "../host-settings-text";
+import {
+  idleStopText,
+  keyInHomeText,
+  keyOnVolumeText,
+  plaintextFixText,
+  supervisionHint,
+  supervisorStatusText,
+} from "../host-settings-text";
 
 function view(over: Partial<HostServerView> = {}): HostServerView {
   return {
@@ -116,7 +124,7 @@ describe("HostRow", () => {
   }
 
   beforeEach(() => {
-    for (const fn of [api.serverStatus, api.projectsOnHost, api.remove, api.stop, api.wake, api.setSupervised]) {
+    for (const fn of [api.serverStatus, api.projectsOnHost, api.remove, api.stop, api.wake, api.setSupervised, api.encryptKeys]) {
       fn.mockReset();
     }
     api.projectsOnHost.mockResolvedValue(["App", "Docs"]);
@@ -226,6 +234,115 @@ describe("HostRow", () => {
     });
   });
 
+  describe("pairing-key encryption (ADR-236 D6)", () => {
+    const ssh = (over: Partial<HostStatusInfo> = {}) =>
+      host({ spec: { kind: "ssh", target: "dev@build" }, providerKind: "ssh", label: "build", ...over });
+    const keys = (over: Record<string, unknown> = {}) =>
+      ({
+        version: "1.2.3",
+        relay: { connected: true },
+        secretBackend: "plaintext",
+        linear: false,
+        ...over,
+      }) as unknown as NonNullable<HostServerView["status"]>;
+
+    it("offers Encrypt them on a connected ssh host, and a click encrypts", async () => {
+      api.encryptKeys.mockResolvedValue(undefined);
+      await render(ssh(), view({ status: keys() }));
+      expect(q("host-encrypt-keys")).not.toBeNull();
+      expect(q("host-encrypt-hint")?.textContent).toBe(plaintextFixText("build"));
+      click(q("host-encrypt-keys"));
+      await flush();
+      expect(api.encryptKeys).toHaveBeenCalledWith("pod");
+    });
+
+    it("names the key file the server says the click would use", async () => {
+      await render(ssh(), view({ status: keys({ encryptKeyFile: "~/keys/manor.key" }) }));
+      expect(q("host-encrypt-hint")?.textContent).toBe(plaintextFixText("build", "~/keys/manor.key"));
+      expect(q("host-encrypt-hint")?.textContent).toContain("a key at ~/keys/manor.key on build");
+    });
+
+    it("hides the button for a recipe host, a container, an away host", async () => {
+      await render(host(), view({ status: keys() }));
+      expect(q("host-encrypt-keys")).toBeNull();
+      expect(q("host-encrypt-recipe")).not.toBeNull();
+      act(() => root.unmount());
+      root = createRoot(container);
+
+      await render(ssh(), view({ status: keys(), supervisor: { kind: "container" } }));
+      expect(q("host-encrypt-keys")).toBeNull();
+      expect(q("host-encrypt-container")).not.toBeNull();
+      act(() => root.unmount());
+      root = createRoot(container);
+
+      await render(ssh({ status: "error" }), view({ status: keys() }));
+      expect(q("host-encrypt-keys")).toBeNull();
+      expect(q("host-plaintext-keys")).not.toBeNull();
+    });
+
+    it("hides the button on a read-only row", async () => {
+      const info = ssh();
+      api.serverStatus.mockResolvedValue(view({ status: keys() }));
+      useHostStore.setState({ hosts: [info], servers: {} });
+      await act(async () => {
+        root.render(
+          createElement(
+            TooltipProvider,
+            null,
+            createElement(HostRow, { host: info, name: "build", readOnly: true }),
+          ),
+        );
+      });
+      await flush();
+      click(q("host-row-toggle"));
+      await flush();
+      expect(q("host-encrypt-keys")).toBeNull();
+    });
+
+    it("notes a key kept in home, without a header warning", async () => {
+      await render(
+        ssh(),
+        view({
+          status: keys({
+            secretBackend: "key-file",
+            secretKeyPlace: "home",
+            secretKeyFile: "~/.config/manor/secret.key",
+          }),
+        }),
+      );
+      expect(q("host-key-in-home")?.textContent).toBe(keyInHomeText("build", "~/.config/manor/secret.key"));
+      expect(q("host-key-on-volume")).toBeNull();
+      expect(q("host-row-status")?.textContent).not.toContain("stored on its disk");
+    });
+
+    it("warns when the key is inside the data dir", async () => {
+      await render(
+        ssh(),
+        view({ status: keys({ secretBackend: "key-file", secretKeyPlace: "data-dir" }) }),
+      );
+      expect(q("host-key-on-volume")?.textContent).toContain(keyOnVolumeText("build"));
+      expect(q("host-row-status")?.textContent).toContain("pairing key stored on its disk");
+    });
+
+    it("does not warn about a key in the data dir that doesn't seal the keys", async () => {
+      await render(
+        ssh(),
+        view({ status: keys({ secretBackend: "systemd-creds", secretKeyPlace: "data-dir" }) }),
+      );
+      expect(q("host-key-on-volume")).toBeNull();
+      expect(q("host-row-status")?.textContent).not.toContain("stored on its disk");
+    });
+
+    it("falls back to secretKeyOnVolume from an older server", async () => {
+      await render(
+        ssh(),
+        view({ status: keys({ secretBackend: "key-file", secretKeyOnVolume: true }) }),
+      );
+      expect(q("host-key-on-volume")).not.toBeNull();
+      expect(q("host-key-in-home")).toBeNull();
+    });
+  });
+
   describe("supervision", () => {
     it("shows what supervises the host under its switch", async () => {
       await render(host(), view({ supervisor: { kind: "systemd", linger: false } }));
@@ -313,6 +430,16 @@ describe("host settings text (ADR-229 D4, D7)", () => {
     expect(supervisionHint(view({ supervise: true }), "build", true)).toMatch(/next connect/);
     expect(supervisionHint(view({ supervisor: { kind: "container" } }), "build", true)).toBeNull();
     expect(supervisionHint(null, "build", false)).toBe("Change this while build is connected.");
+  });
+
+  it("words the key-encryption copy (ADR-236 D6)", () => {
+    expect(plaintextFixText("build")).toBe(
+      "Manor can use a key at ~/.config/manor/secret.key on build and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of build's whole disk still can.",
+    );
+    expect(keyInHomeText("build", "~/k")).toContain("kept at ~/k");
+    expect(keyOnVolumeText("build")).toBe(
+      "The key sealing pairing keys is kept inside ~/.manor on build, beside what it protects.",
+    );
   });
 
   it("words the idle-stop caveat", () => {

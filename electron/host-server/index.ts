@@ -13,7 +13,10 @@
 
 import { execFile } from "node:child_process";
 import { errorMessage } from "../lib/errors";
+import { supervisorEnvFile } from "../paths";
+import { serverKeyStatus } from "./secrets-command";
 import { runServe } from "./serve";
+import { takeSecretEnv } from "./supervisor";
 
 function usage(): never {
   process.stderr.write("usage: host-server serve [--data-dir <dir>]\n");
@@ -47,9 +50,21 @@ async function main(): Promise<void> {
   process.stdout.on("error", () => {});
   process.stderr.on("error", () => {});
 
+  // The key sealing the pairing keys, from this process's environment or
+  // else the host's environment file (ADR-236 D2): an unsupervised server
+  // started over ssh gets it too. It is taken out of `process.env` and kept
+  // private, so the daemon this server starts (every shell and agent) and
+  // its busy hooks never inherit it. Here, not in `runServe`, so tests never
+  // read a real file.
+  const { secretEnv, filled } = takeSecretEnv(process.env, supervisorEnvFile());
+  if (filled.length > 0) {
+    console.info(`[host-server] from supervisor.env: ${filled.join(", ")}`);
+  }
+
   const running = await runServe({
     dataDir: flag(argv, "--data-dir"),
     version: process.env.MANOR_VERSION ?? "unknown",
+    secrets: { env: secretEnv, status: serverKeyStatus(secretEnv) },
   });
 
   logGhPath();

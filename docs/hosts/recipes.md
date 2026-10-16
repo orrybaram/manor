@@ -266,6 +266,22 @@ a different one on a later start means its data was copied (see
 The Docker template passes the container's name. The Kubernetes template
 passes `<namespace>/<name>`.
 
+### Pairing key encryption
+
+A recipe host on plaintext pairing keys is fixed in its recipe, not with
+**Encrypt them**. The recipe has to give the host a key: set
+`MANOR_SECRET_KEY_FILE` to a file holding a 32-byte key, where the host server
+reads it. The Docker and Kubernetes templates already do: they mount a key at
+`/run/secrets/manor-key` and set `MANOR_SECRET_KEY_FILE` in the container's
+environment. For a custom recipe on a VM, the usual way is to make the key file
+and write the line `MANOR_SECRET_KEY_FILE='<path>'` to
+`~/.manor/remote/supervisor.env` through cloud-init (see
+[Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys)).
+
+Settings → Hosts doesn't offer **Encrypt them** for a recipe host. The recipe
+owns the host's setup, so the fix belongs there. A recipe host still on
+plaintext shows the warning with a link to this section.
+
 ## The templates
 
 The templates are ordinary recipes once written. Their scripts are yours to
@@ -530,12 +546,11 @@ echo '{}' >&3
 
 - The first connect takes the VM's host key. If the VM is deleted and created
   again, its new key is refused until `up` returns it as `hostKey`.
-- `resource.id` becomes the commands' `MANOR_INSTANCE_ID`, but the host
-  server only sees what its own environment has. Under systemd (Manor turns
-  supervision on for recipe hosts), the units read
-  `~/.manor/remote/supervisor.env`, so cloud-init can write a line
-  `MANOR_INSTANCE_ID='<id>'` there. Without it, the host server under
-  systemd uses `/etc/machine-id`, which a VM made from a snapshot may share.
+- `resource.id` becomes the commands' `MANOR_INSTANCE_ID`. The host server
+  reads `~/.manor/remote/supervisor.env` when it starts, so cloud-init can
+  write a line `MANOR_INSTANCE_ID='<id>'` there. Without it, the host server
+  under systemd uses `/etc/machine-id`, which a VM made from a snapshot may
+  share.
 - A VM that keeps running costs money while you're away. Add a box hook that
   powers it off when it has been idle (below).
 

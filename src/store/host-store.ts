@@ -126,6 +126,11 @@ interface HostState {
   /** "Keep Manor running when <host> restarts" (ADR-229 D4). */
   setSupervised: (hostId: string, on: boolean) => Promise<void>;
   /**
+   * Move a plaintext host's pairing keys under a key Manor makes on the box
+   * (ADR-236). Resolves once the host's server has restarted.
+   */
+  encryptKeys: (hostId: string) => Promise<void>;
+  /**
    * Remove a host from Manor; with `destroy`, its box and disk first
    * (ADR-229 D8). Rejects, removing nothing, when the destroy fails.
    */
@@ -222,6 +227,14 @@ export const useHostStore = create<HostState>((set) => {
       });
       try {
         await window.electronAPI.hosts.setSupervised(hostId, on);
+      } finally {
+        void refreshServer(hostId);
+      }
+    },
+
+    encryptKeys: async (hostId: string) => {
+      try {
+        await window.electronAPI.hosts.encryptKeys(hostId);
       } finally {
         void refreshServer(hostId);
       }

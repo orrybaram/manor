@@ -36,6 +36,8 @@ import { runPortPipeProcess } from "./port-pipe";
 import { LocalTransport } from "./transport-local";
 import { runSupervisorCommand } from "../host-server/supervisor";
 import { runSuperviseProcess } from "../host-server/supervisor/supervise";
+import { runSecretsCommand } from "../host-server/secrets-command";
+import { restartServer } from "../host-server/lifecycle";
 import { ExecRunner, runExec } from "./exec-runner";
 import { createSerializedHandler } from "./control-queue";
 import { isDaemonArgv, localRole, remoteRole, type DaemonRole } from "./daemon-role";
@@ -736,6 +738,14 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //   - `supervise` is a container's entrypoint (ADR-229 D4): it runs the
 //     daemon and the host server as its children, restarting either when it
 //     exits, until SIGTERM — see `host-server/supervisor/supervise.ts`.
+//   - `secrets encrypt|status [--json]` moves this box's pairing keys off
+//     plaintext onto a key Manor makes outside ~/.manor, then restarts the
+//     host server so it re-seals them; or says where they stand (ADR-236 D1)
+//     — see `host-server/secrets-command.ts`. The desktop runs it through
+//     the host transport's `exec`.
+//   - `restart-server` stops this box's host server (through its supervisor,
+//     if any) and starts one of this version (ADR-236 D4). The terminal
+//     daemon is left alone. Prints one line; exits non-zero on failure.
 //   - Anything else (the normal case: no argv) starts the daemon itself, as
 //     `localRole` unless argv has `--namespace remote` (see daemon-role.ts).
 async function main(): Promise<void> {
@@ -779,16 +789,45 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (mode === "secrets") {
+    process.exitCode = await runSecretsCommand(argv.slice(1));
+    return;
+  }
+
+  if (mode === "restart-server") {
+    try {
+      await restartServer();
+      process.stdout.write("Host server restarted.\n");
+    } catch (err) {
+      process.stderr.write(`Host server did not restart: ${errorMessage(err)}\n`);
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (mode === "restart") {
     await new LocalTransport({ namespace: "remote" }).stop();
     return;
   }
 
   if (!isDaemonArgv(argv)) {
-    process.stderr.write(`manor-host: unknown mode "${mode}"\n`);
+    process.stderr.write(
+      `manor-host: unknown mode "${mode}"\n` +
+        "usage: manor-host --version | remote-bridge | server-bridge [--viewer] | port-pipe <port>\n" +
+        "       manor-host serve | supervise | restart | restart-server\n" +
+        "       manor-host supervisor install|uninstall|status [--json]\n" +
+        "       manor-host secrets encrypt|status [--json]\n",
+    );
     process.exitCode = 2;
     return;
   }
+
+  // The key sealing the host server's pairing keys is the server's alone
+  // (ADR-236 D2). A systemd unit's `EnvironmentFile`, a container's
+  // environment or the ssh session that spawned this daemon may carry it;
+  // no shell or agent started here gets it.
+  delete process.env.MANOR_SECRET_KEY;
+  delete process.env.MANOR_SECRET_KEY_FILE;
 
   // `LocalTransport` spawns a remote-namespace daemon with `--namespace remote`.
   const nsIndex = argv.indexOf("--namespace");

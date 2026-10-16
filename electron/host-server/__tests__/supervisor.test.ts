@@ -10,6 +10,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  applySupervisorEnv,
   createSupervisorFactsCache,
   installSupervisor,
   parseSupervisorEnv,
@@ -17,7 +18,9 @@ import {
   readSupervisorMarker,
   runSupervisorCommand,
   supervisorEnvText,
+  takeSecretEnv,
   uninstallSupervisor,
+  writeSupervisorEnv,
   type SupervisorCommandDeps,
 } from "../supervisor";
 import { ContainerSupervisor } from "../supervisor/container";
@@ -168,6 +171,112 @@ describe("supervisor.env", () => {
     const text = supervisorEnvText({ MANOR_INSTANCE_ID: "it's" }, (m) => warnings.push(m));
     expect(text).not.toContain("MANOR_INSTANCE_ID");
     expect(warnings).toHaveLength(1);
+  });
+
+  it("writeSupervisorEnv merges over the previous file, 0600", () => {
+    const file = path.join(dir, "remote", "supervisor.env");
+    writeSupervisorEnv(file, { MANOR_INSTANCE_ID: "vm-1" });
+    writeSupervisorEnv(file, { MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key", MANOR_INSTANCE_ID: "" });
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(parseSupervisorEnv(fs.readFileSync(file, "utf8"))).toEqual({
+      MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key",
+      MANOR_INSTANCE_ID: "vm-1",
+    });
+  });
+
+  it("writeSupervisorEnv removes a variable set to null", () => {
+    const file = path.join(dir, "remote", "supervisor.env");
+    writeSupervisorEnv(file, { MANOR_SECRET_KEY: "aW5saW5l", MANOR_INSTANCE_ID: "vm-1" });
+    writeSupervisorEnv(file, { MANOR_SECRET_KEY_FILE: "/home/u/k", MANOR_SECRET_KEY: null });
+    expect(parseSupervisorEnv(fs.readFileSync(file, "utf8"))).toEqual({
+      MANOR_SECRET_KEY_FILE: "/home/u/k",
+      MANOR_INSTANCE_ID: "vm-1",
+    });
+  });
+
+  it("writeSupervisorEnv refuses a value it cannot hold or a key it does not carry, writing nothing", () => {
+    const file = path.join(dir, "remote", "supervisor.env");
+    writeSupervisorEnv(file, { MANOR_INSTANCE_ID: "vm-1" });
+    const before = fs.readFileSync(file, "utf8");
+    expect(() => writeSupervisorEnv(file, { MANOR_SECRET_KEY_FILE: "/tmp/it's" })).toThrow(/cannot hold/);
+    expect(() => writeSupervisorEnv(file, { PATH: "/usr/bin" })).toThrow(/does not carry PATH/);
+    expect(fs.readFileSync(file, "utf8")).toBe(before);
+  });
+});
+
+describe("applySupervisorEnv", () => {
+  function envFile(text: string): string {
+    const file = path.join(dir, "supervisor.env");
+    fs.writeFileSync(file, text);
+    return file;
+  }
+
+  it("fills only the variables the environment lacks", () => {
+    const file = envFile(
+      "MANOR_SECRET_KEY_FILE='/home/u/.config/manor/secret.key'\nMANOR_INSTANCE_ID='vm-1'\n",
+    );
+    const env: NodeJS.ProcessEnv = { MANOR_INSTANCE_ID: "from-env", PATH: "/usr/bin" };
+    expect(applySupervisorEnv(env, file)).toEqual(["MANOR_SECRET_KEY_FILE"]);
+    expect(env).toEqual({
+      MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key",
+      MANOR_INSTANCE_ID: "from-env",
+      PATH: "/usr/bin",
+    });
+  });
+
+  it("counts an empty variable as unset", () => {
+    const file = envFile("MANOR_INSTANCE_ID='vm-1'\n");
+    const env: NodeJS.ProcessEnv = { MANOR_INSTANCE_ID: "" };
+    applySupervisorEnv(env, file);
+    expect(env.MANOR_INSTANCE_ID).toBe("vm-1");
+  });
+
+  it("keeps the environment's key source as a whole", () => {
+    const file = envFile(
+      "MANOR_SECRET_KEY_FILE='/from/file'\nMANOR_SECRET_KEY='aW5saW5l'\nMANOR_INSTANCE_ID='vm-1'\n",
+    );
+    const withFile: NodeJS.ProcessEnv = { MANOR_SECRET_KEY_FILE: "/run/secrets/k" };
+    expect(applySupervisorEnv(withFile, file)).toEqual(["MANOR_INSTANCE_ID"]);
+    expect(withFile.MANOR_SECRET_KEY).toBeUndefined();
+    expect(withFile.MANOR_SECRET_KEY_FILE).toBe("/run/secrets/k");
+
+    const withInline: NodeJS.ProcessEnv = { MANOR_SECRET_KEY: "ZW52" };
+    expect(applySupervisorEnv(withInline, file)).toEqual(["MANOR_INSTANCE_ID"]);
+    expect(withInline.MANOR_SECRET_KEY_FILE).toBeUndefined();
+    expect(withInline.MANOR_SECRET_KEY).toBe("ZW52");
+  });
+
+  it("does nothing without the file", () => {
+    const env: NodeJS.ProcessEnv = {};
+    expect(applySupervisorEnv(env, path.join(dir, "missing.env"))).toEqual([]);
+    expect(env).toEqual({});
+  });
+});
+
+describe("takeSecretEnv (ADR-236 D2)", () => {
+  function envFile(text: string): string {
+    const file = path.join(dir, "supervisor.env");
+    fs.writeFileSync(file, text);
+    return file;
+  }
+
+  it("moves the key out of the environment, filling it from the file, and leaves the instance id", () => {
+    const file = envFile("MANOR_SECRET_KEY_FILE='/home/u/.config/manor/secret.key'\nMANOR_INSTANCE_ID='vm-1'\n");
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin" };
+    const { secretEnv, filled } = takeSecretEnv(env, file);
+    expect(secretEnv).toEqual({ MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key" });
+    expect(filled).toEqual(["MANOR_SECRET_KEY_FILE", "MANOR_INSTANCE_ID"]);
+    expect(env).toEqual({ PATH: "/usr/bin", MANOR_INSTANCE_ID: "vm-1" });
+  });
+
+  it("takes a key a unit's EnvironmentFile already put in the environment, which wins as a whole", () => {
+    const file = envFile("MANOR_SECRET_KEY='aW5saW5l'\n");
+    const env: NodeJS.ProcessEnv = { MANOR_SECRET_KEY_FILE: "/run/secrets/k", MANOR_SECRET_KEY: "" };
+    const { secretEnv, filled } = takeSecretEnv(env, file);
+    expect(secretEnv).toEqual({ MANOR_SECRET_KEY_FILE: "/run/secrets/k" });
+    expect(filled).toEqual([]);
+    expect("MANOR_SECRET_KEY_FILE" in env).toBe(false);
+    expect("MANOR_SECRET_KEY" in env).toBe(false);
   });
 });
 
@@ -365,14 +474,16 @@ describe("install, uninstall and the CLI", () => {
     expect(fs.existsSync(d.markerFile)).toBe(false);
   });
 
-  it("uninstalls the marker's kind and removes the marker and env", async () => {
+  it("uninstalls the marker's kind and removes the marker, keeping supervisor.env", async () => {
     const log: string[] = [];
-    const d = deps("launchd", log);
+    const d = deps("launchd", log, { MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key" });
     await installSupervisor(d);
     await uninstallSupervisor(d);
     expect(log).toEqual(["install launchd", "uninstall launchd"]);
     expect(fs.existsSync(d.markerFile)).toBe(false);
-    expect(fs.existsSync(d.envFile)).toBe(false);
+    expect(parseSupervisorEnv(fs.readFileSync(d.envFile, "utf8"))).toEqual({
+      MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key",
+    });
   });
 
   it("refuses to uninstall while supervise is the container's entrypoint", async () => {

@@ -63,7 +63,11 @@ import {
   newAgent,
   runForwardedCommand,
 } from "./lib/keybinding-commands";
-import { sidebarColumnWidth, windowLeadInset } from "./lib/window-lead";
+import {
+  lightsWidth,
+  sidebarColumnWidth,
+  windowLeadInset,
+} from "./lib/window-lead";
 import {
   createMenuHandlers,
   dispatchMenuCommand,
@@ -498,7 +502,7 @@ function App() {
   // `:root` default in App.css still clears the traffic lights.
   const appBodyStyle = hasProjects
     ? ({
-        "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth)}px`,
+        "--window-lead-inset": `${windowLeadInset(sidebarMode, sidebarWidth, lightsWidth())}px`,
         "--sidebar-mode-transition": `${SIDEBAR_MODE_TRANSITION_MS}ms`,
       } as CSSProperties)
     : undefined;

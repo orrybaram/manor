@@ -1,65 +1,31 @@
 ---
 name: adr-workflow
-description: "ADR-driven development workflow"
+description: "Use before implementing a large feature: research, write an ADR with tickets, get approval through a plain-language artifact, then execute the tickets with subagents, review, fix, and publish visually verified evidence of the result."
 disable-model-invocation: false
 ---
 
 # ADR-Driven Development
 
-Every task gets an ADR before any code changes. This creates an observability layer where every decision, change, and tradeoff is recorded.
-
-**Do NOT use `EnterPlanMode`.** The ADR replaces plan mode entirely.
-
-## Overview
-
-ADRs live in `docs/decisions/` alongside the project's docs. Implementation code lives in the repo. The ADR captures *why* and *what*; the code captures *how*.
+A large feature gets an ADR before any code changes. The ADR records *why* and *what*; the code records *how*. Only this session writes to `docs/decisions/`; subagents write code.
 
 ```
-docs/
-  decisions/
-    adr-001-add-auth/
-      index.md                    # The decision record
-      ticket-1-add-routes.md      # Implementation tickets
-      ticket-2-add-middleware.md
-
-src/
-  auth/                           # Implementation lives here
+docs/decisions/
+  index.md                      # database view of all ADRs
+  adr-235-pod-per-project/
+    index.md                    # the decision record
+    ticket-1-add-routes.md      # implementation tickets
+    ticket-2-add-middleware.md
 ```
 
-## Step 1: Resolve decisions path
+"The branch" below means the branch this session is on (normally a `feat/adr-NNN-*` branch), never `main`.
 
-The decisions directory is `docs/decisions/`. Create it if it doesn't exist.
+## Step 1: Number and skeleton
 
-## Step 2: Determine ADR number
+The next number is the highest `adr-NNN-*` folder in `docs/decisions/` plus one, zero-padded to 3 digits. Pick a short slug: `adr-236-add-search-api`.
 
-Scan for existing `adr-NNN-*` folders. The next number is `max(existing) + 1`, zero-padded to 3 digits. Start at `001` if none exist.
+`docs/decisions/index.md` already exists with its database view; leave it alone. (Only if it is missing, create it with `title: Decisions` and a `database.schema.status` select of `[proposed, accepted, superseded]`.)
 
-Choose a short slug: `adr-003-add-search-api`.
-
-Also ensure `docs/decisions/index.md` has a database schema. Read the file if it exists; if it already contains `database:` in its frontmatter, leave it unchanged. Otherwise create or overwrite it with:
-
-```markdown
----
-title: Decisions
-database:
-  schema:
-    status:
-      type: select
-      options: [proposed, accepted, superseded]
-      default: proposed
-  defaultView: list
----
-
-# Decisions
-
-All architecture decisions for this project.
-
-<div data-type="database" data-path="." data-view="list"></div>
-```
-
-## Step 3: Create ADR skeleton
-
-Create directory `docs/decisions/adr-NNN-slug/` and write `index.md`:
+Create `docs/decisions/adr-NNN-slug/index.md`:
 
 ```markdown
 ---
@@ -94,33 +60,30 @@ database:
 <div data-type="database" data-path="." data-view="board"></div>
 ```
 
-The `database` frontmatter and `data-path="."` div allow rendering the ticket files as a kanban board.
+The `database` frontmatter and the `data-path="."` div render the ticket files as a kanban board.
 
-## Step 4: Research
+## Step 2: Research
 
-Before writing the ADR, explore the codebase:
-- Understand existing patterns and architecture
-- Identify files that need changes
-- Find existing functions and utilities to reuse
-- Consider multiple approaches and their tradeoffs
+Follow `docs/agents/domain.md`: read `CONTEXT.md` and the ADRs that touch this area, use the glossary's terms, and flag any conflict with an existing ADR in the Decision section.
 
-Use Explore agents for broad codebase research. Use Grep/Glob for targeted searches.
+Then explore the code: existing patterns, the files that need changes, utilities to reuse. Use Explore agents for broad sweeps, Grep/Glob for targeted lookups.
 
-## Step 5: Write the ADR
+Architecture and planning run on Fable. Spawn a `Plan` agent with `model: "fable"`, give it the request and your research findings, and have it weigh at least two approaches, pick one, and break it into tickets with dependencies. Steps 3 and 4 write up its plan; disagree with it only with a reason you state to the user.
 
-Fill in `index.md`. **Do NOT leave sections as placeholders.**
+Research is done when the plan names every file the change touches.
 
-- **Context**: The problem, background, what prompted this. Why does this change need to happen?
-- **Decision**: The approach. Be specific — name files, patterns, APIs, libraries.
-- **Consequences**: Tradeoffs. What gets better, what gets harder, what risks exist.
+## Step 3: Write the ADR
 
-## Step 6: Create tickets
+Fill every section of `index.md`:
 
-Create one `.md` file per implementation step in the ADR folder.
+- **Context**: the problem and what prompted it.
+- **Decision**: the approach, specific: files, patterns, APIs, libraries. Note rejected approaches and why.
+- **Consequences**: what gets better, what gets harder, what could go wrong.
 
-**Filename**: `ticket-N-short-slug.md`
+## Step 4: Create tickets
 
-**Format**:
+One file per implementation step, `ticket-N-short-slug.md`:
+
 ```markdown
 ---
 title: Short descriptive title
@@ -138,108 +101,123 @@ Implementation instructions with enough detail for the assigned model to work in
 - `src/path/to/file.ts` — what to change and why
 ```
 
-**`blocked_by`**: List ticket numbers (e.g. `[1, 3]`) that must complete before this ticket can start. Leave empty `[]` or omit for tickets with no dependencies.
+Set `blocked_by` to the ticket numbers that must land first (e.g. a ticket that wires components is blocked by the ticket that creates them); `[]` when none.
 
-When creating tickets, explicitly set `blocked_by` based on logical dependencies (e.g., a ticket that wires components depends on the ticket that creates them).
+**Assignee is the model the ticket runs on:**
+- **haiku**: mechanical: renames, config, imports, straightforward tests
+- **sonnet**: moderate: single-file features, bug fixes, CRUD, wiring existing patterns
+- **opus**: complex: multi-file changes, new abstractions, cross-cutting concerns
 
-**Assignee = model selection:**
-- **haiku** — mechanical: renames, config, imports, straightforward tests
-- **sonnet** — moderate: single-file features, bug fixes, CRUD, wiring patterns
-- **opus** — complex: multi-file architecture, new abstractions, cross-cutting concerns
+Fable plans (Step 2); it never executes a ticket.
 
-## Step 7: Ask for approval
-Show the full overview of the ticket as well as a file system link to the location of the ADR
+## Step 5: Explain it in an artifact
 
+Publish an artifact (Artifact tool; it requires loading `artifact-design` first) that explains the ADR in the simplest terms, for someone who has not read the code:
 
-Use `AskUserQuestion` to present the ADR. Include:
-- One-sentence summary of the decision
-- Number of tickets and their model assignments
-- The ADR folder path so the user can review
+- **The problem**, in two or three plain sentences.
+- **What we'll do**, as a short story of the change, with no file paths and no jargon. Use the `CONTEXT.md` terms the user already knows, and define any other term in place.
+- **What changes for the user**: what they'll see or be able to do afterwards.
+- **The steps**: each ticket as one plain sentence, in order, marking which can run at the same time.
+- **Risks and tradeoffs**, in plain words.
+- **Decisions you need from them**, if any.
 
-**Do NOT write implementation code until the user approves.**
+A diagram earns its place when the change moves data or ownership between parts (load `artifact-diagramming`). Write the page file to the scratchpad directory so a revision republishes to the same URL.
 
-## Step 8: Execute
+## Step 6: Ask for approval
 
-After approval:
+Use `AskUserQuestion` with the artifact link and the ADR folder path. Options: approve, request changes. On changes, update the ADR and tickets, republish the artifact, and ask again. Implementation starts only after approval.
 
-### 8a. Read and resolve dependencies
+## Step 7: Execute
 
-1. Read all ticket files from the ADR folder
-2. Parse `blocked_by` from each ticket's frontmatter
-3. Compute file overlaps: compare "Files to touch" across tickets. If ticket B's files overlap with ticket A's and there's no explicit `blocked_by`, add an implicit dependency (B waits for A, lower ticket number first)
-4. Build a dependency graph: ticket → [tickets it's blocked by]
+### 7a. Plan the order
 
-### 8b. Classify tickets: parallel vs sequential
+1. Read every ticket; parse `blocked_by`.
+2. Compare "Files to touch" across tickets. Two tickets sharing a file with no `blocked_by` between them get an implicit dependency: the higher number waits for the lower.
+3. A ticket with no dependencies, explicit or implicit, is **parallel**; every other ticket is **sequential**.
 
-Using the dependency graph from 8a, classify tickets into two groups:
+Most ADRs are a chain (2 needs 1, 3 needs 2), which makes every ticket sequential and uses no worktrees.
 
-- **Parallel tickets**: No `blocked_by` AND no file overlaps with other ready tickets. These can run concurrently in worktrees.
-- **Sequential tickets**: Have `blocked_by` dependencies OR file overlaps with other tickets. These MUST run one at a time on main, each building on the previous commit.
+### 7b. Spawn implementers
 
-**Important**: Most ADRs have a dependency chain (ticket 2 depends on 1, ticket 3 depends on 2). In this common case, ALL tickets are sequential — do NOT use worktrees.
+Spawn each ticket with the `Agent` tool:
 
-### 8c. Execute parallel tickets (if any)
+- `subagent_type: "implementer"`
+- `model`: the ticket's `assignee`
+- Parallel tickets: `isolation: "worktree"`, all spawned in one message.
+- Sequential tickets: no `isolation`, so the agent works on the branch and sees prior tickets' commits. One at a time, in dependency order; the next spawns only after the previous one verifies.
 
-For each parallel ticket with no dependencies:
+Set the ticket's `status: in-progress` when you spawn it.
 
-- Spawn via `Agent` tool:
-  - `model` based on the ticket's `assignee` field (haiku/sonnet/opus)
-  - `isolation: "worktree"` — each agent gets its own branch
-  - `run_in_background: true`
-  - `mode: "bypassPermissions"`
-  - Prompt includes the compact prime (see 8e below)
-- Update ticket frontmatter: `status: todo` → `status: in-progress`
-- When complete: verify (see 8f), then merge worktree branch into main
-
-### 8d. Execute sequential tickets (in order)
-
-For each sequential ticket, **one at a time**, in dependency order:
-
-- Spawn via `Agent` tool:
-  - `model` based on the ticket's `assignee` field (haiku/sonnet/opus)
-  - **No `isolation`** — runs directly on main so it sees all prior ticket commits
-  - `run_in_background: true`
-  - `mode: "bypassPermissions"`
-  - Prompt includes the compact prime (see 8e below)
-- Update ticket frontmatter: `status: todo` → `status: in-progress`
-- **Wait for completion and verification before spawning the next ticket**
-
-### 8e. Agent prompt format
-
-Every agent prompt includes:
-- ADR number and title (one line)
-- How many tickets total, which are done/blocked/ready
-- The full ticket content for THIS ticket
-- The "Files to touch" section
-- **MANDATORY — include verbatim at the end of every agent prompt:**
+The prompt contains:
+- ADR number and title, and the path to its `index.md`
+- Ticket count and which are done, blocked, ready
+- This ticket's full content, including "Files to touch"
+- Verbatim, at the end:
   ```
   ## REQUIRED: Commit your work
 
-  When your implementation is complete, you MUST create a git commit. This is not optional.
+  When your implementation is complete, you MUST create a git commit.
 
-  Run:
-    git add -A
+  Stage each file you created, modified or deleted by path (other sessions may
+  share this checkout), then commit:
+    git add <file> <file> ...
     git commit -m "feat(adr-NNN): <ticket title>"
 
-  Replace NNN with the ADR number and use the exact ticket title as the commit message body.
   Do not push.
   ```
 
-### 8f. Per-ticket verification (after each agent completes)
+### 7c. Verify each ticket
 
-1. If the agent used a worktree, get the worktree path; otherwise it committed to main directly
-2. Spawn a **verifier agent** (haiku):
-   - `mode: "bypassPermissions"`
-   - If worktree: set working directory to the worktree path
-   - If main: no special setup needed
-   - Prompt: run typecheck and build verification
-3. **PASS** → update ticket `status: done`. If worktree, merge branch into main. Then check if downstream tickets are now unblocked.
-4. **FAIL** → re-spawn the implementation agent (resume via agent ID if possible) with error output. Retry up to 2 times, then escalate.
+When an implementer finishes, spawn `subagent_type: "verifier"` (in the worktree, for a worktree ticket).
 
-### 8g. Integration verification (after all tickets done)
+- **PASS**: set the ticket `status: done`. For a worktree ticket, merge its branch into the branch. Check which tickets are now unblocked and spawn them.
+- **FAIL**: send the failure output to the same implementer with `SendMessage` (its agent ID or name) so it fixes with its context intact, then verify again. After 2 failed retries, stop and tell the user.
 
-1. Spawn a **verifier agent** on main branch (no isolation)
-2. **PASS** → update ADR `index.md`: `status: proposed` → `status: accepted`
-3. **FAIL** → create follow-up `ticket-N-fix-integration.md`, spawn agent, re-verify
+The implementer's report may list follow-up work outside its ticket; add each as a new ticket.
 
-**Important**: Agents write implementation code to the **repo** (the working directory). ADR files live in `docs/decisions/`. Only the main session writes to the decisions directory — agents don't need decisions access.
+### 7d. Integration verification
+
+With every ticket done, spawn a verifier on the branch. On FAIL, create `ticket-N-fix-integration.md`, run it through 7b and 7c, and verify again.
+
+## Step 8: Review and fix
+
+Spawn `subagent_type: "code-reviewer"` on the branch with the ADR folder path. It reviews everything since the merge-base with `main`, fixes every finding, and commits. Then run the verifier once more; on FAIL, send the output back to the reviewer with `SendMessage`.
+
+Findings the reviewer marks **needs decision** go to the user in Step 10.
+
+## Step 9: Evidence
+
+Once review passes, prove the feature works with hard evidence, not test counts.
+
+### 9a. Capture
+
+Drive the built app through every user-facing change the ADR promised (load the `run` skill to launch it; reuse or write a Playwright script for multi-step flows). For each change capture:
+
+- **Screenshots** of the before and after states, and of every new screen, dialog and state (empty, loading, error).
+- **Videos** of multi-step flows when the environment can record them (Playwright `video: "on"` or `recordVideo`). Skip video, and say so in the artifact, when it can't.
+- For changes with no UI (host, CLI, IPC): terminal output of the behaviour running, e.g. CLI output or a log excerpt.
+
+Save captures under the scratchpad directory, never in the repo.
+
+### 9b. Visually verify
+
+Open every screenshot with `Read`. `Read` cannot play video: for each video, also take screenshots at its key steps (or extract frames with `ffmpeg` if installed) and read those. Check each capture against the ADR's "What changes for the user": layout, text, theme in both light and dark, nothing clipped or overlapping, no error toasts or console errors, and the state matches the step that produced it.
+
+Each defect becomes a `ticket-N-fix-*.md`, run through 7b and 7c, then the verifier. Afterwards recapture everything the fix could touch and verify again. Repeat until a full pass finds nothing.
+
+### 9c. Publish the evidence artifact
+
+Publish a second artifact (separate page file from Step 5) with:
+
+- **What was built**: a plain-language summary, one line per ticket, and anything that changed from the approved plan.
+- **Evidence**: each capture with a caption naming what it proves; screenshots and videos go in through `files`.
+- **Verification**: test and verifier results, review findings (fixed, skipped, needs decision), and what could not be shown and why.
+
+Read the published page back (`Artifact` `action: "read"`, and `scope: "files"` to list its files) and check every image and video path in the page resolves to a published file and every caption matches its capture. Fix and republish until it does.
+
+## Step 10: Close out
+
+1. Set the ADR `status: accepted`, and add any reviewer findings worth remembering to Consequences.
+2. Save or update a `project` memory for the ADR: number, branch, ticket count, state.
+3. Report to the user: the evidence artifact link, tickets done, review findings (fixed, skipped, needs decision), and the commit range.
+4. Offer next steps, each run only on a yes: `pnpm test:e2e` for user-facing flows, a PR via the `pr` skill, a comment on the originating GitHub issue. The PR body links the evidence artifact.

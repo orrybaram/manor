@@ -11,11 +11,13 @@
  * whose supervisor no longer works falls back to the detached spawn, with a
  * warning: a host must never end up with nothing running.
  *
- * `supervisor.env` carries the variables the units need and an ssh session
- * would not give them (ADR-229 D5, D6): `MANOR_SECRET_KEY_FILE`,
- * `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`, as `install` found them.
- * `MANOR_SECRET_KEY` written there sits on the volume it is meant to protect;
- * prefer `MANOR_SECRET_KEY_FILE` naming a mounted secret.
+ * `supervisor.env` carries the variables the host needs and an ssh session
+ * would not give it (ADR-229 D5, D6): `MANOR_SECRET_KEY_FILE`,
+ * `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`. The units start with it, and
+ * `manor-host serve` reads it itself (`takeSecretEnv`, ADR-236 D2), so
+ * it outlives `uninstall` (ADR-236 D3). `MANOR_SECRET_KEY` written there sits
+ * on the volume it is meant to protect; prefer `MANOR_SECRET_KEY_FILE`
+ * naming a file outside `~/.manor`.
  */
 
 import fs from "node:fs";
@@ -77,6 +79,16 @@ const SUPERVISOR_ENV_KEYS = [
   "MANOR_INSTANCE_ID",
 ] as const;
 
+export type SupervisorEnvKey = (typeof SUPERVISOR_ENV_KEYS)[number];
+
+/** The two variables that name the key sealing the pairing keys; one source wins as a whole. */
+const KEY_SOURCE_KEYS: readonly SupervisorEnvKey[] = ["MANOR_SECRET_KEY_FILE", "MANOR_SECRET_KEY"];
+
+/** A value `supervisor.env` could not hold and read back unchanged. */
+function unholdable(value: string): boolean {
+  return /['\\\n\r]/.test(value);
+}
+
 /** The `KEY='value'` lines of an existing `supervisor.env`, for the keys it may hold. */
 export function parseSupervisorEnv(text: string): Partial<Record<string, string>> {
   const out: Partial<Record<string, string>> = {};
@@ -94,7 +106,7 @@ export function parseSupervisorEnv(text: string): Partial<Record<string, string>
  * backslash, a newline) is left out, with a warning.
  *
  * `env` is the environment `install` ran in merged over the file's previous
- * values (`installSupervisor`): an install from the desktop over ssh rarely
+ * values (`writeSupervisorEnv`): an install from the desktop over ssh rarely
  * has the keys set, and must not drop the ones a user put there.
  */
 export function supervisorEnvText(
@@ -102,20 +114,112 @@ export function supervisorEnvText(
   warn: (message: string) => void = console.warn,
 ): string {
   const lines = [
-    "# Written by `manor-host supervisor install` (ADR-229 D4, D5). Mode 0600.",
+    "# Written by `manor-host` (ADR-229 D4, D5; ADR-236). Mode 0600.",
     "# MANOR_SECRET_KEY here is on the volume it protects: prefer",
     "# MANOR_SECRET_KEY_FILE naming a mounted secret outside ~/.manor.",
   ];
   for (const key of SUPERVISOR_ENV_KEYS) {
     const value = env[key];
     if (value === undefined || value === "") continue;
-    if (/['\\\n\r]/.test(value)) {
+    if (unholdable(value)) {
       warn(`[supervisor] ${key} has a character supervisor.env cannot hold; left out`);
       continue;
     }
     lines.push(`${key}='${value}'`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/** `file`'s variables (`parseSupervisorEnv`); empty when it is missing or unreadable. */
+export function readSupervisorEnv(file: string = supervisorEnvFile()): Partial<Record<string, string>> {
+  try {
+    return parseSupervisorEnv(fs.readFileSync(file, "utf8"));
+  } catch {
+    return {}; // None yet.
+  }
+}
+
+/**
+ * Merge `values` over `file`'s previous values and write it, mode 0600. A
+ * value set to `""` or undefined keeps the previous one; `null` removes it.
+ * Throws, writing nothing, for a key the file does not carry or a value it
+ * cannot hold.
+ */
+export function writeSupervisorEnv(
+  file: string,
+  values: Partial<Record<string, string | null | undefined>>,
+): void {
+  const env: NodeJS.ProcessEnv = { ...readSupervisorEnv(file) };
+  for (const [key, value] of Object.entries(values)) {
+    if (!(SUPERVISOR_ENV_KEYS as readonly string[]).includes(key)) {
+      throw new Error(`supervisor.env does not carry ${key}`);
+    }
+    if (value === null) {
+      delete env[key];
+      continue;
+    }
+    if (value === undefined || value === "") continue;
+    if (unholdable(value)) {
+      throw new Error(`${key} has a character supervisor.env cannot hold`);
+    }
+    env[key] = value;
+  }
+  writeFileAtomic(file, supervisorEnvText(env), { mode: 0o600, dirMode: 0o700 });
+}
+
+/**
+ * Fill `env` from `supervisor.env` for the host server (ADR-236 D2), which
+ * an ssh session would not otherwise give it. Only the variables the file
+ * carries, and only where `env` lacks them: the environment wins. The key
+ * source is taken as a whole: when `env` sets either `MANOR_SECRET_KEY` or
+ * `MANOR_SECRET_KEY_FILE`, neither comes from the file, since an inline key
+ * from the file would otherwise override the environment's key file. A
+ * missing or unreadable file is a no-op. Answers the keys it filled.
+ */
+export function applySupervisorEnv(
+  env: NodeJS.ProcessEnv,
+  file: string,
+  keys: readonly SupervisorEnvKey[] = SUPERVISOR_ENV_KEYS,
+): SupervisorEnvKey[] {
+  const fromFile = readSupervisorEnv(file);
+  const envHasKeySource = KEY_SOURCE_KEYS.some((key) => !!env[key]);
+  const filled: SupervisorEnvKey[] = [];
+  for (const key of keys) {
+    if (env[key]) continue;
+    if (envHasKeySource && KEY_SOURCE_KEYS.includes(key)) continue;
+    const value = fromFile[key];
+    if (!value) continue;
+    env[key] = value;
+    filled.push(key);
+  }
+  return filled;
+}
+
+/**
+ * The host server's start (ADR-236 D2): take the key sealing the pairing
+ * keys out of `env` (the process's own environment) into a private one, so
+ * no child inherits it: not the terminal daemon, whose shells and agents
+ * run anything, nor a busy hook. A systemd unit's `EnvironmentFile` or an
+ * ssh session may have put it in `env`; `supervisor.env` fills it where
+ * `env` named no key, the environment's key source winning as a whole
+ * (`applySupervisorEnv`). `MANOR_INSTANCE_ID` is no secret: it is filled
+ * into `env` itself. Answers the private key variables and what came from
+ * the file.
+ */
+export function takeSecretEnv(
+  env: NodeJS.ProcessEnv,
+  file: string,
+): { secretEnv: NodeJS.ProcessEnv; filled: SupervisorEnvKey[] } {
+  const secretEnv: NodeJS.ProcessEnv = {};
+  for (const key of KEY_SOURCE_KEYS) {
+    if (env[key]) secretEnv[key] = env[key];
+    delete env[key];
+  }
+  const filled = [
+    ...applySupervisorEnv(secretEnv, file, KEY_SOURCE_KEYS),
+    ...applySupervisorEnv(env, file, ["MANOR_INSTANCE_ID"]),
+  ];
+  return { secretEnv, filled };
 }
 
 function unitPid(unit: SupervisedUnit): number | null {
@@ -233,17 +337,19 @@ export async function installSupervisor(
 ): Promise<SupervisorStatus> {
   const kind = await pickSupervisor(deps.probes);
   if (!kind) throw new Error("No supervisor on this host");
-  let previous: Partial<Record<string, string>> = {};
-  try {
-    previous = parseSupervisorEnv(fs.readFileSync(deps.envFile, "utf8"));
-  } catch {
-    // None yet.
-  }
-  const env: NodeJS.ProcessEnv = { ...previous };
+  // An install from the desktop over ssh rarely has the keys set, and must
+  // not drop the ones a user put there: they are merged over the file.
+  const values: Partial<Record<string, string>> = {};
   for (const key of SUPERVISOR_ENV_KEYS) {
-    if (deps.env[key]) env[key] = deps.env[key];
+    const value = deps.env[key];
+    if (!value) continue;
+    if (unholdable(value)) {
+      console.warn(`[supervisor] ${key} has a character supervisor.env cannot hold; left out`);
+      continue;
+    }
+    values[key] = value;
   }
-  writeFileAtomic(deps.envFile, supervisorEnvText(env), { mode: 0o600, dirMode: 0o700 });
+  writeSupervisorEnv(deps.envFile, values);
   const supervisor = deps.create(kind);
   await supervisor.install();
   writeFileAtomic(deps.markerFile, `${JSON.stringify({ kind })}\n`, { mode: 0o600, dirMode: 0o700 });
@@ -251,8 +357,10 @@ export async function installSupervisor(
 }
 
 /**
- * Remove the marker's units, `supervisor.env` and the marker. A no-op without
- * one. Refuses while `supervise` runs as the container's entrypoint: it would
+ * Remove the marker's units and the marker. A no-op without one.
+ * `supervisor.env` stays: the host server reads it too (ADR-236 D2, D3), and
+ * a key named there must not be lost, or the next start could not open the
+ * sealed pairing keys. Refuses while `supervise` runs as the container's entrypoint: it would
  * keep supervising, and without the marker the lifecycle would spawn detached
  * copies beside it.
  */
@@ -272,7 +380,6 @@ export async function uninstallSupervisor(
       console.warn(`[supervisor] removing the ${kind} units failed: ${errorMessage(err)}`);
     }
   }
-  fs.rmSync(deps.envFile, { force: true });
   fs.rmSync(deps.markerFile, { force: true });
 }
 

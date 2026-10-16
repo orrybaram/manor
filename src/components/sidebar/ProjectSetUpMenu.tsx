@@ -1,9 +1,11 @@
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import { useState } from "react";
 import { useHostStore } from "../../store/host-store";
 import { useProjectStore, type ProjectInfo } from "../../store/project-store";
 import { useHostProfileStore } from "../../store/host-profile-store";
 import {
+  hasHiddenPods,
   newHostTargets,
   transferTargets,
   type NewHostTarget,
@@ -25,7 +27,9 @@ export function ProjectSetUpMenu(props: ProjectSetUpMenuProps) {
   const openTransferDialog = useProjectStore((s) => s.openTransferDialog);
   const openInNewHost = useProjectStore((s) => s.openInNewHost);
   const profiles = useHostProfileStore((s) => s.profiles);
-  const targets = transferTargets(project, projects, hosts, "copy");
+  const [showAllHosts, setShowAllHosts] = useState(false);
+  const targets = transferTargets(project, projects, hosts, "copy", { showAllHosts });
+  const hiddenPods = hasHiddenPods(project, hosts);
   const podTargets = newHostTargets(profiles);
 
   const choose = (target: TransferTarget) => {
@@ -79,6 +83,19 @@ export function ProjectSetUpMenu(props: ProjectSetUpMenuProps) {
               item
             );
           })}
+          {hiddenPods && (
+            <ContextMenu.Item
+              className={styles.contextMenuItem}
+              data-testid="set-up-show-all-hosts"
+              onSelect={(e) => {
+                // Keep the submenu open so the extra hosts appear in place.
+                e.preventDefault();
+                setShowAllHosts((v) => !v);
+              }}
+            >
+              {showAllHosts ? "Hide other projects' hosts" : "Show all hosts"}
+            </ContextMenu.Item>
+          )}
           {podTargets.length > 0 && (
             <>
               {targets.length > 0 && (

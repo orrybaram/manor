@@ -4,7 +4,12 @@ import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
 import { servers } from "../../bridge/server-set";
 import { base64urlEncode } from "../relay-crypto";
 import type { HostStatusInfo } from "../../store/host-store";
-import { newHostTargets, transferTargets } from "../transfer-targets";
+import {
+  disambiguateHostLabels,
+  hasHiddenPods,
+  newHostTargets,
+  transferTargets,
+} from "../transfer-targets";
 
 function host(hostId: string, status: HostStatusInfo["status"] = "connected"): HostStatusInfo {
   return { hostId, spec: { kind: "ssh", target: `me@${hostId}` }, status };
@@ -98,5 +103,61 @@ describe("newHostTargets", () => {
 
   it("is empty without profiles", () => {
     expect(newHostTargets([])).toEqual([]);
+  });
+});
+
+function pod(hostId: string, forProject?: string, recipeId = `r-${hostId}`): HostStatusInfo {
+  return {
+    hostId,
+    spec: { kind: "recipe", recipeId },
+    label: "repo",
+    status: "connected",
+    ...(forProject ? { forProject } : {}),
+  };
+}
+
+describe("pods of other projects", () => {
+  const podHosts = [host("box"), pod("podA", "a"), pod("podB", "x")];
+
+  it("hides another project's pod, keeps the project's and its group's own", () => {
+    const group = { memberIds: ["a", "b"] };
+    const a = { id: "a", hostId: "local", group };
+    expect(transferTargets(a, [a], podHosts, "copy").map((t) => t.hostId)).toEqual([
+      "box",
+      "podA",
+    ]);
+    const b = { id: "b", hostId: "local", group };
+    expect(transferTargets(b, [b], podHosts, "copy").map((t) => t.hostId)).toContain("podA");
+    const c = { id: "c", hostId: "local" };
+    expect(transferTargets(c, [c], podHosts, "copy").map((t) => t.hostId)).toEqual(["box"]);
+  });
+
+  it("brings them back with showAllHosts", () => {
+    const c = { id: "c", hostId: "local" };
+    const ids = transferTargets(c, [c], podHosts, "copy", { showAllHosts: true }).map(
+      (t) => t.hostId,
+    );
+    expect(ids).toEqual(["box", "podA", "podB"]);
+  });
+
+  it("reports whether any pod is hidden", () => {
+    expect(hasHiddenPods({ id: "c", hostId: "local" }, podHosts)).toBe(true);
+    expect(hasHiddenPods({ id: "a", hostId: "local" }, [pod("podA", "a")])).toBe(false);
+  });
+});
+
+describe("disambiguateHostLabels", () => {
+  it("suffixes only duplicate names", () => {
+    const hs = [pod("p1", "a", "recipe-abc123"), pod("p2", "b", "recipe-def456"), host("box")];
+    const items = [
+      { hostId: "p1", label: "repo" },
+      { hostId: "p2", label: "repo" },
+      { hostId: "box", label: "me@box" },
+    ];
+    expect(disambiguateHostLabels(items, hs).map((i) => i.label)).toEqual([
+      "repo (abc123)",
+      "repo (def456)",
+      "me@box",
+    ]);
   });
 });

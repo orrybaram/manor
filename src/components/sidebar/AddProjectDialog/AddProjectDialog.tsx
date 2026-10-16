@@ -5,7 +5,7 @@ import { useProjectStore, type ProjectInfo } from "../../../store/project-store"
 import { useHostStore } from "../../../store/host-store";
 import { useHostProfileStore, openProfileEditor } from "../../../store/host-profile-store";
 import { addErrorToast } from "../../../store/toast-store";
-import { newHostTargets } from "../../../lib/transfer-targets";
+import { disambiguateHostLabels, isOtherProjectsPod, newHostTargets } from "../../../lib/transfer-targets";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
 import type { GitHubRepo } from "../../../electron.d.ts";
 import { Button } from "../../ui/Button/Button";
@@ -114,12 +114,25 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const runOpenInNewHost = useProjectStore((s) => s.runOpenInNewHost);
   const reportNewHostFailure = useProjectStore((s) => s.reportNewHostFailure);
 
+  // There is no source project here, so any host made for a project is
+  // another project's pod and stays hidden until "Show all hosts".
+  const [showAllHosts, setShowAllHosts] = useState(false);
+  const noOwn = useMemo(() => new Set<string>(), []);
+  const visibleHosts = useMemo(
+    () => (showAllHosts ? hosts : hosts.filter((h) => !isOtherProjectsPod(h, noOwn))),
+    [hosts, showAllHosts, noOwn],
+  );
+  const hasHiddenPods = hosts.some((h) => isRemoteHost(h.hostId) && isOtherProjectsPod(h, noOwn));
+
   // After the hosts, "In a new pod · <profile>" for each profile; with none,
   // "In a new pod…" makes one.
   const hostOptions = useMemo(
     () => [
       { value: LOCAL_HOST_ID, label: "This Mac" },
-      ...remoteHostOptions(hosts),
+      ...disambiguateHostLabels(
+        remoteHostOptions(visibleHosts).map((o) => ({ ...o, hostId: o.value })),
+        hosts,
+      ).map(({ value, label }) => ({ value, label })),
       ...(profiles.length === 0
         ? [{ value: NEW_POD_VALUE, label: "In a new pod…" }]
         : newHostTargets(profiles).map((t) => ({
@@ -127,7 +140,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
             label: t.label,
           }))),
     ],
-    [hosts, profiles],
+    [hosts, visibleHosts, profiles],
   );
 
   const [hostId, setHostId] = useState<string>(LOCAL_HOST_ID);
@@ -355,6 +368,16 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
                         maxWidth={440}
                         placeholder="Select a host…"
                       />
+                      {hasHiddenPods && (
+                        <Button
+                          variant="link"
+                          type="button"
+                          onClick={() => setShowAllHosts((v) => !v)}
+                          data-testid="add-project-show-all-hosts"
+                        >
+                          {showAllHosts ? "Hide other projects' hosts" : "Show all hosts"}
+                        </Button>
+                      )}
                     </Stack>
                     {(repos === null || repos.length > 0) && (
                       <Stack>

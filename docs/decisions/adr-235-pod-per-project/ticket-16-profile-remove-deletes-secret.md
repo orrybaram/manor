@@ -1,6 +1,6 @@
 ---
 title: Removing a profile deletes its sign-in Secret
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

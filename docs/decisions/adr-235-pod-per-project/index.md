@@ -369,10 +369,14 @@ desktop is away (ADR-229, ADR-225 D8), and moving a project between pods
   `last-applied-configuration` annotation, so a token "removed" by a merge
   patch stayed readable. The sign-in Secret is now made with `kubectl
   create -f -`. Never `apply` an object that holds a secret.
-- Still open, needing a decision: removing a profile leaves its
-  `manor-signin-<id>` Secret in the cluster. A pod set up through the "Set up
-  on" fallback dialog never gets `forProject`. New Workspace and Project
-  Settings hide other projects' pods with no "Show all hosts" toggle.
+- Decided after review, done as tickets 16–18:
+  - removing a profile deletes its `manor-signin-<id>` Secret, or refuses to
+    remove the profile if it can't reach the cluster;
+  - the "Set up on" fallback dialog finishes through `openInNewHost`, so the
+    pod is marked as the project's;
+  - New Workspace and Project Settings get "Show all hosts".
+  A retry now refuses any host that isn't this profile's and unclaimed, so a
+  pod whose profile was removed can only be deleted, not retried.
 - Not yet run for real: the release `host-image` job (app and tarball build
   on Ubuntu, arm64 under QEMU), sign-in against a real cluster (`gh auth
   setup-git` with only `GH_TOKEN`), and the new UI in the running app.

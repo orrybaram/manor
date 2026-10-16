@@ -13,7 +13,9 @@
 
 import { execFile } from "node:child_process";
 import { errorMessage } from "../lib/errors";
+import { supervisorEnvFile } from "../paths";
 import { runServe } from "./serve";
+import { applySupervisorEnv } from "./supervisor";
 
 function usage(): never {
   process.stderr.write("usage: host-server serve [--data-dir <dir>]\n");
@@ -46,6 +48,14 @@ async function main(): Promise<void> {
   // what takes the server down.
   process.stdout.on("error", () => {});
   process.stderr.on("error", () => {});
+
+  // The host's environment file, for whatever this process's environment
+  // lacks (ADR-236 D2): an unsupervised server started over ssh gets the key
+  // too. Here, not in `runServe`, so tests never read a real file.
+  const filled = applySupervisorEnv(process.env, supervisorEnvFile());
+  if (filled.length > 0) {
+    console.info(`[host-server] from supervisor.env: ${filled.join(", ")}`);
+  }
 
   const running = await runServe({
     dataDir: flag(argv, "--data-dir"),

@@ -36,7 +36,7 @@ import { WebSocket } from "ws";
 
 import type { WsBridgeServer } from "../bridge/transports/ws";
 import { errorMessage } from "../lib/errors";
-import type { SecretBackend } from "../platform/secret-box";
+import type { SecretBackend, SecretKeyPlace } from "../platform/secret-box";
 import type {
   PushSubscriptionRecord,
   RemoteDeviceInfo,
@@ -127,6 +127,15 @@ export interface HostServerStatus {
    * server's status.
    */
   secretKeyOnVolume?: boolean;
+  /**
+   * Where the key sealing the pairing keys lives (ADR-236 D5): `data-dir`
+   * under `~/.manor` (or inline in `supervisor.env`), `home` elsewhere under
+   * home, `elsewhere` for a mounted secret or a key from the environment.
+   * Absent when no key is set, or from an older server.
+   */
+  secretKeyPlace?: SecretKeyPlace;
+  /** The key file, home shortened to `~`; null for an inline key. */
+  secretKeyFile?: string | null;
   /**
    * Set when this start found the data dir copied from another instance and
    * reset the sealed stores (ADR-229 D6); reported until the owner has read

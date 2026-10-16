@@ -332,24 +332,93 @@ export function keyFileSecretBox(
 }
 
 /**
- * Whether `MANOR_SECRET_KEY_FILE` lives under `<home>/.manor`: a key kept on
- * the volume it seals defeats the point (ADR-229 D5). Symlinks are resolved,
- * so a mounted secret linked into the data dir is seen for what it is. False
- * when the key comes from the environment or the file cannot be resolved.
+ * Whether the key `env` names is usable, by the same rules `keyFileSecretBox`
+ * reads it with: 32 bytes from `MANOR_SECRET_KEY` (base64), else from the file
+ * `MANOR_SECRET_KEY_FILE` names (raw or base64). The error names the variable
+ * (and file) at fault, or says neither is set.
+ */
+export function validateSecretKey(
+  env: NodeJS.ProcessEnv,
+): { ok: true } | { ok: false; error: string } {
+  try {
+    return readSecretKey(env)
+      ? { ok: true }
+      : { ok: false, error: `Neither ${KEY_ENV} nor ${KEY_FILE_ENV} is set` };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export type SecretKeyPlace = "data-dir" | "home" | "elsewhere";
+
+function isInside(dir: string, file: string): boolean {
+  const rel = path.relative(dir, file);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+function realpathOr(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Where the key sealing the pairing keys lives (ADR-236 D5):
+ * - `data-dir`: a `MANOR_SECRET_KEY_FILE` under `<home>/.manor`, or an inline
+ *   `MANOR_SECRET_KEY` written in one of `inlineKeySources` (`supervisor.env`):
+ *   on the very volume it protects (ADR-229 D5).
+ * - `home`: a key file under home but outside `~/.manor`.
+ * - `elsewhere`: a mounted secret, an inline key from the real environment,
+ *   or a file that cannot be resolved.
+ * Null when neither variable is set. `MANOR_SECRET_KEY` wins when both are,
+ * as in `keyFileSecretBox`. Symlinks are resolved, so a mounted secret linked
+ * into the data dir is seen for what it is.
+ */
+export function secretKeyPlace(
+  env: NodeJS.ProcessEnv = process.env,
+  home: string = os.homedir(),
+  inlineKeySources: readonly string[] = [],
+): SecretKeyPlace | null {
+  const inline = env[KEY_ENV];
+  if (inline) {
+    const line = `${KEY_ENV}='${inline}'`;
+    for (const source of inlineKeySources) {
+      let text: string;
+      try {
+        text = fs.readFileSync(source, "utf8");
+      } catch {
+        continue;
+      }
+      if (text.split("\n").some((l) => l.trim() === line)) return "data-dir";
+    }
+    return "elsewhere";
+  }
+  const file = env[KEY_FILE_ENV];
+  if (!file) return null;
+  let real: string;
+  try {
+    real = fs.realpathSync(file);
+  } catch {
+    return "elsewhere";
+  }
+  if (isInside(realpathOr(path.join(home, ".manor")), real)) return "data-dir";
+  if (isInside(realpathOr(home), real)) return "home";
+  return "elsewhere";
+}
+
+/**
+ * Whether the key sits on the volume it seals (`secretKeyPlace` is
+ * `data-dir`), which defeats the point (ADR-229 D5). Kept for an older
+ * desktop's warning (ADR-236 D5).
  */
 export function secretKeyOnVolume(
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
+  inlineKeySources: readonly string[] = [],
 ): boolean {
-  const file = env[KEY_FILE_ENV];
-  if (!file || env[KEY_ENV]) return false;
-  try {
-    const manor = fs.realpathSync(path.join(home, ".manor"));
-    const rel = path.relative(manor, fs.realpathSync(file));
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
-  } catch {
-    return false;
-  }
+  return secretKeyPlace(env, home, inlineKeySources) === "data-dir";
 }
 
 // ── choosing one ──

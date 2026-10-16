@@ -12,8 +12,10 @@ import {
   pickHostSecretBox,
   plainFileSecretBox,
   secretKeyOnVolume,
+  secretKeyPlace,
   SecretBoxUnavailableError,
   systemdCredsSecretBox,
+  validateSecretKey,
   type ExecFn,
   type SecretBox,
 } from "../secret-box";
@@ -225,6 +227,77 @@ describe("keyFileSecretBox", () => {
     expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: link }, home)).toBe(false);
     expect(secretKeyOnVolume({ MANOR_SECRET_KEY: "x" }, home)).toBe(false);
     expect(secretKeyOnVolume({}, home)).toBe(false);
+  });
+
+  describe("secretKeyPlace", () => {
+    let home: string;
+    let envFile: string;
+
+    beforeEach(() => {
+      home = path.join(dir, "home");
+      fs.mkdirSync(path.join(home, ".manor", "remote"), { recursive: true });
+      fs.mkdirSync(path.join(home, ".config", "manor"), { recursive: true });
+      envFile = path.join(home, ".manor", "remote", "supervisor.env");
+    });
+
+    it("is data-dir for a key file under ~/.manor", () => {
+      const inside = path.join(home, ".manor", "remote", "key");
+      fs.writeFileSync(inside, key);
+      expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: inside }, home, [envFile])).toBe("data-dir");
+    });
+
+    it("is data-dir for an inline key written in supervisor.env", () => {
+      const inline = key.toString("base64");
+      fs.writeFileSync(envFile, `# comment\nMANOR_SECRET_KEY='${inline}'\n`);
+      expect(secretKeyPlace({ MANOR_SECRET_KEY: inline }, home, [envFile])).toBe("data-dir");
+      expect(secretKeyOnVolume({ MANOR_SECRET_KEY: inline }, home, [envFile])).toBe(true);
+    });
+
+    it("is home for a key file under home but outside ~/.manor", () => {
+      const file = path.join(home, ".config", "manor", "secret.key");
+      fs.writeFileSync(file, key);
+      expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: file }, home, [envFile])).toBe("home");
+      expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: file }, home, [envFile])).toBe(false);
+    });
+
+    it("is elsewhere for a mounted secret, or an unresolvable file", () => {
+      const mounted = path.join(dir, "mounted-key");
+      fs.writeFileSync(mounted, key);
+      expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: mounted }, home, [envFile])).toBe("elsewhere");
+      const missing = path.join(home, ".manor", "missing");
+      expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: missing }, home, [envFile])).toBe("elsewhere");
+    });
+
+    it("is elsewhere for an inline key only the environment holds", () => {
+      const inline = key.toString("base64");
+      fs.writeFileSync(envFile, "MANOR_SECRET_KEY='c29tZXRoaW5nIGVsc2U='\n");
+      expect(secretKeyPlace({ MANOR_SECRET_KEY: inline }, home, [envFile])).toBe("elsewhere");
+      expect(secretKeyPlace({ MANOR_SECRET_KEY: inline }, home, [])).toBe("elsewhere");
+    });
+
+    it("lets an inline key win over a key file, as keyFileSecretBox does", () => {
+      const inside = path.join(home, ".manor", "remote", "key");
+      fs.writeFileSync(inside, key);
+      const env = { MANOR_SECRET_KEY: key.toString("base64"), MANOR_SECRET_KEY_FILE: inside };
+      expect(secretKeyPlace(env, home, [envFile])).toBe("elsewhere");
+    });
+
+    it("is null when no key is set", () => {
+      expect(secretKeyPlace({}, home, [envFile])).toBeNull();
+    });
+  });
+
+  it("validates a key by keyFileSecretBox's rules", () => {
+    const file = path.join(dir, "k");
+    fs.writeFileSync(file, key);
+    expect(validateSecretKey({ MANOR_SECRET_KEY_FILE: file })).toEqual({ ok: true });
+    expect(validateSecretKey({ MANOR_SECRET_KEY: key.toString("base64") })).toEqual({ ok: true });
+    const short = validateSecretKey({ MANOR_SECRET_KEY: "c2hvcnQ=" });
+    expect(short.ok).toBe(false);
+    expect(!short.ok && short.error).toMatch(/must be 32 bytes/);
+    const missing = validateSecretKey({ MANOR_SECRET_KEY_FILE: path.join(dir, "missing") });
+    expect(!missing.ok && missing.error).toMatch(/could not be read/);
+    expect(validateSecretKey({}).ok).toBe(false);
   });
 });
 

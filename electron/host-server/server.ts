@@ -52,10 +52,11 @@ import { WsBridgeServer } from "../bridge/transports/ws";
 import { errorMessage } from "../lib/errors";
 import {
   hostServerPaths,
+  supervisorEnvFile,
   type DaemonNamespace,
   type HostServerPaths,
 } from "../paths";
-import { secretKeyOnVolume, type SecretBox } from "../platform/secret-box";
+import { secretKeyPlace, type SecretBox } from "../platform/secret-box";
 import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
@@ -164,6 +165,19 @@ function discardOwnerSnapshots(paths: HostServerPaths): void {
 }
 
 /** Retry the daemon connection at 0.5 s, doubling to 30 s, forever. */
+/**
+ * The key file the status names (ADR-236 D5), with home shortened to `~`;
+ * null when an inline `MANOR_SECRET_KEY` is the key, as it wins.
+ */
+function shownKeyFile(env: NodeJS.ProcessEnv, home: string = os.homedir()): string | null {
+  const file = env.MANOR_SECRET_KEY ? undefined : env.MANOR_SECRET_KEY_FILE;
+  if (!file) return null;
+  if (home && (file === home || file.startsWith(home + path.sep))) {
+    return `~${file.slice(home.length)}`;
+  }
+  return file;
+}
+
 function daemonRetryDelayMs(attempt: number): number {
   return Math.min(500 * 2 ** attempt, 30_000);
 }
@@ -348,6 +362,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   function hostStatus(): HostServerStatus {
     const relayStatus = relay.relayStatus();
+    const keyPlace = secretKeyPlace(process.env, os.homedir(), [supervisorEnvFile()]);
     return {
       version: appVersion,
       capabilities: reportedCapabilities(),
@@ -359,7 +374,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       devices: relay.deviceCount(),
       pushEndpoints: relay.pushEndpoints(),
       linear: shared.linearManager.isConnected(),
-      secretKeyOnVolume: secretKeyOnVolume(),
+      secretKeyOnVolume: keyPlace === "data-dir",
+      ...(keyPlace ? { secretKeyPlace: keyPlace, secretKeyFile: shownKeyFile(process.env) } : {}),
       identityReset,
       supervisor: supervisorFacts.current(),
       ...busyState(busy.state()),

@@ -41,22 +41,22 @@ The constraint underneath: on a bare box with no TPM-backed systemd-creds and no
 The desktop runs it through `provider.transport().exec`, as it runs `supervisor install --json` (`electron/backend/host-supervisor.ts`). Every step is idempotent:
 1. Refuse in a container (`readSupervisorMarker() === "container"`): the container's environment gives it a key.
 2. If `server/secret-backend` already names a backend other than `plaintext`, report it and exit 0.
-3. If `supervisor.env` already names `MANOR_SECRET_KEY_FILE` or `MANOR_SECRET_KEY`, validate it: a 32-byte key, by the same rules as `readSecretKey`. Invalid is an error naming the file; the command never overwrites it and never starts a server that would crash-loop. Valid skips to step 6.
+3. If `supervisor.env` already names a key, look at where it is (`secretKeyPlace`). A key whose place is `data-dir` (a `MANOR_SECRET_KEY_FILE` under `~/.manor`, or an inline `MANOR_SECRET_KEY`, which the file itself holds) is replaced: the backend is still plaintext, so nothing is sealed with it yet. Steps 4–5 run, and step 5 also removes `MANOR_SECRET_KEY` from the file; the old key file is left on disk. A key file whose place is `home` or `elsewhere` is validated: a 32-byte key, by the same rules as `readSecretKey`. Invalid is an error naming the file; the command never overwrites it and never starts a server that would crash-loop. Valid skips to step 6. `encryptKeyPlan(envFile, defaultKeyFile, home)` in `secrets-command.ts` makes this choice, for the command and for status (D5).
 4. Key file `hostSecretKeyFile()`, which is `$XDG_CONFIG_HOME/manor/secret.key`, default `~/.config/manor/secret.key`. An existing valid key is reused, which covers a retry after a failed restart. An existing invalid one is an error and is never overwritten. Otherwise it writes 32 random bytes with `wx`, directory 0700, file 0600.
-5. Merge `MANOR_SECRET_KEY_FILE='<path>'` into `supervisor.env`, using `writeSupervisorEnv` factored out of `installSupervisor`.
+5. Merge `MANOR_SECRET_KEY_FILE='<path>'` into `supervisor.env`, using `writeSupervisorEnv` factored out of `installSupervisor`. A value of `null` there removes a variable.
 6. `restartServer()` (D4), then wait for a server of this version to listen.
 7. Read `secret-backend` again. `key-file` means success; it reports `{backend, keyFile, place}`. Still `plaintext` is an error that points at `host-server.log`, and the key file and env line are left for the next try.
 
 `manor-host secrets status --json` prints the same facts. The docs use it instead of `cat secret-backend`.
 
-### D2. The host server reads `supervisor.env` itself
-`manor-host serve` (`host-server/index.ts`, before `runServe`) fills each of `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID` that its environment lacks from `supervisor.env`. It does this through `applySupervisorEnv`, and the environment wins over the file. Unsupervised ssh hosts get the key too. It lives in `index.ts` rather than `runServe` so tests never read a developer's real file. **This amends ADR-229 D5 and closes its "supervisor.env is read only by units" known limit.**
+### D2. The host server reads `supervisor.env` itself, and keeps the key private
+`manor-host serve` (`host-server/index.ts`, before `runServe`) calls `takeSecretEnv(process.env, supervisorEnvFile())`. It builds a private key environment: `process.env`'s `MANOR_SECRET_KEY_FILE` and `MANOR_SECRET_KEY`, else `supervisor.env`'s, the environment's key source winning as a whole (`applySupervisorEnv`). It then **deletes both variables from `process.env`**, so nothing the server spawns inherits them: not the terminal daemon (every PTY shell and agent), not a busy hook. That covers a key a systemd unit's `EnvironmentFile` or an ssh session put there, too. The private environment goes to `pickHostSecretBox` (its `env` option, over the rest of `process.env`, since libsecret needs the session bus) and to `serverKeyStatus` (D5) through `runServe`'s `secrets` option. `MANOR_INSTANCE_ID` is not secret and is still filled into `process.env`. The terminal daemon also drops both variables from its own environment when it starts, because the daemon unit loads `supervisor.env` too, and a container or ssh session can pass them. Unsupervised ssh hosts get the key too. It lives in `index.ts` rather than `runServe` so tests never read a developer's real file. **This amends ADR-229 D5 and closes its "supervisor.env is read only by units" known limit.**
 
 ### D3. `uninstallSupervisor` keeps `supervisor.env`
 With D2 the file is the host's environment file, not the units'. **This amends ADR-229 D4's uninstall**, which removed the units, `supervisor.env` and the marker.
 
 ### D4. A restart-server command
-`restartServer(deps)` in `host-server/lifecycle.ts` stops the live server: `supervisor.stop("server")` and a wait when supervised, `stopOld` (SIGTERM, then SIGKILL) otherwise. It then calls `ensureServerRunning`, which serialises on `server.lock`. `manor-host restart-server` exposes it for docs and manual use.
+`restartServer(deps)` in `host-server/lifecycle.ts` stops the live server: `supervisor.stop("server")` and a wait when supervised, `stopOld` (SIGTERM, then SIGKILL) otherwise. It then starts one, holding `server.lock` throughout. That can take about 28 s at worst, longer than a waiter's 15 s and close to the lock's 30 s staleness, so every holder touches the lock every 2 s: a refreshed lock is never stale, and a waiter keeps waiting on one past 15 s, up to 60 s. `manor-host restart-server` exposes it for docs and manual use.
 
 ### D5. Status says where the key is
 `HostServerStatus` gains:
@@ -65,12 +65,15 @@ With D2 the file is the host's environment file, not the units'. **This amends A
   - `home`: the key file is under home but outside `~/.manor`.
   - `elsewhere`: a mounted Secret, or an inline key from the real environment.
 - `secretKeyFile?: string | null`, the file's path with home shortened to `~`.
+- `encryptKeyFile?: string`, the key file **Encrypt them** would use (`encryptKeyPlan`, D1 step 3), with home shortened to `~`. The hint names it.
 
-`secretKeyOnVolume` stays and equals `place === "data-dir"`, so an older desktop keeps its warning. The logic lives in `secretKeyPlace(env, home, inlineKeySources)` in `secret-box.ts`, which keeps `platform/` free of host-server imports.
+All three are computed once, when the server starts (`serverKeyStatus`, from D2's private environment), not on every status read: they read files. An encrypt that rewrites `supervisor.env` restarts the server, so the values are never stale.
+
+The status field `secretKeyOnVolume` stays and equals `place === "data-dir"`, so an older desktop keeps its warning. The logic lives in `secretKeyPlace(env, home, inlineKeySources)` in `secret-box.ts`, which keeps `platform/` free of host-server imports.
 
 ### D6. The button, only where it can work
 In `HostRow` `KeyWarnings`:
-- **Plaintext, and the host is fixable** (not read-only, connected, not a recipe host, not supervised in a container): the warning stays, and below it sit a hint ("Manor can make a key at ~/.config/manor/secret.key on <host>… A copy of ~/.manor can't read them then; a copy of <host>'s whole disk still can.") and an **Encrypt them** `<Button>` (`host-encrypt-keys`). The button goes through `useHostAction().run`, so it gets the same busy state and `host-entry-error` as every other action.
+- **Plaintext, and the host is fixable** (not read-only, connected, not a recipe host, not supervised in a container): the warning stays, and below it sit a hint ("Manor can use a key at <encryptKeyFile> on <host>… A copy of ~/.manor can't read them then; a copy of <host>'s whole disk still can.") and an **Encrypt them** `<Button>` (`host-encrypt-keys`). The button goes through `useHostAction().run`, so it gets the same busy state and `host-entry-error` as every other action.
 - **Plaintext on a recipe host or in a container:** the warning plus a docs link explaining how to give it a key. No button.
 - **Plaintext on a host that's away or read-only:** the warning as today.
 - **`key-file` + `home`:** a muted `fieldHint` (`host-key-in-home`) says the keys are encrypted with a key kept at that path, which protects them from a copy of `~/.manor` but not of the disk. Nothing goes in the header line.
@@ -79,7 +82,7 @@ In `HostRow` `KeyWarnings`:
 The copy lives as plain functions in `host-settings-text.ts`.
 
 ### D7. Desktop method `hosts.encryptKeys(hostId)`
-`hostsEncryptKeys` in `electron/bridge/handlers/hosts.ts` is shaped like `hostsSetSupervised`. It calls `runHostSecrets(transport, "encrypt")` (new `electron/backend/host-secrets.ts`, 60 s timeout), waits up to about 15 s for the owner channel to reconnect, broadcasts `hosts.pairingChanged`, and returns the facts. It is registered `localOnly`, `mutating` and `LOCAL_ROUTE`, routed `home`, and added to `LOCAL_ONLY_METHODS` and `HostRefusedMethod`.
+`hostsEncryptKeys` in `electron/bridge/handlers/hosts.ts` is shaped like `hostsSetSupervised`. It calls `runHostSecrets(transport, "encrypt")` (new `electron/backend/host-secrets.ts`, 60 s timeout), then polls `hostServer.status()` every 500 ms, ignoring failed reads, until one reports the backend the command returned, for up to about 15 s. It doesn't trust the client's `connected` state, which may still be the old, dying channel. It then broadcasts `hosts.pairingChanged` and returns the facts. `host-secrets.ts` and `host-supervisor.ts` share `runHostJsonCommand` (`host-json-command.ts`), and both check the facts' shape. It is registered `localOnly`, `mutating` and `LOCAL_ROUTE`, routed `home`, and added to `LOCAL_ONLY_METHODS` and `HostRefusedMethod`.
 
 ### D8. The choice is still sticky
 Once a box is on `key-file`, a later systemd 256+ doesn't move it to systemd-creds (ADR-226). The docs say so; this ADR adds no migration.
@@ -110,6 +113,15 @@ Once a box is on `key-file`, a later systemd 256+ doesn't move it to systemd-cre
   - `restartServer` now holds `server.lock` from the stop through the start, so a bridge that connects partway can't race it.
   - The "kept inside ~/.manor" warning now needs `secretBackend === "key-file"`, so a systemd-creds host with an old inline key in `supervisor.env` doesn't get a false warning.
   - Busy hooks no longer inherit `MANOR_SECRET_KEY*` from the host server, because D2 now puts the key in the server's environment on every host.
+  - Second review:
+    - The key no longer reaches any child of the server: D2 takes it out of `process.env` into a private environment, which replaces the ad-hoc strip in the busy hooks. The daemon drops it too.
+    - A server still on plaintext no longer fails to start over a named key that can't be read. The re-probe logs a warning and moves on. A box whose recorded choice is `key-file` still fails hard when the key is gone.
+    - `hosts.encryptKeys` waits for a status read that reports the new backend, not for the channel state.
+    - `server.lock` has a heartbeat, so a long `restartServer` neither looks stale nor times out a waiting bridge.
+    - The hint names the key file the click will use (`encryptKeyFile`), and the command replaces a `data-dir` key while still on plaintext, so the two agree.
+    - The key facts in status are computed once at start.
+    - The supervisor and secrets exec protocol is shared.
+    - `secretKeyOnVolume()` was removed; nothing called it.
 
 ## Tickets
 

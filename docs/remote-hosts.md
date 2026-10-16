@@ -488,9 +488,13 @@ in Settings → Hosts. It works on the box in four steps:
 1. It makes a 32-byte key at `~/.config/manor/secret.key` (or
    `$XDG_CONFIG_HOME/manor/secret.key`), mode 0600, in a 0700 directory. An
    existing valid key is reused. An invalid one is an error, and it is never
-   overwritten.
+   overwritten. If `supervisor.env` already names a key file outside
+   `~/.manor`, that key is checked and used instead, and nothing is made.
 2. It names the key in `~/.manor/remote/supervisor.env` as
-   `MANOR_SECRET_KEY_FILE`.
+   `MANOR_SECRET_KEY_FILE`. A key that file named inside `~/.manor`, or a
+   `MANOR_SECRET_KEY` written in it, is replaced: the keys are still
+   plaintext, so nothing is sealed with it yet. The old key file is left
+   where it is.
 3. It restarts the host server. The new start seals the existing key files
    with the key, so phones stay paired.
 4. It checks that the box now uses `key-file`.
@@ -500,7 +504,8 @@ rsync of the data directory or a snapshot of a volume mounted there, can no
 longer read the pairing keys. A copy of the whole home directory or the disk
 still can, because the key is on the same disk. If the restart fails, the key
 and the `supervisor.env` line stay, and the box stays on plaintext. Click
-**Encrypt them** again, or wait for the next start, and it finishes.
+**Encrypt them** again, or wait for the next start, and it finishes. The hint
+beside the button names the key file the click will use.
 
 **A recipe host** gets its key from its recipe, not from the button. The recipe
 has to give the host `MANOR_SECRET_KEY_FILE` (the Docker and Kubernetes
@@ -540,7 +545,10 @@ phones paired with it have to pair again.
 **Plaintext upgrades itself.** Plaintext is only ever a last resort, so a host
 server on plaintext checks for a key, then systemd-creds, then libsecret every
 time it starts. When one works, it encrypts the existing key files with it and
-switches to it. Your phones stay paired. So to move a box off plaintext,
+switches to it. Your phones stay paired. A key that is named but can't be used
+(a missing or invalid key file) doesn't stop a server that is still on
+plaintext: it logs a warning to `host-server.log`, tries the next backend, and
+stays on plaintext if none works. So to move a box off plaintext,
 make one of them work (for example, upgrade systemd to 256 or newer), then
 restart the host server:
 
@@ -563,7 +571,12 @@ usable without the key. It reads the key from one of:
 
 `MANOR_SECRET_KEY` wins when both are set. A key that is set but isn't 32
 bytes, or a file that can't be read, is an error: the server doesn't fall
-back to a weaker backend.
+back to a weaker backend. The one exception is a server still on plaintext,
+which warns and stays there (see *Plaintext upgrades itself* above).
+
+The host server keeps the key to itself. It takes the variables out of its
+own environment when it starts, so the terminal daemon, every shell and agent
+on the box, and the busy hooks never see them.
 
 To make one: `head -c 32 /dev/urandom | base64`.
 

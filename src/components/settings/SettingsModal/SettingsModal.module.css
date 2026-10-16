@@ -397,16 +397,22 @@
   margin-top: 0;
 }
 
-/* Name and Theme side by side (ADR-237 D2). */
+/* Name and Theme side by side (ADR-237 D2); a step of air before Color. */
 .generalGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px 20px;
+  margin-bottom: 8px;
 }
 
-.fullWidthSelect {
+/* The theme select sized like the Name input beside it (ADR-237 D4). */
+.generalGrid .fullWidthSelect {
   width: 100%;
   max-width: none;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: var(--bg);
+  color: var(--text-selected);
 }
 
 .fieldHint {

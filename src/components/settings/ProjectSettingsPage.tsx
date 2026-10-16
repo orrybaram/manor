@@ -189,7 +189,7 @@ function ColorField(props: ProjectFieldProps) {
   const updateProject = useProjectStore((s) => s.updateProject);
 
   return (
-    <>
+    <Stack gap="xs">
       <label className={styles.fieldLabel}>Color</label>
       <Row gap="xxs" className={styles.colorPicker}>
         {PROJECT_COLORS.map((c) => {
@@ -209,7 +209,7 @@ function ColorField(props: ProjectFieldProps) {
           );
         })}
       </Row>
-    </>
+    </Stack>
   );
 }
 

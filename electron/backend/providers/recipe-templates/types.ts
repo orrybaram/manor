@@ -57,6 +57,24 @@ export interface FormField {
 }
 
 /**
+ * A check's one fix (ADR-234 D8), by what carries it out:
+ *
+ * - `run`: main does it — `hosts.runTemplateFix(templateId, id, values)`
+ *   opens an app or starts a background pull or build; the next
+ *   `checkTemplate` shows the result (`busy` while a job runs).
+ * - `url`: the renderer opens `href` in the browser (a `Link`): "Get Docker
+ *   Desktop", "Install kubectl".
+ * - `set`: the renderer sets field `key` to `value` ("Use namespace dev",
+ *   "Use storage class standard"); no IPC.
+ *
+ * A shell command is only ever a check's `detail`, never a fix.
+ */
+export type TemplateFix =
+  | { kind: "run"; id: string; label: string }
+  | { kind: "url"; label: string; href: string }
+  | { kind: "set"; label: string; key: string; value: string };
+
+/**
  * One row of a template's readiness checklist (ADR-234 D8): a plain
  * sentence, its state, and at most one fix. Later checks are `todo` until
  * the earlier ones pass.
@@ -68,8 +86,7 @@ export interface TemplateCheck {
   title: string;
   /** "Context desktop-linux", "280 of 450 MB". A shell command is only ever shown here. */
   detail?: string;
-  /** What `hosts.runTemplateFix` runs, or the renderer applies. */
-  fix?: { id: string; label: string };
+  fix?: TemplateFix;
 }
 
 /**

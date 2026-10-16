@@ -10,7 +10,7 @@ import { hostRecipesDir } from "../../../paths";
 import { parseRecipe, recipeDir, writeRecipe } from "../recipes";
 import { dockerTemplate } from "./docker";
 import { kubernetesTemplate } from "./kubernetes";
-import { runTemplateChecks, type CheckDeps } from "./checks";
+import { defaultCheckDeps, runTemplateChecks, runTemplateFixById, type CheckDeps } from "./checks";
 import type { RecipeTemplate, TemplateCheckResult, TemplateContext, TemplateInfo } from "./types";
 
 export type {
@@ -22,9 +22,11 @@ export type {
   TemplateCheckResult,
   TemplateContext,
   TemplateFile,
+  TemplateFix,
   TemplateInfo,
 } from "./types";
 export { createCustomRecipe } from "./custom";
+export { stopTemplateJobs } from "./checks";
 
 export const RECIPE_TEMPLATES: readonly RecipeTemplate[] = [dockerTemplate, kubernetesTemplate];
 
@@ -43,18 +45,36 @@ export function listTemplates(ctx: TemplateContext): TemplateInfo[] {
 
 /**
  * Template `templateId`'s checklist and its `choice` fields' options for the
- * form's `values` (ADR-234 D6). Probes never throw for a missing CLI or a
+ * form's `values` (ADR-234 D6, D8). `deps` overrides the real probes in
+ * part (the app version, tests' fakes). Probes never throw for a missing CLI or a
  * broken config; they list nothing. An unknown template is an error.
  */
 export function checkTemplate(
   templateId: string,
   values: Record<string, string>,
-  deps?: CheckDeps,
+  deps?: Partial<CheckDeps>,
 ): Promise<TemplateCheckResult> {
   if (!RECIPE_TEMPLATES.some((t) => t.id === templateId)) {
     return Promise.reject(new Error(`Unknown template: ${JSON.stringify(templateId)}`));
   }
-  return runTemplateChecks(templateId, values, deps);
+  return runTemplateChecks(templateId, values, { ...defaultCheckDeps, ...deps });
+}
+
+/**
+ * Carry out template `templateId`'s `run` fix `fixId` for the form's
+ * `values` (ADR-234 D8): open an app, or start a background pull or build
+ * that the next `checkTemplate` reports on. Resolves once started.
+ */
+export function runTemplateFix(
+  templateId: string,
+  fixId: string,
+  values: Record<string, string>,
+  deps?: Partial<CheckDeps>,
+): Promise<void> {
+  if (!RECIPE_TEMPLATES.some((t) => t.id === templateId)) {
+    return Promise.reject(new Error(`Unknown template: ${JSON.stringify(templateId)}`));
+  }
+  return runTemplateFixById(templateId, fixId, values, { ...defaultCheckDeps, ...deps });
 }
 
 /**

@@ -43,7 +43,6 @@ describe("kubernetes checks", () => {
     const deps = fakeDeps({ kubectl: KUBECONFIG });
     const result = await checkTemplate("kubernetes", {}, deps);
     expect(deps.execFile).toHaveBeenCalledWith("kubectl", ["config", "view", "-o", "json"]);
-    expect(result.checks).toEqual([]);
     expect(result.choices.context).toEqual([
       { value: "prod", label: "prod · kubectl's current", hint: "https://prod.example:6443" },
       { value: "kind-dev", label: "kind-dev", hint: "https://127.0.0.1:41234" },
@@ -53,7 +52,7 @@ describe("kubernetes checks", () => {
 
   it("lists nothing when kubectl is missing", async () => {
     const result = await checkTemplate("kubernetes", {}, fakeDeps({}));
-    expect(result).toEqual({ checks: [], choices: { context: [] } });
+    expect(result.choices).toEqual({ context: [] });
   });
 
   it("lists nothing for a broken kubeconfig", async () => {

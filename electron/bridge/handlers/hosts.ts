@@ -19,6 +19,7 @@ import {
   createCustomRecipe,
   createRecipeFromTemplate,
   listTemplates,
+  runTemplateFix,
   type TemplateCheckResult,
   type TemplateInfo,
 } from "../../backend/providers/recipe-templates";
@@ -160,13 +161,31 @@ export function hostsListTemplates(ctx: HandlerCtx<ServerDeps>): TemplateInfo[] 
  * machine, each with a short timeout. Writes nothing.
  */
 export function hostsCheckTemplate(
-  _ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<ServerDeps>,
   templateId: string,
   values: Record<string, string>,
 ): Promise<TemplateCheckResult> {
   assertString(templateId, "hosts:checkTemplate.templateId");
   assertFormValues(values, "hosts:checkTemplate.values");
-  return checkTemplate(templateId, values);
+  return checkTemplate(templateId, values, { appVersion: ctx.deps.backendRegistry.version });
+}
+
+/**
+ * Carry out one of a template's `run` fixes (ADR-234 D8) on this machine:
+ * open Docker, or start pulling or building the host image in the
+ * background. Resolves once started; the next `checkTemplate` shows how it
+ * is going. `url` and `set` fixes are the renderer's and never come here.
+ */
+export function hostsRunTemplateFix(
+  ctx: HandlerCtx<ServerDeps>,
+  templateId: string,
+  fixId: string,
+  values: Record<string, string>,
+): Promise<void> {
+  assertString(templateId, "hosts:runTemplateFix.templateId");
+  assertString(fixId, "hosts:runTemplateFix.fixId");
+  assertFormValues(values, "hosts:runTemplateFix.values");
+  return runTemplateFix(templateId, fixId, values, { appVersion: ctx.deps.backendRegistry.version });
 }
 
 /**
@@ -541,6 +560,8 @@ export const hosts = {
   listTemplates: method(hostsListTemplates, { localOnly: true, route: LOCAL_ROUTE }),
   // Runs docker / kubectl on this machine with its config (ADR-234 D6).
   checkTemplate: method(hostsCheckTemplate, { localOnly: true, route: LOCAL_ROUTE }),
+  // Opens apps and starts docker pulls / builds on this machine (ADR-234 D8).
+  runTemplateFix: method(hostsRunTemplateFix, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   createCustomRecipe: method(hostsCreateCustomRecipe, {
     localOnly: true,
     mutating: true,

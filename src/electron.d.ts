@@ -510,6 +510,7 @@ export type {
   Choice,
   TemplateCheck,
   TemplateCheckResult,
+  TemplateFix,
   TemplateInfo,
 } from "../electron/backend/providers/recipe-templates/types";
 

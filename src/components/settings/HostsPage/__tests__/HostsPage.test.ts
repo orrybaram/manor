@@ -48,9 +48,7 @@ import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
 import { HostRow } from "../HostRow";
 import {
   idleStopText,
-  keyInHomeText,
-  keyOnVolumeText,
-  plaintextFixText,
+  pairingKeysState,
   supervisionHint,
   supervisorStatusText,
 } from "../host-settings-text";
@@ -220,7 +218,7 @@ describe("HostRow", () => {
       } as unknown as NonNullable<HostServerView["status"]>;
       await render(host(), view({ status }));
       expect(q("host-row-status")?.textContent).toContain("pairing keys unencrypted");
-      expect(q("host-plaintext-keys")).not.toBeNull();
+      expect(q("host-pairing-keys-state")?.textContent).toBe("Unencrypted");
       expect(q("host-phone-summary")?.textContent).toBe("Manor 1.2.3 · relay connected");
       expect(q("host-reset-keys")).not.toBeNull();
     });
@@ -245,26 +243,55 @@ describe("HostRow", () => {
         linear: false,
         ...over,
       }) as unknown as NonNullable<HostServerView["status"]>;
+    const state = () => q("host-pairing-keys-state")?.textContent;
+    const hint = () => q("host-pairing-keys-hint")?.textContent;
 
-    it("offers Encrypt them on a connected ssh host, and a click encrypts", async () => {
+    it("offers Encrypt on a connected ssh host, and a click encrypts", async () => {
       api.encryptKeys.mockResolvedValue(undefined);
       await render(ssh(), view({ status: keys() }));
-      expect(q("host-encrypt-keys")).not.toBeNull();
-      expect(q("host-encrypt-hint")?.textContent).toBe(plaintextFixText("build"));
+      expect(state()).toBe("Unencrypted");
+      expect(hint()).toBe(pairingKeysState(keys(), "button", "build").hint);
+      expect(hint()).toContain("Devices stay paired");
       click(q("host-encrypt-keys"));
       await flush();
       expect(api.encryptKeys).toHaveBeenCalledWith("pod");
     });
 
-    it("names the key file the server says the click would use", async () => {
+    it("does not encrypt by itself from the row", async () => {
+      await render(ssh(), view({ status: keys() }));
+      expect(api.encryptKeys).not.toHaveBeenCalled();
+    });
+
+    it("shows Encrypting… while the click runs", async () => {
+      let finish!: () => void;
+      api.encryptKeys.mockReturnValue(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      await render(ssh(), view({ status: keys() }));
+      click(q("host-encrypt-keys"));
+      await flush();
+      expect(state()).toBe("Encrypting…");
+      expect((q("host-encrypt-keys") as HTMLButtonElement).disabled).toBe(true);
+      finish();
+      await flush();
+      expect(state()).toBe("Unencrypted");
+      expect((q("host-encrypt-keys") as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it("names the key file the click would use, behind the disclosure", async () => {
       await render(ssh(), view({ status: keys({ encryptKeyFile: "~/keys/manor.key" }) }));
-      expect(q("host-encrypt-hint")?.textContent).toBe(plaintextFixText("build", "~/keys/manor.key"));
-      expect(q("host-encrypt-hint")?.textContent).toContain("a key at ~/keys/manor.key on build");
+      expect(q("host-pairing-keys-detail")).toBeNull();
+      click(q("host-pairing-keys-more"));
+      expect(q("host-pairing-keys-detail")?.textContent).toContain("a key at ~/keys/manor.key on build");
+      expect(q("host-pairing-keys-detail")?.textContent).toContain("whole disk");
     });
 
     it("hides the button for a recipe host, a container, an away host", async () => {
       await render(host(), view({ status: keys() }));
       expect(q("host-encrypt-keys")).toBeNull();
+      expect(state()).toBe("Unencrypted");
       expect(q("host-encrypt-recipe")).not.toBeNull();
       act(() => root.unmount());
       root = createRoot(container);
@@ -277,7 +304,8 @@ describe("HostRow", () => {
 
       await render(ssh({ status: "error" }), view({ status: keys() }));
       expect(q("host-encrypt-keys")).toBeNull();
-      expect(q("host-plaintext-keys")).not.toBeNull();
+      expect(state()).toBe("Unencrypted");
+      expect(hint()).toBe("Encrypt them from the desktop app while build is connected.");
     });
 
     it("hides the button on a read-only row", async () => {
@@ -299,7 +327,7 @@ describe("HostRow", () => {
       expect(q("host-encrypt-keys")).toBeNull();
     });
 
-    it("notes a key kept in home, without a header warning", async () => {
+    it("reads Encrypted with a key kept in home, without a header warning", async () => {
       await render(
         ssh(),
         view({
@@ -310,9 +338,19 @@ describe("HostRow", () => {
           }),
         }),
       );
-      expect(q("host-key-in-home")?.textContent).toBe(keyInHomeText("build", "~/.config/manor/secret.key"));
+      expect(state()).toBe("Encrypted");
+      expect(hint()).toBe("Sealed with a key at ~/.config/manor/secret.key on build.");
       expect(q("host-key-on-volume")).toBeNull();
+      expect(q("host-encrypt-keys")).toBeNull();
       expect(q("host-row-status")?.textContent).not.toContain("stored on its disk");
+      expect(q("host-row-status")?.textContent).not.toContain("unencrypted");
+    });
+
+    it("reads Encrypted for systemd-creds", async () => {
+      await render(ssh(), view({ status: keys({ secretBackend: "systemd-creds" }) }));
+      expect(state()).toBe("Encrypted");
+      expect(hint()).toBe("Sealed by systemd on build.");
+      expect(q("host-pairing-keys-more")).toBeNull();
     });
 
     it("warns when the key is inside the data dir", async () => {
@@ -320,7 +358,8 @@ describe("HostRow", () => {
         ssh(),
         view({ status: keys({ secretBackend: "key-file", secretKeyPlace: "data-dir" }) }),
       );
-      expect(q("host-key-on-volume")?.textContent).toContain(keyOnVolumeText("build"));
+      expect(state()).toBe("Key kept with data");
+      expect(q("host-key-on-volume")?.textContent).toBe("Move it out");
       expect(q("host-row-status")?.textContent).toContain("pairing key stored on its disk");
     });
 
@@ -329,6 +368,7 @@ describe("HostRow", () => {
         ssh(),
         view({ status: keys({ secretBackend: "systemd-creds", secretKeyPlace: "data-dir" }) }),
       );
+      expect(state()).toBe("Encrypted");
       expect(q("host-key-on-volume")).toBeNull();
       expect(q("host-row-status")?.textContent).not.toContain("stored on its disk");
     });
@@ -338,8 +378,7 @@ describe("HostRow", () => {
         ssh(),
         view({ status: keys({ secretBackend: "key-file", secretKeyOnVolume: true }) }),
       );
-      expect(q("host-key-on-volume")).not.toBeNull();
-      expect(q("host-key-in-home")).toBeNull();
+      expect(state()).toBe("Key kept with data");
     });
   });
 
@@ -432,14 +471,39 @@ describe("host settings text (ADR-229 D4, D7)", () => {
     expect(supervisionHint(null, "build", false)).toBe("Change this while build is connected.");
   });
 
-  it("words the key-encryption copy (ADR-236 D6)", () => {
-    expect(plaintextFixText("build")).toBe(
-      "Manor can use a key at ~/.config/manor/secret.key on build and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of build's whole disk still can.",
+  it("words the Pairing keys row (ADR-236 D6)", () => {
+    const plain = { secretBackend: "plaintext" };
+    expect(pairingKeysState(plain, "button", "build")).toEqual({
+      tone: "caution",
+      state: "Unencrypted",
+      hint: "Stored as plain files on build. Manor can seal them in one step. Devices stay paired.",
+      detail:
+        "Manor makes a key at ~/.config/manor/secret.key on build and restarts its server to use it. A copy of ~/.manor can't read the pairing keys then. A copy of build's whole disk, or anyone with your account on it, still can.",
+      headerWarning: "pairing keys unencrypted",
+    });
+    expect(pairingKeysState({ ...plain, encryptKeyFile: "~/k" }, "button", "build").detail).toContain(
+      "a key at ~/k on build",
     );
-    expect(keyInHomeText("build", "~/k")).toContain("kept at ~/k");
-    expect(keyOnVolumeText("build")).toBe(
-      "The key sealing pairing keys is kept inside ~/.manor on build, beside what it protects.",
-    );
+    expect(pairingKeysState(plain, "recipe", "build").hint).toBe("The recipe has to supply a key.");
+    expect(pairingKeysState(plain, "container", "build").detail).toBeNull();
+    expect(pairingKeysState(plain, "button", "build", true)).toMatchObject({
+      tone: "busy",
+      state: "Encrypting…",
+      hint: "Restarting build's server. Devices reconnect on their own.",
+    });
+    expect(
+      pairingKeysState({ secretBackend: "key-file", secretKeyPlace: "home", secretKeyFile: "~/k" }, "none", "build"),
+    ).toMatchObject({ tone: "ok", state: "Encrypted", hint: "Sealed with a key at ~/k on build.", headerWarning: null });
+    expect(
+      pairingKeysState({ secretBackend: "key-file", secretKeyPlace: "elsewhere", secretKeyFile: null }, "none", "build").hint,
+    ).toBe("Sealed with a key from build's environment.");
+    expect(pairingKeysState({ secretBackend: "key-file", secretKeyPlace: "data-dir" }, "none", "build")).toMatchObject({
+      tone: "partial",
+      state: "Key kept with data",
+      hint: "The key sits inside ~/.manor on build, beside what it seals.",
+      headerWarning: "pairing key stored on its disk",
+    });
+    expect(pairingKeysState({ secretBackend: "libsecret" }, "none", "build").hint).toBe("Sealed by build's keyring.");
   });
 
   it("words the idle-stop caveat", () => {

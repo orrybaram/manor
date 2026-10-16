@@ -25,6 +25,7 @@ const api = vi.hoisted(() => {
     serverStatus: vi.fn(),
     setLinkPhones: vi.fn(),
     setSupervised: vi.fn(),
+    encryptKeys: vi.fn(),
   };
   const linear = {
     isConnected: vi.fn(() => Promise.resolve(false)),
@@ -104,6 +105,7 @@ describe("AddHostDialog", () => {
     onClose.mockReset();
     api.add.mockReset();
     api.serverStatus.mockReset();
+    api.encryptKeys.mockReset();
     api.listTemplates.mockResolvedValue([]);
     useHostStore.setState({ hosts: [], servers: {}, busy: false });
     container = document.createElement("div");
@@ -174,6 +176,53 @@ describe("AddHostDialog", () => {
     click(q("add-host-done"));
     expect(onClose).toHaveBeenCalled();
     expect(goTo).toHaveBeenCalledWith({ type: "hosts" }, "host-box");
+  });
+
+  describe("pairing keys (ADR-236 D6)", () => {
+    const plaintext = {
+      version: "1.2.3",
+      relay: { connected: true },
+      secretBackend: "plaintext",
+      linear: false,
+    } as unknown as NonNullable<HostServerView["status"]>;
+
+    async function addBox(view: HostServerView) {
+      api.add.mockImplementation(async () => {
+        useHostStore.setState({ hosts: [box] });
+        return { hostId: "box", spec: box.spec };
+      });
+      api.serverStatus.mockResolvedValue(view);
+      api.encryptKeys.mockResolvedValue(undefined);
+      await render();
+      click(q("hosts-add-ssh"));
+      click(q("add-host-continue"));
+      type(q("add-ssh-host-target"), "me@box");
+      click(q("add-ssh-host-connect"));
+      await flush();
+      await flush();
+    }
+
+    it("encrypts a new ssh host's plaintext keys without asking, once", async () => {
+      await addBox({ ...boxView, status: plaintext });
+      expect(api.encryptKeys).toHaveBeenCalledTimes(1);
+      expect(api.encryptKeys).toHaveBeenCalledWith("box");
+      // The refresh after the fix reads plaintext again (the mock never changes): no second try.
+      await flush();
+      expect(api.encryptKeys).toHaveBeenCalledTimes(1);
+      expect(q("host-pairing-keys")).not.toBeNull();
+    });
+
+    it("leaves a container's keys to its environment", async () => {
+      await addBox({ ...boxView, status: plaintext, supervisor: { kind: "container" } });
+      expect(api.encryptKeys).not.toHaveBeenCalled();
+      expect(q("host-encrypt-container")).not.toBeNull();
+    });
+
+    it("has nothing to do for a host already encrypted", async () => {
+      await addBox({ ...boxView, status: { ...plaintext, secretBackend: "systemd-creds" } });
+      expect(api.encryptKeys).not.toHaveBeenCalled();
+      expect(q("host-pairing-keys-state")?.textContent).toBe("Encrypted");
+    });
   });
 
   it("opens the new host's row however the dialog closes after adding", async () => {

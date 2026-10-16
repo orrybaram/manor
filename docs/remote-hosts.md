@@ -498,8 +498,8 @@ box, checked on first start (and, while it is on plaintext, on every start):
 1. **A key you supply** (`key-file`), whenever `MANOR_SECRET_KEY` or
    `MANOR_SECRET_KEY_FILE` is set in the server's environment. See
    [A key from outside the box](#a-key-from-outside-the-box). This is what
-   hosts Manor starts from a template use. **Encrypt them** (below) makes
-   one on an ssh box.
+   hosts Manor starts from a template use. **Encrypt** (below) makes one on
+   an ssh box, and adding an ssh host in Settings → Hosts does it for you.
 2. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
    derived from the machine's own credential secret, and uses the TPM2 chip
    when the machine has one. You can decrypt the files without root, but a
@@ -510,11 +510,17 @@ box, checked on first start (and, while it is on plaintext, on every start):
    A server started over ssh usually has no D-Bus session, so on a headless
    box this rarely applies.
 4. **Plaintext files, mode 0600**, as a last resort. This is never silent:
-   the host's row on Settings → Hosts says *Pairing keys on
-   \<host\> are stored unencrypted*.
+   the host's row on Settings → Hosts shows **Pairing keys · Unencrypted**.
 
-**Encrypt them** is the one-click way off plaintext, on a connected ssh host
-in Settings → Hosts. It works on the box in four steps:
+The **Pairing keys** row in a host's Device access group says which of these
+the host is on: *Unencrypted*, *Encrypted* (and with what), or *Key kept with
+data* when the key sits inside `~/.manor`. **What this protects** opens the
+caveats.
+
+**Encrypt** is the one-click way off plaintext, on a connected ssh host in
+Settings → Hosts. The **Add a host…** wizard runs the same step itself for an
+ssh host it has just connected, so a new host usually arrives encrypted. It
+works on the box in four steps:
 
 1. It makes a 32-byte key at `~/.config/manor/secret.key` (or
    `$XDG_CONFIG_HOME/manor/secret.key`), mode 0600, in a 0700 directory. An
@@ -535,7 +541,7 @@ rsync of the data directory or a snapshot of a volume mounted there, can no
 longer read the pairing keys. A copy of the whole home directory or the disk
 still can, because the key is on the same disk. If the restart fails, the key
 and the `supervisor.env` line stay, and the box stays on plaintext. Click
-**Encrypt them** again, or wait for the next start, and it finishes. The hint
+**Encrypt** again, or wait for the next start, and it finishes. The hint
 beside the button names the key file the click will use.
 
 **A recipe host** gets its key from its recipe, not from the button. The recipe
@@ -1000,11 +1006,11 @@ it (see [A key from outside the box](#a-key-from-outside-the-box)). Give it
 `MANOR_SECRET_KEY` or `MANOR_SECRET_KEY_FILE` again, the same key, and
 restart it.
 
-**"The host server restarted but its pairing keys are still plaintext"** (Encrypt them)
+**"The host server restarted but its pairing keys are still plaintext"** (Encrypt)
 The key file and the `supervisor.env` line are in place, and the server
 restarted, but it still didn't pick the key up. Read
 `~/.manor/remote/server/logs/host-server.log` on the box for the reason: look
-for `could not move pairing keys to key-file`. Then click **Encrypt them**
+for `could not move pairing keys to key-file`. Then click **Encrypt**
 again. It reuses the key, and the next start finishes.
 
 **"No supervisor on this host"**

@@ -12,20 +12,27 @@ type SettingRowProps = {
    * the `<label>`: a button inside it would take the label's clicks.
    */
   action?: ReactNode;
+  /**
+   * The control is a button or a link, not a switch: clicking the text does
+   * nothing, so the text is not a `<label>` for it.
+   */
+  plain?: boolean;
+  "data-testid"?: string;
 };
 
 /** One setting: label and hint on the left, its control on the right. */
 export function SettingRow(props: SettingRowProps) {
-  const { label, hint, children, action } = props;
+  const { label, hint, children, action, plain = false } = props;
+  const Main = plain ? "div" : "label";
   return (
-    <div className={styles.settingRow}>
-      <label className={styles.settingMain}>
+    <div className={styles.settingRow} data-testid={props["data-testid"]}>
+      <Main className={`${styles.settingMain} ${plain ? styles.settingMainPlain : ""}`}>
         <span className={styles.settingText}>
           <span className={styles.settingLabel}>{label}</span>
           {hint && <span className={styles.settingHint}>{hint}</span>}
         </span>
         {children}
-      </label>
+      </Main>
       {action && <div className={styles.settingAction}>{action}</div>}
     </div>
   );

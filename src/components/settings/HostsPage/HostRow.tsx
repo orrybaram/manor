@@ -42,6 +42,10 @@ const DESKTOP_NAME = "This Mac";
 const SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#encrypting-pairing-keys";
 
+/** Where a recipe giving its host a key is explained (ADR-236 D6). */
+const RECIPE_SECRETS_DOCS_URL =
+  "https://github.com/orrybaram/manor/blob/main/docs/hosts/recipes.md#pairing-key-encryption";
+
 /** Where giving a container a key from its environment is explained (ADR-236 D6). */
 const CONTAINER_SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#a-key-from-outside-the-box";
@@ -461,11 +465,15 @@ function statusLine(state: string, view: HostServerView | null): string {
   return `${state} · ${reach}`;
 }
 
-/** The key sits inside ~/.manor; an older server only says so with `secretKeyOnVolume`. */
+/**
+ * The key sealing the pairing keys sits inside ~/.manor; an older server only
+ * says so with `secretKeyOnVolume`. A key named while another backend seals
+ * them (one sticky from before, ADR-236 D8) is not worth the warning.
+ */
 function keyOnVolume(status: HostServerStatus): boolean {
   return status.secretKeyPlace === undefined
     ? status.secretKeyOnVolume === true
-    : status.secretKeyPlace === "data-dir";
+    : status.secretKeyPlace === "data-dir" && status.secretBackend === "key-file";
 }
 
 /** The pairing-key warnings the header repeats, in a few words each. */
@@ -578,7 +586,7 @@ function KeyWarnings(props: KeyWarningsProps) {
           {fix === "recipe" && (
             <div className={settingsStyles.fieldHint} data-testid="host-encrypt-recipe">
               {plaintextRecipeText(hostName)}{" "}
-              <Link href={SECRETS_DOCS_URL}>How</Link>
+              <Link href={RECIPE_SECRETS_DOCS_URL}>How</Link>
             </div>
           )}
           {fix === "container" && (

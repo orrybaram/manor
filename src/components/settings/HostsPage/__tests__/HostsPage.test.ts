@@ -318,6 +318,15 @@ describe("HostRow", () => {
       expect(q("host-row-status")?.textContent).toContain("pairing key stored on its disk");
     });
 
+    it("does not warn about a key in the data dir that doesn't seal the keys", async () => {
+      await render(
+        ssh(),
+        view({ status: keys({ secretBackend: "systemd-creds", secretKeyPlace: "data-dir" }) }),
+      );
+      expect(q("host-key-on-volume")).toBeNull();
+      expect(q("host-row-status")?.textContent).not.toContain("stored on its disk");
+    });
+
     it("falls back to secretKeyOnVolume from an older server", async () => {
       await render(
         ssh(),

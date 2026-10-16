@@ -235,16 +235,24 @@ export async function ensureServerRunning(
     const { state, pid } = await inspect(deps);
     if (state === "healthy") return;
     if (release === null) throw new Error("timed out waiting for another process starting the host server");
-
-    if (state === "stale-version" && pid !== null) await stopOld(deps, pid);
-    const supervisor = deps.supervisor?.() ?? null;
-    if (supervisor && (await startSupervised(deps, supervisor, state))) return;
-    deps.spawnServer(deps.paths);
-    if (!(await listening(deps, SOCKET_WAIT_MS))) {
-      throw new Error(`host server did not start listening on ${deps.paths.socket}`);
-    }
+    await startLocked(deps, state, pid);
   } finally {
     release?.();
+  }
+}
+
+/** With `server.lock` held: bring up a server of this version from `state`. */
+async function startLocked(
+  deps: LifecycleDeps,
+  state: Exclude<State, "healthy">,
+  pid: number | null,
+): Promise<void> {
+  if (state === "stale-version" && pid !== null) await stopOld(deps, pid);
+  const supervisor = deps.supervisor?.() ?? null;
+  if (supervisor && (await startSupervised(deps, supervisor, state))) return;
+  deps.spawnServer(deps.paths);
+  if (!(await listening(deps, SOCKET_WAIT_MS))) {
+    throw new Error(`host server did not start listening on ${deps.paths.socket}`);
   }
 }
 
@@ -287,24 +295,35 @@ async function startSupervised(
  * a supervisor the stop goes through it, so a unit with `Restart=` does not
  * bring the old process straight back; a supervisor that fails, or leaves
  * the pid alive, falls back to SIGTERM then SIGKILL. With no server running
- * this only ensures one. Throws as `ensureServerRunning` does.
+ * this only ensures one. The whole stop and start holds `server.lock`, so a
+ * bridge connecting meanwhile waits for the new server rather than racing
+ * the stop. Throws as `ensureServerRunning` does.
  */
 export async function restartServer(deps: LifecycleDeps = defaultDeps()): Promise<void> {
-  const { state, pid } = await inspect(deps);
-  if (state !== "down" && pid !== null) {
-    const supervisor = deps.supervisor?.() ?? null;
-    let stopped = false;
-    if (supervisor) {
-      try {
-        await supervisor.stop("server");
-        stopped = await waitFor(deps, KILL_GRACE_MS, () => !deps.isAlive(pid));
-      } catch (err) {
-        (deps.warn ?? ((m: string) => console.warn(m)))(
-          `[host-server] the ${supervisor.kind} supervisor could not stop the server (${errorMessage(err)}); signalling it`,
-        );
+  const release = await acquireLock(deps);
+  if (release === null) throw new Error("timed out waiting for another process starting the host server");
+  try {
+    const { state, pid } = await inspect(deps);
+    if (state !== "down" && pid !== null) {
+      const supervisor = deps.supervisor?.() ?? null;
+      let stopped = false;
+      if (supervisor) {
+        try {
+          await supervisor.stop("server");
+          stopped = await waitFor(deps, KILL_GRACE_MS, () => !deps.isAlive(pid));
+        } catch (err) {
+          (deps.warn ?? ((m: string) => console.warn(m)))(
+            `[host-server] the ${supervisor.kind} supervisor could not stop the server (${errorMessage(err)}); signalling it`,
+          );
+        }
       }
+      if (!stopped) await stopOld(deps, pid);
     }
-    if (!stopped) await stopOld(deps, pid);
+    // A supervisor may already have brought one back (`Restart=` after a SIGKILL).
+    const after = await inspect(deps);
+    if (after.state === "healthy") return;
+    await startLocked(deps, after.state, after.pid);
+  } finally {
+    release();
   }
-  await ensureServerRunning(deps);
 }

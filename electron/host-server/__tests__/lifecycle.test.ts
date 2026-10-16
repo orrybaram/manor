@@ -308,6 +308,27 @@ describe("ensureServerRunning", () => {
       expect(spawned).toBe(1);
     });
 
+    it("holds server.lock from the stop through the start, then releases it", async () => {
+      const { over } = await liveServer();
+      const lock = path.join(dir, "server.lock");
+      const heldAt: boolean[] = [];
+      await restartServer(
+        makeDeps({
+          ...over,
+          kill: (pid, sig) => {
+            heldAt.push(fs.existsSync(lock));
+            over.kill?.(pid, sig);
+          },
+          spawnServer: (p) => {
+            heldAt.push(fs.existsSync(lock));
+            over.spawnServer?.(p);
+          },
+        }),
+      );
+      expect(heldAt).toEqual([true, true]);
+      expect(fs.existsSync(lock)).toBe(false);
+    });
+
     it("supervised: stops and starts through the supervisor, signalling nothing", async () => {
       const paths = hostServerPaths(dir);
       const { state, takeDown, over } = await liveServer();

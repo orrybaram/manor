@@ -959,9 +959,9 @@ restart it.
 **"The host server restarted but its pairing keys are still plaintext"** (Encrypt them)
 The key file and the `supervisor.env` line are in place, and the server
 restarted, but it still didn't pick the key up. Read
-`~/.manor/remote/server/logs/host-server.log` on the box for the reason. A key
-that isn't 32 bytes, or a file that can't be read, is logged as an error. Then
-click **Encrypt them** again. It reuses the key, and the next start finishes.
+`~/.manor/remote/server/logs/host-server.log` on the box for the reason: look
+for `could not move pairing keys to key-file`. Then click **Encrypt them**
+again. It reuses the key, and the next start finishes.
 
 **"No supervisor on this host"**
 "Keep Manor running" found neither a systemd user manager, launchd, nor a

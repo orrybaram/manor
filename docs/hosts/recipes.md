@@ -264,14 +264,16 @@ passes `<namespace>/<name>`.
 A recipe host on plaintext pairing keys is fixed in its recipe, not with
 **Encrypt them**. The recipe has to give the host a key: set
 `MANOR_SECRET_KEY_FILE` to a file holding a 32-byte key, where the host server
-reads it. For a custom recipe, the usual way is to make the key file and write
-the line to `~/.manor/remote/supervisor.env` through cloud-init. The Docker and
-Kubernetes templates already do this (see
+reads it. The Docker and Kubernetes templates already do: they mount a key at
+`/run/secrets/manor-key` and set `MANOR_SECRET_KEY_FILE` in the container's
+environment. For a custom recipe on a VM, the usual way is to make the key file
+and write the line `MANOR_SECRET_KEY_FILE='<path>'` to
+`~/.manor/remote/supervisor.env` through cloud-init (see
 [Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys)).
 
 Settings → Hosts doesn't offer **Encrypt them** for a recipe host. The recipe
 owns the host's setup, so the fix belongs there. A recipe host still on
-plaintext shows the warning with a link to the Encrypting pairing keys section.
+plaintext shows the warning with a link to this section.
 
 ## The templates
 

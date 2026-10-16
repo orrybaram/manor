@@ -1,6 +1,6 @@
 ---
 title: Hide a project's pod from other projects' host targets
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [4]

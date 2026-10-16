@@ -651,9 +651,10 @@ the lid closed:
 - Under systemd, a server stopped cleanly with `kill` isn't restarted by
   `Restart=on-failure` until the next connect. Use `systemctl --user
   restart`.
-- `supervisor.env` is read only by systemd and launchd units. On an
+- ~~`supervisor.env` is read only by systemd and launchd units. On an
   unsupervised SSH box, `MANOR_SECRET_KEY*` and `MANOR_INSTANCE_ID` reach
-  the server only from the ssh session's environment.
+  the server only from the ssh session's environment.~~ Fixed in ADR-236
+  (D2): the host server reads `supervisor.env` itself.
 - Setting a key later upgrades only a plaintext host, not one already on
   systemd-creds or libsecret.
 - `supervise.pid` lives on the volume. A custom image whose old pid is

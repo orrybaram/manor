@@ -41,21 +41,23 @@ export function HostsPage() {
   const readOnly = isWebApp();
 
   return (
-    <Stack gap="sm" data-testid="hosts-page">
-      <SectionTitle id="hosts-list">Hosts</SectionTitle>
-      <div className={settingsStyles.fieldHint}>
-        Where your projects' files, git, terminals and agents run.
-      </div>
-      <div className={styles.hostList}>
-        <ThisMacRow />
-        {groups.map((group) => (
-          <ProfileGroup key={group.profile.id} group={group} readOnly={readOnly} />
-        ))}
-        {rest.map((host) => (
-          <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
-        ))}
-      </div>
-      {!readOnly && <AddHost />}
+    <Stack className={settingsStyles.pageContent} data-testid="hosts-page">
+      <Stack gap="sm">
+        <SectionTitle id="hosts-list">Hosts</SectionTitle>
+        <div className={settingsStyles.fieldHint}>
+          Where your projects' files, git, terminals and agents run.
+        </div>
+        <div className={styles.hostList}>
+          <ThisMacRow />
+          {groups.map((group) => (
+            <ProfileGroup key={group.profile.id} group={group} readOnly={readOnly} />
+          ))}
+          {rest.map((host) => (
+            <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
+          ))}
+        </div>
+        {!readOnly && <AddHost />}
+      </Stack>
       {!readOnly && <Profiles />}
     </Stack>
   );
@@ -255,7 +257,11 @@ function ProfileGroup(props: { group: HostGroup<HostStatusInfo, HostProfile>; re
             {runningSummary(group)}
           </span>
         </Button>
-        {!readOnly && <ProfileActions profile={profile} />}
+        {!readOnly && (
+          <div className={styles.rowHeaderActions}>
+            <ProfileActions profile={profile} />
+          </div>
+        )}
       </div>
       {!collapsed &&
         group.hosts.map((host) => (

@@ -102,7 +102,7 @@ function RemoveHostBody(props: RemoveHostDialogProps) {
             sidebar, and phones reach it only through their own pairing with it. The host
             itself, and everything on it, stays as it is.
           </div>
-          <div>
+          <div className={dialogStyles.confirmActions}>
             <Button
               variant="secondary"
               data-testid="host-remove-plain"
@@ -139,7 +139,7 @@ function RemoveHostBody(props: RemoveHostDialogProps) {
                 if (e.key === "Enter" && confirmed && !busy) remove(true);
               }}
             />
-            <div>
+            <div className={dialogStyles.confirmActions}>
               <Button
                 variant="danger"
                 data-testid="host-destroy-confirm"

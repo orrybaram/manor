@@ -1,6 +1,6 @@
 ---
 title: Kubernetes template — ingress-deny NetworkPolicy and labels
-status: todo
+status: done
 priority: medium
 assignee: haiku
 blocked_by: []

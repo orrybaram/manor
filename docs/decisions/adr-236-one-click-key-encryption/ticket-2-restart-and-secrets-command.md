@@ -1,6 +1,6 @@
 ---
 title: restartServer and the manor-host secrets command
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: [1]

@@ -1,6 +1,6 @@
 ---
 title: Desktop method hosts.encryptKeys
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

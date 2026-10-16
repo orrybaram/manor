@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Checkbox } from "../ui/Checkbox/Checkbox";
 import { deletePodsLabel, finishPods, podsOf } from "../../lib/project-pods";
 import styles from "./dialogs.module.css";
@@ -24,6 +24,10 @@ export function RemoveFromHostDialog() {
   );
   const hosts = useHostStore((s) => s.hosts);
   const [deletePod, setDeletePod] = useState(true);
+  const isOpen = request !== null;
+  useEffect(() => {
+    if (isOpen) setDeletePod(true);
+  }, [isOpen]);
 
   // On a phone the page is not "This machine" (ADR-228 D8).
   const host = member

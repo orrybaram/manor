@@ -1,6 +1,6 @@
 ---
 title: Docker template keeps its key in a named volume
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

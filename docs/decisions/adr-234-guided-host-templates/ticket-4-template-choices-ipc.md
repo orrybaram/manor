@@ -1,6 +1,6 @@
 ---
 title: Typed template fields and the hosts.checkTemplate IPC (choices)
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2]

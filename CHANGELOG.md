@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.22.2] - 2026-10-16
+
+### Features
+
+- **One-click key encryption:** if a host's pairing keys are stored unencrypted, Settings → Hosts now shows an **Encrypt them** button that encrypts them in one click. The page also tells you where the key is kept and what that protects against.
+- **Keys kept away from terminals:** terminals, agents and busy hooks on a host can no longer see its secret key.
+- **Unsupervised SSH hosts:** hosts reached over SSH without a supervisor now also get the key, so their encrypted pairing keys work too.
+- **New `manor-host` commands:** `manor-host restart-server` restarts the host server, including under systemd. `manor-host secrets status --json` reports the state of the host's pairing keys.
+- **Devices page:** the Remote control page is now called **Devices**. The command palette entry is "Settings: Devices" and the app menu item is "Devices…".
+- **Hosts own their device access:** each remote host has a row you can expand to manage its device access and integrations. The remote-control switch and reset are in the This Mac row, and the REMOTE status chip opens that row.
+- **One "Add a host…" wizard:** a single **Add a host…** wizard now adds both SSH hosts and hosts that Manor starts.
+- **Slot-machine diff badge:** the +/- badge in the sidebar spins its digits like slot reels. Bigger changes get a bigger payout, up to a gold jackpot for gains of 400 or more lines. It doesn't play in hidden windows or when reduced motion is on.
+
+### Fixes
+
+- Linux: the light native menu bar no longer shows above the dark window, and keyboard shortcuts still work.
+- Linux: scroll bars now match the app's theme instead of showing as gray bars with arrow buttons.
+- Linux: the gap left for macOS window buttons is gone from the top-left corner.
+- The template picker in the Add a host dialog is no longer cut off.
+- When a recipe fails, its output now shows in the wizard and in the host's row.
+- A host that isn't connected no longer shows "Updating…" forever under Device access.
+- Turning off "Keep running" no longer leaves a host unable to read its encrypted keys.
+- On a host whose keys aren't encrypted yet, an unreadable key file now logs a warning instead of stopping the server.
+
 ## [0.22.1] - 2026-10-15
 
 ### Fixes

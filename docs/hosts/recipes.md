@@ -506,8 +506,12 @@ hosts started from one snapshot, image or copied volume of that directory
 would share one relay room, and each one's phones would see the other's
 agents.
 
-- **Build images before Manor first connects.** The reference image has
-  nothing of Manor's in it; the first connect installs it on the volume.
+- **Build images before Manor first connects.** An image may hold Manor
+  *code*, never Manor *state*. The reference image carries the version's
+  host package in `/opt/manor/host-<version>/`, which the first connect
+  copies onto the volume. `~/.manor/remote/server/` is only ever on the home
+  volume, so sharing that image is safe. A snapshot of a volume, or of a
+  machine where Manor has run, is not.
 - **Give every host its own `MANOR_INSTANCE_ID`.** The host server records
   the id it was created under. When it starts under a different one, it
   keeps the projects, agents and layout, and resets everything sealed: the

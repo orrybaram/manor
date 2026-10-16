@@ -13,6 +13,13 @@
  * installed with `npm install --omit=dev` so node-pty resolves (or builds)
  * for the remote's platform.
  *
+ * An image may carry the version's package already installed (ADR-235 D10):
+ * `/opt/manor/host-<version>/`, with node_modules and a built node-pty. When
+ * it is there and node-pty loads from it, the install copies it into staging
+ * instead of uploading the tarball and running npm; everything after that
+ * (lock, swap, shims, hook refresh) is the same. `/opt/manor` holds only
+ * code, never state.
+ *
  * Remote layout (all under the remote `$HOME/.manor/`):
  *   host/                       the unpacked package + node_modules
  *   .host-staging-<id>/         an install in progress; renamed to host/
@@ -78,6 +85,17 @@ const HOST_ENTRY = "terminal-host-index.js";
 
 /** The CLI entry inside the package, run by the `manor` shim (ADR-189 ticket 4). */
 const CLI_ENTRY = "manor-cli.js";
+
+/** Where an image keeps baked host packages, one per version (ADR-235 D10). */
+const BAKED_ROOT = "/opt/manor";
+/**
+ * The versions a baked package may be looked up under. Strict, because the
+ * version is spelled into shell commands and a node `require` string: digits,
+ * dots, and an optional pre-release/build tag of `[0-9A-Za-z.-]`.
+ */
+const BAKED_VERSION_RE = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+/** `bakedProbeCommand` prints this only when the baked package is usable. */
+const BAKED_OK = "__MANOR_BAKED_OK__";
 
 // ── Errors ──
 
@@ -260,6 +278,36 @@ const NODE_PTY_PREBUILT = new Set(["darwin-x64", "darwin-arm64"]);
 
 export const HOST_VERSION_COMMAND = `${HOST_BIN} --version 2>/dev/null`;
 
+/**
+ * The directory an image bakes `version`'s host package into (ADR-235 D10),
+ * or null for a version that does not match `BAKED_VERSION_RE` (such a
+ * version never uses a baked package).
+ */
+export function bakedHostDir(version: string): string | null {
+  return BAKED_VERSION_RE.test(version) ? `${BAKED_ROOT}/host-${version}` : null;
+}
+
+/**
+ * Checks for a usable baked package: the directory exists and the node we
+ * picked can load its node-pty (a different node ABI fails here, and falls
+ * back to the upload). Prints `BAKED_OK` on success. Null when `version`
+ * cannot have one.
+ */
+export function bakedProbeCommand(version: string, nodePath: string): string | null {
+  const dir = bakedHostDir(version);
+  if (!dir) return null;
+  return (
+    `test -d ${shellQuote(dir)}` +
+    ` && ${shellQuote(nodePath)} -e 'require("${dir}/node_modules/node-pty")' >/dev/null 2>&1` +
+    ` && echo ${BAKED_OK}`
+  );
+}
+
+/** True when `bakedProbeCommand` found a usable baked package. */
+export function parseBakedProbe(res: RemoteExecResult): boolean {
+  return res.code === 0 && res.stdout.split(/\r?\n/).some((l) => l.trim() === BAKED_OK);
+}
+
 /** The launcher shim written to `~/.manor/bin/manor-host`. */
 export function renderLauncherShim(version: string, nodePath: string): string {
   return [
@@ -303,31 +351,68 @@ function writeShimCommands(bin: string, shimBody: string[]): string[] {
   ];
 }
 
-export interface InstallCommands {
+/**
+ * Where the package comes from: `upload`, the tarball piped from this
+ * machine and `npm install`ed on the remote; or `baked`, an image's
+ * `/opt/manor/host-<version>/` copied as is (ADR-235 D10).
+ */
+export type InstallSource = "upload" | "baked";
+
+interface InstallCommandsBase {
   /** Create an empty staging dir. Touches nothing in use. */
   prepare: string;
-  /** Unpack the tarball from stdin into staging. */
-  stream: string;
-  /** `npm install` inside staging and prove node-pty loads. */
-  install: string;
   /** Swap staging into place and write the launcher and CLI shims. */
   commit: string;
   /** Best-effort removal of staging after a failure. */
   cleanup: string;
 }
 
+export interface UploadInstallCommands extends InstallCommandsBase {
+  source: "upload";
+  /** Unpack the tarball from stdin into staging. */
+  stream: string;
+  /** `npm install` inside staging and prove node-pty loads. */
+  install: string;
+}
+
+export interface BakedInstallCommands extends InstallCommandsBase {
+  source: "baked";
+  /** Copy the image's baked package into staging and prove node-pty loads. */
+  install: string;
+}
+
+export type InstallCommands = UploadInstallCommands | BakedInstallCommands;
+
 /**
  * The remote shell snippets for one install. `stagingId` names the staging
  * dir — it must be shared across several ssh invocations, so it is chosen
- * here rather than with the remote's `$$`.
+ * here rather than with the remote's `$$`. `baked` throws for a version
+ * `bakedHostDir` rejects.
  */
 export function buildInstallCommands(
   version: string,
   nodePath: string,
   stagingId: string,
+  source?: "upload",
+): UploadInstallCommands;
+export function buildInstallCommands(
+  version: string,
+  nodePath: string,
+  stagingId: string,
+  source: "baked",
+): BakedInstallCommands;
+export function buildInstallCommands(
+  version: string,
+  nodePath: string,
+  stagingId: string,
+  source: InstallSource = "upload",
 ): InstallCommands {
   if (!/^[A-Za-z0-9_-]+$/.test(stagingId)) {
     throw new Error(`Invalid staging id: ${JSON.stringify(stagingId)}`);
+  }
+  const bakedDir = source === "baked" ? bakedHostDir(version) : null;
+  if (source === "baked" && !bakedDir) {
+    throw new Error(`No baked host package for version ${JSON.stringify(version)}`);
   }
   const staging = `"$HOME/.manor/.host-staging-${stagingId}"`;
   const lock = `"$HOME/.manor/.host-install.lock"`;
@@ -340,33 +425,13 @@ export function buildInstallCommands(
   const [cliShebang, ...cliShimBody] = renderCliShim(nodePath).replace(/\n$/, "").split("\n");
   if (cliShebang !== "#!/bin/sh") throw new Error(`Unexpected CLI shim shebang: ${cliShebang}`);
   const installTimeoutS = INSTALL_TIMEOUT_MS / 1000 - REMOTE_TIMEOUT_MARGIN_S;
+  const proveNodePty = `${shellQuote(nodePath)} -e 'require("node-pty")'`;
 
-  return {
+  const base: InstallCommandsBase = {
     prepare: [
       "set -e",
       `rm -rf ${staging}`,
       `mkdir -p ${staging} ${BIN_DIR}`,
-    ].join("; "),
-
-    // npm tarballs nest everything under `package/`.
-    stream: ["set -e", `tar -xzf - -C ${staging} --strip-components=1`].join("; "),
-
-    install: [
-      "set -e",
-      `cd ${staging}`,
-      // Prefer the npm beside the node we checked; fall back to PATH.
-      `if [ -x ${npm} ]; then NPM=${npm}; else NPM=npm; fi`,
-      // Put that node first so npm's install scripts (node-gyp) use it too.
-      `PATH=${shellQuote(path.posix.dirname(nodePath))}:"$PATH"; export PATH`,
-      // Stop npm (and the compiler under it) on the remote if it overruns;
-      // our ssh timeout alone would leave it running there.
-      `T=; if command -v timeout >/dev/null 2>&1; then T="timeout ${installTimeoutS}"; fi`,
-      '$T "$NPM" install --omit=dev --no-audit --no-fund --no-package-lock',
-      // node-pty's prebuilt `spawn-helper` (macOS) is unpacked without its
-      // exec bit, and every pty spawn then fails with posix_spawnp. Found by
-      // the real-sshd E2E suite (ADR-160 ticket 12).
-      'for f in node_modules/node-pty/prebuilds/*/spawn-helper; do if [ -f "$f" ]; then chmod 755 "$f"; fi; done',
-      `${shellQuote(nodePath)} -e 'require("node-pty")'`,
     ].join("; "),
 
     // Two renames rather than one (POSIX `mv` cannot replace a non-empty
@@ -400,6 +465,48 @@ export function buildInstallCommands(
     ].join("; "),
 
     cleanup: `rm -rf ${staging}`,
+  };
+
+  if (bakedDir) {
+    return {
+      ...base,
+      source: "baked",
+      install: [
+        "set -e",
+        // The baked package is root's and read-only to us. The copy is ours
+        // and must be writable, so a later update can remove it.
+        `cp -a ${shellQuote(`${bakedDir}/.`)} ${staging}/`,
+        `chmod -R u+w ${staging}`,
+        `cd ${staging}`,
+        proveNodePty,
+      ].join("; "),
+    };
+  }
+
+  return {
+    ...base,
+    source: "upload",
+
+    // npm tarballs nest everything under `package/`.
+    stream: ["set -e", `tar -xzf - -C ${staging} --strip-components=1`].join("; "),
+
+    install: [
+      "set -e",
+      `cd ${staging}`,
+      // Prefer the npm beside the node we checked; fall back to PATH.
+      `if [ -x ${npm} ]; then NPM=${npm}; else NPM=npm; fi`,
+      // Put that node first so npm's install scripts (node-gyp) use it too.
+      `PATH=${shellQuote(path.posix.dirname(nodePath))}:"$PATH"; export PATH`,
+      // Stop npm (and the compiler under it) on the remote if it overruns;
+      // our ssh timeout alone would leave it running there.
+      `T=; if command -v timeout >/dev/null 2>&1; then T="timeout ${installTimeoutS}"; fi`,
+      '$T "$NPM" install --omit=dev --no-audit --no-fund --no-package-lock',
+      // node-pty's prebuilt `spawn-helper` (macOS) is unpacked without its
+      // exec bit, and every pty spawn then fails with posix_spawnp. Found by
+      // the real-sshd E2E suite (ADR-160 ticket 12).
+      'for f in node_modules/node-pty/prebuilds/*/spawn-helper; do if [ -f "$f" ]; then chmod 755 "$f"; fi; done',
+      proveNodePty,
+    ].join("; "),
   };
 }
 
@@ -493,17 +600,35 @@ export async function ensureRemoteHost(
 
   // 4. Install
   report("install", `Installing Manor host ${version} on ${target}…`);
-  if (!NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`)) {
-    await checkToolchain(target, ssh);
-  }
-  const tarball = await (opts.loadTarball ?? readTarball)(version);
   const stagingId = opts.stagingId?.() ?? crypto.randomBytes(6).toString("hex");
-  const cmds = buildInstallCommands(version, nodePath, stagingId);
+  // A baked package in the image (ADR-235 D10) needs no upload and no npm;
+  // anything short of a working one falls back to the upload.
+  const probe = bakedProbeCommand(version, nodePath);
+  const baked = probe !== null && parseBakedProbe(await ssh(probe));
+
+  let cmds: InstallCommands;
+  let tarball: Buffer | null = null;
+  let compiles = false;
+  if (baked) {
+    cmds = buildInstallCommands(version, nodePath, stagingId, "baked");
+  } else {
+    compiles = !NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`);
+    if (compiles) await checkToolchain(target, ssh);
+    tarball = await (opts.loadTarball ?? readTarball)(version);
+    cmds = buildInstallCommands(version, nodePath, stagingId, "upload");
+  }
 
   await step(target, "prepare", ssh(cmds.prepare));
   try {
-    await step(target, "transfer", ssh(cmds.stream, { stdin: tarball, timeoutMs: STREAM_TIMEOUT_MS }));
-    await step(target, "npm install", ssh(cmds.install, { timeoutMs: INSTALL_TIMEOUT_MS }));
+    if (cmds.source === "upload" && tarball) {
+      await step(target, "transfer", ssh(cmds.stream, { stdin: tarball, timeoutMs: STREAM_TIMEOUT_MS }));
+      if (compiles) {
+        report("install", `Compiling node-pty on ${target} (this can take a few minutes)…`);
+      }
+      await step(target, "npm install", ssh(cmds.install, { timeoutMs: INSTALL_TIMEOUT_MS }));
+    } else {
+      await step(target, "copy", ssh(cmds.install, { timeoutMs: INSTALL_TIMEOUT_MS }));
+    }
   } catch (err) {
     // Never commit a partial install; leave whatever was there untouched.
     await ssh(cmds.cleanup).catch(() => {});

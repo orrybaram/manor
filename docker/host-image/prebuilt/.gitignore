@@ -1,0 +1,4 @@
+# The release job drops the version's host tarball here for the image
+# build (ADR-235 D10). Never commit one.
+*
+!.gitignore

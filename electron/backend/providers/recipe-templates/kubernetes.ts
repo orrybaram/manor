@@ -61,6 +61,21 @@ if ! "\${kubectl_cmd[@]}" get namespace "$namespace" >/dev/null 2>&1; then
   "\${kubectl_cmd[@]}" create namespace "$namespace"
 fi
 
+# Pods Manor manages accept no traffic from inside the cluster. The policy is
+# shared by the namespace, so destroy leaves it in place. Idempotent.
+"\${kube[@]}" apply -f - <<YAML
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: manor-deny-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: manor
+  policyTypes: [Ingress]
+  ingress: []
+YAML
+
 # The key that seals the host's secrets (ADR-229 D5), generated once. A Secret
 # is not on the home volume, so a copy of the volume cannot read them.
 if ! "\${kube[@]}" get secret "$name-key" >/dev/null 2>&1; then
@@ -93,6 +108,8 @@ spec:
     metadata:
       labels:
         app: $name
+        app.kubernetes.io/managed-by: manor
+        manor.sh/host: $name
     spec:
       securityContext:
         runAsNonRoot: true

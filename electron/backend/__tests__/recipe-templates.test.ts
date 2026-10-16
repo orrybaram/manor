@@ -230,6 +230,42 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(manifest).not.toMatch(/limits:\n\s+cpu/);
   });
 
+  it("kubernetes: the pod template carries Manor's labels, and the selector is left alone", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).toContain(
+      "      labels:\n        app: box1\n        app.kubernetes.io/managed-by: manor\n        manor.sh/host: box1\n",
+    );
+    // Selectors are immutable: the labels are only on the pod template.
+    expect(manifest).toContain("  selector:\n    matchLabels:\n      app: box1\n");
+    expect(manifest).not.toMatch(/matchLabels:\n\s+app: box1\n\s+app\.kubernetes/);
+  });
+
+  it("kubernetes: up applies an ingress-deny NetworkPolicy for Manor's pods, before the pod", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).toContain(
+      [
+        "apiVersion: networking.k8s.io/v1",
+        "kind: NetworkPolicy",
+        "metadata:",
+        "  name: manor-deny-ingress",
+        "spec:",
+        "  podSelector:",
+        "    matchLabels:",
+        "      app.kubernetes.io/managed-by: manor",
+        "  policyTypes: [Ingress]",
+        "  ingress: []",
+        "",
+      ].join("\n"),
+    );
+    expect(manifest.indexOf("kind: NetworkPolicy")).toBeLessThan(
+      manifest.indexOf("kind: StatefulSet"),
+    );
+    // The policy is shared by the namespace: destroy never deletes it.
+    const destroy = RECIPE_TEMPLATES[1].files["destroy.sh"].content;
+    expect(destroy).not.toContain("networkpolicy");
+    expect(destroy).not.toContain("manor-deny-ingress");
+  });
+
   it("kubernetes: an old recipe without a size renders no resources block", () => {
     const manifest = renderManifest(K8S_ENV);
     expect(manifest).not.toContain("limits:");

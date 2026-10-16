@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 import { Checkbox } from "../ui/Checkbox/Checkbox";
 import { useHostStore } from "../../store/host-store";
@@ -19,13 +19,15 @@ type RemoveProjectDialogProps = {
 };
 
 export function RemoveProjectDialog(props: RemoveProjectDialogProps) {
+  // Remount per opening so "delete pods" starts checked every time.
+  return <RemoveProjectDialogBody key={String(props.open)} {...props} />;
+}
+
+function RemoveProjectDialogBody(props: RemoveProjectDialogProps) {
   const { open, onOpenChange, projectName, members = [], onConfirm } = props;
   const hosts = useHostStore((s) => s.hosts);
   const pods = podsOf(members, hosts);
   const [deletePods, setDeletePods] = useState(true);
-  useEffect(() => {
-    if (open) setDeletePods(true);
-  }, [open]);
 
   return (
     <ConfirmDialog

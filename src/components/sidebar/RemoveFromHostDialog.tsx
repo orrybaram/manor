@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Checkbox } from "../ui/Checkbox/Checkbox";
 import { deletePodsLabel, finishPods, podsOf } from "../../lib/project-pods";
 import styles from "./dialogs.module.css";
@@ -14,6 +14,12 @@ import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
  * success toast can open it too.
  */
 export function RemoveFromHostDialog() {
+  const requestKey = useProjectStore((s) => s.removeFromHostDialog?.projectId);
+  // Remount per opening so "delete pod" starts checked every time.
+  return <RemoveFromHostDialogBody key={requestKey ?? "closed"} />;
+}
+
+function RemoveFromHostDialogBody() {
   const request = useProjectStore((s) => s.removeFromHostDialog);
   const close = useProjectStore((s) => s.closeRemoveFromHost);
   const removeFromHost = useProjectStore((s) => s.removeFromHost);
@@ -24,10 +30,6 @@ export function RemoveFromHostDialog() {
   );
   const hosts = useHostStore((s) => s.hosts);
   const [deletePod, setDeletePod] = useState(true);
-  const isOpen = request !== null;
-  useEffect(() => {
-    if (isOpen) setDeletePod(true);
-  }, [isOpen]);
 
   // On a phone the page is not "This machine" (ADR-228 D8).
   const host = member

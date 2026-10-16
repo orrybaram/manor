@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, useMemo } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { addErrorToast } from "../../store/toast-store";
 import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -21,7 +21,6 @@ import {
   portlessHostFor,
   portlessHostname,
 } from "../../lib/portless-hostname";
-import { useListKeyboardNav } from "../../hooks/useListKeyboardNav";
 import { useThemeStore, type Theme } from "../../store/theme-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { LinearProjectSection } from "./LinearProjectSection";
@@ -31,6 +30,7 @@ import { DEFAULT_AGENT_COMMAND } from "../../agent-defaults";
 import { PROJECT_COLORS } from "../../project-colors";
 import { Input, Textarea } from "../ui/Input";
 import { EmojiInput } from "../ui/EmojiAutocomplete";
+import { SearchableSelect } from "../ui/SearchableSelect/SearchableSelect";
 import { Switch } from "../ui/Switch/Switch";
 import { Stack, Row } from "../ui/Layout/Layout";
 import { SectionTitle } from "./SectionTitle";
@@ -83,13 +83,9 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
   const updateProject = useProjectStore((s) => s.updateProject);
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const [hasGhostty, setHasGhostty] = useState(false);
-  const [query, setQuery] = useState("");
   const [allColors, setAllColors] = useState<Record<string, ThemeColors>>({});
-  const [highlightIndex, setHighlightIndex] = useState(-1);
-  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   useMountEffect(() => {
-    setQuery("");
     Promise.all([
       window.electronAPI.theme.hasGhosttyConfig(),
       window.electronAPI.theme.allColors(),
@@ -127,12 +123,6 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
     return result;
   }, [allColors, hasGhostty]);
 
-  const filtered = useMemo(() => {
-    if (!query) return entries;
-    const q = query.toLowerCase();
-    return entries.filter((e) => e.displayName.toLowerCase().includes(q));
-  }, [query, entries]);
-
   const selectedName = project.themeName ?? "__global__";
 
   const handleSelect = useCallback(
@@ -144,114 +134,58 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
     [project.id, updateProject, applyProjectTheme],
   );
 
-  const handleSelectByIndex = useCallback(
-    (index: number) => {
-      if (filtered[index]) handleSelect(filtered[index].name);
-    },
-    [filtered, handleSelect],
-  );
-
-  const scrollToHighlight = useCallback(
-    (updater: (i: number) => number) => {
-      setHighlightIndex((prev) => {
-        const next = updater(prev);
-        if (next >= 0 && next < filtered.length) {
-          const name = filtered[next].name;
-          requestAnimationFrame(() => {
-            itemRefs.current.get(name)?.scrollIntoView({ block: "nearest" });
-          });
-        }
-        return next;
-      });
-    },
-    [filtered],
-  );
-
-  const handleKeyDown = useListKeyboardNav(
-    filtered.length,
-    highlightIndex,
-    scrollToHighlight,
-    handleSelectByIndex,
+  const options = useMemo(
+    () =>
+      entries.map((entry) => {
+        const colors = allColors[entry.name];
+        return {
+          value: entry.name,
+          label: entry.displayName,
+          trailing: (
+            <>
+              {entry.badge && (
+                <span className={styles.themeItemBadge}>{entry.badge}</span>
+              )}
+              {colors && (
+                <Row gap="xs" className={styles.themePreview}>
+                  {[
+                    colors.red,
+                    colors.green,
+                    colors.yellow,
+                    colors.blue,
+                    colors.magenta,
+                    colors.cyan,
+                  ].map((c, k) => (
+                    <div
+                      key={k}
+                      className={styles.colorDot}
+                      style={{ background: c }}
+                    />
+                  ))}
+                </Row>
+              )}
+            </>
+          ),
+        };
+      }),
+    [entries, allColors],
   );
 
   return (
-    <div onKeyDown={handleKeyDown}>
-      <label className={styles.fieldLabel}>Theme</label>
-      <Input
-        className={styles.themeSearch}
-        type="text"
-        placeholder="Search themes..."
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setHighlightIndex(-1);
-        }}
+    <Stack gap="xs">
+      <label className={styles.fieldLabel} htmlFor="project-theme">
+        Theme
+      </label>
+      <SearchableSelect
+        id="project-theme"
+        value={selectedName}
+        onChange={handleSelect}
+        options={options}
+        listMaxHeight={320}
+        className={styles.fullWidthSelect}
+        data-testid="project-theme-select"
       />
-      <div style={{ maxHeight: 300, overflowY: "auto" }}>
-        <div className={styles.themeList}>
-          {filtered.map((entry, idx) => {
-            const isSelected = entry.name === selectedName;
-            const isHighlighted = idx === highlightIndex;
-            const colors = allColors[entry.name] ?? null;
-            const dotColors = colors
-              ? [
-                  colors.red,
-                  colors.green,
-                  colors.yellow,
-                  colors.blue,
-                  colors.magenta,
-                  colors.cyan,
-                ]
-              : null;
-            return (
-              <div
-                key={entry.name}
-                ref={(el) => {
-                  if (el) itemRefs.current.set(entry.name, el);
-                  else itemRefs.current.delete(entry.name);
-                }}
-                className={`${styles.themeItem} ${isSelected ? styles.themeItemSelected : ""} ${isHighlighted ? styles.themeItemHighlighted : ""}`}
-                onClick={() => handleSelect(entry.name)}
-                onMouseEnter={() => setHighlightIndex(idx)}
-              >
-                <span className={styles.checkmark}>
-                  {isSelected ? <Check size={14} /> : ""}
-                </span>
-                <span className={styles.themeItemLabel}>
-                  {entry.displayName}
-                </span>
-                {entry.badge && (
-                  <span className={styles.themeItemBadge}>{entry.badge}</span>
-                )}
-                {dotColors && (
-                  <Row gap="xs" className={styles.themePreview}>
-                    {dotColors.map((c, i) => (
-                      <div
-                        key={i}
-                        className={styles.colorDot}
-                        style={{ background: c }}
-                      />
-                    ))}
-                  </Row>
-                )}
-              </div>
-            );
-          })}
-          {filtered.length === 0 && (
-            <div
-              style={{
-                padding: 16,
-                textAlign: "center",
-                color: "var(--text-dim)",
-                fontSize: 13,
-              }}
-            >
-              No matching themes
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    </Stack>
   );
 }
 
@@ -301,7 +235,7 @@ function NameField(props: ProjectFieldProps) {
   const updateProject = useProjectStore((s) => s.updateProject);
 
   return (
-    <>
+    <Stack gap="xs">
       <label className={styles.fieldLabel}>Name</label>
       <EmojiInput
         defaultValue={project.name}
@@ -312,7 +246,7 @@ function NameField(props: ProjectFieldProps) {
           }
         }}
       />
-    </>
+    </Stack>
   );
 }
 
@@ -599,9 +533,11 @@ export function GroupSettingsPage(props: GroupSettingsPageProps) {
           Shared by every host this project is set up on. What differs per machine (path,
           host, worktrees, ports) is on each host's page.
         </div>
-        <NameField key={group.name} project={lead} />
+        <div className={styles.generalGrid}>
+          <NameField key={group.name} project={lead} />
+          <ProjectThemeSelector project={lead} />
+        </div>
         <ColorField project={lead} />
-        <ProjectThemeSelector project={lead} />
       </Stack>
       <LinearProjectSection project={lead} />
       <AgentSection project={lead} />
@@ -664,10 +600,12 @@ export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
     <Stack className={styles.pageContent}>
       <Stack gap="xs">
         <SectionTitle id="project-general">General</SectionTitle>
-        <NameField project={project} />
+        <div className={styles.generalGrid}>
+          <NameField project={project} />
+          <ProjectThemeSelector project={project} />
+        </div>
         <PathFields project={project} />
         <ColorField project={project} />
-        <ProjectThemeSelector project={project} />
       </Stack>
       <LinearProjectSection project={project} />
       <ProjectHostSection project={project} />

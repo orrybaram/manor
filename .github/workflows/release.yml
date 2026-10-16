@@ -35,6 +35,11 @@
 # extra secret). GHCR packages start private, so after the FIRST push set the
 # package public once by hand: GitHub -> Packages -> manor-host -> Package
 # settings -> Change visibility -> Public. Until then pulls need a login.
+#
+# The image bakes in the version's host package (ADR-235 D10): the job builds
+# the app's bundles and the host tarball, and the image build npm-installs it
+# into /opt/manor/host-<version>/ for each arch (node-pty compiles there,
+# under QEMU for arm64, hence the longer timeout).
 
 name: Release
 
@@ -49,6 +54,7 @@ permissions:
 jobs:
   host-image:
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       contents: read
       packages: write
@@ -59,6 +65,28 @@ jobs:
 
       - name: Derive version from tag
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      # The tarball takes its version from package.json, as the release job's does.
+      - name: Sync version from tag
+        run: pnpm pkg set version="$VERSION"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build the host tarball
+        run: |
+          set -euo pipefail
+          pnpm run build
+          node scripts/build-host-tarball.mjs
+          cp "dist-electron/manor-host-$VERSION.tgz" docker/host-image/prebuilt/
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -79,6 +107,9 @@ jobs:
           context: docker/host-image
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: |
+            MANOR_HOST_TARBALL=manor-host-${{ env.VERSION }}.tgz
+            VERSION=${{ env.VERSION }}
           tags: |
             ghcr.io/orrybaram/manor-host:${{ env.VERSION }}
             ghcr.io/orrybaram/manor-host:latest

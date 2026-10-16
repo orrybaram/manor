@@ -1,6 +1,6 @@
 ---
 title: The Set up on fallback path marks the pod as the project's
-status: in-progress
+status: done
 priority: high
 assignee: opus
 blocked_by: []

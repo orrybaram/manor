@@ -1,6 +1,6 @@
 ---
 title: "Show all hosts" in New Workspace and Project Settings
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: []

@@ -240,6 +240,11 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hosts.projectsOnHost": "home",
   // Run through the host's transport, which the desktop holds (ADR-229 D4).
   "hosts.setSupervised": "home",
+  // Profiles are this desktop's, which runs the recipes made from them
+  // (ADR-235 D1).
+  "hostProfiles.list": "home",
+  "hostProfiles.save": "home",
+  "hostProfiles.remove": "home",
 
   // Each server watches the workspaces it answers for (ADR-230 D6); a
   // desktop window alone still hands its whole list to its own server,

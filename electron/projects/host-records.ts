@@ -122,6 +122,34 @@ export class HostRecords {
     this.store.save();
   }
 
+  /** The host profile `hostId` was made from (ADR-235 D1), if any. */
+  profileId(hostId: string): string | undefined {
+    return this.store.state.hosts?.[hostId]?.profileId;
+  }
+
+  /** Set or clear (`undefined`) the profile `hostId` was made from. */
+  setProfileId(hostId: string, profileId: string | undefined): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || host.profileId === profileId) return;
+    if (profileId === undefined) delete host.profileId;
+    else host.profileId = profileId;
+    this.store.save();
+  }
+
+  /** The project `hostId` was made for (ADR-235 D5), if any. */
+  forProject(hostId: string): string | undefined {
+    return this.store.state.hosts?.[hostId]?.forProject;
+  }
+
+  /** Set or clear (`undefined`) the project `hostId` was made for. */
+  setForProject(hostId: string, projectId: string | undefined): void {
+    const host = this.store.state.hosts?.[hostId];
+    if (!host || host.forProject === projectId) return;
+    if (projectId === undefined) delete host.forProject;
+    else host.forProject = projectId;
+    this.store.save();
+  }
+
   /** The host's linked pairings still to revoke (ADR-228 D9). */
   pendingRevokes(hostId: string): string[] {
     return [...(this.store.state.hosts?.[hostId]?.pendingRevokes ?? [])];

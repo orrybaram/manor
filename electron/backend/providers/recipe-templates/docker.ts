@@ -205,6 +205,7 @@ export const dockerTemplate: RecipeTemplate = {
         "Optional, such as colima or desktop-linux. Blank for the default.",
     },
   ],
+  perHost: ["name"],
   files: {
     "up.sh": { content: UP, mode: 0o755 },
     "status.sh": { content: STATUS, mode: 0o755 },

@@ -255,6 +255,7 @@ export const kubernetesTemplate: RecipeTemplate = {
     { key: "storage", label: "Storage size", default: "20Gi", required: true },
     { key: "storageClass", label: "Storage class", description: "Optional. Leave blank for the cluster default." },
   ],
+  perHost: ["name"],
   files: {
     "up.sh": { content: UP, mode: 0o755 },
     "status.sh": { content: STATUS, mode: 0o755 },

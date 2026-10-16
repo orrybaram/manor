@@ -204,4 +204,7 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.createCustomRecipe"
   | "hosts.remove"
   | "hosts.projectsOnHost"
+  | "hostProfiles.list"
+  | "hostProfiles.save"
+  | "hostProfiles.remove"
 >;

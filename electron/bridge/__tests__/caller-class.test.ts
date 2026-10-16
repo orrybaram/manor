@@ -445,6 +445,10 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "hosts.createCustomRecipe",
         "hosts.remove",
         "hosts.projectsOnHost",
+        // ADR-235 D1: profiles this machine runs recipes from.
+        "hostProfiles.list",
+        "hostProfiles.save",
+        "hostProfiles.remove",
       ].sort(),
     );
   });

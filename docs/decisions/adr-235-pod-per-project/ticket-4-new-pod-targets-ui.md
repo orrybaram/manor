@@ -38,3 +38,8 @@ ADR-235 D4.
 - `src/components/sidebar/NewWorkspaceDialog/HostPicker.tsx`
 - `src/store/project-store.ts`
 - `src/components/hosts/useHostCloneFlow.ts`, `HostCloneSteps.tsx`
+
+## Follow-ups from ticket 3
+- `projects.openInNewHost` can take 15+ minutes (`up`, then up to 30 s for adoption, then the clone). Check that the renderer's bridge call has no timeout shorter than that. If it does, use the same handling `projects.clone` uses for long calls.
+- Two pods for the same repo both get the repo name as their display name (their recipe ids differ by `-2`). Show the profile name, or the recipe's suffix, next to it where hosts are listed together.
+- `HostStatusInfo` now carries `profileId` and `forProject` (in `src/store/host-store.ts`).

@@ -1,6 +1,6 @@
 ---
 title: Docs for one-click encryption, restart-server and supervisor.env
-status: in-progress
+status: done
 priority: medium
 assignee: haiku
 blocked_by: [4]

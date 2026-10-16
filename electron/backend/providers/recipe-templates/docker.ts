@@ -193,16 +193,32 @@ echo '{}' >&3
 export const dockerTemplate: RecipeTemplate = {
   id: "docker",
   name: "Docker container",
-  description: "A container on this computer's Docker daemon, with a named volume for its home directory.",
+  description:
+    "A container on this computer's Docker. Manor sets it up and keeps its files between restarts.",
   fields: [
-    { key: "name", label: "Container name", default: shortName, required: true },
-    { key: "image", label: "Image", default: defaultHostImage, required: true },
+    {
+      key: "name",
+      label: "Container name",
+      default: shortName,
+      required: true,
+      advanced: true,
+      description: "What Docker calls the container. Manor picks one that isn't taken.",
+    },
+    {
+      key: "image",
+      label: "Image",
+      default: defaultHostImage,
+      required: true,
+      advanced: true,
+      description: "What the container starts from: Manor's host image, with the tools a host needs.",
+    },
     {
       key: "context",
       label: "Docker context",
       type: "choice",
+      advanced: true,
       description:
-        "Optional, such as colima or desktop-linux. Blank for the default.",
+        "Which Docker to use when you have more than one, such as colima. Default is Docker's current one.",
     },
   ],
   perHost: ["name"],

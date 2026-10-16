@@ -17,7 +17,7 @@ Open **Settings → Hosts**, then **Add a host… → Start a new host**. Pick o
 
 - **Docker container**: a container on this computer's Docker daemon. The
   quickest way to try it. See [Docker](#docker).
-- **Kubernetes StatefulSet**: a pod with a persistent volume. See
+- **Kubernetes cluster**: a pod with its own disk, on a cluster you can reach. See
   [Kubernetes](#kubernetes).
 - **Custom recipe**: anything else, for example a cloud VM with sshd. Manor
   writes a recipe folder with an `up.sh` for you to finish. See
@@ -332,7 +332,7 @@ The form asks for:
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
-- **Storage size** (default `20Gi`) and **Storage class** (optional).
+- **Disk size** (default `20Gi`) and **Storage class** (optional).
 
 `up`:
 

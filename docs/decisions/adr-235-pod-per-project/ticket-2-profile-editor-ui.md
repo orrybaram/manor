@@ -1,6 +1,6 @@
 ---
 title: Profiles section and profile editor on the Hosts page
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

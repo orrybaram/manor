@@ -43,3 +43,6 @@ ADR-235 D4.
 - `projects.openInNewHost` can take 15+ minutes (`up`, then up to 30 s for adoption, then the clone). Check that the renderer's bridge call has no timeout shorter than that. If it does, use the same handling `projects.clone` uses for long calls.
 - Two pods for the same repo both get the repo name as their display name (their recipe ids differ by `-2`). Show the profile name, or the recipe's suffix, next to it where hosts are listed together.
 - `HostStatusInfo` now carries `profileId` and `forProject` (in `src/store/host-store.ts`).
+
+## Notes from ticket 2
+- `openProfileEditor({ profile?, onSaved })` is in `src/store/host-profile-store.ts`. Today `<ProfileEditorDialog />` is mounted only inside the Hosts page's Profiles section. Move it to the app root (next to the other app-level dialogs), and remove it from `Profiles()` so it is never mounted twice. Then Add Project can open it.

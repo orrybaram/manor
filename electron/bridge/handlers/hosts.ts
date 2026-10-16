@@ -392,14 +392,16 @@ export async function hostsSetSupervised(
   return facts;
 }
 
-/** How long to wait for the server to reconnect after it restarts. */
-const SERVER_RECONNECT_WAIT_MS = 15_000;
+/** How long to wait for the restarted server to report its new backend. */
+const SERVER_RESTART_WAIT_MS = 15_000;
+/** Between reads of the restarted server's status. */
+const SERVER_RESTART_POLL_MS = 500;
 
 /**
  * "Encrypt keys" (ADR-236 D7): run `manor-host secrets encrypt` on the host
  * through its transport. The host's server restarts to pick the key up, so
- * wait (up to about 15 s) for the channel to come back, then tell the page
- * to re-read the server's status. Answers the key facts.
+ * wait (up to about 15 s) until it reports the new backend, then tell the
+ * page to re-read the server's status. Answers the key facts.
  */
 export async function hostsEncryptKeys(
   ctx: HandlerCtx<ServerDeps>,
@@ -413,27 +415,47 @@ export async function hostsEncryptKeys(
   const transport = provider.transport();
   if (!transport.exec) throw new Error("This host can't run commands.");
   const facts = await runHostSecrets(transport, "encrypt");
-  await waitForServerConnected(ctx, hostId);
+  if (facts.backend) await waitForServerBackend(ctx, hostId, facts.backend);
   publishRendererBroadcast("hosts", "pairingChanged", hostId);
   return facts;
 }
 
-/** Resolves once `hostId`'s server channel is `connected`, or after the wait. */
-function waitForServerConnected(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<void> {
-  const client = ctx.deps.backendRegistry.hostServer(hostId);
-  if (!client || client.state === "connected") return Promise.resolve();
-  return new Promise((resolve) => {
-    let off: () => void = () => {};
-    const done = () => {
+/**
+ * Resolves once `hostId`'s server answers a status read reporting `backend`,
+ * or after `SERVER_RESTART_WAIT_MS` regardless. The client's `connected`
+ * state is not trusted: right after the restart it may still be the old,
+ * dying channel. A failed read (that channel dropping, or
+ * `HostServerUnavailableError` while it reconnects) is retried after
+ * `SERVER_RESTART_POLL_MS`.
+ */
+async function waitForServerBackend(
+  ctx: HandlerCtx<ServerDeps>,
+  hostId: string,
+  backend: string,
+): Promise<void> {
+  const deadline = Date.now() + SERVER_RESTART_WAIT_MS;
+  for (;;) {
+    const client = ctx.deps.backendRegistry.hostServer(hostId);
+    if (!client) return;
+    const left = deadline - Date.now();
+    if (left <= 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const status = await Promise.race([
+        client.api.hostServer.status(),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), left);
+        }),
+      ]);
+      if (status === null || status.secretBackend === backend) return;
+    } catch {
+      // The old channel dying, or the new one not up yet: try again.
+    } finally {
       clearTimeout(timer);
-      off();
-      resolve();
-    };
-    const timer = setTimeout(done, SERVER_RECONNECT_WAIT_MS);
-    off = client.onStateChange((state) => {
-      if (state === "connected") done();
-    });
-  });
+    }
+    if (Date.now() + SERVER_RESTART_POLL_MS >= deadline) return;
+    await new Promise((r) => setTimeout(r, SERVER_RESTART_POLL_MS));
+  }
 }
 
 export async function hostsPairDevice(

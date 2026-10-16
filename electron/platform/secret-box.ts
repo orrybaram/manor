@@ -424,19 +424,6 @@ export function shownSecretKeyFile(
   return file;
 }
 
-/**
- * Whether the key sits on the volume it seals (`secretKeyPlace` is
- * `data-dir`), which defeats the point (ADR-229 D5). Kept for an older
- * desktop's warning (ADR-236 D5).
- */
-export function secretKeyOnVolume(
-  env: NodeJS.ProcessEnv = process.env,
-  home: string = os.homedir(),
-  inlineKeySources: readonly string[] = [],
-): boolean {
-  return secretKeyPlace(env, home, inlineKeySources) === "data-dir";
-}
-
 // ── choosing one ──
 
 type HostBackend = Exclude<SecretBackend, "safeStorage">;
@@ -552,7 +539,9 @@ async function upgradeFromPlaintext(
  * Plaintext is the one choice that is not sticky. It is only ever a last
  * resort, so each start on it probes the stronger backends again, and the
  * first that works takes over: every sealed file is re-sealed with it, then
- * it becomes the choice.
+ * it becomes the choice. A probe that throws there (a named key that can't
+ * be read) is a warning, not a failed start: nothing is sealed with that key
+ * yet (ADR-236).
  */
 export async function pickHostSecretBox(
   opts: PickHostSecretBoxOptions,
@@ -570,7 +559,18 @@ export async function pickHostSecretBox(
   if (chosen === "plaintext") {
     for (const name of BACKEND_ORDER) {
       if (name === "plaintext") break;
-      const box = await probes[name]();
+      // Nothing is sealed with any key yet, so a key that is named but
+      // unusable (a missing or bad key file) must not cost this host its
+      // server: warn and try the next backend, ending on plaintext.
+      let box: SecretBox | null;
+      try {
+        box = await probes[name]();
+      } catch (err) {
+        console.warn(
+          `[secret-box] ${name} is not usable (${err instanceof Error ? err.message : String(err)}); staying on plaintext unless another backend works`,
+        );
+        continue;
+      }
       if (box && (await upgradeFromPlaintext(opts.choiceFile, name, box))) {
         return box;
       }

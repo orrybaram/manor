@@ -39,7 +39,7 @@ import {
 import { restartServer } from "./lifecycle";
 import {
   applySupervisorEnv,
-  parseSupervisorEnv,
+  readSupervisorEnv,
   readSupervisorMarker,
   writeSupervisorEnv,
 } from "./supervisor";
@@ -108,12 +108,65 @@ export function readSecretsFacts(deps: SecretsCommandDeps): SecretsFacts {
   };
 }
 
-function readEnvFile(file: string): Partial<Record<string, string>> {
-  try {
-    return parseSupervisorEnv(fs.readFileSync(file, "utf8"));
-  } catch {
-    return {};
+/**
+ * Which key `secrets encrypt` would use (ADR-236 D1, steps 3–4), from
+ * `supervisor.env` (`envFile`) alone:
+ * - `reuse`: the file names a key file whose place is `home` or `elsewhere`;
+ *   it is validated and used as it is.
+ * - `replace`: the file names a key whose place is `data-dir` (a key file
+ *   under `~/.manor`, or an inline `MANOR_SECRET_KEY`, which the file itself
+ *   holds). The keys are still plaintext, so nothing is sealed with it yet:
+ *   Manor's own key file (`defaultKeyFile`) takes its place.
+ * - `create`: the file names no key; Manor's own key file it is.
+ * `keyFile` is the file the command ends up naming. One function, so the
+ * Hosts page's hint (`HostServerStatus.encryptKeyFile`) names the same file
+ * the click uses.
+ */
+export function encryptKeyPlan(
+  envFile: string,
+  defaultKeyFile: string,
+  home: string = os.homedir(),
+): { action: "create" | "replace" | "reuse"; keyFile: string } {
+  const fromFile = readSupervisorEnv(envFile);
+  const named = {
+    MANOR_SECRET_KEY_FILE: fromFile.MANOR_SECRET_KEY_FILE,
+    MANOR_SECRET_KEY: fromFile.MANOR_SECRET_KEY,
+  };
+  const place = secretKeyPlace(named, home, [envFile]);
+  if (place === null) return { action: "create", keyFile: defaultKeyFile };
+  if (place === "data-dir" || !named.MANOR_SECRET_KEY_FILE) {
+    return { action: "replace", keyFile: defaultKeyFile };
   }
+  return { action: "reuse", keyFile: named.MANOR_SECRET_KEY_FILE };
+}
+
+/** What a host server reports about its key (ADR-236 D5), computed once when it starts. */
+export interface ServerKeyStatus {
+  /** `secretKeyPlace` of the key it started with; null when none is set. */
+  place: SecretKeyPlace | null;
+  /** That key's file, home shortened to `~`; null for an inline key or none. */
+  keyFile: string | null;
+  /** The key file "Encrypt them" would use (`encryptKeyPlan`), home shortened to `~`. */
+  encryptKeyFile: string;
+}
+
+/**
+ * The server's key facts, from the private key environment it started with
+ * (`takeSecretEnv`). Reads files, so the server computes this once at start:
+ * an encrypt that rewrites `supervisor.env` restarts it anyway.
+ */
+export function serverKeyStatus(
+  secretEnv: NodeJS.ProcessEnv,
+  opts: { envFile?: string; defaultKeyFile?: string; home?: string } = {},
+): ServerKeyStatus {
+  const envFile = opts.envFile ?? supervisorEnvFile();
+  const home = opts.home ?? os.homedir();
+  const plan = encryptKeyPlan(envFile, opts.defaultKeyFile ?? hostSecretKeyFile(), home);
+  return {
+    place: secretKeyPlace(secretEnv, home, [envFile]),
+    keyFile: shownSecretKeyFile(secretEnv, home),
+    encryptKeyFile: shownSecretKeyFile({ MANOR_SECRET_KEY_FILE: plan.keyFile }, home) ?? plan.keyFile,
+  };
 }
 
 /**
@@ -157,21 +210,20 @@ export async function encryptSecrets(deps: SecretsCommandDeps): Promise<SecretsF
   const before = readSecretBackendChoice(deps.choiceFile);
   if (before !== null && before !== "plaintext") return readSecretsFacts(deps);
 
-  // 3. A key already named in supervisor.env: use it if valid, never replace it.
-  const fromFile = readEnvFile(deps.envFile);
-  if (fromFile.MANOR_SECRET_KEY_FILE || fromFile.MANOR_SECRET_KEY) {
-    const result = validateSecretKey({
-      MANOR_SECRET_KEY_FILE: fromFile.MANOR_SECRET_KEY_FILE,
-      MANOR_SECRET_KEY: fromFile.MANOR_SECRET_KEY,
-    });
+  // 3. A key already named in supervisor.env, outside ~/.manor: use it if
+  // valid, never replace it. One inside ~/.manor (or inline in the file) is
+  // replaced: the keys are still plaintext, so nothing is sealed with it.
+  const plan = encryptKeyPlan(deps.envFile, deps.keyFile, deps.home);
+  if (plan.action === "reuse") {
+    const result = validateSecretKey({ MANOR_SECRET_KEY_FILE: plan.keyFile });
     if (!result.ok) {
       throw new Error(`${deps.envFile} names a key that can't be used: ${result.error}`);
     }
   } else {
     // 4. Make (or reuse) the key file.
     ensureKeyFile(deps.keyFile, deps.randomBytes);
-    // 5. Name it in supervisor.env.
-    writeSupervisorEnv(deps.envFile, { MANOR_SECRET_KEY_FILE: deps.keyFile });
+    // 5. Name it in supervisor.env, dropping a key kept inside ~/.manor.
+    writeSupervisorEnv(deps.envFile, { MANOR_SECRET_KEY_FILE: deps.keyFile, MANOR_SECRET_KEY: null });
   }
 
   // 6. Restart, so the server re-seals its keys with it.

@@ -63,12 +63,19 @@ export function idleStopText(minutes: number | undefined, desktopName: string): 
   return `${after} only while ${desktopName} is awake`;
 }
 
-/** Where the key Manor makes on a host goes, when the server hasn't named one. */
+/**
+ * Where the key Manor makes on a host goes, for an older server that doesn't
+ * report `encryptKeyFile`.
+ */
 export const DEFAULT_KEY_FILE = "~/.config/manor/secret.key";
 
-/** What "Encrypt them" does, and what it does not protect against (ADR-236 D6). */
+/**
+ * What "Encrypt them" does, and what it does not protect against (ADR-236
+ * D6). `keyFile` is the server's `encryptKeyFile`: the file the click uses,
+ * which may be one the user already named outside ~/.manor.
+ */
 export function plaintextFixText(hostName: string, keyFile: string = DEFAULT_KEY_FILE): string {
-  return `Manor can make a key at ${keyFile} on ${hostName} and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of ${hostName}'s whole disk still can.`;
+  return `Manor can use a key at ${keyFile} on ${hostName} and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of ${hostName}'s whole disk still can.`;
 }
 
 /** Plaintext keys on a recipe host: the recipe has to supply the key. */

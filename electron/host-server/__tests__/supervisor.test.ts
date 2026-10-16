@@ -18,6 +18,7 @@ import {
   readSupervisorMarker,
   runSupervisorCommand,
   supervisorEnvText,
+  takeSecretEnv,
   uninstallSupervisor,
   writeSupervisorEnv,
   type SupervisorCommandDeps,
@@ -183,6 +184,16 @@ describe("supervisor.env", () => {
     });
   });
 
+  it("writeSupervisorEnv removes a variable set to null", () => {
+    const file = path.join(dir, "remote", "supervisor.env");
+    writeSupervisorEnv(file, { MANOR_SECRET_KEY: "aW5saW5l", MANOR_INSTANCE_ID: "vm-1" });
+    writeSupervisorEnv(file, { MANOR_SECRET_KEY_FILE: "/home/u/k", MANOR_SECRET_KEY: null });
+    expect(parseSupervisorEnv(fs.readFileSync(file, "utf8"))).toEqual({
+      MANOR_SECRET_KEY_FILE: "/home/u/k",
+      MANOR_INSTANCE_ID: "vm-1",
+    });
+  });
+
   it("writeSupervisorEnv refuses a value it cannot hold or a key it does not carry, writing nothing", () => {
     const file = path.join(dir, "remote", "supervisor.env");
     writeSupervisorEnv(file, { MANOR_INSTANCE_ID: "vm-1" });
@@ -239,6 +250,33 @@ describe("applySupervisorEnv", () => {
     const env: NodeJS.ProcessEnv = {};
     expect(applySupervisorEnv(env, path.join(dir, "missing.env"))).toEqual([]);
     expect(env).toEqual({});
+  });
+});
+
+describe("takeSecretEnv (ADR-236 D2)", () => {
+  function envFile(text: string): string {
+    const file = path.join(dir, "supervisor.env");
+    fs.writeFileSync(file, text);
+    return file;
+  }
+
+  it("moves the key out of the environment, filling it from the file, and leaves the instance id", () => {
+    const file = envFile("MANOR_SECRET_KEY_FILE='/home/u/.config/manor/secret.key'\nMANOR_INSTANCE_ID='vm-1'\n");
+    const env: NodeJS.ProcessEnv = { PATH: "/usr/bin" };
+    const { secretEnv, filled } = takeSecretEnv(env, file);
+    expect(secretEnv).toEqual({ MANOR_SECRET_KEY_FILE: "/home/u/.config/manor/secret.key" });
+    expect(filled).toEqual(["MANOR_SECRET_KEY_FILE", "MANOR_INSTANCE_ID"]);
+    expect(env).toEqual({ PATH: "/usr/bin", MANOR_INSTANCE_ID: "vm-1" });
+  });
+
+  it("takes a key a unit's EnvironmentFile already put in the environment, which wins as a whole", () => {
+    const file = envFile("MANOR_SECRET_KEY='aW5saW5l'\n");
+    const env: NodeJS.ProcessEnv = { MANOR_SECRET_KEY_FILE: "/run/secrets/k", MANOR_SECRET_KEY: "" };
+    const { secretEnv, filled } = takeSecretEnv(env, file);
+    expect(secretEnv).toEqual({ MANOR_SECRET_KEY_FILE: "/run/secrets/k" });
+    expect(filled).toEqual([]);
+    expect("MANOR_SECRET_KEY_FILE" in env).toBe(false);
+    expect("MANOR_SECRET_KEY" in env).toBe(false);
   });
 });
 

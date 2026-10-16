@@ -44,9 +44,24 @@ const SOCKET_WAIT_MS = 5000;
  */
 const SUPERVISED_WAIT_MS = 8000;
 const KILL_GRACE_MS = 5000;
+/** How long a waiter waits for a lock its holder is not refreshing. */
 const LOCK_WAIT_MS = 15000;
 /** A lock older than this is abandoned even if its pid is alive (pid reuse). */
 const LOCK_STALE_MS = 30000;
+/**
+ * A holder touches `server.lock` this often while it holds it. A
+ * `restartServer` can hold it for longer than `LOCK_WAIT_MS`, even
+ * `LOCK_STALE_MS` (a supervisor stop and its wait, SIGTERM then SIGKILL, a
+ * supervised start, then the detached fallback: about 28 s at worst), so
+ * the lock's age, not its holder's total time, is what tells a live holder
+ * from an abandoned one: a refreshed lock is never stale, and a waiter keeps
+ * waiting on it past `LOCK_WAIT_MS`.
+ */
+const LOCK_REFRESH_MS = 2000;
+/** A lock touched within this is being refreshed by a live holder. */
+const LOCK_FRESH_MS = 3 * LOCK_REFRESH_MS;
+/** The most a waiter waits, refreshed lock or not: a holder that hangs must not hang it too. */
+const LOCK_MAX_WAIT_MS = 60000;
 const POLL_MS = 50;
 
 export interface LifecycleDeps {
@@ -69,6 +84,11 @@ export interface LifecycleDeps {
   supervisor?(): Supervisor | null;
   /** Where the fallback from a broken supervisor is reported. Defaults to `console.warn`. */
   warn?(message: string): void;
+  /**
+   * Call `fn` every `ms` until the answered function is called: the lock's
+   * heartbeat. Defaults to an unref'd `setInterval`.
+   */
+  every?(ms: number, fn: () => void): () => void;
 }
 
 function readTrimmed(file: string): string | null {
@@ -132,7 +152,14 @@ export function defaultDeps(dataDir: string = remoteServerDir()): LifecycleDeps 
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     now: () => Date.now(),
     supervisor: () => loadSupervisor(),
+    every: defaultEvery,
   };
+}
+
+function defaultEvery(ms: number, fn: () => void): () => void {
+  const timer = setInterval(fn, ms);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 async function waitFor(
@@ -163,25 +190,47 @@ async function inspect(deps: LifecycleDeps): Promise<{ state: State; pid: number
   };
 }
 
-/** Take `server.lock`, waiting for a holder and clearing an abandoned lock. */
+/** Set `lockPath`'s mtime to `deps.now()`: the holder is alive and still at it. */
+function touchLock(deps: LifecycleDeps, lockPath: string): void {
+  const at = new Date(deps.now());
+  try {
+    fs.utimesSync(lockPath, at, at);
+  } catch {
+    // Gone (cleared as stale after all): the release is a no-op then too.
+  }
+}
+
+/**
+ * Take `server.lock`, waiting for a holder and clearing an abandoned lock.
+ * While held, the lock is touched every `LOCK_REFRESH_MS` (see there); the
+ * release stops that. A waiter gives up after `LOCK_WAIT_MS` only once the
+ * lock has gone unrefreshed for `LOCK_FRESH_MS` (an older holder that does
+ * not refresh), and after `LOCK_MAX_WAIT_MS` regardless.
+ */
 async function acquireLock(deps: LifecycleDeps): Promise<(() => void) | null> {
   const lockPath = path.join(deps.paths.dataDir, "server.lock");
   fs.mkdirSync(deps.paths.dataDir, { recursive: true, mode: 0o700 });
   const mine = `${process.pid}\n`;
-  const deadline = deps.now() + LOCK_WAIT_MS;
+  const start = deps.now();
   for (;;) {
     try {
       const fd = fs.openSync(lockPath, "wx", 0o600);
       fs.writeSync(fd, mine);
       fs.closeSync(fd);
-      return () => removeIfOurs(lockPath, mine);
+      touchLock(deps, lockPath);
+      const stop = (deps.every ?? defaultEvery)(LOCK_REFRESH_MS, () => touchLock(deps, lockPath));
+      return () => {
+        stop();
+        removeIfOurs(lockPath, mine);
+      };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
     }
     let stale: boolean;
+    let age: number;
     try {
       const holder = readPid(lockPath);
-      const age = deps.now() - fs.statSync(lockPath).mtimeMs;
+      age = deps.now() - fs.statSync(lockPath).mtimeMs;
       stale = (holder !== null && !deps.isAlive(holder)) || age > LOCK_STALE_MS;
       if (holder === null && age < 1000) stale = false; // mid-write
     } catch {
@@ -195,7 +244,8 @@ async function acquireLock(deps: LifecycleDeps): Promise<(() => void) | null> {
       }
       continue;
     }
-    if (deps.now() >= deadline) return null;
+    const waited = deps.now() - start;
+    if (waited >= LOCK_MAX_WAIT_MS || (waited >= LOCK_WAIT_MS && age > LOCK_FRESH_MS)) return null;
     await deps.sleep(POLL_MS);
   }
 }

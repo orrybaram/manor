@@ -14,7 +14,7 @@
  * `supervisor.env` carries the variables the host needs and an ssh session
  * would not give it (ADR-229 D5, D6): `MANOR_SECRET_KEY_FILE`,
  * `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`. The units start with it, and
- * `manor-host serve` reads it itself (`applySupervisorEnv`, ADR-236 D2), so
+ * `manor-host serve` reads it itself (`takeSecretEnv`, ADR-236 D2), so
  * it outlives `uninstall` (ADR-236 D3). `MANOR_SECRET_KEY` written there sits
  * on the volume it is meant to protect; prefer `MANOR_SECRET_KEY_FILE`
  * naming a file outside `~/.manor`.
@@ -130,7 +130,8 @@ export function supervisorEnvText(
   return `${lines.join("\n")}\n`;
 }
 
-function readSupervisorEnv(file: string): Partial<Record<string, string>> {
+/** `file`'s variables (`parseSupervisorEnv`); empty when it is missing or unreadable. */
+export function readSupervisorEnv(file: string = supervisorEnvFile()): Partial<Record<string, string>> {
   try {
     return parseSupervisorEnv(fs.readFileSync(file, "utf8"));
   } catch {
@@ -140,17 +141,22 @@ function readSupervisorEnv(file: string): Partial<Record<string, string>> {
 
 /**
  * Merge `values` over `file`'s previous values and write it, mode 0600. A
- * value set to `""` or undefined keeps the previous one. Throws, writing
- * nothing, for a key the file does not carry or a value it cannot hold.
+ * value set to `""` or undefined keeps the previous one; `null` removes it.
+ * Throws, writing nothing, for a key the file does not carry or a value it
+ * cannot hold.
  */
 export function writeSupervisorEnv(
   file: string,
-  values: Partial<Record<string, string | undefined>>,
+  values: Partial<Record<string, string | null | undefined>>,
 ): void {
   const env: NodeJS.ProcessEnv = { ...readSupervisorEnv(file) };
   for (const [key, value] of Object.entries(values)) {
     if (!(SUPERVISOR_ENV_KEYS as readonly string[]).includes(key)) {
       throw new Error(`supervisor.env does not carry ${key}`);
+    }
+    if (value === null) {
+      delete env[key];
+      continue;
     }
     if (value === undefined || value === "") continue;
     if (unholdable(value)) {
@@ -170,11 +176,15 @@ export function writeSupervisorEnv(
  * from the file would otherwise override the environment's key file. A
  * missing or unreadable file is a no-op. Answers the keys it filled.
  */
-export function applySupervisorEnv(env: NodeJS.ProcessEnv, file: string): SupervisorEnvKey[] {
+export function applySupervisorEnv(
+  env: NodeJS.ProcessEnv,
+  file: string,
+  keys: readonly SupervisorEnvKey[] = SUPERVISOR_ENV_KEYS,
+): SupervisorEnvKey[] {
   const fromFile = readSupervisorEnv(file);
   const envHasKeySource = KEY_SOURCE_KEYS.some((key) => !!env[key]);
   const filled: SupervisorEnvKey[] = [];
-  for (const key of SUPERVISOR_ENV_KEYS) {
+  for (const key of keys) {
     if (env[key]) continue;
     if (envHasKeySource && KEY_SOURCE_KEYS.includes(key)) continue;
     const value = fromFile[key];
@@ -183,6 +193,33 @@ export function applySupervisorEnv(env: NodeJS.ProcessEnv, file: string): Superv
     filled.push(key);
   }
   return filled;
+}
+
+/**
+ * The host server's start (ADR-236 D2): take the key sealing the pairing
+ * keys out of `env` (the process's own environment) into a private one, so
+ * no child inherits it: not the terminal daemon, whose shells and agents
+ * run anything, nor a busy hook. A systemd unit's `EnvironmentFile` or an
+ * ssh session may have put it in `env`; `supervisor.env` fills it where
+ * `env` named no key, the environment's key source winning as a whole
+ * (`applySupervisorEnv`). `MANOR_INSTANCE_ID` is no secret: it is filled
+ * into `env` itself. Answers the private key variables and what came from
+ * the file.
+ */
+export function takeSecretEnv(
+  env: NodeJS.ProcessEnv,
+  file: string,
+): { secretEnv: NodeJS.ProcessEnv; filled: SupervisorEnvKey[] } {
+  const secretEnv: NodeJS.ProcessEnv = {};
+  for (const key of KEY_SOURCE_KEYS) {
+    if (env[key]) secretEnv[key] = env[key];
+    delete env[key];
+  }
+  const filled = [
+    ...applySupervisorEnv(secretEnv, file, KEY_SOURCE_KEYS),
+    ...applySupervisorEnv(env, file, ["MANOR_INSTANCE_ID"]),
+  ];
+  return { secretEnv, filled };
 }
 
 function unitPid(unit: SupervisedUnit): number | null {

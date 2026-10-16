@@ -25,6 +25,7 @@ import { pickHostSecretBox } from "../platform/secret-box";
 import type { HostTransport } from "../terminal-host/transport";
 import { isAlive, readPid, removeIfOurs } from "./pid-file";
 import type { HostRelayOptions } from "./relay";
+import type { ServerKeyStatus } from "./secrets-command";
 import { createHostServer, type HostServer } from "./server";
 import {
   listenHostSocket,
@@ -43,6 +44,13 @@ export interface ServeOptions {
   logToFile?: boolean;
   /** Tests: a local relay, and push with no push service behind it. */
   relay?: HostRelayOptions;
+  /**
+   * The key sealing the pairing keys, kept out of `process.env` (ADR-236
+   * D2, `takeSecretEnv`), and what status reports about it, computed once
+   * at start. Absent in tests: the secret box then reads `process.env`, and
+   * status reports no key.
+   */
+  secrets?: { env: NodeJS.ProcessEnv; status: ServerKeyStatus };
 }
 
 export interface RunningServer {
@@ -70,6 +78,8 @@ export async function runServe(opts: ServeOptions): Promise<RunningServer> {
 
   const secretBox = await pickHostSecretBox({
     choiceFile: paths.secretBackend,
+    // The rest of the environment too: libsecret needs the session bus.
+    env: opts.secrets ? { ...process.env, ...opts.secrets.env } : undefined,
   });
   console.info(
     `[host-server] ${opts.version} starting in ${paths.dataDir}; secrets: ${secretBox.backend()}`,
@@ -82,6 +92,7 @@ export async function runServe(opts: ServeOptions): Promise<RunningServer> {
     appVersion: opts.version,
     transport: opts.transport,
     relay: opts.relay,
+    keyStatus: opts.secrets?.status,
   });
 
   const token = newOwnerToken();

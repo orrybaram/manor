@@ -173,6 +173,54 @@ describe("ensureServerRunning", () => {
     expect(spawned).toBe(1);
   });
 
+  describe("a lock whose holder refreshes it (ADR-236 D4)", () => {
+    /**
+     * Another live process holds `server.lock`, touching it each poll (its
+     * heartbeat) until `releaseAt` ms in, when it lets go; `null` never.
+     * Each poll is a second on the clock; once the lock is ours, polls are
+     * real (the fake server listens after 30 ms).
+     */
+    function heldBy(releaseAt: number | null, refresh = true): Partial<LifecycleDeps> {
+      const lock = path.join(dir, "server.lock");
+      fs.writeFileSync(lock, `${process.pid}\n`);
+      const start = Date.now();
+      let clock = start;
+      let theirs = true;
+      return {
+        now: () => clock,
+        sleep: async (ms) => {
+          if (!theirs) {
+            clock += ms;
+            await new Promise((r) => setTimeout(r, Math.min(ms, 10)));
+            return;
+          }
+          clock += 1000;
+          if (releaseAt !== null && clock - start >= releaseAt) {
+            fs.rmSync(lock, { force: true });
+            theirs = false;
+          } else if (refresh) {
+            fs.utimesSync(lock, new Date(clock), new Date(clock));
+          }
+        },
+      };
+    }
+
+    it("keeps waiting past LOCK_WAIT_MS, then starts the server", async () => {
+      await ensureServerRunning(makeDeps(heldBy(25_000)));
+      expect(spawned).toBe(1);
+    });
+
+    it("still gives up after LOCK_MAX_WAIT_MS", async () => {
+      await expect(ensureServerRunning(makeDeps(heldBy(null)))).rejects.toThrow(/timed out waiting/);
+      expect(spawned).toBe(0);
+    });
+
+    it("gives up after LOCK_WAIT_MS on a lock nobody refreshes, short of stale", async () => {
+      await expect(ensureServerRunning(makeDeps(heldBy(null, false)))).rejects.toThrow(/timed out waiting/);
+      expect(spawned).toBe(0);
+    });
+  });
+
   it("rejects when the server never listens", async () => {
     let clock = 0;
     await expect(
@@ -326,6 +374,35 @@ describe("ensureServerRunning", () => {
         }),
       );
       expect(heldAt).toEqual([true, true]);
+      expect(fs.existsSync(lock)).toBe(false);
+    });
+
+    it("refreshes server.lock while it holds it, so it never looks stale", async () => {
+      const { over } = await liveServer();
+      const lock = path.join(dir, "server.lock");
+      let clock = Date.now();
+      const beats: Array<() => void> = [];
+      let stopped = 0;
+      await restartServer(
+        makeDeps({
+          ...over,
+          now: () => clock,
+          every: (ms, fn) => {
+            expect(ms).toBeLessThan(10_000);
+            beats.push(fn);
+            return () => stopped++;
+          },
+          kill: (pid, sig) => {
+            // A slow stop: 40 s on, past LOCK_STALE_MS, the heartbeat has kept it fresh.
+            clock += 40_000;
+            beats.forEach((beat) => beat());
+            expect(Math.abs(fs.statSync(lock).mtimeMs - clock)).toBeLessThan(1000);
+            over.kill?.(pid, sig);
+          },
+        }),
+      );
+      expect(beats).toHaveLength(1);
+      expect(stopped).toBe(1);
       expect(fs.existsSync(lock)).toBe(false);
     });
 

@@ -180,12 +180,10 @@ export function createHookRunner(opts: HookRunnerOptions): HookRunner {
       try {
         // Detached, so a server that restarts does not take a running hook
         // with it; its output goes straight to the log, no pipe to break.
-        // The key sealing the pairing keys stays with the server (ADR-236 D2).
-        const { MANOR_SECRET_KEY: _key, MANOR_SECRET_KEY_FILE: _keyFile, ...env } = process.env;
         child = spawn(file, [], {
           detached: true,
           stdio: ["ignore", fd, fd],
-          env: { ...env, MANOR_BUSY: busy ? "1" : "0" },
+          env: { ...process.env, MANOR_BUSY: busy ? "1" : "0" },
         });
       } catch (err) {
         fs.closeSync(fd);

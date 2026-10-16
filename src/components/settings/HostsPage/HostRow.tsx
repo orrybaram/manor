@@ -569,7 +569,7 @@ function KeyWarnings(props: KeyWarningsProps) {
           {fix === "button" && (
             <>
               <div className={settingsStyles.fieldHint} data-testid="host-encrypt-hint">
-                {plaintextFixText(hostName)}
+                {plaintextFixText(hostName, status.encryptKeyFile)}
               </div>
               <div>
                 <Button

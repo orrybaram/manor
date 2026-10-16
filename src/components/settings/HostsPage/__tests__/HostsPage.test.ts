@@ -256,6 +256,12 @@ describe("HostRow", () => {
       expect(api.encryptKeys).toHaveBeenCalledWith("pod");
     });
 
+    it("names the key file the server says the click would use", async () => {
+      await render(ssh(), view({ status: keys({ encryptKeyFile: "~/keys/manor.key" }) }));
+      expect(q("host-encrypt-hint")?.textContent).toBe(plaintextFixText("build", "~/keys/manor.key"));
+      expect(q("host-encrypt-hint")?.textContent).toContain("a key at ~/keys/manor.key on build");
+    });
+
     it("hides the button for a recipe host, a container, an away host", async () => {
       await render(host(), view({ status: keys() }));
       expect(q("host-encrypt-keys")).toBeNull();
@@ -428,7 +434,7 @@ describe("host settings text (ADR-229 D4, D7)", () => {
 
   it("words the key-encryption copy (ADR-236 D6)", () => {
     expect(plaintextFixText("build")).toBe(
-      "Manor can make a key at ~/.config/manor/secret.key on build and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of build's whole disk still can.",
+      "Manor can use a key at ~/.config/manor/secret.key on build and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of build's whole disk still can.",
     );
     expect(keyInHomeText("build", "~/k")).toContain("kept at ~/k");
     expect(keyOnVolumeText("build")).toBe(

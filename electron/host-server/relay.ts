@@ -137,6 +137,12 @@ export interface HostServerStatus {
   /** The key file, home shortened to `~`; null for an inline key. */
   secretKeyFile?: string | null;
   /**
+   * The key file `manor-host secrets encrypt` would use (`encryptKeyPlan`),
+   * home shortened to `~`, for the Hosts page's hint (ADR-236 D5).
+   * Computed when the server starts; absent from an older server.
+   */
+  encryptKeyFile?: string;
+  /**
    * Set when this start found the data dir copied from another instance and
    * reset the sealed stores (ADR-229 D6); reported until the owner has read
    * it once.

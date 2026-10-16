@@ -5,7 +5,13 @@ import path from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { runSecretsCommand, type SecretsCommandDeps } from "../secrets-command";
+import { parseSupervisorEnv } from "../supervisor";
+import {
+  encryptKeyPlan,
+  runSecretsCommand,
+  serverKeyStatus,
+  type SecretsCommandDeps,
+} from "../secrets-command";
 
 /**
  * `manor-host secrets` (ADR-236 D1) against a temp home. The "restart"
@@ -153,6 +159,69 @@ describe("runSecretsCommand", () => {
     expect(json).toEqual({ secrets: { backend: "key-file", keyFile: "~/theirs.key", place: "home" } });
     expect(fs.existsSync(keyFile)).toBe(false);
     expect(restarts).toBe(1);
+  });
+
+  it("replaces a key file kept inside ~/.manor while the keys are still plaintext", async () => {
+    setBackend("plaintext");
+    const inData = path.join(home, ".manor", "secret.key");
+    fs.writeFileSync(inData, crypto.randomBytes(32));
+    fs.mkdirSync(path.dirname(envFile), { recursive: true });
+    fs.writeFileSync(envFile, `MANOR_SECRET_KEY_FILE='${inData}'\nMANOR_INSTANCE_ID='vm-1'\n`);
+    const { code, json } = await run(["encrypt", "--json"], makeDeps());
+    expect(code).toBe(0);
+    expect(json).toEqual({
+      secrets: { backend: "key-file", keyFile: "~/.config/manor/secret.key", place: "home" },
+    });
+    expect(fs.readFileSync(keyFile)).toHaveLength(32);
+    expect(parseSupervisorEnv(fs.readFileSync(envFile, "utf8"))).toEqual({
+      MANOR_SECRET_KEY_FILE: keyFile,
+      MANOR_INSTANCE_ID: "vm-1",
+    });
+    // Left on disk: never deleted, only no longer named.
+    expect(fs.existsSync(inData)).toBe(true);
+  });
+
+  it("replaces an inline key in supervisor.env while the keys are still plaintext", async () => {
+    setBackend("plaintext");
+    fs.mkdirSync(path.dirname(envFile), { recursive: true });
+    fs.writeFileSync(envFile, `MANOR_SECRET_KEY='${crypto.randomBytes(32).toString("base64")}'\n`);
+    const { code } = await run(["encrypt", "--json"], makeDeps());
+    expect(code).toBe(0);
+    expect(parseSupervisorEnv(fs.readFileSync(envFile, "utf8"))).toEqual({ MANOR_SECRET_KEY_FILE: keyFile });
+  });
+
+  describe("encryptKeyPlan and serverKeyStatus agree with the command", () => {
+    it("names Manor's key file when supervisor.env names none", () => {
+      expect(encryptKeyPlan(envFile, keyFile, home)).toEqual({ action: "create", keyFile });
+      expect(serverKeyStatus({}, { envFile, defaultKeyFile: keyFile, home })).toEqual({
+        place: null,
+        keyFile: null,
+        encryptKeyFile: "~/.config/manor/secret.key",
+      });
+    });
+
+    it("names Manor's key file when supervisor.env's key is inside ~/.manor", () => {
+      const inData = path.join(home, ".manor", "secret.key");
+      fs.writeFileSync(inData, crypto.randomBytes(32));
+      fs.mkdirSync(path.dirname(envFile), { recursive: true });
+      fs.writeFileSync(envFile, `MANOR_SECRET_KEY_FILE='${inData}'\n`);
+      expect(encryptKeyPlan(envFile, keyFile, home)).toEqual({ action: "replace", keyFile });
+      const status = serverKeyStatus({ MANOR_SECRET_KEY_FILE: inData }, { envFile, defaultKeyFile: keyFile, home });
+      expect(status).toEqual({
+        place: "data-dir",
+        keyFile: "~/.manor/secret.key",
+        encryptKeyFile: "~/.config/manor/secret.key",
+      });
+    });
+
+    it("names the user's key file when supervisor.env's key is outside ~/.manor", () => {
+      const theirs = path.join(home, "theirs.key");
+      fs.writeFileSync(theirs, crypto.randomBytes(32));
+      fs.mkdirSync(path.dirname(envFile), { recursive: true });
+      fs.writeFileSync(envFile, `MANOR_SECRET_KEY_FILE='${theirs}'\n`);
+      expect(encryptKeyPlan(envFile, keyFile, home)).toEqual({ action: "reuse", keyFile: theirs });
+      expect(serverKeyStatus({}, { envFile, defaultKeyFile: keyFile, home }).encryptKeyFile).toBe("~/theirs.key");
+    });
   });
 
   it("refuses in a container", async () => {

@@ -822,6 +822,13 @@ async function main(): Promise<void> {
     return;
   }
 
+  // The key sealing the host server's pairing keys is the server's alone
+  // (ADR-236 D2). A systemd unit's `EnvironmentFile`, a container's
+  // environment or the ssh session that spawned this daemon may carry it;
+  // no shell or agent started here gets it.
+  delete process.env.MANOR_SECRET_KEY;
+  delete process.env.MANOR_SECRET_KEY_FILE;
+
   // `LocalTransport` spawns a remote-namespace daemon with `--namespace remote`.
   const nsIndex = argv.indexOf("--namespace");
   const role =

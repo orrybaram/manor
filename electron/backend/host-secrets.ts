@@ -7,29 +7,30 @@
  */
 
 import type { SecretsFacts } from "../host-server/secrets-command";
-import { REMOTE_HOST_BIN } from "../terminal-host/ssh-config";
 import type { HostTransport } from "../terminal-host/transport";
+import { runHostJsonCommand } from "./host-json-command";
 
 export type SecretsAction = "encrypt" | "status";
 
 /** Encrypting restarts the server; give the command room on a slow link. */
 const SECRETS_EXEC_TIMEOUT_MS = 60_000;
 
-/** Read `secrets … --json`'s one line: the facts, or its error. */
-function parseSecretsOutput(stdout: string): SecretsFacts {
-  const line = stdout.trim().split("\n").pop() ?? "";
-  let parsed: { secrets?: unknown; error?: unknown };
-  try {
-    parsed = JSON.parse(line) as typeof parsed;
-  } catch {
-    throw new Error(`manor-host secrets said something unreadable: ${line.slice(0, 200)}`);
-  }
-  if (typeof parsed.error === "string") throw new Error(parsed.error);
-  const facts = parsed.secrets as Partial<SecretsFacts> | null | undefined;
-  if (!facts || typeof facts !== "object") {
-    throw new Error(`manor-host secrets said something unreadable: ${line.slice(0, 200)}`);
-  }
-  return facts as SecretsFacts;
+const BACKENDS: readonly string[] = ["safeStorage", "systemd-creds", "libsecret", "key-file", "plaintext"];
+const PLACES: readonly string[] = ["data-dir", "home", "elsewhere"];
+
+/** `secrets … --json`'s facts, checked field by field; undefined when malformed. */
+function readSecretsFacts(value: unknown): SecretsFacts | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const facts = value as { backend?: unknown; keyFile?: unknown; place?: unknown };
+  const { backend, keyFile, place } = facts;
+  if (backend !== null && !(typeof backend === "string" && BACKENDS.includes(backend))) return undefined;
+  if (keyFile !== null && typeof keyFile !== "string") return undefined;
+  if (place !== null && !(typeof place === "string" && PLACES.includes(place))) return undefined;
+  return {
+    backend: backend as SecretsFacts["backend"],
+    keyFile,
+    place: place as SecretsFacts["place"],
+  };
 }
 
 /**
@@ -37,20 +38,12 @@ function parseSecretsOutput(stdout: string): SecretsFacts {
  * host's key facts afterwards; rejects when the host cannot be reached, or
  * the command fails (with its own message).
  */
-export async function runHostSecrets(
-  transport: HostTransport,
-  action: SecretsAction,
-): Promise<SecretsFacts> {
-  if (!transport.exec) throw new Error("This host can't run commands.");
-  const { code, stdout, stderr } = await transport.exec(
-    `exec ${REMOTE_HOST_BIN} secrets ${action} --json`,
-    { timeoutMs: SECRETS_EXEC_TIMEOUT_MS },
+export function runHostSecrets(transport: HostTransport, action: SecretsAction): Promise<SecretsFacts> {
+  return runHostJsonCommand(
+    transport,
+    `secrets ${action}`,
+    "secrets",
+    SECRETS_EXEC_TIMEOUT_MS,
+    readSecretsFacts,
   );
-  if (stdout.trim() === "" && code !== 0) {
-    const detail = stderr.trim().slice(-300);
-    throw new Error(
-      `manor-host secrets ${action} exited (code ${code ?? "none"})${detail ? `: ${detail}` : ""}`,
-    );
-  }
-  return parseSecretsOutput(stdout);
 }

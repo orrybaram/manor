@@ -11,7 +11,6 @@ import {
   libsecretSecretBox,
   pickHostSecretBox,
   plainFileSecretBox,
-  secretKeyOnVolume,
   secretKeyPlace,
   SecretBoxUnavailableError,
   systemdCredsSecretBox,
@@ -221,12 +220,12 @@ describe("keyFileSecretBox", () => {
     fs.writeFileSync(outside, key);
     const link = path.join(home, ".manor", "link");
     fs.symlinkSync(outside, link);
-    expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: inside }, home)).toBe(true);
-    expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: outside }, home)).toBe(false);
+    expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: inside }, home)).toBe("data-dir");
+    expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: outside }, home)).toBe("elsewhere");
     // Resolved through the link: it lives outside.
-    expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: link }, home)).toBe(false);
-    expect(secretKeyOnVolume({ MANOR_SECRET_KEY: "x" }, home)).toBe(false);
-    expect(secretKeyOnVolume({}, home)).toBe(false);
+    expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: link }, home)).toBe("elsewhere");
+    expect(secretKeyPlace({ MANOR_SECRET_KEY: "x" }, home)).toBe("elsewhere");
+    expect(secretKeyPlace({}, home)).toBeNull();
   });
 
   describe("secretKeyPlace", () => {
@@ -250,14 +249,12 @@ describe("keyFileSecretBox", () => {
       const inline = key.toString("base64");
       fs.writeFileSync(envFile, `# comment\nMANOR_SECRET_KEY='${inline}'\n`);
       expect(secretKeyPlace({ MANOR_SECRET_KEY: inline }, home, [envFile])).toBe("data-dir");
-      expect(secretKeyOnVolume({ MANOR_SECRET_KEY: inline }, home, [envFile])).toBe(true);
     });
 
     it("is home for a key file under home but outside ~/.manor", () => {
       const file = path.join(home, ".config", "manor", "secret.key");
       fs.writeFileSync(file, key);
       expect(secretKeyPlace({ MANOR_SECRET_KEY_FILE: file }, home, [envFile])).toBe("home");
-      expect(secretKeyOnVolume({ MANOR_SECRET_KEY_FILE: file }, home, [envFile])).toBe(false);
     });
 
     it("is elsewhere for a mounted secret, or an unresolvable file", () => {
@@ -371,6 +368,56 @@ describe("pickHostSecretBox", () => {
       expect(choice()).toBe("key-file");
       expect(fs.readFileSync(file).subarray(0, 4).toString()).toBe("MKF1");
       expect((await box.decrypt(fs.readFileSync(file))).toString()).toBe('{"v":1}');
+    });
+
+    it("keeps a plaintext host on plaintext, with a warning, when its named key is unusable", async () => {
+      await pickHostSecretBox({
+        choiceFile,
+        env: {},
+        probes: { "systemd-creds": async () => null, libsecret: async () => null },
+      });
+      const file = path.join(path.dirname(choiceFile), "relay-identity.enc");
+      fs.writeFileSync(file, '{"v":1}');
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const box = await pickHostSecretBox({
+        choiceFile,
+        env: { MANOR_SECRET_KEY_FILE: path.join(dir, "missing.key") },
+        probes: { "systemd-creds": async () => null, libsecret: async () => null },
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(/key-file is not usable.*could not be read/));
+      warn.mockRestore();
+      expect(box.backend()).toBe("plaintext");
+      expect(choice()).toBe("plaintext");
+      expect(fs.readFileSync(file, "utf8")).toBe('{"v":1}');
+    });
+
+    it("moves on to the next backend when the named key is unusable", async () => {
+      await pickHostSecretBox({
+        choiceFile,
+        env: {},
+        probes: { "systemd-creds": async () => null, libsecret: async () => null },
+      });
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const box = await pickHostSecretBox({
+        choiceFile,
+        env: { MANOR_SECRET_KEY: "c2hvcnQ=" },
+        probes: { "systemd-creds": systemd() },
+      });
+      warn.mockRestore();
+      expect(box.backend()).toBe("systemd-creds");
+      expect(choice()).toBe("systemd-creds");
+    });
+
+    it("still throws when sealed with a key file that is now gone", async () => {
+      const keyFile = path.join(dir, "secret.key");
+      fs.writeFileSync(keyFile, crypto.randomBytes(32));
+      await pickHostSecretBox({ choiceFile, env: { MANOR_SECRET_KEY_FILE: keyFile } });
+      expect(choice()).toBe("key-file");
+      fs.rmSync(keyFile);
+      await expect(
+        pickHostSecretBox({ choiceFile, env: { MANOR_SECRET_KEY_FILE: keyFile } }),
+      ).rejects.toThrow(/could not be read/);
+      expect(choice()).toBe("key-file");
     });
   });
 

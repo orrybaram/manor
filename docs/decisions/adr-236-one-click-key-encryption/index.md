@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -105,6 +105,11 @@ Once a box is on `key-file`, a later systemd 256+ doesn't move it to systemd-cre
 - **Cost:** one more file on the box (`~/.config/manor/secret.key`). Deleting it strands the keys. The recovery is Reset pairing keys, so the docs warn about it.
 - **Restart drops connections:** the restart drops the owner channel and phone connections for a few seconds.
 - **Risk if the restart fails:** if the restart fails, the box keeps the key file and env line while staying on plaintext. The next start, or the next click, tries again.
+
+- **Review findings:**
+  - `restartServer` now holds `server.lock` from the stop through the start, so a bridge that connects partway can't race it.
+  - The "kept inside ~/.manor" warning now needs `secretBackend === "key-file"`, so a systemd-creds host with an old inline key in `supervisor.env` doesn't get a false warning.
+  - Busy hooks no longer inherit `MANOR_SECRET_KEY*` from the host server, because D2 now puts the key in the server's environment on every host.
 
 ## Tickets
 

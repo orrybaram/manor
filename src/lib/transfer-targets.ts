@@ -83,7 +83,11 @@ export function transferTargets(
   projects: readonly TransferProject[],
   hosts: readonly HostStatusInfo[],
   mode: TransferMode,
-  options: { showAllHosts?: boolean } = {},
+  options: {
+    showAllHosts?: boolean;
+    /** A host listed even if it is another project's pod: one already picked. */
+    include?: string;
+  } = {},
 ): TransferTarget[] {
   const own = ownProjectIds(project);
   const memberIds = new Set(project.group?.memberIds ?? []);
@@ -93,7 +97,9 @@ export function transferTargets(
       .map((p) => p.hostId),
   );
   const shown = hosts.filter(
-    (h) => isRemoteHost(h.hostId) && (options.showAllHosts || !isOtherProjectsPod(h, own)),
+    (h) =>
+      isRemoteHost(h.hostId) &&
+      (options.showAllHosts || h.hostId === options.include || !isOtherProjectsPod(h, own)),
   );
   const ids = [LOCAL_HOST_ID, ...shown.map((h) => h.hostId)];
   const targets = ids

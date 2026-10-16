@@ -12,7 +12,16 @@ const api = vi.hoisted(() => {
     unobserve() {}
     disconnect() {}
   };
-  const hosts = { listTemplates: vi.fn(), checkTemplate: vi.fn(), runTemplateFix: vi.fn() };
+  const hosts = {
+    listTemplates: vi.fn(),
+    checkTemplate: vi.fn(),
+    runTemplateFix: vi.fn(),
+    // The host store, for the running-pod count.
+    list: () => new Promise(() => {}),
+    onStatusChanged: () => () => {},
+    onServerChanged: () => () => {},
+    onPairingChanged: () => () => {},
+  };
   const hostProfiles = {
     list: vi.fn(),
     save: vi.fn(),
@@ -179,5 +188,18 @@ describe("profile sign-in section", () => {
     expect(api.hostProfiles.removeSignIn).toHaveBeenCalledWith("hp-1", "claude");
     expect(q("signin-claude-status")).toBeNull();
     expect(q("signin-restart")).not.toBeNull();
+  });
+
+  it("follows the profile as the store refreshes it while open", async () => {
+    useHostProfileStore.setState({ profiles: [profile] });
+    await open(profile);
+    expect(q("signin-claude-status")).toBeNull();
+    act(() =>
+      useHostProfileStore.setState({
+        profiles: [{ ...profile, signIn: { claude: { setAt: 1, source: "pasted" } } }],
+      }),
+    );
+    expect(q("signin-claude-status")).not.toBeNull();
+    expect(q("signin-warning")).not.toBeNull();
   });
 });

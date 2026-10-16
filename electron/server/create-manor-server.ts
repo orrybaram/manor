@@ -231,6 +231,8 @@ export function createManorServer<D extends BridgeServerDeps>(
         },
       })
     : null;
+  /** Each recipe's bundled template, by recipe id, for `hostMarks`. */
+  const recipeTemplates = new Map<string, string | undefined>();
   const backendRegistry = new BackendRegistry({
     local: localBackend,
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
@@ -246,11 +248,17 @@ export function createManorServer<D extends BridgeServerDeps>(
             const spec = projectManager.getHosts().find((h) => h.hostId === hostId)?.spec;
             let template: string | undefined;
             if (spec?.kind === "recipe") {
-              try {
-                template = readRecipe(spec.recipeId).template;
-              } catch {
-                // A recipe gone or unreadable has no template to name.
+              // Read once per recipe: this runs for every host on every
+              // status change, progress lines included. A recipe's template
+              // is fixed when the recipe is written.
+              if (!recipeTemplates.has(spec.recipeId)) {
+                try {
+                  recipeTemplates.set(spec.recipeId, readRecipe(spec.recipeId).template);
+                } catch {
+                  // A recipe gone or unreadable has no template to name; asked again next time.
+                }
               }
+              template = recipeTemplates.get(spec.recipeId);
             }
             return {
               ...(template !== undefined ? { template } : {}),

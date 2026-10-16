@@ -23,6 +23,12 @@ const api = vi.hoisted(() => {
     runTemplateFix: vi.fn(),
     createRecipe: vi.fn(),
     addRecipeHost: vi.fn(),
+    // The host store, which the profile editor's sign-in section reads.
+    // vi.fn, as beforeEach resets every one; the store subscribes once, on import.
+    list: vi.fn(() => new Promise(() => {})),
+    onStatusChanged: vi.fn(() => () => {}),
+    onServerChanged: vi.fn(() => () => {}),
+    onPairingChanged: vi.fn(() => () => {}),
   };
   (window as unknown as { electronAPI: unknown }).electronAPI = { hosts };
   return hosts;

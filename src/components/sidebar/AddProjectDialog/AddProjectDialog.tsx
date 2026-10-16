@@ -148,6 +148,9 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     ? profiles.find((p) => p.id === hostId.slice(POD_PREFIX.length))
     : undefined;
   const inNewPod = podProfile !== undefined;
+  // A pod option whose profile was removed while picked: no host to clone to
+  // until another is picked.
+  const stalePod = hostId.startsWith(POD_PREFIX) && !inNewPod;
 
   const handleHostChange = useCallback((value: string) => {
     if (value === NEW_POD_VALUE) {
@@ -170,7 +173,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const [repos, setRepos] = useState<GitHubRepo[] | null>(null);
   const [reposRequested, setReposRequested] = useState(false);
 
-  const isLocal = !inNewPod && !isRemoteHost(hostId);
+  const isLocal = !hostId.startsWith(POD_PREFIX) && !isRemoteHost(hostId);
   const repoName = repoNameFromUrl(repoUrl);
   const effectiveName = nameEdited ? name : repoName;
 
@@ -284,7 +287,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   }, []);
 
   const canClone =
-    !!hostId && !!repoUrl.trim() && (inNewPod || !!targetDir.trim()) && hostId !== NEW_POD_VALUE;
+    !!hostId && !!repoUrl.trim() && (inNewPod || !!targetDir.trim()) && !stalePod;
 
   const handleClone = useCallback(async () => {
     if (!canClone) return;

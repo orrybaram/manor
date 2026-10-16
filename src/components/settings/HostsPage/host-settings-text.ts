@@ -89,3 +89,9 @@ export function restartedPodsText(count: number): string {
   if (count === 0) return "No pods were running.";
   return `Restarted ${count} ${count === 1 ? "pod" : "pods"}.`;
 }
+
+/** The Restart button (ADR-235 D9): "Restart 3 pods", from the hosts known to be running. */
+export function restartPodsLabel(running: number): string {
+  if (running === 0) return "Restart pods";
+  return `Restart ${running} ${running === 1 ? "pod" : "pods"}`;
+}

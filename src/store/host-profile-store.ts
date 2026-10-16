@@ -35,6 +35,16 @@ export const useHostProfileStore = create<HostProfileState>((set, get) => {
   window.electronAPI?.hostProfiles?.onChanged(() => void get().refresh());
   // Only the latest answer is kept.
   let request = 0;
+  // A profile as main just answered it, shown at once (main's change event
+  // re-lists after).
+  const putProfile = (saved: HostProfile): HostProfile => {
+    set((s) => ({
+      profiles: s.profiles.some((p) => p.id === saved.id)
+        ? s.profiles.map((p) => (p.id === saved.id ? saved : p))
+        : [...s.profiles, saved],
+    }));
+    return saved;
+  };
 
   return {
     profiles: [],
@@ -53,9 +63,10 @@ export const useHostProfileStore = create<HostProfileState>((set, get) => {
     save: (input) => window.electronAPI.hostProfiles.save(input),
     remove: (profileId) => window.electronAPI.hostProfiles.remove(profileId),
 
-    setSignIn: (profileId, input) => window.electronAPI.hostProfiles.setSignIn(profileId, input),
-    removeSignIn: (profileId, which) =>
-      window.electronAPI.hostProfiles.removeSignIn(profileId, which),
+    setSignIn: async (profileId, input) =>
+      putProfile(await window.electronAPI.hostProfiles.setSignIn(profileId, input)),
+    removeSignIn: async (profileId, which) =>
+      putProfile(await window.electronAPI.hostProfiles.removeSignIn(profileId, which)),
     restartPods: async (profileId) =>
       (await window.electronAPI.hostProfiles.restartPods(profileId)).restarted,
 

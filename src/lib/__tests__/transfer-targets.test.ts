@@ -140,6 +140,14 @@ describe("pods of other projects", () => {
     expect(ids).toEqual(["box", "podA", "podB"]);
   });
 
+  it("keeps the one host named by include", () => {
+    const c = { id: "c", hostId: "local" };
+    const ids = transferTargets(c, [c], podHosts, "copy", { include: "podB" }).map(
+      (t) => t.hostId,
+    );
+    expect(ids).toEqual(["box", "podB"]);
+  });
+
   it("reports whether any pod is hidden", () => {
     expect(hasHiddenPods({ id: "c", hostId: "local" }, podHosts)).toBe(true);
     expect(hasHiddenPods({ id: "a", hostId: "local" }, [pod("podA", "a")])).toBe(false);

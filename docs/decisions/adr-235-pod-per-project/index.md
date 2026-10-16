@@ -250,8 +250,10 @@ explicit change to the credential stance, for that namespace only.
   - **Claude:** paste the output of `claude setup-token`.
 - **Where tokens go.** Manor writes one Secret, `manor-signin`, in the
   profile's namespace, with keys `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`.
-  It pipes them to `kubectl apply -f -` on stdin, never in argv. Manor keeps
-  no copy on the laptop: the profile stores only `{ setAt, source:
+  It pipes them to `kubectl create -f -` (a change: `patch --patch-file
+  /dev/stdin`) on stdin, never in argv; not `apply`, whose
+  last-applied annotation would keep a second copy. Manor keeps no copy on
+  the laptop: the profile stores only `{ setAt, source:
   "gh" | "pasted" }` per token. Replace and Remove rewrite or delete the
   Secret.
 - **How pods use them.** The pod spec has `envFrom: [{secretRef: {name:

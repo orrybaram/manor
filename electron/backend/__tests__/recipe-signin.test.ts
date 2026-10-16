@@ -90,7 +90,7 @@ function fakeCluster(
           .map((k) => `${k}\n`)
           .join("");
       }
-      if (verb === "apply") {
+      if (verb === "create" && kind === undefined) {
         const doc = JSON.parse(o?.input ?? "") as {
           data: Record<string, string>;
         };
@@ -217,13 +217,13 @@ describe("sign-in Secret (ADR-235 D9)", () => {
     });
     expect(k.hasNamespace()).toBe(true);
     expect(k.calls[0]).toEqual({ file: "gh", args: ["auth", "token"] });
-    const apply = k.calls.find((c) => c.args.includes("apply"));
-    expect(apply?.args).toEqual([
+    const create = k.calls.find((c) => c.args.includes("-f"));
+    expect(create?.args).toEqual([
       "--context",
       "dev",
       "-n",
       "team",
-      "apply",
+      "create",
       "-f",
       "-",
     ]);

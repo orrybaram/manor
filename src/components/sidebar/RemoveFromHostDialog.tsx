@@ -14,12 +14,6 @@ import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
  * success toast can open it too.
  */
 export function RemoveFromHostDialog() {
-  const requestKey = useProjectStore((s) => s.removeFromHostDialog?.projectId);
-  // Remount per opening so "delete pod" starts checked every time.
-  return <RemoveFromHostDialogBody key={requestKey ?? "closed"} />;
-}
-
-function RemoveFromHostDialogBody() {
   const request = useProjectStore((s) => s.removeFromHostDialog);
   const close = useProjectStore((s) => s.closeRemoveFromHost);
   const removeFromHost = useProjectStore((s) => s.removeFromHost);
@@ -30,6 +24,13 @@ function RemoveFromHostDialogBody() {
   );
   const hosts = useHostStore((s) => s.hosts);
   const [deletePod, setDeletePod] = useState(true);
+  // "Delete pod" starts checked on every opening. Reset while rendering, not
+  // by remounting, so closing keeps the dialog's exit animation.
+  const [shownFor, setShownFor] = useState(request?.projectId ?? null);
+  if ((request?.projectId ?? null) !== shownFor) {
+    setShownFor(request?.projectId ?? null);
+    if (request) setDeletePod(true);
+  }
 
   // On a phone the page is not "This machine" (ADR-228 D8).
   const host = member

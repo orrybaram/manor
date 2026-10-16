@@ -2,6 +2,8 @@ import { useState } from "react";
 import type { HostProfile } from "../../../electron.d";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { useHostProfileStore } from "../../../store/host-profile-store";
+import { useHostStore } from "../../../store/host-store";
+import { isHostRunning } from "../../../lib/host-groups";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
 import { Row, Stack } from "../../ui/Layout/Layout";
@@ -10,7 +12,12 @@ import { ToggleGroup } from "../../ui/ToggleGroup/ToggleGroup";
 import { SettingField } from "../SettingRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
-import { restartedPodsText, signInStatusText, signInWarningText } from "./host-settings-text";
+import {
+  restartedPodsText,
+  restartPodsLabel,
+  signInStatusText,
+  signInWarningText,
+} from "./host-settings-text";
 
 type Which = "github" | "claude";
 type GithubSource = "gh" | "pasted";
@@ -27,11 +34,18 @@ const GITHUB_SOURCES = [
  * Needs a saved profile.
  */
 export function ProfileSignIn(props: { profile: HostProfile }) {
-  const { profile } = props;
+  // The profile as the store has it now: a change from another window, or
+  // this one's own, shows here without reopening.
+  const profile =
+    useHostProfileStore((s) => s.profiles.find((p) => p.id === props.profile.id)) ??
+    props.profile;
   const store = useHostProfileStore.getState();
+  const runningPods = useHostStore(
+    (s) => s.hosts.filter((h) => h.profileId === profile.id && isHostRunning(h)).length,
+  );
 
-  const [signIn, setMeta] = useState(profile.signIn ?? {});
-  const [on, setOn] = useState(Boolean(signIn.github || signIn.claude));
+  const signIn = profile.signIn ?? {};
+  const [switchedOn, setOn] = useState(false);
   // Which token's controls are open although it is already set (Replace).
   const [replacing, setReplacing] = useState<Record<Which, boolean>>({
     github: false,
@@ -58,34 +72,34 @@ export function ProfileSignIn(props: { profile: HostProfile }) {
     }
   };
 
-  const afterChange = (saved: HostProfile) => {
-    setMeta(saved.signIn ?? {});
+  const afterChange = () => {
     setChanged(true);
     setRestarted(null);
   };
 
   const setGithub = () =>
     work(async () => {
-      const saved = await store.setSignIn(profile.id, {
+      await store.setSignIn(profile.id, {
         github:
           source === "gh" ? { source: "gh" } : { source: "pasted", token: githubToken.trim() },
       });
       setGithubToken("");
       setReplacing((r) => ({ ...r, github: false }));
-      afterChange(saved);
+      afterChange();
     });
 
   const setClaude = () =>
     work(async () => {
-      const saved = await store.setSignIn(profile.id, { claude: { token: claudeToken.trim() } });
+      await store.setSignIn(profile.id, { claude: { token: claudeToken.trim() } });
       setClaudeToken("");
       setReplacing((r) => ({ ...r, claude: false }));
-      afterChange(saved);
+      afterChange();
     });
 
   const remove = (which: Which) =>
     work(async () => {
-      afterChange(await store.removeSignIn(profile.id, which));
+      await store.removeSignIn(profile.id, which);
+      afterChange();
     });
 
   const restart = () =>
@@ -96,6 +110,8 @@ export function ProfileSignIn(props: { profile: HostProfile }) {
     });
 
   const anySet = Boolean(signIn.github || signIn.claude);
+  // Removing the last token leaves the section open until switched off.
+  const on = switchedOn || anySet;
   const githubOpen = !signIn.github || replacing.github;
   const claudeOpen = !signIn.claude || replacing.claude;
 
@@ -241,7 +257,7 @@ export function ProfileSignIn(props: { profile: HostProfile }) {
                 data-testid="signin-restart-button"
                 onClick={() => void restart()}
               >
-                Restart pods
+                {restartPodsLabel(runningPods)}
               </Button>
             </>
           ) : (

@@ -19,15 +19,17 @@ type RemoveProjectDialogProps = {
 };
 
 export function RemoveProjectDialog(props: RemoveProjectDialogProps) {
-  // Remount per opening so "delete pods" starts checked every time.
-  return <RemoveProjectDialogBody key={String(props.open)} {...props} />;
-}
-
-function RemoveProjectDialogBody(props: RemoveProjectDialogProps) {
   const { open, onOpenChange, projectName, members = [], onConfirm } = props;
   const hosts = useHostStore((s) => s.hosts);
   const pods = podsOf(members, hosts);
   const [deletePods, setDeletePods] = useState(true);
+  // "Delete pods" starts checked on every opening. Reset while rendering, not
+  // by remounting, so closing keeps the dialog's exit animation.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setDeletePods(true);
+  }
 
   return (
     <ConfirmDialog

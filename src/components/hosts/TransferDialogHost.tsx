@@ -35,7 +35,14 @@ export function TransferDialogHost() {
       open
       mode={dialog.mode}
       project={project}
-      hostChoices={transferTargets(project, projects, hosts, dialog.mode === "setUp" ? "copy" : "move")}
+      hostChoices={transferTargets(
+        project,
+        projects,
+        hosts,
+        dialog.mode === "setUp" ? "copy" : "move",
+        // The host already picked stays a choice, even another project's pod.
+        { include: dialog.hostId },
+      )}
       initialHostId={dialog.hostId}
       initialRepoUrl={dialog.repoUrl}
       initialDir={dialog.targetDir}

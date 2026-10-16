@@ -93,6 +93,7 @@ export async function hostProfilesSetSignIn(
     const m = meta[which];
     if (m) saved = ctx.deps.projectManager.setHostProfileSignIn(profileId, which, m);
   }
+  publishRendererBroadcast("hostProfiles", "changed");
   return saved;
 }
 
@@ -108,7 +109,9 @@ export async function hostProfilesRemoveSignIn(
   }
   const profile = knownProfile(ctx, profileId);
   await removeSignIn(profile, which, signInDeps);
-  return ctx.deps.projectManager.setHostProfileSignIn(profileId, which, null);
+  const saved = ctx.deps.projectManager.setHostProfileSignIn(profileId, which, null);
+  publishRendererBroadcast("hostProfiles", "changed");
+  return saved;
 }
 
 /**

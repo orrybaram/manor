@@ -13,9 +13,12 @@
  * - **Never in argv.** Any local user can read a process's argv (`ps`), and
  *   argv lands in error messages ("Command failed: kubectl …"). So every
  *   payload that holds a token goes to kubectl on **stdin**: a new Secret
- *   with `apply -f -`, a change to an existing one with
+ *   with `create -f -`, a change to an existing one with
  *   `patch --type merge --patch-file /dev/stdin`. (`patch -p <json>` would
  *   put the token in argv.)
+ * - **No second copy.** Not `apply`: it saves the whole object, tokens and
+ *   all, in the `last-applied-configuration` annotation, which a later
+ *   Remove (a patch of `.data`) would leave behind.
  * - **Never on disk.** No temp file: `/dev/stdin` is the pipe Manor writes.
  * - **Never read back.** Merging with what the Secret already holds reads
  *   its key *names* only (a go-template over `.data`), never their values;
@@ -128,7 +131,7 @@ export function profileKubeTarget(profile: HostProfile): KubeTarget {
 
 /**
  * A new sign-in Secret holding `data` (key → plain token), for
- * `kubectl apply -f -`. JSON, which is YAML too, so no token can break out of
+ * `kubectl create -f -`. JSON, which is YAML too, so no token can break out of
  * its string.
  */
 export function buildSignInSecret(secret: string, namespace: string, data: Record<string, string>): string {
@@ -286,7 +289,7 @@ export async function writeSignIn(
   if (existing === null) await ensureNamespace(target, deps);
   try {
     if (existing === null) {
-      await deps.run("kubectl", [...kubectlBase(target), "apply", "-f", "-"], {
+      await deps.run("kubectl", [...kubectlBase(target), "create", "-f", "-"], {
         input: buildSignInSecret(target.secret, target.namespace, tokens),
       });
     } else {

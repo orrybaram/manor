@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { RecipeHostProvider, recipeInstanceId } from "../providers/recipe-provider";
+import { RecipeHostProvider, recipeInstanceId, stageProgress } from "../providers/recipe-provider";
 import { createProvider } from "../providers";
 import { classifyHostFailure } from "../remote-backend";
 import type { Recipe } from "../providers/recipes";
@@ -309,6 +309,59 @@ describe.skipIf(process.platform === "win32")("RecipeHostProvider (ADR-229 D2)",
     const err = await makeProvider().ensureUp().catch((e) => e);
     expect(err.message).toMatch(/non-empty array/);
     expect(classifyHostFailure(err)?.reason).toBe("recipe");
+  });
+
+  describe("named stages (ADR-234 D9)", () => {
+    /** An `up.sh` that prints `lines` on stderr, then `up-result.json`, or exits 1 when `fail`. */
+    function writeUp(lines: string[], fail = false): void {
+      fs.writeFileSync(
+        path.join(dir, "up.sh"),
+        [
+          "#!/bin/sh",
+          "cat >/dev/null",
+          ...lines.map((l) => `echo '${l}' >&2`),
+          fail ? "exit 1" : `cat "$MANOR_RECIPE_DIR/up-result.json"`,
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+    }
+
+    it("shows the latest stage, not the lines after it", async () => {
+      writeRecipe();
+      result("up", { schemaVersion: 1, connection: { type: "exec", argv: ["docker", "exec", "-i", "a"] } });
+      writeUp(["Checking things", "manor-stage: Getting a disk", "noise", "manor-stage:   Starting  ", "more noise"]);
+      const progress: string[] = [];
+      await makeProvider().ensureUp((line) => progress.push(line));
+      expect(progress).toEqual(["Checking things", "Getting a disk", "Starting"]);
+    });
+
+    it("starts each run without a stage", async () => {
+      writeRecipe();
+      result("up", { schemaVersion: 1, connection: { type: "exec", argv: ["docker", "exec", "-i", "a"] } });
+      const provider = makeProvider();
+      writeUp(["manor-stage: Getting a disk", "noise"]);
+      await provider.ensureUp(() => {});
+      writeUp(["plain line"]);
+      const progress: string[] = [];
+      await provider.ensureUp((line) => progress.push(line));
+      expect(progress).toEqual(["plain line"]);
+    });
+
+    it("keeps the stage lines in a failed run's output", async () => {
+      writeRecipe();
+      writeUp(["manor-stage: Getting a disk", "storageclass not found"], true);
+      const err = await makeProvider().ensureUp(() => {}).catch((e) => e);
+      expect(err.stderrTail).toBe("manor-stage: Getting a disk\nstorageclass not found\n");
+    });
+
+    it("parses stage lines on their own", () => {
+      const seen: string[] = [];
+      const onLine = stageProgress((l) => seen.push(l))!;
+      for (const l of ["a", "  manor-stage: One", "b", "manor-stage:", "manor-stage:    ", "manor-stage: Two"]) onLine(l);
+      expect(seen).toEqual(["a", "One", "Two"]);
+      expect(stageProgress(undefined)).toBeUndefined();
+    });
   });
 
   it("fails up whose recipe is missing, saying so", async () => {

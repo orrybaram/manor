@@ -15,8 +15,9 @@ Design background is in
 
 Open **Settings → Hosts**, then **Add a host… → Start a new host**. Pick one of:
 
-- **Docker container**: a container on this computer's Docker daemon. The
-  quickest way to try it. See [Docker](#docker).
+- **Docker container**: a container on this computer's Docker daemon, or
+  on another machine's over SSH. The quickest way to try it. See
+  [Docker](#docker).
 - **Kubernetes cluster**: a pod with its own disk, on a cluster you can reach. See
   [Kubernetes](#kubernetes).
 - **Custom recipe**: anything else, for example a cloud VM with sshd. Manor
@@ -181,6 +182,12 @@ A recipe lives in `~/.manor/host-recipes/<id>/`, next to its scripts:
   `echo` is an error, and Manor quotes it.
 - **Stderr is progress.** Each line shows in the host's status while `up`
   runs. When a command fails, the message quotes the last 2 KB.
+- **Named stages (optional).** A stderr line `manor-stage: <text>` sets the
+  host's status to `<text>`, such as `manor-stage: Getting a disk`. Once
+  `up` has printed one, its other lines no longer replace the stage in the
+  status (they still go to the output, stage lines included); a later
+  `manor-stage:` line replaces it. Each run of `up` starts without a stage.
+  A recipe that prints none shows every line, as above.
 - **A non-zero exit is a failure.**
 - **Timeouts:**
 
@@ -350,8 +357,15 @@ Both templates run Manor's host image, `ghcr.io/orrybaram/manor-host:<version>`
 the `node-pty` toolchain, tini, and a `manor` user (uid 1000, home
 `/home/manor`). Nothing of Manor's is baked in. The entrypoint waits for the
 first connect to install `~/.manor/bin/manor-host` on the home volume, then
-runs `manor-host supervise`. Add the agent CLIs you use: the Dockerfile has a
-commented line for each.
+runs `manor-host supervise`. The image has no agent CLIs.
+Both templates ask "Agents to install" (Claude Code, on by default, and
+Codex), recorded as `MANOR_AGENTS=claude,codex` in `recipe.json`. After the
+container or pod is up, `up.sh` installs each one that is missing as the
+`manor` user onto the home volume (`npm i -g --prefix ~/.local`, printing
+`manor-stage: Installing Claude Code`); `~/.local/bin` is on the image's
+`PATH`. It runs once and survives restarts and image upgrades. A failed
+install is a warning on stderr, not a failed `up`. Leave both unchecked to
+install none, or edit `MANOR_AGENTS` in the recipe.
 
 You do not need to build anything: the Docker template's `up.sh` pulls the
 image when the daemon does not have it (printing `manor-stage: Getting
@@ -369,10 +383,56 @@ For a cluster, push it somewhere the cluster can pull from.
 
 The form asks for:
 
+- **Run it on**: *This computer* (the default) or *Another machine over
+  SSH*;
+- **SSH target**, for another machine only: `you@build-box`,
+  `you@build-box:2222`, or a `Host` from your `~/.ssh/config`;
 - **Container name** (also the recipe's id, `docker-<name>`);
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; an image the daemon already has is not pulled);
 - **Docker context** (optional, such as `colima` or `desktop-linux`; blank
   for the default). A remote daemon works too.
+
+The recipe's context (`MANOR_DOCKER_CONTEXT`) is, in order: the Docker
+context field when you fill it in; for another machine, `manor-<host>`
+(the target's host, lowercased, anything but letters, digits and `-`
+turned into `-`); otherwise none, which is Docker's current context.
+
+#### Docker on another machine over SSH
+
+If all you want is Manor on another machine, **Add a host… → A machine I
+can SSH into** is simpler: Manor installs itself there directly. Use this
+when you want a container there that Manor starts, stops and can throw
+away.
+
+Docker on your computer talks to the machine's Docker over ssh, through a
+Docker context. Before Start, the checklist checks, in order:
+
+1. the target answers over SSH (`ssh -o BatchMode=yes -o ConnectTimeout=5`,
+   with your `~/.ssh/config`). Manor can't answer a host-key or passphrase
+   prompt: if the machine's key isn't trusted yet, run `ssh <target>` once
+   in a terminal and accept it; for a passphrase, `ssh-add` your key;
+2. Docker is installed on the machine;
+3. you can use it there. If Docker refuses you (permission denied on
+   `docker.sock`), run `sudo usermod -aG docker $USER` on the machine, then
+   log out of it and back in;
+4. Docker is installed on this computer (only the CLI is needed);
+5. Docker on the machine is set up for Manor. **Set up Docker on
+   *host*** runs `docker context create manor-<host> --docker
+   host=ssh://<target>`. An existing `manor-<host>` that already points
+   there is reused; one pointing somewhere else is yours, so Manor leaves
+   it alone and asks you to pick a context under Advanced or remove it;
+6. Manor can reach Docker through that context, and the host image is on
+   the machine. The image is pulled there, for the machine's own CPU; the
+   build fallback builds there too (`docker --context manor-<host> build`
+   sends the build files over ssh).
+
+If you remove the context later, `up` makes it again before any other
+docker call (`manor-stage: Setting up Docker on <host>`), from the target
+the recipe records in `MANOR_DOCKER_SSH_TARGET`. That applies only to the
+context Manor derived (`MANOR_DOCKER_CONTEXT_MANAGED=1`), not to one you
+chose under Advanced. A context of that name that points somewhere else is
+left alone and `up` fails with a one-line reason. The ssh check above is
+reused for 15 seconds while the form refreshes, and only when it passed.
 
 `up`:
 
@@ -384,7 +444,8 @@ The form asks for:
   [Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys));
 - sets `MANOR_INSTANCE_ID` to the container's name;
 - runs the container with `--restart unless-stopped`, or starts it if it
-  exists and is stopped;
+  exists and is stopped. Pulling the image, creating the container and
+  starting it are named stages (`manor-stage:`);
 - writes no-op `on-busy` and `on-idle` hooks if there are none (see
   [Box hooks](#box-hooks));
 - returns `docker exec -i -u manor <name>` as the way in.
@@ -406,8 +467,10 @@ The form asks for:
   form starts on the cluster your most recent Kubernetes recipe used, if
   it is still listed, and otherwise on none; it never picks kubectl's
   current context for you;
-- **Size**: Small (1 CPU, 2 GiB), Medium (2 CPUs, 4 GiB, the default) or
-  Large (4 CPUs, 8 GiB);
+- **Size**: what the pod reserves and how far its memory may grow. Small
+  (¼ CPU, 512 MiB, up to 2 GiB), Medium (½ CPU, 1 GiB, up to 4 GiB, the
+  default) or Large (1 CPU, 2 GiB, up to 8 GiB). Agents sit near idle and
+  burst while building, so requests are low and several hosts share a node;
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
@@ -421,10 +484,24 @@ The form asks for:
   `MANOR_INSTANCE_ID=<namespace>/<name>`. The pod passes Pod Security
   "restricted": it runs as non-root uid/gid 1000 (`fsGroup` 1000) with the
   `RuntimeDefault` seccomp profile, no privilege escalation and all
-  capabilities dropped. The size becomes `MANOR_K8S_CPU` and
-  `MANOR_K8S_MEMORY`: the pod requests both, and its memory is limited to
-  the request. There is no CPU limit, so a build isn't throttled;
-- scales it to 1 and waits for the rollout (up to 10 minutes);
+  capabilities dropped. The size becomes `MANOR_K8S_CPU`,
+  `MANOR_K8S_MEMORY` and `MANOR_K8S_MEMORY_LIMIT`: the pod requests the
+  first two, and its memory is limited to the third (to the request in a
+  recipe without it). There is no CPU limit, so a build isn't throttled;
+- scales it to 1 and waits for the pod to be Ready, every 3 seconds,
+  naming the stage it is at: "Getting a disk" (the claim `home-<name>-0`
+  isn't bound), "Finding room on the cluster" (the pod isn't scheduled),
+  "Downloading the image on the node" (the container is being created),
+  then "Starting". It stops at once, printing the cluster's own reason, when
+  the pod can't start: the claim still Pending after 60 seconds with a
+  `ProvisioningFailed` or `FailedBinding` event (no storage class, or one
+  that doesn't work); the pod unscheduled after 60 seconds with a
+  `FailedScheduling` event (no node has room); the pod refused (a
+  `FailedCreate` event, such as a policy or quota); the container waiting on
+  `ErrImagePull`, `ImagePullBackOff`, `InvalidImageName` or
+  `CreateContainerConfigError`; or killed `OOMKilled`. It gives up 14
+  minutes after `up` started, naming the stage it was stuck at, a minute
+  before Manor's own timeout;
 - writes no-op hooks if there are none;
 - returns `kubectl [--context …] -n <namespace> exec -i <name>-0 -c host --`
   as the way in.

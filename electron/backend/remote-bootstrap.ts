@@ -599,20 +599,27 @@ export async function ensureRemoteHost(
   }
 
   // 4. Install
-  report("install", `Installing Manor host ${version} on ${target}…`);
   const stagingId = opts.stagingId?.() ?? crypto.randomBytes(6).toString("hex");
   // A baked package in the image (ADR-235 D10) needs no upload and no npm;
   // anything short of a working one falls back to the upload.
   const probe = bakedProbeCommand(version, nodePath);
   const baked = probe !== null && parseBakedProbe(await ssh(probe));
+  // Without a baked package or a node-pty prebuild the install compiles it,
+  // which is the slow part: say so, so a long wait doesn't read as stuck
+  // (ADR-234 D9).
+  const compiles = !baked && !NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`);
+  report(
+    "install",
+    compiles
+      ? "Installing Manor — building terminal support, this only happens once (about 2 minutes)"
+      : `Installing Manor host ${version} on ${target}…`,
+  );
 
   let cmds: InstallCommands;
   let tarball: Buffer | null = null;
-  let compiles = false;
   if (baked) {
     cmds = buildInstallCommands(version, nodePath, stagingId, "baked");
   } else {
-    compiles = !NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`);
     if (compiles) await checkToolchain(target, ssh);
     tarball = await (opts.loadTarball ?? readTarball)(version);
     cmds = buildInstallCommands(version, nodePath, stagingId, "upload");
@@ -622,9 +629,6 @@ export async function ensureRemoteHost(
   try {
     if (cmds.source === "upload" && tarball) {
       await step(target, "transfer", ssh(cmds.stream, { stdin: tarball, timeoutMs: STREAM_TIMEOUT_MS }));
-      if (compiles) {
-        report("install", `Compiling node-pty on ${target} (this can take a few minutes)…`);
-      }
       await step(target, "npm install", ssh(cmds.install, { timeoutMs: INSTALL_TIMEOUT_MS }));
     } else {
       await step(target, "copy", ssh(cmds.install, { timeoutMs: INSTALL_TIMEOUT_MS }));

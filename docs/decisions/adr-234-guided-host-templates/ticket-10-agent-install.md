@@ -1,6 +1,6 @@
 ---
 title: Install the chosen agent CLIs onto the home volume
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [7, 8]

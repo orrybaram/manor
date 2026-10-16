@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -325,6 +325,49 @@ k3s-over-SSH, and failure actions that edit or delete the user's things
 - Failure classification is regex over third-party output and will drift
   with docker/kubectl versions. It only changes the summary, never hides
   the output, so a miss degrades to today's behaviour.
+
+## As built
+
+Changes from the decision above, made while implementing:
+
+- **D3/D8 pull progress** counts layers ("3 of 7 layers"), not MB: `docker
+  pull` prints no byte counts without a TTY.
+- **D9 overall cap** is 14 minutes, not 15: the recipe runner already kills
+  `up` at 15, so a 15-minute cap inside the script could never report.
+- **D10 actions** are Retry and open-a-URL only. "Show recipe folder" was
+  dropped: the renderer knows a host's `recipeId`, not its directory.
+- **D11** also needed `/etc/profile.d/manor-local-bin.sh` in the image:
+  terminal panes are login shells, `/etc/profile` resets PATH, and a fresh
+  Kubernetes volume has no skel `~/.profile` to put `~/.local/bin` back.
+- **D12** added a `segmented` field type and `showWhen`; ticket 13 lets
+  `up.sh` recreate a deleted `manor-<host>` context
+  (`MANOR_DOCKER_SSH_TARGET`, `MANOR_DOCKER_CONTEXT_MANAGED`) and caches a
+  passing SSH probe for 15 s.
+- **D13** polls `checkTemplate` every 3 s while the cluster guide shows,
+  instead of a file watcher (no push channel to reuse; `kubectl config view`
+  is cheap and honours `$KUBECONFIG`).
+
+## Known limits
+
+- The GHCR package must be made public by hand after the first release
+  push, or pulls fail.
+- A Kubernetes pod in `CrashLoopBackOff` for a reason other than OOM, or a
+  claim stuck on a provisioner that never answers, waits the full 14 minutes.
+- No kubeconfig file picker (the app has only a directory dialog): the guide
+  explains `~/.kube/config` / `KUBECONFIG`.
+- The disk cost note shows in the Connect step only, not on the host row:
+  the renderer can't see a host's cluster.
+- Two SSH targets with the same host part (different user or port) map to
+  the same `manor-<host>` context; the second must pick a context under
+  Advanced.
+- If `checkTemplate` itself rejects, Start is enabled (the pre-ADR
+  behaviour) so a broken probe can't lock the user out.
+- Recipes written before this ADR keep their own scripts: no key volume,
+  stages, agent installs or fail-fast wait until recreated.
+- Not exercised end to end: a full host start on a remote Docker context
+  (the checks and context creation were), and agent installs inside a real
+  pod (the install block was, against a fake npm, and npm in the image by
+  hand).
 
 ## Tickets
 

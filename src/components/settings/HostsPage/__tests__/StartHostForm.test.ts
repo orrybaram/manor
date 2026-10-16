@@ -43,9 +43,35 @@ const docker: TemplateInfo = {
   description: "A container on this computer's Docker.",
   perHost: ["name"],
   fields: [
+    {
+      key: "where",
+      label: "Run it on",
+      type: "segmented",
+      default: "local",
+      options: [
+        { value: "local", label: "This computer" },
+        { value: "ssh", label: "Another machine over SSH" },
+      ],
+    },
+    {
+      key: "sshTarget",
+      label: "SSH target",
+      required: true,
+      showWhen: { key: "where", value: "ssh" },
+    },
     { key: "name", label: "Container name", default: "manor-abc123", required: true, advanced: true },
     { key: "image", label: "Image", default: "ghcr.io/orrybaram/manor-host:1.0.0", required: true, advanced: true },
     { key: "context", label: "Docker context", type: "choice", advanced: true },
+    {
+      key: "agents",
+      label: "Agents to install",
+      type: "multi",
+      default: "claude",
+      options: [
+        { value: "claude", label: "Claude Code" },
+        { value: "codex", label: "Codex" },
+      ],
+    },
   ],
 };
 
@@ -214,6 +240,62 @@ describe("StartHostForm — a template's Connect step", () => {
     expect(submit().disabled).toBe(false);
   });
 
+  it("renders a multi field as checkboxes that edit a comma-separated answer", async () => {
+    api.checkTemplate.mockResolvedValue(result([]));
+    await open(docker);
+    const claude = () => q("start-host-field-agents-claude");
+    const codex = () => q("start-host-field-agents-codex");
+    expect(q("start-host-field-agents")?.textContent).toContain("Claude Code");
+    expect(claude()?.getAttribute("aria-checked")).toBe("true");
+    expect(codex()?.getAttribute("aria-checked")).toBe("false");
+
+    click(codex());
+    expect(codex()?.getAttribute("aria-checked")).toBe("true");
+    click(claude());
+    expect(claude()?.getAttribute("aria-checked")).toBe("false");
+
+    api.createRecipe.mockResolvedValue("docker-manor-abc123");
+    api.addRecipeHost.mockResolvedValue({ hostId: "h1" });
+    await act(async () => {
+      submit().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(api.createRecipe.mock.calls[0][1]).toMatchObject({ agents: "codex" });
+  });
+
+  it("shows a field only while its showWhen answer holds, and only then requires it", async () => {
+    api.checkTemplate.mockResolvedValue(result([ok("docker-cli")]));
+    await open(docker);
+    const where = q("start-host-field-where");
+    expect(where?.textContent).toContain("This computer");
+    // This computer: no SSH target, and nothing to fill in.
+    expect(q("start-host-field-sshTarget")).toBeNull();
+    expect(submit().disabled).toBe(false);
+
+    const ssh = where?.querySelector<HTMLElement>('[data-value="ssh"]') ?? null;
+    click(ssh);
+    expect(ssh?.getAttribute("aria-checked")).toBe("true");
+    const target = q("start-host-field-sshTarget") as HTMLInputElement;
+    expect(target).not.toBeNull();
+    expect(submit().disabled).toBe(true);
+    expect(q("start-host-gate-hint")?.textContent).toBe("Fill in SSH target to start.");
+
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(target, "me@build-box");
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(submit().disabled).toBe(false);
+
+    // Back to this computer: the target is hidden again, and kept.
+    click(where?.querySelector<HTMLElement>('[data-value="local"]') ?? null);
+    expect(q("start-host-field-sshTarget")).toBeNull();
+    api.createRecipe.mockResolvedValue("docker-manor-abc123");
+    api.addRecipeHost.mockResolvedValue({ hostId: "h1" });
+    await act(async () => {
+      submit().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(api.createRecipe.mock.calls[0][1]).toMatchObject({ where: "local", sshTarget: "me@build-box" });
+  });
+
   it("shows each size's resources in its option", async () => {
     api.checkTemplate.mockResolvedValue(result([]));
     await open(kubernetes);
@@ -309,5 +391,51 @@ describe("StartHostForm — a template's Connect step", () => {
       vi.advanceTimersByTime(10_000);
     });
     expect(api.checkTemplate).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the cluster guide while kubectl knows of no cluster, and leaves it when one appears", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    api.checkTemplate
+      .mockResolvedValueOnce(result([ok("kubectl-cli")], { choices: { context: [] } }))
+      .mockResolvedValue(
+        result([ok("kubectl-cli"), ok("k8s-cluster")], {
+          choices: { context: [{ value: "kind-dev", label: "kind-dev" }] },
+        }),
+      );
+    await open(kubernetes);
+    expect(q("cluster-guide")).not.toBeNull();
+    expect(q("start-host-submit")).toBeNull();
+    expect(q("start-host-field-context")).toBeNull();
+    expect(q("cluster-guide")?.textContent).toContain("doctl kubernetes cluster kubeconfig save");
+    expect(q("cluster-guide")?.querySelector("a")?.getAttribute("href")).toMatch(/^https:\/\//);
+
+    // It asks again every 3 s, not sooner.
+    await act(async () => {
+      vi.advanceTimersByTime(2900);
+    });
+    expect(api.checkTemplate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(api.checkTemplate).toHaveBeenCalledTimes(2);
+    expect(q("cluster-guide")).toBeNull();
+    expect(q("start-host-submit")).not.toBeNull();
+
+    // Having left the guide, it stops asking.
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(api.checkTemplate).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains a missing kubectl in the checklist, not the guide", async () => {
+    api.checkTemplate.mockResolvedValue(
+      result([{ id: "kubectl-cli", state: "bad", title: "kubectl isn't installed" }], {
+        choices: { context: [] },
+      }),
+    );
+    await open(kubernetes);
+    expect(q("cluster-guide")).toBeNull();
+    expect(q("start-host-check-kubectl-cli")).not.toBeNull();
   });
 });

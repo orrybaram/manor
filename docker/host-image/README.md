@@ -66,8 +66,9 @@ onto the volume.
 above all its relay identity in `~/.manor/remote/server/`, is created on the
 volume and never in the image. So a snapshot of the image, or a clone of it,
 cannot make two hosts share a relay room (ADR-229 D6). The agent CLIs
-(Claude Code, Codex) are yours to add: see the commented `RUN` lines in the
-Dockerfile.
+(Claude Code, Codex) are not baked in: the Docker and Kubernetes templates
+install the ones chosen under "Agents to install" onto the home volume
+(`~/.local`, which the image puts on `PATH`) the first time a host starts.
 
 ## `/home/manor` must be persistent
 

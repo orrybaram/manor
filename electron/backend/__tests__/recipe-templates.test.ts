@@ -9,6 +9,7 @@ import {
   listTemplates,
   RECIPE_TEMPLATES,
 } from "../providers/recipe-templates";
+import { agentInstallScript } from "../providers/recipe-templates/agents";
 import { parseRecipe, readRecipe } from "../providers/recipes";
 
 // Optional: used when it is installed (knip would flag a literal binary name).
@@ -135,6 +136,7 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(up).toContain('-v "$key_volume:/run/secrets/manor:ro"');
     expect(up).toContain("MANOR_SECRET_KEY_FILE=/run/secrets/manor/secret.key");
     expect(up).toContain("manor-stage: Creating the container");
+    expect(up).toContain("manor-stage: Starting the container");
     expect(up.indexOf("pull")).toBeLessThan(up.indexOf("run --rm -u 0"));
     expect(up.indexOf("run --rm -u 0")).toBeLessThan(up.indexOf("run -d"));
     const destroy = RECIPE_TEMPLATES[0].files["destroy.sh"].content;
@@ -153,10 +155,202 @@ describe("recipe templates (ADR-229 D8)", () => {
     });
   });
 
+  it("docker: another machine over SSH runs against its own context, unless Advanced names one (ADR-234 D12)", () => {
+    const docker = RECIPE_TEMPLATES[0];
+    const where = docker.fields.find((f) => f.key === "where");
+    expect(where).toMatchObject({ type: "segmented", label: "Run it on", default: "local" });
+    expect(where?.advanced).toBeFalsy();
+    expect(where?.options?.map((o) => [o.value, o.label])).toEqual([
+      ["local", "This computer"],
+      ["ssh", "Another machine over SSH"],
+    ]);
+    expect(docker.fields.find((f) => f.key === "sshTarget")).toMatchObject({
+      label: "SSH target",
+      showWhen: { key: "where", value: "ssh" },
+    });
+
+    const context = (values: Record<string, string>) =>
+      docker.recipe({ name: "box1", ...values }, CTX).env?.MANOR_DOCKER_CONTEXT;
+    // This computer: Docker's current context, or the one named under Advanced.
+    expect(context({})).toBeUndefined();
+    expect(context({ where: "local", sshTarget: "me@ignored" })).toBeUndefined();
+    expect(context({ where: "local", context: "colima" })).toBe("colima");
+    // Another machine: manor-<host>, from the host part, lowercased.
+    expect(context({ where: "ssh", sshTarget: "me@Build.Box:2222" })).toBe("manor-build-box");
+    expect(context({ where: "ssh", sshTarget: "build_box" })).toBe("manor-build-box");
+    expect(context({ where: "ssh", sshTarget: "10.0.0.7" })).toBe("manor-10-0-0-7");
+    // The Advanced field still wins.
+    expect(context({ where: "ssh", sshTarget: "me@build-box", context: "mine" })).toBe("mine");
+    // The target is required, and strict.
+    expect(() => context({ where: "ssh" })).toThrow(/SSH target is required/);
+    for (const bad of ["me@box; rm -rf /", "me @box", "-oProxyCommand=x", "me@box:port", "$(id)"]) {
+      expect(() => context({ where: "ssh", sshTarget: bad })).toThrow(/SSH target is not valid/);
+    }
+    expect(() => context({ where: "mars" })).toThrow(/Run it on/);
+  });
+
+  it("docker: the recipe records the SSH target, and marks the context as Manor's own only when derived (ADR-234 D12)", () => {
+    const env = (values: Record<string, string>) =>
+      RECIPE_TEMPLATES[0].recipe({ name: "box1", ...values }, CTX).env;
+    expect(env({ where: "ssh", sshTarget: "me@Build.Box:2222" })).toMatchObject({
+      MANOR_DOCKER_CONTEXT: "manor-build-box",
+      MANOR_DOCKER_SSH_TARGET: "me@Build.Box:2222",
+      MANOR_DOCKER_CONTEXT_MANAGED: "1",
+    });
+    const explicit = env({ where: "ssh", sshTarget: "me@build-box", context: "mine" });
+    expect(explicit).toMatchObject({ MANOR_DOCKER_CONTEXT: "mine", MANOR_DOCKER_SSH_TARGET: "me@build-box" });
+    expect(explicit).not.toHaveProperty("MANOR_DOCKER_CONTEXT_MANAGED");
+    const local = env({ where: "local", sshTarget: "me@ignored" });
+    expect(local).not.toHaveProperty("MANOR_DOCKER_SSH_TARGET");
+    expect(local).not.toHaveProperty("MANOR_DOCKER_CONTEXT_MANAGED");
+  });
+
+  describe("docker up.sh: a removed context", () => {
+    // A fake `docker` that logs its arguments; `volume` stops the script, so
+    // only the context step runs. `context inspect` answers $INSPECT, or fails.
+    const run = (env: Record<string, string>, inspect: "missing" | string) => {
+      const bin = fs.mkdtempSync(path.join(base, "bin-"));
+      const log = path.join(bin, "log");
+      fs.writeFileSync(
+        path.join(bin, "docker"),
+        `#!/bin/sh
+echo "$*" >> "${log}"
+case "$1 $2" in
+  "context inspect") [ "$INSPECT" = missing ] && { echo 'context "x": context not found' >&2; exit 1; }; echo "$INSPECT"; exit 0 ;;
+  "context create") exit 0 ;;
+esac
+exit 99
+`,
+        { mode: 0o755 },
+      );
+      fs.writeFileSync(path.join(bin, "up.sh"), RECIPE_TEMPLATES[0].files["up.sh"].content, { mode: 0o755 });
+      const result = spawnSync("bash", [path.join(bin, "up.sh")], {
+        env: {
+          PATH: `${bin}:${process.env.PATH}`,
+          MANOR_DOCKER_NAME: "box1",
+          MANOR_DOCKER_IMAGE: "img",
+          INSPECT: inspect,
+          ...env,
+        },
+        encoding: "utf-8",
+      });
+      const calls = fs.existsSync(log) ? fs.readFileSync(log, "utf-8").trim().split("\n") : [];
+      return { ...result, calls };
+    };
+    const MANAGED = {
+      MANOR_DOCKER_CONTEXT: "manor-build-box",
+      MANOR_DOCKER_SSH_TARGET: "me@build-box:2222",
+      MANOR_DOCKER_CONTEXT_MANAGED: "1",
+    };
+
+    it("creates the context before any other docker call when it is missing", () => {
+      const r = run(MANAGED, "missing");
+      expect(r.stderr).toContain("manor-stage: Setting up Docker on build-box");
+      expect(r.calls[1]).toBe(
+        "context create manor-build-box --description Made by Manor for ssh://me@build-box:2222 --docker host=ssh://me@build-box:2222",
+      );
+      expect(r.calls[2]).toMatch(/^--context manor-build-box volume inspect/);
+    });
+
+    it("leaves a context that already points there alone", () => {
+      const r = run(MANAGED, "ssh://me@build-box:2222/");
+      expect(r.calls.some((c) => c.startsWith("context create"))).toBe(false);
+      expect(r.stderr).not.toContain("Setting up");
+    });
+
+    it("refuses, in one line, a context of that name pointing elsewhere", () => {
+      const r = run(MANAGED, "ssh://someone@other-box");
+      expect(r.status).toBe(1);
+      expect(r.stderr).toMatch(/^manor: Docker context manor-build-box already points at ssh:\/\/someone@other-box/m);
+      expect(r.calls.some((c) => c.startsWith("context create"))).toBe(false);
+    });
+
+    it("does nothing for an explicit context, or without a target", () => {
+      const { MANOR_DOCKER_CONTEXT_MANAGED: _m, ...explicit } = MANAGED;
+      expect(run(explicit, "missing").calls.some((c) => c.startsWith("context"))).toBe(false);
+      const { MANOR_DOCKER_SSH_TARGET: _t, ...local } = MANAGED;
+      expect(run(local, "missing").calls.some((c) => c.startsWith("context"))).toBe(false);
+    });
+  });
+
+  it("docker status.sh: a missing context reads as not set up, not a broken container", () => {
+    expect(RECIPE_TEMPLATES[0].files["status.sh"].content).toContain("start the host to set it up");
+  });
+
+  it("agents: the choice becomes MANOR_AGENTS, an unknown id is refused, blank installs none (ADR-234 D11)", () => {
+    for (const template of RECIPE_TEMPLATES) {
+      const field = template.fields.find((f) => f.key === "agents");
+      expect(field).toMatchObject({ type: "multi", label: "Agents to install" });
+      expect(field?.advanced).toBeFalsy();
+      expect(field?.options?.map((o) => o.value)).toEqual(["claude", "codex"]);
+      expect(typeof field?.default === "function" ? "" : field?.default).toBe("claude");
+      const agents = (value: string | undefined) =>
+        template.recipe({ ...FORMS[template.id], ...(value === undefined ? {} : { agents: value }) }, CTX).env
+          ?.MANOR_AGENTS;
+      expect(agents("codex, claude")).toBe("claude,codex");
+      expect(agents("claude")).toBe("claude");
+      expect(agents("")).toBeUndefined();
+      expect(agents(undefined)).toBeUndefined();
+      expect(() => agents("claude,gemini")).toThrow(/agent is not valid/);
+      expect(() => agents("claude; rm -rf /")).toThrow(/agent is not valid/);
+    }
+  });
+
+  it("agents: up.sh installs a missing CLI as manor, and a failed install only warns", () => {
+    const docker = RECIPE_TEMPLATES[0].files["up.sh"].content;
+    const k8s = RECIPE_TEMPLATES[1].files["up.sh"].content;
+    expect(docker).toContain('"${docker_cmd[@]}" exec -i -u manor "$name" sh -c');
+    expect(k8s).toContain('"${kube[@]}" exec -i "$name-0" -c host -- sh -c');
+    for (const up of [docker, k8s]) {
+      expect(up).toContain("claude) label=\"Claude Code\"; bin=claude; pkg=@anthropic-ai/claude-code");
+      expect(up).toContain("codex) label=\"Codex\"; bin=codex; pkg=@openai/codex");
+      expect(up).toContain('npm i -g --prefix "$HOME/.local"');
+      expect(up.indexOf("HOOKS\n")).toBeLessThan(up.indexOf("Installing $label"));
+    }
+
+    // Run the block itself, with `env` standing in for the exec prefix.
+    const home = path.join(base, "home");
+    const bin = path.join(base, "bin");
+    fs.mkdirSync(path.join(home, ".local", "bin"), { recursive: true });
+    fs.mkdirSync(bin);
+    // codex is already installed; the fake npm succeeds for claude only.
+    fs.writeFileSync(path.join(home, ".local", "bin", "codex"), "#!/bin/sh\n", { mode: 0o755 });
+    fs.writeFileSync(
+      path.join(bin, "npm"),
+      '#!/bin/sh\necho "npm $*" >>"$HOME/npm.log"\ncase "$*" in *claude-code*) exit 0 ;; *) exit 1 ;; esac\n',
+      { mode: 0o755 },
+    );
+    const run = (agents: string) =>
+      spawnSync("bash", ["-c", `set -e\n${agentInstallScript("env")}\necho done`], {
+        env: { PATH: `${bin}:/usr/bin:/bin`, HOME: home, MANOR_AGENTS: agents },
+        encoding: "utf8",
+      });
+    const both = run("claude,codex");
+    expect(both.status).toBe(0);
+    expect(both.stdout).toBe("done\n");
+    expect(both.stderr).toContain("manor-stage: Installing Claude Code");
+    expect(both.stderr).not.toContain("Installing Codex");
+    expect(fs.readFileSync(path.join(home, "npm.log"), "utf8")).toContain(
+      "npm i -g --prefix " + path.join(home, ".local") + " --no-fund --no-audit --loglevel=error @anthropic-ai/claude-code",
+    );
+
+    fs.rmSync(path.join(home, ".local", "bin", "codex"));
+    const failed = run("codex");
+    expect(failed.status).toBe(0);
+    expect(failed.stderr).toContain("manor-stage: Installing Codex");
+    expect(failed.stderr).toContain("manor: couldn't install Codex;");
+    expect(failed.stdout).toBe("done\n");
+
+    fs.rmSync(path.join(home, "npm.log"));
+    expect(run("").status).toBe(0);
+    expect(fs.existsSync(path.join(home, "npm.log"))).toBe(false);
+  });
+
   it("kubernetes: the instance id is namespace/name and storage is validated", () => {
     const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
     expect(up).toContain('value: "$namespace/$name"');
-    expect(up).toContain("--timeout=10m");
+    // The rollout wait is Manor's own loop now, with stages (ADR-234 D9).
+    expect(up).not.toContain("rollout status");
     expect(() =>
       RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" }, CTX),
     ).toThrow(/storage size/);
@@ -171,18 +365,24 @@ describe("recipe templates (ADR-229 D8)", () => {
       required: true,
       label: "Cluster",
     });
-    const sizes = { small: ["1", "2Gi"], medium: ["2", "4Gi"], large: ["4", "8Gi"] };
-    for (const [size, [cpu, memory]] of Object.entries(sizes)) {
+    const sizes = {
+      small: ["250m", "512Mi", "2Gi"],
+      medium: ["500m", "1Gi", "4Gi"],
+      large: ["1", "2Gi", "8Gi"],
+    };
+    for (const [size, [cpu, memory, memoryLimit]] of Object.entries(sizes)) {
       expect(k8s.recipe({ ...FORMS.kubernetes, size }, CTX).env).toMatchObject({
         MANOR_K8S_CONTEXT: "dev",
         MANOR_K8S_CPU: cpu,
         MANOR_K8S_MEMORY: memory,
+        MANOR_K8S_MEMORY_LIMIT: memoryLimit,
       });
     }
     // Medium unless said otherwise; anything else is refused.
     expect(k8s.recipe({ ...FORMS.kubernetes, size: "" }, CTX).env).toMatchObject({
-      MANOR_K8S_CPU: "2",
-      MANOR_K8S_MEMORY: "4Gi",
+      MANOR_K8S_CPU: "500m",
+      MANOR_K8S_MEMORY: "1Gi",
+      MANOR_K8S_MEMORY_LIMIT: "4Gi",
     });
     expect(() => k8s.recipe({ ...FORMS.kubernetes, size: "huge" }, CTX)).toThrow(/size/);
     const field = k8s.fields.find((f) => f.key === "size");
@@ -190,7 +390,10 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(field?.options?.map((o) => o.value)).toEqual(["small", "medium", "large"]);
   });
 
-  /** Runs up.sh against a `kubectl` that records the manifests it is given. */
+  /**
+   * Runs up.sh against a `kubectl` that records the manifests it is given,
+   * and says the pod is Ready so the wait ends.
+   */
   function renderManifest(env: Record<string, string>, expectStatus = 0): string {
     const bin = path.join(base, "bin");
     fs.mkdirSync(bin, { recursive: true });
@@ -198,7 +401,8 @@ describe("recipe templates (ADR-229 D8)", () => {
     const out = path.join(base, "applied.yaml");
     fs.writeFileSync(
       path.join(bin, "kubectl"),
-      `#!/usr/bin/env bash\nfor a in "$@"; do if [ "$a" = apply ]; then cat >>"${out}"; fi; done\nexit 0\n`,
+      `#!/usr/bin/env bash\nfor a in "$@"; do if [ "$a" = apply ]; then cat >>"${out}"; fi; done\n` +
+        `case "$*" in *"get pod"*) printf 'True|True||||' ;; esac\nexit 0\n`,
       { mode: 0o755 },
     );
     const up = path.join(base, "up.sh");
@@ -219,11 +423,16 @@ describe("recipe templates (ADR-229 D8)", () => {
   };
 
   it("kubernetes: the pod is hardened and asks for its size", () => {
-    const manifest = renderManifest({ ...K8S_ENV, MANOR_K8S_CPU: "2", MANOR_K8S_MEMORY: "4Gi" });
+    const manifest = renderManifest({
+      ...K8S_ENV,
+      MANOR_K8S_CPU: "500m",
+      MANOR_K8S_MEMORY: "1Gi",
+      MANOR_K8S_MEMORY_LIMIT: "4Gi",
+    });
     for (const block of [
       "      securityContext:\n        runAsNonRoot: true\n        runAsUser: 1000\n        runAsGroup: 1000\n        fsGroup: 1000\n        seccompProfile:\n          type: RuntimeDefault\n",
       '          securityContext:\n            allowPrivilegeEscalation: false\n            capabilities:\n              drop: ["ALL"]\n',
-      '          resources:\n            requests:\n              cpu: "2"\n              memory: "4Gi"\n            limits:\n              memory: "4Gi"\n',
+      '          resources:\n            requests:\n              cpu: "500m"\n              memory: "1Gi"\n            limits:\n              memory: "4Gi"\n',
     ]) {
       expect(manifest).toContain(block);
     }
@@ -292,6 +501,11 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(destroy).not.toContain("manor-signin");
   });
 
+  it("kubernetes: a recipe without a memory limit is limited to its request", () => {
+    const manifest = renderManifest({ ...K8S_ENV, MANOR_K8S_CPU: "2", MANOR_K8S_MEMORY: "4Gi" });
+    expect(manifest).toContain('            limits:\n              memory: "4Gi"\n');
+  });
+
   it("kubernetes: an old recipe without a size renders no resources block", () => {
     const manifest = renderManifest(K8S_ENV);
     expect(manifest).not.toContain("limits:");
@@ -299,6 +513,91 @@ describe("recipe templates (ADR-229 D8)", () => {
     // The volume claim's own resources stay.
     expect(manifest).toContain("            storage: 20Gi");
     expect(manifest).toContain("          volumeMounts:");
+  });
+
+  it("kubernetes: up waits in named stages and fails fast with the cluster's reason (ADR-234 D9)", () => {
+    const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
+    for (const stage of [
+      "Getting a disk",
+      "Finding room on the cluster",
+      "Downloading the image on the node",
+      "Starting",
+    ]) {
+      expect(up).toContain(`set_stage "${stage}"`);
+    }
+    for (const reason of [
+      "ProvisioningFailed",
+      "FailedBinding",
+      "FailedScheduling",
+      "FailedCreate",
+      "ErrImagePull",
+      "ImagePullBackOff",
+      "InvalidImageName",
+      "CreateContainerConfigError",
+      "OOMKilled",
+    ]) {
+      expect(up).toContain(reason);
+    }
+    expect(up).toContain('"$SECONDS" -ge 840');
+    expect(up).toContain("it was stuck at:");
+    expect(up).toContain('--field-selector "involvedObject.name=$1"');
+  });
+
+  it("kubernetes: up stops at once on a pod that can't start, and goes on once it is Ready", () => {
+    const up = path.join(base, "up.sh");
+    fs.writeFileSync(up, RECIPE_TEMPLATES[1].files["up.sh"].content, { mode: 0o755 });
+    // A kubectl that answers the claim's phase, the pod's fields and its events.
+    const bin = path.join(base, "bin");
+    fs.mkdirSync(bin);
+    fs.writeFileSync(
+      path.join(bin, "kubectl"),
+      [
+        "#!/bin/sh",
+        'case "$*" in',
+        "  *apply* | *exec*) cat >/dev/null ;;",
+        '  *"get pvc"*) printf Bound ;;',
+        '  *"get pod"*) printf %s "$FAKE_POD" ;;',
+        '  *"get events"*) printf "%b" "$FAKE_EVENTS" ;;',
+        "esac",
+        "",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    const run = (pod: string, events = "") =>
+      spawnSync("bash", [up], {
+        env: {
+          ...process.env,
+          PATH: `${bin}${path.delimiter}${process.env.PATH ?? ""}`,
+          MANOR_K8S_NAME: "box1",
+          MANOR_K8S_NAMESPACE: "manor",
+          MANOR_K8S_IMAGE: "ghcr.io/x/host:1",
+          FAKE_POD: pod,
+          FAKE_EVENTS: events,
+        },
+        encoding: "utf-8",
+      });
+
+    const pull = run(
+      "True|False|ErrImagePull|||rpc error",
+      "2026-01-01T00:00:00Z\\tFailed\\tFailed to pull image: not found\\n",
+    );
+    expect(pull.status).toBe(1);
+    expect(pull.stderr).toContain(
+      "manor: the cluster couldn't get the host image (ErrImagePull): Failed to pull image: not found",
+    );
+
+    const config = run('True|False|CreateContainerConfigError|||secret "box1-key" not found');
+    expect(config.status).toBe(1);
+    expect(config.stderr).toContain('secret "box1-key" not found');
+
+    const oom = run("True|False|CrashLoopBackOff||OOMKilled|");
+    expect(oom.status).toBe(1);
+    expect(oom.stderr).toContain("OOMKilled");
+
+    const ready = run("True|True||||");
+    expect(ready.status).toBe(0);
+    expect(ready.stderr).toContain("manor-stage: Starting");
+    expect(JSON.parse(ready.stdout)).toMatchObject({ resource: { namespace: "manor", name: "box1" } });
   });
 
   it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas (ADR-231 C1)", () => {

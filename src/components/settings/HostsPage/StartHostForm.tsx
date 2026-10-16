@@ -5,6 +5,7 @@ import type { Choice, HostProfile, TemplateCheck, TemplateInfo } from "../../../
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
+import { Checkbox } from "../../ui/Checkbox/Checkbox";
 import { Collapse } from "../../ui/Collapse/Collapse";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
 import { Input } from "../../ui/Input";
@@ -19,6 +20,7 @@ import { SettingField } from "../SettingRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
 import { ProfileSignIn } from "./ProfileSignIn";
+import { ClusterGuide } from "./ClusterGuide";
 import { TemplateChecklist } from "./TemplateChecklist";
 
 /** Where the recipe contract and a worked ssh example are (ADR-229 D8). */
@@ -172,8 +174,40 @@ const IDLE_OPTIONS = [
 const EDIT_DEBOUNCE_MS = 300;
 /** How often the checklist is asked again while a check is `busy`. */
 const BUSY_POLL_MS = 2000;
+/**
+ * How often the checklist is asked again while "Where's your cluster?" shows.
+ * Polling rather than a file watch pushed from main: `kubectl config view` is
+ * cheap, it honours `$KUBECONFIG` and merged files exactly as kubectl will,
+ * and no push channel exists to reuse; a watcher would need a new one, and
+ * would miss a kubeconfig created in a directory that did not exist yet.
+ */
+const GUIDE_POLL_MS = 3000;
+
+/**
+ * Whether kubectl works but knows of no cluster: the case for the cluster
+ * guide. A missing kubectl is the checklist's to explain.
+ */
+function needsCluster(
+  templateId: string,
+  result: { checks: TemplateCheck[]; choices: Record<string, Choice[]> },
+): boolean {
+  return (
+    templateId === "kubernetes" &&
+    (result.choices.context ?? []).length === 0 &&
+    result.checks.some((c) => c.id === "kubectl-cli" && c.state === "ok")
+  );
+}
 
 type Field = TemplateInfo["fields"][number];
+
+/**
+ * Whether `field` is shown for these answers: always, unless it has a
+ * `showWhen` whose field has another answer (the SSH target, while "Run it
+ * on" is "This computer"). A hidden field is not required.
+ */
+function isFieldShown(field: Field, values: Record<string, string>): boolean {
+  return !field.showWhen || (values[field.showWhen.key] ?? "") === field.showWhen.value;
+}
 
 /**
  * A template's Connect step (ADR-234 D7): its everyday fields, the readiness
@@ -248,6 +282,8 @@ function TemplateForm(props: TemplateFormProps) {
           }
           if (result.checks.some((c) => c.state === "busy")) {
             poll = window.setTimeout(refresh, BUSY_POLL_MS);
+          } else if (needsCluster(template.id, result)) {
+            poll = window.setTimeout(refresh, GUIDE_POLL_MS);
           }
         },
         () => {
@@ -338,9 +374,10 @@ function TemplateForm(props: TemplateFormProps) {
   const fields = isProfile
     ? template.fields.filter((f) => !template.perHost.includes(f.key))
     : template.fields;
-  const visible = fields.filter((f) => !f.advanced);
-  const advanced = fields.filter((f) => f.advanced);
-  const missing = fields.filter((f) => f.required && !(values[f.key] ?? "").trim());
+  const shown = fields.filter((f) => isFieldShown(f, values));
+  const visible = shown.filter((f) => !f.advanced);
+  const advanced = shown.filter((f) => f.advanced);
+  const missing = shown.filter((f) => f.required && !(values[f.key] ?? "").trim());
   const checksReady = checks !== null && checks.every((c) => c.state === "ok");
   const verb = isProfile ? "save" : "start";
   const gateHint =
@@ -365,6 +402,23 @@ function TemplateForm(props: TemplateFormProps) {
       />
     </SettingField>
   );
+
+  // No cluster yet: the guide stands in for the fields and the checklist, and
+  // gives way to them once a context appears (the refresh above sees to it).
+  if (checks !== null && choices !== null && needsCluster(template.id, { checks, choices })) {
+    return (
+      <>
+        <ClusterGuide />
+        {onCancel && (
+          <div>
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <>
@@ -473,7 +527,7 @@ function FieldControl(props: FieldControlProps) {
 
   const testId = `start-host-field-${field.key}`;
 
-  if (field.type === "size" && field.options && field.options.length > 0) {
+  if ((field.type === "size" || field.type === "segmented") && field.options && field.options.length > 0) {
     return (
       <ToggleGroup
         value={value}
@@ -494,6 +548,34 @@ function FieldControl(props: FieldControlProps) {
         aria-label={field.label}
         data-testid={testId}
       />
+    );
+  }
+
+  if (field.type === "multi" && field.options && field.options.length > 0) {
+    // The answer is the checked values, comma-separated, in the options' order.
+    const checked = value.split(",").map((v) => v.trim());
+    const toggle = (optionValue: string, on: boolean) =>
+      onChange(
+        field
+          .options!.map((o) => o.value)
+          .filter((v) => (v === optionValue ? on : checked.includes(v)))
+          .join(","),
+      );
+    return (
+      <Stack gap="sm" data-testid={testId}>
+        {field.options.map((o) => (
+          <label key={o.value} className={styles.multiOption}>
+            <Checkbox
+              size="md"
+              checked={checked.includes(o.value)}
+              disabled={disabled}
+              onCheckedChange={(on) => toggle(o.value, on === true)}
+              data-testid={`${testId}-${o.value}`}
+            />
+            {o.label}
+          </label>
+        ))}
+      </Stack>
     );
   }
 

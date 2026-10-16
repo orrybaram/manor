@@ -358,6 +358,14 @@ button.pathCardSelected {
 
 /* ── Start a host: a template's Connect step (ADR-234 D7) ── */
 
+/* One checkbox and its name in a multi-select field. */
+.multiOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
 /* What a size gives the host, dimmer than its name. */
 .sizeHint {
   font-weight: 400;
@@ -408,4 +416,31 @@ button.groupToggle {
 
 .groupHeader + * {
   border-top: 1px solid var(--border);
+}
+
+/* "Where's your cluster?": a card per place a cluster can come from. */
+.guideCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.guideCommand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.guideCommand code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
 }

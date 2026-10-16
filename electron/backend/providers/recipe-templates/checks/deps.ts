@@ -23,6 +23,8 @@ export interface CheckDeps {
   jobs?: TemplateJobs;
   /** The host image's Dockerfile directory; absent means `hostImageDir()`. */
   hostImageDir?: string;
+  /** The clock, in ms; absent means `Date.now`. A seam for tests of cached probes. */
+  now?: () => number;
   /**
    * Run `file` with `args` (on the login PATH the app already uses) and
    * resolve with its stdout. Rejects when it is not found (`code: "ENOENT"`),
@@ -54,8 +56,11 @@ export const defaultCheckDeps: CheckDeps = {
 export type ProbeFailure =
   | { kind: "missing" }
   | { kind: "timeout" }
-  /** `output`: what it printed (stderr, then stdout), trimmed. */
-  | { kind: "failed"; output: string; stdout: string };
+  /**
+   * `output`: what it printed (stderr, then stdout), trimmed. `code`: its
+   * exit status, when it exited (ssh's own failures are 255).
+   */
+  | { kind: "failed"; output: string; stdout: string; code?: number };
 
 /** Read an error from `CheckDeps.execFile`. */
 export function probeFailure(err: unknown): ProbeFailure {
@@ -76,7 +81,7 @@ export function probeFailure(err: unknown): ProbeFailure {
     // Node's own message: "Command failed: <cmd>\n<stderr>".
     output = e.message.replace(/^Command failed:[^\n]*\n?/, "").trim();
   }
-  return { kind: "failed", output, stdout };
+  return { kind: "failed", output, stdout, ...(typeof e.code === "number" ? { code: e.code } : {}) };
 }
 
 /** The first non-blank line of `text`, or `fallback`. */

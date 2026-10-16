@@ -1,6 +1,6 @@
 ---
 title: Named startup stages and the Kubernetes fail-fast wait
-status: in-progress
+status: done
 priority: medium
 assignee: opus
 blocked_by: [5]

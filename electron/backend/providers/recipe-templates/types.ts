@@ -35,9 +35,12 @@ export interface Choice {
  * How the form renders a field (ADR-234 D6): free `text` (the default), a
  * `choice` among options main lists (`TemplateCheckResult.choices`; the user
  * may still type one that isn't listed), or a `size` among the template's
- * own fixed `options`.
+ * own fixed `options`, or a `segmented` pick of one of a few fixed `options`
+ * shown side by side ("Run it on: This computer / Another machine over
+ * SSH"), or a `multi` of the template's fixed `options` with any number
+ * checked (the answer is their values, comma-separated).
  */
-export type FormFieldType = "text" | "choice" | "size";
+export type FormFieldType = "text" | "choice" | "size" | "segmented" | "multi";
 
 /** One answer the form asks for. */
 export interface FormField {
@@ -52,8 +55,14 @@ export interface FormField {
   type?: FormFieldType;
   /** Shown under the form's "Advanced" disclosure rather than up front (ADR-234 D7). */
   advanced?: boolean;
-  /** A `size` field's options, in the order shown. */
+  /** A `size`, `segmented` or `multi` field's options, in the order shown. */
   options?: Choice[];
+  /**
+   * Shown only while field `key`'s answer is `value` (the SSH target, for
+   * "Another machine over SSH"). A hidden field is not required, and its
+   * answer is ignored by the template.
+   */
+  showWhen?: { key: string; value: string };
 }
 
 /**

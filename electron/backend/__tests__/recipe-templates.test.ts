@@ -127,7 +127,21 @@ describe("recipe templates (ADR-229 D8)", () => {
     const up = RECIPE_TEMPLATES[0].files["up.sh"].content;
     expect(up).toContain('"exec","-i","-u","manor"');
     expect(up).toContain('-e "MANOR_INSTANCE_ID=$name"');
-    expect(up).toContain("/run/secrets/manor-key:ro");
+    // The key is a named volume on the daemon, not a bind from the recipe dir.
+    expect(up).not.toContain("$key_file");
+    expect(up).not.toContain("MANOR_RECIPE_DIR");
+    expect(up).toContain('key_volume="manor-$name-key"');
+    expect(up).toContain('-v "$key_volume:/run/secrets/manor:ro"');
+    expect(up).toContain("MANOR_SECRET_KEY_FILE=/run/secrets/manor/secret.key");
+    expect(up).toContain("manor-stage: Creating the container");
+    expect(up.indexOf("pull")).toBeLessThan(up.indexOf("run --rm -u 0"));
+    expect(up.indexOf("run --rm -u 0")).toBeLessThan(up.indexOf("run -d"));
+    const destroy = RECIPE_TEMPLATES[0].files["destroy.sh"].content;
+    expect(destroy).toContain('volume rm "manor-$name-key"');
+    expect(destroy).not.toContain("secret.key");
+    expect(
+      RECIPE_TEMPLATES[0].fields.find((f) => f.key === "context")?.description,
+    ).not.toMatch(/on this computer/);
     // The image is pulled as a named stage, before `run`, when missing.
     expect(up).toContain('image inspect "$image"');
     expect(up).toContain("manor-stage: Getting Manor's host image");

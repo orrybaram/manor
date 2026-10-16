@@ -47,5 +47,5 @@ Everything the host keeps lives under `$HOME/.manor`: its projects, agents,
 the installed server, and its sealed identity. Mount a named volume (Docker)
 or a persistent volume claim (Kubernetes) on `/home/manor`. The key that
 seals the host's secrets must come from outside it: `MANOR_SECRET_KEY_FILE`
-should name a file the templates mount from a Docker bind or a Kubernetes
-Secret, never one under `/home/manor`.
+should name a file the templates mount from a separate Docker volume or a
+Kubernetes Secret, never one under `/home/manor`.

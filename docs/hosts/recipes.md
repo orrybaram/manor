@@ -293,14 +293,15 @@ The form asks for:
 - **Container name** (also the recipe's id, `docker-<name>`);
 - **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; an image the daemon already has is not pulled);
 - **Docker context** (optional, such as `colima` or `desktop-linux`; blank
-  for the default). It must name a daemon on this computer: see below.
+  for the default). A remote daemon works too.
 
 `up`:
 
 - creates the volume `manor-<name>-home` and mounts it on `/home/manor`;
-- creates `secret.key` (32 random bytes, mode 0600) in the recipe's folder,
-  and mounts it read-only at `/run/secrets/manor-key`, with
-  `MANOR_SECRET_KEY_FILE` pointing there (see
+- creates the volume `manor-<name>-key` and, once, fills it with
+  `secret.key` (32 random bytes, readable only by uid 1000) using the host
+  image itself. It is mounted read-only at `/run/secrets/manor`, with
+  `MANOR_SECRET_KEY_FILE` pointing at the file (see
   [Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys));
 - sets `MANOR_INSTANCE_ID` to the container's name;
 - runs the container with `--restart unless-stopped`, or starts it if it
@@ -310,13 +311,12 @@ The form asks for:
 - returns `docker exec -i -u manor <name>` as the way in.
 
 `status` reads `docker inspect`. `stop` runs `docker stop` and keeps the
-container and its volume. `destroy` removes the container, the volume and
-`secret.key`.
+container and its volumes. `destroy` removes the container, the home volume
+and the key volume.
 
-**The daemon must be local.** The key is a bind mount from your computer, so
-the daemon has to see this computer's files: Docker Desktop, or a Linux
-daemon where uid 1000 in the container can read a file your user owns.
-A remote Docker context isn't supported by this template.
+The key lives on the daemon, in a volume apart from the home volume, so a
+copy of the home cannot read it. Nothing is bind-mounted from your computer,
+so remote Docker contexts, colima and Rancher Desktop work.
 
 ### Kubernetes
 

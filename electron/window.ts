@@ -142,6 +142,9 @@ export function createWindow(): BrowserWindow {
     ...(!app.isPackaged && { icon: path.join(__dirname, "../build/dev-icon.png") }),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 20 },
+    // Linux/Windows draw the app menu as a native bar in the system theme,
+    // light above a dark app. Keep it out of the way; Alt shows it.
+    autoHideMenuBar: true,
     backgroundColor: "#181825",
     webPreferences: buildWebPreferences(),
     ...e2eWindowOptions(),
@@ -224,6 +227,9 @@ export function createDetachedWindow(
     ...(!app.isPackaged && { icon: path.join(__dirname, "../build/dev-icon.png") }),
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 13, y: 20 },
+    // Linux/Windows draw the app menu as a native bar in the system theme,
+    // light above a dark app. Keep it out of the way; Alt shows it.
+    autoHideMenuBar: true,
     backgroundColor: "#181825",
     webPreferences: buildWebPreferences(claim),
     ...e2eWindowOptions(),

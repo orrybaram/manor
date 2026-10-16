@@ -1,6 +1,6 @@
 ---
 title: Publish the multi-arch host image to GHCR from release.yml
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

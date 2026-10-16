@@ -1,6 +1,6 @@
 ---
 title: Templates default to the published image and pull it when missing
-status: todo
+status: in-progress
 priority: critical
 assignee: sonnet
 blocked_by: [1]

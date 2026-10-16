@@ -1,6 +1,6 @@
 ---
 title: Remove follow-ups — paired-device delete refresh, checkbox reset
-status: todo
+status: done
 priority: low
 assignee: sonnet
 blocked_by: [6]

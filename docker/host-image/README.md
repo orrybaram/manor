@@ -6,7 +6,21 @@ The reference image behind the `docker` and `kubernetes` host templates
 prebuilds, so the first connect compiles it), a `manor` user (uid 1000, home
 `/home/manor`) and `manor-host-entrypoint.sh`.
 
-## Build and push
+## Published image (the default)
+
+Every Manor release publishes a multi-arch (`linux/amd64`, `linux/arm64`)
+image to GitHub Container Registry, and the templates use it by default:
+
+```sh
+docker pull ghcr.io/orrybaram/manor-host:<version>   # or :latest
+```
+
+Tags match the app version. You do not need to build anything.
+
+## Build it yourself (to customise)
+
+Build locally only if you want to change the image, for example to bake in
+extra tools:
 
 ```sh
 docker build -t manor-host:local docker/host-image
@@ -16,7 +30,7 @@ docker tag manor-host:local ghcr.io/<you>/manor-host:latest
 docker push ghcr.io/<you>/manor-host:latest
 ```
 
-`manor-host:local` is the templates' default image name.
+Then set the template's image to `manor-host:local` (or your pushed name).
 
 ## Nothing Manor-specific is baked in
 

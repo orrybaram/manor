@@ -371,6 +371,95 @@ describe("openInNewHost (ADR-235 D3)", () => {
     expect(mgr.hostForProject(hostId)).toBeUndefined();
   });
 
+  it("finishes a Set up on that needed input with the dialog's overrides, and marks the pod", async () => {
+    const { mgr, profile, deps, cloneCalls, registry } = setup({ projects: [project("p1")] });
+    const failed = await openInNewHost(deps, {
+      profileId: profile.id,
+      repoUrl: REPO,
+      sourceProjectId: "p1",
+    });
+    const hostId = (failed as { hostId?: string }).hostId!;
+    expect(failed).toMatchObject({ ok: false, needsInput: { kind: "needsInput" } });
+    registry.recordChanged.mockClear();
+
+    const result = await openInNewHost(deps, {
+      profileId: profile.id,
+      repoUrl: REPO,
+      sourceProjectId: "p1",
+      retryFrom: {
+        hostId,
+        stage: "clone",
+        overrides: { repoUrl: "https://github.com/org/fork.git", targetDir: "~/src/app" },
+      },
+    });
+
+    if (!result.ok) throw new Error(result.error);
+    expect(cloneCalls).toEqual([["https://github.com/org/fork.git", `${REMOTE_HOME}/src/app`]]);
+    expect(result.project).toMatchObject({ hostId, path: `${REMOTE_HOME}/src/app` });
+    expect(result.project.group?.memberIds).toEqual(["p1", result.project.id]);
+    expect(mgr.hostForProject(hostId)).toBe(result.project.id);
+    expect(registry.recordChanged).toHaveBeenCalledWith(hostId);
+  });
+
+  it("passes overrides to a plain clone's retry too", async () => {
+    const { profile, deps, failClones, cloneCalls } = setup();
+    failClones(true);
+    const failed = await openInNewHost(deps, { profileId: profile.id, repoUrl: REPO });
+    const hostId = (failed as { hostId?: string }).hostId!;
+    failClones(false);
+    const result = await openInNewHost(deps, {
+      profileId: profile.id,
+      repoUrl: REPO,
+      retryFrom: { hostId, stage: "clone", overrides: { repoUrl: REPO, targetDir: "~/w/app" } },
+    });
+    if (!result.ok) throw new Error(result.error);
+    expect(cloneCalls[cloneCalls.length - 1]).toEqual([REPO, `${REMOTE_HOME}/w/app`]);
+  });
+
+  it("refuses to retry on a host that belongs to a project", async () => {
+    const { mgr, profile, deps, cloneCalls } = setup({ projects: [project("p1")] });
+    const done = await openInNewHost(deps, { profileId: profile.id, repoUrl: REPO });
+    if (!done.ok) throw new Error(done.error);
+    const clones = cloneCalls.length;
+    await expect(
+      openInNewHost(deps, {
+        profileId: profile.id,
+        repoUrl: REPO,
+        sourceProjectId: "p1",
+        retryFrom: {
+          hostId: done.hostId,
+          stage: "clone",
+          overrides: { repoUrl: REPO, targetDir: "~/other" },
+        },
+      }),
+    ).rejects.toThrow(/already belongs/);
+    expect(cloneCalls).toHaveLength(clones);
+    expect(mgr.hostForProject(done.hostId)).toBe(done.project.id);
+  });
+
+  it("refuses to retry on a host another profile made", async () => {
+    const { mgr, profile, deps, failClones } = setup();
+    failClones(true);
+    const failed = await openInNewHost(deps, { profileId: profile.id, repoUrl: REPO });
+    const hostId = (failed as { hostId?: string }).hostId!;
+    const other = mgr.saveHostProfile(
+      {
+        name: "Other",
+        templateId: "kubernetes",
+        values: { context: "kind-test", namespace: "x", image: "ghcr.io/x/y:1", storage: "20Gi" },
+      },
+      { appVersion: "1.0.0" },
+    );
+    await expect(
+      openInNewHost(deps, {
+        profileId: other.id,
+        repoUrl: REPO,
+        retryFrom: { hostId, stage: "clone" },
+      }),
+    ).rejects.toThrow(/host profile/);
+    expect(mgr.hostForProject(hostId)).toBeUndefined();
+  });
+
   it("throws for an unknown profile, making nothing", async () => {
     const { mgr, deps } = setup();
     await expect(openInNewHost(deps, { profileId: "hp-nope", repoUrl: REPO })).rejects.toThrow(

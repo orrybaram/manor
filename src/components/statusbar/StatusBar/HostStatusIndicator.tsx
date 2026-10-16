@@ -2,6 +2,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useAppStore } from "../../../store/app-store";
 import { useProjectStore } from "../../../store/project-store";
 import { HostIndicator } from "../../hosts/HostIndicator";
+import { HostGroupChips } from "./HostGroupChips";
 import { activeWorkspaceHost } from "./active-workspace-host";
 
 /**
@@ -17,6 +18,8 @@ import { activeWorkspaceHost } from "./active-workspace-host";
  *
  * It follows the active workspace's own host (`activeWorkspaceHostId`), so
  * in a linked group (ADR-192) it names the host the user opened it on.
+ *
+ * Hosts made from a profile also get one chip per profile (ADR-235 D7).
  */
 export function HostStatusIndicator() {
   const app = useAppStore(
@@ -28,5 +31,10 @@ export function HostStatusIndicator() {
   const projects = useProjectStore((s) => s.projects);
   const { hostId, projectId } = activeWorkspaceHost(app, projects);
 
-  return <HostIndicator hostId={hostId} variant="chip" projectId={projectId} />;
+  return (
+    <>
+      <HostGroupChips skipHostId={hostId} />
+      <HostIndicator hostId={hostId} variant="chip" projectId={projectId} />
+    </>
+  );
 }

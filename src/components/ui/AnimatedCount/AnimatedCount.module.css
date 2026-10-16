@@ -1,0 +1,127 @@
+/* ── Slot reels (`celebrate`) ── */
+
+.reels {
+  display: inline-flex;
+}
+
+.reel {
+  display: inline-block;
+  height: 1lh;
+  overflow: hidden;
+}
+
+/* Soft top and bottom edges, so digits blur in and out of the window. */
+.slot {
+  mask-image: linear-gradient(transparent, #000 18%, #000 82%, transparent);
+}
+
+.strip {
+  display: block;
+  animation: reel-spin var(--reel-ms) cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+/* Spin fast, blur while moving, and bounce past the target on landing. */
+.slot .strip {
+  animation:
+    reel-spin var(--reel-ms) cubic-bezier(0.2, 0.75, 0.35, 1.18) forwards,
+    reel-blur var(--reel-ms) linear forwards;
+}
+
+.strip > span {
+  display: block;
+  height: 1lh;
+  text-align: center;
+}
+
+@keyframes reel-spin {
+  from {
+    transform: translateY(calc(var(--reel-from) * 1lh));
+  }
+  to {
+    transform: translateY(calc(var(--reel-to) * 1lh));
+  }
+}
+
+@keyframes reel-blur {
+  0%,
+  60% {
+    filter: blur(0.06em);
+  }
+  100% {
+    filter: none;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Window-wide effects (celebration-layer.ts) ── */
+
+.floater {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  font-family: var(--font-mono);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  text-shadow:
+    0 1px 0 var(--bg),
+    0 0 0.6em currentColor;
+  animation: float-rise 1s cubic-bezier(0.2, 0.7, 0.3, 1) forwards;
+}
+
+.gain,
+.jackpot {
+  animation-name: float-rise;
+}
+
+.loss {
+  animation-name: float-fall;
+  text-shadow: 0 1px 0 var(--bg);
+}
+
+@keyframes float-rise {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0.4em) scale(0.7);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -0.3em) scale(1.15);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -2em) scale(1);
+  }
+}
+
+@keyframes float-fall {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0);
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 1.2em);
+  }
+}
+
+.sparks {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 10000;
+  pointer-events: none;
+}

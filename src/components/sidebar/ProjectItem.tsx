@@ -92,6 +92,7 @@ import {
 import { useEmojiAutocomplete } from "../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import { composeHandlers } from "../ui/EmojiAutocomplete/compose";
 import { AnimatedCount } from "../ui/AnimatedCount/AnimatedCount";
+import { useCelebration } from "../ui/AnimatedCount/use-celebration";
 import { Button } from "../ui/Button/Button";
 import { Collapse } from "../ui/Collapse/Collapse";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
@@ -171,6 +172,7 @@ const WorkspaceItem = React.forwardRef<
     workspaceKey(hostId, ws.path),
   );
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
+  const { onCelebrate, celebrationProps } = useCelebration();
   // A remote workspace's PR badge comes from the box's own `gh`; where that
   // isn't signed in there is none to show, and this says why (ADR-227 D7).
   const ghMissing = useGhHostStore((s) => !!s.missing[hostId]);
@@ -255,6 +257,7 @@ const WorkspaceItem = React.forwardRef<
                     variant="ghost"
                     className={`${styles.diffStats} ${styles.diffStatsClickable}`}
                     aria-label="Open diff"
+                    {...celebrationProps}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -266,6 +269,8 @@ const WorkspaceItem = React.forwardRef<
                         className={styles.diffAdded}
                         prefix="+"
                         value={ws.diffStats.added}
+                        celebrate
+                        onCelebrate={onCelebrate}
                       />
                     )}
                     {ws.diffStats.removed > 0 && (
@@ -273,6 +278,8 @@ const WorkspaceItem = React.forwardRef<
                         className={styles.diffRemoved}
                         prefix="-"
                         value={ws.diffStats.removed}
+                        celebrate
+                        onCelebrate={onCelebrate}
                       />
                     )}
                   </Button>

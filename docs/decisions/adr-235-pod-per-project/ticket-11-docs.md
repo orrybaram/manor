@@ -30,3 +30,7 @@ ADR-235, all slices.
 - `docs/remote-hosts.md`
 - `CONTEXT.md`
 - e2e specs touching `AddProjectDialog` (if any)
+
+## Follow-ups from ticket 10
+- The release `host-image` job now builds the app and the host tarball on ubuntu-latest. It hasn't run in CI yet. Check the first tag's run: does `pnpm install` (electron-rebuild postinstall) succeed, and does the arm64 compile under QEMU finish within 90 minutes? Use `--ignore-scripts` if the postinstall breaks.
+- The tarball is built twice, on macOS in `release` and on Ubuntu in `host-image`. Optional: build it once and pass it between the jobs as an artifact.

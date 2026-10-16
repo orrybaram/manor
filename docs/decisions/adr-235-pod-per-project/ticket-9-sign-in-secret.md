@@ -1,9 +1,9 @@
 ---
-title: "Sign new pods in for me" — namespace Secret, envFrom, gh setup-git
-status: todo
+title: "Sign new pods in for me" — namespace Secret, envFrom, gh setup-git (main)
+status: in-progress
 priority: high
 assignee: opus
-blocked_by: [2, 8]
+blocked_by: [8]
 ---
 
 # "Sign new pods in for me" — namespace Secret, envFrom, gh setup-git
@@ -34,16 +34,7 @@ ADR-235 D9. Kubernetes profiles only.
 - In the hooks `exec` step: `if [ -n "${GH_TOKEN:-}" ]; then gh auth
   setup-git; fi`. Run it as the container user; it is idempotent.
 
-**UI** (profile editor, ticket 2): a "Sign new pods in for me" section, off
-by default, only for kubernetes profiles:
-- GitHub: radio "Use this computer's GitHub sign-in" / "Paste a token" (a
-  password-type input, not EmojiInput; suggest a fine-grained token).
-- Claude: a paste field for the `claude setup-token` output.
-- Status rows "Set <date> · from this computer", with Replace / Remove.
-- The warning copy from D9 ("Anyone who can read Secrets in <namespace> or
-  open a terminal in its pods can use these…"), always visible while the
-  option is on.
-- After a change: "Restart running pods to use it" [Restart N pods].
+**UI** has moved to ticket 12.
 
 Verify that `claude` honours `CLAUDE_CODE_OAUTH_TOKEN` for the health
 check's auth probe (`electron/backend/health-check.ts`). Adjust the probe if
@@ -57,4 +48,3 @@ and remove logic with a fake kubectl, and template content.
 - `electron/backend/providers/recipe-templates/kubernetes.ts`
 - `electron/bridge/handlers/host-profiles.ts`
 - `electron/backend/health-check.ts` (probe, if needed)
-- `src/components/settings/HostsPage/ProfileEditorDialog.tsx` / `StartHostForm.tsx`

@@ -1,18 +1,8 @@
-## Required: ADR Workflow
-Before implementing ANY code change, read and follow the skill at:
-`.claude/skills/adr-workflow/SKILL.md`
+## ADR Workflow
+When an ADR is required is defined in `.claude/rules/adr-workflow.md`; the steps live in the `adr-workflow` skill.
 
-Do NOT use `EnterPlanMode`. The ADR replaces plan mode entirely.
-
-Exceptions (no ADR needed):
-- Pure research/exploration
-- Discussing or modifying rules/skills
-
-## Agent Definitions
-When spawning implementation agents, read the agent definition and include
-its content in the agent prompt:
-- Implementer: `.claude/agents/implementer.md`
-- Verifier: `.claude/agents/verifier.md`
+## Agents
+Agent definitions in `.claude/agents/` are registered agent types. Spawn them with `subagent_type` (`implementer`, `verifier`, `code-reviewer`); their definitions load automatically.
 
 ## Discovering More
 Skills: `.claude/skills/`

@@ -1,6 +1,6 @@
 ---
 title: Host profiles — model, storage, perHost fields and IPC
-status: todo
+status: done
 priority: high
 assignee: opus
 blocked_by: []

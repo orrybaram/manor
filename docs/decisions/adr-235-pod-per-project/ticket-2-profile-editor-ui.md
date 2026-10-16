@@ -35,3 +35,6 @@ Connect checklist UI in `StartHostForm`).
 - `src/components/settings/HostsPage/ProfileEditorDialog.tsx` (new)
 - `src/components/settings/HostsPage/host-settings-text.ts` — copy
 - `src/store/host-profile-store.ts` (new) — list/save/remove + editor open state
+
+## Follow-up from ticket 1
+- Main has no "host profiles changed" event, so add one in `electron/bridge/events.ts`, broadcast it from `hostProfiles.save` / `remove`, and have the store subscribe to it instead of re-listing by hand.

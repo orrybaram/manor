@@ -1,6 +1,6 @@
 ---
 title: Bake the version's host package into the image; bootstrap copies it
-status: todo
+status: in-progress
 priority: medium
 assignee: opus
 blocked_by: []

@@ -174,6 +174,8 @@ export interface HostStatusInfo {
    */
   profileId?: string;
   forProject?: string;
+  /** The recipe's bundled template (`docker`, `kubernetes`), if it has one. */
+  template?: string;
 }
 
 /**
@@ -202,6 +204,7 @@ type HostState = Omit<
   | "adopted"
   | "profileId"
   | "forProject"
+  | "template"
   | "providerKind"
   | "capabilities"
   | "label"

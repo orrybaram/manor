@@ -176,6 +176,17 @@ describe("HostRecords profileId / forProject (ADR-235 D1, D5)", () => {
     expect(saved.hosts.h1).not.toHaveProperty("forProject");
   });
 
+  it("clears forProject on hosts naming a removed project (ADR-235 D6)", () => {
+    const hosts = new HostRecords(new StateStore(dir));
+    hosts.save("h1", recipeSpec);
+    hosts.save("h2", recipeSpec);
+    hosts.setForProject("h1", "p1");
+    hosts.setForProject("h2", "p2");
+    expect(hosts.clearForProjects(new Set(["p1"]))).toEqual(["h1"]);
+    expect(hosts.forProject("h1")).toBeUndefined();
+    expect(hosts.forProject("h2")).toBe("p2");
+  });
+
   it("ignores marks for an unknown host", () => {
     const hosts = new HostRecords(new StateStore(dir));
     hosts.setProfileId("nope", "hp-1");

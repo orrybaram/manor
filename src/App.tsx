@@ -426,6 +426,11 @@ function App() {
           handleOpenProjectSettings(request.projectId, request.section);
         }
         // The switch lives on This Mac's row of Settings → Hosts (ADR-233 D2).
+        if (request.type === "open-hosts-settings") {
+          setSettingsPage("hosts");
+          if (request.hostId) setSettingsSection(`host-${request.hostId}`);
+          setSettingsOpen(true);
+        }
         if (request.type === "open-remote-settings") {
           setSettingsPage("hosts");
           setSettingsSection("host-local");

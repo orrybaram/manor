@@ -150,6 +150,22 @@ export class HostRecords {
     this.store.save();
   }
 
+  /**
+   * Clear `forProject` on every host naming one of `projectIds`, so no host
+   * points at a project that is gone (ADR-235 D6). Returns the hosts changed.
+   */
+  clearForProjects(projectIds: ReadonlySet<string>): string[] {
+    const cleared: string[] = [];
+    for (const [hostId, host] of Object.entries(this.store.state.hosts ?? {})) {
+      if (host.forProject !== undefined && projectIds.has(host.forProject)) {
+        delete host.forProject;
+        cleared.push(hostId);
+      }
+    }
+    if (cleared.length > 0) this.store.save();
+    return cleared;
+  }
+
   /** The host's linked pairings still to revoke (ADR-228 D9). */
   pendingRevokes(hostId: string): string[] {
     return [...(this.store.state.hosts?.[hostId]?.pendingRevokes ?? [])];

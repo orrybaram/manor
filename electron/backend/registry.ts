@@ -138,7 +138,7 @@ export interface BackendRegistryOptions {
    * for — stamped on it in `list()`. The desktop passes its
    * `ProjectManager`'s; without it none are.
    */
-  hostMarks?: (hostId: string) => { profileId?: string; forProject?: string };
+  hostMarks?: (hostId: string) => { profileId?: string; forProject?: string; template?: string };
 }
 
 const LOG = "[backend-registry]";
@@ -303,6 +303,7 @@ export class BackendRegistry {
         ...(idleStopMinutes !== undefined ? { idleStopMinutes } : {}),
         ...(marks?.profileId !== undefined ? { profileId: marks.profileId } : {}),
         ...(marks?.forProject !== undefined ? { forProject: marks.forProject } : {}),
+        ...(marks?.template !== undefined ? { template: marks.template } : {}),
       };
     });
   }

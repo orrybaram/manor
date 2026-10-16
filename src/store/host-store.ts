@@ -96,6 +96,8 @@ export interface HostStatusInfo {
    * lists leave it out, softly.
    */
   forProject?: string;
+  /** The recipe's bundled template: `docker`, `kubernetes` (ADR-235 D6). */
+  template?: string;
 }
 
 /**

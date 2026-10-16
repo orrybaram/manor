@@ -30,7 +30,9 @@ export type UiRequest =
   /** Open a project's settings, scrolled to `section` (a `data-settings-section` id). */
   | { type: "open-project-settings"; projectId: string; section?: string }
   /** Open Settings → Hosts on This Mac's row (the status-bar REMOTE chip). */
-  | { type: "open-remote-settings" };
+  | { type: "open-remote-settings" }
+  /** Open Settings → Hosts, on `hostId`'s row when given. */
+  | { type: "open-hosts-settings"; hostId?: string };
 
 type Listener = (request: UiRequest) => void;
 

@@ -1,3 +1,7 @@
+import { useState } from "react";
+import { Checkbox } from "../ui/Checkbox/Checkbox";
+import { deletePodsLabel, finishPods, podsOf } from "../../lib/project-pods";
+import styles from "./dialogs.module.css";
 import { useHostStore } from "../../store/host-store";
 import { useProjectStore } from "../../store/project-store";
 import { memberHostName } from "../../lib/hosts";
@@ -19,6 +23,7 @@ export function RemoveFromHostDialog() {
       : undefined,
   );
   const hosts = useHostStore((s) => s.hosts);
+  const [deletePod, setDeletePod] = useState(true);
 
   // On a phone the page is not "This machine" (ADR-228 D8).
   const host = member
@@ -33,15 +38,37 @@ export function RemoveFromHostDialog() {
       }`
     : "";
 
+  const pods = member ? podsOf([member], hosts) : [];
+
   return (
     <ConfirmDialog
       open={request !== null && member !== undefined}
       title={`Remove ${member?.name ?? ""} from ${host}?`}
-      description={description}
+      description={
+        <>
+          {description}
+          {pods.length > 0 && (
+            <>
+              <label className={styles.podOption}>
+                <Checkbox
+                  checked={deletePod}
+                  onCheckedChange={(checked) => setDeletePod(checked === true)}
+                />
+                <span>{deletePodsLabel(pods)}</span>
+              </label>
+              <span className={styles.podOptionHint}>There is no undo.</span>
+            </>
+          )}
+        </>
+      }
       confirmLabel="Remove"
       confirmVariant="danger"
       onConfirm={() => {
-        if (member) void removeFromHost(member.id);
+        if (member) {
+          void removeFromHost(member.id).then((removed) => {
+            if (removed && pods.length > 0) return finishPods(pods, deletePod);
+          });
+        }
         close();
       }}
       onCancel={close}

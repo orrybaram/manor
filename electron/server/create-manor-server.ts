@@ -97,6 +97,7 @@ import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
 import { createServerLaunches } from "./spawn-pane";
 import { HostRouting } from "./host-routing";
+import { readRecipe } from "../backend/providers/recipes";
 import type { HostProxy, HostPtyEvent } from "../backend/host-proxy";
 import type { PendingCommand } from "../layout/pending-commands";
 
@@ -238,10 +239,21 @@ export function createManorServer<D extends BridgeServerDeps>(
     // A host's profile and the project it was made for (ADR-235 D1, D5).
     ...(remoteHosts
       ? {
-          hostMarks: (hostId: string): { profileId?: string; forProject?: string } => {
+          hostMarks: (hostId: string): { profileId?: string; forProject?: string; template?: string } => {
             const profileId: string | undefined = projectManager.hostProfileId(hostId);
             const forProject: string | undefined = projectManager.hostForProject(hostId);
+            // The recipe's template tells a pod from a container (ADR-235 D6).
+            const spec = projectManager.getHosts().find((h) => h.hostId === hostId)?.spec;
+            let template: string | undefined;
+            if (spec?.kind === "recipe") {
+              try {
+                template = readRecipe(spec.recipeId).template;
+              } catch {
+                // A recipe gone or unreadable has no template to name.
+              }
+            }
             return {
+              ...(template !== undefined ? { template } : {}),
               ...(profileId !== undefined ? { profileId } : {}),
               ...(forProject !== undefined ? { forProject } : {}),
             };

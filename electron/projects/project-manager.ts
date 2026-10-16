@@ -314,6 +314,7 @@ export class ProjectManager {
     state.projects = state.projects.filter((p) => p.hostId !== hostId);
     if (state.projectOrder) state.projectOrder = state.projectOrder.filter((id) => !ids.has(id));
     this.hosts.remove(hostId);
+    this.hosts.clearForProjects(ids);
     this.paths.forgetHost(hostId);
     this.reselect(selectedId);
     this.store.save();
@@ -497,6 +498,15 @@ export class ProjectManager {
 
   setHostForProject(hostId: string, projectId: string | undefined): void {
     this.hosts.setForProject(hostId, projectId);
+  }
+
+  /**
+   * Hosts that were made for `projectId` (ADR-235 D5): `removeProject` and
+   * `removeHost` clear their `forProject`, so callers read this first to
+   * know which hosts' records changed.
+   */
+  hostsMadeFor(projectId: string): string[] {
+    return this.hosts.list().filter((h) => this.hosts.forProject(h.hostId) === projectId).map((h) => h.hostId);
   }
 
   /** Every host profile (ADR-235 D1). */
@@ -884,6 +894,7 @@ export class ProjectManager {
       groups.forgetProject(state, projectId);
       forgetLinkDismissals(state, projectId);
       if (state.projectOrder) state.projectOrder = state.projectOrder.filter((id) => id !== projectId);
+      this.hosts.clearForProjects(new Set([projectId]));
       this.reselect(selectedId);
       this.store.save();
       if (groupId) void this.origins.rememberGroupOrigin(groupId);
@@ -895,6 +906,7 @@ export class ProjectManager {
     groups.forgetProject(state, projectId);
     forgetLinkDismissals(state, projectId);
     state.projects = state.projects.filter((p) => p.id !== projectId);
+    this.hosts.clearForProjects(new Set([projectId]));
     this.reselect(selectedId);
     this.store.save();
     if (groupId) void this.origins.rememberGroupOrigin(groupId);

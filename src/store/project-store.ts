@@ -655,7 +655,7 @@ interface ProjectState {
    * of its group (`removeProject` on the member), with a "Removed <name>
    * from <host>" toast. Files on the host are not deleted.
    */
-  removeFromHost: (memberId: string) => Promise<void>;
+  removeFromHost: (memberId: string) => Promise<boolean>;
   /**
    * ADR-214 "Keep separate…": split `projectId`'s group and remember the
    * pairs, so they are not joined again.
@@ -1086,7 +1086,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   removeFromHost: async (memberId) => {
     const member = get().projects.find((p) => p.id === memberId);
-    if (!member) return;
+    if (!member) return false;
     const hostName = memberDisplayName(member.hostId, useHostStore.getState().hosts);
     try {
       await get().removeProject(memberId);
@@ -1098,13 +1098,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         `Couldn't remove ${member.name} from ${hostName}`,
         err,
       );
-      return;
+      return false;
     }
     useToastStore.getState().addToast({
       id: `remove-from-host-${memberId}`,
       message: `Removed ${member.name} from ${hostName}`,
       status: "success",
     });
+    return true;
   },
 
   keepSeparate: async (projectId) => {

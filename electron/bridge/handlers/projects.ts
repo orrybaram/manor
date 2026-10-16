@@ -107,11 +107,16 @@ export function projectsAdd(
   return ctx.deps.projectManager.addProject(name, projectPath);
 }
 
-export function projectsRemove(
+export async function projectsRemove(
   ctx: HandlerCtx<SharedDeps>,
   projectId: string,
 ): Promise<void> {
-  return ctx.deps.projectManager.removeProject(projectId);
+  const { projectManager, backendRegistry } = ctx.deps;
+  // Removing a project clears `forProject` on the hosts made for it
+  // (ADR-235 D6); the host list is re-sent so no one shows a stale mark.
+  const marked = projectManager.hostsMadeFor(projectId);
+  await projectManager.removeProject(projectId);
+  for (const hostId of marked) backendRegistry.recordChanged(hostId);
 }
 
 /**

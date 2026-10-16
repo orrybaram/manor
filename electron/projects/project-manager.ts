@@ -26,7 +26,7 @@ import type { ProjectContext, WorkspaceLayoutOwner } from "./context";
 import { mergeAdoptedProject } from "./adopt-records";
 import { moveAcrossServers } from "./host-move";
 import { HostRecords } from "./host-records";
-import { HostProfiles, type HostProfileInput } from "./host-profiles";
+import { HostProfiles, type HostProfileInput, type SignInKind } from "./host-profiles";
 import type { TemplateContext } from "../backend/providers/recipe-templates/types";
 import {
   OriginLinks,
@@ -66,6 +66,7 @@ import type {
   ProjectInfo,
   ProjectUpdatableFields,
   RemoteProjects,
+  SignInMeta,
   TransferMode,
   TransferPlan,
   TransferResult,
@@ -511,6 +512,11 @@ export class ProjectManager {
   /** Make or update a host profile; throws if the template refuses its answers. */
   saveHostProfile(input: HostProfileInput, ctx: TemplateContext): HostProfile {
     return this.profiles.save(input, ctx);
+  }
+
+  /** Record or clear a profile's sign-in metadata (ADR-235 D9); never a token. */
+  setHostProfileSignIn(profileId: string, which: SignInKind, meta: SignInMeta | null): HostProfile {
+    return this.profiles.setSignIn(profileId, which, meta);
   }
 
   /** Forget a host profile; its hosts stay, without a `profileId`. */

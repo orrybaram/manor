@@ -13,7 +13,10 @@ import type {
   TemplateContext,
 } from "../backend/providers/recipe-templates/types";
 import type { StateStore } from "./state-store";
-import type { HostProfile } from "./types";
+import type { HostProfile, SignInMeta } from "./types";
+
+/** The tokens "Sign new pods in for me" can set (ADR-235 D9). */
+export type SignInKind = "github" | "claude";
 
 /** The idle stops a profile may pick (ADR-235 D2): minutes. */
 export const IDLE_STOP_CHOICES: readonly number[] = [30, 60, 120];
@@ -104,6 +107,24 @@ export class HostProfiles {
     const state = this.store.state;
     if (!state.hostProfiles) state.hostProfiles = {};
     state.hostProfiles[profile.id] = profile;
+    this.store.save();
+    return copy(profile);
+  }
+
+  /**
+   * Record (`meta`) or clear (`null`) when and how a sign-in token was put
+   * into the profile's cluster (ADR-235 D9), and answer the profile as
+   * saved. Never the token: `save` can't touch this, and this takes none.
+   * Throws for an unknown profile.
+   */
+  setSignIn(profileId: string, which: SignInKind, meta: SignInMeta | null): HostProfile {
+    const profile = this.store.state.hostProfiles?.[profileId];
+    if (!profile) throw new Error(`Unknown host profile "${profileId}".`);
+    const signIn = { ...profile.signIn };
+    if (meta) signIn[which] = { setAt: meta.setAt, source: meta.source };
+    else delete signIn[which];
+    if (signIn.github || signIn.claude) profile.signIn = signIn;
+    else delete profile.signIn;
     this.store.save();
     return copy(profile);
   }

@@ -79,6 +79,20 @@ describe("HostProfiles (ADR-235 D1)", () => {
     expect(edited.signIn).toEqual(signIn);
   });
 
+  it("sets and clears sign-in metadata, persisting it (ADR-235 D9)", () => {
+    const { profiles } = open();
+    const saved = profiles.save({ name: "Work", templateId: "kubernetes", values: { context: "kind-test" } }, ctx);
+    profiles.setSignIn(saved.id, "github", { setAt: 1, source: "gh" });
+    const both = profiles.setSignIn(saved.id, "claude", { setAt: 2, source: "pasted" });
+    expect(both.signIn).toEqual({ github: { setAt: 1, source: "gh" }, claude: { setAt: 2, source: "pasted" } });
+    expect(open().profiles.get(saved.id)?.signIn).toEqual(both.signIn);
+
+    expect(profiles.setSignIn(saved.id, "github", null).signIn).toEqual({ claude: { setAt: 2, source: "pasted" } });
+    expect(profiles.setSignIn(saved.id, "claude", null)).not.toHaveProperty("signIn");
+    expect(open().profiles.get(saved.id)).not.toHaveProperty("signIn");
+    expect(() => profiles.setSignIn("hp-missing", "github", null)).toThrow(/Unknown host profile/);
+  });
+
   it("accepts only off, 30, 60 or 120 minutes of idle stop", () => {
     const { profiles } = open();
     for (const minutes of [30, 60, 120]) {

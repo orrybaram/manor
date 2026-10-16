@@ -15,6 +15,7 @@ import { HostServerUnavailableError } from "../../../backend/host-server-client"
 import {
   hostsAdd,
   hostsAddRecipeHost,
+  hostsCheckTemplate,
   hostsEncryptKeys,
   hostsHealthCheck,
   hostsPairDevice,
@@ -23,6 +24,7 @@ import {
   hostsResetPairingKeys,
   hostsRevokeDevice,
   hostsRetryConnect,
+  hostsRunTemplateFix,
   hostsServerStatus,
   hostsSetLinearOnHost,
   hostsSetLinkPhones,
@@ -202,6 +204,39 @@ describe("hosts:addRecipeHost (ADR-229 D2)", () => {
     expect(() => handlers.get("hosts:addRecipeHost")!(null, "k8s-dev")).toThrow(
       /Dev pod" already starts a host/,
     );
+  });
+});
+
+describe("hosts:checkTemplate (ADR-234 D6)", () => {
+  const check = (...args: unknown[]) =>
+    (hostsCheckTemplate as (...a: unknown[]) => unknown)(localCtx(makeDeps().deps as never), ...args);
+
+  it("refuses values that aren't an object of strings", () => {
+    expect(() => check("docker", null)).toThrow(/object of strings/);
+    expect(() => check("docker", ["x"])).toThrow(/object of strings/);
+    expect(() => check("docker", { context: 1 })).toThrow(/values\.context/);
+    expect(() => check(7, {})).toThrow(/templateId/);
+  });
+
+  it("rejects an unknown template", async () => {
+    await expect(check("nope", {})).rejects.toThrow(/Unknown template/);
+  });
+});
+
+describe("hosts:runTemplateFix (ADR-234 D8)", () => {
+  const fix = (...args: unknown[]) =>
+    (hostsRunTemplateFix as (...a: unknown[]) => unknown)(localCtx(makeDeps().deps as never), ...args);
+
+  it("refuses arguments of the wrong shape", () => {
+    expect(() => fix(7, "pull-image", {})).toThrow(/templateId/);
+    expect(() => fix("docker", null, {})).toThrow(/fixId/);
+    expect(() => fix("docker", "pull-image", null)).toThrow(/object of strings/);
+    expect(() => fix("docker", "pull-image", { image: 1 })).toThrow(/values\.image/);
+  });
+
+  it("rejects an unknown template or fix", async () => {
+    await expect(fix("nope", "pull-image", {})).rejects.toThrow(/Unknown template/);
+    await expect(fix("docker", "nope", {})).rejects.toThrow(/Unknown fix/);
   });
 });
 

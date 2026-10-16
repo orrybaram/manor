@@ -436,6 +436,10 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // ADR-229 D8: writes scripts that this machine will run.
         "hosts.createRecipe",
         "hosts.listTemplates",
+        // ADR-234 D6: runs docker / kubectl on this machine with its config.
+        "hosts.checkTemplate",
+        // ADR-234 D8: opens apps and runs docker pull / build on this machine.
+        "hosts.runTemplateFix",
         // ADR-229 D4: writes units onto a host and runs commands there.
         "hosts.setSupervised",
         // ADR-236 D7: runs `manor-host secrets encrypt` on a host.

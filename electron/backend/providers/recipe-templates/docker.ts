@@ -1,17 +1,23 @@
 /**
- * The `docker` template (ADR-229 D8): a container on a local Docker daemon,
+ * The `docker` template (ADR-229 D8): a container on a Docker daemon — this
+ * computer's, or another machine's reached over SSH (ADR-234 D12) —
  * its home directory a named volume, reached over
  * `docker exec -i -u manor`. The cheapest way to try the feature.
  *
  * The scripts keep stdout for the one JSON object (fd 3); the container is
  * created from the host image (`docker/host-image`), whose entrypoint waits
- * for the server and runs `manor-host supervise`. They are plain files the
+ * for the server and runs `manor-host supervise`. The key that seals the
+ * host's secrets lives in a second named volume, `manor-<name>-key`, filled
+ * once by the image and mounted read-only; nothing is bind-mounted from the
+ * recipe directory, so remote daemons, colima and Rancher work (ADR-234 D4). They are plain files the
  * user owns once written: nothing about a template is special afterwards.
  */
 
 import type { Recipe } from "../recipes";
+import { AGENT_OPTIONS, DEFAULT_AGENTS, agentInstallScript, parseAgents } from "./agents";
 import {
   answer,
+  defaultHostImage,
   CONTEXT_PATTERN,
   IMAGE_PATTERN,
   NAME_PATTERN,
@@ -37,6 +43,26 @@ if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
 fi
 image=\${MANOR_DOCKER_IMAGE:?MANOR_DOCKER_IMAGE is not set}
 volume="manor-$name-home"
+# Docker on another machine (ADR-234 D12): the context Manor made for it
+# (\`manor-<host>\`) may have been removed since. Make it again, but never
+# touch a context of that name that points somewhere else.
+if [ -n "\${MANOR_DOCKER_SSH_TARGET:-}" ] && [ "\${MANOR_DOCKER_CONTEXT_MANAGED:-}" = 1 ]; then
+  ctx=$MANOR_DOCKER_CONTEXT
+  target=$MANOR_DOCKER_SSH_TARGET
+  if endpoint=$(docker context inspect -f '{{.Endpoints.docker.Host}}' "$ctx" 2>/dev/null); then
+    endpoint=\${endpoint%/}
+    if [ "$endpoint" != "ssh://$target" ]; then
+      echo "manor: Docker context $ctx already points at $endpoint, not ssh://$target; remove it (docker context rm $ctx) or pick another context" >&2
+      exit 1
+    fi
+  else
+    remote_host=\${target#*@}
+    echo "manor-stage: Setting up Docker on \${remote_host%%:*}" >&2
+    docker context create "$ctx" --description "Made by Manor for ssh://$target" --docker "host=ssh://$target"
+  fi
+fi
+
+key_volume="manor-$name-key"
 
 # The home directory lives on a named volume, so it survives the container.
 if ! "\${docker_cmd[@]}" volume inspect "$volume" >/dev/null 2>&1; then
@@ -44,31 +70,39 @@ if ! "\${docker_cmd[@]}" volume inspect "$volume" >/dev/null 2>&1; then
   "\${docker_cmd[@]}" volume create "$volume"
 fi
 
-# The key that seals the host's secrets (ADR-229 D5). It lives beside the
-# recipe, outside the volume, so a copy of the volume cannot read them.
-# Note: the file is bind-mounted, so the Docker daemon must see this path
-# (a local daemon, or Docker Desktop).
-key_file="\${MANOR_RECIPE_DIR:?MANOR_RECIPE_DIR is not set}/secret.key"
-if [ ! -s "$key_file" ]; then
-  echo "Generating $key_file"
-  (umask 077 && head -c 32 /dev/urandom >"$key_file.tmp" && mv "$key_file.tmp" "$key_file")
+# Get the image first, so the download is a named step and not buried in
+# \`docker run\`'s output. A locally built image is found and not pulled.
+if ! "\${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1; then
+  echo "manor-stage: Getting Manor's host image" >&2
+  "\${docker_cmd[@]}" pull "$image"
 fi
-chmod 600 "$key_file"
+
+# The key that seals the host's secrets (ADR-229 D5) lives in its own volume
+# on the daemon, apart from the home volume, so a copy of the home cannot read
+# it. Nothing is bind-mounted, so a remote daemon works too. It is filled once,
+# by the host image itself; a fresh volume is root-owned, hence \`-u 0\`.
+if ! "\${docker_cmd[@]}" volume inspect "$key_volume" >/dev/null 2>&1; then
+  "\${docker_cmd[@]}" volume create "$key_volume"
+fi
 
 state=$("\${docker_cmd[@]}" inspect -f '{{.State.Status}}' "$name" 2>/dev/null || true)
 case "$state" in
   "")
+    echo "manor-stage: Creating the container" >&2
+    "\${docker_cmd[@]}" run --rm -u 0 --entrypoint sh -v "$key_volume:/k" "$image" -c \\
+      'test -s /k/secret.key || (umask 077; head -c 32 /dev/urandom >/k/secret.key; chown 1000:1000 /k/secret.key; chmod 400 /k/secret.key)'
     echo "Starting container $name from $image"
     "\${docker_cmd[@]}" run -d --name "$name" \\
       -v "$volume:/home/manor" \\
-      -v "$key_file:/run/secrets/manor-key:ro" \\
-      -e MANOR_SECRET_KEY_FILE=/run/secrets/manor-key \\
+      -v "$key_volume:/run/secrets/manor:ro" \\
+      -e MANOR_SECRET_KEY_FILE=/run/secrets/manor/secret.key \\
       -e "MANOR_INSTANCE_ID=$name" \\
       --restart unless-stopped \\
       "$image"
     ;;
   running | restarting) ;;
   *)
+    echo "manor-stage: Starting the container" >&2
     echo "Starting container $name"
     "\${docker_cmd[@]}" start "$name"
     ;;
@@ -88,6 +122,7 @@ for hook in on-idle on-busy; do
 done
 HOOKS
 
+${agentInstallScript('"${docker_cmd[@]}" exec -i -u manor "$name"')}
 argv='"docker"'
 if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
   argv="$argv,\\"--context\\",\\"$MANOR_DOCKER_CONTEXT\\""
@@ -117,6 +152,8 @@ if ! out=$("\${docker_cmd[@]}" inspect -f '{{.State.Status}}' "$name" 2>&1); the
   echo "$out" >&2
   case "$out" in
     *"No such"*) echo '{"state":"missing"}' >&3 ;;
+    *"context"*"does not exist"* | *"context"*"not found"*)
+      echo '{"state":"error","detail":"Docker context is not set up for Manor yet; start the host to set it up"}' >&3 ;;
     *) echo '{"state":"error","detail":"docker could not inspect the container"}' >&3 ;;
   esac
   exit 0
@@ -167,27 +204,162 @@ if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
   docker_cmd+=(--context "$MANOR_DOCKER_CONTEXT")
 fi
 
-# Deletes the container, its home volume and the key. There is no undo.
+# Deletes the container, its home volume and its key volume. There is no undo.
 "\${docker_cmd[@]}" rm -f "$name"
 if "\${docker_cmd[@]}" volume inspect "manor-$name-home" >/dev/null 2>&1; then
   "\${docker_cmd[@]}" volume rm "manor-$name-home"
 fi
-rm -f "\${MANOR_RECIPE_DIR:?MANOR_RECIPE_DIR is not set}/secret.key"
+if "\${docker_cmd[@]}" volume inspect "manor-$name-key" >/dev/null 2>&1; then
+  "\${docker_cmd[@]}" volume rm "manor-$name-key"
+fi
 echo '{}' >&3
 `;
+
+/** "Run it on": this computer's Docker, or another machine's over SSH (ADR-234 D12). */
+type DockerWhere = "local" | "ssh";
+
+/**
+ * An SSH target for remote Docker: `user@host`, `user@host:port`, or a
+ * `Host` alias from `~/.ssh/config`. No spaces, no shell metacharacters,
+ * nothing ssh would read as an option. It becomes `ssh://<target>` in a
+ * docker context, so the port is written docker's way, after a colon.
+ */
+export const SSH_TARGET_PATTERN = /^(?:[A-Za-z0-9_][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9._-]{0,252}(?::[0-9]{1,5})?$/;
+
+/** An SSH target's parts. */
+interface SshTargetParts {
+  user?: string;
+  host: string;
+  port?: string;
+}
+
+/** Split a target that matches `SSH_TARGET_PATTERN`. */
+export function sshTargetParts(target: string): SshTargetParts {
+  const at = target.lastIndexOf("@");
+  const user = at >= 0 ? target.slice(0, at) : undefined;
+  const rest = at >= 0 ? target.slice(at + 1) : target;
+  const colon = rest.lastIndexOf(":");
+  const host = colon >= 0 ? rest.slice(0, colon) : rest;
+  const port = colon >= 0 ? rest.slice(colon + 1) : undefined;
+  return { ...(user ? { user } : {}), host, ...(port ? { port } : {}) };
+}
+
+/**
+ * The docker context Manor makes for a target: `manor-` and the target's
+ * host, lowercased, with anything but letters, digits and `-` turned into
+ * `-` (`you@Build.Box:2222` → `manor-build-box`).
+ */
+export function remoteContextName(target: string): string {
+  const host = sshTargetParts(target)
+    .host.toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 60)
+    .replace(/-$/, "");
+  return `manor-${host || "remote"}`;
+}
+
+/** "Run it on", read from the form; blank is this computer. Throws for anything else. */
+export function dockerWhere(values: Record<string, string>): DockerWhere {
+  const where = (values.where ?? "").trim();
+  if (where === "" || where === "local") return "local";
+  if (where === "ssh") return "ssh";
+  throw new Error(`"Run it on" is not valid: ${JSON.stringify(where)}`);
+}
+
+/** The docker context a form's answers run against, and where it came from. */
+interface DockerContextChoice {
+  /** The context name; blank is Docker's current one. */
+  context: string;
+  /** The SSH target, for "Another machine over SSH". */
+  sshTarget?: string;
+  /** Whether Manor derived the context from the target (`up.sh` may make it again). */
+  managed: boolean;
+}
+
+/**
+ * Precedence: the Advanced "Docker context" field when the user filled it
+ * in; otherwise, for "Another machine over SSH", the context Manor makes for
+ * the target (`remoteContextName`); otherwise none (Docker's current
+ * context). Throws when an answer is not acceptable.
+ */
+function dockerContextFor(values: Record<string, string>): DockerContextChoice {
+  const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
+  if (dockerWhere(values) !== "ssh") return { context, managed: false };
+  const sshTarget = answer(values, "sshTarget", { pattern: SSH_TARGET_PATTERN, what: "The SSH target" });
+  if (context !== "") return { context, sshTarget, managed: false };
+  return { context: remoteContextName(sshTarget), sshTarget, managed: true };
+}
+
+/** The `docker` arguments that make the context Manor uses for an SSH target. */
+export function createContextArgs(context: string, target: string): string[] {
+  return [
+    "context",
+    "create",
+    context,
+    "--description",
+    `Made by Manor for ssh://${target}`,
+    "--docker",
+    `host=ssh://${target}`,
+  ];
+}
 
 export const dockerTemplate: RecipeTemplate = {
   id: "docker",
   name: "Docker container",
-  description: "A container on this computer's Docker daemon, with a named volume for its home directory.",
+  description:
+    "A container on this computer's Docker, or on another machine's over SSH. Manor sets it up and keeps its files between restarts.",
   fields: [
-    { key: "name", label: "Container name", default: shortName, required: true },
-    { key: "image", label: "Image", default: "manor-host:local", required: true },
+    {
+      key: "where",
+      label: "Run it on",
+      type: "segmented",
+      default: "local",
+      options: [
+        { value: "local", label: "This computer" },
+        { value: "ssh", label: "Another machine over SSH" },
+      ],
+    },
+    {
+      key: "sshTarget",
+      label: "SSH target",
+      required: true,
+      showWhen: { key: "where", value: "ssh" },
+      description: "Like you@build-box, or a Host from your ~/.ssh/config.",
+    },
+    {
+      key: "agents",
+      label: "Agents to install",
+      type: "multi",
+      default: DEFAULT_AGENTS,
+      description:
+        "Installed into the host's own storage the first time it starts, so they survive restarts.",
+      options: AGENT_OPTIONS,
+    },
+    {
+      key: "name",
+      label: "Container name",
+      default: shortName,
+      required: true,
+      advanced: true,
+      description: "What Docker calls the container. Manor picks one that isn't taken.",
+    },
+    {
+      key: "image",
+      label: "Image",
+      default: defaultHostImage,
+      required: true,
+      advanced: true,
+      description: "What the container starts from: Manor's host image, with the tools a host needs.",
+    },
     {
       key: "context",
       label: "Docker context",
+      type: "choice",
+      advanced: true,
       description:
-        "Optional, such as colima or desktop-linux. Blank for the default. Must be a daemon on this computer: the key file is bind-mounted.",
+        "Which Docker to use when you have more than one, such as colima. Default is Docker's current one, or the one Manor sets up for the SSH machine.",
     },
   ],
   files: {
@@ -196,10 +368,12 @@ export const dockerTemplate: RecipeTemplate = {
     "stop.sh": { content: STOP, mode: 0o755 },
     "destroy.sh": { content: DESTROY, mode: 0o755 },
   },
-  recipe(values): Recipe {
+  recipe(values, ctx): Recipe {
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The container name" });
-    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: "manor-host:local" });
-    const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The Docker context", fallback: "" });
+    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
+    // The Advanced field wins; else the SSH machine's own context (`dockerContextFor`).
+    const { context, sshTarget, managed } = dockerContextFor(values);
+    const agents = parseAgents(values.agents).join(",");
     return {
       schemaVersion: 1,
       id: `docker-${name}`,
@@ -213,6 +387,10 @@ export const dockerTemplate: RecipeTemplate = {
         MANOR_DOCKER_NAME: name,
         MANOR_DOCKER_IMAGE: image,
         ...(context !== "" ? { MANOR_DOCKER_CONTEXT: context } : {}),
+        // Lets up.sh make the context again if it was removed (only Manor's own).
+        ...(sshTarget ? { MANOR_DOCKER_SSH_TARGET: sshTarget } : {}),
+        ...(managed ? { MANOR_DOCKER_CONTEXT_MANAGED: "1" } : {}),
+        ...(agents !== "" ? { MANOR_AGENTS: agents } : {}),
       },
     };
   },

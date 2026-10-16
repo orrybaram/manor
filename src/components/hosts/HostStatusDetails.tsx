@@ -6,6 +6,7 @@ import Sunrise from "lucide-react/dist/esm/icons/sunrise";
 import { useHostStore } from "../../store/host-store";
 import type { HostDisplay } from "../../lib/host-status";
 import { Button } from "../ui/Button/Button";
+import { Link } from "../ui/Link/Link";
 import { Collapse } from "../ui/Collapse/Collapse";
 import { HostStateIcon } from "./HostStateIcon";
 import styles from "./HostStatusDetails.module.css";
@@ -38,6 +39,32 @@ export function HostStatusDetails(props: HostStatusDetailsProps) {
       <HostRawOutput display={display} />
     </div>
   );
+}
+
+type HostFailureActionProps = {
+  display: HostDisplay;
+  hostId: string;
+  /** Render the Retry action; false where a Retry button already shows. */
+  showRetry?: boolean;
+};
+
+/**
+ * The one thing to do about a recognised recipe failure (ADR-234 D10): a
+ * link to the page that helps, or Retry.
+ */
+export function HostFailureAction(props: HostFailureActionProps) {
+  const { display, hostId, showRetry = true } = props;
+
+  const action = display.action;
+  if (!action) return null;
+  if (action.kind === "url") {
+    return (
+      <Link href={action.href} data-testid="host-failure-link">
+        {action.label}
+      </Link>
+    );
+  }
+  return showRetry && display.canRetry ? <HostRetryButton hostId={hostId} /> : null;
 }
 
 type HostRawOutputProps = {

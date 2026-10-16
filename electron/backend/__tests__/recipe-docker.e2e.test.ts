@@ -110,6 +110,7 @@ const MOVED = `manor-e2e-${suffix}-moved`;
 const MOVED_TO_FILE = "e2e-moved-to";
 const VOLUME = `manor-${NAME}-home`;
 const CLONE_VOLUME = `manor-${CLONE}-home`;
+const KEY_VOLUME = `manor-${NAME}-key`;
 const HOST_ID = `recipe-e2e-${suffix}`;
 const onBox = dockerBox(NAME);
 
@@ -159,7 +160,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     requireTarball();
     // The recipe, from the bundled template, as the Hosts page writes it —
     // under the worker's own $HOME (`setup-isolated-home.ts`).
-    createRecipeFromTemplate("docker", { name: NAME, image: IMAGE });
+    createRecipeFromTemplate("docker", { name: NAME, image: IMAGE }, { appVersion: "0.0.0" });
     const up = path.join(recipeDir(recipeId), "up.sh");
     const script = fs.readFileSync(up, "utf-8");
     const marker = '-e "MANOR_INSTANCE_ID=$name" \\\n';
@@ -193,7 +194,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
     // For a look inside after a failure: `docker rm -f` and `docker volume rm` by hand.
     if (process.env.MANOR_E2E_RECIPE_KEEP === "1") return;
     for (const name of [NAME, CLONE, MOVED]) docker(["rm", "-f", name], { allowFailure: true });
-    for (const volume of [VOLUME, CLONE_VOLUME]) docker(["volume", "rm", "-f", volume], { allowFailure: true });
+    for (const volume of [VOLUME, CLONE_VOLUME, KEY_VOLUME]) docker(["volume", "rm", "-f", volume], { allowFailure: true });
   }, STEP_TIMEOUT_MS);
 
   it(
@@ -443,9 +444,9 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
 
       const backend = onBox('cat "$HOME/.manor/remote/server/secret-backend"').stdout;
       expect(JSON.parse(backend)).toEqual({ backend: "key-file" });
-      // The key is a bind mount from the recipe's directory, not on the volume.
-      onBox('test "$MANOR_SECRET_KEY_FILE" = /run/secrets/manor-key && test -s "$MANOR_SECRET_KEY_FILE"');
-      expect(fs.existsSync(path.join(recipeDir(recipeId), "secret.key"))).toBe(true);
+      // The key is a separate named volume, not on the home volume and not in the recipe's directory.
+      onBox('test "$MANOR_SECRET_KEY_FILE" = /run/secrets/manor/secret.key && test -s "$MANOR_SECRET_KEY_FILE"');
+      expect(fs.existsSync(path.join(recipeDir(recipeId), "secret.key"))).toBe(false);
 
       const fresh = await freshServerClient(["docker", "exec", "-i", "-u", "manor", NAME], NAME);
       try {
@@ -517,7 +518,6 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         "-c",
         "cp -a /from/. /to/",
       ]);
-      const keyFile = path.join(recipeDir(recipeId), "secret.key");
       docker([
         "run",
         "-d",
@@ -526,9 +526,9 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
         "-v",
         `${CLONE_VOLUME}:/home/manor`,
         "-v",
-        `${keyFile}:/run/secrets/manor-key:ro`,
+        `${KEY_VOLUME}:/run/secrets/manor:ro`,
         "-e",
-        "MANOR_SECRET_KEY_FILE=/run/secrets/manor-key",
+        "MANOR_SECRET_KEY_FILE=/run/secrets/manor/secret.key",
         "-e",
         `MANOR_INSTANCE_ID=${CLONE}`,
         "-e",
@@ -578,6 +578,7 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
       expect(registry.list().map((h) => h.hostId)).not.toContain(HOST_ID);
       expect(containerState(NAME)).toBe("missing");
       expect(docker(["volume", "inspect", VOLUME], { allowFailure: true }).code).not.toBe(0);
+      expect(docker(["volume", "inspect", KEY_VOLUME], { allowFailure: true }).code).not.toBe(0);
       expect(fs.existsSync(path.join(hostRecipesDir(), recipeId))).toBe(false);
     },
     STEP_TIMEOUT_MS,

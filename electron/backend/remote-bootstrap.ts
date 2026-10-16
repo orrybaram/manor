@@ -492,8 +492,16 @@ export async function ensureRemoteHost(
   }
 
   // 4. Install
-  report("install", `Installing Manor host ${version} on ${target}…`);
-  if (!NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`)) {
+  // Without a node-pty prebuild the install compiles it, which is the slow
+  // part: say so, so a long wait doesn't read as stuck (ADR-234 D9).
+  const compiles = !NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`);
+  report(
+    "install",
+    compiles
+      ? "Installing Manor — building terminal support, this only happens once (about 2 minutes)"
+      : `Installing Manor host ${version} on ${target}…`,
+  );
+  if (compiles) {
     await checkToolchain(target, ssh);
   }
   const tarball = await (opts.loadTarball ?? readTarball)(version);

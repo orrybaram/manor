@@ -175,6 +175,11 @@ export class BackendRegistry {
     `${LOG} host server state listener`,
   );
 
+  /** Manor's own version, which hosts and the host image are matched against. */
+  get version(): string {
+    return this.remoteVersion;
+  }
+
   constructor(opts: BackendRegistryOptions) {
     this.remoteVersion = opts.remoteVersion;
     this.isAdopted = opts.isAdopted;

@@ -9,8 +9,10 @@
  */
 
 import type { Recipe } from "../recipes";
+import { AGENT_OPTIONS, DEFAULT_AGENTS, agentInstallScript, parseAgents } from "./agents";
 import {
   answer,
+  defaultHostImage,
   CONTEXT_PATTERN,
   IMAGE_PATTERN,
   NAME_PATTERN,
@@ -41,6 +43,18 @@ storage=\${MANOR_K8S_STORAGE:-20Gi}
 storage_class_line=""
 if [ -n "\${MANOR_K8S_STORAGE_CLASS:-}" ]; then
   storage_class_line="storageClassName: $MANOR_K8S_STORAGE_CLASS"
+fi
+# What the pod asks for (the size picked in the form). A recipe made before
+# sizes existed has none, and the pod asks for nothing. Memory may grow past
+# the request up to MANOR_K8S_MEMORY_LIMIT (the request, for older recipes).
+resources_block=""
+if [ -n "\${MANOR_K8S_CPU:-}" ] && [ -n "\${MANOR_K8S_MEMORY:-}" ]; then
+  resources_block="resources:
+            requests:
+              cpu: \\"$MANOR_K8S_CPU\\"
+              memory: \\"$MANOR_K8S_MEMORY\\"
+            limits:
+              memory: \\"\${MANOR_K8S_MEMORY_LIMIT:-$MANOR_K8S_MEMORY}\\""
 fi
 
 # The namespace is Manor's to create when it is missing.
@@ -83,11 +97,20 @@ spec:
         app: $name
     spec:
       securityContext:
+        runAsNonRoot: true
         runAsUser: 1000
+        runAsGroup: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: host
           image: $image
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          $resources_block
           env:
             - name: MANOR_SECRET_KEY_FILE
               value: /run/secrets/manor-key
@@ -117,7 +140,125 @@ spec:
 YAML
 
 "\${kube[@]}" scale statefulset "$name" --replicas=1
-"\${kube[@]}" rollout status statefulset "$name" --timeout=10m
+
+# Wait for the pod to be Ready, naming each stage as it goes ("manor-stage:"
+# lines are what Manor shows), and stopping early, with the cluster's own
+# reason, when the pod is never going to start (ADR-234 D9).
+pod="$name-0"
+claim="home-$name-0"
+pod_fields='jsonpath={.status.conditions[?(@.type=="PodScheduled")].status}|{.status.conditions[?(@.type=="Ready")].status}|{.status.containerStatuses[0].state.waiting.reason}|{.status.containerStatuses[0].state.terminated.reason}|{.status.containerStatuses[0].lastState.terminated.reason}|{.status.containerStatuses[0].state.waiting.message}'
+stage=""
+claim_pending_since=""
+unscheduled_since=""
+missing_since=""
+errf=$(mktemp)
+trap 'rm -f "$errf"' EXIT
+
+set_stage() {
+  if [ "$1" != "$stage" ]; then
+    stage=$1
+    echo "manor-stage: $stage" >&2
+  fi
+}
+
+fail() {
+  echo "manor: $1" >&2
+  exit 1
+}
+
+# The latest event about object $1 whose reason matches $2 (a regex), as its
+# message; empty when there is none.
+latest_event() {
+  "\${kube[@]}" get events --field-selector "involvedObject.name=$1" \\
+    -o jsonpath='{range .items[*]}{.lastTimestamp}{.eventTime}{"\\t"}{.reason}{"\\t"}{.message}{"\\n"}{end}' 2>/dev/null \\
+    | awk -F '\\t' -v want="^($2)\\$" '$2 ~ want' | sort | tail -n 1 | cut -f 3- || true
+}
+
+while :; do
+  # Manor gives \`up\` 15 minutes in all, then kills it: give up a minute
+  # before, so the reason is ours. SECONDS counts from the script's start.
+  if [ "$SECONDS" -ge 840 ]; then
+    fail "the host's pod still wasn't ready after 14 minutes; it was stuck at: \${stage:-Starting}"
+  fi
+
+  claim_phase=$("\${kube[@]}" get pvc "$claim" -o 'jsonpath={.status.phase}' 2>/dev/null || true)
+  # A claim that stays Pending with a provisioning failure is a disk the
+  # cluster can't make: no storage class, or one that doesn't work.
+  if [ "$claim_phase" != "Bound" ]; then
+    claim_pending_since=\${claim_pending_since:-$SECONDS}
+    if [ $((SECONDS - claim_pending_since)) -gt 60 ]; then
+      msg=$(latest_event "$claim" 'ProvisioningFailed|FailedBinding')
+      [ -n "$msg" ] && fail "the cluster couldn't make the host's disk: $msg"
+    fi
+  else
+    claim_pending_since=""
+  fi
+
+  if ! pod_state=$("\${kube[@]}" get pod "$pod" -o "$pod_fields" 2>"$errf"); then
+    if grep -q -e NotFound -e 'not found' "$errf"; then
+      # Not created yet. One the cluster keeps refusing to create (a policy,
+      # a quota) never will be.
+      missing_since=\${missing_since:-$SECONDS}
+      if [ $((SECONDS - missing_since)) -gt 15 ]; then
+        msg=$(latest_event "$name" 'FailedCreate')
+        [ -n "$msg" ] && fail "the cluster refused to create the host's pod: $msg"
+      fi
+      if [ "$claim_phase" = "Bound" ]; then set_stage "Finding room on the cluster"; else set_stage "Getting a disk"; fi
+    else
+      cat "$errf" >&2
+      if grep -qi forbidden "$errf"; then
+        fail "kubectl isn't allowed to read the host's pod: $(head -n 1 "$errf")"
+      fi
+    fi
+    sleep 3
+    continue
+  fi
+  missing_since=""
+  IFS='|' read -r scheduled ready waiting terminated last_terminated waiting_message <<<"$pod_state" || true
+
+  if [ "$ready" = "True" ]; then
+    break
+  fi
+
+  if [ "$terminated" = "OOMKilled" ] || [ "$last_terminated" = "OOMKilled" ]; then
+    fail "the host ran out of memory and was stopped (OOMKilled); pick a bigger size"
+  fi
+  case "$waiting" in
+    ErrImagePull | ImagePullBackOff | InvalidImageName)
+      msg=$(latest_event "$pod" 'Failed|InspectFailed')
+      fail "the cluster couldn't get the host image ($waiting): \${msg:-$waiting_message}"
+      ;;
+    CreateContainerConfigError)
+      fail "the cluster couldn't start the host ($waiting): \${waiting_message:-$(latest_event "$pod" 'Failed')}"
+      ;;
+  esac
+
+  if [ "$scheduled" != "True" ]; then
+    unscheduled_since=\${unscheduled_since:-$SECONDS}
+    if [ $((SECONDS - unscheduled_since)) -gt 60 ]; then
+      msg=$(latest_event "$pod" 'FailedScheduling')
+      [ -n "$msg" ] && fail "the cluster has no room for the host: $msg"
+    fi
+    # A claim waiting for its pod is made once the pod has a node: until
+    # then, it is finding room that takes the time.
+    if [ "$claim_phase" != "Bound" ] && [ -z "$(latest_event "$claim" 'WaitForFirstConsumer')" ]; then
+      set_stage "Getting a disk"
+    else
+      set_stage "Finding room on the cluster"
+    fi
+  else
+    unscheduled_since=""
+    if [ "$claim_phase" != "Bound" ]; then
+      set_stage "Getting a disk"
+    elif [ "$waiting" = "ContainerCreating" ] || [ "$waiting" = "PodInitializing" ]; then
+      set_stage "Downloading the image on the node"
+    else
+      set_stage "Starting"
+    fi
+  fi
+  sleep 3
+done
+set_stage "Starting"
 
 # No-op examples of the hooks the host runs when it turns busy or idle
 # (ADR-229 D7). Written only if absent: they are yours to edit.
@@ -133,6 +274,7 @@ for hook in on-idle on-busy; do
 done
 HOOKS
 
+${agentInstallScript('"${kube[@]}" exec -i "$name-0" -c host --')}
 argv='"kubectl"'
 if [ -n "\${MANOR_K8S_CONTEXT:-}" ]; then
   argv="$argv,\\"--context\\",\\"$MANOR_K8S_CONTEXT\\""
@@ -235,19 +377,95 @@ echo '{}' >&3
 
 /** A Kubernetes quantity of storage: `20Gi`, `500Mi`. */
 const STORAGE_PATTERN = /^[1-9][0-9]{0,5}(?:Mi|Gi|Ti)$/;
+/**
+ * What each size asks of the pod: `MANOR_K8S_CPU` and `MANOR_K8S_MEMORY` are
+ * requests, `MANOR_K8S_MEMORY_LIMIT` caps memory. Measured agents idle near
+ * zero CPU and burst to many cores while building, so requests stay low and
+ * CPU is never limited; memory spikes to ~3.5 GiB linting a large repo, so the
+ * limit sits well above the request.
+ */
+const SIZES = {
+  small: { cpu: "250m", memory: "512Mi", memoryLimit: "2Gi" },
+  medium: { cpu: "500m", memory: "1Gi", memoryLimit: "4Gi" },
+  large: { cpu: "1", memory: "2Gi", memoryLimit: "8Gi" },
+} as const;
+const DEFAULT_SIZE = "medium";
+
 const STORAGE_CLASS_PATTERN = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/;
 
 export const kubernetesTemplate: RecipeTemplate = {
   id: "kubernetes",
-  name: "Kubernetes StatefulSet",
-  description: "A one-replica StatefulSet with a persistent volume for its home directory.",
+  name: "Kubernetes cluster",
+  description:
+    "Pods on a cluster you have access to, in the cloud or on this computer. Each host gets its own disk.",
   fields: [
-    { key: "context", label: "kubectl context", description: "Optional. Leave blank for the current context." },
-    { key: "namespace", label: "Namespace", default: "manor", required: true },
-    { key: "name", label: "Name", default: shortName, required: true },
-    { key: "image", label: "Image", default: "manor-host:local", required: true },
-    { key: "storage", label: "Storage size", default: "20Gi", required: true },
-    { key: "storageClass", label: "Storage class", description: "Optional. Leave blank for the cluster default." },
+    {
+      key: "context",
+      label: "Cluster",
+      type: "choice",
+      required: true,
+      description: "Which cluster to run the host on, from the ones kubectl can sign in to.",
+    },
+    {
+      key: "size",
+      label: "Size",
+      type: "size",
+      default: DEFAULT_SIZE,
+      description:
+        "What the host reserves on the cluster. It can use spare CPU beyond that, and memory up to its limit. Medium suits most work.",
+      options: [
+        { value: "small", label: "Small", hint: "¼ CPU, 512 MiB, up to 2 GiB" },
+        { value: "medium", label: "Medium", hint: "½ CPU, 1 GiB, up to 4 GiB" },
+        { value: "large", label: "Large", hint: "1 CPU, 2 GiB, up to 8 GiB" },
+      ],
+    },
+    {
+      key: "agents",
+      label: "Agents to install",
+      type: "multi",
+      default: DEFAULT_AGENTS,
+      description:
+        "Installed into the host's own storage the first time it starts, so they survive restarts.",
+      options: AGENT_OPTIONS,
+    },
+    {
+      key: "namespace",
+      label: "Namespace",
+      default: "manor",
+      required: true,
+      advanced: true,
+      description: "A named area of the cluster that keeps Manor's things together. Manor creates it if it's missing.",
+    },
+    {
+      key: "name",
+      label: "Name",
+      default: shortName,
+      required: true,
+      advanced: true,
+      description: "What the cluster calls the host's pod and disk. Manor picks one that isn't taken.",
+    },
+    {
+      key: "image",
+      label: "Image",
+      default: defaultHostImage,
+      required: true,
+      advanced: true,
+      description: "What the pod starts from: Manor's host image, with the tools a host needs.",
+    },
+    {
+      key: "storage",
+      label: "Disk size",
+      default: "20Gi",
+      required: true,
+      advanced: true,
+      description: "How big the host's own disk is, such as 20Gi. It keeps the host's files between restarts.",
+    },
+    {
+      key: "storageClass",
+      label: "Storage class",
+      advanced: true,
+      description: "The kind of disk the cluster makes. Blank uses the cluster's default.",
+    },
   ],
   files: {
     "up.sh": { content: UP, mode: 0o755 },
@@ -255,17 +473,20 @@ export const kubernetesTemplate: RecipeTemplate = {
     "stop.sh": { content: STOP, mode: 0o755 },
     "destroy.sh": { content: DESTROY, mode: 0o755 },
   },
-  recipe(values): Recipe {
-    const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The kubectl context", fallback: "" });
+  recipe(values, ctx): Recipe {
+    const context = answer(values, "context", { pattern: CONTEXT_PATTERN, what: "The cluster" });
+    const size = answer(values, "size", { pattern: /^(?:small|medium|large)$/, what: "The size", fallback: DEFAULT_SIZE });
+    const { cpu, memory, memoryLimit } = SIZES[size as keyof typeof SIZES];
     const namespace = answer(values, "namespace", { pattern: NAME_PATTERN, what: "The namespace", fallback: "manor" });
     const name = answer(values, "name", { pattern: NAME_PATTERN, what: "The name" });
-    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: "manor-host:local" });
+    const image = answer(values, "image", { pattern: IMAGE_PATTERN, what: "The image", fallback: defaultHostImage(ctx) });
     const storage = answer(values, "storage", { pattern: STORAGE_PATTERN, what: "The storage size", fallback: "20Gi" });
     const storageClass = answer(values, "storageClass", {
       pattern: STORAGE_CLASS_PATTERN,
       what: "The storage class",
       fallback: "",
     });
+    const agents = parseAgents(values.agents).join(",");
     return {
       schemaVersion: 1,
       id: `kubernetes-${namespace}-${name}`.slice(0, 64),
@@ -280,8 +501,12 @@ export const kubernetesTemplate: RecipeTemplate = {
         MANOR_K8S_NAME: name,
         MANOR_K8S_IMAGE: image,
         MANOR_K8S_STORAGE: storage,
-        ...(context !== "" ? { MANOR_K8S_CONTEXT: context } : {}),
+        MANOR_K8S_CONTEXT: context,
+        MANOR_K8S_CPU: cpu,
+        MANOR_K8S_MEMORY: memory,
+        MANOR_K8S_MEMORY_LIMIT: memoryLimit,
         ...(storageClass !== "" ? { MANOR_K8S_STORAGE_CLASS: storageClass } : {}),
+        ...(agents !== "" ? { MANOR_AGENTS: agents } : {}),
       },
     };
   },

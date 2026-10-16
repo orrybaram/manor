@@ -21,7 +21,16 @@ import { isSupervised } from "../reach";
 import { SettingRow } from "../SettingRow";
 import { useSettingsJump } from "../SettingsModal/settings-nav";
 import { RemoveHostDialog } from "./RemoveHostDialog";
-import { idleStopText, supervisionHint, supervisorStatusText } from "./host-settings-text";
+import {
+  idleStopText,
+  keyInHomeText,
+  keyOnVolumeText,
+  plaintextContainerText,
+  plaintextFixText,
+  plaintextRecipeText,
+  supervisionHint,
+  supervisorStatusText,
+} from "./host-settings-text";
 import { useHostAction, useHostSettings, type RunAction } from "./useHostSettings";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
@@ -32,6 +41,10 @@ const DESKTOP_NAME = "This Mac";
 /** Where enabling systemd-creds on a host is explained (ADR-225 D6). */
 const SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#encrypting-pairing-keys";
+
+/** Where giving a container a key from its environment is explained (ADR-236 D6). */
+const CONTAINER_SECRETS_DOCS_URL =
+  "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#a-key-from-outside-the-box";
 
 type HostRowProps = {
   host: HostStatusInfo;
@@ -225,8 +238,18 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
   const connected = host.status === "connected";
   const status = view?.status ?? null;
 
-  // `supervise` is the container's entrypoint: there is nothing to turn off.
+  // Whether, and how, the plaintext warning can be fixed from here (ADR-236 D6).
   const inContainer = view?.supervisor?.kind === "container";
+  const fix: KeyFix =
+    host.providerKind === "recipe"
+      ? "recipe"
+      : inContainer
+        ? "container"
+        : !readOnly && connected && view?.state === "connected"
+          ? "button"
+          : "none";
+
+  // `supervise` is the container's entrypoint: there is nothing to turn off.
   const supervised = isSupervised(view);
   const supervisorLine = supervisorStatusText(view?.supervisor ?? null, name, host.spec);
   const hint = supervisionHint(view, name, connected);
@@ -260,7 +283,16 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
           />
         </SettingRow>
       )}
-      {status && <KeyWarnings status={status} hostName={name} />}
+      {status && (
+        <KeyWarnings
+          status={status}
+          hostId={hostId}
+          hostName={name}
+          fix={fix}
+          busy={busy}
+          run={run}
+        />
+      )}
       {host.idleStopNote && (
         <div className={settingsStyles.fieldHint} data-testid="host-idle-stop-note">
           {idleStopText(host.idleStopMinutes, DESKTOP_NAME)}
@@ -429,12 +461,19 @@ function statusLine(state: string, view: HostServerView | null): string {
   return `${state} · ${reach}`;
 }
 
+/** The key sits inside ~/.manor; an older server only says so with `secretKeyOnVolume`. */
+function keyOnVolume(status: HostServerStatus): boolean {
+  return status.secretKeyPlace === undefined
+    ? status.secretKeyOnVolume === true
+    : status.secretKeyPlace === "data-dir";
+}
+
 /** The pairing-key warnings the header repeats, in a few words each. */
 function keyWarnings(status: HostServerStatus | null): string[] {
   if (!status) return [];
   const warnings: string[] = [];
   if (status.secretBackend === "plaintext") warnings.push("pairing keys unencrypted");
-  if (status.secretKeyOnVolume) warnings.push("pairing key stored on its disk");
+  if (keyOnVolume(status)) warnings.push("pairing key stored on its disk");
   return warnings;
 }
 
@@ -461,17 +500,27 @@ function mutedLine(
   return "Device access needs the host to reconnect";
 }
 
+/** What can be done about plaintext pairing keys on this host. */
+type KeyFix = "button" | "recipe" | "container" | "none";
+
 type KeyWarningsProps = {
   status: HostServerStatus;
+  hostId: string;
   hostName: string;
+  fix: KeyFix;
+  busy: boolean;
+  run: RunAction;
 };
 
 /**
  * What the host's server says about itself: its version and relay, and
- * where its pairing keys are kept when that is worth a warning (ADR-225 D6).
+ * where its pairing keys are kept when that is worth a warning (ADR-225 D6,
+ * ADR-236 D6).
  */
 function KeyWarnings(props: KeyWarningsProps) {
-  const { status, hostName } = props;
+  const { status, hostId, hostName, fix, busy, run } = props;
+
+  const keyFile = status.secretKeyFile ?? undefined;
 
   return (
     <>
@@ -480,13 +529,18 @@ function KeyWarnings(props: KeyWarningsProps) {
         {status.relay.connected ? "relay connected" : "relay not connected"}
         {!status.relay.connected && status.relay.error ? ` (${status.relay.error})` : ""}
       </div>
-      {status.secretKeyOnVolume && (
+      {keyOnVolume(status) && (
         <div className={settingsStyles.remoteWarning} data-testid="host-key-on-volume">
           <ShieldAlert size={14} />
           <span>
-            The key sealing pairing keys on {hostName} is stored on its own disk.{" "}
+            {keyOnVolumeText(hostName)}{" "}
             <Link href={SECRETS_DOCS_URL}>How to keep it elsewhere</Link>
           </span>
+        </div>
+      )}
+      {status.secretBackend === "key-file" && status.secretKeyPlace === "home" && (
+        <div className={settingsStyles.fieldHint} data-testid="host-key-in-home">
+          {keyInHomeText(hostName, keyFile)}
         </div>
       )}
       {status.identityReset === "cloned" && (
@@ -496,13 +550,44 @@ function KeyWarnings(props: KeyWarningsProps) {
         </div>
       )}
       {status.secretBackend === "plaintext" && (
-        <div className={settingsStyles.remoteWarning} data-testid="host-plaintext-keys">
-          <ShieldAlert size={14} />
-          <span>
-            Pairing keys on {hostName} are stored unencrypted.{" "}
-            <Link href={SECRETS_DOCS_URL}>How to encrypt them</Link>
-          </span>
-        </div>
+        <>
+          <div className={settingsStyles.remoteWarning} data-testid="host-plaintext-keys">
+            <ShieldAlert size={14} />
+            <span>
+              Pairing keys on {hostName} are stored unencrypted.{" "}
+              <Link href={SECRETS_DOCS_URL}>How to encrypt them</Link>
+            </span>
+          </div>
+          {fix === "button" && (
+            <>
+              <div className={settingsStyles.fieldHint} data-testid="host-encrypt-hint">
+                {plaintextFixText(hostName)}
+              </div>
+              <div>
+                <Button
+                  size="sm"
+                  data-testid="host-encrypt-keys"
+                  disabled={busy}
+                  onClick={() => run(() => useHostStore.getState().encryptKeys(hostId))}
+                >
+                  Encrypt them
+                </Button>
+              </div>
+            </>
+          )}
+          {fix === "recipe" && (
+            <div className={settingsStyles.fieldHint} data-testid="host-encrypt-recipe">
+              {plaintextRecipeText(hostName)}{" "}
+              <Link href={SECRETS_DOCS_URL}>How</Link>
+            </div>
+          )}
+          {fix === "container" && (
+            <div className={settingsStyles.fieldHint} data-testid="host-encrypt-container">
+              {plaintextContainerText(hostName)}{" "}
+              <Link href={CONTAINER_SECRETS_DOCS_URL}>How</Link>
+            </div>
+          )}
+        </>
       )}
     </>
   );

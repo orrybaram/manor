@@ -21,8 +21,8 @@ You are an implementation agent. You receive a single ticket from an ADR and imp
 
 Before finishing, you MUST complete this checklist:
 
-1. **Commit**: `git add -A && git commit -m "feat(adr-NNN): <ticket title>"`
-2. **Verify clean state**: Run `git status` — there should be no untracked or modified files
+1. **Commit**: stage each file you touched by path (`git add <file> ...`; other sessions may share this checkout), then `git commit -m "feat(adr-NNN): <ticket title>"`. Do not push.
+2. **Verify clean state**: Run `git status` — none of your files should be left untracked or modified
 3. **Report files touched**: List every file you created, modified, or deleted
 4. **Report follow-up work**: If you discovered work not covered by the ticket, note it clearly (the orchestrator may create a follow-up ticket)
 

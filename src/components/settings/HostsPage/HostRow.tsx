@@ -16,7 +16,7 @@ import { Collapse } from "../../ui/Collapse/Collapse";
 import { SpinnerLoader } from "../../ui/SpinnerLoader/SpinnerLoader";
 import { Link } from "../../ui/Link/Link";
 import { Switch } from "../../ui/Switch/Switch";
-import { CopySshCommand } from "../../hosts/HostCard";
+import { CopySshCommand } from "../../hosts/CopySshCommand";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
 import { HostFailureAction, HostRawOutput, HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
 import { ResetRelayDialog } from "../RemoteControlDialogs";
@@ -377,6 +377,10 @@ type HostRowShellProps = {
   name: string;
   /** The header's one line, after the dot. */
   status: ReactNode;
+  /** Open on mount, before any jump; a lone project's only row (ADR-237 D3). */
+  defaultOpen?: boolean;
+  /** A third line under the status: the project's path on this host (ADR-237 D3). */
+  detail?: ReactNode;
   /** Buttons that sit beside the header, outside the toggle. */
   headerActions?: ReactNode;
   /** The buttons along the bottom of the open row. */
@@ -402,6 +406,8 @@ export function HostRowShell(props: HostRowShellProps) {
     tone,
     name,
     status,
+    defaultOpen = false,
+    detail,
     headerActions,
     footer,
     dialogs,
@@ -411,7 +417,7 @@ export function HostRowShell(props: HostRowShellProps) {
   // A link to this row opens it, whether the page mounts with the jump or
   // already shows it.
   const jump = useSettingsJump();
-  const [open, setOpen] = useState(jump === sectionId);
+  const [open, setOpen] = useState(defaultOpen || jump === sectionId);
   const [seenJump, setSeenJump] = useState(jump);
   if (jump !== seenJump) {
     setSeenJump(jump);
@@ -438,6 +444,7 @@ export function HostRowShell(props: HostRowShellProps) {
               <span className={`${styles.statusDot} ${toneClass}`} aria-hidden />
               {status}
             </span>
+            {detail && <span className={styles.rowDetail}>{detail}</span>}
           </span>
           <ChevronRight
             size={14}

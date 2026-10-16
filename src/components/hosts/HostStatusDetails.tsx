@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { addErrorToast } from "../../store/toast-store";
-import Laptop from "lucide-react/dist/esm/icons/laptop";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import Sunrise from "lucide-react/dist/esm/icons/sunrise";
 import { useHostStore } from "../../store/host-store";
@@ -18,7 +17,7 @@ type HostStatusDetailsProps = {
 /**
  * Who the host is and what state it is in, in plain words: the header, the
  * one-line summary and — behind a toggle — the raw output. Shared by the
- * host popover and the project settings host card, so both say exactly the
+ * host popover and the settings host rows, so both say exactly the
  * same thing.
  */
 export function HostStatusDetails(props: HostStatusDetailsProps) {
@@ -102,20 +101,6 @@ export function HostRawOutput(props: HostRawOutputProps) {
       <Collapse open={showRaw}>
         <pre className={styles.raw}>{raw}</pre>
       </Collapse>
-    </div>
-  );
-}
-
-/** This machine's counterpart to `HostStatusDetails`: always here, no state. */
-export function LocalHostDetails() {
-  return (
-    <div className={styles.details}>
-      <div className={styles.head}>
-        <span className={`${styles.glyphBox} ${styles.local}`}>
-          <Laptop size={14} aria-hidden />
-        </span>
-        <span className={styles.name}>This machine</span>
-      </div>
     </div>
   );
 }

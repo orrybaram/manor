@@ -1,4 +1,4 @@
-import { Fragment, useState, useCallback, useRef, useMemo, useEffect } from "react";
+import { useState, useCallback, useRef, useMemo, useEffect } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import X from "lucide-react/dist/esm/icons/x";
 import Search from "lucide-react/dist/esm/icons/search";
@@ -10,12 +10,8 @@ import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
-import Laptop from "lucide-react/dist/esm/icons/laptop";
 import Server from "lucide-react/dist/esm/icons/server";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
-import { useHostStore } from "../../../store/host-store";
-import { isRemoteHost, memberHostName } from "../../../lib/hosts";
-import { serverHostName } from "../../../bridge/server-set";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
 import { AppSettingsPage } from "../AppSettingsPage";
@@ -24,14 +20,13 @@ import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
-import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
-import { HostIndicator } from "../../hosts/HostIndicator";
+import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
 import {
   buildSettingsIndex,
   searchSettings,
-  MACHINE_SECTION_IDS,
+  projectJumpId,
   type SettingsPage,
   type SettingsPageId,
   type SettingsProjectEntry,
@@ -48,16 +43,14 @@ function pageKey(page: SettingsPage): string {
 }
 
 /**
- * The page a project deep link opens (ADR-193): a grouped project's shared
- * settings are its group's page, unless the link names a section that lives
- * on the member's own page.
+ * The page a project deep link opens (ADR-237 D1): a project set up on
+ * several hosts opens its group's page, a lone project its own.
  */
 function pageForProject(
   project: ProjectInfo | undefined,
   projectId: string,
-  section: string | null | undefined,
 ): SettingsPage {
-  if (project?.group && !(section && MACHINE_SECTION_IDS.includes(section))) {
+  if (project?.group) {
     return { type: "group", groupId: project.group.id };
   }
   return { type: "project", projectId };
@@ -81,7 +74,6 @@ export function SettingsModal(props: SettingsModalProps) {
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
   const projects = useProjectStore((s) => s.projects);
-  const hosts = useHostStore((s) => s.hosts);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });
   const [projectsExpanded, setProjectsExpanded] = useState(true);
   const [query, setQuery] = useState("");
@@ -97,14 +89,11 @@ export function SettingsModal(props: SettingsModalProps) {
 
   const prevOpenRef = useRef(false);
   if (open && !prevOpenRef.current) {
+    let jumpId = initialSection ?? null;
     if (initialProjectId) {
-      setPage(
-        pageForProject(
-          projects.find((p) => p.id === initialProjectId),
-          initialProjectId,
-          initialSection,
-        ),
-      );
+      const project = projects.find((p) => p.id === initialProjectId);
+      setPage(pageForProject(project, initialProjectId));
+      jumpId = projectJumpId(initialSection, initialProjectId, project?.group != null);
     } else if (initialPage) {
       setPage({ type: initialPage });
     } else {
@@ -113,14 +102,13 @@ export function SettingsModal(props: SettingsModalProps) {
     setProjectsExpanded(true);
     setQuery("");
     setHighlight(0);
-    setPendingJump(initialSection ? { id: initialSection, nonce: 0 } : null);
+    setPendingJump(jumpId ? { id: jumpId, nonce: 0 } : null);
   }
   prevOpenRef.current = open;
 
-  // A linked group is listed once, where its first member would be, with a
-  // row per member nested under it (ADR-193).
+  // A project set up on several hosts is listed once, where its first
+  // host's copy would be (ADR-237 D1).
   const navProjects = useMemo(() => {
-    const byId = new Map(projects.map((p) => [p.id, p]));
     const seen = new Set<string>();
     const entries: SettingsProjectEntry[] = [];
     for (const p of projects) {
@@ -130,22 +118,10 @@ export function SettingsModal(props: SettingsModalProps) {
       }
       if (seen.has(p.group.id)) continue;
       seen.add(p.group.id);
-      const members = p.group.memberIds
-        .map((id) => byId.get(id))
-        .filter((m): m is ProjectInfo => m !== undefined);
-      entries.push({
-        kind: "group",
-        id: p.group.id,
-        name: p.group.name,
-        members: members.map((m) => ({
-          id: m.id,
-          hostId: m.hostId,
-          hostLabel: serverHostName(m.hostId) ?? memberHostName(m.hostId, hosts),
-        })),
-      });
+      entries.push({ kind: "group", id: p.group.id, name: p.group.name });
     }
     return entries;
-  }, [projects, hosts]);
+  }, [projects]);
   const index = useMemo(() => buildSettingsIndex(navProjects), [navProjects]);
   const results = useMemo(() => searchSettings(index, query), [index, query]);
   const searching = query.trim().length > 0;
@@ -260,6 +236,12 @@ export function SettingsModal(props: SettingsModalProps) {
     page.type === "project"
       ? projects.find((p) => p.id === page.projectId)
       : null;
+  // A project page whose project is now set up on several hosts (it was just
+  // set up on another, or an old link named one host's copy) becomes its
+  // group's page, the project's one page (ADR-237 D1).
+  if (page.type === "project" && currentProject?.group) {
+    setPage({ type: "group", groupId: currentProject.group.id });
+  }
   const currentGroupMembers = useMemo(() => {
     if (page.type !== "group") return [];
     const lead = projects.find((p) => p.group?.id === page.groupId);
@@ -450,49 +432,17 @@ export function SettingsModal(props: SettingsModalProps) {
                           : { type: "project", projectId: entry.id };
                       const active = isCurrentPage(entryPage);
                       return (
-                        <Fragment key={entry.id}>
-                          <button
-                            data-testid={`settings-nav-${entry.kind}-${entry.id}`}
-                            className={`${styles.navItem} ${styles.navItemNested} ${
-                              active ? styles.navItemActive : ""
-                            }`}
-                            aria-current={active ? "page" : undefined}
-                            onClick={() => setPage(entryPage)}
-                          >
-                            <span className={styles.navItemLabel}>
-                              {entry.name}
-                            </span>
-                          </button>
-                          {entry.kind === "group" &&
-                            entry.members.map((member) => {
-                              const memberPage: SettingsPage = {
-                                type: "project",
-                                projectId: member.id,
-                              };
-                              const memberActive = isCurrentPage(memberPage);
-                              const remote = isRemoteHost(member.hostId);
-                              return (
-                                <button
-                                  key={member.id}
-                                  data-testid={`settings-nav-member-${member.id}`}
-                                  className={`${styles.navItem} ${styles.navItemNested2} ${
-                                    memberActive ? styles.navItemActive : ""
-                                  }`}
-                                  aria-current={memberActive ? "page" : undefined}
-                                  onClick={() => setPage(memberPage)}
-                                >
-                                  {remote ? (
-                                    <HostIndicator hostId={member.hostId} variant="icon" />
-                                  ) : (
-                                    <Laptop size={12} aria-hidden />
-                                  )}
-                                  <span className={styles.navItemLabel}>
-                                    {member.hostLabel}
-                                  </span>
-                                </button>
-                              );
-                            })}
-                        </Fragment>
+                        <button
+                          key={entry.id}
+                          data-testid={`settings-nav-${entry.kind}-${entry.id}`}
+                          className={`${styles.navItem} ${styles.navItemNested} ${
+                            active ? styles.navItemActive : ""
+                          }`}
+                          aria-current={active ? "page" : undefined}
+                          onClick={() => setPage(entryPage)}
+                        >
+                          <span className={styles.navItemLabel}>{entry.name}</span>
+                        </button>
                       );
                     })}
                   {projectsExpanded && projects.length === 0 && (
@@ -512,17 +462,18 @@ export function SettingsModal(props: SettingsModalProps) {
                   {page.type === "integrations" && <IntegrationsPage />}
                   {page.type === "hosts" && <HostsPage />}
                   {page.type === "devices" && <DevicesPage />}
-                  {page.type === "group" && currentGroup && (
-                    <GroupSettingsPage
+                  {page.type === "group" && currentGroup && currentGroupMembers.length > 0 && (
+                    <ProjectSettingsPage
                       key={currentGroup.id}
-                      group={currentGroup}
+                      lead={currentGroupMembers[0]}
                       members={currentGroupMembers}
                     />
                   )}
                   {page.type === "project" && currentProject && (
                     <ProjectSettingsPage
                       key={currentProject.id}
-                      project={currentProject}
+                      lead={currentProject}
+                      members={[currentProject]}
                     />
                   )}
                 </div>

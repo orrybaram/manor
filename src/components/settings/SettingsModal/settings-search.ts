@@ -21,9 +21,9 @@ export type SettingsSection = {
 };
 
 /**
- * A page of the settings modal: a fixed page, a project's (a lone project's
- * whole page, or a linked member's machine-specific page), or a linked
- * group's shared page (ADR-193).
+ * A page of the settings modal: a fixed page, a lone project's page, or a
+ * group's page, which is a project set up on several hosts. Both project
+ * kinds render the same page (ADR-237 D1).
  */
 export type SettingsPage =
   | { type: SettingsPageId }
@@ -179,7 +179,7 @@ const PROJECT_SECTIONS: SettingsSection[] = [
   {
     id: "project-general",
     label: "General",
-    keywords: ["name", "path", "repository", "color", "theme"],
+    keywords: ["name", "color", "theme"],
   },
   {
     id: "project-linear",
@@ -188,8 +188,28 @@ const PROJECT_SECTIONS: SettingsSection[] = [
   },
   {
     id: "project-host",
-    label: "Host",
-    keywords: ["host", "remote", "ssh", "machine", "server"],
+    label: "Hosts",
+    keywords: [
+      "host",
+      "hosts",
+      "remote",
+      "ssh",
+      "machine",
+      "server",
+      "set up on",
+      "remove from",
+      "keep separate",
+      "worktree",
+      "branch",
+      "path",
+      "folder",
+      "port",
+      "portless",
+      "preview",
+      "proxy",
+      "hostname",
+      "url",
+    ],
   },
   {
     id: "project-agent",
@@ -197,81 +217,41 @@ const PROJECT_SECTIONS: SettingsSection[] = [
     keywords: ["agent", "command", "claude", "codex"],
   },
   {
-    id: "project-ports",
-    label: "Ports",
-    keywords: ["port", "portless", "preview", "proxy", "hostname", "url"],
-  },
-  {
     id: "project-commands",
     label: "Commands",
     keywords: ["command", "custom", "script", "run"],
   },
-  {
-    id: "project-worktrees",
-    label: "Worktrees",
-    keywords: ["worktree", "branch", "path", "setup", "git"],
-  },
-  {
-    id: "project-links",
-    label: "Hosts",
-    keywords: ["host", "remote", "set up", "remove", "separate"],
-  },
 ];
 
 /**
- * The section ids that are per machine on a linked group (ADR-193): they
- * live on each member's page, every other project section on the group's.
+ * The Projects part of the nav, in sidebar order: one row per project, a
+ * project set up on several hosts listed once where its first host's copy
+ * would be (ADR-237 D1).
  */
-export const MACHINE_SECTION_IDS: readonly string[] = [
-  "project-location",
-  "project-host",
-  "project-worktrees",
-  "project-ports",
-];
-
-const sectionById = new Map(PROJECT_SECTIONS.map((s) => [s.id, s]));
-const projectSection = (id: string): SettingsSection => sectionById.get(id)!;
-
-/** A linked group's shared page. */
-const GROUP_SECTIONS: SettingsSection[] = [
-  {
-    id: "project-general",
-    label: "Shared",
-    keywords: ["name", "color", "theme", "shared"],
-  },
-  ...["project-linear", "project-agent", "project-commands", "project-links"].map(
-    projectSection,
-  ),
-];
-
-/** A linked member's machine-specific page. */
-const MEMBER_SECTIONS: SettingsSection[] = [
-  {
-    id: "project-location",
-    label: "Location",
-    keywords: ["path", "folder", "directory", "branch"],
-  },
-  ...["project-host", "project-worktrees", "project-ports"].map(projectSection),
-];
+export type SettingsProjectEntry = {
+  kind: "project" | "group";
+  id: string;
+  name: string;
+};
 
 /**
- * The Projects part of the nav, in sidebar order: a lone project, or a
- * linked group listed once where its first member would be, with its
- * members (in `memberIds` order) nested under it.
+ * The section a project deep link scrolls to (ADR-237 D5). A member's
+ * host link lands on that member's row of the Hosts section, so the row
+ * opens; everything else names the section itself.
  */
-export type SettingsProjectEntry =
-  | { kind: "project"; id: string; name: string }
-  | {
-      kind: "group";
-      id: string;
-      name: string;
-      members: { id: string; hostId: string; hostLabel: string }[];
-    };
+export function projectJumpId(
+  section: string | null | undefined,
+  projectId: string,
+  grouped: boolean,
+): string | null {
+  if (!section) return null;
+  if (section === "project-host" && grouped) return `project-host-${projectId}`;
+  return section;
+}
 
 /**
- * Every searchable entry, including one set per project, group and group
- * member. Each page leads its own sections, so a page and its sections
- * tie-break in nav order.
+ * Every searchable entry, including one set per project. Each page leads
+ * its own sections, so a page and its sections tie-break in nav order.
  */
 export function buildSettingsIndex(
   projects: readonly SettingsProjectEntry[],
@@ -311,25 +291,15 @@ export function buildSettingsIndex(
     ...sections.map((section) => ({ ...section, pageLabel: label, page })),
   ];
 
-  const perProject = projects.flatMap((entry) => {
-    if (entry.kind === "project") {
-      return pageEntries(
-        entry.name,
-        { type: "project", projectId: entry.id },
-        PROJECT_SECTIONS,
-      );
-    }
-    return [
-      ...pageEntries(entry.name, { type: "group", groupId: entry.id }, GROUP_SECTIONS),
-      ...entry.members.flatMap((member) =>
-        pageEntries(
-          `${entry.name} · ${member.hostLabel}`,
-          { type: "project", projectId: member.id },
-          MEMBER_SECTIONS,
-        ),
-      ),
-    ];
-  });
+  const perProject = projects.flatMap((entry) =>
+    pageEntries(
+      entry.name,
+      entry.kind === "group"
+        ? { type: "group", groupId: entry.id }
+        : { type: "project", projectId: entry.id },
+      PROJECT_SECTIONS,
+    ),
+  );
 
   return [...fixed, ...perProject];
 }

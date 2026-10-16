@@ -42,11 +42,6 @@
   background: color-mix(in srgb, var(--blue, #89b4fa) 10%, transparent);
 }
 
-.glyphBox.local {
-  color: var(--text-primary);
-  background: var(--surface);
-}
-
 .name {
   flex: 1;
   min-width: 0;

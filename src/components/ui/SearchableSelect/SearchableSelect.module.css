@@ -36,6 +36,18 @@
   text-overflow: ellipsis;
 }
 
+.triggerText {
+  min-width: 0;
+}
+
+.optionTrailing,
+.triggerTrailing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .chevron {
   flex-shrink: 0;
   color: var(--text-dim);

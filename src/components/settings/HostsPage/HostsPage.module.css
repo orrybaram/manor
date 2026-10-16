@@ -111,6 +111,16 @@ button.rowToggle:hover:not(:disabled) {
   color: var(--text-dim);
 }
 
+/* The row's third line: a path, in mono, cut short (ADR-237 D3). */
+.rowDetail {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rowWarning {
   color: var(--yellow, #d29922);
 }

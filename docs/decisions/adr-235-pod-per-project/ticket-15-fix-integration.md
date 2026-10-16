@@ -1,6 +1,6 @@
 ---
 title: Fix integration — setState-in-effect lint errors in the remove dialogs
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [13]

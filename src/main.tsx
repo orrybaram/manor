@@ -6,6 +6,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { createQueryClient, AppRoot } from "./app-root";
 import { terminalFontsReady } from "./lib/terminal-font";
+import { hasTrafficLights } from "./lib/platform";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import "./App.css";
 
@@ -45,6 +46,12 @@ if (!bridgeInstalled) {
   // pane asks, but render without them: only terminal creation waits on them
   // (see `lib/terminal-font`).
   void terminalFontsReady();
+
+  // Chrome at the window's top-left clears the macOS traffic lights through
+  // this inset (App.css); other platforms have none to clear.
+  if (!hasTrafficLights()) {
+    document.documentElement.style.setProperty("--traffic-light-inset", "0px");
+  }
 
   ReactDOM.createRoot(root).render(
     <React.StrictMode>

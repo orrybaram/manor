@@ -1,27 +1,11 @@
 import PanelLeft from "lucide-react/dist/esm/icons/panel-left";
 import { Button } from "../ui/Button/Button";
-import { isWebApp } from "../../lib/platform";
+import { hasTrafficLights } from "../../lib/platform";
 import { workspaceDisplayName } from "../../lib/workspace-display-name";
 import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { useProjectStore } from "../../store/project-store";
 import { PhoneOverflowMenu } from "./PhoneOverflowMenu";
 import styles from "./Phone.module.css";
-
-/**
- * `hiddenInset` + `trafficLightPosition` (`electron/window.ts`) are macOS-only
- * — Electron ignores them elsewhere, so a narrow Electron window on another
- * platform still has its own native title bar to drag by, and a browser tab
- * has no window chrome at all. Only this combination needs the top bar to
- * clear the traffic lights and stand in as a drag region.
- */
-function isElectronMacOS(): boolean {
-  return (
-    !isWebApp() &&
-    typeof navigator !== "undefined" &&
-    (navigator.platform?.includes("Mac") ||
-      navigator.userAgent?.includes("Mac"))
-  );
-}
 
 type PhoneTopBarProps = {
   /** Opens/closes the sidebar drawer. */
@@ -48,7 +32,7 @@ export function PhoneTopBar(props: PhoneTopBarProps) {
   );
   // Tasks is a surface over the workspace, not a workspace of its own.
   const onTasks = useAppStore((s) => s.activeSurface === "tasks");
-  const macChrome = isElectronMacOS();
+  const macChrome = hasTrafficLights();
 
   return (
     <div

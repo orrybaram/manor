@@ -12,3 +12,20 @@
 export function isWebApp(): boolean {
   return typeof window !== "undefined" && window.electronAPI?.platform === "web";
 }
+
+/**
+ * Whether the window has macOS traffic lights over its top-left corner.
+ *
+ * `hiddenInset` + `trafficLightPosition` (`electron/window.ts`) are macOS-only
+ * — Electron ignores them elsewhere, so an Electron window on another
+ * platform has its own native title bar, and a browser tab has no window
+ * chrome at all. Only this combination needs chrome to clear the lights.
+ */
+export function hasTrafficLights(): boolean {
+  return (
+    !isWebApp() &&
+    typeof navigator !== "undefined" &&
+    (navigator.platform?.includes("Mac") ||
+      navigator.userAgent?.includes("Mac"))
+  );
+}

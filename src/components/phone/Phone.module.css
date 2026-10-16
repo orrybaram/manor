@@ -48,7 +48,7 @@
 
 /*
  * ADR-181 D3: `[data-mac-inset]` is only ever set on the Electron
- * desktop on macOS (`isElectronMacOS()` in `PhoneTopBar.tsx`) — the one
+ * desktop on macOS (`hasTrafficLights()` in `lib/platform.ts`) — the one
  * platform where `hiddenInset` + `trafficLightPosition`
  * (`electron/window.ts`) puts the red/yellow/green buttons over this bar's
  * top-left corner. Left-pad by the same inset a lead-less tab strip uses

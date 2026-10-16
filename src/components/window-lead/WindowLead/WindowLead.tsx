@@ -11,7 +11,7 @@ import {
   navigateForward,
 } from "../../../hooks/useNavigationHistory";
 import { formatCombo, type KeyCombo } from "../../../lib/keybindings";
-import { windowLeadWidth } from "../../../lib/window-lead";
+import { lightsWidth, windowLeadWidth } from "../../../lib/window-lead";
 import styles from "./WindowLead.module.css";
 
 function withShortcut(label: string, combo: KeyCombo | undefined): string {
@@ -39,10 +39,10 @@ export function WindowLead() {
   return (
     <div
       className={styles.lead}
-      style={{ width: windowLeadWidth(sidebarMode, sidebarWidth) }}
+      style={{ width: windowLeadWidth(sidebarMode, sidebarWidth, lightsWidth()) }}
       data-testid="window-lead"
     >
-      <div className={styles.lightsSpacer} />
+      <div className={styles.lightsSpacer} style={{ width: lightsWidth() }} />
       {sidebarMode !== "rail" && (
         <>
           <div className={styles.controls}>

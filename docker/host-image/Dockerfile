@@ -28,6 +28,11 @@ RUN userdel -r node \
 COPY manor-host-entrypoint.sh /usr/local/bin/manor-host-entrypoint.sh
 RUN chmod 755 /usr/local/bin/manor-host-entrypoint.sh
 
+# Terminal panes are login shells, and /etc/profile resets PATH. A Kubernetes
+# volume starts empty (no skel ~/.profile), so put ~/.local/bin back here.
+RUN printf '%s\n' 'case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) PATH="$HOME/.local/bin:$PATH" ;; esac' \
+      > /etc/profile.d/manor-local-bin.sh
+
 USER manor
 ENV HOME=/home/manor
 ENV PATH=/home/manor/.local/bin:$PATH

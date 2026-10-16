@@ -75,7 +75,7 @@ export function hostProfilesRemove(ctx: HandlerCtx<ServerDeps>, profileId: strin
 
 /**
  * "Sign new pods in for me" (ADR-235 D9): put the GitHub and/or Claude
- * token into the profile's `manor-signin` Secret, then record when and how
+ * token into the profile's own `manor-signin-<profileId>` Secret, then record when and how
  * on the profile. Kubernetes profiles only. The token goes to kubectl on
  * stdin and is kept nowhere on this computer.
  */

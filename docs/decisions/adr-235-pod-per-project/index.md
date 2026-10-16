@@ -267,6 +267,11 @@ explicit change to the credential stance, for that namespace only.
   agent in every pod can use them. They are the user's own tokens, not
   scoped to a pod. A namespace you share with other people is the wrong
   place for this option.
+- **One Secret per profile, not per namespace** (amended during
+  execution): two profiles can share a namespace, so the Secret is named
+  `manor-signin-<profileId>` and each recipe written from the profile
+  carries its name as `MANOR_K8S_SIGNIN_SECRET`. That way removing a token
+  from one profile never removes it from the other.
 - **Docker profiles** don't get it in v1. A Docker host has no Secret store
   that isn't a file on the daemon's disk, so they keep "Fix in terminal".
 

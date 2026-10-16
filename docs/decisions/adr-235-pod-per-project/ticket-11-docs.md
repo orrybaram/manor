@@ -34,3 +34,7 @@ ADR-235, all slices.
 ## Follow-ups from ticket 10
 - The release `host-image` job now builds the app and the host tarball on ubuntu-latest. It hasn't run in CI yet. Check the first tag's run: does `pnpm install` (electron-rebuild postinstall) succeed, and does the arm64 compile under QEMU finish within 90 minutes? Use `--ignore-scripts` if the postinstall breaks.
 - The tarball is built twice, on macOS in `release` and on Ubuntu in `host-image`. Optional: build it once and pass it between the jobs as an artifact.
+
+## Notes from ticket 9
+- Sign-in needs kubectl 1.20 or later (`--patch-file /dev/stdin`) and macOS or Linux.
+- Check against a real cluster, ideally in the recipe-kubernetes e2e: does `gh auth setup-git` work in a pod with only `GH_TOKEN` set and no gh config? The step can fail without failing `up`.

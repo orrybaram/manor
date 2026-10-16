@@ -26,3 +26,7 @@ by default, only for kubernetes profiles:
 - `src/components/settings/HostsPage/ProfileEditorDialog.tsx` / `StartHostForm.tsx`
 - `src/components/settings/HostsPage/host-settings-text.ts` — copy
 - `src/store/host-profile-store.ts`
+
+## Notes from ticket 9
+- The IPC: `hostProfiles.setSignIn(profileId, input)`, `removeSignIn(profileId, which)`, `restartPods(profileId) → {restarted}`.
+- Show "Restart running pods to use it" after any set or remove.

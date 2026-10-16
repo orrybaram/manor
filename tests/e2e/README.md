@@ -201,7 +201,7 @@ rather than taking the first row.
 
 ## The remote-host harness (ADR-160 / ADR-178)
 
-`remote-host.spec.ts` (and `host-server.spec.ts`, `host-ownership.spec.ts`) run against a real sshd and is skipped unless
+`remote-host.spec.ts` (and `host-server.spec.ts`, `host-ownership.spec.ts`, `pairing-keys.spec.ts`) run against a real sshd and is skipped unless
 `MANOR_E2E_SSH=1`. Don't run it with bare `playwright test`. Use
 `scripts/test-remote-e2e.mjs`, which builds the app and the `manor-host`
 tarball, starts the sshd, runs the bridge-level vitest suite and this spec,

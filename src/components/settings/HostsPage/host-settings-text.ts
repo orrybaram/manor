@@ -112,31 +112,121 @@ export function restartPodsLabel(running: number): string {
  */
 export const DEFAULT_KEY_FILE = "~/.config/manor/secret.key";
 
+/** What can be done about plaintext pairing keys on a host (ADR-236 D6). */
+export type KeyFix = "button" | "recipe" | "container" | "none";
+
+/** The colour of the Pairing keys pill: a caution, protected, half-protected, or working. */
+export type PairingKeysTone = "caution" | "ok" | "partial" | "busy";
+
+/** The facts the Pairing keys row shows (ADR-236 D6). */
+export type PairingKeysState = {
+  tone: PairingKeysTone;
+  /** The pill: "Unencrypted", "Encrypted", "Key kept with data", "Encrypting…". */
+  state: string;
+  /** The one line under the label. */
+  hint: string;
+  /** Opens on demand: what the state does and doesn't protect against. */
+  detail: string | null;
+  /** The few words the row's header repeats, or null when the state is fine. */
+  headerWarning: string | null;
+};
+
+/** The facts about a host's pairing keys the row reads. */
+export type PairingKeysFacts = {
+  secretBackend: string;
+  secretKeyPlace?: "data-dir" | "home" | "elsewhere";
+  secretKeyFile?: string | null;
+  secretKeyOnVolume?: boolean;
+  encryptKeyFile?: string;
+};
+
 /**
- * What "Encrypt them" does, and what it does not protect against (ADR-236
- * D6). `keyFile` is the server's `encryptKeyFile`: the file the click uses,
- * which may be one the user already named outside ~/.manor.
+ * The key sealing the pairing keys sits inside ~/.manor; an older server only
+ * says so with `secretKeyOnVolume`. A key named while another backend seals
+ * them (one sticky from before, ADR-236 D8) is not worth the warning.
  */
-export function plaintextFixText(hostName: string, keyFile: string = DEFAULT_KEY_FILE): string {
-  return `Manor can use a key at ${keyFile} on ${hostName} and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of ${hostName}'s whole disk still can.`;
+export function keyOnVolume(facts: PairingKeysFacts): boolean {
+  return facts.secretKeyPlace === undefined
+    ? facts.secretKeyOnVolume === true
+    : facts.secretKeyPlace === "data-dir" && facts.secretBackend === "key-file";
 }
 
-/** Plaintext keys on a recipe host: the recipe has to supply the key. */
-export function plaintextRecipeText(hostName: string): string {
-  return `${hostName} comes from a recipe, so Manor can't add a key to it. Have the recipe set one up.`;
-}
-
-/** Plaintext keys in a container: its environment has to supply the key. */
-export function plaintextContainerText(hostName: string): string {
-  return `${hostName} runs in a container, so Manor can't add a key to it. Give the container a key through its environment.`;
-}
-
-/** The key is a file in home, outside ~/.manor. */
-export function keyInHomeText(hostName: string, keyFile: string = DEFAULT_KEY_FILE): string {
-  return `Pairing keys on ${hostName} are encrypted with a key kept at ${keyFile}. That protects them from a copy of ~/.manor, but not from a copy of the whole disk.`;
-}
-
-/** The key sits inside ~/.manor, next to the keys it seals. */
-export function keyOnVolumeText(hostName: string): string {
-  return `The key sealing pairing keys is kept inside ~/.manor on ${hostName}, beside what it protects.`;
+/**
+ * What the Pairing keys row says for a host (ADR-236 D6): its state as a
+ * pill, one line, and the caveats behind a disclosure. `busy` is an Encrypt
+ * click in flight, which the row shows as progress rather than letting the
+ * server's restart read as a reset.
+ */
+export function pairingKeysState(
+  facts: PairingKeysFacts,
+  fix: KeyFix,
+  hostName: string,
+  busy = false,
+): PairingKeysState {
+  if (busy) {
+    return {
+      tone: "busy",
+      state: "Encrypting…",
+      hint: `Restarting ${hostName}'s server. Devices reconnect on their own.`,
+      detail: null,
+      headerWarning: "pairing keys unencrypted",
+    };
+  }
+  if (facts.secretBackend === "plaintext") {
+    const keyFile = facts.encryptKeyFile ?? DEFAULT_KEY_FILE;
+    const hint =
+      fix === "button"
+        ? `Stored as plain files on ${hostName}. Manor can seal them in one step. Devices stay paired.`
+        : fix === "recipe"
+          ? "The recipe has to supply a key."
+          : fix === "container"
+            ? "Set a key in the container's environment."
+            : `Encrypt them from the desktop app while ${hostName} is connected.`;
+    return {
+      tone: "caution",
+      state: "Unencrypted",
+      hint,
+      detail:
+        fix === "button"
+          ? `Manor makes a key at ${keyFile} on ${hostName} and restarts its server to use it. A copy of ~/.manor can't read the pairing keys then. A copy of ${hostName}'s whole disk, or anyone with your account on it, still can.`
+          : null,
+      headerWarning: "pairing keys unencrypted",
+    };
+  }
+  if (keyOnVolume(facts)) {
+    return {
+      tone: "partial",
+      state: "Key kept with data",
+      hint: `The key sits inside ~/.manor on ${hostName}, beside what it seals.`,
+      detail: `A copy of ~/.manor carries the key with it, so it can read the pairing keys. Keep the key somewhere else on ${hostName} to change that.`,
+      headerWarning: "pairing key stored on its disk",
+    };
+  }
+  if (facts.secretBackend === "key-file") {
+    const file = facts.secretKeyFile ?? null;
+    const place = facts.secretKeyPlace;
+    const hint =
+      place === "home" || (place === "elsewhere" && file)
+        ? `Sealed with a key at ${file ?? DEFAULT_KEY_FILE} on ${hostName}.`
+        : place === "elsewhere"
+          ? `Sealed with a key from ${hostName}'s environment.`
+          : `Sealed with a key file on ${hostName}.`;
+    return {
+      tone: "ok",
+      state: "Encrypted",
+      hint,
+      detail:
+        place === "home"
+          ? `Safe from a copy of ~/.manor. A copy of ${hostName}'s whole disk, or anyone with your account on it, can still read them. Deleting the key file strands the keys; Reset pairing keys recovers.`
+          : null,
+      headerWarning: null,
+    };
+  }
+  const sealedBy =
+    facts.secretBackend === "systemd-creds"
+      ? `Sealed by systemd on ${hostName}.`
+      : facts.secretBackend === "libsecret"
+        ? `Sealed by ${hostName}'s keyring.`
+        : `Sealed by ${hostName}.`;
+  return { tone: "ok", state: "Encrypted", hint: sealedBy, detail: null, headerWarning: null };
 }

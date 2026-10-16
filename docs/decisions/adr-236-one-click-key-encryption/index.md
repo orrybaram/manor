@@ -71,15 +71,21 @@ All three are computed once, when the server starts (`serverKeyStatus`, from D2'
 
 The status field `secretKeyOnVolume` stays and equals `place === "data-dir"`, so an older desktop keeps its warning. The logic lives in `secretKeyPlace(env, home, inlineKeySources)` in `secret-box.ts`, which keeps `platform/` free of host-server imports.
 
-### D6. The button, only where it can work
-In `HostRow` `KeyWarnings`:
-- **Plaintext, and the host is fixable** (not read-only, connected, not a recipe host, not supervised in a container): the warning stays, and below it sit a hint ("Manor can use a key at <encryptKeyFile> on <host>… A copy of ~/.manor can't read them then; a copy of <host>'s whole disk still can.") and an **Encrypt them** `<Button>` (`host-encrypt-keys`). The button goes through `useHostAction().run`, so it gets the same busy state and `host-entry-error` as every other action.
-- **Plaintext on a recipe host or in a container:** the warning plus a docs link explaining how to give it a key. No button.
-- **Plaintext on a host that's away or read-only:** the warning as today.
-- **`key-file` + `home`:** a muted `fieldHint` (`host-key-in-home`) says the keys are encrypted with a key kept at that path, which protects them from a copy of `~/.manor` but not of the disk. Nothing goes in the header line.
-- **`data-dir`** (or `secretKeyOnVolume` from an older server): the existing yellow warning, reworded as "…kept inside ~/.manor on <host>, beside what it protects."
+### D6. A Pairing keys row, and the fix where it can work
+*Amended 2026-10-16: the warning box became a setting row, and the wizard runs the fix itself.*
 
-The copy lives as plain functions in `host-settings-text.ts`.
+The state of a host's pairing keys is a setting in its Device access group, under the two switches, not a red box. Red is for failed actions; plaintext keys are a caution on a host that works. In `HostRow` `PairingKeys`, one `SettingRow` labelled **Pairing keys** carries a state pill, one line under it, the caveats behind a **What this protects** disclosure, and the control on the right. `pairingKeysState(facts, fix, hostName, busy)` in `host-settings-text.ts` is the one function that words it:
+
+- **Plaintext, and the host is fixable** (not read-only, connected, not a recipe host, not supervised in a container): yellow **Unencrypted**, "Stored as plain files on <host>. Manor can seal them in one step. Devices stay paired.", the disclosure naming `encryptKeyFile` and what a copy of the whole disk can still do, and a primary **Encrypt** `<Button>` (`host-encrypt-keys`). The button goes through `useHostAction().run`, so it gets the same busy state and `host-entry-error` as every other action. While the click runs the pill reads **Encrypting…** with "Restarting <host>'s server. Devices reconnect on their own.", so the restart reads as progress, not as the row resetting.
+- **Plaintext on a recipe host or in a container:** the same pill, a five-word hint, and a docs link as the control. No button.
+- **Plaintext on a host that's away or read-only:** the pill and "Encrypt them from the desktop app while <host> is connected." No control.
+- **`key-file` + `home`:** green **Encrypted**, "Sealed with a key at <file> on <host>.", and the disclosure says it is safe from a copy of `~/.manor`, not of the disk, and that deleting the key file strands the keys. Nothing goes in the header line.
+- **`key-file` + `data-dir`** (or `secretKeyOnVolume` from an older server): a pill between the two, **Key kept with data**, "The key sits inside ~/.manor on <host>, beside what it seals.", with **Move it out** linking to the docs. The header still says "pairing key stored on its disk".
+- **systemd-creds, libsecret, or a key from outside the box:** green **Encrypted** and who seals them. The best state used to be invisible; now the row is always there, so the user learns where to look.
+
+The row's header keeps "pairing keys unencrypted" in yellow while the keys are plaintext and drops it on success.
+
+**The Add a host wizard runs the fix itself.** Its last step renders the same group with `autoEncrypt`; for an ssh host whose first status reads plaintext and that is fixable by the rule above, `PairingKeys` calls `encryptKeys` once, unasked, as soon as the host can. The command is idempotent (D1), and the key is the best the box can get without root, so there is nothing to ask. The user sees **Encrypting…** then **Encrypted** before they press Done. A failure leaves the yellow pill, the **Encrypt** button and the error under the group, so they leave the wizard knowing where things stand. The Hosts page row never encrypts on its own: the automatic step is for a host Manor just set up, where the restart costs nothing yet.
 
 ### D7. Desktop method `hosts.encryptKeys(hostId)`
 `hostsEncryptKeys` in `electron/bridge/handlers/hosts.ts` is shaped like `hostsSetSupervised`. It calls `runHostSecrets(transport, "encrypt")` (new `electron/backend/host-secrets.ts`, 60 s timeout), then polls `hostServer.status()` every 500 ms, ignoring failed reads, until one reports the backend the command returned, for up to about 15 s. It doesn't trust the client's `connected` state, which may still be the old, dying channel. It then broadcasts `hosts.pairingChanged` and returns the facts. `host-secrets.ts` and `host-supervisor.ts` share `runHostJsonCommand` (`host-json-command.ts`), and both check the facts' shape. It is registered `localOnly`, `mutating` and `LOCAL_ROUTE`, routed `home`, and added to `LOCAL_ONLY_METHODS` and `HostRefusedMethod`.
@@ -92,6 +98,7 @@ Once a box is on `key-file`, a later systemd 256+ doesn't move it to systemd-cre
 - **A desktop-held key handed over on connect:** ADR-225 D6 rejected it, and that still holds; a supervised server that restarts at boot with the lid closed couldn't open its files.
 - **Making systemd-creds or libsecret work in one click:** it needs sudo (packages, a systemd upgrade) and an unlocked keyring at boot. The server already probes both on every plaintext start.
 - **No button, better copy only:** kept for the hosts where the fix can't work (recipe hosts, containers, away, read-only).
+- **An "Encrypt pairing keys" step or checkbox in the wizard:** there is no choice to make. The fix is idempotent and the best the box offers, so asking only adds a step; the wizard does it and shows the result.
 
 ### Relation to earlier ADRs
 - This reaffirms ADR-225 D6 and adds a weaker, honestly labelled tier below "a key from outside the box".

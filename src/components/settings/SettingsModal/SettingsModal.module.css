@@ -378,6 +378,63 @@
   margin-top: 10px;
 }
 
+.settingMainPlain {
+  cursor: default;
+}
+
+/* A label that carries a state pill after its words. */
+.settingLabelRow {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The state of a setting in a word or two (ADR-236 D6): a caution, protected,
+   half-protected, or an action in flight. Not the red of a failed action. */
+.statePill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 8px 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.statePill[data-tone="caution"] {
+  color: var(--yellow, #f9e2af);
+  background: color-mix(in srgb, var(--yellow, #f9e2af) 16%, transparent);
+}
+
+.statePill[data-tone="ok"] {
+  color: var(--green, #a6e3a1);
+  background: color-mix(in srgb, var(--green, #a6e3a1) 14%, transparent);
+}
+
+/* Between the caution and the all-clear: the theme's yellow warmed toward its red. */
+.statePill[data-tone="partial"] {
+  --pill-partial: color-mix(in srgb, var(--yellow, #f9e2af) 55%, var(--red, #f38ba8));
+  color: var(--pill-partial);
+  background: color-mix(in srgb, var(--pill-partial) 14%, transparent);
+}
+
+.statePill[data-tone="busy"] {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+/* The caveats behind a setting's state, opened on demand. */
+.settingDetail {
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  max-width: 60ch;
+  color: color-mix(in srgb, var(--text-selected) 50%, transparent);
+}
+
 .settingField {
   gap: 6px;
 }

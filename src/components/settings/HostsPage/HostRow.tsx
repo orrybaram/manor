@@ -1,8 +1,10 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Moon from "lucide-react/dist/esm/icons/moon";
 import RotateCcw from "lucide-react/dist/esm/icons/rotate-ccw";
+import Shield from "lucide-react/dist/esm/icons/shield";
 import ShieldAlert from "lucide-react/dist/esm/icons/shield-alert";
+import ShieldCheck from "lucide-react/dist/esm/icons/shield-check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { HostServerStatus, HostServerView } from "../../../electron.d";
 import { useHostDisplay } from "../../../hooks/useHostDisplay";
@@ -11,6 +13,7 @@ import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { useRemoteControlStore } from "../../../store/remote-control-store";
 import { Button } from "../../ui/Button/Button";
 import { Collapse } from "../../ui/Collapse/Collapse";
+import { SpinnerLoader } from "../../ui/SpinnerLoader/SpinnerLoader";
 import { Link } from "../../ui/Link/Link";
 import { Switch } from "../../ui/Switch/Switch";
 import { CopySshCommand } from "../../hosts/HostCard";
@@ -23,13 +26,11 @@ import { useSettingsJump } from "../SettingsModal/settings-nav";
 import { RemoveHostDialog } from "./RemoveHostDialog";
 import {
   idleStopText,
-  keyInHomeText,
-  keyOnVolumeText,
-  plaintextContainerText,
-  plaintextFixText,
-  plaintextRecipeText,
+  pairingKeysState,
   supervisionHint,
   supervisorStatusText,
+  type KeyFix,
+  type PairingKeysTone,
 } from "./host-settings-text";
 import { useHostAction, useHostSettings, type RunAction } from "./useHostSettings";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
@@ -227,15 +228,21 @@ type HostDeviceAccessProps = {
   view: HostServerView | null;
   busy: boolean;
   run: RunAction;
+  /**
+   * Encrypt plaintext pairing keys without being asked, once, as soon as the
+   * host can (ADR-236 D6): the Add a host wizard's last step does this for a
+   * host Manor just set up.
+   */
+  autoEncrypt?: boolean;
 };
 
 /**
  * A host's Device access group (ADR-233 D1): whether devices reach it, what
- * keeps its Manor running, its pairing-key warnings. Shared by its row and
- * the Add a host wizard's last step (D4).
+ * keeps its Manor running, the state of its pairing keys. Shared by its row
+ * and the Add a host wizard's last step (D4).
  */
 export function HostDeviceAccess(props: HostDeviceAccessProps) {
-  const { host, name, readOnly, view, busy, run } = props;
+  const { host, name, readOnly, view, busy, run, autoEncrypt = false } = props;
 
   const { hostId } = host;
   const deviceCount = useRemoteControlStore((s) => s.status.devices.length);
@@ -289,13 +296,14 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
         </SettingRow>
       )}
       {status && (
-        <KeyWarnings
+        <PairingKeys
           status={status}
           hostId={hostId}
           hostName={name}
           fix={fix}
           busy={busy}
           run={run}
+          autoEncrypt={autoEncrypt && host.providerKind === "ssh"}
         />
       )}
       {host.idleStopNote && (
@@ -466,24 +474,11 @@ function statusLine(state: string, view: HostServerView | null): string {
   return `${state} · ${reach}`;
 }
 
-/**
- * The key sealing the pairing keys sits inside ~/.manor; an older server only
- * says so with `secretKeyOnVolume`. A key named while another backend seals
- * them (one sticky from before, ADR-236 D8) is not worth the warning.
- */
-function keyOnVolume(status: HostServerStatus): boolean {
-  return status.secretKeyPlace === undefined
-    ? status.secretKeyOnVolume === true
-    : status.secretKeyPlace === "data-dir" && status.secretBackend === "key-file";
-}
-
-/** The pairing-key warnings the header repeats, in a few words each. */
+/** The pairing-key warning the header repeats, in a few words. */
 function keyWarnings(status: HostServerStatus | null): string[] {
   if (!status) return [];
-  const warnings: string[] = [];
-  if (status.secretBackend === "plaintext") warnings.push("pairing keys unencrypted");
-  if (keyOnVolume(status)) warnings.push("pairing key stored on its disk");
-  return warnings;
+  const warning = pairingKeysState(status, "none", "").headerWarning;
+  return warning ? [warning] : [];
 }
 
 /** "Your 2 devices reach", or, with none paired yet, "Devices you pair reach". */
@@ -509,95 +504,136 @@ function mutedLine(
   return "Device access needs the host to reconnect";
 }
 
-/** What can be done about plaintext pairing keys on this host. */
-type KeyFix = "button" | "recipe" | "container" | "none";
-
-type KeyWarningsProps = {
+type PairingKeysProps = {
   status: HostServerStatus;
   hostId: string;
   hostName: string;
   fix: KeyFix;
   busy: boolean;
   run: RunAction;
+  autoEncrypt: boolean;
+};
+
+const PILL_ICONS: Record<PairingKeysTone, ReactNode> = {
+  caution: <ShieldAlert size={11} aria-hidden />,
+  ok: <ShieldCheck size={11} aria-hidden />,
+  partial: <Shield size={11} aria-hidden />,
+  busy: <SpinnerLoader size="pane" />,
 };
 
 /**
- * What the host's server says about itself: its version and relay, and
- * where its pairing keys are kept when that is worth a warning (ADR-225 D6,
- * ADR-236 D6).
+ * The Pairing keys row (ADR-236 D6): the keys' state as a pill, one line on
+ * it, the caveats behind a disclosure, and **Encrypt** where Manor can do it.
+ * Then what the host's server says about itself (ADR-225 D6).
  */
-function KeyWarnings(props: KeyWarningsProps) {
-  const { status, hostId, hostName, fix, busy, run } = props;
+function PairingKeys(props: PairingKeysProps) {
+  const { status, hostId, hostName, fix, busy, run, autoEncrypt } = props;
 
-  const keyFile = status.secretKeyFile ?? undefined;
+  // An Encrypt click in flight: `busy` alone is every action's.
+  const [encrypting, setEncrypting] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const encrypt = () =>
+    run(async () => {
+      setEncrypting(true);
+      try {
+        await useHostStore.getState().encryptKeys(hostId);
+      } finally {
+        setEncrypting(false);
+      }
+    });
+
+  // Once per host: a new ssh host gets its key as soon as its server can take
+  // one. A failure leaves the row with its button, and the error below it.
+  const autoTried = useRef(false);
+  const canAuto = autoEncrypt && fix === "button" && status.secretBackend === "plaintext" && !busy;
+  useEffect(() => {
+    if (!canAuto || autoTried.current) return;
+    autoTried.current = true;
+    encrypt();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fires once, when the host first can
+  }, [canAuto]);
+
+  const keys = pairingKeysState(status, fix, hostName, encrypting);
+  const control =
+    keys.tone === "busy" || (keys.tone === "caution" && fix === "button") ? (
+      <Button
+        size="sm"
+        variant="primary"
+        data-testid="host-encrypt-keys"
+        disabled={busy}
+        onClick={encrypt}
+      >
+        Encrypt
+      </Button>
+    ) : fix === "recipe" && keys.tone === "caution" ? (
+      <Link href={RECIPE_SECRETS_DOCS_URL} data-testid="host-encrypt-recipe">
+        How
+      </Link>
+    ) : fix === "container" && keys.tone === "caution" ? (
+      <Link href={CONTAINER_SECRETS_DOCS_URL} data-testid="host-encrypt-container">
+        How
+      </Link>
+    ) : keys.tone === "partial" ? (
+      <Link href={SECRETS_DOCS_URL} data-testid="host-key-on-volume">
+        Move it out
+      </Link>
+    ) : null;
 
   return (
     <>
-      <div className={settingsStyles.fieldHint} data-testid="host-phone-summary">
-        Manor {status.version} ·{" "}
-        {status.relay.connected ? "relay connected" : "relay not connected"}
-        {!status.relay.connected && status.relay.error ? ` (${status.relay.error})` : ""}
-      </div>
-      {keyOnVolume(status) && (
-        <div className={settingsStyles.remoteWarning} data-testid="host-key-on-volume">
-          <ShieldAlert size={14} />
-          <span>
-            {keyOnVolumeText(hostName)}{" "}
-            <Link href={SECRETS_DOCS_URL}>How to keep it elsewhere</Link>
+      <SettingRow
+        plain
+        data-testid="host-pairing-keys"
+        label={
+          <span className={settingsStyles.settingLabelRow}>
+            Pairing keys
+            <span
+              className={settingsStyles.statePill}
+              data-tone={keys.tone}
+              data-testid="host-pairing-keys-state"
+            >
+              {PILL_ICONS[keys.tone]}
+              {keys.state}
+            </span>
           </span>
-        </div>
-      )}
-      {status.secretBackend === "key-file" && status.secretKeyPlace === "home" && (
-        <div className={settingsStyles.fieldHint} data-testid="host-key-in-home">
-          {keyInHomeText(hostName, keyFile)}
-        </div>
-      )}
+        }
+        hint={
+          <>
+            <span data-testid="host-pairing-keys-hint">{keys.hint}</span>
+            {keys.detail && (
+              <>
+                {" "}
+                <Button
+                  variant="link"
+                  data-testid="host-pairing-keys-more"
+                  aria-expanded={detailOpen}
+                  onClick={() => setDetailOpen((open) => !open)}
+                >
+                  {detailOpen ? "Less" : "What this protects"}
+                </Button>
+                <Collapse open={detailOpen}>
+                  <span className={settingsStyles.settingDetail} data-testid="host-pairing-keys-detail">
+                    {keys.detail}
+                  </span>
+                </Collapse>
+              </>
+            )}
+          </>
+        }
+      >
+        {control}
+      </SettingRow>
       {status.identityReset === "cloned" && (
         <div className={settingsStyles.fieldHint} data-testid="host-identity-reset">
           {hostName} was copied from another machine, so it got new pairing keys. Devices
           paired with this Mac re-link on their own.
         </div>
       )}
-      {status.secretBackend === "plaintext" && (
-        <>
-          <div className={settingsStyles.remoteWarning} data-testid="host-plaintext-keys">
-            <ShieldAlert size={14} />
-            <span>
-              Pairing keys on {hostName} are stored unencrypted.{" "}
-              <Link href={SECRETS_DOCS_URL}>How to encrypt them</Link>
-            </span>
-          </div>
-          {fix === "button" && (
-            <>
-              <div className={settingsStyles.fieldHint} data-testid="host-encrypt-hint">
-                {plaintextFixText(hostName, status.encryptKeyFile)}
-              </div>
-              <div>
-                <Button
-                  size="sm"
-                  data-testid="host-encrypt-keys"
-                  disabled={busy}
-                  onClick={() => run(() => useHostStore.getState().encryptKeys(hostId))}
-                >
-                  Encrypt them
-                </Button>
-              </div>
-            </>
-          )}
-          {fix === "recipe" && (
-            <div className={settingsStyles.fieldHint} data-testid="host-encrypt-recipe">
-              {plaintextRecipeText(hostName)}{" "}
-              <Link href={RECIPE_SECRETS_DOCS_URL}>How</Link>
-            </div>
-          )}
-          {fix === "container" && (
-            <div className={settingsStyles.fieldHint} data-testid="host-encrypt-container">
-              {plaintextContainerText(hostName)}{" "}
-              <Link href={CONTAINER_SECRETS_DOCS_URL}>How</Link>
-            </div>
-          )}
-        </>
-      )}
+      <div className={settingsStyles.fieldHint} data-testid="host-phone-summary">
+        Manor {status.version} ·{" "}
+        {status.relay.connected ? "relay connected" : "relay not connected"}
+        {!status.relay.connected && status.relay.error ? ` (${status.relay.error})` : ""}
+      </div>
     </>
   );
 }

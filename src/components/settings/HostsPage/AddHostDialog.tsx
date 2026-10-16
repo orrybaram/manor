@@ -253,7 +253,10 @@ type NewHostGroupsProps = {
   name: string;
 };
 
-/** The groups from the host's row (ADR-233 D1), with their own action state. */
+/**
+ * The groups from the host's row (ADR-233 D1), with their own action state.
+ * A new ssh host gets its pairing keys encrypted here, unasked (ADR-236 D6).
+ */
 function NewHostGroups(props: NewHostGroupsProps) {
   const { host, name } = props;
 
@@ -262,7 +265,15 @@ function NewHostGroups(props: NewHostGroupsProps) {
 
   return (
     <Stack gap="sm">
-      <HostDeviceAccess host={host} name={name} readOnly={false} view={view} busy={busy} run={run} />
+      <HostDeviceAccess
+        host={host}
+        name={name}
+        readOnly={false}
+        view={view}
+        busy={busy}
+        run={run}
+        autoEncrypt
+      />
       <HostIntegrations
         hostId={host.hostId}
         name={name}

@@ -210,6 +210,38 @@ describe("LayoutStore", () => {
       store.load();
       expect(store.getAll()).toEqual({});
     });
+
+    it("starts every workspace at the version base, so a restart outranks its last run", async () => {
+      fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
+      const restarted = new LayoutStore(
+        persistence,
+        (payload) => {
+          broadcasts.push(payload);
+        },
+        { pty: { kill } } as unknown as LayoutStoreBackend,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        1_000,
+      );
+      restarted.load();
+      expect(restarted.get(WS)!.version).toBe(1_000);
+
+      const result = await restarted.apply(
+        WS,
+        { type: "new-tab", tab: leafTab("tab-2", "pane-2") },
+        { kind: "window", id: "1" },
+      );
+      expect(result).toMatchObject({ version: 1_001 });
+      // A workspace first seen in this run starts at the base too.
+      await restarted.apply(
+        "/project/other",
+        { type: "new-tab", tab: leafTab("tab-9", "pane-9") },
+        { kind: "window", id: "1" },
+      );
+      expect(restarted.get("/project/other")!.version).toBe(1_001);
+    });
   });
 
   describe("apply", () => {

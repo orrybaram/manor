@@ -401,6 +401,8 @@ export function createManorServer<D extends BridgeServerDeps>(
       abandonForPanes: (panes) => agentService.abandonForPanes(panes),
     },
     launches,
+    // Above any version a client kept from this server's last run.
+    Date.now(),
   );
   // Read the file once its workspace-key migration (above) has settled —
   // usually at once; `layout.getAll()` and every command wait for it, so a

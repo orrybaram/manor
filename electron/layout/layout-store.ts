@@ -288,6 +288,15 @@ export class LayoutStore {
      * every pane did before ADR-227; `createManorServer` passes the real one.
      */
     private readonly launcher: PaneLauncher = NO_LAUNCHER,
+    /**
+     * The version every workspace starts at in this run. Versions live only
+     * in memory, so a server that restarted at 0 would be outranked by the
+     * versions its clients still hold from its last run — a desktop's host
+     * cache, a window's replica — and every broadcast it sent would be
+     * dropped as stale. `createManorServer` passes the clock, so a new run
+     * always starts above the last one; tests keep 0.
+     */
+    private readonly versionBase: number = 0,
   ) {}
 
   /**
@@ -334,7 +343,7 @@ export class LayoutStore {
         continue;
       }
       this.entries.set(workspace.workspacePath, {
-        version: 0,
+        version: this.versionBase,
         layout: layoutFromPersisted(workspace),
         defaultViewport: workspace.defaultViewport,
         paneSessions: paneSessionsFromPersisted(workspace),
@@ -1135,7 +1144,7 @@ export class LayoutStore {
     if (existing) return existing;
     const panelId = `panel-${crypto.randomUUID()}`;
     const state: WorkspaceState = {
-      version: 0,
+      version: this.versionBase,
       layout: createSinglePanelLayout(panelId, [], []),
       defaultViewport: {
         activePanelId: panelId,

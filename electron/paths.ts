@@ -267,12 +267,25 @@ export function supervisorMarkerFile(): string {
 }
 
 /**
- * The environment the supervised units start with (ADR-229 D4, D5):
- * `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`, as
- * `install` found them. Mode 0600.
+ * The host's environment file (ADR-229 D4, D5; ADR-236 D2):
+ * `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`. The
+ * supervised units start with it, and `manor-host serve` reads it too, for
+ * whichever of them its environment lacks, so an unsupervised server gets
+ * them as well. Kept when supervision is turned off. Mode 0600.
  */
 export function supervisorEnvFile(): string {
   return path.join(remoteNamespaceDir(), "supervisor.env");
+}
+
+/**
+ * The key file Manor makes to seal a host's pairing keys when nothing
+ * stronger works (ADR-236 D1): `$XDG_CONFIG_HOME/manor/secret.key`, default
+ * `~/.config/manor/secret.key`. Outside `~/.manor`, so a copy of the data dir
+ * alone cannot read them.
+ */
+export function hostSecretKeyFile(env: NodeJS.ProcessEnv = process.env): string {
+  const config = env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  return path.join(config, "manor", "secret.key");
 }
 
 /** `manor-host supervise`'s pid, while it runs as a container's entrypoint (ADR-229 D4). */

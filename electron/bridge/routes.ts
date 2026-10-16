@@ -243,6 +243,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hosts.projectsOnHost": "home",
   // Run through the host's transport, which the desktop holds (ADR-229 D4).
   "hosts.setSupervised": "home",
+  // Likewise: `manor-host secrets encrypt` through the transport (ADR-236 D7).
+  "hosts.encryptKeys": "home",
   // Profiles are this desktop's, which runs the recipes made from them
   // (ADR-235 D1).
   "hostProfiles.list": "home",

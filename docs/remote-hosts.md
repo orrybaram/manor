@@ -300,12 +300,9 @@ secret backend in use:
 [host-server] 0.21.0 starting in /home/you/.manor/remote/server; secrets: systemd-creds
 ```
 
-To restart it by hand, stop it with
-`kill "$(cat ~/.manor/remote/server/server.pid)"`. A connected desktop notices
-the owner channel drop and starts a fresh one within seconds; otherwise the
-next connect does (a container's `supervise` restarts it at once). Under
-systemd, use `systemctl --user restart manor-host-server` instead: a server
-stopped with `kill` stays stopped there until the next connect. Unlike
+To restart it by hand, run `~/.manor/bin/manor-host restart-server` on the
+box. It stops the server, through its supervisor when one runs it, and starts
+it again, whether it runs under systemd, launchd or on its own. Unlike
 `manor-host restart`, this doesn't touch the terminals.
 
 ## Surviving a reboot
@@ -324,7 +321,7 @@ a phone sees the host and can start new agents with the lid closed.
   also installs it on connect when the switch is on and the box has none.
 - **It doesn't move what's running.** The supervisor takes over the next
   time the daemon or the server restarts, or at the next boot. Turning the
-  switch off removes the units but stops nothing.
+  switch off removes the units and keeps `supervisor.env`, but stops nothing.
 - **After a reboot** the daemon starts with no terminals. The host server
   marks the agents whose sessions are gone, as it does after a daemon
   restart, and a pane comes back (with its agent's resume command) when
@@ -364,7 +361,10 @@ it off: it is the container's entrypoint.
 `MANOR_INSTANCE_ID` to the units (see
 [Encrypting pairing keys](#encrypting-pairing-keys)). `install` writes the
 ones it finds in its own environment, and keeps the ones already in the
-file. You can add them by hand, one `KEY='value'` line each.
+file. You can add them by hand, one `KEY='value'` line each. The host server
+reads the file itself when it starts, supervised or not, so the same lines
+reach an ssh box with no supervisor. A variable already in the environment
+wins over the file. Turning the switch off keeps the file.
 
 ## Your phone with the lid closed
 
@@ -472,6 +472,7 @@ own 0600 file:
 | `secret-backend` | Which backend encrypted the files above |
 | `instance.json` | The instance id the server was created under, when it has one (see [Host recipes](hosts/recipes.md#never-snapshot-a-host-that-has-run-manor)) |
 | `owner-token` | The token the owner channel presents on the server's socket. New on every start |
+| `~/.config/manor/secret.key` | Outside `~/.manor`: the key that seals the files above, when Manor made one (see [Encrypting pairing keys](#encrypting-pairing-keys)). Deleting it strands them |
 
 Device tokens are hashed, so the secrets worth protecting are the relay
 identity and the push key. Someone who already has your account on the box can
@@ -492,7 +493,8 @@ box, checked on first start (and, while it is on plaintext, on every start):
 1. **A key you supply** (`key-file`), whenever `MANOR_SECRET_KEY` or
    `MANOR_SECRET_KEY_FILE` is set in the server's environment. See
    [A key from outside the box](#a-key-from-outside-the-box). This is what
-   hosts Manor starts from a template use.
+   hosts Manor starts from a template use. **Encrypt them** (below) makes
+   one on an ssh box.
 2. **`systemd-creds --user`** (systemd 256 or newer). It encrypts with a key
    derived from the machine's own credential secret, and uses the TPM2 chip
    when the machine has one. You can decrypt the files without root, but a
@@ -506,13 +508,43 @@ box, checked on first start (and, while it is on plaintext, on every start):
    the host's row on Settings → Hosts says *Pairing keys on
    \<host\> are stored unencrypted*.
 
+**Encrypt them** is the one-click way off plaintext, on a connected ssh host
+in Settings → Hosts. It works on the box in four steps:
+
+1. It makes a 32-byte key at `~/.config/manor/secret.key` (or
+   `$XDG_CONFIG_HOME/manor/secret.key`), mode 0600, in a 0700 directory. An
+   existing valid key is reused. An invalid one is an error, and it is never
+   overwritten. If `supervisor.env` already names a key file outside
+   `~/.manor`, that key is checked and used instead, and nothing is made.
+2. It names the key in `~/.manor/remote/supervisor.env` as
+   `MANOR_SECRET_KEY_FILE`. A key that file named inside `~/.manor`, or a
+   `MANOR_SECRET_KEY` written in it, is replaced: the keys are still
+   plaintext, so nothing is sealed with it yet. The old key file is left
+   where it is.
+3. It restarts the host server. The new start seals the existing key files
+   with the key, so phones stay paired.
+4. It checks that the box now uses `key-file`.
+
+Be clear about what this buys. A copy of `~/.manor`, such as a backup, an
+rsync of the data directory or a snapshot of a volume mounted there, can no
+longer read the pairing keys. A copy of the whole home directory or the disk
+still can, because the key is on the same disk. If the restart fails, the key
+and the `supervisor.env` line stay, and the box stays on plaintext. Click
+**Encrypt them** again, or wait for the next start, and it finishes. The hint
+beside the button names the key file the click will use.
+
+**A recipe host** gets its key from its recipe, not from the button. The recipe
+has to give the host `MANOR_SECRET_KEY_FILE` (the Docker and Kubernetes
+templates already do; see [Host recipes](hosts/recipes.md#pairing-key-encryption)).
+A host in a container gets its key from the container's environment.
+
 **To check which backend a box uses:**
 
 - Look for the warning on the host's row on Settings → Hosts. No warning means the keys
   are encrypted.
-- On the box, run `cat ~/.manor/remote/server/secret-backend`, which prints
-  `{"backend":"key-file"}`, `"systemd-creds"`, `"libsecret"` or
-  `"plaintext"`.
+- On the box, run `~/.manor/bin/manor-host secrets status --json`. It prints
+  `{"secrets":{"backend","keyFile","place"}}` and changes nothing. `backend` is
+  `key-file`, `systemd-creds`, `libsecret` or `plaintext`.
 - Or read the `secrets:` field on the startup line of
   `~/.manor/remote/server/logs/host-server.log`.
 
@@ -527,22 +559,31 @@ echo probe | systemd-creds --user encrypt --name=manor - - >/dev/null && echo ok
 encrypted the keys, the host server keeps using it. If it later stops working,
 the server reports an error naming it, and doesn't fall back to writing
 plaintext or start over with new keys. Setting `MANOR_SECRET_KEY` later
-doesn't move a box off systemd-creds or libsecret.
+doesn't move a box off systemd-creds or libsecret. A box on `key-file` stays
+there too: a later systemd 256 doesn't move it to systemd-creds.
+
+**Keep the key file.** Deleting `~/.config/manor/secret.key`, or whatever file
+`supervisor.env` names, strands the pairing keys. The server can't open them,
+and it won't start over with new ones. The recovery is **Reset pairing keys**
+in that host's row on Settings → Hosts. It gives the host new keys, and the
+phones paired with it have to pair again.
 
 **Plaintext upgrades itself.** Plaintext is only ever a last resort, so a host
 server on plaintext checks for a key, then systemd-creds, then libsecret every
 time it starts. When one works, it encrypts the existing key files with it and
-switches to it. Your phones stay paired. So to move a box off plaintext,
+switches to it. Your phones stay paired. A key that is named but can't be used
+(a missing or invalid key file) doesn't stop a server that is still on
+plaintext: it logs a warning to `host-server.log`, tries the next backend, and
+stays on plaintext if none works. So to move a box off plaintext,
 make one of them work (for example, upgrade systemd to 256 or newer), then
 restart the host server:
 
 ```bash
-kill "$(cat ~/.manor/remote/server/server.pid)"
+~/.manor/bin/manor-host restart-server
 ```
 
-A connected desktop starts it again within seconds. Check that the warning on
-the host's row in Settings → Hosts is gone, or that `secret-backend` names the new
-backend.
+Check that the warning on the host's row in Settings → Hosts is gone, or that
+`manor-host secrets status --json` names the new backend.
 
 ### A key from outside the box
 
@@ -556,7 +597,12 @@ usable without the key. It reads the key from one of:
 
 `MANOR_SECRET_KEY` wins when both are set. A key that is set but isn't 32
 bytes, or a file that can't be read, is an error: the server doesn't fall
-back to a weaker backend.
+back to a weaker backend. The one exception is a server still on plaintext,
+which warns and stays there (see *Plaintext upgrades itself* above).
+
+The host server keeps the key to itself. It takes the variables out of its
+own environment when it starts, so the terminal daemon, every shell and agent
+on the box, and the busy hooks never see them.
 
 To make one: `head -c 32 /dev/urandom | base64`.
 
@@ -565,10 +611,10 @@ To make one: `head -c 32 /dev/urandom | base64`.
 - in a container, from the container's environment (the Docker and
   Kubernetes templates set `MANOR_SECRET_KEY_FILE=/run/secrets/manor-key`
   and mount the key there);
-- on a box with systemd or launchd, from `~/.manor/remote/supervisor.env`
-  (see [Surviving a reboot](#surviving-a-reboot));
-- otherwise the server gets only what the desktop's ssh session has, which
-  usually isn't the key.
+- on an ssh box, from `~/.manor/remote/supervisor.env` (see
+  [Surviving a reboot](#surviving-a-reboot)). The host server reads that file
+  itself when it starts, supervised or not. A variable already in its
+  environment wins over the file.
 
 A server that sealed its keys with `key-file` and then starts without the
 key stops with "Pairing keys were sealed with a key from MANOR_SECRET_KEY or
@@ -576,9 +622,15 @@ MANOR_SECRET_KEY_FILE, and neither is set". It never starts over with a new iden
 
 **Keep the key off the box's disk.** A `MANOR_SECRET_KEY_FILE` under
 `~/.manor` is on the volume it is meant to protect. The host server notices,
-and the host's row on Settings → Hosts says *The key sealing pairing keys on \<host\>
-is stored on its own disk*. `MANOR_SECRET_KEY` written into
-`supervisor.env` is on that disk too: prefer a mounted file.
+and the host's row on Settings → Hosts says *The key sealing pairing keys is
+kept inside ~/.manor on \<host\>, beside what it protects.* A `MANOR_SECRET_KEY`
+written into `supervisor.env` is on that disk too, and the host server warns
+about it the same way: prefer a mounted file.
+
+A key file in your home but outside `~/.manor`, such as the one **Encrypt
+them** makes, gets a quieter note on the row: the keys are encrypted with a
+key kept at that path, which protects them from a copy of `~/.manor` but not
+from a copy of the whole disk.
 
 ## Integrations
 
@@ -943,6 +995,13 @@ it (see [A key from outside the box](#a-key-from-outside-the-box)). Give it
 `MANOR_SECRET_KEY` or `MANOR_SECRET_KEY_FILE` again, the same key, and
 restart it.
 
+**"The host server restarted but its pairing keys are still plaintext"** (Encrypt them)
+The key file and the `supervisor.env` line are in place, and the server
+restarted, but it still didn't pick the key up. Read
+`~/.manor/remote/server/logs/host-server.log` on the box for the reason: look
+for `could not move pairing keys to key-file`. Then click **Encrypt them**
+again. It reuses the key, and the next start finishes.
+
 **"No supervisor on this host"**
 "Keep Manor running" found neither a systemd user manager, launchd, nor a
 running `manor-host supervise`. On a container, use an image whose entrypoint
@@ -976,7 +1035,8 @@ the box needs outbound HTTPS to `relay.manor.sh`.
 To look under the hood on the box, the remote daemon's log is at
 `~/.manor/remote/daemon/terminal-host.log`, and the host server's is at
 `~/.manor/remote/server/logs/host-server.log`. `~/.manor/bin/manor-host
-restart` stops the daemon (and its terminals), but not the host server.
+restart` stops the daemon (and its terminals), but not the host server; use
+`~/.manor/bin/manor-host restart-server` for that.
 Manor starts a fresh daemon on the next connect and recovers the panes as
 after a reboot.
 

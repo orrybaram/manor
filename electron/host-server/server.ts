@@ -55,7 +55,8 @@ import {
   type DaemonNamespace,
   type HostServerPaths,
 } from "../paths";
-import { secretKeyOnVolume, type SecretBox } from "../platform/secret-box";
+import type { SecretBox } from "../platform/secret-box";
+import type { ServerKeyStatus } from "./secrets-command";
 import { createManorServer } from "../server/create-manor-server";
 import type { Platform } from "../server/platform";
 import type { HostTransport } from "../terminal-host/transport";
@@ -110,6 +111,11 @@ export interface HostServerOptions {
   hooksDir?: string;
   /** Tests: handed the server's parts once they are built. */
   internals?: (parts: HostServerInternals) => void;
+  /**
+   * What status reports about the key sealing the pairing keys (ADR-236
+   * D5), computed once at start (`serverKeyStatus`). Absent: no key.
+   */
+  keyStatus?: ServerKeyStatus;
 }
 
 export interface HostServer {
@@ -348,6 +354,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   function hostStatus(): HostServerStatus {
     const relayStatus = relay.relayStatus();
+    const keyStatus = opts.keyStatus;
     return {
       version: appVersion,
       capabilities: reportedCapabilities(),
@@ -359,7 +366,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       devices: relay.deviceCount(),
       pushEndpoints: relay.pushEndpoints(),
       linear: shared.linearManager.isConnected(),
-      secretKeyOnVolume: secretKeyOnVolume(),
+      secretKeyOnVolume: keyStatus?.place === "data-dir",
+      ...(keyStatus?.place ? { secretKeyPlace: keyStatus.place, secretKeyFile: keyStatus.keyFile } : {}),
+      ...(keyStatus ? { encryptKeyFile: keyStatus.encryptKeyFile } : {}),
       identityReset,
       supervisor: supervisorFacts.current(),
       ...busyState(busy.state()),

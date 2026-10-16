@@ -3,6 +3,7 @@ import {
   FRAME_GAP,
   LEAD_COMPACT_WIDTH,
   LIGHTS_WIDTH,
+  NO_LIGHTS_WIDTH,
   windowLeadInset,
   windowLeadWidth,
 } from "../window-lead";
@@ -40,5 +41,23 @@ describe("windowLeadInset", () => {
 
   it("is the whole lead when the sidebar is hidden", () => {
     expect(windowLeadInset("hidden", 240)).toBe(166);
+  });
+});
+
+describe("without traffic lights", () => {
+  const shrink = LIGHTS_WIDTH - NO_LIGHTS_WIDTH;
+
+  it("narrows the compact lead by the lights it no longer holds", () => {
+    expect(windowLeadWidth("hidden", 240, NO_LIGHTS_WIDTH)).toBe(
+      LEAD_COMPACT_WIDTH - shrink,
+    );
+  });
+
+  it("holds only its gutter in rail mode", () => {
+    expect(windowLeadWidth("rail", 240, NO_LIGHTS_WIDTH)).toBe(NO_LIGHTS_WIDTH);
+  });
+
+  it("insets a hidden sidebar's tab bar by the narrower lead", () => {
+    expect(windowLeadInset("hidden", 240, NO_LIGHTS_WIDTH)).toBe(166 - shrink);
   });
 });

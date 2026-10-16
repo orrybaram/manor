@@ -9,8 +9,8 @@
  */
 
 import type { SupervisorFacts } from "../host-server/supervisor/types";
-import { REMOTE_HOST_BIN } from "../terminal-host/ssh-config";
 import type { HostTransport } from "../terminal-host/transport";
+import { runHostJsonCommand } from "./host-json-command";
 
 export type SupervisorAction = "install" | "uninstall" | "status";
 
@@ -19,22 +19,11 @@ const SUPERVISOR_EXEC_TIMEOUT_MS = 60_000;
 
 const KINDS: readonly string[] = ["systemd", "launchd", "container"];
 
-/** Read `supervisor … --json`'s one line: the facts, null, or its error. */
-function parseSupervisorOutput(stdout: string): SupervisorFacts | null {
-  const line = stdout.trim().split("\n").pop() ?? "";
-  let parsed: { supervisor?: unknown; error?: unknown };
-  try {
-    parsed = JSON.parse(line) as typeof parsed;
-  } catch {
-    throw new Error(`manor-host supervisor said something unreadable: ${line.slice(0, 200)}`);
-  }
-  if (typeof parsed.error === "string") throw new Error(parsed.error);
-  const value = parsed.supervisor;
+/** `supervisor … --json`'s facts or null; undefined when malformed. */
+function readSupervisorFacts(value: unknown): SupervisorFacts | null | undefined {
   if (value === null) return null;
   const facts = value as { kind?: unknown; linger?: unknown } | undefined;
-  if (!facts || typeof facts.kind !== "string" || !KINDS.includes(facts.kind)) {
-    throw new Error(`manor-host supervisor said something unreadable: ${line.slice(0, 200)}`);
-  }
+  if (!facts || typeof facts.kind !== "string" || !KINDS.includes(facts.kind)) return undefined;
   return {
     kind: facts.kind as SupervisorFacts["kind"],
     ...(typeof facts.linger === "boolean" ? { linger: facts.linger } : {}),
@@ -47,20 +36,15 @@ function parseSupervisorOutput(stdout: string): SupervisorFacts | null {
  * reached, or the command fails (with its own message, such as "No
  * supervisor on this host").
  */
-export async function runHostSupervisor(
+export function runHostSupervisor(
   transport: HostTransport,
   action: SupervisorAction,
 ): Promise<SupervisorFacts | null> {
-  if (!transport.exec) throw new Error("This host can't run commands.");
-  const { code, stdout, stderr } = await transport.exec(
-    `exec ${REMOTE_HOST_BIN} supervisor ${action} --json`,
-    { timeoutMs: SUPERVISOR_EXEC_TIMEOUT_MS },
+  return runHostJsonCommand(
+    transport,
+    `supervisor ${action}`,
+    "supervisor",
+    SUPERVISOR_EXEC_TIMEOUT_MS,
+    readSupervisorFacts,
   );
-  if (stdout.trim() === "" && code !== 0) {
-    const detail = stderr.trim().slice(-300);
-    throw new Error(
-      `manor-host supervisor ${action} exited (code ${code ?? "none"})${detail ? `: ${detail}` : ""}`,
-    );
-  }
-  return parseSupervisorOutput(stdout);
 }

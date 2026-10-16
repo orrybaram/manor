@@ -89,6 +89,11 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  /* Thin, palette-tinted scrollbars instead of Chromium's classic gray ones
+     with arrow buttons on Linux/Windows. macOS overlay scrollbars ignore
+     both, so they look as they always have. */
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--fg) 25%, transparent) transparent;
 }
 
 html,

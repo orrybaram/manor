@@ -332,24 +332,96 @@ export function keyFileSecretBox(
 }
 
 /**
- * Whether `MANOR_SECRET_KEY_FILE` lives under `<home>/.manor`: a key kept on
- * the volume it seals defeats the point (ADR-229 D5). Symlinks are resolved,
- * so a mounted secret linked into the data dir is seen for what it is. False
- * when the key comes from the environment or the file cannot be resolved.
+ * Whether the key `env` names is usable, by the same rules `keyFileSecretBox`
+ * reads it with: 32 bytes from `MANOR_SECRET_KEY` (base64), else from the file
+ * `MANOR_SECRET_KEY_FILE` names (raw or base64). The error names the variable
+ * (and file) at fault, or says neither is set.
  */
-export function secretKeyOnVolume(
+export function validateSecretKey(
+  env: NodeJS.ProcessEnv,
+): { ok: true } | { ok: false; error: string } {
+  try {
+    return readSecretKey(env)
+      ? { ok: true }
+      : { ok: false, error: `Neither ${KEY_ENV} nor ${KEY_FILE_ENV} is set` };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export type SecretKeyPlace = "data-dir" | "home" | "elsewhere";
+
+function isInside(dir: string, file: string): boolean {
+  const rel = path.relative(dir, file);
+  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+}
+
+function realpathOr(p: string): string {
+  try {
+    return fs.realpathSync(p);
+  } catch {
+    return path.resolve(p);
+  }
+}
+
+/**
+ * Where the key sealing the pairing keys lives (ADR-236 D5):
+ * - `data-dir`: a `MANOR_SECRET_KEY_FILE` under `<home>/.manor`, or an inline
+ *   `MANOR_SECRET_KEY` written in one of `inlineKeySources` (`supervisor.env`):
+ *   on the very volume it protects (ADR-229 D5).
+ * - `home`: a key file under home but outside `~/.manor`.
+ * - `elsewhere`: a mounted secret, an inline key from the real environment,
+ *   or a file that cannot be resolved.
+ * Null when neither variable is set. `MANOR_SECRET_KEY` wins when both are,
+ * as in `keyFileSecretBox`. Symlinks are resolved, so a mounted secret linked
+ * into the data dir is seen for what it is.
+ */
+export function secretKeyPlace(
   env: NodeJS.ProcessEnv = process.env,
   home: string = os.homedir(),
-): boolean {
-  const file = env[KEY_FILE_ENV];
-  if (!file || env[KEY_ENV]) return false;
-  try {
-    const manor = fs.realpathSync(path.join(home, ".manor"));
-    const rel = path.relative(manor, fs.realpathSync(file));
-    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
-  } catch {
-    return false;
+  inlineKeySources: readonly string[] = [],
+): SecretKeyPlace | null {
+  const inline = env[KEY_ENV];
+  if (inline) {
+    const line = `${KEY_ENV}='${inline}'`;
+    for (const source of inlineKeySources) {
+      let text: string;
+      try {
+        text = fs.readFileSync(source, "utf8");
+      } catch {
+        continue;
+      }
+      if (text.split("\n").some((l) => l.trim() === line)) return "data-dir";
+    }
+    return "elsewhere";
   }
+  const file = env[KEY_FILE_ENV];
+  if (!file) return null;
+  let real: string;
+  try {
+    real = fs.realpathSync(file);
+  } catch {
+    return "elsewhere";
+  }
+  if (isInside(realpathOr(path.join(home, ".manor")), real)) return "data-dir";
+  if (isInside(realpathOr(home), real)) return "home";
+  return "elsewhere";
+}
+
+/**
+ * The key file `env` names, for display (ADR-236 D5), with `home` shortened
+ * to `~`; null when an inline `MANOR_SECRET_KEY` is the key, as it wins.
+ */
+export function shownSecretKeyFile(
+  env: NodeJS.ProcessEnv,
+  home: string = os.homedir(),
+): string | null {
+  const file = env[KEY_ENV] ? undefined : env[KEY_FILE_ENV];
+  if (!file) return null;
+  if (home && (file === home || file.startsWith(home + path.sep))) {
+    return `~${file.slice(home.length)}`;
+  }
+  return file;
 }
 
 // ── choosing one ──
@@ -384,6 +456,14 @@ function readChoice(file: string): HostBackend | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The backend `secret-backend` (`choiceFile`) records, or null when there is
+ * none yet or it is unreadable.
+ */
+export function readSecretBackendChoice(file: string): Exclude<SecretBackend, "safeStorage"> | null {
+  return readChoice(file);
 }
 
 function writeChoice(file: string, backend: HostBackend): void {
@@ -459,7 +539,9 @@ async function upgradeFromPlaintext(
  * Plaintext is the one choice that is not sticky. It is only ever a last
  * resort, so each start on it probes the stronger backends again, and the
  * first that works takes over: every sealed file is re-sealed with it, then
- * it becomes the choice.
+ * it becomes the choice. A probe that throws there (a named key that can't
+ * be read) is a warning, not a failed start: nothing is sealed with that key
+ * yet (ADR-236).
  */
 export async function pickHostSecretBox(
   opts: PickHostSecretBoxOptions,
@@ -477,7 +559,18 @@ export async function pickHostSecretBox(
   if (chosen === "plaintext") {
     for (const name of BACKEND_ORDER) {
       if (name === "plaintext") break;
-      const box = await probes[name]();
+      // Nothing is sealed with any key yet, so a key that is named but
+      // unusable (a missing or bad key file) must not cost this host its
+      // server: warn and try the next backend, ending on plaintext.
+      let box: SecretBox | null;
+      try {
+        box = await probes[name]();
+      } catch (err) {
+        console.warn(
+          `[secret-box] ${name} is not usable (${err instanceof Error ? err.message : String(err)}); staying on plaintext unless another backend works`,
+        );
+        continue;
+      }
       if (box && (await upgradeFromPlaintext(opts.choiceFile, name, box))) {
         return box;
       }

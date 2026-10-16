@@ -202,6 +202,7 @@ export type HostRefusedMethod = LocalOnly<
   | "hosts.checkTemplate"
   | "hosts.runTemplateFix"
   | "hosts.setSupervised"
+  | "hosts.encryptKeys"
   | "hosts.createCustomRecipe"
   | "hosts.remove"
   | "hosts.projectsOnHost"

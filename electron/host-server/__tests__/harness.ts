@@ -59,7 +59,7 @@ import { createLineReader } from "../../terminal-host/line-reader";
 import { readPastServerHello } from "./hello-stream";
 import { hostServerPaths, type HostServerPaths } from "../../paths";
 import { HostServerClient } from "../../backend/host-server-client";
-import { runServe, type RunningServer } from "../serve";
+import { runServe, type RunningServer, type ServeOptions } from "../serve";
 import { writeOwnership } from "../ownership";
 import {
   FakeRelay,
@@ -274,7 +274,8 @@ export interface HostServerHarness {
   readonly socketsMade: number;
   /** The server, if one is up. */
   readonly running: RunningServer | null;
-  serve(): Promise<RunningServer>;
+  /** Start the server; `over` adds to (or replaces) the harness's options. */
+  serve(over?: Partial<ServeOptions>): Promise<RunningServer>;
   /**
    * Mark the host adopted (ADR-227 D3) before the next `serve()`, as an
    * empty `hostServer.adopt` would: its project and layout writes open.
@@ -361,7 +362,7 @@ export function useHostServerHarness(): HostServerHarness {
       return running;
     },
 
-    async serve() {
+    async serve(over = {}) {
       running = await runServe({
         dataDir: paths.dataDir,
         version: "1.2.3-test",
@@ -380,6 +381,7 @@ export function useHostServerHarness(): HostServerHarness {
           },
           pushGenerate: () => ({ publicKey: "vapid-pub", privateKey: "vapid" }),
         },
+        ...over,
       });
       // The daemon is up, so `start()` (in `runServe`) has caught up.
       return running;

@@ -105,3 +105,38 @@ export function restartPodsLabel(running: number): string {
   if (running === 0) return "Restart pods";
   return `Restart ${running} ${running === 1 ? "pod" : "pods"}`;
 }
+
+/**
+ * Where the key Manor makes on a host goes, for an older server that doesn't
+ * report `encryptKeyFile`.
+ */
+export const DEFAULT_KEY_FILE = "~/.config/manor/secret.key";
+
+/**
+ * What "Encrypt them" does, and what it does not protect against (ADR-236
+ * D6). `keyFile` is the server's `encryptKeyFile`: the file the click uses,
+ * which may be one the user already named outside ~/.manor.
+ */
+export function plaintextFixText(hostName: string, keyFile: string = DEFAULT_KEY_FILE): string {
+  return `Manor can use a key at ${keyFile} on ${hostName} and restart its server to use it. A copy of ~/.manor can't read the keys then; a copy of ${hostName}'s whole disk still can.`;
+}
+
+/** Plaintext keys on a recipe host: the recipe has to supply the key. */
+export function plaintextRecipeText(hostName: string): string {
+  return `${hostName} comes from a recipe, so Manor can't add a key to it. Have the recipe set one up.`;
+}
+
+/** Plaintext keys in a container: its environment has to supply the key. */
+export function plaintextContainerText(hostName: string): string {
+  return `${hostName} runs in a container, so Manor can't add a key to it. Give the container a key through its environment.`;
+}
+
+/** The key is a file in home, outside ~/.manor. */
+export function keyInHomeText(hostName: string, keyFile: string = DEFAULT_KEY_FILE): string {
+  return `Pairing keys on ${hostName} are encrypted with a key kept at ${keyFile}. That protects them from a copy of ~/.manor, but not from a copy of the whole disk.`;
+}
+
+/** The key sits inside ~/.manor, next to the keys it seals. */
+export function keyOnVolumeText(hostName: string): string {
+  return `The key sealing pairing keys is kept inside ~/.manor on ${hostName}, beside what it protects.`;
+}

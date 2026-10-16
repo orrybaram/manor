@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.4] - 2026-10-16
+
+### Fixes
+
+- Quitting with Cmd+Q now always ends the app, even when a shutdown step stalls. Before, the app could keep running after Cmd+Q, and a window reopened from the dock came up blank.
+- An adopted host's projects show in the sidebar again at launch, even when its host cache is gone. Before, the host never connected and its projects disappeared.
+- A remote host's tabs keep working after its server restarts, for example after an update. Before, the tabs froze: typing, closing tabs and opening new ones reached the host, but nothing came back, and this lasted across relaunches.
+
 ## [0.22.3] - 2026-10-16
 
 ### Features

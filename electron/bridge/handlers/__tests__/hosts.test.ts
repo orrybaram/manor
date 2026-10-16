@@ -11,9 +11,11 @@ const resumedListeners: Array<(hostId: string, sessionIds: string[]) => void> = 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { HostServerUnavailableError } from "../../../backend/host-server-client";
 import {
   hostsAdd,
   hostsAddRecipeHost,
+  hostsEncryptKeys,
   hostsHealthCheck,
   hostsPairDevice,
   hostsProjectsOnHost,
@@ -488,6 +490,96 @@ describe("hosts:setSupervised (ADR-229 D4)", () => {
     const { ctx } = withTransport("{}");
     await expect(hostsSetSupervised(ctx, "nope", true)).rejects.toThrow(/Unknown host/);
     await expect(hostsSetSupervised(ctx, "box", "yes" as never)).rejects.toThrow();
+  });
+});
+
+describe("hosts:encryptKeys (ADR-236 D7)", () => {
+  const OK =
+    '{"secrets":{"backend":"key-file","keyFile":"~/.config/manor/secret.key","place":"home"}}\n';
+  /** `statuses` are what successive `hostServer.status()` reads do: a backend, or an Error to throw. */
+  function withTransport(
+    stdout: string,
+    opts: { code?: number; execDisabled?: boolean; statuses?: Array<string | Error> } = {},
+  ) {
+    const { deps, backendRegistry } = makeDeps();
+    const exec = vi.fn().mockResolvedValue({ code: opts.code ?? 0, stdout, stderr: "" });
+    const statuses = [...(opts.statuses ?? ["key-file"])];
+    const status = vi.fn(async () => {
+      const next = statuses.length > 1 ? statuses.shift()! : statuses[0];
+      if (next instanceof Error) throw next;
+      return { secretBackend: next };
+    });
+    Object.assign(backendRegistry, {
+      provider: vi.fn((id: string) =>
+        id === "box" ? { transport: () => (opts.execDisabled ? {} : { exec }) } : undefined,
+      ),
+      // `connected` from the start: the old channel, which must not be trusted.
+      hostServer: vi.fn(() => ({ state: "connected", api: { hostServer: { status } } })),
+    });
+    return { ctx: localCtx(deps as never), exec, status };
+  }
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("runs secrets encrypt on the host, answers the facts, and broadcasts", async () => {
+    const { ctx, exec } = withTransport(OK);
+    await expect(hostsEncryptKeys(ctx, "box")).resolves.toEqual({
+      backend: "key-file",
+      keyFile: "~/.config/manor/secret.key",
+      place: "home",
+    });
+    expect(exec.mock.calls[0][0]).toBe('exec "$HOME/.manor/bin/manor-host" secrets encrypt --json');
+    expect(frames).toContainEqual({ ns: "hosts", event: "pairingChanged", args: ["box"], to: null });
+  });
+
+  it("waits, through failed reads and the old server's stale answer, for the new backend before broadcasting", async () => {
+    vi.useFakeTimers();
+    const { ctx, status } = withTransport(OK, {
+      statuses: [
+        "plaintext",
+        new Error("channel closed"),
+        new HostServerUnavailableError("box", "disconnected"),
+        "key-file",
+      ],
+    });
+    const done = hostsEncryptKeys(ctx, "box");
+    await vi.advanceTimersByTimeAsync(400);
+    expect(frames).not.toContainEqual(expect.objectContaining({ event: "pairingChanged" }));
+    await vi.advanceTimersByTimeAsync(3_000);
+    await done;
+    expect(status).toHaveBeenCalledTimes(4);
+    expect(frames).toContainEqual(expect.objectContaining({ event: "pairingChanged" }));
+  });
+
+  it("broadcasts anyway after about 15 s", async () => {
+    vi.useFakeTimers();
+    const { ctx } = withTransport(OK, { statuses: [new Error("down")] });
+    const done = hostsEncryptKeys(ctx, "box");
+    await vi.advanceTimersByTimeAsync(14_000);
+    expect(frames).not.toContainEqual(expect.objectContaining({ event: "pairingChanged" }));
+    await vi.advanceTimersByTimeAsync(2_000);
+    await done;
+    expect(frames).toContainEqual(expect.objectContaining({ event: "pairingChanged" }));
+  });
+
+  it("refuses facts of the wrong shape", async () => {
+    const { ctx } = withTransport('{"secrets":{"backend":"key-file","keyFile":3,"place":"home"}}\n');
+    await expect(hostsEncryptKeys(ctx, "box")).rejects.toThrow(/unreadable/);
+  });
+
+  it("passes the command's error through", async () => {
+    const { ctx } = withTransport('{"error":"Key file is not writable"}\n', { code: 1 });
+    await expect(hostsEncryptKeys(ctx, "box")).rejects.toThrow("Key file is not writable");
+    expect(frames).not.toContainEqual(expect.objectContaining({ event: "pairingChanged" }));
+  });
+
+  it("refuses an unknown host and a transport without exec", async () => {
+    const { ctx } = withTransport(OK);
+    await expect(hostsEncryptKeys(ctx, "nope")).rejects.toThrow(/Unknown host/);
+    const noExec = withTransport(OK, { execDisabled: true });
+    await expect(hostsEncryptKeys(noExec.ctx, "box")).rejects.toThrow(/can't run commands/);
   });
 });
 

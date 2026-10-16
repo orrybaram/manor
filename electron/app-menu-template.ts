@@ -368,7 +368,7 @@ export function buildMenuTemplate(
       SEPARATOR,
       ...agentItems,
       SEPARATOR,
-      cmd("remote-control", "Remote Control…"),
+      cmd("remote-control", "Devices…"),
     ],
   };
 

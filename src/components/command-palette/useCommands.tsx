@@ -715,7 +715,7 @@ export function useCommands({
       },
       {
         id: "settings-remote",
-        label: "Settings: Remote Control",
+        label: "Settings: Devices",
         icon: <RadioTower size={14} />,
         keywords: [
           "settings",
@@ -725,7 +725,7 @@ export function useCommands({
           "ssh",
           "mobile",
         ],
-        action: openSettingsPage("remote"),
+        action: openSettingsPage("devices"),
       },
     ];
 

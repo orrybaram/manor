@@ -36,7 +36,8 @@ import { stripAnsi } from "./helpers/ansi";
  * 1. The desktop clones a project onto the box and starts the stub agent in a
  *    pane there.
  * 2. A browser is paired with the box's host server from the host's section of
- *    Settings → Remote control (D3, D4) — through a local relay the host
+ *    Settings → Hosts (host-only pairing has no button since ADR-233, so
+ *    the helper mints it over the host bridge) — through a local relay the host
  *    server dials, exactly as it would dial relay.manor.sh.
  * 3. The desktop loses the box: its alias becomes unreachable and its SSH
  *    connections are killed (what a closed lid does to them).

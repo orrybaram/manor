@@ -70,12 +70,12 @@ export function AddDeviceDialog(props: {
   busy: boolean;
   /** Why the last pairing failed, shown where the user is looking. */
   error: string | null;
-  /** Pairing with a remote host's server rather than this computer. */
-  hostName?: string;
+  /** Names of the hosts the device will reach: This Mac and every host that allows devices. */
+  hosts: string[];
   onCancel: () => void;
   onPair: (label: string) => void;
 }) {
-  const { open, enabled, busy, error, hostName, onCancel, onPair } = props;
+  const { open, enabled, busy, error, hosts, onCancel, onPair } = props;
   const [label, setLabel] = useState("");
   const trimmed = label.trim();
   const submit = () => {
@@ -100,9 +100,9 @@ export function AddDeviceDialog(props: {
             Add a device
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            {hostName
-              ? `This phone reaches only ${hostName}: its projects and terminals, not your other hosts. It keeps working while this computer sleeps.`
-              : "The device gets full control of Manor, including your terminals and workspaces."}
+            The device gets full control of Manor, including terminals and
+            workspaces, on every host that allows devices. Today that&apos;s{" "}
+            {joinNames(hosts)}.
             {!enabled && " Pairing turns on remote control."}
           </Dialog.Description>
           <div className={styles.remotePairingBody}>
@@ -138,10 +138,15 @@ export function AddDeviceDialog(props: {
   );
 }
 
+/** "A", "A and B", "A, B and C". */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
 /**
- * Resetting the address, or a remote host's pairing keys, kills every link, so
- * say so before doing it. With a `hostName` it is that host's keys; without,
- * this machine's relay address.
+ * Resetting pairing keys kills every link, so say so before doing it. With a
+ * `hostName` it is that host's keys; without, this machine's.
  */
 export function ResetRelayDialog(props: {
   open: boolean;
@@ -171,7 +176,7 @@ export function ResetRelayDialog(props: {
           <Dialog.Title className={dialogStyles.confirmTitle}>
             {hostName
               ? `Reset pairing keys on ${hostName}?`
-              : "Reset the relay address?"}
+              : "Reset pairing keys on This Mac?"}
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
             {hostName ? (
@@ -181,9 +186,9 @@ export function ResetRelayDialog(props: {
               </>
             ) : (
               <>
-                This stops the relay and gives this machine a new address. Every
-                paired device{now} is disconnected, revoked, and will need to be
-                paired again.
+                This stops the relay and gives This Mac new pairing keys. Every
+                paired device{now} is disconnected, revoked, and must be paired
+                again.
               </>
             )}
           </Dialog.Description>
@@ -196,7 +201,7 @@ export function ResetRelayDialog(props: {
               variant="danger"
               onClick={onConfirm}
             >
-              {hostName ? "Reset pairing keys" : "Reset address"}
+              Reset pairing keys
             </Button>
           </div>
         </Dialog.Content>

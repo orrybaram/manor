@@ -22,7 +22,7 @@ import { AppSettingsPage } from "../AppSettingsPage";
 import { KeybindingsPage } from "../KeybindingsPage";
 import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
-import { RemoteControlPage } from "../RemoteControlPage";
+import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
 import { GroupSettingsPage, ProjectSettingsPage } from "../ProjectSettingsPage";
 import { HostIndicator } from "../../hosts/HostIndicator";
@@ -37,7 +37,7 @@ import {
   type SettingsProjectEntry,
   type SettingsSearchResult,
 } from "./settings-search";
-import { SettingsNavContext, type GoToSettings } from "./settings-nav";
+import { SettingsJumpContext, SettingsNavContext, type GoToSettings } from "./settings-nav";
 import styles from "./SettingsModal.module.css";
 
 /** A page as a stable key, for React keys and the nav's active state. */
@@ -422,13 +422,13 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
-                    data-testid="settings-nav-remote"
-                    className={`${styles.navItem} ${page.type === "remote" ? styles.navItemActive : ""}`}
-                    aria-current={page.type === "remote" ? "page" : undefined}
-                    onClick={() => setPage({ type: "remote" })}
+                    data-testid="settings-nav-devices"
+                    className={`${styles.navItem} ${page.type === "devices" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "devices" ? "page" : undefined}
+                    onClick={() => setPage({ type: "devices" })}
                   >
                     <Smartphone size={14} />
-                    <span>Remote control</span>
+                    <span>Devices</span>
                   </button>
 
                   <button
@@ -503,28 +503,30 @@ export function SettingsModal(props: SettingsModalProps) {
             </div>
 
             <SettingsNavContext.Provider value={goTo}>
-              <div className={styles.content} ref={contentRef} tabIndex={-1}>
-                {page.type === "general" && <GeneralSettingsPage />}
-                {page.type === "app" && <AppSettingsPage />}
-                {page.type === "keybindings" && <KeybindingsPage />}
-                {page.type === "notifications" && <NotificationsPage />}
-                {page.type === "integrations" && <IntegrationsPage />}
-                {page.type === "hosts" && <HostsPage />}
-                {page.type === "remote" && <RemoteControlPage />}
-                {page.type === "group" && currentGroup && (
-                  <GroupSettingsPage
-                    key={currentGroup.id}
-                    group={currentGroup}
-                    members={currentGroupMembers}
-                  />
-                )}
-                {page.type === "project" && currentProject && (
-                  <ProjectSettingsPage
-                    key={currentProject.id}
-                    project={currentProject}
-                  />
-                )}
-              </div>
+              <SettingsJumpContext.Provider value={pendingJump?.id ?? null}>
+                <div className={styles.content} ref={contentRef} tabIndex={-1}>
+                  {page.type === "general" && <GeneralSettingsPage />}
+                  {page.type === "app" && <AppSettingsPage />}
+                  {page.type === "keybindings" && <KeybindingsPage />}
+                  {page.type === "notifications" && <NotificationsPage />}
+                  {page.type === "integrations" && <IntegrationsPage />}
+                  {page.type === "hosts" && <HostsPage />}
+                  {page.type === "devices" && <DevicesPage />}
+                  {page.type === "group" && currentGroup && (
+                    <GroupSettingsPage
+                      key={currentGroup.id}
+                      group={currentGroup}
+                      members={currentGroupMembers}
+                    />
+                  )}
+                  {page.type === "project" && currentProject && (
+                    <ProjectSettingsPage
+                      key={currentProject.id}
+                      project={currentProject}
+                    />
+                  )}
+                </div>
+              </SettingsJumpContext.Provider>
             </SettingsNavContext.Provider>
           </div>
         </Dialog.Content>

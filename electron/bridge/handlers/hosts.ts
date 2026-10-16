@@ -266,7 +266,7 @@ export async function hostsHealthCheck(
 
 // ── Phone access through a host's server (ADR-225 D3, D4, D6) ──
 
-/** What the Remote Control page shows for one host's server. */
+/** What the Hosts page shows for one host's server. */
 export interface HostServerView {
   state: HostServerClientState;
   /** Null unless the owner channel is up. */

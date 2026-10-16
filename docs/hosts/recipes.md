@@ -13,7 +13,7 @@ Design background is in
 
 ## Starting a host
 
-Open **Settings → Hosts**, then **Add host → Start a host**. Pick one of:
+Open **Settings → Hosts**, then **Add a host… → Start a new host**. Pick one of:
 
 - **Docker container**: a container on this computer's Docker daemon. The
   quickest way to try it. See [Docker](#docker).
@@ -355,7 +355,7 @@ clone detection and a moved box to the Docker suite.
 
 ## A custom recipe for a cloud VM
 
-**Add host → Start a host → Custom recipe** asks for a name, then writes a
+**Add a host… → Start a new host → Custom recipe** asks for a name, then writes a
 folder with `recipe.json` and an `up.sh` that fails until you finish it.
 **Show folder** opens it. When `up.sh` is ready, click **Start host**.
 

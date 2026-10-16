@@ -3,7 +3,7 @@ import Copy from "lucide-react/dist/esm/icons/copy";
 import Check from "lucide-react/dist/esm/icons/check";
 import { useHostDisplay } from "../../hooks/useHostDisplay";
 import { isRemoteHost } from "../../lib/hosts";
-import type { HostDisplay } from "../../lib/host-status";
+import { pendingDisplay } from "../../lib/host-status";
 import { Button } from "../ui/Button/Button";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
@@ -24,20 +24,6 @@ type HostCardProps = {
   /** Right-aligned actions, e.g. the "Change host…" picker. */
   actions?: ReactNode;
 };
-
-/** A remote host main hasn't reported yet: never drawn as this machine. */
-function pendingDisplay(hostId: string): HostDisplay {
-  return {
-    target: hostId,
-    sshTarget: hostId,
-    offline: true,
-    busy: true,
-    tone: "warn",
-    status: "Checking…",
-    banner: "",
-    canRetry: false,
-  };
-}
 
 /**
  * A project's host in project settings: who it is, its state in plain words
@@ -76,7 +62,7 @@ type CopySshCommandProps = {
 };
 
 /** Copies `ssh <target>`, the quickest way to see what ssh itself says. */
-function CopySshCommand(props: CopySshCommandProps) {
+export function CopySshCommand(props: CopySshCommandProps) {
   const { target } = props;
 
   const [copied, setCopied] = useState(false);

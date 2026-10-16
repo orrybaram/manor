@@ -126,7 +126,7 @@ export interface SharedCommandContext {
  * `MenuChrome` (`menu-handlers.ts`) takes the wider real types.
  */
 export interface CommandChrome {
-  openSettings(page?: "keybindings" | "remote"): void;
+  openSettings(page?: "keybindings" | "devices"): void;
   togglePalette(): void;
   openPaletteView(
     view: "processes" | "stats",
@@ -934,10 +934,10 @@ export const COMMANDS: readonly CommandDef[] = [
   },
   {
     id: "remote-control",
-    label: "Remote Control",
+    label: "Devices",
     category: "app",
     scope: "primary",
-    run: (ctx) => ctx.chrome.openSettings("remote"),
+    run: (ctx) => ctx.chrome.openSettings("devices"),
   },
 
   // ── Window ──────────────────────────────────────────────────────────────

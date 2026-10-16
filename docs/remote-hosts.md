@@ -81,10 +81,10 @@ On your laptop:
 
 ## Adding a host and a remote project
 
-1. **Add the host.** Open Settings → Hosts → **Add host** → **An SSH box**
-   (or Project Settings → Host) and enter an ssh target: `user@box`, `box`
+1. **Add the host.** Open Settings → Hosts → **Add a host…** → **A machine I
+   can SSH into** → **Continue** (or Project Settings → Host) and enter an ssh target: `user@box`, `box`
    (an alias from `~/.ssh/config`) or `ssh://user@box:2222`. To have Manor
-   start the host instead, choose **Start a host** (see
+   start the host instead, choose **Start a new host** (see
    [Host recipes](hosts/recipes.md)).
    Manor starts connecting in the background. The first connection installs
    Manor's host package on the box (see [What runs where](#what-runs-where)),
@@ -342,12 +342,12 @@ file. You can add them by hand, one `KEY='value'` line each.
 
 ## Your phone with the lid closed
 
-Pair a phone with the desktop from **Settings → Remote control**, and it is
-paired with your remote hosts too (see
-[One pairing for every host](#one-pairing-for-every-host)). You can also pair
-it with one box directly, from that host's own section there (see
+Pair a phone with the desktop from **Settings → Devices**, and it is
+paired with every remote host that lets devices reach it (see
+[One pairing for every host](#one-pairing-for-every-host)). Pairing a phone
+with one box alone has no button in Settings any more (see
 [Pairing a phone with a host](remote-control.md#pairing-a-phone-with-a-host)).
-Either way the phone reaches the box's host server directly, through the
+The phone reaches the box's host server directly, through the
 Manor relay, whether or not your laptop is awake.
 
 **One sidebar.** The phone connects to every pairing it holds at once and
@@ -421,11 +421,10 @@ over the owner channel, under the phone's own label, and hands the phone that
 room's key and token inside the phone's own encrypted channel. A host added
 later, or one that was away, is picked up on a later connect.
 
-- **On the host's device list**, such a phone shows "via This Mac".
 - **Revoking the phone on the desktop** revokes it on every host it was
   linked to. A host that is away then is revoked on its next connect.
-- **Phones paired with this Mac can reach \<host\>.** Each host's section of
-  Settings → Remote control has this switch, on by default. Turning it off
+- **Devices can reach \<host\>.** Each host's row on Settings → Hosts
+  (under *Device access*) has this switch, on by default. Turning it off
   stops linking phones to that host and revokes the ones already linked.
 - **Removing a host on the phone** (the Hosts sheet) is remembered: the
   desktop won't link that room again. The same goes for a pairing the host
@@ -455,7 +454,7 @@ agents' own credentials, so the keys add little to that. Encryption protects
 against the files leaving the box: a backup, a disk image, a volume snapshot.
 
 If you suspect the box was compromised, use **Reset pairing keys** in that
-host's section of Settings → Remote control. It gives the host server a new
+host's row on Settings → Hosts. It gives the host server a new
 relay identity, which moves it to a new room and disconnects every phone paired
 with it. Pair them again afterwards.
 
@@ -478,12 +477,12 @@ box, checked on first start (and, while it is on plaintext, on every start):
    A server started over ssh usually has no D-Bus session, so on a headless
    box this rarely applies.
 4. **Plaintext files, mode 0600**, as a last resort. This is never silent:
-   the host's section of Settings → Remote control says *Pairing keys on
+   the host's row on Settings → Hosts says *Pairing keys on
    \<host\> are stored unencrypted*.
 
 **To check which backend a box uses:**
 
-- Look for the warning in Settings → Remote control. No warning means the keys
+- Look for the warning on the host's row on Settings → Hosts. No warning means the keys
   are encrypted.
 - On the box, run `cat ~/.manor/remote/server/secret-backend`, which prints
   `{"backend":"key-file"}`, `"systemd-creds"`, `"libsecret"` or
@@ -515,8 +514,8 @@ restart the host server:
 kill "$(cat ~/.manor/remote/server/server.pid)"
 ```
 
-A connected desktop starts it again within seconds. Check that the warning in
-Settings → Remote control is gone, or that `secret-backend` names the new
+A connected desktop starts it again within seconds. Check that the warning on
+the host's row in Settings → Hosts is gone, or that `secret-backend` names the new
 backend.
 
 ### A key from outside the box
@@ -551,7 +550,7 @@ MANOR_SECRET_KEY_FILE, and neither is set". It never starts over with a new iden
 
 **Keep the key off the box's disk.** A `MANOR_SECRET_KEY_FILE` under
 `~/.manor` is on the volume it is meant to protect. The host server notices,
-and Settings → Remote control says *The key sealing pairing keys on \<host\>
+and the host's row on Settings → Hosts says *The key sealing pairing keys on \<host\>
 is stored on its own disk*. `MANOR_SECRET_KEY` written into
 `supervisor.env` is on that disk too: prefer a mounted file.
 
@@ -888,7 +887,7 @@ Check that the agent CLI on the box has Manor's hook registered
 problem registering it appears as a warning on the host. Also check that
 `~/.manor/remote/hook-port` exists while connected.
 
-**"Phone access needs the host to reconnect"** (Settings → Remote control)
+**"Device access needs the host to reconnect"** (Settings → Hosts → the host)
 The desktop can't reach the host server right now: the box is unreachable,
 or the server isn't running. It clears when the host reconnects. If it
 stays, read `~/.manor/remote/server/logs/host-server-spawn.log` and
@@ -944,7 +943,7 @@ means the script wrote something other than its one JSON result to stdout.
 See [Host recipes](hosts/recipes.md#how-a-command-runs).
 
 **A phone paired with a host can't connect**
-In the host's section of Settings → Remote control, check that the summary
+On the host's row on Settings → Hosts, check that the summary
 says *relay connected*. The host server dials the Manor relay from the box, so
 the box needs outbound HTTPS to `relay.manor.sh`.
 

@@ -23,7 +23,8 @@ type StartHostFormProps = {
    * its progress streams into its status on the page.
    */
   onStarted: (hostId: string) => void;
-  onCancel: () => void;
+  /** Without it the form has no Cancel: the Add a host wizard owns one. */
+  onCancel?: () => void;
 };
 
 /**
@@ -132,16 +133,18 @@ export function StartHostForm(props: StartHostFormProps) {
             >
               {busy ? "Starting…" : "Start host"}
             </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-              Cancel
-            </Button>
+            {onCancel && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
           </Row>
         </>
       )}
       {choice === CUSTOM && (
         <CustomRecipe busy={busy} run={run} onStarted={onStarted} onCancel={onCancel} />
       )}
-      {choice === "" && (
+      {choice === "" && onCancel && (
         <div>
           <Button variant="ghost" size="sm" onClick={onCancel}>
             Cancel
@@ -161,7 +164,7 @@ type CustomRecipeProps = {
   busy: boolean;
   run: (work: () => Promise<void>) => void;
   onStarted: (hostId: string) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 };
 
 /** A custom recipe: the contract in two lines, its folder, then starting it. */
@@ -216,9 +219,11 @@ function CustomRecipe(props: CustomRecipeProps) {
               <FolderOpen size={12} aria-hidden />
               Show folder
             </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-              Cancel
-            </Button>
+            {onCancel && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
           </Row>
         </>
       ) : (
@@ -242,9 +247,11 @@ function CustomRecipe(props: CustomRecipeProps) {
             >
               Create recipe folder
             </Button>
-            <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
-              Cancel
-            </Button>
+            {onCancel && (
+              <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
+                Cancel
+              </Button>
+            )}
           </Row>
         </>
       )}

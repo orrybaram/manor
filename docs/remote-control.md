@@ -108,15 +108,14 @@ two. Between them is a Noise `NK` handshake: the phone learns the desktop's
 public key from the QR, so it knows it is talking to your desktop and not to the
 relay, and every message after that is encrypted end to end.
 
-**To use it.** Settings → Remote control, turn it on, then **Start relay** on the
-**Manor relay** card. Turning remote control on only loads what it needs — the
-relay's keys, the device check and the bridge. It opens nothing. Starting the
-relay is its own action: Manor names what becomes reachable and asks you to
-confirm first. Then pair a device and scan the QR; the link looks like
+**To use it.** Settings → Hosts → **This Mac**, and turn on **Devices can reach
+This Mac**. Manor names what becomes reachable and asks you to confirm first;
+turning it on loads the relay's keys, the device check and the bridge, and
+starts the relay. Then pair a device on Settings → Devices and scan the QR; the link looks like
 `https://<relay>/app/<version>/#relay=<room>.<key>&t=<token>`, and everything
-after the `#` goes to no server. Starting the relay requires remote control to
-be on, it is off again after a restart, and it stops when Manor quits.
-_Reset relay address_ on the same card generates a new room and new keys: every
+after the `#` goes to no server. It is off again after a
+restart, and it stops when Manor quits.
+_Reset pairing keys_ on This Mac's row generates a new room and new keys: every
 link for the old one is dead at once, and every device is revoked. Each
 connected browser is closed as revoked _before_ the relay stops, so it shows the
 re-pair prompt rather than "not reachable".
@@ -179,15 +178,14 @@ If the relay is down, no device can connect. There is no other road.
 
 ## Pairing a device
 
-1. **Settings → Remote control**, and turn on the toggle. This loads the runtime;
-   nothing is reachable yet.
-2. **Start the relay** — the main button on the relay card. Manor names what
-   becomes reachable before it starts anything.
-3. **Pair a device.** Give it a name. Manor shows a QR code and the link once —
+1. **Settings → Hosts → This Mac**, and turn on **Devices can reach This Mac**.
+   Manor names what becomes reachable and asks you to confirm before it starts
+   the relay. (Pairing from Settings → Devices offers to turn it on for you.)
+2. **Settings → Devices → Add device.** Give it a name. Manor shows a QR code and the link once —
    scan it with the phone, or copy the link. The dialog warns that the device
    can do anything the desktop app can, including removing workspaces, from
    anywhere.
-4. On the phone, the page stores the token and immediately strips it out of the
+3. On the phone, the page stores the token and immediately strips it out of the
    address bar, so it does not linger in history or in a screenshot of the URL.
 
 The QR code is generated locally. No token is ever handed to a third-party
@@ -196,31 +194,35 @@ image service.
 ## Pairing a phone with a host
 
 A phone paired with the desktop reaches your agents only while the desktop is
-awake. For a project on a [remote host](remote-hosts.md), you can instead pair
-the phone with that host's own Manor server, the **host server**
-([ADR-225](decisions/adr-225-host-server/index.md)). That phone reaches only
-that host, and keeps working while your laptop sleeps.
+awake. For a project on a [remote host](remote-hosts.md), the phone is also
+linked to that host's own Manor server, the **host server**
+([ADR-225](decisions/adr-225-host-server/index.md)), so it keeps reaching that
+host while your laptop sleeps.
 
-1. **Settings → Remote control.** Below this computer's devices there is a
-   section for each remote host. Its summary line shows the host server's
-   version, how many phones are paired and whether its relay is connected.
-2. **Pair a phone** in that host's section. Give it a name. The pairing is
-   created on the host server, over the desktop's ssh connection to the box,
-   and the desktop shows the QR code and link once, as for the desktop's own
-   devices.
-3. Scan it with the phone.
+1. **Settings → Hosts → *host*.** Under *Device access*, the summary line shows
+   the host server's version and whether its relay is connected, and
+   **Devices can reach *host*** lets the devices you pair on Settings → Devices
+   reach it.
+2. Pair on **Settings → Devices → Add device**. The pairing reaches every host
+   that lets devices in, so the phone is linked to the box too.
 
-This doesn't need remote control turned on for this computer. The host server
-has its own room on the relay, and it's always connected: there's no switch,
-because it exists to be reachable while nobody is at the desktop. Nothing can
-reach it without a device token, and until you pair a phone with it, no device
-has one.
+Pairing a phone with one host alone, from a button on that host's section,
+has no UI any more: Settings pairs a device once, for every host that allows
+devices ([ADR-233](decisions/adr-233-hosts-devices-settings/index.md)). The
+host bridge still supports it (`hosts.pairDevice`): the pairing is created on
+the host server, over the desktop's ssh connection to the box.
+
+A phone linked to a host does not need This Mac's switch to stay on. The host
+server has its own room on the relay, and it's always connected, because it
+exists to be reachable while nobody is at the desktop. **Devices can reach
+*host*** only decides whether your devices are linked to it. Nothing can reach
+the host server without a device token.
 
 What a host-paired phone can do with the lid closed (create workspaces, launch
 agents, rearrange the layout) and what still needs the desktop is in
 [Your phone with the lid closed](remote-hosts.md#your-phone-with-the-lid-closed).
 
-If a host's section says *Pairing keys on \<host\> are stored unencrypted*,
+If a host's row says *Pairing keys on \<host\> are stored unencrypted*,
 the box has no secret backend Manor can use. See
 [Encrypting pairing keys](remote-hosts.md#encrypting-pairing-keys).
 
@@ -336,7 +338,7 @@ any phone that the host server already notifies.
 
 ## If a token leaks
 
-Revoke that device: **Settings → Remote control → Paired devices → trash icon**.
+Revoke that device: **Settings → Devices → Paired devices → trash icon**.
 Revocation takes effect on the next request; nothing caches the device list.
 It also cuts that device's **live** connections at once — every open relay
 channel — rather than waiting for it to reconnect. Its push subscription goes
@@ -349,9 +351,9 @@ re-pair; pairing takes a few seconds.
 If you suspect the machine itself was reached, stop the relay first,
 then revoke.
 
-**A phone paired with a host** is revoked from that host's section of
-Settings → Remote control, the same way. If you suspect the box itself was
-compromised, use **Reset pairing keys** in that section. It gives the host
+Revoking a device there revokes it on every host it was linked to. If you
+suspect the box itself was compromised, use **Reset pairing keys…** on the
+host's row in Settings → Hosts. It gives the host
 server a new relay identity, which moves it to a new room. Every phone paired
 with that host is disconnected and has to be paired again. Do it after you
 have dealt with whoever got in: the host server runs as you, and anyone with

@@ -53,7 +53,7 @@ export function NoTokenScreen(): JSX.Element {
   return (
     <FullPageMessage testId="web-app-no-token">
       This device isn&apos;t paired. Open the link from the pairing dialog in
-      Manor &rarr; Settings &rarr; Remote control.
+      Manor &rarr; Settings &rarr; Devices.
     </FullPageMessage>
   );
 }

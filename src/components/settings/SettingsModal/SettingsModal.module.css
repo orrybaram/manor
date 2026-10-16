@@ -907,12 +907,6 @@ button.keybindingActionBtn:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--green) 40%, var(--surface));
 }
 
-.remoteStatusHeader {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
 .remoteDot {
   flex-shrink: 0;
   width: 8px;
@@ -939,11 +933,6 @@ button.keybindingActionBtn:hover:not(:disabled) {
   opacity: 1;
 }
 
-.remoteStatusText {
-  flex: 1;
-  min-width: 0;
-}
-
 .remoteStatusTitle {
   font-size: 14px;
   font-weight: 600;
@@ -955,10 +944,6 @@ button.keybindingActionBtn:hover:not(:disabled) {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-dim);
-}
-
-.remoteStatusActions {
-  flex-shrink: 0;
 }
 
 .remoteOpenOnPhone {
@@ -977,21 +962,6 @@ button.keybindingActionBtn:hover:not(:disabled) {
 .remoteOpenOnPhoneBody {
   flex: 1;
   min-width: 0;
-}
-
-/* Unpairs every device, so it sits apart from the list — quiet until
-   hovered. `button.` outranks the Button link variant's colour. */
-button.remoteResetLink {
-  align-self: flex-start;
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-dim);
-  text-decoration: none;
-}
-
-button.remoteResetLink:hover:not(:disabled) {
-  color: var(--danger, #c74e39);
-  text-decoration: underline;
 }
 
 /* The title shares its row with Add device, so it drops its own gap. */
@@ -1248,4 +1218,46 @@ button.remoteResetLink:hover:not(:disabled) {
 :global(:root[data-layout="phone"]) .header button {
   min-width: 44px;
   min-height: 44px;
+}
+
+/* Hosts your devices can reach: compact rows that scroll inside their card. */
+.deviceHostList {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+}
+
+.deviceHostRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  justify-content: flex-start;
+  padding: 8px 12px;
+  font-size: 13px;
+  text-align: left;
+}
+
+.deviceHostDot {
+  margin-top: 0;
+}
+
+.deviceHostName {
+  color: var(--text-selected);
+  font-weight: 500;
+}
+
+.deviceHostKind {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.deviceHostReach {
+  flex: 1;
+  text-align: right;
+  color: var(--text-dim);
+  font-size: 12px;
 }

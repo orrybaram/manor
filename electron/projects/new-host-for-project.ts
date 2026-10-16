@@ -12,7 +12,8 @@
  *
  * A failure keeps the host, and says at which stage it failed: the recipe's
  * output is what the user needs to fix it, and nothing is destroyed without
- * asking. `retryFrom` resumes on that host.
+ * asking. `retryFrom` resumes on that host — only one this profile made and
+ * no project has yet, so a retry never takes another project's pod.
  */
 
 import crypto from "node:crypto";
@@ -155,8 +156,16 @@ export interface OpenInNewHostInput {
   repoUrl: string;
   /** Set up on (ADR-235 D4): copy this project onto the new host, joining its group. */
   sourceProjectId?: string;
-  /** Resume on `hostId`, made by an earlier call, at the stage that failed. */
-  retryFrom?: { hostId: string; stage: "up" | "clone" };
+  /**
+   * Resume on `hostId`, made by an earlier call, at the stage that failed.
+   * `overrides` — the fallback dialog's answer to a `needsInput` — replace
+   * the clone's planned repo and directory (ADR-213).
+   */
+  retryFrom?: {
+    hostId: string;
+    stage: "up" | "clone";
+    overrides?: { repoUrl: string; targetDir: string };
+  };
 }
 
 export type OpenInNewHostResult =
@@ -168,7 +177,8 @@ export type OpenInNewHostResult =
       error: string;
       /**
        * Set up on could not plan the copy (ADR-213): what to ask, for the
-       * existing fallback dialog, which calls `projects.transfer` itself.
+       * existing fallback dialog, which answers through a `retryFrom` with
+       * `overrides`.
        */
       needsInput?: Extract<TransferResult, { ok: false }>["needsInput"];
     };
@@ -182,6 +192,8 @@ export interface NewHostDeps {
       | "cloneProject"
       | "transferProject"
       | "setHostForProject"
+      | "hostProfileId"
+      | "hostForProject"
     >;
   backendRegistry: AddRecipeHostDeps["backendRegistry"] &
     Pick<BackendRegistry, "version" | "recordChanged">;
@@ -208,6 +220,14 @@ export async function openInNewHost(
   if (input.retryFrom) {
     hostId = input.retryFrom.hostId;
     projectManager.assertKnownHost(hostId);
+    // Only a pod this profile made that no project has yet: never re-mark
+    // a host that belongs to another project.
+    if (projectManager.hostProfileId(hostId) !== input.profileId) {
+      throw new Error("That host wasn't made from this host profile.");
+    }
+    if (projectManager.hostForProject(hostId) !== undefined) {
+      throw new Error("That host already belongs to a project.");
+    }
   } else {
     const profile = projectManager.getHostProfile(input.profileId);
     if (!profile) throw new Error(`Unknown host profile "${input.profileId}".`);
@@ -274,17 +294,23 @@ export async function openInNewHost(
   }
 
   // 5. Clone, or Set up on's copy.
+  const overrides = input.retryFrom?.stage === "clone" ? input.retryFrom.overrides : undefined;
   let project: ProjectInfo;
   try {
     if (input.sourceProjectId === undefined) {
       project = await projectManager.cloneProject({
         hostId,
-        repoUrl: input.repoUrl,
-        targetDir: `~/code/${toDirSlug(repoName) || "project"}`,
+        repoUrl: overrides?.repoUrl ?? input.repoUrl,
+        targetDir: overrides?.targetDir ?? `~/code/${toDirSlug(repoName) || "project"}`,
         name: repoName,
       });
     } else {
-      const result = await projectManager.transferProject(input.sourceProjectId, hostId, "copy");
+      const result = await projectManager.transferProject(
+        input.sourceProjectId,
+        hostId,
+        "copy",
+        overrides,
+      );
       if (!result.ok) {
         return {
           ok: false,

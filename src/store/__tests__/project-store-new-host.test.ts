@@ -160,7 +160,40 @@ describe("openInNewHost", () => {
       mode: "setUp",
       reason: "dir-taken",
       targetDir: "~/code/app",
+      newHost: { hostId: "pod-1", profileId: "hp-1" },
     });
+  });
+
+  it("finishes the fallback dialog's set up on the pod through openInNewHost", async () => {
+    useProjectStore.setState({ projects: [project("app", "local")] });
+    const transfer = vi.fn();
+    (window.electronAPI.projects as Record<string, unknown>).transfer = transfer;
+    const overrides = { repoUrl: REPO, targetDir: "~/src/app" };
+    api.openInNewHost.mockResolvedValueOnce({
+      ok: false,
+      stage: "clone",
+      hostId: "pod-1",
+      error: "fatal",
+    });
+
+    await useProjectStore
+      .getState()
+      .setUpOnHost("app", "pod-1", overrides, { hostId: "pod-1", profileId: "hp-1" });
+
+    expect(transfer).not.toHaveBeenCalled();
+    expect(api.openInNewHost).toHaveBeenCalledWith({
+      profileId: "hp-1",
+      sourceProjectId: "app",
+      repoUrl: REPO,
+      retryFrom: { hostId: "pod-1", stage: "clone", overrides },
+    });
+    // Its Retry keeps the answer.
+    api.openInNewHost.mockResolvedValueOnce({ ok: false, stage: "up", error: "x" });
+    toasts()[0].action!.onClick();
+    await vi.waitFor(() => expect(api.openInNewHost).toHaveBeenCalledTimes(2));
+    expect(api.openInNewHost).toHaveBeenLastCalledWith(
+      expect.objectContaining({ retryFrom: { hostId: "pod-1", stage: "clone", overrides } }),
+    );
   });
 
   it("says so when a project to set up has no origin", async () => {

@@ -48,6 +48,7 @@ export function TransferDialogHost() {
       initialDir={dialog.targetDir}
       reason={dialog.reason}
       error={dialog.error}
+      {...(dialog.newHost ? { newHost: dialog.newHost } : {})}
       onClose={closeTransferDialog}
     />
   );

@@ -217,7 +217,8 @@ export async function projectsTransfer(
  * "In a new pod" (ADR-235 D3): make a host from profile `profileId`, bring
  * it up, and clone `repoUrl` onto it — or, with `sourceProjectId` (Set up
  * on), copy that project there, joining its group. A failure keeps the host
- * and answers the stage; `retryFrom` resumes on that host.
+ * and answers the stage; `retryFrom` resumes on that host, with the
+ * fallback dialog's `overrides` for a copy that needed input.
  */
 export async function projectsOpenInNewHost(
   ctx: HandlerCtx<ServerDeps>,
@@ -234,12 +235,27 @@ export async function projectsOpenInNewHost(
   }
   let retryFrom: OpenInNewHostInput["retryFrom"];
   if (input.retryFrom !== undefined) {
-    const { hostId, stage } = input.retryFrom ?? {};
+    const { hostId, stage, overrides } = input.retryFrom ?? {};
     assertString(hostId, "retryFrom.hostId");
     if (stage !== "up" && stage !== "clone") {
       throw new Error("retryFrom.stage must be 'up' or 'clone'");
     }
-    retryFrom = { hostId, stage };
+    if (overrides !== undefined) {
+      if (stage !== "clone") throw new Error("retryFrom.overrides is only for stage 'clone'");
+      if (typeof overrides !== "object" || overrides === null || Array.isArray(overrides)) {
+        throw new Error("retryFrom.overrides must be an object");
+      }
+      assertString(overrides.repoUrl, "retryFrom.overrides.repoUrl");
+      assertString(overrides.targetDir, "retryFrom.overrides.targetDir");
+      const repoUrl = overrides.repoUrl.trim();
+      const targetDir = overrides.targetDir.trim();
+      if (repoUrl === "" || targetDir === "") {
+        throw new Error("retryFrom.overrides needs a repoUrl and a targetDir");
+      }
+      retryFrom = { hostId, stage, overrides: { repoUrl, targetDir } };
+    } else {
+      retryFrom = { hostId, stage };
+    }
   }
   const { deps } = ctx;
   const result = await openInNewHost(

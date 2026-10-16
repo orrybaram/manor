@@ -58,6 +58,17 @@ export interface TransferDialogState {
   targetDir: string;
   /** The thrown message, for `reason: "failed"`. */
   error?: string;
+  /**
+   * Set when `openInNewHost` opened the dialog on its pod `hostId`: the
+   * submit finishes through it, so the pod is marked (ADR-235 D5).
+   */
+  newHost?: NewHostPod;
+}
+
+/** A pod `openInNewHost` made from `profileId` and has yet to mark. */
+export interface NewHostPod {
+  hostId: string;
+  profileId: string;
 }
 
 const COLLAPSED_KEY = "manor:collapsedProjectIds";
@@ -675,11 +686,15 @@ interface ProjectState {
   /**
    * ADR-214: set `projectId` up on `hostId` (a copy transfer: clone or adopt
    * there, then join). The success toast offers "Remove from <this host>".
+   * With `newHost` — the fallback dialog for an "In a new pod" that needed
+   * input — a set up on that pod finishes through `openInNewHost`'s
+   * `retryFrom`, so main marks the pod as the project's (ADR-235 D5).
    */
   setUpOnHost: (
     projectId: string,
     hostId: string,
     overrides?: { repoUrl: string; targetDir: string },
+    newHost?: NewHostPod,
   ) => Promise<void>;
   /**
    * ADR-214: remove the member `memberId` from its host, leaving the rest
@@ -1169,8 +1184,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const toastId = `new-host-${request.sourceProjectId ?? request.profileId}`;
     const { hostId, stage, error, needsInput } = failure;
     if (needsInput && hostId && request.sourceProjectId) {
-      // The copy needs an answer: the fallback dialog asks, and runs the
-      // transfer onto the pod itself.
+      // The copy needs an answer: the fallback dialog asks, and finishes
+      // through `openInNewHost` again, so the pod is marked.
       useToastStore.getState().removeToast(toastId);
       get().openTransferDialog({
         projectId: request.sourceProjectId,
@@ -1179,6 +1194,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         reason: needsInput.reason,
         repoUrl: needsInput.repoUrl,
         targetDir: needsInput.targetDir,
+        newHost: { hostId, profileId: request.profileId },
       });
       return;
     }
@@ -1192,9 +1208,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         label: "Retry",
         onClick: () => {
           useToastStore.getState().removeToast(toastId);
+          // A clone retry keeps the fallback dialog's answer, if it had one.
+          const overrides = stage === "clone" ? request.retryFrom?.overrides : undefined;
           void get().openInNewHost({
             ...request,
-            ...(hostId ? { retryFrom: { hostId, stage } } : {}),
+            ...(hostId ? { retryFrom: { hostId, stage, ...(overrides && { overrides }) } } : {}),
           });
         },
       },
@@ -1214,8 +1232,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   openDeletePod: (hostId) => set({ deletePodDialog: { hostId } }),
   closeDeletePod: () => set({ deletePodDialog: null }),
 
-  setUpOnHost: (projectId, hostId, overrides) =>
-    get().transferProject(projectId, hostId, "copy", overrides),
+  setUpOnHost: async (projectId, hostId, overrides, newHost) => {
+    if (newHost && newHost.hostId === hostId && overrides) {
+      await get().openInNewHost({
+        profileId: newHost.profileId,
+        sourceProjectId: projectId,
+        repoUrl: overrides.repoUrl,
+        retryFrom: { hostId, stage: "clone", overrides },
+      });
+      return;
+    }
+    await get().transferProject(projectId, hostId, "copy", overrides);
+  },
 
   removeFromHostDialog: null,
   openRemoveFromHost: (projectId) => set({ removeFromHostDialog: { projectId } }),

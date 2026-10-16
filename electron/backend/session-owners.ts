@@ -55,6 +55,18 @@ export class SessionOwners {
   }
 
   /**
+   * Release every session `hostId` owns: the host was removed from Manor.
+   * Its sessions may well still run on the box, and a host added again for
+   * the same box (a new host id) must be free to claim them, or every call
+   * for their panes would keep routing to a host that no longer exists.
+   */
+  releaseHost(hostId: string): void {
+    for (const [sessionId, owner] of this.owners) {
+      if (owner === hostId) this.owners.delete(sessionId);
+    }
+  }
+
+  /**
    * Of a session its host no longer has alive: whether it was lost to a
    * remote daemon restart (`isRemoteSessionLoss`), so its pane is recovered
    * rather than closed (ADR-178 §6). Exactly the sessions still claimed by a

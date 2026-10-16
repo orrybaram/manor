@@ -159,6 +159,45 @@ describe("HostProxy (ADR-227 D4)", () => {
     expect(boxApp?.workspaces.find((w) => w.path === BOX_APP)?.name).toBe("Main");
   });
 
+  it("forget() removes every workspace at the renderers, then lets go", async () => {
+    withoutGit();
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    const { bus, heard } = desktopBus();
+    const moved: Array<[string, unknown]> = [];
+    const proxy = proxyFor(h, client, bus, {
+      onLayoutMoved: (key, _before, after) => void moved.push([key, after]),
+    });
+    await proxy.ready;
+    await adoptFromDesktop(client);
+    await eventually(
+      () => Object.keys(proxy.layout()).sort(),
+      (keys) => keys.length === 2,
+      "the layout re-read",
+    );
+    heard.length = 0;
+    moved.length = 0;
+
+    proxy.forget();
+
+    const removed = heard
+      .filter((b) => b.ns === "layout" && b.event === "changed")
+      .map((b) => b.args[0] as LayoutBroadcast);
+    expect(removed.map((b) => b.workspacePath).sort()).toEqual(
+      [`box:${BOX_APP}`, `box:${BOX_WT}`].sort(),
+    );
+    expect(removed.every((b) => b.removed === true && b.claims.length === 0)).toBe(true);
+    // Claims on its tabs are dropped the way a workspace the host removed drops them.
+    expect(moved.map(([key, after]) => [key, after]).sort()).toEqual(
+      [[`box:${BOX_APP}`, null], [`box:${BOX_WT}`, null]].sort(),
+    );
+    // Disposed: a second forget publishes nothing more.
+    heard.length = 0;
+    proxy.forget();
+    expect(heard).toEqual([]);
+  });
+
   it("does not republish agents unless asked", async () => {
     withoutGit();
     await h.serve();

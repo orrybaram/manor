@@ -504,6 +504,37 @@ describe("BackendRegistry", () => {
   });
 });
 
+describe("BackendRegistry unregister", () => {
+  it("releases a removed host's sessions, so the same box added again can claim them", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    await registry.ensureConnected("box");
+    remotes.get("box")!.stream({ type: "data", sessionId: "pane-r", data: "hi" });
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box");
+
+    await registry.unregister("box");
+    expect(registry.sessions.ownerOf("pane-r")).toBeUndefined();
+
+    // The box, re-added with a new host id: its daemon still has the session.
+    registry.register("box-2", box);
+    await registry.ensureConnected("box-2");
+    remotes.get("box-2")!.stream({ type: "data", sessionId: "pane-r", data: "again" });
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box-2");
+    // And its view answers for the pane, where the removed host's would not.
+    registry.get("box-2").pty.write("pane-r", "x");
+    expect(remotes.get("box-2")!.raw.pty.write).toHaveBeenCalledWith("pane-r", "x");
+  });
+
+  it("keeps the sessions of a host that is replaced, not removed", async () => {
+    const { registry, remotes } = setup();
+    registry.register("box", box);
+    await registry.ensureConnected("box");
+    remotes.get("box")!.stream({ type: "data", sessionId: "pane-r", data: "hi" });
+    registry.register("box", { kind: "ssh", target: "me@other" });
+    expect(registry.sessions.ownerOf("pane-r")).toBe("box");
+  });
+});
+
 describe("BackendRegistry providers", () => {
   it("registers a provider per remote host, none for the local one", async () => {
     const { registry, providers } = setup();

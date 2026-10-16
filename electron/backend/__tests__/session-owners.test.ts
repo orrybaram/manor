@@ -43,4 +43,17 @@ describe("SessionOwners", () => {
     expect(owners.isRecoverableLoss("pane-c")).toBe(false);
     expect(owners.isRecoverableLoss("pane-never")).toBe(false);
   });
+
+  it("releases every session of a removed host, and no other host's", () => {
+    const owners = new SessionOwners();
+    owners.claim("pane-a", "box");
+    owners.claim("pane-b", "box");
+    owners.claim("pane-c", "local");
+    owners.releaseHost("box");
+    expect(owners.ownerOf("pane-a")).toBeUndefined();
+    expect(owners.ownerOf("pane-b")).toBeUndefined();
+    expect(owners.ownerOf("pane-c")).toBe("local");
+    // The same box, added again under a new id, takes the session over.
+    expect(owners.claim("pane-a", "box-2")).toBe(true);
+  });
 });

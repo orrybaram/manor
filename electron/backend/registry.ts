@@ -267,7 +267,13 @@ export class BackendRegistry {
     if (existing) void existing.dispose();
   }
 
-  /** Remove a remote host and drop its connection. */
+  /**
+   * Remove a remote host and drop its connection. Every renderer hears each
+   * of its workspaces removed, so no tab keeps pointing at it, and its
+   * sessions are released, so a host added again for the same box can claim
+   * them. A replace (`register` with a new spec) keeps both: the host id
+   * stays, and the new connection takes the workspaces and sessions over.
+   */
   async unregister(hostId: string): Promise<void> {
     if (hostId === LOCAL_HOST_ID) {
       throw new Error(`"${LOCAL_HOST_ID}" cannot be unregistered`);
@@ -276,7 +282,9 @@ export class BackendRegistry {
     if (!conn) return;
     this.hosts.delete(hostId);
     this.emitStatus();
+    if (conn instanceof RemoteHostConnection) conn.proxy?.forget();
     await conn.dispose();
+    this.sessions.releaseHost(hostId);
   }
 
   /**

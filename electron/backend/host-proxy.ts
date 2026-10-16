@@ -444,6 +444,29 @@ export class HostProxy {
     this.saveSoon();
   }
 
+  /**
+   * The host was removed from Manor: tell every renderer each of its
+   * workspaces is gone, as `publishLayoutDiff` does for one the host itself
+   * dropped, so no tab keeps pointing at a host that no longer exists. Then
+   * let go. Not for a replace, whose new proxy publishes the same
+   * workspaces again: the renderers would only drop and re-adopt them.
+   */
+  forget(): void {
+    if (this.disposed) return;
+    for (const [bare, was] of Object.entries(this.workspaces)) {
+      this.layoutMoved(bare, was.layout, null);
+      this.publishLayout({
+        workspacePath: bare,
+        version: was.version,
+        layout: was.layout,
+        claims: [],
+        origin: proxyOrigin(this.hostId),
+        removed: true,
+      });
+    }
+    this.dispose();
+  }
+
   /** Let go: stop listening and write the cache now. */
   dispose(): void {
     if (this.disposed) return;

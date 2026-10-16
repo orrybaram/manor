@@ -19,6 +19,7 @@ import { ToggleGroup } from "../../ui/ToggleGroup/ToggleGroup";
 import { SettingField } from "../SettingRow";
 import settingsStyles from "../SettingsModal/SettingsModal.module.css";
 import styles from "./HostsPage.module.css";
+import { ClusterGuide } from "./ClusterGuide";
 import { TemplateChecklist } from "./TemplateChecklist";
 
 /** Where the recipe contract and a worked ssh example are (ADR-229 D8). */
@@ -144,6 +145,29 @@ type TemplateFormProps = {
 const EDIT_DEBOUNCE_MS = 300;
 /** How often the checklist is asked again while a check is `busy`. */
 const BUSY_POLL_MS = 2000;
+/**
+ * How often the checklist is asked again while "Where's your cluster?" shows.
+ * Polling rather than a file watch pushed from main: `kubectl config view` is
+ * cheap, it honours `$KUBECONFIG` and merged files exactly as kubectl will,
+ * and no push channel exists to reuse; a watcher would need a new one, and
+ * would miss a kubeconfig created in a directory that did not exist yet.
+ */
+const GUIDE_POLL_MS = 3000;
+
+/**
+ * Whether kubectl works but knows of no cluster: the case for the cluster
+ * guide. A missing kubectl is the checklist's to explain.
+ */
+function needsCluster(
+  templateId: string,
+  result: { checks: TemplateCheck[]; choices: Record<string, Choice[]> },
+): boolean {
+  return (
+    templateId === "kubernetes" &&
+    (result.choices.context ?? []).length === 0 &&
+    result.checks.some((c) => c.id === "kubectl-cli" && c.state === "ok")
+  );
+}
 
 type Field = TemplateInfo["fields"][number];
 
@@ -223,6 +247,8 @@ function TemplateForm(props: TemplateFormProps) {
           }
           if (result.checks.some((c) => c.state === "busy")) {
             poll = window.setTimeout(refresh, BUSY_POLL_MS);
+          } else if (needsCluster(template.id, result)) {
+            poll = window.setTimeout(refresh, GUIDE_POLL_MS);
           }
         },
         () => {
@@ -321,6 +347,23 @@ function TemplateForm(props: TemplateFormProps) {
       />
     </SettingField>
   );
+
+  // No cluster yet: the guide stands in for the fields and the checklist, and
+  // gives way to them once a context appears (the refresh above sees to it).
+  if (checks !== null && choices !== null && needsCluster(template.id, { checks, choices })) {
+    return (
+      <>
+        <ClusterGuide />
+        {onCancel && (
+          <div>
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              Cancel
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   return (
     <>

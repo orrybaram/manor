@@ -384,4 +384,50 @@ describe("StartHostForm — a template's Connect step", () => {
     });
     expect(api.checkTemplate).toHaveBeenCalledTimes(2);
   });
+
+  it("shows the cluster guide while kubectl knows of no cluster, and leaves it when one appears", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: false });
+    api.checkTemplate
+      .mockResolvedValueOnce(result([ok("kubectl-cli")], { choices: { context: [] } }))
+      .mockResolvedValue(
+        result([ok("kubectl-cli"), ok("k8s-cluster")], {
+          choices: { context: [{ value: "kind-dev", label: "kind-dev" }] },
+        }),
+      );
+    await open(kubernetes);
+    expect(q("cluster-guide")).not.toBeNull();
+    expect(q("start-host-submit")).toBeNull();
+    expect(q("start-host-field-context")).toBeNull();
+    expect(q("cluster-guide")?.textContent).toContain("doctl kubernetes cluster kubeconfig save");
+    expect(q("cluster-guide")?.querySelector("a")?.getAttribute("href")).toMatch(/^https:\/\//);
+
+    // It asks again every 3 s, not sooner.
+    await act(async () => {
+      vi.advanceTimersByTime(2900);
+    });
+    expect(api.checkTemplate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+    });
+    expect(api.checkTemplate).toHaveBeenCalledTimes(2);
+    expect(q("cluster-guide")).toBeNull();
+    expect(q("start-host-submit")).not.toBeNull();
+
+    // Having left the guide, it stops asking.
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(api.checkTemplate).toHaveBeenCalledTimes(2);
+  });
+
+  it("explains a missing kubectl in the checklist, not the guide", async () => {
+    api.checkTemplate.mockResolvedValue(
+      result([{ id: "kubectl-cli", state: "bad", title: "kubectl isn't installed" }], {
+        choices: { context: [] },
+      }),
+    );
+    await open(kubernetes);
+    expect(q("cluster-guide")).toBeNull();
+    expect(q("start-host-check-kubectl-cli")).not.toBeNull();
+  });
 });

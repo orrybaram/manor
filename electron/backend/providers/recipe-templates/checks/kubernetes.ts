@@ -508,9 +508,23 @@ const TITLES = {
   storage: "The cluster has a storage class for the disk",
 };
 
+/** Server hostnames of the managed clouds' Kubernetes services. */
+const CLOUD_SERVER = /(?:\.gke\.|container\.googleapis\.com|googleapis\.com|\.eks\.amazonaws\.com|\.azmk8s\.io|\.k8s\.ondigitalocean\.com)/i;
+/** Context names the clouds' own CLIs write: GKE's bare-IP servers show only here. */
+const CLOUD_NAME = /^(?:gke_|arn:aws:eks|do-)/i;
+
+/** Whether a context (by its name, and the server it points at) looks like a managed cloud cluster. */
+function looksLikeCloud(name: string, server: string | undefined): boolean {
+  return CLOUD_NAME.test(name) || (server !== undefined && CLOUD_SERVER.test(server));
+}
+
+/** Said of a cloud cluster's disk, which is a paid thing that outlives the pod. */
+const DISK_BILLING_NOTE = "The disk keeps billing while the host is stopped.";
+
 async function checklist(
   values: Record<string, string>,
   deps: CheckDeps,
+  contexts: Choice[],
 ): Promise<{ checks: TemplateCheck[]; choices: Record<string, Choice[]> }> {
   const context = (values.context ?? "").trim();
   const ns = (values.namespace ?? "").trim() || DEFAULT_NAMESPACE;
@@ -537,6 +551,10 @@ async function checklist(
   const storage = await storageCheck(context, storageClass, deps);
   checks.push(storage.check);
   if (storage.classes) choices.storageClass = storage.classes;
+  const chosen = contexts.find((c) => c.value === context);
+  if (storage.check.state === "ok" && looksLikeCloud(context, chosen?.hint)) {
+    storage.check.detail = [storage.check.detail, DISK_BILLING_NOTE].filter(Boolean).join(" ");
+  }
   return { checks, choices };
 }
 
@@ -544,7 +562,8 @@ export async function check(
   values: Record<string, string>,
   deps: CheckDeps,
 ): Promise<TemplateCheckResult> {
-  const [contexts, list] = await Promise.all([kubeContexts(deps), checklist(values, deps)]);
+  const contexts = await kubeContexts(deps);
+  const list = await checklist(values, deps, contexts);
   const last = lastUsedContext(deps.recipesDir ?? hostRecipesDir(), new Set(contexts.map((c) => c.value)));
   return {
     checks: list.checks,

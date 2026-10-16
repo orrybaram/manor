@@ -1228,3 +1228,60 @@ describe("kubernetes checklist", () => {
     });
   });
 });
+
+describe("kubernetes: the cluster guide and the disk cost note (ADR-234 D13)", () => {
+  const view = (name: string, server: string) =>
+    JSON.stringify({
+      contexts: [{ name, context: { cluster: "cl" } }],
+      clusters: [{ name: "cl", cluster: { server } }],
+    });
+  const storage = async (name: string, server: string) => {
+    const { checks } = await checkTemplate(
+      "kubernetes",
+      { ...VALUES, context: name },
+      {
+        execFile: fakeExec([
+          ["kubectl config view", view(name, server)],
+          ["kubectl version --client", CLIENT],
+          [`kubectl --context ${name} version`, SERVER],
+          [`kubectl --context ${name} get namespace`, "namespace/manor"],
+          [`kubectl --context ${name} auth can-i`, "yes\n"],
+          [`kubectl --context ${name} get storageclass`, classes({ name: "standard", def: "ga" })],
+        ]),
+        recipesDir: "/nonexistent",
+      },
+    );
+    return checks.find((c) => c.id === "k8s-storage");
+  };
+
+  it("offers no contexts, with kubectl installed, when kubectl knows of no cluster", async () => {
+    const { checks, choices } = await checkTemplate(
+      "kubernetes",
+      { ...VALUES, context: "" },
+      kubeDeps([]),
+    );
+    expect(choices.context).toEqual([]);
+    expect(checks[0]).toMatchObject({ id: "kubectl-cli", state: "ok" });
+  });
+
+  it("says the disk keeps billing on managed clouds, by hostname or context name", async () => {
+    const note = "The disk keeps billing while the host is stopped.";
+    for (const [name, server] of [
+      ["a", "https://abc.gr7.us-east-1.eks.amazonaws.com"],
+      ["a", "https://x.hcp.eastus.azmk8s.io:443"],
+      ["a", "https://1234.k8s.ondigitalocean.com"],
+      ["a", "https://container.googleapis.com/v1/projects/p"],
+      ["gke_proj_region_name", "https://34.1.2.3"],
+      ["do-nyc1-demo", "https://10.0.0.1"],
+      ["arn:aws:eks:us-east-1:1:cluster/x", "https://10.0.0.1"],
+    ]) {
+      expect((await storage(name, server))?.detail, `${name} ${server}`).toContain(note);
+    }
+  });
+
+  it("says nothing about billing on a local cluster", async () => {
+    const check = await storage("kind-dev", "https://127.0.0.1:41234");
+    expect(check?.state).toBe("ok");
+    expect(check?.detail).not.toContain("billing");
+  });
+});

@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -157,6 +157,19 @@ project row. `settings-search.test.ts` is rewritten to match.
   `project-ports` no longer have a target; none are sent today.
 - `knip` runs in `pnpm test`, so a ticket that stops importing a file
   must delete it in the same commit.
+
+**From review**
+- A project page open while "Set up on…" joins the project to a second
+  host now switches to the merged page during render, the way a dissolved
+  group already falls back, so it never shows one host as if alone.
+- Search keywords are phrases ("set up on", "remove from", "keep
+  separate"), since the keyword match is a substring of the keyword.
+- Open question: a closed host row does not run its missing-repository
+  check, so on a project set up on several hosts "Repository not found on
+  this host" is only seen once the row is opened. The member page used to
+  show it on open. A warning phrase in the closed header, as the Hosts
+  page does for key warnings, would restore that at the cost of D3's one
+  status word.
 
 ## Tickets
 

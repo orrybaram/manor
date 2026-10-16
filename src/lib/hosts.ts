@@ -72,7 +72,7 @@ export function memberHostName(hostId: string, hosts: readonly NamedHost[]): str
 
 /**
  * `{ value, label }` options for every remote host, for the searchable
- * selects in `AddProjectDialog` and `ProjectHostSection` (ADR-183 ticket 10).
+ * selects in `AddProjectDialog` and `ProjectHostsSection` (ADR-183 ticket 10).
  */
 export function remoteHostOptions(
   hosts: readonly NamedHost[],

@@ -13,7 +13,7 @@ import { Button } from "../../ui/Button/Button";
 import { Collapse } from "../../ui/Collapse/Collapse";
 import { Link } from "../../ui/Link/Link";
 import { Switch } from "../../ui/Switch/Switch";
-import { CopySshCommand } from "../../hosts/HostCard";
+import { CopySshCommand } from "../../hosts/CopySshCommand";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
 import { HostFailureAction, HostRawOutput, HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
 import { ResetRelayDialog } from "../RemoteControlDialogs";

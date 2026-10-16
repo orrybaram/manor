@@ -1,6 +1,6 @@
 ---
 title: The Connect step's checklist, Advanced disclosure and plain copy
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [6]

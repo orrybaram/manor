@@ -40,6 +40,9 @@ type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal"
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
 const AddProjectDialog = lazy(() => import("./components/sidebar/AddProjectDialog/AddProjectDialog").then(m => ({ default: m.AddProjectDialog })));
 import { RemoveFromHostDialog } from "./components/sidebar/RemoveFromHostDialog";
+import { DeletePodDialogHost } from "./components/hosts/DeletePodDialogHost";
+import { ProfileEditorDialog } from "./components/settings/HostsPage/ProfileEditorDialog";
+import { useHostProfileStore } from "./store/host-profile-store";
 const TransferDialogHost = lazy(() => import("./components/hosts/TransferDialogHost").then(m => ({ default: m.TransferDialogHost })));
 const ProjectSetupWizard = lazy(() => import("./components/sidebar/ProjectSetupWizard/ProjectSetupWizard").then(m => ({ default: m.ProjectSetupWizard })));
 const AgentsModal = lazy(() => import("./components/sidebar/AgentsView/AgentsView").then(m => ({ default: m.AgentsModal })));
@@ -142,6 +145,10 @@ function App() {
 
   // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
   useMountEffect(() => startAgentActivitySync());
+
+  // The host profiles "In a new pod" offers (ADR-235 D4); kept current by
+  // the store's own change subscription.
+  useMountEffect(() => void useHostProfileStore.getState().refresh());
 
   // The selected theme, kept live, and re-read on a bridge resync.
   useMountEffect(() => startThemeSync());
@@ -430,6 +437,11 @@ function App() {
           handleOpenProjectSettings(request.projectId, request.section);
         }
         // The switch lives on This Mac's row of Settings → Hosts (ADR-233 D2).
+        if (request.type === "open-hosts-settings") {
+          setSettingsPage("hosts");
+          if (request.hostId) setSettingsSection(`host-${request.hostId}`);
+          setSettingsOpen(true);
+        }
         if (request.type === "open-remote-settings") {
           setSettingsPage("hosts");
           setSettingsSection("host-local");
@@ -953,6 +965,8 @@ function App() {
             />
             <TransferDialogHost />
             <RemoveFromHostDialog />
+            <DeletePodDialogHost />
+            <ProfileEditorDialog />
             <NewWorkspaceDialog
               open={newWorkspaceOpen}
               onClose={closeNewWorkspace}

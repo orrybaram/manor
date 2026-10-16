@@ -1452,6 +1452,7 @@ export function ProjectItem(props: ProjectItemProps) {
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
         projectName={project.name}
+        members={[project]}
         onConfirm={onRemove}
       />
 

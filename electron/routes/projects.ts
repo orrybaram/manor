@@ -859,7 +859,9 @@ export const projectRoutes: ServerRoute[] = [
     path: "/projects/:projectId",
     handler: withProject(async ({ deps, params, json, readBody }, pm) => {
       await readBody();
+      const marked = pm.hostsMadeFor(params.projectId);
       await pm.removeProject(params.projectId);
+      for (const hostId of marked) deps.backendRegistry.recordChanged(hostId);
       deps.notifyProjectsChanged();
       json(200, { ok: true });
     }, { here: HERE }),

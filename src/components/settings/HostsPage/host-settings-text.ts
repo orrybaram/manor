@@ -63,6 +63,49 @@ export function idleStopText(minutes: number | undefined, desktopName: string): 
   return `${after} only while ${desktopName} is awake`;
 }
 
+/** The confirmation for removing a host profile (ADR-235 D2). */
+export const REMOVE_PROFILE_TEXT = "Its hosts keep running. They'll no longer be grouped.";
+
+/** The remove confirmation for a profile; one that signs new pods in also loses its Secret (ADR-235 D9). */
+export function removeProfileText(profile: {
+  values: Record<string, string>;
+  signIn?: { github?: unknown; claude?: unknown };
+}): string {
+  if (!profile.signIn?.github && !profile.signIn?.claude) return REMOVE_PROFILE_TEXT;
+  const namespace = profile.values.namespace?.trim() || "manor";
+  return `${REMOVE_PROFILE_TEXT} Its sign-in tokens are deleted from ${namespace}. Running pods keep them until they restart.`;
+}
+
+/** A profile's template and where it points, for its row: "Kubernetes · prod / manor". */
+export function profileSummary(templateName: string, values: Record<string, string>): string {
+  const where = [values.context, values.namespace].filter((v) => v);
+  return [templateName, ...(where.length > 0 ? [where.join(" / ")] : [])].join(" · ");
+}
+
+/** ADR-235 D9: the trade of "Sign new pods in for me", shown while it is on. */
+export function signInWarningText(namespace: string): string {
+  const where = namespace === "" ? "the profile's namespace" : namespace;
+  return `Anyone who can read Secrets in ${where} or open a terminal in its pods can use these. Every agent in every pod can use them too. They are your own tokens, not scoped to a pod, so a namespace you share with other people is the wrong place for this.`;
+}
+
+/** "Set 3/14/2026 · from this computer" (ADR-235 D9): when and how a token was set. */
+export function signInStatusText(meta: { setAt: number; source: "gh" | "pasted" }): string {
+  const when = new Date(meta.setAt).toLocaleDateString();
+  return `Set ${when} · ${meta.source === "gh" ? "from this computer" : "pasted token"}`;
+}
+
+/** What the Restart button reported (ADR-235 D9). */
+export function restartedPodsText(count: number): string {
+  if (count === 0) return "No pods were running.";
+  return `Restarted ${count} ${count === 1 ? "pod" : "pods"}.`;
+}
+
+/** The Restart button (ADR-235 D9): "Restart 3 pods", from the hosts known to be running. */
+export function restartPodsLabel(running: number): string {
+  if (running === 0) return "Restart pods";
+  return `Restart ${running} ${running === 1 ? "pod" : "pods"}`;
+}
+
 /**
  * Where the key Manor makes on a host goes, for an older server that doesn't
  * report `encryptKeyFile`.

@@ -126,6 +126,8 @@ export class HostAdoption {
   private readonly log: Pick<Console, "info" | "warn">;
   /** One run per host at a time: a reconnect waits for the run before it. */
   private readonly runs = new Map<string, Promise<unknown>>();
+  /** Who waits for each host's first adoption (`whenAdopted`). */
+  private readonly adoptedWaiters = new Map<string, Array<() => void>>();
 
   constructor(opts: HostAdoptionOptions) {
     this.opts = opts;
@@ -142,6 +144,42 @@ export class HostAdoption {
       if (this.runs.get(hostId) === settled) this.runs.delete(hostId);
     });
     return run;
+  }
+
+  /**
+   * Resolves `true` once `hostId` is adopted — at once when it already is,
+   * else when a run marks it so — or `false` when `timeoutMs` passes first:
+   * a server that predates ownership, or an owner channel that never came
+   * up. Never rejects; a failed run leaves it waiting for the next one.
+   * `openInNewHost` (ADR-235 D3) waits on it so a new host's first project
+   * is made on its server rather than handed over later.
+   */
+  whenAdopted(hostId: string, timeoutMs = 30_000): Promise<boolean> {
+    if (this.opts.projectManager.isHostAdopted(hostId)) return Promise.resolve(true);
+    return new Promise<boolean>((resolve) => {
+      const waiters = this.adoptedWaiters.get(hostId) ?? [];
+      // Only ever called after `timer` below is set: a run settles later.
+      const done = (): void => {
+        clearTimeout(timer);
+        resolve(true);
+      };
+      waiters.push(done);
+      this.adoptedWaiters.set(hostId, waiters);
+      const timer = setTimeout(() => {
+        const left = (this.adoptedWaiters.get(hostId) ?? []).filter((w) => w !== done);
+        if (left.length > 0) this.adoptedWaiters.set(hostId, left);
+        else this.adoptedWaiters.delete(hostId);
+        resolve(this.opts.projectManager.isHostAdopted(hostId));
+      }, timeoutMs);
+    });
+  }
+
+  /** Wake whoever waits on `whenAdopted(hostId)`. */
+  private notifyAdopted(hostId: string): void {
+    const waiters = this.adoptedWaiters.get(hostId);
+    if (!waiters) return;
+    this.adoptedWaiters.delete(hostId);
+    for (const wake of waiters) wake();
   }
 
   /**
@@ -265,6 +303,7 @@ export class HostAdoption {
     // host's projects through its server, not in neither list.
     if (outcome.removed.projects > 0 || !wasAdopted) this.opts.onProjectsRemoved?.(hostId);
     if (!wasAdopted) this.opts.onAdopted?.(hostId);
+    this.notifyAdopted(hostId);
     return outcome;
   }
 

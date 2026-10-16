@@ -1,6 +1,7 @@
 import { useId } from "react";
 import type { WorkspaceHostChoice } from "../../../lib/workspace-host-choices";
 import { isRemoteHost } from "../../../lib/hosts";
+import type { NewHostTarget } from "../../../lib/transfer-targets";
 import { HostIndicator, LocalHostLabel } from "../../hosts/HostIndicator";
 import { ToggleGroup } from "../../ui/ToggleGroup";
 import { Button } from "../../ui/Button/Button";
@@ -17,6 +18,13 @@ type HostPickerProps = {
    * registered host already has a member, which hides the action.
    */
   onSetUpOnAnotherHost?: () => void;
+  /** Whether other projects' hosts are being left out of "Set up on another host…". */
+  showHiddenHostsToggle?: boolean;
+  showAllHosts?: boolean;
+  onToggleShowAllHosts?: () => void;
+  /** "In a new pod · <profile>" entries (ADR-235 D4), after the hosts. */
+  newHostTargets?: NewHostTarget[];
+  onSetUpInNewHost?: (target: NewHostTarget) => void;
 };
 
 /**
@@ -26,7 +34,17 @@ type HostPickerProps = {
  * it, "Set up on another host…" sets the project up on a host it lacks.
  */
 export function HostPicker(props: HostPickerProps) {
-  const { choices, value, onChange, onSetUpOnAnotherHost } = props;
+  const {
+    choices,
+    value,
+    onChange,
+    onSetUpOnAnotherHost,
+    newHostTargets = [],
+    onSetUpInNewHost,
+    showHiddenHostsToggle,
+    showAllHosts,
+    onToggleShowAllHosts,
+  } = props;
 
   const labelId = useId();
 
@@ -61,6 +79,29 @@ export function HostPicker(props: HostPickerProps) {
             data-testid="new-workspace-set-up-on-host"
           >
             Set up on another host…
+          </Button>
+        )}
+        {onSetUpInNewHost &&
+          newHostTargets.map((target) => (
+            <Button
+              key={target.profileId}
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => onSetUpInNewHost(target)}
+              data-testid="new-workspace-set-up-in-new-pod"
+            >
+              {target.label}
+            </Button>
+          ))}
+        {showHiddenHostsToggle && onToggleShowAllHosts && (
+          <Button
+            variant="link"
+            type="button"
+            onClick={onToggleShowAllHosts}
+            data-testid="new-workspace-show-all-hosts"
+          >
+            {showAllHosts ? "Hide other projects' hosts" : "Show all hosts"}
           </Button>
         )}
       </Row>

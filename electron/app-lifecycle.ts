@@ -46,6 +46,7 @@ import * as hostPipeIpc from "./ipc/host-pipe";
 import { appCommandResult } from "./renderer-bridge";
 import { createManorServer, type ManorCore } from "./server/create-manor-server";
 import type { Platform } from "./server/platform";
+import { stopTemplateJobs } from "./backend/providers/recipe-templates";
 
 /** How long an agent's `navigate` waits for a remote host to come back. */
 const NAVIGATE_HOST_WAIT_MS = 15_000;
@@ -390,6 +391,7 @@ export function initApp(devTitle: string | null): void {
       getRendererWindows,
       registerDetachedWindow,
       hostServerSync,
+      ...(core.hostAdoption ? { hostAdoption: core.hostAdoption } : {}),
       hostLinks,
       remoteForwards,
       remoteUrlResolver,
@@ -682,6 +684,8 @@ export function initApp(devTitle: string | null): void {
     server.stop();
     portlessManager.stop();
     prewarmManager.dispose().catch(() => {});
+    // Background `docker pull` / `docker build` a template fix started (ADR-234 D8).
+    stopTemplateJobs();
     // Last: the relay is down by now, so nothing new joins the queues.
     return flushSealedStores(remoteControlDown);
   }

@@ -13,11 +13,14 @@
 import crypto from "node:crypto";
 import { assertBoolean, assertString } from "../../ipc-validate";
 import { assertValidTarget } from "../../terminal-host/ssh-config";
-import { assertRecipeId, readRecipe } from "../../backend/providers/recipes";
+import { addRecipeHost } from "../../projects/new-host-for-project";
 import {
+  checkTemplate,
   createCustomRecipe,
   createRecipeFromTemplate,
   listTemplates,
+  runTemplateFix,
+  type TemplateCheckResult,
   type TemplateInfo,
 } from "../../backend/providers/recipe-templates";
 import { forgetHostFiles } from "../../backend/host-removal";
@@ -85,27 +88,21 @@ export function hostsAddRecipeHost(
   ctx: HandlerCtx<ServerDeps>,
   recipeId: string,
 ): { hostId: string; spec: { kind: "recipe"; recipeId: string } } {
-  const { deps } = ctx;
   assertString(recipeId, "hosts:addRecipeHost.recipeId");
-  assertRecipeId(recipeId);
-  const recipe = readRecipe(recipeId);
-  const taken = deps.projectManager
-    .getHosts()
-    .find(({ spec }) => spec.kind === "recipe" && spec.recipeId === recipeId);
-  if (taken) {
-    throw new Error(`The recipe "${recipe.name}" already starts a host.`);
+  return addRecipeHost(ctx.deps, recipeId);
+}
+
+/** A template form's answers, as they arrive over IPC: an object of strings. */
+export function assertFormValues(
+  values: unknown,
+  label: string,
+): asserts values is Record<string, string> {
+  if (typeof values !== "object" || values === null || Array.isArray(values)) {
+    throw new Error(`${label} must be an object of strings`);
   }
-  const hostId = crypto.randomUUID();
-  const spec = { kind: "recipe" as const, recipeId };
-  deps.projectManager.saveHost(hostId, spec);
-  // A box Manor starts is Manor's to keep running (ADR-229 D4).
-  deps.projectManager.setHostSupervised(hostId, true);
-  deps.backendRegistry.register(hostId, spec);
-  // A connect somebody means: it runs `up` even for a box asleep.
-  deps.backendRegistry.ensureConnected(hostId).catch(() => {
-    // Reported through the host's status.
-  });
-  return { hostId, spec };
+  for (const [key, value] of Object.entries(values)) {
+    assertString(value, `${label}.${key}`);
+  }
 }
 
 /**
@@ -114,18 +111,13 @@ export function hostsAddRecipeHost(
  * `addRecipeHost` is what starts a host from it.
  */
 export function hostsCreateRecipe(
-  _ctx: HandlerCtx<ServerDeps>,
+  ctx: HandlerCtx<ServerDeps>,
   templateId: string,
   values: Record<string, string>,
 ): string {
   assertString(templateId, "hosts:createRecipe.templateId");
-  if (typeof values !== "object" || values === null || Array.isArray(values)) {
-    throw new Error("hosts:createRecipe.values must be an object of strings");
-  }
-  for (const [key, value] of Object.entries(values)) {
-    assertString(value, `hosts:createRecipe.values.${key}`);
-  }
-  return createRecipeFromTemplate(templateId, values);
+  assertFormValues(values, "hosts:createRecipe.values");
+  return createRecipeFromTemplate(templateId, values, { appVersion: ctx.deps.backendRegistry.version });
 }
 
 /**
@@ -142,8 +134,41 @@ export function hostsCreateCustomRecipe(
 }
 
 /** The bundled templates' names and form fields (ADR-229 D8). */
-export function hostsListTemplates(_ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
-  return listTemplates();
+export function hostsListTemplates(ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
+  return listTemplates({ appVersion: ctx.deps.backendRegistry.version });
+}
+
+/**
+ * A template's readiness checklist and its `choice` fields' options for the
+ * form's answers so far (ADR-234 D6): probes `docker` / `kubectl` on this
+ * machine, each with a short timeout. Writes nothing.
+ */
+export function hostsCheckTemplate(
+  ctx: HandlerCtx<ServerDeps>,
+  templateId: string,
+  values: Record<string, string>,
+): Promise<TemplateCheckResult> {
+  assertString(templateId, "hosts:checkTemplate.templateId");
+  assertFormValues(values, "hosts:checkTemplate.values");
+  return checkTemplate(templateId, values, { appVersion: ctx.deps.backendRegistry.version });
+}
+
+/**
+ * Carry out one of a template's `run` fixes (ADR-234 D8) on this machine:
+ * open Docker, or start pulling or building the host image in the
+ * background. Resolves once started; the next `checkTemplate` shows how it
+ * is going. `url` and `set` fixes are the renderer's and never come here.
+ */
+export function hostsRunTemplateFix(
+  ctx: HandlerCtx<ServerDeps>,
+  templateId: string,
+  fixId: string,
+  values: Record<string, string>,
+): Promise<void> {
+  assertString(templateId, "hosts:runTemplateFix.templateId");
+  assertString(fixId, "hosts:runTemplateFix.fixId");
+  assertFormValues(values, "hosts:runTemplateFix.values");
+  return runTemplateFix(templateId, fixId, values, { appVersion: ctx.deps.backendRegistry.version });
 }
 
 /**
@@ -582,6 +607,10 @@ export const hosts = {
   // Writes scripts this machine will run (ADR-229 D8): the desktop user's.
   createRecipe: method(hostsCreateRecipe, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   listTemplates: method(hostsListTemplates, { localOnly: true, route: LOCAL_ROUTE }),
+  // Runs docker / kubectl on this machine with its config (ADR-234 D6).
+  checkTemplate: method(hostsCheckTemplate, { localOnly: true, route: LOCAL_ROUTE }),
+  // Opens apps and starts docker pulls / builds on this machine (ADR-234 D8).
+  runTemplateFix: method(hostsRunTemplateFix, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   createCustomRecipe: method(hostsCreateCustomRecipe, {
     localOnly: true,
     mutating: true,

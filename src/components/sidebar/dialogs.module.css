@@ -52,6 +52,21 @@
   margin: 0 0 12px;
 }
 
+.podOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  cursor: pointer;
+}
+
+.podOptionHint {
+  display: block;
+  margin: 4px 0 0 24px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .confirmActions {
   display: flex;
   justify-content: flex-end;

@@ -97,6 +97,7 @@ import { layoutPaneContext } from "./pane-context";
 import type { Platform } from "./platform";
 import { createServerLaunches } from "./spawn-pane";
 import { HostRouting } from "./host-routing";
+import { readRecipe } from "../backend/providers/recipes";
 import type { HostProxy, HostPtyEvent } from "../backend/host-proxy";
 import type { PendingCommand } from "../layout/pending-commands";
 
@@ -230,11 +231,43 @@ export function createManorServer<D extends BridgeServerDeps>(
         },
       })
     : null;
+  /** Each recipe's bundled template, by recipe id, for `hostMarks`. */
+  const recipeTemplates = new Map<string, string | undefined>();
   const backendRegistry = new BackendRegistry({
     local: localBackend,
     remoteVersion: remoteHosts?.remoteVersion ?? platform.appVersion,
     // `hosts.list` says which hosts a window may stream to (ADR-228 D3).
     ...(remoteHosts ? { isAdopted: (hostId: string): boolean => projectManager.isHostAdopted(hostId) } : {}),
+    // A host's profile and the project it was made for (ADR-235 D1, D5).
+    ...(remoteHosts
+      ? {
+          hostMarks: (hostId: string): { profileId?: string; forProject?: string; template?: string } => {
+            const profileId: string | undefined = projectManager.hostProfileId(hostId);
+            const forProject: string | undefined = projectManager.hostForProject(hostId);
+            // The recipe's template tells a pod from a container (ADR-235 D6).
+            const spec = projectManager.getHosts().find((h) => h.hostId === hostId)?.spec;
+            let template: string | undefined;
+            if (spec?.kind === "recipe") {
+              // Read once per recipe: this runs for every host on every
+              // status change, progress lines included. A recipe's template
+              // is fixed when the recipe is written.
+              if (!recipeTemplates.has(spec.recipeId)) {
+                try {
+                  recipeTemplates.set(spec.recipeId, readRecipe(spec.recipeId).template);
+                } catch {
+                  // A recipe gone or unreadable has no template to name; asked again next time.
+                }
+              }
+              template = recipeTemplates.get(spec.recipeId);
+            }
+            return {
+              ...(template !== undefined ? { template } : {}),
+              ...(profileId !== undefined ? { profileId } : {}),
+              ...(forProject !== undefined ? { forProject } : {}),
+            };
+          },
+        }
+      : {}),
     // Each remote host's state, from its own server (ADR-227 D4), heard by
     // this server's renderers under the desktop's keys and the user's name
     // for the host. The host's server reads its own hook journal, so its

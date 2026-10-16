@@ -355,3 +355,92 @@ button.pathCardSelected {
 .wizardStatus.error {
   color: var(--red, var(--danger));
 }
+
+/* ── Start a host: a template's Connect step (ADR-234 D7) ── */
+
+/* One checkbox and its name in a multi-select field. */
+.multiOption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+/* What a size gives the host, dimmer than its name. */
+.sizeHint {
+  font-weight: 400;
+  opacity: 0.75;
+}
+
+.advancedFields {
+  padding: 8px 0 2px 18px;
+}
+
+/* Why Start is still disabled. */
+.startHint {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* ── A profile's hosts (ADR-235 D7) ── */
+.hostList > * + * {
+  border-top: 1px solid var(--border);
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 12px;
+  background: color-mix(in srgb, var(--surface) 30%, transparent);
+}
+
+button.groupToggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  height: auto;
+  padding: 10px 14px;
+  border-radius: 0;
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.groupName {
+  font-weight: 600;
+}
+
+.groupHeader + * {
+  border-top: 1px solid var(--border);
+}
+
+/* "Where's your cluster?": a card per place a cluster can come from. */
+.guideCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.guideCommand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.guideCommand code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}

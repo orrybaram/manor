@@ -111,6 +111,14 @@ _Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
 The user's own commands that start, stop and delete one remote **Host** (ADR-229 D2): `recipe.json` and its scripts in `~/.manor/host-recipes/<id>/`, never read from a repository. They run on the desktop. `up` (required, idempotent) prints one JSON object saying how to reach the box — over SSH, or an `exec` argv such as `docker exec -i <name>` — and the host then bootstraps like any SSH box; `status`, `stop` and `destroy` are optional. One recipe starts one host. The Hosts page writes one from a template (`docker`, `kubernetes`) or as a skeleton to finish. A host started this way has provider kind `recipe`; a box the user brought has `ssh`.
 _Avoid_: environment, template (a template is what a recipe is made from), provisioner
 
+**Host profile**:
+A recipe template plus the answers every host made from it shares (ADR-235 D1): a name, the template, its values except the per-host ones (the host's name), an idle stop (60 minutes by default) and, for Kubernetes, when its pods' sign-in tokens were set. Stored in `projects.json`, never holding a secret. Editing one changes only hosts made afterwards. Hosts made from a profile group under it on the Hosts page and in the status bar.
+_Avoid_: preset, cluster config, environment
+
+**Project's pod**:
+A **Host** made for one project by "In a new pod" (ADR-235 D3), marked by `forProject` on the host. It is left out of other projects' host lists, behind "Show all hosts", but never refused. Removing the project can delete it, with its disk; otherwise the host is stopped and `forProject` is cleared. For a Docker profile it is a container.
+_Avoid_: dedicated host, project host, workspace pod
+
 **Supervisor**:
 What keeps a **Host**'s **Daemon** and **Host server** running across a reboot (ADR-229 D4): systemd user units, launchd LaunchAgents, or `manor-host supervise` as a container's entrypoint. Installed by `manor-host supervisor install` ("Keep Manor running when <host> restarts") and recorded in `~/.manor/remote/supervisor.json`; while recorded, Manor starts, stops and restarts both through it instead of spawning detached copies.
 _Avoid_: service, init, watchdog

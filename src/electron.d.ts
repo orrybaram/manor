@@ -505,8 +505,16 @@ export type {
 /** Phone access through a host's server (ADR-225 D3). */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";
 export type { HostServerStatus } from "../electron/host-server/relay";
-/** The "Start a host" form's templates (ADR-229 D8). */
-export type { TemplateInfo } from "../electron/backend/providers/recipe-templates/types";
+/** A saved recipe template plus answers (ADR-235 D1). */
+export type { HostProfile } from "../electron/projects/types";
+/** The "Start a host" form's templates (ADR-229 D8) and their checks (ADR-234 D6, D8). */
+export type {
+  Choice,
+  TemplateCheck,
+  TemplateCheckResult,
+  TemplateFix,
+  TemplateInfo,
+} from "../electron/backend/providers/recipe-templates/types";
 
 /** The phone chat view's wire types (ADR-215). */
 export type {

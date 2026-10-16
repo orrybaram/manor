@@ -158,6 +158,32 @@ notifications (see [Where secrets live](#where-secrets-live)). Integration
 tokens such as Linear's API key go to the box only if you turn on "Use Linear
 on \<host\>" (see [Integrations](#integrations)).
 
+There is one more opt-in exception, for Kubernetes host profiles. A profile
+can sign its new pods in to GitHub and Claude for you, so a pod can clone a
+private repo and run Claude without a trip to the terminal. It is off by
+default, and it changes the rule above for that profile's pods. Save the
+profile first, then turn on sign-in in the profile editor. It needs kubectl
+1.20 or later, on macOS or Linux.
+
+- **GitHub**: use this computer's `gh auth token`, or paste a token. A
+  fine-grained token is the better choice.
+- **Claude**: paste the output of `claude setup-token`.
+
+Manor writes the tokens into a Secret in the profile's namespace, named
+`manor-signin-<profileId>`. Each profile has its own Secret, so removing a
+token from one profile never removes it from another that shares the
+namespace. The tokens go to `kubectl apply` on stdin, never on the command
+line. Manor keeps no copy: the profile records only when and how each token
+was set. Pods read the Secret as environment variables, and `gh auth
+setup-git` makes git use the GitHub token. Pods pick up a replaced token when
+they next start. The editor has a button to restart running pods.
+
+The trade-off is plain. Anyone who can read Secrets in that namespace, or
+exec into any of its pods, can read both tokens. Every agent in every pod can
+use them. They are your own tokens, not limited to one pod. Don't use this in
+a namespace you share with other people. Replace or Remove in the editor
+rewrites or deletes the Secret. Docker profiles don't get this option.
+
 Upgrades happen automatically. When the app version changes, the next
 connect installs the matching host package next to the old one and swaps it
 in atomically. A failed install never replaces a working one.

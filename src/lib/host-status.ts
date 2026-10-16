@@ -24,6 +24,7 @@
 import type { Reachability } from "../bridge/server-set";
 import type { HostStatusInfo } from "../store/host-store";
 import { hostName } from "./hosts";
+import { classifyRecipeFailure, type RecipeFailureAction } from "./recipe-failures";
 
 /**
  * How a host's state is coloured. `asleep` is calm, unlike `warn`: a box
@@ -57,6 +58,8 @@ export interface HostDisplay {
    * `status`.
    */
   summary?: string;
+  /** What to do about a recognised recipe failure (ADR-234 D10). */
+  action?: RecipeFailureAction;
   /** The raw message (ssh output, the failure's actionable hint). */
   detail?: string;
   /** Whether "Retry" means anything (not while a connect is running). */
@@ -187,7 +190,12 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
       }
       const copy = host.failure ? FAILURE_COPY[host.failure.reason] : null;
       const unreachable = copy ? null : describeUnreachable(host.error);
-      const summary = copy?.summary ?? unreachable;
+      // A recipe failure the classifier recognises reads as its own sentence.
+      const recipe =
+        host.failure?.reason === "recipe"
+          ? classifyRecipeFailure(host.failure.message || host.error || "")
+          : null;
+      const summary = recipe?.summary ?? copy?.summary ?? unreachable;
       return {
         target,
         offline: true,
@@ -198,6 +206,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
           copy?.banner(target) ??
           (unreachable ? `${target} isn't responding` : `Connection to ${target} failed`),
         ...(summary ? { summary } : {}),
+        ...(recipe?.action ? { action: recipe.action } : {}),
         ...(host.error ? { detail: host.error } : {}),
         canRetry: true,
       };

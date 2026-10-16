@@ -10,11 +10,14 @@ import {
   NODE_SEARCH_COMMAND,
   TOOLCHAIN_CHECK_COMMAND,
   RemoteBootstrapError,
+  bakedHostDir,
+  bakedProbeCommand,
   buildInstallCommands,
   compareVersions,
   ensureRemoteHost,
   hostTarballPath,
   normalizeVersion,
+  parseBakedProbe,
   parseRemotePlatform,
   parseNodeCandidates,
   parseVersion,
@@ -337,6 +340,106 @@ describe("buildInstallCommands", () => {
   });
 });
 
+describe("baked host package (ADR-235 D10)", () => {
+  const staging = '"$HOME/.manor/.host-staging-abc123"';
+  const upload = buildInstallCommands("1.2.3", "/usr/local/bin/node", "abc123");
+  const baked = buildInstallCommands("1.2.3", "/usr/local/bin/node", "abc123", "baked");
+
+  it("names the baked dir only for strict versions", () => {
+    expect(bakedHostDir("1.2.3")).toBe("/opt/manor/host-1.2.3");
+    expect(bakedHostDir("0.14.0-beta.1")).toBe("/opt/manor/host-0.14.0-beta.1");
+    for (const bad of [
+      "",
+      "1.2",
+      "v1.2.3",
+      "1.2.3 ",
+      "1.2.3/../../etc",
+      "1.2.3;rm -rf ~",
+      "1.2.3'",
+      '1.2.3"',
+      "1.2.3$(id)",
+      "1.2.3\n",
+    ]) {
+      expect(bakedHostDir(bad)).toBeNull();
+      expect(bakedProbeCommand(bad, "/usr/local/bin/node")).toBeNull();
+      expect(() => buildInstallCommands(bad, "/usr/local/bin/node", "abc123", "baked")).toThrow(
+        /No baked host package/,
+      );
+    }
+  });
+
+  it("probes the dir and loads node-pty from it with the picked node", () => {
+    expect(bakedProbeCommand("1.2.3", "/home/me/my node/bin/node")).toBe(
+      "test -d /opt/manor/host-1.2.3" +
+        " && '/home/me/my node/bin/node' -e 'require(\"/opt/manor/host-1.2.3/node_modules/node-pty\")' >/dev/null 2>&1" +
+        " && echo __MANOR_BAKED_OK__",
+    );
+    expect(() => remoteShellCommand(bakedProbeCommand("1.2.3", "/usr/local/bin/node")!)).not.toThrow();
+  });
+
+  it("parses the probe: only exit 0 with the marker line counts", () => {
+    expect(parseBakedProbe(ok("__MANOR_BAKED_OK__\n"))).toBe(true);
+    expect(parseBakedProbe(ok("Welcome to the box\r\n__MANOR_BAKED_OK__\r\n"))).toBe(true);
+    expect(parseBakedProbe(ok(""))).toBe(false);
+    expect(parseBakedProbe(ok("motd mentions __MANOR_BAKED_OK__ inline\n"))).toBe(false);
+    expect(parseBakedProbe({ code: 1, stdout: "__MANOR_BAKED_OK__\n", stderr: "" })).toBe(false);
+    expect(parseBakedProbe(fail(127))).toBe(false);
+  });
+
+  it("copies the baked dir into staging instead of piping a tarball and running npm", () => {
+    expect(upload.source).toBe("upload");
+    expect(baked.source).toBe("baked");
+    expect("stream" in baked).toBe(false);
+    expect(baked.install).toContain(`cp -a /opt/manor/host-1.2.3/. ${staging}/`);
+    expect(baked.install).toContain(`chmod -R u+w ${staging}`);
+    expect(baked.install).toContain(`cd ${staging}; /usr/local/bin/node -e 'require("node-pty")'`);
+    expect(baked.install).not.toContain("npm");
+    expect(baked.install).not.toContain("tar ");
+    expect(() => remoteShellCommand(baked.install)).not.toThrow();
+  });
+
+  it("shares prepare, commit and cleanup with the upload", () => {
+    expect(baked.prepare).toBe(upload.prepare);
+    expect(baked.commit).toBe(upload.commit);
+    expect(baked.cleanup).toBe(upload.cleanup);
+  });
+
+  // The real snippet, pointed at a scratch "baked" dir that is read-only
+  // like the image's root-owned one.
+  it("prepare → copy → commit produces a working, writable layout", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-home-"));
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), "bootstrap-baked-"));
+    try {
+      fs.mkdirSync(path.join(src, "node_modules", "node-pty"), { recursive: true });
+      fs.writeFileSync(path.join(src, "node_modules", "node-pty", "index.js"), "module.exports = {};");
+      fs.writeFileSync(path.join(src, "terminal-host-index.js"), "// baked");
+      execFileSync("chmod", ["-R", "a-w", src]);
+
+      const c = buildInstallCommands("1.2.3", process.execPath, "t4", "baked");
+      const install = c.install.replace("/opt/manor/host-1.2.3/.", `${src}/.`);
+      expect(install).not.toBe(c.install);
+      const run = (cmd: string) =>
+        execFileSync("sh", ["-c", cmd], { env: { ...process.env, HOME: home }, stdio: "pipe" });
+      run(c.prepare);
+      run(install);
+      run(c.commit);
+
+      const hostDir = path.join(home, ".manor", "host");
+      expect(fs.readdirSync(hostDir).sort()).toEqual(["node_modules", "terminal-host-index.js"]);
+      expect(fs.statSync(path.join(hostDir, "terminal-host-index.js")).mode & 0o200).toBe(0o200);
+      expect(fs.readFileSync(path.join(home, ".manor", "bin", "manor-host"), "utf-8")).toBe(
+        renderLauncherShim("1.2.3", process.execPath),
+      );
+      // A later update can replace it.
+      fs.rmSync(hostDir, { recursive: true });
+    } finally {
+      execFileSync("chmod", ["-R", "u+w", src]);
+      fs.rmSync(src, { recursive: true, force: true });
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("node discovery", () => {
   it("parses candidate lines and ignores rc noise", () => {
     const out = [
@@ -415,13 +518,68 @@ describe("ensureRemoteHost", () => {
       DETECT_COMMAND,
       NODE_CHECK_COMMAND,
       HOST_VERSION_COMMAND,
+      bakedProbeCommand("0.13.2", "/usr/local/bin/node"),
       TOOLCHAIN_CHECK_COMMAND,
       cmds.prepare,
       cmds.stream,
       cmds.install,
       cmds.commit,
     ]);
-    expect(calls[5].opts?.stdin).toBe(TARBALL);
+    expect(calls[6].opts?.stdin).toBe(TARBALL);
+    expect(progress.map((p) => p.phase)).toEqual([
+      "detect",
+      "check-node",
+      "check-host",
+      "install",
+      "done",
+    ]);
+    // Linux has no node-pty prebuild: the install compiles it, and says so.
+    expect(progress[3].message).toBe(
+      "Installing Manor — building terminal support, this only happens once (about 2 minutes)",
+    );
+  });
+
+  it("keeps the plain install message where node-pty has a prebuild", async () => {
+    const { exec } = fakeSsh([
+      [DETECT_COMMAND, ok("Darwin arm64\n")],
+      [NODE_CHECK_COMMAND, ok("/usr/local/bin/node\nv20.11.1\n")],
+      [HOST_VERSION_COMMAND, fail(127)],
+    ]);
+    const progress: BootstrapProgress[] = [];
+    await ensureRemoteHost("me@box", "0.13.2", exec, { ...baseOpts, onProgress: (p) => progress.push(p) });
+    expect(progress.find((p) => p.phase === "install")?.message).toBe("Installing Manor host 0.13.2 on me@box…");
+  });
+
+  it("copies a baked package instead of uploading when the image has one (ADR-235 D10)", async () => {
+    const probe = bakedProbeCommand("0.13.2", "/usr/local/bin/node")!;
+    const { exec, calls } = fakeSsh([
+      ...HEALTHY,
+      [HOST_VERSION_COMMAND, ok("0.13.1\n")],
+      [probe, ok("__MANOR_BAKED_OK__\n")],
+    ]);
+    const loadTarball = vi.fn(() => TARBALL);
+    const progress: BootstrapProgress[] = [];
+    const res = await ensureRemoteHost("me@box", "v0.13.2", exec, {
+      ...baseOpts,
+      loadTarball,
+      onProgress: (p) => progress.push(p),
+    });
+    expect(res).toEqual({ installed: true, version: "0.13.2" });
+
+    const cmds = buildInstallCommands("0.13.2", "/usr/local/bin/node", "abc123", "baked");
+    expect(calls.map((c) => c.command)).toEqual([
+      DETECT_COMMAND,
+      NODE_CHECK_COMMAND,
+      HOST_VERSION_COMMAND,
+      probe,
+      cmds.prepare,
+      cmds.install,
+      cmds.commit,
+    ]);
+    // No upload, no toolchain check, no npm.
+    expect(loadTarball).not.toHaveBeenCalled();
+    expect(calls.some((c) => c.opts?.stdin)).toBe(false);
+    expect(calls.some((c) => c.command.includes("--omit=dev"))).toBe(false);
     expect(progress.map((p) => p.phase)).toEqual([
       "detect",
       "check-node",
@@ -430,6 +588,43 @@ describe("ensureRemoteHost", () => {
       "done",
     ]);
     expect(progress[3].message).toBe("Installing Manor host 0.13.2 on me@box…");
+    expect(progress.some((p) => p.message.includes("Compiling"))).toBe(false);
+  });
+
+  it("falls back to the upload when the baked probe fails", async () => {
+    const probe = bakedProbeCommand("0.13.2", "/usr/local/bin/node")!;
+    const { exec, calls } = fakeSsh([
+      ...HEALTHY,
+      [HOST_VERSION_COMMAND, fail(127)],
+      [probe, fail(1)],
+    ]);
+    await ensureRemoteHost("me@box", "0.13.2", exec, baseOpts);
+    const upload = buildInstallCommands("0.13.2", "/usr/local/bin/node", "abc123");
+    expect(calls.map((c) => c.command)).toContain(upload.stream);
+    expect(calls.map((c) => c.command)).toContain(upload.install);
+  });
+
+  it("skips the baked probe for a version that cannot name a baked dir", async () => {
+    const { exec, calls } = fakeSsh([...HEALTHY, [HOST_VERSION_COMMAND, fail(127)]]);
+    await ensureRemoteHost("me@box", "dev build", exec, baseOpts);
+    expect(calls.some((c) => c.command.includes("/opt/manor"))).toBe(false);
+    expect(calls.some((c) => c.command.includes("tar -xzf"))).toBe(true);
+  });
+
+  it("does not commit when copying the baked package fails, and cleans up staging", async () => {
+    const probe = bakedProbeCommand("0.13.2", "/usr/local/bin/node")!;
+    const { exec, calls } = fakeSsh([
+      ...HEALTHY,
+      [HOST_VERSION_COMMAND, fail(127)],
+      [probe, ok("__MANOR_BAKED_OK__\n")],
+      ["cp -a", fail(1, "cp: No space left on device")],
+    ]);
+    await expect(ensureRemoteHost("me@box", "0.13.2", exec, baseOpts)).rejects.toThrow(
+      /during copy.*No space left/,
+    );
+    const commands = calls.map((c) => c.command);
+    expect(commands.some((c) => c.includes('mv -f "$HOME/.manor/bin/manor-host"'))).toBe(false);
+    expect(commands[commands.length - 1]).toBe('rm -rf "$HOME/.manor/.host-staging-abc123"');
   });
 
   it("reinstalls over a mismatched version", async () => {

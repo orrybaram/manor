@@ -17,6 +17,8 @@ export type SearchableSelectOption = {
   label: string;
   /** Shown before the label in the list. */
   icon?: React.ReactNode;
+  /** A dimmer second line in the list that tells similar options apart. */
+  hint?: string;
 };
 
 type SearchableSelectProps = {
@@ -245,7 +247,12 @@ export function SearchableSelect(props: SearchableSelectProps) {
                 }}
               >
                 {option.icon}
-                <span className={styles.optionLabel}>{option.label}</span>
+                <span className={styles.optionLabel}>
+                  {option.label}
+                  {option.hint && (
+                    <span className={styles.optionHint}>{option.hint}</span>
+                  )}
+                </span>
                 {option.value === value && (
                   <Check size={12} className={styles.optionCheck} />
                 )}

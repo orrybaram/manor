@@ -15,9 +15,10 @@ Design background is in
 
 Open **Settings → Hosts**, then **Add a host… → Start a new host**. Pick one of:
 
-- **Docker container**: a container on this computer's Docker daemon. The
-  quickest way to try it. See [Docker](#docker).
-- **Kubernetes StatefulSet**: a pod with a persistent volume. See
+- **Docker container**: a container on this computer's Docker daemon, or
+  on another machine's over SSH. The quickest way to try it. See
+  [Docker](#docker).
+- **Kubernetes cluster**: a pod with its own disk, on a cluster you can reach. See
   [Kubernetes](#kubernetes).
 - **Custom recipe**: anything else, for example a cloud VM with sshd. Manor
   writes a recipe folder with an `up.sh` for you to finish. See
@@ -38,6 +39,85 @@ Each host on the Hosts page offers what its recipe allows:
   [Surviving a reboot](../remote-hosts.md#surviving-a-reboot)).
 - **Remove…**: **Remove from Manor**, or **Destroy host and its disk** when
   the recipe has a `destroy` (see [stop and destroy](#stop-and-destroy)).
+
+## Host profiles
+
+A **host profile** is a template plus the answers you give it once. Use one
+when you start many hosts the same way, such as a pod for every project on
+one cluster.
+
+Open **Settings → Hosts**, then **New profile…** under Profiles. The form is
+the same as Start a new host, with the same checks and Advanced section, and
+these changes:
+
+- the per-host fields are hidden. For both templates that is the **Name**,
+  which Manor picks for each host;
+- you give the profile a name, such as "Work cluster";
+- **Stop when idle for** is Off, 30, 60 or 120 minutes. The default is 60;
+- **Save profile** is disabled until every check passes.
+
+A profile works with any template. Kubernetes is the main case, and a Docker
+profile gives you a container for each project. A profile holds no secrets.
+
+Editing a profile changes only the hosts made after the edit. Recipes that
+are already written are your files, and Manor doesn't touch them. Removing a
+profile leaves its hosts alone. They just lose their heading on the Hosts
+page.
+
+On the Hosts page, a profile's hosts sit under its heading with a count such
+as "3 of 7 running", and the heading has Edit and Remove. The status bar
+shows one entry for the profile, such as "Work cluster: 3 of 7 running", and
+a host in error is still shown on its own.
+
+The idle stop is written into each new recipe as `idleStopMinutes`. A stopped
+pod keeps its disk, and opening its project wakes it. The disk keeps billing
+while the host is stopped.
+
+## A project in its own pod
+
+With a profile saved, a project can get its own host in one step. Each
+project then has its own CPU, memory and disk. For a Docker profile it is a
+container and a volume.
+
+Pick the profile in either place:
+
+- **Add Project → Clone repository**: in the Host list, choose "In a new pod ·
+  Work cluster" ("In a new container · …" for Docker). With no profile yet,
+  "In a new pod…" opens the profile form and brings you back with it picked.
+  Location is hidden, because Manor clones to `~/code/<name>`;
+- **Set up on** in a project's menu, or **Set up on another host…** in New
+  Workspace: the same entries, after the hosts. The new checkout joins the
+  project it came from.
+
+Manor then:
+
+1. names the host after the repository, cut to fit the template's name rules.
+   A taken name gets `-2`, `-3` and so on;
+2. writes a recipe from the profile, with its idle stop;
+3. saves the host and runs `up`. The dialog shows the host's own progress;
+4. waits for it to connect, then clones the repository (or copies the source
+   project) and runs the health check.
+
+If a step fails, Manor keeps the host and says which step it was. Use
+**Retry** to run again from that step. `up` can be repeated safely, and the
+clone adopts a checkout that is already there. Use **Delete** to destroy the
+host. Nothing is destroyed unless you ask, because the recipe output is what
+you need to fix the problem.
+
+The host is kept for its project. It is left out of other projects' Set up on
+and host lists, behind **Show all hosts**. Nothing is refused: it is still an
+ordinary host.
+
+### Removing a project
+
+When you remove a project that has its own pod, the dialog offers **Also
+delete its pod and disk** ("its container and volume" for Docker). It is
+checked, and there is no undo. Checked removes the project, then runs the
+recipe's `destroy`. Unchecked stops the host, keeps its disk, and turns it
+into an ordinary host.
+
+If the destroy fails, the project is still removed. The host stays in error
+with its output, and you can retry **Remove…** from Settings.
 
 ## The contract
 
@@ -102,6 +182,12 @@ A recipe lives in `~/.manor/host-recipes/<id>/`, next to its scripts:
   `echo` is an error, and Manor quotes it.
 - **Stderr is progress.** Each line shows in the host's status while `up`
   runs. When a command fails, the message quotes the last 2 KB.
+- **Named stages (optional).** A stderr line `manor-stage: <text>` sets the
+  host's status to `<text>`, such as `manor-stage: Getting a disk`. Once
+  `up` has printed one, its other lines no longer replace the stage in the
+  status (they still go to the output, stage lines included); a later
+  `manor-stage:` line replaces it. Each run of `up` starts without a stage.
+  A recipe that prints none shows every line, as above.
 - **A non-zero exit is a failure.**
 - **Timeouts:**
 
@@ -282,76 +368,176 @@ edit. Each generated script says so at the top.
 
 ### The host image
 
-Both templates run `docker/host-image` from Manor's repo: Node 22, git, gh,
+Both templates run Manor's host image, `ghcr.io/orrybaram/manor-host:<version>`
+(the version of your Manor app; published by each release): Node 22, git, gh,
 the `node-pty` toolchain, tini, and a `manor` user (uid 1000, home
 `/home/manor`). Nothing of Manor's is baked in. The entrypoint waits for the
 first connect to install `~/.manor/bin/manor-host` on the home volume, then
-runs `manor-host supervise`. Add the agent CLIs you use: the Dockerfile has a
-commented line for each.
+runs `manor-host supervise`. The image has no agent CLIs.
+Both templates ask "Agents to install" (Claude Code, on by default, and
+Codex), recorded as `MANOR_AGENTS=claude,codex` in `recipe.json`. After the
+container or pod is up, `up.sh` installs each one that is missing as the
+`manor` user onto the home volume (`npm i -g --prefix ~/.local`, printing
+`manor-stage: Installing Claude Code`); `~/.local/bin` is on the image's
+`PATH`. It runs once and survives restarts and image upgrades. A failed
+install is a warning on stderr, not a failed `up`. Leave both unchecked to
+install none, or edit `MANOR_AGENTS` in the recipe.
+
+You do not need to build anything: the Docker template's `up.sh` pulls the
+image when the daemon does not have it (printing `manor-stage: Getting
+Manor's host image`), and a cluster's nodes pull it themselves. To customise
+it, build it from `docker/host-image` (the app ships that folder as
+`host-image/` in its resources), then give your own image name in the form:
 
 ```bash
 docker build -t manor-host:local docker/host-image
 ```
 
-For a cluster, push it somewhere the cluster can pull from, and give that
-name in the form.
+For a cluster, push it somewhere the cluster can pull from.
 
 ### Docker
 
 The form asks for:
 
+- **Run it on**: *This computer* (the default) or *Another machine over
+  SSH*;
+- **SSH target**, for another machine only: `you@build-box`,
+  `you@build-box:2222`, or a `Host` from your `~/.ssh/config`;
 - **Container name** (also the recipe's id, `docker-<name>`);
-- **Image** (default `manor-host:local`);
+- **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; an image the daemon already has is not pulled);
 - **Docker context** (optional, such as `colima` or `desktop-linux`; blank
-  for the default). It must name a daemon on this computer: see below.
+  for the default). A remote daemon works too.
+
+The recipe's context (`MANOR_DOCKER_CONTEXT`) is, in order: the Docker
+context field when you fill it in; for another machine, `manor-<host>`
+(the target's host, lowercased, anything but letters, digits and `-`
+turned into `-`); otherwise none, which is Docker's current context.
+
+#### Docker on another machine over SSH
+
+If all you want is Manor on another machine, **Add a host… → A machine I
+can SSH into** is simpler: Manor installs itself there directly. Use this
+when you want a container there that Manor starts, stops and can throw
+away.
+
+Docker on your computer talks to the machine's Docker over ssh, through a
+Docker context. Before Start, the checklist checks, in order:
+
+1. the target answers over SSH (`ssh -o BatchMode=yes -o ConnectTimeout=5`,
+   with your `~/.ssh/config`). Manor can't answer a host-key or passphrase
+   prompt: if the machine's key isn't trusted yet, run `ssh <target>` once
+   in a terminal and accept it; for a passphrase, `ssh-add` your key;
+2. Docker is installed on the machine;
+3. you can use it there. If Docker refuses you (permission denied on
+   `docker.sock`), run `sudo usermod -aG docker $USER` on the machine, then
+   log out of it and back in;
+4. Docker is installed on this computer (only the CLI is needed);
+5. Docker on the machine is set up for Manor. **Set up Docker on
+   *host*** runs `docker context create manor-<host> --docker
+   host=ssh://<target>`. An existing `manor-<host>` that already points
+   there is reused; one pointing somewhere else is yours, so Manor leaves
+   it alone and asks you to pick a context under Advanced or remove it;
+6. Manor can reach Docker through that context, and the host image is on
+   the machine. The image is pulled there, for the machine's own CPU; the
+   build fallback builds there too (`docker --context manor-<host> build`
+   sends the build files over ssh).
+
+If you remove the context later, `up` makes it again before any other
+docker call (`manor-stage: Setting up Docker on <host>`), from the target
+the recipe records in `MANOR_DOCKER_SSH_TARGET`. That applies only to the
+context Manor derived (`MANOR_DOCKER_CONTEXT_MANAGED=1`), not to one you
+chose under Advanced. A context of that name that points somewhere else is
+left alone and `up` fails with a one-line reason. The ssh check above is
+reused for 15 seconds while the form refreshes, and only when it passed.
 
 `up`:
 
 - creates the volume `manor-<name>-home` and mounts it on `/home/manor`;
-- creates `secret.key` (32 random bytes, mode 0600) in the recipe's folder,
-  and mounts it read-only at `/run/secrets/manor-key`, with
-  `MANOR_SECRET_KEY_FILE` pointing there (see
+- creates the volume `manor-<name>-key` and, once, fills it with
+  `secret.key` (32 random bytes, readable only by uid 1000) using the host
+  image itself. It is mounted read-only at `/run/secrets/manor`, with
+  `MANOR_SECRET_KEY_FILE` pointing at the file (see
   [Encrypting pairing keys](../remote-hosts.md#encrypting-pairing-keys));
 - sets `MANOR_INSTANCE_ID` to the container's name;
 - runs the container with `--restart unless-stopped`, or starts it if it
-  exists and is stopped;
+  exists and is stopped. Pulling the image, creating the container and
+  starting it are named stages (`manor-stage:`);
 - writes no-op `on-busy` and `on-idle` hooks if there are none (see
   [Box hooks](#box-hooks));
 - returns `docker exec -i -u manor <name>` as the way in.
 
 `status` reads `docker inspect`. `stop` runs `docker stop` and keeps the
-container and its volume. `destroy` removes the container, the volume and
-`secret.key`.
+container and its volumes. `destroy` removes the container, the home volume
+and the key volume.
 
-**The daemon must be local.** The key is a bind mount from your computer, so
-the daemon has to see this computer's files: Docker Desktop, or a Linux
-daemon where uid 1000 in the container can read a file your user owns.
-A remote Docker context isn't supported by this template.
+The key lives on the daemon, in a volume apart from the home volume, so a
+copy of the home cannot read it. Nothing is bind-mounted from your computer,
+so remote Docker contexts, colima and Rancher Desktop work.
 
 ### Kubernetes
 
 The form asks for:
 
-- **kubectl context** (optional; blank for the current one);
+- **Cluster** (required): kubectl's saved login for the cluster to run the
+  host on, listed from your kubeconfig with each cluster's server. The
+  form starts on the cluster your most recent Kubernetes recipe used, if
+  it is still listed, and otherwise on none; it never picks kubectl's
+  current context for you;
+- **Size**: what the pod reserves and how far its memory may grow. Small
+  (¼ CPU, 512 MiB, up to 2 GiB), Medium (½ CPU, 1 GiB, up to 4 GiB, the
+  default) or Large (1 CPU, 2 GiB, up to 8 GiB). Agents sit near idle and
+  burst while building, so requests are low and several hosts share a node;
 - **Namespace** (default `manor`; created if missing);
 - **Name**;
-- **Image** (default `manor-host:local`; the cluster must be able to pull it);
-- **Storage size** (default `20Gi`) and **Storage class** (optional).
+- **Image** (default `ghcr.io/orrybaram/manor-host:<version>`; the cluster must be able to pull it);
+- **Disk size** (default `20Gi`) and **Storage class** (optional).
 
 `up`:
 
 - creates the Secret `<name>-key` with 32 random bytes, once, and mounts it
   at `/run/secrets/manor-key`;
-- applies a StatefulSet of one replica, running as uid 1000, with a volume
-  claim `home` on `/home/manor`, `MANOR_SECRET_KEY_FILE` and
-  `MANOR_INSTANCE_ID=<namespace>/<name>`;
-- scales it to 1 and waits for the rollout (up to 10 minutes);
+- applies a StatefulSet of one replica with a volume claim `home` on `/home/manor`, `MANOR_SECRET_KEY_FILE` and
+  `MANOR_INSTANCE_ID=<namespace>/<name>`. The pod passes Pod Security
+  "restricted": it runs as non-root uid/gid 1000 (`fsGroup` 1000) with the
+  `RuntimeDefault` seccomp profile, no privilege escalation and all
+  capabilities dropped. The size becomes `MANOR_K8S_CPU`,
+  `MANOR_K8S_MEMORY` and `MANOR_K8S_MEMORY_LIMIT`: the pod requests the
+  first two, and its memory is limited to the third (to the request in a
+  recipe without it). There is no CPU limit, so a build isn't throttled;
+- scales it to 1 and waits for the pod to be Ready, every 3 seconds,
+  naming the stage it is at: "Getting a disk" (the claim `home-<name>-0`
+  isn't bound), "Finding room on the cluster" (the pod isn't scheduled),
+  "Downloading the image on the node" (the container is being created),
+  then "Starting". It stops at once, printing the cluster's own reason, when
+  the pod can't start: the claim still Pending after 60 seconds with a
+  `ProvisioningFailed` or `FailedBinding` event (no storage class, or one
+  that doesn't work); the pod unscheduled after 60 seconds with a
+  `FailedScheduling` event (no node has room); the pod refused (a
+  `FailedCreate` event, such as a policy or quota); the container waiting on
+  `ErrImagePull`, `ImagePullBackOff`, `InvalidImageName` or
+  `CreateContainerConfigError`; or killed `OOMKilled`. It gives up 14
+  minutes after `up` started, naming the stage it was stuck at, a minute
+  before Manor's own timeout;
 - writes no-op hooks if there are none;
 - returns `kubectl [--context …] -n <namespace> exec -i <name>-0 -c host --`
   as the way in.
 
+Every command passes `--context` when the recipe has `MANOR_K8S_CONTEXT`.
+Recipes made before the cluster was required, or before sizes, keep working:
+without a context kubectl uses its current one, and without
+`MANOR_K8S_CPU` / `MANOR_K8S_MEMORY` the pod has no `resources` block.
+
 `stop` scales the StatefulSet to 0 and keeps the claim and the Secret.
 `destroy` deletes the StatefulSet, the claim `home-<name>-0` and the Secret.
+
+Every pod carries the labels `app.kubernetes.io/managed-by: manor` and
+`manor.sh/host: <name>`. `up` also applies, once per namespace, a
+NetworkPolicy named `manor-deny-ingress`. It selects those pods and allows no
+ingress, so nothing can connect to them. Manor only reaches a pod through
+`kubectl exec`. Egress stays open, because git, npm and agents need it. The
+policy only works if the cluster has a network policy controller, such as
+Calico or Cilium. Without one, the cluster ignores it. All pods of a
+namespace share it, and there is no ResourceQuota.
 
 `kubectl exec` streams can be cut by the API server's idle timeouts. Manor
 reconnects them with backoff, as it does for a dropped ssh connection.
@@ -515,8 +701,12 @@ hosts started from one snapshot, image or copied volume of that directory
 would share one relay room, and each one's phones would see the other's
 agents.
 
-- **Build images before Manor first connects.** The reference image has
-  nothing of Manor's in it; the first connect installs it on the volume.
+- **Build images before Manor first connects.** An image may hold Manor
+  *code*, never Manor *state*. The reference image carries the version's
+  host package in `/opt/manor/host-<version>/`, which the first connect
+  copies onto the volume. `~/.manor/remote/server/` is only ever on the home
+  volume, so sharing that image is safe. A snapshot of a volume, or of a
+  machine where Manor has run, is not.
 - **Give every host its own `MANOR_INSTANCE_ID`.** The host server records
   the id it was created under. When it starts under a different one, it
   keeps the projects, agents and layout, and resets everything sealed: the

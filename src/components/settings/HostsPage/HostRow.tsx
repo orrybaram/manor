@@ -15,7 +15,7 @@ import { Link } from "../../ui/Link/Link";
 import { Switch } from "../../ui/Switch/Switch";
 import { CopySshCommand } from "../../hosts/HostCard";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
-import { HostRawOutput, HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
+import { HostFailureAction, HostRawOutput, HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
 import { ResetRelayDialog } from "../RemoteControlDialogs";
 import { isSupervised } from "../reach";
 import { SettingRow } from "../SettingRow";
@@ -197,6 +197,7 @@ export function HostRow(props: HostRowProps) {
       {summary && (
         <div className={`${styles.rowSummary} ${styles[display.tone]}`}>{summary}</div>
       )}
+      <HostFailureAction display={display} hostId={hostId} showRetry={false} />
       <HostRawOutput display={display} />
 
       <HostDeviceAccess host={host} name={name} readOnly={readOnly} view={view} busy={busy} run={run} />

@@ -8,7 +8,7 @@ import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
 import { Stack } from "../../ui/Layout/Layout";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
-import { HostRawOutput } from "../../hosts/HostStatusDetails";
+import { HostFailureAction, HostRawOutput } from "../../hosts/HostStatusDetails";
 import { useSettingsNav } from "../SettingsModal/settings-nav";
 import { AddSshHostForm } from "./AddSshHostForm";
 import { HostDeviceAccess, HostIntegrations } from "./HostRow";
@@ -35,7 +35,7 @@ const PATHS: { path: Path; testId: string; title: string; description: string }[
     testId: "hosts-add-start",
     title: "Start a new host",
     description:
-      "Manor starts it for you: a Docker container, a Kubernetes pod, or your own script. Sleeps when idle, wakes on demand.",
+      "Manor starts it for you: a Docker container, a Kubernetes pod, or your own script. Sleeps when idle, wakes on demand. If you only want Manor on another machine, “A machine I can SSH into” is simpler.",
   },
 ];
 
@@ -232,6 +232,7 @@ function NewHostAccess(props: NewHostAccessProps) {
               <HostStateIcon display={display} size={14} />
               <span>{display.summary ?? display.detail ?? display.status}</span>
             </div>
+            <HostFailureAction display={display} hostId={hostId} />
             {/* Open: a failed recipe's summary says its output is below. */}
             <HostRawOutput display={display} defaultOpen />
           </>

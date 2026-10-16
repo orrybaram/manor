@@ -5,8 +5,10 @@ import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useHostProfileStore, openProfileEditor } from "../../../store/host-profile-store";
 import type { HostProfile, TemplateInfo } from "../../../electron.d";
 import Plus from "lucide-react/dist/esm/icons/plus";
-import { useHostStore } from "../../../store/host-store";
+import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { hostName } from "../../../lib/hosts";
+import { groupHostsByProfile, runningSummary, type HostGroup } from "../../../lib/host-groups";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import { isWebApp } from "../../../lib/platform";
 import { Button } from "../../ui/Button/Button";
 import { ConfirmDialog } from "../../ui/ConfirmDialog/ConfirmDialog";
@@ -33,7 +35,9 @@ import { profileSummary, REMOVE_PROFILE_TEXT } from "./host-settings-text";
  */
 export function HostsPage() {
   const hosts = useHostStore((s) => s.hosts);
+  const profiles = useHostProfileStore((s) => s.profiles);
   const remote = hosts.filter((h) => h.spec !== null);
+  const { groups, rest } = groupHostsByProfile(remote, profiles);
   const readOnly = isWebApp();
 
   return (
@@ -44,7 +48,10 @@ export function HostsPage() {
       </div>
       <div className={styles.hostList}>
         <ThisMacRow />
-        {remote.map((host) => (
+        {groups.map((group) => (
+          <ProfileGroup key={group.profile.id} group={group} readOnly={readOnly} />
+        ))}
+        {rest.map((host) => (
           <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
         ))}
       </div>
@@ -80,10 +87,11 @@ function AddHost() {
  * host from. Edited in the profile editor; removing one leaves its hosts be.
  */
 function Profiles() {
-  const profiles = useHostProfileStore((s) => s.profiles);
-  const remove = useHostProfileStore((s) => s.remove);
+  const allProfiles = useHostProfileStore((s) => s.profiles);
+  const hosts = useHostStore((s) => s.hosts);
+  // A profile with hosts is shown above, as the heading of its hosts.
+  const profiles = allProfiles.filter((p) => !hosts.some((h) => h.profileId === p.id));
   const [templates, setTemplates] = useState<TemplateInfo[]>([]);
-  const [removing, setRemoving] = useState<HostProfile | null>(null);
 
   useMountEffect(() => {
     let live = true;
@@ -103,7 +111,8 @@ function Profiles() {
     <Stack gap="sm" data-testid="host-profiles">
       <SectionTitle id="host-profiles">Profiles</SectionTitle>
       <div className={settingsStyles.fieldHint}>
-        A saved template and its answers. A project can get its own host from one.
+        A saved template and its answers. A project can get its own host from one. Profiles with
+        hosts are listed with them above.
       </div>
       {profiles.length > 0 && (
         <div className={styles.hostList}>
@@ -124,30 +133,7 @@ function Profiles() {
                   )}
                 </div>
               </div>
-              <Row gap="xs">
-                <Tooltip label="Edit profile">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Edit ${profile.name}`}
-                    data-testid={`host-profile-edit-${profile.id}`}
-                    onClick={() => openProfileEditor({ profile })}
-                  >
-                    <Pencil size={12} aria-hidden />
-                  </Button>
-                </Tooltip>
-                <Tooltip label="Remove profile">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`Remove ${profile.name}`}
-                    data-testid={`host-profile-remove-${profile.id}`}
-                    onClick={() => setRemoving(profile)}
-                  >
-                    <Trash2 size={12} aria-hidden />
-                  </Button>
-                </Tooltip>
-              </Row>
+              <ProfileActions profile={profile} />
             </Row>
           ))}
         </div>
@@ -163,18 +149,118 @@ function Profiles() {
           New profile…
         </Button>
       </div>
+    </Stack>
+  );
+}
+
+/** Edit / Remove for a profile, wherever its row is shown (ADR-235 D2). */
+function ProfileActions(props: { profile: HostProfile }) {
+  const { profile } = props;
+  const remove = useHostProfileStore((s) => s.remove);
+  const [removing, setRemoving] = useState(false);
+
+  return (
+    <Row gap="xs">
+      <Tooltip label="Edit profile">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Edit ${profile.name}`}
+          data-testid={`host-profile-edit-${profile.id}`}
+          onClick={() => openProfileEditor({ profile })}
+        >
+          <Pencil size={12} aria-hidden />
+        </Button>
+      </Tooltip>
+      <Tooltip label="Remove profile">
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label={`Remove ${profile.name}`}
+          data-testid={`host-profile-remove-${profile.id}`}
+          onClick={() => setRemoving(true)}
+        >
+          <Trash2 size={12} aria-hidden />
+        </Button>
+      </Tooltip>
       <ConfirmDialog
-        open={removing !== null}
-        title={removing ? `Remove ${removing.name}?` : "Remove profile?"}
+        open={removing}
+        title={`Remove ${profile.name}?`}
         description={REMOVE_PROFILE_TEXT}
         confirmLabel="Remove"
         confirmVariant="danger"
-        onCancel={() => setRemoving(null)}
+        onCancel={() => setRemoving(false)}
         onConfirm={async () => {
-          if (removing) await remove(removing.id);
-          setRemoving(null);
+          await remove(profile.id);
+          setRemoving(false);
         }}
       />
-    </Stack>
+    </Row>
+  );
+}
+
+const COLLAPSED_KEY = "manor:collapsed-profile-groups";
+
+function readCollapsed(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? "[]");
+    return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCollapsed(ids: string[]) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids));
+  } catch {
+    // Storage unavailable: the group just won't remember.
+  }
+}
+
+/**
+ * A profile's hosts under one collapsible heading (ADR-235 D7): the heading is
+ * the profile's own row, with "N of M running" and Edit / Remove. Whether it
+ * is collapsed is remembered per profile.
+ */
+function ProfileGroup(props: { group: HostGroup<HostStatusInfo, HostProfile>; readOnly: boolean }) {
+  const { group, readOnly } = props;
+  const { profile } = group;
+  const [collapsed, setCollapsed] = useState(() => readCollapsed().includes(profile.id));
+
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    const ids = readCollapsed().filter((id) => id !== profile.id);
+    writeCollapsed(next ? [...ids, profile.id] : ids);
+  };
+
+  return (
+    <div data-testid={`host-profile-group-${profile.id}`}>
+      <div className={styles.groupHeader}>
+        <Button
+          variant="ghost"
+          className={styles.groupToggle}
+          aria-expanded={!collapsed}
+          data-testid={`host-profile-group-toggle-${profile.id}`}
+          onClick={toggle}
+        >
+          <ChevronRight
+            size={14}
+            aria-hidden
+            className={`${styles.chevron} ${collapsed ? "" : styles.chevronOpen}`}
+          />
+          <span className={styles.groupName}>{profile.name}</span>
+          <span className={settingsStyles.fieldHint} data-testid="host-profile-group-summary">
+            {runningSummary(group)}
+          </span>
+        </Button>
+        {!readOnly && <ProfileActions profile={profile} />}
+      </div>
+      {!collapsed &&
+        group.hosts.map((host) => (
+          <HostRow key={host.hostId} host={host} name={hostName(host)} readOnly={readOnly} />
+        ))}
+    </div>
   );
 }

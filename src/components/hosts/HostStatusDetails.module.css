@@ -86,6 +86,12 @@
   overflow-wrap: anywhere;
 }
 
+.rawOutput {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .rawToggle.rawToggle {
   align-self: flex-start;
   padding: 0;

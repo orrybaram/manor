@@ -15,7 +15,7 @@ import { Link } from "../../ui/Link/Link";
 import { Switch } from "../../ui/Switch/Switch";
 import { CopySshCommand } from "../../hosts/HostCard";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
-import { HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
+import { HostRawOutput, HostRetryButton, HostWakeButton } from "../../hosts/HostStatusDetails";
 import { ResetRelayDialog } from "../RemoteControlDialogs";
 import { isSupervised } from "../reach";
 import { SettingRow } from "../SettingRow";
@@ -180,6 +180,7 @@ export function HostRow(props: HostRowProps) {
       {summary && (
         <div className={`${styles.rowSummary} ${styles[display.tone]}`}>{summary}</div>
       )}
+      <HostRawOutput display={display} />
 
       <HostDeviceAccess host={host} name={name} readOnly={readOnly} view={view} busy={busy} run={run} />
       <HostIntegrations
@@ -267,7 +268,7 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
       )}
       {!readOnly && status === null && (
         <div className={settingsStyles.fieldHint} data-testid="host-phone-access-state">
-          {mutedLine(view?.state ?? null)}
+          {mutedLine(host.status, view?.state ?? null, name)}
         </div>
       )}
     </div>
@@ -443,8 +444,18 @@ function devicesReach(count: number): string {
   return `Your ${count} device${count === 1 ? "" : "s"} reach`;
 }
 
-/** The one muted line for a host whose server cannot be asked right now. */
-function mutedLine(state: HostServerView["state"] | null): string {
+/**
+ * The one muted line for a host whose server cannot be asked right now. A
+ * host that isn't connected has no server to ask: its server stays idle, so
+ * "Updating…" would never resolve.
+ */
+function mutedLine(
+  hostStatus: HostStatusInfo["status"],
+  state: HostServerView["state"] | null,
+  name: string,
+): string {
+  if (hostStatus === "connecting") return `Waiting for ${name} to connect…`;
+  if (hostStatus !== "connected") return `Device access needs ${name} connected`;
   if (state === null) return "Checking device access…";
   if (state === "idle" || state === "connecting") return "Updating…";
   return "Device access needs the host to reconnect";

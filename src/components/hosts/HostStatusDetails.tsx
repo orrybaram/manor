@@ -16,19 +16,14 @@ type HostStatusDetailsProps = {
 
 /**
  * Who the host is and what state it is in, in plain words: the header, the
- * one-line summary and — behind a toggle — the raw ssh output. Shared by the
+ * one-line summary and — behind a toggle — the raw output. Shared by the
  * host popover and the project settings host card, so both say exactly the
  * same thing.
  */
 export function HostStatusDetails(props: HostStatusDetailsProps) {
   const { display } = props;
 
-  const [showRaw, setShowRaw] = useState(false);
-
-  // Connecting progress and connected warnings are already plain words; an
-  // unclassified error with nothing better to say shows its raw text openly.
   const summary = display.summary ?? display.detail;
-  const raw = display.detail && display.detail !== summary ? display.detail : null;
 
   return (
     <div className={styles.details}>
@@ -40,21 +35,46 @@ export function HostStatusDetails(props: HostStatusDetailsProps) {
         <span className={`${styles.status} ${styles[display.tone]}`}>{display.status}</span>
       </div>
       {summary && <p className={styles.summary}>{summary}</p>}
-      {raw && (
-        <>
-          <Button
-            variant="link"
-            className={styles.rawToggle}
-            aria-expanded={showRaw}
-            onClick={() => setShowRaw((v) => !v)}
-          >
-            {showRaw ? "Hide ssh output" : "Show ssh output"}
-          </Button>
-          <Collapse open={showRaw}>
-            <pre className={styles.raw}>{raw}</pre>
-          </Collapse>
-        </>
-      )}
+      <HostRawOutput display={display} />
+    </div>
+  );
+}
+
+type HostRawOutputProps = {
+  display: HostDisplay;
+  /** Start expanded: where the summary already points at the output. */
+  defaultOpen?: boolean;
+};
+
+/**
+ * The host's raw output — ssh's, or a recipe's — behind a toggle, when it
+ * says more than the summary does. Connecting progress and connected
+ * warnings are already plain words; an unclassified error with nothing
+ * better to say is its own summary, so there is nothing more to show.
+ */
+export function HostRawOutput(props: HostRawOutputProps) {
+  const { display, defaultOpen = false } = props;
+
+  const [showRaw, setShowRaw] = useState(defaultOpen);
+
+  const summary = display.summary ?? display.detail;
+  const raw = display.detail && display.detail !== summary ? display.detail : null;
+  if (!raw) return null;
+
+  const what = display.sshTarget ? "ssh output" : "output";
+  return (
+    <div className={styles.rawOutput} data-testid="host-raw-output">
+      <Button
+        variant="link"
+        className={styles.rawToggle}
+        aria-expanded={showRaw}
+        onClick={() => setShowRaw((v) => !v)}
+      >
+        {showRaw ? `Hide ${what}` : `Show ${what}`}
+      </Button>
+      <Collapse open={showRaw}>
+        <pre className={styles.raw}>{raw}</pre>
+      </Collapse>
     </div>
   );
 }

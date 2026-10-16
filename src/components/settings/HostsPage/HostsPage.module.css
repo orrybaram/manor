@@ -212,12 +212,18 @@ button.rowToggle:hover:not(:disabled) {
 }
 
 /* ── Add a host… wizard (ADR-233 D4) ── */
+/*
+ * The body scrolls, not the dialog: the dialog's centering transform makes
+ * it the containing block for a fixed popover (the template picker), so
+ * overflow here would clip it. The body isn't, so its overflow doesn't.
+ */
 .addHostDialog {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   width: 520px;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 80px);
-  overflow-y: auto;
 }
 
 /* "Where · Connect · Device access". */
@@ -324,6 +330,11 @@ button.pathCardSelected {
 }
 
 .wizardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
   margin-bottom: 16px;
 }
 

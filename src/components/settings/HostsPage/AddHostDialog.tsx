@@ -8,6 +8,7 @@ import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import { Button } from "../../ui/Button/Button";
 import { Stack } from "../../ui/Layout/Layout";
 import { HostStateIcon } from "../../hosts/HostStateIcon";
+import { HostRawOutput } from "../../hosts/HostStatusDetails";
 import { useSettingsNav } from "../SettingsModal/settings-nav";
 import { AddSshHostForm } from "./AddSshHostForm";
 import { HostDeviceAccess, HostIntegrations } from "./HostRow";
@@ -223,13 +224,17 @@ function NewHostAccess(props: NewHostAccessProps) {
       </Dialog.Title>
       <div className={styles.wizardBody}>
         {!connected && (
-          <div
-            className={`${styles.wizardStatus} ${styles[display.tone]}`}
-            data-testid="add-host-status"
-          >
-            <HostStateIcon display={display} size={14} />
-            <span>{display.summary ?? display.detail ?? display.status}</span>
-          </div>
+          <>
+            <div
+              className={`${styles.wizardStatus} ${styles[display.tone]}`}
+              data-testid="add-host-status"
+            >
+              <HostStateIcon display={display} size={14} />
+              <span>{display.summary ?? display.detail ?? display.status}</span>
+            </div>
+            {/* Open: a failed recipe's summary says its output is below. */}
+            <HostRawOutput display={display} defaultOpen />
+          </>
         )}
         {host && <NewHostGroups host={host} name={name} />}
       </div>

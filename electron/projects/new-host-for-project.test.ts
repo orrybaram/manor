@@ -171,7 +171,7 @@ describe("openInNewHost (ADR-235 D3)", () => {
       {
         name: "Work cluster",
         templateId: "kubernetes",
-        values: { namespace: "team", image: "ghcr.io/x/y:1", storage: "20Gi" },
+        values: { context: "kind-test", namespace: "team", image: "ghcr.io/x/y:1", storage: "20Gi" },
         ...(opts.idleStopMinutes !== undefined ? { idleStopMinutes: opts.idleStopMinutes } : {}),
       },
       { appVersion: "1.0.0" },

@@ -34,7 +34,7 @@ describe("HostProfiles (ADR-235 D1)", () => {
       {
         name: "  Work cluster ",
         templateId: "kubernetes",
-        values: { namespace: "team", storage: "40Gi" },
+        values: { context: "kind-test", namespace: "team", storage: "40Gi" },
       },
       ctx,
     );
@@ -43,7 +43,7 @@ describe("HostProfiles (ADR-235 D1)", () => {
       id: saved.id,
       name: "Work cluster",
       templateId: "kubernetes",
-      values: { namespace: "team", storage: "40Gi" },
+      values: { context: "kind-test", namespace: "team", storage: "40Gi" },
       idleStopMinutes: 60,
     });
 
@@ -72,10 +72,10 @@ describe("HostProfiles (ADR-235 D1)", () => {
 
   it("keeps a profile's sign-in metadata across an edit", () => {
     const { store, profiles } = open();
-    const saved = profiles.save({ name: "Work", templateId: "kubernetes", values: {} }, ctx);
+    const saved = profiles.save({ name: "Work", templateId: "kubernetes", values: { context: "kind-test" } }, ctx);
     const signIn = { github: { setAt: 1, source: "gh" as const } };
     store.state.hostProfiles![saved.id].signIn = signIn;
-    const edited = profiles.save({ id: saved.id, name: "Work 2", templateId: "kubernetes", values: {} }, ctx);
+    const edited = profiles.save({ id: saved.id, name: "Work 2", templateId: "kubernetes", values: { context: "kind-test" } }, ctx);
     expect(edited.signIn).toEqual(signIn);
   });
 
@@ -103,7 +103,7 @@ describe("HostProfiles (ADR-235 D1)", () => {
   it("refuses answers the template does not accept, writing nothing", () => {
     const { profiles } = open();
     expect(() =>
-      profiles.save({ name: "P", templateId: "kubernetes", values: { namespace: "Not A Label" } }, ctx),
+      profiles.save({ name: "P", templateId: "kubernetes", values: { context: "kind-test", namespace: "Not A Label" } }, ctx),
     ).toThrow(/namespace is not valid/);
     expect(() =>
       profiles.save({ name: "P", templateId: "kubernetes", values: { bogus: "x" } }, ctx),
@@ -123,7 +123,7 @@ describe("HostProfiles (ADR-235 D1)", () => {
 
   it("removing a profile clears profileId on its hosts and leaves them", () => {
     const { profiles, hosts } = open();
-    const work = profiles.save({ name: "Work", templateId: "kubernetes", values: {} }, ctx);
+    const work = profiles.save({ name: "Work", templateId: "kubernetes", values: { context: "kind-test" } }, ctx);
     const home = profiles.save({ name: "Home", templateId: "docker", values: {} }, ctx);
     hosts.save("h1", recipeSpec);
     hosts.save("h2", recipeSpec);

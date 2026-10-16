@@ -12,6 +12,7 @@ import { assertNumber, assertString } from "../../ipc-validate";
 import type { HostProfileInput } from "../../projects/host-profiles";
 import type { HostProfile } from "../../projects/types";
 import type { ServerDeps } from "../../ipc/types";
+import { publishRendererBroadcast } from "../../renderer-broadcast";
 import { LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import { assertFormValues } from "./hosts";
 
@@ -39,7 +40,7 @@ export function hostProfilesSave(
   if (input.idleStopMinutes !== undefined && input.idleStopMinutes !== null) {
     assertNumber(input.idleStopMinutes, "hostProfiles:save.idleStopMinutes");
   }
-  return ctx.deps.projectManager.saveHostProfile(
+  const saved = ctx.deps.projectManager.saveHostProfile(
     {
       ...(input.id !== undefined ? { id: input.id } : {}),
       name: input.name,
@@ -49,12 +50,15 @@ export function hostProfilesSave(
     },
     { appVersion: ctx.deps.backendRegistry.version },
   );
+  publishRendererBroadcast("hostProfiles", "changed");
+  return saved;
 }
 
 /** Forget a profile. Its hosts stay, and lose their `profileId`. */
 export function hostProfilesRemove(ctx: HandlerCtx<ServerDeps>, profileId: string): void {
   assertString(profileId, "hostProfiles:remove.profileId");
   ctx.deps.projectManager.removeHostProfile(profileId);
+  publishRendererBroadcast("hostProfiles", "changed");
 }
 
 export const hostProfiles = {

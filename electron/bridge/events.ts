@@ -113,6 +113,8 @@ export interface BridgeEvents {
     /** A phone was paired, revoked or the host's keys reset: re-read its status. */
     pairingChanged: [hostId: string];
   };
+  /** A host profile was saved or removed (ADR-235 D2): list them again. */
+  hostProfiles: { changed: [] };
   /** The Linear key was saved or cleared on this server (ADR-230 D8). */
   linear: { connectionChanged: [connected: boolean] };
   /**
@@ -248,6 +250,7 @@ export const SUBSCRIPTIONS = {
   "hosts.onReconnected": "hosts.reconnected",
   "hosts.onServerChanged": "hosts.serverChanged",
   "hosts.onPairingChanged": "hosts.pairingChanged",
+  "hostProfiles.onChanged": "hostProfiles.changed",
   "linear.onConnectionChanged": "linear.connectionChanged",
   "theme.onChanged": "theme.changed",
   "ports.onChange": "ports.changed",

@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
-import type { Choice, TemplateCheck, TemplateInfo } from "../../../electron.d";
+import type { Choice, HostProfile, TemplateCheck, TemplateInfo } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
@@ -21,7 +21,8 @@ import styles from "./HostsPage.module.css";
 import { TemplateChecklist } from "./TemplateChecklist";
 
 /** Where the recipe contract and a worked ssh example are (ADR-229 D8). */
-export const RECIPES_DOCS_URL = "https://github.com/orrybaram/manor/blob/main/docs/hosts/recipes.md";
+export const RECIPES_DOCS_URL =
+  "https://github.com/orrybaram/manor/blob/main/docs/hosts/recipes.md";
 
 const CUSTOM = "__custom__";
 
@@ -30,9 +31,18 @@ type StartHostFormProps = {
    * A host was registered from a recipe and is starting: its `up` runs, and
    * its progress streams into its status on the page.
    */
-  onStarted: (hostId: string) => void;
+  onStarted?: (hostId: string) => void;
   /** Without it the form has no Cancel: the Add a host wizard owns one. */
   onCancel?: () => void;
+  /**
+   * "host" starts a host; "profile" (ADR-235 D2) saves a profile instead:
+   * no per-host fields, a Name and idle stop, and no custom recipe.
+   */
+  mode?: "host" | "profile";
+  /** Profile mode: the profile being edited; absent makes a new one. */
+  profile?: HostProfile;
+  /** Profile mode: the profile was saved. */
+  onSaved?: (profile: HostProfile) => void;
 };
 
 /**
@@ -43,10 +53,10 @@ type StartHostFormProps = {
  * manager; the host is started from it once the user says it is ready.
  */
 export function StartHostForm(props: StartHostFormProps) {
-  const { onStarted, onCancel } = props;
+  const { onStarted, onCancel, mode = "host", profile, onSaved } = props;
 
   const [templates, setTemplates] = useState<TemplateInfo[] | null>(null);
-  const [choice, setChoice] = useState("");
+  const [choice, setChoice] = useState(profile?.templateId ?? "");
   const [action, setAction] = useState<{ busy: boolean; error: string | null }>({
     busy: false,
     error: null,
@@ -73,7 +83,7 @@ export function StartHostForm(props: StartHostFormProps) {
   const template = templates?.find((t) => t.id === choice) ?? null;
   const options = [
     ...(templates ?? []).map((t) => ({ value: t.id, label: t.name })),
-    { value: CUSTOM, label: "Custom recipe" },
+    ...(mode === "host" ? [{ value: CUSTOM, label: "Custom recipe" }] : []),
   ];
 
   const pick = (id: string) => {
@@ -91,16 +101,18 @@ export function StartHostForm(props: StartHostFormProps) {
 
   return (
     <Stack gap="sm" data-testid="start-host-form">
-      <SearchableSelect
-        value={choice}
-        placeholder={templates === null ? "Loading templates…" : "Pick a template…"}
-        onChange={pick}
-        options={options}
-        maxWidth={260}
-        loading={templates === null}
-        aria-label="Template"
-        data-testid="start-host-template"
-      />
+      {!profile && (
+        <SearchableSelect
+          value={choice}
+          placeholder={templates === null ? "Loading templates…" : "Pick a template…"}
+          onChange={pick}
+          options={options}
+          maxWidth={260}
+          loading={templates === null}
+          aria-label="Template"
+          data-testid="start-host-template"
+        />
+      )}
       {template && (
         // Keyed, so picking another template starts its form afresh.
         <TemplateForm
@@ -110,10 +122,13 @@ export function StartHostForm(props: StartHostFormProps) {
           run={run}
           onStarted={onStarted}
           onCancel={onCancel}
+          mode={mode}
+          profile={profile}
+          onSaved={onSaved}
         />
       )}
-      {choice === CUSTOM && (
-        <CustomRecipe busy={busy} run={run} onStarted={onStarted} onCancel={onCancel} />
+      {choice === CUSTOM && mode === "host" && (
+        <CustomRecipe busy={busy} run={run} onStarted={onStarted ?? noop} onCancel={onCancel} />
       )}
       {choice === "" && onCancel && (
         <div>
@@ -135,9 +150,22 @@ type TemplateFormProps = {
   template: TemplateInfo;
   busy: boolean;
   run: (work: () => Promise<void>) => void;
-  onStarted: (hostId: string) => void;
+  onStarted?: (hostId: string) => void;
   onCancel?: () => void;
+  mode: "host" | "profile";
+  profile?: HostProfile;
+  onSaved?: (profile: HostProfile) => void;
 };
+
+const noop = () => {};
+
+/** "Stop when idle for" (ADR-235 D6): minutes as text, "" for Off. */
+const IDLE_OPTIONS = [
+  { value: "", label: "Off" },
+  { value: "30", label: "30 min" },
+  { value: "60", label: "60 min" },
+  { value: "120", label: "120 min" },
+];
 
 /** How long after the last edit the checklist is asked again. */
 const EDIT_DEBOUNCE_MS = 300;
@@ -156,10 +184,17 @@ type Field = TemplateInfo["fields"][number];
  * the latest answer is kept.
  */
 function TemplateForm(props: TemplateFormProps) {
-  const { template, busy, run, onStarted, onCancel } = props;
+  const { template, busy, run, onStarted, onCancel, mode, profile, onSaved } = props;
+  const isProfile = mode === "profile";
 
-  const [values, setValues] = useState<Record<string, string>>(() =>
-    Object.fromEntries(template.fields.map((f) => [f.key, f.default ?? ""])),
+  const [values, setValues] = useState<Record<string, string>>(() => ({
+    ...Object.fromEntries(template.fields.map((f) => [f.key, f.default ?? ""])),
+    ...profile?.values,
+  }));
+  const [profileName, setProfileName] = useState(profile?.name ?? "");
+  // A new profile stops when idle after an hour; an edited one keeps its own.
+  const [idle, setIdle] = useState(
+    profile ? (profile.idleStopMinutes === undefined ? "" : String(profile.idleStopMinutes)) : "60",
   );
   // Null until the first check answers.
   const [choices, setChoices] = useState<Record<string, Choice[]> | null>(null);
@@ -183,8 +218,7 @@ function TemplateForm(props: TemplateFormProps) {
     if (!defaults) return false;
     const current = valuesRef.current;
     const fill = Object.entries(defaults).filter(
-      ([key, value]) =>
-        value !== "" && (current[key] ?? "") === "" && !touchedRef.current.has(key),
+      ([key, value]) => value !== "" && (current[key] ?? "") === "" && !touchedRef.current.has(key),
     );
     if (fill.length === 0) return false;
     const next = { ...current, ...Object.fromEntries(fill) };
@@ -281,22 +315,42 @@ function TemplateForm(props: TemplateFormProps) {
     run(async () => {
       const recipeId = await window.electronAPI.hosts.createRecipe(template.id, values);
       const { hostId } = await window.electronAPI.hosts.addRecipeHost(recipeId);
-      onStarted(hostId);
+      onStarted?.(hostId);
     });
 
-  const visible = template.fields.filter((f) => !f.advanced);
-  const advanced = template.fields.filter((f) => f.advanced);
-  const missing = template.fields.filter((f) => f.required && !(values[f.key] ?? "").trim());
+  const save = () =>
+    run(async () => {
+      const answers = Object.fromEntries(
+        Object.entries(values).filter(([key]) => !template.perHost.includes(key)),
+      );
+      const saved = await window.electronAPI.hostProfiles.save({
+        ...(profile ? { id: profile.id } : {}),
+        name: profileName.trim(),
+        templateId: template.id,
+        values: answers,
+        idleStopMinutes: idle === "" ? null : Number(idle),
+      });
+      onSaved?.(saved);
+    });
+
+  // A profile never asks for what differs per host (ADR-235 D1).
+  const fields = isProfile
+    ? template.fields.filter((f) => !template.perHost.includes(f.key))
+    : template.fields;
+  const visible = fields.filter((f) => !f.advanced);
+  const advanced = fields.filter((f) => f.advanced);
+  const missing = fields.filter((f) => f.required && !(values[f.key] ?? "").trim());
   const checksReady = checks !== null && checks.every((c) => c.state === "ok");
+  const verb = isProfile ? "save" : "start";
   const gateHint =
     checks === null
       ? null
       : !checksReady
-        ? "Fix the items above to start."
+        ? `Fix the items above to ${verb}.`
         : missing.length > 0
           ? `Fill in ${missing.map((f) => f.label).join(", ")}${
               missing.some((f) => f.advanced) ? " under Advanced" : ""
-            } to start.`
+            } to ${verb}.`
           : null;
 
   const renderField = (field: Field) => (
@@ -314,6 +368,32 @@ function TemplateForm(props: TemplateFormProps) {
   return (
     <>
       <div className={settingsStyles.fieldHint}>{template.description}</div>
+      {isProfile && (
+        <>
+          <SettingField label="Name" hint="How Manor names this profile, e.g. Work cluster.">
+            <EmojiInput
+              data-testid="profile-name"
+              placeholder="e.g. Work cluster"
+              value={profileName}
+              disabled={busy}
+              onChange={(e) => setProfileName(e.target.value)}
+            />
+          </SettingField>
+          <SettingField
+            label="Stop when idle for"
+            hint="Its hosts stop on their own after this long without activity."
+          >
+            <ToggleGroup
+              value={idle}
+              onChange={setIdle}
+              options={IDLE_OPTIONS}
+              size="sm"
+              aria-label="Stop when idle for"
+              data-testid="profile-idle"
+            />
+          </SettingField>
+        </>
+      )}
       {visible.map(renderField)}
       <TemplateChecklist checks={checks} fixing={fixing} disabled={busy} onFix={fix} />
       {fixError && (
@@ -348,11 +428,13 @@ function TemplateForm(props: TemplateFormProps) {
         <Button
           variant="primary"
           size="sm"
-          data-testid="start-host-submit"
-          disabled={busy || missing.length > 0 || !checksReady}
-          onClick={start}
+          data-testid={isProfile ? "profile-save" : "start-host-submit"}
+          disabled={
+            busy || missing.length > 0 || !checksReady || (isProfile && profileName.trim() === "")
+          }
+          onClick={isProfile ? save : start}
         >
-          {busy ? "Starting…" : "Start host"}
+          {isProfile ? (busy ? "Saving…" : "Save profile") : busy ? "Starting…" : "Start host"}
         </Button>
         {onCancel && (
           <Button variant="ghost" size="sm" disabled={busy} onClick={onCancel}>
@@ -462,7 +544,10 @@ function CustomRecipe(props: CustomRecipeProps) {
   const { busy, run, onStarted, onCancel } = props;
 
   const [name, setName] = useState("");
-  const [created, setCreated] = useState<{ recipeId: string; file: string } | null>(null);
+  const [created, setCreated] = useState<{
+    recipeId: string;
+    file: string;
+  } | null>(null);
 
   const createFolder = () =>
     run(async () => {
@@ -480,8 +565,8 @@ function CustomRecipe(props: CustomRecipeProps) {
   return (
     <Stack gap="xs" data-testid="start-host-custom">
       <div className={settingsStyles.fieldHint}>
-        A recipe is your own <code>up</code> script, run on this computer: it starts the host
-        and prints how to reach it, over ssh or a command like <code>docker exec</code>.{" "}
+        A recipe is your own <code>up</code> script, run on this computer: it starts the host and
+        prints how to reach it, over ssh or a command like <code>docker exec</code>.{" "}
         <code>stop</code>, <code>status</code> and <code>destroy</code> are optional.{" "}
         <Link href={RECIPES_DOCS_URL}>How recipes work</Link>
       </div>

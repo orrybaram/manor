@@ -62,3 +62,12 @@ export function idleStopText(minutes: number | undefined, desktopName: string): 
   const after = minutes === undefined ? "Stops when idle" : `Stops after ${minutes} min idle`;
   return `${after} only while ${desktopName} is awake`;
 }
+
+/** The confirmation for removing a host profile (ADR-235 D2). */
+export const REMOVE_PROFILE_TEXT = "Its hosts keep running. They'll no longer be grouped.";
+
+/** A profile's template and where it points, for its row: "Kubernetes · prod / manor". */
+export function profileSummary(templateName: string, values: Record<string, string>): string {
+  const where = [values.context, values.namespace].filter((v) => v);
+  return [templateName, ...(where.length > 0 ? [where.join(" / ")] : [])].join(" · ");
+}

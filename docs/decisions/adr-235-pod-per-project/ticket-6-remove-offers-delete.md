@@ -1,6 +1,6 @@
 ---
 title: Remove Project / Remove from host offer to delete the project's pod
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

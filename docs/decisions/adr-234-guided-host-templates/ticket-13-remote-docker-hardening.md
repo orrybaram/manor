@@ -1,6 +1,6 @@
 ---
 title: Remote Docker — recreate a missing context in up.sh, cache the SSH probe
-status: todo
+status: in-progress
 priority: medium
 assignee: sonnet
 blocked_by: [11, 12]

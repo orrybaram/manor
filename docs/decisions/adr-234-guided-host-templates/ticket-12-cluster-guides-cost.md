@@ -1,6 +1,6 @@
 ---
 title: "Where's your cluster?" guides, kubeconfig watcher, disk cost note
-status: in-progress
+status: done
 priority: low
 assignee: sonnet
 blocked_by: [11]

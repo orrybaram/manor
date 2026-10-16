@@ -38,3 +38,6 @@ ADR-235, all slices.
 ## Notes from ticket 9
 - Sign-in needs kubectl 1.20 or later (`--patch-file /dev/stdin`) and macOS or Linux.
 - Check against a real cluster, ideally in the recipe-kubernetes e2e: does `gh auth setup-git` work in a pod with only `GH_TOKEN` set and no gh config? The step can fail without failing `up`.
+
+## Notes from ticket 12
+- A new profile shows no sign-in section until it has been saved and reopened, because sign-in needs a profile id. The docs should say: save the profile, then turn on sign-in.

@@ -208,5 +208,8 @@ export type HostRefusedMethod = LocalOnly<
   | "hostProfiles.list"
   | "hostProfiles.save"
   | "hostProfiles.remove"
+  | "hostProfiles.setSignIn"
+  | "hostProfiles.removeSignIn"
+  | "hostProfiles.restartPods"
   | "projects.openInNewHost"
 >;

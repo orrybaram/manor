@@ -52,6 +52,9 @@ export const LOCAL_ONLY_METHODS = [
   "hostProfiles.list",
   "hostProfiles.save",
   "hostProfiles.remove",
+  "hostProfiles.setSignIn",
+  "hostProfiles.removeSignIn",
+  "hostProfiles.restartPods",
   "projects.openInNewHost",
 ] as const;
 

@@ -5,6 +5,9 @@
  * scales it to 0, `up` to 1, `destroy` deletes the set, the claim and the
  * Secret.
  *
+ * The pod also reads the namespace's optional `manor-signin` Secret into its
+ * environment (ADR-235 D9, `signin.ts`).
+ *
  * The scripts keep stdout for the one JSON object (fd 3).
  */
 
@@ -131,6 +134,13 @@ spec:
               value: /run/secrets/manor-key
             - name: MANOR_INSTANCE_ID
               value: "$namespace/$name"
+          # "Sign new pods in for me" (ADR-235 D9): GH_TOKEN and
+          # CLAUDE_CODE_OAUTH_TOKEN, when the profile set them. Optional, so
+          # the pod starts the same without the Secret.
+          envFrom:
+            - secretRef:
+                name: manor-signin
+                optional: true
           volumeMounts:
             - name: home
               mountPath: /home/manor
@@ -169,6 +179,12 @@ for hook in on-idle on-busy; do
     chmod 755 "$hooks/$hook"
   fi
 done
+# With a GitHub token from manor-signin (ADR-235 D9), let gh be git's
+# credential helper: the clone and git push then use the token. Idempotent;
+# it lands in ~/.gitconfig on the home volume. Runs as the container's user.
+if [ -n "\${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
+  gh auth setup-git || echo "manor: gh auth setup-git failed" >&2
+fi
 HOOKS
 
 argv='"kubectl"'

@@ -248,6 +248,9 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hostProfiles.list": "home",
   "hostProfiles.save": "home",
   "hostProfiles.remove": "home",
+  "hostProfiles.setSignIn": "home",
+  "hostProfiles.removeSignIn": "home",
+  "hostProfiles.restartPods": "home",
 
   // Each server watches the workspaces it answers for (ADR-230 D6); a
   // desktop window alone still hands its whole list to its own server,

@@ -266,6 +266,23 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(destroy).not.toContain("manor-deny-ingress");
   });
 
+  it("kubernetes: the pod reads the optional manor-signin Secret, and up sets up gh for git (ADR-235 D9)", () => {
+    const manifest = renderManifest(K8S_ENV);
+    expect(manifest).toContain(
+      "          envFrom:\n            - secretRef:\n                name: manor-signin\n                optional: true\n",
+    );
+    const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
+    const hooks = up.slice(up.indexOf("<<'HOOKS'"), up.lastIndexOf("HOOKS"));
+    // Inside the quoted heredoc, so GH_TOKEN is the pod's, not the laptop's.
+    expect(hooks).toContain('if [ -n "${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then');
+    expect(hooks).toContain("gh auth setup-git ||");
+    // The recipe never handles a token: no `env:` entry reads the Secret.
+    expect(up).not.toContain("secretKeyRef");
+    const destroy = RECIPE_TEMPLATES[1].files["destroy.sh"].content;
+    // Shared by the namespace's pods: destroy leaves it.
+    expect(destroy).not.toContain("manor-signin");
+  });
+
   it("kubernetes: an old recipe without a size renders no resources block", () => {
     const manifest = renderManifest(K8S_ENV);
     expect(manifest).not.toContain("limits:");

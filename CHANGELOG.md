@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.22.6] - 2026-10-17
+
+### Fixes
+
+- Phone: A phone that a host refuses now gets a new pairing by itself. Before, it stayed "Only through <desktop>" until you tapped **Connect directly**. The only phones kept out are those whose pairing was revoked on the host. On the phone's Hosts sheet, **Connect directly** now shows only for hosts you removed by hand.
+
+### Improvements
+
+- Settings → Hosts now lists blocked devices by name under the "Devices can reach" switch.
+
 ## [0.22.5] - 2026-10-16
 
 ### Fixes

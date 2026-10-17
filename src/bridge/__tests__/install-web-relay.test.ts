@@ -475,8 +475,11 @@ describe("install-web on a relay-served page", () => {
       expect(ask?.args).toEqual([[DESK, BOX]]);
     });
 
-    it("forgets only the pairing refused with 4401, and drops its server", async () => {
-      store({ roomId: DESK, lastUsedAt: 1 }, { roomId: BOX, lastUsedAt: 2 });
+    const asks = (socket: ReturnType<typeof socketFor>) =>
+      socket.frames.filter((f) => f.ns === "remoteControl" && f.method === "linkHostPairings");
+
+    it("forgets only the pairing refused with 4401, drops its server, and asks the desktop again", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 2 });
       const { mod, api } = await install("");
       const { servers } = await import("../server-set");
       const outcome = vi.fn();
@@ -486,14 +489,39 @@ describe("install-web on a relay-served page", () => {
       const box = socketFor(BOX);
       box.accept();
       box.respond();
+      expect(asks(socketFor(DESK))).toHaveLength(1);
       box.hostClose(4401);
+      await vi.advanceTimersByTimeAsync(0);
       expect(stored().map((p) => p.roomId)).toEqual([DESK]);
-      // Revoked on its host: no desktop hands it back (ADR-228 D9).
+      // Only the pairing goes: the desktop may mint it again (ADR-238).
       const { declinedRooms } = await import("../pairings");
-      expect(declinedRooms()).toEqual([BOX]);
+      expect(declinedRooms()).toEqual([]);
+      expect(asks(socketFor(DESK))).toHaveLength(2);
       expect(servers.list().map((s) => s.id)).toEqual([DESK]);
       expect(servers.homeId).toBe(DESK);
       expect(outcome).not.toHaveBeenCalled();
+    });
+
+    it("asks again only once per room in a load, however often it is refused", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).handshake();
+      socketFor(BOX).hostClose(4401);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(asks(socketFor(DESK))).toHaveLength(2);
+      // The desktop mints it again, and the host refuses that one too.
+      const pairings = await import("../pairings");
+      pairings.linkPairing({
+        roomId: BOX,
+        serverKey: base64urlEncode(FakeRelaySocket.key.pub),
+        token: "minted",
+        name: "me@box",
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      socketFor(BOX).hostClose(4401);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(asks(socketFor(DESK))).toHaveLength(2);
     });
 
     it("gives up on a host pairing that never says hello, so the desktop answers for it", async () => {

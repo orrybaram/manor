@@ -19,6 +19,7 @@ import {
   removePairing,
   renamePairing,
   selectPairing,
+  subscribePairings,
   upsertPairing,
 } from "../pairings";
 
@@ -199,6 +200,36 @@ describe("pairings store", () => {
     expect(relink).toHaveBeenCalledOnce();
     expect(declinedRooms()).toEqual([]);
     expect(listPairings().map((p) => p.roomId)).toEqual([A, B]);
+  });
+
+  it("returns the same declined list until it changes", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    const first = declinedRooms();
+    expect(declinedRooms()).toBe(first);
+    declinePairing(listPairings()[0]);
+    const second = declinedRooms();
+    expect(second).toEqual([A]);
+    expect(declinedRooms()).toBe(second);
+  });
+
+  it("has the room declined by the time a subscriber hears of its removal", () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    const seen: string[][] = [];
+    const off = subscribePairings(() => seen.push(declinedRooms()));
+    declinePairing(listPairings()[0]);
+    off();
+    expect(seen).toEqual([[A]]);
+  });
+
+  it("notifies when connecting directly to a declined room", async () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
+    declinePairing(listPairings()[0]);
+    const cb = vi.fn();
+    const off = subscribePairings(cb);
+    await connectRoomDirectly(A);
+    off();
+    expect(cb).toHaveBeenCalled();
+    expect(declinedRooms()).toEqual([]);
   });
 
   it("reuses the smallest free Host number", () => {

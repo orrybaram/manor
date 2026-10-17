@@ -40,7 +40,10 @@
  *   answered by that pairing while it is reachable, else by the desktop.
  * - **4401** forgets only that pairing and takes its server out of the set;
  *   the pairing screen shows only once no pairing is left. Likewise
- *   key-mismatch: its screen shows once every pairing has been refused.
+ *   key-mismatch: its screen shows once every pairing has been refused. The
+ *   room is not declined, so the page asks each desktop to link its hosts
+ *   once more per load (`autoRelinked`, ADR-238): a host that was reset or
+ *   moved gets a fresh pairing, one revoked on the host stays blocked.
  * - **The version redirect** follows the home server only. Another server on
  *   another version stays in the set, its version recorded.
  * - **The list is followed.** A pairing removed in the Hosts sheet leaves the
@@ -48,8 +51,8 @@
  * - **One pairing covers every host** (D9). Every hello from a desktop asks
  *   it for pairings with its hosts this page does not hold
  *   (`remoteControl.linkHostPairings`); each joins the list, and so the set.
- *   Rooms the user removed, or a host refused, are sent as held
- *   (`declinedRooms`), so they are not minted again.
+ *   Rooms the user removed are sent as held (`declinedRooms`), so they are
+ *   not minted again.
  *
  * Each server's last merged answers are kept in IndexedDB (`./last-known.ts`),
  * so a reload with a server away still shows what it last said (D6).
@@ -374,6 +377,9 @@ function onHello(entry: Held, reply: HelloReply): void {
   for (const waiter of helloWaiters.splice(0)) waiter(resynced);
 }
 
+/** Rooms already re-linked after a 4401 this load: one ask each (ADR-238). */
+const autoRelinked = new Set<string>();
+
 /** Refused: 4401 (the pairing is dead) or key-mismatch (it may not be). */
 function refuse(entry: Held, outcome: BridgeOutcome): void {
   const { roomId } = entry.pairing;
@@ -385,10 +391,15 @@ function refuse(entry: Held, outcome: BridgeOutcome): void {
     // not change. The last one left stays, for `web-main` to say so.
     if (held.size === 1) servers.setOutcome(roomId, outcome);
     forgetPairing(entry.pairing);
-    if (held.size > 1) {
-      drop(roomId);
-      return;
+    const others = held.size > 1;
+    if (others) drop(roomId);
+    // Reset or moved, the host's new pairing comes from the desktop; ask
+    // once. A device revoked on the host is blocked there, and stays gone.
+    if (!autoRelinked.has(roomId)) {
+      autoRelinked.add(roomId);
+      relinkAll().catch((err: unknown) => console.error("relink after refusal failed", err));
     }
+    if (others) return;
   }
   // Repeated bad Noise message 2s: the host's relay address was reset. The
   // pairing is kept (this may just be a stale tab); its transport has
@@ -534,13 +545,14 @@ export async function refreshBridge(): Promise<void> {
 registerRefresh(refreshBridge);
 
 /** "Connect directly" in the Hosts sheet: every reachable desktop links its hosts now. */
-registerRelink(async () => {
+async function relinkAll(): Promise<void> {
   const desktops = [...held.values()].filter(
     (entry) =>
       entry.kind === "desktop" && servers.facts(entry.pairing.roomId).reachability === "connected",
   );
   await Promise.all(desktops.map(linkHosts));
-});
+}
+registerRelink(relinkAll);
 
 if (homeAtBoot === null) {
   servers.add(

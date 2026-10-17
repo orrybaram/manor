@@ -30,7 +30,7 @@ import {
   isRelayCredentials,
   lastUsedPairing,
   migrateLegacyPairing,
-  declinePairing,
+  removePairing,
   upsertPairing,
   type RelayCredentials,
 } from "./pairings";
@@ -112,12 +112,12 @@ export function readPairing(): Pairing {
  * The host refused `pairing` (4401): drop it — but only if it is still what
  * is stored. Another tab may have taken a newer link since this one loaded,
  * and a stale tab's refusal must not erase that. The other pairings stay.
- * The room is remembered as declined: revoked on its host (a "via This Mac"
- * row, say), it must not be minted again by the desktop (ADR-228 D9). A
- * host's reset keys give it a new room, which is not declined.
+ * The room is not declined: the desktop mints it again on its next hello
+ * unless that device was revoked on the host, which the desktop remembers
+ * (ADR-238).
  */
 export function forgetPairing(pairing: Pairing): void {
-  if (pairing !== null) declinePairing(pairing);
+  if (pairing !== null) removePairing(pairing);
 }
 
 /** A version that can be put in a path without saying anything else. */

@@ -6,7 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 import { base64urlEncode } from "../../lib/relay-crypto";
-import { LEGACY_RELAY_KEY, PAIRINGS_KEY, listPairings } from "../pairings";
+import { LEGACY_RELAY_KEY, PAIRINGS_KEY, declinedRooms, listPairings } from "../pairings";
 import {
   VERSION_REDIRECT_KEY,
   forgetPairing,
@@ -186,6 +186,8 @@ describe("readPairing", () => {
     const pairing = readPairing();
     forgetPairing(pairing);
     expect(listPairings()).toEqual([]);
+    // Only the pairing goes: the room is not declined (ADR-238).
+    expect(declinedRooms()).toEqual([]);
   });
 
   it("forgetPairing keeps a newer relay pairing another tab stored", () => {
@@ -209,6 +211,7 @@ describe("readPairing", () => {
     at("");
     expect(readPairing()).toMatchObject({ roomId: ROOM2, serverKey: KEY, token: "second" });
     expect(listPairings()).toHaveLength(1);
+    expect(declinedRooms()).toEqual([]);
   });
 
   it("a new link adds to the stored pairings rather than replacing them", () => {

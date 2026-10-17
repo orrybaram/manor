@@ -23,8 +23,8 @@ import { ROOM_ID_LENGTH, base64urlDecode } from "../lib/relay-crypto";
 export const PAIRINGS_KEY = "manor.web.pairings";
 
 /**
- * Rooms this browser has let go of (ADR-228 D9): a pairing removed in the
- * Hosts sheet, or refused with 4401 (revoked on its host). Sent with the held
+ * Rooms this browser has let go of (ADR-228 D9): a pairing removed by hand in
+ * the Hosts sheet. A host's 4401 refusal does not decline (ADR-238). Sent with the held
  * rooms to `remoteControl.linkHostPairings`, so a desktop does not mint the
  * room again on its next hello. A link for the room (`upsertPairing`, a QR
  * re-pair) takes it back. JSON `string[]`, newest last.
@@ -362,30 +362,50 @@ export function removePairing(credentials: RelayCredentials): boolean {
 }
 
 /**
- * The user removed `credentials`' pairing, or its host refused it: drop it
- * (as `removePairing`) and remember the room as declined, so a desktop's
- * `linkHostPairings` does not hand it back (ADR-228 D9).
+ * The user removed `credentials`' pairing: drop it (as `removePairing`) and
+ * remember the room as declined, so a desktop's `linkHostPairings` does not
+ * hand it back (ADR-228 D9). The declined list is written first, so a
+ * subscriber notified of the removal already sees the room declined.
  */
 export function declinePairing(credentials: RelayCredentials): void {
-  // A stale tab's refusal removes nothing, and declines nothing either.
-  if (!removePairing(credentials)) return;
+  // A stale tab's removal finds no such pairing, and declines nothing either.
+  const exists = listPairings().some(
+    (p) =>
+      p.roomId === credentials.roomId &&
+      p.serverKey === credentials.serverKey &&
+      p.token === credentials.token,
+  );
+  if (!exists) return;
   const declined = declinedRooms().filter((room) => room !== credentials.roomId);
   declined.push(credentials.roomId);
   storageSet(DECLINED_KEY, JSON.stringify(declined.slice(-MAX_DECLINED)));
+  removePairing(credentials);
 }
+
+const NO_ROOMS: string[] = [];
+/** The parsed declined list for `useSyncExternalStore`: stable until it changes. */
+let declinedSnapshot: { raw: string | null; list: string[] } = {
+  raw: null,
+  list: NO_ROOMS,
+};
 
 /** Rooms this browser has let go of, which no desktop should mint again. */
 export function declinedRooms(): string[] {
   const raw = storageGet(DECLINED_KEY);
-  if (raw === null) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed)
-      ? parsed.filter((room): room is string => typeof room === "string")
-      : [];
-  } catch {
-    return [];
+  if (raw === declinedSnapshot.raw) return declinedSnapshot.list;
+  let list = NO_ROOMS;
+  if (raw !== null) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        list = parsed.filter((room): room is string => typeof room === "string");
+      }
+    } catch {
+      // Unreadable: nothing is declined.
+    }
   }
+  declinedSnapshot = { raw, list };
+  return list;
 }
 
 /** A fresh link for `roomId`: it is no longer declined. */
@@ -395,6 +415,7 @@ function undeclineRoom(roomId: string): void {
   const next = declined.filter((room) => room !== roomId);
   if (next.length === 0) storageRemove(DECLINED_KEY);
   else storageSet(DECLINED_KEY, JSON.stringify(next));
+  notify();
 }
 
 let relinker: (() => Promise<void>) | null = null;
@@ -406,8 +427,7 @@ export function registerRelink(fn: () => Promise<void>): void {
 
 /**
  * The user asked for `roomId`'s host directly, though this browser let it go
- * (`declinedRooms`) — removed by hand, or refused once by its host, which a
- * reset or a key move can do. It is no longer declined, and each reachable
+ * (`declinedRooms`) — removed by hand. It is no longer declined, and each reachable
  * desktop is asked to mint this browser a pairing there now. Resolves once
  * they have answered.
  */
@@ -419,7 +439,7 @@ export async function connectRoomDirectly(roomId: string): Promise<void> {
 export function subscribePairings(cb: () => void): () => void {
   listeners.add(cb);
   const onStorage = (e: StorageEvent) => {
-    if (e.key === PAIRINGS_KEY) cb();
+    if (e.key === PAIRINGS_KEY || e.key === DECLINED_KEY) cb();
   };
   if (typeof window !== "undefined") window.addEventListener("storage", onStorage);
   return () => {

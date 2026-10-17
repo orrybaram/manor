@@ -381,6 +381,7 @@ describe("hosts phone access", () => {
       devices: [],
       linkPhones: true,
       linkedDeviceIds: [],
+      blockedDevices: [],
       supervisor: null,
       supervise: false,
     });
@@ -453,7 +454,11 @@ describe("hosts phone access", () => {
 
   it("carries the phone-link switch and which phones this desktop linked (ADR-228 D9)", async () => {
     const { ctx } = withServer("connected");
-    const hostLinks = { linkedOn: vi.fn().mockReturnValue(["d1"]), setLinkPhones: vi.fn() };
+    const hostLinks = {
+      linkedOn: vi.fn().mockReturnValue(["d1"]),
+      blockedOn: vi.fn().mockReturnValue([]),
+      setLinkPhones: vi.fn(),
+    };
     const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
     const view = await hostsServerStatus(linkedCtx, "box");
     expect(view.linkPhones).toBe(true);
@@ -461,9 +466,39 @@ describe("hosts phone access", () => {
     expect(hostLinks.linkedOn).toHaveBeenCalledWith("box");
   });
 
+  it("revokes through the links, which block the phone there, and still says the pairing changed (ADR-238 D3)", async () => {
+    const { ctx, client, hostServerSync } = withServer("connected");
+    const hostLinks = {
+      revokeOnHost: vi.fn(async (_h: string, _d: string, revoke: () => Promise<unknown>) => revoke()),
+    };
+    const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+    await hostsRevokeDevice(linkedCtx, "box", "d1");
+    expect(hostLinks.revokeOnHost).toHaveBeenCalledWith("box", "d1", expect.any(Function));
+    expect(client.revoke).toHaveBeenCalledWith("d1");
+    expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
+  });
+
+  it("carries the phones revoked on the host, the host away too (ADR-238 D3)", async () => {
+    for (const state of ["connected", "disconnected"] as const) {
+      const { ctx } = withServer(state);
+      const hostLinks = {
+        linkedOn: vi.fn().mockReturnValue([]),
+        blockedOn: vi.fn().mockReturnValue([{ deviceId: "p1", label: "Orry's phone" }]),
+      };
+      const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
+      const view = await hostsServerStatus(linkedCtx, "box");
+      expect(view.blockedDevices).toEqual([{ id: "p1", label: "Orry's phone" }]);
+      expect(hostLinks.blockedOn).toHaveBeenCalledWith("box");
+    }
+  });
+
   it("sets the phone-link switch through the links, away host included, and says the pairing changed", async () => {
     const { ctx } = withServer("disconnected");
-    const hostLinks = { linkedOn: vi.fn(), setLinkPhones: vi.fn().mockResolvedValue(undefined) };
+    const hostLinks = {
+      linkedOn: vi.fn(),
+      blockedOn: vi.fn().mockReturnValue([]),
+      setLinkPhones: vi.fn().mockResolvedValue(undefined),
+    };
     const linkedCtx = { ...ctx, deps: { ...(ctx.deps as object), hostLinks } } as typeof ctx;
     await hostsSetLinkPhones(linkedCtx, "box", false);
     expect(hostLinks.setLinkPhones).toHaveBeenCalledWith("box", false);

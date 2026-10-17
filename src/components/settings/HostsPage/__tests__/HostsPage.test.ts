@@ -45,7 +45,7 @@ import { useHostStore, type HostStatusInfo } from "../../../../store/host-store"
 import type { HostServerView } from "../../../../electron.d";
 import { SettingsJumpContext } from "../../SettingsModal/settings-nav";
 import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
-import { HostRow } from "../HostRow";
+import { HostRow, blockedDevicesLine } from "../HostRow";
 import {
   idleStopText,
   pairingKeysState,
@@ -60,6 +60,7 @@ function view(over: Partial<HostServerView> = {}): HostServerView {
     devices: [],
     linkPhones: true,
     linkedDeviceIds: [],
+    blockedDevices: [],
     supervisor: null,
     supervise: true,
     ...over,
@@ -405,6 +406,20 @@ describe("HostRow", () => {
     });
   });
 
+  describe("phones removed on the host (ADR-238 D3)", () => {
+    it("shows the hint under the switch", async () => {
+      await render(host(), view({ blockedDevices: [{ id: "p1", label: "Orry's phone" }] }));
+      expect(q("host-blocked-devices")?.textContent).toBe(
+        "Orry's phone was removed on Dev pod. Turn the switch off and on to pair it again.",
+      );
+    });
+
+    it("shows no hint when nothing was removed", async () => {
+      await render(host(), view());
+      expect(q("host-blocked-devices")).toBeNull();
+    });
+  });
+
   describe("removing", () => {
     it("destroys only once the host's name is typed", async () => {
       await render(host());
@@ -445,6 +460,21 @@ describe("HostRow", () => {
       expect(q("host-remove-error")?.textContent).toContain("destroy.sh exited 1");
       expect(q("host-remove-dialog")).not.toBeNull();
     });
+  });
+});
+
+describe("blockedDevicesLine (ADR-238 D3)", () => {
+  it("names one device", () => {
+    expect(blockedDevicesLine(["Orry's phone"], "build")).toBe(
+      "Orry's phone was removed on build. Turn the switch off and on to pair it again.",
+    );
+  });
+
+  it("lists several", () => {
+    expect(blockedDevicesLine(["a", "b", "c"], "build")).toBe(
+      "a, b and c were removed on build. Turn the switch off and on to pair them again.",
+    );
+    expect(blockedDevicesLine(["a", "b"], "build")).toMatch(/^a and b were removed/);
   });
 });
 

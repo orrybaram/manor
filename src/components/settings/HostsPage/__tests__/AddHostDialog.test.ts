@@ -56,6 +56,7 @@ const boxView: HostServerView = {
   devices: [],
   linkPhones: true,
   linkedDeviceIds: [],
+    blockedDevices: [],
   supervisor: null,
   supervise: true,
 };

@@ -524,6 +524,61 @@ describe("install-web on a relay-served page", () => {
       expect(asks(socketFor(DESK))).toHaveLength(2);
     });
 
+    /** Answer the desktop's latest ask with `linked`. */
+    const answerLast = async (linked: unknown[]) => {
+      const all = asks(socketFor(DESK));
+      socketFor(DESK).deliver({
+        kind: "result",
+        id: all[all.length - 1]?.id,
+        ok: true,
+        result: linked,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+    };
+
+    it("retries the ask after a refusal until the desktop mints a pairing", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).handshake();
+      socketFor(BOX).hostClose(4401);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(asks(socketFor(DESK))).toHaveLength(2);
+      // The host's relay is not back yet: nothing to mint.
+      await answerLast([]);
+      expect(asks(socketFor(DESK))).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(asks(socketFor(DESK))).toHaveLength(3);
+      await answerLast([
+        {
+          roomId: BOX,
+          serverKey: base64urlEncode(FakeRelaySocket.key.pub),
+          token: "minted",
+          name: "me@box",
+        },
+      ]);
+      expect(stored().map((p) => p.roomId)).toContain(BOX);
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(asks(socketFor(DESK))).toHaveLength(3);
+    });
+
+    it("stops after four asks when the desktop never mints anything", async () => {
+      store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 2 });
+      const { api } = await install("");
+      void api.projects.getAll().catch(() => {});
+      socketFor(DESK).handshake();
+      socketFor(BOX).hostClose(4401);
+      await vi.advanceTimersByTimeAsync(0);
+      for (const delay of [0, 2000, 6000, 15000]) {
+        await vi.advanceTimersByTimeAsync(delay);
+        await answerLast([]);
+      }
+      // One ask on hello, then four in the sequence.
+      expect(asks(socketFor(DESK))).toHaveLength(5);
+      await vi.advanceTimersByTimeAsync(120000);
+      expect(asks(socketFor(DESK))).toHaveLength(5);
+    });
+
     it("gives up on a host pairing that never says hello, so the desktop answers for it", async () => {
       store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 0 });
       const list = JSON.parse(local.get(PAIRINGS_KEY) ?? "[]");

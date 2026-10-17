@@ -43,7 +43,9 @@
  *   key-mismatch: its screen shows once every pairing has been refused. The
  *   room is not declined, so the page asks each desktop to link its hosts
  *   once more per load (`autoRelinked`, ADR-238): a host that was reset or
- *   moved gets a fresh pairing, one revoked on the host stays blocked.
+ *   moved gets a fresh pairing, one revoked on the host stays blocked. A
+ *   reset host closes the phone before its relay is back, so the ask is
+ *   retried (`RELINK_DELAYS`) until a pairing appears.
  * - **The version redirect** follows the home server only. Another server on
  *   another version stays in the set, its version recorded.
  * - **The list is followed.** A pairing removed in the Hosts sheet leaves the
@@ -377,8 +379,22 @@ function onHello(entry: Held, reply: HelloReply): void {
   for (const waiter of helloWaiters.splice(0)) waiter(resynced);
 }
 
-/** Rooms already re-linked after a 4401 this load: one ask each (ADR-238). */
+/** Rooms already re-linked after a 4401 this load: one sequence each (ADR-238). */
 const autoRelinked = new Set<string>();
+
+/** Waits before each retry of a relink that added no pairing: the host's relay may still be coming back. */
+const RELINK_DELAYS = [2000, 6000, 15000];
+
+/** Ask now, then after each delay, stopping at the first ask that adds a pairing. */
+async function relinkUntilPaired(): Promise<void> {
+  const before = new Set(listPairings().map((p) => p.roomId));
+  await relinkAll();
+  for (const delay of RELINK_DELAYS) {
+    if (listPairings().some((p) => !before.has(p.roomId))) return;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    await relinkAll();
+  }
+}
 
 /** Refused: 4401 (the pairing is dead) or key-mismatch (it may not be). */
 function refuse(entry: Held, outcome: BridgeOutcome): void {
@@ -394,10 +410,10 @@ function refuse(entry: Held, outcome: BridgeOutcome): void {
     const others = held.size > 1;
     if (others) drop(roomId);
     // Reset or moved, the host's new pairing comes from the desktop; ask
-    // once. A device revoked on the host is blocked there, and stays gone.
+    // once (retrying). A device revoked on the host is blocked there, and stays gone.
     if (!autoRelinked.has(roomId)) {
       autoRelinked.add(roomId);
-      relinkAll().catch((err: unknown) => console.error("relink after refusal failed", err));
+      relinkUntilPaired().catch((err: unknown) => console.error("relink after refusal failed", err));
     }
     if (others) return;
   }

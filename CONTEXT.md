@@ -58,7 +58,7 @@ codebase, full functionality, authentication is its only boundary.
 _Avoid_: mobile app, mobile client, mobile/web experience, responsive client
 
 **Paired device**:
-A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s. One pairing with the desktop is enough: on every hello the device asks the desktop to pair it with each host it can reach (`remoteControl.linkHostPairings`), and the desktop mints a token in each host's **Room** and records the link, so revoking the device on the desktop revokes it on every host too. A host's "Phones paired with this Mac can reach <host>" switch opts that host out. A room the user removes on the device is remembered and not minted again until they pair it by QR (ADR-228 D9).
+A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s. One pairing with the desktop is enough: on every hello the device asks the desktop to pair it with each host it can reach (`remoteControl.linkHostPairings`), and the desktop mints a token in each host's **Room** and records the link, so revoking the device on the desktop revokes it on every host too. A host's "Devices can reach <host>" switch opts that host out. A room the user removes on the device is remembered there and not minted again until they ask for it (Connect directly) or pair by QR. A pairing a host refuses is only dropped, and the desktop mints it again, unless that device was revoked on the host, which the desktop remembers as a block until the switch is turned off and on (ADR-228 D9, ADR-238).
 _Avoid_: remote, client device, session
 
 **Relay**:

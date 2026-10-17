@@ -557,6 +557,22 @@ describe("HostPairingLinks", () => {
       expect(pairingChanged).not.toHaveBeenCalled();
     });
 
+    it("never blocks a phone whose old link this desktop revoked after a failed mint", async () => {
+      const id = await linkedOnBox();
+      // The phone let the room go; the mint that would replace its link fails.
+      box().api.remoteControl.pair.mockRejectedValueOnce(new Error("owner channel closed"));
+      await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+      expect(records.box.pendingRevokes).toEqual(["box-device-1"]);
+      expect(devices.hostLinks(id)).toEqual([]);
+
+      // The owed revoke goes through on the next connect; nothing is blocked.
+      reconnect(box());
+      await vi.waitFor(() => expect(records.box.pendingRevokes).toEqual([]));
+      expect(links.blockedOn("box")).toEqual([]);
+      const linked = await links.link(id, ["room-wsl"]);
+      expect(linked.map((p) => p.roomId)).toEqual(["room-box"]);
+    });
+
     it("takes a link from before ADR-238, missing from the host, as revoked", async () => {
       const id = await phone();
       await devices.setHostLink(id, { hostId: "box", hostDeviceId: "box-old" });

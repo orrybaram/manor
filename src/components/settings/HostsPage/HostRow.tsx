@@ -25,6 +25,7 @@ import { SettingRow } from "../SettingRow";
 import { useSettingsJump } from "../SettingsModal/settings-nav";
 import { RemoveHostDialog } from "./RemoveHostDialog";
 import {
+  blockedDevicesLine,
   idleStopText,
   pairingKeysState,
   supervisionHint,
@@ -500,13 +501,6 @@ function keyWarnings(status: HostServerStatus | null): string[] {
 function devicesReach(count: number): string {
   if (count === 0) return "Devices you pair reach";
   return `Your ${count} device${count === 1 ? "" : "s"} reach`;
-}
-
-/** "A was removed on <host>. Turn the switch off and on to pair it again." (ADR-238 D3). */
-export function blockedDevicesLine(labels: string[], hostName: string): string {
-  const many = labels.length > 1;
-  const names = many ? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}` : labels[0];
-  return `${names} ${many ? "were" : "was"} removed on ${hostName}. Turn the switch off and on to pair ${many ? "them" : "it"} again.`;
 }
 
 /**

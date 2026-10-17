@@ -382,15 +382,15 @@ export function declinePairing(credentials: RelayCredentials): void {
   removePairing(credentials);
 }
 
-const NO_ROOMS: string[] = [];
+const NO_ROOMS: readonly string[] = [];
 /** The parsed declined list for `useSyncExternalStore`: stable until it changes. */
-let declinedSnapshot: { raw: string | null; list: string[] } = {
+let declinedSnapshot: { raw: string | null; list: readonly string[] } = {
   raw: null,
   list: NO_ROOMS,
 };
 
 /** Rooms this browser has let go of, which no desktop should mint again. */
-export function declinedRooms(): string[] {
+export function declinedRooms(): readonly string[] {
   const raw = storageGet(DECLINED_KEY);
   if (raw === declinedSnapshot.raw) return declinedSnapshot.list;
   let list = NO_ROOMS;

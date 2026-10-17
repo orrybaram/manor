@@ -214,7 +214,7 @@ describe("pairings store", () => {
 
   it("has the room declined by the time a subscriber hears of its removal", () => {
     upsertPairing({ roomId: A, serverKey: KEY, token: "a" }, 10);
-    const seen: string[][] = [];
+    const seen: Array<readonly string[]> = [];
     const off = subscribePairings(() => seen.push(declinedRooms()));
     declinePairing(listPairings()[0]);
     off();

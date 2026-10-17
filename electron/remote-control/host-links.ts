@@ -318,6 +318,10 @@ export class HostPairingLinks {
       present = settled.present;
     }
     records.addPendingRevokes(hostId, present);
+    // Owed now, the old links are the revoke queue's, not the device's: one
+    // left recorded past a failed mint would, once revoked, look revoked on
+    // the host to `settle` and block the device.
+    if (links.length > 0) await devices.dropHostLinks(hostId, deviceId);
 
     // Recorded before the host is asked, so a mint whose answer is lost —
     // the host committed it, the channel dropped — is found on the next

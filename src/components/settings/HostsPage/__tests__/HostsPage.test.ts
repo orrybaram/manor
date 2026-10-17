@@ -45,8 +45,9 @@ import { useHostStore, type HostStatusInfo } from "../../../../store/host-store"
 import type { HostServerView } from "../../../../electron.d";
 import { SettingsJumpContext } from "../../SettingsModal/settings-nav";
 import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
-import { HostRow, blockedDevicesLine } from "../HostRow";
+import { HostRow } from "../HostRow";
 import {
+  blockedDevicesLine,
   idleStopText,
   pairingKeysState,
   supervisionHint,

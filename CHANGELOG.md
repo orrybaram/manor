@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.22.5] - 2026-10-16
+
+### Fixes
+
+- Phone: Hosts you could reach only through the desktop can now be reconnected. Before, a host that refused the phone once stayed declined for good, so closing the laptop left the phone with nothing. The Hosts sheet now lists these hosts with **Connect directly**, which asks each reachable desktop to link the host now.
+
+### Improvements
+
+- Phone: The not-reachable screen now follows your theme, fills the screen and lists the state of each pairing. It only appears after 3 seconds without a connection, so reconnects and slow loads no longer flash it.
+
 ## [0.22.4] - 2026-10-16
 
 ### Fixes

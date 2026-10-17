@@ -398,8 +398,9 @@ button.pathCardSelected {
 .blockedHint {
   margin: 0;
   padding: 0 0 6px;
-  font-size: 11px;
-  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text-selected) 50%, transparent);
 }
 
 /* ── A profile's hosts (ADR-235 D7) ── */

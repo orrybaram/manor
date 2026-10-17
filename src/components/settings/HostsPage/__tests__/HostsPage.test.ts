@@ -42,12 +42,14 @@ const api = vi.hoisted(() => {
 });
 
 import { useHostStore, type HostStatusInfo } from "../../../../store/host-store";
-import type { HostServerView } from "../../../../electron.d";
+import type { HostServerView, RemoteDeviceInfo } from "../../../../electron.d";
+import { useRemoteControlStore } from "../../../../store/remote-control-store";
 import { SettingsJumpContext } from "../../SettingsModal/settings-nav";
 import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
 import { HostRow } from "../HostRow";
 import {
   blockedDevicesLine,
+  devicesReachText,
   idleStopText,
   pairingKeysState,
   supervisionHint,
@@ -415,6 +417,15 @@ describe("HostRow", () => {
       );
     });
 
+    it("leaves blocked devices out of the device count", async () => {
+      const dev = (id: string) => ({ id }) as RemoteDeviceInfo;
+      useRemoteControlStore.setState({
+        status: { ...useRemoteControlStore.getState().status, devices: [dev("p1"), dev("p2")] },
+      });
+      await render(host(), view({ blockedDevices: [{ id: "p1", label: "Orry's phone" }] }));
+      expect(q("host-device-access")?.textContent).toContain("Your device reaches Dev pod directly");
+    });
+
     it("shows no hint when nothing was removed", async () => {
       await render(host(), view());
       expect(q("host-blocked-devices")).toBeNull();
@@ -461,6 +472,14 @@ describe("HostRow", () => {
       expect(q("host-remove-error")?.textContent).toContain("destroy.sh exited 1");
       expect(q("host-remove-dialog")).not.toBeNull();
     });
+  });
+});
+
+describe("devicesReachText (ADR-238)", () => {
+  it("words 0, 1 and 2 devices", () => {
+    expect(devicesReachText(0)).toBe("Devices you pair reach");
+    expect(devicesReachText(1)).toBe("Your device reaches");
+    expect(devicesReachText(2)).toBe("Your 2 devices reach");
   });
 });
 

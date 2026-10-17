@@ -1,6 +1,6 @@
 ---
 title: "Desktop: host blocks in the device store and HostPairingLinks"
-status: in-progress
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

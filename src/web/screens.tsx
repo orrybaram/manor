@@ -1,5 +1,16 @@
-import { Component, useSyncExternalStore, type ReactNode, type JSX } from "react";
+import {
+  Component,
+  useEffect,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type JSX,
+} from "react";
+import CloudOff from "lucide-react/dist/esm/icons/cloud-off";
+import { listPairings, subscribePairings } from "../bridge/pairings";
+import { useServers, type ServerEntry } from "../bridge/server-set";
 import { Button } from "../components/ui/Button/Button";
+import styles from "./screens.module.css";
 
 /**
  * The web app's dead-end screens (ADR-178 D1), split out of `web-main.tsx`.
@@ -13,37 +24,24 @@ import { Button } from "../components/ui/Button/Button";
  * suppression comment.
  */
 
-/** One message, centred, on nothing. Every dead end here renders as one. */
+/** One message, centred, on the theme's background. Every dead end here renders as one. */
 function FullPageMessage(props: {
   children: ReactNode;
   testId?: string;
   /** Over whatever is already rendered, rather than in place of it. */
   overlay?: boolean;
+  /** Names the dialog when `overlay`: the screen's title element. */
+  labelledBy?: string;
 }): JSX.Element {
   return (
     <div
       data-testid={props.testId}
       role={props.overlay ? "alertdialog" : undefined}
-      style={{
-        ...(props.overlay && {
-          position: "fixed",
-          inset: 0,
-          zIndex: 10_000,
-          flexDirection: "column",
-          gap: "1rem",
-        }),
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        height: "100vh",
-        fontFamily: "system-ui, sans-serif",
-        color: "#ccc",
-        background: "#1e1e2e",
-        textAlign: "center",
-        padding: "2rem",
-      }}
+      aria-modal={props.overlay ? true : undefined}
+      aria-labelledby={props.labelledBy}
+      className={styles.page}
     >
-      {props.children}
+      <div className={styles.content}>{props.children}</div>
     </div>
   );
 }
@@ -52,8 +50,11 @@ function FullPageMessage(props: {
 export function NoTokenScreen(): JSX.Element {
   return (
     <FullPageMessage testId="web-app-no-token">
-      This device isn&apos;t paired. Open the link from the pairing dialog in
-      Manor &rarr; Settings &rarr; Devices.
+      <h1 className={styles.title}>This device isn&apos;t paired</h1>
+      <p className={styles.body}>
+        Open the link from the pairing dialog in Manor &rarr; Settings &rarr;
+        Devices.
+      </p>
     </FullPageMessage>
   );
 }
@@ -65,52 +66,125 @@ export function NoTokenScreen(): JSX.Element {
  */
 export function KeyMismatchScreen(props: { onRetry: () => void }): JSX.Element {
   return (
-    <FullPageMessage testId="web-app-key-mismatch" overlay>
-      <div>
-        This link&apos;s relay address has changed &mdash; the desktop&apos;s
-        relay address was reset. Scan a new pairing code from Manor&apos;s
-        settings.
+    <FullPageMessage testId="web-app-key-mismatch" overlay labelledBy="web-app-key-mismatch-title">
+      <h1 id="web-app-key-mismatch-title" className={styles.title}>
+        This link has expired
+      </h1>
+      <p className={styles.body}>
+        The desktop&apos;s relay address was reset. Scan a new pairing code from
+        Manor&apos;s settings.
+      </p>
+      <div className={styles.actions}>
+        <Button variant="secondary" onClick={props.onRetry}>
+          Try again
+        </Button>
       </div>
-      <Button variant="secondary" onClick={props.onRetry}>
-        Try again
-      </Button>
+    </FullPageMessage>
+  );
+}
+
+/** One pairing's state, as the not-reachable screen lists it. */
+function pairingState(server: ServerEntry | undefined): {
+  label: string;
+  state: "connected" | "unreachable" | "connecting" | "refused";
+} {
+  if (server?.outcome === "unauthorized") return { label: "No longer paired", state: "refused" };
+  if (server?.outcome === "key-mismatch") return { label: "Link expired", state: "refused" };
+  switch (server?.reachability) {
+    case "connected":
+      return { label: "Connected", state: "connected" };
+    case "unreachable":
+      return { label: "Not reachable", state: "unreachable" };
+    default:
+      return { label: "Connecting…", state: "connecting" };
+  }
+}
+
+/** Every pairing this browser holds and how its server is doing, live. */
+function PairingList(): JSX.Element | null {
+  const pairings = useSyncExternalStore(subscribePairings, listPairings, listPairings);
+  const entries = useServers();
+  if (pairings.length === 0) return null;
+  return (
+    <ul className={styles.hosts} data-testid="web-app-unreachable-hosts">
+      {pairings.map((pairing) => {
+        const status = pairingState(entries.find((e) => e.id === pairing.roomId));
+        return (
+          <li key={pairing.roomId} className={styles.host} data-state={status.state}>
+            <span className={styles.dot} data-state={status.state} aria-hidden />
+            <span className={styles.hostName}>{pairing.name}</span>
+            <span className={styles.hostState}>{status.label}</span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * The relay has no server to put this browser through to (ADR-206 D3): every
+ * pairing said 4404 (the machine is asleep, offline, or relay mode is off),
+ * 4429 (too many viewers, or today's budget is spent), or stopped answering.
+ * Not a refusal — the credentials are kept and the bridge keeps dialling with
+ * backoff — so this covers the app rather than replacing it, and disappears
+ * on the next hello without the app below losing its state.
+ *
+ * A host reached only through a desktop is not listed: with the desktop
+ * away it is away too. The Hosts sheet offers to connect to it directly.
+ */
+export function UnreachableScreen(props: { onRetry: () => void }): JSX.Element {
+  return (
+    <FullPageMessage testId="web-app-unreachable" overlay labelledBy="web-app-unreachable-title">
+      <span className={styles.icon} aria-hidden>
+        <CloudOff size={22} />
+      </span>
+      <h1 id="web-app-unreachable-title" className={styles.title}>
+        Can&apos;t reach Manor
+      </h1>
+      <p className={styles.body}>
+        None of your hosts are answering. Check that the computer running Manor
+        is awake and that the relay is on in Settings &rarr; Remote control.
+      </p>
+      <PairingList />
+      <div className={styles.retrying} role="status">
+        <span className={styles.spinner} aria-hidden />
+        Retrying automatically
+      </div>
+      <div className={styles.actions}>
+        <Button variant="secondary" onClick={props.onRetry}>
+          Try again now
+        </Button>
+      </div>
     </FullPageMessage>
   );
 }
 
 /**
- * The relay has no desktop to put this browser through to (ADR-206 D3): the
- * relay said 4404 (the machine is asleep, offline, or relay mode is off) or
- * 4429 (too many viewers, or today's budget is spent). Not a refusal — the
- * credentials are kept and the bridge keeps dialling with backoff — so this
- * covers the app rather than replacing it, and disappears on the next hello
- * without the app below losing its state.
+ * How long the page must stay unreachable before the screen covers it. A
+ * phone back from the background often finds its sockets dead and redials
+ * each within a second or two; a load can see the same. Neither should
+ * flash a full-page error.
  */
-export function UnreachableScreen(props: { onRetry: () => void }): JSX.Element {
-  return (
-    <FullPageMessage testId="web-app-unreachable" overlay>
-      <div>
-        Manor is not reachable right now. Check that the computer running Manor
-        is awake and that the relay is turned on in Settings &rarr; Remote
-        control. Retrying&hellip;
-      </div>
-      <Button variant="secondary" onClick={props.onRetry}>
-        Try again now
-      </Button>
-    </FullPageMessage>
-  );
-}
+export const UNREACHABLE_SHOW_AFTER_MS = 3_000;
 
-/** `UnreachableScreen` while the bridge says so, and nothing otherwise. */
+/** `UnreachableScreen` once the bridge has said so for a moment, and nothing otherwise. */
 export function ReachabilityOverlay(props: {
   subscribe: (cb: () => void) => () => void;
   getSnapshot: () => "unknown" | "connected" | "unreachable";
   onRetry: () => void;
 }): JSX.Element | null {
   const status = useSyncExternalStore(props.subscribe, props.getSnapshot);
-  return status === "unreachable" ? (
-    <UnreachableScreen onRetry={props.onRetry} />
-  ) : null;
+  // Mounted per spell of unreachability, so each one waits afresh.
+  return status === "unreachable" ? <DelayedUnreachable onRetry={props.onRetry} /> : null;
+}
+
+function DelayedUnreachable(props: { onRetry: () => void }): JSX.Element | null {
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setShown(true), UNREACHABLE_SHOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  return shown ? <UnreachableScreen onRetry={props.onRetry} /> : null;
 }
 
 /**
@@ -135,8 +209,9 @@ export function BootScreen(): JSX.Element {
 export function LoadFailedScreen(): JSX.Element {
   return (
     <FullPageMessage testId="web-app-load-failed">
-      <div style={{ display: "flex", flexDirection: "column", gap: "1rem", alignItems: "center" }}>
-        <div>Part of Manor didn&apos;t load. The connection may have dropped.</div>
+      <h1 className={styles.title}>Part of Manor didn&apos;t load</h1>
+      <p className={styles.body}>The connection may have dropped.</p>
+      <div className={styles.actions}>
         <Button variant="secondary" onClick={() => location.reload()}>
           Reload
         </Button>

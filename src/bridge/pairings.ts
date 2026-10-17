@@ -397,6 +397,25 @@ function undeclineRoom(roomId: string): void {
   else storageSet(DECLINED_KEY, JSON.stringify(next));
 }
 
+let relinker: (() => Promise<void>) | null = null;
+
+/** Called by `install-web.ts` with what asks each desktop to link its hosts. */
+export function registerRelink(fn: () => Promise<void>): void {
+  relinker = fn;
+}
+
+/**
+ * The user asked for `roomId`'s host directly, though this browser let it go
+ * (`declinedRooms`) — removed by hand, or refused once by its host, which a
+ * reset or a key move can do. It is no longer declined, and each reachable
+ * desktop is asked to mint this browser a pairing there now. Resolves once
+ * they have answered.
+ */
+export async function connectRoomDirectly(roomId: string): Promise<void> {
+  undeclineRoom(roomId);
+  await relinker?.();
+}
+
 export function subscribePairings(cb: () => void): () => void {
   listeners.add(cb);
   const onStorage = (e: StorageEvent) => {

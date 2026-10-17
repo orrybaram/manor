@@ -3,6 +3,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import {
+  connectRoomDirectly,
   declinePairing,
   listPairings,
   renamePairing,
@@ -11,6 +12,7 @@ import {
 } from "../../../bridge/pairings";
 import { servers, useServers, type ServerEntry } from "../../../bridge/server-set";
 import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
+import { hostName, isRemoteHost } from "../../../lib/hosts";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { Button } from "../../ui/Button/Button";
 import { EmojiInput } from "../../ui/EmojiAutocomplete";
@@ -71,8 +73,96 @@ export function HostsSheet(props: HostsSheetProps) {
             />
           ))
         )}
+        {indirectHosts(hosts, pairings).map((host) => (
+          <IndirectHostRow
+            key={host.hostId}
+            host={host}
+            desktopName={desktopName}
+            desktopReachable={homeEntry?.reachability === "connected"}
+          />
+        ))}
       </div>
     </PhoneSheet>
+  );
+}
+
+/**
+ * The desktop's remote hosts this browser holds no pairing of its own for:
+ * reached only through the desktop, so gone whenever it sleeps. Usually a
+ * room it declined — removed here, or refused once by the host.
+ */
+function indirectHosts(
+  hosts: readonly HostStatusInfo[],
+  pairings: readonly StoredPairing[],
+): HostStatusInfo[] {
+  return hosts.filter(
+    (h) =>
+      isRemoteHost(h.hostId) &&
+      !pairings.some((p) => p.roomId === h.hostId || p.roomId === h.roomId),
+  );
+}
+
+/**
+ * A host reached only through the desktop. **Connect directly** asks the
+ * desktop for a pairing of this browser's own there, so it stays reachable
+ * with the desktop asleep. Only a desktop can mint one, and only for a host
+ * with a relay room.
+ */
+function IndirectHostRow(props: {
+  host: HostStatusInfo;
+  desktopName: string;
+  desktopReachable: boolean;
+}) {
+  const { host, desktopName, desktopReachable } = props;
+  const [linking, setLinking] = useState<{ busy: boolean; error: string | null }>({
+    busy: false,
+    error: null,
+  });
+  const roomId = host.roomId ?? null;
+  const connect = () => {
+    if (roomId === null) return;
+    setLinking({ busy: true, error: null });
+    connectRoomDirectly(roomId).then(
+      // Linked, its pairing joins the list above and this row goes.
+      () =>
+        setLinking({
+          busy: false,
+          error: `${desktopName} couldn't pair this phone with it yet`,
+        }),
+      (err: unknown) => setLinking({ busy: false, error: ipcErrorMessage(err) }),
+    );
+  };
+  const label = linking.busy
+    ? "Connecting…"
+    : (linking.error ??
+      (roomId === null
+        ? `Only through ${desktopName} · no relay`
+        : `Only through ${desktopName}`));
+
+  return (
+    <div
+      className={styles.row}
+      data-testid="phone-host-indirect"
+      data-host-id={host.hostId}
+      data-state="indirect"
+    >
+      <span className={styles.dot} data-state="indirect" aria-hidden />
+      <span className={styles.text}>
+        <span className={styles.name}>{hostName(host)}</span>
+        <span className={styles.status}>{label}</span>
+      </span>
+      {roomId !== null && (
+        <Button
+          size="sm"
+          variant="secondary"
+          data-testid="phone-host-connect-directly"
+          disabled={linking.busy || !desktopReachable}
+          onClick={connect}
+        >
+          Connect directly
+        </Button>
+      )}
+    </div>
   );
 }
 

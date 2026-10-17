@@ -17,6 +17,7 @@ import {
   ReachabilityOverlay,
 } from "./web/screens";
 import { listenForOpenAgent } from "./web/open-agent";
+import { restoreAndFollowTheme } from "./web/theme-cache";
 
 /**
  * The web app's entry (ADR-178 D1): the desktop renderer, served to a
@@ -36,6 +37,9 @@ import { listenForOpenAgent } from "./web/open-agent";
  */
 
 const queryClient = createQueryClient();
+
+// Before the first render, so every screen below starts in the user's theme.
+restoreAndFollowTheme();
 
 const token = webToken;
 const root = ReactDOM.createRoot(

@@ -66,6 +66,7 @@ import {
   listPairings,
   recordPairingHello,
   recordPairingHosts,
+  registerRelink,
   subscribePairings,
   type StoredPairing,
 } from "./pairings";
@@ -306,13 +307,13 @@ function hostRooms(
  * projects keep their id and are answered by the new pairing (D3). Asked on
  * every hello, so a host added later, or away the last time, is picked up.
  */
-function linkHosts(entry: Held): void {
+function linkHosts(entry: Held): Promise<void> {
   const { roomId } = entry.pairing;
   const bridge = servers.get(roomId)?.bridge;
-  if (!bridge) return;
+  if (!bridge) return Promise.resolve();
   // Rooms let go of count as held: the desktop must not hand them back.
   const heldRooms = [...listPairings().map((p) => p.roomId), ...declinedRooms()];
-  bridge.remoteControl.linkHostPairings(heldRooms).then(
+  return bridge.remoteControl.linkHostPairings(heldRooms).then(
     (linked) => {
       if (held.get(roomId) !== entry || !Array.isArray(linked)) return;
       for (const pairing of linked) linkPairing(pairing);
@@ -351,7 +352,7 @@ function onHello(entry: Held, reply: HelloReply): void {
   entry.kind = reply.hostServer ? "host" : "desktop";
   if (entry.kind === "desktop") {
     watchHosts(entry);
-    linkHosts(entry);
+    void linkHosts(entry);
   }
 
   const home = held.get(servers.homeId);
@@ -531,6 +532,15 @@ export async function refreshBridge(): Promise<void> {
   }
 }
 registerRefresh(refreshBridge);
+
+/** "Connect directly" in the Hosts sheet: every reachable desktop links its hosts now. */
+registerRelink(async () => {
+  const desktops = [...held.values()].filter(
+    (entry) =>
+      entry.kind === "desktop" && servers.facts(entry.pairing.roomId).reachability === "connected",
+  );
+  await Promise.all(desktops.map(linkHosts));
+});
 
 if (homeAtBoot === null) {
   servers.add(

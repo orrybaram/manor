@@ -5,6 +5,7 @@ import {
   DECLINED_KEY,
   LEGACY_RELAY_KEY,
   PAIRINGS_KEY,
+  connectRoomDirectly,
   declinePairing,
   declinedRooms,
   homePairing,
@@ -14,6 +15,7 @@ import {
   migrateLegacyPairing,
   recordPairingHello,
   recordPairingHosts,
+  registerRelink,
   removePairing,
   renamePairing,
   selectPairing,
@@ -180,6 +182,22 @@ describe("pairings store", () => {
     upsertPairing({ roomId: B, serverKey: KEY, token: "qr" }, 40);
     expect(declinedRooms()).toEqual([]);
     expect(map.has(DECLINED_KEY)).toBe(false);
+    expect(listPairings().map((p) => p.roomId)).toEqual([A, B]);
+  });
+
+  it("connects to a declined room directly: undeclined, then the desktops asked to link it", async () => {
+    upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
+    linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
+    declinePairing(listPairings()[1]);
+    expect(declinedRooms()).toEqual([B]);
+    // What install-web.ts's relink does: the desktop mints, the page links it.
+    const relink = vi.fn(async () => {
+      linkPairing({ roomId: B, serverKey: KEY, token: "box-2", name: "me@box" }, 30);
+    });
+    registerRelink(relink);
+    await connectRoomDirectly(B);
+    expect(relink).toHaveBeenCalledOnce();
+    expect(declinedRooms()).toEqual([]);
     expect(listPairings().map((p) => p.roomId)).toEqual([A, B]);
   });
 

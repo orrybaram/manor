@@ -66,6 +66,11 @@
   background: var(--blue, #89b4fa);
 }
 
+/* Reached only through the desktop: up for now, but not on its own. */
+.dot[data-state="indirect"] {
+  background: var(--yellow);
+}
+
 .dot[data-state="unreachable"],
 .dot[data-state="refused"] {
   background: var(--red);

@@ -160,4 +160,46 @@ describe("HostsSheet", () => {
       );
     });
   });
+
+  describe("a host reached only through the desktop", () => {
+    const C = "QwErTyUiOpAsDfGhJk_-03";
+
+    beforeEach(() => {
+      act(() =>
+        useHostStore.setState({
+          hosts: [
+            { hostId: B, spec: { kind: "ssh", target: "wsl-box" }, status: "connected", roomId: B },
+            { hostId: C, spec: { kind: "ssh", target: "blade" }, status: "connected", roomId: C },
+          ],
+        }),
+      );
+    });
+
+    afterEach(() => {
+      act(() => useHostStore.setState({ hosts: [] }));
+    });
+
+    it("is listed after the pairings, and Connect directly asks for a pairing of its own", async () => {
+      const rows = all("phone-host-indirect");
+      expect(rows.map((r) => r.getAttribute("data-host-id"))).toEqual([C]);
+      expect(rows[0].textContent).toContain("blade");
+      expect(rows[0].textContent).toContain("Only through Host 1");
+      const relink = vi.fn(async () => {
+        const { linkPairing } = await import("../../../../bridge/pairings");
+        linkPairing({ roomId: C, serverKey: KEY, token: "c", name: "blade" });
+      });
+      const { registerRelink } = await import("../../../../bridge/pairings");
+      registerRelink(relink);
+      click(q("phone-host-connect-directly"));
+      await act(async () => {});
+      expect(relink).toHaveBeenCalledOnce();
+      expect(all("phone-host-indirect")).toHaveLength(0);
+      expect(all("phone-host-option").map((r) => r.getAttribute("data-room-id"))).toEqual([A, B, C]);
+    });
+
+    it("cannot connect directly while the desktop is away", () => {
+      act(() => servers.setReachability(A, "unreachable"));
+      expect((q("phone-host-connect-directly") as HTMLButtonElement).disabled).toBe(true);
+    });
+  });
 });

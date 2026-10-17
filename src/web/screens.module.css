@@ -1,0 +1,152 @@
+/*
+ * The web app's full-page states (`screens.tsx`). Painted in the theme's
+ * variables, which `web-main.tsx` restores from the last session before the
+ * first render; the fallbacks are `web.html`'s boot colours, for a browser
+ * that has never had a theme.
+ *
+ * `position: fixed; inset: 0` rather than `100vh`: on a phone `100vh` is the
+ * large viewport, taller than what shows under the browser's bars, and
+ * leaves a strip of the app showing below. The safe-area insets keep the
+ * content off the notch and the home indicator; the background still fills
+ * them.
+ */
+.page {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+    max(24px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+  overflow-y: auto;
+  background: var(--bg, #1e1e2e);
+  color: var(--text-primary, #a6adc8);
+  font: 14px/1.5 system-ui, -apple-system, sans-serif;
+  text-align: center;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 360px;
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface, #313244);
+  color: var(--text-dim, #6c7086);
+}
+
+.title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-selected, #cdd6f4);
+}
+
+.body {
+  margin: 0;
+  color: var(--text-dim, #6c7086);
+}
+
+.hosts {
+  width: 100%;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--border, #45475a);
+  border-radius: 10px;
+  background: var(--dim, #1e1e2e);
+  text-align: left;
+}
+
+.host {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 10px;
+}
+
+.hostName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary, #a6adc8);
+}
+
+.hostState {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-dim, #6c7086);
+}
+
+.dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim, #6c7086);
+}
+
+.dot[data-state="connected"] {
+  background: var(--green, #a6e3a1);
+}
+
+.dot[data-state="unreachable"],
+.dot[data-state="refused"] {
+  background: var(--red, #f38ba8);
+}
+
+.retrying {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-dim, #6c7086);
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+}
+
+.actions > button {
+  min-height: 44px;
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border, #45475a);
+  border-top-color: var(--accent, #b4befe);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

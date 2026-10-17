@@ -39,7 +39,7 @@
       white page. React replaces it on its first render.
     -->
     <style>
-      html, body { margin: 0; background: #1e1e2e; color: #a6adc8; }
+      html, body { margin: 0; background: var(--bg, #1e1e2e); color: var(--text-primary, #a6adc8); }
       .boot {
         position: fixed; inset: 0; display: flex; flex-direction: column;
         align-items: center; justify-content: center; gap: 14px;
@@ -47,7 +47,7 @@
       }
       .boot-mark {
         width: 28px; height: 28px; border-radius: 50%;
-        border: 2px solid #45475a; border-top-color: #b4befe;
+        border: 2px solid var(--border, #45475a); border-top-color: var(--accent, #b4befe);
         animation: boot-spin 0.9s linear infinite;
       }
       @keyframes boot-spin { to { transform: rotate(360deg); } }

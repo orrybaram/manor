@@ -59,7 +59,8 @@
  *                      host-server.spec.ts, host-ownership.spec.ts,
  *                      host-direct-bridge.spec.ts,
  *                      phone-all-pairings.spec.ts,
- *                      phone-linked-hosts.spec.ts, recipe-host.spec.ts,
+ *                      phone-linked-hosts.spec.ts,
+ *                      phone-relink-after-refusal.spec.ts, recipe-host.spec.ts,
  *                      host-restore-asleep.spec.ts, pairing-keys.spec.ts,
  *                      lid-closed.spec.ts, host-idle-stop.spec.ts),
  *                      one worker
@@ -88,6 +89,7 @@ const PLAYWRIGHT_SUITES = [
   "tests/e2e/host-direct-bridge.spec.ts",
   "tests/e2e/phone-all-pairings.spec.ts",
   "tests/e2e/phone-linked-hosts.spec.ts",
+  "tests/e2e/phone-relink-after-refusal.spec.ts",
   "tests/e2e/recipe-host.spec.ts",
   "tests/e2e/host-restore-asleep.spec.ts",
   "tests/e2e/pairing-keys.spec.ts",

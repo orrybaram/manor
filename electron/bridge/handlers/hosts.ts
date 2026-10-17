@@ -308,6 +308,11 @@ export interface HostServerView {
   /** The ids, among `devices`, of pairings this desktop minted ("via This Mac"). */
   linkedDeviceIds: string[];
   /**
+   * Phones whose pairing was revoked on this host (ADR-238 D2): this desktop
+   * links them here no more until the phone-link switch is turned off and on.
+   */
+  blockedDevices: Array<{ id: string; label: string }>;
+  /**
    * What keeps the host's Manor running across a reboot (ADR-229 D4), from
    * the server's status: null when nothing does, or when the status could
    * not be read.
@@ -373,6 +378,10 @@ export async function hostsServerStatus(
   const links = {
     linkPhones: ctx.deps.projectManager.hostLinksPhones(hostId),
     linkedDeviceIds: ctx.deps.hostLinks?.linkedOn(hostId) ?? [],
+    blockedDevices: (ctx.deps.hostLinks?.blockedOn(hostId) ?? []).map(({ deviceId, label }) => ({
+      id: deviceId,
+      label,
+    })),
     supervise: ctx.deps.projectManager.hostSupervised(hostId),
   };
   const none = { state, status: null, devices: [], ...links, supervisor: null };
@@ -501,7 +510,11 @@ export async function hostsRevokeDevice(
   deviceId: string,
 ): Promise<RemoteDeviceInfo[]> {
   assertString(deviceId, "hosts:revokeDevice.deviceId");
-  const devices = await connectedServer(ctx, hostId).api.remoteControl.revoke(deviceId);
+  const revoke = () => connectedServer(ctx, hostId).api.remoteControl.revoke(deviceId);
+  // Through the links' queue, which also blocks the phone's link here (ADR-238 D3).
+  const devices = ctx.deps.hostLinks
+    ? await ctx.deps.hostLinks.revokeOnHost(hostId, deviceId, revoke)
+    : await revoke();
   pairingChanged(ctx, hostId);
   return devices;
 }

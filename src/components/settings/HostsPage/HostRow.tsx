@@ -25,6 +25,8 @@ import { SettingRow } from "../SettingRow";
 import { useSettingsJump } from "../SettingsModal/settings-nav";
 import { RemoveHostDialog } from "./RemoveHostDialog";
 import {
+  blockedDevicesLine,
+  devicesReachText,
   idleStopText,
   pairingKeysState,
   supervisionHint,
@@ -245,7 +247,10 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
   const { host, name, readOnly, view, busy, run, autoEncrypt = false } = props;
 
   const { hostId } = host;
-  const deviceCount = useRemoteControlStore((s) => s.status.devices.length);
+  const pairedDevices = useRemoteControlStore((s) => s.status.devices);
+  // Devices removed on this host don't reach it, so they aren't counted.
+  const blockedIds = new Set(view?.blockedDevices.map((d) => d.id));
+  const deviceCount = pairedDevices.filter((d) => !blockedIds.has(d.id)).length;
 
   const connected = host.status === "connected";
   const status = view?.status ?? null;
@@ -272,7 +277,7 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
       {!readOnly && view !== null && (
         <SettingRow
           label={`Devices can reach ${name}`}
-          hint={`${devicesReach(deviceCount)} ${name} directly, so they keep working while this Mac sleeps.`}
+          hint={`${devicesReachText(deviceCount)} ${name} directly, so they keep working while this Mac sleeps.`}
         >
           <Switch
             data-testid="host-link-phones-toggle"
@@ -281,6 +286,14 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
             onCheckedChange={(on) => run(() => useHostStore.getState().setLinkPhones(hostId, on))}
           />
         </SettingRow>
+      )}
+      {!readOnly && view !== null && view.blockedDevices.length > 0 && (
+        <p className={styles.blockedHint} data-testid="host-blocked-devices">
+          {blockedDevicesLine(
+            view.blockedDevices.map((d) => d.label),
+            name,
+          )}
+        </p>
       )}
       {!readOnly && (
         <SettingRow
@@ -486,12 +499,6 @@ function keyWarnings(status: HostServerStatus | null): string[] {
   if (!status) return [];
   const warning = pairingKeysState(status, "none", "").headerWarning;
   return warning ? [warning] : [];
-}
-
-/** "Your 2 devices reach", or, with none paired yet, "Devices you pair reach". */
-function devicesReach(count: number): string {
-  if (count === 0) return "Devices you pair reach";
-  return `Your ${count} device${count === 1 ? "" : "s"} reach`;
 }
 
 /**

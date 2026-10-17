@@ -171,6 +171,7 @@ export const useHostStore = create<HostState>((set) => {
         devices: [],
         linkPhones: true,
         linkedDeviceIds: [],
+        blockedDevices: [],
         supervisor: null,
         supervise: false,
       };

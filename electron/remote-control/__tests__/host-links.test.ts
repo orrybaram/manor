@@ -153,6 +153,7 @@ describe("HostPairingLinks", () => {
           records[id].pendingRevokes = [];
           records[id].pendingMints = [];
         },
+        pendingRevokes: (id) => records[id].pendingRevokes,
       },
       revokePending: (id) => sync.revokePending(id),
       pairingChanged,
@@ -169,6 +170,7 @@ describe("HostPairingLinks", () => {
         },
       },
       pendingMints: links.pendingMints(),
+      reconcileLinks: (id) => links.reconcileLinks(id),
       log: { warn: () => {} },
     });
     sync.start();
@@ -203,7 +205,7 @@ describe("HostPairingLinks", () => {
       expect.stringMatching(/^Orry's phone \([0-9a-f]{6}\)$/),
     );
     expect(wsl().api.remoteControl.pair).not.toHaveBeenCalled();
-    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1" }]);
+    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1", roomId: "room-box" }]);
     expect(links.linkedOn("box")).toEqual(["box-device-1"]);
     expect(pairingChanged).toHaveBeenCalledWith("box");
   });
@@ -238,7 +240,7 @@ describe("HostPairingLinks", () => {
     expect(again.map((p) => p.token)).toEqual(["token-box-device-2"]);
     expect(box().api.remoteControl.revoke).toHaveBeenCalledWith("box-device-1");
     expect([...box().paired]).toEqual(["box-device-2"]);
-    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-2" }]);
+    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-2", roomId: "room-box" }]);
   });
 
   it("gives a desktop window, or a device that is not paired, nothing", async () => {
@@ -306,7 +308,7 @@ describe("HostPairingLinks", () => {
     expect(links.linkedOn("box")).toEqual([]);
     // The other host keeps its links.
     expect(wsl().paired.size).toBe(2);
-    expect(devices.hostLinks(a)).toEqual([{ hostId: "wsl", hostDeviceId: "wsl-device-1" }]);
+    expect(devices.hostLinks(a)).toEqual([{ hostId: "wsl", hostDeviceId: "wsl-device-1", roomId: "room-wsl" }]);
 
     await expect(links.link(a, ["room-wsl"])).resolves.toEqual([]);
     expect(box().paired.size).toBe(0);
@@ -366,7 +368,7 @@ describe("HostPairingLinks", () => {
 
     const again = await links.link(id, ["room-wsl"]);
     expect(again.map((p) => p.roomId)).toEqual(["room-box-2"]);
-    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-2" }]);
+    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-2", roomId: "room-box-2" }]);
   });
 
   it("runs a reset queued during a mint after it, and leaves the host with no links and nothing owed (R7 a)", async () => {
@@ -418,7 +420,7 @@ describe("HostPairingLinks", () => {
     release();
     expect((await linking).map((p) => p.roomId)).toEqual(["room-box"]);
     expect([...box().paired]).toEqual(["box-device-1"]);
-    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1" }]);
+    expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1", roomId: "room-box" }]);
     expect(records.box.pendingMints).toEqual([]);
   });
 
@@ -441,13 +443,152 @@ describe("HostPairingLinks", () => {
     expect(box().api.remoteControl.revoke).not.toHaveBeenCalledWith(direct);
   });
 
+  describe("a pairing revoked on the host (ADR-238 D2)", () => {
+    /** The phone, linked on the box only. */
+    const linkedOnBox = async () => {
+      const id = await phone();
+      await links.link(id, ["room-wsl"]);
+      expect(devices.hostLinks(id)).toEqual([
+        { hostId: "box", hostDeviceId: "box-device-1", roomId: "room-box" },
+      ]);
+      return id;
+    };
+    const revokeOnBox = (hostDeviceId: string) =>
+      links.revokeOnHost("box", hostDeviceId, () =>
+        box().api.remoteControl.revoke(hostDeviceId),
+      );
+
+    it("revokeOnHost blocks the phone there, and only there", async () => {
+      const id = await linkedOnBox();
+      await revokeOnBox("box-device-1");
+      expect(box().paired.size).toBe(0);
+      expect(devices.hostLinks(id)).toEqual([]);
+      expect(links.blockedOn("box")).toEqual([{ deviceId: id, label: "Orry's phone" }]);
+
+      // Its next hello holds neither room: the wsl box mints, the box does not.
+      const linked = await links.link(id, []);
+      expect(linked.map((p) => p.roomId)).toEqual(["room-wsl"]);
+      expect(box().api.remoteControl.pair).toHaveBeenCalledTimes(1);
+      expect(devices.hostLinks(id).map((l) => l.hostId)).toEqual(["wsl"]);
+    });
+
+    it("turning the switch off and on lifts the block", async () => {
+      const id = await linkedOnBox();
+      await revokeOnBox("box-device-1");
+      await links.setLinkPhones("box", false);
+      await links.setLinkPhones("box", true);
+      expect(links.blockedOn("box")).toEqual([]);
+      const linked = await links.link(id, ["room-wsl"]);
+      expect(linked.map((p) => p.roomId)).toEqual(["room-box"]);
+    });
+
+    it("a reset of the host's keys keeps the block", async () => {
+      const id = await linkedOnBox();
+      await revokeOnBox("box-device-1");
+      await links.resetHost("box", async () => {
+        box().paired.clear();
+        box().roomId = "room-box-2";
+      });
+      expect(links.blockedOn("box")).toEqual([{ deviceId: id, label: "Orry's phone" }]);
+      await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+      expect(box().api.remoteControl.pair).toHaveBeenCalledTimes(1);
+    });
+
+    it("finds a revoke made on the box before minting again, and mints nothing", async () => {
+      const id = await linkedOnBox();
+      // Revoked on the box itself; the phone was refused and let the room go.
+      box().paired.delete("box-device-1");
+      await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+      expect(box().api.remoteControl.listDevices).toHaveBeenCalled();
+      expect(box().api.remoteControl.pair).toHaveBeenCalledTimes(1);
+      expect(devices.hostLinks(id)).toEqual([]);
+      expect(links.blockedOn("box")).toEqual([{ deviceId: id, label: "Orry's phone" }]);
+    });
+
+    it("re-mints after a reset made elsewhere, in the new room, without blocking", async () => {
+      const id = await linkedOnBox();
+      box().paired.clear();
+      box().roomId = "room-box-2";
+      const linked = await links.link(id, ["room-wsl"]);
+      expect(linked.map((p) => p.roomId)).toEqual(["room-box-2"]);
+      expect(links.blockedOn("box")).toEqual([]);
+      expect(box().api.remoteControl.revoke).not.toHaveBeenCalled();
+      expect(devices.hostLinks(id)).toEqual([
+        { hostId: "box", hostDeviceId: "box-device-2", roomId: "room-box-2" },
+      ]);
+    });
+
+    it("mints nothing when the host's device list cannot be read", async () => {
+      const id = await linkedOnBox();
+      box().api.remoteControl.listDevices.mockRejectedValueOnce(new Error("boom"));
+      await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+      expect(box().api.remoteControl.pair).toHaveBeenCalledTimes(1);
+      expect(links.blockedOn("box")).toEqual([]);
+      expect(devices.hostLinks(id)).toHaveLength(1);
+    });
+
+    it("on reconnect, blocks a phone revoked on the box", async () => {
+      const id = await linkedOnBox();
+      box().paired.delete("box-device-1");
+      pairingChanged.mockClear();
+      reconnect(box());
+      await vi.waitFor(() =>
+        expect(links.blockedOn("box")).toEqual([{ deviceId: id, label: "Orry's phone" }]),
+      );
+      expect(devices.hostLinks(id)).toEqual([]);
+      expect(pairingChanged).toHaveBeenCalledWith("box");
+    });
+
+    it("on reconnect, forgets a link lost to a reset elsewhere, without blocking", async () => {
+      const id = await linkedOnBox();
+      box().paired.clear();
+      box().roomId = "room-box-2";
+      reconnect(box());
+      await vi.waitFor(() => expect(devices.hostLinks(id)).toEqual([]));
+      expect(links.blockedOn("box")).toEqual([]);
+    });
+
+    it("on reconnect, leaves a link the host still lists alone", async () => {
+      const id = await linkedOnBox();
+      pairingChanged.mockClear();
+      await links.reconcileLinks("box");
+      expect(devices.hostLinks(id)).toHaveLength(1);
+      expect(links.blockedOn("box")).toEqual([]);
+      expect(pairingChanged).not.toHaveBeenCalled();
+    });
+
+    it("never blocks a phone whose old link this desktop revoked after a failed mint", async () => {
+      const id = await linkedOnBox();
+      // The phone let the room go; the mint that would replace its link fails.
+      box().api.remoteControl.pair.mockRejectedValueOnce(new Error("owner channel closed"));
+      await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+      expect(records.box.pendingRevokes).toEqual(["box-device-1"]);
+      expect(devices.hostLinks(id)).toEqual([]);
+
+      // The owed revoke goes through on the next connect; nothing is blocked.
+      reconnect(box());
+      await vi.waitFor(() => expect(records.box.pendingRevokes).toEqual([]));
+      expect(links.blockedOn("box")).toEqual([]);
+      const linked = await links.link(id, ["room-wsl"]);
+      expect(linked.map((p) => p.roomId)).toEqual(["room-box"]);
+    });
+
+    it("takes a link from before ADR-238, missing from the host, as revoked", async () => {
+      const id = await phone();
+      await devices.setHostLink(id, { hostId: "box", hostDeviceId: "box-old" });
+      await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+      expect(box().api.remoteControl.pair).not.toHaveBeenCalled();
+      expect(links.blockedOn("box")).toEqual([{ deviceId: id, label: "Orry's phone" }]);
+    });
+  });
+
   it("keeps a device's links across a restart", async () => {
     const id = await phone();
     await links.link(id, ["room-wsl"]);
     await devices.flush();
     const reopened = new RemoteDeviceStore(switchableBox(), path.join(dir, "devices.enc"));
     await reopened.init();
-    expect(reopened.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1" }]);
+    expect(reopened.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1", roomId: "room-box" }]);
     // Never in what the settings page lists.
     expect(reopened.list()[0]).not.toHaveProperty("hostLinks");
   });

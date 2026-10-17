@@ -363,6 +363,10 @@ ADR-225 noted "one QR per host until slice 3". This slice removes that.
 - **Opting out per host.** `HostPhoneAccess` gets a "Phones paired with this
   Mac can reach \<host\>" switch, on by default. Off means
   `linkHostPairings` skips that host and revokes its linked pairings.
+- **Amended by ADR-238.** A refusal (4401) no longer declines the room on
+  the device; only removing it by hand does. A linked pairing revoked on the
+  host is remembered by the desktop as a block (`RemoteDevice.hostBlocks`)
+  until the host's switch is turned off and on.
 
 ### D10. Integrations pick their server per call
 

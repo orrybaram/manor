@@ -5,6 +5,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import {
   connectRoomDirectly,
   declinePairing,
+  declinedRooms,
   listPairings,
   renamePairing,
   subscribePairings,
@@ -35,11 +36,17 @@ type HostsSheetProps = {
  * ADR-229 D7: a host its desktop reports asleep reads **Asleep**, with
  * **Wake**, which asks the desktop to start it (`hosts.wake` on home). Only
  * a desktop can start a box, so with none reachable the row says so instead.
+ *
+ * ADR-238 D4: a host reached only through the desktop is offered
+ * **Connect directly** only if this browser removed it by hand. A host that
+ * refused the phone is linked again by the desktop, so no button changes it.
  */
 export function HostsSheet(props: HostsSheetProps) {
   const { open, onOpenChange } = props;
 
   const pairings = useSyncExternalStore(subscribePairings, listPairings, listPairings);
+  // Rooms removed by hand here: the indirect rows offer a way back for these.
+  const declined = useSyncExternalStore(subscribePairings, declinedRooms, declinedRooms);
   // Re-read as servers come and go, home moving among them.
   const entries = useServers();
   // Home's host list: on a phone each host goes by its room (ADR-228 D2).
@@ -77,6 +84,7 @@ export function HostsSheet(props: HostsSheetProps) {
           <IndirectHostRow
             key={host.hostId}
             host={host}
+            declined={host.roomId != null && declined.includes(host.roomId)}
             desktopName={desktopName}
             desktopReachable={homeEntry?.reachability === "connected"}
           />
@@ -88,8 +96,8 @@ export function HostsSheet(props: HostsSheetProps) {
 
 /**
  * The desktop's remote hosts this browser holds no pairing of its own for:
- * reached only through the desktop, so gone whenever it sleeps. Usually a
- * room it declined — removed here, or refused once by the host.
+ * reached only through the desktop, so gone whenever it sleeps. Often a room
+ * it declined by removing it here, or one the desktop has yet to link.
  */
 function indirectHosts(
   hosts: readonly HostStatusInfo[],
@@ -103,17 +111,20 @@ function indirectHosts(
 }
 
 /**
- * A host reached only through the desktop. **Connect directly** asks the
- * desktop for a pairing of this browser's own there, so it stays reachable
- * with the desktop asleep. Only a desktop can mint one, and only for a host
- * with a relay room.
+ * A host reached only through the desktop. When this browser removed it
+ * (`declined`), **Connect directly** asks the desktop for a pairing of its
+ * own there, so it stays reachable with the desktop asleep. Only a desktop
+ * can mint one, and only for a host with a relay room. Otherwise the desktop
+ * links it on its own, and the row only says how it is reached.
  */
 function IndirectHostRow(props: {
   host: HostStatusInfo;
+  /** This browser removed it by hand. */
+  declined: boolean;
   desktopName: string;
   desktopReachable: boolean;
 }) {
-  const { host, desktopName, desktopReachable } = props;
+  const { host, declined, desktopName, desktopReachable } = props;
   const [linking, setLinking] = useState<{ busy: boolean; error: string | null }>({
     busy: false,
     error: null,
@@ -137,7 +148,9 @@ function IndirectHostRow(props: {
     : (linking.error ??
       (roomId === null
         ? `Only through ${desktopName} · no relay`
-        : `Only through ${desktopName}`));
+        : declined
+          ? `Removed here · only through ${desktopName}`
+          : `Only through ${desktopName}`));
 
   return (
     <div
@@ -151,7 +164,7 @@ function IndirectHostRow(props: {
         <span className={styles.name}>{hostName(host)}</span>
         <span className={styles.status}>{label}</span>
       </span>
-      {roomId !== null && (
+      {roomId !== null && declined && (
         <Button
           size="sm"
           variant="secondary"

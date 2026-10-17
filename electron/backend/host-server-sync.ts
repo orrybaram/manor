@@ -26,6 +26,10 @@
  *   committed it. The mint's label is unique (a random suffix), so on the
  *   next connect every device on the host under that label, made since the
  *   mint started, and that no desktop link points to, is revoked.
+ * - **Revokes made on the host** (ADR-238 D2): after the owed revokes, each
+ *   linked pairing the host no longer lists is settled
+ *   (`HostPairingLinks.reconcileLinks`) — its device blocked there if it was
+ *   revoked on the box, its link forgotten if the host was reset elsewhere.
  *
  * - **Supervision** (ADR-229 D4): a host whose record says `supervise`, and
  *   whose server reports no supervisor, gets `manor-host supervisor install`
@@ -159,6 +163,8 @@ export interface HostServerSyncOptions {
   pendingRevokes?: PendingRevokes;
   /** Mints whose answer was lost, reconciled on every connect (ADR-230 D11). */
   pendingMints?: PendingMints;
+  /** Settles the linked pairings the host no longer lists, on every connect (ADR-238 D2). */
+  reconcileLinks?: (hostId: string) => Promise<void>;
   /** Installs supervision on connect where it is wanted and missing (ADR-229 D4). */
   supervision?: HostSupervision;
   log?: Pick<Console, "warn">;
@@ -171,6 +177,7 @@ export class HostServerSync {
   private readonly pending: PendingRevokes | undefined;
   private readonly mints: PendingMints | undefined;
   private readonly supervision: HostSupervision | undefined;
+  private readonly reconcileLinksFn: ((hostId: string) => Promise<void>) | undefined;
   private readonly log: Pick<Console, "warn">;
   private unsubscribe: (() => void) | null = null;
   /** Clients whose `busyChanged` is already listened to (subscriptions outlive channels). */
@@ -186,6 +193,7 @@ export class HostServerSync {
     this.pending = opts.pendingRevokes;
     this.mints = opts.pendingMints;
     this.supervision = opts.supervision;
+    this.reconcileLinksFn = opts.reconcileLinks;
     this.endpoints = new HostPushEndpoints({
       // The one status read per connect and pairing change: its room and
       // capabilities are recorded for `hosts.list` on the way past.
@@ -365,8 +373,19 @@ export class HostServerSync {
     await this.adopt(hostId, client);
     await this.reconcileMints(hostId);
     await this.revokePending(hostId);
+    await this.reconcileLinks(hostId);
     await this.endpoints.refresh(hostId);
     await this.ensureSupervised(hostId, client);
+  }
+
+  /** Settle the host's linked pairings it no longer lists (ADR-238 D2). */
+  private async reconcileLinks(hostId: string): Promise<void> {
+    if (!this.reconcileLinksFn) return;
+    try {
+      await this.reconcileLinksFn(hostId);
+    } catch (err) {
+      this.log.warn(`[host-server-sync] ${hostId}: checking linked pairings failed: ${errorMessage(err)}`);
+    }
   }
 
   /**

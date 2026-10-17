@@ -57,6 +57,23 @@ export function supervisionHint(
     : `Off: after ${hostName} restarts, devices can't reach it until this computer connects again.`;
 }
 
+/** "Your device reaches", "Your 2 devices reach", or, with none paired, "Devices you pair reach". */
+export function devicesReachText(count: number): string {
+  if (count === 0) return "Devices you pair reach";
+  return count === 1 ? "Your device reaches" : `Your ${count} devices reach`;
+}
+
+/**
+ * The hint under "Devices can reach <host>" for devices whose pairing was
+ * revoked on the host (ADR-238 D3): "A was removed on <host>. Turn the
+ * switch off and on to pair it again."
+ */
+export function blockedDevicesLine(labels: readonly string[], hostName: string): string {
+  const many = labels.length > 1;
+  const names = many ? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}` : labels[0];
+  return `${names} ${many ? "were" : "was"} removed on ${hostName}. Turn the switch off and on to pair ${many ? "them" : "it"} again.`;
+}
+
 /** The idle-stop caveat for a recipe with nothing to stop it with the lid closed (D7). */
 export function idleStopText(minutes: number | undefined, desktopName: string): string {
   const after = minutes === undefined ? "Stops when idle" : `Stops after ${minutes} min idle`;

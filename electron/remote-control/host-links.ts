@@ -17,6 +17,19 @@
  *   now, or on the host's next connect.
  * - **The switch off** forgets every link on that host and owes their
  *   revokes the same way.
+ * - **A revoke on the host** (ADR-238 D2) — `hosts.revokeDevice`
+ *   (`revokeOnHost`), or anything on the box — blocks the device there
+ *   (`RemoteDeviceStore.blockHost`): no pairing is minted for it on that host
+ *   again, however often the phone asks. One made on the box is found by
+ *   `settle`, which tells it from a reset by the room the link was minted in:
+ *   a link the host no longer lists, whose room is still the host's, was
+ *   revoked; one whose room has changed was lost to a reset, and is minted
+ *   again. `settle` runs before a mint replaces a link, and on each connect
+ *   (`reconcileLinks`) — the owner channel can stay up for days, so the
+ *   connect alone would be too late.
+ * - **The switch back on** lifts every block on that host. Blocks survive a
+ *   reset of the host's keys: a reset is a security action, and letting more
+ *   devices in should not be its side effect.
  *
  * A device that held a link on a host and no longer holds its room — it
  * removed the pairing, or the host's keys were reset — has the old one
@@ -48,7 +61,7 @@ import {
   type PendingMint,
   type PendingMints,
 } from "../backend/host-server-sync";
-import type { RemoteDeviceStore, RevokedDevice } from "./devices";
+import type { HostLink, RemoteDeviceStore, RevokedDevice } from "./devices";
 import { parseRelayPairingUrl } from "./relay/url";
 
 /** What a device is handed for one host: enough to dial its room. */
@@ -75,6 +88,18 @@ export interface HostLinkRecords {
   clearPendingMints(hostId: string, labels: readonly string[]): void;
   /** The host's keys were reset: nothing on it is owed any more. */
   forgetOwed(hostId: string): void;
+  /** The host's own ids for the linked pairings it is owed a revoke of. */
+  pendingRevokes(hostId: string): readonly string[];
+}
+
+/** What `settle` found of a host's links. */
+interface Settled {
+  /** The host's ids for the links it still lists: owed a revoke before a new mint. */
+  present: string[];
+  /** The devices blocked because their link was revoked on the host. */
+  blocked: Set<string>;
+  /** Whether any link was dropped or device blocked. */
+  changed: boolean;
 }
 
 /** `label` as minted on a host: with a suffix no pairing made there shares. */
@@ -85,7 +110,17 @@ export function mintLabel(label: string): string {
 export interface HostPairingLinksOptions {
   devices: Pick<
     RemoteDeviceStore,
-    "ready" | "label" | "hostLinks" | "linksOn" | "setHostLink" | "dropHostLinks" | "onRevoke"
+    | "ready"
+    | "label"
+    | "hostLinks"
+    | "linksOn"
+    | "setHostLink"
+    | "dropHostLinks"
+    | "onRevoke"
+    | "hostBlocks"
+    | "blockHost"
+    | "blockedOn"
+    | "clearHostBlocks"
   >;
   /** Each remote host's owner channel. */
   hostServers(): Pick<HostServerClient, "hostId" | "state" | "api">[];
@@ -151,7 +186,9 @@ export class HostPairingLinks {
   setLinkPhones(hostId: string, on: boolean): Promise<void> {
     return this.serially(async () => {
       this.options.records.setLinkPhones(hostId, on);
-      if (on) return;
+      // On again lifts every block there (ADR-238 D2): the way back for a
+      // device whose pairing was revoked on the host.
+      if (on) return this.options.devices.clearHostBlocks(hostId);
       const links = this.options.devices.linksOn(hostId);
       if (links.length === 0) return;
       this.options.records.addPendingRevokes(
@@ -166,7 +203,8 @@ export class HostPairingLinks {
   /**
    * Reset `hostId`'s pairing keys with `reset`, after any mint in flight
    * (ADR-230 D11). The reset revoked every device on the host, so its links
-   * are forgotten and nothing there is owed afterwards.
+   * are forgotten and nothing there is owed afterwards. Its blocks stay
+   * (ADR-238 D2): only the switch lifts them.
    */
   resetHost<T>(hostId: string, reset: () => Promise<T>): Promise<T> {
     return this.serially(async () => {
@@ -175,6 +213,49 @@ export class HostPairingLinks {
       this.options.records.forgetOwed(hostId);
       return out;
     });
+  }
+
+  /**
+   * Find the linked pairings revoked on `hostId` while this desktop was not
+   * looking (ADR-238 D2), on each connect of its owner channel: each device
+   * whose link is gone is blocked there, and one lost to a reset is
+   * forgotten. Links already owed a revoke are left to `revokePending`.
+   */
+  reconcileLinks(hostId: string): Promise<void> {
+    return this.serially(async () => {
+      const { devices, records } = this.options;
+      if (!devices.ready) return;
+      const client = this.options.hostServers().find((c) => c.hostId === hostId);
+      if (client?.state !== "connected") return;
+      const { roomId } = serverFactsOf(await client.api.hostServer.status());
+      if (roomId === null) return;
+      const owed = new Set(records.pendingRevokes(hostId));
+      const links = devices.linksOn(hostId).filter((l) => !owed.has(l.hostDeviceId));
+      if (links.length === 0) return;
+      const { changed } = await this.settle(client, hostId, roomId, links);
+      if (changed) this.options.pairingChanged(hostId);
+    });
+  }
+
+  /**
+   * Revoke `hostDeviceId` on `hostId` with `revoke` (`hosts.revokeDevice`),
+   * then block the desktop device whose link it was, if any (ADR-238 D2):
+   * otherwise its next hello would mint it a new pairing there.
+   */
+  revokeOnHost<T>(hostId: string, hostDeviceId: string, revoke: () => Promise<T>): Promise<T> {
+    return this.serially(async () => {
+      const out = await revoke();
+      const link = this.options.devices
+        .linksOn(hostId)
+        .find((l) => l.hostDeviceId === hostDeviceId);
+      if (link) await this.options.devices.blockHost(link.deviceId, hostId);
+      return out;
+    });
+  }
+
+  /** The devices whose pairing was revoked on `hostId` (ADR-238 D2). */
+  blockedOn(hostId: string): Array<{ deviceId: string; label: string }> {
+    return this.options.devices.blockedOn(hostId);
   }
 
   /**
@@ -216,13 +297,31 @@ export class HostPairingLinks {
     // cannot dial, and its router would only wait on it. Asked again on the
     // device's next hello, by when it may be.
     if (!status.relay.connected) return null;
+    // Its pairing here was revoked on the host (ADR-238 D2).
+    if (devices.hostBlocks(deviceId).includes(hostId)) return null;
 
-    // A link the device has let go of: revoked with the new one's mint.
-    const stale = devices
-      .hostLinks(deviceId)
-      .filter((l) => l.hostId === hostId)
-      .map((l) => l.hostDeviceId);
-    records.addPendingRevokes(hostId, stale);
+    // A link the device has let go of: revoked with the new one's mint —
+    // unless the host no longer has it (`settle`). One already owed a revoke
+    // is the queue's, not a sign of anything done on the host.
+    const owed = new Set(records.pendingRevokes(hostId));
+    const links = devices.hostLinks(deviceId).filter((l) => l.hostId === hostId);
+    const toSettle = links
+      .filter((l) => !owed.has(l.hostDeviceId))
+      .map((l) => ({ deviceId, ...l }));
+    let present: string[] = [];
+    if (toSettle.length > 0) {
+      const settled = await this.settle(client, hostId, roomId, toSettle);
+      if (settled.blocked.has(deviceId)) {
+        this.options.pairingChanged(hostId);
+        return null;
+      }
+      present = settled.present;
+    }
+    records.addPendingRevokes(hostId, present);
+    // Owed now, the old links are the revoke queue's, not the device's: one
+    // left recorded past a failed mint would, once revoked, look revoked on
+    // the host to `settle` and block the device.
+    if (links.length > 0) await devices.dropHostLinks(hostId, deviceId);
 
     // Recorded before the host is asked, so a mint whose answer is lost —
     // the host committed it, the channel dropped — is found on the next
@@ -244,7 +343,7 @@ export class HostPairingLinks {
       }
       recorded =
         sameRoom &&
-        (await devices.setHostLink(deviceId, { hostId, hostDeviceId: result.device.id }));
+        (await devices.setHostLink(deviceId, { hostId, hostDeviceId: result.device.id, roomId }));
       if (!recorded) {
         // Revoked while this ran, a link this build cannot read, or a stale
         // room: what was just minted must not outlive the call.
@@ -263,6 +362,42 @@ export class HostPairingLinks {
       token: link.rawToken,
       name: records.label(hostId),
     };
+  }
+
+  /**
+   * What became of `links` on `hostId`, from one `listDevices` (ADR-238 D2):
+   * - **listed**: still there, and `present` — a mint owes it a revoke;
+   * - **absent, minted in another room** than the host's now (`roomId`):
+   *   lost to a reset made elsewhere. The link is forgotten;
+   * - **absent otherwise** (the same room, or a link from before ADR-238
+   *   that does not say): revoked on the host. The device is blocked there.
+   * A failing `listDevices` rejects, and nothing is settled.
+   */
+  private async settle(
+    client: Pick<HostServerClient, "api">,
+    hostId: string,
+    roomId: string,
+    links: ReadonlyArray<{ deviceId: string } & HostLink>,
+  ): Promise<Settled> {
+    const { devices } = this.options;
+    const listed = new Set((await client.api.remoteControl.listDevices()).map((d) => d.id));
+    const out: Settled = { present: [], blocked: new Set(), changed: false };
+    for (const link of links) {
+      if (listed.has(link.hostDeviceId)) {
+        out.present.push(link.hostDeviceId);
+      } else if (link.roomId !== undefined && link.roomId !== roomId) {
+        await devices.dropHostLinks(hostId, link.deviceId);
+        out.changed = true;
+      } else {
+        this.log.warn(
+          `[host-links] ${hostId}: a device's pairing there was revoked on the host; not pairing it there again`,
+        );
+        await devices.blockHost(link.deviceId, hostId);
+        out.blocked.add(link.deviceId);
+        out.changed = true;
+      }
+    }
+    return out;
   }
 
   /** Owe every revoked device's links to their hosts, then try them now. */

@@ -19,7 +19,7 @@ vi.hoisted(() => {
 
 import { base64urlEncode } from "../../../../lib/relay-crypto";
 import type { BridgeTransport } from "../../../../bridge/client";
-import { listPairings, upsertPairing } from "../../../../bridge/pairings";
+import { declinePairing, listPairings, upsertPairing } from "../../../../bridge/pairings";
 import { servers } from "../../../../bridge/server-set";
 import { HostsSheet } from "../HostsSheet";
 import { useHostStore } from "../../../../store/host-store";
@@ -179,11 +179,18 @@ describe("HostsSheet", () => {
       act(() => useHostStore.setState({ hosts: [] }));
     });
 
+    // The user removed it here by hand.
+    const declineC = () =>
+      act(() => {
+        declinePairing(upsertPairing({ roomId: C, serverKey: KEY, token: "old" }));
+      });
+
     it("is listed after the pairings, and Connect directly asks for a pairing of its own", async () => {
+      declineC();
       const rows = all("phone-host-indirect");
       expect(rows.map((r) => r.getAttribute("data-host-id"))).toEqual([C]);
       expect(rows[0].textContent).toContain("blade");
-      expect(rows[0].textContent).toContain("Only through Host 1");
+      expect(rows[0].textContent).toContain("Removed here · only through Host 1");
       const relink = vi.fn(async () => {
         const { linkPairing } = await import("../../../../bridge/pairings");
         linkPairing({ roomId: C, serverKey: KEY, token: "c", name: "blade" });
@@ -197,7 +204,15 @@ describe("HostsSheet", () => {
       expect(all("phone-host-option").map((r) => r.getAttribute("data-room-id"))).toEqual([A, B, C]);
     });
 
+    it("offers no way back for a host that was not removed here", () => {
+      const rows = all("phone-host-indirect");
+      expect(rows[0].textContent).toContain("Only through Host 1");
+      expect(rows[0].textContent).not.toContain("Removed here");
+      expect(q("phone-host-connect-directly")).toBeNull();
+    });
+
     it("cannot connect directly while the desktop is away", () => {
+      declineC();
       act(() => servers.setReachability(A, "unreachable"));
       expect((q("phone-host-connect-directly") as HTMLButtonElement).disabled).toBe(true);
     });

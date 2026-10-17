@@ -394,6 +394,15 @@ button.pathCardSelected {
   color: var(--text-dim);
 }
 
+/* Phones revoked on the host, under the switch that brings them back. */
+.blockedHint {
+  margin: 0;
+  padding: 0 0 6px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--text-selected) 50%, transparent);
+}
+
 /* ── A profile's hosts (ADR-235 D7) ── */
 .hostList > * + * {
   border-top: 1px solid var(--border);

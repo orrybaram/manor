@@ -368,6 +368,88 @@ describe("RemoteDeviceStore", () => {
     });
   });
 
+  describe("host links and blocks (ADR-238 D2)", () => {
+    it("round-trips a link's room", async () => {
+      const s = await store();
+      const { device } = await s.pair("phone", ROOM);
+      await s.setHostLink(device.id, { hostId: "box", hostDeviceId: "d1", roomId: "room-box" });
+      await s.flush();
+      expect((await store()).hostLinks(device.id)).toEqual([
+        { hostId: "box", hostDeviceId: "d1", roomId: "room-box" },
+      ]);
+    });
+
+    it("blockHost drops the link there, and the block survives a restart", async () => {
+      const s = await store();
+      const { device } = await s.pair("phone", ROOM);
+      await s.setHostLink(device.id, { hostId: "box", hostDeviceId: "d1", roomId: "room-box" });
+      await s.setHostLink(device.id, { hostId: "wsl", hostDeviceId: "d2", roomId: "room-wsl" });
+      await expect(s.blockHost(device.id, "box")).resolves.toBe(true);
+      await s.blockHost(device.id, "box");
+      expect(s.hostBlocks(device.id)).toEqual(["box"]);
+      expect(s.hostLinks(device.id).map((l) => l.hostId)).toEqual(["wsl"]);
+      await expect(s.blockHost("not-paired", "box")).resolves.toBe(false);
+
+      await s.flush();
+      const reopened = await store();
+      expect(reopened.hostBlocks(device.id)).toEqual(["box"]);
+      expect(reopened.blockedOn("box")).toEqual([{ deviceId: device.id, label: "phone" }]);
+      expect(reopened.blockedOn("wsl")).toEqual([]);
+    });
+
+    it("clearHostBlocks lifts every device's block on that host only", async () => {
+      const s = await store();
+      const a = (await s.pair("a", ROOM)).device.id;
+      const b = (await s.pair("b", ROOM)).device.id;
+      await s.blockHost(a, "box");
+      await s.blockHost(a, "wsl");
+      await s.blockHost(b, "box");
+      await s.clearHostBlocks("box");
+      expect(s.blockedOn("box")).toEqual([]);
+      expect(s.hostBlocks(a)).toEqual(["wsl"]);
+      expect(s.hostBlocks(b)).toEqual([]);
+      await s.flush();
+      expect((await diskText()).match(/hostBlocks/g)).toHaveLength(1);
+    });
+
+    it("never exposes blocks or links through list()", async () => {
+      const s = await store();
+      const { device } = await s.pair("phone", ROOM);
+      await s.setHostLink(device.id, { hostId: "wsl", hostDeviceId: "d2", roomId: "room-wsl" });
+      await s.blockHost(device.id, "box");
+      const [listed] = s.list();
+      expect(listed).not.toHaveProperty("hostBlocks");
+      expect(listed).not.toHaveProperty("hostLinks");
+    });
+
+    it("drops malformed blocks silently, keeping the device", async () => {
+      const row = (id: string, hostBlocks: unknown) => ({
+        id,
+        label: id,
+        tokenHash: "a".repeat(64),
+        relayRoom: ROOM,
+        createdAt: 1,
+        lastSeenAt: null,
+        hostBlocks,
+      });
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        Buffer.from(
+          JSON.stringify([
+            row("not-array", "box"),
+            row("mixed", ["box", "", 3, null, "box", "wsl"]),
+          ]),
+          "utf8",
+        ),
+      );
+      const s = await store();
+      expect(s.ids()).toEqual(["not-array", "mixed"]);
+      expect(s.hostBlocks("not-array")).toEqual([]);
+      expect(s.hostBlocks("mixed")).toEqual(["box", "wsl"]);
+    });
+  });
+
   it("drops persisted rows that are not well-formed devices", async () => {
     const rows = [
       {

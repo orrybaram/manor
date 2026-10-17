@@ -315,6 +315,7 @@ export function initApp(devTitle: string | null): void {
         clearPendingMints: (hostId, labels) =>
           shared.projectManager.clearPendingHostMints(hostId, labels),
         forgetOwed: (hostId) => shared.projectManager.forgetOwedOnHost(hostId),
+        pendingRevokes: (hostId) => shared.projectManager.pendingHostRevokes(hostId),
       },
       revokePending: (hostId) => hostServerSync.revokePending(hostId),
       pairingChanged: (hostId) => {
@@ -346,6 +347,8 @@ export function initApp(devTitle: string | null): void {
       },
       // Pairings minted on a host whose answer was lost (ADR-230 D11).
       pendingMints: hostLinks.pendingMints(),
+      // Linked pairings revoked on the host, or lost to a reset there (ADR-238 D2).
+      reconcileLinks: (hostId) => hostLinks.reconcileLinks(hostId),
       // "Keep Manor running when <host> restarts", installed on connect
       // where it is on and the host has none (ADR-229 D4).
       supervision: {

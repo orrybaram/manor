@@ -20,6 +20,12 @@
  * no OS keychain) pairing refuses, and remote control stays off. Pairing and
  * revoking resolve only once the change is on disk: a revoke that was not
  * saved would quietly come back on the next start.
+ *
+ * On a desktop, each device also carries the pairings minted for it on remote
+ * hosts' servers (`hostLinks`, ADR-228 D9) and the hosts where such a pairing
+ * was revoked on the host itself (`hostBlocks`, ADR-238 D2), where nothing is
+ * minted for it again until that host's switch is turned off and on. Neither
+ * leaves this module through `list()`.
  */
 
 import crypto from "node:crypto";
@@ -63,6 +69,13 @@ export interface RemoteDevice {
    */
   hostLinks?: HostLink[];
   /**
+   * The hosts (the desktop's ids) where this device's linked pairing was
+   * revoked on the host itself (ADR-238 D2). Nothing is minted for it there
+   * until the host's "can reach" switch is turned off and on. Kept on the
+   * device so its revoke takes these with it. Absent when there are none.
+   */
+  hostBlocks?: string[];
+  /**
    * Fields a newer release wrote that this one does not know, carried
    * through untouched so a downgrade-then-upgrade does not lose them. A
    * build that rebuilt each row from only the fields it knew would strip
@@ -78,6 +91,12 @@ export interface HostLink {
   hostId: string;
   /** The device's id in that host's own device store. */
   hostDeviceId: string;
+  /**
+   * The host's room the pairing was minted in (ADR-238 D2): a link missing
+   * from a host whose room has changed since was lost to a reset, not
+   * revoked. Absent on a link from before ADR-238.
+   */
+  roomId?: string;
 }
 
 /** A device a revoke took away, and the host pairings it held. */
@@ -98,7 +117,7 @@ export interface PushSubscriptionRecord {
  */
 export type RemoteDeviceInfo = Omit<
   RemoteDevice,
-  "tokenHash" | "pushSubscription" | "relayRoom" | "extra" | "hostLinks"
+  "tokenHash" | "pushSubscription" | "relayRoom" | "extra" | "hostLinks" | "hostBlocks"
 > & { hasPush: boolean };
 
 const TOKEN_BYTES = 32;
@@ -418,6 +437,53 @@ export class RemoteDeviceStore {
     return out;
   }
 
+  /** The hosts where `id`'s linked pairing was revoked on the host (ADR-238 D2). */
+  hostBlocks(id: string): readonly string[] {
+    return this.live().get(id)?.hostBlocks ?? [];
+  }
+
+  /**
+   * `id`'s linked pairing on `hostId` was revoked on the host: mint it none
+   * there again, and forget the link. False when the device is no longer
+   * paired. Resolves once it is on disk.
+   */
+  async blockHost(id: string, hostId: string): Promise<boolean> {
+    const device = this.live().get(id);
+    if (!device) return false;
+    const blocks = device.hostBlocks ?? [];
+    if (!blocks.includes(hostId)) device.hostBlocks = [...blocks, hostId];
+    const kept = (device.hostLinks ?? []).filter((l) => l.hostId !== hostId);
+    if (kept.length > 0) device.hostLinks = kept;
+    else delete device.hostLinks;
+    this.persist();
+    await this.store.flush();
+    return true;
+  }
+
+  /** Every device blocked on `hostId`. */
+  blockedOn(hostId: string): Array<{ deviceId: string; label: string }> {
+    return [...this.live().values()]
+      .filter((d) => d.hostBlocks?.includes(hostId))
+      .sort((a, b) => a.createdAt - b.createdAt)
+      .map((d) => ({ deviceId: d.id, label: d.label }));
+  }
+
+  /** Lift every device's block on `hostId`: the switch was turned back on. */
+  async clearHostBlocks(hostId: string): Promise<void> {
+    let changed = false;
+    for (const device of this.live().values()) {
+      const blocks = device.hostBlocks;
+      if (!blocks?.includes(hostId)) continue;
+      changed = true;
+      const kept = blocks.filter((h) => h !== hostId);
+      if (kept.length > 0) device.hostBlocks = kept;
+      else delete device.hostBlocks;
+    }
+    if (!changed) return;
+    this.persist();
+    await this.store.flush();
+  }
+
   /**
    * Record `link` for `id`, replacing its link on the same host. False when
    * the device is no longer paired: the caller revokes what it minted.
@@ -490,6 +556,7 @@ function publicView(device: RemoteDevice): RemoteDeviceInfo {
     relayRoom: _relayRoom,
     extra: _extra,
     hostLinks: _hostLinks,
+    hostBlocks: _hostBlocks,
     ...rest
   } = device;
   return { ...rest, hasPush: pushSubscription !== null };
@@ -518,6 +585,7 @@ const KNOWN_FIELDS = new Set([
   "lastSeenAt",
   "pushSubscription",
   "hostLinks",
+  "hostBlocks",
 ]);
 
 /** A stored device's host links; malformed entries are dropped. */
@@ -525,11 +593,17 @@ function asHostLinks(value: unknown): HostLink[] {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry: unknown) => {
     if (typeof entry !== "object" || entry === null) return [];
-    const { hostId, hostDeviceId } = entry as Record<string, unknown>;
-    return typeof hostId === "string" && typeof hostDeviceId === "string"
-      ? [{ hostId, hostDeviceId }]
-      : [];
+    const { hostId, hostDeviceId, roomId } = entry as Record<string, unknown>;
+    if (typeof hostId !== "string" || typeof hostDeviceId !== "string") return [];
+    return [{ hostId, hostDeviceId, ...(typeof roomId === "string" ? { roomId } : {}) }];
   });
+}
+
+/** A stored device's host blocks: unique, non-empty host ids; `[]` if malformed. */
+function asHostBlocks(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value.filter((id): id is string => typeof id === "string" && id.length > 0);
+  return [...new Set(ids)];
 }
 
 /**
@@ -569,6 +643,7 @@ function asDevice(value: unknown): RemoteDevice | null {
       extra[field] = value;
   }
   const hostLinks = asHostLinks(v.hostLinks);
+  const hostBlocks = asHostBlocks(v.hostBlocks);
   return {
     id: v.id,
     label: v.label,
@@ -578,6 +653,7 @@ function asDevice(value: unknown): RemoteDevice | null {
     lastSeenAt,
     pushSubscription: asSubscription(v.pushSubscription),
     ...(hostLinks.length > 0 ? { hostLinks } : {}),
+    ...(hostBlocks.length > 0 ? { hostBlocks } : {}),
     ...(Object.keys(extra).length > 0 ? { extra } : {}),
   };
 }

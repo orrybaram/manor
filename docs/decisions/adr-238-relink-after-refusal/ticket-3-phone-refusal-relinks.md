@@ -1,6 +1,6 @@
 ---
 title: "Phone: a refusal only drops the pairing, relinks once; Hosts sheet copy"
-status: review
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

@@ -1,6 +1,6 @@
 ---
 title: "Fix: Device access copy counts blocked devices; hint contrast"
-status: in-progress
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [2]

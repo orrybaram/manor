@@ -1,6 +1,6 @@
 ---
 title: "Desktop: revoke handler and the Hosts page hint"
-status: review
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [1]

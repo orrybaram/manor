@@ -1,6 +1,6 @@
 ---
 title: "Fix: relink after a refusal retries while the host's relay comes back"
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [3]

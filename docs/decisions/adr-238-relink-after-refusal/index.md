@@ -34,7 +34,7 @@ The decline came from ADR-228 D9: if the phone's linked pairing was revoked on t
 ### D1. A refusal only drops the pairing, and the page asks again once (phone)
 
 - `forgetPairing` (`src/bridge/web-pairing.ts`) calls `removePairing`, not `declinePairing`. Only **Remove** in the Hosts sheet declines a room.
-- `refuse()` in `src/bridge/install-web.ts`: after a 4401 drops a pairing, the page calls `relinkAll` (what `registerRelink` registers), at most once per room per page load (`autoRelinked: Set<string>`). A host that was reset or moved gets a fresh pairing in the same session. One revoked on the host is blocked by the desktop (D2) and stays "Only through <desktop>". With no desktop connected yet, the desktop's hello (`linkHosts`) covers it, since the dead room is no longer held.
+- `refuse()` in `src/bridge/install-web.ts`: after a 4401 drops a pairing, the page calls `relinkAll` (what `registerRelink` registers), in one sequence per room per page load (`autoRelinked: Set<string>`): now, then after 2s, 6s and 15s, stopping at the first ask that adds a pairing. A key reset revokes devices before the host's relay redials, so the first ask usually lands while `status.relay.connected` is still false and mints nothing (found by the e2e run: 3 of 9 passed with a single ask, 5 of 5 with the retries). A host that was reset or moved gets a fresh pairing in the same session. One revoked on the host is blocked by the desktop (D2) and stays "Only through <desktop>". With no desktop connected yet, the desktop's hello (`linkHosts`) covers it, since the dead room is no longer held.
 - `declinePairing` writes the declined list before `removePairing` notifies; `undeclineRoom` notifies; `declinedRooms()` returns a cached snapshot so `useSyncExternalStore` can read it.
 
 ### D2. The desktop remembers a revoke on the host as a per-(device, host) block
@@ -84,3 +84,7 @@ An indirect host whose room this browser declined reads "Removed here · only th
 ## Tickets
 
 <div data-type="database" data-path="." data-view="board"></div>
+- Found in review: `linkOne` now drops a device's old links on a host as soon as it owes their revokes. Otherwise a failed mint left the old link recorded, and once the owed revoke went through, the desktop read its own revoke as one made on the host and blocked the phone.
+- Accepted from review: a reset made elsewhere that lands between `settle`'s status read and its `listDevices` reads as a revoke. The window is two back-to-back calls, and the switch recovers it.
+- The Device access count ("Your device reaches …") leaves out blocked devices.
+- E2E: `tests/e2e/phone-relink-after-refusal.spec.ts`, run by `scripts/test-remote-e2e.mjs`.

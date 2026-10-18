@@ -43,6 +43,12 @@ import {
   type ChatDeps,
 } from "../bridge/handlers/chat";
 import {
+  pasteImageAbort,
+  pasteImageBegin,
+  pasteImageChunk,
+  pasteImageCommit,
+} from "../bridge/handlers/paste-image";
+import {
   attachReturning,
   ptyClaimWinsize,
   ptyClose,
@@ -595,6 +601,14 @@ const METHODS = flatten({
     interrupt: method(chatInterrupt),
     key: method(chatKey),
     answer: method(chatAnswer),
+  },
+  // A device pastes an image into this host's panes (ADR-239 D2), and the
+  // file lands on this box. Only the write is audited, as on the desktop.
+  pasteImage: {
+    begin: method(pasteImageBegin),
+    chunk: method(pasteImageChunk),
+    commit: method(pasteImageCommit, { mutating: true }),
+    abort: method(pasteImageAbort),
   },
   preferences: {
     getAll: method(preferencesGetAll),

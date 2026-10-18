@@ -17,6 +17,7 @@ import {
   isFunctionKey,
 } from "../lib/keybindings";
 import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
+import { isWebApp } from "../lib/platform";
 
 export function useTerminalHotkeys(onOpenSearch?: () => void) {
   const bindings = useKeybindingsStore((s) => s.bindings);
@@ -42,6 +43,23 @@ export function useTerminalHotkeys(onOpenSearch?: () => void) {
           if (e.type === "keydown") {
             ptyWrite("\x1b[13;2u");
           }
+          return false;
+        }
+
+        // Ctrl+V on the web (ADR-239 D3): xterm must not write \x16, which
+        // Claude Code would answer by reading the server's clipboard. Not
+        // calling preventDefault lets the browser paste into xterm's
+        // textarea, which fires the DOM `paste` event that
+        // useTerminalLifecycle handles — image or text alike. Checked before
+        // isRemotePane, which is true for every pane on the web.
+        if (
+          isWebApp() &&
+          e.key.toLowerCase() === "v" &&
+          e.ctrlKey &&
+          !e.shiftKey &&
+          !e.altKey &&
+          !e.metaKey
+        ) {
           return false;
         }
 

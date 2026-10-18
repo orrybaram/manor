@@ -1,6 +1,8 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Square from "lucide-react/dist/esm/icons/square";
-import { useRef, useState } from "react";
+import { useRef, useState, type ClipboardEvent } from "react";
+import { uploadPastedImage } from "../../../lib/paste-image-upload";
+import { isWebApp } from "../../../lib/platform";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
@@ -47,8 +49,14 @@ export function ChatComposer(props: ChatComposerProps) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [sending, setSending] = useState(false);
+  // Pastes still uploading; a count, so the first to finish doesn't end the
+  // hint for another.
+  const [uploads, setUploads] = useState(0);
+  const uploading = uploads > 0;
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The latest text and caret, for an upload that finishes after more typing.
+  const latest = useRef({ text: "", caret: 0 });
 
   // Called back from a row of the `/` menu or choice sheet, after this render.
   const slash = useSlashCommands(paneId, text, caret, {
@@ -57,9 +65,10 @@ export function ChatComposer(props: ChatComposerProps) {
   });
   const level = slash.level;
 
-  const canSend = text.trim().length > 0 && !sending;
+  const canSend = text.trim().length > 0 && !sending && !uploading;
 
   const update = (nextText: string, nextCaret: number) => {
+    latest.current = { text: nextText, caret: nextCaret };
     setText(nextText);
     setCaret(nextCaret);
     slash.sync(nextText, nextCaret);
@@ -106,6 +115,40 @@ export function ChatComposer(props: ChatComposerProps) {
     sendText(text.trimEnd());
   };
 
+  // In the browser a pasted image is uploaded to the pane's host and its path
+  // typed at the caret (ADR-239 D4). Pasted text is left to the textarea.
+  const pasteImage = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!isWebApp()) return;
+    const data = e.clipboardData;
+    if (Array.from(data.types).includes("text/plain")) return;
+    const file = Array.from(data.items)
+      .find((item) => item.kind === "file" && item.type.startsWith("image/"))
+      ?.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+    const before = text;
+    const at = e.currentTarget.selectionStart ?? before.length;
+    setUploads((n) => n + 1);
+    setError(null);
+    uploadPastedImage(paneId, file)
+      .then(
+        (path) => {
+          // The text may have changed during the upload. Insert where the
+          // paste was if everything before it is as it was, else at the end;
+          // the caret stays where the user left it.
+          const now = latest.current;
+          const insert = path + " ";
+          const anchor =
+            now.text.slice(0, at) === before.slice(0, at) ? at : now.text.length;
+          const caretAfter =
+            now.caret >= anchor ? now.caret + insert.length : now.caret;
+          fill(now.text.slice(0, anchor) + insert + now.text.slice(anchor), caretAfter);
+        },
+        (err: unknown) => setError(err instanceof Error ? err.message : "Couldn't paste image"),
+      )
+      .finally(() => setUploads((n) => n - 1));
+  };
+
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {
       setError("Couldn't stop Claude. Try the terminal.");
@@ -119,6 +162,11 @@ export function ChatComposer(props: ChatComposerProps) {
       {level?.kind === "choices" && <CommandChoiceSheet level={level} />}
       {level?.kind === "commands" && (
         <SlashCommandMenu level={level} skillsKnown={slash.skillsKnown} />
+      )}
+      {uploading && (
+        <div className={styles.composerHint} data-testid="chat-composer-uploading">
+          Uploading image…
+        </div>
       )}
       {error && <div className={styles.composerError}>{error}</div>}
       <div className={styles.composerField}>
@@ -138,6 +186,7 @@ export function ChatComposer(props: ChatComposerProps) {
           onChange={(e) => {
             update(e.target.value, e.target.selectionStart ?? e.target.value.length);
           }}
+          onPaste={pasteImage}
           onSelect={(e) => {
             const el = e.currentTarget;
             if (el.selectionStart !== caret) update(el.value, el.selectionStart);

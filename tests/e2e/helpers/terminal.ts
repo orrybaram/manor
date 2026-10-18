@@ -99,3 +99,40 @@ export async function awaitShellReady(
   }
   throw new Error("shell never reached a prompt");
 }
+
+/**
+ * Paste an image into a pane the way a browser does: a synthetic `paste`
+ * ClipboardEvent whose DataTransfer holds one image File, dispatched on the
+ * pane's xterm textarea (where a real paste lands). Bytes cross `evaluate` as
+ * base64.
+ */
+export async function pasteImageIntoPane(
+  page: Page,
+  paneId: string,
+  bytes: Uint8Array,
+  type: string,
+): Promise<void> {
+  const base64 = Buffer.from(bytes).toString("base64");
+  await page.evaluate(
+    ({ id, b64, mime }) => {
+      const handle = window.__manorTerminals?.get(id);
+      if (!handle) throw new Error(`no terminal registered for ${id}`);
+      const textarea = handle.term.textarea;
+      if (!textarea) throw new Error(`pane ${id} has no xterm textarea`);
+      const raw = atob(b64);
+      const data = new Uint8Array(raw.length);
+      for (let i = 0; i < raw.length; i++) data[i] = raw.charCodeAt(i);
+      const file = new File([data], "shot.png", { type: mime });
+      const dt = new DataTransfer();
+      dt.items.add(file);
+      textarea.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: dt,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    },
+    { id: paneId, b64: base64, mime: type },
+  );
+}

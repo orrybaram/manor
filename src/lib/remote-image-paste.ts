@@ -1,15 +1,24 @@
 /**
- * Paste a clipboard image into a remote pane (ADR-187 §4). Claude Code reads
- * an image from the clipboard of the machine it runs on, which on a remote
- * pane is the ssh box, not this one — so Manor uploads the image and pastes
- * its path there instead, and only when the pane actually runs remotely.
+ * Paste an image into a pane whose host can't read this clipboard. Claude Code
+ * reads an image from the clipboard of the machine it runs on, so Manor
+ * uploads the image to the pane's host and pastes its path there instead.
+ *
+ * Two halves:
+ * - Desktop (ADR-187 §4): `pasteClipboardImage` has main read the native
+ *   clipboard, only when the pane actually runs remotely.
+ * - Web (ADR-239 D3): `pasteImageFile` uploads the file the browser handed
+ *   to the paste event, since no server can read the browser's clipboard.
  */
 
 import type { Terminal } from "@xterm/xterm";
 import { LOCAL_HOST_ID, hostName } from "./hosts";
 import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
+import { serverHostName } from "../bridge/server-set";
 import { useHostStore } from "../store/host-store";
 import { useToastStore } from "../store/toast-store";
+import { ipcErrorMessage } from "./ipc-error";
+import { PASTED_IMAGE_CHUNK_BYTES } from "./pasted-image";
+import { uploadPastedImage } from "./paste-image-upload";
 
 /** True when `paneId`'s session runs on a remote host, not this machine. */
 export function isRemotePane(paneId: string): boolean {
@@ -17,8 +26,14 @@ export function isRemotePane(paneId: string): boolean {
   return !!hostId && hostId !== LOCAL_HOST_ID;
 }
 
-/** The name a host badges as (`hostName`), or its id when main hasn't reported it. */
+/**
+ * The name of a paired server (`serverHostName`: a browser stamps a server's
+ * own panes with its relay room id), else a host badges as (`hostName`), else
+ * its id when main hasn't reported it.
+ */
 function hostLabel(hostId: string): string {
+  const server = serverHostName(hostId);
+  if (server !== null) return server;
   const host = useHostStore.getState().hosts.find((h) => h.hostId === hostId);
   return host ? hostName(host) : hostId;
 }
@@ -63,5 +78,41 @@ export async function pasteClipboardImage(
       });
       return;
     }
+  }
+}
+
+/**
+ * Upload an image the browser pasted (ADR-239 D3) to `paneId`'s host and
+ * paste its path into `term`. Above one chunk the upload takes a few round
+ * trips, so a loading toast covers it; a failure toasts under the same id.
+ */
+export async function pasteImageFile(
+  term: Terminal,
+  paneId: string,
+  blob: Blob,
+): Promise<void> {
+  const hostId = paneRemoteHost(useRemotePaneStore.getState(), paneId);
+  const host = hostId ? hostLabel(hostId) : "the host";
+  const toastId = `paste-image-${paneId}`;
+  const toasts = useToastStore.getState();
+  if (blob.size > PASTED_IMAGE_CHUNK_BYTES) {
+    toasts.addToast({
+      id: toastId,
+      message: `Uploading image to ${host}…`,
+      status: "loading",
+    });
+  }
+  try {
+    const path = await uploadPastedImage(paneId, blob);
+    useToastStore.getState().removeToast(toastId);
+    // Trailing space, as in `pasteClipboardImage`.
+    term.paste(path + " ");
+  } catch (err) {
+    useToastStore.getState().addToast({
+      id: toastId,
+      message: `Couldn't paste image to ${host}`,
+      status: "error",
+      detail: ipcErrorMessage(err),
+    });
   }
 }

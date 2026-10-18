@@ -26,7 +26,11 @@ import { classifyShellOutput } from "../lib/shell-ready";
 import { installKittyKeyboard } from "../lib/kitty-keyboard";
 import { paneCreateHostId, useTerminalConnection } from "./useTerminalConnection";
 import { useRemotePaneStore } from "../store/remote-pane-store";
-import { isRemotePane, pasteClipboardImage } from "../lib/remote-image-paste";
+import {
+  isRemotePane,
+  pasteClipboardImage,
+  pasteImageFile,
+} from "../lib/remote-image-paste";
 import type { PtyAttachResult, PtyCreateResult, PtyWinsize } from "../electron.d";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -268,22 +272,41 @@ export function useTerminalLifecycle(
       // (ADR-181 D6).
       configureHelperTextarea(t.textarea);
 
-      // Intercept the DOM paste event on remote panes when the clipboard holds
-      // an image and no text (Cmd+V on macOS, Ctrl+Shift+V, the Edit menu —
-      // Ctrl+V is handled by attachHandler above and never reaches here on
-      // Linux/Windows). Capture phase so this runs before xterm's own paste
-      // listener on the same element (ADR-187 §4).
+      // Intercept the DOM paste event when the clipboard holds an image and
+      // no text (Cmd+V on macOS, Ctrl+Shift+V, the Edit menu). Capture phase
+      // so this runs before xterm's own paste listener on the same element.
+      // - Web (ADR-239 D3): the image is on the browser's clipboard, which
+      //   only this event can read, so upload the file it carries. Ctrl+V
+      //   arrives here too: attachHandler lets the browser paste it. Checked
+      //   before isRemotePane, which is true for every pane on the web.
+      // - Desktop remote pane (ADR-187 §4): main reads the native clipboard.
+      //   Ctrl+V is handled by attachHandler and never reaches here on
+      //   Linux/Windows.
       const onDomPaste = (e: ClipboardEvent) => {
-        if (!isRemotePane(paneId)) return;
-        const items = e.clipboardData?.items;
-        const hasImage = items
-          ? Array.from(items).some((item) => item.type.startsWith("image/"))
-          : false;
         const hasText = !!e.clipboardData?.getData("text/plain");
-        if (!hasImage || hasText) return;
-        e.preventDefault();
-        e.stopPropagation();
-        void pasteClipboardImage(t, paneId, () => {});
+        if (isWebApp()) {
+          if (hasText) return;
+          const items = Array.from(e.clipboardData?.items ?? []);
+          let file: File | null = null;
+          for (const item of items) {
+            if (!item.type.startsWith("image/")) continue;
+            file = item.getAsFile();
+            if (file) break;
+          }
+          if (!file) return;
+          e.preventDefault();
+          e.stopPropagation();
+          void pasteImageFile(t, paneId, file);
+        } else if (isRemotePane(paneId)) {
+          const items = e.clipboardData?.items;
+          const hasImage = items
+            ? Array.from(items).some((item) => item.type.startsWith("image/"))
+            : false;
+          if (!hasImage || hasText) return;
+          e.preventDefault();
+          e.stopPropagation();
+          void pasteClipboardImage(t, paneId, () => {});
+        }
       };
       container.addEventListener("paste", onDomPaste, true);
 

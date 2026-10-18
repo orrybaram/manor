@@ -38,6 +38,16 @@ export function assertPositiveInt(
   }
 }
 
+export function assertNonNegativeInt(
+  value: unknown,
+  name: string,
+): asserts value is number {
+  assertNumber(value, name);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name}: expected non-negative integer, got ${value}`);
+  }
+}
+
 export function assertStringArray(
   value: unknown,
   name: string,

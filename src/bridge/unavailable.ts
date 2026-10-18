@@ -146,10 +146,10 @@ const SERVED_HERE = {
   "pty.consumePrewarmed": () => Promise.resolve(null),
   /**
    * The remote-pane image paste (ADR-187 §3) uploads the *machine's*
-   * clipboard image. The clipboard a browser user means is the one in front
-   * of them, which the host cannot read — so the honest answer is "nothing
-   * to paste", and `pasteClipboardImage`'s caller falls back to an ordinary
-   * paste, exactly as it does on the desktop for an empty clipboard.
+   * clipboard image, which is not the clipboard a browser user means. The
+   * web pastes images through `pasteImage.*` instead (ADR-239), with the
+   * bytes from the paste event; this entry only keeps the desktop's native
+   * method answered for the surface check, with "nothing to paste".
    */
   "terminal.pasteClipboardImage": () => Promise.resolve({ kind: "none" }),
   /** Answers an `appCommands.onCommand`, which nothing on the web can deliver. */

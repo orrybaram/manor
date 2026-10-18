@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useHostStore, selectHost } from "../store/host-store";
-import { useDirectReachability, useViaReachability } from "../bridge/server-set";
+import { useDirectReachability, useServerHostName, useViaReachability } from "../bridge/server-set";
 import { describeHost, sourcedHost, type HostDisplay } from "../lib/host-status";
 import { LOCAL_HOST_ID } from "../lib/hosts";
 
@@ -9,14 +9,17 @@ import { LOCAL_HOST_ID } from "../lib/hosts";
  * host main hasn't reported. Ticks once a second while a reconnect is
  * scheduled so the countdown stays live; otherwise it only re-renders when
  * the host's status changes, or this page's own bridge to it does, or the
- * servers that list it do (`sourcedHost`, ADR-228 D6).
+ * servers that list it do (`sourcedHost`, ADR-228 D6). A host this page
+ * reaches through a relay room goes by `useServerHostName`, not its room id.
  */
 export function useHostDisplay(hostId: string | null | undefined): HostDisplay | undefined {
   const remoteHostId = hostId && hostId !== LOCAL_HOST_ID ? hostId : null;
   const reported = useHostStore(selectHost(remoteHostId));
   const direct = useDirectReachability(remoteHostId);
   const via = useViaReachability(remoteHostId);
-  const host = sourcedHost(reported, direct, via);
+  const serverName = useServerHostName(remoteHostId);
+  const sourced = sourcedHost(reported, direct, via);
+  const host = sourced && serverName ? { ...sourced, label: serverName } : sourced;
   const [now, setNow] = useState(() => Date.now());
 
   const counting = host?.status === "reconnecting" && host.retryAt !== undefined;

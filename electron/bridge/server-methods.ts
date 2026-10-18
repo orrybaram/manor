@@ -24,6 +24,7 @@ import { hosts } from "./handlers/hosts";
 import { hostProfiles } from "./handlers/host-profiles";
 import { layout } from "./handlers/layout";
 import { notifications } from "./handlers/notifications";
+import { pasteImage } from "./handlers/paste-image";
 import { ports } from "./handlers/ports";
 import { keybindings, preferences } from "./handlers/preferences";
 import { processes } from "./handlers/processes";
@@ -42,6 +43,7 @@ const { list: _processesList, ...serverProcesses } = processes;
 export const SERVER_METHODS = flatten({
   pty,
   chat,
+  pasteImage,
   layout,
   viewport,
   projects,

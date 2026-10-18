@@ -125,6 +125,10 @@ It is triggered from three places, and only when
 3. **The pane context menu's Paste** (`TerminalPane.tsx`): try the helper
    first; its fallback is the existing `readText` + paste.
 
+> **Amended by ADR-239:** in the web app, these three entry points read the
+> image from the browser and upload it through `pasteImage.*`.
+> `terminal.pasteClipboardImage` is now desktop-only.
+
 ## Consequences
 
 - Image paste works on remote hosts and looks the same to Claude Code (and

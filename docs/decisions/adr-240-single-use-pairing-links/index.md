@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -66,6 +66,7 @@ The link carries a **Pairing ticket**: single use, valid for 10 minutes. The dev
 - `web-pairing.ts`: `parseFragment` returns `{ kind: "ticket", link }` for `ticket=`; `readPairing` stores it through `upsertTicketPairing` and strips the fragment as today. `TOKEN_PATTERN` is unchanged; it only guards fragments that do not start with `relay=`.
 - `transports/ws.ts`: `WsTransportOptions.ticket?: string | null`; `sayHello` adds it while held; it is cleared on the first accepted hello.
 - `install-web.ts`: `open()` passes `pairing.ticket`; `onHello` calls `clearPairingTicket` before `recordPairingHello`. `syncPairings` (which redials when a room's stored token changes) is safe by construction: a redeem never changes the token.
+- *Amended in review:* `clearPairingTicket` keeps the redeemed ticket as `spentTicket`, and `upsertTicketPairing` keeps the stored token when a link's ticket matches `ticket` or `spentTicket`. Without it, opening the same link again in the browser that redeemed it (tapping it in Messages a second time) minted a new token, which the desktop refused, and a working pairing broke. A spent ticket is not a credential: the desktop no longer holds its hash.
 
 ### D6. Devices page (desktop)
 
@@ -112,6 +113,13 @@ The link carries a **Pairing ticket**: single use, valid for 10 minutes. The dev
 - An older desktop against a newer host server gets ticket links it cannot read for host pairings, so phones are not linked to that host until the desktop updates. Hosts are bootstrapped by the desktop, so the window is short.
 - The browser and the desktop must ship together: an older browser build opening a ticket link would not parse it. The relay serves the build matching the desktop's version, so links minted by a desktop open in a build that reads them.
 - Expired pending rows stay listed until removed or given a new link.
+
+Found in review and fixed:
+
+- `redeem` refuses a device-chosen token equal to the ticket, which would have made the link the long-lived credential again.
+- `reissue` refuses a device added for an old relay room ("This device was added for an old relay address. Remove it and add it again."); a new link to the current room would have been revoked by the next stale-room sweep.
+- The row's minute tick stops once a link has expired, and the dialog says "1 minute", not "1 minutes".
+- `remoteControl.pair` still accepts `{ direct: true }` from the local renderer, which is fully trusted; no UI asks for it, and devices cannot reach it (local-only). Only `HostPairingLinks.linkOne` uses it.
 
 ## Tickets
 

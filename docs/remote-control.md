@@ -44,7 +44,7 @@ table (ADR-180 D4) — and it is worth naming rather than leaving as an absence:
 the keybinding writes (`set`, `reset`, `resetAll`, and running a bound command
 in the main window), the methods that change what is exposed
 (`remoteControl.setEnabled`, `startRelay`, `stopRelay`, `resetRelayAddress`,
-`pair` and `revoke`), `linear.connect`, and `appCommands.result`, the reply half
+`pair`, `reissue` and `revoke`), `linear.connect`, and `appCommands.result`, the reply half
 of a round trip addressed to the primary window only. A stolen token that could
 pair more devices would survive its own revocation — a different, worse class
 of loss than "can remove a workspace," which a device is trusted with knowingly
@@ -72,9 +72,13 @@ in is a Noise handshake through it, followed by the bridge. An earlier version
 had a remote-control listener on loopback, reachable through a Tailscale tunnel.
 Both are gone, and so is the lightweight phone page that used them.
 
-**A token per device.** Pairing generates a 32-byte random token. Manor stores
-only its SHA-256, encrypted with your OS keychain (`safeStorage`) at mode 0600.
-The raw token is shown once, at pairing, and cannot be retrieved afterwards. If
+**A token per device.** Pairing issues a single-use ticket that expires in 10
+minutes. The device chooses its own 32-byte random token and sends it with the
+ticket in its first hello. Manor stores only the token's SHA-256, encrypted with
+your OS keychain (`safeStorage`) at mode 0600, and the ticket is dead. The token
+never appears in a link, a QR code, the desktop UI or a reply, so Manor cannot
+show it to you afterwards. A link from an older Manor still carries a token and
+still works. If
 a machine cannot encrypt, Manor refuses to store tokens rather than writing one
 to disk in plaintext — remote control simply will not turn on.
 
@@ -112,7 +116,7 @@ relay, and every message after that is encrypted end to end.
 This Mac**. Manor names what becomes reachable and asks you to confirm first;
 turning it on loads the relay's keys, the device check and the bridge, and
 starts the relay. Then pair a device on Settings → Devices and scan the QR; the link looks like
-`https://<relay>/app/<version>/#relay=<room>.<key>&t=<token>`, and everything
+`https://<relay>/app/<version>/#relay=<room>.<key>&ticket=<ticket>`, and everything
 after the `#` goes to no server. It is off again after a
 restart, and it stops when Manor quits.
 _Reset pairing keys_ on This Mac's row generates a new room and new keys: every
@@ -162,7 +166,7 @@ It enforces limits from that: 1 MiB per message, 8 channels per room, a daily
 byte budget per room, and a join rate limit per IP.
 
 It **cannot** see: your session list, scrollback, keystrokes, layout, the
-device token, or anything else inside a channel. It cannot join a room it does
+device token, the pairing ticket, or anything else inside a channel. It cannot join a room it does
 not hold the key for, and it cannot impersonate your desktop to your phone —
 the handshake fails.
 
@@ -181,15 +185,20 @@ If the relay is down, no device can connect. There is no other road.
 1. **Settings → Hosts → This Mac**, and turn on **Devices can reach This Mac**.
    Manor names what becomes reachable and asks you to confirm before it starts
    the relay. (Pairing from Settings → Devices offers to turn it on for you.)
-2. **Settings → Devices → Add device.** Give it a name. Manor shows a QR code and the link once —
-   scan it with the phone, or copy the link. The dialog warns that the device
-   can do anything the desktop app can, including removing workspaces, from
-   anywhere.
-3. On the phone, the page stores the token and immediately strips it out of the
-   address bar, so it does not linger in history or in a screenshot of the URL.
+2. **Settings → Devices → Add device.** Give it a name. Manor shows a QR code and
+   a link. Scan it with the phone, or copy the link. The link works once and
+   for 10 minutes: "This link works once and expires in 10 minutes." The dialog
+   also warns that the device can do anything the desktop app can, including
+   removing workspaces, from anywhere. Until the device opens it, its row reads
+   "Waiting for the device to open the link". If the link expires, the row reads
+   "Link expired"; choose **New link** on the row for a fresh one.
+3. On the phone, the page makes its own token, sends it with the ticket, and
+   immediately strips the fragment out of the address bar, so it does not linger
+   in history or in a screenshot of the URL. The browser keeps the token it
+   chose, and the ticket is spent.
 
-The QR code is generated locally. No token is ever handed to a third-party
-image service.
+The QR code is generated locally. It is never handed to a third-party image
+service.
 
 ## Pairing a phone with a host
 
@@ -210,7 +219,12 @@ Pairing a phone with one host alone, from a button on that host's section,
 has no UI any more: Settings pairs a device once, for every host that allows
 devices ([ADR-233](decisions/adr-233-hosts-devices-settings/index.md)). The
 host bridge still supports it (`hosts.pairDevice`): the pairing is created on
-the host server, over the desktop's ssh connection to the box.
+the host server, over the desktop's ssh connection to the box, and it returns a
+ticket link like any other.
+
+The pairings the desktop mints for a device on each host are different. They are
+direct tokens, handed to the device inside its already-encrypted channel, so
+there is no link to leak and no ticket is needed.
 
 A phone linked to a host does not need This Mac's switch to stay on. The host
 server has its own room on the relay, and it's always connected, because it
@@ -351,6 +365,13 @@ re-pair; pairing takes a few seconds.
 If you suspect the machine itself was reached, stop the relay first,
 then revoke.
 
+**If a link leaks.** A pairing link works once and for 10 minutes. Once the
+device has opened it, or once it has expired, it is useless, so a copy left in a
+chat, a clipboard or a screenshot does no harm after that. One case needs you:
+if someone else opens the link before you do, they get in. You will know,
+because your own browser says it is not paired while the device's row says
+*last seen*. Revoke that device and add it again.
+
 Revoking a device there revokes it on every host it was linked to. If you
 suspect the box itself was compromised, use **Reset pairing keys…** on the
 host's row in Settings → Hosts. It gives the host
@@ -368,7 +389,7 @@ checking — without introducing another party to the trust model.
 
 ## What is knowingly not protected
 
-- **The app shell is served without authentication.** The pairing token arrives
+- **The app shell is served without authentication.** The pairing ticket arrives
   in the URL _fragment_, which browsers never send to a server, so the page has
   to load before it can authenticate. Anyone who finds a relay web address gets
   the HTML, CSS, and JavaScript — and nothing else. Reaching a machine takes a
@@ -381,7 +402,7 @@ checking — without introducing another party to the trust model.
 
 | File                        | What                                                                                                                                                                |
 | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `remote-devices.enc`        | Paired devices: label, token hash, relay room, push subscription. Encrypted, 0600.                                                                                |
+| `remote-devices.enc`        | Paired devices: label, token hash, relay room, push subscription. Also devices still waiting to be opened: a ticket hash and its expiry. Encrypted, 0600.        |
 | `remote-audit.jsonl`        | One line per remote write. No plaintext. 0600, size-rotated.                                                                                                         |
 | `remote-vapid.enc`          | Web Push signing key pair. Encrypted, 0600.                                                                                                                         |
 | `remote-relay-identity.enc` | The relay identity: an Ed25519 key (proves the room is yours) and an X25519 key (the Noise static key in the QR). Encrypted, 0600. Reset relay address replaces it. |

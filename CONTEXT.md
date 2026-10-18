@@ -57,8 +57,12 @@ The desktop app's own renderer, served to a browser and made responsive; one
 codebase, full functionality, authentication is its only boundary.
 _Avoid_: mobile app, mobile client, mobile/web experience, responsive client
 
+**Pairing ticket**:
+What a pairing link carries: a single-use secret, valid for 10 minutes. The device redeems it with its first hello, which also carries a token the device chose itself; Manor stores that token's hash and the ticket is dead. A spent, expired or unknown ticket is refused like a bad token. The long-lived token is never in a link, a QR code or a reply (ADR-240).
+_Avoid_: pairing token, invite code, pairing code
+
 **Paired device**:
-A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s. One pairing with the desktop is enough: on every hello the device asks the desktop to pair it with each host it can reach (`remoteControl.linkHostPairings`), and the desktop mints a token in each host's **Room** and records the link, so revoking the device on the desktop revokes it on every host too. A host's "Devices can reach <host>" switch opts that host out. A room the user removes on the device is remembered there and not minted again until they ask for it (Connect directly) or pair by QR. A pairing a host refuses is only dropped, and the desktop mints it again, unless that device was revoked on the host, which the desktop remembers as a block until the switch is turned off and on (ADR-228 D9, ADR-238).
+A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s. The device chooses the token itself and proves it with a **Pairing ticket**, so the link never carries it. One pairing with the desktop is enough: on every hello the device asks the desktop to pair it with each host it can reach (`remoteControl.linkHostPairings`), and the desktop mints a token in each host's **Room** and records the link, so revoking the device on the desktop revokes it on every host too. A host's "Devices can reach <host>" switch opts that host out. A room the user removes on the device is remembered there and not minted again until they ask for it (Connect directly) or pair by QR. A pairing a host refuses is only dropped, and the desktop mints it again, unless that device was revoked on the host, which the desktop remembers as a block until the switch is turned off and on (ADR-228 D9, ADR-238).
 _Avoid_: remote, client device, session
 
 **Relay**:
@@ -230,7 +234,7 @@ _Avoid_: mirror, read-only viewer (a follower may still type)
 - A remote **Host** is either a box the user brought (SSH) or one a **Recipe** starts; a recipe host can be **Asleep**, and either kind can have a **Supervisor**.
 - Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
 
-- The **Desktop app** issues tokens — for its own **Room**, or, through the **Owner channel**, for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and is connected to all of them at once: one sidebar, each host answered by its **Source**. Pairing with the desktop links the device to every host's **Room** as well (ADR-228 D9).
+- The **Desktop app** issues **Pairing tickets** for its own **Room**, which a device turns into a token it chose; through the **Owner channel** it mints tokens directly for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and is connected to all of them at once: one sidebar, each host answered by its **Source**. Pairing with the desktop links the device to every host's **Room** as well (ADR-228 D9).
 - The **Web app** is served to a **Paired device** by the **Relay** origin, and only there.
 - A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so every **Paired device** reaches the whole bridge, minus the `LOCAL_ONLY` methods.
 

@@ -78,14 +78,14 @@ describe("PushManager", () => {
   });
 
   async function pairedWithPush(label = "phone") {
-    const { device } = await devices.pair(label, "room");
+    const { device } = await devices.pair(label, "room", { direct: true });
     push.subscribe(device.id, SUBSCRIPTION);
     return device;
   }
 
   it("skips subscriptions the host server already pushes to", async () => {
     await pairedWithPush("phone");
-    const other = (await devices.pair("tablet", "room")).device;
+    const other = (await devices.pair("tablet", "room", { direct: true })).device;
     push.subscribe(other.id, {
       ...SUBSCRIPTION,
       endpoint: "https://push.example/other",
@@ -167,7 +167,7 @@ describe("PushManager", () => {
       // The phone's one browser subscription goes to both servers.
       await pairedWithPush();
       host.subscribe(
-        (await hostDevices.pair("phone", "room")).device.id,
+        (await hostDevices.pair("phone", "room", { direct: true })).device.id,
         SUBSCRIPTION,
       );
 
@@ -264,7 +264,7 @@ describe("PushManager", () => {
   });
 
   it("sends nothing to a device that never subscribed", async () => {
-    await devices.pair("silent", "room");
+    await devices.pair("silent", "room", { direct: true });
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
@@ -371,7 +371,7 @@ describe("PushManager loading web-push lazily", () => {
     expect(fs.existsSync(path.join(dir, "vapid.enc"))).toBe(false);
 
     // A subscriber makes the default seams load it, once.
-    const { device } = await devices.pair("phone", "room");
+    const { device } = await devices.pair("phone", "room", { direct: true });
     push.subscribe(device.id, SUBSCRIPTION);
     expect(await push.notify(pushPayloadFor("requires_input", AGENT))).toBe(1);
     expect(await push.notify(pushPayloadFor("error", AGENT))).toBe(1);

@@ -6,12 +6,14 @@
  * encrypt refuses to store rather than degrading.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { RemoteDeviceStore } from "../devices";
+import crypto from "node:crypto";
+
+import { PAIRING_TICKET_TTL_MS, RemoteDeviceStore } from "../devices";
 import { EncryptionUnavailableError } from "../../platform/sealed-store";
 import {
   plainFileSecretBox,
@@ -55,7 +57,7 @@ describe("RemoteDeviceStore", () => {
 
   it("pairs a device whose token verifies", async () => {
     const s = await store();
-    const { device, rawToken } = await s.pair("Orry's phone", ROOM);
+    const { device, rawToken } = await s.pair("Orry's phone", ROOM, { direct: true });
     const verified = s.verify(rawToken);
     expect(verified?.id).toBe(device.id);
     expect(verified?.label).toBe("Orry's phone");
@@ -64,8 +66,8 @@ describe("RemoteDeviceStore", () => {
 
   it("mints a distinct high-entropy token per device", async () => {
     const s = await store();
-    const a = (await s.pair("a", ROOM)).rawToken;
-    const b = (await s.pair("b", ROOM)).rawToken;
+    const a = (await s.pair("a", ROOM, { direct: true })).rawToken;
+    const b = (await s.pair("b", ROOM, { direct: true })).rawToken;
     expect(a).not.toBe(b);
     // 32 random bytes, base64url — no padding, comfortably over 40 chars.
     expect(a).toMatch(/^[A-Za-z0-9_-]{43}$/);
@@ -73,7 +75,7 @@ describe("RemoteDeviceStore", () => {
 
   it("rejects a mutated token", async () => {
     const s = await store();
-    const { rawToken } = await s.pair("phone", ROOM);
+    const { rawToken } = await s.pair("phone", ROOM, { direct: true });
     const mutated =
       rawToken.slice(0, -1) + (rawToken.endsWith("A") ? "B" : "A");
     expect(s.verify(mutated)).toBeNull();
@@ -81,7 +83,7 @@ describe("RemoteDeviceStore", () => {
 
   it("rejects a wrong-length or non-string token without throwing", async () => {
     const s = await store();
-    await s.pair("phone", ROOM);
+    await s.pair("phone", ROOM, { direct: true });
     expect(s.verify("")).toBeNull();
     expect(s.verify("short")).toBeNull();
     expect(s.verify("x".repeat(4096))).toBeNull();
@@ -92,15 +94,15 @@ describe("RemoteDeviceStore", () => {
 
   it("only matches the device the token belongs to", async () => {
     const s = await store();
-    const first = await s.pair("first", ROOM);
-    const second = await s.pair("second", ROOM);
+    const first = await s.pair("first", ROOM, { direct: true });
+    const second = await s.pair("second", ROOM, { direct: true });
     expect(s.verify(first.rawToken)?.id).toBe(first.device.id);
     expect(s.verify(second.rawToken)?.id).toBe(second.device.id);
   });
 
   it("revokes immediately, through a live store", async () => {
     const s = await store();
-    const { device, rawToken } = await s.pair("phone", ROOM);
+    const { device, rawToken } = await s.pair("phone", ROOM, { direct: true });
     expect(s.verify(rawToken)).not.toBeNull();
     await s.revoke(device.id);
     expect(s.verify(rawToken)).toBeNull();
@@ -109,8 +111,8 @@ describe("RemoteDeviceStore", () => {
 
   it("revoking one device leaves the others working", async () => {
     const s = await store();
-    const doomed = await s.pair("doomed", ROOM);
-    const kept = await s.pair("kept", ROOM);
+    const doomed = await s.pair("doomed", ROOM, { direct: true });
+    const kept = await s.pair("kept", ROOM, { direct: true });
     await s.revoke(doomed.device.id);
     expect(s.verify(doomed.rawToken)).toBeNull();
     expect(s.verify(kept.rawToken)?.id).toBe(kept.device.id);
@@ -118,7 +120,7 @@ describe("RemoteDeviceStore", () => {
 
   it("never exposes the token hash through list()", async () => {
     const s = await store();
-    await s.pair("phone", ROOM);
+    await s.pair("phone", ROOM, { direct: true });
     const listed = s.list();
     expect(listed).toHaveLength(1);
     expect(listed[0]).not.toHaveProperty("tokenHash");
@@ -127,7 +129,7 @@ describe("RemoteDeviceStore", () => {
 
   it("round-trips through the file, and never writes the raw token", async () => {
     const first = await store();
-    const { device, rawToken } = await first.pair("phone", ROOM);
+    const { device, rawToken } = await first.pair("phone", ROOM, { direct: true });
 
     const onDisk = await diskText();
     expect(onDisk).not.toContain(rawToken);
@@ -141,18 +143,18 @@ describe("RemoteDeviceStore", () => {
 
   it("writes the device file 0600", async () => {
     const s = await store();
-    await s.pair("phone", ROOM);
+    await s.pair("phone", ROOM, { direct: true });
     await s.flush();
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
     // A second write must not relax it.
-    await s.pair("laptop", ROOM);
+    await s.pair("laptop", ROOM, { direct: true });
     await s.flush();
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   });
 
   it("records lastSeenAt on a successful verify", async () => {
     const s = await store();
-    const { rawToken } = await s.pair("phone", ROOM);
+    const { rawToken } = await s.pair("phone", ROOM, { direct: true });
     expect(s.list()[0].lastSeenAt).toBeNull();
     s.verify(rawToken);
     expect(s.list()[0].lastSeenAt).toBeTypeOf("number");
@@ -161,7 +163,7 @@ describe("RemoteDeviceStore", () => {
   it("refuses to store when the OS cannot encrypt", async () => {
     keychain.setAvailable(false);
     const s = await store();
-    await expect(s.pair("phone", ROOM)).rejects.toThrow(
+    await expect(s.pair("phone", ROOM, { direct: true })).rejects.toThrow(
       EncryptionUnavailableError,
     );
     expect(fs.existsSync(file)).toBe(false);
@@ -176,7 +178,7 @@ describe("RemoteDeviceStore", () => {
   });
 
   it("leaves the file alone when the secret box could not run", async () => {
-    await (await store()).pair("phone", ROOM);
+    await (await store()).pair("phone", ROOM, { direct: true });
     const before = await diskText();
     const broken: SecretBox = {
       ...plainFileSecretBox,
@@ -207,11 +209,11 @@ describe("RemoteDeviceStore", () => {
       const s = new RemoteDeviceStore(flaky, file);
       await s.init();
       failWrites = true;
-      await expect(s.pair("phone", ROOM)).rejects.toThrow("disk full");
+      await expect(s.pair("phone", ROOM, { direct: true })).rejects.toThrow("disk full");
       expect(s.list()).toEqual([]);
       failWrites = false;
       // The store's disk state is unknown now; it does not pretend otherwise.
-      await expect(s.pair("tablet", ROOM)).rejects.toThrow("disk full");
+      await expect(s.pair("tablet", ROOM, { direct: true })).rejects.toThrow("disk full");
       await expect(s.flush()).rejects.toThrow("disk full");
       expect(fs.existsSync(file)).toBe(false);
     });
@@ -219,7 +221,7 @@ describe("RemoteDeviceStore", () => {
     it("rejects the revoke, which still takes effect in memory", async () => {
       const s = new RemoteDeviceStore(flaky, file);
       await s.init();
-      const { device, rawToken } = await s.pair("phone", ROOM);
+      const { device, rawToken } = await s.pair("phone", ROOM, { direct: true });
       failWrites = true;
       await expect(s.revoke(device.id)).rejects.toThrow("disk full");
       expect(s.verify(rawToken)).toBeNull();
@@ -231,9 +233,227 @@ describe("RemoteDeviceStore", () => {
     it("does not turn a valid hello away over a lastSeenAt write", async () => {
       const s = new RemoteDeviceStore(flaky, file);
       await s.init();
-      const { device, rawToken } = await s.pair("phone", ROOM);
+      const { device, rawToken } = await s.pair("phone", ROOM, { direct: true });
       failWrites = true;
       expect(s.verify(rawToken)?.id).toBe(device.id);
+    });
+  });
+
+  /**
+   * ADR-240: a pairing link carries a single-use ticket and the device
+   * chooses its own token, so the store never holds a raw one.
+   */
+  describe("pairing tickets", () => {
+    const freshToken = () => crypto.randomBytes(32).toString("base64url");
+    const PENDING_HASH = "c".repeat(64);
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    /** A store whose tickets live `ticketTtlMs`. */
+    const storeWithTtl = async (ticketTtlMs: number) => {
+      const s = new RemoteDeviceStore(keychain, file, { ticketTtlMs });
+      await s.init();
+      opened.push(s);
+      return s;
+    };
+
+    it("pairs a pending device whose ticket is not a token", async () => {
+      const s = await store();
+      const result = await s.pair("phone", ROOM);
+      if (!("ticket" in result)) throw new Error("expected a ticket");
+      expect(result.ticket).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(result.expiresAt).toBeGreaterThan(Date.now());
+      expect(s.verify(result.ticket)).toBeNull();
+      expect(result.device.pending).toEqual({ expiresAt: result.expiresAt });
+    });
+
+    it("redeems a ticket into an active device, and the token verifies after", async () => {
+      const s = await store();
+      const { device, ticket } = (await s.pair("phone", ROOM)) as {
+        device: { id: string };
+        ticket: string;
+      };
+      const token = freshToken();
+      expect(s.redeem(ticket, token)?.id).toBe(device.id);
+      expect(s.verify(token)?.id).toBe(device.id);
+      expect(s.list()[0]).not.toHaveProperty("pending");
+      expect(s.list()[0].lastSeenAt).not.toBeNull();
+    });
+
+    it("redeems once: the same ticket again returns null", async () => {
+      const s = await store();
+      const { ticket } = (await s.pair("phone", ROOM)) as { ticket: string };
+      expect(s.redeem(ticket, freshToken())).not.toBeNull();
+      expect(s.redeem(ticket, freshToken())).toBeNull();
+    });
+
+    it("refuses an expired ticket and keeps the row pending", async () => {
+      const s = await store();
+      const { device, ticket, expiresAt } = (await s.pair("phone", ROOM)) as {
+        device: { id: string };
+        ticket: string;
+        expiresAt: number;
+      };
+      vi.spyOn(Date, "now").mockReturnValue(expiresAt + 1);
+      const token = freshToken();
+      expect(s.redeem(ticket, token)).toBeNull();
+      expect(s.verify(token)).toBeNull();
+      const [row] = s.list();
+      expect(row.id).toBe(device.id);
+      expect(row.pending).toEqual({ expiresAt });
+    });
+
+    it("refuses a malformed token and a token some device already has", async () => {
+      const s = await store();
+      const { ticket } = (await s.pair("phone", ROOM)) as { ticket: string };
+      expect(s.redeem(ticket, "short")).toBeNull();
+      expect(s.redeem(ticket, 42)).toBeNull();
+      expect(s.redeem(42, freshToken())).toBeNull();
+      const taken = (await s.pair("taken", ROOM, { direct: true })).rawToken;
+      expect(s.redeem(ticket, taken)).toBeNull();
+      // None of the refusals spent the ticket.
+      expect(s.redeem(ticket, freshToken())).not.toBeNull();
+    });
+
+    it("refuses a ticket nobody holds", async () => {
+      const s = await store();
+      await s.pair("phone", ROOM);
+      expect(s.redeem(freshToken(), freshToken())).toBeNull();
+    });
+
+    it("reissue replaces the ticket and kills the old one", async () => {
+      const s = await store();
+      const first = (await s.pair("phone", ROOM)) as {
+        device: { id: string };
+        ticket: string;
+      };
+      const second = await s.reissue(first.device.id);
+      expect(second.ticket).not.toBe(first.ticket);
+      expect(second.device.id).toBe(first.device.id);
+      expect(s.redeem(first.ticket, freshToken())).toBeNull();
+      expect(s.redeem(second.ticket, freshToken())).not.toBeNull();
+    });
+
+    it("reissue revives an expired row", async () => {
+      const s = await storeWithTtl(1);
+      const { device, expiresAt } = (await s.pair("phone", ROOM)) as {
+        device: { id: string };
+        expiresAt: number;
+      };
+      vi.spyOn(Date, "now").mockReturnValue(expiresAt + 1000);
+      const again = await s.reissue(device.id);
+      expect(again.expiresAt).toBeGreaterThan(Date.now());
+      expect(s.redeem(again.ticket, freshToken())).not.toBeNull();
+    });
+
+    it("reissue refuses an active or unknown device", async () => {
+      const s = await store();
+      const { device } = await s.pair("phone", ROOM, { direct: true });
+      const message = "Only a device that has not connected yet can get a new link.";
+      await expect(s.reissue(device.id)).rejects.toThrow(message);
+      await expect(s.reissue("nope")).rejects.toThrow(message);
+    });
+
+    it("rolls a redeem back when the write throws synchronously", async () => {
+      const s = await store();
+      const { device, ticket, expiresAt } = (await s.pair("phone", ROOM)) as {
+        device: { id: string };
+        ticket: string;
+        expiresAt: number;
+      };
+      const token = freshToken();
+      keychain.setAvailable(false);
+      expect(s.redeem(ticket, token)).toBeNull();
+      keychain.setAvailable(true);
+      expect(s.verify(token)).toBeNull();
+      expect(s.list().find((d) => d.id === device.id)?.pending).toEqual({
+        expiresAt,
+      });
+      expect(s.redeem(ticket, token)).not.toBeNull();
+    });
+
+    it("keeps a pending row across a restart, and never writes the ticket", async () => {
+      const s = await store();
+      const { device, ticket, expiresAt } = (await s.pair("phone", ROOM)) as {
+        device: { id: string };
+        ticket: string;
+        expiresAt: number;
+      };
+      expect(await diskText()).not.toContain(ticket);
+      const reopened = await store();
+      expect(reopened.list().find((d) => d.id === device.id)?.pending).toEqual({
+        expiresAt,
+      });
+      expect(reopened.redeem(ticket, freshToken())).not.toBeNull();
+    });
+
+    it("keeps an expired pending row on load", async () => {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        Buffer.from(
+          JSON.stringify([
+            {
+              id: "old",
+              label: "old",
+              tokenHash: null,
+              pending: { ticketHash: PENDING_HASH, expiresAt: 1 },
+              relayRoom: ROOM,
+              createdAt: 1,
+              lastSeenAt: null,
+            },
+          ]),
+          "utf8",
+        ),
+      );
+      expect((await store()).list().map((d) => d.id)).toEqual(["old"]);
+    });
+
+    it("drops a row with neither a token hash nor a valid pending", async () => {
+      const base = { label: "x", relayRoom: ROOM, createdAt: 1, lastSeenAt: null };
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        Buffer.from(
+          JSON.stringify([
+            { ...base, id: "none", tokenHash: null },
+            { ...base, id: "badhash", tokenHash: null, pending: { ticketHash: "zz", expiresAt: 1 } },
+            { ...base, id: "noexp", tokenHash: null, pending: { ticketHash: PENDING_HASH } },
+            { ...base, id: "ok", tokenHash: null, pending: { ticketHash: PENDING_HASH, expiresAt: 1 } },
+          ]),
+          "utf8",
+        ),
+      );
+      expect((await store()).list().map((d) => d.id)).toEqual(["ok"]);
+    });
+
+    it("pair with direct: true returns a token that verifies at once", async () => {
+      const s = await store();
+      const { device, rawToken } = await s.pair("phone", ROOM, { direct: true });
+      expect(s.verify(rawToken)?.id).toBe(device.id);
+      expect(device).not.toHaveProperty("pending");
+    });
+
+    it("list exposes pending.expiresAt and never the ticket hash", async () => {
+      const s = await store();
+      await s.pair("phone", ROOM);
+      const [row] = s.list();
+      expect(Object.keys(row.pending ?? {})).toEqual(["expiresAt"]);
+      expect(row).not.toHaveProperty("tokenHash");
+      expect(JSON.stringify(row)).not.toContain("ticketHash");
+    });
+
+    it("takes the ticket lifetime from ticketTtlMs, defaulting to ten minutes", async () => {
+      const short = await storeWithTtl(5_000);
+      const a = (await short.pair("a", ROOM)) as { expiresAt: number };
+      expect(a.expiresAt - Date.now()).toBeLessThanOrEqual(5_000);
+      expect(a.expiresAt - Date.now()).toBeGreaterThan(0);
+      const dflt = await store();
+      const b = (await dflt.pair("b", ROOM)) as { expiresAt: number };
+      expect(b.expiresAt - Date.now()).toBeGreaterThan(PAIRING_TICKET_TTL_MS - 5_000);
+      expect(b.expiresAt - Date.now()).toBeLessThanOrEqual(PAIRING_TICKET_TTL_MS);
     });
   });
 
@@ -324,7 +544,7 @@ describe("RemoteDeviceStore", () => {
 
     it("keeps the token working across the rewrite", async () => {
       const before = await store();
-      const { rawToken } = await before.pair("phone", ROOM);
+      const { rawToken } = await before.pair("phone", ROOM, { direct: true });
       const stored = JSON.parse((await diskText())) as Record<
         string,
         unknown
@@ -348,8 +568,8 @@ describe("RemoteDeviceStore", () => {
 
     it("remembers which relay room a device's link points at", async () => {
       const s = await store();
-      const old = await s.pair("old", "room-a");
-      await s.pair("current", "room-b");
+      const old = await s.pair("old", "room-a", { direct: true });
+      await s.pair("current", "room-b", { direct: true });
       await s.flush();
       const reloaded = await store();
       expect(reloaded.idsInOtherRelayRooms("room-b")).toEqual([old.device.id]);
@@ -361,7 +581,7 @@ describe("RemoteDeviceStore", () => {
     it("carries fields it does not know through a rewrite", async () => {
       writeRows([{ ...relayRow("browser"), futureField: { x: 1 } }]);
       const s = await store();
-      await s.pair("another", ROOM);
+      await s.pair("another", ROOM, { direct: true });
       expect((await diskText())).toContain('"futureField":{"x":1}');
       expect((await diskText())).not.toContain('"via"');
       expect(JSON.stringify(s.list())).not.toContain("futureField");
@@ -371,7 +591,7 @@ describe("RemoteDeviceStore", () => {
   describe("host links and blocks (ADR-238 D2)", () => {
     it("round-trips a link's room", async () => {
       const s = await store();
-      const { device } = await s.pair("phone", ROOM);
+      const { device } = await s.pair("phone", ROOM, { direct: true });
       await s.setHostLink(device.id, { hostId: "box", hostDeviceId: "d1", roomId: "room-box" });
       await s.flush();
       expect((await store()).hostLinks(device.id)).toEqual([
@@ -381,7 +601,7 @@ describe("RemoteDeviceStore", () => {
 
     it("blockHost drops the link there, and the block survives a restart", async () => {
       const s = await store();
-      const { device } = await s.pair("phone", ROOM);
+      const { device } = await s.pair("phone", ROOM, { direct: true });
       await s.setHostLink(device.id, { hostId: "box", hostDeviceId: "d1", roomId: "room-box" });
       await s.setHostLink(device.id, { hostId: "wsl", hostDeviceId: "d2", roomId: "room-wsl" });
       await expect(s.blockHost(device.id, "box")).resolves.toBe(true);
@@ -399,8 +619,8 @@ describe("RemoteDeviceStore", () => {
 
     it("clearHostBlocks lifts every device's block on that host only", async () => {
       const s = await store();
-      const a = (await s.pair("a", ROOM)).device.id;
-      const b = (await s.pair("b", ROOM)).device.id;
+      const a = (await s.pair("a", ROOM, { direct: true })).device.id;
+      const b = (await s.pair("b", ROOM, { direct: true })).device.id;
       await s.blockHost(a, "box");
       await s.blockHost(a, "wsl");
       await s.blockHost(b, "box");
@@ -414,7 +634,7 @@ describe("RemoteDeviceStore", () => {
 
     it("never exposes blocks or links through list()", async () => {
       const s = await store();
-      const { device } = await s.pair("phone", ROOM);
+      const { device } = await s.pair("phone", ROOM, { direct: true });
       await s.setHostLink(device.id, { hostId: "wsl", hostDeviceId: "d2", roomId: "room-wsl" });
       await s.blockHost(device.id, "box");
       const [listed] = s.list();

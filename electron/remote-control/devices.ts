@@ -5,9 +5,14 @@
  * boundary. Three properties are load-bearing and every change here should
  * be read against them:
  *
- *   1. A raw token exists exactly once, in the return value of `pair()`. Only
- *      its SHA-256 is kept, in memory and on disk, so a stolen device file does
- *      not yield a working credential.
+ *   1. The store never holds a raw token. A token reaches it only in the
+ *      hello that redeems a pairing ticket (`redeem()`), or, for a host
+ *      pairing the desktop mints over an authenticated channel, in the return
+ *      value of `pair(..., { direct: true })`. Only its SHA-256 is kept, in
+ *      memory and on disk, so a stolen device file does not yield a working
+ *      credential. A pairing ticket (ADR-240) exists once, in the return value
+ *      of `pair()` or `reissue()`; the store keeps its hash, and a ticket is
+ *      never a bearer token: `verify()` ignores pending devices.
  *   2. `verify()` compares hashes with `timingSafeEqual` over equal-length
  *      buffers and never short-circuits on a match, so neither the token's
  *      length nor its position in the list is observable through timing.
@@ -43,8 +48,18 @@ export interface RemoteDevice {
   id: string;
   /** User-supplied, e.g. "Orry's phone". */
   label: string;
-  /** SHA-256 hex of the raw token. Never leaves this module. */
-  tokenHash: string;
+  /**
+   * SHA-256 hex of the raw token. Never leaves this module. Null while the
+   * device is pending: its token is chosen by the device and arrives with the
+   * ticket (ADR-240 D2).
+   */
+  tokenHash: string | null;
+  /**
+   * The pairing ticket awaiting redemption (ADR-240 D2): its SHA-256 hex and
+   * when it stops working. Present exactly when `tokenHash` is null. An
+   * expired row is kept, and reads "Link expired" until given a new link.
+   */
+  pending?: { ticketHash: string; expiresAt: number };
   /**
    * The relay room the device's link points at. When the desktop's relay
    * identity changes underneath it (an unreadable identity file is replaced
@@ -117,10 +132,16 @@ export interface PushSubscriptionRecord {
  */
 export type RemoteDeviceInfo = Omit<
   RemoteDevice,
-  "tokenHash" | "pushSubscription" | "relayRoom" | "extra" | "hostLinks" | "hostBlocks"
-> & { hasPush: boolean };
+  "tokenHash" | "pending" | "pushSubscription" | "relayRoom" | "extra" | "hostLinks" | "hostBlocks"
+> & { hasPush: boolean; pending?: { expiresAt: number } };
 
 const TOKEN_BYTES = 32;
+/** A pairing ticket has the same shape as a token: 32 random bytes, base64url. */
+const TICKET_BYTES = 32;
+/** What a device-chosen token must look like (43 base64url characters). */
+export const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+/** How long a pairing ticket works (ADR-240 D2). */
+export const PAIRING_TICKET_TTL_MS = 10 * 60_000;
 const HASH_BYTES = 32; // sha256
 
 /**
@@ -177,10 +198,14 @@ export class RemoteDeviceStore {
     (revoked: readonly RevokedDevice[]) => void
   >();
 
+  private readonly ticketTtlMs: number;
+
   constructor(
     private readonly secretBox: SecretBox,
     filePath: string = remoteDevicesFile(),
+    options: { ticketTtlMs?: number } = {},
   ) {
+    this.ticketTtlMs = options.ticketTtlMs ?? ticketTtlFromEnv();
     this.store = new SealedStore(
       secretBox,
       filePath,
@@ -227,29 +252,62 @@ export class RemoteDeviceStore {
   }
 
   /**
-   * Mint a device. The returned `rawToken` is the only time it exists in a
-   * readable form anywhere — the caller shows it once (QR + copyable text) and
-   * drops it. Resolves once the device is on disk; a device that could not be
-   * saved is dropped again, and the failure rejects.
+   * Mint a device (ADR-240 D3). By default it is pending: the returned
+   * `ticket` is the only time it exists in a readable form anywhere, the
+   * caller shows it once in a link (QR + copyable text) and drops it, and the
+   * device chooses its own token when it redeems the ticket. With
+   * `direct: true` the device is active at once and the returned `rawToken` is
+   * the token, for a caller that hands it over an authenticated channel
+   * (ADR-240 D7). Resolves once the device is on disk; a device that could not
+   * be saved is dropped again, and the failure rejects.
    */
+  async pair(
+    label: string,
+    relayRoom: string,
+    options: { direct: true },
+  ): Promise<{ device: RemoteDeviceInfo; rawToken: string }>;
+  async pair(
+    label: string,
+    relayRoom: string,
+    options?: { direct?: false },
+  ): Promise<{ device: RemoteDeviceInfo; ticket: string; expiresAt: number }>;
+  async pair(
+    label: string,
+    relayRoom: string,
+    options?: { direct?: boolean },
+  ): Promise<
+    | { device: RemoteDeviceInfo; rawToken: string }
+    | { device: RemoteDeviceInfo; ticket: string; expiresAt: number }
+  >;
   async pair(
     label: string,
     /** The relay room the device's link points at. */
     relayRoom: string,
-  ): Promise<{
-    device: RemoteDeviceInfo;
-    rawToken: string;
-  }> {
+    options: { direct?: boolean } = {},
+  ): Promise<
+    | { device: RemoteDeviceInfo; rawToken: string }
+    | { device: RemoteDeviceInfo; ticket: string; expiresAt: number }
+  > {
     const devices = this.live();
     if (!this.secretBox.available()) {
       throw new EncryptionUnavailableError();
     }
 
-    const rawToken = crypto.randomBytes(TOKEN_BYTES).toString("base64url");
+    const direct = options.direct === true;
+    const rawToken = direct
+      ? crypto.randomBytes(TOKEN_BYTES).toString("base64url")
+      : null;
+    const ticket = direct
+      ? null
+      : crypto.randomBytes(TICKET_BYTES).toString("base64url");
+    const expiresAt = Date.now() + this.ticketTtlMs;
     const device: RemoteDevice = {
       id: crypto.randomUUID(),
       label,
-      tokenHash: sha256Hex(rawToken),
+      tokenHash: rawToken === null ? null : sha256Hex(rawToken),
+      ...(ticket === null
+        ? {}
+        : { pending: { ticketHash: sha256Hex(ticket), expiresAt } }),
       relayRoom,
       createdAt: Date.now(),
       lastSeenAt: null,
@@ -263,7 +321,88 @@ export class RemoteDeviceStore {
       devices.delete(device.id);
       throw err;
     }
-    return { device: publicView(device), rawToken };
+    if (rawToken !== null) return { device: publicView(device), rawToken };
+    return { device: publicView(device), ticket: ticket as string, expiresAt };
+  }
+
+  /**
+   * Give a pending device (waiting or expired) a new ticket and a new expiry;
+   * the old ticket is dead (ADR-240 D3). A device that has connected already
+   * has no ticket to replace, and an unknown id is the same refusal. Resolves
+   * once it is on disk; a write that fails restores the old ticket and rejects.
+   */
+  async reissue(
+    id: string,
+  ): Promise<{ device: RemoteDeviceInfo; ticket: string; expiresAt: number }> {
+    const device = this.live().get(id);
+    if (!device || !device.pending) {
+      throw new Error("Only a device that has not connected yet can get a new link.");
+    }
+    const previous = device.pending;
+    const ticket = crypto.randomBytes(TICKET_BYTES).toString("base64url");
+    const expiresAt = Date.now() + this.ticketTtlMs;
+    device.pending = { ticketHash: sha256Hex(ticket), expiresAt };
+    try {
+      this.persist();
+      await this.store.flush();
+    } catch (err) {
+      device.pending = previous;
+      throw err;
+    }
+    return { device: publicView(device), ticket, expiresAt };
+  }
+
+  /**
+   * Redeem a pairing ticket: the device that holds it chose `token`, and from
+   * here that token is the device's credential (ADR-240 D3). Synchronous, like
+   * `verify()`, because it runs on the hello path; the write is queued, not
+   * awaited (ADR-240 D8).
+   *
+   * Like `verify()`, it hashes the presented ticket and walks every pending
+   * device without stopping at a match, so neither a ticket's validity nor its
+   * position is observable through timing. A match that has expired, a token
+   * that is malformed and a token some device already has all return null and
+   * leave the row as it was.
+   */
+  redeem(ticket: unknown, token: unknown): RemoteDevice | null {
+    const devices = this.live();
+    if (typeof ticket !== "string" || ticket.length === 0) return null;
+    if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) return null;
+
+    const presented = Buffer.from(sha256Hex(ticket), "hex");
+    let matched: RemoteDevice | null = null;
+    for (const device of devices.values()) {
+      if (!device.pending) continue;
+      const stored = Buffer.from(device.pending.ticketHash, "hex");
+      if (stored.length !== HASH_BYTES) continue;
+      if (crypto.timingSafeEqual(presented, stored)) matched = device;
+    }
+    if (!matched || !matched.pending) return null;
+
+    const now = Date.now();
+    if (matched.pending.expiresAt < now) return null;
+
+    const tokenHash = sha256Hex(token);
+    for (const device of devices.values()) {
+      if (device.tokenHash === tokenHash) return null;
+    }
+
+    const { pending } = matched;
+    const previousLastSeenAt = matched.lastSeenAt;
+    matched.tokenHash = tokenHash;
+    delete matched.pending;
+    matched.lastSeenAt = now;
+    try {
+      this.persist();
+    } catch {
+      // The store cannot encrypt: refuse rather than activate a device that a
+      // restart would forget. The ticket stays redeemable until it expires.
+      matched.tokenHash = null;
+      matched.pending = pending;
+      matched.lastSeenAt = previousLastSeenAt;
+      return null;
+    }
+    return matched;
   }
 
   /**
@@ -289,6 +428,7 @@ export class RemoteDeviceStore {
 
     let matched: RemoteDevice | null = null;
     for (const device of devices.values()) {
+      if (device.tokenHash === null) continue;
       const stored = Buffer.from(device.tokenHash, "hex");
       if (stored.length !== HASH_BYTES) continue;
       if (crypto.timingSafeEqual(presented, stored)) matched = device;
@@ -549,9 +689,20 @@ export class RemoteDeviceStore {
   }
 }
 
+/** `MANOR_PAIRING_TICKET_TTL_MS` when it is a positive integer, else the default. */
+function ticketTtlFromEnv(): number {
+  const raw = process.env.MANOR_PAIRING_TICKET_TTL_MS;
+  if (raw !== undefined && /^[0-9]+$/.test(raw)) {
+    const ms = Number(raw);
+    if (Number.isSafeInteger(ms) && ms > 0) return ms;
+  }
+  return PAIRING_TICKET_TTL_MS;
+}
+
 function publicView(device: RemoteDevice): RemoteDeviceInfo {
   const {
     tokenHash: _tokenHash,
+    pending,
     pushSubscription,
     relayRoom: _relayRoom,
     extra: _extra,
@@ -559,7 +710,11 @@ function publicView(device: RemoteDevice): RemoteDeviceInfo {
     hostBlocks: _hostBlocks,
     ...rest
   } = device;
-  return { ...rest, hasPush: pushSubscription !== null };
+  return {
+    ...rest,
+    hasPush: pushSubscription !== null,
+    ...(pending ? { pending: { expiresAt: pending.expiresAt } } : {}),
+  };
 }
 
 /** A stored push subscription, or null if it is not one. */
@@ -580,6 +735,7 @@ const KNOWN_FIELDS = new Set([
   "id",
   "label",
   "tokenHash",
+  "pending",
   "relayRoom",
   "createdAt",
   "lastSeenAt",
@@ -626,8 +782,23 @@ function asDevice(value: unknown): RemoteDevice | null {
   const v = value as Record<string, unknown>;
   if (typeof v.id !== "string" || v.id.length === 0) return null;
   if (typeof v.label !== "string") return null;
-  if (typeof v.tokenHash !== "string" || !/^[0-9a-f]{64}$/.test(v.tokenHash))
+  // Active: a token hash. Pending (ADR-240 D2): no token hash and a ticket.
+  let tokenHash: string | null = null;
+  let pending: RemoteDevice["pending"];
+  if (typeof v.tokenHash === "string") {
+    if (!/^[0-9a-f]{64}$/.test(v.tokenHash)) return null;
+    tokenHash = v.tokenHash;
+  } else if (v.tokenHash === null || v.tokenHash === undefined) {
+    const p = v.pending;
+    if (typeof p !== "object" || p === null) return null;
+    const { ticketHash, expiresAt } = p as Record<string, unknown>;
+    if (typeof ticketHash !== "string" || !/^[0-9a-f]{64}$/.test(ticketHash))
+      return null;
+    if (typeof expiresAt !== "number" || !Number.isFinite(expiresAt)) return null;
+    pending = { ticketHash, expiresAt };
+  } else {
     return null;
+  }
   if (typeof v.relayRoom !== "string") return null;
   if ("via" in v && v.via !== "relay") return null;
   if ("capability" in v && v.capability !== "full") return null;
@@ -647,7 +818,8 @@ function asDevice(value: unknown): RemoteDevice | null {
   return {
     id: v.id,
     label: v.label,
-    tokenHash: v.tokenHash,
+    tokenHash,
+    ...(pending ? { pending } : {}),
     relayRoom: v.relayRoom,
     createdAt: v.createdAt,
     lastSeenAt,

@@ -87,6 +87,8 @@ export class RelayRoom {
       const { device, rawToken } = await this.options.devices.pair(
         label,
         roomId,
+        // Temporary (ADR-240 ticket 1): ticket links arrive with ticket 2.
+        { direct: true },
       );
       return {
         device,

@@ -186,7 +186,7 @@ describe("HostPairingLinks", () => {
 
   const box = () => hosts[0];
   const wsl = () => hosts[1];
-  const phone = async (label = "Orry's phone") => (await devices.pair(label, "room-desk")).device.id;
+  const phone = async (label = "Orry's phone") => (await devices.pair(label, "room-desk", { direct: true })).device.id;
   /** The handler, as a paired device calls it. */
   const deviceCtx = (deviceId: string) => ({
     deps: { hostLinks: links } as never,

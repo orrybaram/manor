@@ -144,7 +144,7 @@ describe("RelayRoom", () => {
       expect(result.pairingUrl).toBe(
         `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&t=raw-token-value`,
       );
-      expect(f.devices.pair).toHaveBeenCalledWith("browser", ROOM);
+      expect(f.devices.pair).toHaveBeenCalledWith("browser", ROOM, { direct: true });
       const hash = result.pairingUrl.slice(result.pairingUrl.indexOf("#"));
       expect(parseFragment(hash)).toEqual({
         kind: "relay",
@@ -293,7 +293,7 @@ describe("RelayRoom", () => {
       held.resolve();
       await resetting;
       const { pairingUrl } = await pairing;
-      expect(f.devices.pair).toHaveBeenCalledWith("after", "room-1");
+      expect(f.devices.pair).toHaveBeenCalledWith("after", "room-1", { direct: true });
       expect(pairingUrl).toContain("#relay=room-1.");
     });
 

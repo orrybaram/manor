@@ -23,6 +23,7 @@ import {
 import {
   activePaneId,
   awaitShellReady,
+  pasteImageIntoPane,
   runInTerminal,
   scrollback,
 } from "./helpers/terminal";
@@ -786,6 +787,103 @@ test.describe("web app (ADR-178 slice 1)", () => {
       await expect(window.getByTestId("remote-device-row")).toHaveCount(1);
     } finally {
       await client.close();
+    }
+  });
+
+  /**
+   * ADR-239: a browser has no filesystem path for a clipboard image, so the
+   * bytes are uploaded over the bridge in chunks and the desk writes them to
+   * ~/.manor/pasted-images; the path is what gets pasted. The 1.5 MiB case
+   * proves the chunks fit under the 1 MiB frame cap (an oversize frame would
+   * close the connection).
+   */
+  test("a browser pastes an image into a pane: the bytes land in ~/.manor/pasted-images on the desk and the path is pasted", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    const film = new Filmstrip("web-app-paste-image");
+
+    await importSeededProject(app, window, tempHome);
+    await createWorkspace(window, "paste-e2e");
+    await openTerminalTab(window);
+    const paneId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, paneId);
+
+    const device = await pairBrowser(window, { label: "paste browser" });
+    await closeSettings(window);
+
+    const client = await openWebApp(device.link);
+    try {
+      await expect(
+        client.page.getByTestId("workspace-item").filter({ hasText: "paste-e2e" }),
+      ).toBeVisible({ timeout: 30_000 });
+      expect(await activePaneId(client.page)).toBe(paneId);
+      await client.page
+        .locator('[data-testid="terminal-pane"]:visible')
+        .first()
+        .click();
+
+      const imagesDir = path.join(tempHome, ".manor", "pasted-images");
+      const filesWithBytes = (bytes: Buffer): string[] => {
+        if (!fs.existsSync(imagesDir)) return [];
+        return fs
+          .readdirSync(imagesDir)
+          .filter((f) => f.endsWith(".png"))
+          .filter((f) => fs.readFileSync(path.join(imagesDir, f)).equals(bytes));
+      };
+
+      // Case 1: a real 1x1 PNG.
+      const tinyPng = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+        "base64",
+      );
+      await pasteImageIntoPane(client.page, paneId, tinyPng, "image/png");
+      await expect
+        .poll(() => filesWithBytes(tinyPng).length, { timeout: 20_000 })
+        .toBe(1);
+      await expect
+        .poll(() => paneText(client.page, paneId), { timeout: 20_000 })
+        .toContain("/.manor/pasted-images/");
+      await film.shot(client.page, "browser-pasted-small");
+
+      // Case 2: 1.5 MiB of pseudo-random bytes behind a PNG signature.
+      const size = 1.5 * 1024 * 1024;
+      const big = Buffer.alloc(size);
+      let seed = 0x2545f491;
+      for (let i = 0; i < size; i++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        big[i] = seed >>> 24;
+      }
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(big);
+      await pasteImageIntoPane(client.page, paneId, big, "image/png");
+      await expect
+        .poll(() => filesWithBytes(big).length, { timeout: 60_000 })
+        .toBe(1);
+      expect(fs.readdirSync(imagesDir).filter((f) => f.endsWith(".png"))).toHaveLength(2);
+
+      // The connection survived the big upload.
+      await client.page
+        .locator('[data-testid="terminal-pane"]:visible')
+        .first()
+        .click();
+      await client.page.keyboard.type("echo still-here");
+      await expect
+        .poll(() => paneText(client.page, paneId), { timeout: 20_000 })
+        .toContain("echo still-here");
+      await film.shot(client.page, "browser-pasted-big-still-up");
+    } finally {
+      film.write("browser-console-paste.log", client.log.join("\n") + "\n");
+      await client.close();
+    }
+
+    const entries = auditEntries(tempHome);
+    expect(entries.some((e) => e.route === "pasteImage.chunk")).toBe(false);
+    const commits = entries.filter((e) => e.route === "pasteImage.commit");
+    expect(commits.length).toBeGreaterThanOrEqual(2);
+    for (const c of commits) {
+      expect(c.target).toBe(paneId);
+      expect(c.outcome).toBe("sent");
     }
   });
 });

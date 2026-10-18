@@ -14,7 +14,7 @@ export const MAX_PASTED_IMAGE_BYTES = 16 * 1024 * 1024;
 
 export const PASTED_IMAGE_CHUNK_BYTES = 512 * 1024;
 
-export const PASTED_IMAGE_TYPES = {
+const PASTED_IMAGE_TYPES = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/gif": "gif",

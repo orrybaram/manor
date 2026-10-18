@@ -34,7 +34,7 @@ import { byPane, method, type HandlerCtx } from "../method";
 /** How many uploads one caller may have open at once. */
 export const MAX_UPLOADS_PER_CALLER = 4;
 /** The declared bytes of every open upload, across all callers. */
-export const MAX_STAGED_BYTES = 128 * 1024 * 1024;
+const MAX_STAGED_BYTES = 128 * 1024 * 1024;
 /** An upload with no chunk for this long is dropped. */
 export const UPLOAD_IDLE_MS = 60_000;
 const SWEEP_INTERVAL_MS = 15_000;
@@ -200,22 +200,21 @@ export async function pasteImageCommit(
   assertString(paneId, "paneId");
   assertString(uploadId, "uploadId");
   const upload = owned(ctx, paneId, uploadId);
-  try {
-    if (upload.received !== upload.size) {
-      throw new Error(
-        `Image upload is incomplete (${upload.received} of ${upload.size} bytes)`,
-      );
-    }
-    const path = await writePastedImage(
-      ctx.deps.backendRegistry,
-      upload.hostId,
-      Buffer.concat(upload.parts),
-      upload.ext,
+  // Dropped before the write is awaited, so a second commit (or a late
+  // chunk) for this id is "Unknown upload" and the file is written once.
+  drop(upload.id);
+  if (upload.received !== upload.size) {
+    throw new Error(
+      `Image upload is incomplete (${upload.received} of ${upload.size} bytes)`,
     );
-    return { path };
-  } finally {
-    drop(upload.id);
   }
+  const path = await writePastedImage(
+    ctx.deps.backendRegistry,
+    upload.hostId,
+    Buffer.concat(upload.parts),
+    upload.ext,
+  );
+  return { path };
 }
 
 /** The client gave up; drops the upload if it is the caller's. Never throws. */

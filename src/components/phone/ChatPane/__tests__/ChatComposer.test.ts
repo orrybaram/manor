@@ -92,6 +92,30 @@ describe("ChatComposer image paste", () => {
     expect(container.querySelector("[data-testid=chat-composer-uploading]")).toBeNull();
   });
 
+  it("keeps text typed while the image uploads", async () => {
+    let resolve!: (path: string) => void;
+    uploadPastedImage.mockReturnValue(new Promise<string>((r) => (resolve = r)));
+    typeAt("hello", 5);
+
+    paste(["Files"], png());
+    typeAt("hello there", 11);
+    await act(async () => resolve("/tmp/img.png"));
+
+    expect(input().value).toBe("hello/tmp/img.png  there");
+  });
+
+  it("appends the path when the text before the paste changed", async () => {
+    let resolve!: (path: string) => void;
+    uploadPastedImage.mockReturnValue(new Promise<string>((r) => (resolve = r)));
+    typeAt("hello", 5);
+
+    paste(["Files"], png());
+    typeAt("hi", 2);
+    await act(async () => resolve("/tmp/img.png"));
+
+    expect(input().value).toBe("hi/tmp/img.png ");
+  });
+
   it("leaves a text paste alone", () => {
     const event = paste(["text/plain"], png());
     expect(event.defaultPrevented).toBe(false);

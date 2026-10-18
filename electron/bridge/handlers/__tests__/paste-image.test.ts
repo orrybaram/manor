@@ -234,6 +234,17 @@ describe("pasteImage: lifecycle", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("writes once when a commit is repeated during the write", async () => {
+    const { ctx, writeFile } = setup();
+    const { uploadId } = pasteImageBegin(ctx, "p1", { mime: "image/png", size: 2 });
+    pasteImageChunk(ctx, "p1", uploadId, 0, b64(Buffer.from("hi")));
+
+    const first = pasteImageCommit(ctx, "p1", uploadId);
+    await expect(pasteImageCommit(ctx, "p1", uploadId)).rejects.toThrow("Unknown upload");
+    await first;
+    expect(writeFile).toHaveBeenCalledTimes(1);
+  });
+
   it("clears the staging and rethrows when the write fails", async () => {
     const { ctx, writeFile } = setup();
     writeFile.mockRejectedValueOnce(new Error("disk full"));

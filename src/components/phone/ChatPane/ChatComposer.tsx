@@ -49,9 +49,14 @@ export function ChatComposer(props: ChatComposerProps) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [sending, setSending] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  // Pastes still uploading; a count, so the first to finish doesn't end the
+  // hint for another.
+  const [uploads, setUploads] = useState(0);
+  const uploading = uploads > 0;
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // The latest text and caret, for an upload that finishes after more typing.
+  const latest = useRef({ text: "", caret: 0 });
 
   // Called back from a row of the `/` menu or choice sheet, after this render.
   const slash = useSlashCommands(paneId, text, caret, {
@@ -63,6 +68,7 @@ export function ChatComposer(props: ChatComposerProps) {
   const canSend = text.trim().length > 0 && !sending && !uploading;
 
   const update = (nextText: string, nextCaret: number) => {
+    latest.current = { text: nextText, caret: nextCaret };
     setText(nextText);
     setCaret(nextCaret);
     slash.sync(nextText, nextCaret);
@@ -120,15 +126,27 @@ export function ChatComposer(props: ChatComposerProps) {
       ?.getAsFile();
     if (!file) return;
     e.preventDefault();
-    const at = e.currentTarget.selectionStart ?? text.length;
-    setUploading(true);
+    const before = text;
+    const at = e.currentTarget.selectionStart ?? before.length;
+    setUploads((n) => n + 1);
     setError(null);
     uploadPastedImage(paneId, file)
       .then(
-        (path) => fill(text.slice(0, at) + path + " " + text.slice(at), at + path.length + 1),
+        (path) => {
+          // The text may have changed during the upload. Insert where the
+          // paste was if everything before it is as it was, else at the end;
+          // the caret stays where the user left it.
+          const now = latest.current;
+          const insert = path + " ";
+          const anchor =
+            now.text.slice(0, at) === before.slice(0, at) ? at : now.text.length;
+          const caretAfter =
+            now.caret >= anchor ? now.caret + insert.length : now.caret;
+          fill(now.text.slice(0, anchor) + insert + now.text.slice(anchor), caretAfter);
+        },
         (err: unknown) => setError(err instanceof Error ? err.message : "Couldn't paste image"),
       )
-      .finally(() => setUploading(false));
+      .finally(() => setUploads((n) => n - 1));
   };
 
   const stop = () => {

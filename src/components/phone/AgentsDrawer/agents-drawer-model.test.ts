@@ -112,6 +112,29 @@ describe("buildAgentsDrawerModel", () => {
     expect(m.groups[2].color).toBeNull();
   });
 
+  it("merges a linked group's members across hosts into one group", () => {
+    const group = { id: "g1", name: "Linked", memberIds: ["m1", "m2"] };
+    const linked = [
+      project({ id: "m1", name: "Linked", color: "#222", path: "/l", group } as Partial<ProjectInfo>),
+      project({ id: "m2", name: "Linked", hostId: "blade", path: "/home/l", group } as Partial<ProjectInfo>),
+      ...projects,
+    ];
+    const m = buildAgentsDrawerModel({
+      agents: [
+        agent("a", { projectId: "m1", projectName: "Linked", workspacePath: "/l" }),
+        agent("b", { projectId: "m2", projectName: "Linked", hostId: "blade", workspacePath: "/home/l" }),
+        agent("c"),
+      ],
+      paneAgentStatus: {},
+      projects: linked,
+    });
+    expect(m.groups.map((g) => [g.key, g.projectName, g.color])).toEqual([
+      ["g1", "Linked", "#222"],
+      ["p1", "One", "#111"],
+    ]);
+    expect(ids(m.groups[0].rows).sort()).toEqual(["a", "b"]);
+  });
+
   it("ranks working/thinking, then error, then the rest, then by recency", () => {
     const m = build(
       [

@@ -21,7 +21,10 @@ export interface AgentsDrawerRow {
 }
 
 export interface AgentsDrawerGroup {
-  /** The project id, or its name when the agent carries no id. */
+  /**
+   * The project id, the linked group's id (ADR-192) for any of its members,
+   * or the agent's project name when it carries no known id.
+   */
   key: string;
   projectName: string;
   color: string | null;
@@ -98,10 +101,27 @@ export function buildAgentsDrawerModel({
   }
   needsYou.sort((a, b) => byUpdatedDesc(a.agent, b.agent));
 
+  // A linked group's members (ADR-192) share one group, as in the sidebar —
+  // otherwise a project checked out on two hosts shows up twice. Like
+  // `buildTopLevelEntries`, a group with fewer than two members present
+  // falls back to plain projects.
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  const entryKeyOf = new Map<string, string>();
+  for (const project of projects) {
+    const group = project.group;
+    const members = group
+      ? group.memberIds.filter((id) => byId.get(id)?.group?.id === group.id)
+      : [];
+    entryKeyOf.set(project.id, group && members.length >= 2 ? group.id : project.id);
+  }
+
   const buckets = new Map<string, Bucket>();
   for (const agent of agents) {
     if (pinned.has(agent.id)) continue;
-    const key = agent.projectId ?? agent.projectName;
+    const key =
+      (agent.projectId && entryKeyOf.get(agent.projectId)) ??
+      agent.projectId ??
+      agent.projectName;
     let bucket = buckets.get(key);
     if (!bucket) {
       bucket = { projectName: agent.projectName, agents: [] };
@@ -110,9 +130,14 @@ export function buildAgentsDrawerModel({
     bucket.agents.push(agent);
   }
 
-  const toGroup = (key: string, bucket: Bucket, color: string | null): AgentsDrawerGroup => ({
+  const toGroup = (
+    key: string,
+    bucket: Bucket,
+    color: string | null,
+    name = bucket.projectName,
+  ): AgentsDrawerGroup => ({
     key,
-    projectName: bucket.projectName,
+    projectName: name,
     color,
     rows: bucket.agents
       .map((agent) => ({ agent, state: rowState(statusOf(agent)) }))
@@ -124,13 +149,19 @@ export function buildAgentsDrawerModel({
       })),
   });
 
-  // Known projects in store order, then the rest by name.
+  // Known projects and groups in store order, a group in its first member's
+  // slot, then the rest by name.
   const groups: AgentsDrawerGroup[] = [];
   for (const project of projects) {
-    const bucket = buckets.get(project.id);
+    const key = entryKeyOf.get(project.id) ?? project.id;
+    const bucket = buckets.get(key);
     if (!bucket) continue;
-    buckets.delete(project.id);
-    groups.push(toGroup(project.id, bucket, project.color));
+    buckets.delete(key);
+    groups.push(
+      key === project.id
+        ? toGroup(key, bucket, project.color)
+        : toGroup(key, bucket, project.color, project.group?.name),
+    );
   }
   const unknown = [...buckets.entries()].sort(([, a], [, b]) =>
     a.projectName.localeCompare(b.projectName),

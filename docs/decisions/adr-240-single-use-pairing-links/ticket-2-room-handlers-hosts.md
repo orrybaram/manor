@@ -1,6 +1,6 @@
 ---
 title: Room, link, handlers, host server, host links, renderer types
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [1]

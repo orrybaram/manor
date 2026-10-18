@@ -1,6 +1,6 @@
 ---
 title: Device store - pending devices, tickets, redeem, reissue, direct pair
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: []

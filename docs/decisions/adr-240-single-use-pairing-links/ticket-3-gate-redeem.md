@@ -1,6 +1,6 @@
 ---
 title: Relay gate - redeem a ticket on hello
-status: todo
+status: done
 priority: critical
 assignee: sonnet
 blocked_by: [1]

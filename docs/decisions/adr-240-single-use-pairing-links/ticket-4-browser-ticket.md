@@ -1,6 +1,6 @@
 ---
 title: Browser - ticket links, self-chosen token, ticket in hello
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: []

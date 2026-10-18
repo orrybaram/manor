@@ -1,6 +1,6 @@
 ---
 title: Devices page - waiting and expired rows, New link, dialog copy
-status: todo
+status: in-progress
 priority: high
 assignee: sonnet
 blocked_by: [2]

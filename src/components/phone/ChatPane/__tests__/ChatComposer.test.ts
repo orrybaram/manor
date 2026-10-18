@@ -137,3 +137,49 @@ describe("ChatComposer image paste", () => {
     expect(container.querySelector("[data-testid=chat-composer-uploading]")).toBeNull();
   });
 });
+
+function pick(...files: File[]) {
+  const el = container.querySelector<HTMLInputElement>("[data-testid=chat-attach-input]")!;
+  Object.defineProperty(el, "files", { value: files, configurable: true });
+  act(() => {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+}
+
+describe("ChatComposer attach button", () => {
+  it("opens the file picker", () => {
+    const el = container.querySelector<HTMLInputElement>("[data-testid=chat-attach-input]")!;
+    const click = vi.spyOn(el, "click").mockImplementation(() => {});
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid=chat-attach]")!.click();
+    });
+    expect(click).toHaveBeenCalled();
+  });
+
+  it("inserts a picked image's path at the caret", async () => {
+    uploadPastedImage.mockResolvedValue("/tmp/img.png");
+    typeAt("hello world", 6);
+
+    pick(png());
+    expect(uploadPastedImage).toHaveBeenCalledWith("p1", expect.any(File));
+    await act(async () => {});
+    expect(input().value).toBe("hello /tmp/img.png world");
+  });
+
+  it("inserts several picked images in the order picked", async () => {
+    uploadPastedImage.mockResolvedValueOnce("/tmp/a.png").mockResolvedValueOnce("/tmp/b.png");
+    typeAt("see  please", 4);
+    pick(png(), png());
+    await act(async () => {});
+    await act(async () => {});
+    expect(input().value).toBe("see /tmp/a.png /tmp/b.png  please");
+  });
+
+  it("is hidden outside the web app", () => {
+    isWebApp.mockReturnValue(false);
+    act(() => {
+      root.render(createElement(ChatComposer, { paneId: "p2", busy: false }));
+    });
+    expect(container.querySelector("[data-testid=chat-attach]")).toBeNull();
+  });
+});

@@ -591,6 +591,26 @@ button.more {
   color: var(--text-selected);
 }
 
+/* Attach image, at the field's start. */
+:global(:root[data-layout="phone"]) .composerAttach.composerAttach,
+.composerAttach.composerAttach {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  min-width: 0;
+  min-height: 0;
+  margin-left: 3px;
+  padding: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--text-dim);
+}
+
+.composerAttach ~ .composerInput {
+  padding-left: 0;
+}
+
 /* The `/` menu (ADR-217 D5): floats above the composer, so it doesn't push
    the transcript, and scrolls itself when taller than ~40vh. */
 .slashMenu {

@@ -41,7 +41,7 @@ function sendToWorkspace(prompt: string, resolved: ResolvedTarget<ProjectInfo>):
   // there was nowhere to open it, the composer and its draft stay.
   const opened = launchAgentInWorkspace(workspace.path, { prompt, hostId: project.hostId });
   if (!opened) return;
-  if (isClaude(project)) markChatStarting(opened.paneId);
+  if (isClaude(project)) markChatStarting(opened.paneId, null, prompt);
   if (project.group) void useProjectStore.getState().setGroupLastUsedHost(project.group.id, hostId);
   useAppStore.getState().clearComposerDraft();
 }
@@ -63,7 +63,7 @@ async function sendToNewWorktree(prompt: string, resolved: ResolvedTarget<Projec
     baseBranch: baseBranchOf(resolved),
     agentPrompt: prompt,
     onAgentPane: (paneId) => {
-      if (claude) markChatStarting(paneId);
+      if (claude) markChatStarting(paneId, null, prompt);
     },
   });
   if (created !== null) useAppStore.getState().clearComposerDraft();

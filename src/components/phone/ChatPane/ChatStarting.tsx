@@ -1,5 +1,7 @@
 import { ChatComposer } from "./ChatComposer";
+import { ChatThinking } from "./ChatThinking";
 import styles from "./ChatPane.module.css";
+import { useStartingPrompt } from "./usePaneChatView";
 
 type ChatStartingProps = {
   paneId: string;
@@ -11,10 +13,12 @@ type ChatStartingProps = {
  * Holds a new Claude pane's chat on a phone until its transcript is known.
  * The session's Agent, and with it the transcript, only exists once the
  * first prompt is sent, so this offers the composer: that prompt goes to the
- * pty like any other, and the real `ChatPane` takes over from there.
+ * pty like any other, and the real `ChatPane` takes over from there. An
+ * agent launched with a prompt shows that prompt while Claude starts.
  */
 export function ChatStarting(props: ChatStartingProps) {
   const { paneId, hidden } = props;
+  const prompt = useStartingPrompt(paneId);
   return (
     <div
       className={`${styles.chatPane} ${hidden ? styles.hidden : ""}`}
@@ -24,7 +28,18 @@ export function ChatStarting(props: ChatStartingProps) {
     >
       <div className={styles.scroller}>
         <div className={styles.entries}>
-          <p className={styles.empty}>New conversation. Send a message to start.</p>
+          {prompt === null ? (
+            <p className={styles.empty}>New conversation. Send a message to start.</p>
+          ) : (
+            <>
+              <div className={styles.userRow}>
+                <div className={styles.userBubble} data-testid="chat-user">
+                  {prompt}
+                </div>
+              </div>
+              <ChatThinking />
+            </>
+          )}
         </div>
       </div>
       <ChatComposer paneId={paneId} busy={false} />

@@ -22,6 +22,9 @@ type PaneChatViewState = {
    *  They show a fresh chat until a different transcript lands. In memory
    *  only. */
   starting: Record<string, string | null>;
+  /** The prompt a starting pane was launched with, shown until its
+   *  transcript lands. In memory only. */
+  startingPrompts: Record<string, string>;
   /** Panes showing the terminal for a TUI menu the chat sent (ADR-218 D3),
    *  until the menu's command lands in the transcript, the transcript
    *  changes, or the user goes back. In memory only. */
@@ -31,6 +34,7 @@ type PaneChatViewState = {
 export const usePaneChatViewStore = create<PaneChatViewState>(() => ({
   views: {},
   starting: {},
+  startingPrompts: {},
   handoffs: {},
 }));
 
@@ -58,11 +62,23 @@ export function setPaneChatView(paneId: string, view: ChatView): void {
 /**
  * Open `paneId` on a fresh chat until its transcript is something other than
  * `leaving`: a new agent starting up (null), or a session `/clear` replaced.
+ * `prompt` is what the agent was launched with, shown while it starts.
  */
-export function markChatStarting(paneId: string, leaving: string | null = null): void {
-  usePaneChatViewStore.setState((s) =>
-    s.starting[paneId] === leaving ? s : { starting: { ...s.starting, [paneId]: leaving } },
-  );
+export function markChatStarting(
+  paneId: string,
+  leaving: string | null = null,
+  prompt: string | null = null,
+): void {
+  usePaneChatViewStore.setState((s) => {
+    const { [paneId]: _old, ...startingPrompts } = s.startingPrompts;
+    if (prompt !== null) startingPrompts[paneId] = prompt;
+    return { starting: { ...s.starting, [paneId]: leaving }, startingPrompts };
+  });
+}
+
+/** The prompt `paneId` was launched with while it starts, if any. */
+export function useStartingPrompt(paneId: string): string | null {
+  return usePaneChatViewStore((s) => s.startingPrompts[paneId] ?? null);
 }
 
 /** Whether `paneId`, now on `transcript`, still waits on a new one. */

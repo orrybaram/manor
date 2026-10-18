@@ -67,7 +67,7 @@ describe("sendNewAgent", () => {
       prompt: "fix the login bug",
       hostId: "local",
     });
-    expect(markChatStarting).toHaveBeenCalledWith("p1");
+    expect(markChatStarting).toHaveBeenCalledWith("p1", null, "fix the login bug");
     expect(useAppStore.getState().composerDraft.text).toBe("");
   });
 
@@ -93,7 +93,7 @@ describe("sendNewAgent", () => {
       agentPrompt: "fix login",
       onAgentPane: expect.any(Function),
     });
-    expect(markChatStarting).toHaveBeenCalledWith("p2");
+    expect(markChatStarting).toHaveBeenCalledWith("p2", null, "fix login");
     expect(useAppStore.getState().composerDraft.text).toBe("");
   });
 

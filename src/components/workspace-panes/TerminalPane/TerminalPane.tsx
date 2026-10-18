@@ -25,9 +25,38 @@ import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
 import { TerminalSearch } from "./TerminalSearchBar";
 import { HostOfflineBanner } from "./HostOfflineBanner";
 import { onUiRequest } from "../../../utils/ui-request";
-import { isRemotePane, pasteClipboardImage } from "../../../lib/remote-image-paste";
+import {
+  isRemotePane,
+  pasteClipboardImage,
+  pasteImageFile,
+} from "../../../lib/remote-image-paste";
 import { isWebApp } from "../../../lib/platform";
 import styles from "./TerminalPane.module.css";
+import type { Terminal } from "@xterm/xterm";
+
+/**
+ * The context menu's Paste on the web: upload an image from the browser's
+ * clipboard, else paste its text. `clipboard.read` may be missing, refused or
+ * hold no image; each of those falls back to `readText`.
+ */
+async function pasteWebClipboard(
+  term: Terminal,
+  paneId: string,
+  readClipboardText: () => void,
+): Promise<void> {
+  try {
+    const items = (await navigator.clipboard.read?.()) ?? [];
+    for (const item of items) {
+      const type = item.types.find((t) => t.startsWith("image/"));
+      if (!type) continue;
+      await pasteImageFile(term, paneId, await item.getType(type));
+      return;
+    }
+  } catch {
+    // Not permitted or not supported: fall through to text.
+  }
+  readClipboardText();
+}
 
 type TerminalPaneProps = {
   paneId: string;
@@ -186,7 +215,12 @@ export function TerminalPane(props: TerminalPaneProps) {
                   if (text) write(text);
                 });
               };
-              if (term && isRemotePane(paneId)) {
+              if (term && isWebApp()) {
+                // The browser's clipboard holds the image (ADR-239 D3). Its
+                // async read prompts in Chromium and is limited elsewhere, so
+                // anything short of an image falls back to text.
+                void pasteWebClipboard(term, paneId, readClipboardText);
+              } else if (term && isRemotePane(paneId)) {
                 void pasteClipboardImage(term, paneId, readClipboardText);
               } else {
                 readClipboardText();

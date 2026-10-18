@@ -3,8 +3,18 @@ import type { Terminal } from "@xterm/xterm";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 import { useHostStore } from "../../store/host-store";
 import { useToastStore } from "../../store/toast-store";
-import { isRemotePane, pasteClipboardImage } from "../remote-image-paste";
+import {
+  isRemotePane,
+  pasteClipboardImage,
+  pasteImageFile,
+} from "../remote-image-paste";
+import { PASTED_IMAGE_CHUNK_BYTES } from "../pasted-image";
 import type { PasteClipboardImageResult } from "../../electron.d";
+
+const uploadPastedImage = vi.hoisted(() =>
+  vi.fn<(paneId: string, blob: Blob) => Promise<string>>(),
+);
+vi.mock("../paste-image-upload", () => ({ uploadPastedImage }));
 
 const pasteClipboardImageIpc = vi.fn<
   (paneId: string, hostId?: string) => Promise<PasteClipboardImageResult>
@@ -138,6 +148,104 @@ describe("pasteClipboardImage", () => {
 
     expect(useToastStore.getState().toasts[0].message).toBe(
       "Couldn't paste image to box",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pasteImageFile
+// ---------------------------------------------------------------------------
+
+describe("pasteImageFile", () => {
+  const PATH = "/home/user/.manor/pasted-images/20260101-000000-abcd1234.png";
+
+  function image(size: number): Blob {
+    return new Blob([new Uint8Array(size)], { type: "image/png" });
+  }
+
+  it("uploads the blob and pastes its path with a trailing space", async () => {
+    uploadPastedImage.mockResolvedValue(PATH);
+    const term = makeTerm();
+    const blob = image(10);
+
+    await pasteImageFile(term, PANE_ID, blob);
+
+    expect(uploadPastedImage).toHaveBeenCalledWith(PANE_ID, blob);
+    expect(term.paste).toHaveBeenCalledWith(PATH + " ");
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
+  it("shows no loading toast for an image within one chunk", async () => {
+    let toastsDuringUpload: unknown[] = [];
+    uploadPastedImage.mockImplementation(async () => {
+      toastsDuringUpload = useToastStore.getState().toasts;
+      return PATH;
+    });
+
+    await pasteImageFile(makeTerm(), PANE_ID, image(PASTED_IMAGE_CHUNK_BYTES));
+
+    expect(toastsDuringUpload).toEqual([]);
+  });
+
+  it("shows a loading toast above one chunk and removes it on success", async () => {
+    useRemotePaneStore.getState().setPaneHost(PANE_ID, "box");
+    let toastsDuringUpload: ReturnType<
+      typeof useToastStore.getState
+    >["toasts"] = [];
+    uploadPastedImage.mockImplementation(async () => {
+      toastsDuringUpload = useToastStore.getState().toasts;
+      return PATH;
+    });
+
+    await pasteImageFile(
+      makeTerm(),
+      PANE_ID,
+      image(PASTED_IMAGE_CHUNK_BYTES + 1),
+    );
+
+    expect(toastsDuringUpload).toHaveLength(1);
+    expect(toastsDuringUpload[0]).toMatchObject({
+      id: `paste-image-${PANE_ID}`,
+      message: "Uploading image to box…",
+      status: "loading",
+    });
+    expect(useToastStore.getState().toasts).toEqual([]);
+  });
+
+  it("toasts an error naming the host, with the failure as detail", async () => {
+    useRemotePaneStore.getState().setPaneHost(PANE_ID, "box");
+    useHostStore.setState({
+      hosts: [
+        {
+          hostId: "box",
+          spec: { kind: "ssh", target: "box.example.com" },
+          status: "connected",
+        },
+      ],
+    });
+    uploadPastedImage.mockRejectedValue(new Error("Image is too large"));
+    const term = makeTerm();
+
+    await pasteImageFile(term, PANE_ID, image(PASTED_IMAGE_CHUNK_BYTES + 1));
+
+    expect(term.paste).not.toHaveBeenCalled();
+    const toasts = useToastStore.getState().toasts;
+    expect(toasts).toHaveLength(1);
+    expect(toasts[0]).toMatchObject({
+      id: `paste-image-${PANE_ID}`,
+      message: "Couldn't paste image to box.example.com",
+      status: "error",
+      detail: "Image is too large",
+    });
+  });
+
+  it("calls an unknown host \"the host\"", async () => {
+    uploadPastedImage.mockRejectedValue(new Error("boom"));
+
+    await pasteImageFile(makeTerm(), PANE_ID, image(10));
+
+    expect(useToastStore.getState().toasts[0].message).toBe(
+      "Couldn't paste image to the host",
     );
   });
 });

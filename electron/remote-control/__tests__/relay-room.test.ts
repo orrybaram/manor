@@ -208,15 +208,22 @@ describe("RelayRoom", () => {
   describe("reissue", () => {
     it("links the device's new ticket, revoking nothing", async () => {
       await f.room.pair("a");
-      f.identityState.roomId = "another-room";
       const result = await f.room.reissue("dev-1");
       expect(f.devices.reissue).toHaveBeenCalledWith("dev-1");
       expect(result.pairingUrl).toBe(
-        `https://relay.example.test/app/1.2.3/#relay=another-room.${KEY}&ticket=${NEW_TICKET}`,
+        `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&ticket=${NEW_TICKET}`,
       );
       expect(result.expiresAt).toBe(EXPIRES_AT + 1);
       expect(f.devices.revokeMany).not.toHaveBeenCalled();
       expect(f.onStaleRevoked).not.toHaveBeenCalled();
+    });
+
+    it("refuses a device on a room the identity no longer is, revoking nothing", async () => {
+      await f.room.pair("a");
+      f.identityState.roomId = "another-room";
+      await expect(f.room.reissue("dev-1")).rejects.toThrow(/old relay address/);
+      expect(f.devices.reissue).not.toHaveBeenCalled();
+      expect(f.devices.revokeMany).not.toHaveBeenCalled();
     });
 
     it("passes the store's refusal on", async () => {

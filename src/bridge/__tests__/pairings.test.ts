@@ -293,9 +293,23 @@ describe("pairings store", () => {
       expect(listPairings()[0]).toMatchObject({ token: "minted-2", ticket: "t2" });
       clearPairingTicket(A, "t2");
       expect(listPairings()[0]).not.toHaveProperty("ticket");
+      expect(listPairings()[0].spentTicket).toBe("t2");
       expect(listPairings()[0].token).toBe("minted-2");
       clearPairingTicket(A, undefined);
       expect(listPairings()[0].token).toBe("minted-2");
+    });
+
+    it("keeps the paired token when a spent link is opened again", () => {
+      const mint = minter();
+      upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 10, mint);
+      clearPairingTicket(A, "t1");
+      expect(listPairings()[0]).toMatchObject({ token: "minted-1", spentTicket: "t1" });
+      const again = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 20, mint);
+      expect(again).toMatchObject({ token: "minted-1", lastUsedAt: 20 });
+      expect(again).not.toHaveProperty("ticket");
+      // A different link is a new pairing.
+      const fresh = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t2" }, 30, mint);
+      expect(fresh).toMatchObject({ token: "minted-2", ticket: "t2" });
     });
 
     it("drops a pending ticket when a minted token replaces the one it was for", () => {

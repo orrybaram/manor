@@ -9,10 +9,9 @@
  * A pairing link crosses this boundary exactly once, in the return value of
  * `remoteControlPair` or `remoteControlReissue`, and is never broadcast in a
  * status push. That return value is also why seven of the eleven below are
- * `localOnly`: a stolen
- * device token that can pair more devices is a token that survives its own
- * revocation, which is a different class of loss
- * from "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
+ * `localOnly`: a stolen device token that can pair more devices is a token
+ * that survives its own revocation, which is a different class of loss from
+ * "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
  * `getStatus` is a read and stays open, so a device's own settings page is
  * not lying to it about the surface it is on; the two push methods are for
  * paired devices only.

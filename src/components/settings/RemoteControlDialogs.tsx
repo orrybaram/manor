@@ -297,7 +297,8 @@ function PairingExpiryCopy(props: { expiresAt: number | null }) {
   );
   return (
     <>
-      This link works once and expires in {minutes} minutes. If it expires,
+      This link works once and expires in {minutes}{" "}
+      {minutes === 1 ? "minute" : "minutes"}. If it expires,
       choose New link on the device&apos;s row.
     </>
   );

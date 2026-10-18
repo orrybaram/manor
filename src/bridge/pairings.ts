@@ -81,6 +81,13 @@ export interface StoredPairing extends RelayCredentials {
    * (`clearPairingTicket`). Absent on a pairing whose token the host knows.
    */
   ticket?: string;
+  /**
+   * The ticket `token` was redeemed with, kept after the redeem. Spent, so no
+   * longer a credential: it only lets the same link opened again keep the
+   * token it already paired rather than replace it with one the host will
+   * refuse (`upsertTicketPairing`).
+   */
+  spentTicket?: string;
 }
 
 const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
@@ -123,7 +130,9 @@ function isStoredPairing(value: unknown): value is StoredPairing {
     (v.customName === undefined || typeof v.customName === "boolean") &&
     (v.hostServer === undefined || typeof v.hostServer === "boolean") &&
     (v.hosts === undefined || isHostRooms(v.hosts)) &&
-    (v.ticket === undefined || (typeof v.ticket === "string" && v.ticket.length > 0))
+    (v.ticket === undefined || (typeof v.ticket === "string" && v.ticket.length > 0)) &&
+    (v.spentTicket === undefined ||
+      (typeof v.spentTicket === "string" && v.spentTicket.length > 0))
   );
 }
 
@@ -291,7 +300,10 @@ export function freshDeviceToken(): string {
  * - **A ticket already stored for the room** (the same link loaded again, or
  *   in a second tab): its token is kept — the room is undeclined and marked
  *   last used, nothing else. So two tabs of one browser share one token: one
- *   hello redeems the ticket, the other's token then verifies.
+ *   hello redeems the ticket, the other's token then verifies. The same goes
+ *   for the ticket the token was already redeemed with (`spentTicket`): a
+ *   fresh token for a spent ticket would be refused, and would replace the
+ *   one that works.
  * - **Any other ticket**: a fresh token (`mintToken`) goes with it, and the
  *   key is the link's. Name and the rest are kept, as `upsertPairing` keeps
  *   them; a new room is named "Host N".
@@ -306,7 +318,7 @@ export function upsertTicketPairing(
   const list = listPairings();
   const existing = list.find((p) => p.roomId === roomId);
   let next: StoredPairing;
-  if (existing?.ticket === ticket) {
+  if (existing && (existing.ticket === ticket || existing.spentTicket === ticket)) {
     next = { ...existing, lastUsedAt: now };
   } else {
     const token = mintToken();
@@ -320,13 +332,16 @@ export function upsertTicketPairing(
 
 /**
  * `roomId`'s host accepted a hello carrying `ticket` (ADR-240 D1): the ticket
- * is spent, so drop it and send it no more. Only while it is still the stored
- * one — another tab may have taken a newer link for the room meanwhile, whose
- * ticket has yet to be redeemed. No ticket, nothing to do.
+ * is spent, so send it no more; it is kept as `spentTicket`, which is no
+ * longer a credential. Only while it is still the stored one — another tab
+ * may have taken a newer link for the room meanwhile, whose ticket has yet to
+ * be redeemed. No ticket, nothing to do.
  */
 export function clearPairingTicket(roomId: string, ticket: string | undefined): void {
   if (ticket === undefined) return;
-  updatePairing(roomId, (p) => (p.ticket === ticket ? withoutTicket(p) : p));
+  updatePairing(roomId, (p) =>
+    p.ticket === ticket ? { ...withoutTicket(p), spentTicket: ticket } : p,
+  );
 }
 
 /** `pairing` with no `ticket` field at all. */

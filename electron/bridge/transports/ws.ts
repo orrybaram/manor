@@ -79,8 +79,9 @@ export type BridgeAuthResult =
  * The `verify + backoff` decision, which lives in `relay-gate.ts` (or the
  * owner socket's token check), handed the hello's token — and the whole
  * hello, for the authenticators that read more of it (the relay gate's
- * `ticket`, ADR-240 D1; the owner socket's `viewer`, ADR-228 D4). Whatever else a hello says is the authenticator's
- * to honour or ignore; this transport takes none of it on trust.
+ * `ticket`, ADR-240 D1; the owner socket's `viewer`, ADR-228 D4). Whatever
+ * else a hello says is the authenticator's to honour or ignore; this
+ * transport takes none of it on trust.
  */
 export type BridgeAuthenticator = (
   token: unknown,

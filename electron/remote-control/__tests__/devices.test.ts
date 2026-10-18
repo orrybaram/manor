@@ -313,6 +313,9 @@ describe("RemoteDeviceStore", () => {
       expect(s.redeem(42, freshToken())).toBeNull();
       const taken = (await s.pair("taken", ROOM, { direct: true })).rawToken;
       expect(s.redeem(ticket, taken)).toBeNull();
+      // The ticket as its own token would make the link the credential.
+      expect(s.redeem(ticket, ticket)).toBeNull();
+      expect(s.verify(ticket)).toBeNull();
       // None of the refusals spent the ticket.
       expect(s.redeem(ticket, freshToken())).not.toBeNull();
     });

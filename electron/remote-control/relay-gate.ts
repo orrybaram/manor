@@ -4,8 +4,9 @@
  * Remote control opens no listening socket: the only way in is a Noise
  * channel through the relay, handed to the bridge like any other
  * `FrameSocket`. What that channel's `hello` has to get past lives here —
- * the device verify, the ticket redeem and the failed-auth backoff — along with the one thing a
- * revoke needs afterwards, closing a device's live channels.
+ * the device verify, the ticket redeem and the failed-auth backoff — along
+ * with the one thing a revoke needs afterwards, closing a device's live
+ * channels.
  *
  * **Verify, then redeem, then backoff.** Every relay viewer shares one `relay`
  * source (`rate-limit.ts`), so a backoff someone else earned must never be

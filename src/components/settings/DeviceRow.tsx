@@ -8,17 +8,23 @@ import type { RemoteDeviceInfo } from "../../electron.d";
 import { deviceHint } from "./deviceHint";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
-/** Current time that re-renders each minute and at `expiresAt` while pending. */
+/**
+ * Current time that re-renders every 30 s and at `expiresAt` while a link is
+ * waiting; an expired one has nothing left to count down.
+ */
 function useNow(expiresAt: number | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (expiresAt === null) return;
-    const timers: ReturnType<typeof setTimeout>[] = [];
+    // A new link (New link) counts down from now, not from the last tick.
+    const refresh = setTimeout(() => setNow(Date.now()), 0);
     const left = expiresAt - Date.now();
-    if (left > 0) timers.push(setTimeout(() => setNow(Date.now()), left + 50));
+    if (left <= 0) return () => clearTimeout(refresh);
+    const expiry = setTimeout(() => setNow(Date.now()), left + 50);
     const tick = setInterval(() => setNow(Date.now()), 30_000);
     return () => {
-      timers.forEach(clearTimeout);
+      clearTimeout(refresh);
+      clearTimeout(expiry);
       clearInterval(tick);
     };
   }, [expiresAt]);

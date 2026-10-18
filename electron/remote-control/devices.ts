@@ -362,12 +362,15 @@ export class RemoteDeviceStore {
    * device without stopping at a match, so neither a ticket's validity nor its
    * position is observable through timing. A match that has expired, a token
    * that is malformed and a token some device already has all return null and
-   * leave the row as it was.
+   * leave the row as it was. So does a token equal to the ticket.
    */
   redeem(ticket: unknown, token: unknown): RemoteDevice | null {
     const devices = this.live();
     if (typeof ticket !== "string" || ticket.length === 0) return null;
     if (typeof token !== "string" || !TOKEN_PATTERN.test(token)) return null;
+    // The ticket as the token would make the link the long-lived credential
+    // again, which is the one thing this exchange exists to prevent.
+    if (token === ticket) return null;
 
     const presented = Buffer.from(sha256Hex(ticket), "hex");
     let matched: RemoteDevice | null = null;

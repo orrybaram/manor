@@ -110,12 +110,19 @@ export class RelayRoom {
 
   /**
    * A new link for a device that has not connected yet (ADR-240 D3); the
-   * old one is dead. The device stays on the room it was paired to, so
-   * there is nothing stale to revoke. Resolves once it is on disk.
+   * old one is dead. Revokes nothing, but refuses a device paired to a room
+   * this identity no longer is: a link to the current room would let it
+   * redeem, and the next stale-room sweep would then revoke it. Resolves once
+   * it is on disk.
    */
   reissue(id: string): Promise<PairResult> {
     return this.serially(async () => {
       const { origin, roomId, x25519Pub } = this.address();
+      if (this.options.devices.idsInOtherRelayRooms(roomId).includes(id)) {
+        throw new Error(
+          "This device was added for an old relay address. Remove it and add it again.",
+        );
+      }
       const { device, ticket, expiresAt } = await this.options.devices.reissue(id);
       return {
         device,

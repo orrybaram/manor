@@ -1,6 +1,6 @@
 ---
 title: Web paste paths in the terminal with toasts
-status: todo
+status: done
 priority: critical
 assignee: opus
 blocked_by: [3]

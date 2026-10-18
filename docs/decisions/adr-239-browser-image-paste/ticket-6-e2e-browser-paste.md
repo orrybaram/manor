@@ -1,6 +1,6 @@
 ---
 title: "E2E: a paired browser pastes an image into a pane on the desk"
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [4]

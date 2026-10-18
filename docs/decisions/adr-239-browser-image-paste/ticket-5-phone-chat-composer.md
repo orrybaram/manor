@@ -1,6 +1,6 @@
 ---
 title: "Phone chat composer: paste an image, insert its path"
-status: todo
+status: done
 priority: medium
 assignee: sonnet
 blocked_by: [3]

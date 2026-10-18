@@ -1,6 +1,6 @@
 ---
 title: Shared pasted-image writer and constants
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: []

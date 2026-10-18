@@ -1,6 +1,6 @@
 ---
 title: Browser upload helper
-status: todo
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2]

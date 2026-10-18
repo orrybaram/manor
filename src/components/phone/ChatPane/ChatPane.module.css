@@ -705,6 +705,11 @@ button.more {
   color: var(--red);
 }
 
+.composerHint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
 .commandRow {
   display: flex;
   flex-direction: column;

@@ -872,6 +872,14 @@ test.describe("web app (ADR-178 slice 1)", () => {
         .poll(() => paneText(client.page, paneId), { timeout: 20_000 })
         .toContain("echo still-here");
       await film.shot(client.page, "browser-pasted-big-still-up");
+
+      // Case 3: a type the server won't take toasts, and nothing is written.
+      await pasteImageIntoPane(client.page, paneId, tinyPng, "image/bmp");
+      await expect(client.page.getByText("Couldn't paste image")).toBeVisible({
+        timeout: 10_000,
+      });
+      expect(fs.readdirSync(imagesDir)).toHaveLength(2);
+      await film.shot(client.page, "browser-paste-refused-toast");
     } finally {
       film.write("browser-console-paste.log", client.log.join("\n") + "\n");
       await client.close();

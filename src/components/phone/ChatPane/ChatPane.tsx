@@ -164,21 +164,18 @@ export function ChatPane(props: ChatPaneProps) {
     };
   });
 
-  // A new entry always brings the chat to the bottom. An entry growing in
-  // place is followed only while the user hasn't scrolled up to read.
+  // New and growing entries are followed only while the user is at the
+  // bottom; scrolling up to read leaves the chat where they put it.
   const stuck = useRef(true);
   const newestId = useRef<string | undefined>(undefined);
-  const followedId = useRef<string | undefined>(undefined);
+  const opened = useRef(false);
   const followBottom = useCallback((content: HTMLDivElement | null) => {
     const scroller = content?.parentElement;
     if (!content || !scroller || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       // The history the chat opens on lands at the bottom at once.
-      const opening = followedId.current === undefined;
-      if (newestId.current !== followedId.current) {
-        followedId.current = newestId.current;
-        stuck.current = true;
-      }
+      const opening = !opened.current;
+      if (newestId.current !== undefined) opened.current = true;
       if (!stuck.current) return;
       const smooth = !opening && !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
       scroller.scrollTo({ top: scroller.scrollHeight, behavior: smooth ? "smooth" : "auto" });

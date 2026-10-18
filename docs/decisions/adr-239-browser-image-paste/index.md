@@ -1,6 +1,6 @@
 ---
 type: adr
-status: proposed
+status: accepted
 database:
   schema:
     status:
@@ -83,6 +83,13 @@ Audit: only `commit` is `mutating`, which audits it with the pane as target. Chu
 - **Ctrl+V on the web becomes a browser paste instead of `\x16`.** That is better for text, because Claude Code's `\x16` reads the server's clipboard, but a literal `\x16` is lost on the web. The desktop is unaffected.
 - `navigator.clipboard.read()` asks for permission in Chromium and is limited in Firefox. There the context-menu Paste falls back to text; keyboard paste is the main path.
 - The e2e test pastes 1.5 MiB through the real relay. It is the one proof that the chunks are sized under the frame cap.
+
+### Found in review and evidence
+
+- **A repeated `commit` wrote the image twice.** The staged upload stayed in place during the write. It is now removed before the write starts, so a repeat answers "Unknown upload".
+- **Text typed in the phone composer during an upload was overwritten** by the path insert. The insert now works from the latest text and caret.
+- **Paste toasts named a relayed server by its room id** (ticket 7). The fix is the same as d078efb6's for the sidebar: prefer `serverHostName`.
+- **Open:** it is unverified whether Claude Code attaches an image from a path that `chat.send` *types*. If it doesn't, `chat.send` needs a bracketed paste for this case.
 
 ## Tickets
 

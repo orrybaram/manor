@@ -10,6 +10,7 @@
  */
 
 import { afterEach, beforeEach, expect, onTestFinished, vi } from "vitest";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
 import path from "node:path";
@@ -153,20 +154,24 @@ export function hook(eventType: string, extra: Record<string, string> = {}) {
   };
 }
 
-/** What a pairing link carries in its fragment. */
+/**
+ * What a pairing link carries in its fragment: the device's token (`&t=`, a
+ * `direct` pairing) or a single-use ticket (`&ticket=`, ADR-240 D1).
+ */
 export function parsePairingUrl(url: string): {
   base: string;
   roomId: string;
   x25519Pub: string;
-  token: string;
+  token?: string;
+  ticket?: string;
 } {
-  const match = /^(.*)#relay=([^.]+)\.([^&]+)&t=(.+)$/.exec(url);
+  const match = /^(.*)#relay=([^.]+)\.([^&]+)&(t|ticket)=(.+)$/.exec(url);
   if (!match) throw new Error(`not a pairing link: ${url}`);
   return {
     base: match[1],
     roomId: match[2],
     x25519Pub: match[3],
-    token: match[4],
+    ...(match[4] === "t" ? { token: match[5] } : { ticket: match[5] }),
   };
 }
 
@@ -260,6 +265,11 @@ export interface OwnerHandle {
 export interface PhoneHandle {
   viewer: FakeViewer;
   hello: Frame;
+  /**
+   * The token the phone said hello with: the link's own, or for a ticket
+   * link one it chose, as a browser does (ADR-240 D1). What it redials with.
+   */
+  token: string;
   call(ns: string, method: string, ...args: unknown[]): Promise<Frame>;
 }
 
@@ -286,8 +296,16 @@ export interface HostServerHarness {
   /** Wait for the server's relay connector to hold its room. */
   relayUp(server: RunningServer): Promise<void>;
   owner(): Promise<OwnerHandle>;
-  /** A phone: through the relay to the room in `pairingUrl`, hello'd. */
-  phone(pairingUrl: string): Promise<PhoneHandle>;
+  /**
+   * A phone: through the relay to the room in `pairingUrl`, hello'd. A ticket
+   * link is redeemed under a token the phone chooses, or `opts.token`. With
+   * `opts.refused` the hello is expected to fail: `hello` then holds the
+   * close code (`{ ok: false, code }`), since a refusal sends no reply.
+   */
+  phone(
+    pairingUrl: string,
+    opts?: { token?: string; refused?: boolean },
+  ): Promise<PhoneHandle>;
 }
 
 /** Register the harness's setup and teardown on the calling `describe`. */
@@ -448,7 +466,7 @@ export function useHostServerHarness(): HostServerHarness {
       };
     },
 
-    async phone(pairingUrl) {
+    async phone(pairingUrl, opts = {}) {
       const link = parsePairingUrl(pairingUrl);
       const viewer = await FakeViewer.open(
         relay.url,
@@ -456,13 +474,25 @@ export function useHostServerHarness(): HostServerHarness {
         base64urlDecode(link.x25519Pub),
       );
       viewers.push(viewer);
-      viewer.send({ type: "hello", token: link.token });
-      const hello = await viewer.next((f) => f.type === "hello");
-      expect(hello).toMatchObject({ ok: true });
+      const token =
+        opts.token ??
+        link.token ??
+        crypto.randomBytes(32).toString("base64url");
+      viewer.send({
+        type: "hello",
+        token,
+        ...(link.ticket === undefined ? {} : { ticket: link.ticket }),
+      });
+      // A refused hello gets no reply, only the close (4401).
+      const hello: Frame = opts.refused
+        ? { type: "hello", ok: false, code: await viewer.closed }
+        : await viewer.next((f) => f.type === "hello");
+      if (!opts.refused) expect(hello).toMatchObject({ ok: true });
       let nextId = 1;
       return {
         viewer,
         hello,
+        token,
         async call(ns, methodName, ...args) {
           const id = nextId++;
           viewer.send({ kind: "invoke", id, ns, method: methodName, args });

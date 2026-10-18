@@ -314,7 +314,10 @@ describe("hosts phone access", () => {
     const { deps, backendRegistry } = makeDeps();
     const client = {
       status: vi.fn().mockResolvedValue({ pushEndpoints: ["https://p"], devices: 1 }),
-      pair: vi.fn().mockResolvedValue({ pairingUrl: "https://relay/app/1/#x" }),
+      pair: vi.fn().mockResolvedValue({
+        pairingUrl: "https://relay/app/1/#relay=room.key&ticket=t",
+        expiresAt: 600_000,
+      }),
       listDevices: vi.fn().mockResolvedValue([]),
       revoke: vi.fn().mockResolvedValue([]),
       resetIdentity: vi.fn().mockResolvedValue({ devices: 0 }),
@@ -432,6 +435,7 @@ describe("hosts phone access", () => {
   it("tells the sync the pairing changed after pair, revoke and reset", async () => {
     const { ctx, client, hostServerSync } = withServer("connected");
     await hostsPairDevice(ctx, "box", "  my phone ");
+    // The host's default: a ticket link (ADR-240 D7).
     expect(client.pair).toHaveBeenCalledWith("my phone");
     await hostsRevokeDevice(ctx, "box", "d1");
     await hostsResetPairingKeys(ctx, "box");

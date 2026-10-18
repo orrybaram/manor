@@ -54,8 +54,16 @@ describe("host server: its own relay room (ADR-225 D3)", () => {
     const origin = h.relay.url.replace("ws://", "http://");
     expect(link.base).toBe(`${origin}/app/1.2.3-test/`);
     expect(link.roomId).toBe(status.relay.roomId);
-    expect(link.token).toBe(paired.rawToken);
-    expect(paired.device).toMatchObject({ label: "phone", hasPush: false });
+    // A single-use ticket, not the device's token (ADR-240 D1).
+    expect(link.ticket).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(link.token).toBeUndefined();
+    expect(paired.rawToken).toBeUndefined();
+    expect(paired.expiresAt).toBeGreaterThan(Date.now());
+    expect(paired.device).toMatchObject({
+      label: "phone",
+      hasPush: false,
+      pending: { expiresAt: paired.expiresAt },
+    });
 
     const devices = await client.invoke<RemoteDeviceInfo[]>(
       "remoteControl",
@@ -68,6 +76,44 @@ describe("host server: its own relay room (ADR-225 D3)", () => {
     const p = await h.phone(paired.pairingUrl);
     const agents = await p.call("agents", "getAll");
     expect(agents).toMatchObject({ ok: true, result: [] });
+  });
+
+  it("redeems a link once: a second phone on it is refused, the first redials with its token (ADR-240)", async () => {
+    const server = await h.serve();
+    await h.relayUp(server);
+    const client = await h.owner();
+    const paired = await client.invoke<PairResult>("remoteControl", "pair", "phone");
+    const first = await h.phone(paired.pairingUrl);
+    expect(await first.call("agents", "getAll")).toMatchObject({ ok: true });
+    const [device] = await client.invoke<RemoteDeviceInfo[]>("remoteControl", "listDevices");
+    expect(device.pending).toBeUndefined();
+
+    const second = await h.phone(paired.pairingUrl, { refused: true });
+    expect(second.hello).toMatchObject({ ok: false, code: 4401 });
+
+    // The token the first phone chose is the device's credential now.
+    const link = parsePairingUrl(paired.pairingUrl);
+    const again = await h.phone(`${link.base}#relay=${link.roomId}.${link.x25519Pub}&t=${first.token}`);
+    expect(await again.call("agents", "getAll")).toMatchObject({ ok: true });
+  });
+
+  it("pairs direct: the owner gets the device's token, which works on hello (ADR-240 D7)", async () => {
+    const server = await h.serve();
+    await h.relayUp(server);
+    const client = await h.owner();
+    const paired = await client.invoke<PairResult>(
+      "remoteControl",
+      "pair",
+      "phone",
+      { direct: true },
+    );
+    expect(paired.rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(paired.expiresAt).toBeNull();
+    expect(paired.device.pending).toBeUndefined();
+    expect(parsePairingUrl(paired.pairingUrl).token).toBe(paired.rawToken);
+    const p = await h.phone(paired.pairingUrl);
+    expect(p.token).toBe(paired.rawToken);
+    expect(await p.call("agents", "getAll")).toMatchObject({ ok: true });
   });
 
   it("refuses a device the owner's methods", async () => {

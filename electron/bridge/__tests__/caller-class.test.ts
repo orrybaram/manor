@@ -411,6 +411,8 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "remoteControl.setEnabled",
         "remoteControl.startRelay",
         "remoteControl.pair",
+        // ADR-240 D6: a new link for a device that has not connected yet.
+        "remoteControl.reissue",
         "remoteControl.resetRelayAddress",
         "remoteControl.revoke",
         "remoteControl.stopRelay",

@@ -184,6 +184,7 @@ export type HostRefusedMethod = LocalOnly<
   | "keybindings.resetAll"
   | "remoteControl.setEnabled"
   | "remoteControl.pair"
+  | "remoteControl.reissue"
   | "remoteControl.revoke"
   | "remoteControl.startRelay"
   | "remoteControl.stopRelay"

@@ -69,7 +69,10 @@ export interface LinkedHostPairing {
   roomId: string;
   /** The host server's X25519 static public key, base64url. */
   serverKey: string;
-  /** The device's token in that host's own store. Shown to it once. */
+  /**
+   * The device's token in that host's own store, minted `direct` (ADR-240
+   * D7): it travels in the device's own Noise channel, never in a link.
+   */
   token: string;
   /** The host as this desktop names it, until the host's hello says. */
   name: string;
@@ -329,11 +332,17 @@ export class HostPairingLinks {
     const mint: PendingMint = { label: mintLabel(label), startedAt: Date.now() };
     records.addPendingMint(hostId, mint);
     this.minting.set(hostId, mint.label);
-    let link: ReturnType<typeof parseRelayPairingUrl>;
+    let link: { roomId: string; x25519Pub: string } | null;
+    let token: string | undefined;
     let recorded: boolean;
     try {
-      const result = await client.api.remoteControl.pair(mint.label);
-      link = parseRelayPairingUrl(result.pairingUrl);
+      // `direct`: the token goes to the device inside its own channel, so a
+      // ticket would only add a round trip (ADR-240 D7). A host that answers
+      // with a ticket link anyway gives no token, and is a link this build
+      // cannot read.
+      const result = await client.api.remoteControl.pair(mint.label, { direct: true });
+      token = result.rawToken;
+      link = token ? parseRelayPairingUrl(result.pairingUrl) : null;
       // A room other than the status's: the host's keys were reset since,
       // by something other than this desktop. The pairing is in a room the
       // relay no longer holds for it; the next hello mints again.
@@ -355,11 +364,11 @@ export class HostPairingLinks {
     }
     await this.options.revokePending(hostId);
     this.options.pairingChanged(hostId);
-    if (!recorded || link === null) return null;
+    if (!recorded || link === null || !token) return null;
     return {
       roomId: link.roomId,
       serverKey: link.x25519Pub,
-      token: link.rawToken,
+      token,
       name: records.label(hostId),
     };
   }

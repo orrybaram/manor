@@ -57,15 +57,23 @@ function fakeHost(hostId: string, roomId: string) {
         })),
       },
       remoteControl: {
-        pair: vi.fn(async (label: string) => {
+        pair: vi.fn(async (label: string, options?: { direct?: boolean }) => {
           const id = `${hostId}-device-${++minted}`;
           paired.add(id);
           rows.set(id, { label, createdAt: Date.now() });
-          return {
-            device: { id, label },
-            rawToken: `token-${id}`,
-            pairingUrl: `https://relay.test/app/1/#relay=${host.roomId}.${KEY}&t=token-${id}`,
-          };
+          // A ticket link unless asked for the token (ADR-240 D7).
+          return options?.direct
+            ? {
+                device: { id, label },
+                rawToken: `token-${id}`,
+                expiresAt: null,
+                pairingUrl: `https://relay.test/app/1/#relay=${host.roomId}.${KEY}&t=token-${id}`,
+              }
+            : {
+                device: { id, label },
+                expiresAt: Date.now() + 600_000,
+                pairingUrl: `https://relay.test/app/1/#relay=${host.roomId}.${KEY}&ticket=ticket-${id}`,
+              };
         }),
         listDevices: vi.fn(async () =>
           [...paired].map((id) => ({
@@ -203,6 +211,7 @@ describe("HostPairingLinks", () => {
     // Under its label, with a suffix no pairing made on the host shares.
     expect(box().api.remoteControl.pair).toHaveBeenCalledWith(
       expect.stringMatching(/^Orry's phone \([0-9a-f]{6}\)$/),
+      { direct: true },
     );
     expect(wsl().api.remoteControl.pair).not.toHaveBeenCalled();
     expect(devices.hostLinks(id)).toEqual([{ hostId: "box", hostDeviceId: "box-device-1", roomId: "room-box" }]);
@@ -332,11 +341,23 @@ describe("HostPairingLinks", () => {
     for (const listener of stateListeners) listener(host.hostId, "connected");
   };
 
+  it("a host answering a ticket link links nothing, and what it minted is revoked (ADR-240 D7)", async () => {
+    const id = await phone();
+    const pair = box().api.remoteControl.pair.getMockImplementation()!;
+    // An older desktop's newer host: it ignores `direct`.
+    box().api.remoteControl.pair.mockImplementationOnce((label: string) => pair(label));
+    await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
+    expect(devices.hostLinks(id)).toEqual([]);
+    expect(records.box.pendingMints).toEqual([]);
+    expect(box().api.remoteControl.revoke).toHaveBeenCalledWith("box-device-1");
+    expect(box().paired.size).toBe(0);
+  });
+
   it("revokes a pairing the host committed whose answer was lost, on the next connect (R7 b)", async () => {
     const id = await phone();
     const pair = box().api.remoteControl.pair.getMockImplementation()!;
-    box().api.remoteControl.pair.mockImplementationOnce(async (label: string) => {
-      await pair(label);
+    box().api.remoteControl.pair.mockImplementationOnce(async (label: string, options?: { direct?: boolean }) => {
+      await pair(label, options);
       box().state = "idle";
       throw new Error("owner channel closed");
     });
@@ -354,10 +375,10 @@ describe("HostPairingLinks", () => {
   it("records no link when the host's room changed between status and pair, and mints again next time (R7 a)", async () => {
     const id = await phone();
     const pair = box().api.remoteControl.pair.getMockImplementation()!;
-    box().api.remoteControl.pair.mockImplementationOnce(async (label: string) => {
+    box().api.remoteControl.pair.mockImplementationOnce(async (label: string, options?: { direct?: boolean }) => {
       // Reset by something else (the box's CLI) after the status read.
       box().roomId = "room-box-2";
-      return pair(label);
+      return pair(label, options);
     });
     await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);
     expect(devices.hostLinks(id)).toEqual([]);
@@ -377,10 +398,10 @@ describe("HostPairingLinks", () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const pair = box().api.remoteControl.pair.getMockImplementation()!;
-    box().api.remoteControl.pair.mockImplementationOnce(async (label: string) => {
+    box().api.remoteControl.pair.mockImplementationOnce(async (label: string, options?: { direct?: boolean }) => {
       await gate;
       order.push("pair");
-      return pair(label);
+      return pair(label, options);
     });
     records.box.pendingRevokes = ["box-old"];
 
@@ -408,8 +429,8 @@ describe("HostPairingLinks", () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => (release = resolve));
     const pair = box().api.remoteControl.pair.getMockImplementation()!;
-    box().api.remoteControl.pair.mockImplementationOnce(async (label: string) => {
-      const out = await pair(label);
+    box().api.remoteControl.pair.mockImplementationOnce(async (label: string, options?: { direct?: boolean }) => {
+      const out = await pair(label, options);
       await gate;
       return out;
     });
@@ -427,8 +448,8 @@ describe("HostPairingLinks", () => {
   it("never revokes a pairing the user made on the host, however alike its label", async () => {
     const id = await phone();
     const pair = box().api.remoteControl.pair.getMockImplementation()!;
-    box().api.remoteControl.pair.mockImplementationOnce(async (label: string) => {
-      await pair(label);
+    box().api.remoteControl.pair.mockImplementationOnce(async (label: string, options?: { direct?: boolean }) => {
+      await pair(label, options);
       // The user pairs the same phone on the host by hand, under its own name.
       box().pairDirectly("Orry's phone");
       box().state = "idle";

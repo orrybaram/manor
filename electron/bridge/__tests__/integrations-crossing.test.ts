@@ -146,7 +146,8 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
     remoteControl = {
       status: vi.fn(() => ({ enabled: true })),
       setEnabled: vi.fn(() => Promise.resolve({ enabled: false })),
-      pair: vi.fn(() => ({ rawToken: "secret", device: { id: "d2" } })),
+      pair: vi.fn(() => ({ pairingUrl: "https://relay/#ticket", expiresAt: 1, device: { id: "d2" } })),
+      reissue: vi.fn(() => ({ pairingUrl: "https://relay/#ticket", expiresAt: 2, device: { id: "d2" } })),
       revoke: vi.fn(() => ({ enabled: true })),
       startRelay: vi.fn(() => Promise.resolve({ enabled: true })),
       stopRelay: vi.fn(() => Promise.resolve({ enabled: true })),
@@ -177,6 +178,7 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
   const refused = [
     ["remoteControl", "setEnabled"],
     ["remoteControl", "pair"],
+    ["remoteControl", "reissue"],
     ["remoteControl", "revoke"],
     ["remoteControl", "startRelay"],
     ["remoteControl", "stopRelay"],
@@ -193,6 +195,7 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
     expect(result).toMatchObject({ code: UNAVAILABLE_CODE });
     // Refused before the handler, so nothing was half-done on the way out.
     expect(remoteControl.pair).not.toHaveBeenCalled();
+    expect(remoteControl.reissue).not.toHaveBeenCalled();
     expect(remoteControl.setEnabled).not.toHaveBeenCalled();
     expect(remoteControl.startRelay).not.toHaveBeenCalled();
     expect(linearManager.saveToken).not.toHaveBeenCalled();
@@ -223,7 +226,40 @@ describe("what a paired device may not call (LOCAL_ONLY)", () => {
     });
 
     expect(paired).toMatchObject({ ok: true });
-    expect(remoteControl.pair).toHaveBeenCalledWith("Orry's phone");
+    expect(remoteControl.pair).toHaveBeenCalledWith("Orry's phone", undefined);
+
+    const direct = await server.dispatch(win.connection, {
+      kind: "invoke",
+      id: "d",
+      ns: "remoteControl",
+      method: "pair",
+      args: ["Orry's phone", { direct: true }],
+    });
+
+    expect(direct).toMatchObject({ ok: true });
+    expect(remoteControl.pair).toHaveBeenLastCalledWith("Orry's phone", { direct: true });
+
+    const malformed = await server.dispatch(win.connection, {
+      kind: "invoke",
+      id: "m",
+      ns: "remoteControl",
+      method: "pair",
+      args: ["Orry's phone", { direct: "yes" }],
+    });
+
+    expect(malformed).toMatchObject({ ok: false });
+    expect(remoteControl.pair).toHaveBeenCalledTimes(2);
+
+    const reissued = await server.dispatch(win.connection, {
+      kind: "invoke",
+      id: "r",
+      ns: "remoteControl",
+      method: "reissue",
+      args: ["d2"],
+    });
+
+    expect(reissued).toMatchObject({ ok: true, result: { expiresAt: 2 } });
+    expect(remoteControl.reissue).toHaveBeenCalledWith("d2");
 
     const connected = await server.dispatch(win.connection, {
       kind: "invoke",

@@ -28,6 +28,7 @@ export const LOCAL_ONLY_METHODS = [
   "keybindings.runInMainWindow",
   "remoteControl.setEnabled",
   "remoteControl.pair",
+  "remoteControl.reissue",
   "remoteControl.revoke",
   "remoteControl.startRelay",
   "remoteControl.stopRelay",

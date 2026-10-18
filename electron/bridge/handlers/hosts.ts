@@ -492,6 +492,11 @@ async function waitForServerBackend(
   }
 }
 
+/**
+ * Pair a device on a host's server (no UI; the e2e drives it). The host's
+ * default, so the link carries a single-use ticket (ADR-240 D7): the desktop
+ * never sees the device's token.
+ */
 export async function hostsPairDevice(
   ctx: HandlerCtx<ServerDeps>,
   hostId: string,

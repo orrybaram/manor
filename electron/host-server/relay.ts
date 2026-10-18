@@ -187,8 +187,11 @@ export interface HostServerStatus {
 
 /** The `remoteControl.*` surface the host table exposes. */
 export interface HostRemoteControl {
-  /** Resolves once the device is on disk. */
-  pair(label: string): Promise<PairResult>;
+  /**
+   * Resolves once the device is on disk. A ticket link by default; `direct`
+   * for the desktop minting a pairing for its own device (ADR-240 D7).
+   */
+  pair(label: string, options?: { direct?: boolean }): Promise<PairResult>;
   listDevices(): RemoteDeviceInfo[];
   /** Resolves once the revoke is on disk; rejects when it could not be saved. */
   revoke(id: string): Promise<RemoteDeviceInfo[]>;
@@ -325,7 +328,7 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
   };
 
   const remoteControl: HostRemoteControl = {
-    pair: (label) => room.pair(label),
+    pair: (label, options) => room.pair(label, options),
     listDevices: () => devices.list(),
     async revoke(id) {
       await room.revoke(id);

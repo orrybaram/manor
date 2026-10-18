@@ -1,6 +1,6 @@
 /**
  * `RelayRoom` — the room operations the desktop controller and the host
- * server's relay share: the pairing link, revoke-then-close, the reset order
+ * server's relay share: the pairing link and its reissue, revoke-then-close, the reset order
  * that lets a relay browser hear 4401, stale-room revokes, durability, and
  * that the operations never interleave.
  */
@@ -16,6 +16,10 @@ import { base64urlEncode } from "../../../src/lib/relay-crypto";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));
+/** Token-shaped, as the store mints them (ADR-240 D1). */
+const TICKET = base64urlEncode(new Uint8Array(32).fill(7));
+const NEW_TICKET = base64urlEncode(new Uint8Array(32).fill(8));
+const EXPIRES_AT = 600_000;
 
 function deferred<T = void>() {
   let resolve!: (value: T) => void;
@@ -62,7 +66,11 @@ function fakes() {
     if (err) throw err;
   };
   const devices = {
-    pair: vi.fn(async (label: string, relayRoom: string) => {
+    pair: vi.fn(async (
+      label: string,
+      relayRoom: string,
+      options?: { direct?: boolean },
+    ) => {
       minted += 1;
       const device = {
         id: `dev-${minted}`,
@@ -74,7 +82,16 @@ function fakes() {
       paired.push(device);
       order.push(`pair:${device.id}`);
       await write();
-      return { device, rawToken: "raw-token-value" };
+      return options?.direct
+        ? { device, rawToken: "raw-token-value" }
+        : { device, ticket: TICKET, expiresAt: EXPIRES_AT };
+    }),
+    reissue: vi.fn(async (id: string) => {
+      const device = paired.find((d) => d.id === id);
+      if (!device) throw new Error("Only a device that has not connected yet can get a new link.");
+      order.push(`reissue:${id}`);
+      await write();
+      return { device, ticket: NEW_TICKET, expiresAt: EXPIRES_AT + 1 };
     }),
     revokeMany: vi.fn(async (ids: readonly string[]) => {
       for (const id of ids) {
@@ -139,17 +156,29 @@ describe("RelayRoom", () => {
   });
 
   describe("pair", () => {
-    it("builds a relay link the browser's parser accepts", async () => {
+    it("builds a ticket link the browser's parser accepts", async () => {
       const result = await f.room.pair("browser");
+      expect(result.pairingUrl).toBe(
+        `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&ticket=${TICKET}`,
+      );
+      expect(result.expiresAt).toBe(EXPIRES_AT);
+      expect(result).not.toHaveProperty("rawToken");
+      expect(f.devices.pair).toHaveBeenCalledWith("browser", ROOM, undefined);
+      const hash = result.pairingUrl.slice(result.pairingUrl.indexOf("#"));
+      expect(parseFragment(hash)).toEqual({
+        kind: "ticket",
+        link: { roomId: ROOM, serverKey: KEY, ticket: TICKET },
+      });
+    });
+
+    it("direct: hands back the raw token, in a token link", async () => {
+      const result = await f.room.pair("host phone", { direct: true });
+      expect(f.devices.pair).toHaveBeenCalledWith("host phone", ROOM, { direct: true });
+      expect(result.rawToken).toBe("raw-token-value");
+      expect(result.expiresAt).toBeNull();
       expect(result.pairingUrl).toBe(
         `https://relay.example.test/app/1.2.3/#relay=${ROOM}.${KEY}&t=raw-token-value`,
       );
-      expect(f.devices.pair).toHaveBeenCalledWith("browser", ROOM, { direct: true });
-      const hash = result.pairingUrl.slice(result.pairingUrl.indexOf("#"));
-      expect(parseFragment(hash)).toEqual({
-        kind: "relay",
-        relay: { roomId: ROOM, serverKey: KEY, token: "raw-token-value" },
-      });
     });
 
     it("refuses while the relay is unavailable or its address unset", async () => {
@@ -173,6 +202,46 @@ describe("RelayRoom", () => {
     it("rejects when the device could not be saved", async () => {
       f.failNextWrite(new Error("disk full"));
       await expect(f.room.pair("p")).rejects.toThrow(/disk full/);
+    });
+  });
+
+  describe("reissue", () => {
+    it("links the device's new ticket, revoking nothing", async () => {
+      await f.room.pair("a");
+      f.identityState.roomId = "another-room";
+      const result = await f.room.reissue("dev-1");
+      expect(f.devices.reissue).toHaveBeenCalledWith("dev-1");
+      expect(result.pairingUrl).toBe(
+        `https://relay.example.test/app/1.2.3/#relay=another-room.${KEY}&ticket=${NEW_TICKET}`,
+      );
+      expect(result.expiresAt).toBe(EXPIRES_AT + 1);
+      expect(f.devices.revokeMany).not.toHaveBeenCalled();
+      expect(f.onStaleRevoked).not.toHaveBeenCalled();
+    });
+
+    it("passes the store's refusal on", async () => {
+      await expect(f.room.reissue("nope")).rejects.toThrow(/not connected yet/);
+    });
+
+    it("refuses while the relay is unavailable", async () => {
+      await f.room.pair("a");
+      f.setRelayAvailable(false);
+      await expect(f.room.reissue("dev-1")).rejects.toThrow(/not available/);
+      expect(f.devices.reissue).not.toHaveBeenCalled();
+    });
+
+    it("runs on the queue, behind a reset", async () => {
+      await f.room.pair("a");
+      const held = deferred();
+      f.holdReset(held.promise);
+      const resetting = f.room.reset();
+      const reissuing = f.room.reissue("dev-1");
+      await vi.waitFor(() => expect(f.identity.reset).toHaveBeenCalled());
+      expect(f.devices.reissue).not.toHaveBeenCalled();
+      held.resolve();
+      await resetting;
+      // The reset revoked it: the store has nothing to reissue.
+      await expect(reissuing).rejects.toThrow(/not connected yet/);
     });
   });
 
@@ -293,7 +362,7 @@ describe("RelayRoom", () => {
       held.resolve();
       await resetting;
       const { pairingUrl } = await pairing;
-      expect(f.devices.pair).toHaveBeenCalledWith("after", "room-1", { direct: true });
+      expect(f.devices.pair).toHaveBeenCalledWith("after", "room-1", undefined);
       expect(pairingUrl).toContain("#relay=room-1.");
     });
 

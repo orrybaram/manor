@@ -128,6 +128,13 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "chat.key": byPane(0),
   "chat.answer": byPane(0),
 
+  // A browser's pasted image (ADR-239 D2): the pane's own server stages the
+  // upload and writes the file onto the pane's host.
+  "pasteImage.begin": byPane(0),
+  "pasteImage.chunk": byPane(0),
+  "pasteImage.commit": byPane(0),
+  "pasteImage.abort": byPane(0),
+
   "layout.getAll": "merge",
   "layout.getLastActive": "merge",
   "layout.apply": byWorkspaceKey(0),

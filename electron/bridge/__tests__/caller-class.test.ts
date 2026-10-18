@@ -328,6 +328,16 @@ describe("the audit log, by caller class", () => {
   });
 
   /**
+   * A pasted image (ADR-239 D2) is audited once, at the write, with the pane
+   * as target. Its chunks are not: a 16 MiB image is 32 of them, so they
+   * would bury the log, and a body is never recorded anyway.
+   */
+  it("audits a pasted image's commit, not its chunks", () => {
+    expect(MUTATING.has("pasteImage.commit")).toBe(true);
+    expect(MUTATING.has("pasteImage.chunk")).toBe(false);
+  });
+
+  /**
    * No state changed, but something happened: a paired device asked for
    * real power it is denied, and `remoteControl.pair` from a stolen token is
    * the single most important line this log can hold. The HTTP transport

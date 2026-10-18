@@ -280,6 +280,29 @@ export function CopyLinkButton(props: { url: string; testId?: string }) {
   );
 }
 
+/** The dialog's description; minutes are read once, when the link is shown. */
+function PairingExpiryCopy(props: { expiresAt: number | null }) {
+  const [shownAt] = useState(() => Date.now());
+  if (props.expiresAt === null) {
+    return (
+      <>
+        This code is shown once. If you lose it, remove the device and add it
+        again.
+      </>
+    );
+  }
+  const minutes = Math.max(
+    1,
+    Math.round((props.expiresAt - shownAt) / 60_000),
+  );
+  return (
+    <>
+      This link works once and expires in {minutes} minutes. If it expires,
+      choose New link on the device&apos;s row.
+    </>
+  );
+}
+
 /**
  * The one moment the pairing link exists in the UI.
  *
@@ -301,7 +324,6 @@ export function PairingResultDialog(props: {
   const { result, relayUp, onClose } = props;
 
   const pairingUrl = result?.pairingUrl ?? null;
-
   return (
     <Dialog.Root
       open={result !== null}
@@ -319,8 +341,7 @@ export function PairingResultDialog(props: {
             Scan with {result?.device.label}
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            This code is shown once. If you lose it, remove the device and add
-            it again.
+            <PairingExpiryCopy key={pairingUrl} expiresAt={result?.expiresAt ?? null} />
           </Dialog.Description>
 
           {pairingUrl && (

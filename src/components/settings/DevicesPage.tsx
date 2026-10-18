@@ -45,6 +45,7 @@ export function DevicesPage() {
   const error = useRemoteControlStore((s) => s.error);
   const revoke = useRemoteControlStore((s) => s.revoke);
   const pair = useRemoteControlStore((s) => s.pair);
+  const reissue = useRemoteControlStore((s) => s.reissue);
   const clearError = useRemoteControlStore((s) => s.clearError);
   const hosts = useHostStore((s) => s.hosts);
   const servers = useHostStore((s) => s.servers);
@@ -67,6 +68,14 @@ export function DevicesPage() {
       }
     },
     [pair],
+  );
+
+  const handleNewLink = useCallback(
+    async (id: string) => {
+      const result = await reissue(id);
+      if (result) setPairing(result);
+    },
+    [reissue],
   );
 
   const openAdd = () => {
@@ -158,6 +167,7 @@ export function DevicesPage() {
                 device={device}
                 busy={locked}
                 onRevoke={() => void revoke(device.id)}
+                onNewLink={() => void handleNewLink(device.id)}
               />
             ))}
           </div>

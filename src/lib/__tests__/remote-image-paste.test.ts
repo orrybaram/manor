@@ -16,6 +16,11 @@ const uploadPastedImage = vi.hoisted(() =>
 );
 vi.mock("../paste-image-upload", () => ({ uploadPastedImage }));
 
+const serverHostName = vi.hoisted(() =>
+  vi.fn<(hostId: string | null | undefined) => string | null>(() => null),
+);
+vi.mock("../../bridge/server-set", () => ({ serverHostName }));
+
 const pasteClipboardImageIpc = vi.fn<
   (paneId: string, hostId?: string) => Promise<PasteClipboardImageResult>
 >();
@@ -32,6 +37,7 @@ function makeTerm(): Terminal {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  serverHostName.mockReturnValue(null);
   useRemotePaneStore.setState({ panes: {} });
   useHostStore.setState({ hosts: [] });
   useToastStore.setState({ toasts: [] });
@@ -237,6 +243,18 @@ describe("pasteImageFile", () => {
       status: "error",
       detail: "Image is too large",
     });
+  });
+
+  it("names a relayed server by its pairing, not its room id", async () => {
+    useRemotePaneStore.getState().setPaneHost(PANE_ID, "room-id");
+    serverHostName.mockImplementation((id) => (id === "room-id" ? "Mac" : null));
+    uploadPastedImage.mockRejectedValue(new Error("boom"));
+
+    await pasteImageFile(makeTerm(), PANE_ID, image(10));
+
+    expect(useToastStore.getState().toasts[0].message).toBe(
+      "Couldn't paste image to Mac",
+    );
   });
 
   it("calls an unknown host \"the host\"", async () => {

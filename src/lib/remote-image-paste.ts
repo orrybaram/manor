@@ -13,6 +13,7 @@
 import type { Terminal } from "@xterm/xterm";
 import { LOCAL_HOST_ID, hostName } from "./hosts";
 import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
+import { serverHostName } from "../bridge/server-set";
 import { useHostStore } from "../store/host-store";
 import { useToastStore } from "../store/toast-store";
 import { ipcErrorMessage } from "./ipc-error";
@@ -25,8 +26,14 @@ export function isRemotePane(paneId: string): boolean {
   return !!hostId && hostId !== LOCAL_HOST_ID;
 }
 
-/** The name a host badges as (`hostName`), or its id when main hasn't reported it. */
+/**
+ * The name of a paired server (`serverHostName`: a browser stamps a server's
+ * own panes with its relay room id), else a host badges as (`hostName`), else
+ * its id when main hasn't reported it.
+ */
 function hostLabel(hostId: string): string {
+  const server = serverHostName(hostId);
+  if (server !== null) return server;
   const host = useHostStore.getState().hosts.find((h) => h.hostId === hostId);
   return host ? hostName(host) : hostId;
 }

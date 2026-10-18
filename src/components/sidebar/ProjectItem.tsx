@@ -450,13 +450,16 @@ export function ProjectItem(props: ProjectItemProps) {
   const isSection = variant === "section";
 
   const expanded = !collapsed;
-  // A remote project's main workspace is named for its box, not "local".
-  const remoteTarget = useHostStore((state) =>
-    remoteTargetForProject(project, state),
-  );
   // On a phone, the name of the machine behind this project: the desktop's
   // for its own projects, a host's own pairing's for a host (ADR-228 D8).
   const serverName = useServerHostName(project.hostId);
+  // A remote project's main workspace is named for its box, not "local". A
+  // relayed server's own projects are local to it: the host heading names
+  // the machine, so its main workspace stays "local".
+  const storeTarget = useHostStore((state) =>
+    remoteTargetForProject(project, state),
+  );
+  const remoteTarget = serverName === null ? storeTarget : null;
   const hostRowLabel = serverName ?? (isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine");
   // A lone project on an away host keeps its last workspaces, dimmed; a
   // group's section is dimmed by its group (ADR-228 D6).

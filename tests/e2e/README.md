@@ -333,9 +333,15 @@ the hello reply both name it.
   happens with the var set *and* a request addressed to loopback, so a deploy
   cannot have it on by accident. The spec's first test is the control: raw,
   unencrypted sockets push a plaintext canary through and the log must show
-  it. The main test then asserts that its markers and the device token appear
-  in no forwarded payload — as text, hex, or base64 — nor anywhere else in
-  wrangler's output.
+  it. The main test then asserts that its markers, the link's pairing ticket
+  and the token the browser chose (`deviceToken`) appear in no forwarded
+  payload — as text, hex, or base64 — nor anywhere else in wrangler's output.
+- **Pairing links (ADR-240).** A link carries a single-use pairing ticket
+  (`&ticket=`), never a token; `pairDevice` / `pairHostPhone` throw on a link
+  with `t=`. `pairing-ticket.spec.ts` covers the ticket's life: used once,
+  refused to a second browser, expired (the app launched with
+  `MANOR_PAIRING_TICKET_TTL_MS`) and replaced through New link, removed while
+  pending. `pnpm test:e2e:relay` runs it with `relay.spec.ts`.
 - Uploading a build is one wrangler process per file, so it happens once per
   run (a worker fixture) and each test boots wrangler on a fresh copy.
 

@@ -22,6 +22,7 @@ import { appVersion, findReadable, readableForms } from "./helpers/relay";
 import { withLocalRelay } from "./helpers/relay-fixture";
 import {
   closeSettings,
+  deviceToken,
   enableRemoteControl,
   pairDevice,
   revokeDevice,
@@ -279,13 +280,15 @@ test.describe("relay (ADR-206)", () => {
       label: "relay browser",
       film,
     });
-    // The link names the relay, this version, the room and key, and the
-    // token — all of it after `#`, which no browser sends to a server.
+    // The link names the relay, this version, the room and key, and a
+    // single-use pairing ticket — all of it after `#`, which no browser sends
+    // to a server. Never the device's token (ADR-240 D1).
     const link = new URL(device.link);
     expect(link.origin).toBe(relay.url);
     expect(link.pathname).toBe(`/app/${appVersion()}/`);
-    expect(link.hash).toMatch(/^#relay=[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]+&t=/);
-    expect(link.hash).toContain(device.token);
+    expect(link.hash).toMatch(/^#relay=[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]+&ticket=/);
+    expect(link.hash).toContain(device.ticket);
+    expect(link.hash).not.toContain("&t=");
     await closeSettings(window);
 
     // Typed into the terminal from the browser, one per leg of the test;
@@ -294,7 +297,14 @@ test.describe("relay (ADR-206)", () => {
     const afterRestart = newMarker();
     const afterProcessRestart = newMarker();
     const client = await openWebApp(device.link);
+    // The browser chose its own token (ADR-240 D5): a 43-character secret
+    // that the link never held. Declared out here for the blindness check.
+    let token = "";
     try {
+      token = await deviceToken(client.page, device.link);
+      expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(device.link).not.toContain(token);
+
       // 1. Through to the desktop: the sidebar is the desktop's, the pane is
       // the one the desktop has open, and the fragment is gone from the URL.
       await expect(projectHeader(client.page)).toBeVisible({ timeout: 45_000 });
@@ -399,8 +409,8 @@ test.describe("relay (ADR-206)", () => {
     }
 
     // 7. Blindness, over everything the relay forwarded in this test: the
-    // handshakes, the hello carrying the token, every keystroke and every
-    // byte of output — before and after both restarts.
+    // handshakes, the hello carrying the ticket and token, every keystroke
+    // and every byte of output — before and after both restarts.
     const payloads = relay.payloads();
     expect(
       payloads.filter((p) => p.direction === "viewer->host").length,
@@ -408,11 +418,18 @@ test.describe("relay (ADR-206)", () => {
     expect(
       payloads.filter((p) => p.direction === "host->viewer").length,
     ).toBeGreaterThan(10);
-    const secrets = [marker, afterRestart, afterProcessRestart, device.token];
+    expect(token).not.toBe("");
+    const secrets = [marker, afterRestart, afterProcessRestart, device.ticket, token];
     const leak = findReadable(payloads, secrets);
+    const labelled = (secret: string) =>
+      secret === device.ticket
+        ? "<pairing ticket>"
+        : secret === token
+          ? "<device token>"
+          : secret;
     expect(
       leak && {
-        secret: leak.secret === device.token ? "<device token>" : leak.secret,
+        secret: labelled(leak.secret),
         form: leak.form,
         direction: leak.payload.direction,
       },

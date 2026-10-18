@@ -20,7 +20,7 @@ import {
   STEP,
   openRemoteProject,
 } from "./helpers/remote-project";
-import { closeSettings, openDevicesSettings, openHostRow, pairBrowser } from "./helpers/settings";
+import { closeSettings, openDevicesSettings, openHostRow, pairBrowser, roomOf } from "./helpers/settings";
 
 /**
  * One pairing covers every host (ADR-228 D9): a phone paired with the
@@ -68,12 +68,6 @@ relayTest.beforeAll(() => {
 });
 
 const DESK = { width: 1280, height: 800 };
-
-/** The room a pairing link dials: `#relay=<roomId>.<key>&t=<token>`. */
-function roomOf(link: string): string {
-  const relay = new URLSearchParams(new URL(link).hash.slice(1)).get("relay") ?? "";
-  return relay.slice(0, relay.indexOf("."));
-}
 
 function storedRooms(page: Page): Promise<string[]> {
   return page.evaluate(() =>

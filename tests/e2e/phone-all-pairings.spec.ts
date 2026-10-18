@@ -22,7 +22,7 @@ import {
   STEP,
   openRemoteProject,
 } from "./helpers/remote-project";
-import { closeSettings, pairBrowser, pairHostPhone } from "./helpers/settings";
+import { closeSettings, pairBrowser, pairHostPhone, roomOf } from "./helpers/settings";
 
 /**
  * A phone holds every pairing at once (ADR-228 D8): paired with the desktop
@@ -63,12 +63,6 @@ relayTest.beforeAll(() => {
 const LOCAL_PROJECT = "desk-e2e";
 const PHONE = { width: 390, height: 844 };
 const DESK = { width: 1280, height: 800 };
-
-/** The room a pairing link dials: `#relay=<roomId>.<key>&t=<token>`. */
-function roomOf(link: string): string {
-  const relay = new URLSearchParams(new URL(link).hash.slice(1)).get("relay") ?? "";
-  return relay.slice(0, relay.indexOf("."));
-}
 
 interface PhoneProject {
   id: string;
@@ -141,6 +135,26 @@ relayTest.describe("a phone with every pairing at once", () => {
         // its room (D2), the box's from its own pairing (D3).
         await expect(sidebarProject(page, LOCAL_PROJECT).first()).toBeVisible({ timeout: 30_000 });
         await expect(sidebarProject(page, PROJECT_NAME).first()).toBeVisible({ timeout: 30_000 });
+        // Each link redeemed its ticket once, on its first accepted hello, and
+        // the browser dropped it (ADR-240 D5): both pairings now hold only the
+        // token the browser chose.
+        await expect
+          .poll(
+            () =>
+              page.evaluate(() =>
+                (
+                  JSON.parse(localStorage.getItem("manor.web.pairings") ?? "[]") as {
+                    roomId: string;
+                    ticket?: string;
+                  }[]
+                ).map((p) => [p.roomId, "ticket" in p]),
+              ),
+            { timeout: 15_000 },
+          )
+          .toEqual([
+            [deskRoom, false],
+            [boxRoom, false],
+          ]);
         const projects = await pollFor(
           "both hosts' projects on the phone",
           async () => {

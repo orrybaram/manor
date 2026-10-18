@@ -19,6 +19,11 @@ export class PasteImageError extends Error {
 
 export interface UploadPastedImageOptions {
   onProgress?: (sentBytes: number, totalBytes: number) => void;
+  /**
+   * The host to upload to when `paneId` is in no layout yet (the new-agent
+   * composer's, before its agent starts).
+   */
+  hostId?: string;
 }
 
 /** The blob's bytes as base64, without `btoa` on a large string. */
@@ -54,23 +59,26 @@ export async function uploadPastedImage(
   }
 
   const api = window.electronAPI.pasteImage;
-  const { uploadId } = await api.begin(paneId, {
-    mime: blob.type,
-    size: blob.size,
-  });
+  // Only when named, so a placed pane's calls stay as they were.
+  const target = opts?.hostId ? [{ hostId: opts.hostId }] : [];
+  const { uploadId } = await api.begin(
+    paneId,
+    { mime: blob.type, size: blob.size },
+    ...target,
+  );
   try {
     let index = 0;
     let sent = 0;
     for (let off = 0; off < blob.size; off += PASTED_IMAGE_CHUNK_BYTES) {
       const piece = blob.slice(off, off + PASTED_IMAGE_CHUNK_BYTES);
-      await api.chunk(paneId, uploadId, index++, await toBase64(piece));
+      await api.chunk(paneId, uploadId, index++, await toBase64(piece), ...target);
       sent += piece.size;
       opts?.onProgress?.(sent, blob.size);
     }
-    const { path } = await api.commit(paneId, uploadId);
+    const { path } = await api.commit(paneId, uploadId, ...target);
     return path;
   } catch (err) {
-    await api.abort(paneId, uploadId).catch(() => {});
+    await api.abort(paneId, uploadId, ...target).catch(() => {});
     throw err;
   }
 }

@@ -130,10 +130,10 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
 
   // A browser's pasted image (ADR-239 D2): the pane's own server stages the
   // upload and writes the file onto the pane's host.
-  "pasteImage.begin": byPane(0),
-  "pasteImage.chunk": byPane(0),
-  "pasteImage.commit": byPane(0),
-  "pasteImage.abort": byPane(0),
+  "pasteImage.begin": byPane(0, 2),
+  "pasteImage.chunk": byPane(0, 4),
+  "pasteImage.commit": byPane(0, 2),
+  "pasteImage.abort": byPane(0, 2),
 
   "layout.getAll": "merge",
   "layout.getLastActive": "merge",

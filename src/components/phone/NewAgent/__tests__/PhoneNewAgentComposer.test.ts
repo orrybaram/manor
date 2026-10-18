@@ -20,6 +20,16 @@ vi.hoisted(() => {
 // The send path (launches, worktrees) is out of scope here.
 vi.mock("../send-new-agent", () => ({ sendNewAgent: () => {} }));
 
+const { uploadPastedImage, isWebApp } = vi.hoisted(() => ({
+  uploadPastedImage: vi.fn(),
+  isWebApp: vi.fn(() => false),
+}));
+vi.mock("../../../../lib/paste-image-upload", () => ({ uploadPastedImage }));
+vi.mock("../../../../lib/platform", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../../lib/platform")>()),
+  isWebApp,
+}));
+
 import type { ProjectGroupInfo, ProjectInfo } from "../../../../store/project-store";
 import { useProjectStore } from "../../../../store/project-store";
 import { useAppStore } from "../../../../store/app-store";
@@ -206,5 +216,47 @@ describe("PhoneNewAgentComposer — greeting", () => {
     await click(one("phone-composer-close"));
 
     expect(useAppStore.getState().activeSurface).toBe("workspace");
+  });
+});
+
+describe("PhoneNewAgentComposer — images", () => {
+  beforeEach(() => {
+    isWebApp.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    isWebApp.mockReturnValue(false);
+    uploadPastedImage.mockReset();
+  });
+
+  it("uploads a picked image to the target's host and types its path", async () => {
+    uploadPastedImage.mockResolvedValue("/home/me/.manor/pasted-images/a.png");
+    activate("/code/box-app", "box");
+    useAppStore.setState({ composerDraft: { text: "look at ", target: null } });
+    await render();
+
+    const field = one("phone-empty-composer-input") as HTMLTextAreaElement;
+    field.setSelectionRange(8, 8);
+    const input = one("chat-attach-input") as HTMLInputElement;
+    const file = new File([new Uint8Array([1])], "a.png", { type: "image/png" });
+    Object.defineProperty(input, "files", { value: [file], configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(uploadPastedImage).toHaveBeenCalledWith(expect.stringMatching(/^pane-/), file, {
+      hostId: "box",
+    });
+    expect(useAppStore.getState().composerDraft.text).toBe(
+      "look at /home/me/.manor/pasted-images/a.png ",
+    );
+  });
+
+  it("offers no attach button outside the browser", async () => {
+    isWebApp.mockReturnValue(false);
+    activate("/code/solo");
+    await render();
+
+    expect(one("chat-attach")).toBeNull();
   });
 });

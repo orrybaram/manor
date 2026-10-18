@@ -1,9 +1,7 @@
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
-import ImagePlus from "lucide-react/dist/esm/icons/image-plus";
 import Square from "lucide-react/dist/esm/icons/square";
-import { useRef, useState, type ClipboardEvent } from "react";
+import { useRef, useState } from "react";
 import { uploadPastedImage } from "../../../lib/paste-image-upload";
-import { isWebApp } from "../../../lib/platform";
 import { Button } from "../../ui/Button/Button";
 import { EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import styles from "./ChatPane.module.css";
@@ -12,10 +10,8 @@ import { CommandChoiceSheet } from "./CommandChoiceSheet";
 import { commandEffect, slashOptionId, splitCommand } from "./slash-commands";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { markChatStarting, startMenuHandoff } from "./usePaneChatView";
+import { useImageAttach, type ComposerSnapshot } from "./useImageAttach";
 import { useSlashCommands } from "./useSlashCommands";
-
-// Naming the types (not `image/*`) also has iOS hand over a HEIC photo as JPEG.
-const PICKABLE_IMAGE_TYPES = "image/png,image/jpeg,image/gif,image/webp";
 
 type ChatComposerProps = {
   paneId: string;
@@ -53,15 +49,10 @@ export function ChatComposer(props: ChatComposerProps) {
   const [text, setText] = useState("");
   const [caret, setCaret] = useState(0);
   const [sending, setSending] = useState(false);
-  // Pastes still uploading; a count, so the first to finish doesn't end the
-  // hint for another.
-  const [uploads, setUploads] = useState(0);
-  const uploading = uploads > 0;
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   // The latest text and caret, for an upload that finishes after more typing.
-  const latest = useRef({ text: "", caret: 0 });
+  const latest = useRef<ComposerSnapshot>({ text: "", caret: 0 });
 
   // Called back from a row of the `/` menu or choice sheet, after this render.
   const slash = useSlashCommands(paneId, text, caret, {
@@ -69,6 +60,14 @@ export function ChatComposer(props: ChatComposerProps) {
     send: (sent) => sendText(sent),
   });
   const level = slash.level;
+
+  const { uploading, pasteImage, attachButton } = useImageAttach({
+    upload: (file) => uploadPastedImage(paneId, file),
+    inputRef,
+    latestRef: latest,
+    fill: (nextText, nextCaret) => fill(nextText, nextCaret),
+    setError,
+  });
 
   const canSend = text.trim().length > 0 && !sending && !uploading;
 
@@ -120,57 +119,6 @@ export function ChatComposer(props: ChatComposerProps) {
     sendText(text.trimEnd());
   };
 
-  // Uploads an image to the pane's host and types its path at `at`, the
-  // caret when the image was pasted or picked (ADR-239 D4).
-  const attachImage = (file: File, before: string, at: number): Promise<void> => {
-    setUploads((n) => n + 1);
-    setError(null);
-    return uploadPastedImage(paneId, file)
-      .then(
-        (path) => {
-          // The text may have changed during the upload. Insert where the
-          // paste was if everything before it is as it was, else at the end;
-          // the caret stays where the user left it.
-          const now = latest.current;
-          const insert = path + " ";
-          const anchor =
-            now.text.slice(0, at) === before.slice(0, at) ? at : now.text.length;
-          const caretAfter =
-            now.caret >= anchor ? now.caret + insert.length : now.caret;
-          fill(now.text.slice(0, anchor) + insert + now.text.slice(anchor), caretAfter);
-        },
-        (err: unknown) => setError(err instanceof Error ? err.message : "Couldn't paste image"),
-      )
-      .finally(() => setUploads((n) => n - 1));
-  };
-
-  // In the browser a pasted image is uploaded rather than pasted. Pasted
-  // text is left to the textarea.
-  const pasteImage = (e: ClipboardEvent<HTMLTextAreaElement>) => {
-    if (!isWebApp()) return;
-    const data = e.clipboardData;
-    if (Array.from(data.types).includes("text/plain")) return;
-    const file = Array.from(data.items)
-      .find((item) => item.kind === "file" && item.type.startsWith("image/"))
-      ?.getAsFile();
-    if (!file) return;
-    e.preventDefault();
-    void attachImage(file, text, e.currentTarget.selectionStart ?? text.length);
-  };
-
-  // Images picked with the attach button, for phones that can't copy an
-  // image (Android). One at a time, so their paths land in the order picked.
-  const pickImages = async (files: File[]) => {
-    // The textarea keeps its selection after losing focus to the button, and
-    // a plain caret move doesn't fire `select`, so `latest` may be behind.
-    const el = inputRef.current;
-    if (el) latest.current = { text: el.value, caret: el.selectionStart };
-    for (const file of files) {
-      const now = latest.current;
-      await attachImage(file, now.text, now.caret);
-    }
-  };
-
   const stop = () => {
     void window.electronAPI.chat.interrupt(paneId).catch(() => {
       setError("Couldn't stop Claude. Try the terminal.");
@@ -192,32 +140,7 @@ export function ChatComposer(props: ChatComposerProps) {
       )}
       {error && <div className={styles.composerError}>{error}</div>}
       <div className={styles.composerField}>
-        {isWebApp() && (
-          <>
-            <Button
-              variant="ghost"
-              className={styles.composerAttach}
-              aria-label="Attach image"
-              onClick={() => fileInputRef.current?.click()}
-              data-testid="chat-attach"
-            >
-              <ImagePlus size={18} />
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={PICKABLE_IMAGE_TYPES}
-              multiple
-              hidden
-              data-testid="chat-attach-input"
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                e.target.value = "";
-                void pickImages(files);
-              }}
-            />
-          </>
-        )}
+        {attachButton}
         <EmojiTextarea
           ref={inputRef}
           className={styles.composerInput}

@@ -94,6 +94,15 @@ describe("uploadPastedImage", () => {
     expect(joined).toEqual(new Uint8Array(await blob.arrayBuffer()));
   });
 
+  it("names the host on every call when given one", async () => {
+    await uploadPastedImage(PANE_ID, makeBlob(10), { hostId: "cloud" });
+
+    const target = { hostId: "cloud" };
+    expect(begin).toHaveBeenCalledWith(PANE_ID, { mime: "image/png", size: 10 }, target);
+    expect(chunk.mock.calls[0][4]).toEqual(target);
+    expect(commit).toHaveBeenCalledWith(PANE_ID, "up-1", target);
+  });
+
   it("returns the path commit gives back", async () => {
     await expect(uploadPastedImage(PANE_ID, makeBlob(10))).resolves.toBe(PATH);
   });

@@ -68,6 +68,27 @@ describe("pasteImage: the happy path", () => {
     expect(path).toMatch(/\.png$/);
   });
 
+  it("writes to the named host for a pane no layout holds yet", async () => {
+    const { ctx, get } = setup(() => undefined);
+    const target = { hostId: "cloud" };
+    const { uploadId } = pasteImageBegin(ctx, "p1", { mime: "image/png", size: 2 }, target);
+    pasteImageChunk(ctx, "p1", uploadId, 0, b64(Buffer.from("hi")), target);
+
+    await pasteImageCommit(ctx, "p1", uploadId, target);
+
+    expect(get).toHaveBeenCalledWith("cloud");
+  });
+
+  it("prefers the pane's own host over a named one", async () => {
+    const { ctx, get } = setup();
+    const { uploadId } = pasteImageBegin(ctx, "p1", { mime: "image/png", size: 2 }, { hostId: "cloud" });
+    pasteImageChunk(ctx, "p1", uploadId, 0, b64(Buffer.from("hi")));
+
+    await pasteImageCommit(ctx, "p1", uploadId);
+
+    expect(get).toHaveBeenCalledWith("box");
+  });
+
   it("hands out 128-bit ids", () => {
     const { ctx } = setup();
     const { uploadId } = pasteImageBegin(ctx, "p1", { mime: "image/png", size: 1 });

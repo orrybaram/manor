@@ -60,6 +60,21 @@ export interface PasteImageCommit {
   path: string;
 }
 
+/**
+ * The host of an upload for a pane no layout holds yet: the phone's
+ * new-agent composer uploads before its agent's pane exists. Every method
+ * takes it, so the whole upload routes to the same server.
+ */
+export interface PasteImageTarget {
+  hostId?: string;
+}
+
+/** `target.hostId`, if the caller named one. */
+function namedHost(target: PasteImageTarget | undefined): string | null {
+  const hostId = target && typeof target === "object" ? target.hostId : undefined;
+  return typeof hostId === "string" && hostId ? hostId : null;
+}
+
 interface Upload {
   id: string;
   callerId: string;
@@ -113,6 +128,7 @@ export function pasteImageBegin(
   ctx: HandlerCtx<PasteImageDeps>,
   paneId: string,
   image: { mime: string; size: number },
+  target?: PasteImageTarget,
 ): PasteImageBegin {
   assertString(paneId, "paneId");
   if (!image || typeof image !== "object") {
@@ -143,7 +159,7 @@ export function pasteImageBegin(
     id: crypto.randomBytes(16).toString("hex"),
     callerId: ctx.caller.id,
     paneId,
-    hostId: ctx.deps.getPaneHostId(paneId) ?? LOCAL_HOST_ID,
+    hostId: ctx.deps.getPaneHostId(paneId) ?? namedHost(target) ?? LOCAL_HOST_ID,
     ext,
     size: image.size,
     parts: [],
@@ -164,6 +180,7 @@ export function pasteImageChunk(
   uploadId: string,
   index: number,
   base64: string,
+  _target?: PasteImageTarget,
 ): void {
   assertString(paneId, "paneId");
   assertString(uploadId, "uploadId");
@@ -196,6 +213,7 @@ export async function pasteImageCommit(
   ctx: HandlerCtx<PasteImageDeps>,
   paneId: string,
   uploadId: string,
+  _target?: PasteImageTarget,
 ): Promise<PasteImageCommit> {
   assertString(paneId, "paneId");
   assertString(uploadId, "uploadId");
@@ -222,6 +240,7 @@ export function pasteImageAbort(
   ctx: HandlerCtx<PasteImageDeps>,
   paneId: string,
   uploadId: string,
+  _target?: PasteImageTarget,
 ): void {
   const upload = typeof uploadId === "string" ? uploads.get(uploadId) : undefined;
   if (upload && upload.callerId === ctx.caller.id && upload.paneId === paneId) {
@@ -245,11 +264,12 @@ export function _stagedUploadCountForTests(): number {
  * Routed by pane: the pane's own server stages the upload and writes the
  * file, on the desktop a pane on an adopted host forwarded to that host's
  * server. Only `commit` is audited, with the pane as target: chunks would add
- * 32 lines per paste, and bodies are never recorded anyway.
+ * 32 lines per paste, and bodies are never recorded anyway. A pane no layout
+ * holds yet routes by the trailing `PasteImageTarget`.
  */
 export const pasteImage = {
-  begin: method(pasteImageBegin, { route: byPane(0) }),
-  chunk: method(pasteImageChunk, { route: byPane(0) }),
-  commit: method(pasteImageCommit, { mutating: true, route: byPane(0) }),
-  abort: method(pasteImageAbort, { route: byPane(0) }),
+  begin: method(pasteImageBegin, { route: byPane(0, 2) }),
+  chunk: method(pasteImageChunk, { route: byPane(0, 4) }),
+  commit: method(pasteImageCommit, { mutating: true, route: byPane(0, 2) }),
+  abort: method(pasteImageAbort, { route: byPane(0, 2) }),
 };

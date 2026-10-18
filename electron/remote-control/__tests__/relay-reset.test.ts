@@ -82,6 +82,7 @@ describe("resetting the relay address", () => {
       encryptionAvailable: () => true,
       verify: (raw: unknown) =>
         typeof raw === "string" ? (devices.get(raw) ?? null) : null,
+      redeem: () => null,
       ids: () => [...devices.values()].map((d) => d.id),
       idsInOtherRelayRooms: () => [],
       revokeMany: async (ids: readonly string[]) => {

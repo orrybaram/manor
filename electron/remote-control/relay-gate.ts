@@ -4,13 +4,16 @@
  * Remote control opens no listening socket: the only way in is a Noise
  * channel through the relay, handed to the bridge like any other
  * `FrameSocket`. What that channel's `hello` has to get past lives here —
- * the device verify and the failed-auth backoff — along with the one thing a
+ * the device verify, the ticket redeem and the failed-auth backoff — along with the one thing a
  * revoke needs afterwards, closing a device's live channels.
  *
- * **Verify first, backoff second.** Every relay viewer shares one `relay`
+ * **Verify, then redeem, then backoff.** Every relay viewer shares one `relay`
  * source (`rate-limit.ts`), so a backoff someone else earned must never be
  * able to close a channel holding a valid token. A token is checked before
- * the backoff is consulted, and only a hello that failed is penalised.
+ * the backoff is consulted, and only a hello that failed is penalised. A hello
+ * whose token is not known yet but that carries a pairing ticket (ADR-240)
+ * is offered to `redeem`, which turns a pending device into an active one
+ * under the token the browser chose; a failed ticket is a failed hello.
  *
  * There is one answer to a hello that fails: 4401. Every paired device
  * reaches the whole bridge (ADR-207 D4), so nothing is ever closed 4403.
@@ -29,6 +32,8 @@ export interface AuthenticatedDevice {
 
 interface DeviceVerifier {
   verify(rawToken: unknown): AuthenticatedDevice | null;
+  /** Spend a pairing ticket for the token the device chose (ADR-240). */
+  redeem(ticket: unknown, token: unknown): AuthenticatedDevice | null;
 }
 
 /** Every relay viewer's backoff bucket: the relay hides who a viewer is. */
@@ -77,7 +82,9 @@ export class RelayGate {
 
   /** Hand a finished relay channel to the bridge, behind this gate's hello check. */
   attach(socket: FrameSocket): void {
-    this.bridge.attach(socket, (token) => this.authenticate(token));
+    this.bridge.attach(socket, (token, hello) =>
+      this.authenticate(token, hello),
+    );
   }
 
   /**
@@ -88,9 +95,21 @@ export class RelayGate {
     this.bridge.closeDevice(deviceId);
   }
 
-  /** Verify a `hello`: token, then backoff. */
-  authenticate(token: unknown): BridgeAuthResult {
-    const device = token === undefined ? null : this.devices.verify(token);
+  /** Verify a `hello`: token, then ticket, then backoff. */
+  authenticate(
+    token: unknown,
+    hello?: Readonly<Record<string, unknown>>,
+  ): BridgeAuthResult {
+    let device = token === undefined ? null : this.devices.verify(token);
+    if (!device && typeof hello?.ticket === "string") {
+      device = this.devices.redeem(hello.ticket, token);
+      // Never the ticket or the token, only who it was minted for.
+      if (device) {
+        console.log(
+          `[remote-control] pairing link redeemed by "${device.label}"`,
+        );
+      }
+    }
     if (!device) {
       if (this.limiter.retryAfterMs(RELAY_SOURCE) > 0) {
         return { ok: false, code: CLOSE_UNAUTHORIZED };
@@ -105,7 +124,7 @@ export class RelayGate {
       return { ok: false, code: CLOSE_UNAUTHORIZED };
     }
     this.limiter.recordSuccess(RELAY_SOURCE);
-    // `verify` just moved the device's `lastSeenAt`.
+    // `verify` (or `redeem`) just moved the device's `lastSeenAt`.
     for (const listener of this.seenListeners) listener();
     return {
       ok: true,

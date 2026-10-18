@@ -76,7 +76,10 @@ export type ChatEntry =
       hasTranscript?: boolean;
     }
   | {
-      /** A background task finishing, e.g. `Agent "Map mobile state sync" finished`. */
+      /**
+       * A background task finishing, e.g. `Agent "Map mobile state sync" finished`,
+       * or the conversation being compacted.
+       */
       kind: "notice";
       id: string;
       ts: string;
@@ -378,6 +381,11 @@ export class TranscriptParser {
       this.skillListing(att);
       return [];
     }
+    // Compaction: show the boundary, not the summary that follows it.
+    if (type === "system" && parsed.subtype === "compact_boundary") {
+      const e = this.add({ kind: "notice", id: uuid, ts, text: "Conversation compacted", status: "ok" });
+      return e ? [e] : [];
+    }
     if (type !== "user" && type !== "assistant") return [];
     const message = parsed.message;
     if (!isObject(message)) return [];
@@ -386,7 +394,7 @@ export class TranscriptParser {
     const out: ChatEntry[] = [];
 
     if (type === "user") {
-      if (parsed.isMeta === true) return [];
+      if (parsed.isMeta === true || parsed.isCompactSummary === true) return [];
       if (typeof content === "string") {
         const e = this.userText(uuid, ts, content);
         if (e) out.push(e);

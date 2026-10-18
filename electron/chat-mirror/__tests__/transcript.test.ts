@@ -143,6 +143,16 @@ describe("TranscriptParser", () => {
     expect(p.entries().some((e) => e.kind === "user")).toBe(false);
   });
 
+  it("shows compaction as a notice and skips the summary", () => {
+    const p = new TranscriptParser();
+    expect(
+      p.push(line({ type: "system", subtype: "compact_boundary", uuid: "c1", content: "Conversation compacted" })),
+    ).toEqual([{ kind: "notice", id: "c1", ts: T, text: "Conversation compacted", status: "ok" }]);
+    const summary = "This session is being continued from a previous conversation...";
+    expect(p.push(userBlocks("c2", summary, { isCompactSummary: true, isVisibleInTranscriptOnly: true }))).toEqual([]);
+    expect(p.entries().some((e) => e.kind === "user")).toBe(false);
+  });
+
   it("skips malformed JSON, unknown line types and unknown blocks without throwing", () => {
     const p = new TranscriptParser();
     expect(p.push("{not json")).toEqual([]);

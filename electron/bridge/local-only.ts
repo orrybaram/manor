@@ -12,9 +12,10 @@
  * same as `./types.ts`.
  *
  * Two reasons put a method here. Most name a resource only the machine has —
- * a prewarmed session, the desk's viewport file, a window. The last seven are a
- * key, or the lock it turns, and they are the only entries whose absence would
- * be a security bug rather than a wrong answer.
+ * a prewarmed session, the desk's viewport file, a window. Others — the
+ * `remoteControl.*` entries and the `hosts.*` ones that pair, revoke or re-key
+ * a host's devices — are a key, or the lock it turns, and they are the entries
+ * whose absence would be a security bug rather than a wrong answer.
  */
 export const LOCAL_ONLY_METHODS = [
   "pty.consumePrewarmed",
@@ -28,6 +29,7 @@ export const LOCAL_ONLY_METHODS = [
   "keybindings.runInMainWindow",
   "remoteControl.setEnabled",
   "remoteControl.pair",
+  "remoteControl.reissue",
   "remoteControl.revoke",
   "remoteControl.startRelay",
   "remoteControl.stopRelay",

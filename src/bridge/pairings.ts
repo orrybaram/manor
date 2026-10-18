@@ -17,7 +17,7 @@
  * `connection.ts`'s.
  */
 
-import { ROOM_ID_LENGTH, base64urlDecode } from "../lib/relay-crypto";
+import { ROOM_ID_LENGTH, base64urlDecode, base64urlEncode } from "../lib/relay-crypto";
 
 /** The pairing list: `StoredPairing[]` as JSON. */
 export const PAIRINGS_KEY = "manor.web.pairings";
@@ -45,6 +45,20 @@ export interface RelayCredentials {
   token: string;
 }
 
+/**
+ * What a single-use pairing link carries (ADR-240 D1): the host's room and
+ * key, and a pairing ticket in place of a token. The browser chooses its own
+ * token (`freshDeviceToken`) and sends both in its first hello; the host
+ * redeems the ticket by storing that token's hash.
+ */
+export interface TicketLink {
+  roomId: string;
+  /** The host's X25519 static public key, base64url. */
+  serverKey: string;
+  /** 32 random bytes, base64url: valid once, for 10 minutes. */
+  ticket: string;
+}
+
 /** One host in the list: its credentials and what the Hosts sheet shows. */
 export interface StoredPairing extends RelayCredentials {
   /** The host's own `hostName`, else "Host N" — or the user's own name. */
@@ -61,6 +75,19 @@ export interface StoredPairing extends RelayCredentials {
    * its `hosts.list` has answered.
    */
   hosts?: Record<string, string | null>;
+  /**
+   * The pairing ticket `token` is to be redeemed with (ADR-240 D5): sent in
+   * every hello until the first accepted one, then dropped
+   * (`clearPairingTicket`). Absent on a pairing whose token the host knows.
+   */
+  ticket?: string;
+  /**
+   * The ticket `token` was redeemed with, kept after the redeem. Spent, so no
+   * longer a credential: it only lets the same link opened again keep the
+   * token it already paired rather than replace it with one the host will
+   * refuse (`upsertTicketPairing`).
+   */
+  spentTicket?: string;
 }
 
 const ROOM_ID_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${ROOM_ID_LENGTH}}$`);
@@ -102,7 +129,10 @@ function isStoredPairing(value: unknown): value is StoredPairing {
     typeof v.lastUsedAt === "number" &&
     (v.customName === undefined || typeof v.customName === "boolean") &&
     (v.hostServer === undefined || typeof v.hostServer === "boolean") &&
-    (v.hosts === undefined || isHostRooms(v.hosts))
+    (v.hosts === undefined || isHostRooms(v.hosts)) &&
+    (v.ticket === undefined || (typeof v.ticket === "string" && v.ticket.length > 0)) &&
+    (v.spentTicket === undefined ||
+      (typeof v.spentTicket === "string" && v.spentTicket.length > 0))
   );
 }
 
@@ -245,11 +275,80 @@ export function upsertPairing(
   undeclineRoom(roomId);
   const list = listPairings();
   const existing = list.find((p) => p.roomId === roomId);
+  // A token the host minted needs no ticket: one left from an earlier
+  // single-use link for the room goes.
   const next: StoredPairing = existing
-    ? { ...existing, serverKey, token, lastUsedAt: now }
+    ? { ...withoutTicket(existing), serverKey, token, lastUsedAt: now }
     : { roomId, serverKey, token, name: fallbackName(list), addedAt: now, lastUsedAt: now };
   write(existing ? list.map((p) => (p === existing ? next : p)) : [...list, next]);
   return next;
+}
+
+/**
+ * A device token this browser chose for itself (ADR-240 D1): 32 random bytes,
+ * base64url, unpadded — 43 characters, the same shape as one
+ * `electron/remote-control/devices.ts` mints.
+ */
+export function freshDeviceToken(): string {
+  return base64urlEncode(crypto.getRandomValues(new Uint8Array(32)));
+}
+
+/**
+ * Add or update `link.roomId`'s pairing from a single-use link (ADR-240 D5),
+ * and mark it last used. A link never replaces the other pairings.
+ *
+ * - **A ticket already stored for the room** (the same link loaded again, or
+ *   in a second tab): its token is kept — the room is undeclined and marked
+ *   last used, nothing else. So two tabs of one browser share one token: one
+ *   hello redeems the ticket, the other's token then verifies. The same goes
+ *   for the ticket the token was already redeemed with (`spentTicket`): a
+ *   fresh token for a spent ticket would be refused, and would replace the
+ *   one that works.
+ * - **Any other ticket**: a fresh token (`mintToken`) goes with it, and the
+ *   key is the link's. Name and the rest are kept, as `upsertPairing` keeps
+ *   them; a new room is named "Host N".
+ */
+export function upsertTicketPairing(
+  link: TicketLink,
+  now: number = Date.now(),
+  mintToken: () => string = freshDeviceToken,
+): StoredPairing {
+  const { roomId, serverKey, ticket } = link;
+  undeclineRoom(roomId);
+  const list = listPairings();
+  const existing = list.find((p) => p.roomId === roomId);
+  let next: StoredPairing;
+  if (existing && (existing.ticket === ticket || existing.spentTicket === ticket)) {
+    next = { ...existing, lastUsedAt: now };
+  } else {
+    const token = mintToken();
+    next = existing
+      ? { ...existing, serverKey, token, ticket, lastUsedAt: now }
+      : { roomId, serverKey, token, ticket, name: fallbackName(list), addedAt: now, lastUsedAt: now };
+  }
+  write(existing ? list.map((p) => (p === existing ? next : p)) : [...list, next]);
+  return next;
+}
+
+/**
+ * `roomId`'s host accepted a hello carrying `ticket` (ADR-240 D1): the ticket
+ * is spent, so send it no more; it is kept as `spentTicket`, which is no
+ * longer a credential. Only while it is still the stored one — another tab
+ * may have taken a newer link for the room meanwhile, whose ticket has yet to
+ * be redeemed. No ticket, nothing to do.
+ */
+export function clearPairingTicket(roomId: string, ticket: string | undefined): void {
+  if (ticket === undefined) return;
+  updatePairing(roomId, (p) =>
+    p.ticket === ticket ? { ...withoutTicket(p), spentTicket: ticket } : p,
+  );
+}
+
+/** `pairing` with no `ticket` field at all. */
+function withoutTicket(pairing: StoredPairing): StoredPairing {
+  const rest = { ...pairing };
+  delete rest.ticket;
+  return rest;
 }
 
 /**
@@ -272,7 +371,7 @@ export function linkPairing(
   const existing = list.find((p) => p.roomId === roomId);
   const next: StoredPairing = existing
     ? {
-        ...existing,
+        ...(existing.token === token ? existing : withoutTicket(existing)),
         serverKey,
         token,
         name: name && !existing.customName ? name : existing.name,

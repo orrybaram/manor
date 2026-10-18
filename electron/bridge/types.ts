@@ -152,6 +152,9 @@ export const CLOSE_FORBIDDEN = 4403;
  * served by the relay origin compares it with its own build and navigates to
  * the matching `/app/<appVersion>/` when they differ. Optional because an
  * older host does not send it.
+ *
+ * It carries no credential on purpose (ADR-240): the device chose its own
+ * token, so the server has no secret to send back.
  */
 export interface HelloReplyFrame {
   type: "hello";

@@ -63,9 +63,12 @@ export function relayAppUrl(origin: string, appVersion: string): string {
 }
 
 /**
- * A pairing link (ADR-206 D3): the web app, with the room, the Noise static
- * public key and the device's raw token in the fragment, which never reaches
- * the relay. Built by the desktop's controller and by a host server
+ * A pairing link (ADR-206 D3, ADR-240 D1): the web app, with the room, the
+ * Noise static public key and a credential in the fragment, which never
+ * reaches the relay. The credential is a single-use pairing ticket
+ * (`&ticket=`), or, for a pairing minted with `direct` (a host pairing the
+ * desktop hands over an authenticated channel), the device's raw token
+ * (`&t=`). Built by the desktop's controller and by a host server
  * (ADR-225 D3) alike, so a phone pairs with either the same way.
  */
 export function relayPairingUrl(link: {
@@ -73,25 +76,40 @@ export function relayPairingUrl(link: {
   appVersion: string;
   roomId: string;
   x25519Pub: string;
-  rawToken: string;
+  credential: { ticket: string } | { rawToken: string };
 }): string {
-  return `${relayAppUrl(link.origin, link.appVersion)}#relay=${link.roomId}.${link.x25519Pub}&t=${link.rawToken}`;
+  const credential =
+    "ticket" in link.credential
+      ? `ticket=${link.credential.ticket}`
+      : `t=${link.credential.rawToken}`;
+  return `${relayAppUrl(link.origin, link.appVersion)}#relay=${link.roomId}.${link.x25519Pub}&${credential}`;
 }
 
 /**
- * The room, key and token back out of a `relayPairingUrl` link, or null for
- * anything else. What the desktop hands a device for a host it pairs it with
- * (ADR-228 D9): the parts, in the device's own channel, not a link to open.
+ * The room, key and credential back out of a `relayPairingUrl` link, or null
+ * for anything else, including a link carrying neither a token nor a ticket.
+ * What the desktop hands a device for a host it pairs it with (ADR-228 D9):
+ * the parts, in the device's own channel, not a link to open.
  */
-export function parseRelayPairingUrl(
-  url: string,
-): { roomId: string; x25519Pub: string; rawToken: string } | null {
+export function parseRelayPairingUrl(url: string): {
+  roomId: string;
+  x25519Pub: string;
+  rawToken?: string;
+  ticket?: string;
+} | null {
   const hash = url.indexOf("#");
   if (hash < 0) return null;
   const params = new URLSearchParams(url.slice(hash + 1));
   const relay = params.get("relay") ?? "";
   const dot = relay.indexOf(".");
   const rawToken = params.get("t") ?? "";
-  if (dot <= 0 || dot === relay.length - 1 || rawToken === "") return null;
-  return { roomId: relay.slice(0, dot), x25519Pub: relay.slice(dot + 1), rawToken };
+  const ticket = params.get("ticket") ?? "";
+  if (dot <= 0 || dot === relay.length - 1) return null;
+  if (rawToken === "" && ticket === "") return null;
+  return {
+    roomId: relay.slice(0, dot),
+    x25519Pub: relay.slice(dot + 1),
+    ...(rawToken === "" ? {} : { rawToken }),
+    ...(ticket === "" ? {} : { ticket }),
+  };
 }

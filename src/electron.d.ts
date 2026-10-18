@@ -641,6 +641,11 @@ export interface RemoteDeviceInfo {
   lastSeenAt: number | null;
   /** Whether the device has a live Web Push subscription. */
   hasPush: boolean;
+  /**
+   * Present while the device has not opened its link yet (ADR-240 D2): when
+   * the link's single-use ticket stops working. Past it, the link expired.
+   */
+  pending?: { expiresAt: number };
 }
 
 export interface RemoteControlStatus {
@@ -660,10 +665,15 @@ export interface RemoteControlStatus {
 
 export interface RemotePairResult {
   device: RemoteDeviceInfo;
-  /** Shown once. Never retrievable again. */
-  rawToken: string;
-  /** The relay link the device opens (ADR-206). */
+  /**
+   * The relay link the device opens (ADR-206): a single-use pairing ticket
+   * (ADR-240 D1), or the raw token for a `direct` pairing. Shown once.
+   */
   pairingUrl: string;
+  /** When the link's ticket stops working; null for a `direct` pairing. */
+  expiresAt: number | null;
+  /** The device's token, only for a `direct` pairing. Never retrievable again. */
+  rawToken?: string;
 }
 
 // ── The host surface (ADR-180 D3) ──

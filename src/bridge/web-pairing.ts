@@ -4,19 +4,27 @@
  * (ADR-206 D4). Pure enough to test without importing `install-web.ts`,
  * which installs the bridge as a side effect.
  *
- * One link form, in the fragment — which no browser sends to any server, the
- * relay and Cloudflare's logs included:
- * `https://<relay-origin>/app/<version>/#relay=<roomId>.<x25519Pub>&t=<token>`,
- * with `roomId` and the key base64url, and the token as the device store
- * minted it. The relay origin is the only server the web app has (ADR-207
- * D2); a page with no relay credentials is simply not paired.
+ * Two link forms, in the fragment — which no browser sends to any server, the
+ * relay and Cloudflare's logs included — with `roomId` and the key base64url:
+ *
+ * - `https://<relay-origin>/app/<version>/#relay=<roomId>.<x25519Pub>&ticket=<ticket>`
+ *   — a single-use pairing link (ADR-240 D1). The ticket is good for one
+ *   hello within 10 minutes; this browser chooses its own token
+ *   (`freshDeviceToken`) and sends both, and the host stores that token's
+ *   hash. The long-lived token never appears in a URL.
+ * - `…#relay=<roomId>.<x25519Pub>&t=<token>` — the token as the device store
+ *   minted it (ADR-206 D3): a link from an older desktop, still read.
+ *
+ * A fragment with both `t` and `ticket` is `invalid`. The relay origin is the
+ * only server the web app has (ADR-207 D2); a page with no relay credentials
+ * is simply not paired.
  *
  * **Which fragments count as a link at all.** A fragment is also what an
  * ordinary in-page anchor (`#details`, a markdown footnote opened in a new
  * tab) leaves behind, so only two shapes are read:
  *
- * - `relay=…` — the link; one that does not parse is `invalid` (stripped,
- *   nothing stored).
+ * - `relay=…` — a link of either form; one that does not parse is `invalid`
+ *   (stripped, nothing stored).
  * - exactly a device token as `devices.ts` mints it: 32 random bytes in
  *   base64url, 43 characters of `[A-Za-z0-9_-]` (`TOKEN_PATTERN`) — the old
  *   loopback listener's `/app#<token>` link. Nothing can use it any more, but
@@ -32,7 +40,9 @@ import {
   migrateLegacyPairing,
   removePairing,
   upsertPairing,
+  upsertTicketPairing,
   type RelayCredentials,
+  type TicketLink,
 } from "./pairings";
 
 /** `sessionStorage`: the versions this tab already redirected to (JSON array). */
@@ -45,6 +55,8 @@ export type Pairing = RelayCredentials | null;
 export type FragmentPairing =
   | { kind: "none" }
   | { kind: "relay"; relay: RelayCredentials }
+  /** A single-use link (ADR-240 D1): the token is this browser's to choose. */
+  | { kind: "ticket"; link: TicketLink }
   /**
    * Looked like a credential but is not a usable link: a relay link that did
    * not parse, or a bare token. Stripped; nothing is stored.
@@ -80,11 +92,19 @@ export function parseFragment(hash: string): FragmentPairing {
   }
   const relay = params.get("relay") ?? "";
   const dot = relay.indexOf(".");
-  const candidate = {
-    roomId: dot < 0 ? "" : relay.slice(0, dot),
-    serverKey: dot < 0 ? "" : relay.slice(dot + 1),
-    token: params.get("t") ?? "",
-  };
+  const roomId = dot < 0 ? "" : relay.slice(0, dot);
+  const serverKey = dot < 0 ? "" : relay.slice(dot + 1);
+  const ticket = params.get("ticket");
+  if (ticket !== undefined) {
+    // Both a token and a ticket: no desktop mints that, so trust neither.
+    if (params.has("t")) return { kind: "invalid" };
+    // The ticket has a token's shape, so the same check vets the link.
+    const link = { roomId, serverKey, ticket };
+    return isRelayCredentials({ roomId, serverKey, token: ticket })
+      ? { kind: "ticket", link }
+      : { kind: "invalid" };
+  }
+  const candidate = { roomId, serverKey, token: params.get("t") ?? "" };
   return isRelayCredentials(candidate)
     ? { kind: "relay", relay: candidate }
     : { kind: "invalid" };
@@ -92,7 +112,8 @@ export function parseFragment(hash: string): FragmentPairing {
 
 /**
  * Take a pairing out of the fragment on this load, add it to the stored
- * pairings (or update the one for the same room, and mark it last used) and
+ * pairings (or update the one for the same room, and mark it last used) — a
+ * ticket link with a token this browser mints (`upsertTicketPairing`) — and
  * strip the fragment so it cannot linger in history or a screenshot. Returns
  * that pairing; with no link, the last-used stored one, or null with none. A
  * link never drops the other pairings (ADR-225 D7), and the page dials every
@@ -105,6 +126,7 @@ export function readPairing(): Pairing {
     history.replaceState(null, "", location.pathname + location.search);
   }
   if (fresh.kind === "relay") return upsertPairing(fresh.relay);
+  if (fresh.kind === "ticket") return upsertTicketPairing(fresh.link);
   return lastUsedPairing();
 }
 

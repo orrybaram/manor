@@ -28,6 +28,12 @@
  * channel. `./web-pairing.ts` reads the link; this module builds the pipes,
  * reports reachability (relay 4404/4429) and follows the version redirect.
  *
+ * **Single-use links** (ADR-240 D5). A pairing from a `ticket=` link holds a
+ * token this browser chose and the ticket to redeem it with: its bridge says
+ * hello with both, and the first accepted hello drops the ticket from storage
+ * (`clearPairingTicket`). The token does not change, so `syncPairings` keeps
+ * the bridge it has; only a new token or key redials.
+ *
  * **Every pairing at once** (ADR-228 D8). The page holds one relay bridge per
  * stored pairing, each a server in the page's set (`./server-set.ts`) under
  * its room id, and installs the router over them (`./router.ts`):
@@ -64,6 +70,7 @@ import type { HostStatusInfo } from "../store/host-store";
 import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import { createLastKnownStore } from "./last-known";
 import {
+  clearPairingTicket,
   declinedRooms,
   decodeX25519,
   homePairing,
@@ -353,6 +360,9 @@ function onHello(entry: Held, reply: HelloReply): void {
   clearHelloDeadline(entry);
   servers.recordHello(roomId, reply);
   servers.setReachability(roomId, "connected");
+  // Accepted: a ticket that came with the token is spent (ADR-240 D5). The
+  // token is unchanged, so `syncPairings` keeps this bridge rather than redial.
+  clearPairingTicket(roomId, entry.pairing.ticket);
   recordPairingHello(roomId, reply);
   entry.kind = reply.hostServer ? "host" : "desktop";
   if (entry.kind === "desktop") {
@@ -443,6 +453,7 @@ function open(pairing: StoredPairing, options: { home?: boolean; joined: boolean
   };
   entry.transport = createWsTransport({
     token: pairing.token,
+    ticket: pairing.ticket ?? null,
     pipe: relayPipe({ url: relayJoinUrl(roomId), serverKey }),
     onUnauthorized: () => refuse(entry, "unauthorized"),
     onKeyMismatch: () => refuse(entry, "key-mismatch"),
@@ -506,7 +517,8 @@ function syncPairings(): void {
       entry.pairing.token !== pairing.token ||
       entry.pairing.serverKey !== pairing.serverKey
     ) {
-      // A newer link for the same room: dial with it instead.
+      // A newer link for the same room: dial with it instead. A spent ticket
+      // dropped from storage (ADR-240 D5) changes neither, so lands below.
       entry.stopHosts?.();
       clearHelloDeadline(entry);
       entry.transport.close();

@@ -1,5 +1,5 @@
 /**
- * The relay's hello gate (ADR-206 D5, ADR-207 D3): verify, then backoff. Against a fake verifier and a fake bridge, so the test
+ * The relay's hello gate (ADR-206 D5, ADR-207 D3): verify, then redeem, then backoff. Against a fake verifier and a fake bridge, so the test
  * is about the decisions; `ws-bridge.test.ts` and the connector's tests run
  * the same gate in front of the real bridge transport.
  */
@@ -25,8 +25,16 @@ const RELAYED_CALLER = {
   deviceLabel: relayed.label,
 };
 
+const TICKET = "pairing-ticket";
+const CHOSEN_TOKEN = "chosen-token";
+
+const redeem = vi.fn((ticket: unknown, token: unknown) =>
+  ticket === TICKET && token === CHOSEN_TOKEN ? relayed : null,
+);
+
 const devices = {
   verify: (raw: unknown) => (raw === RELAY_TOKEN ? relayed : null),
+  redeem,
 };
 
 const UNAUTHORIZED = { ok: false, code: 4401 };
@@ -45,6 +53,8 @@ describe("RelayGate", () => {
 
   beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    redeem.mockClear();
     now = 1_000_000;
     limiter = new AuthRateLimiter(() => now);
     bridge = {
@@ -68,6 +78,56 @@ describe("RelayGate", () => {
       now += 1_000;
       expect(gate.authenticate(undefined)).toEqual(UNAUTHORIZED);
       expect(limiter.failureCount("relay")).toBe(2);
+    });
+  });
+
+  describe("a pairing ticket", () => {
+    it("admits a ticket with the token the device chose", () => {
+      expect(gate.authenticate(CHOSEN_TOKEN, { ticket: TICKET })).toEqual({
+        ok: true,
+        caller: RELAYED_CALLER,
+      });
+      expect(redeem).toHaveBeenCalledWith(TICKET, CHOSEN_TOKEN);
+    });
+
+    it("verifies the token first and does not redeem when it is valid", () => {
+      expect(gate.authenticate(RELAY_TOKEN, { ticket: TICKET })).toMatchObject({
+        ok: true,
+      });
+      expect(redeem).not.toHaveBeenCalled();
+    });
+
+    it("refuses a ticket with a bad token", () => {
+      expect(gate.authenticate("nope", { ticket: TICKET })).toEqual(
+        UNAUTHORIZED,
+      );
+    });
+
+    it("counts a failed ticket toward the backoff", () => {
+      expect(gate.authenticate("nope", { ticket: "spent" })).toEqual(
+        UNAUTHORIZED,
+      );
+      expect(limiter.failureCount("relay")).toBe(1);
+      expect(limiter.retryAfterMs("relay")).toBe(1_000);
+    });
+
+    it("never logs the ticket", () => {
+      gate.authenticate(CHOSEN_TOKEN, { ticket: TICKET });
+      const logged = vi.mocked(console.log).mock.calls.flat().join(" ");
+      expect(logged).toContain("relay browser");
+      expect(logged).not.toContain(TICKET);
+    });
+
+    it("admits a valid token while backed off", () => {
+      for (let i = 0; i < 5; i++) {
+        gate.authenticate(`guess-${i}`, { ticket: "spent" });
+        now += 60_000;
+      }
+      gate.authenticate("one-more");
+      expect(limiter.retryAfterMs("relay")).toBeGreaterThan(0);
+      expect(gate.authenticate(RELAY_TOKEN, { ticket: "spent" })).toMatchObject(
+        { ok: true },
+      );
     });
   });
 

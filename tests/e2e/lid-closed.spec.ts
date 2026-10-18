@@ -31,7 +31,7 @@ import {
   hostStatus,
   openRemoteProject,
 } from "./helpers/remote-project";
-import { closeSettings, openHostRow, pairBrowser } from "./helpers/settings";
+import { closeSettings, openHostRow, pairBrowser, roomOf } from "./helpers/settings";
 import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
 
 /**
@@ -90,12 +90,6 @@ const BACKOFF_CEILING = 30_000;
 /** How long the phone may take to call a silent desktop away. */
 const AWAY_WITHIN = 30_000;
 const TICKER = 'i=0; while :; do i=$((i+1)); echo "tick $i"; sleep 1; done';
-
-/** The room a pairing link dials: `#relay=<roomId>.<key>&t=<token>`. */
-function roomOf(link: string): string {
-  const relay = new URLSearchParams(new URL(link).hash.slice(1)).get("relay") ?? "";
-  return relay.slice(0, relay.indexOf("."));
-}
 
 function storedRooms(page: Page): Promise<string[]> {
   return page.evaluate(() =>

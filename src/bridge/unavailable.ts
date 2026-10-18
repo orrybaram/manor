@@ -39,9 +39,10 @@ import type { LocalOnlyMethod } from "../../electron/bridge/local-only";
  * | `clipboard`| except `writeText`, which is served locally below |
  * | `hostPipe` | a window's own SSH stream to a host server (ADR-228 D4); a page cannot open SSH |
  *
- * `remoteControl` is *not* here: pairing another device from the browser is a
- * perfectly sensible thing to want, and it is absent from the handler table
- * rather than from the platform.
+ * `remoteControl` is *not* here: a device's push subscription and its host
+ * pairings are the browser's to ask for, and the methods that pair, reissue,
+ * revoke or change what is exposed are local-only, refused by the host
+ * (`HostRefusedMethod` below) rather than missing from the platform.
  */
 const UNAVAILABLE = [
   "webview",
@@ -184,6 +185,7 @@ export type HostRefusedMethod = LocalOnly<
   | "keybindings.resetAll"
   | "remoteControl.setEnabled"
   | "remoteControl.pair"
+  | "remoteControl.reissue"
   | "remoteControl.revoke"
   | "remoteControl.startRelay"
   | "remoteControl.stopRelay"

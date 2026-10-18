@@ -4,6 +4,8 @@ import { base64urlEncode } from "../../lib/relay-crypto";
 import {
   DECLINED_KEY,
   LEGACY_RELAY_KEY,
+  clearPairingTicket,
+  freshDeviceToken,
   PAIRINGS_KEY,
   connectRoomDirectly,
   declinePairing,
@@ -21,6 +23,7 @@ import {
   selectPairing,
   subscribePairings,
   upsertPairing,
+  upsertTicketPairing,
 } from "../pairings";
 
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));
@@ -238,5 +241,98 @@ describe("pairings store", () => {
     removePairing(a);
     upsertPairing({ roomId: A, serverKey: KEY, token: "a" });
     expect(listPairings().find((p) => p.roomId === A)?.name).toBe("Host 1");
+  });
+
+  describe("single-use links (ADR-240 D5)", () => {
+    /** Each call a new token, so a test can tell which one was kept. */
+    function minter(): () => string {
+      let n = 0;
+      return () => `minted-${++n}`;
+    }
+
+    it("chooses a token for a new ticket, named like any new pairing", () => {
+      const p = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 10, minter());
+      expect(p).toEqual({
+        roomId: A,
+        serverKey: KEY,
+        token: "minted-1",
+        ticket: "t1",
+        name: "Host 1",
+        addedAt: 10,
+        lastUsedAt: 10,
+      });
+      expect(listPairings()).toEqual([p]);
+    });
+
+    it("keeps the token for a ticket already stored: one token for every tab", () => {
+      const mint = minter();
+      upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 10, mint);
+      map.set(DECLINED_KEY, JSON.stringify([A]));
+      const again = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 20, mint);
+      expect(again).toMatchObject({ token: "minted-1", ticket: "t1", addedAt: 10, lastUsedAt: 20 });
+      expect(listPairings()).toEqual([again]);
+      expect(declinedRooms()).toEqual([]);
+    });
+
+    it("chooses a new token for a new ticket, keeping the name", () => {
+      const mint = minter();
+      upsertPairing({ roomId: A, serverKey: KEY, token: "old" }, 10);
+      renamePairing(A, "Studio");
+      const next = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 20, mint);
+      expect(next).toMatchObject({ token: "minted-1", ticket: "t1", name: "Studio", addedAt: 10 });
+      const newer = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t2" }, 30, mint);
+      expect(newer).toMatchObject({ token: "minted-2", ticket: "t2", lastUsedAt: 30 });
+    });
+
+    it("drops the ticket only while it is still the stored one", () => {
+      const mint = minter();
+      upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 10, mint);
+      upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t2" }, 20, mint);
+      // A stale tab's accepted hello, for the ticket another tab replaced.
+      clearPairingTicket(A, "t1");
+      expect(listPairings()[0]).toMatchObject({ token: "minted-2", ticket: "t2" });
+      clearPairingTicket(A, "t2");
+      expect(listPairings()[0]).not.toHaveProperty("ticket");
+      expect(listPairings()[0].spentTicket).toBe("t2");
+      expect(listPairings()[0].token).toBe("minted-2");
+      clearPairingTicket(A, undefined);
+      expect(listPairings()[0].token).toBe("minted-2");
+    });
+
+    it("keeps the paired token when a spent link is opened again", () => {
+      const mint = minter();
+      upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 10, mint);
+      clearPairingTicket(A, "t1");
+      expect(listPairings()[0]).toMatchObject({ token: "minted-1", spentTicket: "t1" });
+      const again = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 20, mint);
+      expect(again).toMatchObject({ token: "minted-1", lastUsedAt: 20 });
+      expect(again).not.toHaveProperty("ticket");
+      // A different link is a new pairing.
+      const fresh = upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t2" }, 30, mint);
+      expect(fresh).toMatchObject({ token: "minted-2", ticket: "t2" });
+    });
+
+    it("drops a pending ticket when a minted token replaces the one it was for", () => {
+      upsertTicketPairing({ roomId: A, serverKey: KEY, ticket: "t1" }, 10, minter());
+      upsertPairing({ roomId: A, serverKey: KEY, token: "direct" }, 20);
+      expect(listPairings()[0]).not.toHaveProperty("ticket");
+    });
+
+    it("keeps a stored ticket, and drops a malformed one", () => {
+      map.set(
+        PAIRINGS_KEY,
+        JSON.stringify([
+          { roomId: A, serverKey: KEY, token: "a", name: "A", addedAt: 1, lastUsedAt: 1, ticket: "t" },
+          { roomId: B, serverKey: KEY, token: "b", name: "B", addedAt: 1, lastUsedAt: 1, ticket: 7 },
+        ]),
+      );
+      expect(listPairings()).toEqual([expect.objectContaining({ roomId: A, ticket: "t" })]);
+    });
+
+    it("mints a 43-character base64url token, a new one each time", () => {
+      const token = freshDeviceToken();
+      expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(freshDeviceToken()).not.toBe(token);
+    });
   });
 });

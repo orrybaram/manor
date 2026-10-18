@@ -168,18 +168,65 @@ export async function stopRelay(window: Page): Promise<void> {
 
 export interface PairedDevice {
   label: string;
-  token: string;
-  /** `<relay-origin>/app/<version>/#relay=<roomId>.<key>&t=<token>`. */
+  /**
+   * The single-use pairing ticket in the link (ADR-240 D1). The device's
+   * long-lived token is never in the link: the browser chooses it, so read it
+   * from the browser with `deviceToken` once the page has loaded.
+   */
+  ticket: string;
+  /** `<relay-origin>/app/<version>/#relay=<roomId>.<key>&ticket=<ticket>`. */
   link: string;
+}
+
+/** The room a pairing link dials: `#relay=<roomId>.<key>&ticket=<ticket>`. */
+export function roomOf(link: string): string {
+  const relay = new URLSearchParams(new URL(link).hash.slice(1)).get("relay") ?? "";
+  return relay.slice(0, relay.indexOf("."));
+}
+
+/**
+ * The pairing ticket a link carries, failing loudly on a link that carries a
+ * raw token (`t=`) instead: since ADR-240 no link the desktop or a host
+ * server mints for a person holds the long-lived token.
+ */
+function ticketOf(link: string, what: string): string {
+  const params = new URLSearchParams(new URL(link).hash.slice(1));
+  if (params.has("t")) throw new Error(`${what} link carried a raw token`);
+  const ticket = params.get("ticket") ?? "";
+  if (!ticket) throw new Error(`${what} link carried no pairing ticket`);
+  return ticket;
+}
+
+/**
+ * The long-lived token a browser chose for the pairing `link` names (ADR-240
+ * D5), read from its stored pairings once the page has loaded and stored it.
+ */
+export async function deviceToken(page: Page, link: string): Promise<string> {
+  const room = roomOf(link);
+  let token = "";
+  await expect
+    .poll(
+      async () => {
+        token = await page.evaluate((roomId) => {
+          const raw = localStorage.getItem("manor.web.pairings");
+          const list = raw ? (JSON.parse(raw) as { roomId: string; token: string }[]) : [];
+          return list.find((p) => p.roomId === roomId)?.token ?? "";
+        }, room);
+        return token;
+      },
+      { timeout: 15_000, message: `a stored pairing for room ${room}` },
+    )
+    .not.toBe("");
+  return token;
 }
 
 /**
  * Pair a device through the UI (ADR-206 D3, ADR-207 D4) and capture the link
- * the dialog hands over once, and the token inside it. Every device is a
- * relay device that reaches the whole app, so the Add device dialog is a
+ * the dialog hands over once, and the pairing ticket inside it. Every device
+ * is a relay device that reaches the whole app, so the Add device dialog is a
  * name and a button.
  *
- * Takes the recorder because the pairing dialog is the one moment the token
+ * Takes the recorder because the pairing dialog is the one moment the link
  * and its QR code exist on screen, and this function owns that lifetime — a
  * caller has nowhere to photograph it from.
  */
@@ -195,7 +242,7 @@ export async function pairDevice(
 
 /**
  * The rest of pairing, after a trigger has opened the Add device dialog:
- * name it, submit, read the link and token off the pairing dialog, close it,
+ * name it, submit, read the link and ticket off the pairing dialog, close it,
  * and wait for the device's row on the Devices page.
  */
 async function completePairingDialog(
@@ -212,7 +259,7 @@ async function completePairingDialog(
   await expect(dialog).toBeVisible({ timeout: 10_000 });
   await film?.shot(window, "settings-pairing-link");
   // The dialog shows only the QR code and a Copy link button; the link rides
-  // on the button's `data-link`, and the token in the link's fragment.
+  // on the button's `data-link`, and the ticket in the link's fragment.
   const link =
     (await window
       .getByTestId("remote-pairing-link")
@@ -220,8 +267,7 @@ async function completePairingDialog(
   if (!link.includes("#relay=")) {
     throw new Error(`Pairing dialog showed no relay link (got "${link}")`);
   }
-  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("t") ?? "";
-  if (!token) throw new Error("Pairing link carried no token");
+  const ticket = ticketOf(link, "Pairing");
 
   await window.getByTestId("remote-pairing-done").click();
   await expect(dialog).not.toBeVisible({ timeout: 5_000 });
@@ -232,7 +278,7 @@ async function completePairingDialog(
     window.getByTestId("remote-device-row").filter({ hasText: label }),
   ).toHaveCount(1, { timeout: 10_000 });
 
-  return { label, token, link };
+  return { label, ticket, link };
 }
 
 /**
@@ -275,9 +321,8 @@ export async function pairHostPhone(
   if (!link.includes("#relay=")) {
     throw new Error(`Host pairing showed no relay link (got "${link}")`);
   }
-  const token = new URLSearchParams(new URL(link).hash.slice(1)).get("t") ?? "";
-  if (!token) throw new Error("Host pairing link carried no token");
-  return { label, token, link };
+  const ticket = ticketOf(link, "Host pairing");
+  return { label, ticket, link };
 }
 
 /** Revoke a paired device by its label, from its row's trash button. */

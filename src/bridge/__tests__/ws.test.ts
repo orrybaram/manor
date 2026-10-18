@@ -194,6 +194,16 @@ describe("the socket transport", () => {
       expect(socket.frames).toEqual([{ type: "hello", token: "full-token" }]);
     });
 
+    it("says hello with the token and the ticket to redeem it with (ADR-240 D1)", () => {
+      const api = bridge({ ticket: "the-ticket" });
+      void api.projects.getAll().catch(() => {});
+      const socket = FakeSocket.last;
+      socket.accept();
+      expect(socket.frames).toEqual([
+        { type: "hello", token: "full-token", ticket: "the-ticket" },
+      ]);
+    });
+
     it("holds calls made before the hello is answered", () => {
       const api = bridge();
       void api.projects.getAll().catch(() => {});
@@ -484,6 +494,40 @@ describe("the socket transport", () => {
      */
     it("says hello with the id the host gave it, after a reconnect", () => {
       const api = bridge();
+      void api.projects.getAll().catch(() => {});
+      const socket = FakeSocket.last;
+      socket.accept();
+      socket.deliver({ type: "hello", ok: true, v: 1, rendererId: "bridge-1" });
+
+      socket.drop();
+      vi.advanceTimersByTime(1_000);
+      const reopened = FakeSocket.last;
+      reopened.accept();
+
+      expect(last(reopened.frames)).toEqual({
+        type: "hello",
+        token: "full-token",
+        previousId: "bridge-1",
+      });
+    });
+
+    it("keeps the ticket for a redial before any hello was accepted", () => {
+      const api = bridge({ ticket: "the-ticket" });
+      void api.projects.getAll().catch(() => {});
+      FakeSocket.last.accept();
+      FakeSocket.last.drop();
+      vi.advanceTimersByTime(1_000);
+      const reopened = FakeSocket.last;
+      reopened.accept();
+      expect(last(reopened.frames)).toEqual({
+        type: "hello",
+        token: "full-token",
+        ticket: "the-ticket",
+      });
+    });
+
+    it("sends the ticket no more once a hello was accepted (ADR-240 D1)", () => {
+      const api = bridge({ ticket: "the-ticket" });
       void api.projects.getAll().catch(() => {});
       const socket = FakeSocket.last;
       socket.accept();

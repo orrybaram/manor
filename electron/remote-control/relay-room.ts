@@ -7,6 +7,7 @@
  * operations that change who is paired:
  *
  *   - `pair` — a device on this room, and the link that reaches it;
+ *   - `reissue` — a new link for a device that has not connected yet;
  *   - `revoke` / `revokeAll` — refused from now, disconnected, saved;
  *   - `reset` — new room, every device revoked;
  *   - `revokeStale` — devices paired to a room this identity no longer is.
@@ -32,10 +33,16 @@ import { relayPairingUrl } from "./relay/url";
 
 export interface PairResult {
   device: RemoteDeviceInfo;
-  /** Shown once, never stored. */
-  rawToken: string;
-  /** The relay link (`https://<relay>/app/<version>/#relay=…`). */
+  /**
+   * The relay link (`https://<relay>/app/<version>/#relay=…`): a single-use
+   * pairing ticket by default, the raw token for a `direct` pairing
+   * (ADR-240 D1). Shown once, never stored.
+   */
   pairingUrl: string;
+  /** When the link's ticket stops working; null for a `direct` pairing. */
+  expiresAt: number | null;
+  /** The device's token, only for a `direct` pairing (ADR-240 D7). */
+  rawToken?: string;
 }
 
 /** The relay half of a room: what holds it open, and its keys. */
@@ -73,31 +80,54 @@ export class RelayRoom {
 
   /**
    * Pair a device to this room. Devices left on a stale room are revoked
-   * first, so the list never mixes a dead room with the live one. Resolves
+   * first, so the list never mixes a dead room with the live one. By default
+   * the link carries a pairing ticket; `direct` mints the token itself, for a
+   * caller that hands it over an authenticated channel (ADR-240 D7). Resolves
    * once the device is on disk.
    */
-  pair(label: string): Promise<PairResult> {
+  pair(label: string, options?: { direct?: boolean }): Promise<PairResult> {
     return this.serially(async () => {
-      const relay = this.options.relay();
-      if (!relay) throw new Error(RELAY_UNAVAILABLE);
-      const origin = relay.connector.origin;
-      if (!origin) throw new Error("The relay address is not configured.");
-      const { roomId, x25519Pub } = relay.identity.describe();
+      const { origin, roomId, x25519Pub } = this.address();
       await this.revokeStaleNow(roomId);
-      const { device, rawToken } = await this.options.devices.pair(
-        label,
-        roomId,
-      );
+      const paired = await this.options.devices.pair(label, roomId, options);
+      if ("rawToken" in paired) {
+        return {
+          device: paired.device,
+          rawToken: paired.rawToken,
+          expiresAt: null,
+          pairingUrl: this.link(origin, roomId, x25519Pub, {
+            rawToken: paired.rawToken,
+          }),
+        };
+      }
+      return {
+        device: paired.device,
+        expiresAt: paired.expiresAt,
+        pairingUrl: this.link(origin, roomId, x25519Pub, { ticket: paired.ticket }),
+      };
+    });
+  }
+
+  /**
+   * A new link for a device that has not connected yet (ADR-240 D3); the
+   * old one is dead. Revokes nothing, but refuses a device paired to a room
+   * this identity no longer is: a link to the current room would let it
+   * redeem, and the next stale-room sweep would then revoke it. Resolves once
+   * it is on disk.
+   */
+  reissue(id: string): Promise<PairResult> {
+    return this.serially(async () => {
+      const { origin, roomId, x25519Pub } = this.address();
+      if (this.options.devices.idsInOtherRelayRooms(roomId).includes(id)) {
+        throw new Error(
+          "This device was added for an old relay address. Remove it and add it again.",
+        );
+      }
+      const { device, ticket, expiresAt } = await this.options.devices.reissue(id);
       return {
         device,
-        rawToken,
-        pairingUrl: relayPairingUrl({
-          origin,
-          appVersion: this.options.appVersion,
-          roomId,
-          x25519Pub,
-          rawToken,
-        }),
+        expiresAt,
+        pairingUrl: this.link(origin, roomId, x25519Pub, { ticket }),
       };
     });
   }
@@ -157,6 +187,31 @@ export class RelayRoom {
     await this.revokeNow(stale);
     this.options.onStaleRevoked?.(stale.length);
     return stale.length;
+  }
+
+  /** Where a link points: the relay's origin and this room's keys. */
+  private address(): { origin: string; roomId: string; x25519Pub: string } {
+    const relay = this.options.relay();
+    if (!relay) throw new Error(RELAY_UNAVAILABLE);
+    const origin = relay.connector.origin;
+    if (!origin) throw new Error("The relay address is not configured.");
+    const { roomId, x25519Pub } = relay.identity.describe();
+    return { origin, roomId, x25519Pub };
+  }
+
+  private link(
+    origin: string,
+    roomId: string,
+    x25519Pub: string,
+    credential: { ticket: string } | { rawToken: string },
+  ): string {
+    return relayPairingUrl({
+      origin,
+      appVersion: this.options.appVersion,
+      roomId,
+      x25519Pub,
+      credential,
+    });
   }
 
   /** Unqueued: only ever called from a step already on the queue. */

@@ -105,7 +105,11 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     }
   };
   const deviceStore = {
-    pair: vi.fn(async (label: string, relayRoom: string) => {
+    pair: vi.fn(async (
+      label: string,
+      relayRoom: string,
+      options?: { direct?: boolean },
+    ) => {
       minted += 1;
       const device = {
         id: `dev-${minted}`,
@@ -115,7 +119,14 @@ function fakes(options: { gateLoad?: boolean } = {}) {
         lastSeenAt: null,
       };
       paired.push(device);
-      return { device, rawToken: "raw-token-value" };
+      return options?.direct
+        ? { device, rawToken: "raw-token-value" }
+        : { device, ticket: "ticket-value", expiresAt: 600_000 };
+    }),
+    reissue: vi.fn(async (id: string) => {
+      const device = paired.find((d) => d.id === id);
+      if (!device) throw new Error("Only a device that has not connected yet can get a new link.");
+      return { device, ticket: "new-ticket-value", expiresAt: 600_001 };
     }),
     revokeMany: vi.fn(async (ids: readonly string[]) => revokeIds(ids)),
     ready: true,
@@ -196,6 +207,28 @@ describe("RemoteControlController", () => {
     await f.controller.setEnabled(false);
     expect(seen.length).toBeGreaterThanOrEqual(4);
     expect(seen[seen.length - 1]).toBe(false);
+  });
+
+  it("pair passes direct through; reissue emits a new link", async () => {
+    await f.controller.setEnabled(true);
+    const direct = await f.controller.pair("host phone", { direct: true });
+    expect(f.deviceStore.pair).toHaveBeenCalledWith("host phone", ROOM, { direct: true });
+    expect(direct.rawToken).toBe("raw-token-value");
+    const ticketed = await f.controller.pair("phone");
+    expect(ticketed.pairingUrl).toContain("&ticket=ticket-value");
+    expect(ticketed.expiresAt).toBe(600_000);
+    const seen = vi.fn();
+    f.controller.onChange(seen);
+    const reissued = await f.controller.reissue(ticketed.device.id);
+    expect(reissued.pairingUrl).toContain("&ticket=new-ticket-value");
+    expect(reissued.expiresAt).toBe(600_001);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to reissue until the runtime is loaded", async () => {
+    await f.deviceStore.pair("a", ROOM);
+    await expect(f.controller.reissue("dev-1")).rejects.toThrow(/Enable remote control/);
+    expect(f.deviceStore.reissue).not.toHaveBeenCalled();
   });
 
   it("revoke closes the revoked device's connections", async () => {

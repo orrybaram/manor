@@ -6,12 +6,12 @@
  * disabling takes down with it — lives in `RemoteControlController`, so the
  * renderer cannot reach a half-state by calling these in an odd order.
  *
- * The raw pairing token crosses this boundary exactly once, in the return
- * value of `remoteControlPair`, and is never broadcast in a status push. That
- * return value is also why six of the nine below are `localOnly`: a stolen
- * device token that can pair more devices is a token that survives its own
- * revocation, which is a different class of loss
- * from "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
+ * A pairing link crosses this boundary exactly once, in the return value of
+ * `remoteControlPair` or `remoteControlReissue`, and is never broadcast in a
+ * status push. That return value is also why seven of the eleven below are
+ * `localOnly`: a stolen device token that can pair more devices is a token
+ * that survives its own revocation, which is a different class of loss from
+ * "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
  * `getStatus` is a read and stays open, so a device's own settings page is
  * not lying to it about the surface it is on; the two push methods are for
  * paired devices only.
@@ -81,8 +81,9 @@ export function remoteControlSetEnabled(
 }
 
 /**
- * Pair a device through the relay, returning the raw token and its pairing
- * link once.
+ * Pair a device through the relay, returning its pairing link once: a
+ * single-use ticket by default, or with `{ direct: true }` the device's raw
+ * token as well (ADR-240 D7).
  *
  * The label is trimmed and bounded here rather than in the dialog, because
  * the dialog is not the only caller any more — an empty label on a device in
@@ -91,13 +92,43 @@ export function remoteControlSetEnabled(
 export function remoteControlPair(
   ctx: RemoteControlCtx<"pair">,
   label: string,
+  options?: { direct?: boolean },
 ): Promise<PairResult> {
   assertString(label, "remoteControl.pair.label");
   const trimmed = label.trim();
   if (trimmed.length === 0 || trimmed.length > 64) {
     throw new Error("A device label must be 1–64 characters.");
   }
-  return ctx.deps.remoteControl.pair(trimmed);
+  return ctx.deps.remoteControl.pair(trimmed, asPairOptions(options));
+}
+
+/** `options` as the store reads it, or a throw for anything else. */
+function asPairOptions(options: unknown): { direct?: boolean } | undefined {
+  if (options === undefined) return undefined;
+  if (typeof options !== "object" || options === null || Array.isArray(options)) {
+    throw new Error("remoteControl.pair.options must be an object");
+  }
+  const { direct, ...rest } = options as Record<string, unknown>;
+  if (Object.keys(rest).length > 0) {
+    throw new Error("remoteControl.pair.options may only set direct");
+  }
+  if (direct === undefined) return {};
+  if (typeof direct !== "boolean") {
+    throw new Error("remoteControl.pair.options.direct must be a boolean");
+  }
+  return { direct };
+}
+
+/**
+ * A new link for a device that has not connected yet (ADR-240 D6); the old
+ * one is dead. Local only, like `pair`: a link is a way in.
+ */
+export function remoteControlReissue(
+  ctx: RemoteControlCtx<"reissue">,
+  id: string,
+): Promise<PairResult> {
+  assertString(id, "remoteControl.reissue.id");
+  return ctx.deps.remoteControl.reissue(id);
 }
 
 /**
@@ -210,13 +241,14 @@ export const remoteControl = {
   getStatus: method(remoteControlGetStatus),
   // A token that can pair more devices survives its own revocation, and one
   // that can turn remote control off locks the owner out of the machine they
-  // are trying to take back: the six that change the exposure stay local.
+  // are trying to take back: the seven that change the exposure stay local.
   vapidPublicKey: method(remoteControlVapidPublicKey),
   subscribePush: method(remoteControlSubscribePush),
   // A device's own pairings on the hosts; why it is not local, in the doc.
   linkHostPairings: method(remoteControlLinkHostPairings, { mutating: true }),
   setEnabled: method(remoteControlSetEnabled, { localOnly: true }),
   pair: method(remoteControlPair, { localOnly: true }),
+  reissue: method(remoteControlReissue, { localOnly: true }),
   revoke: method(remoteControlRevoke, { localOnly: true }),
   startRelay: method(remoteControlStartRelay, { localOnly: true }),
   stopRelay: method(remoteControlStopRelay, { localOnly: true }),

@@ -94,6 +94,7 @@ describe("RelayConnector", () => {
     gate = new RelayGate(
       {
         verify: (raw) => (raw === FULL_TOKEN ? full : null),
+        redeem: () => null,
       },
       bridge,
       new AuthRateLimiter(),

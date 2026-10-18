@@ -1027,8 +1027,6 @@ button.keybindingActionBtn:hover:not(:disabled) {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--surface);
 }
 
 .remoteOpenOnPhone .remoteQr {

@@ -283,13 +283,30 @@ export class RemoteControlController {
    *
    * Needs the runtime (the identity lives there), which is loaded whenever
    * remote control is on — and the pairing form only shows then. Resolves once
-   * the device is on disk.
+   * the device is on disk. The link carries a single-use ticket unless
+   * `direct` asks for the token itself (ADR-240 D7).
    */
-  async pair(label: string): Promise<PairResult> {
+  async pair(
+    label: string,
+    options?: { direct?: boolean },
+  ): Promise<PairResult> {
     if (!this.runtime) {
       throw new Error("Enable remote control before pairing through the relay.");
     }
-    const result = await this.room.pair(label);
+    const result = await this.room.pair(label, options);
+    this.emit();
+    return result;
+  }
+
+  /**
+   * A new link for a device that has not connected yet; the old one is dead
+   * (ADR-240 D6). Resolves once the new ticket is on disk.
+   */
+  async reissue(id: string): Promise<PairResult> {
+    if (!this.runtime) {
+      throw new Error("Enable remote control before pairing through the relay.");
+    }
+    const result = await this.room.reissue(id);
     this.emit();
     return result;
   }

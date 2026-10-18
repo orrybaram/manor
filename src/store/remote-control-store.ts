@@ -31,6 +31,8 @@ interface RemoteControlState {
    * handed over reaches this machine straight away.
    */
   pair: (label: string) => Promise<RemotePairResult | null>;
+  /** A fresh single-use link for a device that has not opened its link yet. */
+  reissue: (id: string) => Promise<RemotePairResult | null>;
   clearError: () => void;
 }
 
@@ -105,6 +107,16 @@ export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
         // Pairing needs the runtime, which enabling loads.
         if (!get().status.enabled) set({ status: await api.setEnabled(true) });
         const result = await api.pair(label);
+        const { relay } = get().status;
+        if (relay.state === "stopped" || relay.state === "failed") {
+          set({ status: await api.startRelay() });
+        }
+        return result;
+      }),
+    reissue: (id) =>
+      run(async () => {
+        const api = window.electronAPI.remoteControl;
+        const result = await api.reissue(id);
         const { relay } = get().status;
         if (relay.state === "stopped" || relay.state === "failed") {
           set({ status: await api.startRelay() });

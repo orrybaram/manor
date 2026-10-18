@@ -68,6 +68,22 @@ describe("parseFragment", () => {
     });
   });
 
+  it("reads the single-use form (ADR-240 D1)", () => {
+    expect(parseFragment(`#relay=${ROOM}.${KEY}&ticket=${TOKEN}`)).toEqual({
+      kind: "ticket",
+      link: { roomId: ROOM, serverKey: KEY, ticket: TOKEN },
+    });
+  });
+
+  it.each([
+    ["both a token and a ticket", `#relay=${ROOM}.${KEY}&t=x&ticket=${TOKEN}`],
+    ["a ticket before a token", `#relay=${ROOM}.${KEY}&ticket=${TOKEN}&t=x`],
+    ["an empty ticket", `#relay=${ROOM}.${KEY}&ticket=`],
+    ["a ticket with a short key", `#relay=${ROOM}.${KEY.slice(0, 20)}&ticket=${TOKEN}`],
+  ])("rejects a ticket link with %s", (_, hash) => {
+    expect(parseFragment(hash)).toEqual({ kind: "invalid" });
+  });
+
   it("reads a fragment given without its '#'", () => {
     expect(parseFragment(`relay=${ROOM}.${KEY}&t=x`).kind).toBe("relay");
   });
@@ -166,6 +182,31 @@ describe("readPairing", () => {
     expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
     at("");
     expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
+  });
+
+  it("stores a ticket link with a token of its own and strips the fragment (ADR-240 D5)", () => {
+    at(`#relay=${ROOM}.${KEY}&ticket=${TOKEN}`);
+    const pairing = readPairing();
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/app/1.0.0/");
+    expect(pairing).toMatchObject({ roomId: ROOM, serverKey: KEY, ticket: TOKEN });
+    expect(pairing?.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(pairing?.token).not.toBe(TOKEN);
+    const stored = JSON.parse(local.map.get(PAIRINGS_KEY) ?? "[]");
+    expect(stored).toEqual([expect.objectContaining({ token: pairing?.token, ticket: TOKEN })]);
+  });
+
+  it("keeps the token when the same ticket link is opened again", () => {
+    at(`#relay=${ROOM}.${KEY}&ticket=${TOKEN}`);
+    const first = readPairing();
+    at(`#relay=${ROOM}.${KEY}&ticket=${TOKEN}`);
+    expect(readPairing()?.token).toBe(first?.token);
+    expect(listPairings()).toHaveLength(1);
+  });
+
+  it("still reads a token link from an older desktop", () => {
+    at(RELAY_HASH);
+    expect(readPairing()).toEqual(expect.objectContaining(RELAY));
+    expect(listPairings()[0]).not.toHaveProperty("ticket");
   });
 
   it("strips an invalid relay link without storing it", () => {

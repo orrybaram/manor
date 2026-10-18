@@ -54,11 +54,29 @@ const otherFull: AuthenticatedDevice = {
   label: "other browser",
 };
 
+const TICKET = "pairing-ticket";
+const CHOSEN_TOKEN = "chosen-token";
+
+const pending: AuthenticatedDevice = {
+  id: "dev-pending",
+  label: "new phone",
+};
+
+/** Whether the pending device's ticket is still unspent. */
+let ticketSpent = false;
+
 const devices = {
   verify: (raw: unknown) => {
     if (raw === FULL_TOKEN) return everything;
     if (raw === OTHER_TOKEN) return otherFull;
+    if (raw === CHOSEN_TOKEN && ticketSpent) return pending;
     return null;
+  },
+  // One use, like the store: the ticket is spent by the first hello.
+  redeem: (ticket: unknown, token: unknown) => {
+    if (ticket !== TICKET || token !== CHOSEN_TOKEN || ticketSpent) return null;
+    ticketSpent = true;
+    return pending;
   },
 };
 
@@ -149,6 +167,7 @@ describe("WsBridgeServer", () => {
   let layoutStore: LayoutStore;
 
   beforeEach(async () => {
+    ticketSpent = false;
     auditDir = fs.mkdtempSync(path.join(os.tmpdir(), "manor-ws-audit-"));
     audit = new RemoteAuditLog(path.join(auditDir, "remote-audit.jsonl"));
     clients = [];
@@ -340,6 +359,30 @@ describe("WsBridgeServer", () => {
       const client = await greet(FULL_TOKEN);
       const hello = await client.next((f) => f.type === "hello");
       expect(hello).toMatchObject({ type: "hello", ok: true, v: 1 });
+    });
+
+    it("redeems a ticket on the first hello and the reply is an ordinary hello", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const first = connect();
+      first.send({ type: "hello", token: CHOSEN_TOKEN, ticket: TICKET });
+      const hello = await first.next((f) => f.type === "hello");
+      expect(hello).toMatchObject({ type: "hello", ok: true, v: 1 });
+      expect(hello).not.toHaveProperty("token");
+
+      // The token alone is the credential from now on.
+      const again = await greet(CHOSEN_TOKEN);
+      await again.next((f) => f.type === "hello");
+    });
+
+    it("a spent ticket closes 4401", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      const first = connect();
+      first.send({ type: "hello", token: CHOSEN_TOKEN, ticket: TICKET });
+      await first.next((f) => f.type === "hello");
+
+      const second = connect();
+      second.send({ type: "hello", token: "another-token", ticket: TICKET });
+      expect(await second.closed).toBe(4401);
     });
 
     it("refuses to do anything before the hello lands", async () => {

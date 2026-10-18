@@ -20,6 +20,7 @@
  *
  * **Authentication is a frame, not a URL.** The connection is accepted, and
  * then has until its hello timeout to present `{"type":"hello","token":…}`
+ * (plus a `ticket` on the first hello of a newly paired device, ADR-240)
  * before it is closed. Until that frame lands the connection can do exactly
  * nothing, and the gate's `BridgeAuthenticator` runs the device verify and
  * the failed-auth backoff against it.
@@ -77,9 +78,10 @@ export type BridgeAuthResult =
 /**
  * The `verify + backoff` decision, which lives in `relay-gate.ts` (or the
  * owner socket's token check), handed the hello's token — and the whole
- * hello, for the one authenticator that reads more of it (the owner socket's
- * `viewer`, ADR-228 D4). Whatever else a hello says is the authenticator's
- * to honour or ignore; this transport takes none of it on trust.
+ * hello, for the authenticators that read more of it (the relay gate's
+ * `ticket`, ADR-240 D1; the owner socket's `viewer`, ADR-228 D4). Whatever
+ * else a hello says is the authenticator's to honour or ignore; this
+ * transport takes none of it on trust.
  */
 export type BridgeAuthenticator = (
   token: unknown,

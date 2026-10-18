@@ -324,7 +324,13 @@ export function PairingResultDialog(props: {
 }) {
   const { result, relayUp, onClose } = props;
 
-  const pairingUrl = result?.pairingUrl ?? null;
+  // The parent closes by passing null; keep rendering the last result so the
+  // exit animation does not flash empty or stale-fallback copy.
+  const [lastResult, setLastResult] = useState(result);
+  if (result !== null && result !== lastResult) setLastResult(result);
+  const shown = result ?? lastResult;
+
+  const pairingUrl = shown?.pairingUrl ?? null;
   return (
     <Dialog.Root
       open={result !== null}
@@ -339,10 +345,10 @@ export function PairingResultDialog(props: {
           className={dialogStyles.confirmDialog}
         >
           <Dialog.Title className={dialogStyles.confirmTitle}>
-            Scan with {result?.device.label}
+            Scan with {shown?.device.label}
           </Dialog.Title>
           <Dialog.Description className={dialogStyles.confirmDescription}>
-            <PairingExpiryCopy key={pairingUrl} expiresAt={result?.expiresAt ?? null} />
+            <PairingExpiryCopy key={pairingUrl} expiresAt={shown?.expiresAt ?? null} />
           </Dialog.Description>
 
           {pairingUrl && (

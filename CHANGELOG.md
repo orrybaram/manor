@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.22.8] - 2026-10-18
+
+### Features
+
+- Phone: The chat composer has a new button that opens the image picker, since Android can't copy an image to paste. Picked images upload the same way pasted ones do, and their paths go in at the caret in the order you picked them.
+
+### Fixes
+
+- Phone: When Claude Code compacts a conversation, the chat shows a "Conversation compacted" notice. Before, the compact summary showed up as a huge message you never sent.
+
 ## [0.22.7] - 2026-10-17
 
 ### Features

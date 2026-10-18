@@ -147,6 +147,13 @@ export interface WsTransportOptions {
    */
   token: string | null;
   /**
+   * A pairing ticket to redeem `token` with (ADR-240 D1): `token` is one this
+   * browser chose, which the host does not know yet. Sent alongside it in
+   * every hello until one is accepted, never after — not on a reconnect. Null
+   * or absent for a token the host already holds.
+   */
+  ticket?: string | null;
+  /**
    * The far end of the pipe has already said the hello (ADR-228 D4: a
    * desktop window's `server-bridge --viewer` stream, `./host-pipe.ts`).
    * The transport sends none, and takes the first `hello` reply frame that
@@ -248,6 +255,11 @@ class WsTransport implements WsBridgeTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   /** Pending "call it unreachable" after a drop with no listed code. */
   private graceTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The ticket the hello still carries (`WsTransportOptions.ticket`): dropped
+   * on the first accepted hello, after which the host knows the token.
+   */
+  private ticket: string | null;
   /** Whether the hello in flight carried `previousId`. */
   private resuming = false;
   /** The probe in flight, so a burst of foreground events sends only one. */
@@ -280,6 +292,7 @@ class WsTransport implements WsBridgeTransport {
 
   constructor(private readonly options: WsTransportOptions) {
     this.pipe = options.pipe;
+    this.ticket = options.ticket ?? null;
   }
 
   /** A token to say hello with, or a pipe whose far end said it. */
@@ -494,6 +507,9 @@ class WsTransport implements WsBridgeTransport {
    * still finds it after a blip, and this connection's `pty-attachments`
    * viewer identity does not reset.
    *
+   * `ticket` goes with the token until a hello is accepted (ADR-240 D1): a
+   * dial that failed before then retries with it, one after never does.
+   *
    * Not said at all over a `preAuthenticated` pipe.
    */
   private sayHello(): void {
@@ -506,6 +522,7 @@ class WsTransport implements WsBridgeTransport {
       JSON.stringify({
         type: "hello",
         token: this.options.token,
+        ...(this.ticket !== null && { ticket: this.ticket }),
         ...(this.rendererId !== null && { previousId: this.rendererId }),
       }),
     );
@@ -530,6 +547,8 @@ class WsTransport implements WsBridgeTransport {
         const reply = frame as Partial<HelloReplyFrame>;
         this.rendererId =
           typeof reply.rendererId === "string" ? reply.rendererId : null;
+        // Redeemed, or the token was already known: the ticket is spent.
+        this.ticket = null;
         this.onReady();
         this.options.onStatus?.("connected");
         this.options.onHello?.({

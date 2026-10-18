@@ -89,6 +89,28 @@ describe("install-web on a relay-served page", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
+  it("dials with a token of its own and the link's ticket, which the accepted hello spends (ADR-240 D5)", async () => {
+    const ticket = base64urlEncode(new Uint8Array(32).fill(5));
+    const key = base64urlEncode(FakeRelaySocket.key.pub);
+    const { mod, api } = await install(`#relay=${ROOM}.${key}&ticket=${ticket}`);
+    const token = mod.webToken;
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(token).not.toBe(ticket);
+    const stored = () => JSON.parse(local.get(PAIRINGS_KEY) ?? "[]")[0];
+    expect(stored()).toMatchObject({ token, ticket });
+
+    void api.projects.getAll().catch(() => {});
+    const socket = FakeRelaySocket.last;
+    socket.handshake();
+    expect(socket.frames[0]).toEqual({ type: "hello", token, ticket });
+    // Spent: gone from storage, and the token it redeemed is still the one held.
+    expect(stored()).not.toHaveProperty("ticket");
+    expect(stored().token).toBe(token);
+    // Same token and key, so the bridge stays on the socket it has.
+    expect(FakeRelaySocket.instances).toHaveLength(1);
+    expect(socket.closedWith).toBeNull();
+  });
+
   it("redirects to the desktop's version once per session", async () => {
     const { api } = await install(relayHash());
     void api.projects.getAll().catch(() => {});

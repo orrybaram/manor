@@ -1,6 +1,6 @@
 ---
 title: E2E - helpers, existing specs, pairing-ticket spec
-status: todo
+status: in-progress
 priority: high
 assignee: opus
 blocked_by: [2, 3, 4, 5]

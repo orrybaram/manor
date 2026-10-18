@@ -1,6 +1,6 @@
 ---
 title: Docs - remote-control.md and CONTEXT.md
-status: in-progress
+status: done
 priority: high
 assignee: sonnet
 blocked_by: [2, 4]

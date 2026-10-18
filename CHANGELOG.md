@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.22.7] - 2026-10-17
+
+### Features
+
+- Pairing links now work only once and expire after 10 minutes. Before, a link carried the device's permanent token, so anyone who had the link could control the machine until you revoked the device. Devices you already paired, and links you already made, keep working.
+- On the Devices page, a new pairing shows "Waiting for the device to open the link · expires in N min", then "Link expired". **New link** gives you a fresh one.
+- The web app, in a browser or on a phone, can now paste clipboard images into terminals. It takes PNG, JPEG, GIF and WebP images up to 16 MiB. In the phone chat composer, a pasted image goes in as its path.
+
+### Fixes
+
+- In the web app, a relayed server's own host no longer shows its room id. The sidebar's main workspace row reads **local**, and the status chip and paste toasts show the pairing's name.
+- Opening a pairing link a second time in the browser that used it no longer loses the pairing.
+- The pairing dialog no longer flashes old text as it closes.
+
+### Improvements
+
+- Settings no longer shows a stray divider above "Open on a paired phone".
+
 ## [0.22.6] - 2026-10-17
 
 ### Fixes

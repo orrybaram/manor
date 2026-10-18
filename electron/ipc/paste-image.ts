@@ -9,11 +9,10 @@
  * its own.
  */
 
-import crypto from "node:crypto";
-import path from "node:path";
 import type { BackendRegistry } from "../backend/registry";
 import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
+import { writePastedImage } from "../server/pasted-images";
 
 /** The `clipboard:writeText`/co. surface only needs `NativeImage`'s shape. */
 export interface ClipboardImage {
@@ -26,14 +25,6 @@ export type PasteClipboardImageResult =
   | { kind: "none" }
   | { kind: "uploaded"; path: string }
   | { kind: "error"; message: string };
-
-function timestamp(now: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-` +
-    `${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
-  );
-}
 
 /**
  * Uploads `clipboardImage` to `paneId`'s host's `~/.manor/pasted-images`, or
@@ -59,23 +50,15 @@ export async function uploadClipboardImage(
   if (clipboardImage.isEmpty()) return { kind: "none" };
 
   try {
-    // `get`, not `RoutedBackend.shell`: the pane's host owns both the home
-    // directory and the write, and `RoutedBackend` would pick a host from a
-    // path instead (see ADR-187 ticket 2's note).
-    const host = registry.get(hostId);
-    const home = await host.shell.homeDir();
-    const dir = `${home}/.manor/pasted-images`;
-    const filePath = path.posix.join(
-      dir,
-      `${timestamp(new Date())}-${crypto.randomBytes(4).toString("hex")}.png`,
-    );
-    await host.shell.writeFile(filePath, clipboardImage.toPNG());
-    // Fire and forget: keep the directory from growing forever. A failure
-    // here (e.g. no `find` on the box) does not undo the upload.
-    host.shell
-      .exec("find", [dir, "-type", "f", "-mtime", "+7", "-delete"])
-      .catch(() => {});
-    return { kind: "uploaded", path: filePath };
+    return {
+      kind: "uploaded",
+      path: await writePastedImage(
+        registry,
+        hostId,
+        clipboardImage.toPNG(),
+        "png",
+      ),
+    };
   } catch (err) {
     return { kind: "error", message: errorMessage(err) };
   }

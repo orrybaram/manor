@@ -27,7 +27,7 @@ import {
   packBatches,
   unpackBatch,
   verifyHostChallenge,
-} from "../../../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import {
   CLOSE_AUTH_FAILED,
   CLOSE_LIMIT,
@@ -50,7 +50,7 @@ import {
   RELAY_ACK_BYTES,
   RELAY_CLOSE_WITH_CODE_BYTES,
   RELAY_HEADER_BYTES,
-} from "../../../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 
 function toBytes(data: RawData): Uint8Array {
   const buf = Array.isArray(data)

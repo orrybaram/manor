@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { base64urlEncode } from "../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import { LEGACY_RELAY_KEY, PAIRINGS_KEY, declinedRooms, listPairings } from "../pairings";
 import {
   VERSION_REDIRECT_KEY,

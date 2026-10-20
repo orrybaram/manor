@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { base64urlDecode, roomIdFor } from "../../../../src/lib/relay-crypto";
+import { base64urlDecode, roomIdFor } from "@manor/protocol/relay-crypto";
 import { EncryptionUnavailableError } from "../../../platform/sealed-store";
 import { switchableBox } from "../../../platform/__tests__/switchable-box";
 import { SecretBoxUnavailableError } from "../../../platform/secret-box";

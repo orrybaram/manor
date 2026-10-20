@@ -13,7 +13,7 @@ vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 });
 
-import { base64urlEncode } from "../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import type { BridgeTransport } from "../../bridge/client";
 import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
 import {

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { BridgeTransport } from "../../bridge/client";
 import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
 import { servers } from "../../bridge/server-set";
-import { base64urlEncode } from "../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "../auto-join";
 import { useHostStore } from "../host-store";
 import { useToastStore } from "../toast-store";

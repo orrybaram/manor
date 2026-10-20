@@ -14,14 +14,14 @@ import {
   WEB_CSP,
   webCacheControl,
   webContentType,
-} from "../../src/lib/web-headers";
+} from "@manor/protocol/web-headers";
 import type { Env } from "./env";
 import { handleJevFolder } from "./jev";
 
 export { JevBudget } from "./jev-budget";
 export { Room } from "./room";
 
-/** 22 base64url characters: `roomIdFor` in `src/lib/relay-crypto/keys.ts`. */
+/** 22 base64url characters: `roomIdFor` in `packages/protocol/relay-crypto/keys.ts`. */
 const ROOM_ID_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 const ROUTE_PATTERN = /^\/(host|join)\/([^/]+)$/;
 

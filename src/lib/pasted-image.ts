@@ -4,7 +4,7 @@
  *
  * Two sizes live here:
  * - `PASTED_IMAGE_CHUNK_BYTES` sits against `MAX_FRAME_BYTES`
- *   (`src/lib/relay-crypto/channel.ts`). A frame over 1 MiB closes the whole
+ *   (`packages/protocol/relay-crypto/channel.ts`). A frame over 1 MiB closes the whole
  *   connection, and 512 KiB of raw bytes is about 700 KiB of base64.
  * - `MAX_PASTED_IMAGE_BYTES` sits below the daemon's 20 MiB `writeFile` cap
  *   (`electron/terminal-host/index.ts`).

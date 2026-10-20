@@ -10,7 +10,7 @@ import {
   generateRelayIdentity,
   roomIdFor,
   type RelayIdentity,
-} from "../../../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import type { BridgeServer, BridgeServerDeps } from "../../../bridge/server";
 import {
   WsBridgeServer,

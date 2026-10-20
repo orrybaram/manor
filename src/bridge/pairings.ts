@@ -17,7 +17,7 @@
  * `connection.ts`'s.
  */
 
-import { ROOM_ID_LENGTH, base64urlDecode, base64urlEncode } from "../lib/relay-crypto";
+import { ROOM_ID_LENGTH, base64urlDecode, base64urlEncode } from "@manor/protocol/relay-crypto";
 
 /** The pairing list: `StoredPairing[]` as JSON. */
 export const PAIRINGS_KEY = "manor.web.pairings";

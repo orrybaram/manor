@@ -1,4 +1,4 @@
-import type { RelayIdentity } from "../../../src/lib/relay-crypto";
+import type { RelayIdentity } from "@manor/protocol/relay-crypto";
 
 /** Overwrite the private keys in place. The identity is unusable afterwards. */
 export function wipe(identity: RelayIdentity): void {

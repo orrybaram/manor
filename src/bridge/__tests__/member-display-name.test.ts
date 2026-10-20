@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { BridgeTransport } from "../client";
 import { recordPairingHello, upsertPairing } from "../pairings";
 import { hostSentenceName, memberDisplayName, servers } from "../server-set";
-import { base64urlEncode } from "../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 
 const hosts = [{ hostId: "box", spec: { kind: "ssh" as const, target: "me@box" } }];
 

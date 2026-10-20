@@ -10,8 +10,8 @@ import {
   generateRelayIdentity,
   roomIdFor,
   type RelayIdentity,
-} from "../../../../src/lib/relay-crypto";
-import { MAX_RELAY_PAYLOAD_BYTES } from "../../../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto";
+import { MAX_RELAY_PAYLOAD_BYTES } from "@manor/protocol/relay-crypto/protocol";
 import type { BridgeServer, BridgeServerDeps } from "../../../bridge/server";
 import {
   WsBridgeServer,

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import pkg from "./package.json";
-import { WEB_CSP } from "./src/lib/web-headers";
+import { WEB_CSP } from "@manor/protocol/web-headers";
 
 /**
  * `src/web.html`'s CSP `<meta>` tag is a second line of defence for the same

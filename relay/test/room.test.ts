@@ -24,7 +24,7 @@ import {
   OP_CLOSE,
   OP_DATA,
   OP_OPEN,
-} from "../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 import {
   authMessage,
   frame,

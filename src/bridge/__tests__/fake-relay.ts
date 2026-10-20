@@ -12,13 +12,13 @@ import {
   packBatch,
   unpackBatch,
   type NoiseResponder,
-} from "../../lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import {
   CLOSE_NORMAL,
   HEARTBEAT_PING,
   HEARTBEAT_PONG,
   PASSTHROUGH_CLOSE_CODES,
-} from "../../lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 
 export type Frame = Record<string, unknown>;
 

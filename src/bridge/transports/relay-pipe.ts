@@ -57,7 +57,7 @@ import {
   packBatches,
   unpackBatch,
   type NoiseInitiator,
-} from "../../lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import {
   CLOSE_IDLE,
   CLOSE_LIMIT,
@@ -66,7 +66,7 @@ import {
   HEARTBEAT_PING,
   HEARTBEAT_PONG,
   MAX_RELAY_PAYLOAD_BYTES,
-} from "../../lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 import { CLOSE_KEY_MISMATCH, type Pipe, type PipeConnection } from "./ws";
 
 /**

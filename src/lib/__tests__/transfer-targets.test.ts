@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { BridgeTransport } from "../../bridge/client";
 import { recordPairingHello, upsertPairing } from "../../bridge/pairings";
 import { servers } from "../../bridge/server-set";
-import { base64urlEncode } from "../relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import type { HostStatusInfo } from "../../store/host-store";
 import {
   disambiguateHostLabels,

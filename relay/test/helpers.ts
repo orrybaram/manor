@@ -1,7 +1,7 @@
 /** Test clients for the relay: a queued WebSocket and a host that signs in. */
 import { SELF } from "cloudflare:test";
 
-import { OP_ACK } from "../../src/lib/relay-crypto/protocol";
+import { OP_ACK } from "@manor/protocol/relay-crypto/protocol";
 import {
   base64urlDecode,
   base64urlEncode,
@@ -9,7 +9,7 @@ import {
   roomIdFor,
   signHostChallenge,
   type RelayIdentity,
-} from "../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 
 type Message = string | ArrayBuffer;
 

@@ -52,7 +52,7 @@ import {
   roomIdFor,
   signHostChallenge,
   type RelayIdentity,
-} from "../../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import {
   CLOSE_AUTH_FAILED,
   CLOSE_REPLACED,
@@ -67,7 +67,7 @@ import {
   OP_OPEN,
   RELAY_ACK_BYTES,
   RELAY_HEADER_BYTES,
-} from "../../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
 import { RelayChannel } from "./channel";
 import { wipe } from "./wipe";

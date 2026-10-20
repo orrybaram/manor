@@ -32,7 +32,7 @@ import {
   base64urlDecode,
   base64urlEncode,
   verifyHostChallenge,
-} from "../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import {
   CLOSE_AUTH_FAILED,
   CLOSE_AUTH_TIMEOUT,
@@ -62,7 +62,7 @@ import {
   RELAY_CLOSE_WITH_CODE_BYTES,
   RELAY_HEADER_BYTES,
   STALE_AFTER_MS,
-} from "../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 import type { Env } from "./env";
 
 type HostAttachment =

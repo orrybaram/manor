@@ -22,7 +22,7 @@ import type { RemoteDeviceStore } from "../devices";
 import type { PushManager } from "../push";
 import type { RelayConnector } from "../relay/connector";
 import type { RelayIdentityStore } from "../relay/identity";
-import { base64urlEncode } from "../../../src/lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));

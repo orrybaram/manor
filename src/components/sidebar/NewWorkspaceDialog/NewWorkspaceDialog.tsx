@@ -47,7 +47,7 @@ import {
   shouldSuggest,
   type SuggestSnapshot,
 } from "./folder-suggestion";
-import type { FolderPick } from "../../../lib/jev-protocol";
+import type { FolderPick } from "@manor/protocol/jev-protocol";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 

@@ -7,7 +7,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { base64urlEncode } from "../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import type { ElectronAPI } from "../../electron";
 import { PAIRINGS_KEY } from "../pairings";
 import { desktopKey, FakeRelaySocket } from "./fake-relay";

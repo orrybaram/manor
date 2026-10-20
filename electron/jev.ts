@@ -11,8 +11,8 @@
  * a suggestion that is late is worth nothing.
  */
 
-import type { JevAnswer, JevPayload } from "../src/lib/jev-protocol";
-import { base64urlEncode, signJevRequest } from "../src/lib/relay-crypto";
+import type { JevAnswer, JevPayload } from "@manor/protocol/jev-protocol";
+import { base64urlEncode, signJevRequest } from "@manor/protocol/relay-crypto";
 import { EncryptionUnavailableError } from "./platform/sealed-store";
 import { RelayIdentityStore } from "./remote-control/relay/identity";
 import { wipe } from "./remote-control/relay/wipe";

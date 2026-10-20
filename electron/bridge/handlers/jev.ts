@@ -7,7 +7,7 @@
  * hands back only the pick, so it crosses like any other read.
  */
 
-import type { FolderPick } from "../../../src/lib/jev-protocol";
+import type { FolderPick } from "@manor/protocol/jev-protocol";
 import { assertString } from "../../ipc-validate";
 import {
   buildFolderQuestion,

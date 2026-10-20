@@ -1,7 +1,7 @@
 import { SELF, env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { WEB_CSP } from "../../src/lib/web-headers";
+import { WEB_CSP } from "@manor/protocol/web-headers";
 
 const ORIGIN = "https://relay.test";
 

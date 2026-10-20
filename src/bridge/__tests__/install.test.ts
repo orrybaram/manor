@@ -17,7 +17,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import type { ManorHost } from "../../electron";
-import { base64urlEncode } from "../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import { desktopKey, FakeRelaySocket } from "./fake-relay";
 
 function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {

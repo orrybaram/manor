@@ -32,7 +32,7 @@ import {
   CLOSE_IDLE,
   HEARTBEAT_INTERVAL_MS,
   MAX_RELAY_PAYLOAD_BYTES,
-} from "../../lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 import { desktopKey, FakeRelaySocket, type Frame } from "./fake-relay";
 
 function last(frames: Frame[]): Frame {

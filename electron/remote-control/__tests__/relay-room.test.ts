@@ -12,7 +12,7 @@ import type { RelayConnector } from "../relay/connector";
 import type { RelayIdentityStore } from "../relay/identity";
 import { RelayRoom } from "../relay-room";
 import { parseFragment } from "../../../src/bridge/web-pairing";
-import { base64urlEncode } from "../../../src/lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));

@@ -8,7 +8,7 @@ import {
   OP_DATA,
   OP_OPEN,
   RELAY_HEADER_BYTES,
-} from "../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto/protocol";
 import {
   createWorkspace,
   expect,

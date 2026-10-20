@@ -20,13 +20,13 @@ import {
   JEV_OPTION_KEY_PATTERN,
   JEV_STATE_MAX_CHARS,
   type JevPayload,
-} from "../../src/lib/jev-protocol";
+} from "@manor/protocol/jev-protocol";
 import {
   base64urlDecode,
   isPlainObject,
   roomIdFor,
   verifyJevRequest,
-} from "../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import type { Env } from "./env";
 
 export const JEV_MODEL = "jev-1.13.0";

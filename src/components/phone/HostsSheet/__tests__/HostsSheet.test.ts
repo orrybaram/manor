@@ -17,7 +17,7 @@ vi.hoisted(() => {
   };
 });
 
-import { base64urlEncode } from "../../../../lib/relay-crypto";
+import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import type { BridgeTransport } from "../../../../bridge/client";
 import { declinePairing, listPairings, upsertPairing } from "../../../../bridge/pairings";
 import { servers } from "../../../../bridge/server-set";

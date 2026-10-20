@@ -5,7 +5,7 @@ import {
   generateRelayIdentity,
   verifyJevRequest,
   type RelayIdentity,
-} from "../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import { JevClient } from "./jev";
 import { EncryptionUnavailableError } from "./platform/sealed-store";
 import type { RelayIdentityStore } from "./remote-control/relay/identity";

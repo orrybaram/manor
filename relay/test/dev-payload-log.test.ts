@@ -1,8 +1,8 @@
 import { SELF, env } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { base64urlDecode } from "../../src/lib/relay-crypto";
-import { OP_DATA, OP_OPEN } from "../../src/lib/relay-crypto/protocol";
+import { base64urlDecode } from "@manor/protocol/relay-crypto";
+import { OP_DATA, OP_OPEN } from "@manor/protocol/relay-crypto/protocol";
 import { DEV_PAYLOAD_LOG_PREFIX, devPayloadLogEnabled } from "../src/room";
 import {
   TestSocket,

@@ -66,7 +66,7 @@ import {
   FakeRelay,
   FakeViewer,
 } from "../../remote-control/relay/__tests__/fake-relay";
-import { base64urlDecode } from "../../../src/lib/relay-crypto";
+import { base64urlDecode } from "@manor/protocol/relay-crypto";
 import { WebSocket as WsWebSocket, type ClientOptions } from "ws";
 import { FrameDecoder, MSG, encodeFrame } from "../../terminal-host/pty-subprocess-ipc";
 

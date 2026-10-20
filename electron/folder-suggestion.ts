@@ -6,7 +6,7 @@ import {
   JEV_STATE_MAX_CHARS,
   type FolderPick,
   type JevPayload,
-} from "../src/lib/jev-protocol";
+} from "@manor/protocol/jev-protocol";
 import type { ProjectInfo, WorkspaceFolder } from "./projects/types";
 
 /** The reserved option for "none of the folders fit". */

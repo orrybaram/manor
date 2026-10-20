@@ -1,4 +1,4 @@
-import type { FolderPick } from "../../../lib/jev-protocol";
+import type { FolderPick } from "@manor/protocol/jev-protocol";
 
 /** The folder the dialog has, and the suggestion it came from, if any. */
 export type FolderChoice = {

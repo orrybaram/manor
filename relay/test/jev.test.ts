@@ -5,7 +5,7 @@ import {
   base64urlEncode,
   signJevRequest,
   type RelayIdentity,
-} from "../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import { INSTRUCTIONS, JEV_MODEL, handleJevFolder } from "../src/jev";
 import { freshIp, newIdentity } from "./helpers";
 

@@ -19,7 +19,7 @@ import {
   generateRelayIdentity,
   roomIdFor,
   type RelayIdentity,
-} from "../../../src/lib/relay-crypto";
+} from "@manor/protocol/relay-crypto";
 import { lazy, type Lazy } from "../../lib/lazy";
 import { relayIdentityFile } from "../../paths";
 import type { SecretBox } from "../../platform/secret-box";

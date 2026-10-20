@@ -39,8 +39,8 @@ import {
   packBatches,
   unpackBatch,
   type NoiseResponder,
-} from "../../../src/lib/relay-crypto";
-import { PASSTHROUGH_CLOSE_CODES } from "../../../src/lib/relay-crypto/protocol";
+} from "@manor/protocol/relay-crypto";
+import { PASSTHROUGH_CLOSE_CODES } from "@manor/protocol/relay-crypto/protocol";
 import type { FrameSocket } from "../../bridge/transports/frame-socket";
 
 /** The desktop has this long after `OP_OPEN` to finish the Noise handshake. */

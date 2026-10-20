@@ -9,7 +9,7 @@ Electron + TypeScript desktop app for running coding agents in terminal panes. U
 
 ## Larger features
 
-Plan before coding and put the agreed plan in the GitHub issue or PR body, not in the repo: the files to touch, what's out of scope, and how to verify it end to end. Rationale lives in issues and PRs.
+Use the `feature` skill for anything bigger than a quick fix. Specs are throwaway; rationale lives in issues and PRs, not in the repo.
 
 ## Git
 

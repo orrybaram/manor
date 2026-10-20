@@ -243,6 +243,12 @@ async function main(opts) {
       return;
     }
 
+    // A headless `claude --print` run from inside the pane (a script the
+    // agent ran, say) inherits MANOR_PANE_ID. It is not the pane's agent:
+    // its SessionStart would replace the pane's root session and point the
+    // chat at its one-prompt transcript.
+    if ((env.CLAUDE_CODE_ENTRYPOINT || "").startsWith("sdk")) return;
+
     const target = resolveHookTarget(env, homeDir);
     if (!target) {
       stderr.write(

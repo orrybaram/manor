@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.22.12] - 2026-10-20
+
+### Fixes
+
+- Running a headless `claude --print` from inside an agent's pane no longer replaces that pane's session. Before, the agent got stuck on "Thinking", lost its pane, and the phone chat stopped following its transcript, even though the terminal still showed the full history.
+
 ## [0.22.11] - 2026-10-20
 
 ### Fixes

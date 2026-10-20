@@ -13,13 +13,14 @@ import path from "node:path";
 if (process.platform !== "darwin") process.exit(0);
 
 const ROOT = path.resolve(import.meta.dirname, "..");
+const REPO_ROOT = path.resolve(ROOT, "../..");
 const ELECTRON_DIR = path.join(ROOT, "node_modules/electron");
 const DIST = path.join(ELECTRON_DIR, "dist");
 const PLIST = path.join(DIST, "Electron.app/Contents/Info.plist");
 
 function getBranch() {
   try {
-    const gitPath = path.join(ROOT, ".git");
+    const gitPath = path.join(REPO_ROOT, ".git");
     const stat = fs.statSync(gitPath);
 
     let headPath;
@@ -32,7 +33,7 @@ function getBranch() {
       if (!m) return null;
       const gitdir = path.isAbsolute(m[1])
         ? m[1]
-        : path.resolve(ROOT, m[1]);
+        : path.resolve(REPO_ROOT, m[1]);
       headPath = path.join(gitdir, "HEAD");
     }
 

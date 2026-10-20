@@ -43,10 +43,10 @@ vite.config.js
 vite.config.d.ts
 
 # Playwright e2e screenshots and logs
-tests/e2e/artifacts/
+apps/desktop/tests/e2e/artifacts/
 
 # Claude Code agent worktrees
 .claude/worktrees/
 
-# Renderer profiles captured by scripts/profile-renderer.mjs
+# Renderer profiles captured by apps/desktop/scripts/profile-renderer.mjs
 *.cpuprofile

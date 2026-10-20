@@ -25,8 +25,8 @@ import path from "path";
  * readable form.
  */
 
-const repoRoot = path.join(__dirname, "../../..");
-const relayDir = path.join(repoRoot, "relay");
+const appRoot = path.join(__dirname, "../../..");
+const relayDir = path.join(appRoot, "../relay");
 const wranglerBin = path.join(
   relayDir,
   "node_modules",
@@ -49,14 +49,14 @@ const READY_TIMEOUT_MS = 90_000;
 /** The version `package.json` names — the one the desktop under test runs. */
 export function appVersion(): string {
   const pkg = JSON.parse(
-    fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"),
+    fs.readFileSync(path.join(appRoot, "package.json"), "utf8"),
   ) as { version: string };
   return pkg.version;
 }
 
 /** `pnpm build:web:relay`'s output for `version`. */
 export function relayWebBuildDir(version = appVersion()): string {
-  return path.join(repoRoot, "dist-relay-web", version);
+  return path.join(appRoot, "dist-relay-web", version);
 }
 
 export interface ForwardedPayload {

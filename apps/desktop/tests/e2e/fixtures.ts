@@ -10,7 +10,7 @@ import {
   type Page,
 } from "@playwright/test";
 
-const repoRoot = path.join(__dirname, "../..");
+const appRoot = path.join(__dirname, "../..");
 
 export const test = base.extend<{
   app: ElectronApplication;
@@ -190,7 +190,7 @@ export interface LaunchOptions {
    */
   env?: Record<string, string>;
   /**
-   * Launch the repo root as the app rather than `dist-electron/main.js`
+   * Launch the package directory as the app rather than `dist-electron/main.js`
    * directly. Same code either way; the difference is that Electron reads the
    * root `package.json`, so `app.getVersion()` is Manor's version — as it is
    * in a packaged build and under `pnpm dev` — instead of Electron's own.
@@ -255,8 +255,8 @@ export async function launchApp(
 
   const app = await _electron.launch({
     args: [
-      // The repo root's package.json names the same `dist-electron/main.js`.
-      asPackage ? repoRoot : path.join(repoRoot, "dist-electron/main.js"),
+      // The app root's package.json names the same `dist-electron/main.js`.
+      asPackage ? appRoot : path.join(appRoot, "dist-electron/main.js"),
       // Electron's userData — localStorage, IndexedDB, session storage —
       // defaults to ~/Library/Application Support/Electron regardless of HOME.
       // Left there, a run would see what the previous one persisted in the
@@ -264,7 +264,7 @@ export async function launchApp(
       `--user-data-dir=${path.join(tempHome, "user-data")}`,
     ],
     env: { ...env, ...extraEnv, HOME: tempHome },
-    cwd: repoRoot,
+    cwd: appRoot,
     recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
   });
   // Linux: a temp HOME has no keyring, so safeStorage falls back to its

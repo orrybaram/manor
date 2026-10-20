@@ -17,7 +17,7 @@ import {
  * that opens the web app runs one: `wrangler dev` on a port of its own
  * (`./relay.ts`), its local R2 seeded with this checkout's
  * `pnpm build:web:relay` output, and the app launched with `MANOR_RELAY_URL`
- * pointing at it — and as the repo root (`asPackage`), so it reports Manor's
+ * pointing at it — and as the app root (`asPackage`), so it reports Manor's
  * version, which every pairing link and hello names.
  *
  * Needs Node >= 22 on PATH (wrangler's floor) and `dist-relay-web/`; the

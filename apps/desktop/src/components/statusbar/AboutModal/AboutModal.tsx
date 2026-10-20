@@ -3,7 +3,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ManorLogo } from "../../ui/ManorLogo";
 import { Link } from "../../ui/Link/Link";
-import changelogSource from "../../../../CHANGELOG.md?raw";
+import changelogSource from "../../../../../../CHANGELOG.md?raw";
 import styles from "./AboutModal.module.css";
 
 /**

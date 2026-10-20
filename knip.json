@@ -3,6 +3,11 @@
   "workspaces": {
     ".": {
       "entry": [
+        "scripts/*.mjs"
+      ]
+    },
+    "apps/desktop": {
+      "entry": [
         "index.html",
         "src/web/sw.ts",
         "src/web.html",
@@ -39,7 +44,7 @@
         ]
       }
     },
-    "relay": {
+    "apps/relay": {
       "entry": [
         "test/**/*.test.ts"
       ],

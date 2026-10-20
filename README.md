@@ -142,6 +142,16 @@ pnpm install
 pnpm dev
 ```
 
+Run every command from the repo root. It is a pnpm workspace:
+
+| Path | What lives there |
+| --- | --- |
+| `apps/desktop` | The Electron app: `src/` (renderer), `electron/` (main process, daemon, host server, CLI), `tests/`, build resources, the host Docker image |
+| `apps/relay` | The Cloudflare Worker that pairs phones and serves the web app |
+| `packages/protocol` | `@manor/protocol`: relay crypto and wire formats, shared by the desktop app and the relay |
+| `docs/` | Research notes and reports |
+| `scripts/release.mjs` | `pnpm release` |
+
 <br />
 
 ## Agent CLI
@@ -176,7 +186,7 @@ Then run:
 pnpm package
 ```
 
-The output will be in the `dist/` directory.
+The output will be in the `apps/desktop/dist/` directory.
 
 <br />
 
@@ -190,7 +200,7 @@ The E2E suite covers pane lifecycle smoke tests using Playwright:
 pnpm test:e2e
 ```
 
-Runs a full `vite build` first; expect 30–60s per run. See `tests/e2e/README.md` for details on adding new tests.
+Runs a full `vite build` first; expect 30–60s per run. See `apps/desktop/tests/e2e/README.md` for details on adding new tests.
 
 The remote-host suite runs against a real sshd and is skipped by default; see [Remote hosts → Testing](docs/remote-hosts.md#testing).
 

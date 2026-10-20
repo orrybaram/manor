@@ -74,9 +74,11 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
-      # The tarball takes its version from package.json, as the release job's does.
+      # The tarball takes its version from apps/desktop/package.json, as the
+      # release job's does.
       - name: Sync version from tag
-        run: pnpm pkg set version="$VERSION"
+        working-directory: apps/desktop
+        run: npm pkg set version="$VERSION"
 
       - name: Install dependencies
         run: pnpm install
@@ -85,8 +87,8 @@ jobs:
         run: |
           set -euo pipefail
           pnpm run build
-          node scripts/build-host-tarball.mjs
-          cp "dist-electron/manor-host-$VERSION.tgz" docker/host-image/prebuilt/
+          node apps/desktop/scripts/build-host-tarball.mjs
+          cp "apps/desktop/dist-electron/manor-host-$VERSION.tgz" apps/desktop/docker/host-image/prebuilt/
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -104,7 +106,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          context: docker/host-image
+          context: apps/desktop/docker/host-image
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
@@ -134,9 +136,8 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Sync version from tag
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          pnpm pkg set version="$VERSION"
+        working-directory: apps/desktop
+        run: npm pkg set version="${GITHUB_REF_NAME#v}"
 
       - name: Install dependencies
         run: pnpm install
@@ -174,7 +175,7 @@ jobs:
           security find-identity -v -p codesigning "$KEYCHAIN"
 
       - name: Build and publish
-        run: pnpm run build && node scripts/build-host-tarball.mjs && pnpm exec electron-builder --publish always
+        run: pnpm run build && node apps/desktop/scripts/build-host-tarball.mjs && pnpm --filter manor exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -198,7 +199,7 @@ jobs:
             exit 0
           fi
           pnpm run build:web:relay
-          node scripts/upload-web-relay.mjs --remote
+          node apps/desktop/scripts/upload-web-relay.mjs --remote
           pnpm run relay:deploy
 
   # Un-drafts the release only once the app (release) and the host image

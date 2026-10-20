@@ -161,7 +161,7 @@ export class FakeRelaySocket {
 
   /**
    * The desktop closed this channel with `OP_CLOSE`, optionally carrying a
-   * bridge close code; like `relay/src/room.ts`, only allow-listed codes
+   * bridge close code; like `apps/relay/src/room.ts`, only allow-listed codes
    * reach the browser and anything else is a normal close.
    */
   hostClose(code?: number): void {

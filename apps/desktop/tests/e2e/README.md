@@ -325,7 +325,7 @@ the hello reply both name it.
   when the `node` on PATH is too old. `pnpm test:e2e:relay` also runs
   `pnpm build:web:relay`; `pnpm e2e:relay` expects that output to exist.
 - **Blindness.** The relay runs with `--var RELAY_DEV_PAYLOAD_LOG:1`, and the
-  room prints every payload it forwards (`relay/src/room.ts`). That only
+  room prints every payload it forwards (`apps/relay/src/room.ts`). That only
   happens with the var set *and* a request addressed to loopback, so a deploy
   cannot have it on by accident. The spec's first test is the control: raw,
   unencrypted sockets push a plaintext canary through and the log must show

@@ -1,6 +1,6 @@
 /**
  * An in-process relay over a real `ws` server, implementing the
- * room protocol of `relay/src/room.ts` closely enough that what the
+ * room protocol of `apps/relay/src/room.ts` closely enough that what the
  * connector does against it is what it does against the Worker: text
  * challenge/auth/ok, binary `[op, ch_hi, ch_lo, ...payload]`, host
  * replacement (4409, and the old host's viewers go), `OP_DATA` to an unknown

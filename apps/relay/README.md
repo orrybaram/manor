@@ -119,7 +119,7 @@ TYPESAFE_API_KEY`. It never goes in `wrangler.toml`; until it is set,
   served at `relay.manor.sh` as a custom domain (`routes` in `wrangler.toml`),
   so `wrangler deploy` creates the DNS record and certificate; there is no
   record to add by hand. The desktop's `DEFAULT_RELAY_URL` in
-  `electron/remote-control/relay/connector.ts` names the same origin.
+  `apps/desktop/electron/remote-control/relay/connector.ts` names the same origin.
 
 ## Local development
 
@@ -148,4 +148,4 @@ pnpm test:e2e:relay    # builds, then drives a real desktop and browser through 
 ```
 
 `relay:test` runs under Node 20 (vitest-pool-workers hosts workerd itself); the
-e2e spawns the wrangler CLI, so it needs Node >= 22 on `PATH`. See `tests/e2e/README.md` for the e2e fixture.
+e2e spawns the wrangler CLI, so it needs Node >= 22 on `PATH`. See `apps/desktop/tests/e2e/README.md` for the e2e fixture.

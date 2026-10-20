@@ -1,7 +1,7 @@
 /**
  * The `POST /jev/folder` contract, shared by the desktop that
- * builds the request (`electron/folder-suggestion.ts`, `electron/jev.ts`) and
- * the relay worker that checks it (`relay/src/jev.ts`). A limit changed here
+ * builds the request (`apps/desktop/electron/folder-suggestion.ts`, `apps/desktop/electron/jev.ts`) and
+ * the relay worker that checks it (`apps/relay/src/jev.ts`). A limit changed here
  * changes on both sides, so the desktop never sends what the worker refuses.
  */
 

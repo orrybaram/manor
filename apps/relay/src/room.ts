@@ -18,7 +18,7 @@
  * otherwise looks present to every join. A join that finds its host stale
  * drops it and is refused `CLOSE_NO_HOST`, without waiting for the sweep.
  *
- * **The dev payload log.** The relay e2e (`tests/e2e/relay.spec.ts`) proves
+ * **The dev payload log.** The relay e2e (`apps/desktop/tests/e2e/relay.spec.ts`) proves
  * the room is blind by reading every payload it forwarded and finding
  * neither the typed marker nor the device token in any of them. So the room
  * can print each forwarded payload, base64, one `console.log` line apiece —

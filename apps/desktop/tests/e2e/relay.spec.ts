@@ -49,7 +49,7 @@ import {
  * enabled, the relay started and the device paired through Settings, and the
  * browser is an ordinary Playwright page opened on the pairing link.
  *
- * **Blindness.** The relay runs with its dev payload log on (`relay/src/room.ts`,
+ * **Blindness.** The relay runs with its dev payload log on (`apps/relay/src/room.ts`,
  * `devPayloadLogEnabled`: a var only `wrangler dev --var` sets, and only for
  * requests addressed to loopback), so every payload it forwarded is in
  * wrangler's output. The marker typed into the terminal and the device

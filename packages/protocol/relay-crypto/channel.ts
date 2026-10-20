@@ -16,7 +16,7 @@ import {
 
 /**
  * Largest frame a viewer sends (browser → desktop), matching the bridge's
- * inbound `MAX_FRAME_BYTES` cap in `electron/bridge/transports/ws.ts`.
+ * inbound `MAX_FRAME_BYTES` cap in `apps/desktop/electron/bridge/transports/ws.ts`.
  */
 export const MAX_FRAME_BYTES = 1024 * 1024;
 

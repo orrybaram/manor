@@ -1,7 +1,7 @@
 /**
  * Jev, provided by Manor through the relay.
  *
- * The TypeSafe key lives on the relay Worker (`relay/src/jev.ts`), which
+ * The TypeSafe key lives on the relay Worker (`apps/relay/src/jev.ts`), which
  * owns the model, question type and instructions; this side sends only the
  * data. Each request is signed with the desktop's relay identity, the same
  * key file remote control uses, so the worker can rate-limit per identity.

@@ -112,7 +112,7 @@ export const CLOSE_LIMIT = 4429;
  * (no hello, bad or revoked token), which the page treats as "forget
  * credentials", and 4403 — reserved, not sent. 4403 meant "capability below
  * `full`" until the tiers were removed; it stays listed (and stays
- * `CLOSE_FORBIDDEN` in `electron/bridge/types.ts`) so the code is never
+ * `CLOSE_FORBIDDEN` in `apps/desktop/electron/bridge/types.ts`) so the code is never
  * reused for something an older page would misread. Anything else reaches
  * the viewer as `CLOSE_NORMAL`.
  */

@@ -68,7 +68,7 @@ export function buildFolderQuestion(
         .map((ws) => ws.name || ws.branch),
     }));
 
-  // The instructions text lives in `relay/src/jev.ts`; only data goes from here.
+  // The instructions text lives in `apps/relay/src/jev.ts`; only data goes from here.
   const state: JevPayload["state"] = {
     workspaceName: name.slice(0, JEV_STATE_MAX_CHARS.workspaceName),
   };

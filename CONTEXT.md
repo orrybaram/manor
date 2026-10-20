@@ -93,7 +93,7 @@ _Avoid_: backend, cloud, remote
 
 **Host server**:
 The headless **Manor server** on a remote **Host** (`manor-host serve`,
-`electron/host-server/`). It is the authority for its host: projects, workspaces,
+`apps/desktop/electron/host-server/`). It is the authority for its host: projects, workspaces,
 layout and agents.
 _Avoid_: remote server, box server, cloud server, the daemon. "Remote" alone is
 ambiguous: say **remote host** / **host server** for another machine, **paired device**
@@ -151,9 +151,9 @@ remote host right now. A host's data never arrives through two sources at once.
 _Avoid_: connections, bridges, proxy, dispatcher, upstream
 
 **Host surface**:
-The handler table (`electron/bridge/handlers.ts`), keyed `ns.method`. An unplaced
+The handler table (`apps/desktop/electron/bridge/handlers.ts`), keyed `ns.method`. An unplaced
 method is a compile error.
-_Avoid_: API, route table (that is `electron/routes/`)
+_Avoid_: API, route table (that is `apps/desktop/electron/routes/`)
 
 **Transport**:
 How a frame reaches the host surface (IPC or WebSocket). Never where behaviour lives.

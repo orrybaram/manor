@@ -35,7 +35,7 @@ function plain(status: number, body: string): Response {
 /**
  * Semver: 1.2.3, 1.2.3-beta.1, 1.2.3+build.5, 1.2.3-rc.1+sha.abc. Anything a
  * desktop can put in its hello's `appVersion` and the page will redirect to
- * (`src/bridge/web-pairing.ts`) must pass here, or the redirect lands on a
+ * (`apps/desktop/src/bridge/web-pairing.ts`) must pass here, or the redirect lands on a
  * bare 404 instead of the "not published" page. No dots-only or slash tricks.
  */
 const VERSION_PATTERN =

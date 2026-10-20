@@ -18,7 +18,7 @@ import path from "path";
  *
  * **The dev payload log.** The relay is started with
  * `--var RELAY_DEV_PAYLOAD_LOG:1`, and the room prints every payload it
- * forwards (`relay/src/room.ts`, `devPayloadLogEnabled`) to wrangler's stdout,
+ * forwards (`apps/relay/src/room.ts`, `devPayloadLogEnabled`) to wrangler's stdout,
  * which this fixture appends — along with everything else wrangler says — to
  * `logFile`. `payloads()` reads the forwarded payloads back out of it, so a
  * test can show that nothing it typed, and no token, crossed the relay in a
@@ -40,7 +40,7 @@ const wranglerBin = path.join(
  */
 const WEB_BUCKET = "manor-relay-web-dev";
 
-/** Mirrors `DEV_PAYLOAD_LOG_PREFIX` in `relay/src/room.ts`. */
+/** Mirrors `DEV_PAYLOAD_LOG_PREFIX` in `apps/relay/src/room.ts`. */
 const DEV_PAYLOAD_LOG_PREFIX = "[relay-dev-payload]";
 
 /** How long wrangler gets to come up (it bundles the Worker first). */

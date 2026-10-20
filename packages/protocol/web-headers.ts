@@ -1,7 +1,7 @@
 /**
  * Headers for serving the web app, shared by the relay Worker
- * (`relay/src/index.ts`) — the only server the web app has since
- * And `vite.web.config.ts`. Dependency-free on purpose: the Worker
+ * (`apps/relay/src/index.ts`) — the only server the web app has since
+ * And `apps/desktop/vite.web.config.ts`. Dependency-free on purpose: the Worker
  * cannot import Node modules.
  */
 

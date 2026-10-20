@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.22.11] - 2026-10-20
+
+### Fixes
+
+- Phone: If you open the app while your desktop is unreachable, it reopens the workspace you had open once it connects. Before, it stayed on the new-agent screen instead of showing the chat you had open.
+
 ## [0.22.10] - 2026-10-20
 
 ### Fixes

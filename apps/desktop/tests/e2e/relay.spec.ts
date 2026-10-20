@@ -348,14 +348,14 @@ test.describe("relay", () => {
       await client.page.setViewportSize({ width: 1280, height: 800 });
 
       // 4. Turning remote control off stops the relay: the room has no host, says 4404,
-      // and the page says "not reachable" over the app, not a frozen app.
-      const unreachable = client.page.getByTestId("web-app-unreachable");
+      // and the page says "Reconnecting" over the app, not a frozen app.
+      const unreachable = client.page.getByTestId("web-app-reconnecting");
       await stopRelay(window);
       await expect(unreachable).toBeVisible({ timeout: 30_000 });
       await film.shot(client.page, "browser-not-reachable");
 
       // Turning it on again: the browser finds its way back on its own — no
-      // click on "Try again now", no reload.
+      // tap on Retry, no reload.
       await startRelay(window);
       await closeSettings(window);
       await expect(unreachable).toHaveCount(0, { timeout: 60_000 });

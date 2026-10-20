@@ -39,6 +39,8 @@ function FullPageMessage(props: {
       role={props.overlay ? "alertdialog" : undefined}
       aria-modal={props.overlay ? true : undefined}
       aria-labelledby={props.labelledBy}
+      // Opts out of the phone's dialog clamp (`Phone.module.css`).
+      data-full-page
       className={styles.page}
     >
       <div className={styles.content}>{props.children}</div>
@@ -127,7 +129,8 @@ function PairingList(): JSX.Element | null {
  * 4429 (too many viewers, or today's budget is spent), or stopped answering.
  * Not a refusal — the credentials are kept and the bridge keeps dialling with
  * backoff — so this covers the app rather than replacing it, and disappears
- * on the next hello without the app below losing its state.
+ * on the next hello without the app below losing its state. Only for a page
+ * that never connected: a later drop is `ReconnectingPill`.
  *
  * A host reached only through a desktop is not listed: with the desktop
  * away it is away too. The Hosts sheet offers to connect to it directly.
@@ -160,31 +163,128 @@ export function UnreachableScreen(props: { onRetry: () => void }): JSX.Element {
 }
 
 /**
- * How long the page must stay unreachable before the screen covers it. A
- * phone back from the background often finds its sockets dead and redials
- * each within a second or two; a load can see the same. Neither should
- * flash a full-page error.
+ * How long the page must stay unreachable before it says so. A phone back
+ * from the background often finds its sockets dead and redials each within
+ * a second or two; that should not flash anything.
  */
 export const UNREACHABLE_SHOW_AFTER_MS = 3_000;
 
-/** `UnreachableScreen` once the bridge has said so for a moment, and nothing otherwise. */
+/**
+ * The same, before the page has ever connected. A cold start often hears the
+ * relay's "no host" once or twice while the desktop's own relay socket comes
+ * back, then connects on the next redial; until then it is loading, not
+ * broken.
+ */
+export const FIRST_CONNECT_SHOW_AFTER_MS = 10_000;
+
+/**
+ * Over the app until the page first connects: a skeleton of the phone shell,
+ * then `UnreachableScreen` if that takes too long. After that, a drop is a
+ * small "Reconnecting" pill once the bridge has said "unreachable" for a
+ * moment, so a chat mid-read stays on screen.
+ */
 export function ReachabilityOverlay(props: {
   subscribe: (cb: () => void) => () => void;
   getSnapshot: () => "unknown" | "connected" | "unreachable";
   onRetry: () => void;
 }): JSX.Element | null {
   const status = useSyncExternalStore(props.subscribe, props.getSnapshot);
+  const [everConnected, setEverConnected] = useState(false);
+  if (status === "connected" && !everConnected) setEverConnected(true);
+
+  if (status === "connected") return null;
+  if (!everConnected) {
+    // Mounted on the first "unreachable", so the wait counts from there.
+    return status === "unreachable" ? (
+      <DelayedUnreachable
+        delayMs={FIRST_CONNECT_SHOW_AFTER_MS}
+        pending={<ConnectingSkeleton />}
+        onRetry={props.onRetry}
+      />
+    ) : (
+      <ConnectingSkeleton />
+    );
+  }
   // Mounted per spell of unreachability, so each one waits afresh.
-  return status === "unreachable" ? <DelayedUnreachable onRetry={props.onRetry} /> : null;
+  return status === "unreachable" ? (
+    <Delayed delayMs={UNREACHABLE_SHOW_AFTER_MS} pending={null}>
+      <ReconnectingPill onRetry={props.onRetry} />
+    </Delayed>
+  ) : null;
 }
 
-function DelayedUnreachable(props: { onRetry: () => void }): JSX.Element | null {
+function DelayedUnreachable(props: {
+  delayMs: number;
+  pending: JSX.Element | null;
+  onRetry: () => void;
+}): JSX.Element | null {
+  return (
+    <Delayed delayMs={props.delayMs} pending={props.pending}>
+      <UnreachableScreen onRetry={props.onRetry} />
+    </Delayed>
+  );
+}
+
+/** `children` once `delayMs` has passed since mount; `pending` until then. */
+function Delayed(props: {
+  delayMs: number;
+  pending: JSX.Element | null;
+  children: JSX.Element;
+}): JSX.Element | null {
+  const { delayMs } = props;
   const [shown, setShown] = useState(false);
   useEffect(() => {
-    const timer = setTimeout(() => setShown(true), UNREACHABLE_SHOW_AFTER_MS);
+    const timer = setTimeout(() => setShown(true), delayMs);
     return () => clearTimeout(timer);
-  }, []);
-  return shown ? <UnreachableScreen onRetry={props.onRetry} /> : null;
+  }, [delayMs]);
+  return shown ? props.children : props.pending;
+}
+
+/**
+ * A dropped connection after the page has been in use: under the top bar,
+ * over the app but not in place of it. The bridge keeps redialling with
+ * backoff; Retry dials now.
+ */
+export function ReconnectingPill(props: { onRetry: () => void }): JSX.Element {
+  return (
+    <div className={styles.pillDock}>
+      <div className={styles.pill} role="status" data-testid="web-app-reconnecting">
+        <span className={styles.spinner} aria-hidden />
+        <span className={styles.pillLabel}>Reconnecting…</span>
+        <Button variant="ghost" size="sm" className={styles.pillRetry} onClick={props.onRetry}>
+          Retry
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+const SKELETON_ROWS = ["70%", "90%", "55%", "80%", "40%"];
+
+/** The phone shell's outline while the first connection is made. */
+export function ConnectingSkeleton(): JSX.Element {
+  return (
+    <div
+      className={styles.skeleton}
+      role="status"
+      aria-label="Connecting to Manor"
+      data-testid="web-app-connecting"
+    >
+      <div className={styles.skeletonBar}>
+        <div className={`${styles.bone} ${styles.boneIcon}`} />
+        <div className={`${styles.bone} ${styles.boneTitle}`} />
+        <div className={`${styles.bone} ${styles.boneIcon}`} />
+      </div>
+      <div className={styles.skeletonBody}>
+        {SKELETON_ROWS.map((width, i) => (
+          <div key={i} className={styles.skeletonRow}>
+            <div className={`${styles.bone} ${styles.boneLine}`} style={{ width }} />
+            <div className={`${styles.bone} ${styles.boneLine}`} style={{ width: "35%" }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 /**

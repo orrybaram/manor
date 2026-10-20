@@ -140,12 +140,15 @@ button.notifyDismiss {
  * with them. Clamping max-width keeps whichever centring a dialog uses —
  * `left: 50%` plus a transform, or `inset: 0; margin: auto` — and only
  * makes it narrower. Phone sheets (`PhoneSheet`) and dialogs that are full
- * screen on a phone already sit inside these bounds. (Portals, hence `:root`.)
+ * screen on a phone already sit inside these bounds. The web app's
+ * full-page screens (`web/screens.tsx`) cover the whole window by design, so
+ * they are left alone too. (Portals, hence `:root`.)
  */
 :global(:root[data-layout="phone"])
   :is([role="dialog"], [role="alertdialog"]):not(
     [data-testid="sidebar-drawer"],
     [data-phone-sheet],
+    [data-full-page],
     [data-testid="pane-switcher"],
     [data-testid="command-palette"],
     [data-testid="settings-modal"]

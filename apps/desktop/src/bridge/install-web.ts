@@ -534,7 +534,7 @@ function syncPairings(): void {
 }
 
 /**
- * "Try again now" on the not-reachable overlay, and a phone that comes back
+ * Retry on the reconnecting pill or the not-reachable screen, and a phone that comes back
  * — unlocked, switched back to, restored from the back-forward cache, or back
  * on a network: dial now rather than sitting out a backoff that grew to 30s
  * while it was away, and probe a socket that still looks open, since iOS

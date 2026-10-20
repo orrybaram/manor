@@ -61,7 +61,7 @@ test("a phone's dropped connection shows unreachable only after the grace, fails
   phoneLink.host = new URL(proxy.url).host;
   const phone = await openWebApp(phoneLink.toString(), { viewport: PHONE });
   const { page } = phone;
-  const overlay = page.getByTestId("web-app-unreachable");
+  const overlay = page.getByTestId("web-app-reconnecting");
   try {
     await expect(page.getByTestId("phone-top-bar")).toBeVisible({
       timeout: 90_000,

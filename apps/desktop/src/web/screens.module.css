@@ -145,8 +145,131 @@
   }
 }
 
+/*
+ * The phone shell's outline before the first connection: a top bar the
+ * height of `PhoneTopBar`'s, then rows where the content will land.
+ */
+.skeleton {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+  background: var(--bg, #1e1e2e);
+}
+
+.skeletonBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 0 12px;
+  flex-shrink: 0;
+  background: var(--dim, #1e1e2e);
+  border-bottom: 1px solid var(--border, #45475a);
+}
+
+.skeletonBody {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 20px 16px;
+}
+
+.skeletonRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bone {
+  background: var(--surface, #313244);
+  border-radius: 4px;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.boneIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.boneTitle {
+  width: 40%;
+  height: 12px;
+}
+
+.boneLine {
+  height: 12px;
+}
+
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
+
+/*
+ * A dropped connection after the page has been in use: a pill over the
+ * middle of the phone's 44px top bar, where only the workspace name is, so
+ * it hides no control and none of the content below. The dock spans the
+ * width only to centre it, so it lets touches through everywhere but the
+ * pill.
+ */
+.pillDock {
+  position: fixed;
+  top: calc(env(safe-area-inset-top) + 6px);
+  left: 0;
+  right: 0;
+  z-index: 10000;
+  display: flex;
+  justify-content: center;
+  padding: 0 16px;
+  pointer-events: none;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 2px 0 12px;
+  border: 1px solid var(--border, #45475a);
+  border-radius: 999px;
+  background: var(--surface, #313244);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.3);
+  color: var(--text-primary, #a6adc8);
+  font: 13px/1.4 system-ui, -apple-system, sans-serif;
+  pointer-events: auto;
+  animation: pill-in 0.2s ease-out;
+}
+
+.pillLabel {
+  white-space: nowrap;
+}
+
+.pillRetry {
+  border-radius: 999px;
+}
+
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .spinner {
+  .pill,
+  .spinner,
+  .bone {
     animation: none;
   }
 }

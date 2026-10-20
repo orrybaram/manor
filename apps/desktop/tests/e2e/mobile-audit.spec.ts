@@ -463,7 +463,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
       proxy.restore();
       const t1 = Date.now();
       await page.evaluate(() => window.dispatchEvent(new Event("online")));
-      await expect(page.getByTestId("web-app-unreachable")).toBeHidden({ timeout: 30_000 });
+      await expect(page.getByTestId("web-app-reconnecting")).toBeHidden({ timeout: 30_000 });
       const marker2 = "back-after-outage";
       await page.evaluate(
         ({ id, m }) => window.__manorTerminals!.get(id)!.term.input(`echo ${m}\r`, true),
@@ -473,7 +473,7 @@ test("phone audit: every phone surface over the relay, throttled", async ({
       report.time("long outage → terminal live again", Date.now() - t1);
 
       report.data.unreachableShownOnDrop = await page
-        .getByTestId("web-app-unreachable")
+        .getByTestId("web-app-reconnecting")
         .isVisible()
         .catch(() => false);
     }

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.22.10] - 2026-10-20
+
+### Fixes
+
+- Phone: The app shows a skeleton while it first connects, and only shows "Can't reach Manor" after 10 s without reaching the desktop. Before, a cold start often covered the app with that screen after 3 s while the desktop was still reconnecting to the relay.
+- Phone: If the connection drops, a small "Reconnecting…" pill with Retry appears in the top bar. Before, a full-page screen covered the chat you were reading.
+- Phone: Full-page screens such as "Can't reach Manor" now fill the whole width. Before, they stopped 24 px short and the app showed through on the right.
+
 ## [0.22.9] - 2026-10-20
 
 ### Features

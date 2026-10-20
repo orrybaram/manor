@@ -402,6 +402,43 @@ describe("agent-hook.js — main()", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("does not call fetch for a headless `claude --print` run inside the pane", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "1234");
+
+    const { fn: fetchFn, calls } = makeFetch();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "SessionStart", session_id: "headless" })),
+      env: { MANOR_PANE_ID: "p", CLAUDE_CODE_ENTRYPOINT: "sdk-cli" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+      stdout: makeStdout(),
+    });
+
+    expect(calls).toHaveLength(0);
+  });
+
+  it("forwards the interactive session's hooks", async () => {
+    fs.mkdirSync(path.join(tmpDir, ".manor"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, ".manor", "hook-port"), "1234");
+
+    const { fn: fetchFn, calls } = makeFetch();
+
+    await agentHook.main({
+      argv: ["node", "agent-hook.js"],
+      stdin: makeStdin(JSON.stringify({ hook_event_name: "Stop", session_id: "root" })),
+      env: { MANOR_PANE_ID: "p", CLAUDE_CODE_ENTRYPOINT: "cli" },
+      homeDir: tmpDir,
+      fetch: fetchFn,
+      stderr: makeStderr(),
+    });
+
+    expect(calls).toHaveLength(1);
+  });
+
   it("does not call fetch when no port is available", async () => {
     const { fn: fetchFn, calls } = makeFetch();
     const stderr = makeStderr();

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.22.9] - 2026-10-20
+
+### Features
+
+- Phone: The new-agent composer now has an attach button and accepts pasted images, so you can include images when you start an agent. They upload to the host the agent will run on.
+
+### Fixes
+
+- Phone: The new-agent and New Workspace host pickers now offer a host the phone reaches directly. Before, it showed greyed out as "host key not trusted" whenever the desktop's own ssh to that host failed.
+- Phone: A new agent's chat now shows its launch prompt, with the thinking timer, while the agent starts. Before, it said "New conversation" even when a prompt was on its way.
+- Phone: New chat entries no longer pull you down while you've scrolled up to read. The chat follows new entries again once you scroll back to the bottom.
+- Phone: A project linked across hosts now shows its agents once in the agents drawer, as it does in the sidebar. Before, they were grouped twice under the same name.
+
 ## [0.22.8] - 2026-10-18
 
 ### Features

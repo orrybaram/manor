@@ -2,6 +2,7 @@
   "name": "manor",
   "private": true,
   "version": "0.22.8",
+  "repository": "github:orrybaram/manor",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "node scripts/patch-electron-name.mjs && vite",

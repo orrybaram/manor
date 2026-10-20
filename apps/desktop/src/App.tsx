@@ -51,14 +51,12 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
-  getPersistedActiveWorkspacePath,
   OWN_CLAIM,
-  resyncLayout,
 } from "./store/app-store";
 import { useProjectStore, type ProjectInfo } from "./store/project-store";
 import { ownerOf } from "./lib/workspace-directory";
 import { workspaceDisplayName } from "./lib/workspace-display-name";
-import { parseWorkspaceKey, type WorkspaceKey } from "./lib/workspace-key";
+import { type WorkspaceKey } from "./lib/workspace-key";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -81,6 +79,7 @@ import { findPanelWithTab } from "./lib/layout/workspace-layout";
 import { PanelLayout } from "./components/panels/PanelLayout";
 import { useThemeStore, startThemeSync } from "./store/theme-store";
 import { onBridgeResync } from "./bridge/resync";
+import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
 import { startAgentActivitySync } from "./store/agent-activity-store";
@@ -96,7 +95,7 @@ import {
 } from "./hooks/useNavigationHistory";
 import { resumeAgent } from "./lib/agent-resume";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
-import { isHomePath, HOME_PATH } from "./lib/home";
+import { isHomePath } from "./lib/home";
 import { isWebApp } from "./lib/platform";
 import { useConnection } from "./bridge/connection";
 import { useLayoutMode } from "./hooks/useLayoutMode";
@@ -109,33 +108,10 @@ import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
 import "./App.css";
 
-/** Open the selected project's selected workspace, as a launch does. */
-function openSelectedProjectWorkspace(): void {
-  const { projects: ps, selectedProjectIndex: idx } = useProjectStore.getState();
-  const project = ps[idx];
-  if (!project) return;
-  const ws =
-    project.workspaces[project.selectedWorkspaceIndex] ?? project.workspaces[0];
-  if (ws) useAppStore.getState().setActiveWorkspace(ws.path, project.hostId);
-}
-
-/**
- * Retry a project load that failed at launch. Once it works,
- * reopen what the launch would have, since the launch found nothing to open.
- */
-async function retryLoadProjects(): Promise<void> {
-  await useProjectStore.getState().loadProjects();
-  if (useProjectStore.getState().loadError !== null) return;
-  if (!useAppStore.getState().activeWorkspacePath) openSelectedProjectWorkspace();
-  useAppStore.getState().seedRestoredPanes();
-}
-
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
   const projectsLoadError = useProjectStore((s) => s.loadError);
-  const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
-  const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
   // One hook decides phone vs. desk for every renderer. A
   // detached window (OWN_CLAIM below) holds a claim, and the hook always
@@ -156,54 +132,12 @@ function App() {
   // A rejection nothing caught reaches the user as a toast.
   useMountEffect(() => installUnhandledRejectionToasts());
 
-  // A reconnected browser missed whatever was pushed while it was gone:
-  // re-read the projects and every workspace. The layout's
-  // resync is not its boot read — see `resyncLayout`.
-  useMountEffect(() =>
-    onBridgeResync(() => Promise.all([loadProjects(), resyncLayout()])),
-  );
+  // A reconnected browser re-reads what it missed, or launches again if its
+  // boot could not read anything.
+  useMountEffect(() => onBridgeResync(resyncAfterReconnect));
 
   useMountEffect(() => {
-    // `layout.getAll()` is a read of the Manor server's layout, and the
-    // subscription that keeps it current is installed when `app-store.ts` is
-    // imported — well before this runs, so a change that lands in the gap is
-    // delivered rather than lost.
-    Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
-      // A detached window opens on the workspace holding the tab it claims,
-      // whatever this renderer would otherwise have reopened on.
-      // Its claim names the workspace by key, so it opens on the right host.
-      if (OWN_CLAIM) {
-        const { path, hostId } = parseWorkspaceKey(OWN_CLAIM.workspacePath);
-        setActiveWorkspace(path, hostId);
-        // No sidebar in a detached window: plain setState, not the persisting
-        // action, so the primary's mode is untouched. Its tab bar
-        // clears the macOS traffic lights through the `:root` default of
-        // `--window-lead-inset`.
-        useProjectStore.setState({ sidebarMode: "hidden" });
-        // Its panes reopen without waking a sleeping host.
-        useAppStore.getState().seedRestoredPanes();
-        setAppReady(true);
-        window.electronAPI.agents.reconcileStale().catch(console.error);
-        return;
-      }
-      // If the Home surface was the last-active surface, restore it directly —
-      // it isn't a project workspace, so the project-based restore below can't
-      // reach it. Other workspaces are restored via project selection.
-      if (isHomePath(getPersistedActiveWorkspacePath())) {
-        setActiveWorkspace(HOME_PATH);
-      } else {
-        openSelectedProjectWorkspace();
-      }
-      // The workspace this window reopened on: its panes reopen without
-      // waking a sleeping host; any opened later is the user's.
-      // A failed project load has reopened nothing yet: the Retry that
-      // succeeds does it.
-      if (useProjectStore.getState().loadError === null) {
-        useAppStore.getState().seedRestoredPanes();
-      }
-      setAppReady(true);
-      window.electronAPI.agents.reconcileStale().catch(console.error);
-    });
+    void launch().then(() => setAppReady(true));
   });
 
   useUpdaterToasts();

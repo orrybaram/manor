@@ -1625,6 +1625,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         );
         return { entries, seedViewports: ownViewport?.workspaces ?? {} };
       });
+      // A relaunch after a failed boot read (`lib/launch.ts`) succeeded.
+      set({ layoutLoadError: null });
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
       set({ layoutLoadError: ipcErrorMessage(err) });

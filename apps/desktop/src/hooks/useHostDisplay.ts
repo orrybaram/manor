@@ -1,6 +1,14 @@
-import { useEffect, useState } from "react";
-import { useHostStore, selectHost } from "../store/host-store";
-import { useDirectReachability, useServerHostName, useViaReachability } from "../bridge/server-set";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useHostStore, selectHost, type HostStatusInfo } from "../store/host-store";
+import {
+  directReachability,
+  useDirectReachability,
+  useSelected,
+  useServerHostName,
+  useViaReachability,
+  viaReachability,
+  type Reachability,
+} from "../bridge/server-set";
 import { describeHost, sourcedHost, type HostDisplay } from "../lib/host-status";
 import { LOCAL_HOST_ID } from "../lib/hosts";
 
@@ -30,4 +38,36 @@ export function useHostDisplay(hostId: string | null | undefined): HostDisplay |
   }, [counting]);
 
   return remoteHostId ? describeHost(host, now) : undefined;
+}
+
+/**
+ * Main's host list as this page sees it (`sourcedHost`), live: a host main
+ * failed to reach that this page holds its own connected bridge to reads
+ * connected. What a host picker disables by, so a phone paired to a host
+ * directly can pick it while the desktop's ssh to it is down.
+ */
+export function useSourcedHosts(): readonly HostStatusInfo[] {
+  const hosts = useHostStore((s) => s.hosts);
+  // As one string, so the selector's value is equal while nothing moved.
+  const reach = useSelected(
+    useCallback(
+      () =>
+        hosts
+          .map((h) => `${directReachability(h.hostId) ?? ""},${viaReachability(h.hostId) ?? ""}`)
+          .join("\n"),
+      [hosts],
+    ),
+  );
+  return useMemo(() => {
+    const pairs = reach.split("\n").map((line) => line.split(",") as [string, string]);
+    return hosts.map((host, i) => {
+      const [direct, via] = pairs[i] ?? ["", ""];
+      const sourced = sourcedHost(
+        host,
+        (direct || undefined) as Reachability | undefined,
+        (via || undefined) as Reachability | undefined,
+      );
+      return sourced ?? host;
+    });
+  }, [hosts, reach]);
 }

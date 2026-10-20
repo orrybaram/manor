@@ -8,7 +8,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import { useMemo, useRef, useState, type CSSProperties, type ReactNode, type SyntheticEvent } from "react";
 import type { AgentInfo } from "../../../electron.d";
 import { useAgentDisplay } from "../../../hooks/useAgentDisplay";
-import { useHostDisplay } from "../../../hooks/useHostDisplay";
+import { useHostDisplay, useSourcedHosts } from "../../../hooks/useHostDisplay";
 import { resumeAgent } from "../../../lib/agent-resume";
 import { greeting } from "../../../lib/greeting";
 import { isRemoteHost, memberHostName } from "../../../lib/hosts";
@@ -87,7 +87,7 @@ export function PhoneNewAgentComposer(props: PhoneNewAgentComposerProps) {
   const { closable } = props;
 
   const projects = useProjectStore((s) => s.projects);
-  const hosts = useHostStore((s) => s.hosts);
+  const hosts = useSourcedHosts();
   const activeKey = useAppStore(selectActiveWorkspaceKey);
   const draft = useAppStore((s) => s.composerDraft);
   const setComposerDraft = useAppStore((s) => s.setComposerDraft);
@@ -410,9 +410,11 @@ function choiceRows(
   resolved: ResolvedTarget<ProjectInfo>,
   projects: readonly ProjectInfo[],
   hosts: readonly HostStatusInfo[],
+  /** `hosts` as this page sees them (`useSourcedHosts`): what a choice is disabled by. */
+  sourcedHosts: readonly HostStatusInfo[],
 ): ChoiceRow[] {
   if (kind === "host") {
-    return (workspaceHostChoices(resolved.project, projects, hosts) ?? []).map((choice) => ({
+    return (workspaceHostChoices(resolved.project, projects, sourcedHosts) ?? []).map((choice) => ({
       key: choice.projectId,
       label: serverHostName(choice.hostId) ?? memberHostName(choice.hostId, hosts),
       description: choice.disabledReason,
@@ -429,7 +431,7 @@ function choiceRows(
       label: choice.name,
       leading: <span className={styles.dot} style={colorDotStyle(choice.color)} aria-hidden />,
       checked: choice.isGroup ? choice.id === groupId : choice.id === target.projectId,
-      next: selectProject(target, choice.id, projects, hosts),
+      next: selectProject(target, choice.id, projects, sourcedHosts),
     }));
   }
   return workspaceChoices(target, projects).map((choice) => ({
@@ -450,8 +452,9 @@ function TargetChoices(props: TargetChoicesProps) {
 
   const projects = useProjectStore((s) => s.projects);
   const hosts = useHostStore((s) => s.hosts);
+  const sourcedHosts = useSourcedHosts();
 
-  const rows = choiceRows(kind, target, resolved, projects, hosts);
+  const rows = choiceRows(kind, target, resolved, projects, hosts, sourcedHosts);
 
   return (
     <>

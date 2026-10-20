@@ -49,6 +49,7 @@ import {
 } from "./folder-suggestion";
 import type { FolderPick } from "@manor/protocol/jev-protocol";
 import { useMountEffect } from "../../../hooks/useMountEffect";
+import { useSourcedHosts } from "../../../hooks/useHostDisplay";
 import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
 
 type Mode = "new" | "existing";
@@ -166,13 +167,14 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   );
 
   const hosts = useHostStore((s) => s.hosts);
+  const sourcedHosts = useSourcedHosts();
 
   // A linked project creates in one member: the one the host picker starts
   // on. Anything else is created in as it is.
   const defaultProjectId = startingMemberId(
     preselectedProjectId || projects[selectedProjectIndex]?.id || "",
     projects,
-    hosts,
+    sourcedHosts,
     preferredMemberId,
   );
 
@@ -181,8 +183,8 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const activeProject = projects.find((p) => p.id === activeProjectId);
   const defaultBranch = activeProject?.defaultBranch ?? "main";
   const hostChoices = useMemo(
-    () => workspaceHostChoices(activeProject, projects, hosts),
-    [activeProject, projects, hosts],
+    () => workspaceHostChoices(activeProject, projects, sourcedHosts),
+    [activeProject, projects, sourcedHosts],
   );
   const activeHostChoice = hostChoices?.find(
     (c) => c.projectId === activeProjectId,
@@ -744,7 +746,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
                           const target = projectForSelectValue(value, projects);
                           if (!target) return;
                           chooseProject(
-                            startingMemberId(target, projects, hosts),
+                            startingMemberId(target, projects, sourcedHosts),
                             undefined,
                             { keepFolder: false },
                           );

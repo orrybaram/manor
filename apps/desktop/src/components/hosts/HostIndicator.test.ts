@@ -25,6 +25,8 @@ import {
 import { isHostOffline } from "../../lib/host-status";
 import { LOCAL_HOST_ID } from "../../lib/hosts";
 import { useHostStore, type HostStatusInfo } from "../../store/host-store";
+import { useSourcedHosts } from "../../hooks/useHostDisplay";
+import { workspaceHostChoices } from "../../lib/workspace-host-choices";
 import { LocalHostLabel, RemoteHostLabel } from "./HostIndicator";
 
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));
@@ -122,6 +124,37 @@ describe("the phone's merged sidebar, per source", () => {
     act(() => servers.setReachability(DESKTOP, "unreachable"));
     expect(offline("via-id", hosts)).toBe(true);
     expect(offline(LOCAL_HOST_ID, hosts)).toBe(true);
+  });
+
+  it("a host the desktop's ssh can't trust, reached over its own room: the picker offers it", () => {
+    servers.setReachability(DESKTOP, "unreachable");
+    servers.setLists(DESKTOP, [BOX]);
+    useHostStore.setState({
+      hosts: [
+        {
+          hostId: BOX,
+          spec: { kind: "ssh", target: "me@box" },
+          status: "error",
+          failure: { reason: "host-key", message: "Host key verification failed." },
+        },
+      ],
+    });
+    const group = { memberIds: ["local-app", "box-app"], lastUsedHostId: null };
+    const projects = [
+      { id: "local-app", hostId: LOCAL_HOST_ID, group },
+      { id: "box-app", hostId: BOX, group },
+    ];
+    function BoxChoice() {
+      const hosts = useSourcedHosts();
+      const choice = workspaceHostChoices(projects[0], projects, hosts)?.[1];
+      return choice?.disabledReason ?? "enabled";
+    }
+
+    expect(text(createElement(BoxChoice))).toBe("enabled");
+
+    // Its own room gone too, main's word stands.
+    act(() => servers.setReachability(BOX, "unreachable"));
+    expect(container.textContent).toMatch(/host key not trusted/);
   });
 
   it("the desktop's own room, gone silent, is away though its last word says connected", () => {

@@ -186,8 +186,7 @@ manor/
 ├── scripts/                  release, daemon test harnesses, dev-name patcher
 ├── build/                    electron-builder resources (icon, entitlements)
 ├── public/                   static assets served by Vite
-├── docs/decisions/           ADRs (125 entries, source of truth for rationale)
-├── .claude/                  skills, agents, and rules (ADR workflow)
+├── .claude/                  skills and rules for Claude Code
 ├── vite.config.ts            six build targets (see "Build")
 ├── package.json              `build` field = electron-builder config
 └── .cortex.yaml              doc indexing config
@@ -329,7 +328,7 @@ All Electron-side outputs are CommonJS. Native modules stay external and are reb
 
 ### Decision records
 
-All non-trivial changes flow through the ADR workflow (see `.claude/rules/adr-workflow.md` and `.claude/skills/adr-workflow/`). Rationale and historical context live in `docs/decisions/adr-<NNN>-<slug>/` — prefer reading the ADR over inferring intent from diffs.
+Rationale for a change lives in its GitHub issue and PR. Older decisions were ADRs in `docs/decisions/`, removed from the tree; read them in git history (`git log --all -- 'docs/decisions/adr-<NNN>-*'`).
 
 ## Architectural invariants
 
@@ -351,7 +350,7 @@ Invariants are stated as absences — what the codebase deliberately does _not_ 
 - A new feature that shows data in the UI: start in `src/components/`, add store state in `src/store/`, route through `window.electronAPI` → `electron/ipc/*`.
 - A new external integration: add a manager under `electron/`, expose via a new `electron/ipc/*.ts` file, register in `electron/ipc/index.ts`.
 - A new terminal capability: decide whether it belongs in `electron/terminal-host/` (daemon-side, affects all sessions) or in the renderer xterm wrapper (`src/terminal/`, `src/components/workspace-panes/TerminalPane.tsx`).
-- A behavior you don't understand: grep `docs/decisions/` first.
+- A behavior you don't understand: `git log -S` / `git blame` to the PR that introduced it.
 
 ## Known issues & inconsistencies
 

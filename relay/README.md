@@ -1,7 +1,7 @@
 # Manor relay
 
 A Cloudflare Worker with one Durable Object per desktop
-([ADR-206](../docs/decisions/adr-206-relay-transport/index.md)). It pipes
+(ADR-206). It pipes
 Noise ciphertext between a desktop (the **host**) and up to 8 browsers
 (**channels**) in a **room**, and serves the web app from R2, one build per
 version. It cannot read what it forwards. For what it can and cannot see, see
@@ -42,7 +42,7 @@ u32 length]`); the desktop keeps a bounded window of unacknowledged bytes
 
 ### Jev
 
-`POST /jev/folder` ([ADR-211](../docs/decisions/adr-211-hosted-jev-proxy/index.md),
+`POST /jev/folder` (ADR-211,
 `src/jev.ts`) asks TypeSafe's Jev which sidebar folder a new workspace belongs
 in, with Manor's key. The worker fixes the model, question and instructions;
 the desktop sends only the data, at most 16 KiB, signed with its relay

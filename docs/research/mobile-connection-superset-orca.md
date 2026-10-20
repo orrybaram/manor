@@ -107,7 +107,7 @@ Paths below are relative to each repo root.
 
 ## How Manor does it today (for context)
 
-- Docs: `docs/remote-control.md`. Design: `docs/decisions/adr-161-remote-control-relay/index.md`.
+- Docs: `docs/remote-control.md`.
 - Code: `electron/remote-control/` (`server.ts`, `listener-routes.ts`, `devices.ts`, `sse.ts`, `push.ts`, `static.ts`, `tunnel.ts`, `tunnel-status.ts`). UI: `src/components/settings/RemoteControlPage.tsx`, `RemoteControlDialogs.tsx`. Store: `src/store/remote-control-store.ts`.
 - How it works: a separate HTTP listener bound to `127.0.0.1`, exposed by shelling out to either `tailscale serve --https=443` or `cloudflared tunnel --url` (`electron/remote-control/tunnel.ts:61-74,98-99`). Manor detects these tools but installs neither.
 - The client is a PWA served by the desktop itself (`static.ts`). Pairing is a QR with a 32-byte per-device token in the URL fragment. Live updates go over **SSE** (`electron/remote-control/sse.ts:48`), and notifications use Web Push (VAPID).

@@ -7,8 +7,7 @@ instances.
 
 ## window-targeting.html — ADR-145
 
-Covers the window/link targeting matrix from
-`docs/decisions/adr-145-webview-window-targeting/`. The automated suite covers the
+Covers the window/link targeting matrix from ADR-145. The automated suite covers the
 pure logic (`addBrowserTab` background behavior, `buildPopupWindowOptions`
 clamping); this page covers the end-to-end behavior that needs a real webview.
 

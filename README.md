@@ -156,7 +156,6 @@ manor set-workspace-folder --workspace-path <path> --folder-id <id>
 manor git-diff
 ```
 
-See [ADR-170](docs/decisions/adr-170-manor-cli) and [ADR-171](docs/decisions/adr-171-complete-control-surface) for architecture.
 
 <br />
 

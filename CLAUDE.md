@@ -1,6 +1,6 @@
 # manor
 
-Electron + TypeScript desktop app for running coding agents in terminal panes. Use pnpm, not npm, yarn or bun.
+Electron + TypeScript desktop app for running coding agents in terminal panes. Use pnpm, not npm, yarn or bun. Name domain concepts as `CONTEXT.md` does; read it before naming anything new.
 
 ## Done means verified
 

@@ -1,9 +1,7 @@
 # Manor
 
 A desktop workspace manager for running coding agents (Claude, Codex, pi, opencode)
-in terminal panes across local and remote hosts. This glossary also exists because the
-same machine can now be reached three ways — the Electron window, a phone, and a
-browser — and each one has a different name and a different amount of power.
+in terminal panes across local and remote hosts.
 
 ## Language
 
@@ -19,32 +17,24 @@ _Avoid_: harness, agent type
 
 **Agent status**:
 The one live state shown for an **Agent**'s pane (thinking, working, requires input,
-responded, error, idle), decided only by the **Status reconciler**. A finished turn is
-**responded**; an ended session is **idle** (its **Agent** lifecycle becomes `completed`).
-_Avoid_: dot state, detector status, live status, "complete" (removed — use responded, or the lifecycle)
+responded, error, idle), decided only by the **Status reconciler**. Separate from the
+**Agent**'s persisted lifecycle (`active`/`completed`/`abandoned`/`error`).
+_Avoid_: dot state, detector status, live status, "complete" (use responded, or the lifecycle)
 
 **Status signal**:
-A single piece of evidence about an **Agent**'s state: a hook event, a daemon
-report of the foreground process, terminal title or output pattern, or a **tick**
-(the current time, which is how every time-based rule — stuck-working, orphan and
-held-Stop recovery — reaches the **Status reconciler**).
+One piece of evidence about an **Agent**'s state: a hook event, the daemon's foreground
+process, terminal title or output pattern, or a **tick** (the current time, which drives
+every time-based rule).
 _Avoid_: fallback status, hint
 
 **Pane facts**:
-The daemon's latest snapshot of what it can see in a pane: foreground process (and its
-**Agent kind**, if known), last terminal title, and last output hint with its time. Sent on
-change and on request; a source of **Status signals**, never an **Agent status**.
+The daemon's latest snapshot of a pane (foreground process, title, last output hint);
+a source of **Status signals**, never an **Agent status**.
 _Avoid_: detector state, agent state
 
-**Hook-driven**:
-An **Agent** whose root session has sent at least one hook signal; from then until the session
-ends, only hook signals decide its turn statuses.
-_Avoid_: "has hooks", "hook-capable" (support is observed, not declared)
-
 **Status reconciler**:
-The one module, in Electron main, that turns **Status signals** for a pane into its
-**Agent status** and the reason for it.
-_Avoid_: detector, relay (those become signal sources/effects, not deciders)
+The one module, in Electron main, that turns a pane's **Status signals** into its **Agent status**.
+_Avoid_: detector, relay
 
 ### Reaching the machine
 
@@ -53,205 +43,165 @@ The Electron window; the reference experience every other surface mirrors.
 _Avoid_: native app, main app
 
 **Web app**:
-The desktop app's own renderer, served to a browser and made responsive; one
-codebase, full functionality, authentication is its only boundary.
+The desktop app's own renderer, served to a browser and made responsive; one codebase,
+full functionality. There is no separate mobile app.
 _Avoid_: mobile app, mobile client, mobile/web experience, responsive client
 
 **Pairing ticket**:
-What a pairing link carries: a single-use secret, valid for 10 minutes. The device redeems it with its first hello, which also carries a token the device chose itself; Manor stores that token's hash and the ticket is dead. A spent, expired or unknown ticket is refused like a bad token. The long-lived token is never in a link, a QR code or a reply (ADR-240).
+The single-use, 10-minute secret a pairing link carries. The long-lived device token is
+never in a link, QR code or reply.
 _Avoid_: pairing token, invite code, pairing code
 
 **Paired device**:
-A phone or browser that holds a per-device token for a **Room**: the desktop app's, or a **Host server**'s. The device chooses the token itself and proves it with a **Pairing ticket**, so the link never carries it. One pairing with the desktop is enough: on every hello the device asks the desktop to pair it with each host it can reach (`remoteControl.linkHostPairings`), and the desktop mints a token in each host's **Room** and records the link, so revoking the device on the desktop revokes it on every host too. A host's "Devices can reach <host>" switch opts that host out. A room the user removes on the device is remembered there and not minted again until they ask for it (Connect directly) or pair by QR. A pairing a host refuses is only dropped, and the desktop mints it again, unless that device was revoked on the host, which the desktop remembers as a block until the switch is turned off and on (ADR-228 D9, ADR-238).
+A phone or browser holding a per-device token for a **Room**. Pairing with the desktop
+also pairs it with every host the desktop can reach.
 _Avoid_: remote, client device, session
 
 **Relay**:
-The hosted blind pipe (`relay/`, a Cloudflare Worker) that a desktop and a phone both dial out to, so a device can reach the machine with nothing installed. It forwards Noise ciphertext between a **Room**'s host and its **Channels** and cannot read any of it; it also serves the web app, one build per version. One route is not blind: `POST /jev/folder` sees a **Folder suggestion**'s question in cleartext (ADR-211).
-_Avoid_: server, proxy, tunnel, listener (nothing on the machine listens for remote control; the desktop dials out to the relay, which feeds the bridge directly)
-
-**Folder suggestion**:
-Jev's pick of a sidebar folder for a new workspace, asked through the **Relay** (which holds the TypeSafe key) and signed with the desktop's relay key; off in Settings → General.
-_Avoid_: auto-folder, TypeSafe integration (there is no user key any more)
+The hosted blind pipe (`relay/`, a Cloudflare Worker) that desktops and devices dial out
+to; it forwards Noise ciphertext it cannot read and serves the web app.
+_Avoid_: server, proxy, tunnel, listener (nothing on the machine listens; it dials out)
 
 **Room**:
-One Manor server's place on the **Relay** — the desktop's, or a **Host server**'s — addressed by the hash of its relay public key and held by whoever holds the key. At most one host and a few **Channels**.
-_Avoid_: session (that is a terminal session), channel
+One Manor server's place on the **Relay**: one host and a few **Channels**.
+_Avoid_: session, channel
 
 **Channel**:
-One viewer's encrypted stream inside a **Room** — its own Noise session, ending in the bridge's `hello`.
+One viewer's encrypted stream inside a **Room**.
 _Avoid_: connection, socket (and not the `bridge:*` IPC channel name)
 
 ### Where things run
 
 **Renderer**:
-The React client — the same code whether it runs in the Electron window or a browser — which holds no authoritative state and reaches everything through the bridge.
+The React client, the same code in the Electron window or a browser. Holds no
+authoritative state; reaches everything through the **Bridge**.
 _Avoid_: frontend, UI, the app
 
 **Manor server**:
-Everything in `electron/` that is not Electron: projects, routes, integrations, notifications, remote control, and the layout authority; hosted inside Electron main today, headless in the cloud later.
+Everything in `electron/` that is not Electron: projects, routes, integrations,
+notifications, remote control, and the layout authority.
 _Avoid_: main process, backend, the API
 
-**Host server**:
-A headless **Manor server** running on a remote **Host**, next to its **Daemon** but in its own process (`manor-host serve`, `electron/host-server/`), so a **Paired device** can reach that host's agents with the laptop closed. It is the authority for its host: after **Adoption** it owns that host's projects, workspaces, folders, linked issues, layout and agents, runs `git`, `gh` and the setup scripts there, and answers the `manor` CLI on the box. It has its own **Room** and its own paired devices, and reads the daemon's hook journal itself. A device on it can create a workspace and launch an agent with no desktop connected (ADR-225, ADR-227).
-_Avoid_: remote server, box server, cloud server, the daemon (the daemon owns PTYs; the host server is the Manor server beside it)
-
-**Owner channel**:
-The desktop's own connection to a **Host server**: the bridge protocol, carried over the host's SSH connection (`manor-host server-bridge`), as **Caller class** `owner`. SSH is the authentication. Nothing is pushed over it any more — no manifest, no layout snapshot: the desktop hands the host its records once (**Adoption**), then reads and writes the host's state through the server (a `HostProxy` per host, with a cache for when it is away) and hears its changes as events. It still does what a device may not: set projects up on the host, send its push keys and pair phones with the host. Beside it, each desktop window holds its own **viewer stream** to the host server (`manor-host server-bridge --viewer`, over the same ControlMaster): also caller class `owner`, but marked `viewer: "desktop"`, carrying that window's reads, writes and terminal bytes straight to the host (ADR-228 D4). Main only moves its frames between IPC and SSH (`hostPipe`). The owner channel still answers for callers that hold one bridge: a device paired only with the desktop, the MCP and CLI routes, and a window whose stream is down.
-_Avoid_: control channel, sync channel, admin connection
-
-**Adoption**:
-The one-time hand-over of what a desktop holds for a remote **Host** — that host's projects (with workspace names, folders, linked issues and settings), agents and layout — to the host's **Host server**, on the desktop's first connect to a server that owns nothing yet. The host merges the records by id and wins every conflict. Only after the host's acknowledgement does the desktop write a backup (`~/.manor/backups/pre-adr-227-<hostId>.json`), drop the records, and let go of the layout; the sessions carry on untouched. It is safe to repeat, and a crash anywhere finishes on the next connect.
-_Avoid_: migration, sync, import
-
 **Daemon**:
-`terminal-host/` — the process that owns PTYs, scrollback, and agent detection; already headless, already runs wherever a host is.
+`terminal-host/`, the process that owns PTYs, scrollback and agent detection.
 _Avoid_: terminal host, pty server
 
 **Host**:
-A place sessions run — the local machine, or a remote box — always a Manor server and a daemon together: the local machine's Manor server lives in Electron main, a remote box's is its **Host server**. The renderer attaches to every host it can reach at once, each through its **Source**, and merges them into one sidebar; local stays a first-class choice. The desktop is a client of each remote host's server, not its owner.
-_Avoid_: backend, cloud, remote (see ADR-160, which introduced the term)
+A place sessions run, the local machine or a remote box: always one **Manor server**
+plus one **Daemon**.
+_Avoid_: backend, cloud, remote
+
+**Host server**:
+The headless **Manor server** on a remote **Host** (`manor-host serve`,
+`electron/host-server/`). It is the authority for its host: projects, workspaces,
+layout and agents.
+_Avoid_: remote server, box server, cloud server, the daemon. "Remote" alone is
+ambiguous: say **remote host** / **host server** for another machine, **paired device**
+for a phone reaching this one.
+
+**Owner channel**:
+The desktop's own connection to a **Host server**, over SSH, as **Caller class** `owner`.
+_Avoid_: control channel, sync channel, admin connection
+
+**Adoption**:
+The one-time hand-over of a desktop's records for a remote **Host** to its **Host server**.
+_Avoid_: migration, sync, import
 
 **Recipe**:
-The user's own commands that start, stop and delete one remote **Host** (ADR-229 D2): `recipe.json` and its scripts in `~/.manor/host-recipes/<id>/`, never read from a repository. They run on the desktop. `up` (required, idempotent) prints one JSON object saying how to reach the box — over SSH, or an `exec` argv such as `docker exec -i <name>` — and the host then bootstraps like any SSH box; `status`, `stop` and `destroy` are optional. One recipe starts one host. The Hosts page writes one from a template (`docker`, `kubernetes`) or as a skeleton to finish. A host started this way has provider kind `recipe`; a box the user brought has `ssh`.
+The user's own commands that start, stop and delete one remote **Host**, in
+`~/.manor/host-recipes/<id>/`.
 _Avoid_: environment, template (a template is what a recipe is made from), provisioner
 
 **Host profile**:
-A recipe template plus the answers every host made from it shares (ADR-235 D1): a name, the template, its values except the per-host ones (the host's name), an idle stop (60 minutes by default) and, for Kubernetes, when its pods' sign-in tokens were set. Stored in `projects.json`, never holding a secret. Editing one changes only hosts made afterwards. Hosts made from a profile group under it on the Hosts page and in the status bar.
+A recipe template plus the answers every host made from it shares.
 _Avoid_: preset, cluster config, environment
 
 **Project's pod**:
-A **Host** made for one project by "In a new pod" (ADR-235 D3), marked by `forProject` on the host. It is left out of other projects' host lists, behind "Show all hosts", but never refused. Removing the project can delete it, with its disk; otherwise the host is stopped and `forProject` is cleared. For a Docker profile it is a container.
+A **Host** made for one project ("In a new pod"), marked by `forProject`.
 _Avoid_: dedicated host, project host, workspace pod
 
 **Supervisor**:
-What keeps a **Host**'s **Daemon** and **Host server** running across a reboot (ADR-229 D4): systemd user units, launchd LaunchAgents, or `manor-host supervise` as a container's entrypoint. Installed by `manor-host supervisor install` ("Keep Manor running when <host> restarts") and recorded in `~/.manor/remote/supervisor.json`; while recorded, Manor starts, stops and restarts both through it instead of spawning detached copies.
+What keeps a **Host**'s **Daemon** and **Host server** running across a reboot
+(systemd, launchd, or `manor-host supervise`).
 _Avoid_: service, init, watchdog
 
 **Asleep**:
-A remote **Host** whose box was put to sleep — by Stop, a box hook, idle stop or the provider itself — as its provider reports it (`sleeping`). Unlike a host that is away, Manor does not reconnect to it on its own; only something that means to use it wakes it: Wake, opening a pane, creating a workspace, launching an agent (ADR-229 D1). Reads never wake it.
+A remote **Host** its provider reports as `sleeping`. Only an action that uses it wakes
+it; reads never do.
 _Avoid_: offline, stopped (in UI copy), suspended
 
 **Project**:
-A repo, set up on one or more **Hosts**, with at most one checkout per host. In code a lone project is a group of one (ADR-192, ADR-214).
+A repo, set up on one or more **Hosts**, with at most one checkout per host.
 _Avoid_ in UI copy: group, member, linked project
 
-**Set up on**:
-Putting a project's repo on another host, by cloning it or by adopting an existing checkout of the same origin. It is the only way a project gains a host (ADR-214).
-_Avoid_: copy to, move to, link, clone onto
-
-**Remove from host**:
-Dropping one host's checkout from a project in Manor, without deleting its files. A "move" is set up on the new host, then remove from the old one.
-_Avoid_: unlink, move
+**Set up on** / **Remove from host**:
+Adding a project's repo to a host (clone or adopt a checkout), and dropping a host's
+checkout without deleting files. A "move" is both.
+_Avoid_: copy to, move to, link, unlink, clone onto
 
 **Bridge**:
-The one interface a renderer uses to reach a Manor server: one host surface, reached over a **Transport** — Electron IPC inside the desktop, a relay WebSocket from a browser, a `hostPipe` viewer stream from a desktop window to a host server — never two implementations converging on one (ADR-180). The renderer holds one bridge per reachable server, in its **Server set**, behind a **Router**; renderer code still calls the one `window.electronAPI` (ADR-228 D1).
+The one interface a renderer uses to reach a Manor server, over any **Transport**;
+renderer code calls `window.electronAPI`.
 _Avoid_: preload, window.electron, API client
 
-**Server set**:
-The page's Manor servers, one entry each (`src/bridge/server-set.ts`): its bridge, its reachability (`connected` / `unknown` / `unreachable`) and what its hello said. One is **home**: on the desktop the local server in main, on a phone the paired desktop, else the most recently used pairing. A desktop window adds a host server that is connected and takes a viewer stream; a phone adds one per stored pairing (ADR-228 D1, D8).
-_Avoid_: connections, hosts list (that is `hosts.list`, main's view of its hosts), bridges
-
-**Router**:
-What `window.electronAPI` is over a **Server set** (`src/bridge/router.ts`). For each call it reads the route manifest (`electron/bridge/routes.ts`, which main's `HostRouting` reads too): a routed call goes to the named host's **Source**, a merged read (`projects.getAll`, `layout.getAll`, `agents.get*`) asks every server and merges the answers, a Linear call picks a server that has Linear (D10), and the rest goes home. It stamps every record with renderer host ids, refuses a write to a host with no source (`unavailable:host-away`), and keeps each server's last answers for when it is away (ADR-228 D1, D6).
-_Avoid_: proxy, dispatcher, HostRouting (that is main's router, for callers holding one bridge)
-
-**Source**:
-The server answering for a remote **Host** right now: a direct bridge to its **Host server** if one is reachable (a desktop window's viewer stream, a phone's own pairing with that host's **Room**), else a desktop that lists the host, through that desktop's `HostRouting`, else none — the host is away and shows its last-known state. A host's data never arrives through two sources at once (ADR-228 D3).
-_Avoid_: route, owner (ownership is the host server's), upstream
+**Server set** / **Router** / **Source**:
+The renderer's Manor servers (`src/bridge/server-set.ts`), the `window.electronAPI` that
+routes each call across them (`src/bridge/router.ts`), and the server answering for a
+remote host right now. A host's data never arrives through two sources at once.
+_Avoid_: connections, bridges, proxy, dispatcher, upstream
 
 **Host surface**:
-The handler table (`electron/bridge/handlers.ts`): the one set of things a renderer can ask a host to do, keyed `ns.method`. A type-level check asserts every method the renderer can call is placed somewhere — the table, a native preload namespace, or answered in the tab — so an unplaced method is a compile error, not a runtime `unavailable:web`.
-_Avoid_: API, route table (that name is `electron/routes/`, a separate caller of the same managers)
+The handler table (`electron/bridge/handlers.ts`), keyed `ns.method`. An unplaced
+method is a compile error.
+_Avoid_: API, route table (that is `electron/routes/`)
 
 **Transport**:
-How a frame reaches the host surface — Electron IPC or a WebSocket today. Never a place where behaviour lives; a third transport is a new file in `src/bridge/transports/`, not a new decision.
-_Avoid_: connection (a transport makes connections; it is not one), channel (channel is the specific `bridge:*` IPC name)
+How a frame reaches the host surface (IPC or WebSocket). Never where behaviour lives.
+_Avoid_: connection, channel
 
 **Caller class**:
-What a connection is, as far as the bridge's dispatch is concerned: `local` (an Electron renderer window, authenticated by being one), `owner` (the desktop on a **Host server**'s **Owner channel**, authenticated by SSH) or `device` (a paired device, authenticated by its token). Decides which host-surface methods a `LOCAL_ONLY` entry refuses: `local` and `owner` may call them, `device` may not.
-_Avoid_: tier (there is one kind of paired device; what it may not call is `LOCAL_ONLY`, decided per method)
+`local` (an Electron window), `owner` (desktop over SSH) or `device` (a paired device).
+`device` may not call `LOCAL_ONLY` methods.
+_Avoid_: tier
 
 ### Viewing a session
 
-**Viewer**:
-Any client attached to a session's output stream — a desktop pane or a web-app pane.
-_Avoid_: client, subscriber, socket
-
 **Winsize owner**:
-The one viewer whose grid the PTY winsize follows: the desktop app while it has the pane mounted, otherwise the most recent web-app viewer. On a **Host server** the host's own attachment registry decides: a desktop window's viewer stream (`viewer: "desktop"`) ranks like a local window, above every device, so the desktop still wins while it has the pane mounted (ADR-228 D5). A device viewer is also a **Follower** whenever a client the server cannot see — any other daemon client — is attached to the session.
+The one viewer whose grid the PTY follows: the desktop while it has the pane mounted,
+otherwise the most recent web-app viewer.
 _Avoid_: primary, master, resize authority
 
+**Follower**:
+A viewer that renders the winsize owner's grid as-is and never resizes; it may still type.
+_Avoid_: mirror, read-only viewer
+
 **Layout command**:
-A named, argument-carrying request to change layout structure — split, close, move, new tab, pin — sent by any renderer or the MCP/CLI to the Manor server, which alone runs the reducer and broadcasts the result.
-_Avoid_: action (the zustand word), mutation, app-command (the ADR-156-era server→renderer channel, which is only for viewport now)
+A named request to change layout structure (split, close, move, new tab, pin); only the
+Manor server runs the reducer.
+_Avoid_: action (the zustand word), mutation, app-command
 
 **Viewport**:
-What one renderer is currently looking at — active workspace, active panel, selected tab per panel, focused pane per tab — persisted per renderer (the desktop in its own file, a browser in its storage), never authoritative on the host.
+What one renderer is looking at (workspace, panel, tab, pane); per renderer, never
+authoritative on the host.
 _Avoid_: view state, UI state, selection
 
 **Claim**:
-A desktop window's exclusive hold on one tab of a workspace, reported as viewport, so a detached window shows it and the primary hides it; released when the window closes, never held by a browser, never part of layout structure.
-_Avoid_: detach payload, hand-off, ownership (that word is for winsize)
-
-**Detached window**:
-A desktop window whose viewport is a single claim; the same renderer as the primary, not a separate app.
-_Avoid_: popup, secondary renderer, popout
+A desktop window's exclusive hold on one tab; a **detached window** is a window whose
+viewport is a single claim.
+_Avoid_: detach payload, hand-off, ownership, popup, popout
 
 **Layout mode**:
-`phone` or `desk` — a presentation of the viewport, chosen by width alone
-(`useLayoutMode()`, ~768 px) and never by platform: the desktop window dragged
-narrow is `phone` too, and a **detached window** is always `desk` regardless
-of its width, since it already shows one claim with no chrome (ADR-181 D2).
-_Avoid_: mobile mode, responsive view, breakpoint (breakpoint is the number;
-layout mode is the answer it produces)
+`phone` or `desk`, chosen by width alone (`useLayoutMode()`, ~768 px), never by platform;
+a detached window is always `desk`.
+_Avoid_: mobile mode, responsive view, breakpoint
 
-**Default viewport**:
-The host's per-workspace memory of the last viewport any renderer reported, used only to open a fresh renderer somewhere sensible; overwritten freely, never pushed to a renderer that already has one.
-_Avoid_: last focus, shared focus
+## Rules that span files
 
-**Follower**:
-A viewer that renders the winsize owner's grid as-is — shrinking the font to a floor, then panning — and never calls resize.
-_Avoid_: mirror, read-only viewer (a follower may still type)
-
-## Relationships
-
-- A pane has at most one root **Agent** at a time; child sessions (subagents) belong to it.
-- A child session's activity (thinking, working, or requires input — e.g. a subagent's permission
-  prompt) may show as the pane's **Agent status** while the root's turn is in progress, but only the
-  root's own signals can end a turn (**responded**, **error**, **idle**).
-- The **Status reconciler** consumes many **Status signals** and emits one **Agent status** per pane.
-- The daemon produces **Status signals**; it does not decide **Agent status**.
-- Hook signals decide an **Agent**'s turn statuses. Daemon signals (foreground process, title,
-  output patterns) decide only liveness (process gone → **idle**) — unless the **Agent** has no
-  hook signals, in which case they decide everything.
-- The **Status reconciler** is the only writer of an **Agent**'s lifecycle and last **Agent status**;
-  the renderer displays what it publishes and does not re-derive it.
-
-- A session has exactly one **Winsize owner** and any number of **Followers**; a web-app viewer is a **Follower** whenever the desktop has the pane mounted.
-- A **Project** is set up on one or more **Hosts**; each **Workspace** lives on exactly one of them.
-- A **Host** is one **Manor server** plus one **Daemon**; the **Manor server** owns the layout, every **Renderer** holds a replica and sends commands.
-- A remote **Host**'s **Manor server** is its **Host server**, and it owns that host's projects, layout and agents (ADR-227). The desktop hands over what it held at **Adoption**, then reads and writes through the server over the **Owner channel**; only the host server reads that host's hook journal, so there is one **Agent status** per agent, decided on the box.
-- A remote **Host** is either a box the user brought (SSH) or one a **Recipe** starts; a recipe host can be **Asleep**, and either kind can have a **Supervisor**.
-- Layout _structure_ (panels, tabs, pane trees) is shared across all renderers of a host; _viewport_ (which panel, tab and pane each one is looking at) is per renderer.
-
-- The **Desktop app** issues **Pairing tickets** for its own **Room**, which a device turns into a token it chose; through the **Owner channel** it mints tokens directly for a **Host server**'s; a **Paired device** holds one per **Room** it is paired with, and is connected to all of them at once: one sidebar, each host answered by its **Source**. Pairing with the desktop links the device to every host's **Room** as well (ADR-228 D9).
-- The **Web app** is served to a **Paired device** by the **Relay** origin, and only there.
-- A **Room** has one host and many **Channels**; each **Channel** is a **Transport** to the bridge, so every **Paired device** reaches the whole bridge, minus the `LOCAL_ONLY` methods.
-
-## Example dialogue
-
-> **Dev:** "The title says `✳ Done` but the dot still shows working — who's right?"
-> **Domain expert:** "Neither on its own. The title is a **Status signal**; the **Status reconciler**
-> weighs it against the last hook and decides the **Agent status**."
-
-> **Dev:** "Should the mobile app get the git panel?"
-> **Domain expert:** "There is no mobile app. The **web app** is the desktop app in a browser, so it already has the git panel — the question is whether it lays out on a phone. It reaches the same bridge as the desktop, so the question is the layout, not what the device is allowed to call."
-
-## Flagged ambiguities
-
-- "status" was used for both the persisted lifecycle (`active`/`completed`/`abandoned`/`error`)
-  and the live **Agent status** — resolved: the persisted one is the **Agent**'s lifecycle,
-  the live one is **Agent status**.
-
-- "mobile/web experience" was used to mean a new client; resolved: it is the **Web app**, one responsive codebase, not a second client.
-- "remote" is overloaded across ADRs: ADR-160 _remote workspace backends_ means a workspace living on another machine; ADR-161 _remote control_ means a **Paired device** reaching this one; and since ADR-225 a paired device can reach a remote **Host** directly, through its **Host server**, with no desktop involved. Prefer **remote host** / **host server** for the first, **paired device** / **remote surface** for the second, and never "remote server" for either.
+- Hook signals decide an **Agent**'s turn statuses once its root session has sent one.
+  Daemon signals decide only liveness, unless the agent has never sent a hook signal.
+- Child sessions (subagents) may show their activity as the pane's status, but only the
+  root's own signals end a turn.
+- The **Status reconciler** is the only writer of an agent's lifecycle and status; the
+  renderer displays it and does not re-derive it.
+- Layout structure is shared by every renderer of a host; viewport is per renderer.
+- A remote host's **Host server** owns its state and is the only reader of its hook journal.

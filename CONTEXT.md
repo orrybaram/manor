@@ -58,7 +58,7 @@ also pairs it with every host the desktop can reach.
 _Avoid_: remote, client device, session
 
 **Relay**:
-The hosted blind pipe (`relay/`, a Cloudflare Worker) that desktops and devices dial out
+The hosted blind pipe (`apps/relay/`, a Cloudflare Worker) that desktops and devices dial out
 to; it forwards Noise ciphertext it cannot read and serves the web app.
 _Avoid_: server, proxy, tunnel, listener (nothing on the machine listens; it dials out)
 
@@ -78,12 +78,12 @@ authoritative state; reaches everything through the **Bridge**.
 _Avoid_: frontend, UI, the app
 
 **Manor server**:
-Everything in `electron/` that is not Electron: projects, routes, integrations,
+Everything in `apps/desktop/electron/` that is not Electron: projects, routes, integrations,
 notifications, remote control, and the layout authority.
 _Avoid_: main process, backend, the API
 
 **Daemon**:
-`terminal-host/`, the process that owns PTYs, scrollback and agent detection.
+`apps/desktop/electron/terminal-host/`, the process that owns PTYs, scrollback and agent detection.
 _Avoid_: terminal host, pty server
 
 **Host**:
@@ -93,7 +93,7 @@ _Avoid_: backend, cloud, remote
 
 **Host server**:
 The headless **Manor server** on a remote **Host** (`manor-host serve`,
-`electron/host-server/`). It is the authority for its host: projects, workspaces,
+`apps/desktop/electron/host-server/`). It is the authority for its host: projects, workspaces,
 layout and agents.
 _Avoid_: remote server, box server, cloud server, the daemon. "Remote" alone is
 ambiguous: say **remote host** / **host server** for another machine, **paired device**
@@ -145,15 +145,15 @@ renderer code calls `window.electronAPI`.
 _Avoid_: preload, window.electron, API client
 
 **Server set** / **Router** / **Source**:
-The renderer's Manor servers (`src/bridge/server-set.ts`), the `window.electronAPI` that
-routes each call across them (`src/bridge/router.ts`), and the server answering for a
+The renderer's Manor servers (`apps/desktop/src/bridge/server-set.ts`), the `window.electronAPI` that
+routes each call across them (`apps/desktop/src/bridge/router.ts`), and the server answering for a
 remote host right now. A host's data never arrives through two sources at once.
 _Avoid_: connections, bridges, proxy, dispatcher, upstream
 
 **Host surface**:
-The handler table (`electron/bridge/handlers.ts`), keyed `ns.method`. An unplaced
+The handler table (`apps/desktop/electron/bridge/handlers.ts`), keyed `ns.method`. An unplaced
 method is a compile error.
-_Avoid_: API, route table (that is `electron/routes/`)
+_Avoid_: API, route table (that is `apps/desktop/electron/routes/`)
 
 **Transport**:
 How a frame reaches the host surface (IPC or WebSocket). Never where behaviour lives.

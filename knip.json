@@ -3,6 +3,11 @@
   "workspaces": {
     ".": {
       "entry": [
+        "scripts/*.mjs"
+      ]
+    },
+    "apps/desktop": {
+      "entry": [
         "index.html",
         "src/web/sw.ts",
         "src/web.html",
@@ -28,16 +33,46 @@
         "scripts/**/*.{ts,mjs}",
         "tests/**/*.ts"
       ],
-      "ignoreDependencies": ["@electron/osx-sign"],
+      "ignoreDependencies": [
+        "@electron/osx-sign"
+      ],
       "vite": {
-        "config": ["vite.config.ts", "vite.web.config.ts", "vitest.config.ts"]
+        "config": [
+          "vite.config.ts",
+          "vite.web.config.ts",
+          "vitest.config.ts"
+        ]
       }
     },
-    "relay": {
-      "entry": ["test/**/*.test.ts"],
-      "project": ["src/**/*.ts", "test/**/*.ts"],
-      "ignoreDependencies": ["cloudflare"]
+    "apps/relay": {
+      "entry": [
+        "test/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "test/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "cloudflare"
+      ]
+    },
+    "packages/protocol": {
+      "entry": [
+        "relay-crypto/index.ts",
+        "jev-protocol.ts",
+        "web-headers.ts",
+        "**/*.test.ts"
+      ],
+      "project": [
+        "**/*.ts"
+      ]
     }
   },
-  "ignoreBinaries": ["afplay", "kind", "kubectl", "pgrep", "pkill"]
+  "ignoreBinaries": [
+    "afplay",
+    "kind",
+    "kubectl",
+    "pgrep",
+    "pkill"
+  ]
 }

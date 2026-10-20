@@ -1,0 +1,382 @@
+# E2E Tests (Playwright)
+
+End-to-end tests for Manor, driving the packaged renderer through Playwright's
+`_electron` launcher.
+
+## How to run
+
+```bash
+# Build the app (renderer and electron) and run everything
+pnpm test:e2e
+
+# One file, against whatever is already built
+pnpm exec playwright test tests/e2e/smoke.spec.ts
+
+# The web app (through the local relay, so Node >= 22 on PATH), with both
+# builds first / without
+pnpm test:e2e:web
+pnpm e2e:web
+
+# The relay (needs Node >= 22 on PATH), with both builds first / without
+pnpm test:e2e:relay
+pnpm e2e:relay
+
+# The phone audit (needs Node >= 22 on PATH), with both builds first / without
+pnpm test:e2e:mobile
+pnpm e2e:mobile
+```
+
+`pnpm test:e2e` runs `pnpm build` first, which produces `dist-electron/main.js`,
+and then `pnpm build:web:relay`. Running Playwright directly skips both, which
+is what you want while iterating on test code and not on app code. The web app
+is not part of `pnpm build`: a browser reaches it only through the relay, which
+serves `pnpm build:web:relay`'s output (see "The relay" below). Every spec that
+opens the web app — `web-app.spec.ts`, `relay.spec.ts`, and the browser tests
+in `phone.spec.ts` and `detach.spec.ts` — runs a local relay through
+`helpers/relay-fixture.ts`, so it needs that output and Node >= 22.
+
+**`pnpm build` runs `pnpm typecheck` first** (`tsc --noEmit` over both
+`tsconfig.json` and `tsconfig.electron.json`, zero baseline in either). A green build is a build in which the surface check
+(`electron/bridge/surface.ts`) ran: adding a method to
+`ElectronAPI` without placing it fails the build by name rather than showing
+up later as a call that resolves to nothing. "Placing" a method means it
+appears in exactly one of four sets — `HANDLERS` (the handler table, reached
+from both transports), `nativeApi` (the preload namespaces that never leave
+Electron), `LOCALLY_SERVED` (answered inside a browser tab,
+`src/bridge/unavailable.ts`), or `SUBSCRIPTIONS` (a pushed event, in
+`electron/bridge/surface.ts` itself) — and the compiler error names which
+method is unplaced.
+
+Useful environment variables:
+
+| Variable                   | Effect                                                                                                                                         |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MANOR_E2E_LOG=1`          | Forward the launched app's stdout/stderr into the test output. The app is a separate process, so this is the only way to see what main logged. |
+| `MANOR_E2E_HEADED=1`       | Put the run on screen: the app's windows are shown, it gets a dock icon, and the browser that plays the phone is not headless.                  |
+| `MANOR_E2E_VIDEO=1`        | Record a video of every app window into `tests/e2e/artifacts/video/`. Set it to a path to record there instead. Off by default.                |
+
+## Runs stay out of your way
+
+The suite drives the real app on your own desktop, so by default it launches
+it in the background (`MANOR_E2E_BACKGROUND=1`, `electron/e2e-background.ts`):
+the app has no dock icon so it can never become the active one, its windows
+never take focus and let clicks fall through, and native notification banners
+and their sound are suppressed. Playwright talks to the renderer over CDP,
+which never needed a window in front — so a run no longer steals focus
+mid-keystroke or covers what you were doing.
+
+Background windows would normally be throttled by Chromium (throttled timers,
+no frames), which would turn anything driven by rAF into a hang rather than a
+failure, so the mode also turns renderer backgrounding off.
+
+Set `MANOR_E2E_HEADED=1` (or `MANOR_E2E_FOREGROUND=1`) when you actually want
+to watch a run.
+
+## Fixtures
+
+Import `test` and `expect` from `./fixtures` (not from `@playwright/test`). The
+custom fixture provides:
+
+- `app` — the running `ElectronApplication`.
+- `window` — the first renderer `Page`, loaded.
+- `tempHome` — an isolated `$HOME` with a seeded git repo at
+  `<tempHome>/test-project`. Everything the app writes — `manorDataDir()`,
+  `~/.manor`, the daemon socket, worktrees — resolves inside it, so runs cannot
+  see each other or the real installation.
+
+The app's Electron `userData` (localStorage, session storage) is pointed at
+`<tempHome>/user-data` too. Electron would otherwise put it in
+`~/Library/Application Support/Electron` regardless of `HOME`, where one run
+sees what the last one persisted.
+
+`openTerminalTab` waits on the first *visible* `terminal-pane`, not the first
+one in the DOM — phone mode keeps every workspace's panes mounted while
+hidden, so once a test has opened anything before this call, the first pane in
+the page is usually one of those, not the new one.
+
+The launched app's environment is scrubbed of `MANOR_*` and `ZDOTDIR`. A run
+started from a terminal _inside_ Manor would otherwise inherit that app's
+session variables, and the test app's shells would source another
+installation's zdotdir out of a home that no longer exists.
+
+## Selector strategy
+
+`data-testid` first: `window.getByTestId("settings-nav-devices")`. Text and role
+selectors are fine for things a user reads by name (a button labelled "Send").
+Add a test id when a test needs one — not a set of them for tests that do not
+exist yet.
+
+Terminal output is **not** in the DOM: xterm renders into a WebGL canvas.
+Observe a pane through `helpers/terminal.ts` (the daemon's scrollback file) or
+`helpers/local-api.ts` (the app's own control surface) instead.
+
+## Keyboard navigation
+
+`keyboard-navigation.spec.ts` checks that the whole app works without a
+pointer. After boot, every interaction in it is a key press. It never calls
+`click()`, so don't add one to make a test pass. The only exception is setup
+that has no key of its own, such as making a popout through the application
+menu with `app.evaluate`. The PR badge's keyboard test lives in
+`sidebar-pr-tweaks.spec.ts`, because that file has the fake `gh`.
+
+The app keeps this selector contract for the suite:
+
+| Selector                                                              | Meaning                                                                                                                       |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `[data-focus-region="sidebar\|tabbar\|pane\|statusbar"]`              | Root of a region that F6 / Shift+F6 cycles through. The test reads the region that holds focus from `activeElement`.          |
+| `[data-sidebar-row]`                                                  | Every row in the sidebar that can take focus (Home, project headers, workspace rows, folder headers). One has `tabindex="0"`. |
+| `home-row`, `project-header`, `workspace-item`                        | Sidebar rows. The active workspace row has `aria-current="true"` and `data-workspace-path`.                                   |
+| `role="tablist"` / `role="tab"` + `aria-selected`, `tab`, `tab-close` | The tab bar, with a roving tabindex. The "+" button is `aria-label="New tab"`.                                                |
+| `settings-nav-<section>`, `[data-settings-section]`                   | Settings navigation and the sections it shows.                                                                                |
+| `[role="menu"]`                                                       | An open Radix context menu (opened with Shift+F10 or ⌘.).                                                                     |
+| `xterm-helper-textarea` has focus                                     | The terminal holds the keyboard.                                                                                              |
+
+Focus polls use a short timeout (`FOCUS`, 3 s). A key pressed right after a
+focus move has to land on the new target, so a flake here is usually an app
+bug: focus deferred by a frame, or a re-render that drops focus. Fix it in the
+app, not with a `waitForTimeout`. To check that a fix holds, run the spec with
+`--repeat-each 10`.
+
+### The pointer-only sweep
+
+`no pointer-only controls` walks the main window, Settings and the
+notifications popover. It fails on any visible element with `cursor: pointer`
+that can't take focus and isn't inside something that can. A `tabindex="-1"`
+element passes only as a member of a roving group (`[data-sidebar-row]`,
+`[role="tab"]`), and a `<label>` passes when its control can take focus. If
+the sweep reports a new clickable `div`, give it a real `Button` or a
+keyboard handler plus `tabIndex`. Don't widen the sweep's exemptions.
+
+## Shared helpers
+
+The specs that drive a live session (`web-app.spec.ts`, `phone.spec.ts`,
+`relay.spec.ts` and others) stand on the same helpers:
+
+- **`helpers/fake-agent.sh`** — a stand-in agent CLI. Manor does not learn about
+  a session by watching a process: an agent reports its own lifecycle to the
+  hook endpoint, and the relay turns those events into agent rows. So the fake
+  agent speaks that hook protocol using the `MANOR_HOOK_PORT` /
+  `MANOR_PANE_ID` the pty layer gives it. It parks in `requires_input`, echoes
+  anything sent to it, and reads its input non-canonically, the way a real
+  harness does, because a send arrives as an ESC interrupt followed by the
+  text and a bare CR. Send it `FAKE_AGENT_HUSH` and it ends the turn without
+  re-arming the prompt, which is the only way to park a session in
+  `responded`. `fake-agent.ts` exports its path and the strings it prints.
+- **`helpers/terminal.ts`** — typing into a pane and reading the daemon's
+  scrollback back out.
+- **`helpers/local-api.ts`** — the app's unauthenticated loopback surface
+  (`WebviewServer`), for state the DOM does not hold, and as an independent
+  witness that a send reached the pty rather than only the view that asked for
+  it. Its response types are the app's own, imported rather than re-declared.
+- **`helpers/settings.ts`** — turning remote control on (Settings → Hosts →
+  This Mac), pairing and revoking a device through the real dialog (Settings →
+  Devices), and opening a host's row. Adding a host is `hosts-add` → a card
+  (`hosts-add-ssh` / `hosts-add-start`) → `add-host-continue` → the form.
+- **`helpers/phone.ts`** — a browser in its own Chromium context, with its
+  console and any failed request captured.
+- **`helpers/filmstrip.ts`** — numbered screenshots into
+  `tests/e2e/artifacts/<run>/`. A run is reviewable afterwards without having
+  watched it happen.
+
+Nothing in these flows reaches inside the app to fabricate state. A session
+comes from an agent reporting itself, a token comes from the pairing dialog,
+and a browser knows nothing but its pairing link.
+
+### Why the agent is started by typing
+
+A session is started by typing the fake agent's path into a terminal pane
+rather than with Cmd+N. Cmd+N consumes Manor's prewarmed session, which boots
+the project's agent command _before_ the pane exists — so its agent row is
+created with no project and no name — and the prewarm that replaces it keeps
+running the same agent in the background. Typing into a pane that is already on
+screen gives the hook relay its context the first time, and keeps the test off
+a race it would otherwise have to retry through.
+
+The prewarmed session still shows up as an agent: Manor keeps a warm pty with
+the agent command already injected, so that agent reports a lifecycle too and
+earns an agent row — no project, no pane in the layout, name is just a uuid.
+Tests pick their session by intersecting `GET /agents` with `GET /panes`
+rather than taking the first row.
+
+## The remote-host harness
+
+`remote-host.spec.ts` (and `host-server.spec.ts`, `host-ownership.spec.ts`, `pairing-keys.spec.ts`) run against a real sshd and is skipped unless
+`MANOR_E2E_SSH=1`. Don't run it with bare `playwright test`. Use
+`scripts/test-remote-e2e.mjs`, which builds the app and the `manor-host`
+tarball, starts the sshd, runs the bridge-level vitest suite and this spec,
+and tears everything down:
+
+```bash
+pnpm test:e2e:remote-host          # private unprivileged sshd on this Mac
+pnpm test:e2e:remote-host:docker   # Linux container (tests/e2e/remote-host/)
+node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
+```
+
+- **`helpers/remote-host.ts`**: the side channel (`manor-e2e-direct`) for
+  setting up the box, seeding a bare repo reachable as
+  `https://manor-e2e.invalid/seed.git` (through a git `insteadOf`), blocking
+  the app's alias (`manor-e2e`) to simulate a closed lid, and killing the
+  app's ssh processes.
+- **`remote-host/manor-e2e-agent`** and **`remote-host/fire-hook`**: a stub
+  agent and a hook trigger that are installed on the box. Both go through the
+  box's real hook script, so hooks reach the remote daemon's listener and
+  journal.
+- **Needs a display.** On a headless or WSL2 box, run it as
+  `DISPLAY=:0 node scripts/test-remote-e2e.mjs --playwright-only`. If
+  `/tmp/.X11-unix/X0` is missing: `ln -s /mnt/wslg/.X11-unix/X0 /tmp/.X11-unix/X0`.
+- **`host-server.spec.ts`** and **`host-ownership.spec.ts`** pair a phone with the box's host server through a local relay, so
+  they need the private-sshd target, `pnpm build:web:relay` and Node 22.
+  `host-ownership.spec.ts` launches the desktop with a remote project already
+  in its `projects.json` (the `tempHome` fixture is overridden to seed it),
+  so adoption is a step it awaits. It puts a fake `gh` on the box
+  (`installRemoteStubs`, `setRemoteGhPrs`; `helpers/fake-gh.ts` builds it).
+- `manor-e2e-agent` ends with `exec awk`, not a shell loop: the host server
+  reads a pane's foreground process, and a shell reads as "agent exited".
+- **Known failures on Linux** (they fail on `main` too): the two
+  `read-state.spec.ts` dock-badge tests (`app.dock` is macOS-only),
+  `pr-badge-matrix.spec.ts`, `sidebar-pr-tweaks.spec.ts`'s big test, both
+  failing `bridge.spec.ts` tests (`Meta+t`, and quitting on the last window
+  close), `smoke.spec.ts` "reopening a closed pane", and `remote-host.spec.ts`
+  "laptop closed … one notification". The list is
+  in `docs/remote-hosts.md#testing`.
+- The launched app keeps `MANOR_E2E_SSH_CONFIG` through the fixture's
+  `MANOR_*` scrub. Manor's managed ssh config includes that file ahead of
+  `~/.ssh/config` (a test-only hook). See `docs/remote-hosts.md#testing`.
+
+## The web app
+
+`web-app.spec.ts` proves the web app's tracer bullet: a browser on a PC opens
+`/app`, pairs, and drives a live terminal over the bridge — through the real
+web bundle and the real daemon, the same discipline as the shared helpers
+above. It reaches the app through the local relay setup `relay.spec.ts` uses
+(`helpers/relay-fixture.ts`): remote control opens no listener of its own, so
+the relay is the only way a browser gets in.
+
+The web app *is* the desktop renderer, so once
+`helpers/phone.ts`'s `openWebApp` has loaded it, it shares the desktop's test
+ids and its "terminal draws into a WebGL canvas" problem — `paneText` in the
+spec reads a pane's grid through `window.__manorTerminals`
+(`src/lib/terminal-registry.ts`), the same seam
+`claude-resize-duplication.spec.ts` uses for the desktop window, because the
+browser page runs the identical component. `helpers/phone.ts` also exports the
+more general `openClient(url, { viewport })` that `openWebApp` is built on,
+for anything future that needs another shape.
+
+`terminal-follower` (`TerminalPane.tsx`) is the follower affordance: it appears in
+the browser exactly when the desktop still has the pane mounted, and the
+spec's whole "the desktop owns the winsize" assertion is watching for it plus
+the daemon's `cols` refusing to move while the browser's own viewport does.
+
+## The phone layout
+
+`phone.spec.ts` proves the desk's shared layout walks one pane at a time on a
+phone, over the same paired web app `web-app.spec.ts` opens, at a
+390×844 viewport: one pane full screen with the top bar, tab strip and no
+status bar or inline sidebar; picking the split's other pane in the pane
+switcher moves the viewport with **no `pty.create` and no pane resize** — the
+audit log's `bridge`-transport count and each pane's grid before and after are
+the witnesses, since this is phone mode's whole promise; the drawer closing itself on
+a workspace pick; the command palette opening full screen and a command run
+from it (a split) landing on the desk's own layout too; the breakpoint reading
+width and not platform — a desktop window dragged narrow switches to phone
+chrome, a detached window below 768 px does not; a drag gesture on a tab
+starting no drag; and a tap on a terminal focusing xterm's own
+`.xterm-helper-textarea` synchronously, with `autocapitalize`, `autocorrect`,
+`autocomplete` and `spellcheck` all off and the viewport meta carrying
+`interactive-widget=resizes-visual`. What it cannot do: raise a real soft
+keyboard. Playwright has no way to simulate one, so "opening the keyboard
+does not resize the terminal" is checked by hand, not asserted here — the spec proves the *focus* is keyboard-ready, not that a
+keyboard came up.
+
+## The bridge
+
+`bridge.spec.ts` is `web-app.spec.ts`'s sibling for what only makes sense once
+the desktop and a browser share one host surface: two desktop windows on one
+pane (the more recent attach owns the winsize, the older one follows), and the CLI's `app-command` path landing on
+whichever window comes back after every window has been closed. `web-app.spec.ts`
+itself carries the other two bridge scenarios — a desktop window
+closing and handing winsize ownership to the browser it shared a pane with, and
+a paired device refused a `LOCAL_ONLY` method with the device list unmoved —
+because they are extensions of tests already living there.
+
+A small piece of debt worth knowing about rather than fixing in passing:
+`clickMenuItem` (click a native menu item by its label path, the way macOS
+would) is defined four times — once as the real helper,
+`helpers/window.ts`, which `bridge.spec.ts` imports, and independently again
+in `app-menu.spec.ts`, `keyboard-navigation.spec.ts` and `detach.spec.ts`. It
+should be one helper; nothing here does that yet.
+
+## The relay
+
+The relay is the only road to the app, so every spec that opens the web app
+runs through it. `relay.spec.ts` reaches the app the way a relay device does: a browser opens
+the pairing link at the relay's origin, and the relay pipes Noise ciphertext
+between it and the desktop. The relay is the real Worker under `wrangler dev`
+(`helpers/relay.ts`) on a free port, with a persist directory of its own —
+never `relay/.wrangler/state` — whose local R2 holds this checkout's
+`pnpm build:web:relay` output and a copy of it rewritten to claim another
+version (for the version redirect). The app gets `MANOR_RELAY_URL` through the
+`appLaunch` fixture, and is launched from the repo root (`asPackage`) so that
+`app.getVersion()` is Manor's version rather than Electron's: relay links and
+the hello reply both name it.
+
+- **Node >= 22.** wrangler refuses anything older, so the fixture spawns it
+  as a child process rather than importing it, and fails up front, by name,
+  when the `node` on PATH is too old. `pnpm test:e2e:relay` also runs
+  `pnpm build:web:relay`; `pnpm e2e:relay` expects that output to exist.
+- **Blindness.** The relay runs with `--var RELAY_DEV_PAYLOAD_LOG:1`, and the
+  room prints every payload it forwards (`apps/relay/src/room.ts`). That only
+  happens with the var set *and* a request addressed to loopback, so a deploy
+  cannot have it on by accident. The spec's first test is the control: raw,
+  unencrypted sockets push a plaintext canary through and the log must show
+  it. The main test then asserts that its markers, the link's pairing ticket
+  and the token the browser chose (`deviceToken`) appear in no forwarded
+  payload — as text, hex, or base64 — nor anywhere else in wrangler's output.
+- **Pairing links.** A link carries a single-use pairing ticket
+  (`&ticket=`), never a token; `pairDevice` / `pairHostPhone` throw on a link
+  with `t=`. `pairing-ticket.spec.ts` covers the ticket's life: used once,
+  refused to a second browser, expired (the app launched with
+  `MANOR_PAIRING_TICKET_TTL_MS`) and replaced through New link, removed while
+  pending. `pnpm test:e2e:relay` runs it with `relay.spec.ts`.
+- Uploading a build is one wrangler process per file, so it happens once per
+  run (a worker fixture) and each test boots wrangler on a fresh copy.
+
+## The phone audit
+
+`mobile-audit.spec.ts` is a phone's whole experience over the relay, measured.
+It pairs through a local relay (the same fixture as `relay.spec.ts`) and opens
+the link in Chromium at an iPhone's size, density and touch, with a 4× CPU
+throttle, Fast-4G bandwidth, and a 150 ms round trip. The round trip is a TCP
+proxy in front of the relay (`helpers/latency-proxy.ts`), because Chromium's
+network emulation never delays WebSocket frames, and the WebSocket is where a
+phone's every bridge call goes.
+
+It walks the cold load, typing, Fit to screen, the key bar, a dropped network
+and a 20 s outage, an output flood, the drawer, a workspace switch, the pane
+switcher, tabs, the palette, Settings, the Dashboard, Tasks, the agents view,
+New Workspace, and small, large, landscape and tablet sizes. For every screen
+it records horizontal overflow, tap targets (under 24 px fails, under 44 px is
+noted), fields iOS would zoom into, tiny or clipped text, axe violations, the
+terminal's grid, font and boxes, and a screenshot. Cold load gets frame-exact
+milestones, long tasks, downloads by type, the bridge call waterfall and the
+WebSocket frame timeline; every interaction gets a timing from the input
+event's own timestamp to the first frame its result is on screen.
+
+Everything lands in `tests/e2e/artifacts/mobile-audit/` (`report.md`,
+`report.json`, numbered screenshots), not under `test-results/`, which the next
+Playwright run empties. The end of the test holds the budgets (`BUDGET`,
+`KNOWN_AXE`) as soft assertions, so one run lists every breach.
+
+- `MANOR_AUDIT_PROFILE=1` also writes `cold-load.cpuprofile`, a CPU profile
+  of the cold load (open it in DevTools' Performance panel).
+- A second test drops the app's own chunk on the first request and requires
+  the page to recover rather than stay blank.
+
+## Long unattended runs
+
+The whole suite, or most of it, in one Playwright invocation can run well
+past 600 seconds without producing a line of output in between — which looks
+identical to a hang to anything watching for silence, including an agent's
+own watchdog. Run specs individually or in small groups, or run a full
+invocation in the background and poll for its completion, rather than one
+foreground call over everything.

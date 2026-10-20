@@ -1,0 +1,18 @@
+{
+  "name": "@manor/protocol",
+  "private": true,
+  "description": "Wire formats shared by the desktop app and the relay: relay-crypto (Noise NK channel, keys), the Jev contract and the web app headers. Source-only TypeScript; consumers bundle it.",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.4.0",
+    "@noble/curves": "^2.4.0",
+    "@noble/hashes": "^2.4.0"
+  },
+  "devDependencies": {
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.0"
+  }
+}

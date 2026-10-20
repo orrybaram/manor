@@ -1,0 +1,151 @@
+# Manor relay
+
+A Cloudflare Worker with one Durable Object per desktop
+. It pipes
+Noise ciphertext between a desktop (the **host**) and up to 8 browsers
+(**channels**) in a **room**, and serves the web app from R2, one build per
+version. It cannot read what it forwards. For what it can and cannot see, see
+[docs/remote-control.md](../docs/remote-control.md#the-manor-relay).
+
+```
+GET /host/<roomId>      desktop; challenge-response with its Ed25519 key
+GET /join/<roomId>      viewer; 4404 if no host is connected
+GET /app/<version>/*    the web app build for that Manor version, from R2
+POST /jev/folder        hosted Jev's sidebar-folder pick, signed
+```
+
+`roomId` is `base64url(sha256(ed25519PublicKey))[0..22]`.
+
+## Limits
+
+All enforced in the room (`src/room.ts`) except the rate limit:
+
+- 1 MiB per message; larger closes the socket with 1009. (A desktop frame may
+  be up to 32 MiB; it crosses as several messages.)
+- 8 channels per room. Channel numbers rotate over 1..65535 rather than reuse
+  the lowest free one, so a departed viewer's in-flight frames cannot reach
+  the next viewer.
+- A per-room byte budget per UTC day, both directions: `RELAY_DAILY_BYTES` in
+  `wrangler.toml`, default 2 GiB. When spent, new joins get 4429 until the day
+  rolls.
+- A host that has not authenticated within 5 s is closed (4408).
+- Heartbeat: host and viewers send the text `ping` every 20 s and the room
+  answers `pong` itself (Durable Object auto-response, no wake-up). A live
+  socket silent for 90 s is closed with 4410 by an alarm; a join whose host is
+  silent gets 4404 at once.
+- Every host binary message is acknowledged with `OP_ACK` (`[0x04, 0, 0,
+u32 length]`); the desktop keeps a bounded window of unacknowledged bytes
+  and schedules its viewers fairly inside it.
+- `/join` and `/host` are rate limited per client IP by the `JOIN_LIMITER`
+  binding (30 per 60 s each, keyed `join:<ip>` / `host:<ip>`). Its
+  `namespace_id` must be unique in the Cloudflare account.
+
+### Jev
+
+`POST /jev/folder` (`src/jev.ts`) asks TypeSafe's Jev which sidebar folder a new workspace belongs
+in, with Manor's key. The worker fixes the model, question and instructions;
+the desktop sends only the data, at most 16 KiB, signed with its relay
+identity and within 5 minutes of the worker's clock. Three limits, cheapest
+first:
+
+- 60 per 60 s per client IP (`JEV_LIMITER`, keyed `jevip:<ip>`), 429.
+- 20 per 60 s per relay identity (`JEV_ID_LIMITER`, keyed `jevid:<roomId>`),
+  checked after the signature, 429.
+- A global cap per UTC day, all users together: `JEV_DAILY_CALLS` in
+  `wrangler.toml`, default 5000, counted by the singleton `JevBudget` Durable
+  Object. When spent, 503 until the day rolls.
+
+It never logs bodies, but unlike the rooms it is not blind: it sees folder and
+workspace names and agent prompts in cleartext, and passes them to TypeSafe.
+
+#### Observability
+
+Workers Observability is on in `wrangler.toml`, with logs and traces at full
+sampling. Find it under Workers & Pages → manor-relay → Observability.
+
+- **Logs.** Each request writes one content-free JSON line with
+  `event = "jev"`; it never contains names, prompts, folder ids or
+  descriptions, the pub key or IPs. Fields: `outcome`, `status`, `ms`, and
+  when known `options`, `band` (confidence band, served only), `upstream_ms`,
+  `upstream_status` and `error` (an error name only). Watch live with
+  `npx wrangler tail`.
+- **Outcomes:** `served`, `method`, `too_large`, `ip_limited`, `bad_request`,
+  `stale`, `bad_signature`, `id_limited`, `not_configured`, `over_budget`,
+  `upstream_error`, `bad_answer`.
+- **Query Builder** (Investigate tab). Useful saved queries, all filtered on
+  `event = "jev"`:
+  - count, grouped by `outcome`: what share is served, limited or refused;
+  - P50 / P95 of `ms` where `outcome = served`: end-to-end latency;
+  - P95 of `upstream_ms`: how much of that is TypeSafe;
+  - count where `outcome = served`, by day: daily use against the 5,000 cap.
+- **Traces** show each request's subrequests as timed spans: the TypeSafe
+  call, the `JevBudget` Durable Object and the rate-limit bindings.
+
+Logs are kept for about 7 days, so there is no long-term trend here; TypeSafe's
+dashboard covers usage over time.
+
+## Close codes
+
+Relay codes: 4401 host auth failed, 4404 viewer with no host, 4408 host auth
+timeout, 4409 host replaced by a newer one, 4410 no heartbeat, 4429 channel
+cap or daily budget.
+
+Of the desktop's bridge verdicts, only **4401** (bad or revoked token) and
+**4403** (reserved: the desktop no longer sends it) pass through to the viewer; anything else
+reaches it as a normal close. The relay's 4404, 4410 and 4429 mean
+"unreachable", not "your credentials are bad", and the page treats them that
+way. Revoking a device
+on the desktop closes its live channel immediately.
+
+## Deploying
+
+The release workflow does this (`.github/workflows/release.yml`): it builds the
+web app with `MANOR_WEB_BASE=/app/<version>/` (`pnpm build:web:relay`), uploads
+it (`node scripts/upload-web-relay.mjs --remote`), and runs `pnpm relay:deploy`.
+It needs the repository secrets `CLOUDFLARE_API_TOKEN` and
+`CLOUDFLARE_ACCOUNT_ID`; without them the step skips with a warning, so forks
+still release.
+
+Once, by hand, in the Cloudflare account:
+
+- Create the R2 buckets `manor-relay-web` (production) and
+  `manor-relay-web-dev` (what `wrangler dev` binds locally).
+- Make sure the rate limiter `namespace_id`s in `wrangler.toml` are unused in
+  the account.
+- Set Manor's TypeSafe key: `cd relay && npx wrangler secret put
+TYPESAFE_API_KEY`. It never goes in `wrangler.toml`; until it is set,
+  `/jev/folder` answers 503.
+- Have the `manor.sh` zone in the same Cloudflare account. The Worker is
+  served at `relay.manor.sh` as a custom domain (`routes` in `wrangler.toml`),
+  so `wrangler deploy` creates the DNS record and certificate; there is no
+  record to add by hand. The desktop's `DEFAULT_RELAY_URL` in
+  `apps/desktop/electron/remote-control/relay/connector.ts` names the same origin.
+
+## Local development
+
+The `wrangler` CLI needs **Node >= 22**.
+
+```sh
+pnpm build:web:relay      # web build with base /app/<version>/
+pnpm relay:dev:upload     # into the local preview bucket manor-relay-web-dev
+pnpm relay:dev            # wrangler dev, state in relay/.wrangler/state
+MANOR_RELAY_URL=ws://localhost:8787 pnpm dev   # point the desktop at it
+```
+
+`MANOR_RELAY_URL` overrides the default relay; `ws://` is accepted only for
+localhost. Uploading a full build takes about 45 s: it runs one wrangler process
+per file, and parallel uploads crash workerd's SQLite.
+
+For debugging, `wrangler dev --var RELAY_DEV_PAYLOAD_LOG:1` makes the room log
+every payload it forwards, and only for requests addressed to loopback. It
+exists for the e2e blindness check; never set it in `wrangler.toml`.
+
+## Tests
+
+```sh
+pnpm relay:test        # vitest in workerd (@cloudflare/vitest-pool-workers)
+pnpm test:e2e:relay    # builds, then drives a real desktop and browser through it
+```
+
+`relay:test` runs under Node 20 (vitest-pool-workers hosts workerd itself); the
+e2e spawns the wrangler CLI, so it needs Node >= 22 on `PATH`. See `apps/desktop/tests/e2e/README.md` for the e2e fixture.

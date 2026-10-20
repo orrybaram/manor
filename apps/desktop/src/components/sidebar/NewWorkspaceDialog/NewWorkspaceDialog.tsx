@@ -1,0 +1,852 @@
+import { useState, useRef, useCallback, useMemo } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
+import X from "lucide-react/dist/esm/icons/x";
+import Loader2 from "lucide-react/dist/esm/icons/loader-2";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
+import Box from "lucide-react/dist/esm/icons/box";
+import Folder from "lucide-react/dist/esm/icons/folder";
+import Bot from "lucide-react/dist/esm/icons/bot";
+import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import { useQuery } from "@tanstack/react-query";
+import {
+  useProjectStore,
+  type ProjectInfo,
+} from "../../../store/project-store";
+import { usePreferencesStore } from "../../../store/preferences-store";
+import { Input } from "../../ui/Input";
+import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
+import { Collapse } from "../../ui/Collapse/Collapse";
+import { Button } from "../../ui/Button/Button";
+import { SearchableSelect } from "../../ui/SearchableSelect";
+import { ToggleGroup } from "../../ui/ToggleGroup";
+import styles from "./NewWorkspaceDialog.module.css";
+import { Row, Stack } from "../../ui/Layout/Layout";
+import { sanitizeBranchName } from "../../../utils/branch-name";
+import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
+import { useHostStore } from "../../../store/host-store";
+import { hostSentenceName } from "../../../bridge/server-set";
+import { hasHiddenPods, newHostTargets, transferTargets } from "../../../lib/transfer-targets";
+import { useHostProfileStore } from "../../../store/host-profile-store";
+import {
+  memberAfterClone,
+  startingMemberId,
+  workspaceHostChoices,
+} from "../../../lib/workspace-host-choices";
+import {
+  baseBranchOptions,
+  checkBranchOnHost,
+  existingBranchOptions as listExistingBranchOptions,
+  projectForSelectValue,
+  projectSelectOptions,
+  projectSelectValue,
+  reseedBaseBranch,
+} from "../../../lib/new-workspace";
+import { HostPicker } from "./HostPicker";
+import {
+  applySuggestionResult,
+  shouldSuggest,
+  type SuggestSnapshot,
+} from "./folder-suggestion";
+import type { FolderPick } from "@manor/protocol/jev-protocol";
+import { useMountEffect } from "../../../hooks/useMountEffect";
+import { CloneToHostDialog } from "../../hosts/CloneToHostDialog";
+
+type Mode = "new" | "existing";
+
+const NO_BRANCHES: string[] = [];
+
+type NewWorkspaceDialogProps = {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (
+    projectId: string,
+    name: string,
+    branchName: string,
+    baseBranch: string,
+    useExistingBranch?: boolean,
+    /** Sidebar folder to file the new workspace under; null for none. */
+    folderId?: string | null,
+    /** First message for an agent started in the new workspace; none when empty. */
+    agentPrompt?: string,
+  ) => Promise<boolean>;
+  projects: ProjectInfo[];
+  selectedProjectIndex: number;
+  preselectedProjectId?: string | null;
+  initialName?: string;
+  initialBranch?: string;
+  /** Folder preselected when the dialog opens from a folder's own menu. */
+  initialFolderId?: string | null;
+  /**
+   * Prefills the agent prompt and opens its section, e.g. when the dialog
+   * is opened from a task.
+   */
+  initialAgentPrompt?: string;
+  /**
+   * For a linked project: the member the host picker starts on
+   * ahead of the group's last-used host, because the dialog was opened from
+   * that member's own section or folder.
+   */
+  preferredMemberId?: string | null;
+};
+
+export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
+  const {
+    open,
+    onClose,
+    onSubmit,
+    projects,
+    selectedProjectIndex,
+    preselectedProjectId,
+    initialName = "",
+    initialBranch = "",
+    initialFolderId = null,
+    initialAgentPrompt = "",
+    preferredMemberId = null,
+  } = props;
+
+  const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
+
+  const [mode, setMode] = useState<Mode>("new");
+  const [name, setName] = useState("");
+  const [branchName, setBranchName] = useState("");
+  const [branchManuallyEdited, setBranchManuallyEdited] = useState(false);
+  const [baseBranch, setBaseBranch] = useState("");
+  const [baseBranchEdited, setBaseBranchEdited] = useState(false);
+  const [existingBranch, setExistingBranch] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string>("");
+  const [folderId, setFolderId] = useState<string | null>(null);
+  // Set by any hand pick; stops Jev suggesting over the user's choice.
+  const [folderTouched, setFolderTouched] = useState(false);
+  const [suggestion, setSuggestion] = useState<FolderPick | null>(null);
+  // A request is in flight: the folder picker shimmers until it answers.
+  const [suggesting, setSuggesting] = useState(false);
+  const suggestionsEnabled = usePreferencesStore(
+    (s) => s.preferences.folderSuggestionsEnabled,
+  );
+  const [agentPrompt, setAgentPrompt] = useState("");
+  const [agentOpen, setAgentOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  /**
+   * "Set up on another host…": the project it was opened from, pinned so
+   * the set up keeps its source while the new project joins and becomes the
+   * selection. `key` gives each opening a fresh dialog, and `open` false
+   * keeps the closed one mounted while its exit animation plays.
+   */
+  const [cloneSession, setCloneSession] = useState<{
+    key: number;
+    projectId: string;
+    open: boolean;
+  } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const suggestTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  );
+  // Bumped by every cancel, so a reply for an older draft is dropped.
+  const suggestRequestRef = useRef(0);
+
+  /** Drops a pending or in-flight suggestion: the draft or the choice moved on. */
+  const cancelSuggestion = useCallback(() => {
+    clearTimeout(suggestTimerRef.current);
+    suggestRequestRef.current++;
+    setSuggesting(false);
+  }, []);
+  useMountEffect(() => () => clearTimeout(suggestTimerRef.current));
+
+  const handleOpenChange = useCallback(
+    (isOpen: boolean) => {
+      if (!isOpen && !isCreating) {
+        cancelSuggestion();
+        onClose();
+      }
+    },
+    [onClose, isCreating, cancelSuggestion],
+  );
+
+  const hosts = useHostStore((s) => s.hosts);
+
+  // A linked project creates in one member: the one the host picker starts
+  // on. Anything else is created in as it is.
+  const defaultProjectId = startingMemberId(
+    preselectedProjectId || projects[selectedProjectIndex]?.id || "",
+    projects,
+    hosts,
+    preferredMemberId,
+  );
+
+  const activeProjectId = selectedProjectId || defaultProjectId;
+
+  const activeProject = projects.find((p) => p.id === activeProjectId);
+  const defaultBranch = activeProject?.defaultBranch ?? "main";
+  const hostChoices = useMemo(
+    () => workspaceHostChoices(activeProject, projects, hosts),
+    [activeProject, projects, hosts],
+  );
+  const activeHostChoice = hostChoices?.find(
+    (c) => c.projectId === activeProjectId,
+  );
+  // Other projects' pods are left out of the targets until asked for.
+  const [showAllHosts, setShowAllHosts] = useState(false);
+  const cloneTargets = useMemo(
+    () =>
+      activeProject
+        ? transferTargets(activeProject, projects, hosts, "copy", { showAllHosts })
+        : [],
+    [activeProject, projects, hosts, showAllHosts],
+  );
+  const hiddenPods = activeProject ? hasHiddenPods(activeProject, hosts) : false;
+  const profiles = useHostProfileStore((s) => s.profiles);
+  const podTargets = useMemo(() => newHostTargets(profiles), [profiles]);
+  const openInNewHost = useProjectStore((s) => s.openInNewHost);
+  // A lone project gets a one-choice picker, so it has the button too.
+  const pickerChoices = useMemo(
+    () =>
+      hostChoices ??
+      (activeProject && (cloneTargets.length > 0 || podTargets.length > 0)
+        ? [{ projectId: activeProject.id, hostId: activeProject.hostId, disabledReason: null }]
+        : null),
+    [hostChoices, activeProject, cloneTargets, podTargets],
+  );
+  const cloneSource = cloneSession
+    ? projects.find((p) => p.id === cloneSession.projectId)
+    : undefined;
+  const cloneSourceTargets = useMemo(
+    () =>
+      cloneSource
+        ? transferTargets(cloneSource, projects, hosts, "copy", { showAllHosts })
+        : [],
+    [cloneSource, projects, hosts, showAllHosts],
+  );
+
+  const openClone = (projectId: string) =>
+    setCloneSession((s) => ({ key: (s?.key ?? 0) + 1, projectId, open: true }));
+  const closeClone = () => setCloneSession((s) => s && { ...s, open: false });
+
+  /**
+   * Once the set-up dialog has closed: back to "Set up on another host…",
+   * or, when that took the last host and the button went with it, to the
+   * chosen host (the new project).
+   */
+  const focusAfterClone = (e: Event) => {
+    e.preventDefault();
+    const root = contentRef.current;
+    const target =
+      root?.querySelector<HTMLElement>(
+        '[data-testid="new-workspace-set-up-on-host"]',
+      ) ??
+      root?.querySelector<HTMLElement>(
+        '[data-testid="new-workspace-host-picker"] [role="radio"][aria-checked="true"]',
+      ) ??
+      nameRef.current;
+    target?.focus();
+  };
+
+  // Fetch remote branches when dialog opens or project changes
+  const {
+    data: remoteData,
+    isLoading: loadingRemote,
+    isError: remoteFailed,
+  } = useQuery({
+    queryKey: ["remote-branches", activeProjectId],
+    queryFn: () =>
+      window.electronAPI.projects.listRemoteBranches(activeProjectId),
+    enabled: open && !!activeProjectId,
+  });
+
+  // Fetch local branches
+  const {
+    data: localData,
+    isLoading: loadingLocal,
+    isError: localFailed,
+  } = useQuery({
+    queryKey: ["local-branches", activeProjectId],
+    queryFn: () =>
+      window.electronAPI.projects.listLocalBranches(activeProjectId),
+    enabled: open && !!activeProjectId,
+  });
+
+  const loadingBranches = loadingRemote || loadingLocal;
+  // Undefined until loaded; a failed load counts as no branches.
+  const remoteList = remoteFailed ? NO_BRANCHES : remoteData;
+  const localList = localFailed ? NO_BRANCHES : localData;
+  const remoteBranches = remoteList ?? NO_BRANCHES;
+  const localBranches = localList ?? NO_BRANCHES;
+
+  const allBranchOptions = useMemo(
+    () => baseBranchOptions(defaultBranch, remoteBranches),
+    [defaultBranch, remoteBranches],
+  );
+  const existingBranchOptions = useMemo(
+    () =>
+      listExistingBranchOptions(defaultBranch, localBranches, remoteBranches),
+    [defaultBranch, localBranches, remoteBranches],
+  );
+
+  const projectOptions = useMemo(
+    () => projectSelectOptions(projects),
+    [projects],
+  );
+
+  // For a linked member, the chosen host must have the branch.
+  // Create waits while its branch lists load.
+  const branchOnHost =
+    hostChoices && activeProject
+      ? checkBranchOnHost({
+          mode,
+          branch: mode === "existing" ? existingBranch : baseBranch,
+          defaultBranch,
+          localBranches: localList,
+          remoteBranches: remoteList,
+          hostName: hostSentenceName(activeProject.hostId, hosts),
+        })
+      : null;
+  const branchMissingMessage =
+    branchOnHost?.state === "missing" ? branchOnHost.message : null;
+  const waitingForBranches = branchOnHost?.state === "pending";
+
+  /**
+   * Move to another member or project, reseeding what belongs to it. Pass
+   * `next` for a project this render's `projects` doesn't have yet.
+   */
+  const chooseProject = (
+    projectId: string,
+    next = projects.find((p) => p.id === projectId),
+    { keepFolder = true }: { keepFolder?: boolean } = {},
+  ) => {
+    setSelectedProjectId(projectId);
+    if (next)
+      setBaseBranch(reseedBaseBranch(baseBranch, baseBranchEdited, next));
+    setError(null);
+    if (!keepFolder) {
+      setFolderId(null);
+      setSuggestion(null);
+    }
+    const nextFolders = next?.folders ?? [];
+    const kept =
+      keepFolder && nextFolders.some((f) => f.id === activeFolderId)
+        ? { folderId: activeFolderId, suggestion }
+        : { folderId: null, suggestion: null };
+    scheduleSuggestion({
+      projectId,
+      folderCount: nextFolders.length,
+      choice: kept,
+    });
+  };
+
+  const folders = useMemo(() => activeProject?.folders ?? [], [activeProject]);
+  const folderOptions = useMemo(
+    () => [
+      { value: "", label: "No folder" },
+      ...folders.map((f) => ({ value: f.id, label: f.name })),
+    ],
+    [folders],
+  );
+  // A folder belongs to one project; a stale pick would silently vanish.
+  const activeFolderId =
+    folderId && folders.some((f) => f.id === folderId) ? folderId : null;
+
+  /**
+   * Ask Jev for a folder once the draft settles, unless the user has chosen.
+   * Every handler that changes the draft calls this with what it is about to
+   * change; the rest comes from this render.
+   */
+  const scheduleSuggestion = (changes: Partial<SuggestSnapshot> = {}) => {
+    cancelSuggestion();
+    const snapshot: SuggestSnapshot = {
+      projectId: activeProjectId,
+      folderCount: folders.length,
+      name,
+      branchName,
+      agentPrompt: agentOpen ? agentPrompt : "",
+      folderTouched,
+      choice: { folderId: activeFolderId, suggestion },
+      ...changes,
+    };
+    if (!shouldSuggest({ ...snapshot, suggestionsEnabled, initialFolderId })) {
+      return;
+    }
+    const request = suggestRequestRef.current;
+    suggestTimerRef.current = setTimeout(() => {
+      setSuggesting(true);
+      window.electronAPI.jev
+        .suggestFolder(snapshot.projectId, {
+          name: snapshot.name,
+          branchName: snapshot.branchName,
+          agentPrompt: snapshot.agentPrompt || undefined,
+        })
+        .then((result) => {
+          if (request !== suggestRequestRef.current) return;
+          const next = applySuggestionResult(snapshot.choice, result);
+          setFolderId(next.folderId);
+          setSuggestion(next.suggestion);
+        })
+        // A suggestion is a nicety; a failed one leaves the choice alone.
+        .catch(() => {})
+        .finally(() => {
+          if (request === suggestRequestRef.current) setSuggesting(false);
+        });
+    }, 400);
+  };
+
+  const createWorkspaceFolder = useProjectStore((s) => s.createWorkspaceFolder);
+  // Typing a name the folder list doesn't have makes that folder, then picks it.
+  const createFolder = useCallback(
+    async (folderName: string) => {
+      if (!activeProjectId) return;
+      try {
+        const folder = await createWorkspaceFolder(activeProjectId, folderName);
+        if (folder) {
+          cancelSuggestion();
+          setFolderId(folder.id);
+          setFolderTouched(true);
+        }
+      } catch (err) {
+        setError(
+          `Couldn't create folder: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    },
+    [activeProjectId, cancelSuggestion, createWorkspaceFolder],
+  );
+
+  // Not memoised: it schedules a suggestion from this render's state.
+  const handleOpenAutoFocus = (e: Event) => {
+    e.preventDefault();
+    setMode("new");
+    setName(initialName);
+    setBranchName(initialBranch || sanitizeBranchName(initialName));
+    setBranchManuallyEdited(!!initialBranch);
+    const proj = projects.find(
+      (p) =>
+        p.id ===
+        (preselectedProjectId || projects[selectedProjectIndex]?.id || ""),
+    );
+    setBaseBranch(proj?.defaultBranch ?? "main");
+    setBaseBranchEdited(false);
+    setExistingBranch("");
+    setSelectedProjectId(defaultProjectId);
+    setFolderId(initialFolderId);
+    setFolderTouched(false);
+    setSuggestion(null);
+    setAgentPrompt(initialAgentPrompt);
+    setAgentOpen(!!initialAgentPrompt);
+    scheduleSuggestion({
+      projectId: defaultProjectId,
+      folderCount:
+        projects.find((p) => p.id === defaultProjectId)?.folders.length ?? 0,
+      name: initialName,
+      branchName: initialBranch || sanitizeBranchName(initialName),
+      agentPrompt: initialAgentPrompt,
+      folderTouched: false,
+      choice: { folderId: initialFolderId, suggestion: null },
+    });
+    setError(null);
+    setIsCreating(false);
+    setCloneSession(null);
+    // Defer focus to the next frame: the setState calls above re-render the
+    // dialog (e.g. switching back to "new" mode unmounts the existing-mode
+    // input). Focusing synchronously here lands on the old, about-to-unmount
+    // input and the focus is lost. rAF runs after React commits the new tree.
+    requestAnimationFrame(() => nameRef.current?.focus());
+  };
+
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (isCreating) return;
+
+      const projectId = activeProjectId;
+      if (!projectId) {
+        setError("No project selected");
+        return;
+      }
+      if (activeHostChoice?.disabledReason) {
+        setError(activeHostChoice.disabledReason);
+        return;
+      }
+      if (waitingForBranches) return;
+      if (branchMissingMessage) {
+        setError(branchMissingMessage);
+        return;
+      }
+      // A collapsed section starts no agent, whatever it still holds.
+      const promptToSend = agentOpen
+        ? agentPrompt.trim() || undefined
+        : undefined;
+
+      if (mode === "existing") {
+        if (!existingBranch) {
+          setError("Select a branch");
+          return;
+        }
+        const wsName = name.trim() || existingBranch;
+        setError(null);
+        setIsCreating(true);
+        const success = await onSubmit(
+          projectId,
+          wsName,
+          existingBranch,
+          "",
+          true,
+          activeFolderId,
+          promptToSend,
+        );
+        if (!success) setIsCreating(false);
+        return;
+      }
+
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        setError("Name is required");
+        return;
+      }
+      if (trimmedName.length > 200) {
+        setError("Name must be 200 characters or fewer");
+        return;
+      }
+      const finalBranch = branchName.trim() || sanitizeBranchName(trimmedName);
+      if (!finalBranch) {
+        setError("Could not derive a valid branch name");
+        return;
+      }
+      setError(null);
+      setIsCreating(true);
+      const success = await onSubmit(
+        projectId,
+        trimmedName,
+        finalBranch,
+        baseBranch,
+        false,
+        activeFolderId,
+        promptToSend,
+      );
+      if (!success) {
+        setIsCreating(false);
+      }
+    },
+    [
+      name,
+      branchName,
+      baseBranch,
+      existingBranch,
+      mode,
+      activeProjectId,
+      activeFolderId,
+      activeHostChoice,
+      agentOpen,
+      agentPrompt,
+      waitingForBranches,
+      branchMissingMessage,
+      onSubmit,
+      isCreating,
+    ],
+  );
+
+  return (
+    <Dialog.Root open={open} onOpenChange={handleOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className={styles.overlay} />
+        <Dialog.Content
+          ref={contentRef}
+          className={styles.dialog}
+          data-testid="new-workspace-dialog"
+          onOpenAutoFocus={handleOpenAutoFocus}
+          onCloseAutoFocus={restoreFocusOnClose}
+        >
+          <Row align="center" justify="space-between" className={styles.header}>
+            <Dialog.Title className={styles.title}>New Workspace</Dialog.Title>
+            <Dialog.Close asChild>
+              <Button variant="ghost" size="sm" aria-label="Close">
+                <X size={14} />
+              </Button>
+            </Dialog.Close>
+          </Row>
+          <form ref={formRef} onSubmit={handleSubmit}>
+            <Stack className={styles.body}>
+              <fieldset disabled={isCreating} className={styles.fieldset}>
+                {pickerChoices && (
+                  <HostPicker
+                    choices={pickerChoices}
+                    value={activeProjectId}
+                    onChange={chooseProject}
+                    onSetUpOnAnotherHost={
+                      cloneTargets.length > 0
+                        ? () => openClone(activeProjectId)
+                        : undefined
+                    }
+                    showHiddenHostsToggle={hiddenPods}
+                    showAllHosts={showAllHosts}
+                    onToggleShowAllHosts={() => setShowAllHosts((v) => !v)}
+                    newHostTargets={podTargets}
+                    onSetUpInNewHost={(target) =>
+                      void openInNewHost({
+                        profileId: target.profileId,
+                        sourceProjectId: activeProjectId,
+                      })
+                    }
+                  />
+                )}
+                <ToggleGroup
+                  value={mode}
+                  onChange={setMode}
+                  size="sm"
+                  aria-label="New or existing branch"
+                  options={[
+                    { value: "new", label: "New branch" },
+                    { value: "existing", label: "Existing branch" },
+                  ]}
+                />
+                {mode === "existing" ? (
+                  <>
+                    <Stack>
+                      <label className={styles.fieldLabel}>Name</label>
+                      <EmojiInput
+                        ref={nameRef}
+                        type="text"
+                        value={name}
+                        onChange={(e) => {
+                          setName(e.target.value);
+                          setError(null);
+                          scheduleSuggestion({ name: e.target.value });
+                        }}
+                        placeholder={existingBranch || "Workspace name"}
+                        data-testid="new-workspace-name-input"
+                      />
+                    </Stack>
+                    <Stack>
+                      <label className={styles.fieldLabel}>Branch</label>
+                      <SearchableSelect
+                        value={existingBranch}
+                        onChange={(val) => {
+                          setExistingBranch(val);
+                          if (!name.trim()) {
+                            setName(val);
+                            scheduleSuggestion({ name: val });
+                          }
+                          setError(null);
+                        }}
+                        options={existingBranchOptions.map((b) => ({
+                          value: b,
+                          label: b,
+                        }))}
+                        loading={loadingBranches}
+                        emptyMessage="No remote branches found"
+                        icon={<GitBranch size={12} />}
+                        placeholder="Select a branch..."
+                      />
+                    </Stack>
+                  </>
+                ) : (
+                  <>
+                    <Stack>
+                      <label className={styles.fieldLabel}>Name</label>
+                      <EmojiInput
+                        ref={nameRef}
+                        type="text"
+                        value={name}
+                        onChange={(e) => {
+                          const nextName = e.target.value;
+                          const nextBranch = branchManuallyEdited
+                            ? branchName
+                            : sanitizeBranchName(nextName);
+                          setName(nextName);
+                          setBranchName(nextBranch);
+                          setError(null);
+                          scheduleSuggestion({
+                            name: nextName,
+                            branchName: nextBranch,
+                          });
+                        }}
+                        placeholder="My Feature"
+                        data-testid="new-workspace-name-input"
+                      />
+                      <Input
+                        variant="ghost"
+                        monospace
+                        type="text"
+                        value={branchName}
+                        onChange={(e) => {
+                          setBranchName(e.target.value);
+                          setBranchManuallyEdited(true);
+                          scheduleSuggestion({ branchName: e.target.value });
+                        }}
+                        placeholder="my-feature"
+                      />
+                    </Stack>
+                  </>
+                )}
+                <Stack className={styles.agentSection}>
+                  <Button
+                    type="button"
+                    variant="link"
+                    className={styles.agentToggle}
+                    aria-expanded={agentOpen}
+                    onClick={() => {
+                      const nextOpen = !agentOpen;
+                      setAgentOpen(nextOpen);
+                      scheduleSuggestion({
+                        agentPrompt: nextOpen ? agentPrompt : "",
+                      });
+                    }}
+                    data-testid="new-workspace-agent-toggle"
+                  >
+                    <Bot size={12} />
+                    Start an agent
+                    <ChevronRight
+                      size={12}
+                      className={
+                        agentOpen ? styles.chevronOpen : styles.chevron
+                      }
+                    />
+                  </Button>
+                  <Collapse open={agentOpen}>
+                    <EmojiTextarea
+                      value={agentPrompt}
+                      onChange={(e) => {
+                        setAgentPrompt(e.target.value);
+                        scheduleSuggestion({ agentPrompt: e.target.value });
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          formRef.current?.requestSubmit();
+                        }
+                      }}
+                      placeholder="What should the agent work on?"
+                      rows={initialAgentPrompt ? 6 : 3}
+                      aria-label="Agent prompt"
+                      data-testid="new-workspace-agent-prompt"
+                    />
+                  </Collapse>
+                </Stack>
+                {error ? (
+                  <div className={styles.error}>{error}</div>
+                ) : (
+                  branchMissingMessage && (
+                    <div
+                      className={styles.hint}
+                      data-testid="new-workspace-branch-missing"
+                    >
+                      {branchMissingMessage}
+                    </div>
+                  )
+                )}
+                <Stack gap="md" className={styles.actions}>
+                  <div className={styles.selects}>
+                    {projectOptions.length > 1 && (
+                      <SearchableSelect
+                        value={
+                          activeProject ? projectSelectValue(activeProject) : ""
+                        }
+                        onChange={(value) => {
+                          const target = projectForSelectValue(value, projects);
+                          if (!target) return;
+                          chooseProject(
+                            startingMemberId(target, projects, hosts),
+                            undefined,
+                            { keepFolder: false },
+                          );
+                        }}
+                        options={projectOptions}
+                        icon={<Box size={12} />}
+                        maxWidth={160}
+                        aria-label="Project"
+                        data-testid="new-workspace-project-select"
+                      />
+                    )}
+                    {activeProject && (
+                      <SearchableSelect
+                        value={activeFolderId ?? ""}
+                        onChange={(id) => {
+                          cancelSuggestion();
+                          setFolderId(id || null);
+                          setFolderTouched(true);
+                        }}
+                        onCreate={(folderName) => void createFolder(folderName)}
+                        createLabel={(q) => `New folder "${q}"`}
+                        options={folderOptions}
+                        icon={<Folder size={12} />}
+                        maxWidth={140}
+                        placeholder="No folder"
+                        aria-label="Folder"
+                        className={
+                          suggesting ? styles.folderSuggesting : undefined
+                        }
+                        data-testid="new-workspace-folder-select"
+                      />
+                    )}
+                    {mode === "new" && (
+                      <SearchableSelect
+                        value={baseBranch}
+                        onChange={(branch) => {
+                          setBaseBranch(branch);
+                          setBaseBranchEdited(true);
+                          setError(null);
+                        }}
+                        options={allBranchOptions.map((b) => ({
+                          value: b,
+                          label: b,
+                        }))}
+                        loading={loadingBranches}
+                        emptyMessage="No matching branches"
+                        icon={<GitBranch size={12} />}
+                        maxWidth={180}
+                        aria-label="Base branch"
+                        data-testid="new-workspace-base-branch-select"
+                      />
+                    )}
+                  </div>
+                  <Row gap="sm" justify="flex-end">
+                    <Button type="button" variant="secondary" onClick={onClose}>
+                      Cancel
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      disabled={isCreating || waitingForBranches}
+                      className={styles.submit}
+                      data-testid="new-workspace-submit"
+                    >
+                      {isCreating ? (
+                        <>
+                          <Loader2 size={14} className={styles.spinner} />
+                          Creating...
+                        </>
+                      ) : (
+                        "Create"
+                      )}
+                    </Button>
+                  </Row>
+                </Stack>
+              </fieldset>
+            </Stack>
+          </form>
+          {cloneSession && cloneSource && (
+            <CloneToHostDialog
+              key={cloneSession.key}
+              open={cloneSession.open}
+              mode="setUp"
+              project={cloneSource}
+              hostChoices={cloneSourceTargets}
+              onClose={closeClone}
+              onCloseAutoFocus={focusAfterClone}
+              onSetUp={(hostId) => {
+                // Continue on the new host, once it has joined the project's
+                // group. A set up that needed input or failed joined nothing.
+                const state = useProjectStore.getState().projects;
+                const groupId = state.find((p) => p.id === cloneSource.id)?.group?.id;
+                const added = state.find(
+                  (p) => p.hostId === hostId && groupId && p.group?.id === groupId,
+                );
+                const memberId = added && memberAfterClone(added, groupId);
+                if (memberId) chooseProject(memberId, added);
+              }}
+            />
+          )}
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}

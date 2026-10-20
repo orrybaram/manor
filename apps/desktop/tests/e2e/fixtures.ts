@@ -1,0 +1,517 @@
+import { execFileSync, execSync } from "child_process";
+import fs from "fs";
+import os from "os";
+import path from "path";
+import {
+  _electron,
+  expect,
+  test as base,
+  type ElectronApplication,
+  type Page,
+} from "@playwright/test";
+
+const appRoot = path.join(__dirname, "../..");
+
+export const test = base.extend<{
+  app: ElectronApplication;
+  window: Page;
+  tempHome: string;
+  /**
+   * How the `app` fixture launches the app (`LaunchOptions`). Empty unless a
+   * spec overrides it — `relay.spec.ts` hands it `MANOR_RELAY_URL` from its
+   * relay fixture.
+   */
+  appLaunch: LaunchOptions;
+}>({
+  // eslint-disable-next-line no-empty-pattern
+  appLaunch: async ({}, use) => {
+    await use({});
+  },
+
+  // eslint-disable-next-line no-empty-pattern
+  tempHome: async ({}, use) => {
+    const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), "manor-e2e-"));
+
+    // Seed a real git repo so tests that create workspaces have a project to target
+    const projectDir = path.join(tempHome, "test-project");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(path.join(projectDir, ".gitkeep"), "");
+
+    execSync("git init", { cwd: projectDir });
+    execSync('git config user.email "test@manor-e2e.local"', {
+      cwd: projectDir,
+    });
+    execSync('git config user.name "Manor E2E"', { cwd: projectDir });
+    execSync("git checkout -b main", { cwd: projectDir });
+    execSync("git add .gitkeep", { cwd: projectDir });
+    execSync('git commit -m "initial commit"', { cwd: projectDir });
+
+    await use(tempHome);
+
+    await killDaemons(tempHome);
+    killLeftovers(tempHome);
+    await removeTempHome(tempHome);
+  },
+
+  app: async ({ tempHome, appLaunch }, use) => {
+    const app = await launchApp(tempHome, appLaunch);
+    // MANOR_E2E_LOG=1 forwards the app's own stdout/stderr into the test
+    // output. The launched app is a separate process, so without this its
+    // console — including anything the main process logs about a failing
+    // request — is invisible to a failing test.
+    if (process.env.MANOR_E2E_LOG === "1") {
+      const forward = (prefix: string) => (chunk: Buffer) => {
+        for (const line of chunk.toString().split("\n")) {
+          if (line.trim()) console.log(`${prefix} ${line}`);
+        }
+      };
+      app.process().stdout?.on("data", forward("[app out]"));
+      app.process().stderr?.on("data", forward("[app err]"));
+    }
+    await use(app);
+    await killApp(app);
+  },
+
+  window: async ({ app }, use) => {
+    const window = await app.firstWindow();
+    await window.waitForLoadState("domcontentloaded");
+
+    await use(window);
+  },
+});
+
+export { expect } from "@playwright/test";
+
+/**
+ * Kill every terminal-host daemon that ran out of `tempHome`.
+ *
+ * The daemon is spawned detached — its own process group — so `killApp`'s
+ * group kill never reaches it, and it outlives the test along with a PTY per
+ * session it holds. Leaked across runs they exhaust the machine's PTYs
+ * (kern.tty.ptmx_max, 511 on macOS), after which no shell anywhere can start
+ * and every terminal test fails with "shell never reached a prompt". Each
+ * daemon leads its group, and its pty-subprocesses are forked into it, so one
+ * group kill per pid file takes the lot.
+ *
+ * A test that ends quickly can kill the app just after it spawned a daemon but
+ * before that daemon wrote its pid file. The app opens the daemon's log before
+ * spawning it, so a log with no pid file beside it is a daemon still starting:
+ * wait for its pid file rather than leave it running.
+ */
+async function killDaemons(tempHome: string): Promise<void> {
+  const manorDir = path.join(tempHome, ".manor");
+  const killed = new Set<number>();
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    const files = fs.existsSync(manorDir)
+      ? fs.readdirSync(manorDir, { recursive: true, encoding: "utf8" })
+      : [];
+    const has = (name: string) =>
+      new Set(
+        files
+          .filter((file) => path.basename(file) === name)
+          .map((file) => path.dirname(file)),
+      );
+    const pidDirs = has("terminal-host.pid");
+    for (const dir of pidDirs) {
+      const pid = readPid(path.join(manorDir, dir, "terminal-host.pid"));
+      if (pid === null || killed.has(pid)) continue;
+      killed.add(pid);
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }
+    }
+    const starting = [...has("terminal-host.log")].some(
+      (dir) => !pidDirs.has(dir),
+    );
+    if (!starting || Date.now() > deadline) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
+function readPid(file: string): number | null {
+  try {
+    const pid = Number.parseInt(fs.readFileSync(file, "utf8").trim(), 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Kill whatever else the run left alive out of reach of `killApp`'s group
+ * kill — on Linux, Electron's crashpad handler moves into its own session.
+ */
+function killLeftovers(tempHome: string): void {
+  try {
+    execFileSync("pkill", ["-KILL", "-f", tempHome], { stdio: "ignore" });
+  } catch {
+    /* nothing matched */
+  }
+}
+
+/**
+ * Remove the temp home, allowing for the app still letting go of it.
+ *
+ * The daemon and its sessions are killed with the app, but a last scrollback
+ * or layout write can land between the kill and this call, and `rm -rf` on a
+ * directory that grows a file mid-walk fails with ENOTEMPTY. Retrying is
+ * enough; a temp directory that survives anyway is not worth failing a passing
+ * test over, so the last attempt only warns.
+ */
+async function removeTempHome(tempHome: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.rmSync(tempHome, { recursive: true, force: true });
+      return;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  try {
+    fs.rmSync(tempHome, { recursive: true, force: true });
+  } catch (err) {
+    console.warn(`[e2e] could not remove ${tempHome}:`, err);
+  }
+}
+
+export interface LaunchOptions {
+  /**
+   * Extra environment, applied after `launchApp`'s `MANOR_*` scrub, so a
+   * spec can hand the app a `MANOR_*` variable on purpose —
+   * `relay.spec.ts` points it at a local relay with `MANOR_RELAY_URL` —
+   * without inheriting anyone else's.
+   */
+  env?: Record<string, string>;
+  /**
+   * Launch the package directory as the app rather than `dist-electron/main.js`
+   * directly. Same code either way; the difference is that Electron reads the
+   * root `package.json`, so `app.getVersion()` is Manor's version — as it is
+   * in a packaged build and under `pnpm dev` — instead of Electron's own.
+   * Off by default to leave every other spec launching as it always has;
+   * `relay.spec.ts` needs it because a relay pairing link and the hello
+   * reply both name the desktop's version.
+   */
+  asPackage?: boolean;
+}
+
+/**
+ * Launch the built app against `tempHome`.
+ *
+ * The environment is inherited minus anything that would point the app at a
+ * different build: VITE_DEV_SERVER_URL is set in any shell started by
+ * `pnpm dev`, and the app prefers it over the bundled renderer — so a run from
+ * such a shell silently tests the dev server, or loads a blank error page once
+ * that server exits.
+ *
+ * The app is launched in the background (no dock icon, windows that never
+ * take focus, no notification banners — `electron/e2e-background.ts`) so a
+ * run does not take over the machine it runs on; `MANOR_E2E_HEADED=1` or
+ * `MANOR_E2E_FOREGROUND=1` puts its windows back in front.
+ *
+ * See `LaunchOptions` for what a spec can change.
+ */
+export async function launchApp(
+  tempHome: string,
+  { env: extraEnv = {}, asPackage = false }: LaunchOptions = {},
+): Promise<ElectronApplication> {
+  const { VITE_DEV_SERVER_URL: _devServer, ...rest } = process.env;
+
+  // A run started from a terminal *inside* Manor inherits that app's session
+  // environment — MANOR_PANE_ID, MANOR_HOOK_PORT, and a ZDOTDIR pointing at
+  // the real installation's shell config. Left in place, the test app's shells
+  // source another Manor's zdotdir out of a home that no longer exists, and
+  // anything reading MANOR_* before the pty layer overrides it talks to the
+  // wrong app. Drop the lot: the launched app is meant to know nothing but
+  // `tempHome`.
+  //
+  // The one exception is MANOR_E2E_SSH_CONFIG: the remote-host suite's ssh
+  // config (scripts/test-remote-e2e.mjs), which Manor's managed ssh config
+  // includes as a test-only hook. It points at nothing outside the run.
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(rest)) {
+    if (value === undefined) continue;
+    if (key === "MANOR_E2E_SSH_CONFIG") {
+      env[key] = value;
+      continue;
+    }
+    if (key.startsWith("MANOR_") || key === "ZDOTDIR") continue;
+    env[key] = value;
+  }
+  env.PATH = pathWithoutAgents(env.PATH ?? "", tempHome);
+  // Keep the app behind whatever the person is doing: no Dock icon, windows
+  // shown without taking focus (electron/e2e-background.ts). Set
+  // MANOR_E2E_FOREGROUND=1 (or MANOR_E2E_HEADED=1) to watch a run in front
+  // instead.
+  if (process.env.MANOR_E2E_FOREGROUND !== "1" && !isHeaded()) {
+    env.MANOR_E2E_BACKGROUND = "1";
+  }
+
+  const app = await _electron.launch({
+    args: [
+      // The app root's package.json names the same `dist-electron/main.js`.
+      asPackage ? appRoot : path.join(appRoot, "dist-electron/main.js"),
+      // Electron's userData — localStorage, IndexedDB, session storage —
+      // defaults to ~/Library/Application Support/Electron regardless of HOME.
+      // Left there, a run would see what the previous one persisted in the
+      // renderer, and the real installation's storage sits one directory over.
+      `--user-data-dir=${path.join(tempHome, "user-data")}`,
+    ],
+    env: { ...env, ...extraEnv, HOME: tempHome },
+    cwd: appRoot,
+    recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
+  });
+  // Linux: a temp HOME has no keyring, so safeStorage falls back to its
+  // basic_text store and reports no encryption, which locks every
+  // remote-control control. Fine for a throwaway profile.
+  if (process.platform === "linux") {
+    await app.evaluate(({ safeStorage }) =>
+      safeStorage.setUsePlainTextEncryption(true),
+    );
+  }
+  return app;
+}
+
+/**
+ * Whether this run wants to be watched.
+ *
+ * Off by default: the suite drives the renderer over CDP, which does not need
+ * a window on screen, and a visible run takes focus away from whatever the
+ * developer is doing for as long as it lasts.
+ */
+export function isHeaded(): boolean {
+  return process.env.MANOR_E2E_HEADED === "1";
+}
+
+/** Frame size for recorded videos; kept fixed so runs are comparable. */
+const VIDEO_SIZE = { width: 1280, height: 800 };
+
+/**
+ * Where to record a video of every window, or `undefined` to not record.
+ *
+ * Set `MANOR_E2E_VIDEO=1` to record into `tests/e2e/artifacts/video/`, or to a
+ * path to record there instead. Recording is off by default: it costs a
+ * screencast per window for the whole run, and only matters when a run needs
+ * to be reviewed afterwards.
+ */
+export function videoDir(): string | undefined {
+  const raw = process.env.MANOR_E2E_VIDEO;
+  if (!raw) return undefined;
+  return raw === "1"
+    ? path.join(__dirname, "artifacts", "video")
+    : path.resolve(raw);
+}
+
+/**
+ * PATH with every real agent CLI made unreachable.
+ *
+ * Manor's default agent command is `claude`, and a test that has not yet
+ * pointed its project somewhere else — or that consumes a session warmed
+ * before it did — would otherwise launch the real thing: a live agent, in a
+ * temp home, waiting on onboarding no one is watching. A test run must not be
+ * able to start one by accident, so the binaries are simply not reachable.
+ *
+ * A directory holding an agent is dropped, but it is usually a shared one —
+ * `/opt/homebrew/bin` — that also holds the `git` the app must use. Dropping
+ * it wholesale leaves `/usr/bin/git`, which on a machine that never accepted
+ * the Xcode license fails every command. So everything else in a dropped
+ * directory is linked into a shim directory that takes its place.
+ */
+function pathWithoutAgents(currentPath: string, tempHome: string): string {
+  const agents = ["claude", "codex"];
+  const isExecutable = (file: string) => {
+    try {
+      fs.accessSync(file, fs.constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const out: string[] = [];
+  for (const dir of currentPath.split(path.delimiter)) {
+    if (dir === "" || out.includes(dir)) continue;
+    if (!agents.some((agent) => isExecutable(path.join(dir, agent)))) {
+      out.push(dir);
+      continue;
+    }
+    // One shim per dropped directory, in its place, so lookup order holds.
+    // Rebuilt on every launch: a test that restarts the app reuses its home.
+    const shimDir = path.join(tempHome, "path-shim", String(out.length));
+    fs.rmSync(shimDir, { recursive: true, force: true });
+    fs.mkdirSync(shimDir, { recursive: true });
+    out.push(shimDir);
+    for (const name of fs.readdirSync(dir)) {
+      if (agents.includes(name)) continue;
+      fs.symlinkSync(path.join(dir, name), path.join(shimDir, name));
+    }
+  }
+  return out.join(path.delimiter);
+}
+
+/**
+ * Shut the app down.
+ *
+ * app.close() hangs because Manor's detached child processes (terminal-host,
+ * spawned with stdio:["ignore","ignore","inherit"]) keep the Electron stderr
+ * pipe open, and Playwright waits for the 'close' event (all stdio closed).
+ * So: destroy the piped stdio directly, then kill the process group.
+ */
+export async function killApp(app: ElectronApplication): Promise<void> {
+  // A recording is only written out when its context closes. SIGKILL skips
+  // that, so when recording, give the context a moment to flush first. The
+  // race is because context.close() can hang for the same reason app.close()
+  // does; the kill below is what actually ends the process either way.
+  if (videoDir()) {
+    await Promise.race([
+      app.context().close().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, 5_000)),
+    ]);
+  }
+
+  const electronProcess = app.process();
+  const pid = electronProcess.pid;
+
+  // 'exit', not 'close': on Linux, Electron's crashpad handler moves into its
+  // own session holding the app's stdout/stderr, so the group kill below
+  // misses it and the pipes — and with them 'close' — never end.
+  const exited = new Promise<void>((resolve) => {
+    if (
+      electronProcess.exitCode !== null ||
+      electronProcess.signalCode !== null
+    ) {
+      // Already exited — resolve after the current tick so Playwright's own
+      // listener (registered before ours) has had a chance to run.
+      setImmediate(resolve);
+    } else {
+      electronProcess.once("exit", () => setImmediate(resolve));
+    }
+  });
+
+  try {
+    electronProcess.stdout?.destroy();
+  } catch {
+    /* ignore */
+  }
+  try {
+    electronProcess.stderr?.destroy();
+  } catch {
+    /* ignore */
+  }
+
+  if (pid) {
+    try {
+      process.kill(-pid, "SIGKILL");
+    } catch {
+      /* ignore */
+    }
+  }
+
+  await exited;
+}
+
+/**
+ * Import the seeded project and dismiss the setup wizard.
+ *
+ * Split out from `bootWorkspaceWithTerminal` because *when* a project exists
+ * matters to anything that configures it: a test that wants a different agent
+ * command has to set it before a workspace — and therefore a prewarmed
+ * session — is created against the old one.
+ */
+export async function importSeededProject(
+  app: ElectronApplication,
+  window: Page,
+  tempHome: string,
+): Promise<void> {
+  const seededProjectPath = path.join(tempHome, "test-project");
+
+  await app.evaluate(({ dialog }, projectPath) => {
+    dialog.showOpenDialog = async () => ({
+      canceled: false,
+      filePaths: [projectPath],
+    });
+  }, seededProjectPath);
+
+  // The onboarding screen's "Open a folder" row runs the (stubbed)
+  // folder picker directly — no Add Project dialog in between.
+  await window.locator('[data-testid="import-project-button"]').click();
+
+  const wizard = window.locator('[data-testid="project-setup-wizard"]');
+  const skipButton = wizard.getByRole("button", { name: "Skip", exact: true });
+  await expect(wizard).toBeVisible({ timeout: 10_000 });
+  for (let i = 0; i < 5; i++) {
+    if (!(await wizard.isVisible())) break;
+    await skipButton.click();
+  }
+  await expect(wizard).not.toBeVisible({ timeout: 5_000 });
+}
+
+/**
+ * Open a terminal tab and wait for its pane to be the only visible one.
+ *
+ * `:visible`, not the first pane in the DOM: other workspaces and other tabs
+ * stay mounted while hidden, so once a test has opened anything before this
+ * call, the first `terminal-pane` in the page is one of those — hidden for
+ * good, and a 30 s timeout rather than the new tab.
+ */
+export async function openTerminalTab(window: Page): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+t");
+  await expect(
+    window.locator('[data-testid="terminal-pane"]:visible').first(),
+  ).toBeVisible({ timeout: 30_000 });
+  await assertVisiblePaneCount(window, 1);
+}
+
+/**
+ * Import the seeded project, dismiss the setup wizard, create a workspace,
+ * open a terminal tab, and return once the first workspace-pane is ready.
+ * Shared across e2e tests that need a warm workspace+terminal to exercise UI.
+ */
+export async function bootWorkspaceWithTerminal(
+  app: ElectronApplication,
+  window: Page,
+  tempHome: string,
+  workspaceName: string,
+): Promise<void> {
+  await importSeededProject(app, window, tempHome);
+  await createWorkspace(window, workspaceName);
+  await openTerminalTab(window);
+}
+
+/**
+ * Open the New Workspace dialog and create `name` in the selected project.
+ *
+ * Driven by the new-workspace keybinding (Meta+Shift+N) rather than a sidebar
+ * button — the button's test id drifted away once already, and the keybinding
+ * is a stable, user-facing entry point.
+ */
+export async function createWorkspace(
+  window: Page,
+  name: string,
+): Promise<void> {
+  await window.keyboard.press("ControlOrMeta+Shift+n");
+  const dialog = window.locator('[data-testid="new-workspace-dialog"]');
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await window.locator('[data-testid="new-workspace-name-input"]').fill(name);
+  await window.locator('[data-testid="new-workspace-submit"]').click();
+  await expect(dialog).not.toBeVisible({ timeout: 10_000 });
+}
+
+/** Poll the count of visible workspace-panes (only the active tab's tree counts). */
+export async function assertVisiblePaneCount(
+  window: Page,
+  count: number,
+  timeout = 10_000,
+): Promise<void> {
+  await expect
+    .poll(
+      () => window.locator('[data-testid="workspace-pane"]:visible').count(),
+      { timeout },
+    )
+    .toBe(count);
+}

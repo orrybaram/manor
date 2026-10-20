@@ -17,6 +17,9 @@ import readline from "node:readline/promises";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const CHANGELOG_PATH = path.join(ROOT, "CHANGELOG.md");
+// The app's version lives in the desktop package: vite, electron-builder and
+// the host tarball all read it there.
+const DESKTOP_DIR = path.join(ROOT, "apps/desktop");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,11 +63,11 @@ if (bumpMajor && bumpMinor) {
 // Determine next version
 // ---------------------------------------------------------------------------
 
-const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8"));
+const pkg = JSON.parse(fs.readFileSync(path.join(DESKTOP_DIR, "package.json"), "utf-8"));
 const currentVersion = pkg.version;
 
 if (!isValidSemver(currentVersion)) {
-  die(`Current version in package.json is not valid semver: "${currentVersion}"`);
+  die(`Current version in apps/desktop/package.json is not valid semver: "${currentVersion}"`);
 }
 
 const [major, minor, patch] = currentVersion.split(".").map(Number);
@@ -351,14 +354,14 @@ console.log("Updated CHANGELOG.md");
 // Step 5 — Bump version
 // ---------------------------------------------------------------------------
 
-run(`npm pkg set version=${version}`);
+run(`npm pkg set version=${version}`, { cwd: DESKTOP_DIR });
 console.log(`Bumped version to ${version}`);
 
 // ---------------------------------------------------------------------------
 // Step 6 — Commit
 // ---------------------------------------------------------------------------
 
-run("git add CHANGELOG.md package.json");
+run("git add CHANGELOG.md apps/desktop/package.json");
 run(`git commit -m "chore: release v${version}"`);
 console.log(`Created commit: chore: release v${version}`);
 

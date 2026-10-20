@@ -23,7 +23,7 @@ export type SettingsSection = {
 /**
  * A page of the settings modal: a fixed page, a lone project's page, or a
  * group's page, which is a project set up on several hosts. Both project
- * kinds render the same page (ADR-237 D1).
+ * kinds render the same page.
  */
 export type SettingsPage =
   | { type: SettingsPageId }
@@ -226,7 +226,7 @@ const PROJECT_SECTIONS: SettingsSection[] = [
 /**
  * The Projects part of the nav, in sidebar order: one row per project, a
  * project set up on several hosts listed once where its first host's copy
- * would be (ADR-237 D1).
+ * would be.
  */
 export type SettingsProjectEntry = {
   kind: "project" | "group";
@@ -235,7 +235,7 @@ export type SettingsProjectEntry = {
 };
 
 /**
- * The section a project deep link scrolls to (ADR-237 D5). A member's
+ * The section a project deep link scrolls to. A member's
  * host link lands on that member's row of the Hosts section, so the row
  * opens; everything else names the section itself.
  */

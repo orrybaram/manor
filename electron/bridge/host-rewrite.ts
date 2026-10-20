@@ -1,6 +1,6 @@
 /**
  * The rewrite between a host's own view of itself and its server's
- * (ADR-228 D1, "one rewrite, two callers").
+ * ("one rewrite, two callers").
  *
  * A host server knows its own machine as `local` and keys a workspace by its
  * bare path. Whoever holds several hosts — `HostProxy` in main, the renderer's

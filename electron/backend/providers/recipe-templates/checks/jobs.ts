@@ -1,5 +1,5 @@
 /**
- * The templates' background jobs (ADR-234 D3, D8): pulling Manor's host
+ * The templates' background jobs: pulling Manor's host
  * image, or building it on this computer when the pull failed. A fix starts
  * one (`hosts.runTemplateFix`); the next `checkTemplate` reads its progress,
  * or its failure, from here. They live in main, so they outlive the dialog

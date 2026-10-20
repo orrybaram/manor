@@ -1,6 +1,6 @@
 /**
  * "Start work on this issue" — shared by the command palette's issue detail
- * views and Home's Up next section (ADR-194 §1).
+ * views and Home's Up next section.
  *
  * Reuses a workspace already on the issue's branch (select it and link the
  * issue), otherwise opens the New Workspace dialog prefilled with the branch,
@@ -26,7 +26,7 @@ export type NewWorkspaceHandler = CommandPaletteProps["onNewWorkspace"];
  *
  * Deliberately not `.catch(() => {})`: the user asked to be assigned, so a
  * failure is reported even though it is not awaited. Silently dropping it is the
- * bug ADR-152 exists to remove, not a lighter version of it.
+ * bug this exists to remove, not a lighter version of it.
  */
 function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
   window.electronAPI.github.assignIssue(repo, issueNumber).catch((err) => {
@@ -106,7 +106,7 @@ export function startGitHubIssueWork(
 
 export function startLinearIssueWork(
   opts: Omit<StartWorkCommon, "project"> & {
-    /** The project's host picks the server that starts the issue (ADR-228 D10). */
+    /** The project's host picks the server that starts the issue. */
     project: Pick<ProjectInfo, "id" | "hostId">;
     issue: {
       id: string;
@@ -140,7 +140,7 @@ export function startLinearIssueWork(
     linkedIssue,
   });
   // Best effort, like the GitHub assign. A host server without Linear turned
-  // on refuses (`unavailable:host`, ADR-227 D7): the toast says so, once.
+  // on refuses (`unavailable:host`): the toast says so, once.
   onBehalfOf(project.hostId, () =>
     window.electronAPI.linear.startIssue(issue.id),
   )?.catch(

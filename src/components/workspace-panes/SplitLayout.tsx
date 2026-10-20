@@ -21,7 +21,7 @@ export function SplitLayout(props: SplitLayoutProps) {
 
   const isPhone = useLayoutMode() === "phone";
 
-  // ADR-181 D1: in phone mode only the child containing the tab's focused
+  // In phone mode only the child containing the tab's focused
   // pane is shown. A boolean, and only computed in phone mode, so the desk
   // layout never re-renders on a focus change it did not before. A tab with
   // no focus recorded falls back to its first pane, which is never in

@@ -1,5 +1,5 @@
 /**
- * The secret-storage port (ADR-225 D6).
+ * The secret-storage port.
  *
  * Everything the remote-control and relay modules persist as a secret (device
  * token hashes, the relay identity, the VAPID key, the Linear key) goes
@@ -288,7 +288,7 @@ function readSecretKey(env: NodeJS.ProcessEnv): Buffer | null {
 }
 
 /**
- * AES-256-GCM under a key the operator supplies (ADR-229 D5): `MANOR_SECRET_KEY`
+ * AES-256-GCM under a key the operator supplies: `MANOR_SECRET_KEY`
  * (base64), or the file `MANOR_SECRET_KEY_FILE` names (raw 32 bytes or base64
  * text), such as a mounted Kubernetes or Docker secret. Null when neither is
  * set; a key that is set but unusable throws, so a typo is never a silent
@@ -365,10 +365,10 @@ function realpathOr(p: string): string {
 }
 
 /**
- * Where the key sealing the pairing keys lives (ADR-236 D5):
+ * Where the key sealing the pairing keys lives:
  * - `data-dir`: a `MANOR_SECRET_KEY_FILE` under `<home>/.manor`, or an inline
  *   `MANOR_SECRET_KEY` written in one of `inlineKeySources` (`supervisor.env`):
- *   on the very volume it protects (ADR-229 D5).
+ *   on the very volume it protects.
  * - `home`: a key file under home but outside `~/.manor`.
  * - `elsewhere`: a mounted secret, an inline key from the real environment,
  *   or a file that cannot be resolved.
@@ -409,7 +409,7 @@ export function secretKeyPlace(
 }
 
 /**
- * The key file `env` names, for display (ADR-236 D5), with `home` shortened
+ * The key file `env` names, for display, with `home` shortened
  * to `~`; null when an inline `MANOR_SECRET_KEY` is the key, as it wins.
  */
 export function shownSecretKeyFile(
@@ -530,7 +530,7 @@ async function upgradeFromPlaintext(
 
 /**
  * The first working backend: key-file when `MANOR_SECRET_KEY` or
- * `MANOR_SECRET_KEY_FILE` is set (ADR-229 D5), then systemd-creds, then
+ * `MANOR_SECRET_KEY_FILE` is set, then systemd-creds, then
  * libsecret, then plaintext.
  * The pick is persisted: a backend that later disappears is an error naming
  * it, not a silent fall back to writing plaintext over keys that are still
@@ -541,7 +541,7 @@ async function upgradeFromPlaintext(
  * first that works takes over: every sealed file is re-sealed with it, then
  * it becomes the choice. A probe that throws there (a named key that can't
  * be read) is a warning, not a failed start: nothing is sealed with that key
- * yet (ADR-236).
+ * yet.
  */
 export async function pickHostSecretBox(
   opts: PickHostSecretBoxOptions,

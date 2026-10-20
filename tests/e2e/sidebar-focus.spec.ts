@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
 
 /**
- * The sidebar is allowed to hold the keyboard (ADR-172). Clicking a row used
+ * The sidebar is allowed to hold the keyboard. Clicking a row used
  * to lose focus instantly: switching workspaces flips the terminal's
  * "am I the focused pane" selector, and its effect called focus() straight
  * back. Escape is the way back into the pane.

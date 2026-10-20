@@ -28,7 +28,7 @@ describe("repoNameOf", () => {
   });
 });
 
-describe("podNameFor (ADR-235 D3)", () => {
+describe("podNameFor", () => {
   const free = () => false;
 
   it("slugs the repo name into a DNS label", () => {
@@ -66,7 +66,7 @@ describe("podNameFor (ADR-235 D3)", () => {
   });
 });
 
-describe("openInNewHost (ADR-235 D3)", () => {
+describe("openInNewHost", () => {
   let tmpDir: string;
   let recipesDir: string;
 

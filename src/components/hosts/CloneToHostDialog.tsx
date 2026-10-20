@@ -23,7 +23,7 @@ import styles from "./HostCloneSteps.module.css";
  * the repair path, `transferProject`) and closes. Both never throw and report
  * through a progress toast, whose "Choose location…" action (or a `needsInput`
  * result) reopens this dialog, so there is no in-dialog progress to keep.
- * - `setUp`: ADR-214's one verb, "Set up on". Clone or adopt on the host, then
+ * - `setUp`: the one verb, "Set up on". Clone or adopt on the host, then
  *   join the project there.
  * - `move`: only the repair path, re-cloning a missing repo on its own host.
  */
@@ -84,7 +84,7 @@ type CloneToHostDialogProps = {
    */
   onSetUp?: (hostId: string) => void;
   /**
-   * The pod `openInNewHost` opened this dialog on (ADR-235): a `setUp` onto
+   * The pod `openInNewHost` opened this dialog on: a `setUp` onto
    * it finishes through `openInNewHost`, which marks it as the project's.
    */
   newHost?: NewHostPod;
@@ -93,7 +93,7 @@ type CloneToHostDialogProps = {
 };
 
 /**
- * Set-up-on-host form for an EXISTING project (ADR-214). See `MODES` for
+ * Set-up-on-host form for an EXISTING project. See `MODES` for
  * what it does with the clone.
  *
  * Its state starts fresh on mount, so mount one instance per opening (a

@@ -1,7 +1,7 @@
 /**
  * Key handling for a focused web page (a `<webview>` guest). Keys pressed in a
  * page never reach the host renderer's `keydown` listener, so main inspects
- * them in `before-input-event` instead (ADR-074, widened by ADR-175):
+ * them in `before-input-event` instead:
  *
  * - Escape twice within 500ms hands the keyboard back to the app.
  * - The browser's own commands (zoom, reload, URL bar, find, back/forward) run
@@ -31,7 +31,7 @@ export interface PageWebContents {
  * The subset of the host renderer's `WebContents` the handler talks to.
  *
  * `id` is `webContents.id` — needed only for the one send that crossed to the
- * bridge with `keybindings` (ADR-180 ticket 7): every other channel here is
+ * bridge with `keybindings`: every other channel here is
  * `webview`'s own, native, and reaches the host with a plain `send`.
  */
 export interface HostWebContents {
@@ -119,10 +119,10 @@ export function createPageKeyHandler(
           source: "webview",
           paneId,
         };
-        // `keybindings` crossed to the handler table (ADR-180 ticket 7), so
+        // `keybindings` crossed to the handler table, so
         // hearing this is a subscription now, not a channel — addressed to
         // this pane's host the same way `appCommands.command` addresses the
-        // primary window (D5).
+        // primary window.
         const to = connectionIdForWindow({ webContents: { id: host.id } });
         if (to !== null) {
           publishToRenderer(to, "keybindings", "forwardedCommand", payload);

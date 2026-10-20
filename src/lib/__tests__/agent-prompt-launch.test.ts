@@ -1,6 +1,6 @@
 /**
  * Renderer agent launches hand the prompt to the store beside the bare
- * command, never inlined into it (ADR-209).
+ * command, never inlined into it.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppStore } from "../../store/app-store";

@@ -1,5 +1,5 @@
 /**
- * `manor-host secrets encrypt|status [--json]` (ADR-236 D1).
+ * `manor-host secrets encrypt|status [--json]`.
  *
  * `encrypt` moves a host server whose pairing keys sit in plaintext onto the
  * `key-file` backend in one go: it makes a key outside `~/.manor`
@@ -109,7 +109,7 @@ export function readSecretsFacts(deps: SecretsCommandDeps): SecretsFacts {
 }
 
 /**
- * Which key `secrets encrypt` would use (ADR-236 D1, steps 3–4), from
+ * Which key `secrets encrypt` would use (steps 3–4), from
  * `supervisor.env` (`envFile`) alone:
  * - `reuse`: the file names a key file whose place is `home` or `elsewhere`;
  *   it is validated and used as it is.
@@ -140,7 +140,7 @@ export function encryptKeyPlan(
   return { action: "reuse", keyFile: named.MANOR_SECRET_KEY_FILE };
 }
 
-/** What a host server reports about its key (ADR-236 D5), computed once when it starts. */
+/** What a host server reports about its key, computed once when it starts. */
 export interface ServerKeyStatus {
   /** `secretKeyPlace` of the key it started with; null when none is set. */
   place: SecretKeyPlace | null;
@@ -197,7 +197,10 @@ function logHint(choiceFile: string): string {
   return path.join(path.dirname(choiceFile), "logs", "host-server.log");
 }
 
-/** ADR-236 D1, steps 1–7. Throws with a message for the user on failure. */
+/**
+ * Encrypt the host's secrets, steps 1–7 below. Throws with a message for the
+ * user on failure.
+ */
 export async function encryptSecrets(deps: SecretsCommandDeps): Promise<SecretsFacts> {
   // 1. A container's environment gives it a key; nothing here would persist.
   if (readSupervisorMarker(deps.markerFile) === "container") {

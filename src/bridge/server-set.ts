@@ -1,5 +1,5 @@
 /**
- * Every Manor server this page can reach (ADR-228 D1): one entry per server,
+ * Every Manor server this page can reach: one entry per server,
  * each with its own bridge, its reachability and what its hello said.
  *
  * `./router.ts` builds `window.electronAPI` over this set; nothing else
@@ -50,13 +50,13 @@ export type BridgeOutcome = "unauthorized" | "key-mismatch";
 
 /** What a server's hello says about it. */
 export interface ServerHello {
-  /** The server's name for its host (ADR-225 D7), or null. */
+  /** The server's name for its host, or null. */
   name: string | null;
-  /** True when a host server answered, not a desktop (ADR-226). */
+  /** True when a host server answered, not a desktop. */
   hostServer: boolean;
-  /** Its app version (ADR-206 D4), or null from an older server. */
+  /** Its app version, or null from an older server. */
   version: string | null;
-  /** What it can do beyond the bridge, e.g. `viewer-bridge` (D3). */
+  /** What it can do beyond the bridge, e.g. `viewer-bridge`. */
   capabilities: readonly string[];
 }
 
@@ -69,7 +69,7 @@ export type ServerLists = "all" | ReadonlySet<string>;
 
 /** One server in the set. A new object on every change, for React. */
 export interface ServerEntry {
-  /** Its renderer host id (D2): `local` for the desktop's own server. */
+  /** Its renderer host id: `local` for the desktop's own server. */
   readonly id: string;
   readonly bridge: ElectronAPI;
   readonly transport: BridgeTransport;
@@ -83,7 +83,7 @@ export interface ServerEntry {
 }
 
 /**
- * What a server calls the hosts it lists, as renderer host ids (D2): its own
+ * What a server calls the hosts it lists, as renderer host ids: its own
  * id for a host → the page's. Empty where the two agree — the desktop's own
  * bridges. On the phone a desktop's remote host goes by that host's room.
  */
@@ -91,7 +91,7 @@ export type HostAliases = ReadonlyMap<string, string>;
 
 /**
  * The renderer host id of a host that server `serverId` lists but names no
- * room for (D2). Never `/`: a host id may not hold one (`workspace-key.ts`).
+ * room for. Never `/`: a host id may not hold one (`workspace-key.ts`).
  */
 export function viaServer(serverId: string, hostId: string): string {
   return `${serverId}~${hostId}`;
@@ -111,7 +111,7 @@ export interface HelloFacts {
 }
 
 export interface AddOptions {
-  /** Make this the page's home server (D1). The first one added is anyway. */
+  /** Make this the page's home server. The first one added is anyway. */
   home?: boolean;
   lists?: "all" | Iterable<string>;
   roomId?: string | null;
@@ -264,7 +264,7 @@ export function createServerSet(
           set.recordHello(id, reply);
           set.setReachability(id, "connected");
           // The first hello is the cold start the stores' boot fetches
-          // cover; a resumed one may have missed pushes (ADR-220 D1).
+          // cover; a resumed one may have missed pushes.
           if (reply.resumed) void emitBridgeResync(id);
         },
         onStatus: (status) => set.setReachability(id, status),
@@ -354,7 +354,7 @@ export function useServers(): readonly ServerEntry[] {
 
 /**
  * How this page's own bridge to `hostId`'s server is doing, or undefined
- * when it holds none — a host reached only through another server (D3).
+ * when it holds none — a host reached only through another server.
  */
 export function directReachability(hostId: string): Reachability | undefined {
   return servers.get(hostId)?.reachability;
@@ -428,7 +428,7 @@ function relayServerName(entry: ServerEntry | undefined): string | null {
  * usual label applies ("This machine", the ssh target). On a phone the
  * home server's own projects (`LOCAL_HOST_ID`) belong to the desktop, so
  * they carry the desktop's name; a host with a pairing of its own goes by
- * that pairing's. The page is not that machine (ADR-228 D8).
+ * that pairing's. The page is not that machine.
  */
 export function serverHostName(hostId: string | null | undefined): string | null {
   if (!hostId || hostId === LOCAL_HOST_ID) {
@@ -473,7 +473,7 @@ export function useMemberDisplayName(hostId: string, hosts: readonly NamedHost[]
  * Resolves once this page's own bridge to `hostId`'s server is connected —
  * or the page holds none, or `timeoutMs` has passed. What a remount for a
  * host that just came back waits on, so its panes attach over that bridge
- * (D5) rather than through the home server while it is still redialling.
+ * rather than through the home server while it is still redialling.
  */
 export function whenDirectSettled(hostId: string, timeoutMs = 5_000): Promise<void> {
   const settled = (): boolean => {

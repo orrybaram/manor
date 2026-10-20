@@ -25,10 +25,10 @@ import {
 import { closeSettings, openHostRow, pairBrowser, pairDevice, roomOf } from "./helpers/settings";
 
 /**
- * A host that refuses the phone is linked again on its own (ADR-238).
+ * A host that refuses the phone is linked again on its own.
  *
  * 1. The desktop clones a project onto the box. A browser opens the desktop's
- *    link only; its hello gets it a pairing with the box (ADR-228 D9).
+ *    link only; its hello gets it a pairing with the box.
  * 2. **Reset.** The desktop resets the box's pairing keys: the box closes the
  *    phone's channel with 4401 and moves to a new room. The phone drops the
  *    pairing without declining the room, asks the desktop once, and holds a

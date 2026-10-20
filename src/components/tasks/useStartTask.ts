@@ -25,7 +25,7 @@ export function useStartTask(
       try {
         const tracker = trackerFor(row.provider);
         // Title only if the detail fetch fails — and the user is told so
-        // (ADR-232 D8), rather than finding an empty description later.
+        // rather than finding an empty description later.
         const detail = await queryClient
           .fetchQuery({
             ...tracker.detailQuery(tracker.refOf(row)),

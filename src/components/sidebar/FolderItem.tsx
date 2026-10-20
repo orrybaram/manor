@@ -16,11 +16,11 @@ import { Collapse } from "../ui/Collapse/Collapse";
 type FolderItemProps = {
   folder: WorkspaceFolder;
   /** Every visible workspace in the folder's subtree: the count and the
-   * collapsed agent dot speak for the whole block (ADR-172). */
+   * collapsed agent dot speak for the whole block. */
   workspaces: WorkspaceInfo[];
-  /** The host of the folder's project; its workspaces are on it (ADR-191). */
+  /** The host of the folder's project; its workspaces are on it. */
   hostId: string;
-  /** Enclosing folders above this one; 0 at the top level (ADR-172). */
+  /** Enclosing folders above this one; 0 at the top level. */
   depth: number;
   collapsed: boolean;
   /** True when the project's selected workspace lives in this folder. */
@@ -95,7 +95,7 @@ export function FolderItem(props: FolderItemProps) {
   const wasCollapsed = useRef(collapsed);
   // Set when the header's context menu was opened via the keyboard
   // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the header;
-  // a mouse-opened menu keeps Radix's own default (ADR-175).
+  // a mouse-opened menu keeps Radix's own default.
   const menuOpenedByKeyboard = useRef(false);
   const {
     handleKeyDown: handleEmojiKeyDown,
@@ -179,7 +179,7 @@ export function FolderItem(props: FolderItemProps) {
         {/* While the rename input is open the trigger stands down, so a
             right-click inside it reaches the OS text-field menu instead of
             opening this menu — whose focus grab would blur the input and end
-            the edit (ADR-172). */}
+            the edit. */}
         <ContextMenu.Trigger asChild disabled={editing}>
           <div
             ref={(el) => {
@@ -227,7 +227,7 @@ export function FolderItem(props: FolderItemProps) {
                     if (handleEmojiKeyDown(e)) return;
                     // The input owns its plain keys while it is open — the
                     // header's own handling would see them too. ⌘ / Ctrl
-                    // combos carry on to the app's shortcuts (ADR-175).
+                    // combos carry on to the app's shortcuts.
                     if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
                     if (e.key === "Enter") {
                       commitRename();
@@ -298,7 +298,7 @@ export function FolderItem(props: FolderItemProps) {
       </ContextMenu.Root>
       {/* Bodies nest, so their indents compound: the body's step shrinks as
           the depth grows, and the depth is capped so a deep tree stops eating
-          the width of a 160px sidebar (ADR-172). */}
+          the width of a 160px sidebar. */}
       <Collapse open={!collapsed && !!children}>
         <div
           className={styles.folderBody}

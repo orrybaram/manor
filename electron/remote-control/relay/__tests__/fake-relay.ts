@@ -1,5 +1,5 @@
 /**
- * An in-process relay (ADR-206 D1) over a real `ws` server, implementing the
+ * An in-process relay over a real `ws` server, implementing the
  * room protocol of `relay/src/room.ts` closely enough that what the
  * connector does against it is what it does against the Worker: text
  * challenge/auth/ok, binary `[op, ch_hi, ch_lo, ...payload]`, host

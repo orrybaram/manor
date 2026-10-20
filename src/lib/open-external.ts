@@ -1,5 +1,5 @@
 /**
- * Opening an external URL from an imperative call site (ADR-178 ticket 9).
+ * Opening an external URL from an imperative call site.
  *
  * `shell.openExternal` is Electron's: it hands a URL to the OS's default
  * browser through main. A browser tab has no such call, but "open this link

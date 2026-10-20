@@ -1,5 +1,5 @@
 /**
- * Link suggestions by git `origin` (ADR-192 ticket 5). When two projects on
+ * Link suggestions by git `origin`. When two projects on
  * different hosts are clones of the same repo, Manor offers to link them,
  * and the user confirms. Nothing here links: `suggest` only lists
  * candidates, and linking goes through `project-groups.ts` as it would from
@@ -70,7 +70,7 @@ export function isDismissed(state: PersistedState, a: string, b: string): boolea
  */
 export function normalizeLinkDismissals(state: PersistedState): void {
   const raw: unknown = state.dismissedLinkSuggestions;
-  // A project handed over to its host's server is still known (ADR-227 D3).
+  // A project handed over to its host's server is still known.
   const known = new Set([...state.projects.map((p) => p.id), ...adoptedProjectHosts(state).keys()]);
   const pairs: Array<[string, string]> = [];
   if (Array.isArray(raw)) {
@@ -104,7 +104,7 @@ export function forgetLinkDismissals(state: PersistedState, projectId: string): 
 /**
  * Remember `projectId` and `otherId` as a dismissed pair, without saving;
  * true when it is new. Two known, distinct projects only. Used by
- * `OriginLinks.dismiss` and by ADR-214's "Keep separate", which dismisses
+ * `OriginLinks.dismiss` and by "Keep separate", which dismisses
  * every pair of a group it splits and then saves once.
  */
 export function rememberDismissal(
@@ -117,7 +117,7 @@ export function rememberDismissal(
   const state = ctx.store.state;
   if (isDismissed(state, projectId, otherId)) return false;
   // A project on a host's server is remembered against that host, so the
-  // pair is still known on the next load (ADR-227 D4).
+  // pair is still known on the next load.
   for (const id of [projectId, otherId]) {
     if (!ctx.find(id)) ctx.hosts.recordAdoptedProjects(ctx.member(id)!.hostId, [id]);
   }
@@ -181,7 +181,7 @@ export class OriginLinks {
     const ownHosts = new Set(ownGroup ? ownGroup.memberIds.map(hostOf) : [project.hostId]);
     const seenGroups = new Set<string>();
     const candidates: Candidate[] = [];
-    // Remote hosts' projects too (ADR-227 D4): their `origin` is read on
+    // Remote hosts' projects too: their `origin` is read on
     // their host, as a local project's is here.
     for (const other of this.ctx.all()) {
       if (other.id === project.id) continue;
@@ -265,7 +265,7 @@ export class OriginLinks {
 
   /**
    * `project`'s `origin` key, from its host's git; null when that fails.
-   * Also how a transfer finds a checkout to adopt (ADR-213).
+   * Also how a transfer finds a checkout to adopt.
    */
   async keyOf(project: PersistedProject): Promise<string | null> {
     // By checkout rather than project id: a project moved to another host

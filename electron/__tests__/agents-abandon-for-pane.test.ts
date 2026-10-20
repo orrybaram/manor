@@ -1,6 +1,6 @@
 /**
  * `createAgentService` — how `LayoutStore` abandons the agent of every pane
- * it ends (ADR-182 D7). There is no bridge method for this: a pane's agent
+ * it ends. There is no bridge method for this: a pane's agent
  * ends with the pane, whoever closed it.
  */
 
@@ -35,7 +35,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     statsStore: {
       record: vi.fn(),
     },
-    // The Status reconciler's driver (ADR-184). Reports that it persisted the
+    // The Status reconciler's driver. Reports that it persisted the
     // abandon for the pane's agent, as the real one does for an active one.
     agentStatus: {
       signal: vi.fn(() => ({
@@ -223,7 +223,7 @@ describe("abandoning a pane's agent", () => {
 
       expect(deps.agentManager.getAgentByPaneId).toHaveBeenCalledWith("pane-2");
       // The name is written here; the lifecycle is the Status reconciler's
-      // (ADR-184), told by a `user` signal.
+      // told by a `user` signal.
       expect(deps.agentManager.updateAgent).toHaveBeenCalledTimes(1);
       expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("t1", {
         name: "Fix the build",

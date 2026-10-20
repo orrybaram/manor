@@ -1,13 +1,12 @@
 /**
- * A window that holds a tab, and what happens when it stops holding it
- * (ADR-179 D4).
+ * A window that holds a tab, and what happens when it stops holding it.
  *
  * The claim arrives on the launch argument, so it is read once at import
  * time — which is why this file imports a *fresh* `app-store` with
  * `window.electronAPI.claim` set, instead of poking at the one every other
  * store test shares.
  *
- * The behaviour under test is the ADR's named risk: "a claim that outlives its
+ * The behaviour under test is the named risk: "a claim that outlives its
  * window is a tab nobody can see". The window is the one that has to notice,
  * and the only thing it has to go on is a `layout.changed` whose `claims` no
  * longer name it.
@@ -95,7 +94,7 @@ describe("a window that holds a claim", () => {
     await settled();
 
     // Main knows the claim from the launch argument; the report is only what
-    // makes it take effect (ADR-182 D9), so nothing in it names the tab.
+    // makes it take effect, so nothing in it names the tab.
     expect(reportedViewports.length).toBeGreaterThan(0);
     for (const { viewport } of reportedViewports) {
       expect(viewport).not.toHaveProperty("claim");
@@ -127,7 +126,7 @@ describe("a window that holds a claim", () => {
     claimsBroadcast(1, FAKE_RENDERER_ID);
     expect(closeSelf).not.toHaveBeenCalled();
 
-    // Claims are exclusive and the newcomer wins (D4).
+    // Claims are exclusive and the newcomer wins.
     claimsBroadcast(2, "another-window");
 
     expect(closeSelf).toHaveBeenCalled();

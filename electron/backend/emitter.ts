@@ -1,5 +1,5 @@
 /**
- * A typed listener fan-out (ADR-183). `on` returns the unsubscribe; `emit`
+ * A typed listener fan-out. `on` returns the unsubscribe; `emit`
  * calls every listener, logging one that throws instead of letting it stop
  * the rest.
  */

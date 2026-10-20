@@ -1,10 +1,10 @@
 /**
- * One-click Copy to / Move to a host (ADR-213). A transfer is either:
+ * One-click Copy to / Move to a host. A transfer is either:
  *
  * - **copy**: clone (or adopt) the repo on the target host as a new project
- *   linked to the source (ADR-192); both stay.
+ *   linked to the source; both stay.
  * - **move**: re-point the same project record at a checkout on the target
- *   host (ADR-179).
+ *   host.
  *
  * `planTransfer` works out where the project would go without changing
  * anything; `transferProject` runs it. When the plan can't be settled
@@ -157,7 +157,7 @@ export async function planTransfer(
   mode: TransferMode = "copy",
 ): Promise<TransferPlan> {
   ctx.hosts.assertKnown(hostId);
-  // A remote host's project too (ADR-227 D4): planning only reads it.
+  // A remote host's project too: planning only reads it.
   const project = ctx.member(projectId);
   if (!project) throw new Error(`Unknown project "${projectId}".`);
 
@@ -215,7 +215,7 @@ export async function planTransfer(
 }
 
 /**
- * Copy or move `projectId` onto `hostId` (ADR-213). With `overrides` (the
+ * Copy or move `projectId` onto `hostId`. With `overrides` (the
  * fallback dialog's values) planning is skipped and only the safety checks
  * run: the group's room on the host and who owns the directory.
  *
@@ -293,7 +293,7 @@ export async function transferProject(
     if (!before.has(cloned.id)) await deps.removeProject(cloned.id);
     throw err;
   }
-  // A copy onto an adopted host lives on its server (ADR-227 D4), which
+  // A copy onto an adopted host lives on its server, which
   // keeps whatever the clone set up there.
   const linked = ctx.find(cloned.id);
   if (linked && carryMainMetadata(project, linked)) ctx.store.save();
@@ -302,7 +302,7 @@ export async function transferProject(
 
 /**
  * Give `target`'s main workspace the name and linked issues `source`'s main
- * workspace has (ADR-214), so a set up looks the same on the new host. Only
+ * workspace has, so a set up looks the same on the new host. Only
  * where `target` has no entry of its own: an adopted checkout keeps its
  * values. Folders are not carried; they belong to each project. True when
  * anything was copied; the caller saves.

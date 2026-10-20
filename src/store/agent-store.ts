@@ -19,7 +19,7 @@ export interface AgentStoreState {
   /** True while `loadMoreAgents` is in flight, to coalesce repeated scroll events. */
   loadingMore: boolean;
   /**
-   * Cache of main's unseen-responded Set (ADR-136 §"Change 3"). Populated by
+   * Cache of main's unseen-responded Set. Populated by
    * the initial `agents:getUnseen` snapshot and reconciled on every
    * `agent-updated` broadcast. Renderer never resets entries on its own —
    * status-change resets are owned by main and arrive via the broadcast.
@@ -82,15 +82,14 @@ export function selectPaneAgentIndex(
 
 export const useAgentStore = create<AgentStoreState>((set, get) => {
   // Subscribe to live agent updates on store creation. The second argument
-  // carries main's unseen flags for the broadcast agent — see ADR-136
-  // §"Change 3". Older preloads omit it; we pass through `undefined` and
+  // carries main's unseen flags for the broadcast agent. Older preloads omit it; we pass through `undefined` and
   // let `receiveAgentUpdate` skip cache reconciliation in that case.
   window.electronAPI?.agents.onUpdate((agent, unseen) => {
     get().receiveAgentUpdate(agent, unseen);
   });
 
-  // Agents a host's server adopted left the list under their old ids
-  // (ADR-227 D3): the host's own copies arrive as updates.
+  // Agents a host's server adopted left the list under their old ids:
+  // the host's own copies arrive as updates.
   window.electronAPI?.agents.onRemoved?.((agentIds) => {
     const gone = new Set(agentIds);
     set((state) => ({
@@ -101,8 +100,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
   });
 
   // Whatever is on screen has been read. Structure (`workspaceLayouts`) and
-  // this window's viewport (`viewports`: selected tab, focused pane — ADR-179
-  // D3) are both immutable, so every split / tab-select / workspace-switch
+  // this window's viewport (`viewports`: selected tab, focused pane) are both immutable, so every split / tab-select / workspace-switch
   // lands here as a fresh identity — which is exactly the moment a pane the
   // user could not see becomes one they can.
   useAppStore.subscribe((state, prev) => {
@@ -118,7 +116,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
 
   // Paginated initial load: active agents (full set, used by sidebar) +
   // the first page of all agents (used by the history modal) + main's
-  // unseen-flag snapshot (ADR-136 §"Change 3"). The three are merged so
+  // unseen-flag snapshot. The three are merged so
   // the store stays a single source of truth.
   const refetch = async (): Promise<void> => {
     if (!window.electronAPI?.agents) return;
@@ -434,7 +432,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
   };
 });
 
-// Which host's server holds an agent, for the bridge router (ADR-228 D1).
+// Which host's server holds an agent, for the bridge router.
 provideHostLookups({
   agent: (agentId) => useAgentStore.getState().agents.find((a) => a.id === agentId)?.hostId,
 });

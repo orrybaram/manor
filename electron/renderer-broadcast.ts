@@ -1,5 +1,5 @@
 /**
- * Where main's pushes to its renderers go (ADR-178 D8, ADR-180 D5).
+ * Where main's pushes to its renderers go.
  *
  * The desktop renderer learned that its projects, preferences, keybindings,
  * agents, notifications or stats moved through `webContents.send` on one of a
@@ -9,8 +9,8 @@
  * one line next to the `webContents.send` it already had; nothing here decides
  * when a thing changed.
  *
- * ADR-180 D5 finishes the job: the bridge's IPC transport (D2) gives every
- * desktop window a connection, so `bridge/server.ts`'s sink reaches the
+ * The bridge's IPC transport finishes the job: it gives every desktop window
+ * a connection, so `bridge/server.ts`'s sink reaches the
  * windows *and* the sockets, and a converted send-site keeps the publish and
  * drops the `webContents.send` rather than doing both. The comment above is
  * still the rule — it is now the only line at the send-site instead of the
@@ -28,12 +28,12 @@
  * `agents`/`updated`. The renderer's `ns.onX(cb)` subscribes to them by the
  * same pair, so the two halves are readable together.
  *
- * ADR-179 adds `layout`/`changed`, published by `LayoutStore` through the
+ * `layout`/`changed` is published by `LayoutStore` through the
  * broadcaster `app-lifecycle.ts` hands it — the one signal that carries state
  * a renderer must *replace* rather than merely refresh.
  *
  * Every `ns`/`event` pair, and the arguments it carries, is a row of
- * `BridgeEvents` in `bridge/events.ts` (ADR-182 D4): publishing an event
+ * `BridgeEvents` in `bridge/events.ts`: publishing an event
  * nobody declared, or a payload its listeners do not expect, is a compile
  * error here rather than a feature that quietly stops updating. The import is
  * a type, so this file stays a leaf.
@@ -46,7 +46,7 @@ export interface RendererBroadcast {
   event: string;
   args: unknown[];
   /**
-   * The one connection this is for, or null for everyone (ADR-180 D5).
+   * The one connection this is for, or null for everyone.
    *
    * Broadcast is the common case and the honest default: `projects.changed`
    * is about the machine. A handful of pushes are not — `app-command` goes to
@@ -70,8 +70,8 @@ export type BroadcastSource = (sink: Sink) => () => void;
 /**
  * A set of sinks and a typed publish into them, not shared with anybody.
  *
- * The desktop's is this module's (below). A host server makes its own
- * (ADR-225): its agents and owner sync are one server's news, and a second
+ * The desktop's is this module's (below). A host server makes its own:
+ * its agents and owner sync are one server's news, and a second
  * server in the same process (a test) must not hear them.
  */
 export interface BroadcastBus {
@@ -129,7 +129,7 @@ const rendererSinks = createSinks();
  *
  * Registered by the IPC transport, which is the only thing that knows which
  * windows have live connections — connection-to-window is the transport's
- * private business (ADR-180 D5), and this is the hole it plugs itself into so
+ * private business, and this is the hole it plugs itself into so
  * that `app-menu.ts` and friends can address a window without importing the
  * bridge server through it.
  */
@@ -168,7 +168,7 @@ export function connectionIdForWindow(
 }
 
 /*
- * Everything below is the desktop's adapter (ADR-227 D1): the process-wide
+ * Everything below is the desktop's adapter: the process-wide
  * sinks, and the functions that publish into them. Code the shared server
  * owns does not import these; it is handed a `BroadcastBus` or a
  * `PublishToRenderer` by whoever composes the server, and the desktop passes
@@ -190,7 +190,7 @@ export function publishRendererBroadcast<
 }
 
 /**
- * The same, for one connection only (ADR-180 D5) — or for everyone, when
+ * The same, for one connection only — or for everyone, when
  * there is no one connection to address.
  *
  * `connectionId` comes either from `connectionIdForWindow` above or from the

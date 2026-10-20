@@ -1,5 +1,5 @@
 /**
- * Build the `HostProvider` a persisted `HostSpec` describes (ADR-178 §1).
+ * Build the `HostProvider` a persisted `HostSpec` describes.
  * The one place a new provider kind is wired in.
  */
 

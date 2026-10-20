@@ -37,7 +37,7 @@ type PaneDragProviderProps = {
 export function PaneDragProvider(props: PaneDragProviderProps) {
   const { children } = props;
 
-  // ADR-181 D5: a tab or pane drag is reorder, move-into-panel, drag-to-split
+  // A tab or pane drag is reorder, move-into-panel, drag-to-split
   // and detach-by-drag in one gesture — all off in phone mode rather than
   // half-starting under a thumb and fighting the page's own scroll and
   // long-press.

@@ -27,7 +27,7 @@ export interface UseRemoteBrowserUrlOptions {
   /**
    * The remote host this pane's workspace lives on, or null for this
    * machine. A `localhost:<port>` URL for a port that host reports goes
-   * through a port forward (ADR-178 §5).
+   * through a port forward.
    */
   remoteHostId: string | null;
   initialUrl: string;
@@ -57,7 +57,7 @@ interface WebviewNavigateEvent extends Event {
 }
 
 /**
- * Remote panes (ADR-178 §5) remember and show the box's own URL
+ * Remote panes remember and show the box's own URL
  * (`localhost:<remote port>`) but load it through a port forward
  * (`127.0.0.1:<local port>`), which only exists while the host is connected
  * and whose local port may change. So a remote pane's webview `src` follows
@@ -66,7 +66,7 @@ interface WebviewNavigateEvent extends Event {
  * connected host — a "waiting for host" state until then, rather than a
  * load of the same port on this machine.
  *
- * Moved out of `BrowserPane.tsx` (ADR-183 ticket 10) — this hook owns every
+ * Moved out of `BrowserPane.tsx` — this hook owns every
  * bit of that bookkeeping; `BrowserPane` still owns the generic nav state
  * (URL bar, title, history, …) via the `apply` callback passed to
  * `onNavigate`.
@@ -116,7 +116,7 @@ export function useRemoteBrowserUrl(
       setWaitingForHost(false);
       const wv = webviewRef.current;
       // No forward: the toast says why, and nothing loads — this machine's
-      // own localhost is not the box's (ADR-232 D8).
+      // own localhost is not the box's.
       if (!wv || !target) return;
       wv.src = target;
       setLoadedUrl(target);

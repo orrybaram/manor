@@ -5,7 +5,7 @@
   min-width: 0;
   min-height: 0;
   position: relative;
-  /* One bordered frame around the tab bar and the body (ADR-196). */
+  /* One bordered frame around the tab bar and the body. */
   border: 1px solid var(--border);
   border-radius: 8px;
   overflow: hidden;

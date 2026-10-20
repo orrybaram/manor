@@ -28,7 +28,7 @@ const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
 ];
 
 /**
- * The Sort button (ADR-201 §5): every sortable field of the provider, plus
+ * The Sort button: every sortable field of the provider, plus
  * the direction.
  */
 export function TaskSortMenu(props: TaskSortMenuProps) {

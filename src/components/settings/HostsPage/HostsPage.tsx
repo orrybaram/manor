@@ -23,11 +23,11 @@ import styles from "./HostsPage.module.css";
 import { profileSummary, removeProfileText } from "./host-settings-text";
 
 /**
- * Settings → Hosts (ADR-229 D8): every host Manor runs workspaces on, each a
- * collapsible row holding all of its settings (ADR-233 D1, D2) — this
+ * Settings → Hosts: every host Manor runs workspaces on, each a
+ * collapsible row holding all of its settings — this
  * computer first, with its remote-control switch, then each remote host's
  * device access, supervision, integrations, Wake, Stop, Remove — and **Add a
- * host…** (D4): an SSH box, or a host Manor starts from a template or a
+ * host…**: an SSH box, or a host Manor starts from a template or a
  * custom recipe.
  *
  * Adding, stopping, supervising and removing are this desktop's alone
@@ -63,7 +63,7 @@ export function HostsPage() {
   );
 }
 
-/** "Add a host…": opens the wizard (ADR-233 D4). */
+/** "Add a host…": opens the wizard. */
 function AddHost() {
   const [open, setOpen] = useState(false);
 
@@ -85,7 +85,7 @@ function AddHost() {
 }
 
 /**
- * "Profiles" (ADR-235 D2): the recipes and answers a project gets its own
+ * "Profiles": the recipes and answers a project gets its own
  * host from. Edited in the profile editor; removing one leaves its hosts be.
  */
 function Profiles() {
@@ -155,7 +155,7 @@ function Profiles() {
   );
 }
 
-/** Edit / Remove for a profile, wherever its row is shown (ADR-235 D2). */
+/** Edit / Remove for a profile, wherever its row is shown. */
 function ProfileActions(props: { profile: HostProfile }) {
   const { profile } = props;
   const remove = useHostProfileStore((s) => s.remove);
@@ -221,7 +221,7 @@ function writeCollapsed(ids: string[]) {
 }
 
 /**
- * A profile's hosts under one collapsible heading (ADR-235 D7): the heading is
+ * A profile's hosts under one collapsible heading: the heading is
  * the profile's own row, with "N of M running" and Edit / Remove. Whether it
  * is collapsed is remembered per profile.
  */

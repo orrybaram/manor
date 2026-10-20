@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-181 D5/D6: a finger on a phone-mode terminal means one of three things
+ * A finger on a phone-mode terminal means one of three things
  * — a tap focuses xterm (inside the gesture, so iOS raises the keyboard), a
  * long-press opens the pane menu, a drag scrolls or pans.
  *

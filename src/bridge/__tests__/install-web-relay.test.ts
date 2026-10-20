@@ -1,6 +1,6 @@
 /**
- * `install-web.ts` on a relay-served page (ADR-206 D3, D4) — the only kind
- * there is (ADR-207 D2): the fragment picks the relay pipe, the host's
+ * `install-web.ts` on a relay-served page — the only kind
+ * there is: the fragment picks the relay pipe, the host's
  * `appVersion` redirects once, relay 4404 reads as "not reachable", and a bad
  * message 2 does not forget it.
  */
@@ -89,7 +89,7 @@ describe("install-web on a relay-served page", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-  it("dials with a token of its own and the link's ticket, which the accepted hello spends (ADR-240 D5)", async () => {
+  it("dials with a token of its own and the link's ticket, which the accepted hello spends", async () => {
     const ticket = base64urlEncode(new Uint8Array(32).fill(5));
     const key = base64urlEncode(FakeRelaySocket.key.pub);
     const { mod, api } = await install(`#relay=${ROOM}.${key}&ticket=${ticket}`);
@@ -150,7 +150,7 @@ describe("install-web on a relay-served page", () => {
     const { api } = await install(relayHash());
     const connection = await import("../connection");
     void api.projects.getAll().catch(() => {});
-    // The desktop sends `hostName` too (ADR-225 D7), but no `hostServer`.
+    // The desktop sends `hostName` too, but no `hostServer`.
     FakeRelaySocket.last.handshake({ hostName: "desk.local" });
     expect(connection.getConnection()).toEqual({
       activeRoomId: ROOM,
@@ -189,7 +189,7 @@ describe("install-web on a relay-served page", () => {
   });
 
   it("dials nothing with an old listener link and no relay pairing", async () => {
-    // The loopback listener's `/app#<token>` link (ADR-207 D2): stripped,
+    // The loopback listener's `/app#<token>` link: stripped,
     // never stored, and nothing to dial.
     const token = base64urlEncode(new Uint8Array(32).fill(3));
     const { mod, api } = await install(`#${token}`, "/app/");
@@ -341,7 +341,7 @@ describe("install-web on a relay-served page", () => {
     expect(local.has(PAIRINGS_KEY)).toBe(true);
   });
 
-  describe("with several pairings (ADR-228 D8)", () => {
+  describe("with several pairings", () => {
     const DESK = "DeskRoom0000000000000a";
     const BOX = "BoxRoom00000000000000b";
 
@@ -442,7 +442,7 @@ describe("install-web on a relay-served page", () => {
       expect(stored()[0].hosts).toEqual({ h1: BOX, h2: null });
     });
 
-    it("asks a desktop for its hosts' pairings on every hello, and dials each (ADR-228 D9)", async () => {
+    it("asks a desktop for its hosts' pairings on every hello, and dials each", async () => {
       store({ roomId: DESK, lastUsedAt: 1, hostServer: false });
       const { api } = await install("");
       const { servers } = await import("../server-set");
@@ -481,7 +481,7 @@ describe("install-web on a relay-served page", () => {
       ).toBe(false);
     });
 
-    it("sends rooms the user removed as held, so the desktop does not mint them again (ADR-228 D9)", async () => {
+    it("sends rooms the user removed as held, so the desktop does not mint them again", async () => {
       store({ roomId: DESK, lastUsedAt: 1, hostServer: false }, { roomId: BOX, lastUsedAt: 0 });
       const { api } = await install("");
       const pairings = await import("../pairings");
@@ -515,7 +515,7 @@ describe("install-web on a relay-served page", () => {
       box.hostClose(4401);
       await vi.advanceTimersByTimeAsync(0);
       expect(stored().map((p) => p.roomId)).toEqual([DESK]);
-      // Only the pairing goes: the desktop may mint it again (ADR-238).
+      // Only the pairing goes: the desktop may mint it again.
       const { declinedRooms } = await import("../pairings");
       expect(declinedRooms()).toEqual([]);
       expect(asks(socketFor(DESK))).toHaveLength(2);

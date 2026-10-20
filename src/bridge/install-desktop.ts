@@ -14,13 +14,12 @@
  * silently never happen, and the app would come up with no preferences, no
  * theme and no agent updates.
  *
- * The page builds `window.electronAPI` itself (ADR-180 D3), so the import
+ * The page builds `window.electronAPI` itself, so the import
  * *order* in `main.tsx` is what makes that impossible — which is why this is a
  * module whose evaluation does the work, and not a function somebody has to
  * remember to call early enough.
  *
- * What it installs is the router over the page's server set (ADR-228 D1,
- * `./router.ts`), with the home server alone in it at first. The router
+ * What it installs is the router over the page's server set (`./router.ts`), with the home server alone in it at first. The router
  * answers from that one server synchronously, so a store's `create()` sees no
  * difference; and it imports no store, which would undo the ordering this
  * module exists for — the stores hand it their lookups (`./host-lookups.ts`)
@@ -51,13 +50,13 @@ export const bridgeInstalled: boolean = (() => {
   const host = window.manorHost;
   if (!host) return false;
   // The home server: this desktop's own, in main, which still merges and
-  // routes every remote host itself (ADR-227 D4) — so it lists them all, and
-  // answers for a host whose own server is away (D6). IPC is up before the
+  // routes every remote host itself — so it lists them all, and
+  // answers for a host whose own server is away. IPC is up before the
   // page.
   servers.add(LOCAL_HOST_ID, createIpcTransport(host), { home: true, lists: "all" });
   servers.setReachability(LOCAL_HOST_ID, "connected");
   window.electronAPI = createRouter(servers);
-  // Host servers join as main lists them able to take this window (D4).
+  // Host servers join as main lists them able to take this window.
   watchDesktopHosts({
     set: servers,
     pipes: host.native.hostPipe,

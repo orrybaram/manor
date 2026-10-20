@@ -1,5 +1,5 @@
 /*
- * ADR-198 §1.8: project tiles (mockup `.projects` / `.pt` / `.wsbar`). A tile
+ * Project tiles (mockup `.projects` / `.pt` / `.wsbar`). A tile
  * sets `--project-color` for its swatch; a block's colour follows its state.
  */
 .projects {

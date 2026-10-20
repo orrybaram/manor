@@ -1,6 +1,6 @@
 /*
  * Shared by `AddProjectDialog`'s remote flow and `CloneToHostDialog`
- * (ADR-183 ticket 10) — the two dialogs were nearly identical copies of the
+ * — the two dialogs were nearly identical copies of the
  * same form/dialog chrome, merged here into one module.
  */
 
@@ -103,7 +103,7 @@
   color: var(--text-selected);
 }
 
-/* An input sharing its row with a button (Location + Browse…, ADR-194). */
+/* An input sharing its row with a button (Location + Browse…). */
 .fieldGrow {
   flex: 1;
   min-width: 0;

@@ -22,7 +22,7 @@ export function preferencesGetAll(ctx: HandlerCtx<ServerDeps>): AppPreferences {
   return ctx.deps.preferencesManager.getAll();
 }
 
-/** A `full` device may write preferences (D3). */
+/** A `full` device may write preferences. */
 export function preferencesSet<K extends keyof AppPreferences>(
   ctx: HandlerCtx<ServerDeps>,
   key: K,
@@ -71,10 +71,10 @@ export function keybindingsResetAll(ctx: HandlerCtx<ServerDeps>): void {
 
 /**
  * A popout pressed a primary-only shortcut (⌘, ⌘K, ⌘⇧N, …): bring the
- * primary window forward and run the command there (ADR-175).
+ * primary window forward and run the command there.
  *
  * The command goes out as a `keybindings.forwardedCommand` event addressed to
- * the primary's connection (ADR-180 D5); `App.tsx`'s `onForwardedCommand`
+ * the primary's connection; `App.tsx`'s `onForwardedCommand`
  * hears it the same way it hears one forwarded out of a `<webview>`
  * (`webview-keys.ts`).
  */
@@ -128,7 +128,7 @@ export function wireKeybindingsBroadcast(
 
 export const preferences = {
   getAll: method(preferencesGetAll),
-  // A `full` device may write preferences (D3).
+  // A `full` device may write preferences.
   set: method(preferencesSet, { mutating: true }),
   playSound: method(preferencesPlaySound),
 };

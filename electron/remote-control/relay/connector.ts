@@ -1,5 +1,5 @@
 /**
- * The desktop's end of the relay (ADR-206 D5).
+ * The desktop's end of the relay.
  *
  * Dials `wss://<relay>/host/<roomId>`, proves it owns the room by signing
  * the relay's challenge with the identity's Ed25519 key, and then turns each
@@ -13,7 +13,7 @@
  * - after `ok`, binary only, both ways: `[op, ch_hi, ch_lo, ...payload]`.
  *
  * **Nothing starts this.** It is constructed with the app and started by an
- * explicit user action (the controller, ADR-206 D6). While running it
+ * explicit user action (the controller). While running it
  * reconnects on its own with a capped backoff (1 s → 30 s); being replaced
  * by another host holding the same key (4409) is final — two desktops
  * fighting over a room would otherwise take turns forever.
@@ -120,7 +120,7 @@ export interface RelayIdentitySource {
  * allocate an arbitrarily large message), `handshakeTimeout`, `terminate()`
  * and Node `Buffer`s — so a WHATWG global `WebSocket` (Node 22+) does not
  * fit here, and on Node 20 there is none at all. A host server bundles this
- * without Electron (ADR-225 D3) and passes `ws`'s constructor explicitly, so
+ * without Electron and passes `ws`'s constructor explicitly, so
  * the dependency is visible where the tarball's package.json is built.
  */
 export type RelayWebSocketCtor = new (

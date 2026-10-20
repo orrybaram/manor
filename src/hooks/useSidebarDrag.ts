@@ -35,7 +35,7 @@ export function headerRefKey(folderId: string): string {
  * The hook only measures geometry and turns the pointer into a `DropTarget`;
  * every placement decision lives in `applyDrop` (see `utils/sidebar-items.ts`).
  *
- * A multi-select drag (ADR-190 §3) passes the selection as `groupKeys`. The
+ * A multi-select drag passes the selection as `groupKeys`. The
  * hook only forwards it to `onDrop` and exposes it as `dragGroupKeys` for
  * dimming; the pointer and geometry math stay keyed on the grabbed row alone.
  */
@@ -48,7 +48,7 @@ export function useSidebarDrag({
   items: SidebarItem[];
   collapsedFolderIds: Set<string>;
   /** Blocks new drags, e.g. while an inline rename input is open, or in
-   * phone mode (ADR-181 D5). */
+   * phone mode. */
   disabled: boolean;
   onDrop: (
     sourceKey: string,
@@ -58,7 +58,7 @@ export function useSidebarDrag({
   ) => void;
 }) {
   const [dragKey, setDragKey] = useState<string | null>(null);
-  /** The group of the live drag (ADR-190 §3), null outside a group drag. */
+  /** The group of the live drag, null outside a group drag. */
   const [dragGroupKeys, setDragGroupKeys] = useState<string[] | null>(null);
   const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [intoFolderId, setIntoFolderId] = useState<string | null>(null);
@@ -95,7 +95,7 @@ export function useSidebarDrag({
       const group = groupKeys && groupKeys.length > 1 ? groupKeys : undefined;
 
       // The dragged key goes in so a folder drag never offers a slot inside
-      // the block that is moving with the pointer (ADR-172).
+      // the block that is moving with the pointer.
       const rows = flattenRows(items, collapsedFolderIds, kind, key);
       const sourceIndex = rows.findIndex((row) => row.key === key);
       if (sourceIndex === -1) return;

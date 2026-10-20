@@ -1,5 +1,5 @@
 /**
- * One bridge method, and the rules dispatch applies to it (ADR-182 D3).
+ * One bridge method, and the rules dispatch applies to it.
  *
  * Each `./handlers/<ns>.ts` exports its namespace as a table of these, so a
  * method and what is true of it — audited, refused to devices, carrying a
@@ -11,7 +11,7 @@ import type { HostDeps } from "../ipc/types";
 import { LOCAL_ROUTE, type RouteRule } from "./routes";
 import type { CallerClass, UnavailableCode, ViewerKind } from "./types";
 
-// The route rules live in `./routes.ts` (ADR-228 D1) so the renderer can read
+// The route rules live in `./routes.ts` so the renderer can read
 // them; the tables import them from here.
 export {
   LOCAL_ROUTE,
@@ -37,11 +37,11 @@ export interface Caller {
   id: string;
   /**
    * `local` = an Electron renderer window; `owner` = the desktop on a host
-   * server's owner channel (ADR-225 D4); `device` = a paired `full` device.
+   * server's owner channel; `device` = a paired `full` device.
    */
   callerClass: CallerClass;
   /**
-   * A desktop window's own stream to a host server (ADR-228 D4): an `owner`
+   * A desktop window's own stream to a host server: an `owner`
    * that ranks as the desk for the winsize and is its own layout origin.
    * Absent for everyone else.
    */
@@ -54,7 +54,7 @@ export interface Caller {
  * What every handler gets before its wire arguments.
  *
  * `D` is the deps the table runs over: the desktop's `HostDeps` by default,
- * or the host server's narrower `HostServerDeps` (ADR-225 D6). A handler
+ * or the host server's narrower `HostServerDeps`. A handler
  * shared by both declares only the slice of deps it reads, so either can
  * call it.
  */
@@ -98,12 +98,12 @@ export interface MethodRules {
   secretFirstArg?: true;
   /**
    * Refused to a device, however `full` its tier, with the same
-   * `unavailable:web` an absent method gets (ADR-180 D4). Mirrored for the
+   * `unavailable:web` an absent method gets. Mirrored for the
    * browser in `./local-only.ts`.
    */
   localOnly?: true;
   /**
-   * Which host answers it on the desktop (ADR-227 D4): a `RouteRule`, or
+   * Which host answers it on the desktop: a `RouteRule`, or
    * `LOCAL_ROUTE` for one this server answers whatever host it touches.
    * Absent is local too; a routed namespace says so explicitly.
    */
@@ -177,26 +177,26 @@ function ruleSet(
  */
 export interface HandlerTable<D> {
   handlers: Readonly<Record<string, BridgeHandler<D>>>;
-  /** Refused to every caller class not in `localOnlyCallers` (ADR-180 D4). */
+  /** Refused to every caller class not in `localOnlyCallers`. */
   localOnly: ReadonlySet<string>;
   /** Audited when a device calls them. */
   mutating: ReadonlySet<string>;
   /** First argument is a credential; never written to the audit line. */
   secretFirstArg: ReadonlySet<string>;
   /**
-   * The methods that name their host in an argument (ADR-227 D4): what the
+   * The methods that name their host in an argument: what the
    * desktop's `forward` reads to send a call to a remote host's server.
    */
   routes: ReadonlyMap<string, RouteRule>;
   /**
    * How a method absent from the table (or refused as `localOnly`) is
    * answered: `unavailable:web`, "in the browser" on the desktop;
-   * `unavailable:host`, "on this host" on a host server (ADR-225 D6).
+   * `unavailable:host`, "on this host" on a host server.
    */
   unavailable: { code: UnavailableCode; where: string };
   /**
    * Who may call `localOnly` methods: a desktop window (`local`) on the
-   * desktop, the owner channel (`owner`, ADR-225 D4) on a host server. A
+   * desktop, the owner channel (`owner`) on a host server. A
    * device never; an owner reaching the desktop's server — which no desktop
    * transport makes — is refused them like a device.
    */

@@ -1,5 +1,5 @@
 /**
- * ADR-206 D7: a tapped notification's `open-agent` message from `sw.ts`
+ * A tapped notification's `open-agent` message from `sw.ts`
  * opens that agent in the web app.
  */
 

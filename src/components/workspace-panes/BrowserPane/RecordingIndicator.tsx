@@ -17,7 +17,7 @@ function formatElapsed(ms: number): string {
 }
 
 /**
- * Live "Recording" badge for a pane an agent is capturing (ADR-158). An agent
+ * Live "Recording" badge for a pane an agent is capturing. An agent
  * can start a screen capture without the user asking for it, so this has to
  * be unmissable — and clicking it is the user's way to stop it without going
  * through the agent.

@@ -1,6 +1,6 @@
 /* ── Tab Bar ── */
 
-/* The tab bar sits inside its panel's border (ADR-196), above the body.
+/* The tab bar sits inside its panel's border, above the body.
    It ends where the window's title row does, so the top row of panels lines
    up with the WindowLead. Tabs sit on the bottom edge and the active one
    merges into the body below. */
@@ -114,7 +114,7 @@
 }
 
 /* Bordered on the sides and hanging over the panel body's top edge (see
-   `.tabs`), so tab and body read as one shape (ADR-196). */
+   `.tabs`), so tab and body read as one shape. */
 .tabActive {
   background: var(--surface);
   color: var(--text-selected);
@@ -140,7 +140,7 @@
 
 /* A click draws no ring — the active/hover states already show which tab is
    which — but keyboard focus does, or there is no telling where it is
-   (ADR-175, `:focus-visible`). */
+   (`:focus-visible`). */
 .tab:focus {
   outline: none;
 }
@@ -220,7 +220,7 @@
   flex: 1;
 }
 
-/* `.tabAudio` and `.tabClose` sit on a `Button` (ADR-175, focusable, an
+/* `.tabAudio` and `.tabClose` sit on a `Button` (focusable, an
    `aria-label`). Reset its base padding/sizing for these icon-only 12px
    glyphs; keep the click/hover visuals the `<span>` version had. The `.tab`
    ancestor in every selector below outranks `Button`'s own `.ghost`/size
@@ -378,17 +378,16 @@
 }
 
 /*
- * ADR-181 D3: only the active panel's TabBar is ever visible in phone
- * mode — ticket 2's `SplitPanelLayout` hides every other panel (and its tab
+ * Only the active panel's TabBar is ever visible in phone
+ * mode — `SplitPanelLayout` hides every other panel (and its tab
  * bar with it), so no filtering happens here, only a restyle: one row that
  * scrolls horizontally instead of the desk layout's shrink-to-fit tabs.
- * `useLayoutMode()` is the app's one breakpoint (ADR-181 D2), so this keys
+ * `useLayoutMode()` is the app's one breakpoint, so this keys
  * off `.app[data-layout="phone"]` rather than a media query of its own.
- * Disabling the drag interactions themselves (reorder, detach, drop-to-split)
- * is ADR-181 ticket 6 — this only keeps the row usable under a thumb in the
- * meantime.
+ * This does not disable the drag interactions themselves (reorder, detach,
+ * drop-to-split); it only keeps the row usable under a thumb.
  */
-/* The desk's tab bar is pinned to the window's title row (ADR-196); a
+/* The desk's tab bar is pinned to the window's title row; a
    phone's 44px tabs need the row to grow with them, and there is no
    WindowLead to clear. */
 :global(.app[data-layout="phone"]) .tabBar {

@@ -32,7 +32,7 @@ export function SplitPanelLayout(props: SplitPanelLayoutProps) {
 
   const isPhone = useLayoutMode() === "phone";
 
-  // ADR-181 D1: in phone mode only the child containing this workspace's
+  // In phone mode only the child containing this workspace's
   // active panel is shown. A boolean, and only computed in phone mode, so the
   // desk layout never re-renders on a focus change it did not before.
   const focusInSecond = useAppStore(

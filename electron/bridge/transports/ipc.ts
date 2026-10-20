@@ -1,5 +1,5 @@
 /**
- * The desktop's transport: four IPC channels (ADR-180 D2).
+ * The desktop's transport: four IPC channels.
  *
  * A renderer window reaches the host surface the same way a paired browser
  * does — `invoke`, `subscribe`, `unsubscribe`, `event`, the frames in
@@ -9,16 +9,15 @@
  * layout command's origin and a viewport report go on naming the same thing
  * they name today.
  *
- * **Why not dial `ws://127.0.0.1:<port>` and have one transport?** ADR-178
- * D8's consequences imagined exactly that, and ADR-180 D2 overturned it. A
- * loopback listener is reachable by *any* web page on the machine, so it
- * needs its own authentication; a token to authenticate with would have to
- * reach the renderer through the preload anyway, which is the boundary the
- * socket was supposed to replace. Beyond that it costs: first paint would
- * start by waiting on a connect, and every byte of PTY output would leave
- * Electron's structured clone for JSON over TCP. The protocol is the thing
- * worth sharing, not the pipe — so this file carries the same frames and
- * nothing else changes.
+ * **Why not dial `ws://127.0.0.1:<port>` and have one transport?** That was
+ * the original plan, and it was dropped. A loopback listener is reachable by
+ * *any* web page on the machine, so it needs its own authentication; a token
+ * to authenticate with would have to reach the renderer through the preload
+ * anyway, which is the boundary the socket was supposed to replace. Beyond
+ * that it costs: first paint would start by waiting on a connect, and every
+ * byte of PTY output would leave Electron's structured clone for JSON over
+ * TCP. The protocol is the thing worth sharing, not the pipe — so this file
+ * carries the same frames and nothing else changes.
  *
  * A fifth channel carries no frame: `bridge:rendererId` answers "who am I?"
  * synchronously, because the preload has to know before the page's first
@@ -34,15 +33,14 @@
  *
  * **What is on this side of `BridgeConnection`.** The channel names, the
  * sender check, the one `webContents.send` that `send(frame)` becomes, and
- * turning a window into a connection id (`connectionIdFor`, D5) — which no
+ * turning a window into a connection id (`connectionIdFor`) — which no
  * other file may do, because "a connection is its `webContents.id`" is this
  * transport's own arrangement. What `ns.method` means, who is subscribed to
  * what, and what to do when a pane's owner changes are `../server.ts`'s,
- * shared verbatim with the WebSocket transport. That sharing is the whole of
- * D1.
+ * shared verbatim with the WebSocket transport.
  *
  * **Authentication is being a window.** A connection from here is
- * `callerClass: "local"` — the user at the machine — so `LOCAL_ONLY` (D4)
+ * `callerClass: "local"` — the user at the machine — so `LOCAL_ONLY`
  * lets it through and nothing it does is audited. Which makes the sender
  * check below the only door there is; see it for what it keeps out.
  *
@@ -91,16 +89,16 @@ interface WindowLike {
 }
 
 /**
- * Is this frame from one of our own renderer windows? (D2, security-critical.)
+ * Is this frame from one of our own renderer windows? (Security-critical.)
  *
  * Every frame on every channel here goes through this first. `ipcMain` is
  * process-wide: *anything* in the renderer process with an `ipcRenderer` can
  * reach these channels, and the thing to keep out is a **`<webview>` guest**
- * — a pane showing an arbitrary web page (ADR-052/056/058), whose preload is
+ * — a pane showing an arbitrary web page, whose preload is
  * not this one but whose frames arrive at the same `ipcMain`. A guest is not
  * a renderer window, so it is not in `getRendererWindows()`, so it is not
  * here, and `bridge:invoke` is the whole host surface including the terminal.
- * A gap in this function is the worst bug this ADR could ship.
+ * A gap in this function is the worst bug this transport could ship.
  *
  * `getRendererWindows()` is the full list — the primary window plus every
  * detached one, which `registerDetachedWindow` adds to the same registry
@@ -174,7 +172,7 @@ export class IpcBridgeTransport {
   }
 
   /**
-   * That window's connection id, or null if it has none (ADR-180 D5).
+   * That window's connection id, or null if it has none.
    *
    * The addressed half of the event migration — `appCommands.command` to the
    * primary window, `menu.command` to the focused one — is all "tell *that
@@ -290,7 +288,7 @@ export class IpcBridgeTransport {
       id: String(id),
       // Authenticated by being a window of this app's own making. Nothing
       // else about a local caller is recorded: there is no device, and an
-      // audit line per window is the app logging itself (D4).
+      // audit line per window is the app logging itself.
       callerClass: "local",
       deviceId: null,
       deviceLabel: null,
@@ -316,8 +314,7 @@ export class IpcBridgeTransport {
 
   /**
    * That window is gone. Dropping releases every pane it was a viewer of, so
-   * a closed window stops outvoting the ones still open for a pane's winsize
-   * (ADR-179 D6, ADR-180 D6).
+   * a closed window stops outvoting the ones still open for a pane's winsize.
    */
   private dropWindow(id: number): void {
     if (!this.connections.delete(id)) return;

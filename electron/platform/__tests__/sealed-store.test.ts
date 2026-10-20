@@ -1,5 +1,5 @@
 /**
- * The sealed store is where pairings used to get lost (ADR-226 B1–B3): a
+ * The sealed store is where pairings used to get lost: a
  * torn write that read as corrupt, a failed write nobody heard about, and a
  * flaky secret helper that read as a missing file. Each has a test here.
  */

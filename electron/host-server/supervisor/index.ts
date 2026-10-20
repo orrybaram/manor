@@ -1,5 +1,5 @@
 /**
- * Supervision that survives a reboot (ADR-229 D4).
+ * Supervision that survives a reboot.
  *
  * `manor-host supervisor install` puts this box's daemon and host server
  * under the operating system's own supervisor — a systemd user manager,
@@ -12,10 +12,10 @@
  * warning: a host must never end up with nothing running.
  *
  * `supervisor.env` carries the variables the host needs and an ssh session
- * would not give it (ADR-229 D5, D6): `MANOR_SECRET_KEY_FILE`,
+ * would not give it: `MANOR_SECRET_KEY_FILE`,
  * `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`. The units start with it, and
- * `manor-host serve` reads it itself (`takeSecretEnv`, ADR-236 D2), so
- * it outlives `uninstall` (ADR-236 D3). `MANOR_SECRET_KEY` written there sits
+ * `manor-host serve` reads it itself (`takeSecretEnv`), so
+ * it outlives `uninstall`. `MANOR_SECRET_KEY` written there sits
  * on the volume it is meant to protect; prefer `MANOR_SECRET_KEY_FILE`
  * naming a file outside `~/.manor`.
  */
@@ -72,7 +72,7 @@ export function readSupervisorMarker(file: string = supervisorMarkerFile()): Sup
   }
 }
 
-/** The variables `supervisor.env` carries, when set (ADR-229 D5, D6). */
+/** The variables `supervisor.env` carries, when set. */
 const SUPERVISOR_ENV_KEYS = [
   "MANOR_SECRET_KEY_FILE",
   "MANOR_SECRET_KEY",
@@ -114,7 +114,7 @@ export function supervisorEnvText(
   warn: (message: string) => void = console.warn,
 ): string {
   const lines = [
-    "# Written by `manor-host` (ADR-229 D4, D5; ADR-236). Mode 0600.",
+    "# Written by `manor-host`. Mode 0600.",
     "# MANOR_SECRET_KEY here is on the volume it protects: prefer",
     "# MANOR_SECRET_KEY_FILE naming a mounted secret outside ~/.manor.",
   ];
@@ -168,7 +168,7 @@ export function writeSupervisorEnv(
 }
 
 /**
- * Fill `env` from `supervisor.env` for the host server (ADR-236 D2), which
+ * Fill `env` from `supervisor.env` for the host server, which
  * an ssh session would not otherwise give it. Only the variables the file
  * carries, and only where `env` lacks them: the environment wins. The key
  * source is taken as a whole: when `env` sets either `MANOR_SECRET_KEY` or
@@ -196,7 +196,7 @@ export function applySupervisorEnv(
 }
 
 /**
- * The host server's start (ADR-236 D2): take the key sealing the pairing
+ * The host server's start: take the key sealing the pairing
  * keys out of `env` (the process's own environment) into a private one, so
  * no child inherits it: not the terminal daemon, whose shells and agents
  * run anything, nor a busy hook. A systemd unit's `EnvironmentFile` or an
@@ -358,7 +358,7 @@ export async function installSupervisor(
 
 /**
  * Remove the marker's units and the marker. A no-op without one.
- * `supervisor.env` stays: the host server reads it too (ADR-236 D2, D3), and
+ * `supervisor.env` stays: the host server reads it too, and
  * a key named there must not be lost, or the next start could not open the
  * sealed pairing keys. Refuses while `supervise` runs as the container's entrypoint: it would
  * keep supervising, and without the marker the lifecycle would spawn detached

@@ -2,8 +2,8 @@
  * Applying a resize where it belongs: at its position in the output stream.
  *
  * The daemon marks the point at which the pty's winsize changed — every byte
- * before it was produced at the old size, every byte after at the new one (see
- * ADR-164). An emulator that resizes its grid at that point matches what the
+ * before it was produced at the old size, every byte after at the new one. An
+ * emulator that resizes its grid at that point matches what the
  * program believes it is drawing into; one that resizes a few chunks either
  * side of it does not, and a program repainting a region in place strands a
  * copy of that region every time it repaints across the gap.

@@ -200,7 +200,7 @@ describe("GET /theme", () => {
   });
 });
 
-describe("POST /processes/kill-all (ADR-230 D14)", () => {
+describe("POST /processes/kill-all", () => {
   it("counts a remote agent's kill", async () => {
     const actual = await vi.importActual<typeof import("../process-control")>("../process-control");
     vi.mocked(killAllProcesses).mockImplementationOnce(actual.killAllProcesses);

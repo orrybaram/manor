@@ -27,7 +27,7 @@ export function pickPaneAgent<A extends PaneAgentLike>(
 }
 
 /** Whether a pane showing `contentType` can be read as a chat at all: a diff
- *  or browser pane never is (ADR-215 D7). */
+ *  or browser pane never is. */
 export function paneCanChat(contentType: string | null | undefined): boolean {
   return contentType !== "diff" && contentType !== "browser";
 }

@@ -1,7 +1,7 @@
 /**
  * Manor-control HTTP routes — project/workspace management, GitHub issue
  * listing, batch issue→workspace fan-out, agent launching, pane/tab control,
- * and webview inspection (ADR-183 folds `webview-server.ts`'s routes in
+ * and webview inspection (`webview-server.ts`'s routes are folded in
  * here too, so there is one table and one dispatcher).
  *
  * Consumed by webview-server.ts, which owns the HTTP listener and delegates

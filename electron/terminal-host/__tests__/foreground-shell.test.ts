@@ -4,7 +4,7 @@ import { processBasename, shellForegroundName, shellScriptName } from "../foregr
 const SHELL = 100;
 const SCRIPT = 200;
 
-describe("shellForegroundName (ADR-231 D5)", () => {
+describe("shellForegroundName", () => {
   it("/bin/sh led by the pane's own shell → null", () => {
     expect(
       shellForegroundName({ shellPid: SHELL, leaderPid: SHELL, leaderArgs: ["sh"], agentBelow: null }),

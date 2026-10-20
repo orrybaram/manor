@@ -1,7 +1,7 @@
 # Manor relay
 
 A Cloudflare Worker with one Durable Object per desktop
-(ADR-206). It pipes
+. It pipes
 Noise ciphertext between a desktop (the **host**) and up to 8 browsers
 (**channels**) in a **room**, and serves the web app from R2, one build per
 version. It cannot read what it forwards. For what it can and cannot see, see
@@ -11,7 +11,7 @@ version. It cannot read what it forwards. For what it can and cannot see, see
 GET /host/<roomId>      desktop; challenge-response with its Ed25519 key
 GET /join/<roomId>      viewer; 4404 if no host is connected
 GET /app/<version>/*    the web app build for that Manor version, from R2
-POST /jev/folder        hosted Jev's sidebar-folder pick (ADR-211), signed
+POST /jev/folder        hosted Jev's sidebar-folder pick, signed
 ```
 
 `roomId` is `base64url(sha256(ed25519PublicKey))[0..22]`.
@@ -42,8 +42,7 @@ u32 length]`); the desktop keeps a bounded window of unacknowledged bytes
 
 ### Jev
 
-`POST /jev/folder` (ADR-211,
-`src/jev.ts`) asks TypeSafe's Jev which sidebar folder a new workspace belongs
+`POST /jev/folder` (`src/jev.ts`) asks TypeSafe's Jev which sidebar folder a new workspace belongs
 in, with Manor's key. The worker fixes the model, question and instructions;
 the desktop sends only the data, at most 16 KiB, signed with its relay
 identity and within 5 minutes of the worker's clock. Three limits, cheapest

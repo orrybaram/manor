@@ -9,8 +9,8 @@ import { ownerOf } from "../lib/workspace-directory";
 import type { ProjectInfo } from "../store/project-store";
 
 /**
- * The key (ADR-191) of the workspace `agent` runs in: on the host its
- * terminal runs on (`agent.hostId`). A pane moved to another host (ADR-183)
+ * The key of the workspace `agent` runs in: on the host its
+ * terminal runs on (`agent.hostId`). A pane moved to another host
  * still belongs to its project's workspace, so when no project on the
  * agent's host has the path, the key is on the agent's project's host.
  */
@@ -48,7 +48,7 @@ export function navigateToAgent(agent: AgentInfo) {
 
   if (agent.workspacePath && agent.paneId) {
     // Find the tab containing agent.paneId by searching all panels of the
-    // agent's workspace, on its host (ADR-191).
+    // agent's workspace, on its host.
     const key = agentWorkspaceKey(agent, projects) ?? workspaceKey(project.hostId, agent.workspacePath);
     const layout = useAppStore.getState().workspaceLayouts[key];
     let tabId: string | null = null;

@@ -1,7 +1,7 @@
 /**
- * Headers for serving the ADR-178 web app, shared by the relay Worker
- * (`relay/src/index.ts`, ADR-206 D4) — the only server the web app has since
- * ADR-207 — and `vite.web.config.ts`. Dependency-free on purpose: the Worker
+ * Headers for serving the web app, shared by the relay Worker
+ * (`relay/src/index.ts`) — the only server the web app has since
+ * And `vite.web.config.ts`. Dependency-free on purpose: the Worker
  * cannot import Node modules.
  */
 

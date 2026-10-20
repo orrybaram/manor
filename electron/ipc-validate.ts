@@ -63,7 +63,7 @@ export function assertStringArray(
 }
 
 /**
- * An array of `{ path, hostId }` entries (ADR-183), each also carrying
+ * An array of `{ path, hostId }` entries, each also carrying
  * string `extraKeys` when given.
  */
 /** A well-formed `{ teamId, teamName, teamKey }` Linear association. */
@@ -93,8 +93,8 @@ export function isCustomCommand(
 }
 
 /**
- * A linked-project group's shared-settings update (ADR-192; `themeName` and
- * `commands` joined in ADR-193 ticket 1): an object whose `name` is a
+ * A linked-project group's shared-settings update (`themeName` and
+ * `commands` joined later): an object whose `name` is a
  * string, `color`, `agentCommand` and `themeName` a string or null,
  * `linearAssociations` null (no teams) or an array of associations, and
  * `commands` an array of custom commands. Absent keys are left alone.
@@ -168,7 +168,7 @@ export function assertHostPaths<K extends string = never>(
   }
 }
 
-/** A checkout for `gh`: `{ path, hostId }` (ADR-191). */
+/** A checkout for `gh`: `{ path, hostId }`. */
 export function assertGhRepo(value: unknown, name: string): asserts value is GhRepo {
   if (typeof value !== "object" || value === null) {
     throw new Error(`${name}: expected object, got ${typeof value}`);
@@ -178,7 +178,7 @@ export function assertGhRepo(value: unknown, name: string): asserts value is GhR
   assertString(repo.hostId, `${name}.hostId`);
 }
 
-/** The workspaces `ports:updateWorkspaceMetadata` describes (ADR-191). */
+/** The workspaces `ports:updateWorkspaceMetadata` describes. */
 export function assertWorkspaceMeta(
   value: unknown,
   name: string,

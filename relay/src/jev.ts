@@ -1,5 +1,5 @@
 /**
- * `POST /jev/folder` (ADR-211 D1–D3): Manor's hosted Jev, for picking the
+ * `POST /jev/folder`: Manor's hosted Jev, for picking the
  * sidebar folder a new workspace belongs in.
  *
  * The worker owns everything that makes this a Jev request (model, question
@@ -30,7 +30,7 @@ import {
 import type { Env } from "./env";
 
 export const JEV_MODEL = "jev-1.13.0";
-/** Moved verbatim from `buildFolderQuestion` (ADR-210 D2). */
+/** Moved verbatim from `buildFolderQuestion`. */
 export const INSTRUCTIONS =
   "Which sidebar folder should this new workspace be filed under? Folders group related workspaces; judge by what the folder's existing workspaces are about.";
 

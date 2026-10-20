@@ -1,5 +1,5 @@
 /**
- * The one listener registry both client transports keep (ADR-182 D5).
+ * The one listener registry both client transports keep.
  *
  * The preload's tests (`electron/bridge/__tests__/ipc-transport.test.ts`) and
  * the socket's (`./ws.test.ts`) exercise it through their transports; this

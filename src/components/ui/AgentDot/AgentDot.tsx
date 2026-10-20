@@ -9,7 +9,7 @@ type AgentDotProps = {
   pulse?: boolean;
   /**
    * Why the pane has this status, as the Status reconciler published it
-   * (ADR-184 §4) — shown as the dot's tooltip. Omitted by callers that show
+   * — shown as the dot's tooltip. Omitted by callers that show
    * an aggregate across several panes, which has no single reason.
    */
   reason?: string;

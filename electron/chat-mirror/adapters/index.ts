@@ -1,4 +1,4 @@
-/** Which agents the chat mirror can read, by kind (ADR-224 D1). */
+/** Which agents the chat mirror can read, by kind. */
 
 import type { AgentKind } from "../../terminal-host/types";
 import { claudeAdapter } from "./claude";

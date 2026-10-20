@@ -1,4 +1,4 @@
-// Framework-free `:shortcode` emoji matching (ADR-174).
+// Framework-free `:shortcode` emoji matching.
 //
 // This module owns everything that can be unit-tested without a DOM:
 // finding an open `:query` at the caret, loading and searching the emoji

@@ -1,4 +1,4 @@
-/* Fills the gutter to the right of the sidebar panel or rail (ADR-196), so
+/* Fills the gutter to the right of the sidebar panel or rail, so
    the grab area is the whole gutter, and spans exactly the main panel's
    height: below the title row, above the status bar. The glow sits on the
    panel's left border, half a pixel past the gutter. */

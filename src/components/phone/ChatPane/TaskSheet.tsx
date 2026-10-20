@@ -15,7 +15,7 @@ type TaskSheetProps = {
 const NOOP = () => {};
 
 /**
- * A task's own transcript in a bottom sheet (ADR-224 D4): the same entries
+ * A task's own transcript in a bottom sheet: the same entries
  * the chat draws, read-only. No composer, and no picker in it can be answered
  * from here.
  */

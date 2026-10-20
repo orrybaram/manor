@@ -13,7 +13,7 @@ type FallbackScreenProps = {
 
 /**
  * A failure that replaces a whole surface: a crashed pane, a window that
- * could not load (ADR-232). A stopgap until #327's `<InlineError>` lands.
+ * could not load. A stopgap until #327's `<InlineError>` lands.
  */
 export function FallbackScreen(props: FallbackScreenProps) {
   const { title, message, actions, fullWindow } = props;

@@ -1,5 +1,5 @@
 /**
- * The router over the server set (ADR-228 D1, D2, D3, D5, D6, D7), against
+ * The router over the server set, against
  * fake transports: the desktop's own server and a host server it holds a
  * bridge to (`desktop-hosts.ts`), or several.
  */
@@ -157,7 +157,7 @@ describe("the router with only the home server", () => {
     expect(home.invokes[home.invokes.length - 1]).toEqual({ key: "projects.renameWorkspace", args });
   });
 
-  it("hands its whole watch home and passes its updates through (ADR-230 D6)", async () => {
+  it("hands its whole watch home and passes its updates through", async () => {
     const home = fakeServer({ "branches.start": () => undefined });
     const set = createServerSet();
     set.add("local", home.transport, { home: true, lists: "all" });
@@ -238,7 +238,7 @@ describe("routed calls", () => {
     expect(home.invokes).toEqual([]);
   });
 
-  it("fall back to a server that lists the host while its own is away (D6)", async () => {
+  it("fall back to a server that lists the host while its own is away", async () => {
     const home = fakeServer();
     const box = fakeServer();
     const set = desktopWithHost(home, box);
@@ -280,8 +280,8 @@ describe("calls the home transport serves", () => {
         localNamespaces: native,
       },
     );
-    // A host server's socket transport serves the same calls for a browser
-    // (ADR-228 ticket 3): it must never be the one asked.
+    // A host server's socket transport serves the same calls for a browser:
+    // it must never be the one asked.
     const boxViewport = vi.fn();
     const box = fakeServer(
       {},
@@ -336,7 +336,7 @@ describe("merged reads", () => {
 
     expect(await api.projects.getAll()).toEqual([
       { id: "p0", hostId: "local", name: "Mine", group: GROUP },
-      // Its own fields from its source, its group from the desktop (D3).
+      // Its own fields from its source, its group from the desktop.
       { id: "p1", hostId: "box", name: "Fresh", group: GROUP },
       { id: "p2", hostId: "box", name: "Only on box" },
     ]);
@@ -570,7 +570,7 @@ describe("the server set", () => {
   });
 });
 
-describe("a desktop window's terminals on a host's own bridge (D5)", () => {
+describe("a desktop window's terminals on a host's own bridge", () => {
   it("routes a remote pane's pty calls to its host, with the host option made local", async () => {
     const home = fakeServer();
     const box = fakeServer({
@@ -610,7 +610,7 @@ describe("a desktop window's terminals on a host's own bridge (D5)", () => {
     box.emit("pty.output", "pane-b", "hello");
     expect(output).toHaveBeenCalledWith("hello");
 
-    // The bridge drops: main answers for the host meanwhile (D6).
+    // The bridge drops: main answers for the host meanwhile.
     set.setReachability("box", "unreachable");
     expect(home.live("pty.output")).toBe(1);
     expect(box.live("pty.output")).toBe(0);
@@ -654,7 +654,7 @@ describe("a desktop window's terminals on a host's own bridge (D5)", () => {
     warn.mockRestore();
   });
 
-  it("sends a viewport report home, whatever host its workspace is on (D7)", async () => {
+  it("sends a viewport report home, whatever host its workspace is on", async () => {
     const home = fakeServer();
     const box = fakeServer();
     const set = desktopWithHost(home, box);
@@ -667,7 +667,7 @@ describe("a desktop window's terminals on a host's own bridge (D5)", () => {
   });
 });
 
-describe("a detached window's claim on a remote tab (D7)", () => {
+describe("a detached window's claim on a remote tab", () => {
   const CLAIM = [{ windowId: "9", tabId: "tab" }];
 
   it("comes from the desktop, onto the host's own layout and broadcasts", async () => {
@@ -810,7 +810,7 @@ describe("what main's HostRouting did on the way, done by the router", () => {
   });
 });
 
-describe("on the phone, every server named by its room (D2)", () => {
+describe("on the phone, every server named by its room", () => {
   const DESK = "DeskRoom0000000000000a";
   const BOX = "BoxRoom00000000000000b";
 
@@ -918,7 +918,7 @@ describe("on the phone, every server named by its room (D2)", () => {
     ]);
   });
 
-  it("answers a host from its own pairing, else from the desktop (D3)", async () => {
+  it("answers a host from its own pairing, else from the desktop", async () => {
     const desk = fakeServer({
       "projects.getAll": () => [
         { id: "p0", hostId: "local", name: "Mine" },
@@ -977,7 +977,7 @@ describe("on the phone, every server named by its room (D2)", () => {
     deskUp = false;
     set.setReachability(DESK, "unreachable");
     const calls = desk.invokes.length;
-    // Its last answer, without asking it (D6).
+    // Its last answer, without asking it.
     expect(await api.projects.getAll()).toEqual([
       { id: "p0", hostId: DESK, name: "Mine" },
       { id: "p1", hostId: BOX, name: "Fresh" },
@@ -1039,7 +1039,7 @@ describe("on the phone, every server named by its room (D2)", () => {
     expect(seen).toHaveBeenCalledWith({ id: "a", hostId: DESK });
   });
 
-  describe("branches and diffs, watched where each workspace lives (ADR-230 D6)", () => {
+  describe("branches and diffs, watched where each workspace lives", () => {
     const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
     const watched = [
       { path: "/a", hostId: DESK },
@@ -1049,7 +1049,7 @@ describe("on the phone, every server named by its room (D2)", () => {
     const invoked = (server: FakeServer, key: string) =>
       server.invokes.filter((i) => i.key === key).map((i) => i.args);
 
-    // ADR-230 R2: home's own `branches.changed` came back in home's keys,
+    // Home's own `branches.changed` came back in home's keys,
     // which the phone's store, keyed by room, never matched.
     it("re-keys home's own branch updates into the phone's keys", () => {
       const desk = fakeServer();
@@ -1199,7 +1199,7 @@ describe("on the phone, every server named by its room (D2)", () => {
   });
 });
 
-describe("the selected project on the merged list (ADR-230 D7)", () => {
+describe("the selected project on the merged list", () => {
   const DESK = "DeskRoom0000000000000a";
   const BOX = "BoxRoom00000000000000b";
 
@@ -1279,7 +1279,7 @@ describe("the selected project on the merged list (ADR-230 D7)", () => {
   });
 });
 
-describe("GitHub calls follow the repo's host (ADR-228 D10)", () => {
+describe("GitHub calls follow the repo's host", () => {
   it("send a repo's calls to its host's source, and a local repo's home", async () => {
     const home = fakeServer({ "github.getMyIssues": "home", "github.checkStatus": "home" });
     const box = fakeServer({ "github.getMyIssues": [], "github.checkStatus": { installed: true } });
@@ -1296,7 +1296,7 @@ describe("GitHub calls follow the repo's host (ADR-228 D10)", () => {
   });
 });
 
-describe("Linear calls pick their server per call (ADR-228 D10)", () => {
+describe("Linear calls pick their server per call", () => {
   const calls = (server: FakeServer) =>
     server.invokes.filter((i) => i.key === "linear.getViewer").length;
 
@@ -1418,7 +1418,7 @@ describe("Linear calls pick their server per call (ADR-228 D10)", () => {
   });
 });
 
-describe("the router waking a sleeping host (ADR-229 D1)", () => {
+describe("the router waking a sleeping host", () => {
   /** `fakeResolver` with `box` asleep until `wake` says otherwise. */
   function sleepyResolver(maps: Parameters<typeof fakeResolver>[0]) {
     const asleep = new Set(["box"]);
@@ -1467,7 +1467,7 @@ describe("the router waking a sleeping host (ADR-229 D1)", () => {
     expect(home.invokes.map((i) => i.key)).toEqual(["hosts.wake", "pty.create"]);
   });
 
-  it("leaves the host asleep for a create or attach that declines to wake (ADR-230 D3)", async () => {
+  it("leaves the host asleep for a create or attach that declines to wake", async () => {
     const home = fakeServer({ "hosts.wake": undefined, "pty.create": { ok: true } });
     const set = createServerSet();
     set.add("local", home.transport, { home: true, lists: "all" });

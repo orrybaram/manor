@@ -3,7 +3,7 @@
  * driving browser webviews embedded in panes (screenshots, JS execution,
  * DOM dump, click/type, navigate, recording, element picking).
  *
- * Extracted from `webview-server.ts` (ADR-183), which keeps only the HTTP
+ * Extracted from `webview-server.ts`, which keeps only the HTTP
  * listener lifecycle, console-message capture, and `getWebContents` — the
  * pane→`WebContents` lookup every handler below goes through via
  * `deps.webviewPanes`, so this module never imports the `WebviewServer`

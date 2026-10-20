@@ -43,7 +43,7 @@ function makeProject(
   } as unknown as ProjectInfo;
 }
 
-/** `contentType` is the leaf's own, where the menu reads it (ADR-182 D9). */
+/** `contentType` is the leaf's own, where the menu reads it. */
 function makeAppState(
   overrides: Partial<MenuAppState> = {},
   contentType: "terminal" | "browser" | "diff" | null = "diff",

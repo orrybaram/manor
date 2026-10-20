@@ -1,6 +1,5 @@
 /**
- * `PendingCommands` — the server-side map a pane's first command waits in
- * (ADR-179 ticket 11).
+ * `PendingCommands` — the server-side map a pane's first command waits in.
  *
  * Small on purpose: the guarantee that matters is "once". Every producer sets
  * before the pane exists and every `pty.create` takes, so a second viewer
@@ -35,7 +34,7 @@ describe("PendingCommands", () => {
     expect(pending.take("pane-1")?.kind).toBe("agent-startup");
   });
 
-  it("keeps text that is only to be typed, not run (ADR-183)", () => {
+  it("keeps text that is only to be typed, not run", () => {
     const pending = new PendingCommands();
     pending.set("pane-1", "brew install gh", "shell", { submit: false });
 
@@ -89,7 +88,7 @@ describe("PendingCommands", () => {
     expect(pending.take("pane-1")?.text).toBe("newer");
   });
 
-  it("keeps an agent's prompt beside its bare command, through a requeue (ADR-209)", () => {
+  it("keeps an agent's prompt beside its bare command, through a requeue", () => {
     const pending = new PendingCommands();
     pending.set("pane-1", "claude", "agent-startup", { prompt: "line 1\nline 2" });
 

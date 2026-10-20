@@ -1,6 +1,6 @@
 /**
  * BridgeSpawner — the child-process half of a remote transport, shared by
- * `SshTransport` and `CommandTransport` (ADR-229 D3).
+ * `SshTransport` and `CommandTransport`.
  *
  * A remote transport reaches the box by running one command there with
  * stdio attached: `ssh -T <target> <cmd>` on a ControlMaster, or an exec

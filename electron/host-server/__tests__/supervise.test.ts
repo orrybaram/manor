@@ -1,5 +1,5 @@
 /**
- * `manor-host supervise` (ADR-229 D4) against fake children: restart with
+ * `manor-host supervise` against fake children: restart with
  * backoff, adopting a running unit, the restart and start signals, and
  * SIGTERM fan-out.
  */

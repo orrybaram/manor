@@ -1,5 +1,5 @@
 /**
- * What `BackendRegistry.get(hostId)` hands out (ADR-160 §6, ADR-183).
+ * What `BackendRegistry.get(hostId)` hands out.
  *
  * A remote host's view is gated: it waits for the connection before a pty
  * call, and fails fast — kicking off a background connect — before a git,
@@ -36,15 +36,14 @@ export class HostUnavailableError extends Error {
 
 export interface HostGates {
   /**
-   * Awaited before a pty call, with the call's connect options (ADR-230 D3):
+   * Awaited before a pty call, with the call's connect options:
    * `wake: false` connects without waking a sleeping host.
    */
   pty: (connect?: PtyConnectOptions) => Promise<void>;
   /**
    * What a failed pty call (its gate included) rejects with: a
    * `HostUnavailableError` whenever the host is not connected, so callers
-   * can tell "the host is away" from a broken terminal by type alone
-   * (ADR-183).
+   * can tell "the host is away" from a broken terminal by type alone.
    */
   ptyFailure: (err: unknown) => unknown;
   /** Awaited before a git / shell / ports call. */
@@ -66,7 +65,7 @@ export function hostGates(conn: HostConnection): HostGates {
         case "error":
           throw new HostUnavailableError(conn.hostId, "error", conn.error);
         case "sleeping":
-          // Waking takes intent (ADR-229 D1): the router wakes it for a
+          // Waking takes intent: the router wakes it for a
           // call that means it; a pty call on its own does not.
           throw new HostUnavailableError(conn.hostId, "sleeping");
         case "disconnected":
@@ -75,7 +74,7 @@ export function hostGates(conn: HostConnection): HostGates {
             await conn.ensureConnected();
             return;
           }
-          // A call nobody meant — a pane restored at launch (ADR-230 D3) —
+          // A call nobody meant — a pane restored at launch —
           // connects as a background connect does, leaving a box it finds
           // asleep asleep.
           await conn.connectNoWake();
@@ -109,7 +108,7 @@ export function hostView(conn: HostConnection, gates: HostGates | null): Workspa
   const exec = gates?.exec ?? null;
   return {
     // Every other pty call waits for the connection — `getPaneFacts`
-    // included, since main asks for it to resync once a host is back (ADR-184).
+    // included, since main asks for it to resync once a host is back.
     pty: gated(
       backend.pty,
       gates ? (method, args) => gates.pty(ptyConnectOptions(method, args)) : null,

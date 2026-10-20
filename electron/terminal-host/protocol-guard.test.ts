@@ -6,7 +6,7 @@ import { TERMINAL_HOST_PROTOCOL } from "./types";
 import { PTY_SUBPROCESS_PROTOCOL } from "./pty-subprocess-ipc";
 
 /**
- * Guards ADR-185 §B.5. With app-version daemon restarts gone, the wire
+ * With app-version daemon restarts gone, the wire
  * protocol (`TERMINAL_HOST_PROTOCOL`, `types.ts`) and the pty-subprocess frame
  * protocol (`PTY_SUBPROCESS_PROTOCOL`, `pty-subprocess-ipc.ts`) are the only
  * signal left that an old daemon can no longer serve a new client. This test
@@ -92,7 +92,7 @@ function checkContract(params: {
   if (hashChanged && !constantChanged) {
     throw new Error(
       `${file} changed but ${constName} was not bumped. If the change affects ` +
-        `the daemon contract (ADR-185), bump ${constName}. Otherwise re-record ` +
+        `the daemon contract, bump ${constName}. Otherwise re-record ` +
         `with \`${RERECORD_CMD}\`.`,
     );
   }
@@ -105,7 +105,7 @@ function checkContract(params: {
   );
 }
 
-describe("protocol guard (ADR-185 §B.5)", () => {
+describe("protocol guard", () => {
   it("wire: types.ts protocol-bearing source matches TERMINAL_HOST_PROTOCOL", () => {
     checkContract({
       key: "wire",

@@ -1,6 +1,6 @@
 /**
  * What the Hosts page says about a host's supervision and idle stop
- * (ADR-229 D4, D7), as plain functions so the wording is tested once.
+ * as plain functions so the wording is tested once.
  */
 
 import type { HostServerView } from "../../../electron.d";
@@ -20,7 +20,7 @@ function loginUser(spec: HostSpec | null): string {
 
 /**
  * The line under "Keep Manor running when <host> restarts": what keeps it
- * running now (D4), or null when nothing is known to — the switch then
+ * running now, or null when nothing is known to — the switch then
  * says enough.
  */
 export function supervisorStatusText(
@@ -65,7 +65,7 @@ export function devicesReachText(count: number): string {
 
 /**
  * The hint under "Devices can reach <host>" for devices whose pairing was
- * revoked on the host (ADR-238 D3): "A was removed on <host>. Turn the
+ * revoked on the host: "A was removed on <host>. Turn the
  * switch off and on to pair it again."
  */
 export function blockedDevicesLine(labels: readonly string[], hostName: string): string {
@@ -74,16 +74,16 @@ export function blockedDevicesLine(labels: readonly string[], hostName: string):
   return `${names} ${many ? "were" : "was"} removed on ${hostName}. Turn the switch off and on to pair ${many ? "them" : "it"} again.`;
 }
 
-/** The idle-stop caveat for a recipe with nothing to stop it with the lid closed (D7). */
+/** The idle-stop caveat for a recipe with nothing to stop it with the lid closed. */
 export function idleStopText(minutes: number | undefined, desktopName: string): string {
   const after = minutes === undefined ? "Stops when idle" : `Stops after ${minutes} min idle`;
   return `${after} only while ${desktopName} is awake`;
 }
 
-/** The confirmation for removing a host profile (ADR-235 D2). */
+/** The confirmation for removing a host profile. */
 export const REMOVE_PROFILE_TEXT = "Its hosts keep running. They'll no longer be grouped.";
 
-/** The remove confirmation for a profile; one that signs new pods in also loses its Secret (ADR-235 D9). */
+/** The remove confirmation for a profile; one that signs new pods in also loses its Secret. */
 export function removeProfileText(profile: {
   values: Record<string, string>;
   signIn?: { github?: unknown; claude?: unknown };
@@ -99,25 +99,25 @@ export function profileSummary(templateName: string, values: Record<string, stri
   return [templateName, ...(where.length > 0 ? [where.join(" / ")] : [])].join(" · ");
 }
 
-/** ADR-235 D9: the trade of "Sign new pods in for me", shown while it is on. */
+/** The trade of "Sign new pods in for me", shown while it is on. */
 export function signInWarningText(namespace: string): string {
   const where = namespace === "" ? "the profile's namespace" : namespace;
   return `Anyone who can read Secrets in ${where} or open a terminal in its pods can use these. Every agent in every pod can use them too. They are your own tokens, not scoped to a pod, so a namespace you share with other people is the wrong place for this.`;
 }
 
-/** "Set 3/14/2026 · from this computer" (ADR-235 D9): when and how a token was set. */
+/** "Set 3/14/2026 · from this computer": when and how a token was set. */
 export function signInStatusText(meta: { setAt: number; source: "gh" | "pasted" }): string {
   const when = new Date(meta.setAt).toLocaleDateString();
   return `Set ${when} · ${meta.source === "gh" ? "from this computer" : "pasted token"}`;
 }
 
-/** What the Restart button reported (ADR-235 D9). */
+/** What the Restart button reported. */
 export function restartedPodsText(count: number): string {
   if (count === 0) return "No pods were running.";
   return `Restarted ${count} ${count === 1 ? "pod" : "pods"}.`;
 }
 
-/** The Restart button (ADR-235 D9): "Restart 3 pods", from the hosts known to be running. */
+/** The Restart button: "Restart 3 pods", from the hosts known to be running. */
 export function restartPodsLabel(running: number): string {
   if (running === 0) return "Restart pods";
   return `Restart ${running} ${running === 1 ? "pod" : "pods"}`;
@@ -129,13 +129,13 @@ export function restartPodsLabel(running: number): string {
  */
 export const DEFAULT_KEY_FILE = "~/.config/manor/secret.key";
 
-/** What can be done about plaintext pairing keys on a host (ADR-236 D6). */
+/** What can be done about plaintext pairing keys on a host. */
 export type KeyFix = "button" | "recipe" | "container" | "none";
 
 /** The colour of the Pairing keys pill: a caution, protected, half-protected, or working. */
 export type PairingKeysTone = "caution" | "ok" | "partial" | "busy";
 
-/** The facts the Pairing keys row shows (ADR-236 D6). */
+/** The facts the Pairing keys row shows. */
 export type PairingKeysState = {
   tone: PairingKeysTone;
   /** The pill: "Unencrypted", "Encrypted", "Key kept with data", "Encrypting…". */
@@ -160,7 +160,7 @@ export type PairingKeysFacts = {
 /**
  * The key sealing the pairing keys sits inside ~/.manor; an older server only
  * says so with `secretKeyOnVolume`. A key named while another backend seals
- * them (one sticky from before, ADR-236 D8) is not worth the warning.
+ * them (one sticky from before) is not worth the warning.
  */
 export function keyOnVolume(facts: PairingKeysFacts): boolean {
   return facts.secretKeyPlace === undefined
@@ -169,7 +169,7 @@ export function keyOnVolume(facts: PairingKeysFacts): boolean {
 }
 
 /**
- * What the Pairing keys row says for a host (ADR-236 D6): its state as a
+ * What the Pairing keys row says for a host: its state as a
  * pill, one line, and the caveats behind a disclosure. `busy` is an Encrypt
  * click in flight, which the row shows as progress rather than letting the
  * server's restart read as a reset.

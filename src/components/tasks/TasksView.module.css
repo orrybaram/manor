@@ -1,5 +1,5 @@
 /*
- * The Tasks view (ADR-198 §3): a full-width page inside the empty-surface
+ * The Tasks view: a full-width page inside the empty-surface
  * panel — header (tracker tabs, project select), filter row, a CSS-grid
  * table and a pagination footer.
  */
@@ -622,7 +622,7 @@
   color: var(--text-dim);
 }
 
-/* ── Detail drawer (ADR-208 §3) ── */
+/* ── Detail drawer ── */
 
 /* The drawer at its dragged width; the table keeps room beside it. */
 .drawerFrame {
@@ -769,7 +769,7 @@
   height: 40px;
 }
 
-/* gh isn't signed in on a host: stated, not an error (ADR-227 D7). */
+/* gh isn't signed in on a host: stated, not an error. */
 .ghNotice {
   display: flex;
   flex-direction: column;

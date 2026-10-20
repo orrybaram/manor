@@ -517,7 +517,7 @@ describe("replay through the real ingest path", () => {
   });
 });
 
-describe("HostHookFeed.catchUp settling (ADR-178 §6)", () => {
+describe("HostHookFeed.catchUp settling", () => {
   it("settles once the catch-up is live, not before", async () => {
     const { replay, calls } = deferredReplay();
     const { sink } = recordingSink();

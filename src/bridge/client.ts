@@ -1,7 +1,7 @@
 /**
- * `window.electronAPI`, built in the page over one transport (ADR-180 D3).
+ * `window.electronAPI`, built in the page over one transport.
  *
- * The web renderer (ADR-178 D8) is the same `.tsx` files as the desktop with
+ * The web renderer is the same `.tsx` files as the desktop with
  * no preload under them, so it needs an object of the same shape whose
  * methods are frames on a WebSocket. This module is that object for both of
  * them: one proxy, one protocol (`electron/bridge/types.ts`), and a
@@ -83,7 +83,7 @@ export type BridgeListener = Listener;
  * Everything a transport is — a `WebSocket`, a reconnect timer, a hello, the
  * preload's four channels — stays on its own side of this interface, and
  * everything above it is the same code on both platforms. The next transport
- * (a cloud host, ADR-178 D7) is a file next to the two that exist.
+ * (a cloud host) is a file next to the two that exist.
  */
 export interface BridgeTransport {
   /**
@@ -101,9 +101,9 @@ export interface BridgeTransport {
     key: string | undefined,
     callback: BridgeListener,
   ): () => void;
-  /** Host-assigned connection id, once known (ADR-179 D3). */
+  /** Host-assigned connection id, once known. */
   readonly rendererId: string | null;
-  /** ADR-178 D8's discriminator. Answered synchronously, during render. */
+  /** Which platform the renderer runs on. Answered synchronously, during render. */
   readonly platform: "electron" | "web";
   /** Root values the transport answers without a round trip. */
   readonly rootValues: Record<string, unknown>;
@@ -197,7 +197,7 @@ function localMember(
 /**
  * Whether `transport` answers `ns.method` without asking its server: a
  * native namespace, a method it serves itself, or a namespace refused in a
- * browser (steps 1 to 3 below). The router (`./router.ts`, ADR-228) sends
+ * browser (steps 1 to 3 below). The router (`./router.ts`) sends
  * those to the home server's bridge and never to another server's — a host
  * server's socket transport would answer them for the browser it is not.
  */
@@ -217,7 +217,7 @@ export function servesItself(
  * Build the bridge. The returned object claims to be an `ElectronAPI`; the
  * cast is the honest part of the design — a `Proxy` cannot be structurally
  * checked against 211 signatures, and the host, not the type, decides what
- * actually answers. ADR-180 D7 is the check that closes that gap.
+ * actually answers.
  */
 export function createBridge(transport: BridgeTransport): ElectronAPI {
   const namespaces = new Map<string, Record<string, unknown>>();
@@ -335,7 +335,7 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
         if (prop === "platform") return transport.platform;
         // Not in `rootValues`: it is not a constant. A WebSocket host names
         // the connection in its hello reply, and names it again after a
-        // reconnect (ADR-179 D3).
+        // reconnect.
         if (prop === "rendererId") return transport.rendererId;
         if (hasOwn(transport.rootValues, prop)) {
           return transport.rootValues[prop];

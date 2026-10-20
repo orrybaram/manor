@@ -4,25 +4,25 @@ import type { BadgeSection } from "../lib/badges";
 import { ipcErrorMessage } from "../lib/ipc-error";
 
 /**
- * Renderer cache of main's usage-stats summary (ADR-168 §5).
+ * Renderer cache of main's usage-stats summary.
  *
  * Main owns the counters. Every mutation (record, reset) arrives back through
  * the `stats:changed` broadcast — the renderer never mutates its copy
- * speculatively, the same ownership split ADR-162 uses for notifications.
+ * speculatively, the same ownership split the notification store uses.
  */
 interface StatsState {
   /** `null` until the first summary arrives (broadcast or initial fetch). */
   summary: StatsSummary | null;
   loaded: boolean;
   /**
-   * Why the summary couldn't be read, while there is none (ADR-232 D7): the
+   * Why the summary couldn't be read, while there is none: the
    * Stats view shows it with Retry instead of "Loading…" forever.
    */
   loadError: string | null;
   /** Read the summary again. */
   retry: () => Promise<void>;
   /**
-   * Where the Badges tab should open (ADR-212): a track, or its Summary.
+   * Where the Badges tab should open: a track, or its Summary.
    * `null` opens the room on its default Stats tab. Consumed — cleared —
    * once the room mounts on it.
    */

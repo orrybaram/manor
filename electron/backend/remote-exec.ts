@@ -1,6 +1,6 @@
 /**
  * An `Exec` that runs commands on a terminal-host daemon's machine instead
- * of this one (ADR-160). `file` maps to the daemon's `exec` control request,
+ * of this one. `file` maps to the daemon's `exec` control request,
  * `stream` to `execStream`/`execCancel` on the stream socket, and `readFile`
  * and `writeFile` to the requests of the same name — all through a `TerminalHostClient`, which for a remote host
  * rides an `SshTransport`.
@@ -16,7 +16,7 @@
  *   chunk plus a `null` exit code, not as `error` — the wire does not tell
  *   the two apart. `error` is set only when the client itself could not run
  *   the command or lost the connection mid-run.
- * - `writeFile` against a daemon too old to have the request (ADR-187) falls
+ * - `writeFile` against a daemon too old to have the request falls
  *   back to a chunked upload through `exec`: slower, and a reader may see
  *   the temp file `<path>.upload.tmp` while it is written, but the target
  *   itself only appears once complete.
@@ -58,8 +58,8 @@ function execError(
 }
 
 export function createRemoteExec(client: RemoteExecClient): Exec {
-  // Set once the daemon answers `writeFile` with "unknown request type" (it
-  // predates ADR-187), so later writes go straight to the fallback.
+  // Set once the daemon answers `writeFile` with "unknown request type" (an
+  // older daemon), so later writes go straight to the fallback.
   let daemonLacksWriteFile = false;
 
   /** Run a fallback step; a non-zero exit rejects with an `ExecError`. */

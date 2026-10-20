@@ -54,7 +54,7 @@ describe("hasOtherClients", () => {
   });
 });
 
-describe("host pty.create winsize (ADR-225 D5)", () => {
+describe("host pty.create winsize", () => {
   let sessions: SessionInfo[];
   let createOrAttachWith: ReturnType<typeof vi.fn>;
   let watched: Array<[string, number | undefined]>;
@@ -66,8 +66,7 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
     sessions = [];
     watched = [];
     winsize = createHostWinsize({ listSessions: async () => sessions });
-    // The shared `pty.create` spawns through `createOrAttachWith` (ADR-227
-    // D6); a session the daemon already runs answers with its snapshot.
+    // The shared `pty.create` spawns through `createOrAttachWith`; a session the daemon already runs answers with its snapshot.
     createOrAttachWith = vi.fn(async (id: string) => ({
       snapshot: sessions.some((s) => s.sessionId === id && s.alive)
         ? { screenAnsi: "$ ", seq: 7 }
@@ -213,7 +212,7 @@ describe("host pty.create winsize (ADR-225 D5)", () => {
     expect(third).toMatchObject({ winsizeOwner: true });
   });
 
-  it("ranks a desktop viewer stream above a device, and does not count it as foreign (ADR-228 D5)", async () => {
+  it("ranks a desktop viewer stream above a device, and does not count it as foreign", async () => {
     const deskViewer = { ...owner, id: "desk-viewer", viewer: "desktop" } as Caller;
     sessions = [session("pane-1", 0)];
     expect(await create(device)).toMatchObject({ winsizeOwner: true });
@@ -338,7 +337,7 @@ describe("createHostWinsize poll", () => {
   });
 });
 
-describe("layout writes on the host (ADR-227 D6)", () => {
+describe("layout writes on the host", () => {
   const writes = [
     "layout.apply",
     "layout.setPaneTitle",
@@ -396,7 +395,7 @@ describe("layout writes on the host (ADR-227 D6)", () => {
     );
   });
 
-  it("takes a forwarded origin from main's owner channel only, never from a viewer stream (ADR-228 D4)", async () => {
+  it("takes a forwarded origin from main's owner channel only, never from a viewer stream", async () => {
     const apply = vi.fn(async () => ({ version: 1 }));
     const deps = {
       ownership: { current: () => "host" },

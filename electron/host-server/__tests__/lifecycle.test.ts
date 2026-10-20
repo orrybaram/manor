@@ -173,7 +173,7 @@ describe("ensureServerRunning", () => {
     expect(spawned).toBe(1);
   });
 
-  describe("a lock whose holder refreshes it (ADR-236 D4)", () => {
+  describe("a lock whose holder refreshes it", () => {
     /**
      * Another live process holds `server.lock`, touching it each poll (its
      * heartbeat) until `releaseAt` ms in, when it lets go; `null` never.
@@ -238,7 +238,7 @@ describe("ensureServerRunning", () => {
     ).rejects.toThrow(/did not start/);
     expect(fs.existsSync(path.join(dir, "server.lock"))).toBe(false);
   });
-  describe("under a supervisor (ADR-229 D4)", () => {
+  describe("under a supervisor", () => {
     /** A supervisor whose start and restart bring up a server of `version`, or throw. */
     function fakeSupervisor(opts: { version?: string; fail?: boolean; startsNothing?: boolean } = {}) {
       const calls: Array<[string, SupervisedUnit]> = [];
@@ -323,7 +323,7 @@ describe("ensureServerRunning", () => {
       expect(warnings.join("\n")).toMatch(/started no server/);
     });
   });
-  describe("restartServer (ADR-236 D4)", () => {
+  describe("restartServer", () => {
     /** A live 2.0.0 server whose kill (or supervised stop) takes it down. */
     async function liveServer() {
       const paths = hostServerPaths(dir);

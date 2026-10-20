@@ -4,9 +4,9 @@
  * uploads the image to the pane's host and pastes its path there instead.
  *
  * Two halves:
- * - Desktop (ADR-187 §4): `pasteClipboardImage` has main read the native
+ * - Desktop: `pasteClipboardImage` has main read the native
  *   clipboard, only when the pane actually runs remotely.
- * - Web (ADR-239 D3): `pasteImageFile` uploads the file the browser handed
+ * - Web: `pasteImageFile` uploads the file the browser handed
  *   to the paste event, since no server can read the browser's clipboard.
  */
 
@@ -52,7 +52,7 @@ export async function pasteClipboardImage(
   fallback: () => void,
 ): Promise<void> {
   // Name the host: main may never have heard of a pane made through the
-  // host's viewer stream (ADR-228 D5), and would take it for a local one.
+  // host's viewer stream, and would take it for a local one.
   const result = await window.electronAPI.terminal.pasteClipboardImage(
     paneId,
     paneRemoteHost(useRemotePaneStore.getState(), paneId),
@@ -82,7 +82,7 @@ export async function pasteClipboardImage(
 }
 
 /**
- * Upload an image the browser pasted (ADR-239 D3) to `paneId`'s host and
+ * Upload an image the browser pasted to `paneId`'s host and
  * paste its path into `term`. Above one chunk the upload takes a few round
  * trips, so a loading toast covers it; a failure toasts under the same id.
  */

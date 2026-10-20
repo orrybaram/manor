@@ -1,11 +1,11 @@
 /**
- * Claude Code's built-in slash commands (ADR-217 D4), for the phone's `/` menu.
+ * Claude Code's built-in slash commands, for the phone's `/` menu.
  *
  * Claude Code doesn't publish its command list and the transcript's skill
  * listing doesn't include built-ins, so this is hard-coded. It is a
  * convenience list: a command missing from it can still be typed.
  *
- * Starting set from the ADR, then checked (ADR-218 D1) against Claude Code
+ * Starting set written by hand, then checked against Claude Code
  * v2.1.296: `strings` on the binary for each command's table entry
  * (`argumentHint`, `immediate`, hidden/removed) and `claude --help` for the
  * `--model` aliases and `--effort` levels. `/agents` is removed there. Check it
@@ -22,7 +22,7 @@ export type ChatCommand = {
   /** Opens a menu in the TUI that the chat can't show: "always", or
    *  "bare-only" when an argument acts at once instead (`/model sonnet`). */
   menu?: "always" | "bare-only";
-  /** Fixed arguments the phone can offer as a native picker (ADR-218 D2). */
+  /** Fixed arguments the phone can offer as a native picker. */
   choices?: { value: string; label: string; description?: string }[];
 };
 
@@ -99,7 +99,7 @@ export function findBuiltin(name: string): ChatCommand | undefined {
 }
 
 /**
- * Whether sending `entry` with `args` opens a TUI menu (ADR-218 D1). The caller
+ * Whether sending `entry` with `args` opens a TUI menu. The caller
  * passes the fetched entry (a skill of the same name replaces a built-in), else
  * the built-in. With an argument, a "bare-only" command acts at once instead.
  */

@@ -3,8 +3,7 @@ import { method, type HandlerCtx } from "../method";
 import type { ServerDeps } from "../../ipc/types";
 
 /**
- * The renderer answering an `appCommands.command` that carried a `requestId`
- * (ADR-180 D5).
+ * The renderer answering an `appCommands.command` that carried a `requestId`.
  *
  * The only entry on the table that is a *reply* rather than a request. A
  * `requestId` is a UUID main generated and told exactly one connection, so an

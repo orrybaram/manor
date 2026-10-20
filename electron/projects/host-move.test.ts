@@ -13,7 +13,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
+describe("ProjectManager.moveProjectToHost", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -189,7 +189,7 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
     expect(info.worktreePath).toBe("~/wt");
   });
 
-  it("keeps a ~/trees root set in settings through a move, resolving it on the host (ADR-183)", async () => {
+  it("keeps a ~/trees root set in settings through a move, resolving it on the host", async () => {
     seed([], { worktreePath: null });
     const { git } = fakeGit();
     const worktreeGit = { ...git, worktreeAdd: vi.fn(async () => {}) } as unknown as GitBackend;
@@ -251,7 +251,7 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
     expect(readPersisted().path).toBe(OLD_PATH);
   });
 
-  it("moves onto this machine by cloning there (ADR-213)", async () => {
+  it("moves onto this machine by cloning there", async () => {
     seed([], { path: "/srv/app", hostId: "box", workspaceNames: {} });
     const { git, cloneCalls } = fakeGit();
     const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
@@ -431,7 +431,7 @@ describe("ProjectManager.moveProjectToHost (ADR-179)", () => {
     expect(await mgr.projectPathExists("nope")).toBe(false);
   });
 
-  describe("across host servers (ADR-227 D4)", () => {
+  describe("across host servers", () => {
     /** A remote project as `box`'s server answers it. */
     function remoteInfo(id: string, projectPath: string): ProjectInfo {
       return {

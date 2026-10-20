@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { openExternal } from "../open-external";
 
 /**
- * `shell.openExternal` has no meaning in a browser tab (ADR-178). This is
+ * `shell.openExternal` has no meaning in a browser tab. This is
  * the one call site every fire-and-forget `shell.openExternal(url)` in `src/`
  * was moved onto (ticket 9), so its two branches are the whole contract.
  */

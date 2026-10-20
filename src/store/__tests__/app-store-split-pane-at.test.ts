@@ -44,7 +44,7 @@ function makeLayout(): WorkspaceLayout {
 
 function setupStore(layout?: WorkspaceLayout) {
   // The server holds the same layout the store starts from: every
-  // structural action goes through it now (ADR-179 D1).
+  // structural action goes through it now.
   resetFakeLayoutServer();
   const start = layout ?? makeLayout();
   seedLayout(WS_PATH, start);
@@ -173,8 +173,7 @@ describe("splitPaneAt", () => {
     expect(selectPaneContentType(useAppStore.getState(), newPane)).toBe(
       "terminal",
     );
-    // The command is queued on the server for the minted pane (ADR-179
-    // ticket 11), not held in this store.
+    // The command is queued on the server for the minted pane, not held in this store.
     expect(queuedCommands).toEqual([
       { paneId: newPane, text: "npm test", kind: "agent-startup" },
     ]);

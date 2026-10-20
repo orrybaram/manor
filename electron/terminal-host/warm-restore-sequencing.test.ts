@@ -1,5 +1,5 @@
 /**
- * ADR-159 — a client that reattaches to a live session must end up showing
+ * A client that reattaches to a live session must end up showing
  * exactly what the daemon shows: nothing missing, nothing applied twice.
  *
  * The warm-restore handshake is three separate round trips (resize, subscribe,

@@ -678,7 +678,7 @@ describe("RemoteBackend", () => {
       },
     );
 
-    it("retries a permanent failure while retryPermanentFailure says so (ADR-230 D2)", async () => {
+    it("retries a permanent failure while retryPermanentFailure says so", async () => {
       // A recipe box that moved: its old exec target fails as a bootstrap
       // error until the host's re-run of `up` has had its turn.
       let retry = true;
@@ -800,7 +800,7 @@ describe("RemoteBackend", () => {
     });
   });
 
-  describe("heartbeat (ADR-188 §2, §3)", () => {
+  describe("heartbeat", () => {
     it("pings the daemon on the default 15s interval once connected", async () => {
       const { backend, daemon } = setup();
       current = backend;

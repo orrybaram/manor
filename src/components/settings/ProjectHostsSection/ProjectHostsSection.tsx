@@ -22,8 +22,8 @@ type ProjectHostsSectionProps = {
 };
 
 /**
- * The hosts a project is set up on (ADR-237 D3): "Set up on…" another host
- * (ADR-214), or a new one through `AddSshHostForm` (ADR-229 D8); one row per
+ * The hosts a project is set up on: "Set up on…" another host
+ * or a new one through `AddSshHostForm`; one row per
  * host holding what differs there; and "Keep separate…" when on several.
  */
 export function ProjectHostsSection(props: ProjectHostsSectionProps) {
@@ -38,7 +38,7 @@ export function ProjectHostsSection(props: ProjectHostsSectionProps) {
   const [adding, setAdding] = useState(false);
   const [confirmingSeparate, setConfirmingSeparate] = useState(false);
 
-  // Every host the project can be set up on (ADR-214), plus a way to add one.
+  // Every host the project can be set up on, plus a way to add one.
   const options = useMemo(
     () => [
       ...transferTargets(project, projects, hosts, "copy", { showAllHosts })

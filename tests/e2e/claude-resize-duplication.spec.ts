@@ -31,7 +31,7 @@ import {
  * `ESC[H` on `SIGWINCH`, erasing exactly as many rows as `process.stdout` says
  * it has. Any moment the grid disagrees with that number leaves the top of the
  * old frame behind, and once that row scrolls off no cursor-up can reach it
- * again (ADR-165).
+ * again.
  *
  * So this runs the real thing: `claude`, told to emit 200 numbered lines, with
  * the window dragged after they land. Each marker was printed once, so each
@@ -131,7 +131,7 @@ declare global {
 /**
  * Record every size the grid actually moves to, from here on.
  *
- * The grid is driven from the daemon's marker in the output stream (ADR-164),
+ * The grid is driven from the daemon's marker in the output stream,
  * so its moves are the faithful record of what the pty was told — which is why
  * this needs nothing instrumented inside the app beyond a handle on the
  * terminal. `onResize` is public API.

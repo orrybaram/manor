@@ -1,7 +1,7 @@
 // Workspaces whose removal is in flight, dimmed in the sidebar until they are
 // gone. Shared rather than per project item because a bulk delete started in
-// one host section of a linked group also removes rows in its other sections
-// (ADR-192 ticket 7). Keyed by `selectionKey(projectId, path)`, so the same
+// one host section of a linked group also removes rows in its other sections.
+// Keyed by `selectionKey(projectId, path)`, so the same
 // path on two hosts dims only the row being removed.
 //
 // A key is marked before its removal starts and unmarked once the removal

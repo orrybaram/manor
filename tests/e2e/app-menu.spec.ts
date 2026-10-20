@@ -8,7 +8,7 @@ import {
 import { clickMenuItem } from "./helpers/window";
 
 /**
- * ADR-170: the native application menu.
+ * The native application menu.
  *
  * The menu lives in the main process, so the test reads it from there with
  * `app.evaluate` and clicks items the way macOS would — through the
@@ -111,7 +111,7 @@ test.describe("application menu", () => {
     expect(
       find(find(before, "Workspace").submenu!, "Rename Workspace").enabled,
     ).toBe(false);
-    // Tabs and panes don't exist on the Dashboard (ADR-197).
+    // Tabs and panes don't exist on the Dashboard.
     expect(find(find(before, "File").submenu!, "New Tab").enabled).toBe(false);
     expect(find(find(before, "File").submenu!, "New Agent").enabled).toBe(false);
     expect(find(find(before, "Pane").submenu!, "Split Horizontal").enabled).toBe(

@@ -1,6 +1,6 @@
 /**
  * server-bridge — the remote end of the desktop's owner channel to a host
- * server (ADR-225 D4), modelled on `remote-bridge` (`./bridge.ts`).
+ * server, modelled on `remote-bridge` (`./bridge.ts`).
  *
  * Invoked as `manor-host server-bridge` on the far side of an ssh
  * connection (`ssh -T <target> 'exec manor-host server-bridge'`). It reads
@@ -13,7 +13,7 @@
  * the token anyway.
  *
  * `manor-host server-bridge --viewer` is a desktop window's own stream to the
- * server (ADR-228 D4): the same token and the same pump, but its hello says
+ * server: the same token and the same pump, but its hello says
  * `"viewer":"desktop"`, so the server ranks the connection as a desk window
  * for the winsize and as its own layout origin.
  *
@@ -63,8 +63,7 @@ export interface ServerBridgeOptions {
    */
   ensureServerRunning?: () => Promise<void>;
   /**
-   * Say the hello as a desktop window's viewer stream (`--viewer`, ADR-228
-   * D4) rather than as main's owner channel.
+   * Say the hello as a desktop window's viewer stream (`--viewer`) rather than as main's owner channel.
    */
   viewer?: boolean;
 }

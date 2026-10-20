@@ -21,7 +21,7 @@ function readDismissed(): boolean {
 }
 
 /**
- * ADR-206 D7: the web app's way to turn on push. Shown only to a paired
+ * The web app's way to turn on push. Shown only to a paired
  * device (never the desktop renderer), asks for permission from the tap, and
  * disappears once notifications are on.
  *

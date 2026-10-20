@@ -1,7 +1,7 @@
 /**
  * The phone chat view's entry list, kept as pure functions so the view's
  * ordering and "which picker can be answered" rules are testable without a
- * DOM (ADR-215 D5, D7).
+ * DOM.
  */
 
 import type { AgentStatus, ChatEntry, ChatTaskEntry } from "../../../electron.d";
@@ -67,7 +67,7 @@ export type ToolGroup = {
 /** What a task card shows: its entry's status, or "unknown" when it can't be trusted. */
 export type TaskDisplayStatus = ChatTaskEntry["status"] | "unknown";
 
-/** A task as the chat draws it (ADR-224 D4): its entry, and the status it shows. */
+/** A task as the chat draws it: its entry, and the status it shows. */
 export type TaskItem = ChatTaskEntry & { display: TaskDisplayStatus };
 
 export type ChatItem = Exclude<ChatEntry, { kind: "tool" | "task" }> | ToolGroup | TaskItem;
@@ -149,13 +149,13 @@ function phraseText(phrase: Phrase, n: number): string {
 }
 
 /**
- * The ids of running tasks the card should call "unknown" (ADR-224 D4). A task
+ * The ids of running tasks the card should call "unknown". A task
  * that never gets a notification (its session was killed) stays "running" in
  * the transcript for good, so while the pane's agent is idle or has answered,
  * a running task from before the latest user turn is shown as unknown. Display
  * only: the entry is untouched.
  *
- * Agent tasks only. The status holds a Stop while subagents run (ADR-186), so
+ * Agent tasks only. The status holds a Stop while subagents run, so
  * idle or responded means none is; a background shell command has no hooks
  * and can outlive the turn, so the status says nothing about it.
  */

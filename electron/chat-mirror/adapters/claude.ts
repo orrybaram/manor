@@ -8,11 +8,11 @@ import type { TranscriptAdapter } from "./types";
 const TASK_REF = /^[A-Za-z0-9_-]+$/;
 
 export const claudeAdapter: TranscriptAdapter = {
-  // A subagent's transcript marks every line `isSidechain` (ADR-224 D3).
+  // A subagent's transcript marks every line `isSidechain`.
   createParser: (opts) => new TranscriptParser({ sidechain: opts?.child === true }),
   /**
    * `<dir>/<sessionId>/subagents/agent-<agentId>.jsonl`, next to the parent's
-   * `<dir>/<sessionId>.jsonl` (ADR-224 D3). Computed rather than listed, so a
+   * `<dir>/<sessionId>.jsonl`. Computed rather than listed, so a
    * remote host reads it the same way; posix, because remote hosts are.
    */
   childTranscriptPath: (parentPath, task) => {

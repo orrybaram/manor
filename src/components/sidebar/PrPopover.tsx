@@ -45,10 +45,10 @@ type PrPopoverProps = {
    * comment as its prompt.
    */
   workspacePath?: string;
-  /** The workspace's host (ADR-191). */
+  /** The workspace's host. */
   hostId?: string;
   /**
-   * A custom trigger in place of the PR badge (ADR-198: Home's pipeline
+   * A custom trigger in place of the PR badge (Home's pipeline
    * cards). Hovering or focusing inside it opens the popover; clicks belong
    * to the child, so it anchors the popover rather than toggling it.
    */
@@ -82,7 +82,7 @@ export function PrPopover(props: PrPopoverProps) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Set on focus, so `onOpenAutoFocus` knows the popover was opened from the
   // keyboard and should let Radix move focus into it; a hover-opened popover
-  // keeps its current "don't steal focus" behaviour (ADR-175).
+  // keeps its current "don't steal focus" behaviour.
   const openedByKeyboardRef = useRef(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   // True while focus is being handed back to the badge as the popover closes,
@@ -363,7 +363,7 @@ const BLOCKER_ICON: Record<PrBlocker["kind"], typeof GitPullRequest> = {
 const BLOCKER_TONE = { bad: styles.prIconBad, warn: styles.prIconWarn };
 
 /**
- * ADR-167 keeps the badge on one question — "can this ship?" — which the
+ * The badge stays on one question — "can this ship?" — which the
  * background answers in colour. The icon answers the follow-up: *what is it
  * waiting on?* It spins whenever the honest answer is "wait for a machine"
  * — a merge queue, or a CI run still going — and otherwise names the

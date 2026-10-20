@@ -34,7 +34,7 @@ class FakeExecChild extends EventEmitter implements BridgeChildProcess {
   }
 }
 
-describe.skipIf(process.platform === "win32")("RecipeHostProvider (ADR-229 D2)", () => {
+describe.skipIf(process.platform === "win32")("RecipeHostProvider", () => {
   let root: string;
   let recipesDir: string;
   let dir: string;
@@ -225,7 +225,7 @@ describe.skipIf(process.platform === "win32")("RecipeHostProvider (ADR-229 D2)",
     });
   });
 
-  describe("running up again (ADR-230 D2)", () => {
+  describe("running up again", () => {
     /** Make `up.sh` count its runs, and take a moment so runs can overlap. */
     function countUps(): () => number {
       const counter = path.join(dir, "up-count");
@@ -311,7 +311,7 @@ describe.skipIf(process.platform === "win32")("RecipeHostProvider (ADR-229 D2)",
     expect(classifyHostFailure(err)?.reason).toBe("recipe");
   });
 
-  describe("named stages (ADR-234 D9)", () => {
+  describe("named stages", () => {
     /** An `up.sh` that prints `lines` on stderr, then `up-result.json`, or exits 1 when `fail`. */
     function writeUp(lines: string[], fail = false): void {
       fs.writeFileSync(

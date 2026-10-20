@@ -9,7 +9,7 @@
  *   - manor     — a bash shim that `exec`s manor.js with node, so agents
  *                 and users can just run `manor <command>`.
  *
- * Also removes the legacy `manor-webview` bash wrapper (ADR-053), which
+ * Also removes the legacy `manor-webview` bash wrapper, which
  * this command supersedes.
  */
 

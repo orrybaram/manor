@@ -1,6 +1,5 @@
 /**
- * RemoteForwards — local ports that reach dev servers on remote hosts
- * (ADR-178 §5).
+ * RemoteForwards — local ports that reach dev servers on remote hosts.
  *
  * A remote project's dev server listens on the box's loopback, which this
  * machine cannot reach. When the user opens one of its ports, main asks the
@@ -18,7 +17,7 @@
  *
  * Forwards are created lazily, never for a port nobody opened.
  *
- * `RemoteUrlResolver`, below, decides which URLs need one (ADR-183).
+ * `RemoteUrlResolver`, below, decides which URLs need one.
  */
 
 import type { HostProvider, PortForward } from "./backend/providers/types";
@@ -436,8 +435,8 @@ export interface ResolverHosts {
 type Readiness = "ready" | "gone" | "waiting";
 
 /**
- * Turns a URL opened in a host's context into the one to load (ADR-178 §5),
- * built from the port scanner, the registry and the forwards (ADR-183). It
+ * Turns a URL opened in a host's context into the one to load,
+ * built from the port scanner, the registry and the forwards. It
  * reads ports straight from the scanner's latest result — there is no
  * second cache of them.
  */

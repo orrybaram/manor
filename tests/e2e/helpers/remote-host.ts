@@ -5,8 +5,7 @@ import path from "path";
 import { fakeGhFixturesJson, fakeGhScript, type FakeGhFixtures } from "./fake-gh";
 
 /**
- * The remote box the remote-host suite talks to (ADR-160 ticket 12, ADR-178
- * ticket 8) — a real sshd started by `scripts/test-remote-e2e.mjs`, either a
+ * The remote box the remote-host suite talks to — a real sshd started by `scripts/test-remote-e2e.mjs`, either a
  * private macOS sshd or a Linux container.
  *
  * The harness hands the tests an ssh config file (MANOR_E2E_SSH_CONFIG) with
@@ -144,7 +143,7 @@ export function wipeRemote(): void {
 }
 
 /**
- * Stop the box's host server (ADR-225 D1). `manor-host restart` leaves it
+ * Stop the box's host server. `manor-host restart` leaves it
  * running on purpose — it outlives daemon restarts — so a clean slate that
  * deletes `~/.manor/remote` stops it first, or it would linger with its
  * files gone.
@@ -174,8 +173,7 @@ export function hostServerPid(): number | null {
  */
 export function pointHostServerAtRelay(relayUrl: string): void {
   // The stubs' directory leads PATH, so the box's `gh` is the fake one
-  // (`installRemoteStubs`) — what a host server's GitHub reads shell out to
-  // (ADR-227 D7).
+  // (`installRemoteStubs`) — what a host server's GitHub reads shell out to.
   onRemote(
     `mkdir -p "$HOME/.manor-e2e" && printf "MANOR_RELAY_URL='%s'\\nPATH=\\"$HOME/.manor-e2e/bin:$PATH\\"\\n" '${relayUrl}' > "$HOME/.manor-e2e/env"`,
   );

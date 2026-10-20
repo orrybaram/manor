@@ -41,7 +41,7 @@ export interface KeybindingDef {
   label: string;
   /**
    * Omitted for a command that is bindable but ships with no shortcut of its
-   * own (ADR-175) — `open-notifications`, so far. `platformDefaults` and
+   * own — `open-notifications`, so far. `platformDefaults` and
    * `resolveBindings` leave such a command out of the resolved bindings map
    * until the user assigns one.
    */
@@ -60,7 +60,7 @@ function metaCombo(
 
 /**
  * Every bindable command, in registry order — the order a combo's commands
- * are tried in. Derived from the command table (ADR-182 D10): an entry is
+ * are tried in. Derived from the command table: an entry is
  * bindable when it names a `defaultCombo`, even a `null` one.
  */
 export const DEFAULT_KEYBINDINGS: KeybindingDef[] = COMMANDS.flatMap(
@@ -73,7 +73,7 @@ export const DEFAULT_KEYBINDINGS: KeybindingDef[] = COMMANDS.flatMap(
 /**
  * Combos a PC browser claims for itself — closing the tab, opening a new
  * one, opening a new window — before a page's own `keydown` listener ever
- * runs (ADR-181 D7). Both the ⌘ and Ctrl forms are listed: an override is
+ * runs. Both the ⌘ and Ctrl forms are listed: an override is
  * stored host-wide (see `resolveBindings`), so a Mac desktop user's ⌘T
  * override reaches a browser on any OS, and which form is intercepted there
  * depends on that browser's OS, not the override's origin. Exported as data
@@ -101,13 +101,13 @@ export function isBrowserReservedCombo(combo: KeyCombo): boolean {
  * Returns a copy of DEFAULT_KEYBINDINGS adjusted for the given platform.
  * On non-macOS platforms, `meta` is swapped to `ctrl`.
  *
- * `"web"` (ADR-181 D7 — window.electronAPI.platform in a browser) is its own
+ * `"web"` (window.electronAPI.platform in a browser) is its own
  * variant: every other default is the same as on mac, but a default landing
  * on a {@link BROWSER_RESERVED_COMBOS} entry — closing the tab, opening a new
  * one, opening a new window — ships with no combo at all, since the browser
  * intercepts the key before Manor's own listener runs. Those commands stay
  * reachable from the palette and the menu; the user just has to get there
- * without the shortcut this ADR can't give them on the web.
+ * without the shortcut the web can't give them.
  */
 export function platformDefaults(
   platform: string,

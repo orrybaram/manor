@@ -250,7 +250,7 @@ describe("ProjectManager", () => {
   });
 
   describe("updateProject – worktree root", () => {
-    it("stores a ~ worktreePath as written, to expand only when read (ADR-183)", async () => {
+    it("stores a ~ worktreePath as written, to expand only when read", async () => {
       const project = await manager.addProject("Proj", "/tmp/proj");
 
       const updated = await manager.updateProject(project.id, {

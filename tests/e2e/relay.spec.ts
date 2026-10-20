@@ -37,7 +37,7 @@ import {
 } from "./helpers/terminal";
 
 /**
- * ADR-206 end to end: a browser reaches Manor through the relay with nothing
+ * The relay end to end: a browser reaches Manor through the relay with nothing
  * but a link, drives a live terminal, and the relay never sees anything it
  * could read.
  *
@@ -85,7 +85,7 @@ async function paneText(page: Page, paneId: string): Promise<string> {
 
 /**
  * The desktop reports the version the relay has a build for. It names that
- * version in every relay link and hello (ADR-206 D4), so if the harness
+ * version in every relay link and hello, so if the harness
  * launched it some way that reports Electron's own version instead
  * (`LaunchOptions.asPackage`), every later step would fail somewhere far
  * less obvious than here.
@@ -129,7 +129,7 @@ function opened(socket: WebSocket): Promise<void> {
   });
 }
 
-test.describe("relay (ADR-206)", () => {
+test.describe("relay", () => {
   /**
    * The control for the blindness check below. A host and a viewer that do
    * *not* encrypt — raw sockets speaking only the relay's framing — push a
@@ -282,7 +282,7 @@ test.describe("relay (ADR-206)", () => {
     });
     // The link names the relay, this version, the room and key, and a
     // single-use pairing ticket — all of it after `#`, which no browser sends
-    // to a server. Never the device's token (ADR-240 D1).
+    // to a server. Never the device's token.
     const link = new URL(device.link);
     expect(link.origin).toBe(relay.url);
     expect(link.pathname).toBe(`/app/${appVersion()}/`);
@@ -297,7 +297,7 @@ test.describe("relay (ADR-206)", () => {
     const afterRestart = newMarker();
     const afterProcessRestart = newMarker();
     const client = await openWebApp(device.link);
-    // The browser chose its own token (ADR-240 D5): a 43-character secret
+    // The browser chose its own token: a 43-character secret
     // that the link never held. Declared out here for the blindness check.
     let token = "";
     try {
@@ -343,7 +343,7 @@ test.describe("relay (ADR-206)", () => {
       );
       await expect(client.page.getByTestId("terminal-follower")).toBeVisible();
       await film.shot(client.page, "browser-follower");
-      // Back to desktop width: 700px is the phone layout (ADR-181), which has
+      // Back to desktop width: 700px is the phone layout, which has
       // no sidebar, and the steps below look for the project header.
       await client.page.setViewportSize({ width: 1280, height: 800 });
 
@@ -444,7 +444,7 @@ test.describe("relay (ADR-206)", () => {
   });
 
   /**
-   * ADR-206 D4: a link minted by an older (or newer) desktop names that
+   * A link minted by an older (or newer) desktop names that
    * version's build. The page it loads is a real, different build — this
    * checkout's, with its version rewritten (`fakeVersionBuild`) — and on the
    * hello it learns the desktop's version and moves itself there, keeping

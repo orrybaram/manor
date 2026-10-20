@@ -2,7 +2,7 @@
  * `resizeInStream`'s contract: the resize lands behind the writes that came
  * before it, not on top of them.
  *
- * That is the whole of what the client half of ADR-164 has to get right. The
+ * That is the whole of what the client half of the resize has to get right. The
  * daemon marks the position in the output where the ioctl landed; applying the
  * resize there — rather than whenever the IPC message happens to be delivered —
  * is what keeps the emulator's width and the program's belief about the width

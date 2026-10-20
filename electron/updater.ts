@@ -1,9 +1,9 @@
 /**
- * The auto-updater, and the six things it tells the renderer (ADR-180 D5).
+ * The auto-updater, and the six things it tells the renderer.
  *
  * `updater` stays native for its *invokes* — `checkForUpdates` and
- * `quitAndInstall` are Electron's, and no browser can run them (ADR-178's
- * "what can never leave the preload"). Its pushes are not native in the same
+ * `quitAndInstall` are Electron's, and no browser can run them (they can
+ * never leave the preload). Its pushes are not native in the same
  * way: they are facts about this machine, and every renderer attached to it
  * wants them, so they go out as `updater.*` bridge events rather than into
  * one window's `webContents`. A second desktop window used to learn nothing

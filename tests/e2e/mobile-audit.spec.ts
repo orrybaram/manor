@@ -821,7 +821,7 @@ const BUDGET = {
 /**
  * Axe rules that fail on the desk's own markup, not on anything phone-only,
  * and are left for a pass over the desk: the tab strip's tablist holds its
- * add button and a tab holds its close and mute buttons (ADR-175's keyboard
+ * add button and a tab holds its close and mute buttons (the keyboard
  * model), the sidebar's project header carries an ARIA attribute its role
  * does not allow, and cmdk's list points `aria-controls` at an id Radix has
  * not rendered. Listed so a *new* serious rule still fails the audit.

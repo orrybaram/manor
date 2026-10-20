@@ -61,7 +61,7 @@
   background: var(--green);
 }
 
-/* Asleep (ADR-229 D7) is where the host was meant to be: calm, not red. */
+/* Asleep is where the host was meant to be: calm, not red. */
 .dot[data-state="asleep"] {
   background: var(--blue, #89b4fa);
 }

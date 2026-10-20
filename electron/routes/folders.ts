@@ -1,6 +1,5 @@
 /**
- * `/projects/:projectId/folders` — sidebar folder CRUD (ADR-167, nested by
- * ADR-172) — and the
+ * `/projects/:projectId/folders` — sidebar folder CRUD (nested) — and the
  * `/workspaces/folder` route that assigns a workspace into one. Every handler
  * is a direct `ProjectManager` call; `withProject` (from `./projects`) supplies
  * the 503/404 preamble every route here shares with the other project routes.

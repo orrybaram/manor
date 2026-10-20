@@ -1,5 +1,5 @@
 /**
- * Keep a host server running on this box (ADR-225 D1).
+ * Keep a host server running on this box.
  *
  * `manor-host server-bridge` calls `ensureServerRunning()`, and the desktop
  * opens one on every connect:
@@ -15,7 +15,7 @@
  * stale-lock recovery); `runServe`'s refusal to start over a live pid is the
  * backstop.
  *
- * Under a supervisor (`supervisor.json`, ADR-229 D4) nothing is spawned
+ * Under a supervisor (`supervisor.json`) nothing is spawned
  * detached beside it: down becomes `supervisor.start("server")`, and another
  * version becomes a stop of the old pid (it may be a detached server from
  * before `install`, which the supervisor cannot reach) then
@@ -23,7 +23,7 @@
  * comes up as the installed version. A supervisor that fails, or starts
  * nothing that listens, falls back to the detached spawn with a warning.
  *
- * `restartServer()` (`manor-host restart-server`, ADR-236 D4) stops a live
+ * `restartServer()` (`manor-host restart-server`) stops a live
  * server, through the supervisor when there is one, then ensures one again:
  * a fresh start re-reads `supervisor.env` and re-probes the secret backends.
  */
@@ -77,7 +77,7 @@ export interface LifecycleDeps {
   sleep(ms: number): Promise<void>;
   now(): number;
   /**
-   * The supervisor `supervisor.json` names (ADR-229 D4), asked once per
+   * The supervisor `supervisor.json` names, asked once per
    * `ensureServerRunning`; null when nothing supervises this box. Absent
    * means none.
    */
@@ -341,7 +341,7 @@ async function startSupervised(
 }
 
 /**
- * Stop the live server, then start one of this version (ADR-236 D4). Under
+ * Stop the live server, then start one of this version. Under
  * a supervisor the stop goes through it, so a unit with `Restart=` does not
  * bring the old process straight back; a supervisor that fails, or leaves
  * the pid alive, falls back to SIGTERM then SIGKILL. With no server running

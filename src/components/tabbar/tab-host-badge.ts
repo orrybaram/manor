@@ -4,7 +4,7 @@ import { normalizeHostId } from "../../lib/workspace-key";
  * The host a tab's "different host" badge names, or null for no badge.
  * `tabHostId` is the remote host the tab's panes run on (null for panes on
  * this machine); `workspaceHostId` is the host of the workspace the tab
- * belongs to — not its project's, which in a linked group (ADR-192) is only
+ * belongs to — not its project's, which in a linked group is only
  * one of several. The badge shows only when the two differ.
  */
 export function tabBadgeHostId(

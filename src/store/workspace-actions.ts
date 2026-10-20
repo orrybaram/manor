@@ -80,7 +80,7 @@ export function removeWorktreeWithToast(
 }
 
 /**
- * Before a bulk hide or delete (ADR-190 §2): if the active workspace is one
+ * Before a bulk hide or delete: if the active workspace is one
  * of `targetPaths`, switch to main — or the first workspace that stays — so
  * the window never sits on, or steps onto, a row that is about to go.
  */
@@ -99,7 +99,7 @@ function navigateAwayFrom(
 }
 
 /**
- * Remove several worktrees in one gesture (ADR-190 §2): main is never a
+ * Remove several worktrees in one gesture: main is never a
  * target, and — when the active workspace is among the rest — the window
  * navigates away before any teardown starts, so the per-item "select next"
  * logic in `removeWorktreeWithToast` never lands on a row that is itself
@@ -189,7 +189,7 @@ export function quickMergeWorktreeWithToast(
  * surface that is no longer listed.
  *
  * Shared by the sidebar's context menu and the Workspace › Hide Workspace menu
- * item (ADR-170).
+ * item.
  */
 export function hideWorkspaceAndNavigate(
   projectId: string,
@@ -211,7 +211,7 @@ export function hideWorkspaceAndNavigate(
 }
 
 /**
- * Hide several workspaces at once (ADR-190 §2): main is never a target, and —
+ * Hide several workspaces at once: main is never a target, and —
  * when the active workspace is among the rest — the window navigates to main
  * before any of them disappear, mirroring `hideWorkspaceAndNavigate`'s single-
  * workspace fallback. Hides are awaited sequentially.

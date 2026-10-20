@@ -1,7 +1,6 @@
 /**
- * Where a project's paths are, on its own host (ADR-183 split this out of
- * `ProjectManager`): which host a bare path belongs to, and where a
- * project's worktrees go. Every host answers through its `MachineFacts`,
+ * Where a project's paths are, on its own host: which host a bare path
+ * belongs to, and where a project's worktrees go. Every host answers through its `MachineFacts`,
  * so nothing here asks whether a host is this machine.
  */
 
@@ -63,7 +62,7 @@ export function expandHome(
 
 export class PathRouter {
   /**
-   * Each host's home directory, once asked (ADR-178 §3), so `hostIdForPath`
+   * Each host's home directory, once asked, so `hostIdForPath`
    * can read it synchronously. A host not yet in here has its `~` roots
    * skipped there.
    */
@@ -201,7 +200,7 @@ export class PathRouter {
 
   /**
    * Every project as a `WorkspaceKeyOwner`, for a one-time migration of
-   * path-keyed data to workspace keys (ADR-191): its root, its worktree
+   * path-keyed data to workspace keys: its root, its worktree
    * directory expanded for its host, and every workspace path it is known to
    * have — remembered in `projects.json` and listed by `listWorkspaces`.
    *

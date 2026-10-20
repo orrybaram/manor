@@ -1,12 +1,12 @@
 /**
- * The `kubernetes` template (ADR-229 D8): a StatefulSet of one with a
+ * The `kubernetes` template: a StatefulSet of one with a
  * volume claim for the home directory and a Secret holding the key that
- * seals the host's secrets (D5), reached over `kubectl exec -i`. `stop`
+ * seals the host's secrets, reached over `kubectl exec -i`. `stop`
  * scales it to 0, `up` to 1, `destroy` deletes the set, the claim and the
  * Secret.
  *
  * The pod also reads the profile's optional `manor-signin-<profileId>` Secret into its
- * environment (ADR-235 D9, `signin.ts`).
+ * environment (`signin.ts`).
  *
  * The scripts keep stdout for the one JSON object (fd 3).
  */
@@ -43,7 +43,7 @@ fi
 kube=("\${kubectl_cmd[@]}" -n "$namespace")
 image=\${MANOR_K8S_IMAGE:?MANOR_K8S_IMAGE is not set}
 storage=\${MANOR_K8S_STORAGE:-20Gi}
-# The profile's sign-in Secret (ADR-235 D9). A recipe made before it was named
+# The profile's sign-in Secret. A recipe made before it was named
 # per profile has none, and the default covers it. It goes into YAML below, so
 # it must be a DNS name.
 signin_secret=\${MANOR_K8S_SIGNIN_SECRET:-manor-signin}
@@ -89,7 +89,7 @@ spec:
   ingress: []
 YAML
 
-# The key that seals the host's secrets (ADR-229 D5), generated once. A Secret
+# The key that seals the host's secrets, generated once. A Secret
 # is not on the home volume, so a copy of the volume cannot read them.
 if ! "\${kube[@]}" get secret "$name-key" >/dev/null 2>&1; then
   echo "Generating secret $name-key"
@@ -144,7 +144,7 @@ spec:
               value: /run/secrets/manor-key
             - name: MANOR_INSTANCE_ID
               value: "$namespace/$name"
-          # "Sign new pods in for me" (ADR-235 D9): GH_TOKEN and
+          # "Sign new pods in for me": GH_TOKEN and
           # CLAUDE_CODE_OAUTH_TOKEN, when the profile set them. Optional, so
           # the pod starts the same without the Secret.
           envFrom:
@@ -178,7 +178,7 @@ YAML
 
 # Wait for the pod to be Ready, naming each stage as it goes ("manor-stage:"
 # lines are what Manor shows), and stopping early, with the cluster's own
-# reason, when the pod is never going to start (ADR-234 D9).
+# reason, when the pod is never going to start.
 pod="$name-0"
 claim="home-$name-0"
 pod_fields='jsonpath={.status.conditions[?(@.type=="PodScheduled")].status}|{.status.conditions[?(@.type=="Ready")].status}|{.status.containerStatuses[0].state.waiting.reason}|{.status.containerStatuses[0].state.terminated.reason}|{.status.containerStatuses[0].lastState.terminated.reason}|{.status.containerStatuses[0].state.waiting.message}'
@@ -295,19 +295,19 @@ while :; do
 done
 set_stage "Starting"
 
-# No-op examples of the hooks the host runs when it turns busy or idle
-# (ADR-229 D7). Written only if absent: they are yours to edit.
+# No-op examples of the hooks the host runs when it turns busy or idle.
+# Written only if absent: they are yours to edit.
 "\${kube[@]}" exec -i "$name-0" -c host -- sh -s <<'HOOKS'
 set -eu
 hooks="$HOME/.manor/remote/hooks"
 mkdir -p "$hooks"
 for hook in on-idle on-busy; do
   if [ ! -e "$hooks/$hook" ]; then
-    printf '#!/bin/sh\\n# %s: Manor runs this when the host turns %s (ADR-229 D7).\\nexit 0\\n' "$hook" "\${hook#on-}" >"$hooks/$hook"
+    printf '#!/bin/sh\\n# %s: Manor runs this when the host turns %s.\\nexit 0\\n' "$hook" "\${hook#on-}" >"$hooks/$hook"
     chmod 755 "$hooks/$hook"
   fi
 done
-# With a GitHub token from manor-signin (ADR-235 D9), let gh be git's
+# With a GitHub token from manor-signin, let gh be git's
 # credential helper: the clone and git push then use the token. Idempotent;
 # it lands in ~/.gitconfig on the home volume. Runs as the container's user.
 if [ -n "\${GH_TOKEN:-}" ] && command -v gh >/dev/null 2>&1; then
@@ -357,7 +357,7 @@ if [ "\${out:-0}" = "0" ]; then
 fi
 # Scaled up but not Ready is a pod being (re)started: deleted, evicted or
 # rescheduled. It comes back by itself, so it is up; "sleeping" would stop
-# Manor reconnecting to it (ADR-231 C1).
+# Manor reconnecting to it.
 ready=$("\${kube[@]}" get pod "$name-0" -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
 if [ "$ready" = "True" ]; then
   echo '{"state":"up"}' >&3

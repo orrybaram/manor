@@ -2,8 +2,8 @@
  * `stats.getSummary` and `stats.reset`, plus the debounced `stats.changed`
  * broadcast.
  *
- * No `ipcMain` here any more: `stats` crossed to the handler table in
- * ADR-180 ticket 7, so `statsGetSummary`/`statsReset` are plain functions
+ * No `ipcMain` here any more: `stats` crossed to the handler table,
+ * so `statsGetSummary`/`statsReset` are plain functions
  * over `HostDeps`, and the debounce subscription (`wireStatsBroadcast`) is
  * what is left of `register()` — wired once at boot rather than behind an
  * `ipcMain.handle`.

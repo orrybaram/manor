@@ -1,5 +1,5 @@
 /**
- * ADR-202 §2: the GitHub tracker adapter. Lists a checkout's open issues
+ * The GitHub tracker adapter. Lists a checkout's open issues
  * through `gh`, maps them to `TaskRow`s and starts work on one. With
  * `linear.ts`, the only reader of `row.raw` for the task list.
  */
@@ -111,7 +111,7 @@ export const githubTracker: TaskTracker = {
               : await window.electronAPI.github.getAllIssues(repo, LIMIT, "open");
         } catch (err) {
           // `gh` isn't usable on that host: a stated empty state, not a
-          // failed source (ADR-227 D7).
+          // failed source.
           if (!(await noteGhStatus(repo.hostId))) return [];
           throw err;
         }

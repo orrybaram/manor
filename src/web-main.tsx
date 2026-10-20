@@ -20,7 +20,7 @@ import { listenForOpenAgent } from "./web/open-agent";
 import { restoreAndFollowTheme } from "./web/theme-cache";
 
 /**
- * The web app's entry (ADR-178 D1): the desktop renderer, served to a
+ * The web app's entry: the desktop renderer, served to a
  * browser by the relay instead of run inside Electron. Built by
  * `vite.web.config.ts`; unauthenticated at the HTTP layer — the pairing link
  * rides in the URL fragment, which browsers never send to a server, so the
@@ -29,7 +29,7 @@ import { restoreAndFollowTheme } from "./web/theme-cache";
  * Deliberately not `src/main.tsx` with a flag: that file reads
  * `window.electronAPI` as something the preload already installed — here it
  * has to be built in the page. `./bridge/install-web` does that, as a side
- * effect of being imported first (ADR-180 ticket 14): the stores reach for
+ * effect of being imported first: the stores reach for
  * `window.electronAPI` at module scope, and ES modules evaluate every static
  * import of a module — `./App` and everything under it — before the first
  * statement of this file, so the bridge has to exist before that import
@@ -55,7 +55,7 @@ function show(screen: React.ReactNode): void {
  *
  * `onBridgeOutcome`'s callback can run before the `show()` below does — the
  * socket's hello round-trip races `loadTerminalFonts()`, and a fast local
- * connection (or, since ADR-179, the earlier `layout.onChanged` subscribe
+ * connection (or the earlier `layout.onChanged` subscribe
  * inside `./App`'s store tree) can easily win. Without this flag the
  * unconditional `show()` after the await stomps right back over whichever
  * refusal screen just rendered, and `<App />` (or a blank `NoTokenScreen`)

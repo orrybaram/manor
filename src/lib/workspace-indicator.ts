@@ -8,7 +8,7 @@ export type WorkspaceIndicatorKind =
 export type WorkspaceIndicator = { kind: WorkspaceIndicatorKind; pulse: boolean } | null;
 
 /**
- * ADR-167: the sidebar agent dot answers exactly one question — "does this
+ * The sidebar agent dot answers exactly one question — "does this
  * workspace need me?" — collapsing the 7 `AgentStatus` values into 4 visible
  * states plus quiet (`null`). `pulse` means exactly one thing everywhere it
  * appears: unread. It is the unseen flag computed by the status hooks

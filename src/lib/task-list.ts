@@ -1,5 +1,5 @@
 /**
- * ADR-202 §3: the Task list module. One pure pipeline from fetched tracker
+ * The Task list module. One pure pipeline from fetched tracker
  * rows to the list both views show — merge the per-source results, drop rows
  * a workspace link claims, add the linked rows, scope to provider / project,
  * filter, search, sort and page. The Tasks view pages it; Up next takes its
@@ -63,7 +63,7 @@ function collectTasks(rows: readonly TaskRow[]): TaskRow[] {
 }
 
 /**
- * Merge the per-source query results (ADR-198 §3): a task the "assigned"
+ * Merge the per-source query results: a task the "assigned"
  * query listed is marked `assignedToMe` wherever it appears, repeats are
  * dropped keeping the first, and rows come most recently updated first.
  * `failedCount` is how many sources failed; `failures` says why, once per
@@ -243,7 +243,7 @@ export interface TaskList {
 }
 
 /**
- * The task list for `prefs` (ADR-202 §3): fetched rows of the chosen
+ * The task list for `prefs`: fetched rows of the chosen
  * provider / project that no workspace link (in any project) claims, then
  * the linked rows in the same scope, through filters, search and sort.
  */

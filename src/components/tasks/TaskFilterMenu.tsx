@@ -57,7 +57,7 @@ function toggleFilterValue(
 }
 
 /**
- * The Filter button (ADR-201 §5): a popover listing the provider's
+ * The Filter button: a popover listing the provider's
  * filterable fields; picking one shows its values, with counts from the
  * loaded rows, as checkboxes.
  */

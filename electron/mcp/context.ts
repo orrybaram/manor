@@ -1,6 +1,6 @@
 /**
  * "Which project am I running in?" — resolves the calling agent's Manor context
- * so tools can default `projectId` instead of demanding it (ADR-150).
+ * so tools can default `projectId` instead of demanding it.
  *
  * Runs inside the standalone MCP process, so it knows nothing of Manor's
  * internals: the control server answers `GET /context` and we render what it says.

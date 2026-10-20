@@ -24,7 +24,7 @@ async function waitFor(check: () => boolean, timeoutMs = 5_000): Promise<void> {
   }
 }
 
-describe.skipIf(process.platform === "win32")("runRecipeCommand (ADR-229 D2)", () => {
+describe.skipIf(process.platform === "win32")("runRecipeCommand", () => {
   let dir: string;
 
   beforeEach(() => {

@@ -42,7 +42,7 @@ export function addErrorToast(id: string, message: string, err: unknown): void {
 }
 
 // Errors `addErrorToast` already showed, so a rethrow that goes on to reject
-// unhandled doesn't toast a second time (ADR-232 D1).
+// unhandled doesn't toast a second time.
 const reported = new WeakSet<object>();
 
 function markReported(err: unknown): void {

@@ -1,5 +1,5 @@
 /**
- * Which server answers each routed method (ADR-228 D1): the route rules as
+ * Which server answers each routed method: the route rules as
  * data, readable from the renderer.
  *
  * The tables in `./handlers/` declare each method's `route`, and that is what
@@ -12,7 +12,7 @@
  */
 
 /**
- * Which host a call is for, read off one of its arguments (ADR-227 D4).
+ * Which host a call is for, read off one of its arguments.
  *
  * - `project`: a project id — the host the project lives on.
  * - `workspaceKey`: a workspace key (`<hostId>:<path>`, or a bare local path).
@@ -39,7 +39,7 @@ export interface HostRule {
 
 /**
  * A call tied to no path, answered by whichever server holds the user's
- * delegated credential for `provider` (ADR-228 D10): the renderer's router
+ * delegated credential for `provider`: the renderer's router
  * picks it per call (`src/bridge/linear-servers.ts`). Main's `HostRouting`
  * treats it as local: the desktop's own server holds the token.
  */
@@ -102,13 +102,13 @@ export function byAgent(arg: number): HostRule {
  * - a `RouteRule`: by the host the named argument points at;
  * - `"merge"`: a read answered from every reachable server and merged;
  * - `"split"`: a list of workspaces to watch, each server sent the ones it
- *   answers for (ADR-230 D6), and its events merged as a `"merge"`'s are;
+ *   answers for, and its events merged as a `"merge"`'s are;
  * - `"home"`: by the caller's own server, whatever host it touches.
  *
  * On a table, `"merge"`, `"split"` and `"home"` are all `LOCAL_ROUTE`.
  */
 export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
-  // A remote pane's terminal is its host server's (ADR-228 D5): a desktop
+  // A remote pane's terminal is its host server's: a desktop
   // window's own bridge to it, or main forwarding for a caller that holds
   // only the desktop. A new pane's create and reset name its host.
   "pty.create": byPane(0, 4),
@@ -128,7 +128,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "chat.key": byPane(0),
   "chat.answer": byPane(0),
 
-  // A browser's pasted image (ADR-239 D2): the pane's own server stages the
+  // A browser's pasted image: the pane's own server stages the
   // upload and writes the file onto the pane's host.
   "pasteImage.begin": byPane(0, 2),
   "pasteImage.chunk": byPane(0, 4),
@@ -141,7 +141,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "layout.setPaneTitle": byPane(0),
   "layout.setPendingCommand": byPane(0),
   // A viewport report is a window's, and a claim is desktop-window state
-  // the desktop's `LayoutStore` keeps (D7): a host server has no windows.
+  // the desktop's `LayoutStore` keeps: a host server has no windows.
   "layout.reportViewport": "home",
 
   "projects.getAll": "merge",
@@ -171,7 +171,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "projects.clone": "home",
   "projects.moveToHost": "home",
   "projects.transfer": "home",
-  // Starts a box from a profile on this desktop (ADR-235 D3).
+  // Starts a box from a profile on this desktop.
   "projects.openInNewHost": "home",
   "projects.getOriginUrl": "home",
   "projects.pathExists": "home",
@@ -216,7 +216,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "github.uploadFeedbackImages": "home",
 
   // The path-free methods ride the user's delegated token, and the router
-  // picks the server per call (D10). `isConnected` is each server's own.
+  // picks the server per call. `isConnected` is each server's own.
   "linear.connect": "home",
   "linear.isConnected": "home",
   "linear.disconnect": "home",
@@ -234,26 +234,25 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "linear.associateProject": byProject(0),
 
   // Waking and stopping a box is the desktop's that lists it: it holds the
-  // provider (ADR-229 D1). A phone wakes a host through home (D7).
+  // provider. A phone wakes a host through home.
   "hosts.wake": "home",
   "hosts.stop": "home",
-  // Recipes live on the desktop that runs them (ADR-229 D2).
+  // Recipes live on the desktop that runs them.
   "hosts.addRecipeHost": "home",
-  // Templates write into this desktop's recipes directory (ADR-229 D8).
+  // Templates write into this desktop's recipes directory.
   "hosts.createRecipe": "home",
   "hosts.listTemplates": "home",
   "hosts.checkTemplate": "home",
   "hosts.runTemplateFix": "home",
   "hosts.createCustomRecipe": "home",
-  // Removing a host is the desktop's that lists it (ADR-229 D8).
+  // Removing a host is the desktop's that lists it.
   "hosts.remove": "home",
   "hosts.projectsOnHost": "home",
-  // Run through the host's transport, which the desktop holds (ADR-229 D4).
+  // Run through the host's transport, which the desktop holds.
   "hosts.setSupervised": "home",
-  // Likewise: `manor-host secrets encrypt` through the transport (ADR-236 D7).
+  // Likewise: `manor-host secrets encrypt` through the transport.
   "hosts.encryptKeys": "home",
-  // Profiles are this desktop's, which runs the recipes made from them
-  // (ADR-235 D1).
+  // Profiles are this desktop's, which runs the recipes made from them.
   "hostProfiles.list": "home",
   "hostProfiles.save": "home",
   "hostProfiles.remove": "home",
@@ -261,7 +260,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "hostProfiles.removeSignIn": "home",
   "hostProfiles.restartPods": "home",
 
-  // Each server watches the workspaces it answers for (ADR-230 D6); a
+  // Each server watches the workspaces it answers for; a
   // desktop window alone still hands its whole list to its own server,
   // which polls remote hosts through their backends.
   "branches.start": "split",
@@ -271,7 +270,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
 };
 
 /**
- * Routed calls that never wake a sleeping host (ADR-229 D1), beyond the
+ * Routed calls that never wake a sleeping host, beyond the
  * reads `wakesHost` already spares: what a viewer does to its own view of
  * a pane, a keystroke into one (its pane's attach is what wakes the host),
  * and bookkeeping on what the user has seen.
@@ -288,7 +287,7 @@ const NEVER_WAKES: ReadonlySet<string> = new Set([
 
 /**
  * Whether routed call `ns.method` means to use its host, so that a sleeping
- * host is woken for it before it is sent (ADR-229 D1): opening a pane,
+ * host is woken for it before it is sent: opening a pane,
  * creating a workspace, launching an agent — any write. Reads never wake
  * (`get…`, `list…`, `can…`, `is…`, `check…`): a poller must not start a box
  * the user put to sleep. Main's `HostRouting` and the renderer's router ask
@@ -307,7 +306,7 @@ const WAKE_OPTION_ARG: Readonly<Record<string, number>> = {
 
 /**
  * Whether routed call `ns.method` says it is not one the user meant
- * (`wake: false`, ADR-230 D3): a pane restored at launch, on its first
+ * (`wake: false`): a pane restored at launch, on its first
  * mount. A sleeping host is then left asleep and the call answered as for a
  * host that is away. Main's `HostRouting` and the renderer's router ask the
  * same question.

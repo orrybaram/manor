@@ -1,5 +1,5 @@
 /**
- * One identity per instance (ADR-229 D6).
+ * One identity per instance.
  *
  * An image snapshotted after the server ran hands every clone the same relay
  * identity, so every clone would join the same relay room and each one's
@@ -23,7 +23,7 @@ export type IdentityReset = "cloned";
 
 export interface InstanceEnv {
   env?: NodeJS.ProcessEnv;
-  /** `~/.manor/remote/supervisor.json`, written by `manor-host supervisor install` (ADR-229 D4). */
+  /** `~/.manor/remote/supervisor.json`, written by `manor-host supervisor install`. */
   supervisorFile?: string;
   machineIdFile?: string;
   /** Runs `ioreg -rd1 -c IOPlatformExpertDevice`; its stdout. Throws when it cannot run. */

@@ -1,6 +1,6 @@
 /**
- * Branches and diffs watched on the host server that owns the workspace
- * (ADR-230 D6): a caller's `branches.start` makes this server poll its own
+ * Branches and diffs watched on the host server that owns the workspace:
+ * a caller's `branches.start` makes this server poll its own
  * checkout and publish `branches.changed` on its bus. See `harness.ts`.
  */
 
@@ -9,7 +9,7 @@ import path from "node:path";
 
 import { useHostServerHarness } from "./harness";
 
-describe("host server: branches and diffs watched here (ADR-230 D6)", () => {
+describe("host server: branches and diffs watched here", () => {
   const h = useHostServerHarness();
 
   it("publishes branches.changed for a git repo on this box", async () => {

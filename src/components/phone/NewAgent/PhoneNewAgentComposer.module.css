@@ -202,7 +202,7 @@
   color: var(--text-primary);
 }
 
-/* ── Target chips (ADR-222 D5): one row above the field, scrolling sideways. ── */
+/* ── Target chips: one row above the field, scrolling sideways. ── */
 
 .chips {
   display: flex;

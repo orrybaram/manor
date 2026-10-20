@@ -196,7 +196,7 @@ export interface LaunchOptions {
    * in a packaged build and under `pnpm dev` — instead of Electron's own.
    * Off by default to leave every other spec launching as it always has;
    * `relay.spec.ts` needs it because a relay pairing link and the hello
-   * reply both name the desktop's version (ADR-206 D4).
+   * reply both name the desktop's version.
    */
   asPackage?: boolean;
 }
@@ -437,7 +437,7 @@ export async function importSeededProject(
     });
   }, seededProjectPath);
 
-  // The onboarding screen's "Open a folder" row (ADR-194) runs the (stubbed)
+  // The onboarding screen's "Open a folder" row runs the (stubbed)
   // folder picker directly — no Add Project dialog in between.
   await window.locator('[data-testid="import-project-button"]').click();
 

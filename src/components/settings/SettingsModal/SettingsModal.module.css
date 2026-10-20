@@ -174,7 +174,7 @@
   padding-left: 32px;
 }
 
-/* A project row's name, cut short (ADR-237 D1). */
+/* A project row's name, cut short. */
 .navItemLabel {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -235,7 +235,7 @@
   margin-bottom: 10px;
 }
 
-/* A section title with a control on its right (ADR-237 D3). */
+/* A section title with a control on its right. */
 .sectionHeader {
   display: flex;
   align-items: center;
@@ -392,7 +392,7 @@
   gap: 8px;
 }
 
-/* The state of a setting in a word or two (ADR-236 D6): a caution, protected,
+/* The state of a setting in a word or two: a caution, protected,
    half-protected, or an action in flight. Not the red of a failed action. */
 .statePill {
   display: inline-flex;
@@ -454,7 +454,7 @@
   margin-top: 0;
 }
 
-/* Name and Theme side by side (ADR-237 D2); a step of air before Color. */
+/* Name and Theme side by side; a step of air before Color. */
 .generalGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -462,7 +462,7 @@
   margin-bottom: 8px;
 }
 
-/* The theme select sized like the Name input beside it (ADR-237 D4). */
+/* The theme select sized like the Name input beside it. */
 .generalGrid .fullWidthSelect {
   width: 100%;
   max-width: none;
@@ -836,7 +836,7 @@
 
 /*
  * `button.keybindingShortcut` / `button.keybindingActionBtn` (element +
- * class, ADR-175): these sit on a `ui/Button`, whose own `.button` /
+ * class): these sit on a `ui/Button`, whose own `.button` /
  * `.secondary` / `.ghost` / `.sm` classes are equal specificity and would
  * otherwise win or lose depending on stylesheet order.
  */
@@ -952,7 +952,7 @@ button.keybindingActionBtn:hover:not(:disabled) {
   }
 }
 
-/* ── Remote control (ADR-161) ── */
+/* ── Remote control ── */
 
 .remoteWarning {
   display: flex;

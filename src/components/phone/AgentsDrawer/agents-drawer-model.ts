@@ -22,7 +22,7 @@ export interface AgentsDrawerRow {
 
 export interface AgentsDrawerGroup {
   /**
-   * The project id, the linked group's id (ADR-192) for any of its members,
+   * The project id, the linked group's id for any of its members,
    * or the agent's project name when it carries no known id.
    */
   key: string;
@@ -69,7 +69,7 @@ function workspaceLabel(agent: AgentInfo, workspace: WorkspaceInfo | undefined):
 
 /**
  * Splits agents into a "Needs you" list and per-project groups for the phone
- * drawer (ADR-219). "Needs you" is the dashboard's `input` tier
+ * drawer. "Needs you" is the dashboard's `input` tier
  * (`needsYouItems`), so the label means the same agents on both surfaces.
  * Statuses are read as given, never re-derived.
  */
@@ -101,7 +101,7 @@ export function buildAgentsDrawerModel({
   }
   needsYou.sort((a, b) => byUpdatedDesc(a.agent, b.agent));
 
-  // A linked group's members (ADR-192) share one group, as in the sidebar —
+  // A linked group's members share one group, as in the sidebar —
   // otherwise a project checked out on two hosts shows up twice. Like
   // `buildTopLevelEntries`, a group with fewer than two members present
   // falls back to plain projects.

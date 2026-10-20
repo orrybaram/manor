@@ -1,8 +1,8 @@
 /**
- * Which server answers a Linear call (ADR-228 D10).
+ * Which server answers a Linear call.
  *
  * Linear is user-delegated: its calls are tied to no path, and the token
- * lives on the desktop, or on a host the user turned it on for (ADR-227 D7).
+ * lives on the desktop, or on a host the user turned it on for.
  * For a call made on behalf of host H the choice is the first of:
  *
  * 1. H's own server, if it reports Linear connected;
@@ -18,7 +18,7 @@
  * Each server's `linear.isConnected()` is cached here, and asked again when
  * its hello lands (it becomes reachable) and on `hosts.pairingChanged`. A
  * server never asked is asked once, on the call that needs the answer.
- * Each server also pushes `linear.connectionChanged` (ADR-230 D8), which sets
+ * Each server also pushes `linear.connectionChanged`, which sets
  * its entry directly; the asks above stay for servers too old to push it.
  */
 

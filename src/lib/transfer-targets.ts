@@ -1,5 +1,5 @@
 /**
- * The hosts a project can be set up on or moved to (ADR-213/214). DOM-free,
+ * The hosts a project can be set up on or moved to. DOM-free,
  * and for any project: an unlinked one gets targets too.
  */
 
@@ -105,7 +105,7 @@ export function transferTargets(
   const targets = ids
     .filter((hostId) => hostId !== project.hostId)
     .map((hostId) => {
-      // On a phone each machine goes by its pairing's name (ADR-228 D8).
+      // On a phone each machine goes by its pairing's name.
       const label = serverHostName(hostId) ?? memberHostName(hostId, hosts);
       const host = hosts.find((h) => h.hostId === hostId);
       const display = host?.status === "error" ? describeHost(host, Date.now()) : undefined;
@@ -120,7 +120,7 @@ export function transferTargets(
   return disambiguateHostLabels(targets, hosts);
 }
 
-/** "In a new pod" for one host profile (ADR-235 D4). */
+/** "In a new pod" for one host profile. */
 export interface NewHostTarget {
   kind: "newHost";
   profileId: string;

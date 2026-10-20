@@ -1,5 +1,5 @@
 /**
- * The host server's own relay room (ADR-225 D3): dialled through the injected
+ * The host server's own relay room: dialled through the injected
  * WebSocket, paired with a link, devices refused the owner's methods, push,
  * VAPID and identity reset. See `harness.ts`.
  */
@@ -18,7 +18,7 @@ import type { HostServerStatus } from "../relay";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { RemoteDeviceInfo } from "../../remote-control/devices";
 
-describe("host server: its own relay room (ADR-225 D3)", () => {
+describe("host server: its own relay room", () => {
   const h = useHostServerHarness();
 
   it("dials its room through the injected WebSocket constructor", async () => {
@@ -54,7 +54,7 @@ describe("host server: its own relay room (ADR-225 D3)", () => {
     const origin = h.relay.url.replace("ws://", "http://");
     expect(link.base).toBe(`${origin}/app/1.2.3-test/`);
     expect(link.roomId).toBe(status.relay.roomId);
-    // A single-use ticket, not the device's token (ADR-240 D1).
+    // A single-use ticket, not the device's token.
     expect(link.ticket).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(link.token).toBeUndefined();
     expect(paired.rawToken).toBeUndefined();
@@ -78,7 +78,7 @@ describe("host server: its own relay room (ADR-225 D3)", () => {
     expect(agents).toMatchObject({ ok: true, result: [] });
   });
 
-  it("redeems a link once: a second phone on it is refused, the first redials with its token (ADR-240)", async () => {
+  it("redeems a link once: a second phone on it is refused, the first redials with its token", async () => {
     const server = await h.serve();
     await h.relayUp(server);
     const client = await h.owner();
@@ -97,7 +97,7 @@ describe("host server: its own relay room (ADR-225 D3)", () => {
     expect(await again.call("agents", "getAll")).toMatchObject({ ok: true });
   });
 
-  it("pairs direct: the owner gets the device's token, which works on hello (ADR-240 D7)", async () => {
+  it("pairs direct: the owner gets the device's token, which works on hello", async () => {
     const server = await h.serve();
     await h.relayUp(server);
     const client = await h.owner();

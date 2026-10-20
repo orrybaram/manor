@@ -13,7 +13,7 @@
  * in a Manor-owned throwaway ssh config directory.
  *
  * The child plumbing (spawning, hello reading, exit errors) is the shared
- * `BridgeSpawner` (ADR-229 D3); this file supplies the `ssh -T -F <cfg>
+ * `BridgeSpawner`; this file supplies the `ssh -T -F <cfg>
  * <target> <cmd>` argv, the ControlMaster, and ssh's own failure wording.
  */
 
@@ -48,7 +48,7 @@ import {
   type ManagedSshConfig,
 } from "./ssh-config";
 
-// The bridge plumbing moved to `bridge-spawner.ts` (ADR-229 D3); these names
+// The bridge plumbing moved to `bridge-spawner.ts`; these names
 // stay importable from here for the ssh-side callers that already use them.
 export {
   awaitHelloLine,
@@ -80,20 +80,20 @@ export interface SshTransportOptions {
   /**
    * A `Host <target>` block put first in the managed config, read each time
    * the config is created: a recipe host's address and its own known_hosts
-   * (ADR-229 D2, `renderHostStanza`). Absent for a plain ssh box.
+   * (`renderHostStanza`). Absent for a plain ssh box.
    */
   hostStanza?: () => string;
   /** How messages name the box. Defaults to the target. */
   label?: string;
   /**
-   * The wording of a host-key refusal, for a box whose keys Manor manages
-   * (ADR-229 D2). Defaults to telling the user to accept the key from a
+   * The wording of a host-key refusal, for a box whose keys Manor manages.
+   * Defaults to telling the user to accept the key from a
    * terminal.
    */
   hostKeyMessage?: (stderr: string) => string;
   /**
    * The wording of an authentication failure, for a box reached at an alias
-   * only Manor's managed config has (ADR-229 D2). Defaults to telling the
+   * only Manor's managed config has. Defaults to telling the
    * user to try `ssh <target>` from a terminal.
    */
   authMessage?: (stderr: string) => string;
@@ -246,7 +246,7 @@ export class SshTransport implements HostTransport {
   }
 
   /**
-   * Open the owner channel to the box's host server (ADR-225 D4): one more
+   * Open the owner channel to the box's host server: one more
    * child on the shared ControlMaster, running `manor-host server-bridge`.
    *
    * Resolves once the server has said its hello reply (`parseServerHello`),
@@ -264,8 +264,7 @@ export class SshTransport implements HostTransport {
   }
 
   /**
-   * Open a desktop window's viewer stream to the box's host server (ADR-228
-   * D4): `manor-host server-bridge --viewer`, on the same ControlMaster as
+   * Open a desktop window's viewer stream to the box's host server: `manor-host server-bridge --viewer`, on the same ControlMaster as
    * the owner channel.
    *
    * Opened, refused and timed out exactly as `openServerBridge` is. The

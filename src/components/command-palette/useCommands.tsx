@@ -72,7 +72,7 @@ interface UseCommandsParams {
   navigateToStats: () => void;
 }
 
-/** A palette item backed by a command-table entry (ADR-182 D10). */
+/** A palette item backed by a command-table entry. */
 interface TableItem {
   /** The table command the item runs; its label and shortcut come from it. */
   command: string;
@@ -129,7 +129,7 @@ export function useCommands({
     const fmt = (id: string) =>
       bindings[id] ? formatCombo(bindings[id]) : undefined;
 
-    // ADR-178: a command whose only implementation is Electron-only (the
+    // A command whose only implementation is Electron-only (the
     // file dialog, the native menu, a detached window, …) has nothing to do
     // on the web app, so it never appears rather than opening and failing.
     // The table decides which those are; the palette just asks it.
@@ -172,7 +172,7 @@ export function useCommands({
     const activeProject = activeFound?.project;
     const activeWs = activeFound?.workspace;
 
-    // The app's destinations, mirroring the sidebar's nav (ADR-194/197/198).
+    // The app's destinations, mirroring the sidebar's nav.
     const goToItems: CommandItem[] = [
       {
         id: "go-dashboard",
@@ -249,7 +249,7 @@ export function useCommands({
             {
               command: "move-tab-to-next-panel",
               icon: <ArrowRightLeft size={14} />,
-              // ADR-181 D5: the touch idiom for this is dragging a tab into
+              // The touch idiom for this is dragging a tab into
               // another panel's tab bar, which phone mode disables — the
               // palette is how a phone moves a tab.
               keywords: ["move", "tab", "panel"],
@@ -398,9 +398,9 @@ export function useCommands({
           p.processName,
         ],
         action: () => {
-          // A remote host's port opens through its forward (ADR-178 §5).
+          // A remote host's port opens through its forward.
           // One that can't be forwarded toasts and opens nothing — the box's
-          // localhost is not this machine's (ADR-232 D8).
+          // localhost is not this machine's.
           if (isRemoteHost(p.hostId)) {
             void forwardedUrl(url, p.hostId).then((target) => {
               if (target) addBrowserTab(target);
@@ -729,7 +729,7 @@ export function useCommands({
       },
     ];
 
-    // The Dashboard has no tabs or panes (ADR-197): hide anything that would
+    // The Dashboard has no tabs or panes: hide anything that would
     // create or rearrange them.
     const HOME_HIDDEN =
       /^(new-tab|new-browser|split-|convert-to-|open-diff$|reopen-pane$|detach-|pin-tab$|move-tab-)/;

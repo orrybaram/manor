@@ -139,7 +139,7 @@ export class GitHubManager {
   /**
    * `gh` runs in the checkout's directory, which it reads the repo from, with
    * the sign-in of whichever machine this server runs on. A remote project's
-   * calls are routed to its own host's server (`byGhRepo`, ADR-227 D7), so
+   * calls are routed to its own host's server (`byGhRepo`), so
    * the path is always a local one here.
    */
   private async ghTarget({ path }: GhRepo): Promise<GhTarget> {
@@ -168,7 +168,7 @@ export class GitHubManager {
    * Keyed by PR URL. The conversation query is the expensive half of a poll —
    * one GraphQL call per branch, every tick — and it doubled the load that
    * pushed the account past GitHub's 5,000/hour limit with eight worktrees
-   * and two app instances (see the popover ADR-167 follow-ups). Now it runs
+   * and two app instances. Now it runs
    * only when the PR reports a change, or after `CONVERSATION_MAX_AGE_MS`.
    */
   private conversationCache = new Map<string, ConversationCacheEntry>();
@@ -570,7 +570,7 @@ export class GitHubManager {
   /**
    * Create an issue. With no `repo` this targets Manor's own repo — the
    * in-app feedback form, its original and only renderer caller. `repo`
-   * (passed by `POST /projects/:projectId/issues`, ADR-171) instead runs `gh`
+   * (passed by `POST /projects/:projectId/issues`) instead runs `gh`
    * inside that checkout, so the issue lands on whatever repo the project is.
    */
   async createIssue(

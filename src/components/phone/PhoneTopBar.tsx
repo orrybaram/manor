@@ -13,9 +13,9 @@ type PhoneTopBarProps = {
 };
 
 /**
- * ADR-181 D3: the phone shell's top bar — a drawer toggle, the active
+ * The phone shell's top bar — a drawer toggle, the active
  * workspace's name, and an overflow menu holding the focused pane's
- * Chat | Terminal switch (ADR-215). The command palette, which a phone
+ * Chat | Terminal switch. The command palette, which a phone
  * reaches everything else through, opens from Search in the drawer. Rendered once, by
  * `PhoneChrome`, around the workspace stack — never inside a split
  * component, so it cannot affect a terminal's geometry, and switching panes

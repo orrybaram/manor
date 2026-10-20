@@ -1,5 +1,5 @@
 /**
- * ADR-215: the question card's selection rules and the `PickerAnswer`s they
+ * The question card's selection rules and the `PickerAnswer`s they
  * build, plus the entry list's upsert/merge and "which picker is answerable".
  */
 import { describe, expect, it } from "vitest";

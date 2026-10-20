@@ -11,7 +11,7 @@ import { ManorLogo } from "./components/ui/ManorLogo";
 import "./App.css";
 
 /**
- * The desktop's entry (ADR-180 D3).
+ * The desktop's entry.
  *
  * `window.electronAPI` used to arrive from the preload, fully built. It is
  * now built in the page by the same client the web app runs

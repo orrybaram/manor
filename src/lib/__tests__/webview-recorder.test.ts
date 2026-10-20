@@ -247,7 +247,7 @@ describe("handleRecordingCommand", () => {
       "rec-1",
       "Permission denied",
     );
-    // A caller driving a "Recording" indicator (ADR-158 ticket 5) must be
+    // A caller driving a "Recording" indicator must be
     // able to tell this apart from a real start — nothing ever ran.
     expect(result).toEqual({ ok: false, error: "Permission denied" });
   });

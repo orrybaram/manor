@@ -5,7 +5,7 @@ export type { HostId };
 
 /**
  * Kept only until `home-dashboard.ts` moves over to `ownerOf` from
- * `workspace-directory.ts` (ADR-204 §4); then this re-export goes. New code
+ * `workspace-directory.ts`; then this re-export goes. New code
  * imports `ownerOf` directly.
  */
 export { ownerOf as projectForWorkspaceKey } from "./workspace-directory";
@@ -38,14 +38,14 @@ export function isRemoteHost(hostId: string | null | undefined): boolean {
  */
 export interface NamedHost {
   hostId: string;
-  /** The ssh target, or a recipe host's recipe name (ADR-229 D2). */
+  /** The ssh target, or a recipe host's recipe name. */
   label?: string;
   spec?: { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string } | null;
 }
 
 /**
  * A remote host's name: its ssh target, or for a host Manor starts, its
- * recipe's name (ADR-229 D2). Falls back to the id.
+ * recipe's name. Falls back to the id.
  */
 export function hostName(host: NamedHost): string {
   if (host.label) return host.label;
@@ -64,7 +64,7 @@ export function hostLabel(hostId: string, hosts: readonly NamedHost[]): string {
 
 /**
  * A linked member's host as a label, as the sidebar's group sections name
- * it (ADR-193): "This machine", or the remote host's ssh target.
+ * it: "This machine", or the remote host's ssh target.
  */
 export function memberHostName(hostId: string, hosts: readonly NamedHost[]): string {
   return isRemoteHost(hostId) ? hostLabel(hostId, hosts) : "This machine";
@@ -72,7 +72,7 @@ export function memberHostName(hostId: string, hosts: readonly NamedHost[]): str
 
 /**
  * `{ value, label }` options for every remote host, for the searchable
- * selects in `AddProjectDialog` and `ProjectHostsSection` (ADR-183 ticket 10).
+ * selects in `AddProjectDialog` and `ProjectHostsSection`.
  */
 export function remoteHostOptions(
   hosts: readonly NamedHost[],

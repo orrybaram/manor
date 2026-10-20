@@ -1,5 +1,5 @@
 /*
- * ADR-198 §1.3: the four stat tiles (mockup `.stats` / `.stat`), the stacked
+ * The four stat tiles (mockup `.stats` / `.stat`), the stacked
  * stage bar and the sparklines. Each tile sets `--c` to its accent.
  * Container queries read the Home pane (`container-name: home`, set in
  * `HomeDashboard.module.css`), not the viewport: the sidebar takes width.

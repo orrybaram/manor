@@ -38,7 +38,7 @@ import {
 
 /**
  * The handlers under test, by their old IPC channel names. There is no
- * `register()` any more (ADR-180 D8): the handler table calls the lifted
+ * `register()` any more: the handler table calls the lifted
  * functions with the one long-lived `HostDeps`, and the two broadcasts are
  * wired once at boot by `wireHostBroadcasts` — which is what `register` does
  * here, besides recording the deps. The first argument stands in for the
@@ -60,7 +60,7 @@ const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown
   ["hosts:healthCheck", call(hostsHealthCheck)],
 ]);
 
-/** Every renderer broadcast, which is how the host events go out (ADR-180 D5). */
+/** Every renderer broadcast, which is how the host events go out. */
 let frames: RendererBroadcast[] = [];
 let stopSink: () => void = () => {};
 beforeEach(() => {
@@ -141,7 +141,7 @@ describe("hosts:add", () => {
     expect(backendRegistry.connectInBackground).toHaveBeenCalledWith(result.hostId);
   });
 
-  it("keeps a newly added host's Manor running across reboots by default (ADR-229 D4)", () => {
+  it("keeps a newly added host's Manor running across reboots by default", () => {
     const { deps, projectManager } = makeDeps();
     register(deps as never);
     const result = handlers.get("hosts:add")!(null, "me@box") as { hostId: string };
@@ -149,7 +149,7 @@ describe("hosts:add", () => {
   });
 });
 
-describe("hosts:addRecipeHost (ADR-229 D2)", () => {
+describe("hosts:addRecipeHost", () => {
   let home: string;
   let savedHome: string | undefined;
 
@@ -182,7 +182,7 @@ describe("hosts:addRecipeHost (ADR-229 D2)", () => {
     expect(projectManager.saveHost).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.register).toHaveBeenCalledWith(result.hostId, result.spec);
     expect(backendRegistry.ensureConnected).toHaveBeenCalledWith(result.hostId);
-    // A box Manor starts is supervised (ADR-229 D4).
+    // A box Manor starts is supervised.
     expect(projectManager.setHostSupervised).toHaveBeenCalledWith(result.hostId, true);
   });
 
@@ -207,7 +207,7 @@ describe("hosts:addRecipeHost (ADR-229 D2)", () => {
   });
 });
 
-describe("hosts:checkTemplate (ADR-234 D6)", () => {
+describe("hosts:checkTemplate", () => {
   const check = (...args: unknown[]) =>
     (hostsCheckTemplate as (...a: unknown[]) => unknown)(localCtx(makeDeps().deps as never), ...args);
 
@@ -223,7 +223,7 @@ describe("hosts:checkTemplate (ADR-234 D6)", () => {
   });
 });
 
-describe("hosts:runTemplateFix (ADR-234 D8)", () => {
+describe("hosts:runTemplateFix", () => {
   const fix = (...args: unknown[]) =>
     (hostsRunTemplateFix as (...a: unknown[]) => unknown)(localCtx(makeDeps().deps as never), ...args);
 
@@ -410,7 +410,7 @@ describe("hosts phone access", () => {
     expect(hostServerSync.pairingChanged).not.toHaveBeenCalled();
   });
 
-  it("records the status's room and capability for hosts.list; an older host has no viewer bridge (ADR-228)", async () => {
+  it("records the status's room and capability for hosts.list; an older host has no viewer bridge", async () => {
     const { ctx, client, backendRegistry: registry } = withServer("connected");
     // An older host: no `capabilities`, no top-level `roomId`.
     client.status.mockResolvedValueOnce({ devices: 0, relay: { roomId: "room-old" } });
@@ -435,7 +435,7 @@ describe("hosts phone access", () => {
   it("tells the sync the pairing changed after pair, revoke and reset", async () => {
     const { ctx, client, hostServerSync } = withServer("connected");
     await hostsPairDevice(ctx, "box", "  my phone ");
-    // The host's default: a ticket link (ADR-240 D7).
+    // The host's default: a ticket link.
     expect(client.pair).toHaveBeenCalledWith("my phone");
     await hostsRevokeDevice(ctx, "box", "d1");
     await hostsResetPairingKeys(ctx, "box");
@@ -443,7 +443,7 @@ describe("hosts phone access", () => {
     expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
   });
 
-  it("resets a host's pairing keys through the links' queue (ADR-230 D11)", async () => {
+  it("resets a host's pairing keys through the links' queue", async () => {
     const { ctx, client, hostServerSync } = withServer("connected");
     const hostLinks = {
       resetHost: vi.fn(async (_hostId: string, reset: () => Promise<unknown>) => reset()),
@@ -456,7 +456,7 @@ describe("hosts phone access", () => {
     expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
   });
 
-  it("carries the phone-link switch and which phones this desktop linked (ADR-228 D9)", async () => {
+  it("carries the phone-link switch and which phones this desktop linked", async () => {
     const { ctx } = withServer("connected");
     const hostLinks = {
       linkedOn: vi.fn().mockReturnValue(["d1"]),
@@ -470,7 +470,7 @@ describe("hosts phone access", () => {
     expect(hostLinks.linkedOn).toHaveBeenCalledWith("box");
   });
 
-  it("revokes through the links, which block the phone there, and still says the pairing changed (ADR-238 D3)", async () => {
+  it("revokes through the links, which block the phone there, and still says the pairing changed", async () => {
     const { ctx, client, hostServerSync } = withServer("connected");
     const hostLinks = {
       revokeOnHost: vi.fn(async (_h: string, _d: string, revoke: () => Promise<unknown>) => revoke()),
@@ -482,7 +482,7 @@ describe("hosts phone access", () => {
     expect(hostServerSync.pairingChanged).toHaveBeenCalledWith("box");
   });
 
-  it("carries the phones revoked on the host, the host away too (ADR-238 D3)", async () => {
+  it("carries the phones revoked on the host, the host away too", async () => {
     for (const state of ["connected", "disconnected"] as const) {
       const { ctx } = withServer(state);
       const hostLinks = {
@@ -511,7 +511,7 @@ describe("hosts phone access", () => {
     await expect(hostsSetLinkPhones(linkedCtx, "box", "no" as never)).rejects.toThrow();
   });
 
-  it("carries what supervises the host from its status (ADR-229 D4)", async () => {
+  it("carries what supervises the host from its status", async () => {
     const { ctx, client } = withServer("connected");
     client.status.mockResolvedValueOnce({ devices: 0, supervisor: { kind: "systemd", linger: false } });
     expect((await hostsServerStatus(ctx, "box")).supervisor).toEqual({ kind: "systemd", linger: false });
@@ -519,7 +519,7 @@ describe("hosts phone access", () => {
     expect((await hostsServerStatus(ctx, "box")).supervisor).toBeNull();
   });
 
-  it("carries the switch's remembered state, read with the host away too (ADR-229 D4)", async () => {
+  it("carries the switch's remembered state, read with the host away too", async () => {
     const { ctx } = withServer("disconnected");
     const pm = (ctx.deps as unknown as { projectManager: { hostSupervised: ReturnType<typeof vi.fn> } })
       .projectManager;
@@ -529,7 +529,7 @@ describe("hosts phone access", () => {
   });
 });
 
-describe("hosts:setSupervised (ADR-229 D4)", () => {
+describe("hosts:setSupervised", () => {
   function withTransport(stdout: string, code = 0) {
     const { deps, backendRegistry, projectManager } = makeDeps();
     const exec = vi.fn().mockResolvedValue({ code, stdout, stderr: "" });
@@ -567,7 +567,7 @@ describe("hosts:setSupervised (ADR-229 D4)", () => {
   });
 });
 
-describe("hosts:encryptKeys (ADR-236 D7)", () => {
+describe("hosts:encryptKeys", () => {
   const OK =
     '{"secrets":{"backend":"key-file","keyFile":"~/.config/manor/secret.key","place":"home"}}\n';
   /** `statuses` are what successive `hostServer.status()` reads do: a backend, or an Error to throw. */
@@ -657,7 +657,7 @@ describe("hosts:encryptKeys (ADR-236 D7)", () => {
   });
 });
 
-describe("hosts:remove (ADR-229 D8)", () => {
+describe("hosts:remove", () => {
   const spec = { kind: "recipe", recipeId: "dev-pod" };
 
   function withHost(provider: unknown) {

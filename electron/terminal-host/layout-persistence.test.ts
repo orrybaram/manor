@@ -200,7 +200,7 @@ describe("LayoutPersistence", () => {
 
       const panels = Object.values(loaded!.workspaces[0].panels);
       expect(panels[0].tabs).toHaveLength(3);
-      // The selection is not on the tree any more (ADR-179 ticket 4); what
+      // The selection is not on the tree any more; what
       // survives a save is the default viewport.
       expect(
         Object.values(loaded!.workspaces[0].defaultViewport.selectedTabIds),
@@ -272,7 +272,7 @@ describe("LayoutPersistence", () => {
     });
   });
 
-  describe("getActiveSessionIds (ADR-117)", () => {
+  describe("getActiveSessionIds", () => {
     it("returns empty set when no layout exists", () => {
       const ids = persistence.getActiveSessionIds();
       expect(ids.size).toBe(0);
@@ -311,7 +311,7 @@ describe("LayoutPersistence", () => {
       expect(ids.size).toBe(2);
     });
 
-    it("ignores a legacy Home entry, whose sessions are being ended (ADR-197)", () => {
+    it("ignores a legacy Home entry, whose sessions are being ended", () => {
       persistence.save({
         version: LAYOUT_VERSION,
         workspaces: [
@@ -356,7 +356,7 @@ describe("LayoutPersistence", () => {
   });
 
   /**
-   * A real v2 file, captured before ADR-179: two workspaces, a pinned tab, a
+   * A real v2 file, captured before the viewport split: two workspaces, a pinned tab, a
    * two-panel arrangement and a browser pane. The migration runs once on real
    * users' files, so the fixture is the shape of one rather than a minimum.
    */
@@ -465,7 +465,7 @@ describe("LayoutPersistence", () => {
     ],
   };
 
-  describe("viewport migration (ADR-179 D3)", () => {
+  describe("viewport migration", () => {
     function loadFixture(): PersistedLayout {
       fs.writeFileSync(layoutFile, JSON.stringify(V2_FIXTURE, null, 2));
       const loaded = persistence.load();
@@ -487,7 +487,7 @@ describe("LayoutPersistence", () => {
       });
     });
 
-    it("strips the focus fields off the tree (ADR-179 ticket 4)", () => {
+    it("strips the focus fields off the tree", () => {
       // They are viewport, not structure: they live in `defaultViewport` and
       // in each renderer's own file, and nowhere else.
       const main = loadFixture().workspaces[0];
@@ -498,7 +498,7 @@ describe("LayoutPersistence", () => {
 
     it("never drops a tab, a pin, a pane session or a browser pane", () => {
       const loaded = loadFixture();
-      // Still keyed by bare path: the key migration (ADR-191) moves it on.
+      // Still keyed by bare path: the key migration moves it on.
       expect(loaded.version).toBe(2);
       expect(loaded.workspaces.map((w) => w.workspacePath)).toEqual([
         "/project/main",
@@ -561,8 +561,8 @@ describe("LayoutPersistence", () => {
       );
     });
 
-    it("reads a pre-ADR-191 v3 file (viewport split, bare paths) as unkeyed", () => {
-      // Builds of ADR-179 cut before ADR-191 wrote version 3 with a
+    it("reads an early v3 file (viewport split, bare paths) as unkeyed", () => {
+      // Some early builds wrote version 3 with a
       // defaultViewport and bare-path keys; its key migration must still run.
       const early = {
         version: 3,
@@ -676,7 +676,7 @@ describe("LayoutPersistence", () => {
     });
   });
 
-  // ADR-191: workspaces are keyed by host plus path from version 3.
+  // Workspaces are keyed by host plus path from version 3.
   describe("workspace keys (v3+)", () => {
     const SHARED = "/home/me/.manor/worktrees/app/feat";
     const LOCAL_ONLY = "/home/me/code/other";

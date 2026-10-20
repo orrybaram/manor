@@ -6,7 +6,7 @@ import crypto from "node:crypto";
 
 import { PreferencesManager } from "../preferences";
 
-describe("PreferencesManager tasks → agents key migration (ADR-166)", () => {
+describe("PreferencesManager tasks → agents key migration", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -44,7 +44,7 @@ describe("PreferencesManager tasks → agents key migration (ADR-166)", () => {
   });
 });
 
-describe("PreferencesManager statsEnabled default (ADR-168)", () => {
+describe("PreferencesManager statsEnabled default", () => {
   let tmpDir: string;
 
   beforeEach(() => {

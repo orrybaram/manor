@@ -3,8 +3,8 @@ import path from "path";
 import type { Page } from "@playwright/test";
 
 /**
- * A host Manor starts from a recipe (ADR-229), over the remote-host suite's
- * sshd (ADR-231 D6). The recipe's `up` hands back that sshd's address and key
+ * A host Manor starts from a recipe, over the remote-host suite's
+ * sshd. The recipe's `up` hands back that sshd's address and key
  * as an ssh target, so Manor starts, stops and wakes a "box" that is really
  * the harness's — with the same isolated `$HOME` the ssh host uses.
  *

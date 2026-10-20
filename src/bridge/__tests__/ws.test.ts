@@ -35,7 +35,7 @@ import type { ElectronAPI } from "../../electron";
 
 type Frame = Record<string, unknown>;
 
-/** The transport's liveness ping (ADR-231 D8). */
+/** The transport's liveness ping. */
 function isPing(frame: Frame): boolean {
   return (
     frame.kind === "invoke" && frame.ns === "bridge" && frame.method === "ping"
@@ -194,7 +194,7 @@ describe("the socket transport", () => {
       expect(socket.frames).toEqual([{ type: "hello", token: "full-token" }]);
     });
 
-    it("says hello with the token and the ticket to redeem it with (ADR-240 D1)", () => {
+    it("says hello with the token and the ticket to redeem it with", () => {
       const api = bridge({ ticket: "the-ticket" });
       void api.projects.getAll().catch(() => {});
       const socket = FakeSocket.last;
@@ -526,7 +526,7 @@ describe("the socket transport", () => {
       });
     });
 
-    it("sends the ticket no more once a hello was accepted (ADR-240 D1)", () => {
+    it("sends the ticket no more once a hello was accepted", () => {
       const api = bridge({ ticket: "the-ticket" });
       void api.projects.getAll().catch(() => {});
       const socket = FakeSocket.last;
@@ -799,7 +799,7 @@ describe("the socket transport", () => {
 
   /**
    * A relay answers the pipe's own heartbeat and probe, so neither can tell
-   * that the server behind it went quiet (ADR-231 D8). Every pipe here says
+   * that the server behind it went quiet. Every pipe here says
    * alive; only the server's silence differs.
    */
   describe("noticing a silent server", () => {

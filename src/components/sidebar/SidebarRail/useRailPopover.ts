@@ -36,7 +36,7 @@ export type RailPopover = {
 };
 
 /**
- * The rail's one popover (ADR-195): opens on a tile after the pointer rests
+ * The rail's one popover: opens on a tile after the pointer rests
  * on it for a second, or at once while another tile's popover is already
  * open, so moving down the rail flips straight through projects.
  */

@@ -1,5 +1,5 @@
 /**
- * A data dir copied to another instance gets a new identity (ADR-229 D6):
+ * A data dir copied to another instance gets a new identity:
  * new room, no devices, and the owner is told once. See `harness.ts`.
  */
 
@@ -10,7 +10,7 @@ import { useHostServerHarness } from "./harness";
 import type { HostServerStatus } from "../relay";
 import type { PairResult } from "../../remote-control/relay-room";
 
-describe("host server: one identity per instance (ADR-229 D6)", () => {
+describe("host server: one identity per instance", () => {
   const h = useHostServerHarness();
   afterEach(() => {
     vi.unstubAllEnvs();

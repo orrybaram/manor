@@ -80,7 +80,7 @@ export function TerminalPane(props: TerminalPaneProps) {
     setSearchNonce((n) => n + 1);
   }, []);
 
-  // Edit › Find… (ADR-170) targets whichever pane is focused; open our own
+  // Edit › Find… targets whichever pane is focused; open our own
   // search UI when the request names this pane.
   useEffect(() => {
     return onUiRequest((request) => {
@@ -104,7 +104,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   const splitPaneAt = useAppStore((s) => s.splitPaneAt);
   const closePaneById = useAppStore((s) => s.closePaneById);
 
-  // A finger on a phone (ADR-181 D5, D6): a tap focuses xterm and raises the
+  // A finger on a phone: a tap focuses xterm and raises the
   // soft keyboard, a long-press opens the menu below, a drag scrolls or pans.
   // Nothing at all on the desk.
   const phone = useLayoutMode() === "phone";
@@ -120,7 +120,7 @@ export function TerminalPane(props: TerminalPaneProps) {
         >
           <HostOfflineBanner paneId={paneId} workspaceKey={workspaceKey} />
           {/* Why this pane does not fit its box: some other viewer — the
-              desktop app, or (ADR-179 D6) another browser that attached more
+              desktop app, or another browser that attached more
               recently — owns this session's winsize, and this one is
               following it. Saying so is cheaper than leaving the user to
               discover that dragging the pane changes nothing. Unnamed on
@@ -171,7 +171,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                 </p>
                 <Row gap="sm" className={styles.errorActions}>
                   {/* A macOS Settings deep link — no such surface in a
-                      browser tab (ADR-178). */}
+                      browser tab. */}
                   {!isWebApp() && (
                     <button
                       className={styles.errorButton}
@@ -216,7 +216,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                 });
               };
               if (term && isWebApp()) {
-                // The browser's clipboard holds the image (ADR-239 D3). Its
+                // The browser's clipboard holds the image. Its
                 // async read prompts in Chromium and is limited elsewhere, so
                 // anything short of an image falls back to text.
                 void pasteWebClipboard(term, paneId, readClipboardText);

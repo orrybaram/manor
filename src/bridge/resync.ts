@@ -1,12 +1,12 @@
 /**
- * "Fetch your state again" (ADR-220 D1), and the manual refresh (D5).
+ * "Fetch your state again", and the manual refresh.
  *
  * Every store reads its state once and then lives on push events. A browser
  * socket that dropped and came back missed whatever was pushed while it was
  * gone, so this is emitted on every accepted hello after the first, and on a
  * manual refresh; each store re-runs its fetch.
  *
- * **Per server** (ADR-228 D1). The page holds a bridge per server
+ * **Per server**. The page holds a bridge per server
  * (`./server-set.ts`), and a resumed hello on any one of them emits this —
  * the home server's from `install-web.ts`, every other one's from its
  * `servers.hooks(id)`. Stores re-fetch with merged reads, so a resync after

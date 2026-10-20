@@ -49,7 +49,7 @@ function CopyCommand(props: CopyCommandProps) {
 }
 
 /**
- * "Where's your cluster?" (ADR-234 D13): what the Kubernetes Connect step
+ * "Where's your cluster?": what the Kubernetes Connect step
  * shows while kubectl knows of no cluster. Three places one can come from,
  * each with the one step that makes kubectl know it. The form leaves these
  * for the normal fields as soon as a cluster appears.

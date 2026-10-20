@@ -1,5 +1,5 @@
 /**
- * Starting a pane's session, on the server (ADR-227 D5).
+ * Starting a pane's session, on the server.
  *
  * `spawnPane` is what `pty.create` always did — create the session or attach
  * to it, and type the pane's pending command into a fresh one — factored out
@@ -67,7 +67,7 @@ export interface SpawnPaneOptions {
   hostId?: HostId;
   /** Sets `MANOR_AGENT_KIND` in a freshly spawned session's env. */
   agentKind?: string | null;
-  /** False for a create nobody meant: a sleeping host stays asleep (ADR-230 D3). */
+  /** False for a create nobody meant: a sleeping host stays asleep. */
   wake?: boolean;
 }
 
@@ -106,8 +106,7 @@ export function requestedHost(
 
 /**
  * Each server's creates in flight, per pane. Keyed by the server's backend,
- * so two servers in one process (the test harness) share nothing (ADR-227
- * D1).
+ * so two servers in one process (the test harness) share nothing.
  */
 const creating = new WeakMap<object, Map<string, Promise<unknown>>>();
 
@@ -201,12 +200,12 @@ export async function spawnPane(
       ok: true,
       snapshot: result.snapshot?.screenAnsi || null,
       // Stream position the snapshot reflects — the renderer drops queued
-      // output at or below it (ADR-159). Absent when there is no snapshot,
+      // output at or below it. Absent when there is no snapshot,
       // or when an older daemon does not report one.
       snapshotSeq: result.snapshot?.seq,
       prewarmed: result.snapshot !== null,
       // The host the session actually runs on — not its project's
-      // current host, which may have changed since (ADR-160). The
+      // current host, which may have changed since. The
       // renderer badges a tab from this, so a pane that predates a
       // project move keeps its true host.
       hostId: result.hostId,
@@ -219,10 +218,10 @@ export async function spawnPane(
 /**
  * A create or attach that threw, as the failure it answers with.
  *
- * A registered remote host that is not connected is not a broken terminal
- * (ADR-178 §6): the renderer shows the host's offline banner and creates the
+ * A registered remote host that is not connected is not a broken terminal:
+ * the renderer shows the host's offline banner and creates the
  * pane once the host is back. A remote pty call rejects with
- * `HostUnavailableError` whenever its host is away (ADR-183); "unknown" is a
+ * `HostUnavailableError` whenever its host is away; "unknown" is a
  * host nobody registered.
  */
 export function toPtyFailure(err: unknown, paneId: string): PtyFailure {
@@ -241,20 +240,20 @@ export function toPtyFailure(err: unknown, paneId: string): PtyFailure {
  * a moment ago and its line editor may not have initialised: the daemon holds
  * the bytes until the shell's first output. The trailing `\r` is what an Enter
  * keypress sends — `\n` is not reliably `accept-line` under zsh's ZLE. Text
- * queued with `submit: false` (a fix-it command the user reviews, ADR-183)
+ * queued with `submit: false` (a fix-it command the user reviews)
  * is typed without it.
  *
  * Never fatal to the create: a pane that opened without running its command is
  * a worse outcome than a pane that never opened, but only slightly, and the
  * caller has already got its session.
  *
- * Not lost to a remote host that drops before the shell is ready, either
- * (ADR-178 §6): the command goes back on the queue for the pane's next
+ * Not lost to a remote host that drops before the shell is ready, either:
+ * the command goes back on the queue for the pane's next
  * create, as long as the pane is still in a layout and nothing newer was
  * queued for it meanwhile — the server's form of the renderer requeue
  * (`shouldRequeuePaneCommand`) this queue replaced.
  *
- * An agent launch queued with a `prompt` (ADR-209) has it written to a file
+ * An agent launch queued with a `prompt` has it written to a file
  * on the pane's host first, and the typed line only names that file
  * (`promptLaunchLine`). `writeAfterReady` fires on the shell's first output,
  * which is not "line editor ready": a prompt theme can draw before `.zshrc`
@@ -291,13 +290,13 @@ async function deliverPendingCommand(
 }
 
 /**
- * The launch line for an agent whose first prompt goes through a file
- * (ADR-209): the prompt is written to `~/.manor/prompts/` on the host the
+ * The launch line for an agent whose first prompt goes through a file:
+ * the prompt is written to `~/.manor/prompts/` on the host the
  * session runs on, and the line is `<harness> "$(cat '<file>'; rm -f
  * '<file>')"` — short whatever the prompt's length, and the shell deletes the
  * file as it reads it.
  *
- * `backendRegistry.get(hostId)`, not `RoutedBackend.shell`, for ADR-187's
+ * `backendRegistry.get(hostId)`, not `RoutedBackend.shell`, for the
  * paste-image reason (`electron/ipc/paste-image.ts`): the session's host owns
  * the home directory and the write, and `RoutedBackend` would pick a host by
  * path instead.

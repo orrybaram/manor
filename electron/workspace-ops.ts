@@ -4,9 +4,9 @@
  * last-used host, the `projects-changed` broadcast and the setup script.
  * Both transports call it: the IPC handlers (the UI) and the HTTP control
  * routes (the `manor` CLI and MCP), so a new side effect is added once
- * instead of remembered per adapter (ADR-203).
+ * instead of remembered per adapter.
  *
- * The setup script runs on the server, in a tab of its own (ADR-227 D5),
+ * The setup script runs on the server, in a tab of its own,
  * whoever asked for the workspace: there is no renderer to hand it to, and
  * none is needed. Its runner is injected so this module (and its tests)
  * spawns nothing.
@@ -48,8 +48,8 @@ export interface WorkspaceOpsDeps {
   ) => Promise<void>;
   /**
    * Tell `origin` how a worktree removal is going: `projects.removeWorktreeProgress`
-   * on the server's own bus, so a phone on a host server hears it too
-   * (ADR-227 D6). Omitted in tests that don't watch it.
+   * on the server's own bus, so a phone on a host server hears it too.
+   * Omitted in tests that don't watch it.
    */
   publishRemoveProgress?: (origin: string | null, step: string) => void;
 }
@@ -64,7 +64,7 @@ export interface CreateWorkspaceRequest {
   folderId?: string | null;
   /**
    * The bridge connection that asked, so its own window gets the setup
-   * progress, the setup script's included (ADR-180 D5); omitted or null
+   * progress, the setup script's included; omitted or null
    * broadcasts it.
    */
   origin?: string | null;

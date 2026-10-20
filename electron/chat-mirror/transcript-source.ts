@@ -1,5 +1,5 @@
 /**
- * Where the chat mirror reads a transcript from (ADR-216 D1).
+ * Where the chat mirror reads a transcript from.
  *
  * The mirror owns the offset bookkeeping; a source only answers "the bytes
  * from here to the end, and how big is the file now".
@@ -15,7 +15,7 @@ export type TranscriptRead =
       /**
        * The line at the offset is too long to read, and is complete: it is
        * this many bytes, newline included. `data` is empty; the mirror steps
-       * over the line without an entry and reads on (ADR-216 ticket 3).
+       * over the line without an entry and reads on.
        */
       skip?: number;
     }

@@ -1,5 +1,5 @@
 /**
- * Where an answer comes from, and in what order (ADR-180 D3/D7).
+ * Where an answer comes from, and in what order.
  *
  * `window.electronAPI` is a `Proxy`. Nothing about `pty.write` exists until
  * somebody reads that property, and what happens next is decided by four

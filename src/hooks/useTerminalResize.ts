@@ -2,7 +2,7 @@
  * useOwnerFit / useFollowerFit — ResizeObserver + fit addon for auto-fitting
  * a terminal.
  *
- * Two hooks, not one with a branch inside it (ADR-182 ticket 1): a winsize
+ * Two hooks, not one with a branch inside it: a winsize
  * owner measures the pane and tells the pty; a follower fits the pane to a
  * grid it never moves, shrinking its font toward {@link FONT_FLOOR} instead.
  * `useTerminalLifecycle` calls both, unconditionally, each behind its own
@@ -14,7 +14,7 @@
  * stream, in `useTerminalStream`, at the position the daemon marks when the
  * ioctl lands.
  *
- * That split is the point, and it is ADR-164. A resize in a local terminal is
+ * That split is the point. A resize in a local terminal is
  * one function — set the grid, call `TIOCSWINSZ` — so it sits at a known place
  * between two reads of the pty: bytes before it were drawn at the old size,
  * bytes after at the new one. An inline agent harness repaints by moving the
@@ -30,7 +30,7 @@
  * copies. The daemon knows the answer exactly, so it says so, and this hook
  * stops guessing.
  *
- * Being pure geometry has a second half, and leaving it out is ADR-165: this
+ * Being pure geometry has a second half, and leaving it out was a bug: this
  * hook may not read the grid to decide what the pty knows. The grid is the
  * daemon's to move, so a grid that has drifted from the winsize is precisely
  * the case where a resize must be sent — and comparing a measurement against
@@ -65,9 +65,8 @@ export interface Dimensions {
  * Whether a freshly measured size is worth sending to the pty.
  *
  * Measured against the last size *sent*, never against the grid. That is the
- * sentence that keeps this hook honest about being pure geometry: after
- * ADR-164 the grid is driven by the daemon, so it cannot also stand as
- * evidence of what the daemon knows.
+ * sentence that keeps this hook honest about being pure geometry: the grid
+ * is driven by the daemon, so it cannot also stand as evidence of what the daemon knows.
  *
  * Reading the grid here is what made a disagreement permanent. A grid that has
  * drifted from the winsize — a lost event, an ack that timed out, a client we
@@ -75,7 +74,7 @@ export interface Dimensions {
  * request, and this is the test that decides whether that request is ever made.
  * Comparing against the grid suppresses exactly the send that would fix it, at
  * exactly the moment it is needed, and the pane then wraps at a different width
- * than the program does for the rest of the session (ADR-165).
+ * than the program does for the rest of the session.
  */
 export function shouldSendFit(
   proposed: Dimensions | undefined,
@@ -89,7 +88,7 @@ export function shouldSendFit(
 /**
  * Below this nobody reads anything — the pane pans sideways instead.
  *
- * ADR-177's floor, measured on a phone and reused here because the rule is the
+ * The phone's floor, measured on a phone and reused here because the rule is the
  * same rule: a viewer that may not move the grid scales the glyphs until the
  * grid fits, and then stops scaling.
  */
@@ -163,7 +162,7 @@ export function measureCellWidth(term: Terminal): number | null {
 }
 
 /**
- * The winsize owner's half of D5: measure the pane, tell the pty.
+ * The winsize owner's half: measure the pane, tell the pty.
  *
  * `enabled` is false for exactly as long as this viewer is a follower — see
  * the file header. Disabled, the hook does nothing at all; it neither
@@ -324,10 +323,10 @@ export function measureCellHeight(term: Terminal): number | null {
 }
 
 /**
- * The follower's half of D5: fit the *pane* to the owner's grid, never the
+ * The follower's half: fit the *pane* to the owner's grid, never the
  * other way around.
  *
- * Scaling the glyphs rather than reflowing the text, for ADR-177's reason: an
+ * Scaling the glyphs rather than reflowing the text, for the phone's reason: an
  * agent draws box borders and diff gutters at a width it was told, and a
  * viewer that re-wraps them to its own width breaks every one of them. So the
  * grid stays exactly as the owner left it, the font shrinks until it fits,
@@ -356,7 +355,7 @@ export function useFollowerFit(
   /**
    * The grid to render. Reset every time the effect (re)starts and moved by
    * the stream from then on: when the owner resizes, `useTerminalStream`
-   * applies it to the emulator (ADR-164) and the `onResize` below reads the
+   * applies it to the emulator and the `onResize` below reads the
    * new grid back out, without waiting for `target` itself to change.
    */
   const targetRef = useRef<Dimensions | null>(target);
@@ -439,7 +438,7 @@ export function useFollowerFit(
     observer.observe(container);
 
     // The grid moving means the owner moved it and `useTerminalStream`
-    // applied it (ADR-178 D5) — so the new grid is the thing to fit to, never
+    // applied it — so the new grid is the thing to fit to, never
     // evidence to measure and send back. Sending it back would be a loop with
     // a pty in it: this viewer would tell the daemon the size it was just
     // told, and take the desktop's pane with it.

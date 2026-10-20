@@ -1,5 +1,5 @@
 /**
- * The layout command reducer (ADR-179 D1/D2, ADR-182 D6).
+ * The layout command reducer.
  *
  * Every structural change to a workspace — split, close, move, pin, reorder —
  * is a `LayoutCommand`. `applyLayoutCommand` is the one place that turns a
@@ -14,7 +14,7 @@
  *    before sending, so it can focus the new pane when the broadcast lands.
  * 2. **"Current" is resolved by the sender.** "Split the focused pane" is
  *    `{ type: "split-pane-at", paneId }`. The reducer cannot read a selection
- *    and does not have one: selection is viewport, per renderer (D3). The
+ *    and does not have one: selection is viewport, per renderer. The
  *    handful of optional command fields documented as "viewport default"
  *    exist only so a command is still applicable when a sender omits them;
  *    the desktop store always passes them.

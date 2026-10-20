@@ -1,5 +1,5 @@
 /**
- * The desktop's side of key encryption (ADR-236 D7): running
+ * The desktop's side of key encryption: running
  * `manor-host secrets encrypt|status --json` on a host, through its
  * transport's `exec` (ssh, or a recipe's exec prefix).
  *

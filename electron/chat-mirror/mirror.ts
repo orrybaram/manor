@@ -1,6 +1,5 @@
 /**
- * The per-pane transcript mirror behind the `chat` bridge namespace
- * (ADR-215 D4, D5).
+ * The per-pane transcript mirror behind the `chat` bridge namespace.
  *
  * One mirror per pane: it resolves the pane's agent and its `transcriptPath`,
  * reads the JSONL from the start through the agent's parser, then tails it by
@@ -12,7 +11,7 @@
  * It watches only while the bridge says somebody is subscribed to the pane's
  * `chat.entry`: the source's change signal plus a 1s poll (a watch on a file
  * misses renames and is unreliable on some filesystems), or, for a source
- * with no change signal (a remote host, ADR-216 D3), a 2s poll and a `poke`
+ * with no change signal (a remote host), a 2s poll and a `poke`
  * on each of the agent's hooks. Parsed state outlives the watch, so the next
  * subscriber catches up from the offset rather than from the start. Reads
  * never overlap, and triggers that land while one is waiting coalesce into it.
@@ -23,15 +22,15 @@
  * the renderer re-fetches `getHistory` when the agent's `transcriptPath`
  * changes rather than being sent the whole new transcript as events.
  *
- * The transcript is read through a `TranscriptSource` chosen per agent
- * (ADR-216 D1): the local filesystem, or a remote host's `Exec`. A read that
+ * The transcript is read through a `TranscriptSource` chosen per agent:
+ * the local filesystem, or a remote host's `Exec`. A read that
  * fails (the host is offline, the exec failed) changes nothing: the next
  * trigger tries again, and `getHistory` answers `unavailable: "host-offline"`
  * meanwhile. Subscribers keep the entries they already have. A line too long
  * for one read is stepped over without an entry (`TranscriptRead.skip`).
  *
  * The tailing itself (offset, reads, watch and poll, the context size) is a
- * `TranscriptStream` (`stream.ts`, ADR-224 D3); a pane mirror owns one for its
+ * `TranscriptStream` (`stream.ts`); a pane mirror owns one for its
  * own transcript, one per task somebody opened, and the pane-only parts:
  * pickers and skills. Who is subscribed is the bridge's fact, kept apart from
  * the streams, so a pane's streams can be dropped and rebuilt under it.
@@ -59,8 +58,8 @@ import { TranscriptStream, type TranscriptTarget } from "./stream";
 /**
  * Why a pane has no chat. `host-offline`: the transcript could not be read
  * just now, most likely because the agent's host is unreachable. `remote` is
- * no longer produced (ADR-216 D4) but stays for renderers that know it.
- * `unsupported-agent`: the agent has no transcript adapter yet (ADR-224 D1).
+ * no longer produced but stays for renderers that know it.
+ * `unsupported-agent`: the agent has no transcript adapter yet.
  */
 export type ChatUnavailableReason =
   | "no-agent"
@@ -76,7 +75,7 @@ export type ChatHistory =
 
 export type { ChatCommand } from "./builtin-commands";
 
-/** What `chat.getCommands` answers (ADR-217 D3). */
+/** What `chat.getCommands` answers. */
 export type ChatCommands =
   | { ok: true; commands: ChatCommand[]; skillsKnown: boolean }
   | { ok: false; reason: ChatUnavailableReason };
@@ -118,10 +117,10 @@ export interface ChatMirrorDeps {
   publish(paneId: string, entry: ChatPush): void;
   /**
    * Push a new or updated entry, or a context-size update, of one task's own
-   * transcript to its `chat.taskEntry` subscribers (ADR-224 D3).
+   * transcript to its `chat.taskEntry` subscribers.
    */
   publishTask(paneId: string, taskId: string, entry: ChatPush): void;
-  /** Where the agent's transcript is read from (ADR-216 D1). */
+  /** Where the agent's transcript is read from. */
   sourceFor(agent: PaneAgent): TranscriptSource;
   /** How long an answer waits for its `tool_result`. Default 8s. */
   answerTimeoutMs?: number;
@@ -140,7 +139,7 @@ type StreamIntervals = { pollIntervalMs: number; unwatchedPollIntervalMs: number
 /**
  * A pane's chat: its own transcript's stream, plus what only a pane has —
  * pickers that can be answered, the last skill list, and the streams of the
- * tasks somebody opened (ADR-224 D3).
+ * tasks somebody opened.
  */
 class PaneMirror {
   readonly stream: TranscriptStream;
@@ -151,7 +150,7 @@ class PaneMirror {
   lastSkills: ChatSkill[] = [];
   /** Answers sent and waiting for their `tool_result`, by tool_use id. */
   awaiting = new Map<string, ReturnType<typeof setTimeout>>();
-  /** Answers that timed out (D5). */
+  /** Answers that timed out. */
   needsTerminal = new Set<string>();
   /** Tasks' own transcripts, by task (tool_use) id. */
   children = new Map<string, TranscriptStream>();
@@ -234,7 +233,7 @@ export class ChatMirror {
   }
 
   /**
-   * A task's own transcript so far (ADR-224 D3), after catching up with the
+   * A task's own transcript so far, after catching up with the
    * pane's (to find the task) and then with the task's. `no-transcript` when
    * the task is unknown, or its agent writes it none.
    */
@@ -252,7 +251,7 @@ export class ChatMirror {
     };
   }
 
-  /** Built-in commands plus the session's skills (ADR-217 D3). */
+  /** Built-in commands plus the session's skills. */
   async getCommands(paneId: string): Promise<ChatCommands> {
     const caught = await this.catchUp(paneId);
     if (!caught.ok) return caught;
@@ -290,8 +289,7 @@ export class ChatMirror {
   }
 
   /**
-   * Whether anybody is subscribed to one task's `chat.taskEntry` (ADR-224
-   * D3): `setWatched`'s mechanics, for the task's own transcript. The task is
+   * Whether anybody is subscribed to one task's `chat.taskEntry`: `setWatched`'s mechanics, for the task's own transcript. The task is
    * found in the pane's transcript; one not read yet (or whose agentId is not
    * known yet) is tailed when its entry turns up. Unwatching drops the task's
    * stream: the next subscriber reads it again.
@@ -312,7 +310,7 @@ export class ChatMirror {
 
   /**
    * A hook arrived for the pane's agent: its transcript has likely grown
-   * (ADR-216 D3), and so may its tasks' (a subagent's hooks arrive as the
+   * and so may its tasks' (a subagent's hooks arrive as the
    * root session's). Reads each that somebody is subscribed to.
    */
   poke(paneId: string): void {
@@ -342,7 +340,7 @@ export class ChatMirror {
   }
 
   /**
-   * Answer the pane's open picker by typing into its PTY (D5).
+   * Answer the pane's open picker by typing into its PTY.
    *
    * Refused as `stale` unless `toolUseId` is the newest question/plan, still
    * open, with no answer already in flight: a double tap, or a picker the
@@ -482,7 +480,7 @@ export class ChatMirror {
 
   /**
    * The task's stream, created or re-pointed at wherever the adapter says
-   * its transcript is now; null when it has none (ADR-224 D3).
+   * its transcript is now; null when it has none.
    */
   private pointChild(paneId: string, m: PaneMirror, taskId: string): TranscriptStream | null {
     const task = m.stream.parser.entry(taskId);
@@ -548,8 +546,8 @@ export class ChatMirror {
   }
 
   /**
-   * What the parser can't know: a picker that timed out (D5), and whether
-   * the adapter finds a task its own transcript (ADR-224 D3).
+   * What the parser can't know: a picker that timed out, and whether
+   * the adapter finds a task its own transcript.
    */
   private decorate(m: PaneMirror, entry: ChatEntry): ChatEntry {
     if (entry.kind === "task") {

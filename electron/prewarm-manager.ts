@@ -6,11 +6,11 @@ type PrewarmState = "idle" | "warming" | "ready";
 
 /**
  * Prewarms a shell session in the background so opening a new pane can
- * attach to one already booted. Local only (ADR-178 §3): prewarming a
+ * attach to one already booted. Local only: prewarming a
  * remote cwd would cost a round-trip to the box for a session the user may
  * never open, so a remote cwd never gets a prewarmed session — `warm` is a
  * no-op for it and `consume` never hands one out. The caller names each
- * cwd's host (ADR-183).
+ * cwd's host.
  */
 export class PrewarmManager {
   private client: TerminalHostClient;
@@ -27,7 +27,7 @@ export class PrewarmManager {
    *
    * A prewarmed session already exists when the pane that adopted it is
    * created, so that create looks like a warm reattach — which is exactly
-   * when `ptyCreate` does *not* type a pending command (ADR-179 ticket 11).
+   * when `ptyCreate` does *not* type a pending command.
    * This is how it tells the one create that is really a cold start in
    * disguise from a second viewer attaching to a live pane.
    */

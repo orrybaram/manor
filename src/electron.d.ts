@@ -24,13 +24,13 @@ export interface AppPreferences {
   agentRetentionDays: number;
   /** True after the one-time prune notice has been shown to the user. */
   agentPruneNoticeShown: boolean;
-  /** ADR-168's usage-stats collection kill switch. */
+  /** The usage-stats collection kill switch. */
   statsEnabled: boolean;
-  /** ADR-211: whether the New Workspace dialog asks Jev for a folder. */
+  /** Whether the New Workspace dialog asks Jev for a folder. */
   folderSuggestionsEnabled: boolean;
-  /** ADR-212: the earned title shown in the trophy room; null means the latest earned. */
+  /** The earned title shown in the trophy room; null means the latest earned. */
   achievementTitle: string | null;
-  /** ADR-212: secret badge ids the user chose to reveal. */
+  /** Secret badge ids the user chose to reveal. */
   revealedBadges: string[];
 }
 
@@ -51,7 +51,7 @@ export interface AgentInfo {
   activatedAt: string | null;
   projectId: string | null;
   projectName: string | null;
-  /** The host the agent's terminal runs on (ADR-191 §5). */
+  /** The host the agent's terminal runs on. */
   hostId: HostId;
   workspacePath: string | null;
   cwd: string;
@@ -61,7 +61,7 @@ export interface AgentInfo {
   lastAgentStatus: string | null;
   /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
-  /** Path of the session's JSONL transcript (ADR-215); null when unknown. */
+  /** Path of the session's JSONL transcript; null when unknown. */
   transcriptPath: string | null;
   /**
    * True when the user renamed this agent by hand. A pinned `name` wins over
@@ -71,7 +71,7 @@ export interface AgentInfo {
 }
 
 /**
- * ADR-162's durable notification log. Mirrors `NotificationRecord` in
+ * The durable notification log. Mirrors `NotificationRecord` in
  * `electron/notification-store.ts`; the derived bridge contract fails the
  * build wherever the host's copy stops fitting this one.
  */
@@ -104,7 +104,7 @@ export interface NotificationRecord {
 }
 
 /**
- * ADR-168's usage stats. Mirrors the corresponding types in
+ * Usage stats. Mirrors the corresponding types in
  * `electron/stats-store.ts`; the derived bridge contract fails the build
  * wherever the host's copy stops fitting this one.
  */
@@ -272,7 +272,7 @@ export interface ManorProcessInfo {
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
 
 /**
- * The one live state shown for an Agent's pane (ADR-184). There is no
+ * The one live state shown for an Agent's pane. There is no
  * `"complete"`: a finished turn is `responded`, an ended session is `idle`
  * (and the Agent's lifecycle becomes `completed`). The single declaration —
  * `electron/terminal-host/types.ts` and the reconciler mirror or import it,
@@ -288,7 +288,7 @@ export type AgentStatus =
 
 /**
  * One pane's Agent status as main's Status reconciler publishes it on the
- * `agent-status` channel (ADR-184 §4). `reason` says why.
+ * `agent-status` channel. `reason` says why.
  */
 export interface PaneAgentStatusUpdate {
   paneId: string;
@@ -300,12 +300,12 @@ export interface PaneAgentStatusUpdate {
 /**
  * The renderer's per-pane cache of `PaneAgentStatusUpdate` — the map key
  * already carries `paneId`, so it is dropped here. The renderer displays this
- * exactly as published; it never re-derives it (ADR-184 §4).
+ * exactly as published; it never re-derives it.
  */
 export type PaneAgentStatus = Omit<PaneAgentStatusUpdate, "paneId">;
 
 /**
- * ADR-199's persistent Agent activity history. Mirrors the types in
+ * The persistent Agent activity history. Mirrors the types in
  * `electron/agent-activity-store.ts`; declared here rather than imported so
  * the renderer's declaration surface stays self-contained.
  */
@@ -346,7 +346,7 @@ export interface AgentActivitySnapshot {
 /**
  * Position in a session's PTY output stream (mirrored from
  * electron/terminal-host/types.ts). Optional wherever it crosses the boundary:
- * the daemon outlives the app, so a daemon predating ADR-159 reports none.
+ * the daemon outlives the app, so an older daemon reports none.
  */
 export type StreamPosition = number;
 
@@ -361,11 +361,11 @@ export interface PtyCreateOptions {
    */
   hostId?: HostId;
   /**
-   * False when the call is not one the user meant (ADR-230 D3): a pane
+   * False when the call is not one the user meant: a pane
    * restored from the persisted layout at launch, on its first mount. A
    * sleeping host is then left asleep and the call answers
    * `host-unavailable`, so the pane waits behind the host's asleep banner.
-   * Omitted, a call for a sleeping host wakes it (ADR-229 D1).
+   * Omitted, a call for a sleeping host wakes it.
    */
   wake?: boolean;
 }
@@ -379,13 +379,13 @@ export type PtyAttachOptions = Pick<PtyCreateOptions, "wake">;
 /**
  * The winsize half of a create-shaped PTY reply (`pty.create`, `pty.reset`).
  *
- * The last three fields are the host's answer to "who owns the winsize"
- * (ADR-178 D5). **Absent means this viewer owns it**, which is what a viewer
- * alone on a pane is told and what every desktop pane was told until ADR-180
- * ticket 5 put both platforms on the same handler. A viewer told
- * `winsizeOwner: false` is a follower — it renders the `cols×rows` here and
- * never asks the pty for a different pair — and since D6 that can be a second
- * desktop window as readily as a browser.
+ * The last three fields are the host's answer to "who owns the winsize".
+ * **Absent means this viewer owns it**, which is what a viewer
+ * alone on a pane is told and what every desktop pane was told until both
+ * platforms moved to the same handler. A viewer told `winsizeOwner: false` is
+ * a follower — it renders the `cols×rows` here and never asks the pty for a
+ * different pair — and that can be a second desktop window as readily as a
+ * browser.
  */
 export interface PtyWinsize {
   /** False when another viewer — the desktop app — owns the winsize. */
@@ -396,13 +396,13 @@ export interface PtyWinsize {
 }
 
 /**
- * How a `pty.create` or `pty.attach` fails short of a session (ADR-183: one
+ * How a `pty.create` or `pty.attach` fails short of a session (one
  * type for main and renderer).
  */
 export type PtyFailure =
   | {
       /**
-       * The pane's remote host is not connected (ADR-178 §6): not a broken
+       * The pane's remote host is not connected: not a broken
        * terminal — it is created once `hostId` is back.
        */
       ok: false;
@@ -412,18 +412,18 @@ export type PtyFailure =
     }
   | { ok: false; reason: "error"; error: string };
 
-/** What `pty.create` resolves to (ADR-183: one type for main and renderer). */
+/** What `pty.create` resolves to (one type for main and renderer). */
 export type PtyCreateResult = PtyWinsize & (
   | {
       ok: true;
       /**
-       * The host the session actually runs on (ADR-160) — not its project's
+       * The host the session actually runs on — not its project's
        * current host, which may have changed since.
        */
       hostId: string;
       /** The session's screen when it already existed; null for a fresh one. */
       snapshot: string | null;
-      /** Stream position the snapshot reflects (ADR-159). */
+      /** Stream position the snapshot reflects. */
       snapshotSeq?: StreamPosition;
       /** The session already existed — NOT that its shell reached a prompt. */
       prewarmed: boolean;
@@ -432,24 +432,24 @@ export type PtyCreateResult = PtyWinsize & (
 );
 
 /**
- * What `pty.attach` resolves to (ADR-220): `pty.create`'s answer for a
+ * What `pty.attach` resolves to: `pty.create`'s answer for a
  * session that must already be running, which never spawns one.
  */
 export type PtyAttachResult = PtyWinsize & (
   | {
       ok: true;
-      /** The host the session runs on (ADR-160). */
+      /** The host the session runs on. */
       hostId: string;
       /** The session's screen; null when it has drawn nothing. */
       snapshot: string | null;
-      /** Stream position the snapshot reflects (ADR-159). */
+      /** Stream position the snapshot reflects. */
       snapshotSeq?: StreamPosition;
     }
   | {
       /**
        * No live session. `exited`: its shell exited, or it was killed, and
        * the viewer missed the `exit`. `lost`: a remote session a daemon
-       * restart took, which is recovered rather than closed (ADR-178 §6).
+       * restart took, which is recovered rather than closed.
        */
       ok: false;
       reason: "exited" | "lost";
@@ -459,7 +459,7 @@ export type PtyAttachResult = PtyWinsize & (
 
 export type { PushProgressEvent } from "../electron/bridge/handlers/branches-diffs";
 
-/** What `terminal.pasteClipboardImage` resolves to (ADR-187 §3). */
+/** What `terminal.pasteClipboardImage` resolves to. */
 export type PasteClipboardImageResult =
   | { kind: "local" }
   | { kind: "none" }
@@ -467,7 +467,7 @@ export type PasteClipboardImageResult =
   | { kind: "error"; message: string };
 
 /**
- * A live winsize-ownership change (ADR-179 D6), pushed to every viewer of
+ * A live winsize-ownership change, pushed to every viewer of
  * `paneId` whenever `pty-attachments.ts` decides the owner moved — not only
  * on this viewer's own `pty.create`/`pty.reset`. `owner` is this viewer's
  * answer, the same field `PtyCreateResult.winsizeOwner` carries, just not
@@ -481,7 +481,7 @@ export interface WinsizeOwnerEvent {
 }
 
 /**
- * The layout wire (ADR-179 D1/D3), defined once for the Manor server and
+ * The layout wire, defined once for the Manor server and
  * every renderer in `./lib/layout/protocol.ts`.
  */
 export type {
@@ -494,7 +494,7 @@ export type {
   PersistedViewportFile,
 } from "./lib/layout/protocol";
 
-/** The one-click project transfer's wire types (ADR-213). */
+/** The one-click project transfer's wire types. */
 export type {
   TransferInputReason,
   TransferMode,
@@ -502,12 +502,12 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
-/** Phone access through a host's server (ADR-225 D3). */
+/** Phone access through a host's server. */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";
 export type { HostServerStatus } from "../electron/host-server/relay";
-/** A saved recipe template plus answers (ADR-235 D1). */
+/** A saved recipe template plus answers. */
 export type { HostProfile } from "../electron/projects/types";
-/** The "Start a host" form's templates (ADR-229 D8) and their checks (ADR-234 D6, D8). */
+/** The "Start a host" form's templates and their checks. */
 export type {
   Choice,
   TemplateCheck,
@@ -516,7 +516,7 @@ export type {
   TemplateInfo,
 } from "../electron/backend/providers/recipe-templates/types";
 
-/** The phone chat view's wire types (ADR-215). */
+/** The phone chat view's wire types. */
 export type {
   ChatEntry,
   ChatPush,
@@ -536,7 +536,7 @@ export type {
   ChatHistory,
 } from "../electron/chat-mirror/mirror";
 
-/** A detached window's hold on a tab (ADR-179 D4). */
+/** A detached window's hold on a tab. */
 export type LayoutClaim = import("./lib/layout/visible-tabs").LayoutClaim;
 
 /**
@@ -545,23 +545,22 @@ export type LayoutClaim = import("./lib/layout/visible-tabs").LayoutClaim;
  */
 export interface HostFacts {
   /**
-   * Which transport the client in the page is built over (ADR-180 D3): the
+   * Which transport the client in the page is built over: the
    * preload's IPC channels, or a WebSocket to a host. Read it to hide what a
    * browser genuinely cannot do — never to guess at a capability the bridge
    * can report.
    *
-   * What that is, exactly, is `electron/ipc/`'s six survivors (D8, ticket
-   * 11): `<webview>` panes and their pickers, detach-to-window, the native
-   * app menu, native dialogs, the shell escape hatches, the clipboard and the
-   * updater. Everything else answers the same way on both platforms, which
+   * What that is, exactly, is `electron/ipc/`'s six survivors: `<webview>`
+   * panes and their pickers, detach-to-window, the native app menu, native
+   * dialogs, the shell escape hatches, the clipboard and the updater. Everything else answers the same way on both platforms, which
    * is the whole point of the handler table this `platform` check is an
    * exception to.
    */
   platform: "electron" | "web";
 
   /**
-   * This renderer's id, as the Manor server names it in a command's origin
-   * (ADR-179 D3): the desktop's `webContents.id`, a browser's bridge
+   * This renderer's id, as the Manor server names it in a command's origin:
+   * the desktop's `webContents.id`, a browser's bridge
    * connection id. Null in a browser until the socket has said hello.
    *
    * Its one job is telling a renderer's own `layout.changed` from everybody
@@ -575,14 +574,14 @@ export interface HostFacts {
   };
 
   /**
-   * The one tab this window holds of the shared layout (ADR-179 D4), from
+   * The one tab this window holds of the shared layout, from
    * `--manor-claim=<tabId>::<workspacePath>`. Null in the primary window and
    * in a browser — a claim is a desktop window's, and a browser always sees
    * the whole workspace. Main knows it too, and the window's viewport reports
    * are what make it take effect on the server; the tab itself never leaves
    * the workspace.
    *
-   * It is also the whole of what makes a window a detached one (ADR-182 D5):
+   * It is also the whole of what makes a window a detached one:
    * a window is detached exactly when it holds a claim.
    */
   claim: { workspacePath: string; tabId: string } | null;
@@ -590,7 +589,7 @@ export interface HostFacts {
 
 /**
  * `window.electronAPI`, the one surface the desktop renderer and a browser
- * tab both call (ADR-180 D3, ADR-182 D4).
+ * tab both call.
  *
  * Built from its parts rather than written out:
  *
@@ -620,10 +619,10 @@ export interface PickedElementResult {
   }>;
 }
 
-// ── Remote control (ADR-161) ──
+// ── Remote control ──
 
 /**
- * The Manor relay's connection (ADR-206). Mirrors `RelayStatus` in
+ * The Manor relay's connection. Mirrors `RelayStatus` in
  * `electron/remote-control/relay/connector.ts`. `error` is set in `failed`,
  * and also while `starting` when a previous attempt to reach the relay
  * failed and the connector is retrying.
@@ -642,7 +641,7 @@ export interface RemoteDeviceInfo {
   /** Whether the device has a live Web Push subscription. */
   hasPush: boolean;
   /**
-   * Present while the device has not opened its link yet (ADR-240 D2): when
+   * Present while the device has not opened its link yet: when
    * the link's single-use ticket stops working. Past it, the link expired.
    */
   pending?: { expiresAt: number };
@@ -666,8 +665,8 @@ export interface RemoteControlStatus {
 export interface RemotePairResult {
   device: RemoteDeviceInfo;
   /**
-   * The relay link the device opens (ADR-206): a single-use pairing ticket
-   * (ADR-240 D1), or the raw token for a `direct` pairing. Shown once.
+   * The relay link the device opens: a single-use pairing ticket
+   * or the raw token for a `direct` pairing. Shown once.
    */
   pairingUrl: string;
   /** When the link's ticket stops working; null for a `direct` pairing. */
@@ -676,7 +675,7 @@ export interface RemotePairResult {
   rawToken?: string;
 }
 
-// ── The host surface (ADR-180 D3) ──
+// ── The host surface ──
 
 /**
  * What the preload exposes, and the only thing it exposes: the facts a
@@ -727,7 +726,7 @@ export interface ManorHost {
 declare global {
   interface Window {
     electronAPI: ElectronAPI;
-    /** ADR-180 D3. Undefined in a browser. */
+    /** Undefined in a browser. */
     manorHost: ManorHost | undefined;
   }
 }

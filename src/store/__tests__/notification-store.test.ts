@@ -114,7 +114,7 @@ describe("useNotificationStore", () => {
     expect(shellApi.openExternal).toHaveBeenCalledWith("https://x/pull/1");
   });
 
-  it("keeps its list when a native click's re-read fails (ADR-232 D7)", async () => {
+  it("keeps its list when a native click's re-read fails", async () => {
     onChangedCallback?.([makeRecord({ id: "kept" })]);
     notificationsApi.getAll.mockRejectedValueOnce(new Error("main is busy"));
 
@@ -125,7 +125,7 @@ describe("useNotificationStore", () => {
     ]);
   });
 
-  it("records a failed read, keeps the list, and clears it on retry (ADR-232 D7)", async () => {
+  it("records a failed read, keeps the list, and clears it on retry", async () => {
     onChangedCallback?.([makeRecord({ id: "kept" })]);
     notificationsApi.getAll.mockRejectedValueOnce(new Error("main is busy"));
 
@@ -171,7 +171,7 @@ describe("useNotificationStore", () => {
 });
 
 describe("navigateToNotification", () => {
-  it("navigates even when markRead rejects (ADR-232 D7)", async () => {
+  it("navigates even when markRead rejects", async () => {
     notificationsApi.markRead.mockRejectedValueOnce(new Error("main is busy"));
 
     await navigateToNotification(

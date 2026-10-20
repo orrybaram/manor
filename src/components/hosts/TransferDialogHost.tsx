@@ -16,7 +16,7 @@ function openingKey(dialog: object): number {
 }
 
 /**
- * The app-wide mount for ADR-213's fallback dialog, driven by the store's
+ * The app-wide mount for the transfer fallback dialog, driven by the store's
  * `transferDialog`. Each opening gets a new `key` because `CloneToHostDialog`
  * starts its state fresh on mount.
  */

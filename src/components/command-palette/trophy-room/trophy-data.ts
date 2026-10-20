@@ -13,7 +13,7 @@ import {
 } from "../../../lib/badges";
 
 /**
- * Display-side derivations for the trophy room (ADR-212), kept out of the
+ * Display-side derivations for the trophy room, kept out of the
  * component files so they fast-refresh and can be unit tested.
  */
 

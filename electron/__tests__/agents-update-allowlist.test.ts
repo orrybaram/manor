@@ -1,8 +1,8 @@
 /**
  * `agentsUpdate` — the renderer's write allowlist.
  *
- * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so this is a plain function over `HostDeps` — the same
+ * No `ipcMain` here any more: `agents` crossed to the handler table,
+ * so this is a plain function over `HostDeps` — the same
  * function the table calls, and a paired `full` device now reaches it the
  * same way the desktop does.
  */

@@ -1,7 +1,7 @@
 /**
  * Hook feed — delivers a host's journaled agent hooks to the host server, in
- * order, exactly once (ADR-178 §2). The desktop no longer reads a remote
- * host's journal (ADR-227 D4): its host server does.
+ * order, exactly once. The desktop no longer reads a remote
+ * host's journal: its host server does.
  *
  * The remote daemon journals every hook with a consecutive `seq` and
  * broadcasts it live as a `hookEvent`. Main remembers, per host, the last
@@ -16,7 +16,7 @@
  *      the replay too),
  *
  * and only then goes live. Order matters: the Status reconciler's late-active
- * guard (`agent-status/reconciler.ts`, ADR-184) assumes events arrive in the
+ * guard (`agent-status/reconciler.ts`) assumes events arrive in the
  * order they fired.
  * A live event that skips a seq means one went missing, so the feed goes
  * back to the journal rather than ingest out of order.
@@ -48,7 +48,7 @@ export interface HookCursor {
   seq: number;
   /**
    * The journal's epoch. Null only in a cursor persisted before journals had
-   * epochs, which the next catch-up treats as a reset (ADR-183).
+   * epochs, which the next catch-up treats as a reset.
    */
   epoch: string | null;
 }
@@ -163,7 +163,7 @@ export class HostHookFeed {
    * went live, its replay failed (a retry is scheduled — nobody should wait
    * on that), or it was paused. With no sink yet it settles at once. The
    * registry waits on it so panes reattach after replayed hooks have set
-   * their agents' status (ADR-178 §6).
+   * their agents' status.
    */
   catchUp(): Promise<void> {
     const settled = new Promise<void>((resolve) => this.settleWaiters.push(resolve));
@@ -353,7 +353,7 @@ type NotifyFn = (
 ) => void;
 
 /**
- * Notification coalescing for hook replay (ADR-178 §2).
+ * Notification coalescing for hook replay.
  *
  * A laptop that was closed for a night can replay hundreds of hooks at once;
  * notifying for each would bury the user. While a replayed hook is being
@@ -372,7 +372,7 @@ export class NotificationCoalescer {
 
   constructor(private readonly notify: NotifyFn) {}
 
-  /** The notification function to hand the Status reconciler's driver (ADR-184). */
+  /** The notification function to hand the Status reconciler's driver. */
   readonly send: NotifyFn = (agent, prevStatus, newStatus) => {
     if (this.holdingFor === null) {
       this.notify(agent, prevStatus, newStatus);

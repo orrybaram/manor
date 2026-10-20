@@ -1,5 +1,5 @@
 /**
- * The native application menu, as a pure function (ADR-170).
+ * The native application menu, as a pure function.
  *
  * `buildMenuTemplate` maps a snapshot of renderer state (`MenuContext`), the
  * user's resolved keybindings and a couple of environment flags onto an
@@ -248,7 +248,7 @@ export function buildMenuTemplate(
         label: project.name,
         submenu: project.workspaces.map((ws) =>
           cmd("switch-workspace", ws.label, {
-            // The project names the workspace's host (ADR-191).
+            // The project names the workspace's host.
             args: { path: ws.path, projectId: project.id },
             type: "radio",
             checked:

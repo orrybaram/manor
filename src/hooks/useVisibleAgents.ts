@@ -6,7 +6,7 @@ import { allPaneIds } from "../lib/layout/pane-tree";
 
 /**
  * The agents the sidebar's Agents list shows. Shared with the collapsed rail's
- * Agents count (ADR-195) so the two never disagree.
+ * Agents count so the two never disagree.
  */
 export function useVisibleAgents(): (AgentInfo & { projectName: string })[] {
   const agents = useAgentStore((s) => s.agents);
@@ -31,7 +31,7 @@ export function useVisibleAgents(): (AgentInfo & { projectName: string })[] {
   // only if their pane is still active. Orphaned active records (paneId null) are
   // hidden because they have no pane to navigate to.
   //
-  // Pagination note (ADR-136): the agent store loads `agents:getActive` (all active)
+  // Pagination note: the agent store loads `agents:getActive` (all active)
   // plus the first page of `agents:getAll` (most recent N). A non-active agent whose
   // paneId is still in the current layout is by construction recent — its pane
   // hasn't been closed yet — and is therefore expected to be inside the first

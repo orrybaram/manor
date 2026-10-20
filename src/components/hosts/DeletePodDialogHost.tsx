@@ -4,8 +4,8 @@ import { hostName } from "../../lib/hosts";
 import { RemoveHostDialog } from "../settings/HostsPage/RemoveHostDialog";
 
 /**
- * The app-wide mount for "Delete the pod" on a failed "In a new pod"
- * (ADR-235 D3): the same typed confirm as Settings → Hosts → Remove, opened
+ * The app-wide mount for "Delete the pod" on a failed "In a new pod":
+ * the same typed confirm as Settings → Hosts → Remove, opened
  * by the store's `deletePodDialog`.
  */
 export function DeletePodDialogHost() {

@@ -1,22 +1,22 @@
 /**
  * What this browser is paired with, read from the URL fragment and
- * `localStorage` (ADR-178 D1, ADR-206 D3), and the relay's version redirect
- * (ADR-206 D4). Pure enough to test without importing `install-web.ts`,
+ * `localStorage`, and the relay's version redirect.
+ * Pure enough to test without importing `install-web.ts`,
  * which installs the bridge as a side effect.
  *
  * Two link forms, in the fragment — which no browser sends to any server, the
  * relay and Cloudflare's logs included — with `roomId` and the key base64url:
  *
  * - `https://<relay-origin>/app/<version>/#relay=<roomId>.<x25519Pub>&ticket=<ticket>`
- *   — a single-use pairing link (ADR-240 D1). The ticket is good for one
+ *   — a single-use pairing link. The ticket is good for one
  *   hello within 10 minutes; this browser chooses its own token
  *   (`freshDeviceToken`) and sends both, and the host stores that token's
  *   hash. The long-lived token never appears in a URL.
  * - `…#relay=<roomId>.<x25519Pub>&t=<token>` — the token as the device store
- *   minted it (ADR-206 D3): a link from an older desktop, still read.
+ *   minted it: a link from an older desktop, still read.
  *
  * A fragment with both `t` and `ticket` is `invalid`. The relay origin is the
- * only server the web app has (ADR-207 D2); a page with no relay credentials
+ * only server the web app has; a page with no relay credentials
  * is simply not paired.
  *
  * **Which fragments count as a link at all.** A fragment is also what an
@@ -55,7 +55,7 @@ export type Pairing = RelayCredentials | null;
 export type FragmentPairing =
   | { kind: "none" }
   | { kind: "relay"; relay: RelayCredentials }
-  /** A single-use link (ADR-240 D1): the token is this browser's to choose. */
+  /** A single-use link: the token is this browser's to choose. */
   | { kind: "ticket"; link: TicketLink }
   /**
    * Looked like a credential but is not a usable link: a relay link that did
@@ -116,8 +116,8 @@ export function parseFragment(hash: string): FragmentPairing {
  * ticket link with a token this browser mints (`upsertTicketPairing`) — and
  * strip the fragment so it cannot linger in history or a screenshot. Returns
  * that pairing; with no link, the last-used stored one, or null with none. A
- * link never drops the other pairings (ADR-225 D7), and the page dials every
- * one of them (ADR-228 D8, `listPairings`).
+ * link never drops the other pairings, and the page dials every
+ * one of them (`listPairings`).
  */
 export function readPairing(): Pairing {
   migrateLegacyPairing();
@@ -135,8 +135,7 @@ export function readPairing(): Pairing {
  * is stored. Another tab may have taken a newer link since this one loaded,
  * and a stale tab's refusal must not erase that. The other pairings stay.
  * The room is not declined: the desktop mints it again on its next hello
- * unless that device was revoked on the host, which the desktop remembers
- * (ADR-238).
+ * unless that device was revoked on the host, which the desktop remembers.
  */
 export function forgetPairing(pairing: Pairing): void {
   if (pairing !== null) removePairing(pairing);
@@ -147,7 +146,7 @@ const VERSION_PATTERN = /^[0-9A-Za-z][0-9A-Za-z.+-]{0,63}$/;
 
 /**
  * Where a relay-served page should go when the desktop runs a different
- * version from the one it was built as (ADR-206 D4), or null to stay.
+ * version from the one it was built as, or null to stay.
  *
  * Guarded in `sessionStorage` by target: this tab goes to a given version at
  * most once per session (`VERSION_REDIRECT_KEY` holds the versions it has

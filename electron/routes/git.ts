@@ -8,12 +8,12 @@
  * only guard here against shelling out into arbitrary directories. `cwd` is
  * matched with `matchProjectByPath` (`../pane-context.ts`), the same lookup
  * `GET /context` uses, so a path nested inside a workspace (not just its
- * root) still resolves. These routes are never relayed (ADR-189 §2), so
+ * root) still resolves. These routes are never relayed, so
  * there is no caller host to scope by; `cwd`'s own host is guessed from its
- * owner (`ownerHostIdForPath`, ADR-191), the same tie-break `PathRouter`
+ * owner (`ownerHostIdForPath`), the same tie-break `PathRouter`
  * uses, then a scan of every other host, local first, if that guess doesn't
  * actually resolve — see `resolveProjectByPath`. Git then runs on the host of
- * the project that lookup resolved (`backendRegistry`, ADR-230 D13), not on
+ * the project that lookup resolved (`backendRegistry`), not on
  * whichever host `PathRouter` would guess for `cwd`, so the project's default
  * branch and the host running git can't disagree. A host that is away or
  * unregistered fails as `RoutedBackend.git` would: `HostUnavailableError`.

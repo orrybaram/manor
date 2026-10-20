@@ -1,8 +1,8 @@
 /**
  * `agentsGetActive`, `agentsGetRecent`, `agentsConsumePruneNotice`.
  *
- * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so these are plain functions over `HostDeps` — the same
+ * No `ipcMain` here any more: `agents` crossed to the handler table,
+ * so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does.
  */
@@ -53,7 +53,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("agents.getActive (ADR-136)", () => {
+describe("agents.getActive", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -84,7 +84,7 @@ describe("agents.getActive (ADR-136)", () => {
   });
 });
 
-describe("agents.getRecent (ADR-136)", () => {
+describe("agents.getRecent", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {
@@ -102,7 +102,7 @@ describe("agents.getRecent (ADR-136)", () => {
   });
 });
 
-describe("agents.consumePruneNotice (ADR-136)", () => {
+describe("agents.consumePruneNotice", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {

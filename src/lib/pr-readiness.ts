@@ -1,7 +1,7 @@
 import type { PrInfo } from "./pr-info";
 
 /**
- * ADR-167: the PR badge answers exactly one question — "can this ship?".
+ * The PR badge answers exactly one question — "can this ship?".
  * Evaluated in order: merged → closed → blocked → queued → review → ready →
  * pending. The first match wins.
  */
@@ -14,7 +14,7 @@ export type PrReadiness =
   | "merged"
   | "closed";
 
-/** ADR-198 §2: the pipeline column an open PR sits in. */
+/** The pipeline column an open PR sits in. */
 export type PrStage = "checks" | "review" | "blocked" | "ready";
 export const PR_STAGES: readonly PrStage[] = ["checks", "review", "blocked", "ready"];
 
@@ -32,7 +32,7 @@ export type PrBlocker =
   | { kind: "changes-requested" }
   | { kind: "threads"; count: number };
 
-/** ADR-202 §1: readiness, pipeline stage and blocker, from one walk of the order. */
+/** Readiness, pipeline stage and blocker, from one walk of the order. */
 export type PrVerdict =
   | { readiness: "blocked"; stage: "blocked"; blocker: PrBlocker }
   | { readiness: "merged" | "closed"; stage: null; blocker: null }
@@ -43,7 +43,7 @@ export type PrVerdict =
     };
 
 /**
- * ADR-202 §2: each blocker kind's Needs you card title and tone. Keyed by
+ * Each blocker kind's Needs you card title and tone. Keyed by
  * kind, so a new blocker won't compile until it has both.
  */
 export const PR_BLOCKER: Record<
@@ -70,7 +70,7 @@ export function blockerLabel(blocker: PrBlocker): string {
   }
 }
 
-/** The first applicable blocker, in ADR-167 order; null when nothing blocks. */
+/** The first applicable blocker, in readiness order; null when nothing blocks. */
 function firstBlocker(pr: PrInfo): PrBlocker | null {
   if (pr.hasConflicts === true) return { kind: "conflicts" };
   if (pr.checks != null && pr.checks.failing > 0) {
@@ -94,7 +94,7 @@ function firstBlocker(pr: PrInfo): PrBlocker | null {
 }
 
 /**
- * The one place the ADR-167 order lives: merged → closed → blocker
+ * The one place the readiness order lives: merged → closed → blocker
  * (conflicts → checks → changes requested → threads) → queued → review →
  * ready → pending.
  */

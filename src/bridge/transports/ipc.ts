@@ -1,5 +1,5 @@
 /**
- * The desktop's transport: `window.manorHost` (ADR-180 D2/D3).
+ * The desktop's transport: `window.manorHost`.
  *
  * The same frames the WebSocket carries, over the four `bridge:*` channels
  * the preload opens onto `electron/bridge/transports/ipc.ts`. There is no
@@ -7,24 +7,22 @@
  * runs, it cannot drop while the window lives, and the preload holds the
  * subscription registry (reference-counted, because React StrictMode mounts
  * an effect twice). What is left is a thin adapter — which is the point of
- * ADR-180 D2: the protocol is the thing worth sharing, not the pipe.
+ * The protocol is the thing worth sharing, not the pipe.
  *
  * **Some things come off `manorHost` rather than the host.** The facts a
  * renderer needs before it can ask anything (`rendererId`, `claim`, `env`)
  * are read off the preload's own argv and answered synchronously, because a
  * component branching on them is rendering.
  *
- * **`native` is the final shape, not a shim in transit.** ADR-178 D8 named
- * the end state — the preload keeps only what only Electron can do — and
- * ADR-180 tickets 5 through 10 got there: `native` now holds exactly the
- * seven namespaces ADR-178's "what can never mirror in a browser" table
- * named from the start (`webview`, `window`, `menu`, `dialog`, `shell`,
- * `clipboard`, `updater`), and nothing else. Every other namespace the proxy
+ * **`native` is the final shape, not a shim in transit.** The preload keeps
+ * only what only Electron can do: `native` holds exactly the seven
+ * namespaces that can never mirror in a browser (`webview`, `window`,
+ * `menu`, `dialog`, `shell`, `clipboard`, `updater`), and nothing else. Every other namespace the proxy
  * once fell through to here goes over `bridge:invoke` now, on every call,
  * the same as it does from a browser — 140-odd methods crossed one group at
  * a time, and this file did not have to change once for any of them.
  * Since then `native` has gained only what is native by the same test:
- * `hostPipe` (ADR-228 D4), a window's own SSH stream to a host server, which
+ * `hostPipe`, a window's own SSH stream to a host server, which
  * a page cannot open and main has to carry.
  *
  * `native` carries no root-level function either. Every member of

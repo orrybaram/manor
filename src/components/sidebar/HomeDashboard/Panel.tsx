@@ -13,7 +13,7 @@ type PanelProps = {
 };
 
 /**
- * A titled dashboard section (ADR-198 §1): the soft panel every Studio
+ * A titled dashboard section: the soft panel every Studio
  * section sits in — Needs you, and the activity / pipeline / Up next slots.
  */
 export function Panel(props: PanelProps) {

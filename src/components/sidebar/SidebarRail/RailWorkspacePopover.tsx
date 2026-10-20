@@ -19,7 +19,7 @@ type RailWorkspacePopoverProps = {
 };
 
 /**
- * The rail tile's popover (ADR-195): the entry exactly as the full sidebar
+ * The rail tile's popover: the entry exactly as the full sidebar
  * renders it — rows, badges, menus and actions — through `SidebarEntry`,
  * always expanded.
  */

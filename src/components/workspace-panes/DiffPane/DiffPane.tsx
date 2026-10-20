@@ -56,7 +56,7 @@ export type DiffPaneRef = {
 type DiffPaneProps = {
   paneId?: string;
   workspacePath?: string;
-  /** The workspace's host (ADR-191). */
+  /** The workspace's host. */
   hostId?: string;
 };
 
@@ -180,7 +180,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return () => window.removeEventListener("keydown", handleKeyDown);
     });
 
-    // Edit › Find… (ADR-170) targets whichever pane is focused; open our own
+    // Edit › Find… targets whichever pane is focused; open our own
     // search UI when the request names this pane.
     useEffect(() => {
       if (!paneId) return;
@@ -547,7 +547,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                   }
                 : undefined,
             // NOTE: pull-and-retry has no IPC `pull` method available yet, so
-            // we omit the action button. Tracked as ADR-140 follow-up.
+            // we omit the action button.
           });
         }
       });
@@ -566,7 +566,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       };
     }, []);
 
-    // ADR-178: `git.*` is not on the slice-1 bridge table, so Push and Commit
+    // `git.*` is not on the slice-1 bridge table, so Push and Commit
     // would only ever round-trip to a `BridgeUnavailableError` (`runPush`
     // still catches that as a fallback). Disabling with a reason said up
     // front beats the same refusal arriving as a toast after every click.

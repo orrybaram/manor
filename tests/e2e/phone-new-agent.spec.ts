@@ -8,7 +8,7 @@ import { closeSettings, pairBrowser, setAgentCommand } from "./helpers/settings"
 import { activePaneId, awaitShellReady } from "./helpers/terminal";
 
 /**
- * ADR-222 end to end: the phone's "New agent" composer picks where an agent
+ * The phone's "New agent" composer end to end: it picks where an agent
  * runs (project, workspace, or a new worktree) and starts it only on send.
  *
  * Same discipline as `phone.spec.ts`: the desk is set up through its own UI,
@@ -79,7 +79,7 @@ async function pickChoice(page: Page, chip: string, match: string | RegExp): Pro
   await expect(choices).toHaveCount(0);
 }
 
-test.describe("phone new agent target picker (ADR-222)", () => {
+test.describe("phone new agent target picker", () => {
   test.setTimeout(240_000);
 
   test("New agent opens a composer that starts nothing, has no host chip for an unlinked project, and closes back to the tab", async ({

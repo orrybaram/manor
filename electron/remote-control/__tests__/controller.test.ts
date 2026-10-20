@@ -4,7 +4,7 @@
  * with it. Both are asserted here against fakes, so the test is about the
  * decisions rather than about sockets.
  *
- * The runtime (gate + relay) loads lazily (ADR-205 §3), so the second half
+ * The runtime (gate + relay) loads lazily, so the second half
  * covers what happens before it loads and what happens when calls race the
  * load — above all, that shutdown never leaves anything running.
  *
@@ -273,7 +273,7 @@ describe("RemoteControlController", () => {
     expect(status.relayNotice).toMatch(/could not be read/);
   });
 
-  describe("relay (ADR-206)", () => {
+  describe("relay", () => {
     it("is never started by enabling", async () => {
       await f.controller.setEnabled(true);
       expect(f.relay.start).not.toHaveBeenCalled();

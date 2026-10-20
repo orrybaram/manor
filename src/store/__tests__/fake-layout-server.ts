@@ -1,6 +1,5 @@
 /**
- * The Manor server's layout store, in the test process (ADR-179 D1, ADR-182
- * D9).
+ * The Manor server's layout store, in the test process.
  *
  * The renderer does not change layout; it sends a `LayoutCommand` and waits
  * for the broadcast that comes back. A store test that wants to assert what a
@@ -209,7 +208,7 @@ export const queuedCommands: Array<{
   paneId: string;
   text: string;
   kind: string;
-  /** Present only when the text is to be typed, not run (ADR-183). */
+  /** Present only when the text is to be typed, not run. */
   submit?: false;
   prompt?: string;
 }> = [];
@@ -220,7 +219,7 @@ export const queuedCommands: Array<{
  *
  * Exists for one assertion: a pending command must be queued *before* the
  * command that creates its pane, or a renderer can mount the pane and reach
- * `pty.create` with nothing waiting (ADR-179 ticket 11).
+ * `pty.create` with nothing waiting.
  */
 export const serverCalls: Array<"pending" | "apply"> = [];
 
@@ -299,8 +298,8 @@ export function broadcastLayout(
 }
 
 /**
- * Forget a workspace the way the server does when its worktree is removed
- * (ADR-182 D7): `LayoutStore.remove`, which broadcasts `removed`.
+ * Forget a workspace the way the server does when its worktree is removed:
+ * `LayoutStore.remove`, which broadcasts `removed`.
  */
 export function removeWorkspace(workspacePath: string): void {
   server.remove(workspacePath);

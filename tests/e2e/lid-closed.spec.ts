@@ -35,7 +35,7 @@ import { closeSettings, openHostRow, pairBrowser, roomOf } from "./helpers/setti
 import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
 
 /**
- * A closed lid, the way a laptop does it (ADR-231 D4): the whole desktop
+ * A closed lid, the way a laptop does it: the whole desktop
  * freezes mid-run, its network goes, the box works on with a phone
  * watching, and the desktop thaws and recovers with no Retry.
  *
@@ -106,7 +106,7 @@ function ticks(text: string): number[] {
 
 /**
  * Whether the phone's sidebar dims the project named `name` as away: its
- * container carries `data-host-offline` (ADR-192 §5, ADR-228 D6).
+ * container carries `data-host-offline`.
  */
 function projectAway(page: Page, name: string): Promise<boolean> {
   return page.evaluate((projectName) => {
@@ -292,7 +292,7 @@ relayTest.describe("the lid closes", () => {
 
           // The desktop's project reads as away; the box's stays live. The
           // phone's transport pings the silent desktop and gives up on its
-          // line (ADR-231 D8), well before the relay reaps it (90 s).
+          // line, well before the relay reaps it (90 s).
           let awayAfterMs: number | null = null;
           try {
             await expect

@@ -1,7 +1,7 @@
 /**
  * `DELETE /projects/:projectId/workspaces` — the CLI's and MCP's
  * `remove_workspace` — tears the workspace's layout down on the server
- * (ADR-182 D7), the same way the sidebar's removal does, because both go
+ * the same way the sidebar's removal does, because both go
  * through `ProjectManager.removeWorktree`.
  */
 
@@ -48,7 +48,7 @@ function findRoute(method: Route["method"], routePath: string): Route {
   return route;
 }
 
-describe("DELETE /projects/:projectId/workspaces (ADR-182 D7)", () => {
+describe("DELETE /projects/:projectId/workspaces", () => {
   let tmpDir: string;
   let store: LayoutStore;
   let broadcasts: LayoutBroadcast[];

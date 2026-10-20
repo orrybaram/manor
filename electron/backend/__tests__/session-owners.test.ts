@@ -27,7 +27,7 @@ describe("SessionOwners", () => {
     expect(owners.ownerOf("pane-a")).toBe("box");
     owners.accept("box", { type: "exit", sessionId: "pane-b", exitCode: 0 });
     expect(owners.ownerOf("pane-b")).toBeUndefined();
-    // The local daemon's loss still closes the pane (ADR-169).
+    // The local daemon's loss still closes the pane.
     owners.accept("local", { type: "exit", sessionId: "pane-c", exitCode: -1, lost: true });
     expect(owners.ownerOf("pane-c")).toBeUndefined();
     expect(isRemoteSessionLoss("local", { type: "exit", sessionId: "p", exitCode: -1, lost: true })).toBe(false);

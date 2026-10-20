@@ -14,7 +14,7 @@ import type { StreamPosition } from "../electron.d";
 export interface TerminalRestore {
   /** Serialized screen, ready to write to a terminal. */
   ansi: string;
-  /** Stream position the screen reflects; absent from pre-ADR-159 daemons. */
+  /** Stream position the screen reflects; absent from older daemons. */
   seq?: StreamPosition;
 }
 

@@ -65,7 +65,7 @@ describe("layout components are memoized", () => {
           },
         },
       },
-      // What this window is looking at is viewport, not layout (ADR-179 D3).
+      // What this window is looking at is viewport, not layout.
       viewports: {
         [KEY]: {
           activePanelId: "panel-1",

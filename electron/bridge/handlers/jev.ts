@@ -1,5 +1,5 @@
 /**
- * Jev, provided by Manor through the relay (ADR-211), as the `jev` namespace
+ * Jev, provided by Manor through the relay, as the `jev` namespace
  * of the handler table.
  *
  * There is no key on this side to protect: `JevClient` signs with the relay

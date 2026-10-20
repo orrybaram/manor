@@ -9,7 +9,7 @@ type BulkDeleteWorktreesDialogProps = {
   onOpenChange: (open: boolean) => void;
   /**
    * The workspaces to delete, each with the project that owns it: two hosts
-   * of a linked group can share a path (ADR-192 ticket 7).
+   * of a linked group can share a path.
    */
   workspaces: BulkDeleteTarget[];
   onConfirm: (workspaces: BulkDeleteTarget[], deleteBranch: boolean) => void;
@@ -18,7 +18,7 @@ type BulkDeleteWorktreesDialogProps = {
 type BulkDeleteTarget = { projectId: string; ws: WorkspaceInfo };
 
 /**
- * Bulk sibling of `DeleteWorktreeDialog` (ADR-190 §2): lists every workspace
+ * Bulk sibling of `DeleteWorktreeDialog`: lists every workspace
  * about to go instead of naming one, but shares the same "also delete local
  * branches" checkbox (`useDeleteBranchPreference`), so the choice made in
  * one dialog carries over to the other.

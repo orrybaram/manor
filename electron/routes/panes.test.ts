@@ -1,5 +1,5 @@
 /**
- * `/panes`, `/tabs` and `/workspaces` (ADR-179 D5) — structural routes call
+ * `/panes`, `/tabs` and `/workspaces` — structural routes call
  * `LayoutStore.apply()` directly and need no window; viewport routes still
  * proxy to the primary.
  */
@@ -61,7 +61,7 @@ async function call(
   return calls[0];
 }
 
-describe("panes/tabs routes (ADR-179 D5)", () => {
+describe("panes/tabs routes", () => {
   let tmpDir: string;
   let store: LayoutStore;
   let deps: HostDeps;
@@ -187,8 +187,8 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
     });
 
     /**
-     * What MCP's `split_pane` and the agent fan-out (ADR-176) actually ask
-     * for. Between ticket 5 and ticket 11 the argument was validated and then
+     * What MCP's `split_pane` and the agent fan-out actually ask
+     * for. For a while the argument was validated and then
      * silently dropped, because the only home for it was a renderer's own map.
      */
     it("records a pending command for the pane it minted", async () => {
@@ -352,8 +352,8 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
     });
 
     /**
-     * `command` is why this route could not be trusted between ticket 5 and
-     * ticket 11: it was validated and then dropped, because the only place to
+     * `command` is why this route could not be trusted for a while: it was
+     * validated and then dropped, because the only place to
      * put it was the *sending renderer's* map and a route has no renderer.
      */
     it("queues a command for the pane the tab minted", async () => {
@@ -544,8 +544,8 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   });
 
   describe("workspace resolution order", () => {
-    // `/panes/:paneId/title` used to be the route this rode on; ADR-182
-    // ticket 1 moved it onto `LayoutStore.setPaneTitle`, which finds its own
+    // `/panes/:paneId/title` used to be the route this rode on; it has
+    // since moved onto `LayoutStore.setPaneTitle`, which finds its own
     // workspace and never calls `resolveWorkspacePath` at all (see the
     // route's own tests below). `/panes/:paneId/extract` still does.
     const route = findRoute(paneRoutes, "POST", "/panes/:paneId/extract");
@@ -574,7 +574,7 @@ describe("panes/tabs routes (ADR-179 D5)", () => {
   describe("POST /panes/:paneId/title", () => {
     const route = findRoute(paneRoutes, "POST", "/panes/:paneId/title");
 
-    it("sets the title and broadcasts it, off the command channel (ADR-182 D1)", async () => {
+    it("sets the title and broadcasts it, off the command channel", async () => {
       const { paneId } = await seedTab(WS);
       const res = await call(route, deps, {
         params: { paneId },

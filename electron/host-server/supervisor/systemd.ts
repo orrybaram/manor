@@ -1,5 +1,5 @@
 /**
- * systemd user units for the daemon and the host server (ADR-229 D4).
+ * systemd user units for the daemon and the host server.
  *
  * Two units under `~/.config/systemd/user/`, each running the
  * `~/.manor/bin/manor-host` shim in the foreground, so a tarball upgrade
@@ -40,7 +40,7 @@ const SHIM_ARGS: Record<SupervisedUnit, string> = {
 /** The text of `unit`'s unit file. `%h` is the user's home, expanded by systemd. */
 export function systemdUnitFile(unit: SupervisedUnit): string {
   return [
-    "# Written by `manor-host supervisor install` (ADR-229 D4);",
+    "# Written by `manor-host supervisor install`;",
     "# `manor-host supervisor uninstall` removes it.",
     "[Unit]",
     `Description=${DESCRIPTIONS[unit]}`,

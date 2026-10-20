@@ -1,5 +1,5 @@
 /**
- * The phone's saved last-known answers (ADR-228 D6): batched writes per
+ * The phone's saved last-known answers: batched writes per
  * server, read back across a "reload", and nothing thrown when storage is
  * missing or refuses.
  */

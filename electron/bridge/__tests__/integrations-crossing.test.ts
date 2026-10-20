@@ -1,5 +1,5 @@
 /**
- * The last namespace group to cross (ADR-180 D4/D8).
+ * The last namespace group to cross.
  *
  * `git`, `github`, `linear` and `remoteControl` are table entries now, and two
  * things about them are decisions rather than mechanics — which means nothing
@@ -7,7 +7,7 @@
  *
  * - **A push's progress goes to whoever started it.** It rode `event.sender`
  *   when it was an `ipcMain.handle`; it is an addressed `git.push.progress`
- *   frame now (D5). Get the origin wrong and a second window's toast tracks
+ *   frame now. Get the origin wrong and a second window's toast tracks
  *   somebody else's push — silently, with a green suite behind it.
  * - **`LOCAL_ONLY` is the whole of the refusal.** Pairing, revoking and the
  *   relay controls refuse a paired device because a stolen device token that

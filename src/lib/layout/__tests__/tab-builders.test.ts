@@ -1,5 +1,5 @@
 /**
- * The tab builders both senders share (ADR-182 D8), and the diff lookup that
+ * The tab builders both senders share, and the diff lookup that
  * must find a diff pane wherever it is.
  */
 import { describe, it, expect } from "vitest";

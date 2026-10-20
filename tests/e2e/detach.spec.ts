@@ -13,7 +13,7 @@ import { activePaneId, awaitShellReady, runInTerminal, scrollback } from "./help
 import { clickMenuItem } from "./helpers/window";
 
 /**
- * A detached window is a claim, not a hand-off (ADR-179 D4).
+ * A detached window is a claim, not a hand-off.
  *
  * The property this pins is the one the old design could not have: the tab is
  * still *in the workspace* the whole time it is popped out. The primary stops
@@ -94,7 +94,7 @@ test("a pane popped out becomes a tab of the workspace, not a copy of one", asyn
   await assertVisiblePaneCount(window, 2);
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
 
-  // "Move Pane to New Window" is two steps now (ADR-179 D4): the pane becomes
+  // "Move Pane to New Window" is two steps now: the pane becomes
   // a tab of the workspace — a command, so every renderer sees it — and the
   // new window claims that tab.
   const popup = await Promise.all([
@@ -122,10 +122,10 @@ test("a pane popped out becomes a tab of the workspace, not a copy of one", asyn
 });
 
 /**
- * A browser is never a claimant (D4): it always sees the whole workspace,
+ * A browser is never a claimant: it always sees the whole workspace,
  * including a tab that is popped out on the desk right now, and can type
- * into it — the ADR-179 D7 half of the property `GET /panes` already pins
- * above. Through a local relay, the only road a browser has (ADR-207).
+ * into it — the browser's half of the property `GET /panes` already pins
+ * above. Through a local relay, the only road a browser has.
  */
 relayTest("a browser still sees and can type into a tab popped out on the desk", async ({
   app,

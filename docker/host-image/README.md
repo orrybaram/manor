@@ -1,7 +1,7 @@
 # Manor host image
 
 The reference image behind the `docker` and `kubernetes` host templates
-(ADR-229 D8): Node 22, git, gh, openssh-client, tini, procps and iproute2
+: Node 22, git, gh, openssh-client, tini, procps and iproute2
 (`ss`, for the port list), python3, make and g++ (node-pty has no Linux
 prebuilds, so it has to be compiled), a `manor` user (uid 1000, home
 `/home/manor`) and `manor-host-entrypoint.sh`. The release image also carries
@@ -35,7 +35,7 @@ Then set the template's image to `manor-host:local` (or your pushed name).
 
 A plain build like this bakes in no host package, so the first connect
 uploads one and compiles node-pty. To bake one in the way the release does
-(ADR-235 D10), build the tarball, put it in `prebuilt/` and name it:
+, build the tarball, put it in `prebuilt/` and name it:
 
 ```sh
 pnpm build && node scripts/build-host-tarball.mjs
@@ -65,7 +65,7 @@ onto the volume.
 `/opt/manor` holds only code. Everything that makes a host *this* host,
 above all its relay identity in `~/.manor/remote/server/`, is created on the
 volume and never in the image. So a snapshot of the image, or a clone of it,
-cannot make two hosts share a relay room (ADR-229 D6). The agent CLIs
+cannot make two hosts share a relay room. The agent CLIs
 (Claude Code, Codex) are not baked in: the Docker and Kubernetes templates
 install the ones chosen under "Agents to install" onto the home volume
 (`~/.local`, which the image puts on `PATH`) the first time a host starts.

@@ -1,6 +1,6 @@
 /**
  * `agentCommandWithPromptFile` — the short launch line that reads its prompt
- * from a file on the pane's host (ADR-209), so the line typed into a fresh
+ * from a file on the pane's host, so the line typed into a fresh
  * shell never runs into the tty's canonical line limit.
  */
 

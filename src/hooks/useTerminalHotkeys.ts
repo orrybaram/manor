@@ -46,7 +46,7 @@ export function useTerminalHotkeys(onOpenSearch?: () => void) {
           return false;
         }
 
-        // Ctrl+V on the web (ADR-239 D3): xterm must not write \x16, which
+        // Ctrl+V on the web: xterm must not write \x16, which
         // Claude Code would answer by reading the server's clipboard. Not
         // calling preventDefault lets the browser paste into xterm's
         // textarea, which fires the DOM `paste` event that
@@ -65,7 +65,7 @@ export function useTerminalHotkeys(onOpenSearch?: () => void) {
 
         // Ctrl+V on a remote pane: Claude Code binds this to image paste, but
         // it reads the clipboard of the box it runs on, which has no
-        // clipboard of its own (ADR-187). Swallow every event type so xterm
+        // clipboard of its own. Swallow every event type so xterm
         // never also sends \x16, and read remote status live — this handler
         // is wired once at mount, so a closed-over value would go stale the
         // moment the pane's host changes.

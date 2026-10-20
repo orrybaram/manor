@@ -1,12 +1,12 @@
 /**
- * Who owns a session's winsize (ADR-178 D5, ADR-179 D6, ADR-180 D6).
+ * Who owns a session's winsize.
  *
  * The registry is a handful of lines of bookkeeping and two questions — "is
  * a window on this machine attached" and "who owns it" — and the cases that
  * matter are the ones where the answer outlives the truth: a window that
  * closed without unmounting its panes, two windows holding the same pane, two
  * browsers doing the same with nobody's desktop in the picture, and — since
- * ADR-180 made a viewer a connection — the two windows being told apart from
+ * a viewer became a connection — the two windows being told apart from
  * each other rather than lumped together as "the desktop".
  */
 
@@ -35,9 +35,9 @@ const windowB: Viewer = { connectionId: "22", callerClass: "local" };
 
 const deviceA: Viewer = { connectionId: "device-a", callerClass: "device" };
 const deviceB: Viewer = { connectionId: "device-b", callerClass: "device" };
-/** The desktop on a host server's owner channel (ADR-225 D4). */
+/** The desktop on a host server's owner channel. */
 const ownerChannel: Viewer = { connectionId: "desktop", callerClass: "owner" };
-/** A desktop window's own viewer stream to a host server (ADR-228 D4). */
+/** A desktop window's own viewer stream to a host server. */
 const deskViewer: Viewer = {
   connectionId: "desk-viewer",
   callerClass: "owner",
@@ -90,7 +90,7 @@ describe("pty attachments", () => {
 
   /**
    * The case a plain `Set<paneId>` gets wrong. A pane open in the primary
-   * window and in a detached one (ADR-156) is still the desktop's after either
+   * window and in a detached one is still the desktop's after either
    * closes, and a browser told otherwise would start resizing a live pane.
    */
   it("keeps a pane two windows hold until both let go", () => {
@@ -139,7 +139,7 @@ describe("pty attachments", () => {
     });
   });
 
-  describe("ownership (D6)", () => {
+  describe("ownership", () => {
     it("says nobody owns a pane nobody has", () => {
       expect(ownerOf("pane-a")).toBeNull();
     });
@@ -185,12 +185,13 @@ describe("pty attachments", () => {
     });
 
     /**
-     * ADR-180 D6's repair, and the reason a viewer had to stop being
+     * Why a viewer had to stop being
      * `{kind:"desktop"}`. Two windows on one pane were previously *both* the
      * desktop, so both measured the pane and both resized the session — the
-     * fight ADR-163/164/165 record from the other side. Most-recent-wins
-     * applies between equals whatever class they are, so the second window
-     * takes the winsize and the first is told it is a follower.
+     * winsize fight between owner and follower, seen from the other side.
+     * Most-recent-wins applies between equals whatever class they are, so
+     * the second window takes the winsize and the first is told it is a
+     * follower.
      */
     it("hands ownership to the most recently attached window", () => {
       attach("pane-a", windowA);
@@ -252,7 +253,8 @@ describe("pty attachments", () => {
        * The remount. A window that is already a follower re-creating the pane
        * it never let go of must stay one: its attach moves no ownership, so
        * answering yes here would let a remount resize the owner's session —
-       * ADR-163/164/165 arriving through a door marked "reattach".
+       * a follower resizing the owner's pane, arriving through a door marked
+       * "reattach".
        */
       it("says no to a viewer that already holds the pane and is not the owner", () => {
         attach("pane-a", windowA);
@@ -394,7 +396,7 @@ describe("pty attachments", () => {
     });
   });
 
-  describe("a desktop viewer stream (ADR-228 D5)", () => {
+  describe("a desktop viewer stream", () => {
     it("outranks a device, whichever attached first", () => {
       attach("pane-a", deviceA);
       expect(wouldOwn("pane-a", deskViewer)).toBe(true);
@@ -439,7 +441,7 @@ describe("pty attachments", () => {
     });
   });
 
-  describe("a foreign hold (ADR-225 D5)", () => {
+  describe("a foreign hold", () => {
     it("owns the pane while set, and hands it back to the default rules", () => {
       attach("pane-a", deviceA);
       expect(changedBy(() => setForeign("pane-a", true))).toEqual(["pane-a"]);
@@ -479,7 +481,7 @@ describe("pty attachments", () => {
     });
   });
 
-  /** A viewer coming back after its connection dropped (ADR-220). */
+  /** A viewer coming back after its connection dropped. */
   describe("attaching as a returning viewer", () => {
     const returning = { as: "returning" } as const;
 
@@ -521,7 +523,7 @@ describe("pty attachments", () => {
   });
 });
 
-describe("a registry of its own (ADR-230 D10)", () => {
+describe("a registry of its own", () => {
   beforeEach(() => resetAttachments());
 
   it("lists who holds a pane, oldest first", () => {

@@ -9,7 +9,7 @@ import { useDashboardAnimate } from "./useDashboardAnimate";
 import { useSelectWorkspace } from "./useSelectWorkspace";
 import styles from "./NeedsYouCards.module.css";
 
-/** Cards shown before the "+N more" tile (ADR-198 Consequences: density caps). */
+/** Cards shown before the "+N more" tile (density caps). */
 const VISIBLE_COUNT = 5;
 
 type NeedsYouCardsProps = {
@@ -17,7 +17,7 @@ type NeedsYouCardsProps = {
   cards: readonly NeedsYouCardData[];
 };
 
-/** The Needs you panel (ADR-198 §1.4): a grid of action cards. */
+/** The Needs you panel: a grid of action cards. */
 export function NeedsYouCards(props: NeedsYouCardsProps) {
   const { cards } = props;
 

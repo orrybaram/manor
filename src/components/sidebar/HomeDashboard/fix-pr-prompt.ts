@@ -23,8 +23,8 @@ function prLine(pr: PrRef): string {
 }
 
 /**
- * The first message for a "Fix with agent" launch from a blocked-PR card
- * (ADR-198 §4): what's blocking the PR and what done looks like.
+ * The first message for a "Fix with agent" launch from a blocked-PR card:
+ * what's blocking the PR and what done looks like.
  */
 export function fixPrPrompt(pr: PrRef, context: FixableContext): string {
   switch (context.kind) {

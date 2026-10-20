@@ -13,7 +13,7 @@ const DETACHED_TAB_TIMEOUT_MS = 10_000;
  * A detached window whose claimed tab isn't in its layout (yet). Normally the
  * first broadcast is a frame away and this is a splash; if the layout read
  * failed, or the tab never arrives, it says so and offers to close
- * (ADR-232 D7) rather than showing a dimmed logo forever.
+ * rather than showing a dimmed logo forever.
  */
 export function DetachedWindowPending() {
   // The boot read's failure only counts while no layout has arrived since:

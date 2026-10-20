@@ -11,8 +11,8 @@ type DashboardHeaderProps = {
 };
 
 /**
- * The dashboard header (ADR-198 §1.1): date-and-greeting eyebrow and the headline
- * sentence. The Dashboard never holds tabs (ADR-197), so it has no New agent /
+ * The dashboard header: date-and-greeting eyebrow and the headline
+ * sentence. The Dashboard never holds tabs, so it has no New agent /
  * Open terminal launchers.
  */
 export function DashboardHeader(props: DashboardHeaderProps) {

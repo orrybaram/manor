@@ -1,7 +1,7 @@
 /**
- * Transition-table and sequence tests for the Status reconciler (ADR-184).
+ * Transition-table and sequence tests for the Status reconciler.
  *
- * Groups A–F port every case of ADR-139's `hook-relay-transition.test.ts`
+ * Groups A–F port every case of the old `hook-relay-transition.test.ts`
  * (no `complete`; `RelayAgentHook` → `PublishPaneStatus`, emitted only when
  * the pane's status or kind changes; ApplyStop / MarkCompleted / MarkError /
  * UpdateAgentActiveStatus → `PersistAgentStatus` transitions). The remaining
@@ -151,7 +151,7 @@ const subagentStop = (
   toolUseId,
 });
 
-/** A hook from a subagent (ADR-186): the root's session id plus an `agent_id`. */
+/** A hook from a subagent: the root's session id plus an `agent_id`. */
 const fromSubagent = (event: AgentHookEvent, agentId: string): AgentHookEvent => ({ ...event, agentId });
 const subEv = (type: SimpleType, agentId = "a0bc"): AgentHookEvent => fromSubagent(ev(type), agentId);
 const subStart = (agentId = "a0bc"): AgentHookEvent => fromSubagent(subagentStart("sess-1", null), agentId);
@@ -225,7 +225,7 @@ const last = (rs: ReconcileResult[]) => rs[rs.length - 1];
 
 // ── Group A: fresh pane (ported) ──
 
-describe("reconcile — Group A: fresh pane (ported from ADR-139)", () => {
+describe("reconcile — Group A: fresh pane (ported)", () => {
   it("SessionStart with sessionId → claims root, hook-driven, status stays idle", () => {
     const r = reconcile(pane(), hook(ev("SessionStart")), ctx());
     expect(r.state.rootSessionId).toBe("sess-1");
@@ -293,7 +293,7 @@ describe("reconcile — Group A: fresh pane (ported from ADR-139)", () => {
 
 // ── Group B: phase active (ported) ──
 
-describe("reconcile — Group B: phase active (ported from ADR-139)", () => {
+describe("reconcile — Group B: phase active (ported)", () => {
   it("PostToolUse → PersistAgentStatus active/thinking, no publish (status unchanged)", () => {
     const r = reconcile(activePane(), hook(ev("PostToolUse")), ctx({ existingAgent: agent() }));
     expect(r.state.phase).toBe("active");
@@ -418,7 +418,7 @@ describe("reconcile — Group B: phase active (ported from ADR-139)", () => {
 
 // ── Group C: pendingStop (ported) ──
 
-describe("reconcile — Group C: phase pendingStop (ported from ADR-139)", () => {
+describe("reconcile — Group C: phase pendingStop (ported)", () => {
   it("SubagentStop that empties the set → phase active, pendingStopAt kept for the tick drain", () => {
     const r = reconcile(
       pendingStopPane({ activeSubagents: new Set(["tool:tool-1"]), pendingStopAt: 500 }),
@@ -465,7 +465,7 @@ describe("reconcile — Group C: phase pendingStop (ported from ADR-139)", () =>
 
 // ── Group D: responded (ported) ──
 
-describe("reconcile — Group D: phase responded, late-active guard (ported from ADR-139)", () => {
+describe("reconcile — Group D: phase responded, late-active guard (ported)", () => {
   for (const type of ["PostToolUse", "PreToolUse", "PermissionRequest", "Notification"] as const) {
     it(`${type} on responded agent → dropped, state unchanged`, () => {
       const start = respondedPane();
@@ -514,7 +514,7 @@ describe("reconcile — Group D: phase responded, late-active guard (ported from
   });
 });
 
-// ── H8a: SessionEnd during a daemon replacement (ADR-185 §A) ──
+// ── H8a: SessionEnd during a daemon replacement ──
 
 describe("reconcile — H8a: SessionEnd inside an expected-loss window", () => {
   it("mid-turn SessionEnd → no completion; pane idle, root dropped, kind cleared", () => {
@@ -848,7 +848,7 @@ describe("reconcile — Pane facts: liveness (every Agent)", () => {
     expect(r.status).toBe("error");
   });
 
-  // ADR-231 D5: while an agent's wrapper script (a shell that didn't `exec`)
+  // While an agent's wrapper script (a shell that didn't `exec`)
   // leads the foreground, the sampler reports the script's name, not the shell.
   it("a script leading the foreground mid-turn → still thinking, nothing persisted", () => {
     const rs = run([
@@ -1043,7 +1043,7 @@ describe("reconcile — ticks", () => {
     expect(r.effects).toEqual([]);
   });
 
-  it("T2 waits STALE_SUBAGENT_MS while a foreground subagent keyed by agent_id runs (ADR-186)", () => {
+  it("T2 waits STALE_SUBAGENT_MS while a foreground subagent keyed by agent_id runs", () => {
     const start = activePane({ status: "working", lastHookAt: 0, activeSubagents: new Set(["agent:a0bc"]) });
     const c = ctx({ existingAgent: agent({ lastAgentStatus: "working" }) });
     expect(reconcile(start, tick(STALE_ACTIVE_MS + 1), c).effects).toEqual([]);
@@ -1181,7 +1181,7 @@ describe("reconcile — user signals", () => {
   });
 });
 
-// ── Sequences: the known divergences (ADR-184 Context) ──
+// ── Sequences: the known divergences ──
 
 describe("reconcile — sequences for the known divergences", () => {
   it("held Stop does not show responded until the subagents finish (drained by tick)", () => {
@@ -1309,14 +1309,14 @@ describe("reconcile — sequence: opencode pane driven only by facts", () => {
   });
 });
 
-// ── ADR-186: background subagents ──
+// ── Background subagents ──
 
 const responds = (rs: ReconcileResult[]) =>
   rs.flatMap((r) => r.effects).filter((e) => e.kind === "PersistAgentStatus" && e.transition.to === "responded");
 const publishedResponded = (rs: ReconcileResult[]) =>
   rs.flatMap((r) => r.effects).filter((e) => e.kind === "PublishPaneStatus" && e.status === "responded");
 
-describe("reconcile — ADR-186: background subagents", () => {
+describe("reconcile: background subagents", () => {
   it("captured background flow: pane stays working through a 20s quiet gap, one responded at the end", () => {
     const rs = run([
       { signal: hook(ev("UserPromptSubmit")), nowMs: 0 },

@@ -1,6 +1,5 @@
 /**
- * The systemd supervisor against this machine's real user manager (ADR-229
- * D4). Linux CI has no user systemd, so it runs only with
+ * The systemd supervisor against this machine's real user manager. Linux CI has no user systemd, so it runs only with
  * `MANOR_TEST_SYSTEMD=1`. It writes and enables the two units in the real
  * `~/.config/systemd/user` without starting them, then uninstalls; it skips
  * itself on a machine that already has them. `install` also runs `loginctl

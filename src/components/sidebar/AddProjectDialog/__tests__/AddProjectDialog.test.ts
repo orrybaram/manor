@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-235 D4: Add Project → Clone repository offers "In a new pod" after the
+ * Add Project → Clone repository offers "In a new pod" after the
  * hosts, hides Location for it, and submits through `openInNewHost`.
  */
 import { act, createElement } from "react";

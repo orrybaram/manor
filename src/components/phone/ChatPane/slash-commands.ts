@@ -1,7 +1,7 @@
 import { opensMenu, type ChatCommand } from "../../../../electron/chat-mirror/builtin-commands";
 
 /**
- * Pure helpers for the phone composer's `/` menu (ADR-217 D5).
+ * Pure helpers for the phone composer's `/` menu.
  *
  * A command is only recognised at the very start of a message, as in Claude
  * Code: the text starts with `/` and the caret sits inside that first word.
@@ -92,7 +92,7 @@ const CLEAR_COMMANDS = new Set(["clear", "reset", "new"]);
 
 /**
  * What a sent command does to the chat: "menu" hands the pane to the terminal
- * (ADR-218 D3), "clear" leaves the conversation behind for a fresh one, null
+ * "clear" leaves the conversation behind for a fresh one, null
  * is nothing. `lookup` finds the entry for a name (fetched list, then built-ins).
  */
 export function commandEffect(

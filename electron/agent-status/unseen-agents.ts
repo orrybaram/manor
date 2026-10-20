@@ -1,8 +1,8 @@
 /**
  * Which agents the user has not looked at since they responded or asked for
- * input (ADR-136 §"Change 3").
+ * input.
  *
- * One of these per server, owned by whoever composes it (ADR-227 D1) and
+ * One of these per server, owned by whoever composes it and
  * shared by the status pipeline that writes it, the handlers that clear it
  * and the broadcast that ships it, so the answer to "is this agent unseen?"
  * has one home. Electron-free: the host server uses it too.

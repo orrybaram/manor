@@ -73,7 +73,7 @@ function twoPanelLayout(activeTabs: Tab[], otherTabs: Tab[]): WorkspaceLayout {
 
 function setupStore(layout: WorkspaceLayout) {
   // The server holds the same layout the store starts from: every
-  // structural action goes through it now (ADR-179 D1).
+  // structural action goes through it now.
   resetFakeLayoutServer();
   const start = layout;
   seedLayout(WS_PATH, start);
@@ -172,7 +172,7 @@ describe("closePaneById across panels", () => {
       paneId: "pane-b2",
     });
     // Ending the session is the server's, from `effects.killPanes` — the
-    // store sends the command and nothing else (ADR-179 D2).
+    // store sends the command and nothing else.
     expect(sentCommands[sentCommands.length - 1]).toEqual({
       workspacePath: WS_PATH,
       command: { type: "close-pane", paneId: "pane-b1" },
@@ -194,7 +194,7 @@ describe("closePaneById across panels", () => {
     await settled();
     expect(tabHolding("pane-b1")).toBeNull();
 
-    // The reopen stack is the server's (ADR-179 D3), and it remembers which
+    // The reopen stack is the server's, and it remembers which
     // panel the pane came from — not the one the window happens to be on.
     useAppStore.getState().reopenClosedPane();
     await settled();
@@ -261,8 +261,7 @@ describe("tab actions return their IDs", () => {
     await settled();
 
     expect(created).not.toBeNull();
-    // Queued on the server against the pane the tab minted (ADR-179 ticket
-    // 11), so whichever renderer mounts it runs the command.
+    // Queued on the server against the pane the tab minted, so whichever renderer mounts it runs the command.
     expect(queuedCommands).toContainEqual(
       expect.objectContaining({ paneId: created!.paneId, text: "pnpm dev" }),
     );
@@ -285,7 +284,7 @@ describe("tab actions return their IDs", () => {
 // ---------------------------------------------------------------------------
 
 /**
- * Pruning moved with the map (ADR-179 ticket 11): a pending command lives on
+ * Pruning moved with the map: a pending command lives on
  * the server, and the server drops it when the reducer says the pane left the
  * tree — see `electron/layout/__tests__/layout-store.test.ts`. There is
  * nothing left in this store to prune, which is the point: a pane closed from

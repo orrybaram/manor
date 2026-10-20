@@ -35,7 +35,7 @@ const FORMS: Record<string, Record<string, string>> = {
   },
 };
 
-describe("recipe templates (ADR-229 D8)", () => {
+describe("recipe templates", () => {
   it("lists both templates with resolved defaults", () => {
     const templates = listTemplates(CTX);
     expect(templates.map((t) => t.id)).toEqual(["docker", "kubernetes"]);
@@ -155,7 +155,7 @@ describe("recipe templates (ADR-229 D8)", () => {
     });
   });
 
-  it("docker: another machine over SSH runs against its own context, unless Advanced names one (ADR-234 D12)", () => {
+  it("docker: another machine over SSH runs against its own context, unless Advanced names one", () => {
     const docker = RECIPE_TEMPLATES[0];
     const where = docker.fields.find((f) => f.key === "where");
     expect(where).toMatchObject({ type: "segmented", label: "Run it on", default: "local" });
@@ -189,7 +189,7 @@ describe("recipe templates (ADR-229 D8)", () => {
     expect(() => context({ where: "mars" })).toThrow(/Run it on/);
   });
 
-  it("docker: the recipe records the SSH target, and marks the context as Manor's own only when derived (ADR-234 D12)", () => {
+  it("docker: the recipe records the SSH target, and marks the context as Manor's own only when derived", () => {
     const env = (values: Record<string, string>) =>
       RECIPE_TEMPLATES[0].recipe({ name: "box1", ...values }, CTX).env;
     expect(env({ where: "ssh", sshTarget: "me@Build.Box:2222" })).toMatchObject({
@@ -277,7 +277,7 @@ exit 99
     expect(RECIPE_TEMPLATES[0].files["status.sh"].content).toContain("start the host to set it up");
   });
 
-  it("agents: the choice becomes MANOR_AGENTS, an unknown id is refused, blank installs none (ADR-234 D11)", () => {
+  it("agents: the choice becomes MANOR_AGENTS, an unknown id is refused, blank installs none", () => {
     for (const template of RECIPE_TEMPLATES) {
       const field = template.fields.find((f) => f.key === "agents");
       expect(field).toMatchObject({ type: "multi", label: "Agents to install" });
@@ -349,14 +349,14 @@ exit 99
   it("kubernetes: the instance id is namespace/name and storage is validated", () => {
     const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
     expect(up).toContain('value: "$namespace/$name"');
-    // The rollout wait is Manor's own loop now, with stages (ADR-234 D9).
+    // The rollout wait is Manor's own loop now, with stages.
     expect(up).not.toContain("rollout status");
     expect(() =>
       RECIPE_TEMPLATES[1].recipe({ ...FORMS.kubernetes, storage: "lots" }, CTX),
     ).toThrow(/storage size/);
   });
 
-  it("kubernetes: the cluster is required, and the size becomes the pod's resources (ADR-234 D5)", () => {
+  it("kubernetes: the cluster is required, and the size becomes the pod's resources", () => {
     const k8s = RECIPE_TEMPLATES[1];
     const { context: _context, ...noContext } = FORMS.kubernetes;
     expect(() => k8s.recipe(noContext, CTX)).toThrow(/cluster is required/);
@@ -480,7 +480,7 @@ exit 99
     expect(renderManifest({ ...K8S_ENV, MANOR_K8S_SIGNIN_SECRET: "x\ninjected: 1" }, 1)).toBe("");
   });
 
-  it("kubernetes: the pod reads the optional manor-signin Secret, and up sets up gh for git (ADR-235 D9)", () => {
+  it("kubernetes: the pod reads the optional manor-signin Secret, and up sets up gh for git", () => {
     const manifest = renderManifest(K8S_ENV);
     expect(manifest).toContain(
       "          envFrom:\n            - secretRef:\n                name: manor-signin\n                optional: true\n",
@@ -515,7 +515,7 @@ exit 99
     expect(manifest).toContain("          volumeMounts:");
   });
 
-  it("kubernetes: up waits in named stages and fails fast with the cluster's reason (ADR-234 D9)", () => {
+  it("kubernetes: up waits in named stages and fails fast with the cluster's reason", () => {
     const up = RECIPE_TEMPLATES[1].files["up.sh"].content;
     for (const stage of [
       "Getting a disk",
@@ -600,7 +600,7 @@ exit 99
     expect(JSON.parse(ready.stdout)).toMatchObject({ resource: { namespace: "manor", name: "box1" } });
   });
 
-  it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas (ADR-231 C1)", () => {
+  it("kubernetes: status is up while a scaled-up pod restarts, and sleeping only at 0 replicas", () => {
     const status = path.join(base, "status.sh");
     fs.writeFileSync(status, RECIPE_TEMPLATES[1].files["status.sh"].content, {
       mode: 0o755,

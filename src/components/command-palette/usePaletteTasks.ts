@@ -20,7 +20,7 @@ export type PaletteTask = TaskRow | LinkedTask;
 
 type UsePaletteTasksOptions = {
   search: string;
-  /** The ADR-200 scope chip's project, or null for every project. */
+  /** The scope chip's project, or null for every project. */
   scopeProjectId: string | null;
   /** The palette is open on its root view. */
   enabled: boolean;
@@ -43,7 +43,7 @@ type PaletteTasks = {
 const NONE: PaletteTask[] = [];
 
 /**
- * ADR-208 §4: the tasks matching the palette's query, across every usable
+ * The tasks matching the palette's query, across every usable
  * tracker, through the Tasks view's list pipeline (and query cache). Nothing
  * is fetched until the query is non-empty.
  */

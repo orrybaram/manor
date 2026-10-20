@@ -23,7 +23,7 @@ import {
 import { closeSettings, openDevicesSettings, openHostRow, pairBrowser, roomOf } from "./helpers/settings";
 
 /**
- * One pairing covers every host (ADR-228 D9): a phone paired with the
+ * One pairing covers every host: a phone paired with the
  * desktop only is paired with the desktop's hosts too, and keeps reaching
  * them with the desktop gone.
  *
@@ -37,7 +37,7 @@ import { closeSettings, openDevicesSettings, openHostRow, pairBrowser, roomOf } 
  * 4. The desktop stops. The box's project stays live: the phone asks the box
  *    for a branch made on it after the desktop went, and gets it.
  *
- * Linear (ADR-228 D10) rides along: it is connected on the desktop only (its
+ * Linear rides along: it is connected on the desktop only (its
  * GraphQL answered by a stub in main, there being no Linear here), and the
  * box's server has it off. The box's project is given a team on the desktop
  * (`linear.associateProject`, written on the box). The phone's Tasks view
@@ -213,7 +213,7 @@ relayTest.describe("a phone paired with the desktop only", () => {
         });
 
         // 3. The box lists the phone, via this desktop.
-        // Settings has no per-host device list since ADR-233, so the device
+        // Settings has no per-host device list, so the device
         // shows once on Devices, and the box's reach on its Hosts row says
         // devices reach it.
         await openDevicesSettings(window);
@@ -233,7 +233,7 @@ relayTest.describe("a phone paired with the desktop only", () => {
         );
 
         // The box's project's issues, listed on behalf of the box: the box has
-        // no Linear, so the desktop that lists it answers (D10).
+        // no Linear, so the desktop that lists it answers.
         await pollFor(
           "the box's project carrying its team on the phone",
           async () => {

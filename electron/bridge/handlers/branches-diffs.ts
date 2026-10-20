@@ -1,5 +1,5 @@
 /**
- * Branches, diffs and the `git.*` writes (ADR-180 D8), as the `branches`,
+ * Branches, diffs and the `git.*` writes, as the `branches`,
  * `diffs`, `git` and `git.push` namespaces of the handler table.
  *
  * **`git.commit` and `git.push` are the reason `mutating` has the wording it
@@ -7,7 +7,7 @@
  * this host will see": a commit rewrites what every sidebar badge, diff pane
  * and PR check on this machine is looking at, and a push does it on the
  * remote as well. Both leave an audit line when a device makes them and none
- * when the user at the machine does (D4).
+ * when the user at the machine does.
  *
  * **Push progress goes back to the caller, not to every window**, as a
  * `git.push.progress` event addressed to `ctx.caller.id` — exactly as
@@ -39,7 +39,7 @@ export function killAllActivePushes(): void {
 
 /**
  * The branch and diff watchers. Workspaces arrive with their project's host
- * (ADR-183), and each connection's are its own (ADR-230 D6): the watcher
+ * and each connection's are its own: the watcher
  * polls every connection's, and a caller's stop, or its connection closing
  * (`createManorServer`), takes only the caller's away.
  */
@@ -206,7 +206,7 @@ export function gitPushCancel(
 // The watcher lifecycle and the reads are what a viewer does to its own view,
 // so none of `branches` or `diffs` is audited. Each server watches its own
 // machine's workspaces, and a desktop polls its hosts' through their
-// backends: the watch is split by the renderer's router (ADR-230 D6, the
+// backends: the watch is split by the renderer's router (the
 // `"split"` route), never forwarded by main.
 export const branches = {
   start: method(branchesStart, { route: LOCAL_ROUTE }),
@@ -222,7 +222,7 @@ export const diffs = {
 };
 
 // Nothing here merely reads, and nothing is local-only: committing from a
-// phone is the sentence ADR-178 started from. Staging moves the index every
+// phone is the whole point of the bridge. Staging moves the index every
 // other viewer's diff pane reads; `discard` and `stash` take work away.
 export const git = {
   stage: method(gitStage, { mutating: true }),

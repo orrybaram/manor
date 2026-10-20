@@ -1,5 +1,5 @@
 /**
- * The desktop transport and the door in front of it (ADR-180 D2/D3).
+ * The desktop transport and the door in front of it.
  *
  * Two halves, one file, because they are two ends of the same channels:
  * `IpcBridgeTransport` on the main side, and the `window.manorHost` the
@@ -348,14 +348,14 @@ describe("IpcBridgeTransport", () => {
 });
 
 /**
- * ADR-180 D6, through the real handler table rather than a stand-in one.
+ * Winsize ownership, through the real handler table rather than a stand-in one.
  *
  * Two renderer windows holding one pane are two connections, so one of them
  * owns the winsize and the other is *told* it does not — where before both
  * were "the desktop", both measured, and both resized the session on every
  * layout tick.
  */
-describe("two windows on one pane (D6)", () => {
+describe("two windows on one pane", () => {
   const PANE = "pane-a";
   /** The session's grid, as the daemon would report it. */
   let sessionSize: { cols: number; rows: number };
@@ -473,7 +473,7 @@ describe("two windows on one pane (D6)", () => {
     ]);
 
     // ...and the first window is told it is a follower, with the grid to
-    // render. Before ADR-180 this frame did not exist on the desktop and the
+    // render. This frame used to not exist on the desktop and the
     // two windows fought over the winsize instead.
     await vi.waitFor(() => expect(ownerFrames(first)).toHaveLength(2));
     expect(ownerFrames(first)[1]).toMatchObject({

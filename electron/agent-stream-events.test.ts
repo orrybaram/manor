@@ -15,7 +15,7 @@ describe("dispatchStreamEvent", () => {
   let tmpDir: string;
   let agentManager: AgentManager;
   /**
-   * The bridge's `handleStreamEvent` (ADR-180 D5): the one consumer that
+   * The bridge's `handleStreamEvent`: the one consumer that
    * forwards a pane's events, to windows and devices alike. There is no
    * `webContents.send` left in main's stream path to inspect.
    */
@@ -38,7 +38,7 @@ describe("dispatchStreamEvent", () => {
 
   /**
    * What main does with one stream event: the agent side once, then the
-   * bridge forward once (ADR-184, ADR-180 D5).
+   * bridge forward once.
    */
   function runEvent(event: StreamEvent): void {
     dispatchStreamEvent(
@@ -157,18 +157,18 @@ describe("dispatchStreamEvent", () => {
     });
 
     /**
-     * ADR-180 ticket 5. Output, exit, resize and error used to leave main on
+     * Output, exit, resize and error used to leave main on
      * `pty-${kind}-${paneId}` channels, one send per live window whether or
      * not it had the pane. They are bridge event frames now —
      * `BridgeServer.handleStreamEvent` publishes them keyed by paneId, to
      * windows and devices alike — so each event is handed to the bridge
-     * exactly once, unchanged (the `seq` included, ADR-159).
+     * exactly once, unchanged (the `seq` included).
      */
     it("forwards every pane event to the bridge once, unchanged", () => {
       const paneId = `pane-${crypto.randomUUID()}`;
       const events: StreamEvent[] = [
         { type: "data", sessionId: paneId, data: "hello", seq: 7 },
-        // An older daemon predates ADR-159 and omits the seq entirely.
+        // An older daemon omits the seq entirely.
         { type: "data", sessionId: paneId, data: "hello" },
         { type: "exit", sessionId: paneId, exitCode: 0 },
         { type: "resized", sessionId: paneId, cols: 100, rows: 30 },
@@ -260,7 +260,7 @@ describe("dispatchStreamEvent", () => {
     });
   });
 
-  describe("agent side effects (ADR-184)", () => {
+  describe("agent side effects", () => {
     const facts = (title: string | null): PaneFacts => ({
       foreground: { name: "claude", kind: "claude" },
       title,
@@ -304,7 +304,7 @@ describe("dispatchStreamEvent", () => {
     });
   });
 
-  describe("dispatchStreamEvent, once per event (ADR-184, ADR-180 D5)", () => {
+  describe("dispatchStreamEvent, once per event", () => {
     it("applies one signal's effects once and forwards pane events once", () => {
       const agent = createAgent({ status: "active", lastAgentStatus: "working" });
       const paneId = agent.paneId!;

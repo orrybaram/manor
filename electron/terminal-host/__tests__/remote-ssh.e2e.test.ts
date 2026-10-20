@@ -1,5 +1,5 @@
 /**
- * Bridge-level E2E against a real sshd (ADR-160 ticket 12, ADR-178 ticket 8).
+ * Bridge-level E2E against a real sshd.
  *
  * Everything else in the remote stack is tested against fakes; this drives a
  * real `SshTransport` + `TerminalHostClient` against a real box: cold

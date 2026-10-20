@@ -1,6 +1,5 @@
 /**
- * BackendRegistry — every host Manor runs workspaces on, keyed by hostId
- * (ADR-160 §6).
+ * BackendRegistry — every host Manor runs workspaces on, keyed by hostId.
  *
  * `"local"` is always present and is this machine's backend
  * (`createLocalBackend`); remote hosts are registered from their persisted `HostSpec` and
@@ -12,7 +11,7 @@
  * which host owns each session (`SessionOwners`), and the listeners every
  * host's events fan out to.
  *
- * A remote host is built from its spec in two steps (ADR-178 §1): a
+ * A remote host is built from its spec in two steps: a
  * `HostProvider` (how the box is started and reached), then a backend riding
  * the provider's transport.
  */
@@ -65,11 +64,11 @@ export type RemoteBackendFactory = (
     /** The host's provider; the backend rides `provider.transport()`. */
     provider: HostProvider;
     onBootstrapWarning: (warnings: string[]) => void;
-    /** The host's daemon is about to be replaced (ADR-185 §A). */
+    /** The host's daemon is about to be replaced. */
     onDaemonReplacing: (sessionIds: string[]) => void;
     /**
      * Asked before each reconnect attempt; false stops the loop, the box
-     * being asleep (ADR-229 D1). `attempt` is 0-based, counted from the
+     * being asleep. `attempt` is 0-based, counted from the
      * drop. See `RemoteHostConnection.beforeReconnect`.
      */
     beforeReconnect: (attempt: number) => Promise<boolean>;
@@ -86,7 +85,7 @@ const defaultCreateProvider: HostProviderFactory = (hostId, spec, opts) =>
 
 /**
  * A `RemoteBackend` over the provider's transport. Built at registration,
- * before anything has brought the box up: for a recipe host (ADR-229 D2)
+ * before anything has brought the box up: for a recipe host
  * that transport is the provider's stand-in, which reaches whatever the
  * last `ensureUp` built. The connection runs `ensureUp` before every
  * `backend.connect()`, so the backend never dials before there is a way in.
@@ -122,19 +121,19 @@ export interface BackendRegistryOptions {
   /** Timeouts and retry delays for each host's `HostServerClient`. For tests. */
   hostServerClient?: RemoteHostContext["hostServerClient"];
   /**
-   * Gives every remote host a `HostProxy` publishing here (ADR-227 D4). The
+   * Gives every remote host a `HostProxy` publishing here. The
    * desktop passes its bus; without it (a host server, most tests) there
    * are none, and nothing is cached.
    */
   hostProxy?: HostProxyContext;
   /**
-   * Whether a remote host has adopted its records (ADR-227 D3), stamped on
+   * Whether a remote host has adopted its records, stamped on
    * each remote host in `list()` as `adopted`. The desktop passes its
    * `ProjectManager`'s; without it (a host server, most tests) none is.
    */
   isAdopted?: (hostId: string) => boolean;
   /**
-   * A remote host's ADR-235 marks — its profile and the project it was made
+   * A remote host's marks — its profile and the project it was made
    * for — stamped on it in `list()`. The desktop passes its
    * `ProjectManager`'s; without it none are.
    */
@@ -289,7 +288,7 @@ export class BackendRegistry {
 
   /**
    * Every host and its connection status, local first. A remote host carries
-   * its provider's kind and capabilities (ADR-229 D1), and whether it was
+   * its provider's kind and capabilities, and whether it was
    * adopted when the registry knows.
    */
   list(): HostStatusInfo[] {
@@ -317,7 +316,7 @@ export class BackendRegistry {
   }
 
   /**
-   * `hostId`'s server said whether the host is busy (ADR-229 D7): the
+   * `hostId`'s server said whether the host is busy: the
    * provider is told (`setBusy`) and `list()` carries it.
    */
   setBusy(hostId: string, busy: boolean): void {
@@ -334,7 +333,7 @@ export class BackendRegistry {
     return conn.provider instanceof RecipeHostProvider && conn.provider.busy;
   }
 
-  /** `hostId`'s recipe's `idleStopMinutes`, when it has one (ADR-229 D7). */
+  /** `hostId`'s recipe's `idleStopMinutes`, when it has one. */
   idleStopMinutes(hostId: string): number | undefined {
     const conn = this.hosts.get(hostId);
     if (!(conn instanceof RemoteHostConnection)) return undefined;
@@ -342,7 +341,7 @@ export class BackendRegistry {
   }
 
   /**
-   * `hostId` was adopted (ADR-227 D3): `list()`'s `adopted` changed, so its
+   * `hostId` was adopted: `list()`'s `adopted` changed, so its
    * listeners hear it — a window adds its own stream to the host then.
    */
   adoptionChanged(hostId: string): void {
@@ -350,8 +349,8 @@ export class BackendRegistry {
   }
 
   /**
-   * `hostId`'s record changed in a way `list()` shows — its ADR-235 profile
-   * or project mark — so its listeners hear it.
+   * `hostId`'s record changed in a way `list()` shows — its profile or
+   * project mark — so its listeners hear it.
    */
   recordChanged(hostId: string): void {
     if (this.hosts.has(hostId)) this.emitStatus();
@@ -359,7 +358,7 @@ export class BackendRegistry {
 
   /**
    * How the user names a remote host: its ssh target, or a recipe host's
-   * recipe name (ADR-229 D2), as the sidebar does. Undefined for the local
+   * recipe name, as the sidebar does. Undefined for the local
    * host and unknown ids.
    */
   hostDisplayName(hostId: string): string | undefined {
@@ -383,7 +382,7 @@ export class BackendRegistry {
    * Connect `hostId` if it is not already. Concurrent callers share one
    * attempt. Rejects with the connect error, which `list()` also reports.
    * Always tries — including after `error`, and on a sleeping host, which
-   * it wakes (ADR-229 D1) — so this is the retry.
+   * it wakes — so this is the retry.
    */
   async ensureConnected(hostId: string): Promise<void> {
     const conn = this.hosts.get(hostId);
@@ -395,7 +394,7 @@ export class BackendRegistry {
    * The user's "Retry now". A host its backend is already reconnecting
    * attempts at once instead of waiting out the backoff; any other host that
    * is not connected gets a fresh `connect()` (`connectInBackground`). A
-   * sleeping host is left asleep: `wake` is what wakes it (ADR-229 D1).
+   * sleeping host is left asleep: `wake` is what wakes it.
    */
   retryNow(hostId: string): void {
     this.hosts.get(hostId)?.retryNow();
@@ -403,14 +402,14 @@ export class BackendRegistry {
 
   /**
    * A background connect; failures land in `list()`. Unlike
-   * `ensureConnected` it never wakes a sleeping host (ADR-229 D1).
+   * `ensureConnected` it never wakes a sleeping host.
    */
   connectInBackground(hostId: string): void {
     this.hosts.get(hostId)?.connectInBackground();
   }
 
   /**
-   * Check every remote host is still there (ADR-188 §3) — called on the
+   * Check every remote host is still there — called on the
    * machine waking from sleep or unlocking, when a connection may be up but
    * wedged, or a reconnect may be sitting mid-backoff on a delay that did not
    * advance while asleep.
@@ -422,7 +421,7 @@ export class BackendRegistry {
   }
 
   /**
-   * Wake `hostId` and connect it (ADR-229 D1): what a call that means to use
+   * Wake `hostId` and connect it: what a call that means to use
    * a sleeping host does first. Resolves once the host is connected and its
    * owner channel has been dialled (whether or not the box has a server);
    * rejects with the connect error. The local host is always awake.
@@ -438,7 +437,7 @@ export class BackendRegistry {
   }
 
   /**
-   * Put `hostId`'s box to sleep (ADR-229 D1): the connection is dropped, the
+   * Put `hostId`'s box to sleep: the connection is dropped, the
    * provider stops the box, and the host waits in `sleeping` until something
    * wakes it. Refused unless its provider `canStop`.
    */
@@ -465,7 +464,7 @@ export class BackendRegistry {
     await Promise.allSettled(this.remoteHostIds().map((id) => this.disconnect(id)));
   }
 
-  // ── Host servers (ADR-225 D4) ──
+  // ── Host servers ──
 
   /**
    * `hostId`'s owner channel to its host server: one per remote host, on its
@@ -479,7 +478,7 @@ export class BackendRegistry {
   }
 
   /**
-   * `hostId`'s state as its host server holds it (ADR-227 D4): reads that
+   * `hostId`'s state as its host server holds it: reads that
    * answer from the cache while it is away, and calls in the desktop's
    * form. Undefined for the local host, an unknown one, or a registry built
    * without `hostProxy`.
@@ -490,7 +489,7 @@ export class BackendRegistry {
   }
 
   /**
-   * Record what `hostId`'s server said in its last status (ADR-228 D2, D3):
+   * Record what `hostId`'s server said in its last status:
    * `hosts.list` carries it, and a change is a status change. Null forgets
    * it. The local host and unknown ones are ignored.
    */
@@ -542,7 +541,7 @@ export class BackendRegistry {
   }
 
   /**
-   * A host's daemon is about to be replaced (ADR-185 §A) — a protocol bump,
+   * A host's daemon is about to be replaced — a protocol bump,
    * `kill_daemon`, a crash respawn — and `sessionIds` are its still-live
    * sessions, about to be lost. Local and remote alike. Lets a listener tell
    * the difference between an Agent's pty exiting because the Agent finished

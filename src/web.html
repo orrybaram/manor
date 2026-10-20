@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <!--
-      `interactive-widget=resizes-visual` (ADR-181 D6): the soft keyboard
+      `interactive-widget=resizes-visual`: the soft keyboard
       shrinks only the visual viewport, never the layout one. It is Chrome
       for Android's default, but a browser that defaults to
       `resizes-content` shrinks the initial containing block — and `100lvh`
@@ -29,7 +29,7 @@
       The web app manifest, `theme-color`, `apple-mobile-web-app-capable` and
       the touch icon are injected by `vite.web.config.ts` (`webAppManifest`)
       with this build's base: installable so that iOS Home Screen opens it as
-      a web app, the only place iOS offers Web Push (ADR-206 D7).
+      a web app, the only place iOS offers Web Push.
     -->
     <title>Manor</title>
     <!--

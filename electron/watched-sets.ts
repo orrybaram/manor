@@ -1,5 +1,5 @@
 /**
- * What each connection asked a watcher to watch (ADR-230 D6).
+ * What each connection asked a watcher to watch.
  *
  * `BranchWatcher` and `DiffWatcher` are one per server, and every connection
  * to it — each desktop window, each phone, a desktop's own bridge to a host

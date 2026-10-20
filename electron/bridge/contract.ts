@@ -1,5 +1,5 @@
 /**
- * `ElectronAPI`'s bridge half, derived rather than written (ADR-182 D4).
+ * `ElectronAPI`'s bridge half, derived rather than written.
  *
  * Every method a renderer calls on the host is a handler on the table in
  * `./handlers.ts`, and every listener is a row of `SUBSCRIPTIONS` in

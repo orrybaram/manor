@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-228 D8: the phone's Hosts sheet lists every pairing with its state,
+ * The phone's Hosts sheet lists every pairing with its state,
  * renames one, and removes one only after an in-place confirm. The
  * `phone-host-*` test ids are the phone E2E's.
  */
@@ -122,7 +122,7 @@ describe("HostsSheet", () => {
     expect(all("phone-host-option")).toHaveLength(1);
   });
 
-  describe("a host asleep (ADR-229 D7)", () => {
+  describe("a host asleep", () => {
     const wake = vi.fn();
 
     beforeEach(() => {

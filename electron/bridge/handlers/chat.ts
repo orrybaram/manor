@@ -1,5 +1,5 @@
 /**
- * The phone's chat view of a Claude pane (ADR-215 D4, D5), as the `chat`
+ * The phone's chat view of a Claude pane, as the `chat`
  * namespace of the handler table.
  *
  * Reads come from the pane's transcript mirror (`chat-mirror/mirror.ts`);
@@ -58,7 +58,7 @@ function enqueueWrite(paneId: string, job: () => Promise<void> | void): Promise<
 
 /**
  * What the `chat` namespace reads: the pane's transcript mirror and its PTY,
- * nothing else — so the host server (ADR-225) serves the same handlers.
+ * nothing else — so the host server serves the same handlers.
  */
 export interface ChatDeps {
   chatMirror: Pick<ChatMirror, "getHistory" | "getTaskHistory" | "getCommands" | "answer">;
@@ -73,7 +73,7 @@ export function chatGetHistory(
   return ctx.deps.chatMirror.getHistory(paneId);
 }
 
-/** A task's own transcript (ADR-224 D3); its pushes are `chat.taskEntry`. */
+/** A task's own transcript; its pushes are `chat.taskEntry`. */
 export function chatGetTaskHistory(
   ctx: HandlerCtx<ChatDeps>,
   paneId: string,
@@ -114,7 +114,7 @@ export function chatInterrupt(ctx: HandlerCtx<ChatDeps>, paneId: string): Promis
   return enqueueWrite(paneId, () => ctx.deps.backend.pty.write(paneId, CHAT_KEYS.esc));
 }
 
-/** One navigation key into the pane, for driving a TUI menu from the phone (ADR-218 D3). */
+/** One navigation key into the pane, for driving a TUI menu from the phone. */
 export function chatKey(ctx: HandlerCtx<ChatDeps>, paneId: string, key: ChatKey): Promise<void> {
   assertString(paneId, "paneId");
   assertString(key, "key");
@@ -183,11 +183,11 @@ function assertChatAnswer(value: unknown): asserts value is ChatAnswer {
  *   transcript path: `/clear` and resume switch transcripts, and the hook
  *   that says so updates the agent.
  * - The bridge's subscriber count for `chat.entry` is what turns a pane's
- *   watcher on and off, and for `chat.taskEntry` a task's (ADR-224 D3).
+ *   watcher on and off, and for `chat.taskEntry` a task's.
  *
  * On the desktop a pane on an adopted host has no watcher here: its host's
  * mirror reads the transcript, and `remote` forwards the subscription there
- * for as long as somebody holds it (ADR-227 D4).
+ * for as long as somebody holds it.
  */
 export function wireChatMirror(
   deps: Pick<ServerDeps, "chatMirror">,
@@ -244,7 +244,7 @@ export function wireChatMirror(
 }
 
 /**
- * Routed by pane (ADR-227 D4): a pane on an adopted host is read and typed
+ * Routed by pane: a pane on an adopted host is read and typed
  * into by that host's server, whose mirror watches its transcript.
  */
 export const chat = {
@@ -254,7 +254,7 @@ export const chat = {
   getTaskHistory: method(chatGetTaskHistory, { route: byPane(0) }),
   getCommands: method(chatGetCommands, { route: byPane(0) }),
   // The keyboard, like `pty.write`: a line per message or keystroke is a
-  // keylogger (ADR-161), so none of these is audited.
+  // keylogger, so none of these is audited.
   send: method(chatSend, { route: byPane(0) }),
   interrupt: method(chatInterrupt, { route: byPane(0) }),
   key: method(chatKey, { route: byPane(0) }),

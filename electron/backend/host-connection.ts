@@ -1,16 +1,16 @@
 /**
- * HostConnection — one registered host's connection state (ADR-160 §6,
- * ADR-183). The `BackendRegistry` keeps one per host.
+ * HostConnection — one registered host's connection state. The
+ * `BackendRegistry` keeps one per host.
  *
  * - **Status.** Each host is `disconnected` → `connecting` → `connected`,
  *   and a remote one moves to `reconnecting` / `error` as its backend
  *   reports `hostDisconnected` / `hostFailed`, and to `sleeping` when its
- *   provider says the box is asleep (ADR-229 D1).
+ *   provider says the box is asleep.
  * - **Intent.** `ensureConnected` is a connect somebody means — a call that
  *   needs the host, the user — and wakes a sleeping host. A background
  *   connect (`connectInBackground`, a poller) never does: a host asleep
  *   stays asleep until somebody means to use it. Nor does `connectNoWake`,
- *   the awaited form a pane restored at launch connects with (ADR-230 D3).
+ *   the awaited form a pane restored at launch connects with.
  * - **Attempts.** Concurrent `ensureConnected` callers share one attempt.
  *   Every attempt and every `disconnect()` bumps `attempt`; an attempt only
  *   touches state while it still holds the current value, so a disconnect
@@ -24,39 +24,39 @@
  *
  * `RemoteHostConnection` adds what only a remote host has:
  *
- * - **Agent hooks** are the host server's (ADR-227 D4): it reads its own
+ * - **Agent hooks** are the host server's: it reads its own
  *   daemon's journal. The desktop hears none, and ignores any `hookEvent`
  *   its stream still carries. Reaching `connected` it claims the host's
  *   sessions, so calls for a pane reach that host's daemon.
- * - **Away and back** (ADR-178 §6). When the host comes back after a drop,
+ * - **Away and back**. When the host comes back after a drop,
  *   the connection waits for its proxy to hold the host's state again
  *   (bounded), lists the sessions its daemon still has, and only then
  *   announces it resumed — so panes reattach (resnapshot) with their agents'
  *   status already right, and panes whose sessions are gone (the daemon
  *   restarted) can be recovered.
- * - **Its provider** (ADR-178 §1), released on disconnect and disposal.
+ * - **Its provider**, released on disconnect and disposal.
  *   Every connect brings the box up first (`ensureUp`, its lines shown as
  *   the host's progress), except a background one that finds it asleep.
- * - **Sleeping** (ADR-229 D1). A box its provider reports `sleeping` — asked
+ * - **Sleeping**. A box its provider reports `sleeping` — asked
  *   before each reconnect attempt, and before a background connect — puts
  *   the host in `sleeping`: the reconnect loop stops and pollers leave it
  *   alone. A recipe box that is not asleep has `up` re-run once per drop,
- *   before the third attempt, in case it came back at a new address
- *   (ADR-230 D2). Until then a failure that would stop the loop (the old
+ *   before the third attempt, in case it came back at a new address.
+ *  Until then a failure that would stop the loop (the old
  *   exec target is gone) doesn't. `wake()` (or any `ensureConnected`) brings it up and connects;
- *   `stop()` puts it to sleep. A box the provider says is gone (`missing`,
- *   ADR-229 D2) is treated alike, but in `error` with `missing` set: only
+ *   `stop()` puts it to sleep. A box the provider says is gone (`missing`)
+ *   is treated alike, but in `error` with `missing` set: only
  *   `wake()` starts it again.
- * - **The owner channel** to the box's host server (ADR-225 D4):
+ * - **The owner channel** to the box's host server:
  *   `serverClient`. It dials whenever the
  *   host reaches `connected` (a connect or a resume), lets go whenever the
  *   host leaves it (a drop, a disconnect), and is disposed with the host.
- * - **The host's state** (ADR-227 D4): `proxy`, a `HostProxy` over that
+ * - **The host's state**: `proxy`, a `HostProxy` over that
  *   channel, when the registry was given somewhere to publish it. It
  *   follows the channel by itself and is disposed with the host.
  * - **Not the control relay.** A `manor` CLI on the host is answered by the
- *   host's own server (ADR-227 D8), which asks the daemon for its requests;
- *   the desktop no longer does (ADR-189 §2 had it answer them).
+ *   host's own server, which asks the daemon for its requests;
+ *   the desktop no longer answers them.
  */
 
 import { errorMessage } from "../lib/errors";
@@ -83,7 +83,7 @@ export type HostStatus =
   | "connected"
   | "reconnecting"
   | "error"
-  /** The box was put to sleep; nothing connects until something wakes it (ADR-229 D1). */
+  /** The box was put to sleep; nothing connects until something wakes it. */
   | "sleeping";
 
 export interface HostStatusInfo {
@@ -92,7 +92,7 @@ export interface HostStatusInfo {
   spec: HostSpec | null;
   /**
    * How the user names a remote host: its ssh target, or a recipe host's
-   * recipe name (ADR-229 D2). Set on remote hosts by `BackendRegistry.list()`.
+   * recipe name. Set on remote hosts by `BackendRegistry.list()`.
    */
   label?: string;
   status: HostStatus;
@@ -105,13 +105,13 @@ export interface HostStatusInfo {
   failure?: HostFailure;
   /**
    * Set with `error` when the provider says the box is gone — deleted
-   * outside Manor (ADR-229 D2) — so the way back is to start it again
+   * outside Manor — so the way back is to start it again
    * (`hosts.wake`, which runs `up`) or to remove the host.
    */
   missing?: boolean;
   /**
    * Latest bootstrap progress line while `connecting`, or while
-   * `reconnecting` re-runs a recipe's `up` (ADR-230 D2).
+   * `reconnecting` re-runs a recipe's `up`.
    */
   progress?: string;
   /** While `reconnecting`: the delay before the next attempt, if known. */
@@ -128,32 +128,32 @@ export interface HostStatusInfo {
    */
   warnings?: string[];
   /**
-   * The host server's relay room, from its last status read (ADR-228 D2):
+   * The host server's relay room, from its last status read:
    * what a phone that sees this host only through the desktop names it by.
    * Absent until a status has been read; null when the server has no room.
    */
   roomId?: string | null;
   /**
    * Whether the host server's last status reported the `viewer-bridge`
-   * capability (ADR-228 D3, D4), so a window may open its own stream to it.
+   * capability, so a window may open its own stream to it.
    * Absent until a status has been read; false for an older server.
    */
   viewerBridge?: boolean;
   /**
-   * Whether this desktop has handed the host its records (ADR-227 D3), the
-   * other half of what a window's own viewer stream needs (ADR-228 D3;
-   * `electron/ipc/host-pipe.ts`). Set on a desktop's remote hosts only.
+   * Whether this desktop has handed the host its records, the other half of
+   * what a window's own viewer stream needs (`electron/ipc/host-pipe.ts`). Set
+   * on a desktop's remote hosts only.
    */
   adopted?: boolean;
   /**
    * What kind of box the host is, and what its provider can do to it
-   * (ADR-229 D1), so the renderer offers Wake, Stop and Destroy only where
+   * so the renderer offers Wake, Stop and Destroy only where
    * they work. Set on remote hosts by `BackendRegistry.list()`.
    */
   providerKind?: HostProvider["kind"];
   capabilities?: ProviderCapabilities;
   /**
-   * Whether an agent on the host is working (ADR-229 D7), from its server's
+   * Whether an agent on the host is working, from its server's
    * last status and `busyChanged`. Absent until read, and for an older server.
    */
   busy?: boolean;
@@ -162,14 +162,14 @@ export interface HostStatusInfo {
   /**
    * The recipe has `idleStopMinutes` but nothing that works with the lid
    * closed — neither the provider's `autoSleep` nor a box hook — so it stops
-   * only while this desktop is awake (ADR-229 D7). Set on recipe hosts.
+   * only while this desktop is awake. Set on recipe hosts.
    */
   idleStopNote?: boolean;
-  /** The recipe's `idleStopMinutes` (ADR-229 D7), for that note. Set on recipe hosts that have one. */
+  /** The recipe's `idleStopMinutes`, for that note. Set on recipe hosts that have one. */
   idleStopMinutes?: number;
   /**
-   * The host profile the host was made from (ADR-235 D1), and the project it
-   * was made for (D5): `PersistedHost`'s, set on a desktop's remote hosts
+   * The host profile the host was made from, and the project it
+   * was made for: `PersistedHost`'s, set on a desktop's remote hosts
    * that have them.
    */
   profileId?: string;
@@ -179,7 +179,7 @@ export interface HostStatusInfo {
 }
 
 /**
- * A background connect found the box gone (ADR-229 D2): it is not started
+ * A background connect found the box gone: it is not started
  * again by itself — that is `hosts.wake`'s, somebody's intent — and the host
  * goes to `error` with `missing`.
  */
@@ -190,7 +190,7 @@ export class HostMissingError extends Error {
   }
 }
 
-/** What a host server's last status said about it (ADR-228 D2, D3). */
+/** What a host server's last status said about it. */
 export type HostServerFacts = Required<Pick<HostStatusInfo, "roomId" | "viewerBridge">> &
   Pick<HostStatusInfo, "busy" | "hooks">;
 
@@ -230,7 +230,7 @@ export interface HostConnectionContext {
   statusChanged: () => void;
   /**
    * A host's daemon is about to be replaced (a protocol bump, `kill_daemon`,
-   * a crash respawn — ADR-185 §A) and these are its still-live sessions.
+   * a crash respawn) and these are its still-live sessions.
    * Local and remote alike: any host's daemon can be replaced, not only a
    * remote one recovering from a drop. See `BackendRegistry.onDaemonReplacing`.
    */
@@ -247,7 +247,7 @@ export interface RemoteHostContext extends HostConnectionContext {
   hostProxy?: HostProxyContext;
 }
 
-/** What every remote host's `HostProxy` is built with (ADR-227 D4). */
+/** What every remote host's `HostProxy` is built with. */
 export interface HostProxyContext
   extends Pick<
     HostProxyOptions,
@@ -313,7 +313,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   }
 
   /**
-   * What the host server's last status said (ADR-228 D2, D3), or null to
+   * What the host server's last status said, or null to
    * forget it — the box has no host server. Announced like any other change.
    */
   setServerFacts(facts: HostServerFacts | null): void {
@@ -323,7 +323,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   }
 
   /**
-   * The host's `busy`, from its server's `busyChanged` (ADR-229 D7). Kept
+   * The host's `busy`, from its server's `busyChanged`. Kept
    * only on top of facts a status read has already recorded.
    */
   setServerBusy(busy: boolean): void {
@@ -353,7 +353,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
    * A background connect, failures landing in `info()`. Unlike
    * `ensureConnected` it never wakes a host: a sleeping one is left alone,
    * and one whose box turns out to be asleep goes to `sleeping` instead of
-   * starting it (ADR-229 D1).
+   * starting it.
    */
   connectInBackground(): void {
     this.startConnect(false).catch(() => {
@@ -362,7 +362,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   }
 
   /**
-   * A connect nobody meant, awaited (ADR-230 D3): what a pane restored at
+   * A connect nobody meant, awaited: what a pane restored at
    * launch asks for. Like `connectInBackground` it never wakes a host — a
    * box it finds asleep ends the attempt in `sleeping` — and it joins an
    * attempt already in flight as that attempt is, never upgrading it to a
@@ -382,7 +382,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
 
   /**
    * This host's daemon is about to be replaced and `sessionIds` are what it
-   * is about to lose (ADR-185 §A). Whoever builds this host's client wires
+   * is about to lose. Whoever builds this host's client wires
    * its `onDaemonReplacing` callback to this, the same way a remote host's
    * connect events reach `onHostEvent` above. Forwarded as a registry event
    * (`BackendRegistry.onDaemonReplacing`), modelled on how `resumed` is
@@ -533,7 +533,7 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   private onStreamEvent(event: StreamEvent): void {
     // The host server reads the journal; the desktop has no use for hooks.
     if (event.type === "hookEvent") return;
-    // A box's CLI requests are its host server's to answer (ADR-227 D8);
+    // A box's CLI requests are its host server's to answer;
     // on a host server, it hears them on its own daemon client.
     if (event.type === "controlRequest") return;
     if (this.ctx.sessions.accept(this.hostId, event)) {
@@ -542,15 +542,15 @@ export class HostConnection<B extends WorkspaceBackend = WorkspaceBackend> {
   }
 }
 
-/** What a host whose box is gone says (ADR-229 D2). */
+/** What a host whose box is gone says. */
 function missingMessage(status: ProviderStatus): string {
   return status.detail ?? "The host no longer exists";
 }
 
 export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
-  /** The owner channel to the box's host server (ADR-225 D4). */
+  /** The owner channel to the box's host server. */
   readonly serverClient: HostServerClient;
-  /** The host's state through that channel (ADR-227 D4); see `HostProxyContext`. */
+  /** The host's state through that channel; see `HostProxyContext`. */
   readonly proxy: HostProxy | null;
   /**
    * Bumped by every host event, so a resume announcement still waiting on
@@ -558,7 +558,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    */
   private resumeToken = 0;
   /**
-   * The provider's `refresh` has been tried during this drop (ADR-230 D2).
+   * The provider's `refresh` has been tried during this drop.
    * Cleared when the host drops or comes back.
    */
   private refreshedThisDrop = false;
@@ -599,7 +599,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /**
-   * Wake a sleeping host and connect it (ADR-229 D1): `ensureConnected`,
+   * Wake a sleeping host and connect it: `ensureConnected`,
    * which is a connect somebody means. A host its backend is already
    * reconnecting attempts at once instead (`retryNow`): a second connect
    * beside the loop's would race it.
@@ -613,7 +613,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /**
-   * Put the box to sleep (ADR-229 D1): drop the connection, have the
+   * Put the box to sleep: drop the connection, have the
    * provider stop the box, and wait in `sleeping` for something to wake it.
    * Refused for a provider that cannot stop its box. A stop that fails
    * leaves the host in `error`, saying why.
@@ -638,13 +638,13 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /**
-   * Asked by the backend's reconnect loop before each attempt (ADR-229 D1):
+   * Asked by the backend's reconnect loop before each attempt:
    * false when the provider says the box is asleep, which puts the host in
    * `sleeping` and stops the loop. Its sessions stay wanted, so the connect
    * that wakes it resumes them.
    *
    * Otherwise, from attempt 2 (0-based) on, a provider with `refresh` (a
-   * recipe) runs it once per drop (ADR-230 D2): the box may have come back
+   * recipe) runs it once per drop: the box may have come back
    * at a new address, which redialling the old one never finds. A failing
    * `refresh` is logged and the redial goes on.
    */
@@ -657,7 +657,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     }
     if (this.disposed) return true;
     // A box deleted outside Manor is not started again by a reconnect: it
-    // waits for "Start it again" (ADR-229 D2).
+    // waits for "Start it again".
     if (status.missing) this.markMissing(status);
     else this.markSleeping();
     await this.disposeProvider();
@@ -669,7 +669,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
    * would not retry (a bootstrap or recipe error): true keeps it going. The
    * old way in to a recipe box that moved can fail like that (an exec target
    * that no longer exists), so the loop keeps going until this drop's
-   * `refresh` has had its turn (ADR-230 D2).
+   * `refresh` has had its turn.
    */
   retryPermanentFailure(): boolean {
     return !this.disposed && this.provider.refresh !== undefined && !this.refreshedThisDrop;
@@ -677,7 +677,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
 
   /**
    * Latest bootstrap progress, shown while `connecting`, and while
-   * `reconnecting` for a reconnect's re-run of `up` (ADR-230 D2).
+   * `reconnecting` for a reconnect's re-run of `up`.
    */
   reportProgress(message: string): void {
     if (this.status === "connecting") {
@@ -714,7 +714,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /**
-   * Check the host is still there (ADR-188 §3), e.g. after the machine
+   * Check the host is still there, e.g. after the machine
    * wakes: a connected host is pinged, which catches a connection that is up
    * but has stopped delivering — a socket close never reports that. A host
    * mid-backoff is retried now instead of waiting out the rest of its delay,
@@ -747,15 +747,14 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
   }
 
   /**
-   * Bring the box up before the backend connects (ADR-229 D1). A background
+   * Bring the box up before the backend connects. A background
    * connect asks first, and leaves a sleeping box asleep.
    *
    * This order is what lets a recipe host's backend exist before its box
-   * does (ADR-229 D2): the backend's transport only reaches something once
+   * does: the backend's transport only reaches something once
    * `ensureUp` has run `up` and built the way in, and nothing here dials the
    * backend before that. A reconnect after a drop rides the way in the last
-   * `ensureUp` built, until `beforeReconnect` has the provider `refresh` it
-   * (ADR-230 D2).
+   * `ensureUp` built, until `beforeReconnect` has the provider `refresh` it.
    */
   protected override async bringUp(wake: boolean): Promise<boolean> {
     if (!wake) {
@@ -797,7 +796,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     await super.release();
   }
 
-  /** `beforeReconnect`'s once-per-drop `refresh` (ADR-230 D2); never throws. */
+  /** `beforeReconnect`'s once-per-drop `refresh`; never throws. */
   private async refreshOnce(attempt: number): Promise<void> {
     if (attempt < 2 || this.refreshedThisDrop || !this.provider.refresh) return;
     this.refreshedThisDrop = true;
@@ -818,7 +817,7 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
     }
   }
 
-  /** The box is gone (ADR-229 D2): say so, and keep pollers from connecting it. */
+  /** The box is gone: say so, and keep pollers from connecting it. */
   private markMissing(status: ProviderStatus): void {
     this.autoConnect = false;
     this.setState({ status: "error", error: missingMessage(status), missing: true }, "clear");
@@ -874,8 +873,8 @@ export class RemoteHostConnection extends HostConnection<RemoteHostBackend> {
         this.setState({ status: "connected" });
         // Panes reattach only once the host's server is back and the proxy
         // has read its state, so their agent dots are right on first paint
-        // (ADR-178 §6) and a lost pane's fresh session can start and type its
-        // resume command (ADR-227 D4).
+        // and a lost pane's fresh session can start and type its
+        // resume command.
         void this.announceResumed(token, this.proxy?.synced() ?? Promise.resolve());
         break;
       case "hostFailed": {

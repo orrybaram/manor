@@ -1,5 +1,5 @@
 /**
- * The two primitives every move is made of (ADR-182 D6), and the small
+ * The two primitives every move is made of, and the small
  * helpers the handlers share.
  *
  * A move is `take` from the source, `graft` onto the target, and a hint for

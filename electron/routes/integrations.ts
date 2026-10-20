@@ -1,6 +1,6 @@
 /**
  * `/linear/*`, `/github/*`, and `POST /projects/:projectId/issues` — the
- * issue-tracker actions that write (ADR-171). The read side already lives in
+ * issue-tracker actions that write. The read side already lives in
  * `./issues.ts` behind the `IssueBackend` seam; these three are
  * source-specific by nature, so they name their manager directly the way
  * `../ipc/integrations.ts` does.

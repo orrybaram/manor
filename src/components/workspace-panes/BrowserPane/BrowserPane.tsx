@@ -72,7 +72,7 @@ export interface BrowserPaneRef {
   stopFind(): void;
   toggleFindBar(): void;
   toggleMute(): void;
-  /** Stop this pane's active recording (ADR-158), if any. */
+  /** Stop this pane's active recording, if any. */
   stopRecording(): void;
   /** Current value of the URL input (controlled by BrowserPane). */
   getUrlInputValue(): string;
@@ -92,7 +92,7 @@ type BrowserPaneProps = {
   /**
    * The remote host this pane's workspace lives on, or null for this
    * machine. A `localhost:<port>` URL for a port that host reports goes
-   * through a port forward (ADR-178 §5).
+   * through a port forward.
    */
   remoteHostId?: string | null;
   /** The pane's project, so the host-away overlay can open its Host settings. */
@@ -133,9 +133,9 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
 
     const webviewRef = useRef<WebviewElement>(null);
 
-    // Remote panes (ADR-178 §5) load `localhost:<port>` URLs through a port
+    // Remote panes load `localhost:<port>` URLs through a port
     // forward rather than on this machine — everything about that lives in
-    // this hook (ADR-183 ticket 10).
+    // this hook.
     const remoteBrowserUrl = useRemoteBrowserUrl({
       paneId,
       remoteHostId,
@@ -292,7 +292,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     }, [navigateTo]);
 
     // Shared by the webview's own ⌘F (relayed as `webview:find`) and Edit ›
-    // Find… (ADR-170) targeting this pane by id.
+    // Find… targeting this pane by id.
     const openFindBar = useCallback(() => {
       fireNavStateChange({ findBarOpen: true });
     }, [fireNavStateChange]);

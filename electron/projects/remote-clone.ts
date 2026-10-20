@@ -1,8 +1,7 @@
 /**
- * Getting a repo checked out on a remote host (ADR-178 ticket 5): the
+ * Getting a repo checked out on a remote host: the
  * validation of what the user typed, and the clone itself. Pure functions
- * over a host's backend and a progress callback (ADR-183 split this out of
- * `ProjectManager`).
+ * over a host's backend and a progress callback.
  */
 
 import { errorMessage } from "../lib/errors";
@@ -60,7 +59,7 @@ export function validateRemoteDir(dir: string): void {
 
 /**
  * A repo's identity as `host/path`, so `git@host:path`, `ssh://git@host/path`
- * and `https://host/path` (ADR-178 ticket 5 review) compare equal even
+ * and `https://host/path` compare equal even
  * though `git remote get-url origin` and a user-typed repo URL rarely agree
  * on form. Strips scheme, user, port and a trailing `.git`/`/` (in either
  * order); case-folds, since host names are case-insensitive.
@@ -101,7 +100,7 @@ export async function resolveRemoteDir(
 
 /**
  * Resolve a clone target on `isLocal` or a remote host. Remote follows the
- * strict `resolveRemoteDir` rule. Local (ADR-194) is looser about characters
+ * strict `resolveRemoteDir` rule. Local is looser about characters
  * (a user's own machine may have spaces) but still must be `~`, `~/…` or
  * absolute, must not look like a flag, and must not resolve to `/`.
  */
@@ -128,7 +127,7 @@ export async function resolveCloneDir(
   return targetDir;
 }
 
-/** Clone progress, for the `projects:clone-progress` channel (ADR-183 ticket 1). */
+/** Clone progress, for the `projects:clone-progress` channel. */
 export type CloneProgress = (
   status: "in-progress" | "done" | "error",
   message?: string,

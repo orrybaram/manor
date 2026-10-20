@@ -12,11 +12,11 @@ import {
 import { SESSIONS_DIR, ScrollbackWriter } from "../terminal-host/scrollback";
 
 /**
- * Guard for ADR-169: the suite must never reach the developer's real home.
+ * Guard: the suite must never reach the developer's real home.
  * If this fails, `electron/__tests__/setup-isolated-home.ts` is no longer the
  * first entry in `vitest.config.ts` setupFiles, or something restored $HOME.
  */
-describe("test home isolation (ADR-169)", () => {
+describe("test home isolation", () => {
   const isolatedHome = process.env.HOME!;
   const under = (p: string, root: string) =>
     p === root || p.startsWith(root + path.sep);

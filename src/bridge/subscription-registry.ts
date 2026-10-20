@@ -1,5 +1,5 @@
 /**
- * Who in this process is listening to what (ADR-182 D5).
+ * Who in this process is listening to what.
  *
  * One connection carries every event a renderer hears, so the listening is
  * fanned out locally: the host sees one `subscribe` per `ns.event` + key, and

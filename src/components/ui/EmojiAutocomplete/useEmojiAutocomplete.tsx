@@ -47,7 +47,8 @@ const noop = () => {};
  * root listener, which fires `onChange` with the new value. That keeps both
  * controlled (`setName(e.target.value)`) and uncontrolled / commit-on-blur
  * callers working without changes. This is the same trick React Testing
- * Library uses, and it is the one place ADR-174 depends on React internals.
+ * Library uses, and it is the one place emoji autocomplete depends on React
+ * internals.
  *
  * The caret is placed before dispatching so any handler reading
  * `selectionStart` during `onChange` sees the post-insert position.
@@ -76,7 +77,7 @@ function scrollIntoViewNearest(node: HTMLElement | null) {
 }
 
 /**
- * `:shortcode` emoji autocomplete for a text input or textarea (ADR-174).
+ * `:shortcode` emoji autocomplete for a text input or textarea.
  *
  * Wire it up by:
  * - calling `handleKeyDown(e)` first in the field's `onKeyDown`, and skipping

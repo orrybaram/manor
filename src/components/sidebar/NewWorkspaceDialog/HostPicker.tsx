@@ -14,7 +14,7 @@ type HostPickerProps = {
   value: string;
   onChange: (projectId: string) => void;
   /**
-   * Opens "Set up on another host…" (ADR-192 ticket 4). Omitted when every
+   * Opens "Set up on another host…". Omitted when every
    * registered host already has a member, which hides the action.
    */
   onSetUpOnAnotherHost?: () => void;
@@ -22,13 +22,13 @@ type HostPickerProps = {
   showHiddenHostsToggle?: boolean;
   showAllHosts?: boolean;
   onToggleShowAllHosts?: () => void;
-  /** "In a new pod · <profile>" entries (ADR-235 D4), after the hosts. */
+  /** "In a new pod · <profile>" entries, after the hosts. */
   newHostTargets?: NewHostTarget[];
   onSetUpInNewHost?: (target: NewHostTarget) => void;
 };
 
 /**
- * Where a project's new workspace runs (ADR-192). It shows one
+ * Where a project's new workspace runs. It shows one
  * option per host the project is set up on, labeled with that host's badge. A host that
  * isn't connected stays visible but can't be picked, and says why. Beside
  * it, "Set up on another host…" sets the project up on a host it lacks.

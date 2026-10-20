@@ -103,7 +103,7 @@
   outline-offset: -1px;
 }
 
-/* A finished Agent's lifecycle, not a live status dot (ADR-184 §4) */
+/* A finished Agent's lifecycle, not a live status dot */
 .lifecycleBadge {
   flex-shrink: 0;
   width: 6px;

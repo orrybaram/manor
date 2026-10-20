@@ -1,7 +1,6 @@
 /**
  * SessionSubscriptions — the sessions the app wants a stream subscription
- * for, and squaring them with the daemon's session table after a (re)connect
- * (ADR-169).
+ * for, and squaring them with the daemon's session table after a (re)connect.
  *
  * Deliberately survives the connection: after the daemon goes away this is
  * the list of terminals the renderer still believes are alive, and
@@ -58,7 +57,7 @@ export class SessionSubscriptions {
    * After a (re)connect: re-subscribe to every wanted session the daemon
    * still has, and emit a synthetic `exit` for every one it does not.
    *
-   * Before ADR-169 a lost daemon left the client silent — no reconnect, no
+   * A lost daemon used to leave the client silent — no reconnect, no
    * events — and the renderer kept showing terminals whose PTYs were gone.
    * The `exit` here is what turns that freeze into the same closed-pane state
    * a shell exit produces, which the renderer already knows how to handle.

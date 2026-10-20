@@ -1,6 +1,6 @@
 /**
  * MachineFacts — what a host's machine *is*, as opposed to the commands run
- * on it (ADR-183). Every host answers the same questions about itself: this
+ * on it. Every host answers the same questions about itself: this
  * machine through `fs`/`os`/`path` (`localFacts`), any other one through its
  * `Exec` (`execFacts`). A caller asks the host it has, and never branches on
  * whether that host is local.

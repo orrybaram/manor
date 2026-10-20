@@ -1,5 +1,5 @@
 /**
- * The once-per-session toast for a refused bridge call (ADR-178 ticket 9).
+ * The once-per-session toast for a refused bridge call.
  *
  * Extracted from `app-store.ts`'s `layout.save` handling (ticket 6): the web
  * bridge answers a handful of fire-and-forget calls with the same

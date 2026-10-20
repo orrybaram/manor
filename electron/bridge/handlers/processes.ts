@@ -14,7 +14,7 @@ import {
 /**
  * Daemon/process control, whole, as the `processes`
  * namespace of the handler table. Everything but `list` kills something, is
- * reachable by a `full` device on the bridge and nowhere else (ADR-182 D2),
+ * reachable by a `full` device on the bridge and nowhere else,
  * and is `mutating`.
  */
 export function processesList(

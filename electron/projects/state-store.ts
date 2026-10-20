@@ -1,6 +1,6 @@
 /**
  * `projects.json`: loading it, writing it, and batching writes that come in
- * bursts (ADR-183 split this out of `ProjectManager`).
+ * bursts.
  */
 
 import fs from "node:fs";
@@ -24,9 +24,9 @@ export class StateStore {
 
   /**
    * Every project comes out with a `hostId` — `"local"` where the file has
-   * none (ADR-183) — so nothing downstream re-defaults it. Linked-project
+   * none — so nothing downstream re-defaults it. Linked-project
    * groups and dismissed link suggestions are brought back in line with
-   * their invariants (ADR-192); a file without any keeps neither key, so it
+   * their invariants; a file without any keeps neither key, so it
    * is written back unchanged.
    */
   private load(): PersistedState {
@@ -39,7 +39,7 @@ export class StateStore {
     for (const project of state.projects as Array<Partial<PersistedProject>>) {
       project.hostId ??= LOCAL_HOST_ID;
     }
-    // A host's hook journal is its server's to read (ADR-227 D4): the
+    // A host's hook journal is its server's to read: the
     // desktop's position in it is gone.
     for (const host of Object.values(state.hosts ?? {})) {
       delete (host as { lastHookSeq?: number }).lastHookSeq;

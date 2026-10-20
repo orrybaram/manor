@@ -44,8 +44,8 @@ const READ_FILE_TIMEOUT_MS = 30_000;
 const WRITE_FILE_TIMEOUT_MS = 60_000;
 
 /**
- * Timeout for listing a stale daemon's sessions before replacing it
- * (ADR-185 §A). Short on purpose: a daemon too old to answer at all must
+ * Timeout for listing a stale daemon's sessions before replacing it.
+ * Short on purpose: a daemon too old to answer at all must
  * never hold up the restart it is about to get anyway.
  */
 const STALE_DAEMON_SESSIONS_TIMEOUT_MS = 2_000;
@@ -61,7 +61,7 @@ const LOCAL_ENV_KEYS = [
  * The env to push to the daemon on connect, so new PTY sessions inherit fresh
  * values (e.g. MANOR_HOOK_PORT may have changed since the daemon spawned).
  * The `LOCAL_ENV_KEYS` are ports on this machine; a remote daemon's role drops
- * them (ADR-178 §2), so the client does not need to know which kind it has.
+ * them, so the client does not need to know which kind it has.
  *
  * Explicit `updateEnv` values win over inherited ones in general, but for the
  * MANOR_* port keys the live process.env value must win: a remembered override
@@ -78,7 +78,7 @@ function envForConnect(overrides: Record<string, string>): Record<string, string
 
 /**
  * How often to ping a connected daemon, and how long to wait for its pong
- * before presuming the connection dead (ADR-188 §2).
+ * before presuming the connection dead.
  */
 export interface HeartbeatOptions {
   intervalMs: number;
@@ -98,7 +98,7 @@ export class TerminalHostClient {
    * request is not proof the connection is gone: ask the daemon for a pong
    * (joining a liveness ping already in flight — the one that just timed
    * out, possibly), and only an unanswered one goes through
-   * `handleDisconnect` and the reconnect loop (ADR-188 §1). Without a
+   * `handleDisconnect` and the reconnect loop. Without a
    * heartbeat (the local daemon) the connection is dropped quietly as
    * before, and the next call reconnects: routing it through the loss path
    * would let a busy daemon run the local policy out of attempts and report
@@ -179,7 +179,7 @@ export class TerminalHostClient {
     private readonly transport: HostTransport = new LocalTransport(),
     /**
      * Reports the live sessions a stale daemon is about to lose, just before
-     * it is replaced (ADR-185 §A) — so the caller can tell its owner an
+     * it is replaced — so the caller can tell its owner an
      * Agent's pty exit is a daemon replacement, not the Agent finishing.
      * Never called with an empty list.
      */
@@ -198,7 +198,7 @@ export class TerminalHostClient {
    *
    * `beforeAttempt` is asked before each attempt; false stops the loop
    * without reporting anything — no `onFailed`, no session exited — for a
-   * host put to sleep (ADR-229 D1). A later `connect()` resumes the sessions.
+   * host put to sleep. A later `connect()` resumes the sessions.
    */
   setReconnectPolicy(policy: ReconnectPolicy, opts: ReconnectPolicyOptions = {}): void {
     this.supervisor.setPolicy(policy, opts);
@@ -206,7 +206,7 @@ export class TerminalHostClient {
 
   /**
    * Ping the daemon every `intervalMs` while connected, and treat a ping not
-   * answered within `timeoutMs` as a lost connection (ADR-188 §2). Catches a
+   * answered within `timeoutMs` as a lost connection. Catches a
    * connection that is up but no longer delivering, which a socket close
    * never reports. `null` turns it off, the default.
    */
@@ -234,7 +234,7 @@ export class TerminalHostClient {
 
   /**
    * Whether this client's stream socket is subscribed to `sessionId` — one of
-   * the session's `attachedClients` is then this client (ADR-225 D5).
+   * the session's `attachedClients` is then this client.
    */
   isSubscribed(sessionId: string): boolean {
     return this.subscriptions.has(sessionId);
@@ -259,7 +259,7 @@ export class TerminalHostClient {
   /**
    * Send a stream command on the current stream socket; false (nothing
    * sent) when there is none. For commands whose answer belongs to that
-   * socket, like a `controlResponse` (ADR-189 §1).
+   * socket, like a `controlResponse`.
    */
   sendStreamCommand(cmd: StreamCommand): boolean {
     return this.stream.write(cmd);
@@ -325,7 +325,7 @@ export class TerminalHostClient {
 
     // Handshake: replace the running daemon when it cannot serve this client
     // (see `isDaemonStale`) — a protocol mismatch, not merely a different app
-    // version (ADR-185 §B).
+    // version.
     const clientVer = this.clientVersion ?? "unknown";
     const hsResp = await this.rpc.request(
       { type: "handshake", clientVersion: clientVer },
@@ -365,7 +365,7 @@ export class TerminalHostClient {
 
   /**
    * The stale daemon's live session ids, asked over the control socket
-   * that is about to be torn down (ADR-185 §A). A short timeout, and any
+   * that is about to be torn down. A short timeout, and any
    * failure at all, both mean an empty list: a daemon old enough to be
    * replaced may not answer `listSessions` the way this client expects
    * (or at all), and that must never block the restart it is already
@@ -519,7 +519,7 @@ export class TerminalHostClient {
 
   /**
    * Attach to a session the daemon has and whose shell is still running —
-   * never spawning one, and never resizing it (ADR-220). Null when there is
+   * never spawning one, and never resizing it. Null when there is
    * no such live session: its shell exited, it was killed, or it never was.
    *
    * What a viewer re-attaching after a dropped connection asks for. It may
@@ -618,7 +618,7 @@ export class TerminalHostClient {
   }
 
   /**
-   * A session's current Pane facts (ADR-184 §3); null when the daemon has no
+   * A session's current Pane facts; null when the daemon has no
    * such session. Lets main resync after a reconnect, when the `paneFacts`
    * events it missed are not replayed.
    */
@@ -674,7 +674,7 @@ export class TerminalHostClient {
   }
 
   /**
-   * Write `data` to `filePath` on the daemon's host, atomically (ADR-187 §1).
+   * Write `data` to `filePath` on the daemon's host, atomically.
    * Creates the parent directory if needed.
    */
   async writeFile(filePath: string, data: Buffer): Promise<void> {
@@ -688,8 +688,8 @@ export class TerminalHostClient {
   }
 
   /**
-   * How the daemon's host was set up for shell integration and agent hooks
-   * (ADR-160 ticket 10): the agent kinds it registered, plus any warnings
+   * How the daemon's host was set up for shell integration and agent hooks:
+   * the agent kinds it registered, plus any warnings
    * for connectors it skipped rather than risk clobbering a config it
    * couldn't parse. Throws if the daemon could not bootstrap.
    */
@@ -700,7 +700,7 @@ export class TerminalHostClient {
   }
 
   /**
-   * Hook journal entries after `sinceSeq` from the daemon (ADR-178 §2). With
+   * Hook journal entries after `sinceSeq` from the daemon. With
    * `headOnly`, just the journal's position (no entries). Throws if the
    * daemon has no journal.
    */

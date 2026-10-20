@@ -38,7 +38,7 @@ vi.mock("electron", () => ({
   },
 }));
 
-// ── Mock the recording round-trip to the renderer (ADR-158) ──
+// ── Mock the recording round-trip to the renderer ──
 //
 // `RecordingManager` itself has no Electron dependency (see its own file
 // header), so it is used for real here to exercise `start()`/`stop()`/`list()`
@@ -573,7 +573,7 @@ describe("WebviewServer", () => {
       );
     });
 
-    it("rewrites a remote pane's URL through resolvePaneUrl (ADR-178 §5, ADR-183)", async () => {
+    it("rewrites a remote pane's URL through resolvePaneUrl", async () => {
       const resolvePaneUrl = vi.fn(async (paneId: string, url: string) =>
         paneId === "pane-1" && url === "http://localhost:3000/"
           ? "http://127.0.0.1:53000/"

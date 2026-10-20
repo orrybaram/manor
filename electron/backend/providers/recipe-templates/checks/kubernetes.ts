@@ -1,5 +1,5 @@
 /**
- * The `kubernetes` template's checks (ADR-234 D6, D8).
+ * The `kubernetes` template's checks.
  *
  * Choices: kubeconfig's contexts, each with its cluster's server so two
  * contexts can be told apart, and kubectl's current one labelled as such. A

@@ -5,13 +5,13 @@ import { readChatView, writeChatView, type ChatView } from "./chat-view";
 import { endsMenuHandoff, liveMenuHandoff, type MenuHandoff } from "./menu-handoff";
 
 /**
- * Each pane's Chat | Terminal choice (ADR-215 D7), shared by the pane itself
+ * Each pane's Chat | Terminal choice, shared by the pane itself
  * (`LeafPane`, which shows one or the other) and the phone top bar's overflow
  * menu (which flips it). An entry is filled lazily from this browser's
  * storage the first time a pane is read, chat by default, and every change is
  * written back.
  *
- * A menu handoff (ADR-218 D3) lies over that choice: while one is live the
+ * A menu handoff lies over that choice: while one is live the
  * pane shows the terminal, and the stored choice is never touched, so a
  * reload mid-handoff comes back on the chat.
  */
@@ -25,7 +25,7 @@ type PaneChatViewState = {
   /** The prompt a starting pane was launched with, shown until its
    *  transcript lands. In memory only. */
   startingPrompts: Record<string, string>;
-  /** Panes showing the terminal for a TUI menu the chat sent (ADR-218 D3),
+  /** Panes showing the terminal for a TUI menu the chat sent,
    *  until the menu's command lands in the transcript, the transcript
    *  changes, or the user goes back. In memory only. */
   handoffs: Record<string, MenuHandoff>;
@@ -90,8 +90,7 @@ export function usePaneChatStarting(paneId: string, transcript: string | null): 
 }
 
 /**
- * Hand `paneId` to the terminal for the menu `/name` opens there (ADR-218
- * D3), sent from the chat of `transcript`. A fresh chat has none of its own
+ * Hand `paneId` to the terminal for the menu `/name` opens there, sent from the chat of `transcript`. A fresh chat has none of its own
  * and is still on the one it is leaving. The key bar shows until
  * `endMenuHandoff` or a different transcript.
  */

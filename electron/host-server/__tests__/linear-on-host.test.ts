@@ -1,5 +1,5 @@
 /**
- * "Use Linear on <host>" (ADR-227 D7): the desktop's key set and cleared over
+ * "Use Linear on <host>": the desktop's key set and cleared over
  * the owner channel, `linear.*` unavailable until it is there, and "Reset
  * pairing keys" deleting it. See `harness.ts`.
  */
@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { useHostServerHarness } from "./harness";
 import type { PairResult } from "../../remote-control/relay-room";
 
-describe("host server: Linear on the host (ADR-227 D7)", () => {
+describe("host server: Linear on the host", () => {
   const h = useHostServerHarness();
 
   it("sets, reports and clears the token, sealed in the host's own file", async () => {
@@ -95,7 +95,7 @@ describe("host server: Linear on the host (ADR-227 D7)", () => {
     expect(fs.existsSync(h.paths.linearToken)).toBe(false);
   });
 
-  it("publishes linear.connectionChanged when the token is set and cleared (ADR-230 D8)", async () => {
+  it("publishes linear.connectionChanged when the token is set and cleared", async () => {
     await h.serve();
     const client = await h.owner();
     client.subscribe("linear", "connectionChanged");

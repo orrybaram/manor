@@ -67,7 +67,7 @@ function makePage(prefix: string, count: number): AgentInfo[] {
   });
 }
 
-describe("agent-store pagination (ADR-136)", () => {
+describe("agent-store pagination", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();

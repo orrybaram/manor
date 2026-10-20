@@ -1,5 +1,5 @@
 /**
- * Launches on the server (ADR-227 D5): an agent tab or a setup script starts
+ * Launches on the server: an agent tab or a setup script starts
  * its session the moment its pane joins a tree, with no renderer anywhere,
  * and a renderer that mounts the pane later attaches to it — never a second
  * spawn, never the command typed twice.

@@ -1,6 +1,5 @@
 /**
- * A tiny listener bus for UI intents that live in component-local state
- * (ADR-170 §8).
+ * A tiny listener bus for UI intents that live in component-local state.
  *
  * Several actions the native menu offers — renaming a workspace inline,
  * the merge / delete / remove-project dialogs, the notifications popover, pane
@@ -25,7 +24,7 @@ export type UiRequest =
   | { type: "open-notifications" }
   | { type: "pane-search"; paneId: string }
   | { type: "ghosts" }
-  /** Open the Add Project dialog on its "Clone repository" tab (ADR-194). */
+  /** Open the Add Project dialog on its "Clone repository" tab. */
   | { type: "clone-repository" }
   /** Open a project's settings, scrolled to `section` (a `data-settings-section` id). */
   | { type: "open-project-settings"; projectId: string; section?: string }

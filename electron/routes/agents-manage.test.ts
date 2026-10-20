@@ -3,7 +3,7 @@
  * resume-command. `POST /agents`, the launch route, has its own file
  * (`agents-launch.test.ts`) now that it opens the tab itself. Rename, delete
  * and mark-seen call `agents.update`/`agents.delete`/`agents.markSeen` in
- * `../bridge/handlers/agents.ts` (ADR-182 D8); modeled on `agents-read.test.ts`.
+ * `../bridge/handlers/agents.ts`; modeled on `agents-read.test.ts`.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -258,7 +258,7 @@ describe("GET /agents/:agentId/resume-command", () => {
   });
 });
 
-describe("POST /sessions/end (ADR-184)", () => {
+describe("POST /sessions/end", () => {
   const endRoute = findRoute("POST", "/sessions/end");
 
   it("kills the pty, then sends the reconciler an `end` user signal instead of writing status", async () => {

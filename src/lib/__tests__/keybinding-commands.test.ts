@@ -96,7 +96,7 @@ function keyEvent(key: string, mods: Partial<KeyboardEvent> = {}) {
 beforeEach(() => {
   useProjectStore.setState({ projects: [], selectedProjectIndex: 0 });
   // The server starts from the same layout: a keybinding that changes the
-  // layout sends a command and reads the broadcast back (ADR-179 D1).
+  // layout sends a command and reads the broadcast back.
   resetFakeLayoutServer();
   const layout = makeLayout(singlePaneTab());
   seedLayout(WS_PATH, layout);
@@ -313,7 +313,7 @@ describe("startNewAgent", () => {
     const layout = useAppStore.getState().workspaceLayouts[WS_PATH];
     const tabs = layout.panels["panel-1"].tabs;
     expect(tabs).toHaveLength(2);
-    // The launch line waits on the server now (ADR-179 ticket 11), keyed by
+    // The launch line waits on the server now, keyed by
     // the pane the new tab minted.
     expect(queuedCommands).toEqual([
       {
@@ -389,7 +389,7 @@ describe("startNewAgent", () => {
 describe("newAgent", () => {
   afterEach(() => recordHello({ hostName: null, hostServer: false }));
 
-  // A host server launches agents like any host (ADR-227 D6).
+  // A host server launches agents like any host.
   it("still launches once the hello says this is a host server", async () => {
     recordHello({ hostName: "Studio", hostServer: true });
     const consumePrewarmed = vi.fn();
@@ -548,7 +548,7 @@ describe("dispatchKeybinding", () => {
 
 /** Make pane-1 a registered browser pane and return its ref's spies. */
 function focusBrowserPane() {
-  // What a pane is lives on its leaf (ADR-182 D9).
+  // What a pane is lives on its leaf.
   useAppStore.setState({
     workspaceLayouts: {
       [WS_PATH]: makeLayout({

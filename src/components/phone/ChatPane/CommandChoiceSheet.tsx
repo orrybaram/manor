@@ -13,7 +13,7 @@ function scrollIntoViewNearest(node: HTMLElement | null) {
 }
 
 /**
- * The picker for a command with fixed arguments (ADR-218 D2): drawn where the
+ * The picker for a command with fixed arguments: drawn where the
  * `/` menu was, one row per choice, then "Other…" and "Open menu in terminal".
  *
  * Like the `/` menu, focus stays in the composer's textarea (its

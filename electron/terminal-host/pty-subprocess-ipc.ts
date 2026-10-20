@@ -28,8 +28,7 @@
  *
  * The daemon is long-lived and forks a fresh `pty-subprocess.js` per session
  * from `__dirname` — after an update, that path resolves to the *new*
- * bundle, so an old daemon can end up forking a new subprocess (ADR-185
- * §B). `isDaemonStale` (`types.ts`) treats a mismatch here as a reason to
+ * bundle, so an old daemon can end up forking a new subprocess. `isDaemonStale` (`types.ts`) treats a mismatch here as a reason to
  * replace the daemon, the same as a `TERMINAL_HOST_PROTOCOL` mismatch.
  *
  * 1 — the frame layout and message types documented above.

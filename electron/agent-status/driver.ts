@@ -1,5 +1,5 @@
 /**
- * The Status reconciler's driver (ADR-184 §1).
+ * The Status reconciler's driver.
  *
  * A thin shell around the pure `reconcile()`:
  * - holds the per-pane `PaneAgentState`s;
@@ -11,11 +11,10 @@
  *   time-based rule (held-Stop drain, stuck-working, orphan recovery);
  * - resyncs Pane facts after a host (re)connects (`resync`);
  * - remembers which panes a daemon replacement is about to kill
- *   (`expectPaneLoss`, ADR-185 §A), and tells the reconciler, so their Agents
+ *   (`expectPaneLoss`), and tells the reconciler, so their Agents
  *   are not completed by the SessionEnd that follows.
  *
- * Replaces `createHookRelay`'s interior (ADR-139); the old relay was deleted
- * by ADR-184 ticket 4.
+ * Replaces `createHookRelay`'s interior; the old relay is deleted.
  */
 
 import type { AgentHookEvent } from "../agent-hook-events";
@@ -35,7 +34,7 @@ import type {
 export const TICK_INTERVAL_MS = 10_000;
 
 /**
- * How long a pane's expected-loss window lasts by default (ADR-185 §A): ample
+ * How long a pane's expected-loss window lasts by default: ample
  * for the killed agent's SessionEnd hook to arrive (it takes well under a
  * second), short enough that a later, genuine exit completes as usual.
  */
@@ -56,7 +55,7 @@ export interface HookObservation {
 export interface AgentStatusDriverDeps extends EffectApplierDeps {
   /**
    * Fire-and-forget observer of every hook signal, called after its effects
-   * were applied (ADR-168 §2). Throws are logged and swallowed.
+   * were applied. Throws are logged and swallowed.
    */
   onHookEvent?: (
     event: AgentHookEvent,
@@ -102,8 +101,8 @@ export interface AgentStatusDriver extends AgentStatusSignals {
   /** Drop a pane's state (its pty exited). */
   forgetPane(paneId: string): void;
   /**
-   * These panes' ptys are about to die because their daemon is being replaced
-   * (ADR-185 §A). For `ttlMs` (default `EXPECTED_PANE_LOSS_TTL_MS`), or until
+   * These panes' ptys are about to die because their daemon is being replaced.
+   * For `ttlMs` (default `EXPECTED_PANE_LOSS_TTL_MS`), or until
    * the pane's next `SessionStart`, a `SessionEnd` resets the pane without
    * completing its Agent (rule H8a), so the renderer's cold restore resumes it.
    * Survives `forgetPane`: the pty's exit comes before the SessionEnd.
@@ -114,7 +113,7 @@ export interface AgentStatusDriver extends AgentStatusSignals {
   /** The pane's current state, if the driver has seen a signal for it. */
   getPaneState(paneId: string): PaneAgentState | undefined;
   /**
-   * Every pane's currently published Agent status (ADR-184 ticket 5) — what
+   * Every pane's currently published Agent status — what
    * `agents:getPaneStatuses` hands a window on startup, so it paints current
    * dots instead of waiting for the next signal to publish one.
    */
@@ -144,13 +143,13 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
   } = deps;
 
   const states = new Map<string, PaneAgentState>();
-  /** Expected-loss windows (ADR-185 §A): pane id → monotonic deadline. */
+  /** Expected-loss windows: pane id → monotonic deadline. */
   const expectedLoss = new Map<string, number>();
   /** Pane id → monotonic ms of its last `output` signal (`noteOutput`). */
   const lastOutputSignalAt = new Map<string, number>();
   let interval: ReturnType<typeof setInterval> | null = null;
 
-  // Boot timestamps for the orphan rule's age clamp (ADR-132, as in the old
+  // Boot timestamps for the orphan rule's age clamp (as in the old
   // relay's `agentMonotonicAgeMs`).
   const BOOT_MONO_MS = monoClock();
   const BOOT_WALL_MS = wallClock();
@@ -244,7 +243,7 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
    * A pane seen for the first time since main started, whose saved Agent is
    * still active (a main restart while the daemon kept the agent running):
    * restore its state from that Agent and publish it, before the signal is
-   * applied on top (ADR-184). Seeded for Pane facts (resync and the live
+   * applied on top. Seeded for Pane facts (resync and the live
    * stream), and for a hook only from that same session — a hook from any
    * other session claims the pane afresh, as before.
    */
@@ -296,7 +295,7 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
   }
 
   /**
-   * ADR-215 D2: a hook that names the session's transcript sets it on the
+   * A hook that names the session's transcript sets it on the
    * session's Agent. The latest value wins (`/clear` and resume switch
    * transcripts). Runs after the reconciler so a SessionStart that created
    * the Agent is covered. Subagent hooks are ignored.
@@ -367,7 +366,7 @@ export function createAgentStatusDriver(deps: AgentStatusDriverDeps): AgentStatu
       run(paneId, state, { type: "tick", nowMs }, ctx);
     }
 
-    // Orphans (ADR-132): active Agents no pane state stands for — their pane
+    // Orphans: active Agents no pane state stands for — their pane
     // has had no signal since main started, or they have no pane at all.
     for (const agent of agentManager.getActiveAgents()) {
       if (covered.has(agent.id)) continue;

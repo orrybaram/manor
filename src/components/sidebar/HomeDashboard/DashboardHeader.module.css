@@ -1,4 +1,4 @@
-/* ADR-198 §1.1: mockup `.top` — eyebrow and headline. */
+/* Mockup `.top` — eyebrow and headline. */
 .header {
   display: flex;
   align-items: flex-end;

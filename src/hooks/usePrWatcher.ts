@@ -101,7 +101,7 @@ async function fetchAllPrs() {
       }
     } catch {
       // gh CLI not available or network error — skip. On a remote host,
-      // find out whether it is `gh` there and say so (ADR-227 D7).
+      // find out whether it is `gh` there and say so.
       void noteGhStatus(ghRepoOf(project).hostId);
     }
   }

@@ -1,6 +1,6 @@
 /**
- * The `docker` template (ADR-229 D8): a container on a Docker daemon — this
- * computer's, or another machine's reached over SSH (ADR-234 D12) —
+ * The `docker` template: a container on a Docker daemon — this
+ * computer's, or another machine's reached over SSH —
  * its home directory a named volume, reached over
  * `docker exec -i -u manor`. The cheapest way to try the feature.
  *
@@ -9,7 +9,7 @@
  * for the server and runs `manor-host supervise`. The key that seals the
  * host's secrets lives in a second named volume, `manor-<name>-key`, filled
  * once by the image and mounted read-only; nothing is bind-mounted from the
- * recipe directory, so remote daemons, colima and Rancher work (ADR-234 D4). They are plain files the
+ * recipe directory, so remote daemons, colima and Rancher work. They are plain files the
  * user owns once written: nothing about a template is special afterwards.
  */
 
@@ -43,7 +43,7 @@ if [ -n "\${MANOR_DOCKER_CONTEXT:-}" ]; then
 fi
 image=\${MANOR_DOCKER_IMAGE:?MANOR_DOCKER_IMAGE is not set}
 volume="manor-$name-home"
-# Docker on another machine (ADR-234 D12): the context Manor made for it
+# Docker on another machine: the context Manor made for it
 # (\`manor-<host>\`) may have been removed since. Make it again, but never
 # touch a context of that name that points somewhere else.
 if [ -n "\${MANOR_DOCKER_SSH_TARGET:-}" ] && [ "\${MANOR_DOCKER_CONTEXT_MANAGED:-}" = 1 ]; then
@@ -77,7 +77,7 @@ if ! "\${docker_cmd[@]}" image inspect "$image" >/dev/null 2>&1; then
   "\${docker_cmd[@]}" pull "$image"
 fi
 
-# The key that seals the host's secrets (ADR-229 D5) lives in its own volume
+# The key that seals the host's secrets lives in its own volume
 # on the daemon, apart from the home volume, so a copy of the home cannot read
 # it. Nothing is bind-mounted, so a remote daemon works too. It is filled once,
 # by the host image itself; a fresh volume is root-owned, hence \`-u 0\`.
@@ -108,15 +108,15 @@ case "$state" in
     ;;
 esac
 
-# No-op examples of the hooks the host runs when it turns busy or idle
-# (ADR-229 D7). Written only if absent: they are yours to edit.
+# No-op examples of the hooks the host runs when it turns busy or idle.
+# Written only if absent: they are yours to edit.
 "\${docker_cmd[@]}" exec -i -u manor "$name" sh -s <<'HOOKS'
 set -eu
 hooks="$HOME/.manor/remote/hooks"
 mkdir -p "$hooks"
 for hook in on-idle on-busy; do
   if [ ! -e "$hooks/$hook" ]; then
-    printf '#!/bin/sh\\n# %s: Manor runs this when the host turns %s (ADR-229 D7).\\nexit 0\\n' "$hook" "\${hook#on-}" >"$hooks/$hook"
+    printf '#!/bin/sh\\n# %s: Manor runs this when the host turns %s.\\nexit 0\\n' "$hook" "\${hook#on-}" >"$hooks/$hook"
     chmod 755 "$hooks/$hook"
   fi
 done
@@ -215,7 +215,7 @@ fi
 echo '{}' >&3
 `;
 
-/** "Run it on": this computer's Docker, or another machine's over SSH (ADR-234 D12). */
+/** "Run it on": this computer's Docker, or another machine's over SSH. */
 type DockerWhere = "local" | "ssh";
 
 /**

@@ -1,4 +1,4 @@
-// Pure helpers for the window's top-left controls (ADR-196).
+// Pure helpers for the window's top-left controls.
 
 import type { SidebarMode } from "../store/project-store";
 import { hasTrafficLights } from "./platform";
@@ -23,7 +23,7 @@ export function lightsWidth(): number {
   return hasTrafficLights() ? LIGHTS_WIDTH : NO_LIGHTS_WIDTH;
 }
 
-/** Width of the collapsed sidebar rail (ADR-195). */
+/** Width of the collapsed sidebar rail. */
 export const RAIL_WIDTH = 72;
 
 /** Gutter between panels and window edges; mirrors `--frame-gap` in App.css. */

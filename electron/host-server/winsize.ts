@@ -1,7 +1,7 @@
 /**
- * Who owns a pane's winsize on a host server (ADR-225 D5).
+ * Who owns a pane's winsize on a host server.
  *
- * ADR-178 D5 said the "is a desktop attached?" check would move into the
+ * The "is a desktop attached?" check was always meant to move into the
  * daemon once a host had no Electron main to ask. This is that host: the
  * daemon reports `attachedClients` on its session info, and a device viewer
  * is a **follower** whenever any client other than this server is attached,
@@ -13,13 +13,13 @@
  * this server accounts for exactly one of a session's `attachedClients` while
  * a device holds the pane (`isHeld` in `pty-attachments.ts` — the last
  * device's detach is what unsubscribes), or while the server itself is
- * subscribed with nobody viewing — a session it launched (ADR-227 D5) — and
+ * subscribed with nobody viewing — a session it launched — and
  * none otherwise.
  * Two phones on one pane are therefore not "someone else" to each other here;
  * the registry's own most-recent-attach rule still orders them. Nor is a
- * desktop window's viewer stream (ADR-228 D4): it is a connection on this
+ * desktop window's viewer stream: it is a connection on this
  * server, holding the pane through the same socket, and the registry ranks it
- * above every phone (D5). The hold is left for clients this server cannot see.
+ * above every phone. The hold is left for clients this server cannot see.
  *
  * **The answer lives in the registry.** Whether someone else holds the pane is
  * `setForeign` on `pty-attachments.ts`, so the desktop pty handlers this
@@ -28,8 +28,8 @@
  *
  * **Unknown is nobody else.** A daemon that predates the field omits it —
  * and a daemon outlives a host upgrade, so a freshly upgraded host runs one
- * for as long as its sessions live. ADR-225 D5 made that a follower, when the
- * desktop was a daemon client this server could not see. Since ADR-228 D5 the
+ * for as long as its sessions live. That used to count as a follower, when
+ * the desktop was a daemon client this server could not see. Now the
  * desktop is a viewer here, ranked by the registry, so the client an unknown
  * count was guarding against no longer exists — and treating it as present
  * held every pane foreign, dropping every resize from every viewer.

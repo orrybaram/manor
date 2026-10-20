@@ -1,5 +1,5 @@
 /**
- * Jev, provided by Manor through the relay (ADR-211).
+ * Jev, provided by Manor through the relay.
  *
  * The TypeSafe key lives on the relay Worker (`relay/src/jev.ts`), which
  * owns the model, question type and instructions; this side sends only the

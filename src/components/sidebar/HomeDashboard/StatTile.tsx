@@ -12,7 +12,7 @@ type StatTileProps = {
   children?: ReactNode;
 };
 
-/** One of the four stat tiles (ADR-198 §1.3): mockup `.stat`. */
+/** One of the four stat tiles: mockup `.stat`. */
 export function StatTile(props: StatTileProps) {
   const { label, color, value, aside, foot, children } = props;
 

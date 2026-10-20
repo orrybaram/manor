@@ -13,8 +13,7 @@ import styles from "./PaneLayout/PaneLayout.module.css";
  * The window-placement entries shared by every pane context menu, so a pane can
  * be popped out (or sent back) without discovering the drag tear-off.
  *
- * "New window" makes the pane a tab and opens a window claiming it (ADR-179
- * D4); "back to the main window" is this window closing, which releases the
+ * "New window" makes the pane a tab and opens a window claiming it; "back to the main window" is this window closing, which releases the
  * claim. A detached window's sole pane offers no "new window" — popping it out
  * would leave this window holding nothing, which closes it.
  */

@@ -39,7 +39,7 @@ const STATE_LABEL: Record<TemplateCheck["state"], string> = {
 };
 
 /**
- * A template's readiness checklist (ADR-234 D7, D8): one row per check, its
+ * A template's readiness checklist: one row per check, its
  * state as an icon, a plain title, a dim detail, and at most one fix on the
  * right — a button for one Manor carries out or a field it sets, a link for
  * a page to open.

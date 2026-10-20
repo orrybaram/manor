@@ -33,7 +33,7 @@ const ICONS = [
 ];
 
 /**
- * Installable (ADR-206 D7): iOS grants Web Push only to a page added to the Home Screen *as a web app* —
+ * Installable: iOS grants Web Push only to a page added to the Home Screen *as a web app* —
  * without a manifest (or `apple-mobile-web-app-capable`) Add to Home Screen
  * makes a plain bookmark that opens in Safari, where there is no
  * `PushManager`, and the "Add to Home Screen" strip could never go away.
@@ -104,8 +104,8 @@ function webAppManifest(): Plugin {
 }
 
 /**
- * The ADR-178 web app: the desktop renderer, built a second time for a
- * browser and served by the relay at `/app/<version>/` (ADR-206 D4). Not
+ * The web app: the desktop renderer, built a second time for a
+ * browser and served by the relay at `/app/<version>/`. Not
  * part of `pnpm build`: `pnpm build:web:relay` (`scripts/build-web-relay.mjs`)
  * builds it with that base into `dist-relay-web/<version>/`. `pnpm build:web`
  * builds it with the default base into `dist-web/`, as a quick check that it
@@ -145,7 +145,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         web: path.resolve(__dirname, "src/web.html"),
-        // Un-hashed, at the root of the base it controls (ADR-206 D7): the
+        // Un-hashed, at the root of the base it controls: the
         // registration scope is the base, so a version path owns its own.
         sw: path.resolve(__dirname, "src/web/sw.ts"),
       },

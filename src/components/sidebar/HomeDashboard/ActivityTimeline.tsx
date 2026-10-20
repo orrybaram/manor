@@ -43,7 +43,7 @@ type ActivityTimelineProps = {
 };
 
 /**
- * The Agent activity panel (ADR-198 §1.5, ADR-199 §4): a lane per recently
+ * The Agent activity panel: a lane per recently
  * active Agent over the last 3 hours, drawn from main's persisted history —
  * status segments, finished/errored markers, and "Manor closed" gaps.
  */
@@ -65,7 +65,7 @@ export function ActivityTimeline(props: ActivityTimelineProps) {
 
   // Only gaps *between* recorded sessions are "Manor closed". The span
   // before the first session is history that was never recorded, so it is
-  // left as bare track rather than hatched (ADR-199 §4).
+  // left as bare track rather than hatched.
   const gaps = useMemo<TimelineGap[]>(() => {
     const firstStart = sessions[0]?.start ?? now;
     return closedGaps(sessions, windowStart, now).filter(

@@ -41,7 +41,7 @@ type AddProjectDialogProps = {
 
 const DEFAULT_CLONE_PARENT = "~/code";
 
-/** A host-select value that means "in a new pod" for a profile (ADR-235 D4). */
+/** A host-select value that means "in a new pod" for a profile. */
 const POD_PREFIX = "pod:";
 /** With no profiles yet: opens the profile editor. */
 const NEW_POD_VALUE = "pod:new";
@@ -73,12 +73,12 @@ function joinPath(dir: string, name: string): string {
 }
 
 /**
- * "Add Project" offers two things to do (ADR-194): open a folder already on
- * this machine (the pre-ADR-178 flow), or clone a repo onto any host — this
- * machine or a remote one (ADR-178 ticket 5). The repo can be picked from the
+ * "Add Project" offers two things to do: open a folder already on
+ * this machine (the original flow), or clone a repo onto any host — this
+ * machine or a remote one. The repo can be picked from the
  * user's GitHub repos (via `gh`) or pasted as a URL. The clone's form →
  * cloning → health state machine is shared with `CloneToHostDialog` via
- * `useHostCloneFlow` (ADR-183 ticket 10); a local clone skips the health step
+ * `useHostCloneFlow`; a local clone skips the health step
  * and hands off to `ProjectSetupWizard`, like "Open folder" does.
  */
 export function AddProjectDialog(props: AddProjectDialogProps) {
@@ -92,7 +92,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   } = props;
 
   const [chosenMode, setMode] = useState<AddProjectMode>(initialMode);
-  // A browser has no folder picker (ADR-180 D8), so the web app only clones
+  // A browser has no folder picker, so the web app only clones
   // — onto any host, by typed location — and never shows "Open folder".
   const webApp = isWebApp();
   const mode: AddProjectMode = webApp ? "clone" : chosenMode;
@@ -214,7 +214,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
           name: effectiveName.trim() || nameFromRepoUrl(repoUrl),
         });
       }
-      // The pod is made, then the repo cloned onto it (ADR-235 D3). A failure
+      // The pod is made, then the repo cloned onto it. A failure
       // keeps the pod: the toast offers Retry and "Delete the pod".
       const request = { profileId: podProfile.id, repoUrl: repoUrl.trim() };
       const result = await runOpenInNewHost(request);
@@ -253,7 +253,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     // The local flow opens a folder picker and then `ProjectSetupWizard` —
     // both would otherwise render underneath this Radix dialog while it
     // waits for `onAddLocal` to resolve. Close it first so the picker and
-    // wizard are on top (ADR-178 ticket 5 review); an error surfaces as a
+    // wizard are on top; an error surfaces as a
     // toast instead of inline, since the dialog is already gone.
     onClose();
     reset();
@@ -306,9 +306,8 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
   const handleFixInTerminal = useCallback(
     (check: Parameters<typeof flow.fix>[0]) => {
       flow.fix(check);
-      // The terminal tab renders behind this dialog otherwise (ADR-178
-      // ticket 5 review) — close it so the user lands where the command was
-      // typed.
+      // The terminal tab renders behind this dialog otherwise — close it so
+      // the user lands where the command was typed.
       onClose();
       reset();
     },

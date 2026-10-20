@@ -76,7 +76,7 @@ function SetupChecklist({
           <span className={styles.stepLabel}>
             {getStepLabel(s.step, s.status, s.message)}
             {s.status === "error" && (
-              // Why it failed, not just a red X (ADR-232 D8).
+              // Why it failed, not just a red X.
               <span className={styles.stepReason}>
                 {s.message || "No reason given"}
               </span>

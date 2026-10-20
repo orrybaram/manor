@@ -69,12 +69,12 @@ export class LinearManager {
 
   /**
    * `tokenPath` is where the sealed key lives: the desktop's own file by
-   * default, a host server's under its data dir (ADR-227 D7).
+   * default, a host server's under its data dir.
    */
   constructor(
     private readonly secretBox: SecretBox,
     tokenPath: string = linearTokenFile(),
-    /** Called after the key is saved or cleared, with whether Linear is now connected (ADR-230 D8). */
+    /** Called after the key is saved or cleared, with whether Linear is now connected. */
     private readonly onChange?: (connected: boolean) => void,
   ) {
     this.tokenPath = tokenPath;
@@ -384,10 +384,10 @@ export class LinearManager {
         { id: issueId, input: { stateId: doneState.id } },
       );
     } catch {
-      // TODO(ADR-152): this swallows symmetrically with the pre-fix
+      // TODO: this swallows symmetrically with the pre-fix
       // github.ts#closeIssue — fixing GitHubManager without fixing this
       // leaves the same "UI says closed, issue is not" bug for Linear.
-      // Left as-is; see ticket 9 of ADR-152 for the GitHub-side fix.
+      // Left as-is; only the GitHub side has been fixed.
     }
   }
 

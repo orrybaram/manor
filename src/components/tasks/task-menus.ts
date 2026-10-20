@@ -1,5 +1,5 @@
 /**
- * Helpers shared by the Tasks view's Filter and Sort menus (ADR-201 §5),
+ * Helpers shared by the Tasks view's Filter and Sort menus,
  * kept out of the component files so they fast-refresh.
  */
 

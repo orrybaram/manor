@@ -85,16 +85,16 @@ import {
 export type { Panel, Tab, WorkspaceLayout };
 
 /**
- * App-level surfaces that can fill the main area (ADR-194). `composer` is the
- * phone new-agent composer (ADR-222); desk never enters it.
+ * App-level surfaces that can fill the main area. `composer` is the
+ * phone new-agent composer; desk never enters it.
  */
 export type AppSurface = "workspace" | "tasks" | "composer";
 
-/** Unsent new-agent composer state, kept so a round trip loses nothing (ADR-222). */
+/** Unsent new-agent composer state, kept so a round trip loses nothing. */
 type ComposerDraft = { text: string; target: NewAgentTarget | null };
 
 /**
- * What to open the Tasks view on (ADR-208 §5). `project` is a sidebar entry
+ * What to open the Tasks view on. `project` is a sidebar entry
  * key; `null` = all projects. `clearFilters` drops `provider`'s saved
  * filters (ignored without one), so the view lists exactly what the caller
  * counted.
@@ -109,7 +109,7 @@ type TasksIntent = {
 /**
  * Spread into a `set()` patch by actions that activate a workspace or put a
  * tab/pane in front of the user: they leave the Tasks view (and the phone
- * composer, ADR-222).
+ * composer).
  */
 const WORKSPACE_SURFACE = { activeSurface: "workspace" } as const;
 
@@ -121,18 +121,18 @@ function firstPaneOfTab(tab: Tab): string {
 export interface AppState {
   /**
    * This renderer's replica of the Manor server's layout, for every workspace
-   * the server has told it about (ADR-179 D1). Read freely; never written by
+   * the server has told it about. Read freely; never written by
    * an action — the writers are `applyLayoutSnapshot` (the boot read and a
    * resync) and `applyLayoutChanged`, which replace a workspace when the
    * server says so.
    *
-   * Keyed by the workspace's host-qualified key (ADR-191), as is every other
+   * Keyed by the workspace's host-qualified key, as is every other
    * per-workspace map below and the server's own: a local and a remote
    * workspace with the same path each have their own. See
    * `selectActiveWorkspaceKey` and `layoutKeyFor`.
    *
    * What a pane *is* — its content type, its saved url — is read from here
-   * too, through `selectPaneContentType` / `selectPaneUrl` (ADR-182 D9).
+   * too, through `selectPaneContentType` / `selectPaneUrl`.
    */
   workspaceLayouts: Record<string, WorkspaceLayout>;
   /** The server version each replica is at. An older broadcast is dropped. */
@@ -146,7 +146,7 @@ export interface AppState {
    */
   mountedWorkspaces: Record<string, true>;
   /**
-   * What *this* renderer is looking at, per workspace (ADR-179 D3).
+   * What *this* renderer is looking at, per workspace.
    *
    * The tab set is shared and the server owns it; the selection is not. Every
    * write here is local — no command goes anywhere — and the whole slice is
@@ -156,7 +156,7 @@ export interface AppState {
    */
   viewports: Record<string, WorkspaceViewport>;
   /**
-   * Who is holding which tab in a window of its own, per workspace (D4).
+   * Who is holding which tab in a window of its own, per workspace.
    *
    * The server's, like the layout: a detached window reports a claim as part
    * of its viewport and every renderer is told the result. The primary hides
@@ -172,14 +172,14 @@ export interface AppState {
    */
   activeWorkspaceHostId: HostId;
   /**
-   * Which app-level surface fills the main area (ADR-194). `"tasks"` shows
+   * Which app-level surface fills the main area. `"tasks"` shows
    * the Tasks view over the active workspace, which stays active
    * underneath; anything that activates a workspace or opens a tab flips it
    * back to `"workspace"`. Not persisted.
    */
   activeSurface: AppSurface;
   /**
-   * What the Tasks view should open on (ADR-208 §5) — one-shot: `TasksView`
+   * What the Tasks view should open on — one-shot: `TasksView`
    * consumes it via `consumeTasksIntent`. Not part of navigation history.
    */
   tasksIntent: TasksIntent | null;
@@ -189,7 +189,7 @@ export interface AppState {
   paneFavicon: Record<string, string>;
   paneAudioPlaying: Record<string, boolean>;
   paneAudioMuted: Record<string, boolean>;
-  /** Recording start timestamp (ms epoch) per pane, while capture is live (ADR-158). */
+  /** Recording start timestamp (ms epoch) per pane, while capture is live. */
   paneRecordingStartedAt: Record<string, number>;
   /**
    * Where a browser pane's webview is right now, written the moment it
@@ -202,15 +202,15 @@ export interface AppState {
   webviewFocusedPaneId: string | null;
   layoutLoaded: boolean;
   /**
-   * Why the boot read of the layout failed, if it did (ADR-232 D7). A
+   * Why the boot read of the layout failed, if it did. A
    * detached window then shows "Couldn't load this window" instead of its
    * splash forever.
    */
   layoutLoadError: string | null;
   /**
    * The panes of the workspace this window shows at launch, as the layout
-   * read at launch has them, whose first `pty.create` has not settled yet
-   * (ADR-230 D3). That create is not one the user meant, so it leaves a
+   * read at launch has them, whose first `pty.create` has not settled yet.
+   * That create is not one the user meant, so it leaves a
    * sleeping host asleep (`wake: false`). `forgetRestoredPane` drops a pane
    * once it has, so every later create wakes as usual. A workspace the user
    * opens later is intent, so its panes are never here.
@@ -237,15 +237,15 @@ export interface AppState {
   setActiveWorkspace: (path: string, hostId?: HostId | null) => void;
 
   /**
-   * Show the Tasks view (ADR-198); leaves the active workspace alone. An
-   * `intent` presets its search / project (ADR-208 §5).
+   * Show the Tasks view; leaves the active workspace alone. An
+   * `intent` presets its search / project.
    */
   showTasksView: (intent?: TasksIntent) => void;
-  /** Show the phone new-agent composer (ADR-222); the workspace stays active. */
+  /** Show the phone new-agent composer; the workspace stays active. */
   showComposer: () => void;
-  /** Leave the composer back to the workspace surface (ADR-222). */
+  /** Leave the composer back to the workspace surface. */
   closeComposer: () => void;
-  /** Unsent composer text + chosen target; in-memory only (ADR-222). */
+  /** Unsent composer text + chosen target; in-memory only. */
   composerDraft: ComposerDraft;
   setComposerDraft: (patch: Partial<ComposerDraft>) => void;
   clearComposerDraft: () => void;
@@ -271,8 +271,7 @@ export interface AppState {
   // Tab operations
   //
   // Every one of these sends a command and returns the ids it minted; the tab
-  // itself appears when the server's broadcast lands, a frame later (ADR-179
-  // D1). They answer null only when there is no workspace to put a tab in —
+  // itself appears when the server's broadcast lands, a frame later. They answer null only when there is no workspace to put a tab in —
   // a workspace with no *panel* is fine, because the server makes one.
   /**
    * Returns the IDs of the tab it created, or null when there is no active
@@ -282,10 +281,10 @@ export interface AppState {
   addTab: (adoptPaneId?: string) => { tabId: string; paneId: string } | null;
   /**
    * A new tab whose terminal runs `command` as soon as its shell is ready.
-   * The command is queued on the server (ADR-179 ticket 11), not here, so the
+   * The command is queued on the server, not here, so the
    * pane runs it whichever renderer happens to mount it first. With
-   * `submit: false` it is typed but not run (ADR-178 ticket 5's "fix in
-   * terminal" — the user reviews it first).
+   * `submit: false` it is typed but not run ("fix in terminal" — the user
+   * reviews it first).
    */
   addTerminalTab: (
     command: string,
@@ -293,7 +292,7 @@ export interface AppState {
       submit?: boolean;
       kind?: "shell" | "agent-startup";
       /** The agent's first message, delivered through a file on the pane's
-       *  host rather than typed into `command` (ADR-209). */
+       *  host rather than typed into `command`. */
       prompt?: string;
     },
   ) => { tabId: string; paneId: string } | null;
@@ -374,7 +373,7 @@ export interface AppState {
   /**
    * Bumped by `refocusActivePane`. The terminal's auto-focus effect depends on
    * it, so a bump is an explicit "put the keyboard back in the pane" even when
-   * the effect would otherwise leave focus where it is (ADR-172).
+   * the effect would otherwise leave focus where it is.
    */
   paneFocusNonce: number;
   /** Sends keyboard focus back to the focused pane of the active tab. */
@@ -388,7 +387,7 @@ export interface AppState {
   /**
    * A title the host already knows — an OSC title from the PTY stream, or a
    * stale title cleared when a new agent starts in the pane. Local only: the
-   * server derives `lastTitle` from the same daemon event (ADR-179 D3), so
+   * server derives `lastTitle` from the same daemon event, so
    * sending it back would be one `layout.apply` per viewer per title change.
    */
   setPaneTitleFromStream: (paneId: string, title: string | null) => void;
@@ -404,7 +403,7 @@ export interface AppState {
   setPaneAudioMuted: (paneId: string, muted: boolean) => void;
 
   /**
-   * Recording state (ADR-158). `startedAt` (not a boolean) so the pane's
+   * Recording state. `startedAt` (not a boolean) so the pane's
    * "Recording" indicator can render elapsed time without a second lookup.
    * Set/cleared from `App.tsx`'s "webview:recording-command" subscription —
    * main owns the recording lifecycle, the renderer just mirrors it. Pass
@@ -417,15 +416,15 @@ export interface AppState {
 
   /**
    * Store the pane's Agent status exactly as the Status reconciler published
-   * it (ADR-184 §4) — the renderer displays it, it does not re-derive it.
+   * it — the renderer displays it, it does not re-derive it.
    */
   setPaneAgentStatus: (update: PaneAgentStatusUpdate) => void;
 
   /**
    * Queue `command` to run in `paneId` once its shell is ready — for a pane
    * that already exists and is about to (re)create its session, e.g. one
-   * recovered after its remote host restarted (ADR-178 §6). The queue is the
-   * server's (ADR-179 ticket 11): whichever renderer creates the session
+   * recovered after its remote host restarted. The queue is the
+   * server's: whichever renderer creates the session
    * types it.
    */
   setPendingPaneCommand: (
@@ -439,8 +438,8 @@ export interface AppState {
   removeWorkspaceLayout: (key: WorkspaceKey) => void;
   /**
    * Move this renderer's replica and viewport of the layout keyed `from` to
-   * `to` — a workspace whose project moved to another host keeps its tabs
-   * (ADR-191 §3). The server moves its own copy (`LayoutStore.moveWorkspaces`)
+   * `to` — a workspace whose project moved to another host keeps its tabs.
+   * The server moves its own copy (`LayoutStore.moveWorkspaces`)
    * and broadcasts it at `to`. No-op when `to` already has a layout or
    * `from` has none.
    */
@@ -468,7 +467,7 @@ export interface AppState {
   >;
   /**
    * The checklist of a workspace being created. Its setup script is not a
-   * step: the server runs it in a tab of its own (ADR-227 D5).
+   * step: the server runs it in a tab of its own.
    */
   initWorktreeSetup: (wsPathHint: string) => void;
   updateWorktreeSetupStep: (
@@ -511,7 +510,7 @@ type ViewportState = Pick<
   Partial<Pick<AppState, "claims">>;
 
 /**
- * The key of workspace `path` (ADR-191) for looking up its layout: on
+ * The key of workspace `path` for looking up its layout: on
  * `hostId` when the caller knows it, else on the host of the project that
  * has the path, the selected project first (`hostForPath`). Local when
  * no project has it.
@@ -532,7 +531,7 @@ export function selectActiveWorkspaceKey(
 }
 
 /**
- * The key of the active workspace's layout, or null on Home (ADR-197 §1):
+ * The key of the active workspace's layout, or null on Home:
  * Home is the Dashboard and never holds tabs, so every action that resolves
  * its target through this — adding tabs, splits, reopening closed panes — is
  * a no-op there in this one place.
@@ -773,7 +772,7 @@ function viewportOf(
   return state.viewports?.[path] ?? EMPTY_VIEWPORT;
 }
 
-// ── Claims: who is holding which tab (ADR-179 D4) ──
+// ── Claims: who is holding which tab ──
 
 /** A stable empty list, so a selector reading it does not re-render forever. */
 const NO_CLAIMS: LayoutClaim[] = [];
@@ -808,7 +807,7 @@ function ownClaimIn(path: string): string | null {
   return OWN_CLAIM?.workspacePath === path ? OWN_CLAIM.tabId : null;
 }
 
-/** What decides which tabs of `path` this renderer shows (D4). */
+/** What decides which tabs of `path` this renderer shows. */
 function visibilityOf(
   state: Partial<Pick<AppState, "claims">>,
   path: string,
@@ -820,7 +819,7 @@ function visibilityOf(
   };
 }
 
-/** Whether this renderer shows `tabId` of `path` at all (D4). */
+/** Whether this renderer shows `tabId` of `path` at all. */
 function tabVisibleHere(
   state: Partial<Pick<AppState, "claims">>,
   path: string,
@@ -845,7 +844,7 @@ function reconcileFor(
   return reconcileViewport(layout, viewport, visibilityOf(state, path));
 }
 
-/** The tabs of a panel this renderer shows, in the panel's own order (D4). */
+/** The tabs of a panel this renderer shows, in the panel's own order. */
 export function selectVisibleTabs(
   state: Partial<Pick<AppState, "claims">>,
   path: string | null | undefined,
@@ -884,7 +883,7 @@ export function useVisibleTabs(
   );
 }
 
-// ── What a pane is, read off the tree (ADR-182 D9) ──
+// ── What a pane is, read off the tree ──
 
 /**
  * Each layout's leaves by paneId, built once per layout object.
@@ -981,8 +980,8 @@ export function activePanelIdOf(
 }
 
 // Internal helpers for the active workspace. Their `path` is the active
-// layout's key (ADR-191) — a bare path on this machine — and they return
-// null on the Home surface (ADR-197 §1), see `activeLayoutKey`.
+// layout's key — a bare path on this machine — and they return
+// null on the Home surface, see `activeLayoutKey`.
 function getActivePanelContext(
   state: ViewportState,
 ): { path: WorkspaceKey; layout: WorkspaceLayout; panel: Panel } | null {
@@ -1054,8 +1053,8 @@ function orSame(state: AppState, patch: Partial<AppState>): AppState | Partial<A
 }
 
 /**
- * A viewport move that puts a tab in front of the user leaves the Tasks view
- * (ADR-194); one that moves nothing leaves everything alone.
+ * A viewport move that puts a tab in front of the user leaves the Tasks view;
+ * one that moves nothing leaves everything alone.
  */
 function toWorkspace(
   state: AppState,
@@ -1067,7 +1066,7 @@ function toWorkspace(
 
 /**
  * An action that sends a command which puts a tab or pane in front of the
- * user leaves the Tasks view (ADR-194) now, not when the broadcast lands.
+ * user leaves the Tasks view now, not when the broadcast lands.
  */
 function leaveTasksView(): void {
   if (useAppStore.getState().activeSurface !== "workspace") {
@@ -1135,7 +1134,7 @@ function findDiffPane(
 /**
  * Put this window's attention on a pane: its panel active, its tab selected,
  * the pane focused. Viewport, so it is written into this renderer's own slice
- * and no command goes anywhere (ADR-179 D3).
+ * and no command goes anywhere.
  */
 function focusPaneLocally(
   state: AppState,
@@ -1208,7 +1207,7 @@ function selectTabLocally(
   }));
 }
 
-// ── Layout, owned by the Manor server (ADR-179 D1) ──
+// ── Layout, owned by the Manor server ──
 //
 // A renderer never writes structure. An action resolves what "current" means
 // from its own viewport, mints the ids its change needs, and sends one
@@ -1220,7 +1219,7 @@ function selectTabLocally(
 // impossible to desynchronise rather than merely unlikely to.
 //
 // The actions that only move *this window's* attention — select a tab, focus
-// a pane, activate a panel — send nothing at all. They are viewport (D3),
+// a pane, activate a panel — send nothing at all. They are viewport,
 // they write the `viewports` slice, and the server has no answer to "which
 // window?" to give them.
 
@@ -1279,7 +1278,7 @@ function sendLayoutCommand(
 }
 
 /**
- * Queue a command for a pane that has no shell yet (ADR-179 ticket 11).
+ * Queue a command for a pane that has no shell yet.
  *
  * "New tab running `pnpm dev`", "split with agent", an agent launch: the line
  * has to wait somewhere between the layout change and the pane's first
@@ -1290,7 +1289,7 @@ function sendLayoutCommand(
  *
  * `opts.prompt` is an agent's first message, kept apart from `text` so the
  * server can deliver it through a file on the pane's host instead of typing
- * it inline (ADR-209).
+ * it inline.
  *
  * Send this *before* the `apply` that creates the pane. Both go over the same
  * ordered channel and the main-side handler is synchronous, so the entry is
@@ -1313,7 +1312,7 @@ export function sendPendingCommand(
 /**
  * What a replica change reaches outside the store with: a closed pane's host
  * is no longer this window's to badge, or to recover when the host comes back
- * (ADR-178 §6), and a popout whose tab went has nothing left to show.
+ * and a popout whose tab went has nothing left to show.
  */
 function afterReplicaChange(
   gone: readonly string[],
@@ -1342,7 +1341,7 @@ function afterReplicaChange(
  * A `removed` broadcast forgets this renderer's copy instead — adopting it
  * would bring back a workspace whose worktree no longer exists. Nothing is
  * sent: the server ends the panes and forgets the workspace itself when the
- * worktree goes (ADR-182 D7).
+ * worktree goes.
  */
 function applyLayoutChanged(payload: LayoutChangedPayload): void {
   const { workspacePath, version, layout, restored, origin, hint } = payload;
@@ -1361,7 +1360,7 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
         visibilityOf,
         activeKey: selectActiveWorkspaceKey(state),
         // The command's selection hint applies only to the renderer that
-        // sent it (D3).
+        // sent it.
         hint:
           hint && origin.id === rendererId()
             ? (tree, viewport, visibility) =>
@@ -1373,7 +1372,7 @@ function applyLayoutChanged(payload: LayoutChangedPayload): void {
     gone = result.gone;
     const { patch } = result;
     // A reopen inside the server's grace hands the pane back its still-warm
-    // session (ADR-179 ticket 10). Seed what the server knew about it, the
+    // session. Seed what the server knew about it, the
     // way a snapshot does, so the pane mounts in the cwd it was in and under
     // the title it had rather than looking brand new.
     if (restored) {
@@ -1425,7 +1424,7 @@ async function loadLayoutSnapshot(
 }
 
 /**
- * A window that no longer holds its tab has nothing to show, and closes (D4).
+ * A window that no longer holds its tab has nothing to show, and closes.
  *
  * Two ways to lose it, and they land the same: another window claimed the
  * same tab (claims are exclusive, the newcomer wins), or the tab left the
@@ -1459,7 +1458,7 @@ function checkOwnClaim(
  * The surface to reopen on relaunch (including Home's `HOME_PATH`).
  *
  * This renderer's own, out of its viewport file — which is the point of
- * ADR-179 D3: two windows of one host reopen where each of them was, not
+ * Two windows of one host reopen where each of them was, not
  * where the last command happened to land. The server's
  * `layout.getLastActive()` is the fallback for a renderer that has never
  * saved a viewport, and for the very first launch it is null too.
@@ -1468,7 +1467,7 @@ let lastActiveWorkspacePath: string | null = null;
 
 /**
  * The pane ids of each workspace in the layout read at launch, by workspace
- * key, until `seedRestoredPanes` takes the shown one's (ADR-230 D3). Null
+ * key, until `seedRestoredPanes` takes the shown one's. Null
  * before the read and after the seed, so only the launch's pick seeds.
  */
 let launchPanes: Map<string, Set<string>> | null = null;
@@ -1493,7 +1492,7 @@ function rendererId(): string | null {
 const VIEWPORT_DEBOUNCE_MS = 300;
 
 /**
- * A claiming window's viewport is ephemeral (D4).
+ * A claiming window's viewport is ephemeral.
  *
  * It is one tab and the pane focused inside it — a fact about a window that
  * exists only while it is open. Writing it to `viewport.json` would hand the
@@ -1514,7 +1513,7 @@ function scheduleViewportSave(): void {
     viewportTimer = null;
     const state = useAppStore.getState();
     const { viewports } = state;
-    // The active surface as a key (ADR-191), so a relaunch reopens the
+    // The active surface as a key, so a relaunch reopens the
     // workspace on the host it was on; Home's `HOME_PATH` as itself.
     const activeWorkspacePath = selectActiveWorkspaceKey(state);
     const api = window.electronAPI;
@@ -1536,7 +1535,7 @@ function scheduleViewportSave(): void {
  *
  * Fire-and-forget: the server keeps the last report as the workspace's
  * **default viewport**, which is what a renderer that has never seen this
- * workspace is handed (D3). Nothing here waits for it and nothing reads it
+ * workspace is handed. Nothing here waits for it and nothing reads it
  * back.
  */
 /**
@@ -1560,7 +1559,7 @@ function reportViewport(
   viewport: WorkspaceViewport,
 ): void {
   // A claiming window reports too, and its report is the *only* way the host
-  // learns who is holding what (D4). The server keeps the claim and leaves the
+  // learns who is holding what. The server keeps the claim and leaves the
   // default viewport alone, so one tab never becomes the workspace's default.
   // The host knows who is reporting from the connection; a renderer it has
   // not named yet has no connection to report over.
@@ -1620,7 +1619,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         lastActiveWorkspacePath =
           ownViewport?.activeWorkspacePath ?? lastActive;
         // What this launch restores, by workspace, until the launch picks
-        // the one it shows (`seedRestoredPanes`, ADR-230 D3).
+        // the one it shows (`seedRestoredPanes`).
         launchPanes = new Map(
           Object.entries(entries).map(([key, entry]) => [key, layoutPaneIds(entry.layout)]),
         );
@@ -1629,7 +1628,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       console.error("[layout] failed to read the layout:", err);
       set({ layoutLoadError: ipcErrorMessage(err) });
-      // A detached window has nothing to show without it (ADR-232 D7).
+      // A detached window has nothing to show without it.
     }
     set({ layoutLoaded: true });
   },
@@ -1658,7 +1657,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         activeWorkspacePath: path,
         activeWorkspaceHostId: parseWorkspaceKey(key).hostId,
       };
-      // Home is the Dashboard (ADR-197 §1): selectable as the active surface,
+      // Home is the Dashboard: selectable as the active surface,
       // but it never gets a layout.
       if (isHomePath(path)) return active;
       return { ...active, ...mountPatch(state, key) };
@@ -1864,7 +1863,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (path) sendLayoutCommand(path, { type: "close-tabs-to-right", tabId });
   },
 
-  // ── Viewport (ADR-179 D3) ──
+  // ── Viewport ──
   //
   // Selecting a tab, focusing a pane, activating a panel: what *this* window
   // is looking at. No command goes out — the server has no answer to "which
@@ -1908,7 +1907,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // "Split the focused pane" is resolved here, from this window's viewport:
   // the command names a pane id, and the server never asks what anyone is
-  // looking at (ADR-179 D1).
+  // looking at.
   splitPane: (direction: SplitDirection) => {
     const paneId = selectFocusedPaneOfActiveTab(get());
     const path = activeLayoutKey(get());
@@ -2033,7 +2032,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // A pane the replica no longer holds has already been closed — by this
     // window a moment ago, or by another renderer. Its `pty.onExit` arrives
     // here too, and must not close it a second time. The server abandons the
-    // pane's agent when the close lands (ADR-182 D7).
+    // pane's agent when the close lands.
     if (!ctx || !findPanelWithPane(ctx.layout, paneId)) return;
     sendLayoutCommand(ctx.path, { type: "close-pane", paneId });
   },
@@ -2041,7 +2040,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   /**
    * Put back the last thing closed in this workspace.
    *
-   * The stack is the server's (ADR-179 D3), so this sends the command and
+   * The stack is the server's, so this sends the command and
    * lets the broadcast say what came back. Only the two viewport defaults are
    * resolved here: which panel to restore into when the original is gone, and
    * a tab id to mint if the original tab went too.
@@ -2117,7 +2116,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // Which pane is focused does not change — only the demand that it actually
   // hold the keyboard. The nonce is the whole message; the pane's auto-focus
-  // effect listens for the bump (ADR-172).
+  // effect listens for the bump.
   refocusActivePane: () =>
     set((state) => ({ paneFocusNonce: state.paneFocusNonce + 1 })),
 
@@ -2132,7 +2131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
    *
    * Written here *and* sent: the map is what this window renders now, and
    * `layout.setPaneTitle` is what reaches the server's `paneSessions` and so
-   * the file (ADR-182 D1). Off the command channel — `layout.changed` never
+   * the file. Off the command channel — `layout.changed` never
    * carries a title — so the bridge call is fire-and-forget the same way
    * `layout.reportViewport` is, and every other renderer hears it back on
    * `layout.onPaneTitle` rather than from this write.
@@ -2514,20 +2513,20 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 }));
 
-// Where a pane lives, for the bridge router (ADR-228 D1): the workspace whose
+// Where a pane lives, for the bridge router: the workspace whose
 // layout holds it, whose key names its host.
 provideHostLookups({
   paneWorkspace: (paneId) => workspaceOfPane(useAppStore.getState(), paneId),
 });
 
-// ── The server's broadcasts land here (ADR-179 D1) ──
+// ── The server's broadcasts land here ──
 //
 // Installed at import time, which is before anything can call
 // `loadPersistedLayout`: a change that happens between the read and its
 // resolution is delivered, and the version guard drops it if the read already
 // had it.
 //
-// Every renderer, detached windows included (ADR-179 D4): a detached window
+// Every renderer, detached windows included: a detached window
 // is a viewport with a claim on one tab of the *shared* layout, not a second
 // store holding a tab of its own, so it hears about the workspace exactly
 // like the primary does and shows the one tab it holds.
@@ -2535,15 +2534,15 @@ provideHostLookups({
 // Called bare, not deferred: both entry points install `window.electronAPI`
 // as the side effect of a module imported *before* `./App` —
 // `bridge/install-desktop.ts` on the desktop, `bridge/install-web.ts` on the
-// web (ADR-180 ticket 14) — and this file is only ever reached through
+// web — and this file is only ever reached through
 // `./App`. By the time this line runs, on either platform,
 // `window.electronAPI` already exists. (This call used to be wrapped in a
 // `queueMicrotask` to paper over the web side of that not being true yet;
-// ticket 14 made it true, so the wrapper is dead weight now.)
+// it is true now, so the wrapper is dead weight.)
 window.electronAPI?.layout?.onChanged?.(applyLayoutChanged);
 
 // A reconnected browser missed whatever was broadcast while its socket was
-// down (ADR-220 D2): re-read every workspace and merge it the way the boot
+// down: re-read every workspace and merge it the way the boot
 // read does, minus the boot's own effects — `layoutLoaded`, and the viewport
 // file's selections (a resync repairs the local viewport, never replaces
 // it). Picking the active workspace and reconciling stale agents are
@@ -2560,14 +2559,14 @@ export async function resyncLayout(): Promise<void> {
   }
 }
 
-// A pane's title, off the command channel (ADR-182 D1) — a route, an MCP
+// A pane's title, off the command channel — a route, an MCP
 // call, or another renderer's own edit, fed into the same sink an OSC title
 // write already uses.
 window.electronAPI?.layout?.onPaneTitle?.(({ paneId, title }) => {
   useAppStore.getState().setPaneTitleFromStream(paneId, title);
 });
 
-// ── This renderer's viewport, out to its file and to the host (D3) ──
+// ── This renderer's viewport, out to its file and to the host ──
 //
 // One subscription for both: the file is what this renderer reopens on, the
 // report is what the *host* hands a renderer that has never seen the
@@ -2588,7 +2587,7 @@ useAppStore.subscribe((state, previous) => {
   }
 });
 
-// ── Agent status (ADR-184 §4) ──
+// ── Agent status ──
 //
 // Main's Status reconciler is the one decider of every pane's Agent status;
 // the renderer only displays what it publishes. `onStatus` keeps every

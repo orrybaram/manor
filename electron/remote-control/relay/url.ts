@@ -1,6 +1,6 @@
 /**
- * Where the relay is (ADR-206), apart from the connector so callers that only
- * need the URL — the hosted Jev client (ADR-211) — don't load `ws` and the
+ * Where the relay is, apart from the connector so callers that only
+ * need the URL — the hosted Jev client — don't load `ws` and the
  * Noise channel with it. `connector.ts` re-exports all of this.
  */
 
@@ -63,13 +63,13 @@ export function relayAppUrl(origin: string, appVersion: string): string {
 }
 
 /**
- * A pairing link (ADR-206 D3, ADR-240 D1): the web app, with the room, the
+ * A pairing link: the web app, with the room, the
  * Noise static public key and a credential in the fragment, which never
  * reaches the relay. The credential is a single-use pairing ticket
  * (`&ticket=`), or, for a pairing minted with `direct` (a host pairing the
  * desktop hands over an authenticated channel), the device's raw token
  * (`&t=`). Built by the desktop's controller and by a host server
- * (ADR-225 D3) alike, so a phone pairs with either the same way.
+ * alike, so a phone pairs with either the same way.
  */
 export function relayPairingUrl(link: {
   origin: string;
@@ -88,7 +88,7 @@ export function relayPairingUrl(link: {
 /**
  * The room, key and credential back out of a `relayPairingUrl` link, or null
  * for anything else, including a link carrying neither a token nor a ticket.
- * What the desktop hands a device for a host it pairs it with (ADR-228 D9):
+ * What the desktop hands a device for a host it pairs it with:
  * the parts, in the device's own channel, not a link to open.
  */
 export function parseRelayPairingUrl(url: string): {

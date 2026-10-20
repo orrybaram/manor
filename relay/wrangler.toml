@@ -1,4 +1,4 @@
-# The Manor relay (ADR-206 D1): a blind pipe between one desktop (host) and
+# The Manor relay: a blind pipe between one desktop (host) and
 # a few browsers (viewers) per room. `pnpm relay:dev` / `relay:deploy`.
 name = "manor-relay"
 main = "src/index.ts"
@@ -16,7 +16,7 @@ routes = [
 [vars]
 # Per-room byte budget per UTC day, both directions (2 GiB).
 RELAY_DAILY_BYTES = "2147483648"
-# Hosted Jev calls per UTC day, all users together (ADR-211 D3).
+# Hosted Jev calls per UTC day, all users together.
 JEV_DAILY_CALLS = "5000"
 
 # Manor's TypeSafe key is a secret, set once with
@@ -30,7 +30,7 @@ class_name = "Room"
 tag = "v1"
 new_sqlite_classes = ["Room"]
 
-# The global daily Jev budget (ADR-211 D3), a singleton.
+# The global daily Jev budget, a singleton.
 [[durable_objects.bindings]]
 name = "JEV_BUDGET"
 class_name = "JevBudget"
@@ -48,7 +48,7 @@ namespace_id = "2061"
 simple = { limit = 30, period = 60 }
 
 # /jev/folder per client IP (key `jevip:<ip>`) and per relay identity (key
-# `jevid:<roomId>`). One limit per binding, hence two (ADR-211 D3).
+# `jevid:<roomId>`). One limit per binding, hence two.
 [[ratelimits]]
 name = "JEV_LIMITER"
 namespace_id = "2062"
@@ -71,7 +71,7 @@ head_sampling_rate = 1
 enabled = true
 head_sampling_rate = 1
 
-# Per-version web app builds (ADR-206 D4), uploaded by the release workflow.
+# Per-version web app builds, uploaded by the release workflow.
 [[r2_buckets]]
 binding = "WEB"
 bucket_name = "manor-relay-web"

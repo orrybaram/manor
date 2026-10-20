@@ -7,7 +7,7 @@ import type { AgentInfo } from "./agent-persistence";
 import type { AgentStatus } from "./terminal-host/types";
 
 /**
- * Persistent Agent activity history (ADR-199 §1).
+ * Persistent Agent activity history.
  *
  * Modelled on `stats-store.ts`: in-memory state backed by a JSON file in the
  * data dir, writes debounced through a single timer, a synchronous flush on

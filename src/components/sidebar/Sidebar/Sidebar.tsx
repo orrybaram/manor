@@ -49,7 +49,7 @@ interface SidebarProps {
   /** Adds a Notifications row after Search. Only the phone drawer passes it:
    *  the desk has its bell in the window lead and the rail. */
   onOpenNotifications?: () => void;
-  /** ADR-181 D3: fires after a workspace (or Home, or Tasks) is chosen — the
+  /** Fires after a workspace (or Home, or Tasks) is chosen — the
    *  phone drawer closes on this rather than duplicating the selection
    *  logic below. No-op inline in desk mode, where nothing passes it. */
   onNavigate?: () => void;
@@ -68,7 +68,7 @@ export function Sidebar(props: SidebarProps) {
   const projects = useProjectStore((s) => s.projects);
   const reorderProjects = useProjectStore((s) => s.reorderProjects);
   const sidebarWidth = useProjectStore((s) => s.sidebarWidth);
-  // ADR-181 D5: on a phone the sidebar lives in `SidebarDrawer`'s fixed-width
+  // On a phone the sidebar lives in `SidebarDrawer`'s fixed-width
   // sheet, so neither the width handle nor the pointer-drag reorders (the
   // whole-project one below, the workspace/folder one in `ProjectItem`) have
   // anywhere useful to go. These are `pointerdown`-driven, not native HTML5
@@ -78,7 +78,7 @@ export function Sidebar(props: SidebarProps) {
   const isPhone = useLayoutMode() === "phone";
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
-  // While the Tasks view (ADR-198) is shown neither Home nor any project is
+  // While the Tasks view is shown neither Home nor any project is
   // the current row; `homeActive` also gates project selection.
   const homeActive = !tasksActive && isHomePath(activeWorkspacePath);
 
@@ -90,7 +90,7 @@ export function Sidebar(props: SidebarProps) {
 
   const handleAddProject = onAddProject ?? (() => {});
 
-  // One entry per project, or per linked group of projects (ADR-192). The
+  // One entry per project, or per linked group of projects. The
   // drag below reorders entries; a group's members move together.
   const entries = useMemo(() => buildTopLevelEntries(projects), [projects]);
 
@@ -242,8 +242,8 @@ export function Sidebar(props: SidebarProps) {
         style={{ width: sidebarWidth }}
       >
         <div className={styles.content}>
-          {/* The menu (ADR-195 sidebar, type study "B"): destinations, set
-              apart from the lists below by a rule. */}
+          {/* The menu: destinations, set apart from the lists below by a
+              rule. */}
           <nav className={styles.nav} aria-label="Main">
             <div
               className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
@@ -371,7 +371,7 @@ export function Sidebar(props: SidebarProps) {
                 className={styles.projectsScroll}
                 onClick={(e) => {
                   // A click on empty sidebar space, not a row bubbling up,
-                  // clears the selection (ADR-190 §1).
+                  // clears the selection.
                   if (e.target === e.currentTarget) {
                     useSidebarSelectionStore.getState().clear();
                   }
@@ -415,7 +415,7 @@ export function Sidebar(props: SidebarProps) {
         {/* Ports are for the desk; the phone's drawer leaves them out. */}
         {!isPhone && <PortsList />}
       </div>
-      {/* ADR-181 D5: `SidebarDrawer` forces its own fixed width on the phone
+      {/* `SidebarDrawer` forces its own fixed width on the phone
           sheet this renders inside (`.sheet [data-focus-region="sidebar"]`,
           `SidebarDrawer.module.css`) — the handle has nothing to resize
           there, and this is a mouse drag with no touch idiom regardless. */}

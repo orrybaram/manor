@@ -1,5 +1,5 @@
 /**
- * A room (ADR-206 D1): one Durable Object per desktop, holding at most one
+ * A room: one Durable Object per desktop, holding at most one
  * authenticated host socket and up to `MAX_CHANNELS` viewer sockets.
  *
  * The room is a blind pipe. It reads the 3-byte header it adds and strips on

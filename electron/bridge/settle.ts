@@ -19,13 +19,13 @@ import {
  * The server does not implement this, and never will there.
  *
  * Its own type so a component can `catch` it and render the stated empty
- * state ADR-178 promises instead of a crash — `err instanceof
+ * state the bridge promises instead of a crash — `err instanceof
  * BridgeUnavailableError`, not a string match on a message.
  */
 export class BridgeUnavailableError extends Error {
   /**
-   * `unavailable:web` from the desktop, `unavailable:host` from a host server
-   * (ADR-225 D6). The renderer treats every `unavailable:*` alike.
+   * `unavailable:web` from the desktop, `unavailable:host` from a host server.
+   * The renderer treats every `unavailable:*` alike.
    */
   readonly code: UnavailableCode;
   constructor(message: string, code: UnavailableCode = UNAVAILABLE_CODE) {

@@ -83,7 +83,7 @@ export function GitHubNudge(props: GitHubNudgeProps) {
         else if (!status.installed) fail("The GitHub CLI didn't install. See the output below.");
         else fail("GitHub sign-in didn't finish. See the output below.");
       },
-      // A check that throws must not leave the nudge "installing" (ADR-232 D8).
+      // A check that throws must not leave the nudge "installing".
       (err: unknown) => fail(`Couldn't check the GitHub CLI: ${ipcErrorMessage(err)}`),
     );
   }, [finishAuth]);

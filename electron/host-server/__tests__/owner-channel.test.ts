@@ -1,6 +1,6 @@
 /**
- * The owner channel (ADR-225 D4) and what the owner alone may do on a host
- * server that owns its host (ADR-227 D2, D3, D6): its ownership state, the
+ * The owner channel and what the owner alone may do on a host
+ * server that owns its host: its ownership state, the
  * slice-1 snapshots it discards, and project setup a device is refused.
  * See `harness.ts`.
  */
@@ -15,7 +15,7 @@ import { HostServerUnavailableError } from "../../backend/host-server-client";
 import type { HostServerStatus } from "../relay";
 import type { PairResult } from "../../remote-control/relay-room";
 
-describe("the owner channel (ADR-225 D4)", () => {
+describe("the owner channel", () => {
   const h = useHostServerHarness();
 
   it("authenticates the owner token, and only it, as the owner", () => {
@@ -28,7 +28,7 @@ describe("the owner channel (ADR-225 D4)", () => {
     expect(auth(undefined)).toMatchObject({ ok: false, code: 4401 });
   });
 
-  it("records a desktop viewer stream as the owner with the viewer fact (ADR-228 D4)", () => {
+  it("records a desktop viewer stream as the owner with the viewer fact", () => {
     const auth = ownerTokenAuthenticator("tok");
     expect(auth("tok", { type: "hello", token: "tok", viewer: "desktop" })).toEqual({
       ok: true,
@@ -50,7 +50,7 @@ describe("the owner channel (ADR-225 D4)", () => {
     expect(auth("nope", { viewer: "desktop" })).toMatchObject({ ok: false, code: 4401 });
   });
 
-  it("reports the viewer-bridge capability and its relay room in its status (ADR-228)", async () => {
+  it("reports the viewer-bridge capability and its relay room in its status", async () => {
     const server = await h.serve();
     await h.relayUp(server);
     const client = await h.owner();
@@ -64,7 +64,7 @@ describe("the owner channel (ADR-225 D4)", () => {
     expect(paired.pairingUrl).toContain(`#relay=${status.roomId}.`);
   });
 
-  it("reports a phone's pane or chat subscription as viewing.device (ADR-230 D1)", async () => {
+  it("reports a phone's pane or chat subscription as viewing.device", async () => {
     const server = await h.serve();
     await h.relayUp(server);
     const client = await h.owner();

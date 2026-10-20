@@ -1,10 +1,10 @@
 /**
- * Runs one recipe command (ADR-229 D2) the way Orca runs its environment
+ * Runs one recipe command the way Orca runs its environment
  * recipes: on this machine, in the recipe's directory, with the lifecycle
  * payload on stdin.
  *
  * - **Environment.** The user's own, plus the recipe's `env`, plus
- *   `MANOR_HOST_ID`, `MANOR_RECIPE_DIR` and `MANOR_INSTANCE_ID` (D6).
+ *   `MANOR_HOST_ID`, `MANOR_RECIPE_DIR` and `MANOR_INSTANCE_ID`.
  * - **Stdin.** `{hostId, resource}`, `resource` being whatever the last `up`
  *   returned.
  * - **Stdout is one JSON object and nothing else** (capped at 64 KB). One
@@ -18,7 +18,7 @@
 import { spawn as nodeSpawn, type ChildProcess } from "node:child_process";
 import { resolveRecipeCommand, type Recipe, type RecipeCommandName } from "./recipes";
 
-/** How long each command may run (ADR-229 D2). */
+/** How long each command may run. */
 export const RECIPE_TIMEOUTS_MS: Readonly<Record<RecipeCommandName, number>> = Object.freeze({
   up: 15 * 60_000,
   status: 2 * 60_000,
@@ -65,7 +65,7 @@ export interface RunRecipeOptions {
   /** The recipe's directory: the command's cwd, and where a relative command is. */
   dir: string;
   hostId: string;
-  /** `MANOR_INSTANCE_ID` (ADR-229 D6). */
+  /** `MANOR_INSTANCE_ID`. */
   instanceId: string;
   /** What the last `up` returned, handed back on stdin. */
   resource?: unknown;

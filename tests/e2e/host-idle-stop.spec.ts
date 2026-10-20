@@ -30,7 +30,7 @@ import { closeSettings, pairHostPhone } from "./helpers/settings";
 import { paneText, runInTerminal } from "./helpers/terminal";
 
 /**
- * A phone watching a pane keeps its host awake (ADR-230 D1, ADR-231 D6).
+ * A phone watching a pane keeps its host awake.
  *
  * The recipe says `idleStopMinutes: 1`. A phone paired with the host holds one
  * of its panes open while the desktop looks at something else, so the host

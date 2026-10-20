@@ -1,8 +1,7 @@
 /**
- * Host health checks for a freshly-onboarded remote project (ADR-178 §4,
- * ticket 5). Runs its checks through a host's own
- * `ShellBackend`/`GitBackend` — never through local `fs`/`exec` — so the
- * result reflects the box the project lives on, not this machine.
+ * Host health checks for a freshly-onboarded remote project. Runs its checks
+ * through a host's own `ShellBackend`/`GitBackend` — never through local
+ * `fs`/`exec` — so the result reflects the box the project lives on, not this machine.
  *
  * Every check is best-effort: a check that cannot run (missing CLI, network
  * failure) is reported as a failed result, never thrown, so one bad check
@@ -58,7 +57,7 @@ const ORIGIN_TIMEOUT_MS = 20_000;
  * whatever the daemon inherited — a non-interactive ssh command (or an
  * already-running daemon) never sources `.profile`/`.zprofile`, so a CLI
  * installed under `~/.local/bin` or a credential exported there would
- * otherwise look missing (ADR-178 ticket 5 review). `snippet` is fixed at
+ * otherwise look missing. `snippet` is fixed at
  * call sites (constants below), never user input, so no quoting beyond
  * `shellQuote` is needed.
  */
@@ -124,7 +123,7 @@ async function originUrl(git: GitBackend, projectPath: string): Promise<string |
 
 /**
  * What to suggest when `origin` is unreachable, depending on its URL's
- * scheme (ADR-178 ticket 5 review): `https` remotes fail through `gh`'s
+ * scheme: `https` remotes fail through `gh`'s
  * credential helper, so `gh auth login` is the fix; `ssh`/scp remotes fail
  * through the host's own ssh keys, which `gh auth login` cannot touch.
  */

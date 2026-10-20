@@ -1,5 +1,5 @@
 /**
- * Whether this host is busy (ADR-229 D7): ADR-178 §1's keep-awake rule,
+ * Whether this host is busy: the keep-awake rule,
  * decided here, where it can be seen with the lid closed.
  *
  * - **`createBusyTracker`** turns the agent pipeline's updates into one

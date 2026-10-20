@@ -280,7 +280,7 @@ describe("buildMenuTemplate", () => {
         item(menu(template, "Workspace"), "Switch Workspace"),
       );
       click(item(submenu(projects[0]), "main"));
-      // The project names the workspace's host (ADR-191).
+      // The project names the workspace's host.
       expect(actions.send).toHaveBeenCalledWith("switch-workspace", {
         path: "/repo/main",
         projectId: "proj-1",

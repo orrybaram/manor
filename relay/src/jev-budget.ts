@@ -1,5 +1,5 @@
 /**
- * The global daily cap on hosted Jev calls (ADR-211 D3): one singleton
+ * The global daily cap on hosted Jev calls: one singleton
  * Durable Object (`idFromName("global")`) counting calls per UTC day.
  *
  * The input gate serialises `take` calls, so the read-check-write below is

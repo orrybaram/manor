@@ -15,7 +15,7 @@ export type HostStatus =
   | "connected"
   | "reconnecting"
   | "error"
-  /** The box was put to sleep; a write for it wakes it (ADR-229 D1). */
+  /** The box was put to sleep; a write for it wakes it. */
   | "sleeping";
 
 /** Mirrors `ProviderCapabilities` in `electron/backend/providers/types.ts`. */
@@ -38,7 +38,7 @@ export interface HostStatusInfo {
   spec: HostSpec | null;
   /**
    * How the user names a remote host: its ssh target, or a recipe host's
-   * recipe name (ADR-229 D2). Absent for the local host. Read it through
+   * recipe name. Absent for the local host. Read it through
    * `hostName` (`lib/hosts.ts`).
    */
   label?: string;
@@ -46,7 +46,7 @@ export interface HostStatusInfo {
   error?: string;
   failure?: HostFailure;
   /**
-   * With `error`: the box was deleted outside Manor (ADR-229 D2). Its way
+   * With `error`: the box was deleted outside Manor. Its way
    * back is "Start it again" (`wake`) or Remove.
    */
   missing?: boolean;
@@ -56,52 +56,51 @@ export interface HostStatusInfo {
   retryAt?: number;
   warnings?: string[];
   /**
-   * The host server's relay room, from its last status (ADR-228 D2). Absent
+   * The host server's relay room, from its last status. Absent
    * until one has been read; null when the server has no room.
    */
   roomId?: string | null;
   /**
-   * Whether the host server takes this window's own viewer stream (ADR-228
-   * D3, D4). Absent until a status has been read; false for an older server.
+   * Whether the host server takes this window's own viewer stream. Absent until a status has been read; false for an older server.
    */
   viewerBridge?: boolean;
   /**
-   * Whether the desktop has handed the host its records (ADR-227 D3): main
+   * Whether the desktop has handed the host its records: main
    * opens a window's viewer stream only to an adopted host. Absent on a
    * host server's own list and for the local host.
    */
   adopted?: boolean;
   /**
-   * The remote host's kind of box and what Manor can do to it (ADR-229 D1),
+   * The remote host's kind of box and what Manor can do to it,
    * so Wake, Stop and Destroy are offered only where they work. Absent for
    * the local host.
    */
   providerKind?: "ssh" | "recipe";
   capabilities?: ProviderCapabilities;
-  /** Whether an agent on the host is working (ADR-229 D7). */
+  /** Whether an agent on the host is working. */
   busy?: boolean;
   /** Which box hooks (`on-busy`, `on-idle`) the host's server found. */
   hooks?: { onBusy: boolean; onIdle: boolean };
   /**
    * The recipe stops the box after `idleStopMinutes` only while this desktop
-   * is awake: nothing on the box does it with the lid closed (ADR-229 D7).
+   * is awake: nothing on the box does it with the lid closed.
    */
   idleStopNote?: boolean;
   /** The recipe's `idleStopMinutes`, for that note. */
   idleStopMinutes?: number;
-  /** The host profile the host was made from (ADR-235 D1). */
+  /** The host profile the host was made from. */
   profileId?: string;
   /**
-   * The project the host was made for (ADR-235 D5): other projects' host
+   * The project the host was made for: other projects' host
    * lists leave it out, softly.
    */
   forProject?: string;
-  /** The recipe's bundled template: `docker`, `kubernetes` (ADR-235 D6). */
+  /** The recipe's bundled template: `docker`, `kubernetes`. */
   template?: string;
 }
 
 /**
- * Live mirror of `BackendRegistry.list()` (ADR-160). One subscription, one
+ * Live mirror of `BackendRegistry.list()`. One subscription, one
  * shape, pushed from main — the project settings host field and the
  * status-bar indicator read the same store so they can never disagree about
  * whether a host is reachable. Mirrors `remote-control-store.ts`.
@@ -118,7 +117,7 @@ interface HostState {
   /** Read one host's server status and paired phones in a single call. */
   refreshServer: (hostId: string) => Promise<void>;
   /**
-   * "Phones paired with this Mac can reach <host>" (ADR-228 D9). Off revokes
+   * "Phones paired with this Mac can reach <host>". Off revokes
    * the pairings this desktop minted there.
    */
   setLinkPhones: (hostId: string, on: boolean) => Promise<void>;
@@ -126,22 +125,22 @@ interface HostState {
   addHost: (target: string) => Promise<{ hostId: string; spec: HostSpec }>;
   retryConnect: (hostId: string) => Promise<void>;
   /**
-   * Wake a sleeping host, or start a missing one again (ADR-229 D1, D2).
+   * Wake a sleeping host, or start a missing one again.
    * Resolves once it is up; its progress shows in its status meanwhile.
    */
   wake: (hostId: string) => Promise<void>;
-  /** Put a host's box to sleep (ADR-229 D1). */
+  /** Put a host's box to sleep. */
   stop: (hostId: string) => Promise<void>;
-  /** "Keep Manor running when <host> restarts" (ADR-229 D4). */
+  /** "Keep Manor running when <host> restarts". */
   setSupervised: (hostId: string, on: boolean) => Promise<void>;
   /**
-   * Move a plaintext host's pairing keys under a key Manor makes on the box
-   * (ADR-236). Resolves once the host's server has restarted.
+   * Move a plaintext host's pairing keys under a key Manor makes on the box.
+   * Resolves once the host's server has restarted.
    */
   encryptKeys: (hostId: string) => Promise<void>;
   /**
-   * Remove a host from Manor; with `destroy`, its box and disk first
-   * (ADR-229 D8). Rejects, removing nothing, when the destroy fails.
+   * Remove a host from Manor; with `destroy`, its box and disk first.
+   * Rejects, removing nothing, when the destroy fails.
    */
   removeHost: (hostId: string, destroy: boolean) => Promise<void>;
 }
@@ -263,7 +262,7 @@ export const useHostStore = create<HostState>((set) => {
 });
 
 /**
- * "Waking <host>…" while the router wakes a host for a write (ADR-229 D1),
+ * "Waking <host>…" while the router wakes a host for a write,
  * and what came of it once it is done waiting.
  */
 function showWaking(hostId: string, woken: Promise<void>): void {
@@ -294,7 +293,7 @@ export function selectHost(
   return (state) => state.hosts.find((h) => h.hostId === hostId);
 }
 
-// Whether a host is asleep, for the bridge router's wake-on-write (ADR-229 D1).
+// Whether a host is asleep, for the bridge router's wake-on-write.
 provideHostLookups({
   hostStatus: (hostId) => useHostStore.getState().hosts.find((h) => h.hostId === hostId)?.status,
   wakeStarted: showWaking,

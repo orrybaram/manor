@@ -1,5 +1,5 @@
 /**
- * What one renderer is *looking at* (ADR-179 D3).
+ * What one renderer is *looking at*.
  *
  * The tab set is shared — it is structure, it lives in `WorkspaceLayout`, and
  * the Manor server owns it. The *selection* is not: which tab a panel shows,
@@ -28,7 +28,7 @@ import type { WorkspaceLayout } from "./workspace-layout";
  * the two maps simply have no entry for a panel or tab with nothing to point
  * at.
  *
- * A detached window's claim is not in here (D4): it is fixed for the window's
+ * A detached window's claim is not in here: it is fixed for the window's
  * life, main already knows it from the window's launch argument, and the
  * reconcile below takes it as part of a {@link Visibility}.
  */
@@ -59,7 +59,7 @@ export function emptyViewport(): WorkspaceViewport {
  * cannot do it — but only the reducer knows which neighbour. So it says so,
  * and the hint rides back to the renderer that sent the command on the same
  * `layout.changed` that carries the new layout. Every *other* renderer
- * ignores it: its own selection is its own business (D3).
+ * ignores it: its own selection is its own business.
  */
 export interface LayoutHint {
   selectTab?: { panelId: string; tabId: string };
@@ -111,7 +111,7 @@ function panelOfTab(layout: WorkspaceLayout, tabId: string): string | null {
  * The active panel survives if it still exists and otherwise becomes the
  * first one.
  *
- * `visibility` is the third direction, and it is the one claims added (D4):
+ * `visibility` is the third direction, and it is the one claims added:
  * a tab another window has popped out is still in the layout, still rendered
  * by a browser, and simply not something *this* renderer may select. A
  * claiming window may select its own tab and nothing else, and has the

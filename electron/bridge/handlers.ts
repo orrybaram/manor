@@ -1,5 +1,5 @@
 /**
- * What `ns.method` means on the bridge (ADR-178 D8, ADR-180 D1, ADR-182 D3).
+ * What `ns.method` means on the bridge.
  *
  * **One table, two transports, every caller.** A paired `full` device over
  * the WebSocket and every Electron renderer window over `bridge:*` IPC reach
@@ -15,8 +15,8 @@
  * stream's addressee) reads it there, and a frame can never claim to be
  * somebody else.
  *
- * Adding a *write* is a security decision, not a convenience one. Since
- * ADR-182 D2 this table, not the HTTP route table, is the whole of what a
+ * Adding a *write* is a security decision, not a convenience one. This
+ * table, not the HTTP route table, is the whole of what a
  * `full` device reaches beyond `send` — so every method added is new power,
  * and one a stolen token can use without an audit line unless it is
  * `mutating`.
@@ -35,7 +35,7 @@ import { keybindings } from "./handlers/preferences";
 import { processes } from "./handlers/processes";
 
 /**
- * What only the desktop answers (ADR-227 D1): the methods that read a window or
+ * What only the desktop answers: the methods that read a window or
  * the webview server.
  */
 const DESKTOP_METHODS = flatten({

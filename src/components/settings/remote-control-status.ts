@@ -2,7 +2,7 @@ import type { RemoteControlStatus } from "../../electron.d";
 
 /**
  * What this computer's remote control is doing, in words: shared by the This
- * Mac row on Settings → Hosts (ADR-233 D2) and the Devices page.
+ * Mac row on Settings → Hosts and the Devices page.
  */
 export type StatusView = {
   tone: "off" | "ok" | "pending" | "bad";

@@ -25,7 +25,7 @@ export function hasPanelId(node: PanelNode, id: string): boolean {
 /**
  * Whether `panelId` is a leaf somewhere under `node`. Null-tolerant, because
  * the id it is asked about is usually a viewport's (possibly absent) active
- * panel: a phone-mode split shows the child that contains it (ADR-181 D1).
+ * panel: a phone-mode split shows the child that contains it.
  */
 export function panelTreeContains(
   node: PanelNode,
@@ -102,7 +102,7 @@ function firstLeafPanelId(node: PanelNode): string {
 
 /**
  * The panel in the window's top-left corner: follow `first` to a leaf. Its
- * tab bar sits beside the window lead (ADR-196).
+ * tab bar sits beside the window lead.
  */
 export function topLeftPanelId(node: PanelNode): string {
   return firstLeafPanelId(node);

@@ -1,5 +1,5 @@
 /**
- * ADR-234 D3, D8: the templates' background pulls and builds — one per key,
+ * The templates' background pulls and builds — one per key,
  * progress from their output, a remembered failure, killed on quit.
  */
 import { EventEmitter } from "node:events";

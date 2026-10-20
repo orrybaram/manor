@@ -4,7 +4,7 @@ import { FallbackScreen } from "../ui/ErrorBoundary/FallbackScreen";
 import { Button } from "../ui/Button/Button";
 import styles from "./CommandPalette.module.css";
 
-/** Usage stats and badges: the trophy room (ADR-168 §6, ADR-212). */
+/** Usage stats and badges: the trophy room. */
 export function StatsView() {
   const summary = useStatsStore((s) => s.summary);
   const focusSection = useStatsStore((s) => s.focusSection);

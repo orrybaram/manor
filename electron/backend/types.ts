@@ -25,7 +25,7 @@ export type { MachineFacts } from "./machine-facts";
 export type StreamEventHandler = (event: StreamEvent) => void;
 
 /**
- * How a pty call that opens a session may reach its host (ADR-230 D3).
+ * How a pty call that opens a session may reach its host.
  * `wake: false` is a call nobody meant — a pane restored at launch — which a
  * remote host's gate answers without waking a sleeping box. Every backend
  * but that gate ignores it.
@@ -38,10 +38,10 @@ export interface PtyBackend {
   /**
    * `env` is merged into the spawn environment of a session this call creates
    * — `MANOR_AGENT_KIND`, which the agent hook script reads to know what it
-   * is reporting for (ADR-135 ticket 7). Ignored for a warm reattach: the
+   * is reporting for. Ignored for a warm reattach: the
    * session's environment was fixed when it was spawned.
    *
-   * It was missing from this interface until ADR-180 ticket 5, while
+   * It was once missing from this interface, while
    * `ipc/pty.ts` passed it and `TerminalHostClient` accepted it — so the kind
    * was dropped in between, silently, and every hook defaulted to `claude`.
    * That gap was the `Expected 4-5 arguments, but got 6` in the electron
@@ -59,8 +59,7 @@ export interface PtyBackend {
 
   /**
    * Attach to a session whose shell is still running, and snapshot it. Never
-   * spawns and never resizes; null when there is no such live session
-   * (ADR-220).
+   * spawns and never resizes; null when there is no such live session.
    */
   attachExisting(sessionId: string, connect?: PtyConnectOptions): Promise<TerminalSnapshot | null>;
 
@@ -69,7 +68,7 @@ export interface PtyBackend {
   /**
    * Queue a write that fires once the session's shell has produced output —
    * i.e. has reached a prompt. What a pending pane command is typed with
-   * (ADR-179 ticket 11) and what the prewarm manager injects with: a write
+   * and what the prewarm manager injects with: a write
    * sent the instant a session is spawned lands in a line editor that has not
    * initialised yet and is swallowed.
    */
@@ -85,7 +84,7 @@ export interface PtyBackend {
   getSnapshot(sessionId: string): Promise<TerminalSnapshot | null>;
 
   /**
-   * A session's current Pane facts (ADR-184 §3), or null when the host has no
+   * A session's current Pane facts, or null when the host has no
    * such session. Main resyncs with it after a reconnect.
    */
   getPaneFacts(sessionId: string): Promise<PaneFacts | null>;
@@ -126,7 +125,7 @@ export interface GitBackend {
   ): { cancel: () => void };
 
   /**
-   * `git clone --progress <repoUrl> <targetDir>` (ADR-178 ticket 5).
+   * `git clone --progress <repoUrl> <targetDir>`.
    * `targetDir` must not exist yet, or must be empty — the caller checks
    * that before calling. `onLine` gets each progress line git writes to
    * stderr during a clone; mirrors `pushStream`'s shape so both stream
@@ -161,7 +160,7 @@ export interface GitBackend {
   /**
    * The current branch at `repoPath` (a repo or worktree root), or a short
    * SHA for a detached HEAD. `null` if it cannot be determined (not a repo,
-   * unborn branch, etc.) — ADR-178 §3.
+   * unborn branch, etc.).
    */
   currentBranch(repoPath: string): Promise<string | null>;
 }
@@ -180,15 +179,14 @@ export interface ShellBackend {
   ): Promise<string>;
 
   /**
-   * The home directory on the machine this backend runs commands on (ADR-178
-   * §3): its `MachineFacts.homeDir` (ADR-183).
+   * The home directory on the machine this backend runs commands on: its `MachineFacts.homeDir`.
    */
   homeDir(): Promise<string>;
 
   /**
    * Write `data` to `path` on the machine this backend runs commands on,
    * creating its parent directories and replacing any file already there
-   * (ADR-187: a pasted image uploaded to a remote host).
+   * (a pasted image uploaded to a remote host).
    */
   writeFile(path: string, data: Buffer): Promise<void>;
 }
@@ -204,12 +202,12 @@ export interface ScannedPort {
   hostname: string | null;
   /**
    * `"::1"` when the port is listened on only at the IPv6 loopback, so a
-   * forward must target `[::1]` rather than 127.0.0.1 (ADR-178 §5).
+   * forward must target `[::1]` rather than 127.0.0.1.
    */
   loopbackHost?: "::1";
 }
 
-/** A scanned port tagged with the host it listens on — `"local"` included (ADR-183). */
+/** A scanned port tagged with the host it listens on — `"local"` included. */
 export interface ActivePort extends ScannedPort {
   hostId: string;
 }
@@ -259,8 +257,8 @@ export type HostConnectionEvent =
  * - `host-key` — the host key is unknown or has changed.
  * - `bootstrap` — the host cannot run the daemon (`code` says why: e.g.
  *   `node-missing`, `unsupported-platform`, `install-failed`).
- * - `recipe` — the host's recipe failed or said something Manor can't use
- *   (ADR-229 D2); the message quotes its stderr's tail.
+ * - `recipe` — the host's recipe failed or said something Manor can't use;
+ *  the message quotes its stderr's tail.
  */
 export interface HostFailure {
   reason: "auth" | "host-key" | "bootstrap" | "recipe";
@@ -282,14 +280,14 @@ export const LOCAL_HOST_ID = "local";
 export type HostId = string;
 
 /**
- * How to reach a remote host (ADR-160). Persisted per host in
+ * How to reach a remote host. Persisted per host in
  * `projects.json`; a `BackendRegistry` turns it into a `WorkspaceBackend`.
- * A discriminated union so other ways of reaching a box (ADR-178's managed
- * providers) are additions, not a migration.
+ * A discriminated union so other ways of reaching a box (managed providers)
+ * are additions, not a migration.
  *
  * - `ssh`: a box the user brings, at an ssh target.
  * - `recipe`: a box Manor starts, stops and deletes with the user's own
- *   commands in `~/.manor/host-recipes/<recipeId>/` (ADR-229 D2).
+ *   commands in `~/.manor/host-recipes/<recipeId>/`.
  */
 export type HostSpec = { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string };
 
@@ -309,7 +307,7 @@ export interface WorkspaceBackend {
   readonly git: GitBackend;
   readonly shell: ShellBackend;
   readonly ports: PortsBackend;
-  /** What the host's machine is: its OS, home, files (ADR-183). */
+  /** What the host's machine is: its OS, home, files. */
   readonly facts: MachineFacts;
 
   /** Connect to the host, at the version the backend was built with. */
@@ -318,7 +316,7 @@ export interface WorkspaceBackend {
 }
 
 /**
- * A remote host's backend (ADR-160): it reconnects by itself and reports how
+ * A remote host's backend: it reconnects by itself and reports how
  * that goes.
  */
 export interface RemoteHostBackend extends WorkspaceBackend {
@@ -335,7 +333,7 @@ export interface RemoteHostBackend extends WorkspaceBackend {
   retryNow(): boolean;
 
   /**
-   * Ping the host once and resolve whether it answered (ADR-188 §3), for a
+   * Ping the host once and resolve whether it answered, for a
    * wake check: a connection can be up but wedged, which only asking it
    * something — not merely "is the socket open" — would catch. A failure is
    * reported through `onHostEvent`'s `hostDisconnected`, same as a heartbeat

@@ -81,7 +81,7 @@ async function flush(): Promise<void> {
   await new Promise((r) => setTimeout(r, 0));
 }
 
-describe("agent-store unseen-flag cache (ADR-136)", () => {
+describe("agent-store unseen-flag cache", () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();

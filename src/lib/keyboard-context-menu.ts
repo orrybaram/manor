@@ -1,5 +1,5 @@
 /**
- * Opening Radix `ContextMenu`s from the keyboard (ADR-175). Right-click-only
+ * Opening Radix `ContextMenu`s from the keyboard. Right-click-only
  * actions — tab close-others and duplicate, folder delete, unhide workspaces,
  * kill port, and more — otherwise live behind a `contextmenu` event macOS
  * never produces from the keyboard.

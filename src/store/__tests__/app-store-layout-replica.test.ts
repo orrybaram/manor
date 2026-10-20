@@ -1,5 +1,5 @@
 /**
- * The renderer is a replica (ADR-179 D1).
+ * The renderer is a replica.
  *
  * Every structural action sends a `LayoutCommand` and writes nothing; the
  * layout arrives on `layout.changed` and replaces what was there. These are
@@ -47,7 +47,7 @@ function layoutOf(tabs: Tab[]): WorkspaceLayout {
   };
 }
 
-/** This renderer's selection, which is where it now lives (ADR-179 D3). */
+/** This renderer's selection, which is where it now lives. */
 function selectedTabId(): string | null {
   return selectSelectedTabId(useAppStore.getState(), "panel-1");
 }
@@ -104,7 +104,7 @@ describe("actions send commands", () => {
       paneId: "pane-1",
       direction: "vertical",
     });
-    // The id is the sender's, so it can focus the pane when it lands (D1).
+    // The id is the sender's, so it can focus the pane when it lands.
     expect(command).toHaveProperty("newPaneId", expect.any(String));
   });
 
@@ -117,7 +117,7 @@ describe("actions send commands", () => {
     ]);
   });
 
-  it("selecting a tab sends nothing — viewport is local (D3)", async () => {
+  it("selecting a tab sends nothing — viewport is local", async () => {
     useAppStore.getState().selectTab("tab-1");
     await settled();
     useAppStore.getState().focusPane("pane-1");
@@ -182,7 +182,7 @@ describe("broadcasts set the state", () => {
     expect(replica()).toBe(after);
   });
 
-  it("applies an equal-version broadcast whose claims changed (D4)", async () => {
+  it("applies an equal-version broadcast whose claims changed", async () => {
     setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
     const current = replica();
     broadcastLayout(WS_PATH, current, 4);
@@ -204,7 +204,7 @@ describe("broadcasts set the state", () => {
     expect(selectVisibleTabs(useAppStore.getState(), WS_PATH, replica().panels["panel-1"]).map((t) => t.id)).toEqual(["tab-1", "tab-2"]);
   });
 
-  it("moves the selection off a tab that was just claimed (D4)", async () => {
+  it("moves the selection off a tab that was just claimed", async () => {
     setup(layoutOf([tab("tab-1", "pane-1"), tab("tab-2", "pane-2")]));
     useAppStore.getState().selectTab("tab-2");
     await settled();
@@ -217,7 +217,7 @@ describe("broadcasts set the state", () => {
     expect(selectedTabId()).toBe("tab-1");
   });
 
-  it("reads contentType and url off the leaves (ADR-182 D9)", async () => {
+  it("reads contentType and url off the leaves", async () => {
     const browserTab: Tab = {
       id: "tab-2",
       title: "example.com",
@@ -273,7 +273,7 @@ describe("broadcasts set the state", () => {
 
   it("seeds the side maps of the panes a reopen brought back", async () => {
     // The server's grace kept the shell alive, so the pane reattaches with
-    // the cwd and title it had (ADR-179 ticket 10) rather than looking new.
+    // the cwd and title it had rather than looking new.
     broadcastLayout(
       WS_PATH,
       withExtraTab(replica(), tab("tab-2", "pane-2")),
@@ -325,7 +325,7 @@ describe("this window's selection survives a broadcast", () => {
     await settled();
 
     // The selection is this renderer's and never reached the server, so a
-    // structural change elsewhere cannot move it (ADR-179 D3).
+    // structural change elsewhere cannot move it.
     useAppStore.getState().splitPane("horizontal");
     await settled();
 

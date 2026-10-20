@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-181 D2: `useLayoutMode()` is the one hook every phone-mode reader
+ * `useLayoutMode()` is the one hook every phone-mode reader
  * consults — width decides, a detached window is the one exception.
  */
 import { act, createElement } from "react";
@@ -85,7 +85,7 @@ afterEach(() => {
 });
 
 describe("useLayoutMode", () => {
-  it("uses the ADR-178 D9 breakpoint of ~768px", () => {
+  it("uses the breakpoint of ~768px", () => {
     expect(PHONE_MAX_WIDTH).toBe(767);
   });
 

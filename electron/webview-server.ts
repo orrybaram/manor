@@ -8,7 +8,7 @@
  * Every route this server answers — including `/webviews`, `/recordings` and
  * `/webview/:id/*`, once handled inline here — now lives in
  * `electron/routes/webview.ts`, part of the same table `electron/routes/`
- * dispatches for every other Manor-control route (ADR-183). This class keeps
+ * dispatches for every other Manor-control route. This class keeps
  * only what a route handler cannot own itself: the HTTP listener's lifecycle,
  * console-message capture, and the pane→`WebContents` lookup those routes
  * reach through `HostDeps.webviewPanes`.
@@ -34,14 +34,14 @@ export class WebviewServer {
   private consoleListeners: Map<string, () => void> = new Map(); // paneId → cleanup fn
 
   /**
-   * `getDeps` is what the control routes (ADR-171) run over: the one
-   * `HostDeps` the bridge handlers get too (ADR-182 D8). A getter rather than
+   * `getDeps` is what the control routes run over: the one
+   * `HostDeps` the bridge handlers get too. A getter rather than
    * the object because that object holds this server — `app-lifecycle.ts`
    * builds it after constructing us — and the first request cannot arrive
    * before `start()`, which runs once it exists.
    */
   constructor(
-    /** paneId → webContentsId. Part of `HostDeps.webviewPanes` (ADR-183). */
+    /** paneId → webContentsId. Part of `HostDeps.webviewPanes`. */
     readonly registry: Map<string, number>,
     readonly getDeps: () => HostDeps,
   ) {}
@@ -151,7 +151,7 @@ export class WebviewServer {
 
   /**
    * Look up and validate webContents for a paneId. Part of
-   * `HostDeps.webviewPanes` (ADR-183): every `/webview/:paneId/*` route
+   * `HostDeps.webviewPanes`: every `/webview/:paneId/*` route
    * in `electron/routes/webview.ts` resolves through this.
    */
   getWebContents(

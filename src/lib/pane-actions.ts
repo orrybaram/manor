@@ -1,7 +1,7 @@
 /**
  * Pane actions that act on whatever pane currently has focus.
  *
- * Extracted from the command palette (ADR-170) so the native menu's Pane ›
+ * Extracted from the command palette so the native menu's Pane ›
  * Split With / Convert To items and the palette run the exact same code. Every
  * function reads `getState()` rather than React state, so it can be called from
  * outside the render cycle.
@@ -52,7 +52,7 @@ export function splitFocusedPaneWith(
  * terminal running the workspace's agent command. A pane that is already a
  * terminal just gets the command typed into it; anything else is converted
  * back to a terminal and the command queued on the server for the fresh
- * session that pane is about to get (ADR-179 ticket 11).
+ * session that pane is about to get.
  */
 export function convertFocusedPaneTo(contentType: PaneContentType): void {
   const focusedPaneId = getFocusedPaneId();

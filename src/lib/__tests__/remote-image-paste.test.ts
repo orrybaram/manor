@@ -68,7 +68,7 @@ describe("isRemotePane", () => {
 // ---------------------------------------------------------------------------
 
 describe("pasteClipboardImage", () => {
-  it("names the pane's host, which main may not know (ADR-228 D5)", async () => {
+  it("names the pane's host, which main may not know", async () => {
     useRemotePaneStore.getState().setPaneHost(PANE_ID, "box");
     pasteClipboardImageIpc.mockResolvedValue({ kind: "none" });
 

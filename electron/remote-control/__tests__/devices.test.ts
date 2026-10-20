@@ -1,6 +1,6 @@
 /**
  * The device store is the whole boundary behind the relay, so these tests
- * are written against the properties ADR-161 §2 leans on rather than against
+ * are written against the properties remote control leans on rather than against
  * the implementation: a token verifies once and only as itself, revocation is
  * not cached, the raw token never lands on disk, and a machine that cannot
  * encrypt refuses to store rather than degrading.
@@ -240,7 +240,7 @@ describe("RemoteDeviceStore", () => {
   });
 
   /**
-   * ADR-240: a pairing link carries a single-use ticket and the device
+   * A pairing link carries a single-use ticket and the device
    * chooses its own token, so the store never holds a raw one.
    */
   describe("pairing tickets", () => {
@@ -461,7 +461,7 @@ describe("RemoteDeviceStore", () => {
   });
 
   /**
-   * ADR-207 D5: the relay is the only road and every device reaches the
+   * The relay is the only road and every device reaches the
    * whole bridge, so a row that is not a relay pairing — a Tailscale device,
    * or a Watch or Reply one — is dropped on load and purged from disk. The
    * user re-pairs through the relay.
@@ -477,7 +477,7 @@ describe("RemoteDeviceStore", () => {
     }
 
 
-    /** A relay pairing as ADR-206 wrote it: `via` and `capability` and all. */
+    /** A relay pairing as first written: `via` and `capability` and all. */
     const relayRow = (id: string, hashChar = "a") => ({
       id,
       label: id,
@@ -501,7 +501,7 @@ describe("RemoteDeviceStore", () => {
       expect((await diskText())).toContain(`"relayRoom":"${ROOM}"`);
     });
 
-    it("drops a row from before ADR-206, which has no `via`", async () => {
+    it("drops an old row, which has no `via`", async () => {
       const { via: _via, relayRoom: _room, ...noVia } = relayRow("old");
       writeRows([noVia]);
       expect((await store()).list()).toEqual([]);
@@ -533,7 +533,7 @@ describe("RemoteDeviceStore", () => {
       expect((await store()).list()).toEqual([]);
     });
 
-    it("drops a pre-ADR-178 canSend row", async () => {
+    it("drops a legacy canSend row", async () => {
       const { capability: _capability, ...rest } = relayRow("sender");
       writeRows([{ ...rest, canSend: true }]);
       expect((await store()).list()).toEqual([]);
@@ -591,7 +591,7 @@ describe("RemoteDeviceStore", () => {
     });
   });
 
-  describe("host links and blocks (ADR-238 D2)", () => {
+  describe("host links and blocks", () => {
     it("round-trips a link's room", async () => {
       const s = await store();
       const { device } = await s.pair("phone", ROOM, { direct: true });

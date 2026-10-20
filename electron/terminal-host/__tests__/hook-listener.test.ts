@@ -23,7 +23,7 @@ function httpGet(
   });
 }
 
-describe("HookListener (remote daemon, ADR-178 §2)", () => {
+describe("HookListener (remote daemon)", () => {
   let dir: string;
   let portFile: string;
   let journal: HookJournal;

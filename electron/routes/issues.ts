@@ -27,7 +27,7 @@ function parseSource(
 }
 
 /**
- * Linear is the desktop's for every host's projects (ADR-227 D7): the token
+ * Linear is the desktop's for every host's projects: the token
  * is here and Linear isn't tied to a path. GitHub runs `gh` in the checkout,
  * so an adopted host's issues are read there (`withProject`).
  */

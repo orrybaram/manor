@@ -5,7 +5,7 @@ import * as path from "node:path";
 /**
  * Write `data` to `filePath` atomically: write to a sibling `.tmp` file, then
  * rename it over the target. A reader never sees a half-written file, even if
- * the process is killed mid-write (ADR-183).
+ * the process is killed mid-write.
  *
  * Creates the parent directory if it does not exist, with `dirMode` if given.
  * `mode`, when given, is applied to the file.

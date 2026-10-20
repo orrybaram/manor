@@ -378,7 +378,7 @@ describe("deltasForHookEvent", () => {
   });
 });
 
-describe("countBusyAcross (ADR-230 D14)", () => {
+describe("countBusyAcross", () => {
   const busy = { status: "active", lastAgentStatus: "working" };
   const idle = { status: "active", lastAgentStatus: "idle" };
 

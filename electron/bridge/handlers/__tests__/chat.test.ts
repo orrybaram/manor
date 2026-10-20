@@ -9,7 +9,7 @@ function setup() {
   return { write, ctx };
 }
 
-describe("chat.key (ADR-218 D3)", () => {
+describe("chat.key", () => {
   const cases: [string, string][] = [
     ["up", "\x1b[A"],
     ["down", "\x1b[B"],
@@ -96,7 +96,7 @@ describe("serialized per-pane writes", () => {
   });
 });
 
-describe("wireChatMirror subscriptions (ADR-224 D3)", () => {
+describe("wireChatMirror subscriptions", () => {
   function wire(subscribed: Set<string>) {
     const chatMirror = { setWatched: vi.fn(), setTaskWatched: vi.fn(), agentChanged: vi.fn() };
     let change: (name: string, key: string) => void = () => {};

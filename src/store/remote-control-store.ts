@@ -3,7 +3,7 @@ import { liveValue } from "../bridge/resync";
 import type { RemoteControlStatus, RemotePairResult } from "../electron.d";
 
 /**
- * Live mirror of the main process's remote-control state (ADR-161).
+ * Live mirror of the main process's remote-control state.
  *
  * Shared between the settings panel and the persistent exposure indicator on
  * purpose: those two must never disagree about whether this machine is

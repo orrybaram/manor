@@ -9,7 +9,7 @@
  *   - `remoteRole` — the daemon `manor-host remote-bridge` spawns on another
  *     box (~/.manor/remote/daemon/), serving a client on a different machine.
  *     It bootstraps its own host once at startup, owns the box's agent hooks
- *     (a loopback listener plus a journal for replay, ADR-178 §2), and refuses
+ *     (a loopback listener plus a journal for replay), and refuses
  *     env that names ports on the client's machine.
  *
  * Built once in `main()` (index.ts) and handed to the server; nothing else in
@@ -54,8 +54,8 @@ export interface DaemonStartupContext {
   /** Broadcast a freshly journaled agent hook to every stream socket. */
   onHookEntry(entry: HookJournalEntry): void;
   /**
-   * Relay a `manor` CLI request over the relay stream (ADR-189 §1), to the
-   * host server that asked for them (ADR-227 D8).
+   * Relay a `manor` CLI request over the relay stream, to the
+   * host server that asked for them.
    */
   relayControlRequest: ControlRelay;
 }
@@ -120,8 +120,7 @@ export function localRole(): DaemonRole {
 /**
  * Env naming ports on the client's machine. Meaningless on the box, and a
  * pushed `MANOR_HOOK_PORT{,_FILE}` or `MANOR_CONTROL_PORT_FILE` would point
- * agents there away from this daemon's own hook or control relay listener
- * (ADR-178 §2, ADR-189 §1).
+ * agents there away from this daemon's own hook or control relay listener.
  */
 const CLIENT_MACHINE_ENV_KEYS: ReadonlySet<string> = new Set([
   "MANOR_HOOK_PORT",
@@ -237,7 +236,7 @@ export function remoteRole(log: Log): DaemonRole {
     async bootstrap() {
       const { agents, warnings } = runBootstrap();
       const report = { agents, warnings: [...warnings] };
-      // This daemon outlives app updates that keep its protocol (ADR-185),
+      // This daemon outlives app updates that keep its protocol,
       // while the package beside it is replaced: rewrite the hook scripts from
       // it on every connect, so agents run the updated hook.
       try {

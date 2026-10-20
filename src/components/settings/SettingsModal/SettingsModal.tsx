@@ -43,7 +43,7 @@ function pageKey(page: SettingsPage): string {
 }
 
 /**
- * The page a project deep link opens (ADR-237 D1): a project set up on
+ * The page a project deep link opens: a project set up on
  * several hosts opens its group's page, a lone project its own.
  */
 function pageForProject(
@@ -107,7 +107,7 @@ export function SettingsModal(props: SettingsModalProps) {
   prevOpenRef.current = open;
 
   // A project set up on several hosts is listed once, where its first
-  // host's copy would be (ADR-237 D1).
+  // host's copy would be.
   const navProjects = useMemo(() => {
     const seen = new Set<string>();
     const entries: SettingsProjectEntry[] = [];
@@ -238,7 +238,7 @@ export function SettingsModal(props: SettingsModalProps) {
       : null;
   // A project page whose project is now set up on several hosts (it was just
   // set up on another, or an old link named one host's copy) becomes its
-  // group's page, the project's one page (ADR-237 D1).
+  // group's page, the project's one page.
   if (page.type === "project" && currentProject?.group) {
     setPage({ type: "group", groupId: currentProject.group.id });
   }

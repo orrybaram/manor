@@ -1,6 +1,6 @@
 /**
  * The Tasks view's remembered choices, in localStorage. Home's Up next reads
- * the same tracker, project, sort and filters (ADR-202 §4), so it lists the
+ * the same tracker, project, sort and filters, so it lists the
  * top of exactly what "View all" opens.
  */
 

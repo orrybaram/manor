@@ -34,13 +34,13 @@ export interface AppPreferences {
    * Used to surface a one-time notice; never reset automatically.
    */
   agentPruneNoticeShown: boolean;
-  /** ADR-168's usage-stats collection kill switch. `record`/`recordMax` are no-ops when false. */
+  /** The usage-stats collection kill switch. `record`/`recordMax` are no-ops when false. */
   statsEnabled: boolean;
-  /** ADR-211: whether the New Workspace dialog asks Jev (through the relay) for a folder. */
+  /** Whether the New Workspace dialog asks Jev (through the relay) for a folder. */
   folderSuggestionsEnabled: boolean;
-  /** ADR-212: the earned title shown in the trophy room; null means the latest earned. */
+  /** The earned title shown in the trophy room; null means the latest earned. */
   achievementTitle: string | null;
-  /** ADR-212: secret badge ids the user chose to reveal. */
+  /** Secret badge ids the user chose to reveal. */
   revealedBadges: string[];
 }
 
@@ -126,7 +126,7 @@ export class PreferencesManager {
       }
       delete legacy.taskRetentionDays;
       delete legacy.taskPruneNoticeShown;
-      // Removed with the Home harness (ADR-197); drop so they are not written back.
+      // Removed with the Home harness; drop so they are not written back.
       delete legacy.homeHarness;
       delete legacy.homeCustomCommand;
       delete legacy.homeCustomInterrupt;

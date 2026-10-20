@@ -1,5 +1,5 @@
 /**
- * The control routes every Manor server answers (ADR-227 D8): projects,
+ * The control routes every Manor server answers: projects,
  * workspaces, folders, issues, agents and `/context`. They read only
  * `ServerRouteDeps` and import no Electron, so the host server dispatches
  * them for its box's `manor` CLI (`../host-server/cli-relay.ts`) and for

@@ -3,7 +3,7 @@ import { pendingDisplay, type HostDisplay } from "../../../lib/host-status";
 import { LOCAL_HOST_ID } from "../../../lib/hosts";
 import { projectHostStatus } from "./project-host-status";
 
-// ADR-237 D3: one word per project host row.
+// One word per project host row.
 describe("projectHostStatus", () => {
   it("shows Local, in no tone, for this machine", () => {
     expect(projectHostStatus(LOCAL_HOST_ID, undefined)).toEqual({ word: "Local", tone: null });

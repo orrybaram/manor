@@ -98,7 +98,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
       status: "loading",
     });
 
-    // Every failure ends the loading toast and frees the form (ADR-232 D7);
+    // Every failure ends the loading toast and frees the form;
     // the modal stays open with what was typed, so the user can try again.
     const fail = (message: string, err: unknown) => {
       updateToast(toastId, {

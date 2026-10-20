@@ -12,12 +12,12 @@ export type UseHostCloneFlowOptions = {
   run: () => Promise<ProjectInfo>;
   /**
    * Stop after the clone instead of moving on to the health step — a clone
-   * on this machine (ADR-194) goes to `ProjectSetupWizard` instead. `step`
+   * on this machine goes to `ProjectSetupWizard` instead. `step`
    * returns to "form" and the caller takes it from there.
    */
   skipHealthChecks?: boolean;
   /**
-   * `run` starts a new pod first (ADR-235 D4): the flow opens on a
+   * `run` starts a new pod first: the flow opens on a
    * "Starting <profile> pod" step and moves on to "cloning" when the clone's
    * first progress arrives.
    */
@@ -44,9 +44,8 @@ export type UseHostCloneFlowResult = {
 
 /**
  * The form → cloning → health state machine shared by `AddProjectDialog`'s
- * remote flow (ADR-178 ticket 5) and `CloneToHostDialog` (ADR-179), unified
- * by ADR-183 ticket 10. `run` is the only thing that differs between the two
- * callers: `cloneProject` or `moveProjectToHost`.
+ * remote flow and `CloneToHostDialog`. `run` is the only thing that differs
+ * between the two callers: `cloneProject` or `moveProjectToHost`.
  */
 export function useHostCloneFlow(options: UseHostCloneFlowOptions): UseHostCloneFlowResult {
   const { hostId, run, skipHealthChecks = false, newPod = false } = options;

@@ -13,7 +13,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("ProjectManager host-relative paths (ADR-178)", () => {
+describe("ProjectManager host-relative paths", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -201,7 +201,7 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     );
   });
 
-  // ADR-227 D5: what a server-launched agent is recorded under.
+  // What a server-launched agent is recorded under.
   it("names the project that owns a workspace on its host, most closely", async () => {
     const git = fullGit();
     const shell = fakeShell("/home/remoteuser");
@@ -224,7 +224,7 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     expect(mgr.workspaceProject("box", "/srv/other")).toBeNull();
   });
 
-  // ADR-191: what migrating path-keyed data to workspace keys is told.
+  // What migrating path-keyed data to workspace keys is told.
   it("describes each project as a workspace-key owner, with its worktree root expanded on its host", async () => {
     const git = fullGit();
     const shell = fakeShell("/home/remoteuser");
@@ -321,7 +321,7 @@ describe("ProjectManager host-relative paths (ADR-178)", () => {
     ]);
   });
 
-  it("saves a ~ worktreePath without asking the host, and expands it only on use (ADR-183)", async () => {
+  it("saves a ~ worktreePath without asking the host, and expands it only on use", async () => {
     const git = fullGit();
     const shell = fakeShell("/home/remoteuser");
     let reachable = false;

@@ -36,7 +36,7 @@ function fakeWindow(): {
   };
 }
 
-describe("pickTargetWindow (ADR-170)", () => {
+describe("pickTargetWindow", () => {
   it("routes a shared-window command to the focused detached window", () => {
     const main = fakeWindow() as never;
     const detached = fakeWindow() as never;

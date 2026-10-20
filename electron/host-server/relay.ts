@@ -1,5 +1,5 @@
 /**
- * The host server's own relay room (ADR-225 D3): its relay identity, the
+ * The host server's own relay room: its relay identity, the
  * phones paired to that room, their push subscriptions, and the connector
  * that dials out to `relay.manor.sh` — the desktop's remote-control runtime
  * (`app-lifecycle.ts` `loadRemoteControlRuntime`), minus the desktop's
@@ -28,7 +28,7 @@
  * The room operations themselves — pair, revoke, reset, stale-room revokes —
  * are `RelayRoom`'s, shared with the desktop and run one at a time.
  *
- * Secrets go through the host's `SecretBox` (ADR-225 D6) into `dataDir`
+ * Secrets go through the host's `SecretBox` into `dataDir`
  * (`hostServerPaths`). Device tokens are stored as SHA-256 hashes only.
  */
 
@@ -80,30 +80,30 @@ export interface HostRelayOptions {
   pushGenerate?: () => VapidKeys | Promise<VapidKeys>;
 }
 
-/** What `hostServer.status()` answers the owner (ADR-225 D4). */
+/** What `hostServer.status()` answers the owner. */
 export interface HostServerStatus {
   version: string;
   /**
-   * What this server can do beyond slice 2 (ADR-228 D3, D4), such as
+   * What this server can do beyond slice 2, such as
    * `"viewer-bridge"`. Optional on the type because an older server's status
    * has none: read it through `hasViewerBridge` (`./capabilities.ts`).
    */
   capabilities?: string[];
   /**
    * This server's relay room — the hash of its relay public key, as the relay
-   * addresses it and as a phone's pairing stores it (ADR-228 D2) — or null
+   * addresses it and as a phone's pairing stores it — or null
    * when its identity cannot be loaded. The same value as `relay.roomId`, at
    * the top level where a desktop's `hosts.list` reads it. Optional on the
    * type for an older server's status.
    */
   roomId?: string | null;
   /**
-   * Whether this host's projects, agents and layout are the server's yet
-   * (ADR-227 D3): `pending` until the desktop has handed them over.
+   * Whether this host's projects, agents and layout are the server's yet:
+   * `pending` until the desktop has handed them over.
    */
   ownership: HostOwnership;
   uptimeMs: number;
-  /** Which `SecretBox` seals the keys; `plaintext` is warned about (D6). */
+  /** Which `SecretBox` seals the keys; `plaintext` is warned about. */
   secretBackend: SecretBackend;
   relay: {
     /** This server's room, or null when its identity cannot be loaded. */
@@ -119,16 +119,16 @@ export interface HostServerStatus {
    * push for this host's agents to these (D3, "no duplicate pushes").
    */
   pushEndpoints: string[];
-  /** Whether the user turned Linear on for this host: its token is here (ADR-227 D7). */
+  /** Whether the user turned Linear on for this host: its token is here. */
   linear: boolean;
   /**
    * The key sealing the pairing keys is a file under `~/.manor`, on the very
-   * volume it protects (ADR-229 D5). Optional on the type for an older
+   * volume it protects. Optional on the type for an older
    * server's status.
    */
   secretKeyOnVolume?: boolean;
   /**
-   * Where the key sealing the pairing keys lives (ADR-236 D5): `data-dir`
+   * Where the key sealing the pairing keys lives: `data-dir`
    * under `~/.manor` (or inline in `supervisor.env`), `home` elsewhere under
    * home, `elsewhere` for a mounted secret or a key from the environment.
    * Absent when no key is set, or from an older server.
@@ -138,26 +138,26 @@ export interface HostServerStatus {
   secretKeyFile?: string | null;
   /**
    * The key file `manor-host secrets encrypt` would use (`encryptKeyPlan`),
-   * home shortened to `~`, for the Hosts page's hint (ADR-236 D5).
+   * home shortened to `~`, for the Hosts page's hint.
    * Computed when the server starts; absent from an older server.
    */
   encryptKeyFile?: string;
   /**
    * Set when this start found the data dir copied from another instance and
-   * reset the sealed stores (ADR-229 D6); reported until the owner has read
+   * reset the sealed stores; reported until the owner has read
    * it once.
    */
   identityReset?: "cloned" | null;
   /**
    * What keeps this host's daemon and server running across a reboot
-   * (ADR-229 D4), from `supervisor.json`: its kind and, for systemd, whether
+   * from `supervisor.json`: its kind and, for systemd, whether
    * the user manager lingers (boots without a login). Null when nothing
    * does. Optional on the type for an older server's status.
    */
   supervisor?: SupervisorFacts | null;
   /**
    * Whether any agent on this host is thinking, working or waiting on input
-   * (ADR-229 D7), going idle 60 s after the last one stops. Optional on the
+   * going idle 60 s after the last one stops. Optional on the
    * type for an older server's status.
    */
   busy?: boolean;
@@ -178,7 +178,7 @@ export interface HostServerStatus {
    */
   desktopViewing?: boolean;
   /**
-   * Who is watching (ADR-230 D1): `desktop` a window's viewer stream,
+   * Who is watching: `desktop` a window's viewer stream,
    * `device` a phone (a pane's output, or an agent's chat), `forwarded` main
    * relaying a pane for another window. Absent on an older host.
    */
@@ -189,7 +189,7 @@ export interface HostServerStatus {
 export interface HostRemoteControl {
   /**
    * Resolves once the device is on disk. A ticket link by default; `direct`
-   * for the desktop minting a pairing for its own device (ADR-240 D7).
+   * for the desktop minting a pairing for its own device.
    */
   pair(label: string, options?: { direct?: boolean }): Promise<PairResult>;
   listDevices(): RemoteDeviceInfo[];
@@ -220,19 +220,19 @@ export interface HostRelay {
   deviceCount(): number;
   pushEndpoints(): string[];
   /**
-   * Adopt the desktop's VAPID pair (ADR-225 D3). True when the key changed,
+   * Adopt the desktop's VAPID pair. True when the key changed,
    * in which case the subscriptions made against the old one were cleared.
    */
   setVapidKeys(keys: VapidKeys): Promise<boolean>;
   /**
    * New relay identity, so a new room; every device and with it every push
    * subscription revoked; the connector redialled to the new room. The
-   * recovery step for a box that may be compromised (ADR-225 D6).
+   * recovery step for a box that may be compromised.
    */
   resetIdentity(): Promise<void>;
   /**
-   * `resetIdentity`, and a new VAPID pair too: what a copied data dir needs
-   * (ADR-229 D6). The caller clears the Linear token.
+   * `resetIdentity`, and a new VAPID pair too: what a copied data dir needs.
+   * The caller clears the Linear token.
    */
   resetForClone(): Promise<void>;
 }

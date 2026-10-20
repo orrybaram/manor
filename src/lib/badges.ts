@@ -1,7 +1,7 @@
 import type { StatsSummary } from "../electron.d";
 
 /**
- * Renderer mirror of the badge catalogue (ADR-168 §4).
+ * Renderer mirror of the badge catalogue.
  *
  * Keep in sync with `electron/stats-badges.ts` — same ids, titles,
  * descriptions, order and thresholds. The renderer cannot import from
@@ -30,7 +30,7 @@ export interface BadgeSectionMeta {
   name: string;
   /** One-line flavour under the section heading. */
   blurb: string;
-  /** Reward name earned by completing the track (ADR-212). */
+  /** Reward name earned by completing the track. */
   title: string;
 }
 
@@ -84,7 +84,7 @@ export interface BadgeMeta {
   color: string;
   tier: BadgeTier;
   section: BadgeSection;
-  /** Hidden on screen (`???`) until earned or revealed (ADR-212). */
+  /** Hidden on screen (`???`) until earned or revealed. */
   secret?: boolean;
   /**
    * Progress toward the unlock, mirroring the predicate in

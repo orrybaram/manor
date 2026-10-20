@@ -28,7 +28,7 @@ const GITHUB_SOURCES = [
 ];
 
 /**
- * "Sign new pods in for me" (ADR-235 D9): the opt-in section of a Kubernetes
+ * "Sign new pods in for me": the opt-in section of a Kubernetes
  * profile's editor. Tokens go straight to the cluster through main; they live
  * only in an input's local state until set, then the input is cleared.
  * Needs a saved profile.

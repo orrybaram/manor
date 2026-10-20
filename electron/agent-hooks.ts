@@ -8,9 +8,9 @@
  * 3. PTY sessions get MANOR_HOOK_PORT env var so hooks can call back
  * 4. Hook script (curl) → HTTP server → IPC to renderer
  *
- * Remote hosts (ADR-178 §2) never reach this server: their daemon journals
+ * Remote hosts never reach this server: their daemon journals
  * hooks itself, and the host's own server hands each one to its
- * `ingestHookPayload`, the same path the HTTP handler takes (ADR-227 D4).
+ * `ingestHookPayload`, the same path the HTTP handler takes.
  */
 
 import * as http from "node:http";
@@ -68,7 +68,7 @@ export class AgentHookServer {
 
   /**
    * Feed one hook into the relay — the single entry point for hooks from
-   * every host (ADR-178 §2). The local HTTP server calls it for each request;
+   * every host. The local HTTP server calls it for each request;
    * a host server's hook feed calls it for each journaled entry, replayed or
    * live. `payload` is the hook request's query parameters.
    *
@@ -109,7 +109,7 @@ export class AgentHookServer {
   /** Start the HTTP server on a random port */
   async start(): Promise<void> {
     this.server = http.createServer((req, res) => {
-      // Same parser as the remote daemon's HookListener (ADR-183): both
+      // Same parser as the remote daemon's HookListener: both
       // classify a request before either does anything with it.
       const verdict = classifyHookRequest(req.url);
       if (verdict.status === 404) {

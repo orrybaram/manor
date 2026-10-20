@@ -14,7 +14,7 @@ import { selectFocusedPaneOfActiveTab, useAppStore } from "../../store/app-store
  * no layout and so no row count, just far enough that the cursor's row clears
  * the keyboard.
  *
- * The chat view's composer (ADR-215 D7) is lifted the same way: an element
+ * The chat view's composer is lifted the same way: an element
  * inside `[data-keyboard-lift]` with focus lifts the shell until that
  * container's bottom clears the keyboard.
  */

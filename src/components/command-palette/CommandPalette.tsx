@@ -70,7 +70,7 @@ const WIDEN_HINT = IS_MAC ? "⌘↵" : "Ctrl+↵";
 /** ⌘↵ on a task row starts it (opens a linked task's workspace). */
 const START_HINT = WIDEN_HINT;
 
-/** The Tasks group (ADR-208 §4): listed only while searching, never pinned as frequent. */
+/** The Tasks group: listed only while searching, never pinned as frequent. */
 const TASKS_CATEGORY_ID = "tasks";
 
 const TASKS_HEADING = "Tasks";
@@ -154,7 +154,7 @@ export function CommandPalette(props: CommandPaletteProps) {
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Scope (ADR-200): the project the root view is narrowed to, or `null` for
+  // Scope: the project the root view is narrowed to, or `null` for
   // all projects. `openedScopeProjectId` is what the palette opened with, so
   // Tab can toggle back to it after widening.
   const [scopeProjectId, setScopeProjectId] = useState<string | null>(null);
@@ -446,7 +446,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     return { items, homeHeadings };
   }, [search, categories, commandUsage]);
 
-  // ADR-208 §4: the top task matches, as a group after agents and
+  // The top task matches, as a group after agents and
   // workspaces. Kept out of `categories`, so tasks are never ranked or
   // recorded as frequent commands.
   const tasksByItemId = useMemo(
@@ -980,7 +980,7 @@ type TaskItemProps = {
 };
 
 /**
- * ADR-208 §4: a task in the palette's search — tracker glyph and ID, title,
+ * A task in the palette's search — tracker glyph and ID, title,
  * its linked workspace (or project), and status. ↵ starts or opens it.
  */
 function TaskItem(props: TaskItemProps) {

@@ -34,7 +34,7 @@ import type { WorkspaceMeta } from "../ipc/types";
 
 /**
  * The deps the handlers under test run over. There is no `register()` any
- * more (ADR-180 D8): the handler table calls the lifted functions with the
+ * more: the handler table calls the lifted functions with the
  * one long-lived `HostDeps`, and `installPortEnricher` is the boot-time half
  * of what `register()` used to do.
  */
@@ -143,8 +143,8 @@ function makeDeps(
     scanHost: vi.fn().mockImplementation(async (_hostId: string) => scanAndPublish()),
   };
 
-  // Built once here rather than by `bridge/handlers/ports.ts` (ADR-183 moved that
-  // construction to app-lifecycle.ts, alongside `paneHosts`).
+  // Built once here rather than by `bridge/handlers/ports.ts` (that construction
+  // lives in app-lifecycle.ts, alongside `paneHosts`).
   const remoteUrlResolver = new RemoteUrlResolver(
     portScanner as never,
     backendRegistry as never,
@@ -431,7 +431,7 @@ describe("remote ports", () => {
   });
 
   it("gives an agent's navigate the same rewrite, bounded by a timeout", async () => {
-    // `resolvePaneUrl` (app-lifecycle.ts, ADR-183) calls this same
+    // `resolvePaneUrl` (app-lifecycle.ts) calls this same
     // `remoteUrlResolver` with a timeout; exercised directly here since that
     // wiring no longer lives in `bridge/handlers/ports.ts`.
     const deps = makeDeps([], remoteScan);
@@ -454,7 +454,7 @@ describe("remote ports", () => {
   });
 });
 
-// ADR-191 §6: a local and a remote checkout of one project can share a path
+// A local and a remote checkout of one project can share a path
 // and a name, so a remote hostname carries a segment from its host's id.
 describe("hostnames by host", () => {
   beforeEach(() => {

@@ -1,7 +1,7 @@
 import type { PrStage } from "../../../lib/pr-readiness";
 
 /**
- * How every dashboard section names and colours a PR stage (ADR-198 §2):
+ * How every dashboard section names and colours a PR stage:
  * running checks yellow, waiting on reviewers cyan, blocked red, ready green.
  * `short` is for tight spots such as the Open PRs tile legend.
  */

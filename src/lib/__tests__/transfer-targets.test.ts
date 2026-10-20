@@ -66,7 +66,7 @@ describe("transferTargets", () => {
     expect(targets[1].disabledReason).toBeNull();
   });
 
-  it("names the desktop's own machine by its pairing on a phone (ADR-228 D8)", () => {
+  it("names the desktop's own machine by its pairing on a phone", () => {
     const map = new Map<string, string>();
     vi.stubGlobal("localStorage", {
       getItem: (k: string) => map.get(k) ?? null,

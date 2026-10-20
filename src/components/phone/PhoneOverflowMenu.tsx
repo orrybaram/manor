@@ -29,7 +29,7 @@ import styles from "./Phone.module.css";
 
 type MenuTargets = {
   /** The focused pane, when it can be read as a chat — the same rule
-   *  `LeafPane` uses to offer one (ADR-215 D7): a Claude agent with a local
+   *  `LeafPane` uses to offer one: a Claude agent with a local
    *  transcript, and not a diff or browser pane. */
   chatPaneId: string | null;
   /** That pane's transcript, null while its chat is still starting. */
@@ -119,7 +119,7 @@ function ViewItem(props: ViewItemProps) {
       className={`${styles.phoneMenuItem} ${styles.overflowItem}`}
       data-testid="phone-overflow-view"
       onClick={() => {
-        // Under a menu handoff (ADR-218 D3) the terminal is borrowed: ending
+        // Under a menu handoff the terminal is borrowed: ending
         // it is the flip back to the chat, and the stored choice stays.
         if (handoff) endMenuHandoff(paneId);
         else setView(showingChat ? "terminal" : "chat");

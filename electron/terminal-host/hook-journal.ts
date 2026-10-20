@@ -1,6 +1,5 @@
 /**
- * Hook journal — the remote daemon's durable record of agent hooks
- * (ADR-178 §2).
+ * Hook journal — the remote daemon's durable record of agent hooks.
  *
  * While the laptop is closed nothing is listening for a remote agent's hooks
  * but the daemon. It appends each one here with a `seq`, and Electron main

@@ -1,5 +1,5 @@
 /**
- * One pairing covers every host (ADR-228 D9): the pairings this desktop
+ * One pairing covers every host: the pairings this desktop
  * mints for its own paired devices on each remote host's server, and the
  * revokes that follow them.
  *
@@ -17,7 +17,7 @@
  *   now, or on the host's next connect.
  * - **The switch off** forgets every link on that host and owes their
  *   revokes the same way.
- * - **A revoke on the host** (ADR-238 D2) — `hosts.revokeDevice`
+ * - **A revoke on the host** — `hosts.revokeDevice`
  *   (`revokeOnHost`), or anything on the box — blocks the device there
  *   (`RemoteDeviceStore.blockHost`): no pairing is minted for it on that host
  *   again, however often the phone asks. One made on the box is found by
@@ -38,9 +38,9 @@
  * Minting, the switch and a reset of a host's pairing keys run one at a time
  * (`serialQueue`): two hellos from one phone landing together would otherwise
  * mint it twice on a host, and a reset landing after a mint's `pair` would
- * leave a link to a device the reset already revoked (ADR-230 D11).
+ * leave a link to a device the reset already revoked.
  *
- * A mint is checked (ADR-230 D11):
+ * A mint is checked:
  * - **its room** — a pairing whose room is not the one the host's status
  *   named just before is from a host reset meanwhile by something else; it
  *   is revoked rather than linked, and the next hello mints again;
@@ -70,8 +70,7 @@ export interface LinkedHostPairing {
   /** The host server's X25519 static public key, base64url. */
   serverKey: string;
   /**
-   * The device's token in that host's own store, minted `direct` (ADR-240
-   * D7): it travels in the device's own Noise channel, never in a link.
+   * The device's token in that host's own store, minted `direct`: it travels in the device's own Noise channel, never in a link.
    */
   token: string;
   /** The host as this desktop names it, until the host's hello says. */
@@ -85,7 +84,7 @@ export interface HostLinkRecords {
   addPendingRevokes(hostId: string, hostDeviceIds: readonly string[]): void;
   /** How the host is named to people. */
   label(hostId: string): string;
-  /** Mints started on the host whose answer was not handled yet (ADR-230 D11). */
+  /** Mints started on the host whose answer was not handled yet. */
   pendingMints(hostId: string): readonly PendingMint[];
   addPendingMint(hostId: string, mint: PendingMint): void;
   clearPendingMints(hostId: string, labels: readonly string[]): void;
@@ -189,7 +188,7 @@ export class HostPairingLinks {
   setLinkPhones(hostId: string, on: boolean): Promise<void> {
     return this.serially(async () => {
       this.options.records.setLinkPhones(hostId, on);
-      // On again lifts every block there (ADR-238 D2): the way back for a
+      // On again lifts every block there: the way back for a
       // device whose pairing was revoked on the host.
       if (on) return this.options.devices.clearHostBlocks(hostId);
       const links = this.options.devices.linksOn(hostId);
@@ -204,10 +203,10 @@ export class HostPairingLinks {
   }
 
   /**
-   * Reset `hostId`'s pairing keys with `reset`, after any mint in flight
-   * (ADR-230 D11). The reset revoked every device on the host, so its links
-   * are forgotten and nothing there is owed afterwards. Its blocks stay
-   * (ADR-238 D2): only the switch lifts them.
+   * Reset `hostId`'s pairing keys with `reset`, after any mint in flight.
+   * The reset revoked every device on the host, so its links
+   * are forgotten and nothing there is owed afterwards. Its blocks stay:
+   * only the switch lifts them.
    */
   resetHost<T>(hostId: string, reset: () => Promise<T>): Promise<T> {
     return this.serially(async () => {
@@ -220,7 +219,7 @@ export class HostPairingLinks {
 
   /**
    * Find the linked pairings revoked on `hostId` while this desktop was not
-   * looking (ADR-238 D2), on each connect of its owner channel: each device
+   * looking, on each connect of its owner channel: each device
    * whose link is gone is blocked there, and one lost to a reset is
    * forgotten. Links already owed a revoke are left to `revokePending`.
    */
@@ -242,7 +241,7 @@ export class HostPairingLinks {
 
   /**
    * Revoke `hostDeviceId` on `hostId` with `revoke` (`hosts.revokeDevice`),
-   * then block the desktop device whose link it was, if any (ADR-238 D2):
+   * then block the desktop device whose link it was, if any:
    * otherwise its next hello would mint it a new pairing there.
    */
   revokeOnHost<T>(hostId: string, hostDeviceId: string, revoke: () => Promise<T>): Promise<T> {
@@ -256,7 +255,7 @@ export class HostPairingLinks {
     });
   }
 
-  /** The devices whose pairing was revoked on `hostId` (ADR-238 D2). */
+  /** The devices whose pairing was revoked on `hostId`. */
   blockedOn(hostId: string): Array<{ deviceId: string; label: string }> {
     return this.options.devices.blockedOn(hostId);
   }
@@ -300,7 +299,7 @@ export class HostPairingLinks {
     // cannot dial, and its router would only wait on it. Asked again on the
     // device's next hello, by when it may be.
     if (!status.relay.connected) return null;
-    // Its pairing here was revoked on the host (ADR-238 D2).
+    // Its pairing here was revoked on the host.
     if (devices.hostBlocks(deviceId).includes(hostId)) return null;
 
     // A link the device has let go of: revoked with the new one's mint —
@@ -337,7 +336,7 @@ export class HostPairingLinks {
     let recorded: boolean;
     try {
       // `direct`: the token goes to the device inside its own channel, so a
-      // ticket would only add a round trip (ADR-240 D7). A host that answers
+      // ticket would only add a round trip. A host that answers
       // with a ticket link anyway gives no token, and is a link this build
       // cannot read.
       const result = await client.api.remoteControl.pair(mint.label, { direct: true });
@@ -374,11 +373,11 @@ export class HostPairingLinks {
   }
 
   /**
-   * What became of `links` on `hostId`, from one `listDevices` (ADR-238 D2):
+   * What became of `links` on `hostId`, from one `listDevices`:
    * - **listed**: still there, and `present` — a mint owes it a revoke;
    * - **absent, minted in another room** than the host's now (`roomId`):
    *   lost to a reset made elsewhere. The link is forgotten;
-   * - **absent otherwise** (the same room, or a link from before ADR-238
+   * - **absent otherwise** (the same room, or an older link
    *   that does not say): revoked on the host. The device is blocked there.
    * A failing `listDevices` rejects, and nothing is settled.
    */

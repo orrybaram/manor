@@ -25,18 +25,18 @@ import {
 import { closeSettings, pairBrowser, pairHostPhone, roomOf } from "./helpers/settings";
 
 /**
- * A phone holds every pairing at once (ADR-228 D8): paired with the desktop
+ * A phone holds every pairing at once: paired with the desktop
  * and with a remote host's server, it sees both in one sidebar.
  *
  * 1. The desktop clones a project onto the box, and adds one of its own.
  * 2. One browser opens two links: the desktop's, then the box's host
  *    server's. The page dials both rooms; the sidebar lists the desktop's
- *    project and the box's, the box's answered by its own pairing (D3).
+ *    project and the box's, the box's answered by its own pairing.
  * 3. The desktop stops. The box's project stays live: the phone asks the box
  *    for a branch made on it after the desktop went, and gets it. A checkout
  *    on the box reaches the phone's sidebar through the box's own branch
- *    watcher (ADR-230 D6), with no desktop to watch it. A write to
- *    the desktop's project is refused as the desktop being away (D6), and
+ *    watcher, with no desktop to watch it. A write to
+ *    the desktop's project is refused as the desktop being away, and
  *    its project is still listed from what it last said.
  * 4. The desktop's pairing is removed in the Hosts sheet: its project leaves
  *    the sidebar, and the box's stays.
@@ -132,11 +132,11 @@ relayTest.describe("a phone with every pairing at once", () => {
           .toEqual([deskRoom, boxRoom]);
 
         // One sidebar: the desktop's project and the box's, each named by
-        // its room (D2), the box's from its own pairing (D3).
+        // its room, the box's from its own pairing.
         await expect(sidebarProject(page, LOCAL_PROJECT).first()).toBeVisible({ timeout: 30_000 });
         await expect(sidebarProject(page, PROJECT_NAME).first()).toBeVisible({ timeout: 30_000 });
         // Each link redeemed its ticket once, on its first accepted hello, and
-        // the browser dropped it (ADR-240 D5): both pairings now hold only the
+        // the browser dropped it: both pairings now hold only the
         // token the browser chose.
         await expect
           .poll(
@@ -182,8 +182,8 @@ relayTest.describe("a phone with every pairing at once", () => {
         );
         await expect(sidebarProject(page, PROJECT_NAME).first()).toBeVisible();
 
-        // A checkout on the box: only the box's own watcher can see it now
-        // (ADR-230 D6). Its event reaches the phone under the box's room.
+        // A checkout on the box: only the box's own watcher can see it now.
+        // Its event reaches the phone under the box's room.
         await page.evaluate(() => {
           const w = window as unknown as { __branchEvents?: Array<Record<string, string>> };
           w.__branchEvents = [];

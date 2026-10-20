@@ -20,7 +20,7 @@ async function run(tool: string, status: unknown): Promise<string> {
   return JSON.stringify(result);
 }
 
-describe("remote-control tools report the relay (ADR-206)", () => {
+describe("remote-control tools report the relay", () => {
   it("says the relay is running, and how many came through it", async () => {
     const out = await run("remote_control_status", {
       ...base,

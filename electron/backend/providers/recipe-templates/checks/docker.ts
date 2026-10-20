@@ -1,12 +1,12 @@
 /**
- * The `docker` template's checks (ADR-234 D6, D8): its choices — the
+ * The `docker` template's checks: its choices — the
  * daemon's contexts, from `docker context ls` — and its checklist, in order:
  * the CLI is on PATH, the daemon answers, Manor's host image is on it (or
  * being pulled or built, with progress). A check after one that isn't `ok`
  * is `todo`. Its `run` fixes (`runFix`): open Docker, pull the image, build
  * it here.
  *
- * For "Another machine over SSH" (ADR-234 D12) the list starts with the
+ * For "Another machine over SSH" the list starts with the
  * machine: it answers over SSH, Docker is installed there, the user may use
  * it (one `ssh … docker version` answers all three). Then the docker CLI
  * here, then the docker context Manor makes for it (`manor-<host>`, fix:
@@ -449,7 +449,7 @@ async function checklist(values: Record<string, string>, deps: CheckDeps): Promi
   return [cli, daemon, await imageCheck(values, deps)];
 }
 
-// ─── Another machine over SSH (ADR-234 D12) ──────────────────────────────
+// ─── Another machine over SSH ──────────────────────────────
 
 /** ssh's own ConnectTimeout for the probe, in seconds. */
 const SSH_CONNECT_TIMEOUT_S = 5;

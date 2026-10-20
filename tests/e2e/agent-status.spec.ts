@@ -10,7 +10,7 @@ import {
 import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
 
 /**
- * The dot and its tooltip, end to end (ADR-184).
+ * The dot and its tooltip, end to end.
  *
  * One Status reconciler in Electron main decides every pane's Agent status
  * from Status signals — here, the fake agent's own hook calls — and the

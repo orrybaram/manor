@@ -13,7 +13,7 @@ type RemoveHostDialogProps = {
   open: boolean;
   hostId: string;
   hostName: string;
-  /** Its provider can delete the box and its disk (ADR-229 D1). */
+  /** Its provider can delete the box and its disk. */
   canDestroy: boolean;
   /** Resolves once the host is removed; rejects saying why it was not. */
   onRemove: (destroy: boolean) => Promise<void>;
@@ -21,12 +21,12 @@ type RemoveHostDialogProps = {
 };
 
 /**
- * Remove a host (ADR-229 D8), at one of two levels:
+ * Remove a host, at one of two levels:
  *
  * - **Remove from Manor** forgets the host. The box goes on running; a
  *   plain confirm is enough.
  * - **Destroy host and its disk**, only where the provider can, deletes the
- *   box. The host is its projects' source of truth (ADR-227), so their
+ *   box. The host is its projects' source of truth, so their
  *   workspace names, folders and linked issues go with it: the dialog lists
  *   them, and the button waits for the host's name to be typed.
  */

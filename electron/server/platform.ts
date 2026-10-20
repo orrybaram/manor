@@ -1,5 +1,5 @@
 /**
- * What differs between the places a Manor server runs (ADR-227 D1): the
+ * What differs between the places a Manor server runs: the
  * desktop (Electron) and a remote host's headless host server. An interface
  * the composer reads, not an `if (headless)` inside it — a port the platform
  * leaves out is a feature that platform does not have.
@@ -76,11 +76,11 @@ export interface Platform {
   windows?: WindowDirectory;
   /**
    * The window whose being hidden pauses the diff watcher: the primary, read
-   * on each start. Absent: nothing pauses it (ADR-230 D6).
+   * on each start. Absent: nothing pauses it.
    */
   diffWindow?: () => DiffGateWindow | null;
   /**
-   * The remote hosts this server reaches (ADR-160): registered from
+   * The remote hosts this server reaches: registered from
    * `projects.json`, each with its hook cursor there. Absent on a host server,
    * which has no hosts of its own: every pane is local.
    */
@@ -88,7 +88,7 @@ export interface Platform {
     /** Manor's own version, which remote hosts are matched against. */
     remoteVersion: string;
     /**
-     * Where each host's offline cache goes (ADR-227 D4). Defaults to
+     * Where each host's offline cache goes. Defaults to
      * `~/.manor/host-cache/`.
      */
     hostCacheDir?: string;

@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # fake-agent.sh's transcript-writing sibling, for the phone chat view
-# (ADR-215, tests/e2e/phone-chat.spec.ts).
+# (tests/e2e/phone-chat.spec.ts).
 #
 # A separate script rather than a mode of fake-agent.sh on purpose: a pane
 # whose agent reports a transcript flips to the chat view on a phone by

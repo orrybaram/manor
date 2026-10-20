@@ -1,5 +1,5 @@
 /**
- * The host of the workspace an app-command names (ADR-191). The renderer
+ * The host of the workspace an app-command names. The renderer
  * keys layouts by host plus path, and a path alone can be on two hosts, so
  * main — which knows the projects and the caller — names the host.
  */

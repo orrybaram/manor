@@ -1,5 +1,5 @@
 /**
- * Layout, owned by the Manor server (ADR-179 D1/D3).
+ * Layout, owned by the Manor server.
  *
  * One authority for every renderer on this host. A renderer never writes
  * layout; it sends a `LayoutCommand`, this runs the pure reducer, bumps the
@@ -11,32 +11,32 @@
  * Three things live here that the reducer deliberately does not own:
  *
  * - **`paneSessions`** — `daemonSessionId`, cwd, title, agent status per pane.
- *   Server-derived (D3): fed by the PTY events `app-lifecycle.ts` already
+ *   Server-derived: fed by the PTY events `app-lifecycle.ts` already
  *   forwards, not by a renderer telling us what it saw. Not broadcast, for
  *   the same reason: every renderer receives the PTY event itself. They are
  *   here so they reach the *file*, which is what a cold restore reads — and
  *   so a reopened pane can be handed back what it knew (`restored`), which is
  *   the one time they are broadcast.
- * - **the closed-pane stack** — server memory, not persisted (D3), and the
+ * - **the closed-pane stack** — server memory, not persisted, and the
  *   grace that keeps its panes' shells alive long enough to be reopened.
  * - **the default viewport** — one per workspace, last writer wins, handed
- *   to a renderer that has none of its own (D3). Nothing here *decides*
+ *   to a renderer that has none of its own. Nothing here *decides*
  *   anything from it: which tab a window is showing is that window's.
  *
- * Workspaces are keyed by their host-qualified `WorkspaceKey` (ADR-191): a
+ * Workspaces are keyed by their host-qualified `WorkspaceKey`: a
  * bare path on this machine, `<hostId>:<path>` on a remote host, so a local
  * and a remote workspace at the same path each have their own layout. Every
  * `workspacePath` parameter and field below holds one — the name is kept
  * for the same reason `PersistedWorkspace.workspacePath` kept it. Members of
- * a linked project group (ADR-192) are ordinary single-host projects, so
+ * a linked project group are ordinary single-host projects, so
  * their workspaces need nothing more than their keys.
  *
- * Home is the Dashboard and never holds tabs (ADR-197): a command for it is
+ * Home is the Dashboard and never holds tabs: a command for it is
  * refused, and a legacy Home entry in the file is dropped on load, its
  * panes ended — agents abandoned, shells killed.
  *
  * One writer: this store owns `~/.manor/layout.json` and writes it whole from
- * its own memory. No renderer writes layout at all (ADR-179 D1) — the desktop
+ * its own memory. No renderer writes layout at all — the desktop
  * and a browser both change it by sending commands here.
  */
 
@@ -96,8 +96,8 @@ const PERSIST_DEBOUNCE_MS = 300;
  * scheduled rather than run, and a reopen inside the window cancels it and
  * reattaches the shell that is still there.
  *
- * The same 10s the renderer used before ADR-179 moved session-ending to the
- * server; there is exactly one grace, and it is this one.
+ * The same 10s the renderer used before session-ending moved to the server;
+ * there is exactly one grace, and it is this one.
  */
 export const REOPEN_GRACE_MS = 10_000;
 
@@ -124,7 +124,7 @@ export interface EndedPane {
 }
 
 /**
- * The agents side of a pane leaving a tree (ADR-182 D7).
+ * The agents side of a pane leaving a tree.
  *
  * Every pane this store ends — a close of any size, a whole workspace going
  * away — goes through `abandonForPanes` first, so an agent running in it is
@@ -138,7 +138,7 @@ export interface AgentService {
 const NO_AGENTS: AgentService = { abandonForPanes() {} };
 
 /**
- * Starts a pane's session on the server (ADR-227 D5): told about every pane a
+ * Starts a pane's session on the server: told about every pane a
  * command adds whose queued command launches on apply — an agent's startup
  * line, a setup script. Told before the broadcast that makes a renderer mount
  * the pane, so its spawn is already under way when the renderer's
@@ -152,7 +152,7 @@ export interface PaneLauncher {
 const NO_LAUNCHER: PaneLauncher = { launch() {} };
 
 /**
- * What main knows about a desktop window, by renderer id (D4).
+ * What main knows about a desktop window, by renderer id.
  *
  * Asked rather than told, because both answers change as windows come and
  * go. `claimOf` is the tab a detached window was opened to hold — its launch
@@ -207,7 +207,7 @@ export class LayoutStore {
    * The primary window's last viewport, per workspace, and the last one any
    * window reported as the fallback.
    *
-   * `list_panes` means "what is the desk showing" (D5), which is the primary's
+   * `list_panes` means "what is the desk showing", which is the primary's
    * answer and nobody else's: a browser's selection is not it, and neither is
    * a detached window's one tab. The fallback covers the window that reported
    * before main could tell us it was primary, and the case of no primary at
@@ -216,7 +216,7 @@ export class LayoutStore {
   private readonly windowViewports = new Map<string, WorkspaceViewport>();
   private readonly primaryViewports = new Map<string, WorkspaceViewport>();
   /**
-   * Which window holds which tab (D4), keyed by the window's renderer id.
+   * Which window holds which tab, keyed by the window's renderer id.
    *
    * Exclusive by construction: one entry per window, and a second window
    * claiming a tab evicts the first, which hears about it on the broadcast
@@ -240,7 +240,7 @@ export class LayoutStore {
   readonly pendingCommands = new PendingCommands();
   private lastActiveWorkspacePath: string | null = null;
   /**
-   * Whether the file's workspaces are keyed by `WorkspaceKey` (ADR-191). A
+   * Whether the file's workspaces are keyed by `WorkspaceKey`. A
    * file whose key migration could not run yet (a remote host did not
    * answer) is written back as version 2, so the migration retries next
    * launch; see `LayoutPersistence.startWorkspaceKeyMigration`.
@@ -267,7 +267,7 @@ export class LayoutStore {
     private readonly backend: LayoutStoreBackend,
     private readonly windows: WindowDirectory = NO_WINDOWS,
     /**
-     * A pane's title, off the command channel (D1). Optional, and a no-op by
+     * A pane's title, off the command channel. Optional, and a no-op by
      * default, so every existing caller of this constructor keeps working —
      * only `app-lifecycle.ts` needs to say what "publish" means here, the
      * same `publishRendererBroadcast` `broadcast` above is built from.
@@ -285,7 +285,7 @@ export class LayoutStore {
     /**
      * Spawns the sessions of panes whose queued command is a launch.
      * Defaults to doing nothing — the pane then waits for a renderer, as
-     * every pane did before ADR-227; `createManorServer` passes the real one.
+     * every pane once did; `createManorServer` passes the real one.
      */
     private readonly launcher: PaneLauncher = NO_LAUNCHER,
     /**
@@ -301,7 +301,7 @@ export class LayoutStore {
 
   /**
    * Read the file once `ready` settles — the persistence's workspace-key
-   * migration (ADR-191), which may wait on a remote host. Commands and
+   * migration, which may wait on a remote host. Commands and
    * readers that can wait for it go through {@link whenLoaded}.
    */
   startLoad(ready: Promise<void>): Promise<void> {
@@ -334,9 +334,9 @@ export class LayoutStore {
     this.keyed = file.version >= KEYED_LAYOUT_VERSION;
     this.lastActiveWorkspacePath = file.lastActiveWorkspacePath ?? null;
     for (const workspace of file.workspaces) {
-      // Home is the Dashboard and never holds tabs (ADR-197 §2). An entry an
+      // Home is the Dashboard and never holds tabs. An entry an
       // older version saved for it is dropped, and its panes end the way a
-      // removed workspace's do — agents abandoned (ADR-182 D7), shells
+      // removed workspace's do — agents abandoned, shells
       // killed: nothing will ever mount those panes again.
       if (isHomePath(workspace.workspacePath)) {
         this.dropLegacyHome(workspace);
@@ -375,7 +375,7 @@ export class LayoutStore {
    * The workspace the last command touched.
    *
    * A renderer reopens on its *own* last surface, out of its own viewport
-   * file (D3); this is the fallback for one that has never saved a viewport —
+   * file; this is the fallback for one that has never saved a viewport —
    * a first launch, a browser that has just been paired.
    */
   getLastActiveWorkspacePath(): string | null {
@@ -433,7 +433,7 @@ export class LayoutStore {
     origin: LayoutOrigin,
     { remember = true }: { remember?: boolean } = {},
   ): Promise<LayoutApplyResult> {
-    // Home is the Dashboard and never holds tabs (ADR-197 §1).
+    // Home is the Dashboard and never holds tabs.
     if (isHomePath(workspacePath)) {
       return Promise.resolve({ error: "The Dashboard can't host panes" });
     }
@@ -458,7 +458,7 @@ export class LayoutStore {
 
   /**
    * Move each `[from, to]` workspace key's layout to `to` — a project moved
-   * to another host keeps its workspaces' layouts (ADR-191 §3). A `to` that
+   * to another host keeps its workspaces' layouts. A `to` that
    * already has a layout keeps it, and `from` is then left in place.
    *
    * In a file whose key migration has not run yet, a bare `from` is left for
@@ -560,7 +560,7 @@ export class LayoutStore {
 
   /**
    * On a host server: take in the layout the desktop held for this host
-   * (ADR-227 D3), keyed by bare path. The host wins: a workspace it already
+   * keyed by bare path. The host wins: a workspace it already
    * has keeps its own layout, and only the rest are added — each broadcast,
    * so a connected phone sees it. `lastActive` is taken only when this store
    * has none. Written at once. Returns the workspaces added.
@@ -605,7 +605,7 @@ export class LayoutStore {
 
   /**
    * Let go of workspaces whose layout now lives on another server — a remote
-   * host's, once it has adopted them (ADR-227 D3). Unlike `remove` this ends
+   * host's, once it has adopted them. Unlike `remove` this ends
    * nothing: their panes, sessions and agents carry on, on that host. Every
    * renderer drops its copy, as on `remove`, and a command still queued for
    * one is refused. Written at once.
@@ -640,7 +640,7 @@ export class LayoutStore {
   }
 
   /**
-   * A PTY event, folded into the owning pane's `paneSessions` (D3).
+   * A PTY event, folded into the owning pane's `paneSessions`.
    *
    * Deliberately silent: every renderer already receives this same event
    * through its own `pty.*` subscription, so a `layout.changed` here would be
@@ -652,7 +652,7 @@ export class LayoutStore {
         previous.lastCwd === event.cwd ? previous : { ...previous, lastCwd: event.cwd },
       );
     } else if (event.type === "paneFacts") {
-      // The terminal title is one of the pane's facts (ADR-184 §3).
+      // The terminal title is one of the pane's facts.
       const title = event.facts.title;
       if (title === null) return;
       this.updateSession(event.sessionId, (previous) =>
@@ -662,7 +662,7 @@ export class LayoutStore {
   }
 
   /**
-   * A session the server just spawned for a pane (ADR-227 D5), folded into
+   * A session the server just spawned for a pane, folded into
    * its `paneSessions` row so the file names it from the start — before the
    * shell's first `cwd` event, and with no renderer to have seen it. Silent,
    * like {@link onPtyEvent}.
@@ -674,8 +674,7 @@ export class LayoutStore {
   }
 
   /**
-   * A pane's Agent status, as the Status reconciler published it (ADR-184
-   * §4) — folded into `paneSessions` so a cold restore can show it. Silent
+   * A pane's Agent status, as the Status reconciler published it — folded into `paneSessions` so a cold restore can show it. Silent
    * for the same reason as {@link onPtyEvent}: every renderer hears the same
    * update on its own `agents.status` subscription.
    */
@@ -693,7 +692,7 @@ export class LayoutStore {
   }
 
   /**
-   * A pane's title, off the command channel (ADR-182 D1).
+   * A pane's title, off the command channel.
    *
    * `POST /panes/:id/title` and an MCP/CLI `set_pane_title` call this
    * directly rather than going through a layout command: it finds the owning
@@ -718,13 +717,13 @@ export class LayoutStore {
   }
 
   /**
-   * What one renderer is looking at (ADR-179 D3).
+   * What one renderer is looking at.
    *
    * Last writer wins for the **default viewport** — the answer handed to a
    * renderer that has never seen this workspace, not an authority over
    * anyone's selection.
    *
-   * A detached window's report is different (D4): it is how the window's
+   * A detached window's report is different: it is how the window's
    * claim takes effect — the claim itself comes from main, never from the
    * report — and its viewport is not stored at all. It is one tab, and
    * handing the next renderer a workspace of one tab is exactly the bug
@@ -753,7 +752,7 @@ export class LayoutStore {
   }
 
   /**
-   * The primary window's view of a workspace, for the MCP snapshot (D5).
+   * The primary window's view of a workspace, for the MCP snapshot.
    *
    * The primary's own report, because that is what `list_panes` means by "the
    * focused pane" — not a browser's selection and not a popout's one tab. The
@@ -769,7 +768,7 @@ export class LayoutStore {
     );
   }
 
-  /** Tabs of one workspace held by a window of their own (D4). */
+  /** Tabs of one workspace held by a window of their own. */
   claimsFor(workspacePath: string): LayoutClaim[] {
     const claims: LayoutClaim[] = [];
     for (const [windowId, claim] of this.claims) {
@@ -782,7 +781,7 @@ export class LayoutStore {
 
   /**
    * Told when a window's claim moves on a workspace this store does not hold
-   * — a remote host's, whose layout is its server's (ADR-228 D7). The claim
+   * — a remote host's, whose layout is its server's. The claim
    * is still kept here (`claimsFor`); whoever publishes that workspace's
    * layout says it again. Returns the unsubscribe.
    */
@@ -794,12 +793,12 @@ export class LayoutStore {
   }
 
   /**
-   * A window is gone: whatever it held comes back to the primary (D4).
+   * A window is gone: whatever it held comes back to the primary.
    *
    * Called when the window's bridge connection drops
    * (`BridgeServer.onDisconnect`, wired in `app-lifecycle.ts`) — a claim that
    * outlives its window is a tab nobody can see, which is the one failure
-   * mode this design has (see the ADR's Risks).
+   * mode this design has.
    */
   releaseWindow(rendererId: string): void {
     this.setClaim(rendererId, null, undefined, {
@@ -903,7 +902,7 @@ export class LayoutStore {
   }
 
   /**
-   * Drop the claims on a remote workspace's tabs that left (ADR-230 D9).
+   * Drop the claims on a remote workspace's tabs that left.
    * `after` null means the workspace was removed: every claim for the key
    * goes. With no `before`, nothing is dropped. Doesn't broadcast: the layout
    * publish that follows carries the claims.
@@ -965,13 +964,13 @@ export class LayoutStore {
       ? titleClosedPane(state, result.closedStack)
       : state.closedStack;
     // What the command implies about the *sender's* selection, to travel back
-    // with the broadcast (D3) — and in the answer, for a command that changed
+    // with the broadcast — and in the answer, for a command that changed
     // nothing and so broadcasts nothing.
     const { hint } = result;
 
     if (result.layout === before) {
       // A command naming an id that is not in the tree is a no-op, not an
-      // error — a stale command from a slow renderer is normal (D1).
+      // error — a stale command from a slow renderer is normal.
       return { version: state.version, addedPaneIds: [], ...(hint && { hint }) };
     }
 
@@ -992,8 +991,8 @@ export class LayoutStore {
         ? this.reclaim(state, addedPaneIds)
         : undefined;
 
-    // A launch starts here, not in whichever renderer mounts the pane first
-    // (ADR-227 D5). Before the broadcast: the spawn is then in flight when a
+    // A launch starts here, not in whichever renderer mounts the pane first.
+    // Before the broadcast: the spawn is then in flight when a
     // renderer's `pty.create` for the pane arrives, which waits for it and
     // attaches. A reopened pane's command was cleared when it closed.
     for (const paneId of addedPaneIds) {
@@ -1002,7 +1001,7 @@ export class LayoutStore {
       }
     }
 
-    // Ending sessions is the server's job now (D2): the renderer sends the
+    // Ending sessions is the server's job now: the renderer sends the
     // command after its confirmation dialog, and the effect lands here. Not
     // at once, though — a terminal pane's shell stays warm for the grace, so
     // "reopen closed pane" is a real undo (see REOPEN_GRACE_MS).
@@ -1011,7 +1010,7 @@ export class LayoutStore {
     });
 
     // A tab that left the tree takes its claim with it: the window holding it
-    // has nothing to show and closes itself when this broadcast lands (D4).
+    // has nothing to show and closes itself when this broadcast lands.
     this.dropClaimsOnGoneTabs(workspacePath, before, state.layout);
 
     this.schedulePersist();
@@ -1191,7 +1190,7 @@ export class LayoutStore {
 
   /**
    * Told after every debounced write of the layout file — the cadence the
-   * host server pushes ride (ADR-225 D5). Returns the unsubscribe.
+   * host server pushes ride. Returns the unsubscribe.
    */
   onPersisted(listener: () => void): () => void {
     this.persistListeners.add(listener);
@@ -1238,7 +1237,7 @@ export class LayoutStore {
   private toPersisted(): PersistedLayout {
     const workspaces: PersistedWorkspace[] = [];
     for (const [workspacePath, state] of this.entries) {
-      // No focus fields in the tree (ADR-179 ticket 4): the selection lives
+      // No focus fields in the tree: the selection lives
       // in `defaultViewport` and in each renderer's own file. An older file
       // still loads — the fields are optional and simply ignored — and is
       // rewritten clean the first time this runs.
@@ -1250,7 +1249,7 @@ export class LayoutStore {
       });
     }
     return {
-      // Still bare paths until the key migration has run (ADR-191): saying
+      // Still bare paths until the key migration has run: saying
       // so keeps the migration alive for next launch.
       version: this.keyed ? LAYOUT_VERSION : 2,
       workspaces,
@@ -1297,8 +1296,8 @@ function emptySession(paneId: string): PersistedPaneSession {
  * just pushed.
  *
  * The reducer keeps the pane's leaf — its url and content type are in the
- * tree — but a title is server-derived `paneSessions` state it never sees
- * (D3), and it is what a pane reopened into a tab of its own is named.
+ * tree — but a title is server-derived `paneSessions` state it never sees,
+ * and it is what a pane reopened into a tab of its own is named.
  */
 function titleClosedPane(
   state: WorkspaceState,
@@ -1318,7 +1317,7 @@ function contentTypeOf(layout: WorkspaceLayout, paneId: string): string {
 }
 
 /** Structure only: a v2 or early-v3 file's focus fields are read out into
- *  `defaultViewport` by the migration and dropped here (ADR-179 D3). */
+ *  `defaultViewport` by the migration and dropped here. */
 function layoutFromPersisted(workspace: PersistedWorkspace): WorkspaceLayout {
   const panels: Record<string, Panel> = {};
   for (const [panelId, panel] of Object.entries(workspace.panels ?? {})) {

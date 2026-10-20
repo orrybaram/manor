@@ -1,5 +1,5 @@
 /**
- * The layout command reducer (ADR-179 D2). One describe per command type,
+ * The layout command reducer. One describe per command type,
  * plus the properties the whole design rests on: an unknown id is a no-op, a
  * close reports `killPanes` and a move reports none, a move carries the leaf
  * whole, and the reducer is deterministic and mints nothing.
@@ -161,7 +161,7 @@ describe("close-tab", () => {
     });
 
     expect(panelOf(layout, "panel-1").tabs.map((t) => t.id)).toEqual(["tab-2"]);
-    // Viewport, so it comes back as a hint the sender applies to itself (D3).
+    // Viewport, so it comes back as a hint the sender applies to itself.
     expect(hint?.selectTab).toEqual({ panelId: "panel-1", tabId: "tab-2" });
     expect(killPanes).toEqual(["pane-1"]);
   });

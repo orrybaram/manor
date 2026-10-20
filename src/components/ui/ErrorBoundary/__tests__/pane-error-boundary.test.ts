@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestRoot, type TestRoot } from "../../../../test-utils/react-root";
 import { PaneErrorBoundary } from "../../../workspace-panes/PaneErrorBoundary";
 
-/** ADR-232 D3: one pane's crash stays in that pane, and it can be reloaded. */
+/** One pane's crash stays in that pane, and it can be reloaded. */
 describe("PaneErrorBoundary", () => {
   let root: TestRoot;
   let shouldThrow = true;

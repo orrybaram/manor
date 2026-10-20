@@ -1,7 +1,7 @@
 /**
- * Writes pasted image bytes to a host's `~/.manor/pasted-images` (ADR-187 §3,
- * ADR-239). Shared by the Electron clipboard upload and the browser's
- * chunked upload, which differ only in where the bytes come from.
+ * Writes pasted image bytes to a host's `~/.manor/pasted-images`. Shared by
+ * the Electron clipboard upload and the browser's chunked upload, which
+ * differ only in where the bytes come from.
  */
 
 import crypto from "node:crypto";
@@ -29,7 +29,7 @@ export async function writePastedImage(
 ): Promise<string> {
   // `get`, not `RoutedBackend.shell`: the pane's host owns both the home
   // directory and the write, and `RoutedBackend` would pick a host from a
-  // path instead (see ADR-187 ticket 2's note).
+  // path instead.
   const host = registry.get(hostId);
   const home = await host.shell.homeDir();
   const dir = `${home}/.manor/pasted-images`;

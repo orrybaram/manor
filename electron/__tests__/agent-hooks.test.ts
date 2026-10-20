@@ -642,7 +642,7 @@ describe("ClaudeConnector.registerHooks", () => {
     expect(settings.foo).toBe(42);
   });
 
-  it("leaves malformed settings.json untouched and reports a skip (ADR-160 ticket 10 review)", () => {
+  it("leaves malformed settings.json untouched and reports a skip", () => {
     const malformed = "not valid json {{{";
     fs.writeFileSync(settingsPath, malformed);
     const warnings = freshConnector().registerHooks(hookScriptPath);
@@ -766,7 +766,7 @@ describe("ensureHookScript", () => {
   });
 });
 
-describe("AgentHookServer.ingestHookPayload (ADR-178 §2)", () => {
+describe("AgentHookServer.ingestHookPayload", () => {
   it("relays a remote host's payload exactly as the HTTP path would", () => {
     vi.spyOn(console, "debug").mockImplementation(() => {});
     const server = new AgentHookServer();

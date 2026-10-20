@@ -1,6 +1,6 @@
 /**
  * The shapes `ProjectManager` hands out and the ones it persists in
- * `projects.json` (ADR-183 split them out of `persistence.ts`).
+ * `projects.json`.
  */
 
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
@@ -28,8 +28,8 @@ export interface WorkspaceFolder {
 }
 
 /**
- * The part of a folder the parent walk needs. Folders persisted before
- * ADR-172 have no `parentId` at all, so the walk reads it as optional.
+ * The part of a folder the parent walk needs. Older persisted folders have
+ * no `parentId` at all, so the walk reads it as optional.
  */
 export interface FolderLink {
   id: string;
@@ -59,7 +59,7 @@ export interface CreateWorktreeOptions {
   folderId?: string | null;
   /**
    * The bridge connection that asked, so its own window gets the setup
-   * progress (ADR-180 D5). Null — the default, and what the CLI, MCP and the
+   * progress. Null — the default, and what the CLI, MCP and the
    * issue-batch path pass — broadcasts it instead.
    */
   origin?: string | null;
@@ -87,7 +87,7 @@ export interface ProjectInfo {
   id: string;
   name: string;
   path: string;
-  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites — see ADR-081/144.
+  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites.
   defaultBranch: string;
   workspaces: WorkspaceInfo[];
   selectedWorkspaceIndex: number;
@@ -95,7 +95,7 @@ export interface ProjectInfo {
   /**
    * The project's own worktree root, as the user wrote it: a leading `~`
    * stays unexpanded, since it means the home of whichever host the
-   * project is on (ADR-183).
+   * project is on.
    */
   worktreePath: string | null;
   worktreeStartScript: string | null;
@@ -108,7 +108,7 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
-  /** The host this project's paths, git and terminals live on (ADR-160). */
+  /** The host this project's paths, git and terminals live on. */
   hostId: string;
   folders: WorkspaceFolder[];
   /**
@@ -117,7 +117,7 @@ export interface ProjectInfo {
    */
   sidebarOrder: string[];
   /**
-   * The linked-project group this project belongs to (ADR-192), or null.
+   * The linked-project group this project belongs to, or null.
    * Every member carries the same summary, so the sidebar builds groups
    * from the project list alone. Always set by `buildProjectInfo`; optional
    * so fixtures and the renderer's mirror type need not name it.
@@ -126,8 +126,7 @@ export interface ProjectInfo {
 }
 
 /**
- * The settings a linked-project group shares across its members (ADR-192
- * ticket 2; `themeName` and `commands` joined in ADR-193 ticket 1). A
+ * The settings a linked-project group shares across its members. A
  * grouped project's `ProjectInfo` carries the group's values for these;
  * everything else stays per member, per host.
  */
@@ -138,7 +137,7 @@ export type GroupSharedFields = Pick<
 
 export type GroupUpdatableFields = Partial<GroupSharedFields>;
 
-/** What the renderer sees of a project group (ADR-192). */
+/** What the renderer sees of a project group. */
 export interface ProjectGroupInfo {
   id: string;
   name: string;
@@ -150,7 +149,7 @@ export interface ProjectGroupInfo {
 
 /**
  * A project or group Manor suggests linking a project with, because their
- * `origin` URLs match (ADR-192 ticket 5). Only a suggestion: nothing is
+ * `origin` URLs match. Only a suggestion: nothing is
  * linked until the user accepts.
  */
 export interface LinkSuggestion {
@@ -162,11 +161,11 @@ export interface LinkSuggestion {
   hostLabel: string;
 }
 
-/** Whether a transfer clones a new linked project or re-points this one (ADR-213). */
+/** Whether a transfer clones a new linked project or re-points this one. */
 export type TransferMode = "copy" | "move";
 
 /**
- * Why a transfer can't go ahead without the user (ADR-213): the project
+ * Why a transfer can't go ahead without the user: the project
  * has no usable `origin`, the target directory holds something else or
  * belongs to another project, or the group already has a member there.
  */
@@ -174,7 +173,7 @@ export type TransferInputReason = "no-origin" | "dir-taken" | "host-taken";
 
 /**
  * Where a transfer onto a host would go, worked out without changing
- * anything (ADR-213). `targetDir` is either absolute or `~/…`, expanded
+ * anything. `targetDir` is either absolute or `~/…`, expanded
  * against the target host's home when the transfer runs.
  */
 export type TransferPlan =
@@ -226,10 +225,10 @@ export interface PersistedProject {
   path: string;
   selectedWorkspaceIndex: number;
   workspaces: unknown[];
-  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites — see ADR-081/144.
+  // Bare local branch name (no "origin/" prefix). origin/ is prepended at use-sites.
   defaultBranch: string;
   defaultRunCommand: string | null;
-  /** As the user wrote it — a leading `~` is expanded only when read (ADR-183). */
+  /** As the user wrote it — a leading `~` is expanded only when read. */
   worktreePath: string | null;
   worktreeStartScript?: string | null;
   worktreeTeardownScript?: string | null;
@@ -238,7 +237,7 @@ export interface PersistedProject {
   workspaceOrder?: string[];
   workspaceIssues?: Record<string, LinkedIssue[]>;
   workspaceHidden?: Record<string, boolean>;
-  // `parentId` is absent in files written before ADR-172; read it as null.
+  // `parentId` is absent in older files; read it as null.
   workspaceFolders?: Array<{
     id: string;
     name: string;
@@ -253,13 +252,13 @@ export interface PersistedProject {
   portlessEnabled?: boolean;
   /**
    * The host the project lives on. Always set in memory; absent on disk
-   * for `"local"`, so files written before ADR-160 load unchanged and a
+   * for `"local"`, so older files load unchanged and a
    * local record is written back byte-for-byte (see `StateStore`).
    */
   hostId: string;
   /**
    * The root path this project last had on each host it has lived on, keyed
-   * by host id (ADR-179). Lets a move back to a host restore its path
+   * by host id. Lets a move back to a host restore its path
    * instead of keeping the current host's, which does not exist there.
    */
   hostPaths?: Record<string, string>;
@@ -267,26 +266,25 @@ export interface PersistedProject {
 
 /**
  * A registered remote host. A record rather than a bare spec so per-host
- * state that is not part of how to reach it — ADR-178's provider settings
+ * state that is not part of how to reach it's provider settings
  * and the adoption marks — can sit beside `spec` without a migration.
  */
 export interface PersistedHost {
   spec: HostSpec;
   /**
    * The host's server owns its projects, agents and layout, and this desktop
-   * has handed over what it held for it (ADR-227 D3,
-   * `backend/host-adoption.ts`). Absent until then.
+   * has handed over what it held for it (`backend/host-adoption.ts`). Absent until then.
    */
   adopted?: true;
   /**
    * The ids of the projects handed over, which now live only on the host. A
-   * linked-project group (ADR-192) still names them in `memberIds`, so
+   * linked-project group still names them in `memberIds`, so
    * loading `projects.json` keeps them there (`normalizeGroups`) rather than
    * dropping them as unknown.
    */
   adoptedProjectIds?: string[];
   /**
-   * "Phones paired with this Mac can reach <host>" (ADR-228 D9): false when
+   * "Phones paired with this Mac can reach <host>": false when
    * the user turned it off, so `remoteControl.linkHostPairings` mints nothing
    * here. Absent is on.
    */
@@ -300,27 +298,27 @@ export interface PersistedHost {
   pendingRevokes?: string[];
   /**
    * Pairings this desktop started minting on the host's server whose answer
-   * was not handled yet (ADR-230 D11), each under a label unique to it. One
+   * was not handled yet, each under a label unique to it. One
    * still here on the next owner connect lost its answer: `HostServerSync`
    * revokes whatever the host made under that label. Absent when there are
    * none.
    */
   pendingMints?: Array<{ label: string; startedAt: number }>;
   /**
-   * "Keep Manor running when <host> restarts" (ADR-229 D4): the host's
+   * "Keep Manor running when <host> restarts": the host's
    * daemon and server go under its own supervisor, installed on connect when
    * the host reports none. True for hosts added since, and for recipe hosts;
    * absent (off) for ssh hosts added before, whose boxes the user set up.
    */
   supervise?: boolean;
   /**
-   * The host profile this host was made from (ADR-235 D1), which it groups
-   * under in Settings and the status bar (D7). Cleared when the profile is
+   * The host profile this host was made from, which it groups
+   * under in Settings and the status bar. Cleared when the profile is
    * removed. Absent for hosts made otherwise.
    */
   profileId?: string;
   /**
-   * The project this host was made for by `openInNewHost` (ADR-235 D5): kept
+   * The project this host was made for by `openInNewHost`: kept
    * out of other projects' host lists, softly. Cleared when that project is
    * removed without deleting the host. Absent for ordinary hosts.
    */
@@ -328,8 +326,7 @@ export interface PersistedHost {
 }
 
 /**
- * When and how a sign-in token was put into a profile's cluster (ADR-235
- * D9). The token itself is never kept here.
+ * When and how a sign-in token was put into a profile's cluster. The token itself is never kept here.
  */
 export interface SignInMeta {
   setAt: number;
@@ -337,7 +334,7 @@ export interface SignInMeta {
 }
 
 /**
- * A host profile (ADR-235 D1): a recipe template plus saved answers, from
+ * A host profile: a recipe template plus saved answers, from
  * which a new host is made per project. Holds no secrets.
  */
 export interface HostProfile {
@@ -351,12 +348,12 @@ export interface HostProfile {
   values: Record<string, string>;
   /** One of 30, 60 or 120; absent is off. 60 when a profile is created. */
   idleStopMinutes?: number;
-  /** D9's sign-in metadata; nothing writes it before ADR-235 ticket 9. */
+  /** Metadata about the profile's stored sign-ins. */
   signIn?: { github?: SignInMeta; claude?: SignInMeta };
 }
 
 /**
- * A linked-project group (ADR-192): single-host projects of the same repo,
+ * A linked-project group: single-host projects of the same repo,
  * shown as one sidebar entry with a section per host. A project is in at
  * most one group, a group has at most one member per host and at least two
  * members — see `project-groups.ts`.
@@ -367,20 +364,20 @@ export interface PersistedProjectGroup {
   memberIds: string[];
   lastUsedHostId: string | null;
   /**
-   * Shared settings (ticket 2). Absent means "not set on the group": a
-   * member then shows its own value. Groups linked before ticket 2 have
-   * none, so they load and write back unchanged.
+   * Shared settings. Absent means "not set on the group": a
+   * member then shows its own value. Groups linked before shared settings
+   * existed have none, so they load and write back unchanged.
    */
   color?: string | null;
   agentCommand?: string | null;
   linearAssociations?: LinearAssociation[];
-  /** ADR-193 ticket 1: shared like `color` (absent falls through, null is a value). */
+  /** Shared like `color` (absent falls through, null is a value). */
   themeName?: string | null;
-  /** ADR-193 ticket 1: shared like `linearAssociations`. */
+  /** Shared like `linearAssociations`. */
   commands?: CustomCommand[];
   /**
    * The group's repo as a normalized `origin` key (`originKey` in
-   * `origin-links.ts`, ADR-192 ticket 5), so link suggestions can match it
+   * `origin-links.ts`), so link suggestions can match it
    * while its hosts are away. Absent until a member's host has reported one;
    * cleared when a member leaves, and derived again from those that remain.
    */
@@ -391,27 +388,26 @@ export interface PersistedState {
   projects: PersistedProject[];
   selectedProjectIndex: number;
   /**
-   * The sidebar's order of every project, remote hosts' included (ADR-227
-   * D4): `projects` holds only this desktop's own, so a host's projects
+   * The sidebar's order of every project, remote hosts' included: `projects` holds only this desktop's own, so a host's projects
    * keep their place here once handed over. Absent until first needed;
    * ids it lacks sort after it, in `projects` order.
    */
   projectOrder?: string[];
-  /** Remote hosts by hostId. Absent in files written before ADR-160. */
+  /** Remote hosts by hostId. Absent in older files. */
   hosts?: Record<string, PersistedHost>;
-  /** Linked-project groups (ADR-192). Absent when there are none. */
+  /** Linked-project groups. Absent when there are none. */
   groups?: PersistedProjectGroup[];
   /**
    * Pairs of project ids the user declined to link when it was suggested
-   * (ADR-192 ticket 5), each in sorted order. Absent when there are none.
+   * each in sorted order. Absent when there are none.
    */
   dismissedLinkSuggestions?: Array<[string, string]>;
-  /** Host profiles by id (ADR-235 D1). Absent when there are none. */
+  /** Host profiles by id. Absent when there are none. */
   hostProfiles?: Record<string, HostProfile>;
 }
 
 /**
- * What `ProjectManager` needs of one host (ADR-183): its git, its shell
+ * What `ProjectManager` needs of one host: its git, its shell
  * for scripts, and the facts about its machine. A `WorkspaceBackend` is one.
  */
 export interface ProjectHost {
@@ -425,7 +421,7 @@ export type ProjectHostResolver = (hostId: string) => ProjectHost;
 
 /**
  * The projects that live on remote hosts' servers, as the desktop reaches
- * them (ADR-227 D4): one `HostProxy` per adopted host. `ProjectManager`
+ * them: one `HostProxy` per adopted host. `ProjectManager`
  * holds this machine's projects (and a host's not yet handed over); these
  * it only reads, and writes through.
  */

@@ -1,5 +1,5 @@
 /**
- * MCP tools for Manor's app-level surface (ADR-171): notifications,
+ * MCP tools for Manor's app-level surface: notifications,
  * processes, ports, preferences, theme, stats, remote control, the shell
  * escape hatches, windows, the updater, and the two issue-tracker actions
  * that write. Thin wrappers over `/…` in `../routes/system.ts` and
@@ -48,7 +48,7 @@ interface PortRow {
 interface RemoteControlStatusRow {
   enabled: boolean;
   devices: Array<{ id: string; label: string }>;
-  /** The Manor relay (ADR-206). Optional only for an older app's reply. */
+  /** The Manor relay. Optional only for an older app's reply. */
   relay?: { state: string; url: string | null; error: string | null };
   /** Open relay channels. Optional only for an older app's reply. */
   relayViewers?: number;

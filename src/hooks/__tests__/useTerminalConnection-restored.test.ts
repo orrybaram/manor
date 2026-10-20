@@ -1,6 +1,6 @@
 /**
  * A pane restored from the layout at launch does not wake its sleeping host
- * on its first mount (ADR-230 D3); everything after that, and every pane the
+ * on its first mount; everything after that, and every pane the
  * user starts, wakes it as before.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,7 +75,7 @@ afterEach(() => {
 
 const wakeOf = (call: number) => create.mock.calls[call][4]?.wake;
 
-describe("a pane restored at launch (ADR-230 D3)", () => {
+describe("a pane restored at launch", () => {
   it("is remembered from the layout read at launch", () => {
     expect([...useAppStore.getState().restoredPaneIds]).toEqual(["pane-restored"]);
   });

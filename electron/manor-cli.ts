@@ -1,7 +1,7 @@
 /**
  * The `manor` CLI — runs as a standalone Node.js process (NOT inside
  * Electron). Generated from the same `ToolModule` definitions the MCP entry
- * (`mcp-webview-server.ts`) registers (ADR-170); see `mcp/cli.ts` for the
+ * (`mcp-webview-server.ts`) registers; see `mcp/cli.ts` for the
  * command table and dispatch logic.
  *
  * Discovery: reads port from ~/.manor/webview-server-port

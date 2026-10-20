@@ -23,7 +23,7 @@ beforeEach(() => {
   useRemotePaneStore.setState({ panes: {} });
 });
 
-describe("pane hosts (ADR-160)", () => {
+describe("pane hosts", () => {
   it("never updates for local panes, so local-only users re-render nothing", () => {
     const listener = vi.fn();
     const unsubscribe = useRemotePaneStore.subscribe(listener);
@@ -75,7 +75,7 @@ describe("pane hosts (ADR-160)", () => {
   });
 });
 
-describe("panes awaiting their host (ADR-178 §6)", () => {
+describe("panes awaiting their host", () => {
   it("records the awaited host, so the pane banners as that host's", () => {
     store().awaitHost("p", "box");
     expect(isAwaitingHost("p")).toBe(true);
@@ -104,7 +104,7 @@ describe("panes awaiting their host (ADR-178 §6)", () => {
   });
 });
 
-describe("reattach (ADR-178 §6, ADR-220)", () => {
+describe("reattach", () => {
   it("bumps each pane's epoch so its terminal remounts", () => {
     store().reattach(["a", "b"], "host-recovered");
     store().reattach(["a"], "resync");
@@ -152,7 +152,7 @@ describe("reattach (ADR-178 §6, ADR-220)", () => {
   });
 });
 
-describe("forgetPane (ADR-183)", () => {
+describe("forgetPane", () => {
   it("forgets the pane's reattach state along with its host", () => {
     store().awaitHost("a", "box");
     store().reattach(["a"], "resync");

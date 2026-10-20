@@ -9,7 +9,7 @@ import { serverHostName } from "../../bridge/server-set";
 import { ConfirmDialog } from "../ui/ConfirmDialog/ConfirmDialog";
 
 /**
- * Confirms removing a project from one host (ADR-214). Mounted once in
+ * Confirms removing a project from one host. Mounted once in
  * `App`, driven by the store's `removeFromHostDialog`, so the set-up
  * success toast can open it too.
  */
@@ -32,7 +32,7 @@ export function RemoveFromHostDialog() {
     if (request) setDeletePod(true);
   }
 
-  // On a phone the page is not "This machine" (ADR-228 D8).
+  // On a phone the page is not "This machine".
   const host = member
     ? (serverHostName(member.hostId) ?? memberHostName(member.hostId, hosts))
     : "";

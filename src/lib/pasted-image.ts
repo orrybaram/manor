@@ -1,6 +1,6 @@
 /**
- * Shared constants for pasting an image into a remote pane from the browser
- * (ADR-239). Imports nothing: both the browser and main read it.
+ * Shared constants for pasting an image into a remote pane from the browser.
+ * Imports nothing: both the browser and main read it.
  *
  * Two sizes live here:
  * - `PASTED_IMAGE_CHUNK_BYTES` sits against `MAX_FRAME_BYTES`

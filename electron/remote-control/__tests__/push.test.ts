@@ -1,5 +1,5 @@
 /**
- * Push is the part of ADR-161 that reaches a locked screen, so these tests are
+ * Push is the part of remote control that reaches a locked screen, so these tests are
  * mostly about restraint: exactly one push per subscribed device, nothing at
  * all for a revoked one, no scrollback in the payload, and a dead endpoint
  * dropped rather than retried forever.
@@ -101,7 +101,7 @@ describe("PushManager", () => {
     });
   });
 
-  describe("importKeys (ADR-225 D3)", () => {
+  describe("importKeys", () => {
     const DESKTOP = { publicKey: "desktop-pub", privateKey: "desktop-priv" };
 
     it("replaces the active pair, persists it, and clears subscriptions made against the old one", async () => {

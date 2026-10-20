@@ -18,7 +18,7 @@
  * measure here are races, and gating changes the timing that produces them.
  *
  * Being the one list of the terminals that are open right now, it is also
- * what a bridge resync remounts (`useTerminalResync`, ADR-220): a pane still
+ * what a bridge resync remounts (`useTerminalResync`): a pane still
  * waiting to open its terminal has not attached yet, and attaches fresh.
  */
 

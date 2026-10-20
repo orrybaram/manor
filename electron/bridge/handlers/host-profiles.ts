@@ -1,7 +1,7 @@
 /**
- * Host profiles (ADR-235 D1): a recipe template plus saved answers, from
+ * Host profiles: a recipe template plus saved answers, from
  * which a new host is made per project. Listing, saving and removing them,
- * and their sign-in Secret (D9).
+ * and their sign-in Secret.
  *
  * All `localOnly` and answered by home: a profile is what this desktop will
  * run recipes from, on its own machine, with its own `docker` / `kubectl`
@@ -91,7 +91,7 @@ export async function hostProfilesRemove(ctx: HandlerCtx<ServerDeps>, profileId:
 }
 
 /**
- * "Sign new pods in for me" (ADR-235 D9): put the GitHub and/or Claude
+ * "Sign new pods in for me": put the GitHub and/or Claude
  * token into the profile's own `manor-signin-<profileId>` Secret, then record when and how
  * on the profile. Kubernetes profiles only. The token goes to kubectl on
  * stdin and is kept nowhere on this computer.

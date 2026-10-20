@@ -1,7 +1,7 @@
 /**
- * Linked-project groups (ADR-192): single-host projects of the same repo,
+ * Linked-project groups: single-host projects of the same repo,
  * shown as one sidebar entry with a section per host. Members stay ordinary
- * projects — ADR-178's "one box per project" still holds — so a group is a
+ * projects's "one box per project" still holds — so a group is a
  * record over project ids and nothing else in `electron/projects/` reads it.
  *
  * Invariants, kept by every function here:
@@ -9,11 +9,10 @@
  * - a group has at most one member per host;
  * - a group has at least two members (the last-but-one leaving dissolves it).
  *
- * A group also holds the settings its members share (ticket 2; theme and
- * commands joined in ADR-193 ticket 1): name, color, agent command, Linear
- * association, theme and custom commands. Reads resolve group first, then
- * project (`resolveShared`); a project leaving takes the group's values
- * with it, so it keeps its look (`copySharedOnto`).
+ * A group also holds the settings its members share: name, color, agent
+ * command, Linear association, theme and custom commands. Reads resolve
+ * group first, then project (`resolveShared`); a project leaving takes the
+ * group's values with it, so it keeps its look (`copySharedOnto`).
  */
 
 import crypto from "node:crypto";
@@ -115,7 +114,7 @@ function sharedFrom(
 }
 
 /**
- * The projects this desktop handed over to their host's server (ADR-227 D3):
+ * The projects this desktop handed over to their host's server:
  * id → the host each now lives on. They are no longer in `state.projects`,
  * but groups and dismissed link suggestions still name them.
  */
@@ -139,7 +138,7 @@ export function adoptedProjectHosts(state: PersistedState): Map<string, string> 
  * having one member left dissolves as an unlink would: that member keeps
  * the group's shared settings.
  *
- * A project handed over to its host's server (ADR-227 D3) is a known
+ * A project handed over to its host's server is a known
  * member, on that host, though `projects` no longer lists it.
  */
 export function normalizeGroups(state: PersistedState): void {
@@ -198,7 +197,7 @@ export function normalizeGroups(state: PersistedState): void {
 
 /**
  * The host a group member lives on: this desktop's record, a remote host's
- * server's (ADR-227 D4), or — while that host's list is not in yet — the
+ * server's, or — while that host's list is not in yet — the
  * host the desktop handed it to (`adoptedProjectHosts`).
  */
 export function memberHostId(ctx: ProjectContext, projectId: string): string | undefined {
@@ -244,7 +243,7 @@ export function linkProjects(
 
 /**
  * `linkProjects` without the save, for a caller that links several pairs
- * and writes once (ADR-214's `autoJoin`).
+ * and writes once (`autoJoin`).
  */
 export function joinProjects(
   ctx: ProjectContext,
@@ -310,8 +309,8 @@ function rememberRemoteMember(ctx: ProjectContext, member: PersistedProject): vo
 }
 
 /**
- * The settings `group` shares, as each remote member's host must hold them
- * (ADR-227 D2): a host project keeps its own resolved copy, so it can
+ * The settings `group` shares, as each remote member's host must hold them:
+ * a host project keeps its own resolved copy, so it can
  * launch an agent with the desktop away. Written through as an ordinary
  * `projects.update` to each member's host, after any change to them. A host
  * that is away keeps the copy it had; one that refuses is logged.
@@ -446,7 +445,7 @@ export function forgetProject(state: PersistedState, projectId: string): boolean
   const leaving = byId(projectId);
   if (leaving) copySharedOnto(group, leaving);
   group.memberIds = group.memberIds.filter((id) => id !== projectId);
-  // The origin key may have come from the member that left (ticket 5); the
+  // The origin key may have come from the member that left; the
   // caller derives it again from the rest.
   delete group.originKey;
   if (group.memberIds.length < 2) {
@@ -470,7 +469,7 @@ export function forgetProject(state: PersistedState, projectId: string): boolean
 
 /**
  * Throws when moving `projectId` onto `hostId` would give its group two
- * members on one host (ADR-192). Called before a host switch or move.
+ * members on one host. Called before a host switch or move.
  */
 export function assertGroupHostFree(
   ctx: ProjectContext,

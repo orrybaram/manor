@@ -1,5 +1,5 @@
 /**
- * Web Push for remote control (ADR-161 §6, ADR-206 D7).
+ * Web Push for remote control.
  *
  * The point of the feature is being *told*, not remembering to check. This is
  * a second sink on the transition Manor already computes for the dock badge
@@ -19,7 +19,7 @@
  * than regenerated per launch.
  *
  * `web-push` itself is loaded on first real use — a send, or generating the
- * key pair — never at startup (ADR-205 §3). A user with no subscribed phones
+ * key pair — never at startup. A user with no subscribed phones
  * never loads it at all.
  */
 
@@ -67,7 +67,7 @@ const loadWebPush = lazy(async () =>
 export interface PushNotifyOptions {
   /**
    * Subscriptions to leave out: the endpoints a host server already pushes to
-   * for its own agents, so a phone paired both ways hears once (ADR-225 D3).
+   * for its own agents, so a phone paired both ways hears once.
    */
   skipEndpoints?: ReadonlySet<string>;
 }
@@ -143,7 +143,7 @@ export class PushManager {
 
   /**
    * The active key pair, generated on first use, for sharing with a host
-   * server (ADR-225 D3). Null when it cannot be stored safely.
+   * server. Null when it cannot be stored safely.
    */
   async vapidKeys(): Promise<VapidKeys | null> {
     try {
@@ -154,7 +154,7 @@ export class PushManager {
   }
 
   /**
-   * Adopt `keys` as this manager's pair (ADR-225 D3). A browser holds one
+   * Adopt `keys` as this manager's pair. A browser holds one
    * push subscription per origin, tied to one VAPID key, so every server a
    * phone is paired with signs with the desktop's. When the public key
    * actually changes, the stored subscriptions (made against the old key)
@@ -186,7 +186,7 @@ export class PushManager {
 
   /**
    * Replace the key pair with a freshly generated one and clear every
-   * subscription made against the old one (ADR-229 D6: a cloned host must not
+   * subscription made against the old one (a cloned host must not
    * keep signing with its origin's key). Throws if the key cannot be stored
    * safely.
    */
@@ -327,7 +327,7 @@ export function pushPayloadFor(
  * One agent-status transition, as a push to every subscribed device — or
  * nothing, when the status is not worth waking a phone for or did not change.
  * The one rule for both the desktop's controller and a host server
- * (ADR-225 D3), each of which hands it transitions already coalesced across a
+ * each of which hands it transitions already coalesced across a
  * hook replay (`NotificationCoalescer`).
  */
 export function pushAgentTransition(

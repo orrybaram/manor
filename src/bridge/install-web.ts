@@ -23,18 +23,18 @@
  * for once it is ready to act on it — late, if the socket has not said
  * anything yet, or immediately, if it already has.
  *
- * The page is served only by the relay origin (ADR-206, ADR-207 D2): paired
+ * The page is served only by the relay origin: paired
  * by a `#relay=…` link, it dials the relay's `/join/<roomId>` through a Noise
  * channel. `./web-pairing.ts` reads the link; this module builds the pipes,
  * reports reachability (relay 4404/4429) and follows the version redirect.
  *
- * **Single-use links** (ADR-240 D5). A pairing from a `ticket=` link holds a
+ * **Single-use links**. A pairing from a `ticket=` link holds a
  * token this browser chose and the ticket to redeem it with: its bridge says
  * hello with both, and the first accepted hello drops the ticket from storage
  * (`clearPairingTicket`). The token does not change, so `syncPairings` keeps
  * the bridge it has; only a new token or key redials.
  *
- * **Every pairing at once** (ADR-228 D8). The page holds one relay bridge per
+ * **Every pairing at once**. The page holds one relay bridge per
  * stored pairing, each a server in the page's set (`./server-set.ts`) under
  * its room id, and installs the router over them (`./router.ts`):
  *
@@ -42,13 +42,13 @@
  *   the most recently used pairing (`homePairing`). A desktop's hello moves
  *   home to it, if home was not a desktop already.
  * - **A desktop's remote hosts** are named by the rooms its `hosts.list`
- *   reports (D2), and listed as its (D3): a host with a pairing of its own is
+ *   reports, and listed as its: a host with a pairing of its own is
  *   answered by that pairing while it is reachable, else by the desktop.
  * - **4401** forgets only that pairing and takes its server out of the set;
  *   the pairing screen shows only once no pairing is left. Likewise
  *   key-mismatch: its screen shows once every pairing has been refused. The
  *   room is not declined, so the page asks each desktop to link its hosts
- *   once more per load (`autoRelinked`, ADR-238): a host that was reset or
+ *   once more per load (`autoRelinked`): a host that was reset or
  *   moved gets a fresh pairing, one revoked on the host stays blocked. A
  *   reset host closes the phone before its relay is back, so the ask is
  *   retried (`RELINK_DELAYS`) until a pairing appears.
@@ -56,14 +56,14 @@
  *   another version stays in the set, its version recorded.
  * - **The list is followed.** A pairing removed in the Hosts sheet leaves the
  *   set; one added in another tab (or by a later link) joins it.
- * - **One pairing covers every host** (D9). Every hello from a desktop asks
+ * - **One pairing covers every host.** Every hello from a desktop asks
  *   it for pairings with its hosts this page does not hold
  *   (`remoteControl.linkHostPairings`); each joins the list, and so the set.
  *   Rooms the user removed are sent as held (`declinedRooms`), so they are
  *   not minted again.
  *
  * Each server's last merged answers are kept in IndexedDB (`./last-known.ts`),
- * so a reload with a server away still shows what it last said (D6).
+ * so a reload with a server away still shows what it last said.
  */
 
 import type { HostStatusInfo } from "../store/host-store";
@@ -128,7 +128,7 @@ interface Held {
  * lists (a socket that just fails, a host that never says hello) would
  * otherwise leave it "unknown" for good — which the router takes as
  * reachable, so its panes' `pty`/`chat` listeners and its calls would stay
- * on it rather than falling back to a desktop that lists the host (D3). The
+ * on it rather than falling back to a desktop that lists the host. The
  * dial keeps retrying; its hello makes it `connected`, and the router moves
  * them back.
  */
@@ -280,7 +280,7 @@ function followVersion(version: string | null): boolean {
   return true;
 }
 
-// ── a desktop's hosts (D2, D3) ──
+// ── a desktop's hosts ──
 
 /**
  * Name and list a desktop's remote hosts: `hosts` is its id for each → the
@@ -312,11 +312,11 @@ function hostRooms(
 }
 
 /**
- * One pairing covers every host (ADR-228 D9): ask desktop `entry` to pair
+ * One pairing covers every host: ask desktop `entry` to pair
  * this browser with each of its hosts whose room it does not hold, and keep
  * what comes back. Each joins the set through `syncPairings`, and the
- * desktop's alias for the host already names its room (D2), so the host's
- * projects keep their id and are answered by the new pairing (D3). Asked on
+ * desktop's alias for the host already names its room, so the host's
+ * projects keep their id and are answered by the new pairing. Asked on
  * every hello, so a host added later, or away the last time, is picked up.
  */
 function linkHosts(entry: Held): Promise<void> {
@@ -330,7 +330,7 @@ function linkHosts(entry: Held): Promise<void> {
       if (held.get(roomId) !== entry || !Array.isArray(linked)) return;
       for (const pairing of linked) linkPairing(pairing);
     },
-    // A desktop from before ADR-228 has no such method; the phone simply
+    // An older desktop has no such method; the phone simply
     // holds what it was paired with.
     () => {},
   );
@@ -360,7 +360,7 @@ function onHello(entry: Held, reply: HelloReply): void {
   clearHelloDeadline(entry);
   servers.recordHello(roomId, reply);
   servers.setReachability(roomId, "connected");
-  // Accepted: a ticket that came with the token is spent (ADR-240 D5). The
+  // Accepted: a ticket that came with the token is spent. The
   // token is unchanged, so `syncPairings` keeps this bridge rather than redial.
   clearPairingTicket(roomId, entry.pairing.ticket);
   recordPairingHello(roomId, reply);
@@ -380,8 +380,8 @@ function onHello(entry: Held, reply: HelloReply): void {
 
   // The first hello of a server the stores booted with is the cold start
   // their boot fetches cover; a resumed one is a reconnect after which pushes
-  // may have been missed, and one that joined later has not been read at all
-  // (ADR-220 D1). A new home re-reads everything home answers.
+  // may have been missed, and one that joined later has not been read at all.
+  // A new home re-reads everything home answers.
   let resynced = Promise.resolve();
   if (rehome) resynced = emitBridgeResync();
   else if (reply.resumed || entry.needsResync) resynced = emitBridgeResync(roomId);
@@ -389,7 +389,7 @@ function onHello(entry: Held, reply: HelloReply): void {
   for (const waiter of helloWaiters.splice(0)) waiter(resynced);
 }
 
-/** Rooms already re-linked after a 4401 this load: one sequence each (ADR-238). */
+/** Rooms already re-linked after a 4401 this load: one sequence each. */
 const autoRelinked = new Set<string>();
 
 /** Waits before each retry of a relink that added no pairing: the host's relay may still be coming back. */
@@ -518,7 +518,7 @@ function syncPairings(): void {
       entry.pairing.serverKey !== pairing.serverKey
     ) {
       // A newer link for the same room: dial with it instead. A spent ticket
-      // dropped from storage (ADR-240 D5) changes neither, so lands below.
+      // dropped from storage changes neither, so lands below.
       entry.stopHosts?.();
       clearHelloDeadline(entry);
       entry.transport.close();
@@ -552,7 +552,7 @@ if (typeof document !== "undefined") {
 }
 
 /**
- * The manual refresh (ADR-220 D5): probe every line, and re-fetch everything
+ * The manual refresh: probe every line, and re-fetch everything
  * over them if they are alive. A line that is not is redialling, and the
  * hello that ends that emits the resync itself; this waits for it (or a
  * redial that takes too long), then re-fetches over the live ones if that

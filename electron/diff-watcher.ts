@@ -86,8 +86,8 @@ interface WorkspaceScan {
 }
 
 /**
- * Polls diff stats for the open workspaces through a `PerHostPoller`
- * (ADR-183): each host is ticked on its own, so a remote host that is slow
+ * Polls diff stats for the open workspaces through a `PerHostPoller`:
+ * each host is ticked on its own, so a remote host that is slow
  * or unreachable delays only its own workspaces' stats, never the local
  * ones. Each workspace's git runs on its own host's backend, at most
  * `DIFF_CONCURRENCY` workspaces of a host at a time. A tick costs a
@@ -100,7 +100,7 @@ interface WorkspaceScan {
 export class DiffWatcher {
   private readonly poller: PerHostPoller<DiffScan>;
   private window: DiffGateWindow | null = null;
-  /** Each connection's workspaces (ADR-230 D6); the union is polled. */
+  /** Each connection's workspaces; the union is polled. */
   private readonly sets = new WatchedSets<DiffWorkspace>();
   private readonly deviceWatching: () => boolean;
   private readonly publish: BroadcastBus["publish"];
@@ -143,9 +143,9 @@ export class DiffWatcher {
 
   /**
    * Watch `workspaces` for connection `owner`, beside every other
-   * connection's (ADR-230 D6).
+   * connection's.
    *
-   * ADR-180 D5: results are published as `diffs.changed` /
+   * Results are published as `diffs.changed` /
    * `diffs.fingerprintsChange` to every renderer — desktop windows and paired
    * browsers alike — rather than pushed at one window. The window
    * (`DiffWatcherOptions.window`) is only the visibility gate: while it is

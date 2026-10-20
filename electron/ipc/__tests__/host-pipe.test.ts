@@ -42,7 +42,7 @@ function pipes(opts: { canOpen?: boolean; open?: () => Promise<Duplex> } = {}) {
   return { hp, box, openViewer };
 }
 
-describe("HostPipes (ADR-228 D4)", () => {
+describe("HostPipes", () => {
   it("answers with an id first, then carries the box's lines as they are", async () => {
     const { hp, box, openViewer } = pipes();
     const { owner: o, events } = owner();

@@ -4,15 +4,14 @@
  * The file holds every workspace's pane tree, its per-pane daemon session
  * mapping and its default viewport, plus the migrations that bring an older
  * file up to the current version. The one writer is the Manor server's
- * `LayoutStore` (ADR-179 D1); this class knows nothing about commands or
+ * `LayoutStore`; this class knows nothing about commands or
  * renderers.
  *
  * Versions:
  * - 1: one tab list per workspace.
  * - 2: panels; workspaces keyed by bare path; focus fields in the tree.
- * - 3: workspaces keyed by host-qualified `WorkspaceKey` (ADR-191).
- * - 4: the focus fields leave the tree for a per-workspace `defaultViewport`
- *   (ADR-179 D3).
+ * - 3: workspaces keyed by host-qualified `WorkspaceKey`.
+ * - 4: the focus fields leave the tree for a per-workspace `defaultViewport`.
  *
  * The key migration (→ 3) needs the projects and so runs in the background
  * (`startWorkspaceKeyMigration`); the viewport migration (→ 4) needs nothing
@@ -32,7 +31,7 @@ import {
   type WorkspaceKeyOwner,
 } from "../../src/lib/workspace-key";
 import { isHomePath } from "../../src/lib/home-path";
-// One layout model, shared with the renderer (ADR-179 D2). These are types
+// One layout model, shared with the renderer. These are types
 // only, so nothing from src/ lands in the terminal-host bundle — the same
 // precedent as app-menu.ts importing src/lib/menu-commands.
 import type { PaneNode } from "../../src/lib/layout/pane-tree";
@@ -53,7 +52,7 @@ export const LAYOUT_FILE = layoutFile();
 /**
  * Persisted tab layout.
  *
- * `focusedPaneId` is optional and, as of ADR-179 ticket 4, never written: it
+ * `focusedPaneId` is optional and no longer written: it
  * is viewport, it lives in `defaultViewport` and in each renderer's own file,
  * and it survives in this type only so an older file can be read and
  * migrated.
@@ -99,7 +98,7 @@ export interface PersistedPanel {
 /** V2/v3 persisted workspace state: focus still in the tree (migration only) */
 export interface PersistedWorkspaceV2 {
   /**
-   * The workspace's host-qualified key (`WorkspaceKey`, ADR-191) since
+   * The workspace's host-qualified key (`WorkspaceKey`) since
    * version 3: its bare path on this machine, `<hostId>:<path>` on a remote
    * host. A bare path in a version 2 file is of unknown host until
    * `migrateWorkspaceKeys` runs. The field keeps its name so a downgrade
@@ -123,7 +122,7 @@ export interface PersistedLayoutV2 {
  * Persisted workspace state (v3).
  *
  * Structure plus one **default viewport** — and nothing else. The focus
- * fields left the tree in ADR-179 ticket 4; an older file still carries them,
+ * fields have left the tree; an older file still carries them,
  * still loads (they are optional), and is rewritten clean the first time the
  * server saves.
  */
@@ -133,12 +132,11 @@ export interface PersistedWorkspace extends PersistedWorkspaceV2 {
 
 /**
  * The current layout file version: workspaces keyed by `WorkspaceKey`
- * (version 3, ADR-191) and the focus fields out of the tree (version 4,
- * ADR-179 D3).
+ * (version 3) and the focus fields out of the tree (version 4).
  */
 export const LAYOUT_VERSION = 4;
 
-/** The first version whose workspaces are keyed by `WorkspaceKey` (ADR-191). */
+/** The first version whose workspaces are keyed by `WorkspaceKey`. */
 export const KEYED_LAYOUT_VERSION = 3;
 
 /** Full persisted layout */
@@ -183,7 +181,7 @@ function migrateV1toV2(v1: PersistedLayoutV1): PersistedLayoutV2 {
   };
 }
 
-/** A workspace with the focus fields stripped from its tree (ticket 4). */
+/** A workspace with the focus fields stripped from its tree. */
 function withoutTreeFocus(workspace: PersistedWorkspace): PersistedWorkspace {
   const panels: Record<string, PersistedPanel> = {};
   for (const [panelId, panel] of Object.entries(workspace.panels ?? {})) {
@@ -207,7 +205,7 @@ function withoutTreeFocus(workspace: PersistedWorkspace): PersistedWorkspace {
 }
 
 /**
- * Read a workspace's default viewport out of its tree (ADR-179 D3).
+ * Read a workspace's default viewport out of its tree.
  *
  * This is the viewport migration for one workspace and the normalizer for a
  * workspace saved through the renderer's old `layout:save` path, which is the
@@ -245,7 +243,7 @@ export function migrateWorkspaceViewport(
 
 /**
  * `layout` with every workspace rekeyed from its bare path to its
- * host-qualified key (version 2 → 3, ADR-191), written at the current version.
+ * host-qualified key (version 2 → 3), written at the current version.
  *
  * While the file was at version 2 the renderer wrote a local workspace under
  * its bare path and a remote one under its qualified key (the local key *is*
@@ -278,9 +276,9 @@ export function migrateLayoutV2toV3(
 /**
  * The version a file on disk is *really* at, as far as its keys go.
  *
- * Builds of the ADR-179 branch cut before ADR-191 wrote `version: 3` with a
+ * Some early development builds wrote `version: 3` with a
  * `defaultViewport` per workspace and bare-path keys. A real version 3 file
- * (ADR-191) never has a `defaultViewport`, so such a file is read as the
+ * never has a `defaultViewport`, so such a file is read as the
  * version 2 it is keyed like, and its key migration still runs.
  */
 function keyVersionOf(data: {
@@ -349,7 +347,7 @@ export class LayoutPersistence {
    * Rekey a version 2 file by host-qualified workspace key and write it at
    * the current version. A no-op once keyed: a bare key there already means
    * local, and migrating it again could move it to a remote project with the
-   * same path (ADR-191 §1).
+   * same path.
    */
   migrateWorkspaceKeys(owners: readonly WorkspaceKeyOwner[]): void {
     const layout = this.load();
@@ -368,8 +366,7 @@ export class LayoutPersistence {
   /**
    * Load the layout from disk. Returns null if the file doesn't exist.
    *
-   * Every workspace comes back with its viewport out of the tree (ADR-179
-   * D3), whatever the file's version: the split is idempotent and needs
+   * Every workspace comes back with its viewport out of the tree, whatever the file's version: the split is idempotent and needs
    * nothing. The key migration needs the projects, so it is
    * `migrateWorkspaceKeys`; until it has run the layout says `version: 2`.
    * A file this changes — a new version, or a viewport split out — is
@@ -437,7 +434,7 @@ export class LayoutPersistence {
     const ids = new Set<string>();
     if (!layout) return ids;
     for (const workspace of layout.workspaces) {
-      // A legacy Home entry's sessions are being ended (ADR-197 §2).
+      // A legacy Home entry's sessions are being ended.
       if (isHomePath(workspace.workspacePath)) continue;
       for (const panel of Object.values(workspace.panels)) {
         for (const tab of panel.tabs) {

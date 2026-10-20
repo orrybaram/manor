@@ -73,7 +73,7 @@ function twoPaneTab(): Tab {
 }
 
 function setupStore(layout: WorkspaceLayout, activePath: string = WS_PATH) {
-  // These handlers are viewport-only now (ADR-179 D5) and never send a
+  // These handlers are viewport-only now and never send a
   // `LayoutCommand`, but `setupStore` still seeds the fake server so a test
   // that reads `workspaceLayouts` sees the same layout either way.
   resetFakeLayoutServer();
@@ -106,7 +106,7 @@ function tabHolding(paneId: string): Tab | undefined {
   return undefined;
 }
 
-/** This renderer's focused pane for the tab holding `paneId` (ADR-179 D3). */
+/** This renderer's focused pane for the tab holding `paneId`. */
 function focusOfTabHolding(paneId: string): string | null {
   const tab = tabHolding(paneId);
   return tab
@@ -181,7 +181,7 @@ describe("next-tab / prev-tab", () => {
       ]),
     );
     // The selection is this renderer's, so it is set the way a user would
-    // set it rather than baked into the layout (ADR-179 D3).
+    // set it rather than baked into the layout.
     useAppStore.getState().selectTab("tab-2");
 
     expect(run("next-tab")).toEqual({ tabId: "tab-1" });
@@ -242,7 +242,7 @@ describe("set-active-workspace", () => {
     ).toThrow(/Unknown workspace: \/nope/);
   });
 
-  // ADR-191: main names the host, since the path may be on two.
+  // Main names the host, since the path may be on two.
   it("switches to the workspace on the host main names", () => {
     const onHost = (id: string, hostId: string) => ({
       id,
@@ -271,12 +271,12 @@ describe("set-active-workspace", () => {
 
 describe("dispatch table", () => {
   /**
-   * Viewport and nothing else (ADR-179 D5). `start-agent` was the last
+   * Viewport and nothing else. `start-agent` was the last
    * non-viewport entry and left for `electron/routes/agents.ts` in ticket 11,
    * once the launch line it had to seed had a server-side home — see
    * `agents-launch.test.ts` for what it does there.
    */
-  it("exposes exactly the viewport commands (ADR-179 D5)", () => {
+  it("exposes exactly the viewport commands", () => {
     expect(Object.keys(appCommandHandlers).sort()).toEqual([
       "focus-next-pane",
       "focus-pane",

@@ -14,14 +14,14 @@ const COLLAPSED_LINES = 12;
 type PlanCardProps = {
   paneId: string;
   entry: PlanEntry;
-  /** Only the newest open picker can be answered (ADR-215 D5). */
+  /** Only the newest open picker can be answered. */
   answerable: boolean;
   onShowTerminal: () => void;
 };
 
 /**
  * An ExitPlanMode plan. The chat can only approve it: rejecting has no fixed
- * key in Claude Code's dialog (ADR-215 spike findings), so changing the plan
+ * key in Claude Code's dialog, so changing the plan
  * happens in the terminal.
  */
 export function PlanCard(props: PlanCardProps) {

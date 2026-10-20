@@ -34,7 +34,7 @@ export interface ExecError extends Error {
  * Injectable command-execution surface used by the local git/shell/ports
  * backends. `localExec` runs commands on this machine; a remote
  * implementation can satisfy the same interface by routing through the
- * terminal-host daemon over ssh (see ADR-160).
+ * terminal-host daemon over ssh.
  */
 export interface Exec {
   /**
@@ -72,7 +72,7 @@ export interface Exec {
   readFile(path: string, encoding: "utf-8"): Promise<string>;
   /**
    * Write `data` to `path`, creating its parent directories first and
-   * replacing any file already there (ADR-187).
+   * replacing any file already there.
    */
   writeFile(path: string, data: Buffer): Promise<void>;
 }
@@ -84,7 +84,7 @@ export interface StreamResult {
 }
 
 /**
- * The one "synchronous cancel handle over an async precondition" (ADR-183).
+ * The one "synchronous cancel handle over an async precondition".
  * Stream methods such as `pushStream` must hand back `{ cancel }` at once,
  * but some can only start once `pre` settles (a branch lookup, a host gate).
  *

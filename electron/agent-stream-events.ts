@@ -1,8 +1,8 @@
 /**
- * The agent side of one terminal stream event (ADR-184), shared by every
+ * The agent side of one terminal stream event, shared by every
  * Manor server that runs a Status reconciler: the desktop
- * (`app-lifecycle.ts`) and the host server (`host-server/server.ts`,
- * ADR-225). Electron-free, so the host server can import it.
+ * (`app-lifecycle.ts`) and the host server (`host-server/server.ts`).
+ * Electron-free, so the host server can import it.
  */
 
 import type { AgentManager, AgentInfo } from "./agent-persistence";
@@ -18,8 +18,7 @@ export interface AgentStreamDeps {
 }
 
 /**
- * The agent-domain side of a stream event, run ONCE per event in main
- * (ADR-184):
+ * The agent-domain side of a stream event, run ONCE per event in main:
  * - `paneFacts` → a Status signal for the pane, and the Agent's name from the
  *   terminal title (unless the user pinned one);
  * - `cwd` → the active Agent's cwd;
@@ -72,13 +71,13 @@ export function handleAgentStreamEvent(event: StreamEvent, deps: AgentStreamDeps
  * What main does with one stream event from any host: its agent side once
  * (`handleAgentStreamEvent`), then the pane events to every renderer, once.
  *
- * `forward` is the bridge (`BridgeServer.handleStreamEvent`, ADR-180 D5): a
+ * `forward` is the bridge (`BridgeServer.handleStreamEvent`): a
  * pane's output, exit, cwd, resize and error used to go out on a
  * `pty-${kind}-${paneId}` channel to every live window, whether or not it had
  * the pane; they are `pty.*` event frames now, keyed by paneId, published to
  * windows and devices alike — each hearing only the panes it subscribed to.
  * However many renderers are attached, a signal reaches the Status
- * reconciler once and its effects are applied once (ADR-184). `paneFacts`
+ * reconciler once and its effects are applied once. `paneFacts`
  * never reaches a renderer.
  */
 export function dispatchStreamEvent(

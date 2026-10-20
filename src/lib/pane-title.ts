@@ -8,7 +8,7 @@ import {
 
 /**
  * The store fields a pane's title is derived from. What a pane *is* — its
- * content type and saved url — is read from the tree (ADR-182 D9).
+ * content type and saved url — is read from the tree.
  */
 export type PaneTitleState = Pick<
   AppState,
@@ -92,7 +92,7 @@ export function tabTitle(
 /**
  * A pane's displayed title — the one the tab bar, the tab drag chip and the
  * phone's pane switcher all show, so none of them disagree about what a pane
- * is called (ADR-182 D11). `tabTitle` with the pinned name looked up.
+ * is called. `tabTitle` with the pinned name looked up.
  */
 export function paneTitle(
   paneId: string,

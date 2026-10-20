@@ -1,9 +1,9 @@
 /**
- * Projects and workspaces (ADR-180 D8), as the `projects` namespace of the
+ * Projects and workspaces, as the `projects` namespace of the
  * handler table.
  *
- * Every one of these is reachable by a paired `full` device — ADR-178 D3 as
- * written, and as the pairing dialog's label already warns ("can do anything
+ * Every one of these is reachable by a paired `full` device — by design, and
+ * as the pairing dialog's label already warns ("can do anything
  * the desktop can, including remove workspaces"). The ones that create,
  * rename, move or destroy a project, a workspace or a folder are `mutating`,
  * so a device's call leaves an audit line and the user at the machine's does
@@ -14,7 +14,7 @@
  * connection id on both transports — so one dialog, in one window, sees its
  * own progress bar and a second window sees nothing.
  *
- * **Routed on the desktop** (ADR-227 D4). A project on an adopted remote host
+ * **Routed on the desktop**. A project on an adopted remote host
  * is its server's: every workspace method names its project first
  * (`byProject(0)`) and is answered there. The rest stay here — they read or
  * write what only the desktop has (the merged list, the sidebar's order,
@@ -44,8 +44,8 @@ import { byProject, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 
 /**
  * A project that moved from `oldHostId` keeps the saved layouts of the
- * workspaces it still has, under their keys on its new host (ADR-191 §3).
- * The layout store owns them (ADR-179 D1) and broadcasts the move, so every
+ * workspaces it still has, under their keys on its new host.
+ * The layout store owns them and broadcasts the move, so every
  * renderer's replica follows.
  */
 async function moveLayouts(
@@ -112,15 +112,15 @@ export async function projectsRemove(
   projectId: string,
 ): Promise<void> {
   const { projectManager, backendRegistry } = ctx.deps;
-  // Removing a project clears `forProject` on the hosts made for it
-  // (ADR-235 D6); the host list is re-sent so no one shows a stale mark.
+  // Removing a project clears `forProject` on the hosts made for it;
+  // the host list is re-sent so no one shows a stale mark.
   const marked = projectManager.hostsMadeFor(projectId);
   await projectManager.removeProject(projectId);
   for (const hostId of marked) backendRegistry.recordChanged(hostId);
 }
 
 /**
- * Clone a repo onto any host, then add it (ADR-178 ticket 5, ADR-194).
+ * Clone a repo onto any host, then add it.
  * Progress goes out as `projects.cloneProgress`.
  */
 export async function projectsClone(
@@ -144,7 +144,7 @@ export async function projectsClone(
 }
 
 /**
- * ADR-179 (remote hosts): clone (or adopt) an existing project's repo onto a
+ * Remote hosts: clone (or adopt) an existing project's repo onto a
  * remote host and point the same project record at it.
  */
 export async function projectsMoveToHost(
@@ -174,7 +174,7 @@ export async function projectsMoveToHost(
 }
 
 /**
- * ADR-213: copy a project to a host (a new linked project) or move it
+ * Copy a project to a host (a new linked project) or move it
  * (re-point this one), either way. Either completes, or answers
  * `{ ok: false, needsInput }` with what to ask; the dialog calls again with
  * `repoUrl` / `targetDir` filled in.
@@ -214,7 +214,7 @@ export async function projectsTransfer(
 }
 
 /**
- * "In a new pod" (ADR-235 D3): make a host from profile `profileId`, bring
+ * "In a new pod": make a host from profile `profileId`, bring
  * it up, and clone `repoUrl` onto it — or, with `sourceProjectId` (Set up
  * on), copy that project there, joining its group. A failure keeps the host
  * and answers the stage; `retryFrom` resumes on that host, with the
@@ -292,7 +292,7 @@ export function projectsPathExists(
 }
 
 /**
- * ADR-179 (remote hosts): switch a project to a host without cloning — to
+ * Remote hosts: switch a project to a host without cloning — to
  * `path`, or the path it last had there. Refused when that path doesn't
  * exist on the host.
  */
@@ -325,7 +325,7 @@ export async function projectsSwitchHost(
 
 /**
  * Tear a worktree down, reporting each step to whoever asked for it as a
- * `projects.removeWorktreeProgress` event (ADR-180 D5).
+ * `projects.removeWorktreeProgress` event.
  */
 export async function projectsRemoveWorktree(
   ctx: HandlerCtx<SharedDeps>,
@@ -333,7 +333,7 @@ export async function projectsRemoveWorktree(
   worktreePath: string,
   deleteBranch?: boolean,
 ): Promise<void> {
-  // Through `workspaceOps` (ADR-203), which owes the stats counter and the
+  // Through `workspaceOps`, which owes the stats counter and the
   // `projects.changed` broadcast.
   await ctx.deps.workspaceOps.remove(
     projectId,
@@ -373,7 +373,7 @@ export async function projectsCreateWorktree(
 ): Promise<ProjectInfo | null> {
   // Picked field by field rather than spread: `origin` is who asked, and that
   // is the transport's to say, never the frame's. The setup script starts on
-  // the server, in a tab of its own (ADR-227 D5).
+  // the server, in a tab of its own.
   const { project } = await ctx.deps.workspaceOps.create({
     projectId,
     name,
@@ -441,7 +441,7 @@ export function projectsCreateWorkspaceFolder(
   );
 }
 
-/** Returns false when the move would create a folder cycle (ADR-172). */
+/** Returns false when the move would create a folder cycle. */
 export function projectsSetFolderParent(
   ctx: HandlerCtx<SharedDeps>,
   projectId: string,
@@ -482,7 +482,7 @@ export function projectsSetWorkspaceFolder(
   );
 }
 
-/** `orderedKeys` entries may be workspace paths or folder ids (ADR-167). */
+/** `orderedKeys` entries may be workspace paths or folder ids. */
 export function projectsReorderWorkspaces(
   ctx: HandlerCtx<SharedDeps>,
   projectId: string,
@@ -499,7 +499,7 @@ export function projectsReorder(
 }
 
 /**
- * ADR-192: link two projects on different hosts into one group, or take one
+ * Link two projects on different hosts into one group, or take one
  * out of its group. A project leaving keeps the group's shared settings;
  * nothing else about it changes.
  */
@@ -529,7 +529,7 @@ export function projectsUnlinkGroup(
   ctx.deps.projectManager.unlinkGroup(groupId);
 }
 
-/** ADR-192 ticket 2: set a group's shared settings. Returns every member. */
+/** Set a group's shared settings. Returns every member. */
 export function projectsUpdateGroup(
   ctx: HandlerCtx<ServerDeps>,
   groupId: unknown,
@@ -546,7 +546,7 @@ export function projectsUpdateGroup(
   return ctx.deps.projectManager.updateGroup(groupId, clean);
 }
 
-/** ADR-192: the host the New Workspace picker starts on next time. */
+/** The host the New Workspace picker starts on next time. */
 export function projectsSetGroupLastUsedHost(
   ctx: HandlerCtx<ServerDeps>,
   groupId: string,
@@ -558,7 +558,7 @@ export function projectsSetGroupLastUsedHost(
 }
 
 /**
- * ADR-192 ticket 5: projects on other hosts with the same `origin`, to offer
+ * Projects on other hosts with the same `origin`, to offer
  * as links after an add or clone. Suggests only; never links.
  */
 export function projectsSuggestLinks(
@@ -580,7 +580,7 @@ export function projectsDismissLinkSuggestion(
 }
 
 /**
- * ADR-214: join every same-origin pair of projects on different hosts, as
+ * Join every same-origin pair of projects on different hosts, as
  * `suggestLinks` would offer them, without asking. Returns the pairs
  * joined, for the renderer's Undo toast.
  */
@@ -591,7 +591,7 @@ export function projectsAutoJoin(
 }
 
 /**
- * ADR-214 "Keep separate…": split the project's group and remember every
+ * "Keep separate…": split the project's group and remember every
  * pair it split, so `autoJoin` leaves them apart.
  */
 export function projectsKeepSeparate(
@@ -603,7 +603,7 @@ export function projectsKeepSeparate(
 }
 
 /**
- * ADR-214: undo one `autoJoin` pair for good: unlink the newcomer, give
+ * Undo one `autoJoin` pair for good: unlink the newcomer, give
  * back its own settings, and dismiss the pair.
  */
 export function projectsUndoAutoJoin(
@@ -625,7 +625,7 @@ export function projectsUpdate(
 }
 
 export const projects = {
-  // The merged list (ADR-227 D4): this desktop's projects and every adopted
+  // The merged list: this desktop's projects and every adopted
   // host's, in the sidebar's order, under the desktop's groups.
   getAll: method(projectsGetAll, { route: LOCAL_ROUTE }),
   getSelectedIndex: method(projectsGetSelectedIndex, { route: LOCAL_ROUTE }),
@@ -682,7 +682,7 @@ export const projects = {
   // desktop has; `ProjectManager` writes its own ones to its host.
   update: method(projectsUpdate, { mutating: true, route: LOCAL_ROUTE }),
   getRemote: method(projectsGetRemote, { route: LOCAL_ROUTE }),
-  // Main's remote-host project lifecycle (ADR-191/194 on main). `clone`'s
+  // Main's remote-host project lifecycle. `clone`'s
   // progress is the `projects.cloneProgress` broadcast. Each of these moves
   // a project, a group, or what the sidebar shows. A clone onto an adopted
   // host, and a move to or from one, reach its server through
@@ -690,7 +690,7 @@ export const projects = {
   clone: method(projectsClone, { mutating: true, route: LOCAL_ROUTE }),
   moveToHost: method(projectsMoveToHost, { mutating: true, route: LOCAL_ROUTE }),
   transfer: method(projectsTransfer, { mutating: true, route: LOCAL_ROUTE }),
-  // Runs a recipe on this machine to start a box (ADR-235 D3, ADR-229 D2):
+  // Runs a recipe on this machine to start a box:
   // the desktop user's call alone, like `hosts.addRecipeHost`.
   openInNewHost: method(projectsOpenInNewHost, {
     localOnly: true,
@@ -701,7 +701,7 @@ export const projects = {
   getOriginUrl: method(projectsGetOriginUrl, { route: LOCAL_ROUTE }),
   pathExists: method(projectsPathExists, { route: LOCAL_ROUTE }),
   switchHost: method(projectsSwitchHost, { mutating: true, route: LOCAL_ROUTE }),
-  // ADR-192: linked project groups — the desktop's alone (ADR-227 D2).
+  // Linked project groups — the desktop's alone.
   link: method(projectsLink, { mutating: true, route: LOCAL_ROUTE }),
   unlink: method(projectsUnlink, { mutating: true, route: LOCAL_ROUTE }),
   unlinkGroup: method(projectsUnlinkGroup, { mutating: true, route: LOCAL_ROUTE }),
@@ -715,7 +715,7 @@ export const projects = {
     mutating: true,
     route: LOCAL_ROUTE,
   }),
-  // ADR-214: same-origin projects join on their own; "Keep separate…".
+  // Same-origin projects join on their own; "Keep separate…".
   autoJoin: method(projectsAutoJoin, { mutating: true, route: LOCAL_ROUTE }),
   keepSeparate: method(projectsKeepSeparate, { mutating: true, route: LOCAL_ROUTE }),
   undoAutoJoin: method(projectsUndoAutoJoin, { mutating: true, route: LOCAL_ROUTE }),

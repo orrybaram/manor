@@ -1,5 +1,5 @@
 /**
- * A custom recipe's starting point (ADR-229 D8): the Hosts page's "Create
+ * A custom recipe's starting point: the Hosts page's "Create
  * recipe folder" writes `recipe.json` and an `up.sh` that says what it must
  * print, into a new `~/.manor/host-recipes/<id>/`, for the user to finish.
  * VMs and sandboxes reached over ssh are recipes of this kind;
@@ -13,7 +13,7 @@ import { recipeDir, writeRecipe, type Recipe } from "../recipes";
 import { shortName } from "./types";
 
 const UP = `#!/usr/bin/env bash
-# A Manor host recipe's \`up\` (ADR-229 D2). It runs on this computer, with this
+# A Manor host recipe's \`up\`. It runs on this computer, with this
 # directory as its cwd. Make it idempotent: create the box when it is
 # missing, resume it when it is stopped, and print how to reach it.
 #

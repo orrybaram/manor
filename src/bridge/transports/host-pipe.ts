@@ -1,5 +1,5 @@
 /**
- * A desktop window's `Pipe` to one host server (ADR-228 D4): its own
+ * A desktop window's `Pipe` to one host server: its own
  * `manor-host server-bridge --viewer` stream, which main opens over the
  * host's SSH session and carries as text (`electron/ipc/host-pipe.ts`).
  *
@@ -15,10 +15,10 @@
  * in `unreachableCodes` and the transport retries with backoff and says so.
  *
  * **Liveness is main's.** There is no heartbeat on this line: the ssh child
- * exiting, or the host leaving `connected` (which a wake from sleep checks,
- * ADR-188), closes the pipe from main's side. So `probe` reports whether the
+ * exiting, or the host leaving `connected` (which a wake from sleep checks),
+ * closes the pipe from main's side. So `probe` reports whether the
  * pipe is still open, and nothing more. A server that is open but silent is
- * the transport's to notice: it pings one quiet for long enough (ADR-231 D8),
+ * the transport's to notice: it pings one quiet for long enough,
  * which a live host server answers in milliseconds.
  */
 

@@ -13,7 +13,7 @@ import { Button } from "../components/ui/Button/Button";
 import styles from "./screens.module.css";
 
 /**
- * The web app's dead-end screens (ADR-178 D1), split out of `web-main.tsx`.
+ * The web app's dead-end screens, split out of `web-main.tsx`.
  *
  * `web-main.tsx` is the entry module — it runs top-level `await`s and installs
  * the bridge as a side effect of being imported — and a component defined
@@ -60,7 +60,7 @@ export function NoTokenScreen(): JSX.Element {
 }
 
 /**
- * The desktop's relay address was reset (ADR-206): this link's key no longer
+ * The desktop's relay address was reset: this link's key no longer
  * matches. The stored pairing is kept — this may be a stale tab, and a reload
  * picks up a fresh link if the page was re-opened from one.
  */
@@ -122,7 +122,7 @@ function PairingList(): JSX.Element | null {
 }
 
 /**
- * The relay has no server to put this browser through to (ADR-206 D3): every
+ * The relay has no server to put this browser through to: every
  * pairing said 4404 (the machine is asleep, offline, or relay mode is off),
  * 4429 (too many viewers, or today's budget is spent), or stopped answering.
  * Not a refusal — the credentials are kept and the bridge keeps dialling with

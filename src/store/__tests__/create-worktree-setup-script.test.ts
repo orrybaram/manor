@@ -15,7 +15,7 @@ import {
 
 /** Every live `projects.onWorktreeSetupProgress` listener. */
 const progressListeners = new Set<(e: SetupProgressEvent) => void>();
-/** The server reporting a setup-script step (ADR-227 D5). */
+/** The server reporting a setup-script step. */
 function serverReports(event: SetupProgressEvent): void {
   for (const cb of [...progressListeners]) cb(event);
 }
@@ -24,7 +24,7 @@ function serverReports(event: SetupProgressEvent): void {
 vi.stubGlobal("window", {
   ...globalThis.window,
   electronAPI: {
-    // The Manor server's layout store, in-process (ADR-179 D1).
+    // The Manor server's layout store, in-process.
     layout: fakeLayoutApi(),
     viewport: fakeViewportApi(),
     projects: {
@@ -136,7 +136,7 @@ describe("createWorktree setup script", () => {
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
 
     // The renderer neither queues the script nor spawns a session for it:
-    // the server opened the script's tab before answering (ADR-227 D5).
+    // the server opened the script's tab before answering.
     expect(queuedCommands).toEqual([]);
     expect(window.electronAPI.pty.create).not.toHaveBeenCalled();
     expect(useAppStore.getState().worktreeSetupState[worktreePath]).toBeUndefined();
@@ -214,11 +214,11 @@ describe("createWorktree setup script", () => {
     ]);
 
     // The agent starts in parallel with the script, not after it: its launch
-    // line is queued on the server for a tab of its own (ADR-179 ticket 11).
+    // line is queued on the server for a tab of its own.
     expect(queuedCommands).toContainEqual(
       expect.objectContaining({ text: "claude", kind: "agent-startup" }),
     );
-    // The tab arrives with the server's broadcast (ADR-182 D9).
+    // The tab arrives with the server's broadcast.
     await settled();
     const layout = useAppStore.getState().workspaceLayouts[worktreePath];
     const tabs = Object.values(layout!.panels).flatMap((p) => p.tabs);
@@ -292,7 +292,7 @@ describe("createWorktree setup script", () => {
 
     // Workspace activated, and nothing was sent to create a tab in it: a
     // workspace with no layout at all is what the empty state renders from
-    // (ADR-179 D1 — the server makes one for the first command, and there
+    // (the server makes one for the first command, and there
     // was no first command).
     expect(useAppStore.getState().activeWorkspacePath).toBe(worktreePath);
     expect(

@@ -1,16 +1,16 @@
 /**
- * `/panes`, `/tabs`, and `/workspaces` (ADR-149, ADR-171) — layout inspection
- * and mutation, split two ways (ADR-179 D5):
+ * `/panes`, `/tabs`, and `/workspaces` — layout inspection
+ * and mutation, split two ways:
  *
  * - **Structural** routes (`./panes-structural.ts`) — split, close, move,
  *   pin, reorder, new tab, reopen — call `LayoutStore.apply()` directly and
  *   need no window.
  * - **Viewport** routes (`./panes-viewport.ts`) — focus, select, next/prev
  *   tab, set the active workspace — proxy to the primary window, because a
- *   viewport is per renderer (D3).
+ *   viewport is per renderer.
  *
  * Body validation is `./pane-validators.ts`. Every body-carrying route is
- * host-scoped first (`hostScoped`, ADR-191/189).
+ * host-scoped first (`hostScoped`).
  */
 
 import type { Route } from "./types";
@@ -20,7 +20,7 @@ import { withWorkspaceHost } from "./workspace-host";
 
 /**
  * Resolve the host of the workspace a request body names before its handler
- * runs (ADR-191): `body.hostId` is the host it named, else the host of the
+ * runs: `body.hostId` is the host it named, else the host of the
  * project that owns `workspacePath`. The handler reads the resolved body through the same `readBody`.
  */
 function hostScoped(handler: Route["handler"]): Route["handler"] {

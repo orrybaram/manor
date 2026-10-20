@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * ADR-181 D3: the phone top bar's buttons only call the callbacks
+ * The phone top bar's buttons only call the callbacks
  * `PhoneChrome` hands them — this pins the `data-testid`s the phone E2E
- * asserts on (ADR-180 found a spec asserting nothing because a component
- * moved and took its class names with it) and that each button fires its
+ * asserts on (a spec once asserted nothing because a component moved and
+ * took its class names with it) and that each button fires its
  * own callback and no other. The workspace name it reads from the stores.
  */
 import { act, createElement } from "react";
@@ -226,7 +226,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");
     click("phone-overflow-button");
 
-    // On a remote host: the chat too (ADR-216 D4).
+    // On a remote host: the chat too.
     seedAgent({ hostId: "devbox" } as Partial<AgentInfo>);
     openMenu();
     expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");

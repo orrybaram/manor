@@ -27,12 +27,12 @@ import styles from "./HomeDashboard.module.css";
 type HomeDashboardProps = {
   /** `data-testid` for the scrolling root, so e2e tests can find Home. */
   testId?: string;
-  /** Opens the New Workspace dialog, prefilled — Up next starts work on an issue with it (ADR-198 T7). */
+  /** Opens the New Workspace dialog, prefilled — Up next starts work on an issue with it. */
   onNewWorkspace?: NewWorkspaceHandler;
 };
 
 /**
- * Home's full dashboard, "Studio" (ADR-198): header, host alert, stat tiles,
+ * Home's full dashboard, "Studio": header, host alert, stat tiles,
  * Needs you cards, then Up next, the PR pipeline, the activity timeline,
  * and project tiles. It reads the same stores the sidebar's
  * indicators do and derives everything with the pure selectors in `home-dashboard-studio.ts`;

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-228 D3 / D8: on a phone the merged sidebar names each machine by its
+ * On a phone the merged sidebar names each machine by its
  * pairing, and a host's away state follows whichever server answers for it.
  * Three shapes: desktop + host both reachable, the host alone, and the
  * desktop alone with the host forwarded through it.
@@ -124,7 +124,7 @@ describe("the phone's merged sidebar, per source", () => {
     expect(offline(LOCAL_HOST_ID, hosts)).toBe(true);
   });
 
-  it("the desktop's own room, gone silent, is away though its last word says connected (ADR-231 D8)", () => {
+  it("the desktop's own room, gone silent, is away though its last word says connected", () => {
     // The router stamps the desktop's `local` with its room, and the frozen
     // desktop's last `hosts.list` still says it is connected.
     const hosts = [host(DESKTOP, "local"), host(BOX, "me@box")];

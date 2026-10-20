@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /**
  * A bridge resync remounts every open terminal for reason `resync` — once per
- * window, whatever the number of panes (ADR-220 D3) — or, for one host's own
- * bridge, that host's (ADR-228 D1, D4).
+ * window, whatever the number of panes — or, for one host's own
+ * bridge, that host's.
  */
 
 import { act, createElement } from "react";

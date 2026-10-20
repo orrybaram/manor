@@ -1,12 +1,12 @@
 /**
- * A menu handoff (ADR-218 D3) as pure data: the chat sent a command that
+ * A menu handoff as pure data: the chat sent a command that
  * opens a TUI menu, and the pane shows the terminal until the menu closes.
  * Kept apart from the store so the rules are testable without one.
  */
 
 import type { ChatEntry } from "../../../electron.d";
 
-/** A menu command the chat sent and handed to the terminal (ADR-218 D3). */
+/** A menu command the chat sent and handed to the terminal. */
 export type MenuHandoff = {
   /** The command's name, without the `/`. */
   name: string;
@@ -21,8 +21,7 @@ export type MenuHandoff = {
 const HANDOFF_SLACK_MS = 2_000;
 
 /**
- * Whether `entry` means the TUI menu `handoff` waits on has closed (ADR-218
- * D3): the handoff's command, logged at or after it was sent. A menu
+ * Whether `entry` means the TUI menu `handoff` waits on has closed: the handoff's command, logged at or after it was sent. A menu
  * command's transcript line is written when the menu completes, not when it
  * opens. A `ts` that doesn't parse never ends it.
  */

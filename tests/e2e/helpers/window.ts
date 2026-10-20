@@ -26,8 +26,8 @@ export function rendererWindowCount(app: ElectronApplication): Promise<number> {
  *
  * `close()` rather than `destroy()`: it is the path a ⌘W or a red button
  * takes, which is what the app's own `closed` handlers are written for — the
- * viewer release in `app-lifecycle.ts` (ADR-180 D6) and the claim release
- * beside it (ADR-179 D4).
+ * viewer release in `app-lifecycle.ts` and the claim release
+ * beside it.
  *
  * On macOS the app outlives its last window, which is the state this exists
  * to produce: the daemon, the layout server and the control listener are all

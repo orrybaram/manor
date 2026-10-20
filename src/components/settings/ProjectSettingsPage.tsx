@@ -62,7 +62,7 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
       setHasGhostty(ghostty);
       setAllColors(colors);
     }, (err: unknown) => {
-      // Not an empty list: say the themes couldn't be read (ADR-232 D8).
+      // Not an empty list: say the themes couldn't be read.
       addErrorToast("project-theme-list", "Couldn't load themes", err);
     });
   });
@@ -356,11 +356,11 @@ type ProjectSettingsPageProps = {
 };
 
 /**
- * A project's one settings page (ADR-237 D2), whether it is set up on one
+ * A project's one settings page, whether it is set up on one
  * host or several. A group's members all carry the group's values for the
- * shared fields, and `updateProject` sends them to the group (ADR-193), so
+ * shared fields, and `updateProject` sends them to the group, so
  * the shared fields read and write through the lead member. What differs per
- * host lives in the Hosts section, one row per host (D3).
+ * host lives in the Hosts section, one row per host.
  */
 export function ProjectSettingsPage(props: ProjectSettingsPageProps) {
   const { lead, members } = props;

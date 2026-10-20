@@ -36,9 +36,9 @@ import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, runInTerminal } from "./helpers/terminal";
 
 /**
- * Remote projects end to end, against a real sshd (ADR-160 ticket 12,
- * ADR-178 ticket 8): a project cloned onto a box, a pane on it, and what the
- * app does when the connection goes away and comes back.
+ * Remote projects end to end, against a real sshd: a project cloned onto a
+ * box, a pane on it, and what the app does when the connection goes away and
+ * comes back.
  *
  * - laptop closed: an agent finishes while the app cannot reach the box; the
  *   box journals the hooks, and on reconnect the sidebar shows the final
@@ -90,7 +90,7 @@ test.describe("remote host", () => {
 
     // The stub stays a shell for 1.5 s after its hooks, like a wrapper that
     // doesn't `exec` its agent: that shell in the foreground is not the pane's
-    // shell, so the agent must not read as gone (ADR-231 D5).
+    // shell, so the agent must not read as gone.
     await runInTerminal(window, `${REMOTE_AGENT} --linger-ms 1500 --session ${agentSession}`);
     const agent = await pollFor(
       "the remote agent thinking",
@@ -244,7 +244,7 @@ test.describe("remote host", () => {
     expect(await res.text()).toBe(body);
   });
 
-  // ADR-216: the phone chat for an agent on a remote host. The agent runs on
+  // The phone chat for an agent on a remote host. The agent runs on
   // the box and writes its transcript there; main reads it back over the
   // host's Exec, and the answer travels the other way through the pane's PTY.
   // The phone half is the same paired Playwright page `phone-chat.spec.ts` uses.

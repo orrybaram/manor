@@ -1,5 +1,5 @@
 /**
- * Merging a desktop's project records into a host server's own (ADR-227 D3).
+ * Merging a desktop's project records into a host server's own.
  *
  * Adoption hands a host server the projects the desktop held for it. The
  * box may already have some of them — a resend after a crash, or a second

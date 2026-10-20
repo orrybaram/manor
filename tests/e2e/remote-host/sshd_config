@@ -4,11 +4,11 @@ KbdInteractiveAuthentication no
 PubkeyAuthentication yes
 PermitRootLogin no
 AllowUsers manor
-# Port forwards (ADR-178 §5) ride the ControlMaster with `ssh -O forward -L`.
+# Port forwards ride the ControlMaster with `ssh -O forward -L`.
 AllowTcpForwarding yes
 UseDNS no
 # Every session runs through this wrapper (see Dockerfile), as the private
-# sshd's sessions run through its wrap.sh. The box's host server (ADR-225)
+# sshd's sessions run through its wrap.sh. The box's host server
 # dials MANOR_RELAY_URL: never the production relay from a test box. The
 # wrapper sets a closed local port, unless a spec points it at its own local
 # relay through ~/.manor-e2e/env (helpers/remote-host.ts

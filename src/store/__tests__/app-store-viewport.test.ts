@@ -1,5 +1,5 @@
 /**
- * The viewport slice (ADR-179 D3).
+ * The viewport slice.
  *
  * The tab set is the server's; the selection is this renderer's. These are
  * the four claims that makes: a viewport action writes nothing shared, it is

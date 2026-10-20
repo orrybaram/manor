@@ -1,5 +1,5 @@
 /**
- * The push endpoints each remote host's server sends to (ADR-225 D3).
+ * The push endpoints each remote host's server sends to.
  *
  * A phone can be subscribed on the desktop and on a host server both; for an
  * agent on that host, the host server pushes, so the desktop skips those

@@ -20,18 +20,18 @@ type SidebarEntryProps = {
   justDraggedRef?: RefObject<boolean>;
   /**
    * Always show the entry's workspaces, whatever its stored collapsed state.
-   * The collapsed rail's popover (ADR-195) exists to show them.
+   * The collapsed rail's popover exists to show them.
    */
   forceExpanded?: boolean;
-  /** Fires after a workspace is chosen — the phone drawer closes on it
-   *  (ADR-181 D3). */
+  /** Fires after a workspace is chosen — the phone drawer closes on it.
+   * */
   onNavigate?: () => void;
-  /** Turns off the workspace/folder reorder drag (phone mode, ADR-181 D5). */
+  /** Turns off the workspace/folder reorder drag (phone mode). */
   dragDisabled?: boolean;
 };
 
 /**
- * One top-level sidebar entry, a lone project or a linked group (ADR-192),
+ * One top-level sidebar entry, a lone project or a linked group,
  * wired to the stores. Shared by the full sidebar and the rail's popover so
  * both render the same rows, menus and actions.
  */
@@ -58,7 +58,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
   const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
   const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
-  // While the Tasks view is shown (ADR-198) no project is the current row,
+  // While the Tasks view is shown no project is the current row,
   // same as on Home.
   const homeActive = useAppStore(
     (s) => s.activeSurface !== "workspace" || isHomePath(s.activeWorkspacePath),

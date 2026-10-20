@@ -5,7 +5,7 @@
 #
 # Manor does not learn about a session by watching a process: an agent CLI
 # reports its own lifecycle over the hook endpoint (electron/agent-hook-events.ts),
-# and the Status reconciler (ADR-184, electron/agent-status/) turns those hook
+# and the Status reconciler (electron/agent-status/) turns those hook
 # events into the AgentInfo rows that GET /agents — and therefore the phone
 # client — renders. So the cheapest honest fake is a script that speaks the
 # same hook protocol against $MANOR_HOOK_PORT, using the $MANOR_PANE_ID the pty
@@ -71,7 +71,7 @@ while IFS= read -r -n 1 char; do
     if [ "$line" = "spam" ]; then
       for i in $(seq 1 200); do printf 'line %s\n' "$i"; done
     fi
-    # Two identical rows, wider than any phone — ADR-177's grid-fidelity
+    # Two identical rows, wider than any phone's grid-fidelity
     # fixture. Wide enough that a naive wrapping renderer would break each
     # into several visual rows; a real terminal (and a client that renders one
     # without reflowing) keeps each as one line regardless of how it wraps in

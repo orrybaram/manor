@@ -29,7 +29,7 @@ function ctx(profile: HostProfile | undefined) {
   };
 }
 
-describe("hostProfiles.remove (ADR-235 D9)", () => {
+describe("hostProfiles.remove", () => {
   beforeEach(() => {
     del.mockReset().mockResolvedValue(undefined);
   });

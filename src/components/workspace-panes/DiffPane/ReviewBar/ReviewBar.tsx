@@ -22,7 +22,7 @@ import styles from "./ReviewBar.module.css";
 
 type ReviewBarProps = {
   workspacePath: string;
-  /** The workspace's host (ADR-191): a review sent to a new agent runs there. */
+  /** The workspace's host: a review sent to a new agent runs there. */
   hostId?: string;
   /** Scroll a comment back into view. Owned by the pane that renders it. */
   onJumpToComment: (comment: DraftComment) => void;
@@ -39,7 +39,7 @@ function basename(filePath: string): string {
 /**
  * The floating submit control for a review in progress.
  *
- * Batching is the whole point (ADR-172): one interrupt per review rather than
+ * Batching is the whole point: one interrupt per review rather than
  * one per remark. So the bar only appears once there is something to send, and
  * the split button's body carries the default destination — the most recently
  * updated agent already running in this workspace — so the common case is one

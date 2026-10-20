@@ -21,7 +21,7 @@ type UseImageAttachOptions = {
 };
 
 /**
- * A phone composer's images (ADR-239 D4): pasted or picked in the browser,
+ * A phone composer's images: pasted or picked in the browser,
  * each is uploaded and its path typed at the caret it was added at.
  */
 export function useImageAttach(opts: UseImageAttachOptions) {

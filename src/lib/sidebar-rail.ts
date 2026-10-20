@@ -1,4 +1,4 @@
-// Pure helpers for the collapsed sidebar rail (ADR-195).
+// Pure helpers for the collapsed sidebar rail.
 
 import type { ProjectInfo, WorkspaceInfo } from "../store/project-store";
 import { selectHost } from "../store/host-store";

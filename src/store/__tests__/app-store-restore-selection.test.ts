@@ -11,7 +11,7 @@ import {
   settled,
 } from "./fake-layout-server";
 
-// The selection is viewport (ADR-179 D3): a workspace can arrive from the
+// The selection is viewport: a workspace can arrive from the
 // server with no viewport of this renderer's and a default viewport naming
 // nothing. Restoring it without a selection used to leave `addTab` with no
 // panel to target, so every "new terminal" action silently did nothing.
@@ -57,7 +57,7 @@ describe("restoring a workspace with no selection to restore", () => {
 
     const created = useAppStore.getState().addTab();
     expect(created).not.toBeNull();
-    // The tab arrives with the server's broadcast (ADR-182 D9).
+    // The tab arrives with the server's broadcast.
     await settled();
     const after = useAppStore.getState();
     expect(after.workspaceLayouts[WS_PATH].panels["panel-1"].tabs).toHaveLength(2);

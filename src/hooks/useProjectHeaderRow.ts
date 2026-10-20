@@ -4,9 +4,9 @@ import { openContextMenuFromKeyboard } from "../lib/keyboard-context-menu";
 
 /**
  * The behavior a collapsible project-style header row shares — a project's
- * and a linked group's (ADR-192): Enter/Space and ←/→ toggle it, the menu
+ * and a linked group's: Enter/Space and ←/→ toggle it, the menu
  * key opens its context menu, and a menu opened from the keyboard hands
- * focus back to the row as it closes (ADR-175). A mouse-opened menu keeps
+ * focus back to the row as it closes. A mouse-opened menu keeps
  * Radix's own default.
  */
 export function useProjectHeaderRow(collapsed: boolean, onToggleCollapsed: () => void) {

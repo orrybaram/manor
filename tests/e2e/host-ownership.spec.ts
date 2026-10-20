@@ -26,7 +26,7 @@ import { CONNECT_TIMEOUT, STEP, hostStatus, retryHost } from "./helpers/remote-p
 import { closeSettings, pairHostPhone } from "./helpers/settings";
 
 /**
- * The host owns its host (ADR-227), end to end.
+ * The host owns its host, end to end.
  *
  * A desktop that predates ownership holds a remote project (a named main
  * workspace and worktree, a folder, a linked issue, a setup script) in its own

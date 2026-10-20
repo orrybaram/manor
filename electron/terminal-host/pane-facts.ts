@@ -1,5 +1,5 @@
 /**
- * Pane facts extractor (ADR-184 §3) — the daemon's one source of Status
+ * Pane facts extractor — the daemon's one source of Status
  * signals for a session.
  *
  * Terminal bytes, the window title and the foreground process go in; a
@@ -234,7 +234,7 @@ export interface PaneFactsExtractorOptions {
 }
 
 /**
- * One session's Pane facts (ADR-184 §3).
+ * One session's Pane facts.
  *
  * Emission rules:
  * - **Foreground**: every change of the foreground process (name or kind)

@@ -12,7 +12,7 @@
  *
  * Run directly by Node, which strips the types. `--order=pty-first` models
  * manor's ordering instead: the ioctl lands, and the grid follows at the
- * marker the daemon publishes (ADR-164).
+ * marker the daemon publishes.
  */
 
 import { execFileSync } from "child_process";

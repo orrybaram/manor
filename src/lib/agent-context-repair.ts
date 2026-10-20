@@ -62,7 +62,7 @@ export function orphanedAgentContexts(
     if (paneIds.length === 0) continue;
 
     const { path } = parseWorkspaceKey(key);
-    // Orphaned Home agents (Home is the tab-less Dashboard, ADR-197) have no
+    // Orphaned Home agents (Home is the tab-less Dashboard) have no
     // owning project, so they get no context.
     if (isHomePath(path)) continue;
     const project = ownerOf(projects, key);

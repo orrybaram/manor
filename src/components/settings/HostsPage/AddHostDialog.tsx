@@ -45,7 +45,7 @@ type AddHostDialogProps = {
 };
 
 /**
- * "Add a host…" (ADR-233 D4): where the host is, then connecting to it over
+ * "Add a host…": where the host is, then connecting to it over
  * ssh or starting it from a template or recipe, then its device access —
  * the same groups its row shows, live as it connects. Closing it, however, opens its row.
  */
@@ -254,8 +254,8 @@ type NewHostGroupsProps = {
 };
 
 /**
- * The groups from the host's row (ADR-233 D1), with their own action state.
- * A new ssh host gets its pairing keys encrypted here, unasked (ADR-236 D6).
+ * The groups from the host's row, with their own action state.
+ * A new ssh host gets its pairing keys encrypted here, unasked.
  */
 function NewHostGroups(props: NewHostGroupsProps) {
   const { host, name } = props;

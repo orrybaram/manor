@@ -6,8 +6,7 @@ import { HostGroupChips } from "./HostGroupChips";
 import { activeWorkspaceHost } from "./active-workspace-host";
 
 /**
- * Persistent connection indicator for the active workspace (ADR-160 ticket
- * 11 §2/§3).
+ * Persistent connection indicator for the active workspace.
  *
  * Mirrors `RemoteExposureIndicator`: nothing at all when the active
  * workspace lives on this machine, so it costs nothing in the (still
@@ -17,9 +16,9 @@ import { activeWorkspaceHost } from "./active-workspace-host";
  * owning project's Host settings.
  *
  * It follows the active workspace's own host (`activeWorkspaceHostId`), so
- * in a linked group (ADR-192) it names the host the user opened it on.
+ * in a linked group it names the host the user opened it on.
  *
- * Hosts made from a profile also get one chip per profile (ADR-235 D7).
+ * Hosts made from a profile also get one chip per profile.
  */
 export function HostStatusIndicator() {
   const app = useAppStore(

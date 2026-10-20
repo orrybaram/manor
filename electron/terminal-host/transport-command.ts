@@ -1,7 +1,7 @@
 /**
  * CommandTransport — reaches a terminal-host daemon on a box with no sshd,
- * through any command that runs a process there with stdio attached
- * (ADR-229 D3): `kubectl exec -i … --`, `docker exec -i <name>`.
+ * through any command that runs a process there with stdio attached:
+ * `kubectl exec -i … --`, `docker exec -i <name>`.
  *
  * Built from that command as an argv prefix. Every child is
  * `[...argv, "sh", "-c", snippet]`, where `snippet` is the same POSIX sh
@@ -154,7 +154,7 @@ export class CommandTransport implements HostTransport {
   }
 
   /**
-   * Open the owner channel to the box's host server (ADR-225 D4) as
+   * Open the owner channel to the box's host server as
    * `SshTransport.openServerBridge` does: `manor-host server-bridge` in its
    * own exec child, read past the server's hello reply.
    */
@@ -168,7 +168,7 @@ export class CommandTransport implements HostTransport {
   }
 
   /**
-   * Open a desktop window's viewer stream (ADR-228 D4) as
+   * Open a desktop window's viewer stream as
    * `SshTransport.openViewerBridge` does: the server's hello reply kept as
    * the stream's first line.
    */

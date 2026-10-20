@@ -1,5 +1,5 @@
 /**
- * The handler table's window-free half (ADR-227 D1): every method a Manor
+ * The handler table's window-free half: every method a Manor
  * server can answer wherever it runs, typed over `ServerDeps`.
  *
  * `./handlers.ts` joins this with the desktop-only methods into

@@ -23,7 +23,7 @@ import { manorDataDir } from "./paths";
  *                 relay reassigns the pane to a new agent session.
  *
  * Note: `agentSessionId` and `paneId` live in *different namespaces* and are
- * never interchangeable. Mixing them up is the bug fixed by ADR-133.
+ * never interchangeable. Mixing them up was a real bug.
  *
  * Lookup tables:
  * - this.agents    — Map<agentSessionId, AgentInfo>  (primary store, persisted)
@@ -44,10 +44,10 @@ export interface AgentInfo {
   projectId: string | null;
   projectName: string | null;
   /**
-   * The host the agent's terminal runs on (ADR-191 §5): the pane's session
+   * The host the agent's terminal runs on: the pane's session
    * owner when the agent was created, kept in step if the pane moves. A
-   * record saved without one predates ADR-191, when an agent could only run
-   * on its project's host, so on load it takes its project's host.
+   * record saved without one dates from when an agent could only run on
+   * its project's host, so on load it takes its project's host.
    */
   hostId: HostId;
   workspacePath: string | null;
@@ -59,7 +59,7 @@ export interface AgentInfo {
   /** ISO timestamp set when auto-resume fires for this agent, to prevent double-launch */
   resumedAt: string | null;
   /**
-   * Path of the agent session's JSONL transcript (ADR-215), from the latest
+   * Path of the agent session's JSONL transcript, from the latest
    * hook that supplied one. Null until a hook does, and for records saved
    * before it existed.
    */
@@ -83,8 +83,8 @@ export type ProjectHostLookup = (projectId: string | null) => HostId;
 export type PaneHostLookup = (paneId: string) => HostId | undefined;
 
 /**
- * The host an agent's terminal runs on (ADR-191 §5): its pane's session
- * owner, so an agent whose pane moved host (ADR-183) follows it. A pane no
+ * The host an agent's terminal runs on: its pane's session
+ * owner, so an agent whose pane moved host follows it. A pane no
  * host has claimed yet (after a restart, before its host reconnects) falls
  * back to the host recorded on the agent.
  */
@@ -180,7 +180,7 @@ export class AgentManager {
           delete migrated.claudeSessionId;
           this.migrationPerformed = true;
         }
-        // ADR-191 §5: a record with no host predates host-qualified
+        // A record with no host predates host-qualified
         // identity, when an agent could only run on its project's host.
         // Written back at once, so it migrates once: a later host move of
         // the project must not re-derive it.
@@ -188,7 +188,7 @@ export class AgentManager {
           migrated.hostId = this.hostOfProject(migrated.projectId);
           this.migrationPerformed = true;
         }
-        // ADR-215: a record saved before transcript capture has none yet.
+        // A record saved before transcript capture has none yet.
         if (migrated.transcriptPath === undefined) migrated.transcriptPath = null;
         map.set(migrated.agentSessionId, migrated);
         idIndex.set(migrated.id, migrated.agentSessionId);
@@ -221,7 +221,7 @@ export class AgentManager {
    * Writes the current state to disk synchronously, cancelling any pending
    * debounced save. Used after a one-shot migration so the rewritten file is
    * on disk before the process can crash or be killed, and by the host
-   * server (ADR-225) before it records how far into the hook journal it has
+   * server before it records how far into the hook journal it has
    * read, so that cursor never runs ahead of the agents it produced.
    */
   flushNow(): void {
@@ -356,8 +356,7 @@ export class AgentManager {
   }
 
   /**
-   * On a host server: take in the desktop's agents for this host (ADR-227
-   * D3). The host wins: an agent it already has — by `id`, or by agent
+   * On a host server: take in the desktop's agents for this host. The host wins: an agent it already has — by `id`, or by agent
    * session, since its own hook feed may have made one for the same session
    * — keeps its record, and only the rest are added. Written at once.
    * Returns the agents added.
@@ -377,7 +376,7 @@ export class AgentManager {
 
   /**
    * Forget `ids` at once, written through: their host's server has adopted
-   * them (ADR-227 D3). Returns how many were removed.
+   * them. Returns how many were removed.
    */
   removeAgents(ids: readonly string[]): number {
     let removed = 0;

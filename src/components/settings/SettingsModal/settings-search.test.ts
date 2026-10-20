@@ -36,7 +36,7 @@ describe("buildSettingsIndex", () => {
     );
   });
 
-  it("indexes no per-host pages (ADR-237 D1)", () => {
+  it("indexes no per-host pages", () => {
     expect(
       index.some((e) => e.page.type === "project" && e.page.projectId !== "p1"),
     ).toBe(false);

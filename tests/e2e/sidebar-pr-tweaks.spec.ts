@@ -444,7 +444,7 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
 });
 
 /**
- * ADR-175: the PR badge works from the keyboard. Tab from the workspace row
+ * The PR badge works from the keyboard. Tab from the workspace row
  * reaches the badge, focus opens the popover, and Escape closes it with focus
  * back on the badge. After setup every interaction is a key press.
  */

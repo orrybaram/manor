@@ -5,12 +5,12 @@ import { liveValue } from "../bridge/resync";
 import { ipcErrorMessage } from "../lib/ipc-error";
 
 /**
- * Renderer cache of main's notification log (ADR-162 §5).
+ * Renderer cache of main's notification log.
  *
  * Main owns the list. Every mutation here is an IPC call whose effect arrives
  * back through the `notifications:changed` broadcast — the renderer never
- * mutates its copy speculatively, the same ownership split ADR-136 uses for
- * the unseen sets.
+ * mutates its copy speculatively, the same ownership split the agent store
+ * uses for the unseen sets.
  */
 interface NotificationState {
   /** Newest first, exactly as main sends it. */
@@ -20,7 +20,7 @@ interface NotificationState {
   /** Derived from `notifications` on every set; never independent state. */
   unreadCount: number;
   /**
-   * Why the last read of the log failed, until one succeeds (ADR-232 D7).
+   * Why the last read of the log failed, until one succeeds.
    * The list keeps what it had; the popover says so instead of "Nothing
    * here yet." when it has nothing.
    */
@@ -74,7 +74,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
   }
 
   // A native banner was clicked. Same destination resolution as an in-app row
-  // — one click path for both (ADR-162 §4).
+  // — one click path for both.
   api?.onNavigate(async (id) => {
     let record = get().notifications.find((n) => n.id === id) ?? null;
     if (!record) {

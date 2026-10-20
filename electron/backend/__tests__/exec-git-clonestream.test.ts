@@ -76,7 +76,7 @@ describe("ExecGitBackend.cloneStream", () => {
     const [cmd, args] = fake.streamMock.mock.calls[0];
     expect(cmd).toBe("git");
     // `--` keeps a repo URL that starts with `-` from being misread as a
-    // git option (ADR-178 ticket 5 review).
+    // git option.
     expect(args).toEqual([
       "clone",
       "--progress",

@@ -21,7 +21,7 @@ function diffBlocks(added: number, removed: number): { added: number; removed: n
 }
 
 /**
- * A Needs you card's mono inset (ADR-198 §2): what the card is about, in
+ * A Needs you card's mono inset: what the card is about, in
  * enough detail to act on without opening the workspace first.
  */
 export function CardContext(props: CardContextProps) {

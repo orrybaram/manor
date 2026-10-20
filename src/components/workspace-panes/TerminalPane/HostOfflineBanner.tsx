@@ -10,7 +10,7 @@ type HostOfflineBannerProps = {
 };
 
 /**
- * Covers a terminal whose remote host is away (ADR-178 §6). The terminal
+ * Covers a terminal whose remote host is away. The terminal
  * underneath keeps its last screen and ignores input until the host is back
  * (`isHostOffline`). Renders nothing for a local pane.
  */

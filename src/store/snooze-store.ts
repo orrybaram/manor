@@ -4,7 +4,7 @@ import { create } from "zustand";
 const SNOOZE_STORAGE_KEY = "manor.home.snoozes";
 
 /**
- * Snoozed Needs you cards (ADR-198 §4): item key → epoch ms the snooze ends.
+ * Snoozed Needs you cards: item key → epoch ms the snooze ends.
  * Invariant: `until` holds only unexpired entries. The store drops each one
  * when it lapses (see `scheduleExpiry`), so a component reading `until`
  * never needs its own clock.

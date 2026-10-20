@@ -1,5 +1,5 @@
 /**
- * ADR-202 §2: every task tracker, by provider. Callers look the adapter up
+ * Every task tracker, by provider. Callers look the adapter up
  * here instead of branching on `"github" | "linear"`.
  */
 

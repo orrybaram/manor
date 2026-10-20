@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-222 D5: the phone new-agent composer's target chips. The host chip
+ * The phone new-agent composer's target chips. The host chip
  * shows only for a project linked across hosts, picking a chip choice moves
  * the target, and the worktree toggle rewrites the greeting.
  */

@@ -1,5 +1,5 @@
 /**
- * Each server's last merged answers, kept across reloads (ADR-228 D6).
+ * Each server's last merged answers, kept across reloads.
  *
  * The router (`./router.ts`) keeps every server's last answer to each merged
  * read in memory, and answers with it while that server is away. On the

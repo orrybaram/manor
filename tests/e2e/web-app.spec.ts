@@ -30,10 +30,10 @@ import {
 import { closeRendererWindows } from "./helpers/window";
 
 /**
- * ADR-178 slice 1 end to end: a browser on a PC opens the web app, pairs,
- * shows the sidebar and a live terminal for an existing session, and can type
- * into it — the tracer bullet D10 names, proven through a local relay
- * (`helpers/relay-fixture.ts`, ADR-207 D3), the real relay web build
+ * The web app end to end: a browser on a PC opens the web app, pairs, shows
+ * the sidebar and a live terminal for an existing session, and can type into
+ * it — the tracer bullet, proven through a local relay
+ * (`helpers/relay-fixture.ts`), the real relay web build
  * (`dist-relay-web/`) and the real daemon.
  *
  * Same discipline as the shared e2e helpers: nothing here reaches inside the
@@ -137,8 +137,8 @@ interface OwnerEventBag {
  *
  * Subscribed through `window.electronAPI` — the same call `TerminalPane` makes
  * — because the frame *is* the assertion here: a viewer that becomes the owner
- * without making a call of its own can only have learned it this way
- * (ADR-179 D6, ADR-180 D6). Watching the follower badge instead would also
+ * without making a call of its own can only have learned it this way.
+ * Watching the follower badge instead would also
  * pass for a pane that simply went away.
  */
 async function recordWinsizeOwner(page: Page, paneId: string): Promise<void> {
@@ -236,7 +236,7 @@ async function visiblePaneIds(page: Page): Promise<string[]> {
  * Open the command palette and run the command labelled `label`.
  *
  * The same route `command-palette-frequent.spec.ts` drives: this is the
- * affordance ADR-179 D7 claims a browser has for structural commands
+ * affordance a browser has for structural commands
  * (split, close, …) that have no dedicated keybinding pressed here.
  */
 async function runPaletteCommand(page: Page, label: string): Promise<void> {
@@ -250,7 +250,7 @@ async function runPaletteCommand(page: Page, label: string): Promise<void> {
   await expect(input).not.toBeVisible();
 }
 
-test.describe("web app (ADR-178 slice 1)", () => {
+test.describe("web app", () => {
   test.setTimeout(240_000);
 
   test("a PC browser pairs, sees the sidebar, and drives a live terminal without moving the winsize or leaving a keystroke trail", { tag: "@smoke" }, async ({
@@ -299,8 +299,8 @@ test.describe("web app (ADR-178 slice 1)", () => {
       ).toBeVisible({ timeout: 10_000 });
       await film.shot(client.page, "browser-sidebar");
 
-      // 2. A live terminal, driven from the browser. Layout is read-shared
-      // (D6 is slice 2, but reads already are), so the browser boots onto the
+      // 2. A live terminal, driven from the browser. Layout is read-shared,
+      // so the browser boots onto the
       // exact pane the desktop has open — not a pane of its own.
       const browserPaneId = await activePaneId(client.page);
       expect(browserPaneId).toBe(desktopPaneId);
@@ -379,7 +379,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
   });
 
   /**
-   * ADR-179 D6: with no desktop viewer left, the most recently attached
+   * With no desktop viewer left, the most recently attached
    * bridge viewer owns the pane's winsize, and it hears so live rather than
    * on its next `pty.create`.
    *
@@ -416,7 +416,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
       const browserPaneId = await activePaneId(client.page);
       expect(browserPaneId).toBe(desktopPaneId);
 
-      // The desktop owns the winsize while it has the pane mounted (D5): the
+      // The desktop owns the winsize while it has the pane mounted: the
       // browser follows, and says so.
       await expect(
         client.page.getByTestId("terminal-follower"),
@@ -449,9 +449,8 @@ test.describe("web app (ADR-178 slice 1)", () => {
   /**
    * The same hand-off with the pane still on screen: the desk goes away, the
    * browser keeps looking, and it is told — by a `pty.winsizeOwner` frame,
-   * not by a call of its own — that the grid is its to drive now (ADR-179 D6,
-   * reached from the desktop side since ADR-180 D6 made a window an ordinary
-   * connection).
+   * not by a call of its own — that the grid is its to drive now (reached
+   * from the desktop side too, now that a window is an ordinary connection).
    *
    * Sits beside the test above rather than inside it because the two let go
    * differently, and only this one leaves the browser anything to inherit.
@@ -461,8 +460,8 @@ test.describe("web app (ADR-178 slice 1)", () => {
    * viewer: the layout is the server's and the session is the daemon's, so
    * the pane stays in the browser, its owner's connection is released
    * (`releaseViewer`, `app-lifecycle.ts`), and ownership has somewhere to go.
-   * It is also the sentence ADR-178 starts from — the desk is closed, and
-   * the browser is still a terminal.
+   * It is also the sentence the web app starts from — the desk is closed,
+   * and the browser is still a terminal.
    *
    * Then the claim is cashed: the browser's viewport is widened, and the
    * daemon's grid follows it. Before the hand-off the same kind of change
@@ -528,7 +527,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
         )
         .not.toBe(deskCols);
       // The daemon's grid and the browser's agree, and it is the browser's
-      // measurement that got there: the grid moves from the stream (ADR-164),
+      // measurement that got there: the grid moves from the stream,
       // so the two settle together a beat after the resize lands. Both
       // numbers are in the polled value so a failure shows the disagreement.
       await expect
@@ -555,12 +554,12 @@ test.describe("web app (ADR-178 slice 1)", () => {
   });
 
   /**
-   * ADR-179 D7 end to end: a browser's split, new tab, close and reopen are
+   * End to end: a browser's split, new tab, close and reopen are
    * ordinary layout commands, not a local-only fiction. Every assertion below
    * is made against the desktop window or the daemon's own scrollback file —
    * nothing is taken on the browser's word alone.
    *
-   * Also pins D3's "tab set shared, selection local": a `layout.changed`
+   * Also pins "tab set shared, selection local": a `layout.changed`
    * broadcast never moves a renderer off the tab it was looking at, so a
    * browser arranging its own tab does not drag the desk along with it.
    */
@@ -603,7 +602,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
       await film.shot(window, "d7-desktop-after-browser-split");
       await film.shot(client.page, "d7-browser-after-split");
 
-      // 3. The ADR-178 "layout changes aren't saved" refusal is gone — it
+      // 3. The old "layout changes aren't saved" refusal is gone — it
       // never toasts, on this split or anything after it.
       await expect(
         client.page.getByText("Layout changes aren't saved", { exact: false }),
@@ -620,7 +619,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
       await film.shot(client.page, "d7-browser-after-desktop-close");
 
       // 4. Selection is local: the tab set is shared, but which tab each
-      // renderer is looking at is each renderer's own business (D3).
+      // renderer is looking at is each renderer's own business.
       await window.keyboard.press("ControlOrMeta+t");
       await expect.poll(() => tabs(window).count(), { timeout: 15_000 }).toBe(2);
       const tab2Id = (
@@ -722,10 +721,10 @@ test.describe("web app (ADR-178 slice 1)", () => {
   });
 
   /**
-   * ADR-180 D4: `LOCAL_ONLY` is a decision in the table, and a `full` device
+   * `LOCAL_ONLY` is a decision in the table, and a `full` device
    * meets it.
    *
-   * After D2/D3 the handler table is the whole allowlist — anything in a page
+   * The handler table is the whole allowlist — anything in a page
    * can call `invoke(ns, method, …)` — so the one thing standing between a
    * paired browser and pairing *more* browsers is this set. The reason it
    * matters more than any other refusal is `handlers.ts`'s: a stolen `full`
@@ -791,7 +790,7 @@ test.describe("web app (ADR-178 slice 1)", () => {
   });
 
   /**
-   * ADR-239: a browser has no filesystem path for a clipboard image, so the
+   * A browser has no filesystem path for a clipboard image, so the
    * bytes are uploaded over the bridge in chunks and the desk writes them to
    * ~/.manor/pasted-images; the path is what gets pasted. The 1.5 MiB case
    * proves the chunks fit under the 1 MiB frame cap (an oversize frame would

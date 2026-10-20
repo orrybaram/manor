@@ -28,7 +28,7 @@ type ProjectTileProps = {
 };
 
 /**
- * One project's tile (ADR-198 §1.8): name and host status, a block per
+ * One project's tile: name and host status, a block per
  * workspace coloured by state, and a diff / port footer. The tile is a
  * `role="button"` div because its blocks are real buttons and can't nest.
  */

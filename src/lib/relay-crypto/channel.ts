@@ -1,5 +1,5 @@
 /**
- * A Noise transport session over a finished NK handshake (ADR-206 D2).
+ * A Noise transport session over a finished NK handshake.
  *
  * Every bridge frame becomes one or more Noise transport messages. Any
  * failure — authentication, ordering, limits, malformed chunk — poisons the
@@ -185,7 +185,7 @@ export class SecureChannel {
 }
 
 /**
- * The batch: how sealed chunks ride in one relay message (ADR-206 D5).
+ * The batch: how sealed chunks ride in one relay message.
  *
  * The relay bills and rate-limits per message, and PTY output is many small
  * frames, so the desktop coalesces the transport messages it has sealed for

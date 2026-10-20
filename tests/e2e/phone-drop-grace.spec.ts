@@ -6,7 +6,7 @@ import { relayTest as test } from "./helpers/relay-fixture";
 import { closeSettings, pairBrowser } from "./helpers/settings";
 
 /**
- * ADR-230 D5 end to end: a phone whose connection drops is not "unreachable"
+ * The drop grace period end to end: a phone whose connection drops is not "unreachable"
  * until the drop has outlasted a grace period (`DROP_GRACE_MS`, 4 s). A blip
  * the redial heals never shows the overlay; a real outage shows it and fails
  * pending calls fast instead of hanging; and it goes away on its own when the
@@ -97,7 +97,7 @@ test("a phone's dropped connection shows unreachable only after the grace, fails
     // on the backoff (1 s, 2 s, 4 s, 8 s...): about 2 s here, never more than
     // the 8 s step. (The ticket's 2 s bound is the typical case, not a
     // guarantee.) It may reject or, for a merged read like this one, resolve
-    // with the router's last-known answer (ADR-228 D6): either is "settled".
+    // with the router's last-known answer: either is "settled".
     const during = await timedCall(page, 12_000);
     console.log(`call during outage: ${during.outcome} in ${during.ms} ms`);
     expect(during.outcome).not.toBe("hung");

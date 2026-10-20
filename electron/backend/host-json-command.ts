@@ -1,7 +1,6 @@
 /**
  * Running a `manor-host <command> --json` on a host through its transport's
- * `exec` (ssh, or a recipe's exec prefix), the protocol `supervisor` (ADR-229
- * D4) and `secrets` (ADR-236 D1) share: one JSON line on stdout,
+ * `exec` (ssh, or a recipe's exec prefix), the protocol `supervisor` and `secrets` share: one JSON line on stdout,
  * `{"<resultKey>": …}` on success or `{"error": "…"}` with a non-zero exit.
  */
 

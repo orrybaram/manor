@@ -10,13 +10,13 @@ import { useStatsStore } from "../store/stats-store";
 /**
  * Resolve a notification to wherever it points. The single destination for
  * both a clicked native banner and a clicked row in the notifications
- * popover (ADR-162 §4) — two implementations of this is exactly the drift
+ * popover — two implementations of this is exactly the drift
  * this consolidates.
  */
 export async function navigateToNotification(
   record: NotificationRecord,
 ): Promise<void> {
-  // A failed mark-read must not strand the click (ADR-232 D7): go anyway.
+  // A failed mark-read must not strand the click: go anyway.
   if (!record.read) {
     await useNotificationStore
       .getState()

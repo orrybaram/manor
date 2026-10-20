@@ -1,5 +1,5 @@
 /**
- * The layout wire, as both ends of it read it (ADR-179 D1/D3, ADR-182 D4).
+ * The layout wire, as both ends of it read it.
  *
  * The Manor server (`electron/layout/layout-store.ts`) writes these and every
  * renderer reads them, over IPC or a socket; the layout file
@@ -16,8 +16,7 @@ import type { LayoutClaim } from "./visible-tabs";
 import type { WorkspaceLayout } from "./workspace-layout";
 
 /**
- * A pane's last Agent status, as the Status reconciler published it (ADR-184
- * §4) — the renderer's `PaneAgentStatus`. Older files hold an earlier shape;
+ * A pane's last Agent status, as the Status reconciler published it — the renderer's `PaneAgentStatus`. Older files hold an earlier shape;
  * a renderer only ever reads `status` and `kind` back out of it.
  */
 export interface PersistedAgentState {
@@ -27,7 +26,7 @@ export interface PersistedAgentState {
 }
 
 /**
- * What the server knows about one pane's session (ADR-179 D3).
+ * What the server knows about one pane's session.
  *
  * Server-derived from the PTY stream and the Status reconciler, never
  * reported by a renderer. It rides
@@ -43,14 +42,14 @@ export interface PersistedPaneSession {
 }
 
 /**
- * What one renderer is looking at (ADR-179 D3). The layout file keeps one per
+ * What one renderer is looking at. The layout file keeps one per
  * workspace — the default viewport, handed to a renderer that has none.
  */
 export type PersistedDefaultViewport = WorkspaceViewport;
 
 /**
  * One renderer's viewport file: `~/.manor/viewport.json` for the desktop's
- * primary window, `localStorage` for a browser tab (ADR-179 D3).
+ * primary window, `localStorage` for a browser tab.
  *
  * Per renderer, deliberately — two windows of one host reopen on the tabs
  * each of them had, not on the tabs the last command happened to touch.
@@ -69,7 +68,7 @@ export interface LayoutEntry {
   defaultViewport: PersistedDefaultViewport;
   /** Server-derived; a restoring renderer reattaches sessions from it. */
   paneSessions: Record<string, PersistedPaneSession>;
-  /** Tabs held by a detached window right now (ADR-179 D4). Never persisted. */
+  /** Tabs held by a detached window right now. Never persisted. */
   claims: LayoutClaim[];
 }
 
@@ -79,9 +78,9 @@ export interface LayoutEntry {
  * `window` is a renderer on this machine, `bridge` a paired device, `route`
  * the CLI, MCP or the server itself; the id is the connection id a renderer
  * is told as its `rendererId`. A command's origin is recorded rather than
- * acted on: the sender gets the same broadcast as everybody else (D1). A
+ * acted on: the sender gets the same broadcast as everybody else. A
  * viewport report's origin is load bearing, because only a `window` can hold
- * a claim, and `id` is the window main is asked about (D4).
+ * a claim, and `id` is the window main is asked about.
  */
 export interface LayoutOrigin {
   kind: "window" | "bridge" | "route";
@@ -97,7 +96,7 @@ export interface LayoutBroadcast {
   version: number;
   layout: WorkspaceLayout;
   /**
-   * Who is holding which tab of this workspace in a window of its own (D4).
+   * Who is holding which tab of this workspace in a window of its own.
    *
    * Travels on *every* broadcast, and a change to it is a broadcast in its own
    * right — at the same version, because a claim is not structure. A renderer
@@ -105,12 +104,12 @@ export interface LayoutBroadcast {
    */
   claims: LayoutClaim[];
   /**
-   * Who sent the command this broadcast is the result of (D3). A renderer
+   * Who sent the command this broadcast is the result of. A renderer
    * applies `hint` only when `origin.id` is its own `rendererId`; everybody
    * else keeps looking where they were looking.
    */
   origin: LayoutOrigin;
-  /** What the command implies about the *sender's* selection (D3). */
+  /** What the command implies about the *sender's* selection. */
   hint?: LayoutHint;
   /**
    * What the server knows about the panes a `reopen-closed-pane` just put
@@ -122,7 +121,7 @@ export interface LayoutBroadcast {
   restored?: Record<string, PersistedPaneSession>;
   /**
    * The workspace is gone — its worktree was removed and the server has
-   * already ended its panes (ADR-182 D7). `layout` and `version` are the last
+   * already ended its panes. `layout` and `version` are the last
    * ones it had; a renderer drops its copy rather than adopting them.
    */
   removed?: true;
@@ -145,7 +144,7 @@ export type LayoutApplyResult =
   | { error: string };
 
 /**
- * A pane's title, off the command channel (ADR-182 D1).
+ * A pane's title, off the command channel.
  *
  * `title: null` clears it. A renderer feeds this straight into
  * `setPaneTitleFromStream` — the same sink an OSC title write already uses —

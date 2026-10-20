@@ -25,7 +25,7 @@ function setup() {
   };
 }
 
-describe("agentKindForProcess (ADR-184)", () => {
+describe("agentKindForProcess", () => {
   it("maps every known agent CLI, including pi", () => {
     expect(agentKindForProcess("claude")).toBe("claude");
     expect(agentKindForProcess("codex")).toBe("codex");
@@ -52,7 +52,7 @@ describe("agentKindForProcess (ADR-184)", () => {
   });
 });
 
-describe("PaneFactsExtractor (ADR-184)", () => {
+describe("PaneFactsExtractor", () => {
   it("starts empty and emits nothing", () => {
     const { extractor, emitted } = setup();
     expect(extractor.facts).toEqual({ foreground: null, title: null, outputHint: null });
@@ -213,7 +213,7 @@ describe("PaneFactsExtractor (ADR-184)", () => {
   });
 });
 
-// ── OutputPatternMatcher (ported from output-pattern-matcher.test.ts, ADR-184 ticket 4) ──
+// ── OutputPatternMatcher (ported from output-pattern-matcher.test.ts) ──
 
 describe("OutputPatternMatcher", () => {
   let matcher: OutputPatternMatcher;
@@ -432,7 +432,7 @@ describe("OutputPatternMatcher", () => {
   });
 });
 
-describe("stripAnsi (ADR-184 ticket 4)", () => {
+describe("stripAnsi", () => {
   it("removes color codes", () => {
     expect(stripAnsi("\x1b[31mred\x1b[0m")).toBe("red");
   });

@@ -1,5 +1,5 @@
 /**
- * One viewer on the relay (ADR-206 D2, D5): a Noise NK responder, and then —
+ * One viewer on the relay: a Noise NK responder, and then —
  * once the handshake is done — a `FrameSocket` the bridge's hello gate runs
  * over exactly as it runs over a local WebSocket.
  *

@@ -2,7 +2,7 @@ import { useCallback } from "react";
 import { useProjectStore, type ProjectInfo, type WorkspaceInfo } from "../../../store/project-store";
 
 /**
- * "Open workspace" for every dashboard section (ADR-198 §4): select
+ * "Open workspace" for every dashboard section: select
  * `workspace`'s project, then the workspace itself, by index in the live
  * store. A project or workspace that has since gone away is a no-op, and
  * the callback returns false so a follow-up (opening its diff) can skip.

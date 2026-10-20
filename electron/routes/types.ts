@@ -11,8 +11,7 @@
 import type { HostDeps, SharedDeps } from "../ipc/types";
 
 /**
- * A route runs over the same non-null deps a bridge handler does (ADR-182
- * D8): `app-lifecycle.ts` builds one `HostDeps` and hands it to both, so a
+ * A route runs over the same non-null deps a bridge handler does: `app-lifecycle.ts` builds one `HostDeps` and hands it to both, so a
  * route can call a bridge handler with `localCtx(deps)` instead of keeping
  * its own copy of what that handler does.
  */
@@ -22,7 +21,7 @@ export type { HostDeps };
 export type RouteDeps = HostDeps;
 
 /**
- * What a route every Manor server answers runs over (ADR-227 D8): the
+ * What a route every Manor server answers runs over: the
  * window-free deps `createManorServer` builds on every platform, so the host
  * server dispatches the same routes for its box's `manor` CLI
  * (`./server-routes.ts`). `RouteDeps` has all of it.
@@ -38,7 +37,7 @@ export interface ConsoleEntry {
 
 /**
  * Pane→`WebContents` resolution and buffered console logs, owned by
- * `WebviewServer` (ADR-183). Structural, so `routes/` keeps no import edge
+ * `WebviewServer`. Structural, so `routes/` keeps no import edge
  * back to its host module.
  */
 export interface WebviewPaneAccess {

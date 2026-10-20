@@ -7,8 +7,7 @@
  * Entirely main-served — `agentManager` already lives in the main process, so
  * unlike the viewport routes there is no renderer round-trip here. `POST
  * /agents` joined them: it opens the tab through `LayoutStore` and queues the
- * launch line beside it, so an agent can be started with no window open
- * (ADR-179 ticket 11).
+ * launch line beside it, so an agent can be started with no window open.
  */
 
 import type { AgentInfo, AgentManager } from "../agent-persistence";
@@ -81,7 +80,7 @@ function toSummary(agent: AgentInfo): AgentSummary {
 export function resolveTarget(
   agentManager: AgentManager,
   target: string,
-  /** Adopted hosts' agents, on the desktop (ADR-227 D4). */
+  /** Adopted hosts' agents, on the desktop. */
   remote: readonly AgentInfo[] = [],
 ): AgentInfo | null {
   // 1. Stable agent id (what list_agents hands back).
@@ -233,7 +232,7 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
 
 /**
  * Open an agent tab in `workspacePath` and queue its launch line — entirely on
- * the server (ADR-179 ticket 11).
+ * the server.
  *
  * This used to be a correlated round-trip to a window (`start-agent` in
  * `src/lib/app-commands.ts`), for one reason: the launch line had to be seeded
@@ -243,22 +242,22 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
  * `manor start-agent` works with the desktop window closed like every other
  * structural command.
  *
- * Everything ADR-176 asked for still holds, and holds more simply: the target
+ * Every guarantee of the old round-trip still holds, and holds more simply: the target
  * is explicit (`workspacePath`, never "whatever is active"), and the answer
  * names the pane that was
  * actually created, so a caller can retry a launch that did not happen. What
  * is deliberately *not* reproduced is the renderer's sidebar selection: which
- * workspace a window is looking at is that window's viewport (D3), and a route
+ * workspace a window is looking at is that window's viewport, and a route
  * does not move it.
  *
- * The session starts on the server too (ADR-227 D5): the apply that adds
+ * The session starts on the server too: the apply that adds
  * the tab spawns its pane and types the launch line (`spawnPane`), so the
  * agent runs on a host no renderer is looking at. A renderer that mounts the
  * pane later attaches to it.
  *
  * The prompt is not baked into the line: it is queued beside the bare
  * harness command, raw, and the spawn delivers it through a file on the
- * pane's host (ADR-209) — a long prompt typed inline is cut at the tty's
+ * pane's host — a long prompt typed inline is cut at the tty's
  * canonical line limit. A blank prompt is no prompt.
  */
 export async function startAgentInWorkspace(
@@ -267,17 +266,16 @@ export async function startAgentInWorkspace(
   options: { prompt?: string; agentCommand?: string; hostId?: string } = {},
 ): Promise<StartAgentResult> {
   // A workspace on an adopted host is in its server's layout, which spawns
-  // the agent there (ADR-227 D4).
+  // the agent there.
   if (onAdoptedHost(deps, options.hostId)) {
     return startAgentOnHost(deps, options.hostId, workspacePath, options);
   }
   const store = deps.layoutStore;
-  // Rejected before anything is queued: the Dashboard hosts no panes
-  // (ADR-197 §1).
+  // Rejected before anything is queued: the Dashboard hosts no panes.
   if (isHomePath(workspacePath)) {
     return { ok: false, status: 400, error: "The Dashboard can't host panes" };
   }
-  // Layouts are keyed by host plus path (ADR-191).
+  // Layouts are keyed by host plus path.
   const key = workspaceKey(options.hostId ?? LOCAL_HOST_ID, workspacePath);
   // The renderer's `getAgentCommand` asks the same question of its stores.
   const base = resolveAgentCommand({
@@ -335,8 +333,8 @@ function agentPath(agent: AgentInfo, action?: string): string {
 
 /**
  * An agent write for one of an adopted host's agents: that host's server
- * holds the agent and answers through this same route, named by its id
- * (ADR-227 D4). True when it went.
+ * holds the agent and answers through this same route, named by its id.
+ * True when it went.
  */
 async function agentOnHost(
   deps: ServerRouteDeps,
@@ -376,7 +374,7 @@ export const agentRoutes: ServerRoute[] = [
         limit === undefined &&
         offset === undefined;
 
-      // Merged with the adopted hosts' agents (ADR-227 D4), as the bridge reads are.
+      // Merged with the adopted hosts' agents, as the bridge reads are.
       const ctx = localCtx(deps);
       const agents = noFilters
         ? agentsGetActive(ctx)
@@ -387,10 +385,10 @@ export const agentRoutes: ServerRoute[] = [
   },
 
   {
-    // Launch an agent pane in a workspace, server-side (ADR-179 ticket 11).
+    // Launch an agent pane in a workspace, server-side.
     // The answer is the outcome, not a dispatch: the `StartedAgent` names the
     // pane that now exists, so a caller can tell a launch that happened from
-    // one that did not and retry it (ADR-176).
+    // one that did not and retry it.
     method: "POST",
     path: "/agents",
     async handler({ deps, json, readBody }) {
@@ -403,7 +401,7 @@ export const agentRoutes: ServerRoute[] = [
       const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
       const agentCommand =
         typeof body.agentCommand === "string" ? body.agentCommand : undefined;
-      // The workspace's host: the same path can be on two (ADR-191).
+      // The workspace's host: the same path can be on two.
       const resolved = withWorkspaceHost(deps, {
         workspacePath,
         hostId: body.hostId,
@@ -512,7 +510,7 @@ export const agentRoutes: ServerRoute[] = [
       await deps.backend.pty.kill(paneId);
 
       // A `user` signal, as `createAgentService`
-      // (`../bridge/handlers/agents.ts`) sends (ADR-184): the Status
+      // (`../bridge/handlers/agents.ts`) sends: the Status
       // reconciler moves only an *active* session's record to 'abandoned' —
       // one that had already completed or errored keeps that outcome —
       // broadcasts it, and resets the pane's Agent status.

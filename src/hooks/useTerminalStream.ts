@@ -12,7 +12,7 @@
  * cover; see `outputAfterSnapshot`.
  *
  * **Subscribe first, create second, on every platform.** These subscriptions
- * are bridge frames now (ADR-180 ticket 5), on both transports: the effect
+ * are bridge frames now, on both transports: the effect
  * below runs before `useTerminalLifecycle`'s create effect — hooks run in the
  * order they are called, and this one is called first — so the host has this
  * viewer on the pane's subscriber list before `pty.create` reaches the table.
@@ -52,7 +52,7 @@ export function useTerminalStream(
   /**
    * What arrived before the terminal was taking writes, in order, or null once
    * it is. A resize sits in here alongside the output because its position
-   * among the chunks is what it means — see ADR-164.
+   * among the chunks is what it means.
    */
   const queuedRef = useRef<QueuedItem[] | null>([]);
   /**
@@ -96,7 +96,7 @@ export function useTerminalStream(
    * close the pane — unless it is being reset, whose old session's exit is
    * expected and whose terminal stays. Also what a resync's attach does when
    * it finds the session gone, having missed this exit while its connection
-   * was down (ADR-220).
+   * was down.
    */
   const sessionEnded = useCallback(
     (target: Terminal | null = termRef.current) => {
@@ -117,8 +117,8 @@ export function useTerminalStream(
       },
     );
 
-    // This is also how a *follower* learns the winsize owner moved the grid
-    // (ADR-178 D5): the same event, applied to the emulator the same way. The
+    // This is also how a *follower* learns the winsize owner moved the grid:
+    // the same event, applied to the emulator the same way. The
     // grid change it causes reaches `useFollowerFit`'s `term.onResize`, which
     // re-fits the font instead of measuring the pane and sending the size
     // back — sending it back would be a loop with a pty in it, and the pty is

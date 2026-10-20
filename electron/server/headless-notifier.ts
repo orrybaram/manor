@@ -1,5 +1,5 @@
 /**
- * A server's notifications with no screen (ADR-227 D1): the agent broadcast,
+ * A server's notifications with no screen: the agent broadcast,
  * the notification log's broadcast and its read marks. What a `ServerNotifier`
  * must do wherever it runs, and what the host server uses as it is.
  *
@@ -14,7 +14,7 @@ import type { ServerNotifier } from "../notifications";
 import type { BroadcastBus } from "../renderer-broadcast";
 
 export interface HeadlessNotifierOptions {
-  /** ADR-162's durable notification log. */
+  /** The durable notification log. */
   notificationStore: NotificationStore;
   unseen: UnseenAgents;
   /** Where broadcasts go: the server's bus. */

@@ -1,11 +1,11 @@
 /**
- * Effect applier for the Status reconciler (ADR-184).
+ * Effect applier for the Status reconciler.
  *
  * Walks the ordered `Effect`s one `reconcile()` call produced and performs the
  * side effects: Agent persistence, unseen flags, notifications, broadcasts and
  * the pane's published Agent status.
  *
- * Ported from ADR-139's `hook-relay-effects.ts` (deleted by ADR-184 ticket 4).
+ * Ported from the old hook relay's `hook-relay-effects.ts` (since deleted).
  * The mutation order inside each effect is load-bearing and is carried over
  * unchanged — see the per-transition order documented on
  * `AgentStatusTransition` in `./types.ts`:
@@ -36,7 +36,7 @@ export interface PaneContext {
   agentCommand: string | null;
 }
 
-/** What `PublishPaneStatus` sends on the `agent-status` channel (ADR-184 §4). */
+/** What `PublishPaneStatus` sends on the `agent-status` channel. */
 export interface PaneStatusUpdate {
   paneId: string;
   status: AgentStatus;
@@ -49,7 +49,7 @@ export interface EffectApplierDeps {
   getPaneContext: (paneId: string) => PaneContext | undefined;
   /**
    * The host that runs a pane's terminal: its session owner, if any host has
-   * claimed it (ADR-191 §5).
+   * claimed it.
    */
   getPaneHostId: PaneHostLookup;
   unseenRespondedAgents: Set<string>;
@@ -147,7 +147,7 @@ function applyCreateAgent(
   effect: Extract<Effect, { kind: "CreateAgent" }>,
   deps: EffectApplierDeps,
 ): void {
-  // ADR-142: retire any prior Agent that owned this pane. Nulling paneId alone
+  // Retire any prior Agent that owned this pane. Nulling paneId alone
   // leaves the old record `active`, which lingers as a duplicate in the
   // sidebar. Mark it completed, clear its unseen flags, and broadcast the
   // retirement so the renderer drops the stale row live.
@@ -173,7 +173,7 @@ function applyCreateAgent(
   let agent: AgentInfo | null = deps.agentManager.createAgent({
     agentSessionId: effect.sessionId,
     // Named from the pane's title at creation: the title usually lands before
-    // the first hook, and Pane facts only repeat it when it changes (ADR-184).
+    // the first hook, and Pane facts only repeat it when it changes.
     name: cleanAgentTitle(effect.title),
     status: "active",
     completedAt: null,
@@ -196,7 +196,7 @@ function applyCreateAgent(
       deps.unseenInputAgents.add(agent.id);
     }
     // A session whose very first agent-creating event already needs input
-    // notifies like any other transition into that state (ADR-162).
+    // notifies like any other transition into that state.
     deps.maybeSendNotification(agent, null, effect.status);
     deps.broadcastAgent(agent);
   }
@@ -205,7 +205,7 @@ function applyCreateAgent(
 /**
  * The host update to fold into a transition's write: the pane's session owner
  * when it differs from the recorded host, so an Agent whose pane moved host
- * (ADR-183) is judged by the new host after a restart too (ADR-191 §5).
+ * is judged by the new host after a restart too.
  */
 function hostUpdate(agent: AgentInfo, deps: EffectApplierDeps): Partial<AgentInfo> {
   const hostId = agentHostId(agent, deps.getPaneHostId);
@@ -264,7 +264,7 @@ function applyTransition(
     }
 
     case "completed": {
-      // ADR-184: an ended session's last Agent status is `idle` (the old relay
+      // An ended session's last Agent status is `idle` (the old relay
       // wrote "complete"); the lifecycle carries the outcome.
       const agent = deps.agentManager.updateAgent(existing.id, {
         ...host,

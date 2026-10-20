@@ -1,5 +1,5 @@
 /**
- * The browser's transport: one socket to the host (ADR-178 D8, ADR-180 D3).
+ * The browser's transport: one socket to the host.
  *
  * Everything that is *about the socket* and nothing that is about
  * `ns.method`: the connect, the hello, the JSON framing, the pending map, the
@@ -7,9 +7,9 @@
  * backoff, and the two close codes that mean "stop dialling". The proxy above
  * it (`../client.ts`) is the same code the desktop runs.
  *
- * **The socket itself is a `Pipe`** (ADR-206 D3): "open something, send
+ * **The socket itself is a `Pipe`**: "open something, send
  * text, receive text, learn the close code". The page is served only by the
- * relay origin (ADR-207 D2), so the pipe is `./relay-pipe.ts`, which runs the
+ * relay origin, so the pipe is `./relay-pipe.ts`, which runs the
  * Noise handshake under those four callbacks; the tests hand in fakes.
  * Everything above the pipe knows nothing about the carrier.
  *
@@ -62,7 +62,7 @@ export interface PipeConnection {
   send(text: string): void;
   /**
    * Is the far end still answering? Resolves true on any sign of life
-   * within `timeoutMs`, false otherwise (ADR-220 D4).
+   * within `timeoutMs`, false otherwise.
    */
   probe(timeoutMs: number): Promise<boolean>;
   /**
@@ -97,21 +97,21 @@ const RECONNECT_MAX_MS = 30_000;
 
 /**
  * How long a drop with no listed close code is tolerated before the server is
- * called unreachable (ADR-230 D5). Long enough that a one-second blip does not
+ * called unreachable. Long enough that a one-second blip does not
  * flash the reachability overlay or bounce pane listeners home and back.
  */
 export const DROP_GRACE_MS = 4_000;
 
 /**
  * How long a foreground check waits for the far end before calling an
- * open-looking socket dead (ADR-220 D4). iOS kills a backgrounded socket
+ * open-looking socket dead. iOS kills a backgrounded socket
  * without a close event; this finds out in seconds, not a heartbeat or two.
  */
 export const PROBE_TIMEOUT_MS = 2_000;
 
 /**
  * How long the far server may say nothing before the transport asks it
- * something (ADR-231 D8). A relay answers the pipe's heartbeat itself, so an
+ * something. A relay answers the pipe's heartbeat itself, so an
  * open line proves only the leg to the relay; a frozen desktop behind it
  * looks alive for as long as the relay keeps its socket (about 90 s).
  *
@@ -132,7 +132,7 @@ export const SERVER_SILENCE_TIMEOUT_MS = 5_000;
 /** Plain, non-function root members of `ElectronAPI`, answered from here. */
 const ROOT_VALUES: Record<string, unknown> = {
   /**
-   * A browser never claims a tab (ADR-179 D4): it sees them all, and so it is
+   * A browser never claims a tab: it sees them all, and so it is
    * never a detached window either.
    */
   claim: null,
@@ -147,14 +147,14 @@ export interface WsTransportOptions {
    */
   token: string | null;
   /**
-   * A pairing ticket to redeem `token` with (ADR-240 D1): `token` is one this
+   * A pairing ticket to redeem `token` with: `token` is one this
    * browser chose, which the host does not know yet. Sent alongside it in
    * every hello until one is accepted, never after — not on a reconnect. Null
    * or absent for a token the host already holds.
    */
   ticket?: string | null;
   /**
-   * The far end of the pipe has already said the hello (ADR-228 D4: a
+   * The far end of the pipe has already said the hello (a
    * desktop window's `server-bridge --viewer` stream, `./host-pipe.ts`).
    * The transport sends none, and takes the first `hello` reply frame that
    * arrives as the handshake; `onHello` hears the same facts as on the web.
@@ -188,11 +188,11 @@ export interface WsTransportOptions {
 /** The parts of the host's `HelloReplyFrame` a page acts on. */
 export interface HelloReply {
   rendererId: string | null;
-  /** The desktop's version (ADR-206 D4), or null from an older host. */
+  /** The desktop's version, or null from an older host. */
   appVersion: string | null;
-  /** The host's own name for itself (ADR-225 D7), or null. */
+  /** The host's own name for itself, or null. */
   hostName: string | null;
-  /** True when a host server answered, not the desktop (ADR-226). */
+  /** True when a host server answered, not the desktop. */
   hostServer: boolean;
   /**
    * This hello resumed an earlier connection (it carried `previousId`): a
@@ -213,12 +213,12 @@ export interface WsBridgeTransport extends BridgeTransport {
   /**
    * The page came back (foreground, `pageshow`, `online`, "try again"): dial
    * now if a dial is pending or there is no socket, and probe one that looks
-   * open, redialing at once if it does not answer (ADR-220 D4, D5).
+   * open, redialing at once if it does not answer.
    */
   probeNow(): Promise<ProbeOutcome>;
   /**
    * Stop for good: close the socket, fail what is in flight and dial no more.
-   * For a server that leaves the page's set (ADR-228 D4, a host removed).
+   * For a server that leaves the page's set (a host removed).
    */
   close(): void;
 }
@@ -240,7 +240,7 @@ class WsTransport implements WsBridgeTransport {
   private generation = 0;
   private ready = false;
   /**
-   * What the host calls this socket, from the hello reply (ADR-179 D3).
+   * What the host calls this socket, from the hello reply.
    *
    * Null until the first hello, and a *different* value after a reconnect —
    * which is correct: it names a connection, and a layout command's origin is
@@ -322,8 +322,8 @@ class WsTransport implements WsBridgeTransport {
    * Probe the current socket. A socket that does not answer, and is still
    * the current one, is closed and redialled at once.
    *
-   * Alive takes both the pipe's own check and a frame from the far server
-   * (ADR-231 D8): over the relay the first proves only the leg to the
+   * Alive takes both the pipe's own check and a frame from the far server:
+   * over the relay the first proves only the leg to the
    * relay, which answers it whether or not the desktop behind it is there.
    */
   private async probe(socket: PipeConnection): Promise<ProbeOutcome> {
@@ -397,7 +397,7 @@ class WsTransport implements WsBridgeTransport {
 
   /**
    * Quiet for `SERVER_SILENCE_MS`: ping, and give the line up if nothing
-   * comes back within `SERVER_SILENCE_TIMEOUT_MS` (ADR-231 D8). The redial's
+   * comes back within `SERVER_SILENCE_TIMEOUT_MS`. The redial's
    * hello then decides; a frozen desktop gives none, and the first-hello
    * deadline and the backoff take it from there.
    */
@@ -507,7 +507,7 @@ class WsTransport implements WsBridgeTransport {
    * still finds it after a blip, and this connection's `pty-attachments`
    * viewer identity does not reset.
    *
-   * `ticket` goes with the token until a hello is accepted (ADR-240 D1): a
+   * `ticket` goes with the token until a hello is accepted: a
    * dial that failed before then retries with it, one after never does.
    *
    * Not said at all over a `preAuthenticated` pipe.
@@ -584,7 +584,7 @@ class WsTransport implements WsBridgeTransport {
    * Subscriptions go out before the queued invokes, and the order is
    * load-bearing: `useTerminalStream` subscribes to a pane's output and
    * *then* calls `pty.create`, so that the snapshot it gets back and the
-   * stream that follows it join up (ADR-159/164). Flushing the calls first
+   * stream that follows it join up. Flushing the calls first
    * would open that gap on every reconnect.
    */
   private onReady(): void {
@@ -642,7 +642,7 @@ class WsTransport implements WsBridgeTransport {
       this.options.onStatus?.("unreachable");
     } else if (this.graceTimer === null) {
       // Any other drop that leads to a redial: give the redial a moment, then
-      // stop pretending the server is reachable (ADR-230 D5). Host pipes end
+      // stop pretending the server is reachable. Host pipes end
       // every pipe with a listed code, so they never get here.
       this.graceTimer = setTimeout(() => {
         this.graceTimer = null;

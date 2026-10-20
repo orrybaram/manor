@@ -18,17 +18,16 @@ import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, awaitShellReady } from "./helpers/terminal";
 
 /**
- * ADR-181 end to end: the phone layout is the desk's own tree, walked one
- * leaf at a time (D1), reached through a top bar, a drawer and a bottom
- * sheet (D3) instead of the desk's sidebar and split dividers, with the
- * command palette standing in for every drag idiom phone mode turns off
- * (D5) and a tap wired straight into xterm's own textarea for the native
- * keyboard (D6).
+ * The phone layout end to end: the desk's own tree, walked one leaf at a
+ * time, reached through a top bar, a drawer and a bottom sheet instead of
+ * the desk's sidebar and split dividers, with the command palette standing
+ * in for every drag idiom phone mode turns off and a tap wired straight into
+ * xterm's own textarea for the native keyboard.
  *
  * Same discipline as `web-app.spec.ts`: nothing here reaches inside the app
  * to fabricate state. A phone is an ordinary Playwright page that knows a
  * pairing link, driven at a 390×844 viewport — the only thing that tells
- * this renderer to be a phone at all (ADR-181 D2). The link goes through a
+ * this renderer to be a phone at all. The link goes through a
  * local relay (`helpers/relay-fixture.ts`), so the tests that open one are
  * `relayTest`s; the rest need no relay.
  */
@@ -94,7 +93,7 @@ function tabs(page: Page) {
   return page.locator('[data-testid="tab"]');
 }
 
-/** The pane ids a page currently renders (visible or not — every pane of the active panel's tabs stays mounted, ADR-181 D1). */
+/** The pane ids a page currently renders (visible or not — every pane of the active panel's tabs stays mounted). */
 async function allPaneIdsOnPage(page: Page): Promise<string[]> {
   return page
     .locator('[data-testid="workspace-pane"]')
@@ -133,7 +132,7 @@ function activeElementInfo(page: Page): Promise<ActiveElementInfo | null> {
  * variant of `web-app.spec.ts`'s `runPaletteCommand`, minus the ⌘K a phone
  * keyboard has no chord for. The caller opens the palette itself (the top
  * bar's button) since a phone test typically wants to assert on the open
- * palette — full screen, ADR-181 D5 — before anything is typed into it.
+ * palette — full screen — before anything is typed into it.
  */
 async function runOpenPaletteCommand(page: Page, label: string): Promise<void> {
   const input = page.locator("[cmdk-input]");
@@ -184,7 +183,7 @@ async function expectLayout(page: Page, mode: "phone" | "desk"): Promise<void> {
   await expect(page.locator("html")).toHaveAttribute("data-layout", mode);
 }
 
-test.describe("phone layout (ADR-181)", () => {
+test.describe("phone layout", () => {
   test.setTimeout(240_000);
 
   /**
@@ -248,7 +247,7 @@ test.describe("phone layout (ADR-181)", () => {
     try {
       // 1. One pane at a time. The top bar, the tab strip — no status bar,
       // no sidebar inline — and exactly one pane visible: the one the
-      // viewport focuses (ADR-179 D3).
+      // viewport focuses.
       await expect(client.page.getByTestId("phone-top-bar")).toBeVisible({
         timeout: 30_000,
       });
@@ -265,7 +264,7 @@ test.describe("phone layout (ADR-181)", () => {
       await film.shot(client.page, "01-one-pane");
 
       // 2. Next Pane moves, and nothing remounts. Every pane of the tab is
-      // already mounted (ADR-181 D1), so focusing the split's other pane
+      // already mounted, so focusing the split's other pane
       // must not create a new pty or resize either pane's grid.
       const otherPaneId = (initialPaneId === paneA ? paneB : paneA)!;
       // The pane count shows before the phone applies its `pty.create`
@@ -352,7 +351,7 @@ test.describe("phone layout (ADR-181)", () => {
       await client.page.getByTestId("notifications-sheet-close").click();
       await expect(sheet).not.toBeVisible();
 
-      // ADR-219: the drawer is agents-first, with no projects view behind it.
+      // The drawer is agents-first, with no projects view behind it.
       // Settings opens the modal.
       await client.page.getByTestId("phone-drawer-toggle").click();
       await expect(drawer.getByTestId("phone-agents-panel")).toBeVisible();
@@ -444,9 +443,9 @@ test.describe("phone layout (ADR-181)", () => {
   });
 
   /**
-   * ADR-181 D2: the breakpoint is width, in every renderer but a detached
+   * The breakpoint is width, in every renderer but a detached
    * window. Dragging the desktop window narrow is the desk's own free
-   * responsive pass; a detached window (ADR-179 D4) is excluded on purpose —
+   * responsive pass; a detached window is excluded on purpose —
    * it is already a single claimed tab with no chrome, often narrow by
    * design.
    */
@@ -490,7 +489,7 @@ test.describe("phone layout (ADR-181)", () => {
   });
 
   /**
-   * ADR-181 D5: dragging a tab is one gesture — reorder, move-into-panel,
+   * Dragging a tab is one gesture — reorder, move-into-panel,
    * detach-by-drag — gated off entirely in phone mode rather than left
    * half-working under a thumb. `draggable={false}` on the tab element is
    * the actual mechanism (`TabBar.tsx`), so a real drag attempt is a no-op:
@@ -537,7 +536,7 @@ test.describe("phone layout (ADR-181)", () => {
   });
 
   /**
-   * ADR-220: a phone that lost the line and missed a push shows the desk's
+   * A phone that lost the line and missed a push shows the desk's
    * current state once the line is back, with no reload; the overflow menu's
    * Refresh re-fetches in place.
    *

@@ -27,7 +27,7 @@ export function useHostAction(): { busy: boolean; error: string | null; run: Run
 
 /**
  * What a host's settings read: its server's view, asked for on mount, and
- * whether this computer has a Linear key to hand it (ADR-227 D7).
+ * whether this computer has a Linear key to hand it.
  */
 export function useHostSettings(
   hostId: string,
@@ -42,7 +42,7 @@ export function useHostSettings(
     void useHostStore.getState().refreshServer(hostId);
     const refresh = () => void window.electronAPI.linear.isConnected().then(setDesktopLinear);
     refresh();
-    // The key was saved or cleared elsewhere (ADR-230 D8).
+    // The key was saved or cleared elsewhere.
     return window.electronAPI.linear.onConnectionChanged(refresh);
   });
 

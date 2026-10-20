@@ -1,6 +1,5 @@
 /**
- * What the compiler checks about the host surface that derivation cannot
- * (ADR-180 D7, ADR-182 D4).
+ * What the compiler checks about the host surface that derivation cannot.
  *
  * `ElectronAPI` is built from its parts (`src/electron.d.ts`): the handler
  * table, the preload's `nativeApi` and `SUBSCRIPTIONS`, each method with the
@@ -21,7 +20,7 @@
  *
  * ```
  * surface.ts(120,14): error TS2322: Type 'boolean' is not assignable to type
- * 'Complaint<"ADR-180 D7 — no browser can reach this …", "shell.frobnicate">'.
+ * 'Complaint<"No browser can reach this …", "shell.frobnicate">'.
  * ```
  *
  * means `shell.frobnicate` has no answer in a browser. Fix the placement the
@@ -110,7 +109,7 @@ type ServedTwice = TableMethod & NativeMethod;
 export const _servedTwice: ServedTwice extends never
   ? true
   : Complaint<
-      "ADR-180 D7 — on the handler table and in the preload; the desktop would never reach the table's copy",
+      "On the handler table and in the preload; the desktop would never reach the table's copy",
       ServedTwice
     > = true;
 
@@ -130,7 +129,7 @@ type WebHole = Exclude<
 export const _webHole: WebHole extends never
   ? true
   : Complaint<
-      "ADR-180 D7 — no browser can reach this and none refuses it; put it on the table, in LOCALLY_SERVED, or in a namespace UNAVAILABLE_NAMESPACES names",
+      "No browser can reach this and none refuses it; put it on the table, in LOCALLY_SERVED, or in a namespace UNAVAILABLE_NAMESPACES names",
       WebHole
     > = true;
 
@@ -140,7 +139,7 @@ type UnknownLocal = Exclude<LocallyServedMethod, Surface>;
 export const _unknownLocal: UnknownLocal extends never
   ? true
   : Complaint<
-      "ADR-180 D7 — nothing on ElectronAPI is named this; rename it or delete it from SERVED_HERE",
+      "Nothing on ElectronAPI is named this; rename it or delete it from SERVED_HERE",
       UnknownLocal
     > = true;
 
@@ -154,7 +153,7 @@ type AuditedSecret = Extract<SecretFirstArgMethod, MutatingMethod>;
 export const _auditedSecret: AuditedSecret extends never
   ? true
   : Complaint<
-      "ADR-180 D4 — this method's first argument is a credential and MUTATING would write it to the audit log",
+      "This method's first argument is a credential and MUTATING would write it to the audit log",
       AuditedSecret
     > = true;
 
@@ -171,7 +170,7 @@ type LocalOnlyDrift =
 export const _localOnlyDrift: LocalOnlyDrift extends never
   ? true
   : Complaint<
-      "ADR-182 D3 — flag this method localOnly in its table and list it in local-only.ts, or do neither",
+      "Flag this method localOnly in its table and list it in local-only.ts, or do neither",
       LocalOnlyDrift
     > = true;
 
@@ -189,6 +188,6 @@ type LocalOnlyUnanswered = Exclude<
 export const _localOnlyUnanswered: LocalOnlyUnanswered extends never
   ? true
   : Complaint<
-      "ADR-182 D3 — give this local-only method a browser answer: SERVED_HERE, or HostRefusedMethod",
+      "Give this local-only method a browser answer: SERVED_HERE, or HostRefusedMethod",
       LocalOnlyUnanswered
     > = true;

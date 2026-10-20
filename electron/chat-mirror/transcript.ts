@@ -1,5 +1,5 @@
 /**
- * Pure parser for Claude Code's JSONL transcript (ADR-215 D3).
+ * Pure parser for Claude Code's JSONL transcript.
  *
  * The transcript format is private to Claude Code, so everything here is
  * defensive: malformed lines, unknown line types and unknown block types are
@@ -28,7 +28,7 @@ export type ChatEntry =
       answer: string | null;
       /**
        * Set by the mirror (`mirror.ts`), never by the parser: the chat sent an
-       * answer and no `tool_result` followed in time (ADR-215 D5).
+       * answer and no `tool_result` followed in time.
        */
       needsTerminal?: boolean;
     }
@@ -52,7 +52,7 @@ export type ChatEntry =
       output?: string;
     }
   | {
-      /** Delegated or background work: an agent, or a shell command (ADR-224 D2). */
+      /** Delegated or background work: an agent, or a shell command. */
       kind: "task";
       /** The launching tool_use id. */
       id: string;
@@ -71,7 +71,7 @@ export type ChatEntry =
       taskRef?: string;
       /**
        * Set by the mirror (`mirror.ts`), never by the parser: the adapter
-       * resolves a transcript for this task (ADR-224 D3).
+       * resolves a transcript for this task.
        */
       hasTranscript?: boolean;
     }
@@ -90,7 +90,7 @@ export type ChatEntry =
 export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 /**
- * The session's context size in tokens (ADR-223 D4). Published by the mirror
+ * The session's context size in tokens. Published by the mirror
  * when it changes; never a `ChatEntry`, never drawn.
  */
 export type ChatUsage = {
@@ -103,7 +103,7 @@ export type ChatUsage = {
 /** What the `chat.entry` channel carries: an entry or a context-size update. */
 export type ChatPush = ChatEntry | ChatUsage;
 
-/** A skill from Claude Code's `skill_listing` attachment (ADR-217 D1). */
+/** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
 
 const MAX_DETAIL = 4000;
@@ -220,7 +220,7 @@ function parseQuestions(input: Json): PickerQuestion[] {
 
 /**
  * The entry a `tool_use` block opens: a picker, a task (delegated or
- * background work, ADR-224 D2), or a plain tool call.
+ * background work), or a plain tool call.
  */
 function toolUseEntry(id: string, ts: string, name: string, input: Json): ChatEntry {
   if (name === "AskUserQuestion") {
@@ -279,8 +279,8 @@ function resultText(content: unknown): string {
 /** How a `TranscriptParser` reads. */
 export interface TranscriptParserOptions {
   /**
-   * Keep `isSidechain` lines. A subagent's own transcript is all sidechain
-   * (ADR-224 D3); in the pane's transcript such lines are dropped.
+   * Keep `isSidechain` lines. A subagent's own transcript is all sidechain;
+   * in the pane's transcript such lines are dropped.
    */
   sidechain?: boolean;
 }

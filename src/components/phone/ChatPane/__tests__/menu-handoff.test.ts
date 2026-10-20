@@ -1,5 +1,5 @@
 /**
- * A menu handoff (ADR-218 D3) ends on its command's transcript line, and is
+ * A menu handoff ends on its command's transcript line, and is
  * only live on the transcript it started on.
  */
 import { describe, expect, it } from "vitest";

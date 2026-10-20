@@ -29,7 +29,7 @@ function transport(connected: boolean): BridgeTransport {
 /** Let the status queries settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
-describe("TasksView with Linear on no server (ADR-228 D10)", () => {
+describe("TasksView with Linear on no server", () => {
   let root: TestRoot;
 
   beforeEach(() => {

@@ -28,7 +28,7 @@ import { readSession } from "./helpers/local-api";
 import { activePaneId, runInTerminal } from "./helpers/terminal";
 
 /**
- * Restoring a window doesn't wake a sleeping host (ADR-230 D3, ADR-231 D6).
+ * Restoring a window doesn't wake a sleeping host.
  *
  * A host that was asleep when the app quit stays asleep when it comes back:
  * the restored panes are created with `wake: false` and wait behind the

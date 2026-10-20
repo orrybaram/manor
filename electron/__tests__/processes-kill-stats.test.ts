@@ -1,8 +1,8 @@
 /**
  * `processes.killSession`, `processes.killAll`, `processes.killDaemon`.
  *
- * No `ipcMain` here any more: `processes` crossed to the handler table in
- * ADR-180 ticket 8, so these are plain functions over `HostDeps` — the same
+ * No `ipcMain` here any more: `processes` crossed to the handler table,
+ * so these are plain functions over `HostDeps` — the same
  * functions the table calls, and a paired `full` device now reaches them the
  * same way the desktop does.
  */
@@ -65,7 +65,7 @@ describe("processes.killSession / processes.killAll stats", () => {
   beforeEach(() => {
     deps = makeDeps();
     // These handlers signal whatever pid is in ~/.manor/daemon/terminal-host.pid.
-    // $HOME is a temp dir under vitest (ADR-169), but never let a real signal
+    // $HOME is a temp dir under vitest, but never let a real signal
     // out of this file regardless.
     killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
   });
@@ -75,7 +75,7 @@ describe("processes.killSession / processes.killAll stats", () => {
     fs.rmSync(daemonPidFile(), { force: true });
   });
 
-  describe("daemon pid handling (ADR-169)", () => {
+  describe("daemon pid handling", () => {
     it("killAll signals nothing when there is no daemon pid file", async () => {
       expect(fs.existsSync(daemonPidFile())).toBe(false);
 
@@ -135,7 +135,7 @@ describe("processes.killSession / processes.killAll stats", () => {
     });
   });
 
-  describe("remote agents (ADR-230 D14)", () => {
+  describe("remote agents", () => {
     const remote = { id: "r1", paneId: "remote-pane", status: "active", lastAgentStatus: "thinking" };
     const hostRouting = { agents: () => [remote] };
 

@@ -5,7 +5,7 @@ import { HostUnavailableError } from "../../../backend/host-view";
 import type { HandlerCtx } from "../../method";
 
 /**
- * `pty.attach` (ADR-220): what a viewer resyncing after a dropped connection
+ * `pty.attach`: what a viewer resyncing after a dropped connection
  * sends. It must never spawn a shell — the session may have exited while the
  * viewer was away — and never take the winsize off whoever attached meanwhile.
  */
@@ -45,7 +45,7 @@ function setup({
   return { pty, ctx };
 }
 
-describe("pty.attach (ADR-220)", () => {
+describe("pty.attach", () => {
   beforeEach(() => resetAttachments());
 
   it("answers a live session with its snapshot, and spawns nothing", async () => {
@@ -70,7 +70,7 @@ describe("pty.attach (ADR-220)", () => {
     expect(ownerOf("pane-a")).toBeNull();
   });
 
-  it("answers a remote session a daemon restart took with lost (ADR-178 §6)", async () => {
+  it("answers a remote session a daemon restart took with lost", async () => {
     const { ctx } = setup({ snapshot: null, owner: "box", recoverable: true });
     const result = await ptyAttach(ctx("phone"), "pane-a");
     expect(result).toEqual({ ok: false, reason: "lost" });

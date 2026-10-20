@@ -1,6 +1,6 @@
 /**
  * Plain-sentence summaries for the failures people hit most often when a
- * Docker or Kubernetes host's recipe fails (ADR-234 D10). Pure: it reads the
+ * Docker or Kubernetes host's recipe fails. Pure: it reads the
  * tail of the recipe's output and says what went wrong and, when there is
  * one that edits nothing of the user's, what to do about it. The raw output
  * stays on screen beneath the summary.
@@ -39,7 +39,7 @@ const DOCKER_OVER_SSH = String.raw`\[ssh [^\]\n]*?-- ([^\s\]]+) docker system di
 
 /** More specific rules come first: the first that matches wins. */
 const RULES: Rule[] = [
-  // Docker on another machine over SSH (ADR-234 D12): before the local
+  // Docker on another machine over SSH: before the local
   // rules, which would otherwise say "this computer".
   {
     pattern: new RegExp(String.raw`${DOCKER_OVER_SSH}[^\n]*?(?:exit status 127|docker: (?:command )?not found|command not found: docker)`, "i"),

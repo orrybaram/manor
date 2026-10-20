@@ -1,5 +1,5 @@
 /**
- * Per-device bearer tokens for remote control (ADR-161).
+ * Per-device bearer tokens for remote control.
  *
  * Anyone who can reach the relay can say hello, so this store *is* the
  * boundary. Three properties are load-bearing and every change here should
@@ -10,7 +10,7 @@
  *      pairing the desktop mints over an authenticated channel, in the return
  *      value of `pair(..., { direct: true })`. Only its SHA-256 is kept, in
  *      memory and on disk, so a stolen device file does not yield a working
- *      credential. A pairing ticket (ADR-240) exists once, in the return value
+ *      credential. A pairing ticket exists once, in the return value
  *      of `pair()` or `reissue()`; the store keeps its hash, and a ticket is
  *      never a bearer token: `verify()` ignores pending devices.
  *   2. `verify()` compares hashes with `timingSafeEqual` over equal-length
@@ -19,16 +19,16 @@
  *   3. `revoke()` mutates the live map the lookup walks. Nothing caches a copy
  *      of the device list, so revocation takes effect on the next request.
  *
- * Persistence is a `SealedStore` over the `SecretBox` the store is given
- * (ADR-225 D6): `safeStorage` on the desktop, the host's chosen backend on a
+ * Persistence is a `SealedStore` over the `SecretBox` the store is given:
+ * `safeStorage` on the desktop, the host's chosen backend on a
  * host server, mode 0600 either way. When the box cannot store (a desktop with
  * no OS keychain) pairing refuses, and remote control stays off. Pairing and
  * revoking resolve only once the change is on disk: a revoke that was not
  * saved would quietly come back on the next start.
  *
  * On a desktop, each device also carries the pairings minted for it on remote
- * hosts' servers (`hostLinks`, ADR-228 D9) and the hosts where such a pairing
- * was revoked on the host itself (`hostBlocks`, ADR-238 D2), where nothing is
+ * hosts' servers (`hostLinks`) and the hosts where such a pairing
+ * was revoked on the host itself (`hostBlocks`), where nothing is
  * minted for it again until that host's switch is turned off and on. Neither
  * leaves this module through `list()`.
  */
@@ -51,11 +51,11 @@ export interface RemoteDevice {
   /**
    * SHA-256 hex of the raw token. Never leaves this module. Null while the
    * device is pending: its token is chosen by the device and arrives with the
-   * ticket (ADR-240 D2).
+   * ticket.
    */
   tokenHash: string | null;
   /**
-   * The pairing ticket awaiting redemption (ADR-240 D2): its SHA-256 hex and
+   * The pairing ticket awaiting redemption: its SHA-256 hex and
    * when it stops working. Present exactly when `tokenHash` is null. An
    * expired row is kept, and reads "Link expired" until given a new link.
    */
@@ -77,7 +77,7 @@ export interface RemoteDevice {
   pushSubscription: PushSubscriptionRecord | null;
   /**
    * The pairings this desktop minted for the device on its remote hosts'
-   * servers (ADR-228 D9, `remoteControl.linkHostPairings`), one per host.
+   * servers (`remoteControl.linkHostPairings`), one per host.
    * Kept on the device for the reason `pushSubscription` is: revoking the
    * device is what revokes these, and the revoke listeners are handed them.
    * Absent on a host server, which links nothing.
@@ -85,7 +85,7 @@ export interface RemoteDevice {
   hostLinks?: HostLink[];
   /**
    * The hosts (the desktop's ids) where this device's linked pairing was
-   * revoked on the host itself (ADR-238 D2). Nothing is minted for it there
+   * revoked on the host itself. Nothing is minted for it there
    * until the host's "can reach" switch is turned off and on. Kept on the
    * device so its revoke takes these with it. Absent when there are none.
    */
@@ -100,16 +100,16 @@ export interface RemoteDevice {
   extra?: Record<string, unknown>;
 }
 
-/** One pairing minted for a device on a remote host's server (ADR-228 D9). */
+/** One pairing minted for a device on a remote host's server. */
 export interface HostLink {
   /** The desktop's id for the host. */
   hostId: string;
   /** The device's id in that host's own device store. */
   hostDeviceId: string;
   /**
-   * The host's room the pairing was minted in (ADR-238 D2): a link missing
+   * The host's room the pairing was minted in: a link missing
    * from a host whose room has changed since was lost to a reset, not
-   * revoked. Absent on a link from before ADR-238.
+   * revoked. Absent on older links.
    */
   roomId?: string;
 }
@@ -140,7 +140,7 @@ const TOKEN_BYTES = 32;
 const TICKET_BYTES = 32;
 /** What a device-chosen token must look like (43 base64url characters). */
 export const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-/** How long a pairing ticket works (ADR-240 D2). */
+/** How long a pairing ticket works. */
 export const PAIRING_TICKET_TTL_MS = 10 * 60_000;
 const HASH_BYTES = 32; // sha256
 
@@ -232,8 +232,7 @@ export class RemoteDeviceStore {
     for (const device of stored?.devices ?? []) devices.set(device.id, device);
     this.devices = devices;
     // Rewrite now rather than waiting for the next pair or `lastSeenAt`
-    // flush: a dropped row (a Tailscale, Watch or Reply device — ADR-207
-    // D5) or a retired field would otherwise linger on disk for a device
+    // flush: a dropped row (a Tailscale, Watch or Reply device) or a retired field would otherwise linger on disk for a device
     // that is never used again.
     if (stored?.migrated) {
       try {
@@ -252,13 +251,13 @@ export class RemoteDeviceStore {
   }
 
   /**
-   * Mint a device (ADR-240 D3). By default it is pending: the returned
+   * Mint a device. By default it is pending: the returned
    * `ticket` is the only time it exists in a readable form anywhere, the
    * caller shows it once in a link (QR + copyable text) and drops it, and the
    * device chooses its own token when it redeems the ticket. With
    * `direct: true` the device is active at once and the returned `rawToken` is
-   * the token, for a caller that hands it over an authenticated channel
-   * (ADR-240 D7). Resolves once the device is on disk; a device that could not
+   * the token, for a caller that hands it over an authenticated channel.
+   * Resolves once the device is on disk; a device that could not
    * be saved is dropped again, and the failure rejects.
    */
   async pair(
@@ -327,7 +326,7 @@ export class RemoteDeviceStore {
 
   /**
    * Give a pending device (waiting or expired) a new ticket and a new expiry;
-   * the old ticket is dead (ADR-240 D3). A device that has connected already
+   * the old ticket is dead. A device that has connected already
    * has no ticket to replace, and an unknown id is the same refusal. Resolves
    * once it is on disk; a write that fails restores the old ticket and rejects.
    */
@@ -354,9 +353,9 @@ export class RemoteDeviceStore {
 
   /**
    * Redeem a pairing ticket: the device that holds it chose `token`, and from
-   * here that token is the device's credential (ADR-240 D3). Synchronous, like
+   * here that token is the device's credential. Synchronous, like
    * `verify()`, because it runs on the hello path; the write is queued, not
-   * awaited (ADR-240 D8).
+   * awaited.
    *
    * Like `verify()`, it hashes the presented ticket and walks every pending
    * device without stopping at a match, so neither a ticket's validity nor its
@@ -550,7 +549,7 @@ export class RemoteDeviceStore {
 
   /**
    * Hear every revoke — one by hand, a relay reset's, a stale room's — with
-   * the host links each revoked device held (ADR-228 D9).
+   * the host links each revoked device held.
    */
   onRevoke(
     listener: (revoked: readonly RevokedDevice[]) => void,
@@ -580,7 +579,7 @@ export class RemoteDeviceStore {
     return out;
   }
 
-  /** The hosts where `id`'s linked pairing was revoked on the host (ADR-238 D2). */
+  /** The hosts where `id`'s linked pairing was revoked on the host. */
   hostBlocks(id: string): readonly string[] {
     return this.live().get(id)?.hostBlocks ?? [];
   }
@@ -767,7 +766,7 @@ function asHostBlocks(value: unknown): string[] {
 
 /**
  * Fields older releases wrote and this one no longer does: `canSend`
- * (before ADR-178), then `capability` and `via` (before ADR-207). They are
+ * then `capability` and `via`. They are
  * read to decide whether a row survives, never carried forward as `extra`.
  */
 const RETIRED_FIELDS = ["canSend", "capability", "via"] as const;
@@ -775,9 +774,9 @@ const RETIRED_FIELDS = ["canSend", "capability", "via"] as const;
 /**
  * Validate one persisted row. A row that fails any check is dropped.
  *
- * Only relay devices survive (ADR-207 D5). A row in the old shape must say
+ * Only relay devices survive. A row in the old shape must say
  * `via: "relay"` and, if it names a tier, `full` — relay pairings were never
- * anything else. A row from before ADR-206 has no `via` and no `relayRoom`,
+ * anything else. An older row with no `via` has no `relayRoom` either,
  * so the room check drops it with the Tailscale, Watch and Reply rows.
  */
 function asDevice(value: unknown): RemoteDevice | null {
@@ -785,7 +784,7 @@ function asDevice(value: unknown): RemoteDevice | null {
   const v = value as Record<string, unknown>;
   if (typeof v.id !== "string" || v.id.length === 0) return null;
   if (typeof v.label !== "string") return null;
-  // Active: a token hash. Pending (ADR-240 D2): no token hash and a ticket.
+  // Active: a token hash. Pending: no token hash and a ticket.
   let tokenHash: string | null = null;
   let pending: RemoteDevice["pending"];
   if (typeof v.tokenHash === "string") {

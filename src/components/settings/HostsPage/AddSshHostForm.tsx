@@ -14,7 +14,7 @@ type AddSshHostFormProps = {
 };
 
 /**
- * "An SSH box" (ADR-229 D8): an ssh target, registered as a host and
+ * "An SSH box": an ssh target, registered as a host and
  * connected in the background. Shared by the Hosts page's Add a host wizard
  * and a project's Host section, which adds one inline to set the project up
  * there.

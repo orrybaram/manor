@@ -143,7 +143,7 @@ function expectNoTokenInArgv(calls: Call[]): void {
   }
 }
 
-describe("sign-in Secret (ADR-235 D9)", () => {
+describe("sign-in Secret", () => {
   it("builds a Secret of base64 data that no token can break out of", () => {
     const doc = JSON.parse(
       buildSignInSecret("manor-signin-hp-1", "team", { GH_TOKEN: 'a"b\nc' }),

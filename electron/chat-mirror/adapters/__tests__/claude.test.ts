@@ -19,7 +19,7 @@ function task(over: Partial<ChatTaskEntry> = {}): ChatTaskEntry {
   };
 }
 
-describe("claudeAdapter.childTranscriptPath (ADR-224 D3)", () => {
+describe("claudeAdapter.childTranscriptPath", () => {
   const parent = "/Users/me/.claude/projects/-Users-me-repo/edbdd1c8-662e.jsonl";
 
   it("resolves an agent task to <session>/subagents/agent-<agentId>.jsonl", () => {

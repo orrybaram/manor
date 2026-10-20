@@ -21,7 +21,7 @@ function sanitizeLabel(s: string): string {
 const HOST_SEGMENT_LENGTH = 8;
 
 /**
- * Each remote host's hostname segment (ADR-191 §6): the first 8 characters
+ * Each remote host's hostname segment: the first 8 characters
  * of its id, lowercased, or its whole sanitized id when another host's id
  * starts the same way. Derived from the id, never the host's name, which can
  * be edited and need not be unique.
@@ -78,8 +78,8 @@ export interface PortlessWorkspace {
  * Base: the project name, or the workspace directory's name, as a DNS label.
  * A non-main workspace with a branch is `${branch}.${base}`, any other just
  * `${base}`. A remote host adds its segment before `.localhost`, so a local
- * and a remote main of one project don't both claim `${base}.localhost`
- * (ADR-191 §6); a local hostname is unchanged.
+ * and a remote main of one project don't both claim `${base}.localhost`;
+ * a local hostname is unchanged.
  */
 export function portlessHostname(
   workspace: PortlessWorkspace,

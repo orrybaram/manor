@@ -12,7 +12,7 @@ import {
 } from "./helpers/settings";
 
 /**
- * ADR-240 end to end: a pairing link carries a single-use, short-lived
+ * Pairing tickets end to end: a pairing link carries a single-use, short-lived
  * pairing ticket, never the device's long-lived token.
  *
  * 1. The link works once. The browser that opens it first chooses its own

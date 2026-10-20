@@ -1,7 +1,7 @@
 /**
  * Where the renderer's own stores say a project, pane or agent lives: what
- * the router (`./router.ts`, ADR-228 D1) reads to find the host a routed
- * call is for — and whether that host is asleep (ADR-229 D1).
+ * the router (`./router.ts`) reads to find the host a routed
+ * call is for — and whether that host is asleep.
  *
  * The stores provide these, the router reads them, and neither imports the
  * other. That direction is forced: the router is built before any store
@@ -27,12 +27,12 @@ export interface HostLookups {
   /** An agent id → its `hostId` (`agent-store`). */
   agent?: Lookup;
   /**
-   * A renderer host id → its connection status, e.g. `sleeping` (`host-store`,
-   * ADR-229 D1). Not a host id: the one lookup that answers something else.
+   * A renderer host id → its connection status, e.g. `sleeping`
+   * (`host-store`). Not a host id: the one lookup that answers something else.
    */
   hostStatus?: Lookup;
   /**
-   * The router began waking `hostId` for a write (ADR-229 D1); `woken`
+   * The router began waking `hostId` for a write; `woken`
    * settles when it is done waiting, woken or not — for the "Waking <host>…"
    * toast (`host-store`).
    */

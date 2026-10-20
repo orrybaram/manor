@@ -1,5 +1,5 @@
 /*
- * ADR-198 §1: Studio's panel — radius 14, a hairline border and a soft
+ * Studio's panel — radius 14, a hairline border and a soft
  * shadow. The `--hd-*` custom properties come from the dashboard root
  * (`HomeDashboard.module.css` `.page`).
  */

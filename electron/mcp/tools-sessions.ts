@@ -1,7 +1,7 @@
 /**
- * MCP tools for session state (ADR-153): `list_agents` lets the orchestrator
+ * MCP tools for session state: `list_agents` lets the orchestrator
  * *see* every session Manor knows about, `send_to_session`/`read_session` let
- * it *steer* and *read* one, and `interrupt_session`/`end_session` (ADR-171)
+ * it *steer* and *read* one, and `interrupt_session`/`end_session`
  * cover the two ways to stop one — pausing its current turn versus killing
  * the process outright.
  */

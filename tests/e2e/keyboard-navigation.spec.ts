@@ -3,11 +3,11 @@ import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
 import { clickMenuItem } from "./helpers/window";
 
 /**
- * The whole app works from the keyboard (ADR-175).
+ * The whole app works from the keyboard.
  *
  * Every interaction after boot is a key press: no `click()`. Booting may click
  * the import button — that is setup, not the thing under test. The suite was
- * written before the fixes, so it is red until the ADR's tickets land.
+ * written before the fixes.
  *
  * Selector contract the implementation honours:
  * - `[data-focus-region="sidebar|tabbar|pane|statusbar"]` on region roots

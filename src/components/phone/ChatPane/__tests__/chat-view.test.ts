@@ -1,5 +1,5 @@
 /**
- * ADR-216 D4: which agents a phone offers the chat for. A Claude agent with a
+ * Which agents a phone offers the chat for. A Claude agent with a
  * transcript gets it wherever it runs, a remote host included.
  */
 import { describe, expect, it } from "vitest";

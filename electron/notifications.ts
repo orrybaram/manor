@@ -41,7 +41,7 @@ const PR_KIND_TO_NOTIFICATION_KIND: Record<PrNotifyEventKind, NotificationKind> 
 };
 
 /**
- * Which `NotificationKind`s are PR outcomes worth counting (ADR-168 §2).
+ * Which `NotificationKind`s are PR outcomes worth counting.
  * `pr-comment` is deliberately absent — it is noise, not an outcome — as are
  * the `agent-*` kinds this same append site also handles.
  */
@@ -64,7 +64,7 @@ export interface PrNotificationPayload {
 
 /**
  * What the server's handlers reach notification state and side effects
- * through (ADR-227 D1). The desktop fills it in with {@link Notifier}; a
+ * through. The desktop fills it in with {@link Notifier}; a
  * server with no screen supplies the first four and leaves the banner out.
  */
 export interface ServerNotifier {
@@ -88,12 +88,12 @@ export interface ServerNotifier {
    * Broadcast the full notification list. The single send-site for
    * `notifications.changed`. The list is capped at 200 records, so shipping
    * all of it on every mutation is deliberate — it makes renderer drift
-   * impossible (ADR-162 §3).
+   * impossible.
    */
   sendNotificationsUpdate(): void;
   /**
-   * Show a native notification on demand for `caller` (e.g. PR update alerts,
-   * ADR-147). Returns whether it was presented; `false` means the caller's
+   * Show a native notification on demand for `caller` (e.g. PR update
+   * alerts). Returns whether it was presented; `false` means the caller's
    * window is focused and the renderer should toast instead. Absent where
    * there is no window to focus-check, which reads as `false`.
    */
@@ -101,9 +101,9 @@ export interface ServerNotifier {
 }
 
 export interface NotifierOptions {
-  /** ADR-162's durable notification log. */
+  /** The durable notification log. */
   notificationStore: NotificationStore;
-  /** ADR-168's usage stats. */
+  /** Usage stats. */
   statsStore: StatsStore;
   unseen: UnseenAgents;
   preferencesManager: PreferencesManager;
@@ -121,7 +121,7 @@ export interface NotifierOptions {
  * the caller toasts instead).
  *
  * A local caller's id is its own `webContents.id` — the poller may be
- * running in a detached window (ADR-156), and it is that window's focus that
+ * running in a detached window, and it is that window's focus that
  * matters, not the primary's. A device has no window at all, and gets the
  * primary's.
  */
@@ -146,7 +146,7 @@ export function playNotificationSound(soundName: string | false): void {
 
 /**
  * The desktop's notifications: the log, the stats taps, the dock badge and
- * native banners, for one server's state (ADR-227 D1).
+ * native banners, for one server's state.
  */
 export class Notifier extends HeadlessNotifier implements ServerNotifier {
   declare protected readonly opts: NotifierOptions;
@@ -195,7 +195,7 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
     },
   ): boolean {
     // Record *before* the focus check. A notification suppressed because the
-    // window was focused is exactly the case the log exists for (ADR-162 §2):
+    // window was focused is exactly the case the log exists for:
     // the user may have been looking at a different pane the whole time.
     const { notificationStore, statsStore, preferencesManager, publish } = this.opts;
     const record: NotificationRecord =
@@ -227,8 +227,8 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
       mainWindow.show();
       mainWindow.focus();
       // One click path for banners and in-app rows alike: the renderer resolves
-      // the record's target through `navigateToNotification` (ADR-162 §4).
-      // ADR-180 D5: broadcast rather than addressed, because "show me that
+      // the record's target through `navigateToNotification`.
+      // Broadcast rather than addressed, because "show me that
       // notification" is a place in the app, and every renderer looking at it
       // — a second window, a paired phone — should end up there too.
       publish("notifications", "navigate", record.id);
@@ -273,7 +273,7 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
 
   /**
    * Show a native notification on demand, triggered by the renderer (e.g. for
-   * PR update alerts — see ADR-147). Returns whether it was presented; `false`
+   * PR update alerts). Returns whether it was presented; `false`
    * means the calling window is focused and the renderer should toast instead.
    */
   showPrNotification(payload: PrNotificationPayload, caller: Caller): boolean {

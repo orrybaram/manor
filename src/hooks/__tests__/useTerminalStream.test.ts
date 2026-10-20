@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The attach a bridge resync remounts a pane for (ADR-220 D3), as far as
+ * The attach a bridge resync remounts a pane for, as far as
  * `useTerminalStream` owns it: the fresh mount queues output until
  * `openRestored` writes the snapshot plus only the chunks it does not cover,
  * and `sessionEnded` — a missed `exit`, or the attach finding the session

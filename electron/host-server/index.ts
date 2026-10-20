@@ -1,5 +1,5 @@
 /**
- * The host server's process entry (ADR-225 D1).
+ * The host server's process entry.
  *
  *   node host-server-index.js serve [--data-dir <dir>]
  *
@@ -32,7 +32,7 @@ function flag(argv: readonly string[], name: string): string | undefined {
   return value;
 }
 
-/** Where `gh` is on this server's PATH, logged once: GitHub runs here (ADR-227 D7). */
+/** Where `gh` is on this server's PATH, logged once: GitHub runs here. */
 function logGhPath(): void {
   execFile("which", ["gh"], { encoding: "utf-8", timeout: 5000 }, (err, stdout) => {
     console.info(
@@ -51,7 +51,7 @@ async function main(): Promise<void> {
   process.stderr.on("error", () => {});
 
   // The key sealing the pairing keys, from this process's environment or
-  // else the host's environment file (ADR-236 D2): an unsupervised server
+  // else the host's environment file: an unsupervised server
   // started over ssh gets it too. It is taken out of `process.env` and kept
   // private, so the daemon this server starts (every shell and agent) and
   // its busy hooks never inherit it. Here, not in `runServe`, so tests never

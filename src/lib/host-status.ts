@@ -8,16 +8,16 @@
  * `node scripts/build-host-tarball.mjs` hint, …) already lives in
  * `host.error` — it is the message `classifyHostFailure` produced server
  * side. This picks the short label, a plain-language summary and the tone,
- * keeping the failure modes (ADR-160 ticket 11 §3) distinguishable. The raw
+ * keeping the failure modes distinguishable. The raw
  * `detail` stays available for anyone who wants the ssh output.
  *
  * Chips show the host's name and nothing else; the glyph and tone carry
  * the state, and `status`/`summary` are for the popover, tooltip and the
  * settings card.
  *
- * Being away is a normal state, not an error (ADR-178 §6): a routine drop
+ * Being away is a normal state, not an error: a routine drop
  * reads "reconnecting", in the warning tone, never "failed". Neither is
- * being asleep (ADR-229 D1): a box put to sleep reads "Asleep", and nothing
+ * being asleep: a box put to sleep reads "Asleep", and nothing
  * retries it — using it wakes it.
  */
 
@@ -28,14 +28,14 @@ import { classifyRecipeFailure, type RecipeFailureAction } from "./recipe-failur
 
 /**
  * How a host's state is coloured. `asleep` is calm, unlike `warn`: a box
- * put to sleep is where it was meant to be (ADR-229 D1).
+ * put to sleep is where it was meant to be.
  */
 export type HostTone = "ok" | "warn" | "error" | "asleep";
 
 export interface HostDisplay {
   /**
    * How the user named the host: its ssh target, e.g. `wsl-box`, or a recipe
-   * host's recipe name (ADR-229 D2).
+   * host's recipe name.
    */
   target: string;
   /**
@@ -58,7 +58,7 @@ export interface HostDisplay {
    * `status`.
    */
   summary?: string;
-  /** What to do about a recognised recipe failure (ADR-234 D10). */
+  /** What to do about a recognised recipe failure. */
   action?: RecipeFailureAction;
   /** The raw message (ssh output, the failure's actionable hint). */
   detail?: string;
@@ -174,7 +174,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
       };
     }
     case "error": {
-      // Deleted outside Manor (ADR-229 D2): starting it again is the user's
+      // Deleted outside Manor: starting it again is the user's
       // call, from the Hosts page — retrying would not.
       if (host.missing) {
         return {
@@ -250,7 +250,7 @@ export function secondsUntilRetry(
 }
 
 /**
- * `host` as its source says it is (ADR-228 D6). A desktop window that holds
+ * `host` as its source says it is. A desktop window that holds
  * its own bridge to the host's server (`src/bridge/desktop-hosts.ts`) has the
  * host answering it while that bridge is `connected`, whatever main's last
  * status said; otherwise main's status is the host's. Main closes a window's
@@ -283,18 +283,17 @@ export function sourcedHost(
  * away. `via` reads the servers that list a host the page holds no bridge
  * to: when all of them are gone it is away whatever main last said.
  *
- * A relay room the page holds a bridge to, and finds `unreachable` (ADR-231
- * D8: the transport gave up on a silent server), is away unless a server
+ * A relay room the page holds a bridge to, and finds `unreachable` (the transport gave up on a silent server), is away unless a server
  * that lists it is `connected`. `relayed` says which hosts are such rooms.
  * Whatever a host list says of the room is no defence: on a phone that list
  * is the room's own last word on itself (its `local` host), or a lister's
  * that is gone. A desktop window's bridge to a host is no room, and while it
- * redials main's word stands (ADR-228 D6).
+ * redials main's word stands.
  *
- * Typing into a pane on an away host is dropped, not queued (ADR-178 §6):
+ * Typing into a pane on an away host is dropped, not queued:
  * keystrokes replayed into a shell minutes later, into whatever is then in
  * the foreground, would do more harm than losing them. A linked group's
- * sections and host state (ADR-192 §5) read the same predicate.
+ * sections and host state read the same predicate.
  */
 export function isHostOffline(
   hostId: string | null | undefined,
@@ -311,10 +310,10 @@ export function isHostOffline(
   );
   const listed = via?.(hostId);
   // With no bridge of its own, a host (or the desktop's own machine, on a
-  // phone) is as far away as every server that lists it (D3, source 2).
+  // phone) is as far away as every server that lists it.
   if (directly === undefined && listed === "unreachable") return true;
   // A room of its own that went unreachable, unless a lister still serves
-  // it (D3, source 2). On a phone, the desktop's own room above all.
+  // it. On a phone, the desktop's own room above all.
   if (directly === "unreachable" && listed !== "connected" && relayed?.(hostId)) {
     return true;
   }
@@ -322,7 +321,7 @@ export function isHostOffline(
 }
 
 /**
- * A linked group's host state, from its members' hosts (ADR-192 §5):
+ * A linked group's host state, from its members' hosts:
  * `connected` when no member's host is away (`isHostOffline`, so a host
  * still connecting or reconnecting counts as away), `offline` when every
  * member's is, and `partially-offline` otherwise — one host dropped while the others

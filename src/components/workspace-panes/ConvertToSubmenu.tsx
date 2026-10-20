@@ -45,7 +45,7 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
                   } else {
                     // Switching from browser/diff — the terminal mounts
                     // fresh, and the server types the command into it once
-                    // its shell is ready (ADR-179 ticket 11).
+                    // its shell is ready.
                     sendPendingCommand(paneId, command, "agent-startup");
                     setPaneContentType(paneId, "terminal");
                   }

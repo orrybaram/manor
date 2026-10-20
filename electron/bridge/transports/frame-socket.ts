@@ -1,6 +1,6 @@
 /**
  * The seam between the bridge's hello gate and whatever carries its text
- * frames (ADR-206 D5): a relay channel, or a test's in-memory pair.
+ * frames: a relay channel, or a test's in-memory pair.
  */
 export interface FrameSocket {
   /** Text frame out. Must not throw; a dead socket drops it. */

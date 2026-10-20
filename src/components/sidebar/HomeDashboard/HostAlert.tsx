@@ -17,7 +17,7 @@ type HostAlertProps = {
 };
 
 /**
- * A strip per host a project uses that is away (ADR-198 §1.2): its
+ * A strip per host a project uses that is away: its
  * workspaces' agent and PR state may be stale until it reconnects.
  * `connecting` is left out: that's the app starting up or a Reconnect
  * already in flight, not a host that went away. No "went offline N ago":
@@ -29,7 +29,7 @@ export function HostAlert(props: HostAlertProps) {
   const hosts = useHostStore((s) => s.hosts);
   const retryConnect = useHostStore((s) => s.retryConnect);
   // A host this window holds its own bridge to is away only when that is
-  // too (ADR-228 D6).
+  // too.
   const servers = useServers();
 
   const away = useMemo(() => {

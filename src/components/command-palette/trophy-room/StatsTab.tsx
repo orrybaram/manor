@@ -34,7 +34,7 @@ interface StatGroup {
 }
 
 /**
- * Row order for the stats table (ADR-168 §6), grouped into readout sections.
+ * Row order for the stats table, grouped into readout sections.
  * `unblockMsTotal` is deliberately absent: it only exists as the numerator of
  * the derived "Unblock time" row.
  */
@@ -232,7 +232,7 @@ type StatsTabProps = {
   summary: StatsSummary;
 };
 
-/** The trophy room's Stats tab: usage readouts (ADR-168 §6), no goals attached. */
+/** The trophy room's Stats tab: usage readouts, no goals attached. */
 export function StatsTab(props: StatsTabProps) {
   const { summary } = props;
 

@@ -1,4 +1,4 @@
-// Builds the web app for the relay's per-version R2 hosting (ADR-206 D4):
+// Builds the web app for the relay's per-version R2 hosting:
 // base /app/<version>/, output dist-relay-web/<version>/. Cross-platform
 // stand-in for setting MANOR_WEB_BASE / MANOR_WEB_OUT_DIR inline.
 import { spawnSync } from "node:child_process";

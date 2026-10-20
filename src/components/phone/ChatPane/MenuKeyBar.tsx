@@ -26,8 +26,7 @@ type MenuKeyBarProps = {
 };
 
 /**
- * The keys a TUI menu needs, which a phone's soft keyboard lacks (ADR-218
- * D3). Drawn over the bottom of the terminal while the chat has handed it a
+ * The keys a TUI menu needs, which a phone's soft keyboard lacks. Drawn over the bottom of the terminal while the chat has handed it a
  * menu. Each key is one `chat.key`, a fixed navigation keystroke into the
  * pane's PTY. A key that fails to send is dropped: the menu on screen shows
  * whether it moved.

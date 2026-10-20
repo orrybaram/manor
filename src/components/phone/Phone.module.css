@@ -1,6 +1,6 @@
 /*
- * ADR-181 D3: the phone-only chrome. `useLayoutMode()` is the one breakpoint
- * for the whole app (ADR-181 D2), so this file has no media query of its
+ * The phone-only chrome. `useLayoutMode()` is the one breakpoint
+ * for the whole app, so this file has no media query of its
  * own — `PhoneTopBar` only renders when `App.tsx` has already decided the
  * renderer is a phone, and `:global(.app[data-layout="phone"])` scopes the
  * shell-level rule below the same way.
@@ -12,7 +12,7 @@
  * keyboard opens; sizing `.app` off that would resize this box — and
  * everything under it, including a terminal pane this renderer owns the
  * winsize of — on every keyboard toggle. That is a SIGWINCH per toggle,
- * exactly the bug ADR-163/164/165 fixed for workspace switches. The `svh`
+ * the same bug once fixed for workspace switches. The `svh`
  * and `lvh` units both ignore the keyboard, so opening it changes no row
  * count and sends no SIGWINCH. The native keyboard depends on this holding.
  *
@@ -47,7 +47,7 @@
 }
 
 /*
- * ADR-181 D3: `[data-mac-inset]` is only ever set on the Electron
+ * `[data-mac-inset]` is only ever set on the Electron
  * desktop on macOS (`hasTrafficLights()` in `lib/platform.ts`) — the one
  * platform where `hiddenInset` + `trafficLightPosition`
  * (`electron/window.ts`) puts the red/yellow/green buttons over this bar's
@@ -84,7 +84,7 @@
 }
 
 /*
- * Touch targets are at least 44x44 (ADR-181 D3) — bigger than the `md`
+ * Touch targets are at least 44x44 — bigger than the `md`
  * Button size's own padding gives, so this overrides it directly. The
  * element-plus-class selector outweighs `Button.module.css`'s single-class
  * rules regardless of which stylesheet the bundler injects first.
@@ -169,7 +169,7 @@ button.notifyDismiss {
 
 /*
  * The top bar's overflow menu (`PhoneOverflowMenu`). Portaled under `<body>`,
- * hence `:root[data-layout="phone"]` rather than `.app` (ADR-181 D5). Items
+ * hence `:root[data-layout="phone"]` rather than `.app`. Items
  * are full-width rows a thumb can hit.
  */
 :global(:root[data-layout="phone"]) .phoneMenu {

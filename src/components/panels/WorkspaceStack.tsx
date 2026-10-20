@@ -19,7 +19,7 @@ type WorkspaceStackProps = {
 /**
  * Every workspace this window has opened, its panel tree one hidden layer
  * each — only an opened one renders at all, because mounting a pane creates
- * its PTY (ADR-182 D9: the layout map holds every workspace the server has
+ * its PTY (the layout map holds every workspace the server has
  * told this window about, `mountedWorkspaces` which of them it renders).
  * Selects only the keys:
  * each layer selects its own tree, so a layout change in one workspace

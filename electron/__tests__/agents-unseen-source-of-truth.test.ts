@@ -1,12 +1,11 @@
 /**
- * ADR-136 §"Change 3" — main is the source of truth for unseen flags.
+ * Main is the source of truth for unseen flags.
  *
- * No `ipcMain` here any more: `agents` crossed to the handler table in
- * ADR-180 ticket 9, so these are plain functions over `HostDeps` — the same
- * functions the table calls, and a paired `full` device now reaches them the
- * same way the desktop does (ADR-180's watch-for: a browser marking an agent
- * seen must produce the same `agents.updated` broadcast a desktop window
- * does).
+ * No `ipcMain` here any more: `agents` crossed to the handler table, so these
+ * are plain functions over `HostDeps` — the same functions the table calls,
+ * and a paired `full` device now reaches them the same way the desktop does
+ * (a browser marking an agent seen must produce the same `agents.updated`
+ * broadcast a desktop window does).
  *
  * Verifies:
  *   - `agentsGetUnseen` returns the unseen Sets in deps (renderer uses this
@@ -60,7 +59,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe("agents.getUnseen (ADR-136)", () => {
+describe("agents.getUnseen", () => {
   // Main's Sets, read from deps: the same Sets the driver and `markSeen`
   // write, whichever table (desktop or host server) answers.
   it("returns the unseen Sets' contents", () => {
@@ -74,7 +73,7 @@ describe("agents.getUnseen (ADR-136)", () => {
   });
 });
 
-describe("agents.markSeen re-broadcast (ADR-136)", () => {
+describe("agents.markSeen re-broadcast", () => {
   let deps: ReturnType<typeof makeDeps>;
 
   beforeEach(() => {

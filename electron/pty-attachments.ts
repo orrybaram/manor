@@ -1,26 +1,24 @@
 /**
- * Who owns a session's winsize (ADR-178 D5, ADR-179 D6, ADR-180 D6).
+ * Who owns a session's winsize.
  *
- * One winsize owner per session. Slice 1 (ADR-178) made the desktop app it
- * whenever the desktop had the pane mounted, full stop — every browser on the
- * bridge followed, and nothing here answered what happens between two
- * browsers. ADR-179 D6 closed that gap for the bridge's side. ADR-180 D6
- * closes the last of it: a viewer is a *connection* now, whichever transport
+ * One winsize owner per session. At first the desktop app was it whenever
+ * the desktop had the pane mounted, full stop — every browser on the bridge
+ * followed, and nothing here answered what happens between two browsers.
+ * That gap is closed: a viewer is a *connection* now, whichever transport
  * carried it, so the two windows a pane is open in are as comparable as two
- * browsers are. ADR-163/164/165 are three records of the single bug that
- * appears when a viewer's grid disagrees with the pty's winsize, and two
- * xterm.js viewers of different widths both running fit-addon would rebuild
- * it as a feature.
+ * browsers are. A viewer's grid disagreeing with the pty's winsize is a bug
+ * that has surfaced more than once, and two xterm.js viewers of different
+ * widths both running fit-addon would rebuild it as a feature.
  *
  * The rules, in the order they are asked:
  *
  * 1. A `local` viewer — an Electron renderer window on this machine —
  *    outranks a `device` viewer. The user at the desk is the one holding the
  *    keyboard, and a phone looking at the same pane follows. On a host
- *    server, a desktop window's own viewer stream (`viewer: "desktop"`,
- *    ADR-228 D5) is that desk, and ranks the same.
+ *    server, a desktop window's own viewer stream (`viewer: "desktop"`) is
+ *    that desk, and ranks the same.
  * 2. Among viewers of the same class, the most recently attached wins. This
- *    is the ADR-180 repair: before it, two desktop windows on one pane both
+ *    is a repair: before it, two desktop windows on one pane both
  *    believed they owned the winsize and took turns resizing the session to
  *    their own measurement on every layout tick.
  * 3. Whoever stops being the owner — or starts — is told, through
@@ -36,29 +34,28 @@
  * without hunting for a button, which is tmux's `window-size latest` with
  * the desk as the only viewer whose keystrokes count implicitly.
  *
- * A **foreign hold** outranks all of it (ADR-225 D5). On a host server the
+ * A **foreign hold** outranks all of it. On a host server the
  * pane's other viewer may be a client of the daemon this registry never sees —
- * another daemon client attached to the same session (before ADR-228, the
+ * another daemon client attached to the same session (the
  * desktop over ssh; now the desktop's windows are viewers here). While the host says so
  * (`setForeign`), nobody here owns the winsize: `ownerOf` answers a sentinel
  * viewer no connection matches, so every resize is dropped, every claim loses
  * and every arrival follows.
  *
  * This is a module-level registry, and shared between servers in one process
- * on purpose (ADR-227 D1). It is keyed by pane id, and a pane belongs to
+ * on purpose. It is keyed by pane id, and a pane belongs to
  * exactly one server, so two servers never contend for an entry. What is
  * process-wide is `changeSinks`: each `BridgeServer` registers one and hears
  * an owner change for every pane, including another server's. That is safe
  * because it pushes `winsizeOwner` only to connections that subscribed to the
  * pane, and a connection subscribes only to its own server's panes. The
  * question every caller asks — who owns this pane's winsize — has one answer.
- * It moves into the daemon when a host can exist with no Electron main to ask
- * (ADR-178 D5).
+ * It moves into the daemon when a host can exist with no Electron main to ask.
  *
  * The rules live on `PtyAttachments`, and the module-level functions below
  * are the process's one instance of it (`processAttachments`). Main also
- * arbitrates among the callers it forwards to a host server (`HostRouting`,
- * ADR-230 D10) in that same instance; a test that runs a host server and main
+ * arbitrates among the callers it forwards to a host server (`HostRouting`)
+ * in that same instance; a test that runs a host server and main
  * in one process gives main's routing an instance of its own.
  */
 
@@ -66,11 +63,11 @@ import type { CallerClass, ViewerKind } from "./bridge/types";
 
 /**
  * One viewer holding a pane: a bridge connection, and what class of caller it
- * is (ADR-180 D6).
+ * is.
  *
- * A plain `Set<number>` of `webContents.id`s was slice 1's whole story,
- * because every viewer was the desktop and the desktop was one thing. Slice 2
- * added a second, kinded shape for a socket. What this is now is neither: a
+ * A plain `Set<number>` of `webContents.id`s was once the whole story,
+ * because every viewer was the desktop and the desktop was one thing. Later a
+ * second, kinded shape was added for a socket. What this is now is neither: a
  * connection id and a caller class, which is exactly what `BridgeConnection`
  * knows about anyone who reaches the host surface — a renderer window and a
  * paired device arrive here through the same door and are told apart by the
@@ -81,12 +78,12 @@ export interface Viewer {
   connectionId: string;
   /**
    * `local` = an Electron renderer window; `device` = a paired device;
-   * `owner` = the desktop on a host server's owner channel (ADR-225 D4).
+   * `owner` = the desktop on a host server's owner channel.
    */
   callerClass: CallerClass;
   /**
-   * `desktop` = a desktop window's own viewer stream to a host server
-   * (ADR-228 D4). Absent for every other viewer.
+   * `desktop` = a desktop window's own viewer stream to a host server.
+   * Absent for every other viewer.
    */
   viewer?: ViewerKind;
 }
@@ -103,7 +100,7 @@ const RANK: Record<CallerClass, number> = {
   device: 0,
 };
 
-/** The rank of a desk window, which a desktop viewer stream shares (ADR-228 D5). */
+/** The rank of a desk window, which a desktop viewer stream shares. */
 const DESK_RANK = RANK.local;
 
 /**
@@ -139,7 +136,7 @@ const FOREIGN_VIEWER: Viewer = Object.freeze({
  * grid and tells every connection watching it `owner: boolean`, so a follower
  * whose owner disappeared — or a follower who just became the owner — hears
  * about it without having to ask again. `HostRouting` does the same for a
- * pane on a host server (ADR-230 D10), with the host's last grid. This
+ * pane on a host server, with the host's last grid. This
  * module stays Electron-free and ignorant of transports, the same reason
  * `renderer-broadcast.ts` is a leaf: the registry only knows *that* ownership
  * moved, never who is listening.
@@ -175,7 +172,7 @@ export class PtyAttachments {
    * An array rather than a `Set` because ownership among equals is about
    * *order* — "the most recently attached" — which a `Set`'s iteration order
    * happens to preserve today but was never the contract. Keyed by viewer, as
-   * slice 1's map was, for the same reason: a connection that dies has to
+   * the original map was, for the same reason: a connection that dies has to
    * release exactly what it held, and a pane open in two places is still owned
    * after one of them lets go.
    */
@@ -244,7 +241,7 @@ export class PtyAttachments {
    * follower re-creating a pane it never let go of — a remount, a workspace
    * switched away from and back — is still a follower. Answering otherwise
    * would let a remount resize the owner's session, which is the whole of
-   * ADR-163/164/165 arriving through a door marked "reattach".
+   * the winsize-disagreement bug arriving through a door marked "reattach".
    */
   wouldOwn(paneId: string, viewer: Viewer): boolean {
     // Held elsewhere: nobody's arrival outranks a viewer this side cannot see.
@@ -279,7 +276,7 @@ export class PtyAttachments {
    * taking the winsize back off whoever holds it would make a remount a resize.
    *
    * `as: "returning"` is a viewer that had this pane mounted coming back — its
-   * connection dropped and it re-attached (`pty.attach`, ADR-220) — and making
+   * connection dropped and it re-attached (`pty.attach`) — and making
    * no bid for the winsize. It goes in as the *oldest* viewer rather than the
    * newest, and a standing claim stays standing: whoever attached while it was
    * away keeps the grid they have been fitting to, rather than having it
@@ -357,8 +354,7 @@ export class PtyAttachments {
   /**
    * A client this registry cannot see holds the pane (`on`), or let it go.
    *
-   * Set by a host server from the daemon's attach count (ADR-225 D5,
-   * `host-server/winsize.ts`). The hold outlives the viewers here — it is about
+   * Set by a host server from the daemon's attach count (`host-server/winsize.ts`). The hold outlives the viewers here — it is about
    * the session, not about who on this side has it open — and is cleared by
    * whoever set it. A flip that changes `ownerOf` is told to the change sinks
    * like any other, so every connection watching hears `owner: false` (or its
@@ -377,7 +373,7 @@ export class PtyAttachments {
    * A connection is gone — a window closed, a socket dropped: drop every pane
    * it was holding.
    *
-   * One function for both, and no `kind` argument, which is ADR-180 D6's point:
+   * One function for both, and no `kind` argument, which is the point:
    * a dead renderer window and a dead socket are the same event now, and the
    * old two-kinded version had a hole in exactly this shape — the bridge server
    * called it with `"bridge"` for every dropped connection, which released

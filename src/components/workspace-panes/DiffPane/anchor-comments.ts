@@ -12,8 +12,8 @@ export type AnchoredComments = {
  *
  * A comment renders at the *last* line it covers, the way GitHub hangs a
  * review comment under the end of the selected range. Anchors are plain
- * indices into a file's `lines`, and the ADR accepts that they drift when the
- * diff changes underneath a review, so anything pointing past the end of the
+ * indices into a file's `lines`, and they are allowed to drift when the diff
+ * changes underneath a review, so anything pointing past the end of the
  * file is dropped here: a card must never be rendered against a row that does
  * not exist. The draft itself survives in the store and is still submitted —
  * it carries its own snippet.

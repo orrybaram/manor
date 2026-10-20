@@ -1,5 +1,5 @@
 /**
- * One tailed transcript (ADR-224 D3): the agent-neutral half of the chat
+ * One tailed transcript: the agent-neutral half of the chat
  * mirror, shared by a pane's own transcript and by each task's.
  *
  * It holds what it reads (the path, the source, the adapter's parser) and
@@ -10,7 +10,7 @@
  * while one is waiting coalesce into it.
  *
  * Everything it finds goes to its owner's `onPush`: each new or updated
- * entry, and the context size whenever that changes (ADR-223 D4).
+ * entry, and the context size whenever that changes.
  */
 
 import type { TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
@@ -29,7 +29,7 @@ export interface TranscriptStreamOptions {
   label: string;
   /** The format it starts in, until `point` says otherwise. */
   adapter: TranscriptAdapter;
-  /** A delegated task's transcript, not the pane's own (ADR-224 D3). */
+  /** A delegated task's transcript, not the pane's own. */
   child?: boolean;
   /** The poll fallback's interval for a source with `watch`. */
   pollIntervalMs: number;

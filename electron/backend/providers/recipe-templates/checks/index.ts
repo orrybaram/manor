@@ -1,5 +1,5 @@
 /**
- * Each bundled template's checks (ADR-234 D6, D8): what `hosts.checkTemplate`
+ * Each bundled template's checks: what `hosts.checkTemplate`
  * answers — the readiness checklist and the options of the template's
  * `choice` fields — probed in main with short-timeout commands; and their
  * `run` fixes (`hosts.runTemplateFix`).

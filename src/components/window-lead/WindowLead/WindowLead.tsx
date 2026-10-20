@@ -19,7 +19,7 @@ function withShortcut(label: string, combo: KeyCombo | undefined): string {
 }
 
 /**
- * The window's top-left controls (ADR-196): room for the macOS traffic
+ * The window's top-left controls: room for the macOS traffic
  * lights, back/forward, and the notifications bell at its right edge, on the
  * frame and draggable. Sits over the sidebar panel in `full` mode and over
  * the top-left panel's tab bar inset in `hidden` mode. Over the rail it is

@@ -1,5 +1,5 @@
 /**
- * The shared workspace-key helpers (ADR-191) from the main process's side:
+ * The shared workspace-key helpers from the main process's side:
  * they compile under `tsconfig.electron.json` and take main's own
  * `ProjectInfo` as a migration owner without mapping.
  */

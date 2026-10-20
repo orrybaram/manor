@@ -10,12 +10,12 @@ export interface AgentCommandProject extends DirectoryProject {
 /**
  * The launch command for one workspace, most specific source first: an
  * explicit `override`, the owning project's `agentCommand` — the project on
- * the workspace's own host (ADR-191) — then the default. Home is the
- * Dashboard and has no agent (ADR-197), so its key owns nothing and gets the
+ * the workspace's own host — then the default. Home is the
+ * Dashboard and has no agent, so its key owns nothing and gets the
  * default.
  *
  * Pure, and free of stores and managers, so both sides of the app ask the one
- * question the same way (ADR-182 D8): the renderer's `getAgentCommand`
+ * question the same way: the renderer's `getAgentCommand`
  * (`src/agent-defaults.ts`) hands it Zustand state, and `POST /agents`
  * (`electron/routes/agents.ts`) hands it what the managers hold. It lives
  * outside `agent-defaults.ts` because that module reaches for the stores.

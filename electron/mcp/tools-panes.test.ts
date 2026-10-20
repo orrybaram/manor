@@ -15,7 +15,7 @@ describe("formatLayoutSnapshot", () => {
     expect(formatLayoutSnapshot(snapshot)).toBe("/ws\n  (no tabs)");
   });
 
-  // The bug this ADR fixes: three tabs in one panel printed `[focused]` thrice.
+  // The bug this guards against: three tabs in one panel printed `[focused]` thrice.
   it("prints exactly one [active] and one [focused] across three tabs", () => {
     const snapshot: LayoutSnapshot = {
       workspacePath: "/ws",
@@ -79,7 +79,7 @@ describe("formatLayoutSnapshot", () => {
   });
 });
 
-// ── Caller-context defaulting (ADR-152 ticket 10) ──
+// ── Caller-context defaulting ──
 
 /** A ~6-line fake `Http` that records every call and returns canned responses. */
 function fakeHttp(overrides: Partial<Http> = {}): Http & {
@@ -232,7 +232,7 @@ describe("new_terminal / new_browser caller-workspace defaulting", () => {
   });
 });
 
-// ── ADR-171 ticket 3: tab and pane control surface ──
+// ── Tab and pane control surface ──
 
 describe("pin_tab", () => {
   it("POSTs to the tab's pin endpoint and reports the returned state", async () => {

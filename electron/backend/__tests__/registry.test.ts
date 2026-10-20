@@ -141,7 +141,7 @@ const box: HostSpec = { kind: "ssh", target: "me@box" };
 
 /**
  * What `list()` stamps on `box`, a plain ssh box: its provider's kind and
- * capabilities (ADR-229 D1), and its name (D2).
+ * capabilities, and its name.
  */
 const SSH_FACTS = {
   label: "me@box",
@@ -189,7 +189,7 @@ describe("BackendRegistry", () => {
     expect(local.raw.connect).toHaveBeenCalledWith();
   });
 
-  it("stamps a remote host's profile and project marks, and re-lists on recordChanged (ADR-235)", () => {
+  it("stamps a remote host's profile and project marks, and re-lists on recordChanged", () => {
     const marks: Record<string, { profileId?: string; forProject?: string }> = {
       box: { profileId: "hp-1" },
     };
@@ -465,7 +465,7 @@ describe("BackendRegistry", () => {
     expect(remote.raw.pty.createOrAttach).toHaveBeenCalledWith("pane-1", "/r", 80, 24);
   });
 
-  it("waits for the connection before getPaneFacts, like any pty call (ADR-184)", async () => {
+  it("waits for the connection before getPaneFacts, like any pty call", async () => {
     const { registry, remotes } = setup();
     registry.register("box", box);
     const remote = remotes.get("box")!;
@@ -621,7 +621,7 @@ describe("RoutedBackend", () => {
     expect(local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
   });
 
-  it("reaches a pane this process never attached on the host whose layout holds it (ADR-228 D5)", async () => {
+  it("reaches a pane this process never attached on the host whose layout holds it", async () => {
     const ctx = setup();
     ctx.registry.register("box", box);
     const backend = new RoutedBackend(
@@ -643,7 +643,7 @@ describe("RoutedBackend", () => {
     expect(ctx.local.raw.pty.write).toHaveBeenCalledWith("pane-x", "y");
   });
 
-  it("routes getPaneFacts to the host that owns the pane (ADR-184)", async () => {
+  it("routes getPaneFacts to the host that owns the pane", async () => {
     const { backend, local, box: remote } = routed();
     const facts: PaneFacts = {
       foreground: { name: "claude", kind: "claude" },
@@ -718,7 +718,7 @@ describe("RoutedBackend", () => {
     });
   });
 
-  it("never creates or attaches a session its host's server serves (ADR-228 D5)", async () => {
+  it("never creates or attaches a session its host's server serves", async () => {
     const ctx = setup();
     ctx.registry.register("box", box);
     let served = true;
@@ -757,7 +757,7 @@ describe("RoutedBackend", () => {
     );
   });
 
-  it("fails a pty call with HostUnavailableError only while its host is away (ADR-183)", async () => {
+  it("fails a pty call with HostUnavailableError only while its host is away", async () => {
     const { backend, registry, box: remote } = routed();
     remote.raw.connect.mockRejectedValueOnce(new Error("ssh: connection refused"));
     const away = await backend.pty
@@ -794,7 +794,7 @@ describe("RoutedBackend", () => {
   });
 });
 
-describe("BackendRegistry — remote agent hooks (ADR-227 D4)", () => {
+describe("BackendRegistry — remote agent hooks", () => {
   it("ignores a remote daemon's hookEvents: the host's server reads its journal", async () => {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");
@@ -841,13 +841,13 @@ describe("BackendRegistry — remote agent hooks (ADR-227 D4)", () => {
   });
 });
 
-describe("BackendRegistry — away and back (ADR-178 §6)", () => {
+describe("BackendRegistry — away and back", () => {
   it("tells a remote session lost to a daemon restart apart from a shell exit", () => {
     const lost = { type: "exit" as const, sessionId: "p", exitCode: -1, lost: true as const };
     const exited = { type: "exit" as const, sessionId: "p", exitCode: 0 };
     expect(isRemoteSessionLoss("box", lost)).toBe(true);
     expect(isRemoteSessionLoss("box", exited)).toBe(false);
-    // The local daemon's loss still closes panes (ADR-169).
+    // The local daemon's loss still closes panes.
     expect(isRemoteSessionLoss("local", lost)).toBe(false);
   });
 
@@ -953,7 +953,7 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     await connectStarted(remote, 2);
   });
 
-  describe("checkRemoteHosts (ADR-188 §3)", () => {
+  describe("checkRemoteHosts", () => {
     it("pings a connected host", async () => {
       const { registry, remotes } = setup();
       registry.register("box", box);
@@ -1006,7 +1006,7 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
     });
   });
 
-  describe("daemon replacing (ADR-185 §A)", () => {
+  describe("daemon replacing", () => {
     /** Every host's connection, keyed by hostId; not part of the public API. */
     function connections(registry: BackendRegistry): Map<string, HostConnection> {
       return (registry as unknown as { hosts: Map<string, HostConnection> }).hosts;
@@ -1068,7 +1068,7 @@ describe("BackendRegistry — away and back (ADR-178 §6)", () => {
   });
 });
 
-describe("provider lifecycle (ADR-229 D1)", () => {
+describe("provider lifecycle", () => {
   /** A registry with one remote host, `box`, whose provider can stop it. */
   function lifecycleSetup(opts: { canStop?: boolean } = {}) {
     const local = fakeBackend("local");
@@ -1104,7 +1104,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
 
   /**
    * A registry with one recipe host, `pod`, whose every `up` says the box is
-   * at the next address in `addresses` (ADR-230 D2). `reached()` is where
+   * at the next address in `addresses`. `reached()` is where
    * the backend's transport would dial now.
    */
   function recipeSetup(addresses: string[] = ["10.0.0.1", "10.0.0.2", "10.0.0.3"]) {
@@ -1150,7 +1150,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     };
   }
 
-  describe("a recipe host re-runs up once per drop (ADR-230 D2)", () => {
+  describe("a recipe host re-runs up once per drop", () => {
     it("finds a box that came back at a new address", async () => {
       const { registry, remote, provider, drop, reached, beforeReconnect } = recipeSetup();
       await registry.ensureConnected("pod");
@@ -1366,7 +1366,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     expect(registry.status("box")).toBe("connected");
   });
 
-  describe("a pty call that declines to wake (ADR-230 D3)", () => {
+  describe("a pty call that declines to wake", () => {
     const create = (registry: BackendRegistry, connect?: { wake?: boolean }) =>
       connect
         ? registry.get("box").pty.createOrAttach("pane-1", "/w", 80, 24, undefined, undefined, connect)
@@ -1448,7 +1448,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     expect(registry.status("box")).toBe("connected");
   });
 
-  it("reports a box deleted outside Manor as missing, and starts it again only on wake (ADR-229 D2)", async () => {
+  it("reports a box deleted outside Manor as missing, and starts it again only on wake", async () => {
     const { registry, remote, provider } = lifecycleSetup();
     provider.status.mockResolvedValue({ state: "error", detail: "Dev pod no longer exists", missing: true });
 
@@ -1470,7 +1470,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     expect(registry.list()[1]).not.toHaveProperty("missing");
   });
 
-  it("stops reconnecting to a box that went missing (ADR-229 D2)", async () => {
+  it("stops reconnecting to a box that went missing", async () => {
     const { registry, remote, provider, beforeReconnect } = lifecycleSetup();
     await registry.ensureConnected("box");
     remote.hostEvent({ type: "hostDisconnected", sessionIds: [], retryInMs: 1000 });
@@ -1482,7 +1482,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
     expect(provider.dispose).toHaveBeenCalled();
   });
 
-  it("names a recipe host by its recipe, falling back to the recipe id (ADR-229 D2)", () => {
+  it("names a recipe host by its recipe, falling back to the recipe id", () => {
     const { registry } = setup();
     registry.register("pod", { kind: "recipe", recipeId: "no-such-recipe" });
     expect(registry.list()[1]).toMatchObject({ hostId: "pod", label: "no-such-recipe" });
@@ -1499,7 +1499,7 @@ describe("provider lifecycle (ADR-229 D1)", () => {
   });
 });
 
-describe("provider lifecycle: a meant connect joining a background one (ADR-229 D1)", () => {
+describe("provider lifecycle: a meant connect joining a background one", () => {
   it("wakes the host once the background attempt has left it asleep", async () => {
     const local = fakeBackend("local");
     const remote = fakeBackend("box");

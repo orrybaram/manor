@@ -6,7 +6,7 @@ import { useEmojiAutocomplete } from "./useEmojiAutocomplete";
 type EmojiTextareaProps = React.ComponentPropsWithoutRef<typeof Textarea>;
 
 /**
- * `ui/Textarea` with `:shortcode` emoji autocomplete (ADR-174). Same props and
+ * `ui/Textarea` with `:shortcode` emoji autocomplete. Same props and
  * ref as `Textarea`; the caller's `onChange` fires for inserted emoji too.
  */
 export const EmojiTextarea = React.forwardRef<

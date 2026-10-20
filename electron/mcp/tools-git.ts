@@ -1,5 +1,5 @@
 /**
- * MCP tools for git (ADR-171): thin wrappers over `/git/*`
+ * MCP tools for git: thin wrappers over `/git/*`
  * (`../routes/git.ts`), itself a thin wrapper over `backend.git`. Every tool
  * takes an optional `cwd`, defaulting through `resolveWorkspacePath` to the
  * workspace this agent is running in — the control server 400s if it isn't a

@@ -1,5 +1,5 @@
 /**
- * What the owner hands a host server (ADR-225 D4, ADR-227 D3), checked at
+ * What the owner hands a host server, checked at
  * the boundary.
  *
  * The payloads arrive as JSON over the owner channel. The owner is trusted
@@ -8,7 +8,7 @@
  * checked by the host table's handlers before anything is written. A bad one
  * is refused whole.
  *
- * - **The desktop's VAPID pair** (`hostServer.setVapidKeys`, ADR-225 D3).
+ * - **The desktop's VAPID pair** (`hostServer.setVapidKeys`).
  * - **Adoption's bundle** (`hostServer.adopt`, `./adopt.ts`): this host's
  *   projects (`ManifestProject`), its agents and its part of the layout,
  *   rekeyed to bare paths (`assertAdoptionBundle`).
@@ -212,8 +212,7 @@ function assertArrayOf(
 }
 
 /**
- * Throws unless `value` is a whole adoption bundle (`hostServer.adopt`,
- * ADR-227 D3). Nothing of a bundle that fails is written.
+ * Throws unless `value` is a whole adoption bundle (`hostServer.adopt`). Nothing of a bundle that fails is written.
  */
 export function assertAdoptionBundle(value: unknown): asserts value is AdoptionBundle {
   assertRecord(value, "bundle");

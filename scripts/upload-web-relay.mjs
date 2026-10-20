@@ -1,5 +1,5 @@
 // Uploads dist-relay-web/<version>/** to the relay's R2 bucket at
-// app/<version>/<path> (ADR-206 D4). `--local` writes to the miniflare store
+// app/<version>/<path>. `--local` writes to the miniflare store
 // `pnpm relay:dev` reads; `--remote` (default) writes to Cloudflare.
 //
 // Each file is its own `wrangler r2 object put` (wrangler has no bulk upload

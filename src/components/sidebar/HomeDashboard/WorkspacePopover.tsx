@@ -25,7 +25,7 @@ type WorkspacePopoverProps = {
 };
 
 /**
- * The hover card behind a project tile's workspace block (ADR-198): what the
+ * The hover card behind a project tile's workspace block: what the
  * block's colour summarises, spelled out — branch, agents and their status,
  * the PR and where it stands, diff, dev server and linked issues. Read-only;
  * clicking the block itself opens the workspace.

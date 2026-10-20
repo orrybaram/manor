@@ -27,41 +27,41 @@ export type StreamPosition = number;
  * Separate from the app version on purpose. A daemon outlives the app that
  * spawned it, and is replaced only when it cannot serve this client — a wire
  * protocol mismatch here, or a `PTY_SUBPROCESS_PROTOCOL` mismatch
- * (`pty-subprocess-ipc.ts`) — never merely because the app version differs
- * (ADR-185 §B). Most updates leave both protocols unchanged, so the same
+ * (`pty-subprocess-ipc.ts`) — never merely because the app version differs.
+ * Most updates leave both protocols unchanged, so the same
  * daemon keeps every session alive across them. Two builds can still meet
  * across a protocol change (dev rebuilds, or the release that first ships
  * this rule), which is exactly how a client that required `notFound` met a
  * daemon that only said `error`.
  *
- * 1 — `notFound` replies, and `seq` on data events and snapshots (ADR-159).
+ * 1 — `notFound` replies, and `seq` on data events and snapshots.
  * 2 — `resized` replies only once the pty ioctl has landed, rather than as soon
  *     as a resize has been written towards it.
  *
  * 3 — a `resized` *stream* event, broadcast at the position in the output where
  *     the ioctl landed. A client applies its own grid resize there rather than
- *     guessing when — see ADR-164. A protocol-2 daemon never sends it, and a
+ *     guessing when. A protocol-2 daemon never sends it, and a
  *     client that waits for one would never resize its grid at all.
  *
  * 4 — every resize *request* answers with a `resized` event, including one that
  *     changes nothing. That is what repairs a client whose grid has drifted
- *     away from the winsize (ADR-165), and a protocol-3 daemon stays silent for
+ *     away from the winsize, and a protocol-3 daemon stays silent for
  *     exactly the request that needs an answer — so it cannot serve this client
  *     correctly, however new its build looks. No wire *shape* changed here;
  *     the number is carrying the thing it exists to carry.
  *
- * 5 — a `paneFacts` stream event and a `getPaneFacts` request (ADR-184 §3).
+ * 5 — a `paneFacts` stream event and a `getPaneFacts` request.
  *     Main's Status reconciler reads Pane facts from them, and a protocol-4
  *     daemon sends neither.
  *
  * 6 — the `agentHook` stream command and the `agentStatus` stream event are
- *     gone (ADR-184 ticket 4): the daemon's `AgentDetector` state machine is
+ *     gone: the daemon's `AgentDetector` state machine is
  *     deleted, and main's Status reconciler decides Agent status from Pane
  *     facts and hooks alone. A protocol-5 daemon still accepts an `agentHook`
  *     command main no longer sends, and a protocol-6 daemon never sends
  *     `agentStatus`.
  *
- * Still 6 — the control relay (ADR-189 §1) added the `controlRequest` stream
+ * Still 6 — the control relay added the `controlRequest` stream
  *     event and the `enableControlRelay` / `controlResponse` stream commands
  *     without a bump, because neither side can be misserved by a peer that
  *     lacks them, and a bump would restart remote daemons and end their
@@ -70,11 +70,11 @@ export type StreamPosition = number;
  *     `controlRequest`; an older app never sends `enableControlRelay`, so a
  *     newer daemon never relays to it and answers the CLI with a 503.
  *
- * Still 6 — `enableControlRelay` gained an optional `role` (ADR-227 D8): the
+ * Still 6 — `enableControlRelay` gained an optional `role`: the
  *     host server sends `role: "server"`, and a daemon that knows the field
  *     relays to that stream ahead of any app's. An older daemon ignores the
  *     field and relays to whoever enabled last, which is the host server too,
- *     since a desktop from ADR-227 on no longer enables the relay at all.
+ *     since a current desktop no longer enables the relay at all.
  */
 export const TERMINAL_HOST_PROTOCOL = 6;
 
@@ -87,8 +87,8 @@ export function daemonProtocolOf(response: ControlResponse): number {
 
 /**
  * The pty-subprocess frame protocol (`pty-subprocess-ipc.ts`) a handshake
- * reply reports the daemon forks against; 0 when it reports none (a daemon
- * built before ADR-185).
+ * reply reports the daemon forks against; 0 when it reports none (an older
+ * daemon).
  */
 export function daemonPtyProtocolOf(response: ControlResponse): number {
   return response.type === "handshake" ? (response.ptyProtocol ?? 0) : 0;
@@ -97,7 +97,7 @@ export function daemonPtyProtocolOf(response: ControlResponse): number {
 /**
  * Whether the daemon that sent `response` must be replaced before it can serve
  * this client: it did not answer the handshake at all, or either protocol it
- * reports differs from this client's (ADR-185 §B). `daemonVersion` plays no
+ * reports differs from this client's. `daemonVersion` plays no
  * part any more — a daemon outlives the app that spawned it, and what matters
  * is only whether the two contracts it must honor (the wire protocol here,
  * and the pty-subprocess frame protocol it forks new sessions against) still
@@ -107,7 +107,7 @@ export function daemonPtyProtocolOf(response: ControlResponse): number {
  * that only checked for "older" would keep a daemon a downgrade left ahead of
  * it, still speaking a protocol this build no longer understands.
  *
- * A missing `ptyProtocol` (a daemon built before this ADR) counts as stale,
+ * A missing `ptyProtocol` (an older daemon) counts as stale,
  * so the release that ships this rule replaces the daemon one last time —
  * after that, most updates leave it running. This subsumes the old "same
  * version, older protocol" case that development relied on: the version
@@ -146,8 +146,7 @@ export interface SessionInfo {
   alive: boolean;
   prewarmed?: boolean;
   /**
-   * How many stream sockets are subscribed to the session right now (ADR-225
-   * D5): the host server's winsize rule reads it ("is anyone else looking?").
+   * How many stream sockets are subscribed to the session right now: the host server's winsize rule reads it ("is anyone else looking?").
    * Additive, so no protocol bump: a daemon that predates it omits the field,
    * and a reader treats a missing count as unknown, never as zero.
    */
@@ -198,21 +197,21 @@ export type ControlRequest =
   /**
    * Write `base64`-decoded bytes to `path`, atomically: the daemon writes a
    * temp file in the same directory and renames it over `path`, so a reader
-   * never sees a partial write (ADR-187 §1). Refused over
+   * never sees a partial write. Refused over
    * `MAX_WRITE_FILE_BYTES` decoded. Also answered out of order, like
    * `readFile`.
    */
   | { type: "writeFile"; path: string; base64: string }
   /**
    * Report how the daemon's own host was set up for shell integration and
-   * agent hooks (ADR-160 ticket 10): zdotdir, hook scripts, agent connector
+   * agent hooks: zdotdir, hook scripts, agent connector
    * registration. A remote daemon does that once at startup; this returns
    * the cached result. Answered with `bootstrapped`. Sent by `RemoteBackend`
    * after connecting.
    */
   | { type: "bootstrap" }
   /**
-   * Hook journal entries after `sinceSeq` (ADR-178 §2). Answered with
+   * Hook journal entries after `sinceSeq`. Answered with
    * `hookReplay`; a daemon without a journal (Manor desktop's) answers
    * `error`.
    *
@@ -222,14 +221,14 @@ export type ControlRequest =
    */
   | { type: "replayHooks"; sinceSeq: number; headOnly?: boolean }
   /**
-   * The session's current Pane facts (ADR-184 §3), so main can resync after a
+   * The session's current Pane facts, so main can resync after a
    * reconnect with nothing to replay. Answered with `paneFacts`; `facts` is
    * null when the daemon has no such session.
    */
   | { type: "getPaneFacts"; sessionId: string };
 
 /**
- * A remote daemon's answer to `replayHooks` (ADR-178 §2): journal entries
+ * A remote daemon's answer to `replayHooks`: journal entries
  * with `seq > sinceSeq`, oldest first, and the journal's highest seq.
  * `lastSeq` may exceed the last entry's seq (and entries may start after
  * `sinceSeq + 1`) when compaction dropped what was asked for.
@@ -251,7 +250,7 @@ export interface HookReplay {
  */
 export type HookPayload = Record<string, string>;
 
-/** One entry of a remote daemon's hook journal (ADR-178 §2). */
+/** One entry of a remote daemon's hook journal. */
 export interface HookJournalEntry {
   /** Monotonic across daemon restarts; consecutive, starting at 1. */
   seq: number;
@@ -417,7 +416,7 @@ export function parseHello(line: string): BridgeHello | null {
 export type AgentKind = "claude" | "opencode" | "codex" | "pi";
 
 /**
- * The one live state shown for an Agent's pane (ADR-184). There is no
+ * The one live state shown for an Agent's pane. There is no
  * `"complete"`: a finished turn is `responded`, an ended session is `idle`
  * (and the Agent's lifecycle becomes `completed`). Mirrors `AgentStatus` in
  * `src/electron.d.ts` — electron and the renderer sit in separate tsconfigs,
@@ -439,7 +438,7 @@ export interface AgentState {
   title: string | null;
 }
 
-// ── Pane facts (ADR-184 §3) ──
+// ── Pane facts ──
 
 /**
  * What an output pattern suggests the pane is doing. A raw fact, not an Agent
@@ -449,7 +448,7 @@ export type OutputHint = "thinking" | "working" | "requires_input" | "idle";
 
 /**
  * The daemon's latest snapshot of what it can see in a pane. A source of Status
- * signals, never an Agent status (ADR-184 §3). Produced by the daemon's
+ * signals, never an Agent status. Produced by the daemon's
  * `PaneFactsExtractor` (`pane-facts.ts`) and consumed by the Status reconciler
  * (`electron/agent-status`). Lives here so the daemon bundle and main share it
  * without either pulling in the other's dependencies.
@@ -478,12 +477,12 @@ export type StreamEvent =
    * The session is gone. `lost` marks one the client synthesized because the
    * daemon no longer has it after a reconnect (the daemon restarted, the box
    * rebooted) — not a shell that exited. A remote pane keeps such a session's
-   * pane and recovers it (ADR-178 §6); the local host closes it (ADR-169).
+   * pane and recovers it; the local host closes it.
    */
   | { type: "exit"; sessionId: string; exitCode: number; lost?: true }
   | { type: "cwd"; sessionId: string; cwd: string }
   | { type: "error"; sessionId: string; message: string }
-  /** The session's Pane facts changed; `facts` is the whole new snapshot (ADR-184 §3). */
+  /** The session's Pane facts changed; `facts` is the whole new snapshot. */
   | { type: "paneFacts"; sessionId: string; facts: PaneFacts }
   /**
    * The pty is at this size, and this is where in the stream it changed: every
@@ -494,13 +493,13 @@ export type StreamEvent =
   | { type: "execStdout" | "execStderr"; execId: string; data: string }
   | { type: "execExit"; execId: string; exitCode: number | null }
   /**
-   * An agent hook the daemon's listener received and journaled (ADR-178 §2).
+   * An agent hook the daemon's listener received and journaled.
    * Sent to every authenticated stream socket, subscribed or not.
    */
   | { type: "hookEvent"; seq: number; payload: HookPayload }
   /**
-   * A `manor` CLI request the daemon's control relay listener accepted
-   * (ADR-189 §1). Sent only to the relay stream — the most recent stream
+   * A `manor` CLI request the daemon's control relay listener accepted.
+   * Sent only to the relay stream — the most recent stream
    * socket that sent `enableControlRelay` — which answers with a
    * `controlResponse` carrying the same `id`. `path` includes the query
    * string; `body` is the parsed JSON body, or undefined when there was none.
@@ -526,8 +525,8 @@ export type StreamCommand =
   /**
    * Make this socket the relay stream: the daemon sends it every
    * `controlRequest` from here on, until it closes or another socket sends
-   * this (ADR-189 §1). `role: "server"` is the host server, which owns the
-   * host (ADR-227 D8): its stream wins over any app's while it is open.
+   * this. `role: "server"` is the host server, which owns the
+   * host: its stream wins over any app's while it is open.
    */
   | { type: "enableControlRelay"; role?: "server" }
   /**

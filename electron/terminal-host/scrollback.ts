@@ -23,7 +23,7 @@ export const COLD_RESTORE_MAX_BYTES = 500 * 1024; // 500KB read limit for cold r
  * must be exactly that — one path segment, no separators, no `.` or `..`.
  *
  * This matters because `POST /sessions/read` accepts an unresolved `target` as
- * a raw pane id, and ADR-161 puts that route on an internet-reachable listener.
+ * a raw pane id, and remote control puts that route on an internet-reachable listener.
  * Without this, a caller could walk out of the sessions directory and read any
  * `scrollback.bin` or `meta.json` on the machine. Real ids are
  * `pane-<uuid>`, so nothing legitimate is turned away.

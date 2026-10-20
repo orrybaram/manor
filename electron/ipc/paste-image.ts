@@ -1,5 +1,5 @@
 /**
- * Uploads the clipboard's image to a pane's host (ADR-187 §3).
+ * Uploads the clipboard's image to a pane's host.
  *
  * Pasting an image into a remote pane does nothing on its own: the agent
  * reads the clipboard of the box it runs on, which has none. This moves the
@@ -35,7 +35,7 @@ export type PasteClipboardImageResult =
  * `paneHostId` is the host the renderer says the pane runs on. Main's own
  * `sessions` only learns of a remote session when it lists the host's daemon
  * (on connect and reconnect): a pane made since then, through the renderer's
- * viewer stream (ADR-228 D5), is unknown here and would read as local.
+ * viewer stream, is unknown here and would read as local.
  */
 export async function uploadClipboardImage(
   registry: BackendRegistry,

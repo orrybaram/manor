@@ -1,8 +1,8 @@
 /**
  * One object the UI talks to for all of remote control: the device store,
- * the relay's hello gate and the relay itself (ADR-206 — since ADR-207 the
- * only way in), plus the single status shape the settings panel and the
- * exposure indicator both render.
+ * the relay's hello gate and the relay itself (the only way in), plus the
+ * single status shape the settings panel and the exposure indicator both
+ * render.
  *
  * Two policies live here rather than in the pieces:
  *
@@ -14,9 +14,9 @@
  *   - **Disabling means disabled.** Turning remote control off stops the relay
  *     too, and closes every connection the gate let in.
  *
- * Enabling opens nothing: it loads the runtime (ADR-207 D3) — the gate, the
+ * Enabling opens nothing: it loads the runtime — the gate, the
  * bridge transport, the connector and the relay identity, which pull in `ws`
- * and the Noise crypto (ADR-205 §3) — and flips the controller's own
+ * and the Noise crypto — and flips the controller's own
  * `enabled` flag. Starting the relay is a separate, confirmed action. Until
  * the runtime loads the controller answers from what it knows without it:
  * status reports disabled with a stopped relay, and every teardown is a no-op
@@ -51,7 +51,7 @@ export interface RemoteControlStatus {
   /** Is remote control on? Nothing listens either way; see the header. */
   enabled: boolean;
   devices: RemoteDeviceInfo[];
-  /** The Manor relay (ADR-206). */
+  /** The Manor relay. */
   relay: RelayStatus;
   /**
    * The relay's web origin, which pairing links point at — or null when
@@ -86,14 +86,14 @@ export interface RemoteControlStatus {
 export interface RemoteControlRuntime {
   /** The relay's hello gate, and the bridge transport behind it. */
   gate: RelayGate;
-  /** The relay connector (ADR-206). Absent: the relay is unavailable. */
+  /** The relay connector. Absent: the relay is unavailable. */
   relay?: RelayConnector | null;
   /** The relay's keys, the room and the Noise static. Absent with `relay`. */
   relayIdentity?: RelayIdentityStore | null;
 }
 
 export interface RemoteControlControllerOptions {
-  /** Loads the heavy half, on first real use (ADR-205 §3). */
+  /** Loads the heavy half, on first real use. */
   loadRuntime: () => Promise<RemoteControlRuntime>;
   /** Eager: the settings panel lists devices with remote control off. */
   devices: RemoteDeviceStore;
@@ -103,7 +103,7 @@ export interface RemoteControlControllerOptions {
   appVersion?: string;
   /**
    * The push endpoints a host's server already sends to (cached), so those
-   * phones are not told twice (ADR-225 D3). Empty for a host not cached.
+   * phones are not told twice. Empty for a host not cached.
    */
   hostPushEndpoints?: (hostId: string) => ReadonlySet<string>;
 }
@@ -187,7 +187,7 @@ export class RemoteControlController {
 
   /**
    * The VAPID application server key, or null when push is unavailable.
-   * Async because `web-push` (and so key generation) loads lazily (ADR-205).
+   * Async because `web-push` (and so key generation) loads lazily.
    */
   async vapidPublicKey(): Promise<string | null> {
     return (await this.push?.publicKey()) ?? null;
@@ -229,7 +229,7 @@ export class RemoteControlController {
   ): void {
     if (!this.push || !notify) return;
     // An agent on a remote host whose server already pushes to some of these
-    // phones is told about by that server, not twice (ADR-225 D3).
+    // phones is told about by that server, not twice.
     pushAgentTransition(this.push, agent, previousStatus, status, {
       skipEndpoints: agent.hostId
         ? this.hostPushEndpoints(agent.hostId)
@@ -278,13 +278,13 @@ export class RemoteControlController {
   }
 
   /**
-   * Pair a device through the relay — the only road (ADR-207 D4). Every
+   * Pair a device through the relay — the only road. Every
    * device reaches the whole bridge.
    *
    * Needs the runtime (the identity lives there), which is loaded whenever
    * remote control is on — and the pairing form only shows then. Resolves once
    * the device is on disk. The link carries a single-use ticket unless
-   * `direct` asks for the token itself (ADR-240 D7).
+   * `direct` asks for the token itself.
    */
   async pair(
     label: string,
@@ -299,8 +299,8 @@ export class RemoteControlController {
   }
 
   /**
-   * A new link for a device that has not connected yet; the old one is dead
-   * (ADR-240 D6). Resolves once the new ticket is on disk.
+   * A new link for a device that has not connected yet; the old one is dead.
+   * Resolves once the new ticket is on disk.
    */
   async reissue(id: string): Promise<PairResult> {
     if (!this.runtime) {

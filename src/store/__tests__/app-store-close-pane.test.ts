@@ -10,7 +10,7 @@ import {
 // window is provided by the setup file (src/store/__tests__/setup.ts)
 // with a minimal electronAPI mock.  We extend it here with agents.abandonForPane,
 // to show nothing calls it: ending a closed pane's agent is the server's
-// (`LayoutStore`, ADR-182 D7), on every close path, not the renderer's on one.
+// (`LayoutStore`), on every close path, not the renderer's on one.
 
 const WS_PATH = "/test/workspace";
 
@@ -60,7 +60,7 @@ function makeTwoPaneLayout(): WorkspaceLayout {
 
 function setupStore(layout?: WorkspaceLayout) {
   // The server holds the same layout the store starts from: every
-  // structural action goes through it now (ADR-179 D1).
+  // structural action goes through it now.
   resetFakeLayoutServer();
   const start = layout ?? makeLayout();
   seedLayout(WS_PATH, start);

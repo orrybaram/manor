@@ -7,7 +7,7 @@ import {
 } from "./fixtures";
 
 /**
- * `:shortcode` emoji autocomplete (ADR-174).
+ * `:shortcode` emoji autocomplete.
  *
  * The suggestion list has to own Enter, Escape and clicks while it is open,
  * without the field's own handling seeing them: Enter must insert rather than
@@ -91,7 +91,7 @@ test("emoji suggestions in the inline workspace rename keep the edit open", asyn
   );
   const input = item.getByTestId("workspace-name-input");
 
-  // F2 opens the row's rename (ADR-175).
+  // F2 opens the row's rename.
   await item.press("F2");
   await expect(input).toBeVisible({ timeout: 5_000 });
   await input.fill("");

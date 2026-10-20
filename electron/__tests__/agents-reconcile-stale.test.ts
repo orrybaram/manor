@@ -37,7 +37,7 @@ function makeAgent(
 const paneOwners = new Map<string, string>();
 
 /**
- * An `HostDeps`-shaped fixture (ADR-183): every field `bridge/handlers/agents.ts`
+ * An `HostDeps`-shaped fixture: every field `bridge/handlers/agents.ts`
  * reaches, including the pane owners and host status
  * `isAgentHostConnected` reads — rather than a bag the handler had to
  * guard against being partial.
@@ -60,7 +60,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     },
     hostStatus: vi.fn((_hostId: string): string | undefined => "connected"),
     getPaneHostId: (paneId: string) => paneOwners.get(paneId),
-    // The Status reconciler's driver (ADR-184).
+    // The Status reconciler's driver.
     agentStatus: {
       signal: vi.fn(() => ({ effects: [] })),
       isPaneLossExpected: vi.fn((_paneId: string) => false),
@@ -99,7 +99,7 @@ describe("agents:reconcileStale handler", () => {
 
     await agentsReconcileStale(localCtx(deps as never));
 
-    // The reconciler writes the lifecycle (ADR-184); the handler does not.
+    // The reconciler writes the lifecycle; the handler does not.
     expect(deps.agentStatus.signal).toHaveBeenCalledTimes(1);
     expect(deps.agentStatus.signal).toHaveBeenCalledWith("pane-1", {
       type: "user",
@@ -108,7 +108,7 @@ describe("agents:reconcileStale handler", () => {
     expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
   });
 
-  it("skips an agent whose pane a daemon replacement just killed (ADR-185 §A)", async () => {
+  it("skips an agent whose pane a daemon replacement just killed", async () => {
     deps.agentManager.getAllAgents.mockReturnValue([
       makeAgent({ id: "t1", status: "active", paneId: "pane-1" }), // replaced
       makeAgent({ id: "t2", status: "active", paneId: "pane-2" }), // dead
@@ -183,7 +183,7 @@ describe("agents:reconcileStale handler", () => {
   });
 });
 
-describe("agents:reconcileStale host connectivity (ADR-191 §5)", () => {
+describe("agents:reconcileStale host connectivity", () => {
   let deps: ReturnType<typeof makeDeps>;
   const reconcile = () => agentsReconcileStale(localCtx(deps as never));
   const abandoned = () => deps.agentStatus.signal.mock.calls.map((c) => (c as unknown[])[0]);
@@ -214,7 +214,7 @@ describe("agents:reconcileStale host connectivity (ADR-191 §5)", () => {
   });
 
   it("follows the pane's session owner over the agent's recorded host", async () => {
-    // Recorded local, but its pane moved to the box (ADR-183), which dropped.
+    // Recorded local, but its pane moved to the box, which dropped.
     paneOwners.set("pane-to-box", "box");
     // Recorded on the box, but its pane now runs locally, and is gone.
     paneOwners.set("pane-to-local", LOCAL_HOST_ID);

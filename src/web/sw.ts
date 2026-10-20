@@ -1,10 +1,10 @@
 /// <reference lib="webworker" />
 
 /**
- * Service worker for the web app (ADR-206 D7): receives Web Push and focuses
+ * Service worker for the web app: receives Web Push and focuses
  * or opens the app when a notification is tapped. Caches nothing. Built to
  * `sw.js` under the web base (`vite.web.config.ts`) and registered with
- * scope = that base, so a per-version relay path (ADR-206 D5) owns its own.
+ * scope = that base, so a per-version relay path owns its own.
  *
  * The payload carries a label and a project name, never scrollback.
  */

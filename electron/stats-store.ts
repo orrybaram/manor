@@ -15,7 +15,7 @@ import type { AgentHookEvent } from "./agent-hook-events";
 import type { Effect } from "./agent-status/types";
 
 /**
- * Usage-stats persistence model (ADR-168).
+ * Usage-stats persistence model.
  *
  * Mirrors the shape and conventions of `notification-store.ts`: in-memory state
  * backed by a JSON file in the data dir, writes debounced through a single
@@ -81,7 +81,7 @@ export interface PersistedStats {
   badges: Record<string, string>;
   /**
    * Dedupe tokens for `recordOnce`, oldest first. Opaque hashes, never the
-   * keys themselves — the file's "counts only, never content" rule (ADR-168)
+   * keys themselves — the file's "counts only, never content" rule
    * holds even for a PR URL. Absent on files written before `prsMerged`.
    */
   once?: string[];
@@ -379,7 +379,7 @@ export class StatsStore {
   }
 
   /**
-   * The Status reconciler's tap (ADR-184, was ADR-168 §2's hook-relay tap).
+   * The Status reconciler's tap (was the hook-relay tap).
    * Turns one hook event and the effects the reconciler derived from it into
    * counter deltas, applying all of them under a single commit.
    *

@@ -7,7 +7,7 @@
  * at import time. Without this, a test that exercises real code paths — the
  * `processes:killAll` handler, `AgentHookServer.start()`, `WebviewServer` —
  * reads and writes the developer's live `~/.manor`. On 2026-09-06 that sent
- * SIGTERM to the daemon behind the developer's own Manor window (ADR-169).
+ * SIGTERM to the daemon behind the developer's own Manor window.
  *
  * Dependency-free on purpose: it must work regardless of setupFiles ordering.
  */

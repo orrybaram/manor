@@ -14,7 +14,7 @@ type TaskChatView = {
 };
 
 /**
- * One background task's own transcript (ADR-224 D4), read the way
+ * One background task's own transcript, read the way
  * `ChatPane` reads a pane's: subscribe to its stream first, then fetch the
  * history, and merge the two by entry id so nothing published in between is
  * lost. Mounted per open `TaskSheet`, so each watches one child stream.

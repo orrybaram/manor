@@ -1,5 +1,5 @@
 /**
- * The router's last-known answers (`../last-known-cache.ts`, ADR-228 D6):
+ * The router's last-known answers (`../last-known-cache.ts`):
  * in memory, and read back in from a saved store once per server.
  */
 

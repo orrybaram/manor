@@ -6,7 +6,7 @@ import type { Filmstrip } from "./filmstrip";
  * Driving Manor's Settings modal: the agent command a project launches, and
  * the whole remote-control surface — turning it on (which starts the relay,
  * on Hosts → This Mac), turning it off, and pairing and revoking a device
- * (on Devices; ADR-206, ADR-207, ADR-233).
+ * (on Devices).
  *
  * Everything here goes through the app's own UI on purpose. A token minted any
  * other way, or an agent command written straight to disk, would not prove the
@@ -53,7 +53,7 @@ async function expandRow(row: Locator): Promise<void> {
 }
 
 /**
- * Open Settings → Hosts and expand one remote host's row (ADR-233 D1): by id
+ * Open Settings → Hosts and expand one remote host's row: by id
  * when the spec knows it, else by the name on its header (an ssh target, or a
  * label). Returns the row; leaves the modal open.
  */
@@ -91,7 +91,7 @@ export async function openDevicesSettings(window: Page): Promise<void> {
 
 /**
  * Turn remote control on — one switch that also starts the relay — and wait
- * until the card says it is live (ADR-206 D6). Leaves Settings open.
+ * until the card says it is live. Leaves Settings open.
  *
  * Goes through the confirmation dialog, which is the point: turning it on is
  * an explicit, confirmed action, and a test that could skip it would not
@@ -169,7 +169,7 @@ export async function stopRelay(window: Page): Promise<void> {
 export interface PairedDevice {
   label: string;
   /**
-   * The single-use pairing ticket in the link (ADR-240 D1). The device's
+   * The single-use pairing ticket in the link. The device's
    * long-lived token is never in the link: the browser chooses it, so read it
    * from the browser with `deviceToken` once the page has loaded.
    */
@@ -186,7 +186,7 @@ export function roomOf(link: string): string {
 
 /**
  * The pairing ticket a link carries, failing loudly on a link that carries a
- * raw token (`t=`) instead: since ADR-240 no link the desktop or a host
+ * raw token (`t=`) instead: no link the desktop or a host
  * server mints for a person holds the long-lived token.
  */
 function ticketOf(link: string, what: string): string {
@@ -198,8 +198,7 @@ function ticketOf(link: string, what: string): string {
 }
 
 /**
- * The long-lived token a browser chose for the pairing `link` names (ADR-240
- * D5), read from its stored pairings once the page has loaded and stored it.
+ * The long-lived token a browser chose for the pairing `link` names, read from its stored pairings once the page has loaded and stored it.
  */
 export async function deviceToken(page: Page, link: string): Promise<string> {
   const room = roomOf(link);
@@ -221,7 +220,7 @@ export async function deviceToken(page: Page, link: string): Promise<string> {
 }
 
 /**
- * Pair a device through the UI (ADR-206 D3, ADR-207 D4) and capture the link
+ * Pair a device through the UI and capture the link
  * the dialog hands over once, and the pairing ticket inside it. Every device
  * is a relay device that reaches the whole app, so the Add device dialog is a
  * name and a button.
@@ -295,9 +294,9 @@ export async function pairBrowser(
 }
 
 /**
- * Pair a device with a remote host's own Manor server alone (ADR-225 D3): the
+ * Pair a device with a remote host's own Manor server alone: the
  * pairing is minted on the box and the link names the box's own room. Settings
- * has no button for this since ADR-233 (a device pairs on Devices and reaches
+ * has no button for this (a device pairs on Devices and reaches
  * every host that allows devices), so the pairing goes through the host
  * bridge, which still serves it. First waits, on that host's row of Settings
  * → Hosts, until its server says its relay is connected, so the link works as

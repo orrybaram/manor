@@ -1,6 +1,6 @@
 /**
- * The host server (ADR-225 D1): a headless Manor server for one remote host,
- * `createManorServer(hostPlatform)` (ADR-227 D1) plus what only a host
+ * The host server: a headless Manor server for one remote host,
+ * `createManorServer(hostPlatform)` plus what only a host
  * server has — its ownership state, the winsize hold, the daemon retry
  * loop, its hook feed and its always-on relay room. No Electron.
  *
@@ -11,7 +11,7 @@
  *   daemon ──stream──▶ hook feed ──▶ AgentHookServer.ingestHookPayload
  *                                   ──▶ Status reconciler ──▶ agents.json
  *          ──stream──▶ pty events ──▶ bridge (pty.*) + chat mirror
- *          ◀─stream── the box's `manor` CLI (`./cli-relay.ts`, ADR-227 D8)
+ *          ◀─stream── the box's `manor` CLI (`./cli-relay.ts`)
  *   bridge ◀── socket (owner channel, `serve.ts`)
  *          ◀── relay channels, as devices (`./relay.ts`, its own room)
  *
@@ -26,16 +26,16 @@
  * then abandons the agents whose panes are gone, as the desktop's
  * `agents.reconcileStale` does.
  *
- * **Projects, workspaces and layout** are this server's (ADR-227 D2): the
+ * **Projects, workspaces and layout** are this server's: the
  * `ProjectManager` and `LayoutStore` `createManorServer` builds, persisted to
  * `dataDir/projects.json` and `dataDir/layout.json`, every project
  * `hostId: "local"`. A device creates workspaces and launches agents here
  * with no owner connected (`./handlers.ts`). Until the desktop has handed
  * over what it held for this host the server is `pending` and refuses those
- * writes (`./ownership.ts`, ADR-227 D3).
+ * writes (`./ownership.ts`).
  *
  * **The daemon is never replaced** by this server. A daemon restart ends
- * every session (ADR-185), so it is the desktop's call, made through
+ * every session, so it is the desktop's call, made through
  * `remote-bridge`; this server upgrades on every release without touching
  * it. A daemon speaking another protocol is reported, not restarted.
  */
@@ -88,7 +88,7 @@ export interface HostServerOptions {
   dataDir?: string;
   /** Which of this machine's daemons to reach. Always `remote` in `serve`. */
   daemonNamespace?: DaemonNamespace;
-  /** Seals the relay identity, paired devices and push keys (ADR-225 D6). */
+  /** Seals the relay identity, paired devices and push keys. */
   secretBox: SecretBox;
   /** The running app's version: the daemon handshake and the hello reply. */
   appVersion: string;
@@ -105,15 +105,14 @@ export interface HostServerOptions {
   monoClock?: () => number;
   wallClock?: () => number;
   /**
-   * Where `on-busy` and `on-idle` live (ADR-229 D7). Defaults to `hooks/`
+   * Where `on-busy` and `on-idle` live. Defaults to `hooks/`
    * beside the data dir, which is `~/.manor/remote/hooks/` for the real one.
    */
   hooksDir?: string;
   /** Tests: handed the server's parts once they are built. */
   internals?: (parts: HostServerInternals) => void;
   /**
-   * What status reports about the key sealing the pairing keys (ADR-236
-   * D5), computed once at start (`serverKeyStatus`). Absent: no key.
+   * What status reports about the key sealing the pairing keys, computed once at start (`serverKeyStatus`). Absent: no key.
    */
   keyStatus?: ServerKeyStatus;
 }
@@ -132,22 +131,22 @@ export interface HostServer {
    * the relay's channels.
    */
   readonly frames: WsBridgeServer;
-  /** What `hostServer.status` answers the owner (ADR-225 D4). */
+  /** What `hostServer.status` answers the owner. */
   status(): HostServerStatus;
 }
 
 /** The parts a test reaches past `HostServer` for (`HostServerOptions.internals`). */
 export interface HostServerInternals {
   relay: HostRelay;
-  /** Flips `pending` to `host` directly, without an adoption (ADR-227 D3). */
+  /** Flips `pending` to `host` directly, without an adoption. */
   ownership: OwnershipState;
 }
 
 /**
- * Slice 1's owner snapshots (ADR-225 D4, D5): the desktop's manifest, and the
+ * Slice 1's owner snapshots: the desktop's manifest, and the
  * layout snapshot that `layout.json` held before it was this server's own
  * `LayoutStore` file. Discarded rather than migrated: the desktop still has
- * every record they copied, and hands them over on adoption (ADR-227 D3).
+ * every record they copied, and hands them over on adoption.
  */
 function discardOwnerSnapshots(paths: HostServerPaths): void {
   fs.rmSync(paths.legacyManifest, { force: true });
@@ -214,11 +213,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   };
 
   const startedAt = Date.now();
-  // Read from the marker on every status; lingering in the background (ADR-229 D4).
+  // Read from the marker on every status; lingering in the background.
   const supervisorFacts = createSupervisorFactsCache();
   void supervisorFacts.refresh();
 
-  // Whether the desktop has handed this host over yet (ADR-227 D3).
+  // Whether the desktop has handed this host over yet.
   const ownership = fileOwnershipState(paths.ownership);
 
   // ── the daemon's connection, as `hosts.list` reports it ──
@@ -231,7 +230,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     ...daemonState,
   });
 
-  // Set by the start-up identity check, until the owner has read it (D6).
+  // Set by the start-up identity check, until the owner has read it.
   let identityReset: IdentityReset | null = null;
 
   // Built with the deps, over the server's relay stores.
@@ -299,7 +298,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
         remoteControl: relay.remoteControl,
         relay,
         ownership,
-        // The desktop's records for this host, merged in (ADR-227 D3).
+        // The desktop's records for this host, merged in.
         adopt: createAdoption({
           projectManager: shared.projectManager,
           agentManager: shared.agentManager,
@@ -323,7 +322,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const { agentManager } = server.shared;
   const { shared } = server;
 
-  // ── busy (ADR-229 D7) ──
+  // ── busy ──
   const hooks = createHookRunner({
     dir: opts.hooksDir ?? path.join(path.dirname(paths.dataDir), "hooks"),
     logFile: path.join(paths.logsDir, "hooks.log"),
@@ -345,7 +344,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
     if (event.type === "exit") queueMicrotask(() => busy.recompute());
   });
 
-  // The box's `manor` CLI is this server's to answer (ADR-227 D8): it asks
+  // The box's `manor` CLI is this server's to answer: it asks
   // the daemon for its requests on every stream (re)connect.
   const releaseCliRelay = serveCliRelay(client, { routes: deps, ownership });
   // The local daemon reconnects quietly on the desktop; a server that has to
@@ -379,7 +378,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   }
 
   /**
-   * Who is watching (ADR-230 D1): a pane's output, and for a phone also an
+   * Who is watching: a pane's output, and for a phone also an
    * agent's chat, its main view of one.
    */
   function viewingNow(): NonNullable<HostServerStatus["viewing"]> {
@@ -395,7 +394,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const frames = new WsBridgeServer(bridge, {
     appVersion,
-    // The box's own name: pairings show it (ADR-225 D7).
+    // The box's own name: pairings show it.
     hostName: () => hostPlatform.hostName(),
     // The page reads this, not `hostName`, to know it is on a host server.
     hostServer: true,
@@ -462,7 +461,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   /**
    * A data dir copied from another instance must not share its relay room or
-   * keys (ADR-229 D6). Runs once the stores are readable, before the relay
+   * keys. Runs once the stores are readable, before the relay
    * dials: a reset that fails leaves the old id recorded and is retried on the
    * next start, with the relay held off until then.
    */
@@ -529,7 +528,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
     async start() {
       server.start();
-      // The delegated Linear key, decrypted before the first call (ADR-227 D7).
+      // The delegated Linear key, decrypted before the first call.
       await shared.linearManager.init();
       const relayUp = startRelay();
       await Promise.all([relayUp, connectLoop(relayUp)]);
@@ -558,7 +557,7 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   };
 }
 
-/** The busy tracker's state, plus the idle time measured here (ADR-229 D7). */
+/** The busy tracker's state, plus the idle time measured here. */
 function busyState(state: { busy: boolean; idleSince: number | null }): {
   busy: boolean;
   idleSince: number | null;

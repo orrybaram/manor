@@ -1,5 +1,5 @@
 /**
- * ADR-234 D8: each template's readiness checklist — every state of every
+ * Each template's readiness checklist — every state of every
  * check, with a faked `execFile` — and its `run` fixes.
  */
 import { EventEmitter } from "node:events";
@@ -555,7 +555,7 @@ describe("docker fixes", () => {
   });
 });
 
-// ─── Docker on another machine over SSH (ADR-234 D12) ────────────────────
+// ─── Docker on another machine over SSH ────────────────────
 
 const exited = (code: number, stderr: string) =>
   Object.assign(new Error(`Command failed: ssh\n${stderr}`), { code, stderr, stdout: "" });
@@ -1259,7 +1259,7 @@ describe("kubernetes checklist", () => {
   });
 });
 
-describe("kubernetes: the cluster guide and the disk cost note (ADR-234 D13)", () => {
+describe("kubernetes: the cluster guide and the disk cost note", () => {
   const view = (name: string, server: string) =>
     JSON.stringify({
       contexts: [{ name, context: { cluster: "cl" } }],

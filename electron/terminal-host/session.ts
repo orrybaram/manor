@@ -83,7 +83,7 @@ export function buildShellEnv(
 }
 
 /**
- * Prepend `~/.manor/bin` to PATH so `manor` (ADR-170) is reachable from every
+ * Prepend `~/.manor/bin` to PATH so `manor` is reachable from every
  * Manor terminal. Skips the prepend if it's already present — the daemon's
  * own `process.env.PATH` may already contain it (e.g. inherited from a
  * parent process that put it there), and re-prepending on every session
@@ -104,7 +104,7 @@ const RESIZE_ACK_TIMEOUT_MS = 2_000;
 /**
  * The shell a pane runs: `$SHELL`, else the user's login shell from the
  * password database, else zsh. A daemon started over `docker exec` or
- * `kubectl exec` (ADR-229 D3), or by a supervisor, has no `$SHELL` — only
+ * `kubectl exec`, or by a supervisor, has no `$SHELL` — only
  * sshd sets it — and a zsh the box doesn't have fails every pane.
  */
 export function defaultShell(env: NodeJS.ProcessEnv = process.env, userShell: () => string | null = passwdShell): string {
@@ -163,7 +163,7 @@ export class Session {
   // Scrollback persistence
   private scrollbackWriter: ScrollbackWriter | null = null;
 
-  // Pane facts (ADR-184 §3): the daemon's only source of Status signals.
+  // Pane facts: the daemon's only source of Status signals.
   private paneFacts: PaneFactsExtractor;
 
   // Pending writes queued before first output (for prewarmed command injection)
@@ -246,7 +246,7 @@ export class Session {
     return this._alive;
   }
 
-  /** The session's current Pane facts (ADR-184 §3). */
+  /** The session's current Pane facts. */
   getPaneFacts(): PaneFacts {
     return this.paneFacts.facts;
   }
@@ -446,7 +446,7 @@ export class Session {
       // moment into a permanent one — and a grid that wraps at a different
       // width than the program does strands a copy of every frame the program
       // repaints, off the top of the screen where nothing can erase it
-      // afterwards (ADR-165).
+      // afterwards.
       //
       // A client that already agrees drops this without touching its terminal.
       // The ioctl is skipped, so no program is made to repaint for a request
@@ -482,10 +482,10 @@ export class Session {
    *
    * Attached clients apply the resize at the position in the byte stream they
    * are reading, so their emulator and the program's belief about the width
-   * change together — which is the whole of ADR-164.
+   * change together — which is the whole point.
    *
    * The two halves are ordered differently on purpose, and getting that wrong
-   * reopens the gap ADR-164 exists to close:
+   * reopens the gap this exists to close:
    *
    * - The **mirror** resizes behind its own write queue. The subprocess flushed
    *   its output before the ioctl, so everything drawn at the old size is

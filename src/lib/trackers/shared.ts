@@ -1,4 +1,4 @@
-/** ADR-202 §2: small helpers the tracker adapters share. */
+/** Small helpers the tracker adapters share. */
 
 import { useProjectStore } from "../../store/project-store";
 import type { TaskRef } from "../tasks";

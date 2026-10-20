@@ -40,7 +40,7 @@ const UNAVAILABLE_REF: BrowserPaneRef = {
 };
 
 /**
- * What the web app mounts in place of `BrowserPane` (ADR-178, ADR-182 D11).
+ * What the web app mounts in place of `BrowserPane`.
  * `<webview>` is Electron-only — a page cannot embed *and* script an
  * arbitrary cross-origin site — so this pane says so instead of mounting
  * nothing, and a `<Link>` opens the same URL in an actual browser tab, which

@@ -1,5 +1,5 @@
 /**
- * A desktop window's host servers (ADR-228 D3, D4, `../desktop-hosts.ts`):
+ * A desktop window's host servers (`../desktop-hosts.ts`):
  * which hosts get a bridge of the window's own, and when they leave.
  */
 
@@ -79,7 +79,7 @@ describe("a desktop window's host servers", () => {
     const { set } = setup([
       { hostId: "local", spec: null, status: "connected" },
       host("box"),
-      // An older server, one not read yet, and one away: main's (D3).
+      // An older server, one not read yet, and one away: main's.
       host("old", { viewerBridge: false }),
       host("fresh", { viewerBridge: undefined }),
       host("asleep", { status: "reconnecting" }),

@@ -10,10 +10,10 @@ import { uploadClipboardImage } from "./paste-image";
 /**
  * The native dialog, the shell escape hatches, the clipboard (and the
  * terminal's clipboard-image upload, which reads it) and the updater
- * (ADR-180 D8) — four of the six things `electron/ipc/` keeps for
+ * — four of the six things `electron/ipc/` keeps for
  * good, alongside `webview.ts`/`webview-keys.ts`, `window.ts`, `popups.ts`
  * and `menu.ts`. What used to sit beside these in this file — preferences and
- * keybindings — crossed to the handler table in ADR-180 ticket 7 and their
+ * keybindings — crossed to the handler table and their
  * lifted bodies live in `electron/bridge/handlers/preferences.ts` now.
  *
  * There is no lifted-function half here to move: every one of these is a
@@ -126,9 +126,9 @@ export function register(deps: HostDeps): void {
 
   // ── Terminal ──
   // Uploads the clipboard's image to a remote pane's host so an agent there
-  // can attach it by path (ADR-187 §3). `local` before the clipboard is ever
+  // can attach it by path. `local` before the clipboard is ever
   // touched: the agent already reads its own machine's clipboard. Native
-  // (ADR-180 D8) because the clipboard it reads is this machine's; a browser
+  // because the clipboard it reads is this machine's; a browser
   // answers it itself (`src/bridge/unavailable.ts`) with "nothing to paste".
   ipcMain.handle(
     "terminal:pasteClipboardImage",

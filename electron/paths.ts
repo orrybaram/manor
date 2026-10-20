@@ -87,7 +87,7 @@ export function loginPathFile(): string {
   return path.join(manorDataDir(), "login-path.json");
 }
 
-/** The relay identity keys (ADR-206 D3), `safeStorage`-encrypted. */
+/** The relay identity keys, `safeStorage`-encrypted. */
 export function relayIdentityFile(): string {
   return path.join(manorDataDir(), "remote-relay-identity.enc");
 }
@@ -108,7 +108,7 @@ export function recordingsDir(): string {
 // ── Home-dir (~/.manor) getters — each has an external reader, do not move ──
 
 /**
- * Which daemon a path belongs to (ADR-178 §2). A machine can run two
+ * Which daemon a path belongs to. A machine can run two
  * terminal-host daemons side by side, and they must never share state:
  *
  *   - `local`  — the one Manor desktop spawns for its own panes, under
@@ -151,7 +151,7 @@ export function daemonLogFile(namespace: DaemonNamespace = "local"): string {
   return path.join(daemonDir(namespace), "terminal-host.log");
 }
 
-/** The remote daemon's hook journal (ADR-178 §2). NDJSON, mode 0600. */
+/** The remote daemon's hook journal. NDJSON, mode 0600. */
 export function hookJournalFile(): string {
   return path.join(daemonDir("remote"), "hook-journal.ndjson");
 }
@@ -173,8 +173,7 @@ export function remoteHookPortFile(): string {
 }
 
 /**
- * The remote daemon's control relay listener, for the `manor` CLI (ADR-189
- * §1): `<port>\n<token>`, mode 0600. Remote PTYs get its path as
+ * The remote daemon's control relay listener, for the `manor` CLI: `<port>\n<token>`, mode 0600. Remote PTYs get its path as
  * `MANOR_CONTROL_PORT_FILE`.
  */
 export function remoteControlPortFile(): string {
@@ -182,7 +181,7 @@ export function remoteControlPortFile(): string {
 }
 
 /**
- * The host server's state (ADR-225 D1): a headless Manor server beside the
+ * The host server's state: a headless Manor server beside the
  * `remote` daemon, for the phone to reach with the laptop's lid closed. Kept
  * apart from `manorDataDir()` so a box that also runs Manor desktop (WSL, a
  * Mac mini) never mixes the two servers' agents, pairings or keys.
@@ -210,26 +209,26 @@ export interface HostServerPaths {
   hookCursor: string;
   /** Which SecretBox backend sealed this server's keys (`pickHostSecretBox`). */
   secretBackend: string;
-  /** The desktop's Linear key, when the user turned Linear on for this host (ADR-227 D7). */
+  /** The desktop's Linear key, when the user turned Linear on for this host. */
   linearToken: string;
-  /** This host's projects and workspace records (ADR-227 D2). */
+  /** This host's projects and workspace records. */
   projects: string;
-  /** This host's layout, keyed by bare workspace path (ADR-227 D2). */
+  /** This host's layout, keyed by bare workspace path. */
   layout: string;
-  /** Whether the host has been adopted yet (ADR-227 D3). */
+  /** Whether the host has been adopted yet. */
   ownership: string;
-  /** The instance this data dir was created under, to spot a copy (ADR-229 D6). */
+  /** The instance this data dir was created under, to spot a copy. */
   instance: string;
   /**
-   * Slice 1's owner snapshots (ADR-225 D4, D5), discarded at boot: the
+   * Slice 1's owner snapshots, discarded at boot: the
    * desktop's manifest, and the layout snapshot `layout` used to hold.
    */
   legacyManifest: string;
-  /** This server's relay identity: its own room (ADR-225 D3). Sealed. */
+  /** This server's relay identity: its own room. Sealed. */
   relayIdentity: string;
   /** Phones paired to this server's room, token hashes only. Sealed. */
   devices: string;
-  /** This server's VAPID key pair, for its own push (ADR-225 D3). Sealed. */
+  /** This server's VAPID key pair, for its own push. Sealed. */
   vapid: string;
   logsDir: string;
 }
@@ -258,7 +257,7 @@ export function hostServerPaths(dataDir: string = remoteServerDir()): HostServer
 
 /**
  * Which supervisor keeps this box's daemon and host server running across a
- * reboot (ADR-229 D4): `{kind: "systemd" | "launchd" | "container"}`, written
+ * reboot: `{kind: "systemd" | "launchd" | "container"}`, written
  * by `manor-host supervisor install`. Absent: nothing supervises them, and
  * they are spawned detached on connect.
  */
@@ -267,7 +266,7 @@ export function supervisorMarkerFile(): string {
 }
 
 /**
- * The host's environment file (ADR-229 D4, D5; ADR-236 D2):
+ * The host's environment file:
  * `MANOR_SECRET_KEY_FILE`, `MANOR_SECRET_KEY` and `MANOR_INSTANCE_ID`. The
  * supervised units start with it, and `manor-host serve` reads it too, for
  * whichever of them its environment lacks, so an unsupervised server gets
@@ -279,7 +278,7 @@ export function supervisorEnvFile(): string {
 
 /**
  * The key file Manor makes to seal a host's pairing keys when nothing
- * stronger works (ADR-236 D1): `$XDG_CONFIG_HOME/manor/secret.key`, default
+ * stronger works: `$XDG_CONFIG_HOME/manor/secret.key`, default
  * `~/.config/manor/secret.key`. Outside `~/.manor`, so a copy of the data dir
  * alone cannot read them.
  */
@@ -288,7 +287,7 @@ export function hostSecretKeyFile(env: NodeJS.ProcessEnv = process.env): string 
   return path.join(config, "manor", "secret.key");
 }
 
-/** `manor-host supervise`'s pid, while it runs as a container's entrypoint (ADR-229 D4). */
+/** `manor-host supervise`'s pid, while it runs as a container's entrypoint. */
 export function supervisePidFile(): string {
   return path.join(remoteNamespaceDir(), "supervise.pid");
 }
@@ -330,8 +329,8 @@ export function layoutFile(): string {
 }
 
 /**
- * One renderer's viewport — what the primary desktop window is looking at
- * (ADR-179 D3). Beside `layout.json` because it is read at the same moment,
+ * One renderer's viewport — what the primary desktop window is looking at.
+ * Beside `layout.json` because it is read at the same moment,
  * and separate from it because layout is the host's and this is one window's.
  */
 export function viewportFile(): string {
@@ -341,7 +340,7 @@ export function viewportFile(): string {
 /**
  * Copies of records Manor removed from its own files, kept for the user to
  * restore by hand — `pre-adr-227-<hostId>.json`, what the desktop held for a
- * host before that host's server adopted it (ADR-227 D3).
+ * host before that host's server adopted it.
  */
 export function backupsDir(): string {
   return path.join(manorHomeDir(), "backups");
@@ -349,7 +348,7 @@ export function backupsDir(): string {
 
 /**
  * Each remote host's last projects, agents and layout, as its host server
- * last told them (ADR-227 D4): what the desktop shows while the host is away.
+ * last told them: what the desktop shows while the host is away.
  */
 export function hostCacheDir(): string {
   return path.join(manorHomeDir(), "host-cache");
@@ -361,7 +360,7 @@ export function hostCacheFile(hostId: string, dir: string = hostCacheDir()): str
 }
 
 /**
- * The user's host recipes (ADR-229 D2): `<recipeId>/recipe.json` and its
+ * The user's host recipes: `<recipeId>/recipe.json` and its
  * scripts. Recipes are only ever read from here — never from a repository.
  */
 export function hostRecipesDir(): string {
@@ -369,7 +368,7 @@ export function hostRecipesDir(): string {
 }
 
 /**
- * Each recipe host's own `known_hosts` (ADR-229 D2): `<hostId>` holds the
+ * Each recipe host's own `known_hosts`: `<hostId>` holds the
  * one key Manor trusts for it.
  */
 export function hostKnownHostsDir(): string {

@@ -1,5 +1,5 @@
 /**
- * The host owns its host (ADR-227 D2, D5, D6): with the owner gone, a phone
+ * The host owns its host: with the owner gone, a phone
  * makes a worktree in a project on the box and launches an agent in it. The
  * session starts on the server — nobody is looking at the pane — and the
  * agent is recorded under the project and workspace the server's own
@@ -39,7 +39,7 @@ async function seedRepo(dir: string): Promise<void> {
   git(dir, "push", "-q", "-u", "origin", "main");
 }
 
-describe("a device on a host server that owns its host (ADR-227 D6)", () => {
+describe("a device on a host server that owns its host", () => {
   const h = useHostServerHarness();
 
   it("creates a worktree and launches an agent there with no owner connected", async () => {

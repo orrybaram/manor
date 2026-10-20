@@ -8,7 +8,7 @@ import type {
 
 /**
  * Ptys on a terminal-host daemon, through its `TerminalHostClient` — the
- * local daemon or a remote one alike (ADR-183).
+ * local daemon or a remote one alike.
  */
 export class DaemonPtyBackend implements PtyBackend {
   private client: TerminalHostClient;

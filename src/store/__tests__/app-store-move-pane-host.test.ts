@@ -1,9 +1,9 @@
 /**
- * A pane that leaves this window is not this window's any more (ADR-178 §6):
+ * A pane that leaves this window is not this window's any more:
  * the window must not keep its host (badge, offline banner, recovery plan).
  *
  * Under a server-owned layout a pane leaves a window two ways: it is popped
- * out — another window claims its tab (ADR-179 D4) — or it is closed, and the
+ * out — another window claims its tab — or it is closed, and the
  * broadcast that drops it from the tree arrives.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";

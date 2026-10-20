@@ -1,6 +1,5 @@
 /**
- * SessionOwners — which host each terminal session lives on (ADR-160 §6,
- * ADR-183).
+ * SessionOwners — which host each terminal session lives on.
  *
  * Pane ids are `pane-<uuid>`, unique across hosts, and a session is only
  * ever created on the host its owner names (`RoutedBackend` routes a known
@@ -13,7 +12,7 @@
  * attached there, listed by its daemon, named in its connection events or
  * its stream events — and released when they end: killed, or their shell
  * exited. A remote session lost to a daemon restart is not released; its
- * pane is recreated on the same host (ADR-178 §6).
+ * pane is recreated on the same host.
  */
 
 import { LOCAL_HOST_ID, type StreamEvent } from "./types";
@@ -22,8 +21,8 @@ import { LOCAL_HOST_ID, type StreamEvent } from "./types";
  * Whether `event` is a remote session the client reported gone because the
  * daemon no longer had it after a reconnect — the daemon restarted or the
  * box rebooted — rather than a shell that exited. The pane of such a session
- * is recovered (ADR-178 §6), not closed. On the local host the same event
- * still closes the pane (ADR-169): there is nothing to recover it on.
+ * is recovered, not closed. On the local host the same event
+ * still closes the pane: there is nothing to recover it on.
  */
 export function isRemoteSessionLoss(hostId: string, event: StreamEvent): boolean {
   return hostId !== LOCAL_HOST_ID && event.type === "exit" && event.lost === true;
@@ -69,7 +68,7 @@ export class SessionOwners {
   /**
    * Of a session its host no longer has alive: whether it was lost to a
    * remote daemon restart (`isRemoteSessionLoss`), so its pane is recovered
-   * rather than closed (ADR-178 §6). Exactly the sessions still claimed by a
+   * rather than closed. Exactly the sessions still claimed by a
    * remote host — `accept` keeps those claimed and releases every other
    * ending, as `kill` does.
    */

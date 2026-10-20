@@ -11,7 +11,7 @@ import {
 } from "../../lib/new-workspace";
 import { memberAfterClone, startingMemberId, workspaceHostChoices } from "../../lib/workspace-host-choices";
 
-// The New Workspace dialog for a linked group (ADR-192 ticket 3): which
+// The New Workspace dialog for a linked group: which
 // member a workspace is created in, the remembered last-used host, a
 // disconnected host shown but not choosable, the base branch after a host
 // change, and the "push it first" gate. Each decision is read off the store
@@ -166,7 +166,7 @@ describe("New Workspace host picker", () => {
       baseBranch: "main",
       useExistingBranch: undefined,
     });
-    // Main records the last-used host (ADR-203, `electron/workspace-ops.ts`).
+    // Main records the last-used host (`electron/workspace-ops.ts`).
     expect(api.setGroupLastUsedHost).not.toHaveBeenCalled();
   });
 

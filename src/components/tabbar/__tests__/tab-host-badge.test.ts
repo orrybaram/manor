@@ -20,8 +20,8 @@ describe("tabBadgeHostId", () => {
 });
 
 describe("the tab badge against the layout's workspace key", () => {
-  // A linked group (ADR-192) whose two members share a workspace path: the
-  // tab bar reads the host from its layout's key (ADR-191), so the same path
+  // A linked group whose two members share a workspace path: the
+  // tab bar reads the host from its layout's key, so the same path
   // open on each host badges against that host.
   const SHARED = "/home/me/.manor/worktrees/app/feat";
   const hostOf = (key: string) => parseWorkspaceKey(key).hostId;

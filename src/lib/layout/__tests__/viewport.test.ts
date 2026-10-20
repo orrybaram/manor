@@ -1,5 +1,5 @@
 /**
- * The viewport's two jobs (ADR-179 D3).
+ * The viewport's two jobs.
  *
  * `reconcileViewport` keeps a per-renderer selection pointing at a layout
  * somebody else owns; `applyHint` is how a command's implied selection reaches
@@ -231,7 +231,7 @@ describe("applyHint", () => {
   });
 });
 
-describe("reconcileViewport with claims (D4)", () => {
+describe("reconcileViewport with claims", () => {
   /** What the primary window sees with `tabIds` held by other windows. */
   function claimed(...tabIds: string[]): Visibility {
     return {

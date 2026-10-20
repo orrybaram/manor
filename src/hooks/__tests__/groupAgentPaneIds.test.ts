@@ -22,7 +22,7 @@ function layout(...paneIds: string[]): WorkspaceLayout {
   };
 }
 
-// One repo on this machine and on "box" (ADR-192), at different paths.
+// One repo on this machine and on "box", at different paths.
 const localApp = { hostId: "local", workspaces: [{ path: "/Users/me/app" }] };
 const boxApp = {
   hostId: "box",

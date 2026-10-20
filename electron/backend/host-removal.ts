@@ -1,12 +1,12 @@
 /**
- * What a removed host leaves on this machine, and letting go of it
- * (ADR-229 D8). `hosts.remove` forgets the host's record and unregisters it
+ * What a removed host leaves on this machine, and letting go of it.
+ * `hosts.remove` forgets the host's record and unregisters it
  * first; this deletes the files Manor kept for it:
  *
- * - its cache (`~/.manor/host-cache/<hostId>.json`, ADR-227 D4) — the
+ * - its cache (`~/.manor/host-cache/<hostId>.json`) — the
  *   projects, agents and layout shown while it was away;
- * - a recipe host's own `known_hosts` (`~/.manor/ssh/known_hosts.d/<hostId>`,
- *   ADR-229 D2). Its ssh `Host` block lives only in a transport's temporary
+ * - a recipe host's own `known_hosts` (`~/.manor/ssh/known_hosts.d/<hostId>`).
+ *   Its ssh `Host` block lives only in a transport's temporary
  *   config, which went with the transport;
  * - a recipe host's bookkeeping: with the box destroyed, the whole recipe
  *   directory (`recipe.json`, its scripts, their `state.json` and Manor's

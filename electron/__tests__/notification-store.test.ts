@@ -184,7 +184,7 @@ describe("NotificationStore", () => {
     expect(reloaded.getAll()).toEqual([record]);
   });
 
-  it("a badge-unlocked record survives a load round-trip (ADR-168)", () => {
+  it("a badge-unlocked record survives a load round-trip", () => {
     const record = append({
       kind: "badge-unlocked",
       title: "Badge unlocked: First Blood",
@@ -196,7 +196,7 @@ describe("NotificationStore", () => {
     expect(reloaded.getById(record.id)).toEqual(record);
   });
 
-  it("migrates pre-rename { type: \"task\", taskId } targets on load (ADR-166)", () => {
+  it("migrates pre-rename { type: \"task\", taskId } targets on load", () => {
     const record = append({ target: { type: "agent", agentId: "keep" } });
     const legacy = {
       ...record,

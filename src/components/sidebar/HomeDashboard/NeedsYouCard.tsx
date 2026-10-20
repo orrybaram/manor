@@ -31,7 +31,7 @@ const secondaryClass = `${styles.action} ${styles.secondary}`;
 const toolClass = `${styles.action} ${styles.tool}`;
 
 /**
- * One Needs you card (ADR-198 §1.4): kind, project, age, title, the context
+ * One Needs you card: kind, project, age, title, the context
  * block and its actions (§4). The card itself isn't a button — only its
  * actions are focusable.
  */
@@ -97,7 +97,7 @@ export function NeedsYouCard(props: NeedsYouCardProps) {
 type CardActions = { primary: ReactNode; secondary: ReactNode };
 
 /**
- * A card's primary and secondary action (ADR-198 §4). Open workspace and
+ * A card's primary and secondary action. Open workspace and
  * Snooze sit in every card's icon row, so they aren't repeated here.
  * Taking the primary action dismisses the card (a snooze, so it returns
  * if it still needs the user once the snooze lapses).
@@ -151,7 +151,7 @@ function cardActions(
   );
 
   if (!isFixable(context)) {
-    // Ready to merge. No GitHub merge API yet (ADR-198 Context): merging happens on GitHub.
+    // Ready to merge. No GitHub merge API yet: merging happens on GitHub.
     return { primary: openPr(primaryClass, dismiss), secondary: null };
   }
 

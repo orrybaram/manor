@@ -1,5 +1,5 @@
 /**
- * `manor-host serve` (ADR-225 D1): run one host server in this process until
+ * `manor-host serve`: run one host server in this process until
  * it is told to stop.
  *
  * What it leaves in `dataDir` while it runs (names in `hostServerPaths`):
@@ -12,7 +12,7 @@
  * - `logs/host-server.log` — console output, rotated (`main-log.ts`);
  * - `secret-backend` — which `SecretBox` sealed this server's keys;
  * - `relay-identity.enc`, `remote-devices.enc`, `remote-vapid.enc` — its own
- *   relay room, the phones paired to it and its push keys, sealed (D3).
+ *   relay room, the phones paired to it and its push keys, sealed.
  *
  * Kept apart from `index.ts` so a test can run a whole server in-process.
  */
@@ -45,8 +45,7 @@ export interface ServeOptions {
   /** Tests: a local relay, and push with no push service behind it. */
   relay?: HostRelayOptions;
   /**
-   * The key sealing the pairing keys, kept out of `process.env` (ADR-236
-   * D2, `takeSecretEnv`), and what status reports about it, computed once
+   * The key sealing the pairing keys, kept out of `process.env` (`takeSecretEnv`), and what status reports about it, computed once
    * at start. Absent in tests: the secret box then reads `process.env`, and
    * status reports no key.
    */

@@ -1,8 +1,8 @@
 /**
  * A host's part of the desktop's layout, as the desktop hands it to that
- * host's server (ADR-227 D3).
+ * host's server.
  *
- * The host server owns its layout (ADR-227 D2): a real `LayoutStore`,
+ * The host server owns its layout: a real `LayoutStore`,
  * persisted to `dataDir/layout.json` (`hostServerPaths().layout`) and keyed
  * by bare workspace paths, because to the host server its own host is
  * local. Before the flip that layout lived in the desktop's `layout.json`,

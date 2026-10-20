@@ -1,5 +1,5 @@
 /*
- * ADR-198 §1.4: the Needs you grid and its cards (mockup `.cards` / `.card`
+ * The Needs you grid and its cards (mockup `.cards` / `.card`
  * / `.ctx`). A card sets `--c` to its tier colour; its tint, border, kind
  * label and primary action all mix from it.
  */

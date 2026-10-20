@@ -1,6 +1,5 @@
 /**
- * Mirrors main-process console output to a rotating log file on disk
- * (ADR-188 §4).
+ * Mirrors main-process console output to a rotating log file on disk.
  *
  * Main normally logs only to stdout, which is lost the moment the app is
  * launched from Finder/Dock rather than a terminal — exactly the case where
@@ -10,7 +9,7 @@
  * level, to `<dir>/main.log`.
  *
  * Electron-free (the caller passes the directory) so the host server
- * (ADR-225) logs the same way, to its own `logs/` directory.
+ * logs the same way, to its own `logs/` directory.
  *
  * Kept deliberately dumb: one append-mode `fs.WriteStream`, one rotated
  * backup (`main.log.1`), and every fs operation swallowed. A logging failure

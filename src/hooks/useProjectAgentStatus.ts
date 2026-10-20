@@ -11,7 +11,7 @@ type WorkspaceLayouts = Readonly<Record<string, WorkspaceLayout | undefined>>;
 
 /**
  * Every pane in every tab of the layouts of the workspaces `keys` name
- * (ADR-191: layouts are keyed by host plus path), in order.
+ * (layouts are keyed by host plus path), in order.
  */
 export function layoutPaneIds(
   keys: Iterable<string>,
@@ -30,7 +30,7 @@ export function layoutPaneIds(
 
 /**
  * Aggregate agent status across an arbitrary set of workspaces, named by
- * their workspace keys (ADR-191) — the whole project (see
+ * their workspace keys — the whole project (see
  * `useProjectAgentStatus`) or one folder's members.
  * Memoize `keys`: a new array each render recomputes.
  */
@@ -64,11 +64,11 @@ export interface GroupMember {
 }
 
 /**
- * The panes whose agents a collapsed linked group (ADR-192) speaks for:
+ * The panes whose agents a collapsed linked group speaks for:
  * every pane in the layouts of every member's workspaces, each looked up on
  * its member's host, plus the pane of every agent running in one of them.
  * An agent counts by its own host (`agent.hostId`, where its terminal really
- * runs — ADR-191 §5) and its workspace path, so an agent on either host's
+ * runs) and its workspace path, so an agent on either host's
  * section counts, including one whose workspace has no layout open here.
  */
 export function groupAgentPaneIds(
@@ -104,7 +104,7 @@ function agentWorkspaceKey(hostId: string, workspacePath: string): string | unde
 
 /**
  * Aggregate agent status across every host section of a linked group
- * (ADR-192), for the dot on its collapsed header.
+ * for the dot on its collapsed header.
  */
 export function useGroupAgentStatus(members: readonly GroupMember[]): AgentRollup {
   const selectPanes = useCallback<PaneSetSelector>(

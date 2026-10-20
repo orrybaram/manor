@@ -3,7 +3,7 @@ import { useAppStore } from "../app-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
 import { workspaceKey } from "../../lib/workspace-key";
 
-// A host switch moves a project's checkout (ADR-179). The window used to
+// A host switch moves a project's checkout. The window used to
 // keep showing the old path — a workspace that no longer exists — and was
 // unusable until the user clicked back in. Now the old workspaces' tabs
 // close and the window moves to the new main workspace.
@@ -57,8 +57,8 @@ function project(path: string, extraWorkspaces: string[] = [], hostId = "local")
 }
 
 /**
- * A layout this window has open for `path`. The layout is the server's
- * (ADR-179 D1): a window only ever holds a replica of what it was sent, so a
+ * A layout this window has open for `path`. The layout is the server's:
+ * a window only ever holds a replica of what it was sent, so a
  * test seeds the replica rather than building one with actions.
  */
 function openLayout(key: string, tabId = "tab-1"): void {
@@ -133,7 +133,7 @@ describe("switchProjectHost", () => {
     expect(app.workspaceLayouts[OLD]).toBeDefined();
   });
 
-  // ADR-191: a path the new host has too keeps its tabs, under its new key.
+  // A path the new host has too keeps its tabs, under its new key.
   it("keeps the tabs of a workspace whose path the new host has too", async () => {
     openLayout(OLD);
     useAppStore.getState().setActiveWorkspace(OLD, "local");

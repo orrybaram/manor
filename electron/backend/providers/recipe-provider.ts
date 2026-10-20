@@ -1,11 +1,11 @@
 /**
  * RecipeHostProvider — a box Manor starts, stops and deletes with the
- * user's own commands (ADR-229 D2), reached over ssh or an exec prefix.
+ * user's own commands, reached over ssh or an exec prefix.
  *
  * - **`ensureUp` runs `up`** before every connect. `up` is idempotent: it
  *   creates the box if missing, resumes it if stopped, and says how to reach
  *   it. Its stderr lines are the host's progress, or once it names a stage
- *   (`manor-stage: <text>`, ADR-234 D9), that stage.
+ *   (`manor-stage: <text>`), that stage.
  * - **The way in is an inner provider**, rebuilt only when `up` says
  *   something different:
  *   - `ssh`: a `Host manor-<hostId>` block first in the transport's managed
@@ -14,7 +14,7 @@
  *     that alias. A key `up` returns is written there, replacing any
  *     before; without one, the first connect takes the key (`accept-new`)
  *     and a changed one is refused after, as a `HostFailure`.
- *   - `exec`: a `CommandHostProvider` on the argv prefix (D3).
+ *   - `exec`: a `CommandHostProvider` on the argv prefix.
  *   The inner provider is this one's own: the registry, and `hosts.list`'s
  *   `providerKind`, only ever see this one, `kind: "recipe"`.
  * - **The transport exists before the box does.** A `RemoteBackend` is
@@ -96,7 +96,7 @@ export interface RecipeHostProviderOptions {
 type InnerProvider = SshHostProvider | CommandHostProvider;
 
 /**
- * `MANOR_INSTANCE_ID` (ADR-229 D6): the resource's id once `up` has
+ * `MANOR_INSTANCE_ID`: the resource's id once `up` has
  * returned one — the resource itself when it is a string, its `id` when it
  * is an object with one — else the host id.
  */
@@ -110,12 +110,12 @@ export function recipeInstanceId(hostId: string, resource: unknown): string {
   return hostId;
 }
 
-/** What a recipe prints on stderr to name the stage it is at (ADR-234 D9). */
+/** What a recipe prints on stderr to name the stage it is at. */
 const STAGE_PREFIX = "manor-stage: ";
 
 /**
- * The progress for one run of a recipe command, given its stderr lines
- * (ADR-234 D9). A `manor-stage: <text>` line sets the progress to `<text>`;
+ * The progress for one run of a recipe command, given its stderr lines.
+ * A `manor-stage: <text>` line sets the progress to `<text>`;
  * once one has, other lines no longer replace it during that run. Before
  * any, every line is the progress, as before stages. Each run gets its own,
  * so a stage never carries over to the next. The lines themselves still
@@ -179,7 +179,7 @@ class RecipeTransport implements HostTransport {
     this.current()?.reset?.();
   }
 
-  /** The way in's own `exec` (ssh or an exec prefix), for `manor-host` modes (ADR-229 D4). */
+  /** The way in's own `exec` (ssh or an exec prefix), for `manor-host` modes. */
   async exec(command: string, opts?: RemoteExecOptions): Promise<RemoteExecResult> {
     const inner = this.inner();
     if (!inner.exec) throw new Error(`${this.label()} can't run commands`);
@@ -196,7 +196,7 @@ class RecipeTransport implements HostTransport {
 export class RecipeHostProvider implements HostProvider {
   readonly kind = "recipe" as const;
   /**
-   * Whether any agent on the box is working (ADR-229 D7), from the host
+   * Whether any agent on the box is working, from the host
    * server's `busyChanged`. Read by the desktop's idle stop.
    */
   busy = false;
@@ -259,7 +259,7 @@ export class RecipeHostProvider implements HostProvider {
   }
 
   /**
-   * The recipe's `idleStopMinutes` (ADR-229 D7): stop the box after this long
+   * The recipe's `idleStopMinutes`: stop the box after this long
    * idle, while the desktop is awake. Undefined when the recipe has none.
    */
   get idleStopMinutes(): number | undefined {
@@ -277,8 +277,7 @@ export class RecipeHostProvider implements HostProvider {
    * did wrong. Concurrent calls share one run.
    */
   ensureUp(onProgress?: (line: string) => void): Promise<void> {
-    // A wake, a connect and a reconnect's re-run sharing one `up` (ADR-230
-    // D2). Progress goes to the caller that started it.
+    // A wake, a connect and a reconnect's re-run sharing one `up`. Progress goes to the caller that started it.
     this.upRun ??= this.runUp(onProgress).finally(() => {
       this.upRun = null;
     });
@@ -286,9 +285,9 @@ export class RecipeHostProvider implements HostProvider {
   }
 
   /**
-   * Run `up` again during a reconnect (ADR-230 D2), unless the box may have
+   * Run `up` again during a reconnect, unless the box may have
    * put itself to sleep: a recipe whose `up` said `autoSleep` and that has
-   * no `status` to say otherwise would be woken by it (ADR-229 D1).
+   * no `status` to say otherwise would be woken by it.
    *
    * Rebinding here is safe: `bind` replaces the inner provider only when
    * `up` says something different, and after a drop no stream rides the
@@ -430,7 +429,7 @@ export class RecipeHostProvider implements HostProvider {
     });
   }
 
-  /** `status`, mapped to the provider's states (ADR-229 D2). Never rejects. */
+  /** `status`, mapped to the provider's states. Never rejects. */
   private async runStatus(): Promise<ProviderStatus> {
     try {
       const { state, detail } = parseStatusResult(await this.run("status"));
@@ -471,7 +470,7 @@ export class RecipeHostProvider implements HostProvider {
 
   /**
    * An `SshHostProvider` on `manor-<hostId>`, its `Host` block carrying
-   * `target` and the host's own `known_hosts` (ADR-229 D2). A key `up`
+   * `target` and the host's own `known_hosts`. A key `up`
    * returned is the one trusted from now on.
    */
   private sshProvider(target: RecipeSshTarget): SshHostProvider {

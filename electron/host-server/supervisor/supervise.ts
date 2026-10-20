@@ -1,6 +1,6 @@
 /**
- * `manor-host supervise`: the supervisor for a container with no init system
- * (ADR-229 D4). It runs in the foreground as the container's entrypoint.
+ * `manor-host supervise`: the supervisor for a container with no init system.
+ * It runs in the foreground as the container's entrypoint.
  *
  * - It starts the daemon (`--namespace remote`) and then the host server
  *   (`serve`) as its children, through the `~/.manor/bin/manor-host` shim, so

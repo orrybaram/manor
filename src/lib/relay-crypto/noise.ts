@@ -2,7 +2,7 @@
  * Noise_NK_25519_ChaChaPoly_SHA256 (Noise Protocol Framework, revision 34).
  *
  * NK: the initiator (phone) is anonymous and knows the responder's (desktop's)
- * static X25519 key in advance, from the pairing QR (ADR-206 D2/D3).
+ * static X25519 key in advance, from the pairing QR.
  *
  *   <- s
  *   ...

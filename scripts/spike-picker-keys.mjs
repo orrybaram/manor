@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * ADR-215 ticket 1 spike: which keystrokes answer Claude Code's pickers?
+ * Spike: which keystrokes answer Claude Code's pickers?
  *
  * Runs the real `claude` CLI (haiku, to keep it cheap) in a PTY, has it call
  * AskUserQuestion / ExitPlanMode with a known shape, types a candidate key

@@ -1,5 +1,5 @@
 /**
- * End-to-end crypto for the relay transport (ADR-206 D2/D3): Noise NK
+ * End-to-end crypto for the relay transport: Noise NK
  * handshake, the transport channel, and the relay identity keys.
  *
  * The only entry point into `relay-crypto/`. Pure TypeScript — imported by

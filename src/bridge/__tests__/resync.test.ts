@@ -1,4 +1,4 @@
-/** The resync signal (ADR-220 D1): a plain listener set. */
+/** The resync signal: a plain listener set. */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
 

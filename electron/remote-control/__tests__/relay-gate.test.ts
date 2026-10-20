@@ -1,5 +1,5 @@
 /**
- * The relay's hello gate (ADR-206 D5, ADR-207 D3): verify, then redeem, then backoff. Against a fake verifier and a fake bridge, so the test
+ * The relay's hello gate: verify, then redeem, then backoff. Against a fake verifier and a fake bridge, so the test
  * is about the decisions; `ws-bridge.test.ts` and the connector's tests run
  * the same gate in front of the real bridge transport.
  */

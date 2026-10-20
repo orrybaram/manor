@@ -1,5 +1,5 @@
 /**
- * Why no server can answer a Linear call for a host (ADR-228 D10): each of
+ * Why no server can answer a Linear call for a host: each of
  * the host and the desktop that lists it either has Linear off or is away.
  */
 
@@ -46,7 +46,7 @@ describe("the refusal when neither the host nor its desktop has Linear", () => {
   });
 });
 
-describe("linear.connectionChanged (ADR-230 D8)", () => {
+describe("linear.connectionChanged", () => {
   it("flips a non-home entry's connection and tells subscribers", async () => {
     const listeners = new Map<string, (...args: unknown[]) => void>();
     const set = createServerSet();

@@ -29,7 +29,7 @@ type SidebarRailProps = {
 };
 
 /**
- * The collapsed sidebar (ADR-195): a 52px strip with Home, one tile per
+ * The collapsed sidebar: a 52px strip with Home, one tile per
  * project or linked group carrying its agent status, and Agents and
  * Agents at the bottom. A tile opens a popover with the entry as the
  * full sidebar shows it, on click or after resting the pointer on it.
@@ -41,7 +41,7 @@ export function SidebarRail(props: SidebarRailProps) {
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
-  // The Tasks view (ADR-198) covers the active workspace, so neither Home nor
+  // The Tasks view covers the active workspace, so neither Home nor
   // a project tile reads as current there.
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
   const showTasks = useAppStore((s) => s.showTasksView);
@@ -159,7 +159,7 @@ export function SidebarRail(props: SidebarRailProps) {
             bell lives here while the sidebar is collapsed. */}
         <NotificationsPopover triggerClassName={styles.iconButton} side="right" />
         {agentCount > 0 ? (
-          // The full sidebar's Agents panel, on hover or click (ADR-195).
+          // The full sidebar's Agents panel, on hover or click.
           <RailPopoverShell
             open={popover.openKey === AGENTS_POPOVER_KEY}
             onOpenChange={onAgentsOpenChange}

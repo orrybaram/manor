@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-215 D7: the phone chat view. Entries render by kind; question cards
+ * The phone chat view. Entries render by kind; question cards
  * send the `PickerAnswer`s the user chose in one `chat.answer`; a refused
  * answer falls back to the terminal; and the Chat | Terminal choice defaults
  * to chat, is remembered per pane, and is shared by everything reading it.
@@ -176,7 +176,7 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
-  it("keeps a usage push out of the entry list (ADR-223 D4)", async () => {
+  it("keeps a usage push out of the entry list", async () => {
     installChat({ ok: true, contextTokens: 1200, entries: [] });
     await renderChat();
     await act(async () =>
@@ -471,7 +471,7 @@ describe("pane view store", () => {
   });
 });
 
-describe("menu handoff (ADR-218 D3)", () => {
+describe("menu handoff", () => {
   beforeEach(() => {
     usePaneChatViewStore.setState({ views: {}, starting: {}, handoffs: {} });
   });
@@ -578,7 +578,7 @@ describe("menu handoff (ADR-218 D3)", () => {
   });
 });
 
-describe("ChatPane — choice sheet (ADR-218 D2)", () => {
+describe("ChatPane — choice sheet", () => {
   const view = () => selectPaneChatView(usePaneChatViewStore.getState(), PANE, TRANSCRIPT);
 
   beforeEach(() => {
@@ -708,7 +708,7 @@ describe("ChatPane — choice sheet (ADR-218 D2)", () => {
   });
 });
 
-describe("ChatPane — host offline (ADR-216 D4)", () => {
+describe("ChatPane — host offline", () => {
   const OFFLINE: ChatHistory = { ok: false, reason: "host-offline" };
   const BACK: ChatHistory = {
     ok: true,
@@ -774,7 +774,7 @@ describe("ChatPane — host offline (ADR-216 D4)", () => {
   });
 });
 
-describe("ChatPane — bridge resync (ADR-220 D3)", () => {
+describe("ChatPane — bridge resync", () => {
   it("fetches history again and merges what was missed", async () => {
     installChat({ ok: true, contextTokens: null, entries: [{ kind: "user", id: "u1", ts: "", text: "before" }] });
     await renderChat();

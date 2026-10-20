@@ -14,7 +14,7 @@ function scrollIntoViewNearest(node: HTMLElement | null) {
 }
 
 /**
- * The composer's `/` list (ADR-217 D5): commands and skills matching what is
+ * The composer's `/` list: commands and skills matching what is
  * typed, drawn above the field without pushing the transcript.
  *
  * Focus never leaves the textarea (its `aria-activedescendant` points at the

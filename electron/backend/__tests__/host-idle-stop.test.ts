@@ -3,7 +3,7 @@ import { HostIdleStop } from "../host-idle-stop";
 
 type Viewing = { desktop: boolean; device: boolean; forwarded: boolean };
 
-describe("HostIdleStop (ADR-229 D7)", () => {
+describe("HostIdleStop", () => {
   const MIN = 60_000;
   let stop: ReturnType<typeof vi.fn<(hostId: string) => Promise<void>>>;
   let state: {
@@ -57,7 +57,7 @@ describe("HostIdleStop (ADR-229 D7)", () => {
     expect(stop).toHaveBeenCalledWith("h");
   });
 
-  it("waits while a phone is watching, and stops once nobody is (ADR-230 D1)", async () => {
+  it("waits while a phone is watching, and stops once nobody is", async () => {
     const viewing = { desktop: false, device: true, forwarded: false };
     state.status = { busy: false, idleSince: Date.now(), desktopViewing: false, viewing };
     idle.idle("h", Date.now());
@@ -69,7 +69,7 @@ describe("HostIdleStop (ADR-229 D7)", () => {
     expect(stop).toHaveBeenCalledWith("h");
   });
 
-  it("waits while a forwarded viewer is watching (ADR-230 D1)", async () => {
+  it("waits while a forwarded viewer is watching", async () => {
     const viewing = { desktop: false, device: false, forwarded: true };
     state.status = { busy: false, idleSince: Date.now(), desktopViewing: false, viewing };
     idle.idle("h", Date.now());

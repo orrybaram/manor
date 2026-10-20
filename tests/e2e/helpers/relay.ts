@@ -5,7 +5,7 @@ import os from "os";
 import path from "path";
 
 /**
- * A local Manor relay for the e2e suite (ADR-206): `wrangler dev` on a port of
+ * A local Manor relay for the e2e suite: `wrangler dev` on a port of
  * its own, with an isolated persist directory whose local R2 bucket holds
  * this checkout's `pnpm build:web:relay` output — and, optionally, a second
  * "other version" copy of it for the version-redirect test.

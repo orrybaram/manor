@@ -1,5 +1,5 @@
 /*
- * Unlock toast (ADR-212). Centred horizontally, anchored near the bottom of
+ * Unlock toast. Centred horizontally, anchored near the bottom of
  * the window. Timeline: the medal pops in alone (0–450ms) and sends out two
  * overlapping rings (450–2250ms); the card expands out of it (1700–2200ms)
  * and the text and CTA fade in; it holds to 8s, then folds back into the

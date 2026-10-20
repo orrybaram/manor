@@ -1,10 +1,10 @@
 /**
- * GitHub and Linear (ADR-180 D8), as the `github` and `linear` namespaces of
+ * GitHub and Linear, as the `github` and `linear` namespaces of
  * the handler table.
  *
- * Both integrations are the ADR-178 "read and act from anywhere" case at its
+ * Both integrations are the "read and act from anywhere" case at its
  * plainest — an issue list on a phone that cannot start the issue is the
- * read-and-type state this slice exists to end — so the whole of `github` and
+ * read-only state the bridge exists to end — so the whole of `github` and
  * all but one of `linear` are ordinary table entries.
  *
  * **Credentials never cross.** `LinearManager` keeps the API key in
@@ -60,7 +60,7 @@ function assertRepo(repo: GhRepo): void {
 
 /**
  * Every checkout names its project's host: a local and a remote one can share
- * a path, and guessing the host from it picks local (ADR-191). Each `repo`
+ * a path, and guessing the host from it picks local. Each `repo`
  * is checked here, for every caller — the handler is the boundary.
  */
 export function githubGetPrsForBranches(
@@ -75,7 +75,7 @@ export function githubGetPrsForBranches(
   return ctx.deps.githubManager.getPrsForBranches(r, b);
 }
 
-/** The user's clonable repos, newest push first (ADR-194). */
+/** The user's clonable repos, newest push first. */
 export function githubListRepos(
   ctx: HandlerCtx<GithubDeps>,
 ): Promise<GitHubRepo[]> {
@@ -107,7 +107,7 @@ export function githubCheckStatus(
  * as `null` over the socket — JSON has no third thing — and a default
  * parameter only fires for `undefined`. Without the coalesce a browser would
  * ask `gh` for `--limit null`, which is precisely the "a browser hits a hole
- * the desktop never had" shape ADR-178 kept finding. `GitHubManager` owns the
+ * the desktop never had" shape that kept turning up. `GitHubManager` owns the
  * actual defaults; this only says "not given".
  */
 export function githubGetMyIssues(
@@ -344,7 +344,7 @@ function assertCandidates(value: unknown): asserts value is LinearMatchCandidate
  * server's own projects that have none yet.
  *
  * A read: it writes nothing. Its caller is the renderer, which may have had
- * it answered by whichever server holds the token (ADR-228 D10) and writes
+ * it answered by whichever server holds the token and writes
  * each match to its project's own server with `linear.associateProject`.
  */
 export async function linearAutoMatch(
@@ -367,7 +367,7 @@ export async function linearAutoMatch(
 
 /**
  * Give `projectId` the Linear team `association`, if it has none yet: an
- * auto-match's write, made on the project's own server (ADR-228 D10). True
+ * auto-match's write, made on the project's own server. True
  * when it was written.
  */
 export async function linearAssociateProject(
@@ -388,13 +388,13 @@ export async function linearAssociateProject(
 // release. The PR and issue reads are not audited.
 //
 // A `GhRepo` call goes to its host with `byGhRepo`, so a remote workspace's
-// PR badge and issues use the box's own `gh` sign-in (ADR-227 D7);
+// PR badge and issues use the box's own `gh` sign-in;
 // `checkStatus` takes the host it is asking about. The rest ask this
 // machine: the clone dialog's repo list, the viewer's name, new issues and
 // the feedback flow.
 export const github = {
   getPrsForBranches: method(githubGetPrsForBranches, { route: byGhRepo(0) }),
-  // The clone dialog's repo list (ADR-194): what `gh` can see, no writes.
+  // The clone dialog's repo list: what `gh` can see, no writes.
   listRepos: method(githubListRepos, { route: LOCAL_ROUTE }),
   checkStatus: method(githubCheckStatus, { route: byHost(0) }),
   // The phone greeting's name, from the signed-in profile: no writes.
@@ -421,8 +421,8 @@ export const linear = {
   // Drops the integration for every viewer.
   disconnect: method(linearDisconnect, { mutating: true, route: LOCAL_ROUTE }),
   isConnected: method(linearIsConnected, { route: LOCAL_ROUTE }),
-  // Path-free: the renderer's router picks the server that holds the token
-  // (ADR-228 D10); main answers them itself.
+  // Path-free: the renderer's router picks the server that holds the token;
+  // main answers them itself.
   getViewer: method(linearGetViewer, { route: delegated("linear") }),
   getTeams: method(linearGetTeams, { route: delegated("linear") }),
   getMyIssues: method(linearGetMyIssues, { route: delegated("linear") }),
@@ -434,7 +434,7 @@ export const linear = {
   startIssue: method(linearStartIssue, { mutating: true, route: delegated("linear") }),
   closeIssue: method(linearCloseIssue, { mutating: true, route: delegated("linear") }),
   // A workspace's linked issues are its project's record: a remote
-  // project's host server's (ADR-227 D4).
+  // project's host server's.
   linkIssueToWorkspace: method(linearLinkIssueToWorkspace, {
     mutating: true,
     route: byProject(0),

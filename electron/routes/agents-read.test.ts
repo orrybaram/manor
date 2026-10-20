@@ -1,5 +1,5 @@
 /**
- * `/sessions/read` targeting (ADR-154, widened): an agent handle is the preferred
+ * `/sessions/read` targeting (widened): an agent handle is the preferred
  * target, but plain terminal panes — which never get a `AgentInfo` — must be
  * readable by their raw paneId too.
  */

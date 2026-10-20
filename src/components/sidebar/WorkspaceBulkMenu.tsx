@@ -5,12 +5,12 @@ import styles from "./ProjectItem.module.css";
 type WorkspaceBulkMenuProps = {
   /** Rows in the selection, main included. */
   selectedCount: number;
-  /** Folder choices for "Move to Folder", tree order (ADR-172). */
+  /** Folder choices for "Move to Folder", tree order. */
   folderChoices: { id: string; label: string }[];
   /**
    * False when the selection spans a linked group's host sections: folders
    * belong to one member project, so there is no folder every row could
-   * move into (ADR-192 ticket 7).
+   * move into.
    */
   canMoveToFolder: boolean;
   /** True when any selected workspace sits in a folder. */
@@ -26,7 +26,7 @@ type WorkspaceBulkMenuProps = {
 };
 
 /**
- * The context menu for a 2+ workspace selection (ADR-190 §2). Split out of
+ * The context menu for a 2+ workspace selection. Split out of
  * `ProjectItem.tsx` — already the single-workspace menu's home — so that file
  * doesn't grow a second one inline. Reuses `ProjectItem.module.css`'s
  * context-menu classes so the two menus look identical.

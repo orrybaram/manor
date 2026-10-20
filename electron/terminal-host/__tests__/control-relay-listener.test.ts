@@ -216,7 +216,7 @@ describe("ControlRelayStreams", () => {
     expect(relay.relay(req)).toBeNull();
   });
 
-  it("prefers the host server's stream over an app's, whichever enabled last (ADR-227 D8)", async () => {
+  it("prefers the host server's stream over an app's, whichever enabled last", async () => {
     const relay = streams();
     const server = stream("server");
     const app = stream("app");

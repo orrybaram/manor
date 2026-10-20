@@ -1,5 +1,5 @@
 /**
- * Recipe-host E2E against a real Kubernetes cluster (ADR-231 D3).
+ * Recipe-host E2E against a real Kubernetes cluster.
  *
  * The `kubernetes` template's counterpart of `recipe-docker.e2e.test.ts`:
  * the desktop's real `BackendRegistry` (with a real `RecipeHostProvider`
@@ -28,7 +28,7 @@
  * 8. A forced drop: the box's ends of the exec streams are killed, as an
  *    API server's idle timeout would cut them. The owner channel and the
  *    host come back by themselves, to the same host server.
- * 10. A port forward carries half-close (ADR-230 D4): a client that shuts
+ * 10. A port forward carries half-close: a client that shuts
  *    its write side after its request still gets the reply.
  *
  * Not here (the Docker suite covers them with the same desktop code): clone

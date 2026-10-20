@@ -14,7 +14,7 @@ import {
 } from "./helpers/remote-host";
 
 /**
- * Where a project lives, end to end against a real sshd (ADR-214):
+ * Where a project lives, end to end against a real sshd:
  *
  * 1. "Set up on ▸ <host>" clones a local project onto the box and joins it.
  * 2. The success toast's "Remove from This machine" finishes a move.

@@ -1,7 +1,7 @@
 import type { DailyPrompts } from "../electron.d";
 
 /**
- * Grid model for the stats page's contribution graph (ADR-168 §6).
+ * Grid model for the stats page's contribution graph.
  *
  * Kept apart from the component so the date arithmetic — which is all local
  * time, and easy to get wrong around week boundaries — can be tested directly.

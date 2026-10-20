@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { activeWorkspaceHost } from "../StatusBar/active-workspace-host";
 
-// A linked group (ADR-192): the same repo at the same paths on this machine
+// A linked group: the same repo at the same paths on this machine
 // and on "box".
 const SHARED = "/home/me/.manor/worktrees/app/feat";
 const localApp = { id: "p-local", path: "/home/me/app", hostId: "local", workspaces: [{ path: SHARED }] };

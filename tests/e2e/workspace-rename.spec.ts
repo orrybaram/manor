@@ -14,7 +14,7 @@ const nameOf = (item: ReturnType<Page["locator"]>) =>
 const inputOf = (item: ReturnType<Page["locator"]>) =>
   item.getByTestId("workspace-name-input");
 /** F2 on the focused row opens the rename — double-click no longer does
- *  (ADR-172), and Enter now opens the workspace (ADR-175). `press` focuses
+ * and Enter now opens the workspace. `press` focuses
  *  the row first. */
 const startRename = (item: ReturnType<Page["locator"]>) => item.press("F2");
 

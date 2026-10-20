@@ -14,8 +14,7 @@ const TONE_CLASS = {
 };
 
 /**
- * Persistent "you are reachable from outside" indicator (ADR-161 ticket 6 §5,
- * ADR-206 D6).
+ * Persistent "you are reachable from outside" indicator.
  *
  * Lives in the status bar rather than in settings because the hazard is a user
  * who left the relay running and forgot. It renders nothing at all when the

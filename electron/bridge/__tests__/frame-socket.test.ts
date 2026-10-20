@@ -1,5 +1,5 @@
 /**
- * `WsBridgeServer.attach` over an in-memory `FrameSocket` (ADR-206 D5): the
+ * `WsBridgeServer.attach` over an in-memory `FrameSocket`: the
  * hello gate must behave the same for any carrier of text frames.
  */
 
@@ -188,7 +188,7 @@ describe("WsBridgeServer.attach with a FrameSocket", () => {
     expect(socket.sent[0]).not.toHaveProperty("appVersion");
   });
 
-  it("sends appVersion in the hello reply (ADR-206 D4)", async () => {
+  it("sends appVersion in the hello reply", async () => {
     const versioned = new WsBridgeServer(server, { appVersion: "1.2.3" });
     const socket = new FakeSocket();
     versioned.attach(socket, authenticate);
@@ -202,7 +202,7 @@ describe("WsBridgeServer.attach with a FrameSocket", () => {
     versioned.dispose();
   });
 
-  it("marks the hello as a host server's only when told to (ADR-226)", async () => {
+  it("marks the hello as a host server's only when told to", async () => {
     // The desktop names itself too, but is not a host server.
     const desktop = new WsBridgeServer(server, { hostName: () => "desk" });
     const deskSocket = new FakeSocket();

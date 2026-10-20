@@ -1,5 +1,5 @@
 /*
- * ADR-215 D7: the phone's chat view of a Claude pane. It sits over the
+ * The phone's chat view of a Claude pane. It sits over the
  * pane's terminal (which stays mounted and keeps its box), so it is absolutely
  * placed and opaque. Only ever rendered in phone mode, so these rules need no
  * `data-layout` scoping of their own.
@@ -611,7 +611,7 @@ button.more {
   padding-left: 0;
 }
 
-/* The `/` menu (ADR-217 D5): floats above the composer, so it doesn't push
+/* The `/` menu: floats above the composer, so it doesn't push
    the transcript, and scrolls itself when taller than ~40vh. */
 .slashMenu {
   position: absolute;

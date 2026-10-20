@@ -12,7 +12,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("ProjectManager.planTransfer / transferProject (ADR-213)", () => {
+describe("ProjectManager.planTransfer / transferProject", () => {
   let tmpDir: string;
   /** This machine's home in these tests: a fresh directory, so nothing real is touched. */
   let localHome: string;
@@ -355,7 +355,7 @@ describe("ProjectManager.planTransfer / transferProject (ADR-213)", () => {
 
     const ISSUE = { id: "i1", identifier: "ENG-1", title: "Fix it", url: "https://linear.app/i1" };
 
-    it("carries the main workspace's name and issues onto the new path (ADR-214)", async () => {
+    it("carries the main workspace's name and issues onto the new path", async () => {
       const { mgr } = localSource({ [SRC]: REPO }, {}, [], {
         workspaceNames: { [SRC]: "Trunk", "/Users/me/wt/feature": "Feature" },
         workspaceIssues: { [SRC]: [ISSUE] },

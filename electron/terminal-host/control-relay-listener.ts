@@ -1,11 +1,10 @@
 /**
- * Control relay listener — the remote daemon's endpoint for the `manor` CLI
- * (ADR-189 §1).
+ * Control relay listener — the remote daemon's endpoint for the `manor` CLI.
  *
  * The CLI talks HTTP to Manor desktop's webview server, which on a remote
- * host is on another machine, with no route back to it (ADR-178 dropped
- * reverse forwards). So the daemon listens instead and relays each request to
- * the host server over the stream connection it already has (ADR-227 D8; it
+ * host is on another machine, with no route back to it (reverse forwards
+ * were dropped). So the daemon listens instead and relays each request to
+ * the host server over the stream connection it already has (it
  * was the desktop until then): the request goes out as a `controlRequest`
  * stream event, the host server runs it through its own control routes and
  * answers with a `controlResponse`, and the listener replies to the CLI with
@@ -288,8 +287,8 @@ export type ControlRelayRole = "server" | "app";
  *
  * The relay stream is the most recent stream socket that sent
  * `enableControlRelay` with `role: "server"` — the host server, which owns
- * this host (ADR-227 D8) — while one is open; otherwise the most recent one
- * that sent it without (a desktop from before ADR-227, ADR-189). Only one
+ * this host — while one is open; otherwise the most recent one
+ * that sent it without (an older desktop). Only one
  * gets each request — relaying to every connected client would run the
  * request once per client. A reconnecting client re-enables on its new
  * socket, which takes over; requests already sent to the old socket still

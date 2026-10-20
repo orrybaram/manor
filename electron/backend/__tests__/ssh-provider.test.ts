@@ -201,7 +201,7 @@ describe("createProvider", () => {
   });
 });
 
-describe("SshHostProvider lifecycle (ADR-229 D1)", () => {
+describe("SshHostProvider lifecycle", () => {
   let baseDir: string;
 
   beforeEach(() => {

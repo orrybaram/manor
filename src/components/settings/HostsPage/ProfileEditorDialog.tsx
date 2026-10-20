@@ -5,7 +5,7 @@ import dialogStyles from "../../sidebar/dialogs.module.css";
 import styles from "./HostsPage.module.css";
 
 /**
- * The profile editor (ADR-235 D2): `StartHostForm` in profile mode, in a
+ * The profile editor: `StartHostForm` in profile mode, in a
  * dialog. Opened by `openProfileEditor`; mount it once, wherever it may be
  * opened from.
  */

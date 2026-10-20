@@ -1,5 +1,5 @@
 /**
- * `window.electronAPI` over a set of servers (ADR-228 D1).
+ * `window.electronAPI` over a set of servers.
  *
  * Renderer code calls one `ElectronAPI`, as it always has. Behind it is no
  * longer one bridge but the page's server set (`./server-set.ts`), and this
@@ -13,25 +13,25 @@
  *   browser it is not, so no other server is ever asked.
  * - **Routed** (`RouteRule`). The host the named argument points at, read off
  *   the renderer's own stores (`./host-lookups.ts`), answered by that host's
- *   **source** (D3): a direct bridge to it if one is reachable, else a server
+ *   **source**: a direct bridge to it if one is reachable, else a server
  *   that lists it, else none — and a call for a host with no source is
  *   refused with `unavailable:host-away`. Arguments go out in the server's
  *   form and the answer comes back in the renderer's (`host-rewrite.ts`).
  * - **Merged** (`"merge"`). Every server is asked; each one's answer is
- *   stamped with renderer host ids (D2), its records for a host whose source
+ *   stamped with renderer host ids, its records for a host whose source
  *   is another server are dropped, and the rest are merged. A project's
- *   group is the desktop's (D3). A server that is away, or fails, contributes
- *   its last answer (D6), kept in memory (`./last-known-cache.ts`) — and, on
+ *   group is the desktop's. A server that is away, or fails, contributes
+ *   its last answer, kept in memory (`./last-known-cache.ts`) — and, on
  *   the phone, in IndexedDB (`RouterOptions.lastKnown`), so a reload while
  *   it is away still shows it.
- * - **Split** (`"split"`, ADR-230 D6). A list of workspaces to watch: each
+ * - **Split** (`"split"`). A list of workspaces to watch: each
  *   server is sent the ones it answers for, a server away gets its share
  *   when it comes back, and one too old to watch (`unavailable:host`) has
  *   its share given to a desktop that lists its host. The watchers' events
  *   are re-keyed and merged across the servers.
  * - **Home.** Everything else.
  *
- * **Renderer host ids (D2).** On the desktop the local server is `local` and
+ * **Renderer host ids.** On the desktop the local server is `local` and
  * a host server is the desktop's own id for that host, which is what every
  * record already says. On the phone every server is named by its room: a
  * server's `local` becomes its room id, and a host a desktop lists becomes
@@ -48,13 +48,12 @@
  * and pane; a pane id two servers' layouts both hold is refused rather than
  * cross-wired. Any other listener is home's.
  *
- * **Waking** (ADR-229 D1). A routed write (`wakesHost`) for a host the
+ * **Waking**. A routed write (`wakesHost`) for a host the
  * stores say is asleep first asks home to wake it (`hosts.wake`), waits for
  * that and for the host's own bridge to come back (bounded), and only then
  * is sent. A read never wakes a host. On the desktop, main's `HostRouting`
  * wakes a host for a write it forwards too; asking twice is harmless. A
- * create or attach with `wake: false` — a pane restored at launch (ADR-230
- * D3) — wakes nothing, and answers `host-unavailable` for a host asleep.
+ * create or attach with `wake: false` — a pane restored at launch — wakes nothing, and answers `host-unavailable` for a host asleep.
  *
  * **What main did on the way, done here.** A call that used to reach a host
  * through main's `HostRouting` picked up a few things there that a direct
@@ -103,7 +102,7 @@ export interface HostResolver {
    */
   hostOf(rule: RouteRule, args: readonly unknown[]): string | null;
   /**
-   * Whether renderer host `hostId` is asleep (ADR-229 D1), so a write for it
+   * Whether renderer host `hostId` is asleep, so a write for it
    * wakes it first. Absent: nothing is known to sleep.
    */
   asleep?(hostId: string): boolean;
@@ -160,14 +159,14 @@ export const storeResolver: HostResolver = {
 
 /**
  * How long a write for a woken host waits for the host's own bridge to come
- * back before it goes by whichever source there is (ADR-229 D1). Home has
+ * back before it goes by whichever source there is. Home has
  * already said the host is up by then; this is only the bridge redialling.
  */
 const WOKEN_SOURCE_WAIT_MS = 10_000;
 
 /**
- * The namespaces with a merged read, or a watch split across the servers
- * (ADR-230 D6): their listeners fan out.
+ * The namespaces with a merged read, or a watch split across the servers:
+ * their listeners fan out.
  */
 const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
   Object.entries(ROUTES)
@@ -177,7 +176,7 @@ const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
 
 /**
  * The events whose payload is a `Record<WorkspaceKey, …>` of everything one
- * server watches (ADR-230 D6): re-keyed, kept only for the workspaces that
+ * server watches: re-keyed, kept only for the workspaces that
  * server watches, and merged with every other server's last one, since a
  * listener takes each payload as the whole picture.
  */
@@ -245,7 +244,7 @@ interface FanSub {
 }
 
 /**
- * A `"split"` namespace's watch (ADR-230 D6): what the page last asked for,
+ * A `"split"` namespace's watch: what the page last asked for,
  * and what each server was last sent of it.
  */
 interface SplitWatch {
@@ -277,7 +276,7 @@ interface PaneSub {
 let delegatedHost: string | null = null;
 
 /**
- * Run `call`, a `linear.*` call, on behalf of `hostId` (ADR-228 D10): the
+ * Run `call`, a `linear.*` call, on behalf of `hostId`: the
  * router picks that host's Linear server (`linearServerFor`) rather than
  * the page's. The call is dispatched synchronously, so the host is read
  * before this returns. Null is no host: browsing.
@@ -306,7 +305,7 @@ export function linearServerFor(
 
 export interface RouterOptions {
   /**
-   * Where each server's last answers outlive the page (D6): the phone's
+   * Where each server's last answers outlive the page: the phone's
    * IndexedDB (`./last-known.ts`). Without it they are kept in memory only.
    */
   lastKnown?: LastKnownStore;
@@ -318,7 +317,7 @@ export function createRouter(
   options: RouterOptions = {},
 ): ElectronAPI {
   let members = new Map(set.list().map((entry) => [entry.id, entry.bridge]));
-  /** Each server's last answer to each merged read (D6). */
+  /** Each server's last answer to each merged read. */
   const lastKnown = createLastKnownCache(options.lastKnown ?? null, (id) => members.has(id));
   /** Each server's panes, by workspace, as its merged layout says. */
   const panesByServer = new Map<string, Map<string, Set<string>>>();
@@ -329,11 +328,11 @@ export function createRouter(
     send: (target, args) => call(target, "layout", "setPendingCommand", args),
     home: () => set.home(),
   });
-  /** Each project's group, from the desktop's last `projects.getAll` (D3). */
+  /** Each project's group, from the desktop's last `projects.getAll`. */
   let desktopGroups = new Map<unknown, unknown>();
   /**
    * The project order home's own `projects.getAll` last gave, and the merged
-   * order the renderer was given (ADR-230 D7). Home's selected index is into
+   * order the renderer was given. Home's selected index is into
    * the first; the renderer's is into the second.
    */
   let homeProjectIds: unknown[] | null = null;
@@ -344,7 +343,7 @@ export function createRouter(
    */
   let pageSelectionId: unknown = null;
   /**
-   * The desktop's claims on each workspace, as home last said them (D7): a
+   * The desktop's claims on each workspace, as home last said them: a
    * tab a detached window holds is the desktop's to know, and no host
    * server's layout carries it.
    */
@@ -355,7 +354,7 @@ export function createRouter(
    */
   const lastLayouts = new Map<string, { version: unknown; layout: unknown }>();
 
-  // ── sources (D3) ──
+  // ── sources ──
 
   function isHome(entry: ServerEntry): boolean {
     return entry.id === set.homeId;
@@ -366,7 +365,7 @@ export function createRouter(
    * and so can a lone server: its own transport queues, retries and refuses
    * as it did when it was the page's only bridge, and a router that refused
    * for it would change that. A phone's home among others is one server of
-   * several: away is away (D6).
+   * several: away is away.
    */
   function reachable(entry: ServerEntry): boolean {
     if (entry.reachability !== "unreachable") return true;
@@ -376,7 +375,7 @@ export function createRouter(
   /**
    * Whether calls go to home as they are: the desktop's own server alone in
    * the set, whose answers are already in the renderer's form. A phone's
-   * server is stamped even alone (D2), so its ids do not change when a
+   * server is stamped even alone, so its ids do not change when a
    * second pairing joins.
    */
   function passThrough(): boolean {
@@ -387,7 +386,7 @@ export function createRouter(
     return entry.lists === "all" || entry.lists.has(hostId);
   }
 
-  /** The server answering for `hostId` now, or null: it is away (D3). */
+  /** The server answering for `hostId` now, or null: it is away. */
   function sourceOf(hostId: string): ServerEntry | null {
     const direct = set.get(hostId);
     if (direct && reachable(direct)) return direct;
@@ -444,7 +443,7 @@ export function createRouter(
   }
 
   /**
-   * The server watching `hostId`'s workspaces for `ns` (ADR-230 D6): the one
+   * The server watching `hostId`'s workspaces for `ns`: the one
    * answering for it, unless that one is too old to watch — then a desktop
    * that lists the host, which polls it as it always has.
    */
@@ -459,7 +458,7 @@ export function createRouter(
     return null;
   }
 
-  // ── stamping (D2) ──
+  // ── stamping ──
 
   /**
    * Whether `entry`'s answers are already in the renderer's form: the
@@ -642,7 +641,7 @@ export function createRouter(
     }
   }
 
-  /** Whether two servers' layouts both hold `paneId` (ADR-228 "Risks"). */
+  /** Whether two servers' layouts both hold `paneId`. */
   function collides(paneId: string): boolean {
     let holders = 0;
     for (const byKey of panesByServer.values()) {
@@ -661,7 +660,7 @@ export function createRouter(
     return new Error(`Pane ${paneId} is on two servers; refusing to guess which`);
   }
 
-  // ── waking (ADR-229 D1) ──
+  // ── waking ──
 
   /** Each host's wake in flight, so calls that find it asleep share one. */
   const waking = new Map<string, Promise<void>>();
@@ -734,7 +733,7 @@ export function createRouter(
   }
 
   /**
-   * What a create or attach that declines to wake (ADR-230 D3) answers for a
+   * What a create or attach that declines to wake answers for a
    * host asleep: the `host-unavailable` failure a pane waits out behind its
    * host's asleep banner, as for a host that is away.
    */
@@ -784,7 +783,7 @@ export function createRouter(
     });
   }
 
-  /** A delegated call (D10): to the server `linearServerFor` picks. */
+  /** A delegated call: to the server `linearServerFor` picks. */
   function delegated(ns: string, name: string, args: unknown[]): unknown {
     const home = set.home();
     if (passThrough()) return call(home, ns, name, args);
@@ -803,7 +802,7 @@ export function createRouter(
 
   // ── what main's `HostRouting` did on the way ──
 
-  /** A host's project, or projects, with the desktop's group on each (D3). */
+  /** A host's project, or projects, with the desktop's group on each. */
   function withDesktopGroup(result: unknown): unknown {
     const one = (project: unknown): unknown => {
       if (!isPlainObject(project) || !desktopGroups.has(project.id)) return project;
@@ -933,7 +932,7 @@ export function createRouter(
 
   /**
    * Projects from every source, in the desktop's order, each carrying the
-   * desktop's group (D3): a group is desktop state, and a host server's own
+   * desktop's group: a group is desktop state, and a host server's own
    * answer knows nothing of it. Projects no desktop listed follow, in set
    * order. With no desktop in the set, there are no groups to give.
    */
@@ -981,7 +980,7 @@ export function createRouter(
     return out;
   }
 
-  /** Home's raw id order and the merged one, for the selected index (D7). */
+  /** Home's raw id order and the merged one, for the selected index. */
   function noteProjectOrders(answers: Answer[], list: unknown[]): void {
     const home = answers.find(({ entry }) => isHome(entry));
     const idsOf = (records: unknown): unknown[] =>
@@ -1027,7 +1026,7 @@ export function createRouter(
     return callHome("projects", "select", [at, ...args.slice(1)]);
   }
 
-  // ── claims (D7) ──
+  // ── claims ──
 
   /** Whether `entry` says which tabs the desktop's windows hold: a desktop at home. */
   function holdsClaims(entry: ServerEntry): boolean {
@@ -1059,7 +1058,7 @@ export function createRouter(
     return moved;
   }
 
-  // ── watches split across the servers (ADR-230 D6) ──
+  // ── watches split across the servers ──
 
   /** Each `"split"` namespace's watch, once the page has started or stopped one. */
   const splits = new Map<string, SplitWatch>();
@@ -1145,7 +1144,7 @@ export function createRouter(
 
   // ── subscriptions ──
 
-  /** `entry`'s event in the renderer's form, or null to drop it (D3). */
+  /** `entry`'s event in the renderer's form, or null to drop it. */
   function stampEvent(
     entry: ServerEntry,
     event: { ns: string; event: string },
@@ -1163,7 +1162,7 @@ export function createRouter(
       const claimsMoved = holdsClaims(entry) && noteHomeClaims(key, first);
       if (!answersFor(entry, hostOfKey(key, entry))) {
         // A desktop window took or let go of a tab of a workspace another
-        // server answers for (D7): that server's layout, with the claims.
+        // server answers for: that server's layout, with the claims.
         const last = lastLayouts.get(key);
         if (!claimsMoved || !last) return null;
         return [
@@ -1205,7 +1204,7 @@ export function createRouter(
    * A layout command this window sent a host itself carries, as its origin,
    * the window's connection to that host. The window knows itself by its
    * home id (`rendererId`), as it did when main forwarded the command, so
-   * its selection hint lands (ADR-179 D3).
+   * its selection hint lands.
    */
   function ownOrigin(entry: ServerEntry, origin: unknown): unknown {
     if (isHome(entry) || !isPlainObject(origin)) return origin;
@@ -1426,7 +1425,7 @@ export function createRouter(
   }
 
   /**
-   * A call home, in home's form (D2): on the phone the page's ids are rooms,
+   * A call home, in home's form: on the phone the page's ids are rooms,
    * so the arguments go out as home knows them and the answer — or each
    * event, for a listener — comes back stamped.
    */

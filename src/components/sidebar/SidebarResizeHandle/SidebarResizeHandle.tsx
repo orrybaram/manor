@@ -17,7 +17,7 @@ const MAX_SIDEBAR_WIDTH = 400;
 const useEdgeDragStore = create<{ dragging: boolean }>(() => ({ dragging: false }));
 
 /**
- * One drag across both views (ADR-195): right of `RAIL_SNAP_X` the pointer
+ * One drag across both views: right of `RAIL_SNAP_X` the pointer
  * sets the full sidebar's width; left of it the sidebar is the rail. The
  * drag can cross back and forth without letting go. The listeners live on
  * the document and read the stores directly, so they outlive whichever view
@@ -42,7 +42,7 @@ function startEdgeDrag(e: ReactMouseEvent) {
       return;
     }
     if (store.sidebarMode === "rail") store.setSidebarMode("full");
-    // The panel starts one gutter in from the window edge (ADR-196), so its
+    // The panel starts one gutter in from the window edge, so its
     // right edge follows the pointer at `FRAME_GAP + width`.
     store.setSidebarWidth(
       Math.max(

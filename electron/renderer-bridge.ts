@@ -7,7 +7,7 @@
  * own. Lives at the top level, alongside `webview-server.ts` and
  * `preload.ts`, which import it directly.
  *
- * **Both directions are bridge frames now (ADR-180 D5).** Out was
+ * **Both directions are bridge frames now.** Out was
  * `win.webContents.send("app-command", …)` to `BrowserWindow.getAllWindows()
  * [0]`; it is an `appCommands.command` event addressed to the primary
  * window's connection. Back was `ipcMain.on("app-command-result")`; it is an
@@ -34,7 +34,7 @@ import {
  * The payload of an `appCommands.command` event: a question the renderer
  * *must* answer with an `appCommands.result` invoke, which main awaits; see
  * `requestRenderer`. The last fire-and-forget command, `run-setup-script`,
- * went when setup scripts moved onto the server (ADR-227 D5).
+ * went when setup scripts moved onto the server.
  */
 export interface AppCommand {
   cmd: string;
@@ -75,7 +75,7 @@ const pendingRequests = new Map<string, PendingRequest>();
 /**
  * A renderer answering an app-command that carried a `requestId`.
  *
- * The table's `appCommands.result` (ADR-180 D5), and the whole of what used
+ * The table's `appCommands.result`, and the whole of what used
  * to be a lazily installed `ipcMain.on("app-command-result")` listener. The
  * reply was always a call the renderer makes to the host, so it is an
  * ordinary invoke now; the correlation id, the pending map and the timeout

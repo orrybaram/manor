@@ -50,7 +50,7 @@ type ChatPaneProps = {
 };
 
 /**
- * A phone's chat view of a Claude pane (ADR-215 D7): the pane's transcript as
+ * A phone's chat view of a Claude pane: the pane's transcript as
  * a conversation, its pickers as cards that answer through the PTY, and a
  * composer. The terminal stays the truth; this is a reader of the transcript
  * and a writer of keystrokes.
@@ -60,13 +60,13 @@ type ChatPaneProps = {
  * merging two sessions.
  *
  * A remote agent's transcript can't be read while its host is away
- * (`host-offline`, ADR-216 D4). The note shows until history can be fetched
+ * (`host-offline`). The note shows until history can be fetched
  * again: on any host status change, on the next live entry, or on a slow
  * retry, whichever comes first.
  *
  * Stays subscribed while the terminal shows a TUI menu the chat sent: the
  * menu's command landing in the transcript means it closed, and the pane
- * comes back to the chat (ADR-218 D3).
+ * comes back to the chat.
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -76,7 +76,7 @@ export function ChatPane(props: ChatPaneProps) {
   const [unavailable, setUnavailable] = useState<Unavailable | null>(null);
   /** Ids the first history load drew: only entries after it animate in. */
   const [settledIds, setSettledIds] = useState<Set<string> | null>(null);
-  /** The session's context size (ADR-223 D4); a fresh transcript remounts this. */
+  /** The session's context size; a fresh transcript remounts this. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
 
@@ -149,8 +149,8 @@ export function ChatPane(props: ChatPaneProps) {
     const unsubscribeHosts = useHostStore.subscribe((state, prev) => {
       if (offline && state.hosts !== prev.hosts) void fetchHistory();
     });
-    // The bridge came back from a drop, or the user asked for a refresh
-    // (ADR-220 D3): catch up on entries pushed while the socket was down.
+    // The bridge came back from a drop, or the user asked for a refresh:
+    // catch up on entries pushed while the socket was down.
     // Entries upsert by id, so this merges, and an unchanged newest entry
     // leaves scroll-follow where the user put it.
     const unsubscribeResync = onBridgeResync(fetchHistory);

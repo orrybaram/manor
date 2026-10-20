@@ -13,7 +13,7 @@ type SparklineProps = {
 };
 
 /**
- * A stat tile's chart (ADR-198 §1.3): hand-written SVG, no chart library.
+ * A stat tile's chart: hand-written SVG, no chart library.
  * Drawn to scale from zero, so a flat run of zeros sits on the baseline.
  * Nothing renders for fewer than two points — one sample isn't a trend.
  */

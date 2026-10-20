@@ -1,5 +1,5 @@
 /**
- * The Status reconciler (ADR-184): a pure per-pane function
+ * The Status reconciler: a pure per-pane function
  *
  *   reconcile(state, signal, ctx) → { state, status, reason, effects }
  *
@@ -12,7 +12,7 @@
  * Rules, in the order they are checked (each is a row in the table below):
  *
  * Hook signals (`reconcileHook`)
- *  H0  Subagent hook (ADR-186): a root-session hook with an `agent_id` (not
+ *  H0  Subagent hook: a root-session hook with an `agent_id` (not
  *      SessionStart). Stamps `lastHookAt`; never starts or ends the root's
  *      turn and never changes its phase. SubagentStart / SubagentStop keep
  *      `activeSubagents` / `finishedSubagents` (key `agent:<id>`). Active or
@@ -20,7 +20,7 @@
  *      Stalled turn: resumes it. Responded / none: SubagentStart for an id not
  *      finished, or activity from an id still active, reopens the turn as a
  *      held Stop; anything else is dropped as late. Terminal hooks ignored.
- *  H1  Late-active guard (ADR-139): an active hook other than UserPromptSubmit /
+ *  H1  Late-active guard: an active hook other than UserPromptSubmit /
  *      SessionStart for a session that has already responded is dropped. The
  *      pane's phase answers for its root session (so a `stalled` turn
  *      resumes); the saved Agent answers for any other session. Applies to
@@ -43,9 +43,8 @@
  *      subagents outlive the root's Stop), else responded.
  *  H8  SessionEnd: drains a held Stop, then completes; pane → idle, not
  *      hook-driven.
- *  H8a SessionEnd during a daemon replacement (ADR-185 §A,
- *      `ctx.expectedPaneLoss`): as H8 — the pane still resets and a held Stop
- *      still drains — but the Agent is not completed. Its pty died because the
+ *  H8a SessionEnd during a daemon replacement (`ctx.expectedPaneLoss`): as
+ *      H8 — the pane still resets and a held Stop still drains — but the Agent is not completed. Its pty died because the
  *      daemon was replaced, not because it finished; it stays `active` with its
  *      pane, so the renderer's cold restore resumes it.
  *  H9  StopFailure → error.
@@ -59,17 +58,17 @@
  *      for the matching Agent kind only, then the output hint.
  *
  * Ticks (`reconcileTick`) — the old `sweepStaleSessions` branches
- *  T1  Held Stop drain (ADR-130): pending Stop and root quiet > STALE_STOP_MS,
+ *  T1  Held Stop drain: pending Stop and root quiet > STALE_STOP_MS,
  *      or > STALE_SUBAGENT_MS when every active subagent has an `agent:` key
- *      (ADR-186: exact pairing, so a quiet background subagent is not lost).
- *  T2  Stuck-working (ADR-131): root turn quiet > STALE_ACTIVE_MS while the
+ *      (exact pairing, so a quiet background subagent is not lost).
+ *  T2  Stuck-working: root turn quiet > STALE_ACTIVE_MS while the
  *      Agent is still active → `stalled` (STALE_SUBAGENT_MS while every active
- *      subagent has an `agent:` key, ADR-186, while a root tool call is
+ *      subagent has an `agent:` key, while a root tool call is
  *      open — PreToolUse without its PostToolUse — or while the pane is still
  *      writing output within OUTPUT_LIVE_MS: a long streamed reply sends no
  *      hook but keeps redrawing). The turn it ends is a guess, so its
  *      responded is persisted quietly: no unseen flag, no notification.
- *  T3  Orphan (ADR-132): the pane's Agent is stuck active but has no turn state,
+ *  T3  Orphan: the pane's Agent is stuck active but has no turn state,
  *      and is older than STALE_ACTIVE_MS.
  *
  * Output (`reconcileOutput`)
@@ -98,17 +97,17 @@ import type {
 
 // ── Thresholds (same values as `hook-relay.ts` and `agent-detector.ts`) ──
 
-/** A held Stop is forced after the root has been quiet this long (ADR-130). */
+/** A held Stop is forced after the root has been quiet this long. */
 export const STALE_STOP_MS = 15_000;
 /**
  * A held Stop waiting only on subagents paired by `agent_id` is forced after
- * this much quiet — a last resort for a lost SubagentStop (ADR-186). Longer
+ * this much quiet — a last resort for a lost SubagentStop. Longer
  * than Bash's 10-minute maximum timeout, so one long command fits.
  */
 export const STALE_SUBAGENT_MS = 15 * 60_000;
-/** An active turn is forced to responded after this much quiet (ADR-131). */
+/** An active turn is forced to responded after this much quiet. */
 export const STALE_ACTIVE_MS = 60_000;
-/** An orphaned active Agent is forced to responded at this age (ADR-132). */
+/** An orphaned active Agent is forced to responded at this age. */
 export const ORPHAN_AGENT_MS = STALE_ACTIVE_MS;
 /**
  * Output this recent means the pane is still drawing, so T2 does not take its
@@ -166,7 +165,7 @@ function hasBrailleChars(str: string): boolean {
 const CLAUDE_DONE_MARKERS = ["✳", "✻", "✽", "✶", "✢"];
 
 /**
- * Title conventions are per Agent kind (ADR-184 §1). Only Claude Code has
+ * Title conventions are per Agent kind. Only Claude Code has
  * known ones: a braille spinner while working, a done marker when finished.
  * The old TitleDetector applied these to every kind; here a kind without an
  * entry gets no title rules.
@@ -268,7 +267,7 @@ function withoutRoot(state: PaneAgentState): PaneAgentState {
   };
 }
 
-// ── Subagent keys (ADR-186) ──
+// ── Subagent keys ──
 
 /**
  * The `activeSubagents` key for a subagent: its `agent_id` when the hook has
@@ -356,7 +355,7 @@ function withStatus(
 
 /**
  * Build a result. When the pane's status or kind changed, a
- * `PublishPaneStatus` effect is put first — the slot ADR-139's
+ * `PublishPaneStatus` effect is put first — the slot the old hook relay's
  * `RelayAgentHook` held — so the dot updates before persistence effects run.
  */
 function result(
@@ -418,7 +417,7 @@ function reconcileHook(
   const { existingAgent, nowMs } = ctx;
   const hookLabel = `${type} hook`;
 
-  // H0 — subagent hook (ADR-186): a root-session hook that carries an
+  // H0 — subagent hook: a root-session hook that carries an
   // `agent_id` came from a subagent. It never starts or ends the root's turn,
   // so it is handled before the late-active guard and the root rules.
   // SessionStart keeps its lifecycle rule (H2).
@@ -431,7 +430,7 @@ function reconcileHook(
     return reconcileSubagentHook(state, event, sessionId, ctx);
   }
 
-  // H1 — late-active guard (ADR-139). Hook delivery is independent HTTP, so a
+  // H1 — late-active guard. Hook delivery is independent HTTP, so a
   // PreToolUse / PostToolUse can race in after Stop. Only UserPromptSubmit
   // starts the next turn; SessionStart is a lifecycle event (H2).
   const alreadyResponded =
@@ -448,7 +447,7 @@ function reconcileHook(
     return result(state, state, `late ${hookLabel} after Stop ignored`);
   }
 
-  // H2 — SessionStart. Never changes the status on its own (ADR-014: the agent
+  // H2 — SessionStart. Never changes the status on its own (the agent
   // stays idle until a real event), except to close a replaced root's turn.
   if (type === "SessionStart") {
     if (!sessionId) {
@@ -589,7 +588,7 @@ function activeHookEffect(
 }
 
 /**
- * H0 — a subagent hook (ADR-186): a hook for the root session that carries an
+ * H0 — a subagent hook: a hook for the root session that carries an
  * `agent_id`. Subagents run inside the root session, so their hooks use its
  * session id; only the root's own hooks (no `agent_id`) start or end a turn.
  */
@@ -674,7 +673,7 @@ function reconcileRootHook(
   const hadTurn = state.phase !== "none";
 
   // H6 — hasBeenActive guard: a terminal hook for a root that has never been
-  // active is dropped, and does not claim the pane (ADR-139). SessionEnd still
+  // active is dropped, and does not claim the pane. SessionEnd still
   // ends a root claimed by SessionStart.
   if (!isActiveStatus(event.status) && !hadTurn) {
     if (event.type === "SessionEnd" && state.rootSessionId === sessionId) {
@@ -715,7 +714,7 @@ function reconcileRootHook(
   // Active hook: the turn is in progress; create or update the Agent. A held
   // Stop (`pendingStopAt`) is kept — T1 drains it once the root goes quiet —
   // except on UserPromptSubmit: a new turn starts, so the previous turn's held
-  // Stop is moot (ADR-186: the resume after background subagents finish must
+  // Stop is moot (the resume after background subagents finish must
   // not be drained mid-turn).
   if (isActiveStatus(event.status)) {
     if (event.type === "UserPromptSubmit") next = { ...next, pendingStopAt: null, openToolCalls: 0 };
@@ -773,7 +772,7 @@ function reconcileRootHook(
     return result(state, ended, reason, effects);
   }
 
-  // H9 — StopFailure. Turn state is dropped; the root stays (as in ADR-139).
+  // H9 — StopFailure. Turn state is dropped; the root stays.
   if (event.type === "StopFailure") {
     next = withStatus(
       {
@@ -932,7 +931,7 @@ function reconcileTick(
     if (early) return early;
   }
 
-  // T3 — orphan recovery (ADR-132): an active Agent stuck mid-turn whose
+  // T3 — orphan recovery: an active Agent stuck mid-turn whose
   // session has no turn state (replacement / SessionEnd races, restarts).
   const age = ctx.existingAgentAgeMs;
   if (
@@ -968,10 +967,10 @@ function reconcileTurnTick(
   nowMs: number,
   rootAgent: AgentInfo | null,
 ): ReconcileResult | null {
-  // T1 — held-Stop drain (ADR-130). When every active subagent is paired by
+  // T1 — held-Stop drain. When every active subagent is paired by
   // its `agent_id` the pairing is exact, so a quiet background subagent (a
   // long command, a long think) is not mistaken for a lost SubagentStop: only
-  // STALE_SUBAGENT_MS drains it (ADR-186). Fallback / tool keys, or no
+  // STALE_SUBAGENT_MS drains it. Fallback / tool keys, or no
   // subagents left (waiting on the resume UserPromptSubmit), keep the short
   // STALE_STOP_MS.
   const stopThreshold = allSubagentsHaveAgentIds(state.activeSubagents)
@@ -989,9 +988,9 @@ function reconcileTurnTick(
     ]);
   }
 
-  // T2 — stuck-working safety net (ADR-131). A foreground subagent paired by
+  // T2 — stuck-working safety net. A foreground subagent paired by
   // its `agent_id` can be quiet for minutes inside one tool call (a test run),
-  // so it gets the same STALE_SUBAGENT_MS window as T1 (ADR-186). So can the
+  // so it gets the same STALE_SUBAGENT_MS window as T1. So can the
   // root's own tool call: a long foreground Bash sends no hook until it ends.
   // So can a long reply — the model streaming one big answer or tool input —
   // but the agent keeps redrawing its spinner meanwhile, which a lost Stop

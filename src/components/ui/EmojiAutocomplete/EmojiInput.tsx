@@ -6,7 +6,7 @@ import { useEmojiAutocomplete } from "./useEmojiAutocomplete";
 type EmojiInputProps = React.ComponentPropsWithoutRef<typeof Input>;
 
 /**
- * `ui/Input` with `:shortcode` emoji autocomplete (ADR-174). Same props and
+ * `ui/Input` with `:shortcode` emoji autocomplete. Same props and
  * ref as `Input`; the caller's `onChange` fires for inserted emoji too.
  */
 export const EmojiInput = React.forwardRef<HTMLInputElement, EmojiInputProps>(

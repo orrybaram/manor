@@ -4,14 +4,14 @@ import { localExec, streamAfter, type Exec, type ExecError, type StreamResult } 
 import { localFacts, type MachineFacts } from "./machine-facts";
 import { MergeBaseCache, resolveBasePoint } from "./merge-base";
 
-/** Git run through an `Exec`, on whichever machine that reaches (ADR-183). */
+/** Git run through an `Exec`, on whichever machine that reaches. */
 export class ExecGitBackend implements GitBackend {
   /** Each workspace's merge-base for `getFullDiff`, by path. */
   private readonly mergeBases = new MergeBaseCache<string>();
 
   constructor(
     private readonly execImpl: Exec = localExec,
-    /** Joins paths the way the exec's machine does (ADR-183). */
+    /** Joins paths the way the exec's machine does. */
     private readonly facts: MachineFacts = localFacts(),
   ) {}
 
@@ -156,7 +156,7 @@ export class ExecGitBackend implements GitBackend {
         ...(cwd !== undefined ? { cwd } : {}),
         // Overrides only — the Exec merges them onto its own base env. A
         // missing credential must fail fast rather than hang waiting for a
-        // prompt Manor cannot answer (ADR-178 §4). `true` resolves on PATH:
+        // prompt Manor cannot answer. `true` resolves on PATH:
         // macOS has no /bin/true.
         env: {
           GIT_TERMINAL_PROMPT: "0",

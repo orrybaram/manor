@@ -1,5 +1,5 @@
 /**
- * Each server's last answer to each merged read (ADR-228 D6), for the router
+ * Each server's last answer to each merged read, for the router
  * (`./router.ts`) to answer with while that server is away or fails.
  *
  * Kept in memory, and — given a `LastKnownStore` (the phone's IndexedDB,

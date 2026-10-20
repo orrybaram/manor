@@ -63,7 +63,7 @@
 }
 
 /* Root view: the scope chip sits inline before the input, so the row owns
-   the divider and horizontal padding (ADR-200). */
+   the divider and horizontal padding. */
 .inputRow {
   display: flex;
   align-items: center;
@@ -163,7 +163,7 @@
   flex-shrink: 0;
 }
 
-/* Project tag on agent rows while searching all projects (ADR-200). */
+/* Project tag on agent rows while searching all projects. */
 .projectTag {
   font-size: 10px;
   color: var(--text-dim);
@@ -243,7 +243,7 @@
   }
 }
 
-/* ── Scoped empty state: matches exist in other projects (ADR-200) ── */
+/* ── Scoped empty state: matches exist in other projects ── */
 
 .scopedEmpty {
   padding: 28px 16px 32px;
@@ -264,7 +264,7 @@
   font-size: 12px;
 }
 
-/* ── Root footer: scope hints (ADR-200) ── */
+/* ── Root footer: scope hints ── */
 
 .footer {
   display: flex;
@@ -337,7 +337,7 @@
   flex-shrink: 0;
 }
 
-/* ── Task rows (ADR-208 §4): ID, title, context, status, action ── */
+/* ── Task rows: ID, title, context, status, action ── */
 
 .taskItem {
   gap: 10px;
@@ -431,7 +431,7 @@
   max-height: 500px;
 }
 
-/* ADR-208 §4: a task's shared `TaskDetail` card — wide enough
+/* A task's shared `TaskDetail` card — wide enough
    that the meta column sits beside a readable body. */
 .paletteTask {
   width: min(880px, 92vw);
@@ -441,7 +441,7 @@
 /* The stats readout carries four tiles, seventeen rows and a badge rack, so it
    gets more room than any other view — capped against the viewport so a short
    window still scrolls rather than overflowing. It is a fixed height, not a
-   cap (ADR-212): the trophy room holds still whichever track or tab is open.
+   cap: the trophy room holds still whichever track or tab is open.
    The flex chain down to the room (cmdk's list, then its sizer) lets the
    room pin its header and tabs and scroll only its content pane. */
 .paletteStats {
@@ -622,7 +622,7 @@
 }
 
 /*
- * `button.processKill` (element + class, ADR-175) rather than `.processKill`
+ * `button.processKill` (element + class) rather than `.processKill`
  * alone: these sit on a `ui/Button`, whose own `.button` / `.ghost` / `.sm`
  * classes are equal specificity and would otherwise win or lose depending on
  * stylesheet order.
@@ -673,7 +673,7 @@ button.processKill:hover:not(:disabled) {
   margin-right: 8px;
 }
 
-/* ── Stats tab (ADR-168, ADR-212) ── */
+/* ── Stats tab ── */
 
 /* The trophy room's Stats tab; the room supplies the padding. */
 .statsView {
@@ -995,8 +995,8 @@ button.processKill:hover:not(:disabled) {
   color: var(--text-dim);
 }
 
-/* ── Phone (ADR-181 D5) ──
- * `useLayoutMode()` is the app's one breakpoint (ADR-181 D2), so this keys
+/* ── Phone ──
+ * `useLayoutMode()` is the app's one breakpoint, so this keys
  * off its `data-layout` attribute rather than a media query of its own. The
  * palette is the phone's command surface — the input pinned to the top, the
  * list filling and scrolling the rest — rather than the desk layout's

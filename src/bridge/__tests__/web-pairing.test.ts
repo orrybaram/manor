@@ -1,6 +1,6 @@
 /**
- * The pairing link (ADR-178 D1, ADR-206 D3, ADR-207 D2), and the relay's
- * version redirect guard (ADR-206 D4).
+ * The pairing link, and the relay's
+ * version redirect guard.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
@@ -68,7 +68,7 @@ describe("parseFragment", () => {
     });
   });
 
-  it("reads the single-use form (ADR-240 D1)", () => {
+  it("reads the single-use form", () => {
     expect(parseFragment(`#relay=${ROOM}.${KEY}&ticket=${TOKEN}`)).toEqual({
       kind: "ticket",
       link: { roomId: ROOM, serverKey: KEY, ticket: TOKEN },
@@ -184,7 +184,7 @@ describe("readPairing", () => {
     expect(readPairing()).toMatchObject({ ...RELAY, token: "newer" });
   });
 
-  it("stores a ticket link with a token of its own and strips the fragment (ADR-240 D5)", () => {
+  it("stores a ticket link with a token of its own and strips the fragment", () => {
     at(`#relay=${ROOM}.${KEY}&ticket=${TOKEN}`);
     const pairing = readPairing();
     expect(replaceState).toHaveBeenCalledWith(null, "", "/app/1.0.0/");
@@ -227,7 +227,7 @@ describe("readPairing", () => {
     const pairing = readPairing();
     forgetPairing(pairing);
     expect(listPairings()).toEqual([]);
-    // Only the pairing goes: the room is not declined (ADR-238).
+    // Only the pairing goes: the room is not declined.
     expect(declinedRooms()).toEqual([]);
   });
 

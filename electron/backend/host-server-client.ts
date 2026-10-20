@@ -1,6 +1,6 @@
 /**
  * HostServerClient — the desktop's end of the owner channel to one remote
- * host's host server (ADR-225 D4).
+ * host's host server.
  *
  * The channel is one more stream on the host's provider
  * (`HostProvider.openServerChannel`: for ssh, `exec manor-host server-bridge`
@@ -9,7 +9,7 @@
  * the bridge protocol itself (`bridge/types.ts`), one JSON frame per line —
  * the same frames the phone speaks: `invoke` frames answered by `result`
  * frames by id, and `subscribe` / `unsubscribe` frames answered by `event`
- * frames (ADR-227 D4). Calls are typed from the host server's own table
+ * frames. Calls are typed from the host server's own table
  * (`api`, `HostServerApi`).
  *
  * **Subscriptions outlive the channel.** `subscribe` files the listener in a

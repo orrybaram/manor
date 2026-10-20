@@ -16,7 +16,7 @@ import { base64urlEncode } from "../../../src/lib/relay-crypto";
 
 const ROOM = "AbCdEfGhIjKlMnOpQr_-01";
 const KEY = base64urlEncode(new Uint8Array(32).fill(9));
-/** Token-shaped, as the store mints them (ADR-240 D1). */
+/** Token-shaped, as the store mints them. */
 const TICKET = base64urlEncode(new Uint8Array(32).fill(7));
 const NEW_TICKET = base64urlEncode(new Uint8Array(32).fill(8));
 const EXPIRES_AT = 600_000;

@@ -1,10 +1,10 @@
 import { create } from "zustand";
 import type { HostProfile } from "../electron.d";
 
-/** What `hostProfiles.save` takes (ADR-235 D1). */
+/** What `hostProfiles.save` takes. */
 export type HostProfileSave = Parameters<Window["electronAPI"]["hostProfiles"]["save"]>[0];
 
-/** What `hostProfiles.setSignIn` takes (ADR-235 D9). Tokens pass through; nothing keeps them. */
+/** What `hostProfiles.setSignIn` takes. Tokens pass through; nothing keeps them. */
 export type HostProfileSignIn = Parameters<Window["electronAPI"]["hostProfiles"]["setSignIn"]>[1];
 
 export type ProfileEditorRequest = {
@@ -76,7 +76,7 @@ export const useHostProfileStore = create<HostProfileState>((set, get) => {
 });
 
 /**
- * Opens the profile editor (ADR-235 D2) from anywhere; `onSaved` gets the
+ * Opens the profile editor from anywhere; `onSaved` gets the
  * saved profile back. Needs `ProfileEditorDialog` mounted.
  */
 export function openProfileEditor(request: ProfileEditorRequest = {}): void {

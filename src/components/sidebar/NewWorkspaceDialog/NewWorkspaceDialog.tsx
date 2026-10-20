@@ -82,7 +82,7 @@ type NewWorkspaceDialogProps = {
    */
   initialAgentPrompt?: string;
   /**
-   * For a linked project (ADR-192): the member the host picker starts on
+   * For a linked project: the member the host picker starts on
    * ahead of the group's last-used host, because the dialog was opened from
    * that member's own section or folder.
    */
@@ -168,7 +168,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
   const hosts = useHostStore((s) => s.hosts);
 
   // A linked project creates in one member: the one the host picker starts
-  // on (ADR-192). Anything else is created in as it is.
+  // on. Anything else is created in as it is.
   const defaultProjectId = startingMemberId(
     preselectedProjectId || projects[selectedProjectIndex]?.id || "",
     projects,
@@ -289,7 +289,7 @@ export function NewWorkspaceDialog(props: NewWorkspaceDialogProps) {
     [projects],
   );
 
-  // For a linked member, the chosen host must have the branch (ADR-192).
+  // For a linked member, the chosen host must have the branch.
   // Create waits while its branch lists load.
   const branchOnHost =
     hostChoices && activeProject

@@ -43,15 +43,15 @@ export type {
 } from "../lib/pr-info";
 
 /**
- * The fallback dialog's state for a transfer that needs input or failed
- * (ADR-213). `"failed"` is renderer-only: the transfer threw, so the dialog
+ * The fallback dialog's state for a transfer that needs input or failed.
+ * `"failed"` is renderer-only: the transfer threw, so the dialog
  * opens on the planned (or empty) values with `error` explaining why. `"manual"` is the sidebar's
  * "Choose location…": no banner, the dialog fills its own defaults.
  */
 export interface TransferDialogState {
   projectId: string;
   hostId: string;
-  /** `setUp` is ADR-214's "Set up on"; `move` is only the repair re-clone. */
+  /** `setUp` is "Set up on"; `move` is only the repair re-clone. */
   mode: "setUp" | "move";
   reason: TransferInputReason | "failed" | "manual";
   repoUrl: string | null;
@@ -60,7 +60,7 @@ export interface TransferDialogState {
   error?: string;
   /**
    * Set when `openInNewHost` opened the dialog on its pod `hostId`: the
-   * submit finishes through it, so the pod is marked (ADR-235 D5).
+   * submit finishes through it, so the pod is marked.
    */
   newHost?: NewHostPod;
 }
@@ -265,7 +265,7 @@ interface SetupScriptWatch {
 
 /**
  * Follow a new workspace's setup script, which the server runs in a tab of
- * its own (ADR-227 D5), until it reports the script done. When that tab is
+ * its own, until it reports the script done. When that tab is
  * not what the user is looking at — an agent tab took its place, or the
  * workspace was made in the background — a persistent toast stands in for
  * it meanwhile. Either way the end is a success toast.
@@ -406,7 +406,7 @@ function checkRunsEqual(a?: PrCheckRun[], b?: PrCheckRun[]): boolean {
 export interface WorkspaceFolder {
   id: string;
   name: string;
-  /** Enclosing folder, or null at the top level (ADR-172). */
+  /** Enclosing folder, or null at the top level. */
   parentId: string | null;
 }
 
@@ -455,7 +455,7 @@ export interface ProjectInfo {
   setupComplete: boolean;
   /** Whether dev-server ports get `.localhost` preview hostnames. Defaults to true. */
   portlessEnabled: boolean;
-  /** The host this project's paths, git and terminals live on (ADR-160); `"local"` for this machine. */
+  /** The host this project's paths, git and terminals live on; `"local"` for this machine. */
   hostId: string;
   folders: WorkspaceFolder[];
   /**
@@ -464,13 +464,13 @@ export interface ProjectInfo {
    */
   sidebarOrder: string[];
   /**
-   * The linked-project group this project is in (ADR-192). Absent or null
+   * The linked-project group this project is in. Absent or null
    * when it isn't linked; every member carries the same summary.
    */
   group?: ProjectGroupInfo | null;
 }
 
-/** Mirrors `ProjectGroupInfo` in `electron/projects/types.ts` (ADR-192). */
+/** Mirrors `ProjectGroupInfo` in `electron/projects/types.ts`. */
 export interface ProjectGroupInfo {
   id: string;
   name: string;
@@ -520,7 +520,7 @@ export type SetupProgressEvent = {
   message?: string;
   /**
    * The workspace the step is for. Set on the `setup-script` step, which the
-   * server reports after `createWorktree` has answered (ADR-227 D5).
+   * server reports after `createWorktree` has answered.
    */
   workspacePath?: string;
 };
@@ -543,7 +543,7 @@ export type ProjectUpdatableFields = Partial<
   >
 >;
 
-/** Mirrors `GroupUpdatableFields` in `electron/projects/types.ts` (ADR-192; ADR-193 ticket 1). */
+/** Mirrors `GroupUpdatableFields` in `electron/projects/types.ts`. */
 export type GroupUpdatableFields = Partial<
   Pick<
     ProjectInfo,
@@ -573,7 +573,7 @@ function patchWorkspaces<V>(
   return projects === s.projects ? s : { projects };
 }
 
-/** What `projects.openInNewHost` takes (ADR-235 D3); `repoUrl` may be left to the origin. */
+/** What `projects.openInNewHost` takes; `repoUrl` may be left to the origin. */
 export type NewHostRequest = Omit<
   Parameters<Window["electronAPI"]["projects"]["openInNewHost"]>[0],
   "repoUrl"
@@ -598,7 +598,7 @@ interface ProjectState {
   loading: boolean;
   initialLoadDone: boolean;
   /**
-   * Why the first `loadProjects` failed, until one succeeds (ADR-232 D4).
+   * Why the first `loadProjects` failed, until one succeeds.
    * With no projects loaded, `App` shows a retry screen — never onboarding.
    */
   loadError: string | null;
@@ -616,24 +616,24 @@ interface ProjectState {
   refreshRemoteProjects: () => Promise<void>;
   addProject: (name: string, path: string) => Promise<ProjectInfo>;
   addProjectFromDirectory: () => Promise<void>;
-  /** ADR-178 ticket 5, ADR-194: clone a repo onto any host, then add it. */
+  /** Clone a repo onto any host, then add it. */
   cloneProject: (opts: {
     hostId: string;
     repoUrl: string;
     targetDir: string;
     name: string;
   }) => Promise<ProjectInfo>;
-  /** ADR-179: clone an existing project onto a remote host, keeping its record. */
+  /** Clone an existing project onto a remote host, keeping its record. */
   moveProjectToHost: (
     projectId: string,
     opts: { hostId: string; repoUrl: string; remoteDir: string },
   ) => Promise<ProjectInfo>;
-  /** ADR-213: the transfer fallback dialog's state; null while closed. */
+  /** The transfer fallback dialog's state; null while closed. */
   transferDialog: TransferDialogState | null;
   openTransferDialog: (state: TransferDialogState) => void;
   closeTransferDialog: () => void;
   /**
-   * ADR-213: copy (a new project linked to this one) or move (re-point this
+   * Copy (a new project linked to this one) or move (re-point this
    * one) `projectId` to `hostId` in one go, with a progress toast. Main picks
    * the target directory; `overrides` (both fields) replace its plan. When
    * main needs input, or the transfer throws, `transferDialog` is set
@@ -646,7 +646,7 @@ interface ProjectState {
     overrides?: { repoUrl: string; targetDir: string },
   ) => Promise<void>;
   /**
-   * ADR-235 D4: "In a new pod". Makes a host from `profileId` and clones
+   * "In a new pod". Makes a host from `profileId` and clones
    * `repoUrl` onto it, or, with `sourceProjectId`, sets that project up there
    * (its origin is the repo). Like `transferProject` it reports through a
    * toast: loading, then a success, the `needsInput` fallback dialog, or an
@@ -666,7 +666,7 @@ interface ProjectState {
   openDeletePod: (hostId: string) => void;
   closeDeletePod: () => void;
   /**
-   * ADR-179: switch a project to a host without cloning — to `path`, or the
+   * Switch a project to a host without cloning — to `path`, or the
    * path it last had there.
    */
   switchProjectHost: (
@@ -676,7 +676,7 @@ interface ProjectState {
   ) => Promise<ProjectInfo>;
   removeProject: (projectId: string) => Promise<void>;
   /**
-   * ADR-214: the "Remove from <host>" confirm, for the member `projectId`.
+   * The "Remove from <host>" confirm, for the member `projectId`.
    * Opened by the set-up success toast's action; the dialog itself is
    * rendered elsewhere. Named apart from the `removeFromHost` action.
    */
@@ -684,11 +684,11 @@ interface ProjectState {
   openRemoveFromHost: (projectId: string) => void;
   closeRemoveFromHost: () => void;
   /**
-   * ADR-214: set `projectId` up on `hostId` (a copy transfer: clone or adopt
+   * Set `projectId` up on `hostId` (a copy transfer: clone or adopt
    * there, then join). The success toast offers "Remove from <this host>".
    * With `newHost` — the fallback dialog for an "In a new pod" that needed
    * input — a set up on that pod finishes through `openInNewHost`'s
-   * `retryFrom`, so main marks the pod as the project's (ADR-235 D5).
+   * `retryFrom`, so main marks the pod as the project's.
    */
   setUpOnHost: (
     projectId: string,
@@ -697,13 +697,13 @@ interface ProjectState {
     newHost?: NewHostPod,
   ) => Promise<void>;
   /**
-   * ADR-214: remove the member `memberId` from its host, leaving the rest
+   * Remove the member `memberId` from its host, leaving the rest
    * of its group (`removeProject` on the member), with a "Removed <name>
    * from <host>" toast. Files on the host are not deleted.
    */
   removeFromHost: (memberId: string) => Promise<boolean>;
   /**
-   * ADR-214 "Keep separate…": split `projectId`'s group and remember the
+   * "Keep separate…": split `projectId`'s group and remember the
    * pairs, so they are not joined again.
    */
   keepSeparate: (projectId: string) => Promise<void>;
@@ -742,7 +742,7 @@ interface ProjectState {
     name: string,
     /**
      * When given, the new folder takes the first key's slot and swallows
-     * every key — one row from a row's menu, a whole selection (ADR-190 §2).
+     * every key — one row from a row's menu, a whole selection.
      */
     anchorKeys?: string[],
     /** Enclosing folder for the new folder; top level when omitted. */
@@ -766,7 +766,7 @@ interface ProjectState {
   ) => Promise<string | null>;
   reorderProjects: (orderedIds: string[]) => Promise<void>;
   /**
-   * ADR-192 ticket 2: set a group's shared settings, shown on every member
+   * Set a group's shared settings, shown on every member
    * at once. Errors roll the change back, are shown as a toast, and reject.
    */
   updateGroup: (
@@ -774,9 +774,9 @@ interface ProjectState {
     updates: GroupUpdatableFields,
   ) => Promise<void>;
   /**
-   * ADR-192: remember the host a group last made a workspace on, where the
+   * Remember the host a group last made a workspace on, where the
    * New Workspace host picker starts next time. Workspace creates record it
-   * in main (ADR-203); a failure only loses the default, so it is quiet.
+   * in main; a failure only loses the default, so it is quiet.
    */
   setGroupLastUsedHost: (groupId: string, hostId: string) => Promise<void>;
   /** Persists a full sidebar order: workspace paths and folder ids. */
@@ -816,13 +816,13 @@ interface ProjectState {
 }
 
 /**
- * After a host switch (ADR-179) the project's workspaces live at new paths
+ * After a host switch the project's workspaces live at new paths
  * on the new host; the old ones — the previous checkout and its worktrees —
  * are no longer part of it. Select the new main workspace if the window was
  * showing one of them, then close their tabs, killing their terminals, so
  * nothing is left running against a workspace that is gone. A workspace
  * whose path the new host has too keeps its tabs, moved to its key on the
- * new host (ADR-191 §3), as main moves its saved layout.
+ * new host, as main moves its saved layout.
  */
 function closeWorkspacesLeftBehind(
   previous: ProjectInfo,
@@ -855,8 +855,8 @@ function closeWorkspacesLeftBehind(
 }
 
 /**
- * An error toast for a failed link or unlink (ADR-192). Through
- * `addErrorToast`, so a rethrow isn't toasted again (ADR-232 D1).
+ * An error toast for a failed link or unlink. Through
+ * `addErrorToast`, so a rethrow isn't toasted again.
  */
 function groupErrorToast(id: string, message: string, err: unknown): void {
   addErrorToast(id, message, err);
@@ -864,7 +864,7 @@ function groupErrorToast(id: string, message: string, err: unknown): void {
 
 /**
  * Drop a group's collapsed key once no project belongs to it any more, so a
- * dissolved group's id doesn't linger in `collapsedProjectIds` (ADR-192).
+ * dissolved group's id doesn't linger in `collapsedProjectIds`.
  */
 function forgetDissolvedGroup(groupId: string | undefined): void {
   if (!groupId) return;
@@ -878,7 +878,7 @@ function forgetDissolvedGroup(groupId: string | undefined): void {
   });
 }
 
-/** What auto-join (ADR-214) needs of this store. */
+/** What auto-join needs of this store. */
 function autoJoinDeps(): AutoJoinDeps {
   return {
     getProjects: () => useProjectStore.getState().projects,
@@ -943,7 +943,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         initialLoadDone: true,
         loadError: null,
       }));
-      // ADR-214: join existing same-origin duplicates, now and as each
+      // Join existing same-origin duplicates, now and as each
       // remote host first connects.
       if (firstLoad) void startAutoJoin(autoJoinDeps());
     } catch (err) {
@@ -1072,7 +1072,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
           ? `${source.name} is set up on ${hostName}`
           : `${source.name} is on ${hostName}`,
       status: "success",
-      // A move is a set up, then this (ADR-214). Long enough to reach the
+      // A move is a set up, then this. Long enough to reach the
       // action; the default 3s dismiss hid it before it could be clicked.
       ...(mode === "copy" && {
         duration: 15_000,
@@ -1390,7 +1390,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     } = opts;
     const project = get().projects.find((p) => p.id === projectId);
     // The prompt is not baked into the line: it rides beside the bare command
-    // and the server delivers it through a file on the pane's host (ADR-209).
+    // and the server delivers it through a file on the pane's host.
     // An explicit `opts.agentCommand` already carries whatever it needs.
     const prompt = agentPrompt?.trim() ? agentPrompt : undefined;
     const agentCommand =
@@ -1402,7 +1402,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const startScript = project?.worktreeStartScript ?? null;
 
     // Init setup state before IPC call. The setup script is not one of its
-    // steps: the server starts it in a tab of its own (ADR-227 D5).
+    // steps: the server starts it in a tab of its own.
     useAppStore.getState().initWorktreeSetup("__pending__");
     const setupWatch = startScript ? watchSetupScript() : null;
 
@@ -1453,7 +1453,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       projects: s.projects.map((p) => (p.id === projectId ? updated : p)),
     }));
 
-    // Main records the group's last-used host itself (ADR-203); its
+    // Main records the group's last-used host itself; its
     // `projects-changed` broadcast reloads the other members' summaries.
 
     // Find the new workspace by name or branch.
@@ -1512,9 +1512,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       useAppStore.getState().clearWorktreeSetup(wsPath);
 
       // The setup script is already running on the server, in a "Setup" tab
-      // the server opened before answering (ADR-227 D5). The agent doesn't
+      // the server opened before answering. The agent doesn't
       // wait for it: both run in parallel, and the server types the launch
-      // line into the agent's tab (ADR-179 ticket 11).
+      // line into the agent's tab.
       setupWatch?.follow(wsPath, name, !!agentCommand || !!background);
       if (agentCommand) addAgentTab(agentCommand);
     } else {
@@ -1662,7 +1662,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         err,
       );
       // Rethrown, as `updateProject` does, so an awaiting caller (the setup
-      // wizard) knows it failed; the toast marked it reported (ADR-232 D6).
+      // wizard) knows it failed; the toast marked it reported.
       throw err;
     }
     // Only the shared settings changed; take those, and keep the rest (the
@@ -1729,7 +1729,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
     const changedByPath = new Map(changes.map((c) => [c.path, c.folderId]));
 
-    // Folder nesting is the other half of the structure (ADR-172). The map is
+    // Folder nesting is the other half of the structure. The map is
     // parents-first, and the calls below keep that order: main refuses a move
     // that would close a cycle, and applying a parent before its children is
     // what keeps a swap of two folders out of that state.
@@ -2004,7 +2004,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const previous = get().projects.find((p) => p.id === projectId);
     const groupId = previous?.group?.id;
     if (groupId) {
-      // A grouped project's shared settings are its group's (ADR-192), so
+      // A grouped project's shared settings are its group's, so
       // they go there and show on every member at once.
       const { shared, own } = splitShared(updates);
       if (Object.keys(shared).length > 0) {
@@ -2047,7 +2047,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }));
       }
       // Every settings field saves through here, mostly fire-and-forget:
-      // say why it snapped back (ADR-232 D6).
+      // say why it snapped back.
       addErrorToast(
         `update-project-${projectId}`,
         "Couldn't save project settings — your change was undone",
@@ -2167,7 +2167,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setProjectExpanded: (projectId: string) =>
     set((s) => {
-      // A linked project is only visible once its group is open too (ADR-192).
+      // A linked project is only visible once its group is open too.
       const groupId = s.projects.find((p) => p.id === projectId)?.group?.id;
       const keys = groupId ? [projectId, groupId] : [projectId];
       if (!keys.some((key) => s.collapsedProjectIds.has(key))) return s;
@@ -2198,7 +2198,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }),
 }));
 
-// Which host a project is on, for the bridge router (ADR-228 D1).
+// Which host a project is on, for the bridge router.
 provideHostLookups({
   project: (projectId) =>
     useProjectStore.getState().projects.find((p) => p.id === projectId)?.hostId,

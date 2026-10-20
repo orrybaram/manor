@@ -259,7 +259,7 @@ export function ProjectSetupWizard(props: ProjectSetupWizardProps) {
   ]);
 
   // A failed save stays on its step: `updateProject` has already toasted why
-  // (ADR-232 D6), and moving on would drop what the user entered.
+  // and moving on would drop what the user entered.
   const handleDone = useCallback(async () => {
     try {
       await saveCurrentStep();

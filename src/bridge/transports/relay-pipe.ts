@@ -1,5 +1,5 @@
 /**
- * The relay's `Pipe` (ADR-206 D2, D3): a WebSocket to the relay origin's
+ * The relay's `Pipe`: a WebSocket to the relay origin's
  * `/join/<roomId>`, a Noise NK handshake against the desktop's X25519 key
  * from the pairing link, and then the bridge's text frames as Noise
  * transport messages.
@@ -36,7 +36,7 @@
  * no data) is a dead line — reported as unreachable rather than left to look
  * connected. A foreground check does not wait for that: `probe` is the same
  * ping out of turn with a shorter wait, and `close` gives up on the line as
- * unreachable (ADR-220 D4).
+ * unreachable.
  *
  * **Failures.** A message 2 that does not authenticate is *not* treated as
  * proof of a key mismatch. A genuine mismatch fails on the desktop, at
@@ -115,7 +115,7 @@ export function relayPipe(options: RelayPipeOptions): Pipe {
       let handshakeTimer: ReturnType<typeof setTimeout> | null = null;
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
       /**
-       * Pings waiting for a sign of life (ADR-220 D4), the heartbeat's and
+       * Pings waiting for a sign of life, the heartbeat's and
        * `probe`'s alike. Each settles at most once: true on the next inbound
        * message, false on its timeout or on close.
        */

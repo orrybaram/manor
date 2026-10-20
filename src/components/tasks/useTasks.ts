@@ -25,7 +25,7 @@ function errorText(err: unknown): string {
 
 /**
  * Run each of `fetches` until one succeeds; if all fail, the first failure is
- * logged once and counted (labelled with `name`), never thrown (ADR-198 §3).
+ * logged once and counted (labelled with `name`), never thrown.
  */
 async function settle(
   key: string,
@@ -124,7 +124,7 @@ export function useTrackerStatus(): {
   checking: boolean;
   /**
    * Why Linear is unavailable, once a project is linked to a team and no
-   * reachable server has it (ADR-228 D10): which servers lack it, and which
+   * reachable server has it: which servers lack it, and which
    * are away. Null otherwise.
    */
   linearWhy: string | null;
@@ -217,7 +217,7 @@ export function useTrackerSources(): {
 }
 
 /**
- * Where the saved choice lands now (ADR-202 §4): the saved tracker if it's
+ * Where the saved choice lands now: the saved tracker if it's
  * still usable, else the first usable one; the saved project if that tracker
  * can still list it, else all projects. The choice itself isn't forgotten.
  * The Tasks view and Up next both resolve their list through this.
@@ -275,7 +275,7 @@ export type UseTasksOptions = {
 const SCOPES: TrackerScope[] = ["assigned", "open"];
 
 /**
- * Tasks for the Tasks view and Up next (ADR-198 §3): for each top-level entry of
+ * Tasks for the Tasks view and Up next: for each top-level entry of
  * `provider` (just the chosen entry when `projectKey` is set), its open tasks
  * and the ones assigned to you — merged, with yours marked `assignedToMe`,
  * deduped and sorted by last update. A query whose members all fail

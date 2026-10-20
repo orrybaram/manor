@@ -1,5 +1,5 @@
 /**
- * Renderer-side dispatch for the native application menu (ADR-170 §6).
+ * Renderer-side dispatch for the native application menu.
  *
  * `createMenuHandlers` builds one command→action map per window: `run` over
  * the command table (`commands.ts`), against a context that adds `App`'s
@@ -77,7 +77,7 @@ export interface MenuChrome {
 export type MenuHandler = CommandHandler;
 
 /**
- * Every workspace the menu can switch between, by key (ADR-191), in the
+ * Every workspace the menu can switch between, by key, in the
  * order the sidebar shows them: Home first, then each project's visible
  * workspaces with folders — at any depth — flattened into the folder's slot.
  */
@@ -185,7 +185,7 @@ function createCommandContext(chrome: MenuChrome): CommandContext {
  * The command→action map for a window running `App`: `run` over the whole
  * command table (`commands.ts`), less the native-only commands on the web.
  *
- * `primary: false` — a detached window (ADR-179 D4) — keeps only the
+ * `primary: false` — a detached window — keeps only the
  * `scope: "any"` commands. A popout has none of the chrome the rest need;
  * the dispatcher's fallback forwards their combos to the primary window, and
  * main never routes their menu clicks here.

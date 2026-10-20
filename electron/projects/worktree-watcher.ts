@@ -5,7 +5,7 @@
  * the renderer; this catches the ones that never do.
  *
  * A remote project's git directory is on another machine, and its host's
- * server watches it there (ADR-227 D4), so nothing here reads it.
+ * server watches it there, so nothing here reads it.
  */
 
 import fs from "node:fs";

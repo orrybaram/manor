@@ -18,7 +18,7 @@ type ProjectSetUpMenuProps = {
   project: ProjectInfo;
 };
 
-/** The "Set up on" submenu of a project's context menu (ADR-214). */
+/** The "Set up on" submenu of a project's context menu. */
 export function ProjectSetUpMenu(props: ProjectSetUpMenuProps) {
   const { project } = props;
   const hosts = useHostStore((s) => s.hosts);

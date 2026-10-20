@@ -8,7 +8,7 @@ import {
 import { isWebApp } from "../lib/platform";
 
 /**
- * `keybindings.set`/`reset`/`resetAll` stay off the ADR-178 bridge table —
+ * `keybindings.set`/`reset`/`resetAll` stay off the bridge table —
  * `KeybindingsPage` disables its controls on web, so these never fire from a
  * browser. `persist` below still swallows a rejection rather than crash the
  * store if that ever changes.
@@ -28,7 +28,7 @@ interface KeybindingsState {
 
 /**
  * The OS picks ⌘ versus Ctrl; being a browser tab only removes the chords the
- * browser keeps for itself (ADR-181 D7). Two separate facts, passed separately
+ * browser keeps for itself. Two separate facts, passed separately
  * — see `platformDefaults`.
  */
 const resolve = (overrides: Record<string, string>) =>

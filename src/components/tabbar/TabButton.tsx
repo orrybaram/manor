@@ -61,7 +61,7 @@ function focusEdgeTab(from: HTMLElement, edge: "first" | "last"): void {
 }
 
 /**
- * Keyboard handling for a tab (ADR-175). ←/→ move focus between tabs without
+ * Keyboard handling for a tab. ←/→ move focus between tabs without
  * selecting; Home/End jump to the ends; Enter/Space select, same as a click.
  * Only runs when the event targets the tab itself — a nested close or mute
  * `Button` handles its own keys (Enter/Space already trigger a native click).
@@ -70,7 +70,7 @@ function handleTabKeyDown(
   e: ReactKeyboardEvent<HTMLDivElement>,
   actions: {
     select: () => void;
-    /** Shift+F10 / ContextMenu key / ⌘. — wired by ticket 5 (ADR-175). */
+    /** Shift+F10 / ContextMenu key / ⌘. — wired by ticket 5. */
     openMenu?: (tab: HTMLElement) => void;
   },
 ): void {
@@ -386,7 +386,7 @@ export function TabButton(props: TabButtonProps) {
             {/* A detached window's one tab offers no "new window": popping it
                 out again would leave this window holding nothing, which closes
                 it — a no-op with extra steps. `window.detachTab` has no browser
-                meaning either (ADR-178) — removed there, not disabled. */}
+                meaning either — removed there, not disabled. */}
             {!isWebApp() && !hasOwnClaim() && (
               <ContextMenu.Item
                 className={styles.contextMenuItem}
@@ -399,7 +399,7 @@ export function TabButton(props: TabButtonProps) {
               <ContextMenu.Item
                 className={styles.contextMenuItem}
                 /* Closing is the whole operation: the claim dies with the
-                   window and the tab is already in the primary (ADR-179 D4). */
+                   window and the tab is already in the primary. */
                 onSelect={() => returnToPrimaryWindow()}
               >
                 Move Back to Main Window

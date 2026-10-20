@@ -14,7 +14,7 @@ import type { ProjectInfo, WorkspaceInfo } from "./persistence";
 import { normalizeHostId, type WorkspaceKey } from "../src/lib/workspace-key";
 
 /**
- * The host-qualified key (ADR-191) of the workspace whose panes contain
+ * The host-qualified key of the workspace whose panes contain
  * `paneId`, or null.
  */
 export function findWorkspaceForPane(
@@ -38,11 +38,11 @@ export function findWorkspaceForPane(
 
 /**
  * The project+workspace on `hostId` whose workspace path best matches
- * `somePath`, or null. A project lives on one host (ADR-178), so this
+ * `somePath`, or null. A project lives on one host, so this
  * filters `projects` by `hostId` before matching the path — but it takes
  * the host as its own parameter, not a pre-filtered list, since a linked
  * project (#237 layer 2) will one day hold workspaces on more than one
- * host (ADR-191 §4).
+ * host.
  */
 export function matchProjectByPath(
   projects: ProjectInfo[],

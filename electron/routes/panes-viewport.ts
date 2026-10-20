@@ -1,8 +1,8 @@
 /**
- * Viewport routes (ADR-179 D5): focus, select, next/prev tab, set the active
+ * Viewport routes: focus, select, next/prev tab, set the active
  * workspace. Each is a `proxyToRenderer` round-trip to the primary window —
  * "which window?" has no server-side answer, because a viewport is per
- * renderer (D3).
+ * renderer.
  */
 
 import { proxyToRenderer } from "../renderer-bridge";
@@ -62,7 +62,7 @@ export const viewportRoutes: Route[] = [
   {
     method: "POST",
     path: "/workspaces/active",
-    // The renderer keys layouts by host plus path (ADR-191): main names the
+    // The renderer keys layouts by host plus path: main names the
     // host. Already host-scoped by `paneRoutes`; this resolves a body that
     // named none.
     async handler({ deps, json, readBody }) {

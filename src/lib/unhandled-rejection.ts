@@ -1,7 +1,7 @@
 import { addErrorToast, wasReported } from "../store/toast-store";
 
 /**
- * Toast every promise rejection nothing handled (ADR-232 D2), so a failure
+ * Toast every promise rejection nothing handled, so a failure
  * in a fire-and-forget call reaches the user instead of only the console.
  * One that `addErrorToast` already showed — a store action that toasts and
  * rethrows — is not shown twice, and a cancelled request is not a failure.

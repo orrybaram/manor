@@ -17,8 +17,7 @@ export default defineConfig({
             // they are here: it is pure JS and *would* inline, but it reaches
             // for optional native accelerators (`bufferutil`,
             // `utf-8-validate`) through `require` in a try/catch, and an
-            // inlined copy turns that miss into a bundler resolution error
-            // (ADR-178 D8).
+            // inlined copy turns that miss into a bundler resolution error.
             rollupOptions: {
               external: ["node-pty", "tree-kill", "ws"],
               output: {
@@ -67,8 +66,8 @@ export default defineConfig({
         },
       },
       {
-        // Host server (ADR-225) — standalone Node.js process, dispatched from
-        // `manor-host serve`. `ws` stays external for the ADR-178 D8 reason;
+        // Host server — standalone Node.js process, dispatched from
+        // `manor-host serve`. `ws` stays external, as in the main build;
         // `web-push` is imported lazily and must not become a chunk. The
         // @noble/* packages are inlined. Keep this list in step with
         // RUNTIME_DEPS in scripts/build-host-tarball.mjs.
@@ -119,7 +118,7 @@ export default defineConfig({
         },
       },
       {
-        // manor CLI — runs as a standalone Node.js process (ADR-170)
+        // manor CLI — runs as a standalone Node.js process
         entry: "electron/manor-cli.ts",
         vite: {
           build: {

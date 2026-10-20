@@ -39,8 +39,7 @@ function enrichPorts(deps: ServerDeps, ports: ActivePort[]): ActivePort[] {
   const routes: { hostname: string; port: number }[] = [];
   const segments = hostSegments(backendRegistry.remoteHostIds());
   const enriched = ports.map((port) => {
-    // By host and path: a local and a remote workspace can share a path
-    // (ADR-191).
+    // By host and path: a local and a remote workspace can share a path.
     const meta = deps.workspaceMeta.find(
       (m) => m.path === port.workspacePath && m.hostId === port.hostId,
     );
@@ -88,7 +87,7 @@ export function portsStopScanner(ctx: HandlerCtx<ServerDeps>): void {
   ctx.deps.portScanner.stop();
 }
 
-/** Every open workspace, with its project's host (ADR-183). */
+/** Every open workspace, with its project's host. */
 export function portsUpdateWorkspaces(
   ctx: HandlerCtx<ServerDeps>,
   workspaces: readonly HostPath[],
@@ -115,11 +114,11 @@ export function portsScanNow(
 
 /**
  * The URL to load for `url` opened in `hostId`'s context: a remote host's
- * `localhost:<port>` becomes its forwarded local port (ADR-178 §5).
+ * `localhost:<port>` becomes its forwarded local port.
  *
  * `remoteUrlResolver` is built once in app-lifecycle.ts, alongside
  * `paneHosts`, so `RouteDeps.resolvePaneUrl` (an agent's `navigate` in a
- * remote pane) uses the very same instance (ADR-183).
+ * remote pane) uses the very same instance.
  */
 export function portsResolveUrl(
   ctx: HandlerCtx<ServerDeps>,
@@ -151,7 +150,7 @@ export function portsRemoteUrl(
 }
 
 /**
- * `pid` is `MUTATING` (ADR-180 D4) — it ends a process the whole host can
+ * `pid` is `MUTATING` — it ends a process the whole host can
  * see, the same "moves state the other viewers of this host will see" line
  * that put `projects.remove` there.
  */
@@ -167,7 +166,7 @@ export async function portsKillPort(
     // Process may have already exited — ignore
   }
   // Re-scan immediately so UI updates. Same signal the scanner's own tick
-  // publishes (ADR-180 D5), so a kill reaches every renderer rather than
+  // publishes, so a kill reaches every renderer rather than
   // only the primary window.
   const ports = await deps.portScanner.scanNow();
   publishRendererBroadcast("ports", "changed", ports);
@@ -180,7 +179,7 @@ export const ports = {
   updateWorkspaces: method(portsUpdateWorkspaces),
   updateWorkspaceMetadata: method(portsUpdateWorkspaceMetadata),
   scanNow: method(portsScanNow),
-  // The two URL translations for a remote host's dev servers (ADR-178 §5).
+  // The two URL translations for a remote host's dev servers.
   // Reads: a forward is opened on *this* machine either way, so a browser
   // asking gets the URL the host would load — which a device can only reach
   // if it reaches the host's loopback too. Not `localOnly`; the answer is

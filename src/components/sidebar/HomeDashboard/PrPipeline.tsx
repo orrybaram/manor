@@ -11,7 +11,7 @@ type PrPipelineProps = {
 };
 
 /**
- * The Pull requests panel (ADR-198 §1.6): open PRs in four stage columns,
+ * The Pull requests panel: open PRs in four stage columns,
  * each about three cards tall and scrolling the rest.
  */
 export function PrPipeline(props: PrPipelineProps) {

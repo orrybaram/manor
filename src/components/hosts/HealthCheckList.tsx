@@ -28,7 +28,7 @@ function StatusIcon(props: { check: HealthCheckResult }) {
 /**
  * The post-clone health-check header ("Re-run") and list, with
  * ok/fail/unknown icons and "Fix in terminal" buttons. Shared by
- * `AddProjectDialog` (ADR-178 ticket 5) and `CloneToHostDialog` (ADR-179).
+ * `AddProjectDialog` and `CloneToHostDialog`.
  */
 export function HealthCheckList(props: HealthCheckListProps) {
   const { checks, running, onRerun, onFix } = props;

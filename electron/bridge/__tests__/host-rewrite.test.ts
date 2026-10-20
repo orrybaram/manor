@@ -1,5 +1,5 @@
 /**
- * The host rewrite (ADR-228 D1): a host's `local` and bare paths against the
+ * The host rewrite: a host's `local` and bare paths against the
  * id and `<hostId>:<path>` keys of whoever holds several hosts.
  */
 

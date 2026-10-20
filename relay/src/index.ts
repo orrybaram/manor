@@ -1,5 +1,5 @@
 /**
- * The Manor relay Worker (ADR-206 D1). Routes socket upgrades to the room
+ * The Manor relay Worker. Routes socket upgrades to the room
  * Durable Object named by the room id; everything else is 404.
  *
  *   GET /host/<roomId>  the desktop (authenticates inside the room)
@@ -7,8 +7,8 @@
  *
  * Both socket routes are rate-limited per client IP before the upgrade (one
  * limiter, keyed `join:<ip>` / `host:<ip>` so they count separately).
- *   GET /app/<version>/*  the per-version web app, from R2 (ADR-206 D4)
- *   POST /jev/folder      hosted Jev's folder pick (ADR-211), in `jev.ts`
+ *   GET /app/<version>/*  the per-version web app, from R2
+ *   POST /jev/folder      hosted Jev's folder pick, in `jev.ts`
  */
 import {
   WEB_CSP,

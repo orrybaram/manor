@@ -23,7 +23,7 @@ import { ProfileSignIn } from "./ProfileSignIn";
 import { ClusterGuide } from "./ClusterGuide";
 import { TemplateChecklist } from "./TemplateChecklist";
 
-/** Where the recipe contract and a worked ssh example are (ADR-229 D8). */
+/** Where the recipe contract and a worked ssh example are. */
 export const RECIPES_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/hosts/recipes.md";
 
@@ -38,7 +38,7 @@ type StartHostFormProps = {
   /** Without it the form has no Cancel: the Add a host wizard owns one. */
   onCancel?: () => void;
   /**
-   * "host" starts a host; "profile" (ADR-235 D2) saves a profile instead:
+   * "host" starts a host; "profile" saves a profile instead:
    * no per-host fields, a Name and idle stop, and no custom recipe.
    */
   mode?: "host" | "profile";
@@ -49,7 +49,7 @@ type StartHostFormProps = {
 };
 
 /**
- * "Start a host" (ADR-229 D8): a bundled template's short form, or a custom
+ * "Start a host": a bundled template's short form, or a custom
  * recipe. A template is written as a recipe (`hosts.createRecipe`) and a
  * host is started from it (`hosts.addRecipeHost`). A custom recipe starts as
  * a folder with `recipe.json` and an `up.sh` to finish, revealed in the file
@@ -162,7 +162,7 @@ type TemplateFormProps = {
 
 const noop = () => {};
 
-/** "Stop when idle for" (ADR-235 D6): minutes as text, "" for Off. */
+/** "Stop when idle for": minutes as text, "" for Off. */
 const IDLE_OPTIONS = [
   { value: "", label: "Off" },
   { value: "30", label: "30 min" },
@@ -210,7 +210,7 @@ function isFieldShown(field: Field, values: Record<string, string>): boolean {
 }
 
 /**
- * A template's Connect step (ADR-234 D7): its everyday fields, the readiness
+ * A template's Connect step: its everyday fields, the readiness
  * checklist (`hosts.checkTemplate`), an "Advanced" disclosure with the rest,
  * and Start, which waits until every check is `ok` and every required field
  * is filled. The checklist, and the options of `choice` fields, are asked
@@ -370,7 +370,7 @@ function TemplateForm(props: TemplateFormProps) {
       onSaved?.(saved);
     });
 
-  // A profile never asks for what differs per host (ADR-235 D1).
+  // A profile never asks for what differs per host.
   const fields = isProfile
     ? template.fields.filter((f) => !template.perHost.includes(f.key))
     : template.fields;
@@ -518,7 +518,7 @@ type FieldControlProps = {
 };
 
 /**
- * One field's control, by its type (ADR-234 D6). A `choice` field with
+ * One field's control, by its type. A `choice` field with
  * nothing listed, or a `size` field without options, is typed instead, so
  * no field is ever left unfillable.
  */

@@ -5,7 +5,7 @@ import { parseWorkspaceKey } from "./workspace-key";
 import { useProjectStore } from "../store/project-store";
 import { getAgentCommand } from "../agent-defaults";
 
-/** A blank prompt is no prompt (ADR-209), matching `POST /agents`. */
+/** A blank prompt is no prompt, matching `POST /agents`. */
 function promptOrUndefined(prompt: string | undefined): string | undefined {
   return prompt?.trim() ? prompt : undefined;
 }
@@ -19,18 +19,18 @@ function promptOrUndefined(prompt: string | undefined): string | undefined {
  * sidebar highlight and main's persisted selection follow — the launch
  * command is resolved via `getAgentCommand`, the command and the
  * prompt (if any) are queued separately for the new tab's pane on the server
- * (ADR-179 ticket 11) — which delivers the prompt through a file on the
- * pane's host (ADR-209) — and the tab is opened. Prewarmed sessions are not
+ * — which delivers the prompt through a file on the
+ * pane's host — and the tab is opened. Prewarmed sessions are not
  * consumed: they run the bare agent command, and a seeded launch needs the
  * prompt argument.
  *
  * Shared by `startAgentWithPrompt` (fire-and-forget, no override, no return
  * value) and the agent-resume/new-agent surfaces — the callers that used to
- * hand-roll this sequence with different gaps (ADR-176). Launches that arrive
+ * hand-roll this sequence with different gaps. Launches that arrive
  * over the control server do not come through here at all any more: `POST
  * /agents` does the same two steps on the server and needs no window.
  *
- * `hostId` is the workspace's host: the same path can be on two (ADR-191).
+ * `hostId` is the workspace's host: the same path can be on two.
  */
 export function launchAgentInWorkspace(
   workspacePath: string,
@@ -50,9 +50,9 @@ export function launchAgentInWorkspace(
 
   const base = getAgentCommand(key, options.agentCommand);
   // Queued on the new tab's own pane, not the workspace, on the server:
-  // whichever renderer mounts that pane first types it (ADR-179 ticket 11).
+  // whichever renderer mounts that pane first types it.
   // The prompt travels beside the bare command, not inside it: the server
-  // delivers it through a file on the pane's host (ADR-209).
+  // delivers it through a file on the pane's host.
   return useAppStore.getState().addTerminalTab(base, {
     kind: "agent-startup",
     prompt: promptOrUndefined(options.prompt),

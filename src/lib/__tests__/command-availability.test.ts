@@ -51,7 +51,7 @@ describe("availableCommands", () => {
 });
 
 describe("commandAvailableOnHostServer", () => {
-  it("refuses nothing now that a host server launches agents and makes workspaces (ADR-227 D6)", () => {
+  it("refuses nothing now that a host server launches agents and makes workspaces", () => {
     const refused = COMMANDS.filter((d) => !commandAvailableOnHostServer(d.id)).map((d) => d.id);
     expect(refused).toEqual([]);
   });

@@ -1,12 +1,12 @@
 /**
  * Give every project with no Linear team the team its name matches, once
- * Linear is connected (ADR-228 D10).
+ * Linear is connected.
  *
  * The match needs the token, so `linear.autoMatch` is a delegated read: the
  * router has whichever server holds Linear answer it. The writes are each
  * project's own: an ungrouped project's team goes to its own source
  * (`linear.associateProject`, by project), and a grouped one's to its group,
- * which is the desktop's (ADR-192, ADR-227 D2). So a server that answered
+ * which is the desktop's. So a server that answered
  * the match never writes another server's projects.
  */
 

@@ -3,7 +3,7 @@ import { useProjectStore, type ProjectInfo } from "../project-store";
 import { useHostProfileStore } from "../host-profile-store";
 import { useToastStore } from "../toast-store";
 
-// "In a new pod" (ADR-235 D4): the toast lifecycle of `openInNewHost`, the
+// "In a new pod": the toast lifecycle of `openInNewHost`, the
 // failure toast's Retry and "Delete the pod", and the Set up on fallback.
 
 vi.mock("../auto-join", () => ({

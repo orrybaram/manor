@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 
 /**
- * The signed-in GitHub login for the trophy room header (ADR-212). Asking
+ * The signed-in GitHub login for the trophy room header. Asking
  * shells out to `gh auth status`, so the answer is kept for the session and
  * reopening the palette reads it straight back. A miss (not installed, not
  * signed in) is not kept, so signing in later shows up on the next visit.

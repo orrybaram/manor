@@ -1,5 +1,5 @@
 /**
- * The desktop's relay identity (ADR-206 D3): an Ed25519 key that proves to
+ * The desktop's relay identity: an Ed25519 key that proves to
  * the relay this machine owns its room, and the X25519 key that is the Noise
  * NK static key a paired browser authenticates the desktop by.
  *

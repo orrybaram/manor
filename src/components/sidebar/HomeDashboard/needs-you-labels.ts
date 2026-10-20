@@ -3,8 +3,8 @@ import type { NeedsYouTier } from "../../../lib/home-dashboard";
 import { PR_BLOCKER } from "../../../lib/pr-readiness";
 
 /**
- * Card accent per Needs-you tier (ADR-194 §1: red / yellow / green / cyan).
- * Blocked PR cards take their blocker's tone instead (ADR-202 §4).
+ * Card accent per Needs-you tier (red / yellow / green / cyan).
+ * Blocked PR cards take their blocker's tone instead.
  */
 const TIER_COLOR: Record<NeedsYouTier, string> = {
   input: "var(--red)",

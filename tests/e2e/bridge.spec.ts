@@ -23,13 +23,13 @@ import {
 } from "./helpers/window";
 
 /**
- * The desktop on the bridge (ADR-180).
+ * The desktop on the bridge.
  *
  * `web-app.spec.ts` is the browser's side of the same table; this file is the
  * half with no browser in it — two desktop *windows* on one pane, and the
  * control server with no window at all. Both are properties the desktop only
- * has because a renderer window is now an ordinary bridge connection: before
- * ADR-180 a window was the one caller `electron/ipc/` served directly, so
+ * has because a renderer window is now an ordinary bridge connection: a window
+ * used to be the one caller `electron/ipc/` served directly, so
  * neither question had an answer to test.
  */
 
@@ -62,12 +62,12 @@ async function paneGrid(
  *
  * This is the one call in the file that is not a click, and it is deliberate:
  * there is no UI that puts one pane in two desktop windows, because a claim is
- * exclusive (ADR-179 D4) — a popped-out tab leaves the primary's tab bar the
+ * exclusive — a popped-out tab leaves the primary's tab bar the
  * moment its window reports. So the second viewer is made the way a mounting
  * pane makes one: the exact `pty.create` `useTerminalConnection` issues, from
  * the second window's own page, over that window's own bridge connection. The
  * host cannot tell this apart from a `TerminalPane` mounting, which is the
- * point — dispatch appends the caller's identity itself (ADR-180 D6), so the
+ * point — dispatch appends the caller's identity itself, so the
  * viewer this registers is that window and nothing else.
  */
 function attachAsViewer(
@@ -88,14 +88,13 @@ function attachAsViewer(
   );
 }
 
-test.describe("the desktop on the bridge (ADR-180)", () => {
+test.describe("the desktop on the bridge", () => {
   test.setTimeout(240_000);
 
   /**
-   * ADR-180 D6's repair, which had no test: two desktop windows on one pane
-   * stop fighting over its winsize.
+   * Two desktop windows on one pane stop fighting over its winsize.
    *
-   * Before this slice `pty-attachments.ts` kept `{kind:"desktop"}` and
+   * `pty-attachments.ts` used to keep `{kind:"desktop"}` and
    * `{kind:"bridge"}` apart and any desktop viewer outranked any browser, so
    * two windows of the desktop were indistinguishable from each other: both
    * believed they owned the grid, and each resized the session to its own
@@ -107,7 +106,7 @@ test.describe("the desktop on the bridge (ADR-180)", () => {
    *
    * The second window asks for a grid *narrower* than the primary's on
    * purpose. A follower scales its glyphs down to fit a wider owner's grid
-   * (ADR-177's floor), and a font left scaled would make the last assertion
+   * (the phone's floor), and a font left scaled would make the last assertion
    * here — the primary measuring for itself again once the other window is
    * gone — a measurement of the wrong font. Narrower keeps the primary's font
    * at its ceiling throughout, so the size it sends when it takes the pane
@@ -194,7 +193,7 @@ test.describe("the desktop on the bridge (ADR-180)", () => {
   /**
    * The CLI with the window closed, and the window that comes back after it.
    *
-   * Two halves of ADR-179 D5 meeting. A **structural**
+   * Two halves of the command split meeting. A **structural**
    * command — `manor split-pane`, which is this POST — is the layout server's
    * to apply and needs no renderer at all, so it lands on a machine with
    * nothing on screen. An **addressed** one has to name a connection: an

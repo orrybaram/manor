@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-234 D7: a template's Connect step. Its readiness checklist (a row per
+ * A template's Connect step. Its readiness checklist (a row per
  * check, with its state and fix), Start gated on every check passing and
  * every required field being filled, the "Advanced" disclosure, and when the
  * checklist is asked again.

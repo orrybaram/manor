@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-233 D2: This Mac is a host row too. Its switch is remote control:
+ * This Mac is a host row too. Its switch is remote control:
  * turning it on is confirmed first, turning it off is immediate, and the row
  * says in words whether devices reach This Mac.
  */

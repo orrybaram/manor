@@ -7,7 +7,7 @@
   height: var(--status-bar-height);
   box-sizing: border-box;
   padding: 10px 10px;
-  /* Sits on the frame below the panels (ADR-196). */
+  /* Sits on the frame below the panels. */
   background: transparent;
   flex-shrink: 0;
   user-select: none;
@@ -119,7 +119,7 @@
   color: var(--text-dim);
 }
 
-/* ── Remote-control exposure indicator (ADR-161) ── */
+/* ── Remote-control exposure indicator ── */
 
 /* Doubled selectors so these win over the Button `link` variant's colour,
    padding and underline without an !important. */
@@ -159,7 +159,7 @@
   color: color-mix(in srgb, var(--yellow, #d29922) 80%, var(--text-dim));
 }
 
-/* ── Usage stats segment (ADR-168) ── */
+/* ── Usage stats segment ── */
 
 /* Doubled selector so these win over the Button `link` variant's colour and
    underline without an !important. */

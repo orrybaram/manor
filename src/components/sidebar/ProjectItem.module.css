@@ -1,7 +1,7 @@
 /* ── ProjectItem ── */
 
 /* Projects are set apart by space and type weight alone — no border, no
-   separator, no selection bar (ADR-193 §3). An expanded project's contents
+   separator, no selection bar. An expanded project's contents
    hang off a guide line under its chevron (6px header padding + half the
    12px chevron) and sit indented to its right; only an expanded project
    takes space below, so collapsed projects stay tight. */
@@ -165,7 +165,7 @@
   font-weight: 500;
 }
 
-/* The rest of a multi-select drag (ADR-190 §3): dimmed like the grabbed row,
+/* The rest of a multi-select drag: dimmed like the grabbed row,
    but not lifted — they stay in place while the grabbed row carries the group. */
 .workspaceGroupDragging {
   opacity: 0.7;
@@ -180,7 +180,7 @@
   pointer-events: none;
 }
 
-/* The sidebar multi-select (ADR-190). Tinted rather than opaque so it still
+/* The sidebar multi-select. Tinted rather than opaque so it still
    reads as distinct alongside .workspaceActive on the open workspace. */
 .workspaceSelected {
   background: color-mix(in srgb, var(--project-color, var(--accent)) 18%, transparent);
@@ -190,7 +190,7 @@
   color: var(--project-color, var(--accent));
 }
 
-/* Rows take focus so the keyboard can walk and open them (ADR-172, ADR-175).
+/* Rows take focus so the keyboard can walk and open them.
    A click draws no ring — the row already shows active, drop target and agent
    state, and an outline on top reads as noise — but keyboard focus does, or
    there is no telling where it is (`:focus-visible`). */
@@ -301,7 +301,7 @@
 /*
  * The combined selector (rather than `.diffStatsClickable` alone) beats
  * `ui/Button`'s own `.button` / `.ghost` / `.sm` classes regardless of
- * stylesheet order (ADR-175: this badge is a real `<Button>` now, not a
+ * stylesheet order (this badge is a real `<Button>` now, not a
  * `<span>`, so it needs its native/variant chrome reset back to the pill
  * look the span used to get for free).
  */
@@ -488,7 +488,7 @@
   background: var(--border, rgba(255, 255, 255, 0.1));
 }
 
-/* ── Workspace folders (ADR-166) ── */
+/* ── Workspace folders ── */
 
 .folder {
   display: flex;
@@ -553,7 +553,7 @@
   /* folder icon (12px) + header gap (6px): member icons sit under the folder
      name. Nested bodies sit inside one another, so the step shrinks as
      `--folder-depth` grows and nearly vanishes four levels in — past that,
-     labels keep the width they have left (ADR-172). */
+     labels keep the width they have left. */
   padding-left: calc(18px - var(--folder-depth, 0) * 4px);
 }
 
@@ -565,9 +565,9 @@
   margin-top: 8px;
 }
 
-/* ── Linked-project groups (ADR-192) ── */
+/* ── Linked-project groups ── */
 
-/* A member's section: no `.project` padding of its own (ADR-193 §3). */
+/* A member's section: no `.project` padding of its own. */
 .section {
   display: block;
 }
@@ -575,7 +575,7 @@
 /* A host heading: a linked group's section header, or the host line above a
    remote-only project's workspaces. Small and dim at the guide's content
    edge, with its workspaces a step further in, so it reads as a heading
-   rather than another row (ADR-193 §3). Sentence case: uppercase is kept
+   rather than another row. Sentence case: uppercase is kept
    for nothing in the sidebar. */
 .sectionHeader,
 .hostHeading {
@@ -646,7 +646,7 @@
   white-space: nowrap;
 }
 
-/* A sleeping host (ADR-229 D7): calm, like its glyph. */
+/* A sleeping host: calm, like its glyph. */
 .sectionHostAsleep {
   flex-shrink: 0;
   font-size: 10px;

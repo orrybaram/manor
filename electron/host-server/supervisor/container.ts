@@ -1,6 +1,6 @@
 /**
  * `manor-host supervise` as the supervisor, in a container with no init
- * system (ADR-229 D4).
+ * system.
  *
  * `supervise` runs as the container's entrypoint and owns both units; this
  * side only signals it. After a node reboot, the pod's restart policy brings

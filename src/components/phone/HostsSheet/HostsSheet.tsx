@@ -26,18 +26,18 @@ type HostsSheetProps = {
 };
 
 /**
- * ADR-228 D8: the phone's paired hosts, opened from the drawer's Hosts icon.
+ * The phone's paired hosts, opened from the drawer's Hosts icon.
  * The page holds every pairing at once (`install-web.ts`), so there is
  * nothing to switch to; the sheet says how each one is doing, renames it,
  * and removes it with an in-place confirm. A removed pairing leaves the page
  * at once — its projects with it — and removing the last one reloads to the
  * pairing screen.
  *
- * ADR-229 D7: a host its desktop reports asleep reads **Asleep**, with
+ * A host its desktop reports asleep reads **Asleep**, with
  * **Wake**, which asks the desktop to start it (`hosts.wake` on home). Only
  * a desktop can start a box, so with none reachable the row says so instead.
  *
- * ADR-238 D4: a host reached only through the desktop is offered
+ * A host reached only through the desktop is offered
  * **Connect directly** only if this browser removed it by hand. A host that
  * refused the phone is linked again by the desktop, so no button changes it.
  */
@@ -49,7 +49,7 @@ export function HostsSheet(props: HostsSheetProps) {
   const declined = useSyncExternalStore(subscribePairings, declinedRooms, declinedRooms);
   // Re-read as servers come and go, home moving among them.
   const entries = useServers();
-  // Home's host list: on a phone each host goes by its room (ADR-228 D2).
+  // Home's host list: on a phone each host goes by its room.
   const hosts = useHostStore((s) => s.hosts);
   const homeEntry = entries.find((s) => s.id === servers.homeId);
   const desktopName = desktopNameOf(pairings, homeEntry);
@@ -190,7 +190,7 @@ function desktopNameOf(
 }
 
 /**
- * A host asleep (ADR-229 D7), as home's host list says: whether home can
+ * A host asleep, as home's host list says: whether home can
  * wake it — a desktop, reachable, that lists the host — and, when it
  * cannot, which desktop is away. Undefined for a pairing that is not asleep.
  */
@@ -243,11 +243,11 @@ type HostRowProps = {
   pairing: StoredPairing;
   /** Its server in the page's set; absent for a moment after it joins. */
   server: ServerEntry | undefined;
-  /** It is the page's home server (D1). */
+  /** It is the page's home server. */
   home: boolean;
   /** It is the only pairing: removing it leaves nothing to show. */
   last: boolean;
-  /** Its host is asleep, as home's host list says (ADR-229 D7). */
+  /** Its host is asleep, as home's host list says. */
   asleep: Asleep | undefined;
 };
 

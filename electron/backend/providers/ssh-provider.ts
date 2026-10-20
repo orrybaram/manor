@@ -1,8 +1,8 @@
 /**
- * SshHostProvider — a box the user brings, reached over ssh (ADR-178 §1).
+ * SshHostProvider — a box the user brings, reached over ssh.
  *
- * Wraps ADR-160's `SshTransport`. The box is assumed to be always on, so
- * its lifecycle (ADR-229 D1) is the no-op one: `ensureUp` resolves at once,
+ * Wraps `SshTransport`. The box is assumed to be always on, so
+ * its lifecycle is the no-op one: `ensureUp` resolves at once,
  * it can neither be stopped nor destroyed, and `status` is the last connect's
  * outcome — `up`, or `unreachable` after a failed one — never `sleeping`.
  * Port forwards ride the transport's existing ControlMaster
@@ -90,7 +90,7 @@ export interface SshHostProviderOptions {
   /** Where the transport's managed ssh config goes. For tests. */
   configBaseDir?: string;
   /**
-   * For a recipe host reached over ssh (ADR-229 D2): its own `Host` block,
+   * For a recipe host reached over ssh: its own `Host` block,
    * how messages name it, and how a host-key refusal and an authentication
    * failure read. See
    * `SshTransportOptions`.
@@ -181,7 +181,7 @@ export class SshHostProvider implements HostProvider {
 
   /**
    * `manor-host server-bridge --viewer` over the same ControlMaster, the
-   * server's hello reply left in (ADR-228 D4).
+   * server's hello reply left in.
    */
   openViewerChannel(): Promise<Duplex> {
     return this.sshTransport.openViewerBridge();

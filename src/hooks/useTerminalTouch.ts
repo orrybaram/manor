@@ -1,6 +1,5 @@
 /**
- * useTerminalTouch — what a finger means on a terminal in phone mode
- * (ADR-181 D5, D6).
+ * useTerminalTouch — what a finger means on a terminal in phone mode.
  *
  * Three gestures, and each means exactly one thing:
  *

@@ -1,5 +1,5 @@
 /**
- * Keeps the native menu's idea of renderer state fresh (ADR-170 §7).
+ * Keeps the native menu's idea of renderer state fresh.
  *
  * Main can't read the stores, so labels ("Open in Cursor", "Unpin Tab") and
  * enabled/checked state come from a compact `MenuContext` the primary window

@@ -11,7 +11,7 @@ type RemoveProjectDialogProps = {
   projectName: string;
   /**
    * The projects being removed (a group's members), so the dialog can offer
-   * to delete the pods made for them (ADR-235 D6).
+   * to delete the pods made for them.
    */
   members?: ReadonlyArray<{ id: string; hostId: string }>;
   /** Awaited: the dialog closes once it resolves and stays open if it rejects. */

@@ -7,7 +7,7 @@
  *   3. hook (and optionally MCP) registration in every agent connector's config.
  *
  * Shared by Electron main at startup (the laptop) and by the terminal-host
- * daemon's `bootstrap` control request (ADR-160 ticket 10), which runs it
+ * daemon's `bootstrap` control request, which runs it
  * against the daemon's own filesystem on a remote host.
  *
  * This module must stay Electron-free — the daemon bundle imports it, and on a

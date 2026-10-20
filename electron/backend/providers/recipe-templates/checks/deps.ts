@@ -1,5 +1,5 @@
 /**
- * What a template's checks run commands with (ADR-234 D6): `execFile`, no
+ * What a template's checks run commands with: `execFile`, no
  * shell, a short timeout each, so a hung daemon or a slow cluster can't stall
  * the form. A seam, so tests fake it.
  */
@@ -19,7 +19,7 @@ export interface CheckDeps {
   appVersion?: string;
   /** Absent means `process.platform`. Decides which "open the app" fix applies. */
   platform?: NodeJS.Platform;
-  /** The background pulls and builds (ADR-234 D3, D8); absent means the app's own. */
+  /** The background pulls and builds; absent means the app's own. */
   jobs?: TemplateJobs;
   /** The host image's Dockerfile directory; absent means `hostImageDir()`. */
   hostImageDir?: string;
@@ -105,7 +105,7 @@ export function seconds(ms: number = DEFAULT_PROBE_TIMEOUT_MS): string {
 }
 
 /**
- * Where the host image's Dockerfile is (ADR-234 D3): `host-image/` under the
+ * Where the host image's Dockerfile is: `host-image/` under the
  * packaged app's resources (electron-builder `extraResources`), else the
  * repository's `docker/host-image` beside the built `dist-electron/` (as
  * `manorVersion()` finds `package.json`). Checked by existence rather than

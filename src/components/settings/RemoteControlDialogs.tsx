@@ -313,7 +313,7 @@ function PairingExpiryCopy(props: { expiresAt: number | null }) {
  * title asks for the scan rather than calling it paired.
  *
  * What the link may lack is a relay that is up, and an iPhone needs one more
- * step for notifications (ADR-206 D7): both said in small print here, where
+ * step for notifications: both said in small print here, where
  * the link is being handed over.
  */
 export function PairingResultDialog(props: {

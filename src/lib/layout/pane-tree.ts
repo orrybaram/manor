@@ -53,7 +53,7 @@ export function hasPaneId(node: PaneNode, paneId: string): boolean {
 /**
  * Whether `paneId` is a leaf somewhere under `node`. Null-tolerant, because
  * the id it is asked about is usually a viewport's (possibly absent) focused
- * pane: a phone-mode split shows the child that contains it (ADR-181 D1).
+ * pane: a phone-mode split shows the child that contains it.
  */
 export function paneTreeContains(
   node: PaneNode,

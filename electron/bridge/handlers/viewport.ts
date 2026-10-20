@@ -1,5 +1,5 @@
 /**
- * One renderer's viewport file (ADR-179 D3, ADR-180 D4), as the `viewport`
+ * One renderer's viewport file, as the `viewport`
  * namespace of the handler table.
  *
  * `~/.manor/viewport.json` is *not* layout. Layout is the Manor server's, one

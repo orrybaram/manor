@@ -1,7 +1,7 @@
 /**
- * Canonical orchestrator primer text. ADR-153 ticket-5 specified this file;
- * it went unwritten until ADR-176 ticket-3, so an agent told "use manor to
- * create workspaces and tackle these tickets" had no playbook to work from.
+ * Canonical orchestrator primer text. It went unwritten for a long time after
+ * it was first specified, so an agent told "use manor to create workspaces
+ * and tackle these tickets" had no playbook to work from.
  *
  * Nothing imports this at runtime yet — the SessionStart hint in
  * `electron/scripts/agent-hook.js` carries its own literal (that script

@@ -1,7 +1,7 @@
 /**
  * The New Workspace dialog's decisions, kept DOM-free so the project-store
  * tests drive them directly: the project select's options, the branch lists
- * it offers, and, for a linked group (ADR-192), the base branch after a host
+ * it offers, and, for a linked group, the base branch after a host
  * change and whether the chosen branch exists on the chosen host.
  */
 
@@ -110,8 +110,8 @@ export type BranchOnHost =
   | { state: "missing"; message: string };
 
 /**
- * Whether a linked member's host has the branch a workspace would use
- * (ADR-192). A branch picked before switching hosts may exist only on the
+ * Whether a linked member's host has the branch a workspace would use.
+ * A branch picked before switching hosts may exist only on the
  * other host, and it must be pushed first. `localBranches` and
  * `remoteBranches` are undefined until they load. The remote list is
  * fetched first, so it shows what origin has now.

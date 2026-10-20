@@ -31,13 +31,13 @@ function keepKeysFromCmdk(e: KeyboardEvent<HTMLElement>): void {
 type TrophyRoomProps = {
   summary: StatsSummary;
   /**
-   * Track to open on, from `useStatsStore().focusTrack` (ADR-212). Read once
+   * Track to open on, from `useStatsStore().focusTrack`. Read once
    * at mount; key the room on `focusSeq` to re-open it on a new track.
    */
   initialTrack: BadgeSection | "summary" | null;
 };
 
-/** The stats view as a trophy room (ADR-212): header, then Stats | Badges. */
+/** The stats view as a trophy room: header, then Stats | Badges. */
 export function TrophyRoom(props: TrophyRoomProps) {
   const { summary, initialTrack } = props;
 

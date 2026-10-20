@@ -1,5 +1,5 @@
 /**
- * Focus regions (ADR-175): the handful of top-level areas keyboard focus can
+ * Focus regions: the handful of top-level areas keyboard focus can
  * jump between with F6 / Shift+F6, ⌘⇧E (sidebar) and ⌘⇧Y (tab bar).
  *
  * Each region's root element carries `data-focus-region="<name>"`. Regions can

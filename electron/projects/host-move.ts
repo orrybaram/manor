@@ -1,9 +1,9 @@
 /**
- * Moving a project between hosts (ADR-179): cloning it onto a remote host,
+ * Moving a project between hosts: cloning it onto a remote host,
  * or switching it to a path it already has on another host, while keeping
- * the same project record (ADR-183 split this out of `ProjectManager`).
+ * the same project record.
  *
- * A host that has been adopted owns its projects' records (ADR-227 D2), so a
+ * A host that has been adopted owns its projects' records, so a
  * move that starts or ends on one crosses servers (`moveAcrossServers`): the
  * record is taken back from the source host's server, moved here as ever,
  * and handed to the target host's server — each end a call to that host's
@@ -39,7 +39,7 @@ export function rekeyRecord<T>(
 
 /**
  * Run `move` — `moveProjectToHost` or `switchProjectHost` on this desktop's
- * record — for a project wherever it lives (ADR-227 D4):
+ * record — for a project wherever it lives:
  *
  * 1. **From an adopted host**, a copy of its server's record is taken into
  *    `projects.json` for `move` to work on. Once `move` is done the source
@@ -72,7 +72,7 @@ export async function moveAcrossServers(
     moved = await move();
     if (source !== null) {
       // The source host's server drops its layouts with the project: take
-      // them here first, where the caller moves them on (ADR-191 §3).
+      // them here first, where the caller moves them on.
       taken = await takeLayouts(ctx, source, projectId);
       await remote!.call(source, "remove", [projectId]);
     }
@@ -158,9 +158,9 @@ export function runClone(ctx: ProjectContext, plan: ClonePlan): Promise<void> {
 }
 
 /**
- * Move an existing project onto another host — remote or, since ADR-213,
- * this machine — by cloning (or adopting) its repo there, keeping the same
- * project record (ADR-179): id, name, colour,
+ * Move an existing project onto another host — remote or this machine — by
+ * cloning (or adopting) its repo there, keeping the same
+ * project record: id, name, colour,
  * commands, agent settings and Linear associations all survive. The main
  * workspace's per-path settings follow it to the new path; an absolute
  * worktree root from the old machine is dropped.
@@ -193,7 +193,7 @@ export async function moveProjectToHost(
 }
 
 /**
- * Switch a project to `hostId` without cloning (ADR-179): to `path` when
+ * Switch a project to `hostId` without cloning: to `path` when
  * given, else the path it last had on that host, else its current path.
  * Throws when that path does not exist on the host, so a switch can never
  * leave a project whose terminals can't `chdir`. The caller connects a
@@ -261,7 +261,7 @@ export async function repointProject(
   }
   // An absolute worktree root names a directory on the old machine; null
   // falls back to the new host's default. A `~` root is stored unexpanded
-  // (ADR-183), so it means the new host's home and is kept.
+  // so it means the new host's home and is kept.
   if (
     oldHostId !== hostId &&
     project.worktreePath &&

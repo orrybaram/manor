@@ -1,12 +1,12 @@
 /**
  * A pane's agent context — which project and workspace it is in — from the
- * server's own state (ADR-227 D5): the workspace whose layout holds the
+ * server's own state: the workspace whose layout holds the
  * pane, and the project that owns that workspace.
  *
  * What an agent started with no renderer is recorded under. A renderer's
  * `agents.setPaneContext` still overrides it (`serverAgentPipelineOptions`).
  * On a host server this is the only source: its projects and layout are its
- * own (ADR-227 D2).
+ * own.
  *
  * Electron-free: `createManorServer` composes it on both platforms.
  */

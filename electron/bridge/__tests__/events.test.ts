@@ -1,5 +1,5 @@
 /**
- * Every push is a frame (ADR-180 D5).
+ * Every push is a frame.
  *
  * Main tells every renderer — window or browser — about the world through
  * the host surface. The three properties that has to hold, and that nothing
@@ -90,7 +90,7 @@ describe("bridge events", () => {
     expect(server.hasDeviceSubscriber("diffs", "changed")).toBe(false);
   });
 
-  it("says which kinds of viewer are subscribed (ADR-230 D1)", () => {
+  it("says which kinds of viewer are subscribed", () => {
     const none = { desktop: false, device: false, forwarded: false };
     expect(server.viewing("pty", "output")).toEqual(none);
 

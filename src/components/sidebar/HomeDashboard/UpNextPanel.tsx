@@ -24,7 +24,7 @@ type UpNextPanelProps = {
 };
 
 /**
- * The Up next panel (ADR-198 §1.7, ADR-202 §4): the first rows of exactly
+ * The Up next panel: the first rows of exactly
  * the list "View all" opens — the tracker and project last chosen in the
  * Tasks view, through that tracker's saved filters and sort, in-progress
  * linked tasks included when the filters let them through — in the Tasks

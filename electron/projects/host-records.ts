@@ -1,7 +1,6 @@
 /**
  * The registered remote hosts in `projects.json`: how each is reached, and
- * whether it has adopted its records (ADR-183 split this out of
- * `ProjectManager`).
+ * whether it has adopted its records.
  */
 
 import { hostSpecLabel } from "../backend/providers/recipes";
@@ -35,7 +34,7 @@ export class HostRecords {
 
   /**
    * Forget `hostId`'s record — how it is reached, its adoption marks, its
-   * switches (ADR-229 D8). Not saved: the caller drops what else names the
+   * switches. Not saved: the caller drops what else names the
    * host in the same write.
    */
   remove(hostId: string): void {
@@ -52,7 +51,7 @@ export class HostRecords {
     }
   }
 
-  /** Throws unless `hostId` is a registered remote host (ADR-183). */
+  /** Throws unless `hostId` is a registered remote host. */
   assertRemote(hostId: string): void {
     if (hostId === LOCAL_HOST_ID) {
       throw new Error("A remote host is required.");
@@ -62,7 +61,7 @@ export class HostRecords {
 
   /**
    * How `hostId` is named in messages: its ssh target, a recipe host's
-   * recipe name (ADR-229 D2), or "this Mac".
+   * recipe name, or "this Mac".
    */
   label(hostId: string): string {
     if (hostId === LOCAL_HOST_ID) return "this Mac";
@@ -72,7 +71,7 @@ export class HostRecords {
 
   /**
    * Whether this desktop has handed `hostId`'s records over to its host
-   * server (ADR-227 D3).
+   * server.
    */
   isAdopted(hostId: string): boolean {
     return this.store.state.hosts?.[hostId]?.adopted === true;
@@ -89,7 +88,7 @@ export class HostRecords {
     host.adoptedProjectIds = [...new Set([...(host.adoptedProjectIds ?? []), ...projectIds])];
   }
 
-  /** Mark `hostId` adopted (ADR-227 D3): the last step of the hand-over. */
+  /** Mark `hostId` adopted: the last step of the hand-over. */
   markAdopted(hostId: string): void {
     const host = this.store.state.hosts?.[hostId];
     if (!host || host.adopted) return;
@@ -97,7 +96,7 @@ export class HostRecords {
     this.store.save();
   }
 
-  /** "Phones paired with this Mac can reach <host>" (ADR-228 D9); on by default. */
+  /** "Phones paired with this Mac can reach <host>"; on by default. */
   linkPhones(hostId: string): boolean {
     return this.store.state.hosts?.[hostId]?.linkPhones !== false;
   }
@@ -110,7 +109,7 @@ export class HostRecords {
     this.store.save();
   }
 
-  /** "Keep Manor running when <host> restarts" (ADR-229 D4); absent is off. */
+  /** "Keep Manor running when <host> restarts"; absent is off. */
   supervise(hostId: string): boolean {
     return this.store.state.hosts?.[hostId]?.supervise === true;
   }
@@ -122,7 +121,7 @@ export class HostRecords {
     this.store.save();
   }
 
-  /** The host profile `hostId` was made from (ADR-235 D1), if any. */
+  /** The host profile `hostId` was made from, if any. */
   profileId(hostId: string): string | undefined {
     return this.store.state.hosts?.[hostId]?.profileId;
   }
@@ -136,7 +135,7 @@ export class HostRecords {
     this.store.save();
   }
 
-  /** The project `hostId` was made for (ADR-235 D5), if any. */
+  /** The project `hostId` was made for, if any. */
   forProject(hostId: string): string | undefined {
     return this.store.state.hosts?.[hostId]?.forProject;
   }
@@ -152,7 +151,7 @@ export class HostRecords {
 
   /**
    * Clear `forProject` on every host naming one of `projectIds`, so no host
-   * points at a project that is gone (ADR-235 D6). Returns the hosts changed.
+   * points at a project that is gone. Returns the hosts changed.
    */
   clearForProjects(projectIds: ReadonlySet<string>): string[] {
     const cleared: string[] = [];
@@ -166,7 +165,7 @@ export class HostRecords {
     return cleared;
   }
 
-  /** The host's linked pairings still to revoke (ADR-228 D9). */
+  /** The host's linked pairings still to revoke. */
   pendingRevokes(hostId: string): string[] {
     return [...(this.store.state.hosts?.[hostId]?.pendingRevokes ?? [])];
   }
@@ -191,7 +190,7 @@ export class HostRecords {
     this.store.save();
   }
 
-  /** Mints started on the host whose answer was not handled yet (ADR-230 D11). */
+  /** Mints started on the host whose answer was not handled yet. */
   pendingMints(hostId: string): Array<{ label: string; startedAt: number }> {
     return [...(this.store.state.hosts?.[hostId]?.pendingMints ?? [])];
   }

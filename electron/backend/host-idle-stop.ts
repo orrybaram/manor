@@ -1,5 +1,5 @@
 /**
- * The desktop's idle stop (ADR-229 D7): a recipe host with `idleStopMinutes`
+ * The desktop's idle stop: a recipe host with `idleStopMinutes`
  * is stopped once its server has said it is idle that long, while this
  * desktop is awake. With the lid closed it is the box hook's job, or the
  * provider's own `autoSleep`.

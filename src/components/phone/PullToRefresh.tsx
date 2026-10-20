@@ -12,7 +12,7 @@ type PullToRefreshProps = {
 };
 
 /**
- * A scroller with pull-to-refresh (ADR-220 D5): the indicator, and the
+ * A scroller with pull-to-refresh: the indicator, and the
  * scroller it rides over. The parent is the positioned box the indicator
  * sits in.
  */

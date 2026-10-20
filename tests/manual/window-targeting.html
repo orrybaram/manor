@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>ADR-145 — Window/Link Targeting Manual Test Harness</title>
+  <title>Window/Link Targeting Manual Test Harness</title>
   <style>
     /* Explicit light theme so it stays readable regardless of OS/webview dark mode. */
     :root { color-scheme: light; }
@@ -31,7 +31,7 @@
   </style>
 </head>
 <body>
-  <h1>ADR-145 — Window / Link Targeting Manual Test Harness</h1>
+  <h1>Window / Link Targeting Manual Test Harness</h1>
   <p>Every control is labeled (<span class="tag">A.1</span>, <span class="tag">A.3.1</span>, …) and each
      log line below is prefixed with that label. Click a control, then read the matching line in the Log.
      Targets are real <code>http</code> pages (browsers block <code>data:</code> targets).</p>
@@ -108,7 +108,7 @@
       const t = new Date().toLocaleTimeString();
       logEl.textContent += `[${t}] ${msg}\n`;
       logEl.scrollTop = logEl.scrollHeight;
-      console.log("[adr-145-harness] " + msg);
+      console.log("[window-targeting-harness] " + msg);
     }
     statusEl.textContent = "location: " + location.href;
 

@@ -53,7 +53,7 @@ describe("originKey", () => {
   });
 });
 
-describe("ProjectManager link suggestions by origin (ADR-192 ticket 5)", () => {
+describe("ProjectManager link suggestions by origin", () => {
   let tmpDir: string;
   /** `origin` by `host:path`; a missing entry is a repo with no origin. */
   let origins: Record<string, string>;

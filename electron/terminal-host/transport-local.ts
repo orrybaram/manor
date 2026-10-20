@@ -8,7 +8,7 @@
  * - Reads the auth token from the 0600 token file beside it
  *
  * In the `remote` namespace, a box whose daemon is under a supervisor
- * (`supervisor.json`, ADR-229 D4) starts, stops and restarts it through that
+ * (`supervisor.json`) starts, stops and restarts it through that
  * supervisor, never spawning a detached copy beside it; one that fails falls
  * back to the detached spawn with a warning. The `local` namespace (Manor
  * desktop's own daemon) never looks.
@@ -68,7 +68,7 @@ export interface LocalTransportOptions {
   namespace?: DaemonNamespace;
   /**
    * The `remote` namespace's supervisor, asked on every start, stop and
-   * restart (ADR-229 D4). Defaults to the one `supervisor.json` names; never
+   * restart. Defaults to the one `supervisor.json` names; never
    * consulted for `local`. For tests.
    */
   supervisor?: () => Supervisor | null;
@@ -220,7 +220,7 @@ export class LocalTransport implements HostTransport {
   }
 
   /**
-   * Start the daemon: through the supervisor when there is one (ADR-229 D4),
+   * Start the daemon: through the supervisor when there is one,
    * else — or when the supervisor brings none up — spawned detached.
    */
   private async startDaemon(version?: string): Promise<void> {

@@ -28,7 +28,7 @@ export const FAKE_AGENT_HUSH = "hush";
  * Send this and the agent holds `thinking` (the UserPromptSubmit hook) for
  * five seconds before its Stop hook parks it in `responded` — long enough for a
  * test to observe the in-between status, which `FAKE_AGENT_HUSH`'s
- * back-to-back hooks are too fast to poll for (ADR-184).
+ * back-to-back hooks are too fast to poll for.
  */
 export const FAKE_AGENT_SLOW_HUSH = "slow-hush";
 
@@ -41,7 +41,7 @@ export const FAKE_AGENT_EXIT = "exit";
 
 /**
  * Send this and the agent draws two identical rows wider than a phone can
- * show without wrapping — ADR-177's fixture for "the grid is not reflowed".
+ * show without wrapping's fixture for "the grid is not reflowed".
  */
 export const FAKE_AGENT_RULER = "ruler";
 /** Exactly what each row `FAKE_AGENT_RULER` draws, so a test can assert on
@@ -49,8 +49,8 @@ export const FAKE_AGENT_RULER = "ruler";
 export const FAKE_AGENT_RULER_ROW = "#".repeat(120);
 
 /**
- * `fake-agent-transcript.sh`: the fake agent for the phone chat view
- * (ADR-215). It also writes a Claude-shaped JSONL transcript and reports it
+ * `fake-agent-transcript.sh`: the fake agent for the phone chat view.
+ * It also writes a Claude-shaped JSONL transcript and reports it
  * as `transcriptPath`, which is what flips a phone pane to chat — so it is a
  * separate script, opt-in, rather than a mode every fake agent gets.
  *

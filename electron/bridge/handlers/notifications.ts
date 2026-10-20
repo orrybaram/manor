@@ -6,7 +6,7 @@ import type { ServerDeps } from "../../ipc/types";
 import { method, type HandlerCtx } from "../method";
 
 /**
- * The durable notification log (ADR-162). Main owns the
+ * The durable notification log. Main owns the
  * list; the renderer keeps a cache of it and never mutates its copy
  * speculatively — every mutation re-broadcasts the whole list through the
  * single send-site in `../../notifications`.
@@ -42,7 +42,7 @@ export function notificationsClear(ctx: HandlerCtx<ServerDeps>): void {
 }
 
 /**
- * Show a native notification on demand (e.g. a PR update alert, ADR-147).
+ * Show a native notification on demand (e.g. a PR update alert).
  * Resolves whether it was presented — `false` means the calling window is
  * focused, and the caller should show an in-app toast instead; see
  * `presentNotification` in `../../notifications`.

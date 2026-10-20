@@ -73,7 +73,7 @@ function boundsAreVisible(bounds: WindowBounds): boolean {
 // persisted bounds/zoom, which are primary-only).
 
 /**
- * How a claim rides in on `argv` (ADR-179 D4): `<tabId>::<workspacePath>`.
+ * How a claim rides in on `argv`: `<tabId>::<workspacePath>`.
  *
  * The tab id comes first and the split is on the *first* separator, which is
  * what makes this unambiguous — a tab id is `tab-<uuid>` and can hold neither
@@ -89,8 +89,7 @@ export function formatClaimArg(workspacePath: string, tabId: string): string {
  * Build the shared `webPreferences`. When `claim` is provided the renderer
  * receives an extra `--manor-claim=<tabId>::<workspacePath>` argument (mirrors
  * the existing `--manor-packaged` arg) naming the tab it holds — the one
- * thing that makes a detached window different from the primary (ADR-179 D4,
- * ADR-182 D5).
+ * thing that makes a detached window different from the primary.
  */
 function buildWebPreferences(claim?: string): Electron.WebPreferences {
   // Pass flags synchronously so preload can expose them without an IPC round-trip
@@ -187,7 +186,7 @@ export function createWindow(): BrowserWindow {
  * Create an ephemeral window that shows a single tab of a workspace.
  *
  * It loads the same renderer as the primary window — the whole app, not a
- * variant (ADR-179 D4) — tagged with
+ * variant — tagged with
  * `--manor-claim=<tabId>::<workspacePath>`, which is the only thing that
  * makes it different: it claims one tab and draws that. Unlike the primary
  * window it does NOT read or write persisted bounds / zoom, and its viewport

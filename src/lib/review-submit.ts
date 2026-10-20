@@ -62,7 +62,7 @@ export function submitReview(
   workspacePath: string,
   comments: DraftComment[],
   target: ReviewTarget,
-  /** The workspace's host (ADR-191). */
+  /** The workspace's host. */
   hostId?: string | null,
 ): void {
   if (comments.length === 0) return;

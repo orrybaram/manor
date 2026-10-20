@@ -1,8 +1,8 @@
 /**
  * DiffWatcher and PortScanner poll each host on its own, so a remote host
- * that never answers cannot stall local polling (ADR-160 ticket 9). Each
+ * that never answers cannot stall local polling. Each
  * workspace comes with its host, and each host is asked through its own
- * backend (ADR-183).
+ * backend.
  */
 
 import { describe, it, expect, vi, afterEach } from "vitest";
@@ -15,7 +15,7 @@ import type { HostBackends, HostPath } from "../per-host-poller";
 import { addRendererBroadcastSink } from "../renderer-broadcast";
 
 /**
- * The watchers publish to every renderer (ADR-180 D5) rather than sending on
+ * The watchers publish to every renderer rather than sending on
  * one window's `webContents`, so `send` below hears the broadcast sink:
  * `send("ports.changed", ports)`.
  */
@@ -152,7 +152,7 @@ describe("DiffWatcher per host", () => {
     watcher.stop();
   });
 
-  // ADR-204: the same path on two hosts is two workspaces, each with its own stats.
+  // The same path on two hosts is two workspaces, each with its own stats.
   it("keeps two hosts' identical paths apart, keyed by WorkspaceKey", async () => {
     vi.spyOn(console, "log").mockImplementation(() => {});
     const gitOn = (removed: number) =>

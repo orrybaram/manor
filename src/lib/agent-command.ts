@@ -3,17 +3,16 @@
  *
  * ZERO imports, for the same reason `home-path.ts` has none: the Electron main
  * process builds this line too now — `POST /agents` opens the tab and queues
- * the command itself rather than asking a window to do it (ADR-179 ticket 11)
+ * the command itself rather than asking a window to do it
  * — and main cannot import renderer modules that reach for Zustand stores or
  * `window`. Renderer code keeps importing `DEFAULT_AGENT_COMMAND` from
  * `agent-defaults.ts`, which re-exports from here, and `flattenPrompt` for
  * `review-submit.ts`'s reply line. `escapeShellDoubleQuoted` has no caller
- * outside this file any more — launch lines are only built here (ADR-182
- * ticket 1; `home.ts`'s re-export of it, and `App.tsx`'s hand-rolled line,
+ * outside this file any more — launch lines are only built here (`home.ts`'s re-export of it, and `App.tsx`'s hand-rolled line,
  * both went with the old callers) — so it stays unexported rather than kept
  * public on the chance something needs it again.
  *
- * Two builders, since ADR-209: `agentCommandWithPromptFile` is the normal
+ * Two builders: `agentCommandWithPromptFile` is the normal
  * launch line — the prompt waits in a file on the pane's host and the typed
  * line only names it, so it stays far below the tty's canonical line limit
  * (1024 bytes on macOS) however long the prompt is. `agentCommandWithPrompt`
@@ -22,7 +21,7 @@
  * prompt beside the bare command instead.
  *
  * Splitting the constant out also breaks the `agent-defaults → home → harness
- * → agent-defaults` cycle ADR-176's amendment recorded: `harness.ts` wanted
+ * → agent-defaults` cycle: `harness.ts` wanted
  * nothing from `agent-defaults` except this string.
  */
 
@@ -48,7 +47,7 @@ function escapeShellDoubleQuoted(text: string): string {
  * interactive shell or a harness's prompt box, and a bare newline either
  * leaves the shell waiting on a continuation prompt or submits the turn
  * early — so every whitespace run that spans a newline collapses to one
- * space before the text is sent (ADR-176's amendment).
+ * space before the text is sent.
  */
 export function flattenPrompt(prompt: string): string {
   return prompt.replace(/\s*\n\s*/g, " ").trim();
@@ -58,7 +57,7 @@ export function flattenPrompt(prompt: string): string {
  * The line that starts an agent: the harness command on its own, or with the
  * prompt flattened and quoted as its first argument. Bounded by the tty's
  * canonical line limit when typed into a fresh shell, so it is only the
- * fallback for an agent launch (ADR-209).
+ * fallback for an agent launch.
  */
 export function agentCommandWithPrompt(base: string, prompt?: string): string {
   if (!prompt) return base;
@@ -72,7 +71,7 @@ function shellSingleQuote(text: string): string {
 
 /**
  * The line that starts an agent whose prompt waits in `filePath` on the
- * pane's host (ADR-209): `<harness> "$(cat '<file>'; rm -f '<file>')"`. The
+ * pane's host: `<harness> "$(cat '<file>'; rm -f '<file>')"`. The
  * shell reads the prompt as the harness's first argument and deletes the
  * file as it does. Not flattened — `"$(…)"` keeps the prompt's newlines, and
  * strips only trailing ones. Needs `$(…)` inside double quotes: bash, zsh,

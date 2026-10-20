@@ -48,7 +48,7 @@ type HostFailureActionProps = {
 };
 
 /**
- * The one thing to do about a recognised recipe failure (ADR-234 D10): a
+ * The one thing to do about a recognised recipe failure: a
  * link to the page that helps, or Retry.
  */
 export function HostFailureAction(props: HostFailureActionProps) {
@@ -135,7 +135,7 @@ type HostWakeButtonProps = {
 };
 
 /**
- * Wake a sleeping host (ADR-229 D1). Its progress, or why it could not
+ * Wake a sleeping host. Its progress, or why it could not
  * start, shows in the host's status.
  */
 export function HostWakeButton(props: HostWakeButtonProps) {

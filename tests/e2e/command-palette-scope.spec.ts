@@ -11,7 +11,7 @@ import {
 
 /**
  * The command palette searches the project of the workspace it was opened
- * from, and can be widened to every project (ADR-200). Two projects are
+ * from, and can be widened to every project. Two projects are
  * seeded so the scope is observable: `test-project` (active, holding
  * `alpha-ws`) and `other-project` (holding `beta-ws`).
  */

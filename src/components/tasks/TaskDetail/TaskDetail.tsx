@@ -67,7 +67,7 @@ function focusOnMount(el: HTMLDivElement | null) {
 }
 
 /**
- * ADR-208 §2: one task's detail — tracker-agnostic, fed by the tracker seam's
+ * One task's detail — tracker-agnostic, fed by the tracker seam's
  * `detailQuery`. Renders title, status, assignees, project, labels,
  * priority / milestone, the body and its images, and the action bar.
  */
@@ -228,7 +228,7 @@ export function TaskDetail(props: TaskDetailProps) {
 
   const title = <h2 className={styles.title}>{taskRef.title}</h2>;
 
-  // The drawer's host header carries the open link (ADR-208 §3).
+  // The drawer's host header carries the open link.
   const openLink = layout === "card" && taskRef.url && (
     <Link
       href={taskRef.url}

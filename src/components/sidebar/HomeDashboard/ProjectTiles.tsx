@@ -32,7 +32,7 @@ type ProjectTilesProps = {
 };
 
 /**
- * The project tiles (ADR-198 §1.8): one per sidebar entry, full width. A tile
+ * The project tiles: one per sidebar entry, full width. A tile
  * click opens its most urgent workspace; a block opens that workspace.
  */
 export function ProjectTiles(props: ProjectTilesProps) {

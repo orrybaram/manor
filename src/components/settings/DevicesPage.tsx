@@ -27,7 +27,7 @@ import type { HostTone } from "../../lib/host-status";
 import styles from "./SettingsModal/SettingsModal.module.css";
 
 /**
- * Settings → Devices (ADR-233 D3): the phones and browsers paired with this
+ * Settings → Devices: the phones and browsers paired with this
  * computer, and which hosts they reach.
  *
  * A device gets full control of Manor on every host that allows devices, so
@@ -54,7 +54,7 @@ export function DevicesPage() {
   const [pairing, setPairing] = useState<RemotePairResult | null>(null);
 
   // `remoteControl.setEnabled/pair/revoke/startRelay/stopRelay` are
-  // `localOnly` (ADR-180 D3) — a browser can read this page's status but
+  // `localOnly` — a browser can read this page's status but
   // can't touch pairing or the relay.
   const webApp = isWebApp();
   const locked = webApp || busy || !status.encryptionAvailable;

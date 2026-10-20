@@ -11,7 +11,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("ProjectManager linked-project groups (ADR-192)", () => {
+describe("ProjectManager linked-project groups", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -88,7 +88,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     return projects.find((p) => p.id === id)!.group ?? null;
   }
 
-  it("keeps a member its host's server adopted, and drops one nobody knows (ADR-227 D3)", async () => {
+  it("keeps a member its host's server adopted, and drops one nobody knows", async () => {
     seed({
       projects: [project("local-app", undefined), project("mac-app", "mac")],
       hosts: {
@@ -524,7 +524,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     });
   });
 
-  describe("shared theme and commands (ADR-193 ticket 1)", () => {
+  describe("shared theme and commands", () => {
     const CMD = { id: "c1", name: "Build", command: "npm run build" };
 
     async function info(mgr: ProjectManager, id: string) {
@@ -673,7 +673,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
     expect((await groupOf(manager(), "local-app"))?.lastUsedHostId).toBe("local");
   });
 
-  describe("members on a host server (ADR-227 D4)", () => {
+  describe("members on a host server", () => {
     /** `box`'s server, adopted, holding `box-app` with its own resolved copy. */
     function boxServer() {
       const boxApp = {
@@ -757,7 +757,7 @@ describe("ProjectManager linked-project groups (ADR-192)", () => {
       expect(() => mgr.linkProjects("box-two", "local-app")).toThrow(/me@box/);
     });
   });
-  describe("removing a host (ADR-229 D8)", () => {
+  describe("removing a host", () => {
     it("forgets the host, its projects and their group memberships", async () => {
       seed({
         projects: [

@@ -1,6 +1,5 @@
 /**
- * Every host→renderer event, and the listener that hears it (ADR-180 D5,
- * ADR-182 D4).
+ * Every host→renderer event, and the listener that hears it.
  *
  * The host publishes `ns.event` (`renderer-broadcast.ts`, and the PTY stream
  * in `server.ts`); a renderer hears it through `ns.onX(cb)`, which the client
@@ -64,26 +63,26 @@ export interface BridgeEvents {
     output: [data: string, seq?: StreamPosition];
     exit: [];
     cwd: [cwd: string];
-    /** The pty reached this size, at this position in the output stream (ADR-164). */
+    /** The pty reached this size, at this position in the output stream. */
     resized: [cols: number, rows: number];
     error: [message: string];
     /**
      * The winsize owner changed without this viewer having made the call that
-     * changed it (ADR-179 D6): another viewer outbid it, or its owner
+     * changed it: another viewer outbid it, or its owner
      * disconnected and it inherited the grid.
      */
     winsizeOwner: [payload: WinsizeOwnerEvent];
   };
   /**
-   * A pane's chat entry, new or updated (ADR-215 D4), or its context size
-   * (ADR-223 D4). Keyed by `paneId` like `pty.*`; an updated entry keeps its
+   * A pane's chat entry, new or updated, or its context size.
+   * Keyed by `paneId` like `pty.*`; an updated entry keeps its
    * id, so a listener upserts by it.
    */
   chat: {
     entry: [paneId: string, entry: ChatPush];
     /**
-     * One task's own transcript, new or updated entry or context size
-     * (ADR-224 D3). Keyed by `chatTaskKey(paneId, taskId)`
+     * One task's own transcript, new or updated entry or context size.
+     * Keyed by `chatTaskKey(paneId, taskId)`
      * (`chat-mirror/task-key.ts`), so a subscriber names the task it watches.
      */
     taskEntry: [paneId: string, taskId: string, entry: ChatPush];
@@ -96,30 +95,30 @@ export interface BridgeEvents {
     changed: [];
     removeWorktreeProgress: [step: string];
     worktreeProgress: [event: SetupProgressEvent];
-    /** Clone progress (ADR-183 ticket 1), to every renderer. */
+    /** Clone progress, to every renderer. */
     cloneProgress: [
       event: { status: "in-progress" | "done" | "error"; message?: string },
     ];
   };
   /**
    * The full host list whenever any host's status changes, and a remote host
-   * that came back from a drop with its hooks replayed (ADR-178 §6 on main).
+   * that came back from a drop with its hooks replayed.
    */
   hosts: {
     statusChanged: [hosts: HostStatusInfo[]];
     reconnected: [info: { hostId: string; sessionIds: string[] }];
-    /** A host server's owner channel changed state (ADR-225 D3). */
+    /** A host server's owner channel changed state. */
     serverChanged: [info: { hostId: string; state: HostServerClientState }];
     /** A phone was paired, revoked or the host's keys reset: re-read its status. */
     pairingChanged: [hostId: string];
   };
-  /** A host profile was saved or removed (ADR-235 D2): list them again. */
+  /** A host profile was saved or removed: list them again. */
   hostProfiles: { changed: [] };
-  /** The Linear key was saved or cleared on this server (ADR-230 D8). */
+  /** The Linear key was saved or cleared on this server. */
   linear: { connectionChanged: [connected: boolean] };
   /**
-   * The selected theme changed somewhere other than this call (ADR-179 ticket
-   * 7) — `setSelected`'s own return shape, ready to apply without a round trip.
+   * The selected theme changed somewhere other than this call —
+   * `setSelected`'s own return shape, ready to apply without a round trip.
    */
   theme: { changed: [payload: { name: string; theme: Theme }] };
   ports: { changed: [ports: ActivePort[]] };
@@ -138,20 +137,20 @@ export interface BridgeEvents {
       agent: AgentInfo,
       unseen: { responded: boolean; requires_input: boolean },
     ];
-    /** The Status reconciler published a pane's Agent status (ADR-184). */
+    /** The Status reconciler published a pane's Agent status. */
     status: [update: PaneAgentStatusUpdate];
     /**
      * Agents left the list for good, by id: a host's server adopted them
-     * (ADR-227 D3), so a copy a renderer holds under the old id is stale.
+     * so a copy a renderer holds under the old id is stale.
      */
     removed: [agentIds: string[]];
   };
   /**
-   * A host server's keep-awake flag changed (ADR-229 D7), after its idle
+   * A host server's keep-awake flag changed, after its idle
    * debounce: what the desktop tells the host's provider (`setBusy`).
    */
   hostServer: { busyChanged: [info: { busy: boolean }] };
-  /** The full snapshot, after a burst of transitions settles (ADR-199 §2). */
+  /** The full snapshot, after a burst of transitions settles. */
   agentActivity: { changed: [snapshot: AgentActivitySnapshot] };
   preferences: { changed: [prefs: AppPreferences] };
   keybindings: {
@@ -163,12 +162,12 @@ export interface BridgeEvents {
     forwardedCommand: [payload: ForwardedCommandPayload];
   };
   notifications: {
-    /** The full list, after every mutation (ADR-162 §3). */
+    /** The full list, after every mutation. */
     changed: [list: NotificationRecord[]];
     /** A native banner was clicked; the payload is the record id. */
     navigate: [id: string];
   };
-  /** The full summary, after a burst of recording settles (ADR-168 §5). */
+  /** The full summary, after a burst of recording settles. */
   stats: { changed: [summary: StatsSummary] };
   remoteControl: { status: [status: RemoteControlStatus] };
   /** A payload carrying `requestId` expects an `appCommands.result` reply. */

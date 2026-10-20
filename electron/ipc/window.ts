@@ -12,7 +12,7 @@ interface Bounds {
 
 /** A drop-target window as seen by a renderer performing a tab drag. */
 export interface WindowInfo {
-  /** webContents id — the same id a claim is keyed by (ADR-179 D4). */
+  /** webContents id — the same id a claim is keyed by. */
   id: number;
   bounds: Bounds;
 }
@@ -81,7 +81,7 @@ export function listWindows(
 
 export function register(deps: HostDeps): void {
   /**
-   * Pop a tab out into a window of its own (ADR-179 D4).
+   * Pop a tab out into a window of its own.
    *
    * Nothing moves. The tab stays exactly where it is in the workspace — a
    * browser goes on seeing it — and the new window boots the ordinary renderer
@@ -116,7 +116,7 @@ export function register(deps: HostDeps): void {
   /**
    * Close the calling window — which is also how a detached window gives its
    * tab back: the claim dies with the window and the tab reappears in the
-   * primary, with the same panes and the same live sessions (D4).
+   * primary, with the same panes and the same live sessions.
    */
   ipcMain.on("window:closeSelf", (event) => {
     closeWindowSoon(BrowserWindow.fromWebContents(event.sender));

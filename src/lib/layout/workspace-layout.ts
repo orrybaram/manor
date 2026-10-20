@@ -1,14 +1,14 @@
 /**
- * The structural layout model of one workspace (ADR-179 D2).
+ * The structural layout model of one workspace.
  *
  * `panelTree` → `panels{ tabs{ rootNode } }` is the whole shape: which tabs
  * exist, how their panes are split, and how the panels are arranged. It lived
- * in `src/store/app-store.ts` until ADR-179 moved it here so the Manor server
+ * in `src/store/app-store.ts` until it moved here so the Manor server
  * — not the renderer — can own it.
  *
  * What one window is *looking at* is deliberately not here: the selected tab,
  * the focused pane and the active panel are viewport, and live in
- * `./viewport.ts`, keyed by workspace and persisted per renderer (D3).
+ * `./viewport.ts`, keyed by workspace and persisted per renderer.
  */
 
 import type { PaneNode } from "./pane-tree";
@@ -39,7 +39,7 @@ export interface WorkspaceLayout {
 /**
  * A layout with exactly one panel. The panel id is a parameter rather than
  * minted here: ids are decided by the sender of a layout command so it can act
- * on the result when the broadcast lands (ADR-179 D1).
+ * on the result when the broadcast lands.
  */
 export function createSinglePanelLayout(
   panelId: string,

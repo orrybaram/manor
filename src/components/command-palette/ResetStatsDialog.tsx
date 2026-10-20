@@ -8,7 +8,7 @@ interface ResetStatsDialogProps {
   onOpenChange: (open: boolean) => void;
 }
 
-/** Confirm-then-wipe dialog for usage stats (ADR-168 §6). */
+/** Confirm-then-wipe dialog for usage stats. */
 export function ResetStatsDialog(props: ResetStatsDialogProps) {
   const { open, onOpenChange } = props;
 

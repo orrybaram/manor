@@ -1,5 +1,5 @@
 /**
- * Rules for linked-project groups (ADR-192) that main and the renderer both
+ * Rules for linked-project groups that main and the renderer both
  * apply: `electron/projects/project-groups.ts` enforces them, the sidebar's
  * "Link with…" offers only what they allow. Which settings a group shares
  * lives here too. DOM- and Node-free.
@@ -35,8 +35,7 @@ export function memberOnHost(
 }
 
 /**
- * The settings a group shares across its members (ADR-192 ticket 2;
- * `themeName` and `commands` joined in ADR-193 ticket 1).
+ * The settings a group shares across its members.
  */
 const GROUP_SHARED_KEYS = [
   "name",

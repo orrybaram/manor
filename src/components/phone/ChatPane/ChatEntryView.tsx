@@ -21,7 +21,7 @@ type ChatEntryViewProps = {
   onShowTerminal: () => void;
 };
 
-/** One transcript entry, or a run of tool calls, drawn for its kind (ADR-215 D3, D7). */
+/** One transcript entry, or a run of tool calls, drawn for its kind. */
 export function ChatEntryView(props: ChatEntryViewProps) {
   const { paneId, entry, answerableId, live, onShowTerminal } = props;
 

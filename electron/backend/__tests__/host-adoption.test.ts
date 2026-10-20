@@ -1,5 +1,5 @@
 /**
- * `HostAdoption` against a fake owner channel (ADR-227 D3): when it sends,
+ * `HostAdoption` against a fake owner channel: when it sends,
  * and that nothing local is touched without the host's ack. The real round
  * trip is `host-server/__tests__/adoption.test.ts`.
  */
@@ -30,7 +30,7 @@ function fakeChannel(ownership: unknown, ack: unknown = "host") {
   return { channel, sent };
 }
 
-describe("HostAdoption (ADR-227 D3)", () => {
+describe("HostAdoption", () => {
   let dir: string;
 
   beforeEach(() => {
@@ -109,7 +109,7 @@ describe("HostAdoption (ADR-227 D3)", () => {
     expect(desktop.projectManager.isHostAdopted("mac")).toBe(false);
   });
 
-  it("whenAdopted resolves once a run adopts the host, at once after (ADR-235 D3)", async () => {
+  it("whenAdopted resolves once a run adopts the host, at once after", async () => {
     const desktop = openDesktop(dir);
     const waiting = desktop.adoption.whenAdopted("box", 10_000);
     let settled: boolean | undefined;
@@ -133,7 +133,7 @@ describe("HostAdoption (ADR-227 D3)", () => {
     }
   });
 
-  it("says a host was adopted once, so a window may stream to it (ADR-228 D3)", async () => {
+  it("says a host was adopted once, so a window may stream to it", async () => {
     const onAdopted = vi.fn();
     const desktop = openDesktop(dir, { onAdopted });
     const { channel } = fakeChannel("pending");
@@ -148,7 +148,7 @@ describe("HostAdoption (ADR-227 D3)", () => {
     desktop.projectManager.markHostAdopted("box");
     const { channel, sent } = fakeChannel("host");
     // A project moved onto the host while it was away, or added as adoption
-    // ran (ADR-227 D4): handed over. The host has its own agents, so those the
+    // ran: handed over. The host has its own agents, so those the
     // desktop wrote for it since are dropped, not handed over.
     expect(await desktop.adoption.run("box", channel)).toMatchObject({
       ownership: "host",

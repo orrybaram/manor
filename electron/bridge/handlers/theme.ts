@@ -7,7 +7,7 @@ import type { Theme, ThemeColors } from "../../theme";
 /**
  * Theme, whole, as the `theme` namespace of the handler
  * table. `setSelected` is not local-only — a paired `full` device setting the
- * theme is ADR-179 D6's broadcast working as designed, and the browser
+ * theme is the theme broadcast working as designed, and the browser
  * already re-renders on it.
  */
 export function themeGet(ctx: HandlerCtx<ServerDeps>): Theme {

@@ -1,7 +1,7 @@
 /**
  * The seam between the agent-neutral mirror (offsets, tailing, sources,
- * watching, pickers) and a transcript format that belongs to one agent
- * (ADR-224 D1). An adapter only has to map its agent's format onto the shared
+ * watching, pickers) and a transcript format that belongs to one agent.
+ * An adapter only has to map its agent's format onto the shared
  * `ChatEntry` union.
  */
 

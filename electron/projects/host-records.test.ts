@@ -13,7 +13,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("ProjectManager hosts (ADR-160)", () => {
+describe("ProjectManager hosts", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -107,7 +107,7 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(mgr.remoteHostIdsInUse()).toEqual(["box"]);
   });
 
-  it("keeps each host's phone-link switch and the revokes it is owed (ADR-228 D9)", () => {
+  it("keeps each host's phone-link switch and the revokes it is owed", () => {
     const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
     expect(mgr.hostLinksPhones("box")).toBe(true);
@@ -124,7 +124,7 @@ describe("ProjectManager hosts (ADR-160)", () => {
     expect(raw.hosts.box).toEqual({ spec: { kind: "ssh", target: "me@box" } });
   });
 
-  it("keeps each host's supervise switch; absent is off (ADR-229 D4)", () => {
+  it("keeps each host's supervise switch; absent is off", () => {
     const mgr = new ProjectManager(hostsOf(() => gitNamed("x")), tmpDir);
     mgr.saveHost("box", { kind: "ssh", target: "me@box" });
     expect(mgr.hostSupervised("box")).toBe(false);

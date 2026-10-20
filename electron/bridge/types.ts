@@ -1,5 +1,5 @@
 /**
- * The bridge protocol, in one file (ADR-180 D1).
+ * The bridge protocol, in one file.
  *
  * The frames on the wire, the one thing dispatch knows about a caller, and the
  * constants both ends of a transport must agree on (channel names, close
@@ -20,7 +20,7 @@
  * A frame is one of five kinds. The client sends `invoke`, `subscribe` and
  * `unsubscribe`; the host answers `result` and pushes `event`. The hello
  * is not one of the five: it belongs to the socket transports, which are the
- * only ones that have anything to authenticate (D2). Its *reply* is described
+ * only ones that have anything to authenticate. Its *reply* is described
  * at the bottom of this file, because the browser reads it too.
  */
 
@@ -35,7 +35,7 @@ export const BRIDGE_PROTOCOL_VERSION = 1;
 export const UNAVAILABLE_CODE = "unavailable:web";
 
 /**
- * The same refusal from a host server (ADR-225 D6): the method exists on the
+ * The same refusal from a host server: the method exists on the
  * desktop but is not on that host's allowlist — launching an agent, browsing
  * issues. Every `unavailable:*` code is a stated empty state to the client.
  */
@@ -43,7 +43,7 @@ export const UNAVAILABLE_HOST_CODE = "unavailable:host";
 
 /**
  * The desktop's refusal of a write routed to a remote host whose server is
- * out of reach (ADR-227 D4): "wsl-box is offline". Not queued — there is
+ * out of reach: "wsl-box is offline". Not queued — there is
  * nowhere safe to reconcile it — so the client shows it like any other
  * `unavailable:*`.
  */
@@ -57,7 +57,7 @@ export type UnavailableCode =
 
 /**
  * Thrown by a handler that is on the table but refuses this call for now —
- * a host server that has not been adopted yet (ADR-227 D3). The server
+ * a host server that has not been adopted yet. The server
  * answers it with `code`, the stated empty state, not `failed`.
  */
 export class BridgeUnavailableRefusal extends Error {
@@ -88,7 +88,7 @@ export function isUnavailableCode(code: unknown): code is UnavailableCode {
 export const ALL_KEYS = "*";
 
 /**
- * The desktop transport's IPC channels (ADR-180 D2): the main process listens
+ * The desktop transport's IPC channels: the main process listens
  * on them (`transports/ipc.ts`) and the preload sends on them. Here rather
  * than in either, because the preload may not import the main side — that
  * module reaches for `ipcMain` and, through the handler table, the whole main
@@ -103,14 +103,14 @@ export const BRIDGE_UNSUBSCRIBE = "bridge:unsubscribe";
 /** Main → renderer: one `EventFrame`. */
 export const BRIDGE_EVENT = "bridge:event";
 /**
- * "Who am I?", answered synchronously (ADR-179 D3). The one
+ * "Who am I?", answered synchronously. The one
  * channel that carries no frame: the preload has to know its `rendererId`
  * before the page's first line runs, and `webContents.id` is already in hand.
  */
 export const BRIDGE_RENDERER_ID = "bridge:rendererId";
 
 /**
- * A window's own streams to host servers (ADR-228 D4, `electron/ipc/
+ * A window's own streams to host servers (`electron/ipc/
  * host-pipe.ts`). Main carries their frames as text and reads none of them.
  */
 /** `(hostId)` → `pipeId`. */
@@ -140,7 +140,7 @@ export const CLOSE_HOST_UNREACHABLE = 4504;
 export const CLOSE_UNAUTHORIZED = 4401;
 /**
  * Reserved, not sent. It meant "a valid token for a device below the `full`
- * tier" until ADR-207 D4 removed the tiers; it stays defined so the code is
+ * tier" until the tiers were removed; it stays defined so the code is
  * never reused for something an older browser would misread.
  */
 export const CLOSE_FORBIDDEN = 4403;
@@ -148,12 +148,12 @@ export const CLOSE_FORBIDDEN = 4403;
 /**
  * The host's answer to an accepted `hello` on a socket transport.
  *
- * `appVersion` is the desktop's `app.getVersion()` (ADR-206 D4): a page
+ * `appVersion` is the desktop's `app.getVersion()`: a page
  * served by the relay origin compares it with its own build and navigates to
  * the matching `/app/<appVersion>/` when they differ. Optional because an
  * older host does not send it.
  *
- * It carries no credential on purpose (ADR-240): the device chose its own
+ * It carries no credential on purpose: the device chose its own
  * token, so the server has no secret to send back.
  */
 export interface HelloReplyFrame {
@@ -163,13 +163,13 @@ export interface HelloReplyFrame {
   rendererId: string;
   appVersion?: string;
   /**
-   * What the server calls its host (ADR-225 D7): the phone's pairings show
+   * What the server calls its host: the phone's pairings show
    * it. Both the desktop and a host server send it, so it says nothing
    * about which one answered. Optional because older hosts may not send it.
    */
   hostName?: string;
   /**
-   * True only from a host server (ADR-225 D5, D6; ADR-226): it serves a slice
+   * True only from a host server: it serves a slice
    * of the desktop's bridge, so the page hides what it cannot do. The
    * desktop never sets it.
    */
@@ -191,7 +191,7 @@ export interface InvokeFrame {
 
 /**
  * `bridge.ping`: a no-op the server answers itself, before the table, for
- * every caller class (ADR-231 D8). A page sends it when the far server has
+ * every caller class. A page sends it when the far server has
  * been quiet, because the relay answers the pipe's own heartbeat and so
  * cannot say whether the server behind it is still there. A server older
  * than this answers it as an unknown method, with an error frame, which
@@ -249,8 +249,8 @@ export interface EventFrame {
  * Who a caller is, as the transport decided it (never as a frame says).
  *
  * - `local` — an Electron renderer window on this machine (the desktop).
- * - `owner` — the desktop reaching a host server over its owner channel
- *   (ADR-225 D4): `manor-host server-bridge` over ssh, so ssh is the
+ * - `owner` — the desktop reaching a host server over its owner channel:
+ *  `manor-host server-bridge` over ssh, so ssh is the
  *   authentication. Only a table whose `localOnlyCallers` names `owner`
  *   (the host server's) lets one call `LOCAL_ONLY` methods; any other server
  *   refuses an owner them exactly as it refuses a device.
@@ -259,7 +259,7 @@ export interface EventFrame {
 export type CallerClass = "local" | "owner" | "device";
 
 /**
- * What kind of viewer a connection is, beyond its caller class (ADR-228 D4).
+ * What kind of viewer a connection is, beyond its caller class.
  *
  * - `desktop` — a desktop renderer window reaching a host server directly,
  *   over its own `manor-host server-bridge --viewer` stream. Its caller class
@@ -285,7 +285,7 @@ export type ViewerKind = "desktop";
  */
 export interface BridgeConnection {
   /**
-   * This caller's id, and so this renderer's id (ADR-179 D3): it rides out as
+   * This caller's id, and so this renderer's id: it rides out as
    * the origin of every layout command from here, and is what lets a renderer
    * tell its own `layout.changed` from every other viewer's. Stable across a
    * reconnect when the transport can manage it.
@@ -295,7 +295,7 @@ export interface BridgeConnection {
   readonly callerClass: CallerClass;
   /** See `ViewerKind`. Absent for every connection that is not a viewer stream. */
   readonly viewer?: ViewerKind;
-  /** Audit identity, or null for a local caller (ADR-180 D4). */
+  /** Audit identity, or null for a local caller. */
   readonly deviceId: string | null;
   /** The audit line's human name for `deviceId`. Null for a local caller. */
   readonly deviceLabel: string | null;

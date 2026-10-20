@@ -1,5 +1,5 @@
 /**
- * Telling the pane's own shell from a shell running a script (ADR-231 D5).
+ * Telling the pane's own shell from a shell running a script.
  *
  * node-pty names the pane's foreground process group by its leader's argv[0],
  * so a `#!/bin/sh` script in the foreground reads as `/bin/sh`, the same as the
@@ -53,8 +53,8 @@ export interface ShellForeground {
 
 /**
  * The foreground name to report while a shell leads the pane's foreground:
- * null for the pane's own shell (and whenever a lookup failed, as before
- * ADR-231), otherwise the agent the shell runs, or the script's name.
+ * null for the pane's own shell (and whenever a lookup failed), otherwise
+ * the agent the shell runs, or the script's name.
  */
 export function shellForegroundName(f: ShellForeground): string | null {
   if (f.leaderPid === null || f.leaderPid === f.shellPid) return null;

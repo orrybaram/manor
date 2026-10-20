@@ -1,15 +1,14 @@
 /**
- * `electron/ipc/` — what only Electron can do (ADR-180 D8, ticket 11).
+ * `electron/ipc/` — what only Electron can do.
  *
  * Everything that could be answered the same way for a renderer window and a
  * paired `full` device has crossed to `electron/bridge/handlers.ts` and its
  * implementation under `electron/bridge/handlers/`. What is left here is the
- * set ADR-178's "what can never leave the preload" named from the start:
+ * set named from the start as what can never leave the preload:
  *
- *   - `<webview>` and its 27 methods (this file, `webview-keys.ts` —
- *     ADR-052/056/058/158)
- *   - detach-to-window (`window.ts`, `popups.ts` — ADR-156/157/179 D4)
- *   - the native application menu (`menu.ts` — ADR-170)
+ *   - `<webview>` and its 27 methods (this file, `webview-keys.ts`)
+ *   - detach-to-window (`window.ts`, `popups.ts`)
+ *   - the native application menu (`menu.ts`)
  *   - native dialogs, the shell escape hatches, the machine clipboard and the
  *     updater (`native.ts`)
  *
@@ -50,7 +49,7 @@ export { closeAllChildWindows };
 
 export const webviewRegistry = new Map<string, number>();
 
-// Re-exported so ticket 3's HTTP routes can start/stop recordings without
+// Re-exported so the HTTP routes can start/stop recordings without
 // reaching past this module for the shared instance.
 export { recordingManager };
 
@@ -67,7 +66,7 @@ const paneRenderers = new Map<string, number>();
  * runs in that renderer (via `window.electronAPI`, not exposed to arbitrary
  * guest page content), so it — not the pane's own `webContents` — is the
  * `requestWebContents` argument `wc.getMediaSourceId()` needs. Exported for
- * ticket 3's `record/start` route.
+ * the `record/start` route.
  */
 export function getPaneRendererWebContents(
   paneId: string,
@@ -89,7 +88,7 @@ export function createWebviewServer(getDeps: () => HostDeps): WebviewServer {
   return new WebviewServer(webviewRegistry, getDeps);
 }
 
-// ── Recording (ADR-158) ──
+// ── Recording ──
 
 /** Payload of the main→renderer "webview:recording-command" channel. */
 interface RecordingCommand {
@@ -99,7 +98,7 @@ interface RecordingCommand {
   mediaSourceId?: string;
   /**
    * Pane this command is for. The renderer needs it to drive a per-pane
-   * "Recording" indicator (ADR-158 ticket 5) — `sendRecordingCommand` already
+   * "Recording" indicator — `sendRecordingCommand` already
    * routes to the right window by paneId, but the payload itself didn't carry
    * it until then.
    */
@@ -247,7 +246,7 @@ export type StartRendererRecordingResult =
  * The renderer has nothing to say on success — the `MediaRecorder` just runs —
  * so this can only ever confirm a *failure*: a `webview:recording-stopped`
  * call for this id before the timeout elapses. No such call within the window
- * is treated as success. Ticket 3's start route relies on this to roll back a
+ * is treated as success. The start route relies on this to roll back a
  * registered recording that never got a `MediaRecorder` behind it.
  */
 export function startRendererRecording(
@@ -297,7 +296,7 @@ export function stopRendererRecording(
 
 /**
  * Full stop: drain the renderer first, then finalize the file. This is what
- * ticket 3's HTTP routes and the teardown paths should call.
+ * the HTTP routes and the teardown paths should call.
  */
 export async function stopRecording(recordingId: string, timeoutMs?: number) {
   const paneId = recordingManager
@@ -336,8 +335,8 @@ export function register(deps: HostDeps): void {
       webviewRegistry.set(paneId, webContentsId);
       deps.webviewServer.attachConsoleListener(paneId);
       // A remote workspace's pane: agent `navigate`s to the box's
-      // `localhost:<port>` go through its port forward (ADR-178 §5). The
-      // map is main-owned (ADR-183) — `resolvePaneUrl` reads it directly.
+      // `localhost:<port>` go through its port forward. The
+      // map is main-owned — `resolvePaneUrl` reads it directly.
       if (typeof remoteHostId === "string" && remoteHostId) {
         deps.paneHosts.set(paneId, remoteHostId);
       } else {
@@ -474,8 +473,7 @@ export function register(deps: HostDeps): void {
         // Routing is by intent, keyed on `disposition` / `features`:
         //
         //   Observed disposition mapping (Electron 35, from docs — NOT yet
-        //   verified empirically in-app; orchestrator/verifier should confirm
-        //   via the Ticket 1 spike):
+        //   verified empirically in-app):
         //   - <a target="_blank"> click          -> "foreground-tab"
         //   - cmd/ctrl+click, middle-click        -> "background-tab"
         //   - window.open(url)  (no features)     -> "foreground-tab"
@@ -710,7 +708,7 @@ export function register(deps: HostDeps): void {
     wc.setAudioMuted(muted);
   });
 
-  // ── Recording (ADR-158) ──
+  // ── Recording ──
 
   // `on`, not `handle`: chunks are fire-and-forget. A round-trip per second per
   // recording would buy nothing — backpressure is handled by `acceptChunk`.
@@ -749,7 +747,7 @@ export function register(deps: HostDeps): void {
     },
   );
 
-  // The user clicked the pane's "Recording" indicator (ADR-158 ticket 5) — the
+  // The user clicked the pane's "Recording" indicator — the
   // one way out that does not require asking the agent to stop. Reuses the
   // exact same drain-then-finalize path as the MCP `stop_recording` tool.
   ipcMain.handle("webview:stop-recording", async (_event, paneId: string) => {

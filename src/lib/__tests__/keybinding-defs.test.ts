@@ -280,7 +280,7 @@ describe("resolvePageKey", () => {
   });
 });
 
-// ADR-181 D7 — a PC browser keeps the desktop keybindings, minus the ones it
+// A PC browser keeps the desktop keybindings, minus the ones it
 // cannot have.
 describe("platformDefaults in a browser, on a Mac", () => {
   const webDefs = platformDefaults("MacIntel", { inBrowser: true });

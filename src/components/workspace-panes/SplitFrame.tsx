@@ -10,8 +10,8 @@ import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import paneStyles from "./PaneLayout/PaneLayout.module.css";
 
-/** The class names a split draws with. Panes and panels look different
- *  (ADR-196): a panel split's divider is the frame gutter itself. */
+/** The class names a split draws with. Panes and panels look different:
+ * a panel split's divider is the frame gutter itself. */
 export type SplitFrameStyles = Record<
   | "split"
   | "splitHorizontal"
@@ -49,7 +49,7 @@ type SplitFrameProps = {
 /**
  * The one split box both `SplitLayout` (panes) and `SplitPanelLayout`
  * (panels) render: two children and a draggable divider on the desk, two
- * stacked `tab-styles` layers with only one shown on a phone (ADR-181 D1).
+ * stacked `tab-styles` layers with only one shown on a phone.
  */
 export function SplitFrame(props: SplitFrameProps) {
   const {
@@ -125,8 +125,7 @@ export function SplitFrame(props: SplitFrameProps) {
   // Both modes render the same elements, in the same order, with the same
   // types — only `style` and handlers differ. React keeps a component only
   // while its type and position hold, and a remounted terminal is a
-  // pty.detach + pty.create, a snapshot restore and possibly a SIGWINCH
-  // (ADR-163/164/165). See ADR-181 D1.
+  // pty.detach + pty.create, a snapshot restore and possibly a SIGWINCH.
   const firstStyle = isPhone
     ? focusInSecond
       ? TAB_HIDDEN_STYLE

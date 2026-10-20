@@ -1,5 +1,5 @@
 /**
- * A desktop window's own stream to a host server (ADR-228 D4), end to end
+ * A desktop window's own stream to a host server, end to end
  * but for ssh: the renderer's transport (`createHostPipeTransport`) over a
  * `hostPipe` wired straight to main's `HostPipes`, whose viewer stream is a
  * real `server-bridge --viewer` run in process against the harness's
@@ -23,7 +23,7 @@ import {
 import type { HelloReply } from "../../../src/bridge/transports/ws";
 import type { ProjectInfo } from "../../projects/types";
 
-describe("a desktop window's viewer pipe (ADR-228 D4)", () => {
+describe("a desktop window's viewer pipe", () => {
   const h = useHostServerHarness();
 
   /**
@@ -104,7 +104,7 @@ describe("a desktop window's viewer pipe (ADR-228 D4)", () => {
     ]);
     expect(hellos[0].rendererId).toEqual(expect.any(String));
 
-    // Main's owner channel hands the host its projects (ADR-227 D3); the
+    // Main's owner channel hands the host its projects; the
     // window hears it on its own stream.
     const owner = await h.owner();
     await owner.invoke("hostServer", "adopt", {

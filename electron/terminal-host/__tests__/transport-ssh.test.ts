@@ -391,7 +391,7 @@ describe("SshTransport", () => {
     await expect(running).rejects.toBeInstanceOf(SshHostKeyError);
   });
 
-  it("words an auth failure for a recipe host, whose alias no terminal knows (ADR-229 D2)", async () => {
+  it("words an auth failure for a recipe host, whose alias no terminal knows", async () => {
     const { transport, children } = makeTransport({
       label: "Dev pod",
       authMessage: () => "ssh could not log in to Dev pod as dev@203.0.113.7.",
@@ -406,7 +406,7 @@ describe("SshTransport", () => {
     expect((err as Error).message).toBe("ssh could not log in to Dev pod as dev@203.0.113.7.");
   });
 
-  it("words a host-key refusal as the box's owner says, for a recipe host (ADR-229 D2)", async () => {
+  it("words a host-key refusal as the box's owner says, for a recipe host", async () => {
     const { transport, children } = makeTransport({
       label: "Dev pod",
       hostKeyMessage: () => "Dev pod's host key changed and the recipe didn't vouch for the new one.",
@@ -423,7 +423,7 @@ describe("SshTransport", () => {
     );
   });
 
-  it("puts a recipe host's own stanza ahead of Host * (ADR-229 D2)", async () => {
+  it("puts a recipe host's own stanza ahead of Host *", async () => {
     const { transport } = makeTransport({ hostStanza: () => "Host manor-h1\n  HostName 10.0.0.9" });
     await transport.ensureRunning("1.2.3");
     const text = fs.readFileSync(transport.managedConfig().configPath, "utf-8");
@@ -503,7 +503,7 @@ describe("SshTransport", () => {
     expect(child.written).toBe('{"kind":"invoke"}\n');
   });
 
-  it("opens a viewer stream with `server-bridge --viewer`, the server's hello reply its first line (ADR-228 D4)", async () => {
+  it("opens a viewer stream with `server-bridge --viewer`, the server's hello reply its first line", async () => {
     const { transport, children } = makeTransport();
     const pending = transport.openViewerBridge();
     const child = await nextChild(children, 0);

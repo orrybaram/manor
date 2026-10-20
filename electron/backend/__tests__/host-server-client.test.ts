@@ -1,9 +1,9 @@
 /**
- * The desktop's end of the owner channel (ADR-225 D4): `HostServerClient`
+ * The desktop's end of the owner channel: `HostServerClient`
  * against a real host server in this process, reached exactly as over ssh —
  * `runServerBridge` (what `manor-host server-bridge` runs) on in-memory
  * stdio, piping to the server's unix socket — but with no ssh and no daemon.
- * And the records the desktop will hand it on adoption (ADR-227 D3), from
+ * And the records the desktop will hand it on adoption, from
  * memory only.
  */
 
@@ -174,7 +174,7 @@ describe("HostServerClient over server-bridge", () => {
     });
     expect(await c.api.remoteControl.listDevices()).toEqual([]);
 
-    // Not adopted yet (ADR-227 D3): no projects, and a write is a stated
+    // Not adopted yet: no projects, and a write is a stated
     // refusal, not an error and not a dropped channel.
     expect(await c.api.projects.getAll()).toEqual([]);
     await expect(c.api.projects.add("Manor", tmp)).rejects.toMatchObject({
@@ -184,7 +184,7 @@ describe("HostServerClient over server-bridge", () => {
     expect(c.state).toBe("connected");
 
     // Adopted: the owner adds a project, and the server's own layout store
-    // persists to `layout.json` (ADR-227 D2).
+    // persists to `layout.json`.
     ownership.set("host");
     expect((await c.api.hostServer.status()).ownership).toBe("host");
     expect(JSON.parse(fs.readFileSync(paths.ownership, "utf-8"))).toEqual({ ownership: "host" });
@@ -285,7 +285,7 @@ describe("HostServerClient over server-bridge", () => {
     sync.dispose();
   });
 
-  it("records the host's room and viewer-bridge capability from its status (ADR-228)", async () => {
+  it("records the host's room and viewer-bridge capability from its status", async () => {
     const c = client();
     const setServerFacts = vi.fn();
     const sync = new HostServerSync({
@@ -305,7 +305,7 @@ describe("HostServerClient over server-bridge", () => {
     // It says it takes viewer streams, but not before it is adopted.
     expect(status.capabilities).toContain("viewer-bridge");
     expect(status.ownership).toBe("pending");
-    // A current server also says whether it is busy and which box hooks it has (ADR-229 D7).
+    // A current server also says whether it is busy and which box hooks it has.
     expect(setServerFacts).toHaveBeenLastCalledWith("box", {
       roomId: status.relay.roomId,
       viewerBridge: false,
@@ -316,7 +316,7 @@ describe("HostServerClient over server-bridge", () => {
     sync.dispose();
   });
 
-  it("installs supervision on connect where the record wants it and the host has none (ADR-229 D4)", async () => {
+  it("installs supervision on connect where the record wants it and the host has none", async () => {
     const c = client();
     const install = vi.fn(async () => {});
     const wanted = vi.fn((hostId: string) => hostId === "box");
@@ -396,7 +396,7 @@ describe("HostServerClient over server-bridge", () => {
   });
 });
 
-describe("serverFactsOf (ADR-228)", () => {
+describe("serverFactsOf", () => {
   it("reads an older host's status as no viewer bridge, with its relay's room", () => {
     const relay = { roomId: "room-1", connected: true, error: null };
     expect(serverFactsOf({ relay })).toEqual({ roomId: "room-1", viewerBridge: false });
@@ -572,7 +572,7 @@ describe("BackendRegistry's owner channels", () => {
   });
 });
 
-describe("adoption's records (ADR-227 D3)", () => {
+describe("adoption's records", () => {
   let tmp: string;
 
   beforeEach(() => {

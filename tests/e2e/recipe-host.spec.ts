@@ -17,8 +17,8 @@ import { readSession } from "./helpers/local-api";
 import { runInTerminal } from "./helpers/terminal";
 
 /**
- * A host Manor starts from a recipe, over the remote-host suite's sshd
- * (ADR-231 D6): register it, work on it, stop it, wake it. The helper is
+ * A host Manor starts from a recipe, over the remote-host suite's sshd:
+ * register it, work on it, stop it, wake it. The helper is
  * `./helpers/recipe-host.ts`; tickets building on it (restore-asleep, idle
  * stop) live in their own specs.
  *

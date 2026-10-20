@@ -48,7 +48,7 @@ function renameTarget(request: UiRequest): RenameTarget | null {
 }
 
 /**
- * ADR-181 D3/D5: the phone shell — the top bar, the sidebar drawer it
+ * The phone shell — the top bar, the sidebar drawer it
  * opens, and the notifications and (in a browser) hosts sheets the drawer
  * opens. `App` renders it
  * through one slot, at the top of the main column. The drawer and the sheet
@@ -90,7 +90,7 @@ export function PhoneChrome(props: PhoneChromeProps) {
       fn(...args);
     };
 
-  // A pushed notification asks for the history (ADR-162). On a phone neither
+  // A pushed notification asks for the history. On a phone neither
   // the window lead nor the rail — the desk's popover owners — is mounted, so
   // the sheet answers it alone. Likewise a rename: the sidebar that answers
   // it on the desk isn't mounted here.

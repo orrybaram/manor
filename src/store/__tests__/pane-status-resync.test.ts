@@ -1,5 +1,5 @@
 /**
- * Agent status on a bridge resync (ADR-220 D2): `getPaneStatuses` is re-read
+ * Agent status on a bridge resync: `getPaneStatuses` is re-read
  * and replaces what the store held, unless a live status landed while the
  * read was in flight.
  */

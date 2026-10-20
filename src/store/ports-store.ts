@@ -4,7 +4,7 @@ import { useProjectStore } from "./project-store";
 import { onBridgeResync } from "../bridge/resync";
 
 /**
- * The listening-ports list, fed by ONE scanner (ADR-198 §7). The sidebar's
+ * The listening-ports list, fed by ONE scanner. The sidebar's
  * `PortsList` and Home's project tiles both read it; each consumer holds a
  * reference through `acquirePortsScanner`, and the scanner runs while at
  * least one is held.
@@ -23,7 +23,7 @@ export const usePortsStore = create<PortsState>((set) => ({
 function startScanner(): () => void {
   const { setPorts } = usePortsStore.getState();
 
-  // Each workspace travels with its project's host (ADR-183).
+  // Each workspace travels with its project's host.
   const getWorkspaces = () =>
     useProjectStore
       .getState()

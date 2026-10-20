@@ -5,8 +5,7 @@
  * surfaces.
  *
  * Discovery: reads port from ~/.manor/webview-server-port, unless
- * MANOR_CONTROL_PORT_FILE is set — see requestViaControlRelay() below
- * (ADR-189 §3).
+ * MANOR_CONTROL_PORT_FILE is set — see requestViaControlRelay() below.
  */
 
 import * as fs from "node:fs";
@@ -33,7 +32,7 @@ const REMOTE_UNREACHABLE_MESSAGE =
  * (`~/.manor/remote/control-port` on the daemon, named here by
  * `MANOR_CONTROL_PORT_FILE`). Re-read on every request rather than cached,
  * so a daemon restart — which mints a fresh token — doesn't wedge a shell
- * that was already open (ADR-189 §3, "stale tokens"). Returns null if the
+ * that was already open ("stale tokens"). Returns null if the
  * file is missing, unreadable, or malformed.
  */
 function readControlPortFile(file: string): { port: number; token: string } | null {
@@ -54,7 +53,7 @@ function readControlPortFile(file: string): { port: number; token: string } | nu
 /**
  * Send one request through the remote daemon's control relay
  * (`MANOR_CONTROL_PORT_FILE` set — i.e. this CLI is running in a terminal on
- * a remote host, ADR-189 §3). There is exactly one target and no fallback to
+ * a remote host). There is exactly one target and no fallback to
  * `MANOR_WEBVIEW_PORT` or `~/.manor/webview-server-port`: a Manor desktop
  * running on this same box, if any, is not the one that owns this terminal.
  * A missing/unreadable port file or a refused connection both report the

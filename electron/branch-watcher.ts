@@ -58,17 +58,17 @@ export async function readLocalBranch(wsPath: string): Promise<string | null> {
 
 /**
  * Polls the current branch for the open workspaces, one host at a time
- * (ADR-178 §3), through a `PerHostPoller` (ADR-183). The local host keeps
+ * through a `PerHostPoller`. The local host keeps
  * the original 2s fs-based read — it's cheap enough to poll that often. A
  * remote host reads through its backend's `git.currentBranch` (a
  * `git rev-parse` on the box) on a slower 5s cadence; the poller skips a
  * tick while a previous one is still in flight, so a slow or unreachable
  * host cannot pile up requests. Results are keyed by `WorkspaceKey`
- * (ADR-204), so two hosts' identical paths stay apart.
+ * so two hosts' identical paths stay apart.
  */
 export class BranchWatcher {
   private readonly poller: PerHostPoller<Record<string, string>>;
-  /** Each connection's workspaces (ADR-230 D6); the union is polled. */
+  /** Each connection's workspaces; the union is polled. */
   private readonly sets = new WatchedSets<HostPath>();
 
   constructor(
@@ -88,13 +88,13 @@ export class BranchWatcher {
 
   /**
    * Watch `workspaces` for connection `owner`, beside every other
-   * connection's (ADR-230 D6). With none at all, `{}` is emitted once so the
+   * connection's. With none at all, `{}` is emitted once so the
    * renderer clears out any branches left over from before. Restarting with
    * the same branches emits nothing new; a connection whose own list changed
    * is sent the whole picture again, even what was already watched for
    * somebody else.
    *
-   * ADR-180 D5: there is no window argument. This used to push into one
+   * There is no window argument. This used to push into one
    * `webContents`; a `branches.changed` broadcast reaches every renderer
    * attached to this host — both desktop windows and any paired browser —
    * through the bridge's sink, and the watcher goes back to not knowing

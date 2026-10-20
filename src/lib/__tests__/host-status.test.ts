@@ -168,7 +168,7 @@ describe("describeHost", () => {
     });
   });
 
-  it("reads a sleeping host as asleep: away, calm, and nothing to retry (ADR-229 D1)", () => {
+  it("reads a sleeping host as asleep: away, calm, and nothing to retry", () => {
     expect(describeHost(host({ status: "sleeping" }), 0)).toMatchObject({
       offline: true,
       busy: false,
@@ -223,7 +223,7 @@ describe("isHostOffline", () => {
     expect(isHostOffline("unknown", hosts)).toBe(false);
   });
 
-  it("takes a connected bridge of the page's own to the host as the host answering (ADR-228 D6)", () => {
+  it("takes a connected bridge of the page's own to the host as the host answering", () => {
     const direct = (hostId: string) => (hostId === "box" ? ("connected" as const) : undefined);
     expect(isHostOffline("box", hosts, direct)).toBe(false);
     // An unreachable bridge says nothing main does not: main is the source.
@@ -291,7 +291,7 @@ describe("groupHostState", () => {
 });
 
 /**
- * A relay room the page reaches directly and finds unreachable (ADR-231 D8):
+ * A relay room the page reaches directly and finds unreachable:
  * on a phone, the desktop's own room. Its own last word in the host list
  * (its `local` host, stamped with the room) still says connected.
  */
@@ -317,7 +317,7 @@ describe("isHostOffline with an unreachable room of the page's own", () => {
     expect(isHostOffline("room", stale, () => "unknown", () => undefined, room)).toBe(false);
   });
 
-  it("leaves a desktop window's own bridge to main's word (ADR-228 D6)", () => {
+  it("leaves a desktop window's own bridge to main's word", () => {
     expect(isHostOffline("room", stale, () => "unreachable", () => undefined, () => false)).toBe(false);
     expect(isHostOffline("room", stale, () => "unreachable")).toBe(false);
   });

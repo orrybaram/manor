@@ -1,5 +1,5 @@
 /**
- * `manor-host port-pipe` (ADR-229 D3) against a real local echo server, with
+ * `manor-host port-pipe` against a real local echo server, with
  * the process's stdio injected.
  */
 

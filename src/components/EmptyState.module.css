@@ -27,7 +27,7 @@
 }
 
 /*
- * Doubled selectors: rows are `<Button variant="ghost">` now (ADR-194 §1), and
+ * Doubled selectors: rows are `<Button variant="ghost">` now, and
  * the ghost variant's own padding/colour rules share this class's specificity.
  * Doubling `.action` outranks `.ghost` (and `.ghost:hover:not(:disabled)`)
  * regardless of CSS-module import order, so the launcher/dashboard rows stay

@@ -33,7 +33,7 @@ export const CREATE_HOST_PROP = {
 export interface WorkspaceFolder {
   id: string;
   name: string;
-  /** Enclosing folder, or null at the top level (ADR-172). */
+  /** Enclosing folder, or null at the top level. */
   parentId?: string | null;
 }
 
@@ -55,11 +55,11 @@ export interface ProjectInfo {
   worktreeStartScript?: string | null;
   folders?: WorkspaceFolder[];
   sidebarOrder?: string[];
-  /** The host the project lives on (ADR-160). */
+  /** The host the project lives on. */
   hostId?: string;
   /** That host's label: its ssh target, or "this Mac". */
   host?: string;
-  /** Its linked-project group, as `GET /projects` lists it (ADR-192). */
+  /** Its linked-project group, as `GET /projects` lists it. */
   group?: ProjectGroupListing | null;
 }
 
@@ -263,7 +263,7 @@ const tools: ToolDef[] = [
     },
   },
 
-  // ── Folders (ADR-167) ──
+  // ── Folders ──
 
   {
     name: "list_folders",

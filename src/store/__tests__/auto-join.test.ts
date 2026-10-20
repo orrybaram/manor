@@ -7,7 +7,7 @@ import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "../auto-join";
 import { useHostStore } from "../host-store";
 import { useToastStore } from "../toast-store";
 
-// ADR-214: main joins same-origin projects; the store shows one toast per
+// Main joins same-origin projects; the store shows one toast per
 // pair (a summary from three), each with an Undo that reverts via main.
 
 const api = {

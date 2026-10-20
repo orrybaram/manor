@@ -12,9 +12,9 @@ import {
   sentCommands,
 } from "./fake-layout-server";
 
-// ADR-191: a local and a remote workspace at the same path keep separate
+// A local and a remote workspace at the same path keep separate
 // layouts, keyed by host plus path — on the Manor server, which owns them
-// (ADR-179 D1), and so in every renderer's replica — and each restored pane
+// and so in every renderer's replica — and each restored pane
 // comes back on the host its workspace is on.
 
 const SHARED = "/home/me/.manor/worktrees/app/feat";
@@ -144,7 +144,7 @@ describe("layouts keyed by host plus path", () => {
   });
 });
 
-// ADR-191 §3: the server moves a moved project's layouts (`LayoutStore.
+// The server moves a moved project's layouts (`LayoutStore.
 // moveWorkspaces`); the renderer's copy of what it was handed must follow,
 // or picking a moved workspace that wasn't open would start empty.
 describe("a host move for a workspace that isn't open", () => {

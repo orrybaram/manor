@@ -14,7 +14,7 @@ export interface OnboardingProps {
 }
 
 /**
- * The zero-projects onboarding screen (ADR-194 §3): the logo and an
+ * The zero-projects onboarding screen: the logo and an
  * "Add a project" card. Shown in place of every surface until a project exists.
  */
 export function Onboarding(props: OnboardingProps) {
@@ -32,7 +32,7 @@ export function Onboarding(props: OnboardingProps) {
         </div>
         <div className={styles.addCard} data-testid="add-project-card">
           <span className={styles.addCardTitle}>Add a project</span>
-          {/* No filesystem picker in a browser tab (ADR-178): "Open a folder"
+          {/* No filesystem picker in a browser tab: "Open a folder"
               is desktop-only, but cloning onto the host works from here. */}
           {!isWebApp() && (
             <Button

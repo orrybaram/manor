@@ -1,22 +1,22 @@
 /**
- * The host surface (ADR-180 D1).
+ * The host surface.
  *
  * One table of what this machine can do, one dispatcher for it, one registry
  * of who is connected, and one fan-out of everything that happens. A caller
  * reaches it as a `BridgeConnection` — today a socket from a paired device
- * (`transports/ws.ts`), and under D2 an Electron renderer window as well —
- * and this class cannot tell which, on purpose: that is the whole of D1.
+ * (`transports/ws.ts`), and an Electron renderer window as well — and this
+ * class cannot tell which, on purpose.
  *
- * All of it was `WsBridgeServer` until ADR-180, and is lifted out of it
- * unchanged. What was removed is everything a WebSocket needs and a window
- * does not: the hello frame, the five-second timeout, the close codes, the
- * `readyState` check and JSON. A transport does those; `send(frame)` is the
- * whole of what this side asks of one.
+ * All of it was once `WsBridgeServer`, and is lifted out of it unchanged.
+ * What was removed is everything a WebSocket needs and a window does not: the
+ * hello frame, the five-second timeout, the close codes, the `readyState`
+ * check and JSON. A transport does those; `send(frame)` is the whole of what
+ * this side asks of one.
  *
  * **Authentication is not here.** Remote control decides whether a token is
  * good and whether its device is `full`; this class never learns what a token
  * is. It is told the answer once, as a `callerClass`, and does three things
- * with it: `LOCAL_ONLY` (D4), the audit line, and handing it to the handler
+ * with it: `LOCAL_ONLY`, the audit line, and handing it to the handler
  * as `ctx.caller`.
  *
  * **Subscription membership is the whole event filter.** A connection that
@@ -24,7 +24,7 @@
  * it the daemon produces. Nothing here decides *when* something changed:
  * `renderer-broadcast.ts` and the PTY stream do, and this class forwards.
  *
- * **Generic over its deps** (ADR-225, ADR-226). The desktop runs it over
+ * **Generic over its deps**. The desktop runs it over
  * `HostDeps` and `DESKTOP_TABLE` (`./handlers.ts`); a host server runs it over
  * `HostServerDeps` and its allowlist (`../host-server/handlers.ts`), and its
  * bundle never imports the desktop table, which reaches Electron. The table
@@ -56,7 +56,7 @@ import {
 } from "./types";
 
 /**
- * The little of its deps the server itself reads (ADR-225 D6): a session's
+ * The little of its deps the server itself reads: a session's
  * grid, for the winsize-owner push. The desktop's `HostDeps` has it; so does
  * the host server's `HostServerDeps`, which carries no window or menu.
  */
@@ -69,7 +69,7 @@ export interface BridgeServerDeps {
  *
  * Never throws: a caller that cannot be told the owner's size is better off
  * with the size it asked for than with a failed `pty.create`. Shared by the
- * ownership-change push below (D6) and `handlers/pty.ts`'s create-shaped
+ * ownership-change push below and `handlers/pty.ts`'s create-shaped
  * calls, which need the same "ask the daemon, shrug on failure" lookup.
  */
 export async function sessionGrid(
@@ -101,7 +101,7 @@ interface Registered {
 }
 
 /**
- * Where a routed call goes when it names a remote host (ADR-227 D4). Only
+ * Where a routed call goes when it names a remote host. Only
  * the desktop has one: it answers such a call through that host's
  * `HostProxy` instead of running the handler here. A host server has no
  * hosts of its own, so it never forwards.
@@ -172,7 +172,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
     this.unsubscribeBroadcasts = options.events((broadcast) =>
       this.onBroadcast(broadcast),
     );
-    // D6: told whenever `pty-attachments.ts` decides a pane's winsize owner
+    // Told whenever `pty-attachments.ts` decides a pane's winsize owner
     // changed — a viewer's `pty.create`/`close`/`detach`, a desktop window
     // attaching or dying, or (below) a connection of this server's own
     // dropping. One place turns that into a push, whichever side caused it.
@@ -205,7 +205,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
    * A dead connection releases every pane it was a viewer of — a browser
    * that vanished mid-session, or a window that closed without unmounting
    * its panes, must not keep outvoting the viewers still there for who owns
-   * the winsize (ADR-179 D6). Transports call this only for connections they
+   * the winsize. Transports call this only for connections they
    * actually accepted: one that never got past authentication never attached
    * anything, so there is nothing to release and nobody to tell.
    */
@@ -281,7 +281,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
         // `drop` released it, so release it again — unless a new connection
         // has taken the id meanwhile. Disconnect sinks hear of it again for
         // the same reason (a watch start would otherwise leave a set behind
-        // for an id that never disconnects again, ADR-230 D6), so they must
+        // for an id that never disconnects again), so they must
         // treat a repeated id as harmless.
         if (!this.connections.has(connection.id)) {
           releaseViewer(connection.id);
@@ -317,7 +317,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
     frame: InvokeFrame,
   ): Promise<ResultFrame> {
     const id = frame.id;
-    // Liveness, not a method (ADR-231 D8): answered for every caller, and
+    // Liveness, not a method: answered for every caller, and
     // never routed, audited or looked up in the table.
     if (frame.ns === PING_NS && frame.method === PING_METHOD) {
       return { id, kind: "result", ok: true, result: null };
@@ -325,8 +325,8 @@ export class BridgeServer<D extends BridgeServerDeps> {
     const args = frame.args;
     const key = `${frame.ns}.${frame.method}`;
     const handler = this.table.handlers[key];
-    // Absent from the table, or on it but refused to this class of caller
-    // (D4) — one answer for both, because the difference is none of a
+    // Absent from the table, or on it but refused to this class of caller —
+    // one answer for both, because the difference is none of a
     // device's business and the client renders the same empty state either
     // way.
     //
@@ -354,8 +354,8 @@ export class BridgeServer<D extends BridgeServerDeps> {
     }
 
     const audited = this.table.mutating.has(key);
-    // A call that names a remote host is that host's server's to answer
-    // (ADR-227 D4): the same rules above, audited here, run there.
+    // A call that names a remote host is that host's server's to answer:
+    // the same rules above, audited here, run there.
     const route = this.table.routes.get(key);
     const remote = route ? this.routeTarget(route, args) : null;
     const forward = this.forward;
@@ -367,7 +367,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
             forward.invoke(remote, frame.ns, frame.method, a, c.caller)
         : (handler as (ctx: HandlerCtx<D>, ...args: unknown[]) => unknown);
     // Who sent it comes from the connection, never from the frame: a caller
-    // does not get to say which caller it is (ADR-179 D3).
+    // does not get to say which caller it is.
     const ctx: HandlerCtx<D> = {
       deps: this.deps,
       caller: {
@@ -429,7 +429,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
    * Told whenever a connection subscribes to, unsubscribes from, or drops
    * with a subscription to `name` (`ns.event`) at `key` (`ALL_KEYS` for a
    * keyless one). Not a count: ask `hasSubscriber`. The chat mirror
-   * (ADR-215 D4) watches a pane's transcript only while this says somebody
+   * watches a pane's transcript only while this says somebody
    * is listening.
    */
   onSubscriptionChange(cb: (name: string, key: string) => void): () => void {
@@ -451,7 +451,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
   /**
    * `ns.event` to every connection that asked for it — at `key`, for a keyed
    * event. `pty.*` comes from the stream (`handleStreamEvent`), and
-   * `chat.entry` from the chat mirror (ADR-215 D4): a broadcast has no key,
+   * `chat.entry` from the chat mirror: a broadcast has no key,
    * so a per-pane push that is not a stream event comes through here.
    */
   publish<N extends EventNs, E extends EventOf<N>>(
@@ -466,8 +466,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
   /**
    * `ns.event` to one connection, if it asked for it (at `key`, for a keyed
    * event): a push whose arguments differ per connection. `HostRouting` tells
-   * each caller viewing a remote pane its own `winsizeOwner` this way
-   * (ADR-230 D10).
+   * each caller viewing a remote pane its own `winsizeOwner` this way.
    */
   publishTo<N extends EventNs, E extends EventOf<N>>(
     connectionId: string,
@@ -496,9 +495,9 @@ export class BridgeServer<D extends BridgeServerDeps> {
   }
 
   /**
-   * Whether a desktop window's viewer stream (ADR-228 D4) is subscribed to
+   * Whether a desktop window's viewer stream is subscribed to
    * `ns.event` at any key — for `pty.output`, a window has a pane of this
-   * server's mounted (ADR-229 D7).
+   * server's mounted.
    */
   hasDesktopViewerSubscriber(ns: string, event: string): boolean {
     const name = `${ns}.${event}`;
@@ -509,8 +508,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
   }
 
   /**
-   * Who is subscribed to `ns.event` at any key, by kind of viewer (ADR-230
-   * D1): a desktop window's viewer stream, a paired device, and the owner
+   * Who is subscribed to `ns.event` at any key, by kind of viewer: a desktop window's viewer stream, a paired device, and the owner
    * channel (main forwarding a pane it watches for another window).
    */
   viewing(ns: string, event: string): ViewingState {
@@ -557,7 +555,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
     // the row of `BridgeEvents.pty` it is published as. The rest (`paneFacts`,
     // exec output, hook events, control requests) are main's alone; a pane's
     // Agent status reaches a renderer as `agents.status`, from the Status
-    // reconciler (ADR-184), not from the stream.
+    // reconciler, not from the stream.
     switch (event.type) {
       case "data":
         this.publish("pty", "output", [event.data, event.seq], event.sessionId);
@@ -594,7 +592,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
 
   /**
    * A pane's winsize owner changed: tell every connection watching it whether
-   * it is the owner now (D6).
+   * it is the owner now.
    *
    * The grid comes from the daemon rather than from whoever just attached,
    * because the two cases this fires for disagree about whose number is
@@ -606,12 +604,12 @@ export class BridgeServer<D extends BridgeServerDeps> {
    */
   private async onOwnerChanged(paneId: string): Promise<void> {
     if (this.connections.size === 0) return;
-    // A pane on a host server is `HostRouting`'s to tell (ADR-230 D10): the
+    // A pane on a host server is `HostRouting`'s to tell: the
     // host's answer goes with this side's.
     if (this.routeTarget(byPane(0), [paneId]) !== null) return;
     const grid = await sessionGrid(this.deps, paneId);
     if (!grid) return;
-    // A pane held elsewhere (ADR-225 D5) answers a foreign owner no
+    // A pane held elsewhere answers a foreign owner no
     // connection here matches: everyone is told `owner: false`.
     const owner = ownerOf(paneId);
     // One frame per connection, not one fanned out: `owner` is each
@@ -646,15 +644,15 @@ export class BridgeServer<D extends BridgeServerDeps> {
    * | `layout.changed`        | `layout.onChanged(cb)`           |
    * | `theme.changed`         | `theme.onChanged(cb)`            |
    *
-   * `layout.changed` is the one that carries a *whole* workspace layout
-   * (ADR-179 D1): the server is the only writer, so a renderer replaces its
+   * `layout.changed` is the one that carries a *whole* workspace layout:
+   * the server is the only writer, so a renderer replaces its
    * replica rather than patching it.
    *
    * `theme.changed` keeps a second desktop window and every browser on the
    * bridge in sync with the theme a `theme.setSelected` call chose, rather
    * than each holding the theme it last remounted with.
    *
-   * ADR-180 D5 adds the addressed half: a broadcast carrying a `to` is for
+   * There is also an addressed half: a broadcast carrying a `to` is for
    * exactly one connection — `appCommands.command` to the primary window,
    * `menu.command` to the focused one, `projects.worktreeProgress` to
    * whoever asked for the worktree. Broadcast cannot express those, and a
@@ -715,7 +713,7 @@ export class BridgeServer<D extends BridgeServerDeps> {
     status: number,
   ): void {
     // A local call is never audited: it is the user at the machine, and a log
-    // line per window is a log of the app using itself (ADR-180 D4).
+    // line per window is a log of the app using itself.
     const { deviceId, deviceLabel } = connection;
     if (deviceId === null || deviceLabel === null) return;
     this.audit.append({

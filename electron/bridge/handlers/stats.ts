@@ -4,7 +4,7 @@ import type { StatsSummary } from "../../stats-store";
 import { method, type HandlerCtx } from "../method";
 
 /**
- * ADR-168's usage-stats surface, whole. `statsStore` is
+ * The usage-stats surface, whole. `statsStore` is
  * main's single source of truth; the renderer only caches the summary it
  * broadcasts here.
  *

@@ -31,7 +31,7 @@ export function useCustomCommands({
 
     const runInNewTab = (command: string) => {
       // addTerminalTab queues the command against the new tab's own pane, on
-      // the server (ADR-179 ticket 11), so it runs whichever renderer mounts
+      // the server, so it runs whichever renderer mounts
       // the pane and regardless of the cwd that pane resolves to.
       addTerminalTab(command);
       onClose();

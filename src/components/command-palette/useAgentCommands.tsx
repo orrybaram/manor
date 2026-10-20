@@ -68,7 +68,7 @@ export function useAgentCommands({
     const fmt = (id: string) =>
       bindings[id] ? formatCombo(bindings[id], platform) : undefined;
 
-    // The Dashboard has no tabs to host a new agent (ADR-197).
+    // The Dashboard has no tabs to host a new agent.
     const items: CommandItem[] = onHome ? [] : [
       {
         id: "new-agent",

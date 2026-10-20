@@ -71,7 +71,7 @@ export function makeTmpDir(): string {
  * `replayHooks` from it, and broadcasts each journaled hook as a `hookEvent`
  * to every authenticated stream socket (`emitHook`). It relays control
  * requests to the stream that asked for them, as the remote role does
- * (`controlRelay`, `startControlListener`; ADR-189 §1, ADR-227 D8).
+ * (`controlRelay`, `startControlListener`).
  */
 export class E2EDaemon {
   private server: net.Server;
@@ -103,7 +103,7 @@ export class E2EDaemon {
 
   /**
    * Journal one agent hook and broadcast it, as the remote daemon's hook
-   * listener does for a hook script's request (ADR-178 §2).
+   * listener does for a hook script's request.
    */
   emitHook(payload: HookPayload): HookJournalEntry {
     const entry = this.journal.append(payload);

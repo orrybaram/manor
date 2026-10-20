@@ -20,7 +20,7 @@ export type SearchableSelectOption = {
   /** A dimmer second line in the list that tells similar options apart. */
   hint?: string;
   /** Shown after the label, before the check mark, and on the trigger when
-   *  selected (ADR-237 D4). */
+   *  selected. */
   trailing?: React.ReactNode;
 };
 
@@ -48,7 +48,7 @@ type SearchableSelectProps = {
   /** The trigger's accessible name when no `<label>` points at it: a
    *  combobox is not named by the value it shows. */
   "aria-label"?: string;
-  /** Max height of the options list in px (ADR-237 D4). */
+  /** Max height of the options list in px. */
   listMaxHeight?: number;
 };
 

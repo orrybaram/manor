@@ -1,6 +1,6 @@
 /**
  * A project's branches: detecting its default branch, and listing local and
- * remote ones (ADR-183 split this out of `ProjectManager`).
+ * remote ones.
  */
 
 import type { GitBackend } from "../backend/types";
@@ -129,7 +129,7 @@ export async function listRemoteBranches(
     // Natural network touchpoint: refresh origin/HEAD (a plain fetch does NOT
     // update it) so an upstream default-branch rename is picked up here rather
     // than on every app launch, then resync this project's defaultBranch.
-    // Best-effort — must never block branch listing. See ADR-144.
+    // Best-effort — must never block branch listing.
     try {
       await git.exec(project.path, ["remote", "set-head", "origin", "--auto"]);
       const detected = await detectDefaultBranchLocal(git, project.path);

@@ -1,6 +1,6 @@
 /**
- * The New Workspace dialog's host picker for a linked-project group
- * (ADR-192): one choice per member, each naming the member project a new
+ * The New Workspace dialog's host picker for a linked-project group:
+ * one choice per member, each naming the member project a new
  * workspace would be created in. DOM-free, so the project-store tests drive
  * it directly. The rest of the dialog's decisions are in `new-workspace.ts`.
  */

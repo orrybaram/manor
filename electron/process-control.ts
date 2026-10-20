@@ -1,6 +1,6 @@
 /**
  * Process-control logic shared by the `processes:*` IPC handlers
- * (`electron/ipc/processes.ts`) and, once ADR-171's system routes land, the
+ * (`electron/ipc/processes.ts`) and, once the system routes land, the
  * `/processes` HTTP routes. Extracted so neither caller duplicates it.
  *
  * Each function takes exactly what it needs as explicit parameters — never
@@ -158,7 +158,7 @@ export interface KillAllProcessesDeps {
   agentManager: AgentManager;
   statsStore: StatsStore;
   portScanner: PortScanner;
-  /** The adopted hosts' agents, for a remote pane's kill (ADR-230 D14). */
+  /** The adopted hosts' agents, for a remote pane's kill. */
   hostRouting?: Pick<HostRouting, "agents">;
 }
 

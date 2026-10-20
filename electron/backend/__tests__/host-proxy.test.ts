@@ -1,5 +1,5 @@
 /**
- * `HostProxy` (ADR-227 D4) against a real host server in this process
+ * `HostProxy` against a real host server in this process
  * (`useHostServerHarness`), over the real `HostServerClient`: the host's
  * events republished into a desktop bus in the desktop's form, its
  * subscriptions surviving a server restart, and its last state served from
@@ -83,7 +83,7 @@ function proxyFor(
   return proxy;
 }
 
-describe("HostProxy (ADR-227 D4)", () => {
+describe("HostProxy", () => {
   const h = useHostServerHarness();
 
   /** The host takes `box`'s records from a desktop, as ticket 6 runs it. */

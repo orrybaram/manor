@@ -1,5 +1,5 @@
 /**
- * Projects and their persistence now live in `electron/projects/` (ADR-183);
+ * Projects and their persistence now live in `electron/projects/`;
  * this re-exports their public surface for existing importers.
  */
 

@@ -9,7 +9,7 @@ import { LOCAL_HOST_ID } from "../lib/hosts";
  * host main hasn't reported. Ticks once a second while a reconnect is
  * scheduled so the countdown stays live; otherwise it only re-renders when
  * the host's status changes, or this page's own bridge to it does, or the
- * servers that list it do (`sourcedHost`, ADR-228 D6). A host this page
+ * servers that list it do (`sourcedHost`). A host this page
  * reaches through a relay room goes by `useServerHostName`, not its room id.
  */
 export function useHostDisplay(hostId: string | null | undefined): HostDisplay | undefined {

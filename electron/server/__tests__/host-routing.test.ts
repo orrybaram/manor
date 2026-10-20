@@ -1,5 +1,5 @@
 /**
- * The desktop as a client of a host server (ADR-227 D4), against a real host
+ * The desktop as a client of a host server, against a real host
  * server in this process (`useHostServerHarness`): a desktop that has handed
  * `box` its records reads them back through `box`'s proxy — merged into its
  * project list under its own groups — routes calls for them there, and is
@@ -103,11 +103,11 @@ function ownerClient(h: HostServerHarness): HostServerClient {
   return client;
 }
 
-describe("HostRouting (ADR-227 D4)", () => {
+describe("HostRouting", () => {
   const h = useHostServerHarness();
 
   /**
-   * A desktop that has handed `box` its records (D3), opened again the way a
+   * A desktop that has handed `box` its records, opened again the way a
    * launch would: its `ProjectManager` reading `box`'s through the proxy.
    */
   async function adoptedDesktop() {
@@ -148,7 +148,7 @@ describe("HostRouting (ADR-227 D4)", () => {
       saveDelayMs: 10,
       log: quiet,
       // As the desktop wires it: the host's `winsizeOwner` is told each
-      // caller here on its own (ADR-230 D10).
+      // caller here on its own.
       publishKeyed: (ns, event, args, key) => {
         if (ns === "pty" && routing.onHostPtyEvent(event as HostPtyEvent, args, key)) return;
         keyed.push({ ns, event, args, key });
@@ -389,7 +389,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     );
   });
 
-  it("sends the desktop's control requests for the host's projects there (ADR-227 D8)", async () => {
+  it("sends the desktop's control requests for the host's projects there", async () => {
     const { routing, projectManager } = await adoptedDesktop();
     const deps = { projectManager, hostRouting: routing };
     const answered = await control(deps, "POST", "/projects/box-app/workspaces/rename", {
@@ -450,7 +450,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect(left).not.toContain("box-1");
   });
 
-  it("routes a new pane's create by the host its options name (ADR-228 D5)", async () => {
+  it("routes a new pane's create by the host its options name", async () => {
     const { routing } = await adoptedDesktop();
     const create = byPane(0, 4);
     // No layout holds it yet: the create says which host it is for.
@@ -463,7 +463,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect(routing.target(create, ["pane-box", "/x", 80, 24, { hostId: "local" }])).toBe("box");
   });
 
-  it("forwards a remote pane's terminal, and republishes its events by pane (ADR-228 D5)", async () => {
+  it("forwards a remote pane's terminal, and republishes its events by pane", async () => {
     const { routing, keyed } = await adoptedDesktop();
     await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
     const subs = fakeSubscriptions();
@@ -511,7 +511,7 @@ describe("HostRouting (ADR-227 D4)", () => {
   });
 
   /**
-   * Two callers of the desktop's on one pane on box (ADR-230 D10): a window
+   * Two callers of the desktop's on one pane on box: a window
    * whose own stream to box is down, so it went through main, opens it at
    * 100×30, then a phone paired only with the desktop opens it at 50×20.
    * `ptyCalls` is what main sent box, by method.
@@ -535,7 +535,7 @@ describe("HostRouting (ADR-227 D4)", () => {
 
   const PHONE: Caller = { id: "phone-1", callerClass: "device", deviceId: "d1" } as Caller;
 
-  it("lets only the caller that owns a remote pane here size it on the host (ADR-230 D10)", async () => {
+  it("lets only the caller that owns a remote pane here size it on the host", async () => {
     const { routing, ptyCalls, window, phone, owns } = await twoForwardedCallers();
     // The window outranks the phone: the phone follows the window's grid,
     // and its own never reaches box.
@@ -571,7 +571,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect([owns(WINDOW.id), owns(PHONE.id)]).toEqual([true, false]);
   });
 
-  it("keeps box's viewer while another caller here views the pane, and detaches it once (ADR-230 D10)", async () => {
+  it("keeps box's viewer while another caller here views the pane, and detaches it once", async () => {
     const { routing, ptyCalls, keyed, owns } = await twoForwardedCallers();
     const shell = ptySubprocess();
     // The window lets go: box is not detached, and the phone owns the grid.
@@ -591,7 +591,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect(ptyCalls("detach")).toEqual([["pane-box"]]);
   });
 
-  it("detaches box's viewer when the last caller here drops without detaching (ADR-230 D10)", async () => {
+  it("detaches box's viewer when the last caller here drops without detaching", async () => {
     const { attachments, ptyCalls } = await twoForwardedCallers();
     // A connection that drops is released (`BridgeServer.drop`).
     attachments.releaseViewer(WINDOW.id);
@@ -601,7 +601,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     expect(ptyCalls("detach")).toEqual([["pane-box"]]);
   });
 
-  it("carries a pane's output while the window's own stream to the host is down (ADR-228 D5)", async () => {
+  it("carries a pane's output while the window's own stream to the host is down", async () => {
     const { routing, keyed } = await adoptedDesktop();
     await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
     const subs = fakeSubscriptions();
@@ -623,7 +623,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     );
   });
 
-  it("answers a pane's create on a host that is away as a host to wait for (ADR-228 D5)", async () => {
+  it("answers a pane's create on a host that is away as a host to wait for", async () => {
     const { routing, proxy } = await adoptedDesktop();
     await eventually(() => routing.target(byPane(0), ["pane-box"]), Boolean, "box's layout");
     await h.stop();
@@ -642,7 +642,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     );
   });
 
-  it("gives a remote workspace's layout the desktop windows' claims (ADR-228 D7)", async () => {
+  it("gives a remote workspace's layout the desktop windows' claims", async () => {
     const { routing, heard, claims } = await adoptedDesktop();
     const key = `box:${BOX_WT}` as WorkspaceKey;
     await eventually(() => routing.layout()[key], Boolean, "box's layout");
@@ -665,7 +665,7 @@ describe("HostRouting (ADR-227 D4)", () => {
     });
   });
 
-  it("drops a window's claim on a remote tab once the host closes it (ADR-230 D9)", async () => {
+  it("drops a window's claim on a remote tab once the host closes it", async () => {
     const { routing, heard, desktopLayout, windowClaims } = await adoptedDesktop();
     const key = `box:${BOX_WT}` as WorkspaceKey;
     await eventually(() => routing.layout()[key], Boolean, "box's layout");
@@ -764,7 +764,7 @@ describe("HostRouting's setup progress", () => {
   });
 });
 
-describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
+describe("HostRouting waking a sleeping host", () => {
   /**
    * An adopted `box` that is asleep: its proxy answers only once `wake`
    * has connected it, as a real one does once its owner channel is back.
@@ -830,7 +830,7 @@ describe("HostRouting waking a sleeping host (ADR-229 D1)", () => {
     expect(sent).toEqual(["pty.create"]);
   });
 
-  it("leaves the host asleep for a restored pane's create or attach (ADR-230 D3)", async () => {
+  it("leaves the host asleep for a restored pane's create or attach", async () => {
     const { routing, wake, sent } = sleepingBox();
 
     const created = await routing.invoke(

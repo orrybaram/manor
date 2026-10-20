@@ -96,7 +96,7 @@ export function waitForAgentStatus(
     `agent ${agentId} in ${status}`,
     async () => {
       // All agents, not just active ones: an agent that ended reports `idle`
-      // with a `completed` lifecycle (ADR-184).
+      // with a `completed` lifecycle.
       const agents = await listAllAgents(request, tempHome);
       return (
         agents.find((t) => t.id === agentId && t.lastAgentStatus === status) ??
@@ -206,7 +206,7 @@ export interface SessionRead {
  * Rendered scrollback for an agent handle or a raw pane id, with the grid the
  * daemon drew it at.
  *
- * `cols`/`rows` are what ADR-178's winsize-ownership tests need: the daemon
+ * `cols`/`rows` are what the winsize-ownership tests need: the daemon
  * hands them back on every read (see `agents.ts`'s `/sessions/read` handler),
  * so a test can prove the desktop's grid never moved without going anywhere
  * near the renderer that owns it.

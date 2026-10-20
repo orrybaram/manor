@@ -1,13 +1,13 @@
 /**
  * Renderer-side handlers for the correlated "app-command" channel.
  *
- * ADR-179 D5 shrank this to exactly the commands that still need a window:
- * **viewport** — focus, select, next/prev tab, activate a workspace — because
- * the server has no answer to "which window?" (D3). Every structural command
+ * This is exactly the commands that still need a window: **viewport** —
+ * focus, select, next/prev tab, activate a workspace — because the server
+ * has no answer to "which window?". Every structural command
  * (split, close, move, new tab, reopen, …) moved to
  * `electron/routes/panes-structural.ts`, which drives `LayoutStore` directly and needs no
  * renderer at all; `start-agent` followed it into `electron/routes/agents.ts`
- * once the pending launch line had a server-side home (ticket 11).
+ * once the pending launch line had a server-side home.
  *
  * Main cannot mutate the pane/layout store, so it sends a command and awaits a
  * reply (see `requestRenderer` in electron/renderer-bridge.ts). This module is
@@ -19,7 +19,7 @@
  * `{ ok: false, error }`, which main maps onto an HTTP status.
  *
  * A new workspace's setup script is not one of them: the server runs it
- * itself, in a tab of its own (ADR-227 D5).
+ * itself, in a tab of its own.
  */
 
 import {
@@ -69,7 +69,7 @@ function optionalString(
 // ---------------------------------------------------------------------------
 
 function requireActiveLayout(state: AppState): WorkspaceLayout {
-  // The active workspace's own layout, on its host (ADR-191); none on Home.
+  // The active workspace's own layout, on its host; none on Home.
   const layout = selectActiveLayout(state);
   if (!layout) throw new Error("No active workspace");
   return layout;
@@ -109,7 +109,7 @@ function isKnownWorkspace(state: AppState, key: WorkspaceKey): boolean {
 
 /**
  * The key of the workspace an app-command names: its `workspacePath` on its
- * `hostId`, which main adds from the project it knows (ADR-191). Without
+ * `hostId`, which main adds from the project it knows. Without
  * one, the host of the project that has the path.
  */
 function workspaceKeyArg(args: Record<string, unknown>, workspacePath: string): WorkspaceKey {
@@ -117,7 +117,7 @@ function workspaceKeyArg(args: Record<string, unknown>, workspacePath: string): 
 }
 
 // ---------------------------------------------------------------------------
-// Viewport handlers (ADR-179 D3) — what this window is looking at. No
+// Viewport handlers — what this window is looking at. No
 // `LayoutCommand` goes out; the server has no notion of "which window?".
 // ---------------------------------------------------------------------------
 

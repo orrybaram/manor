@@ -105,11 +105,11 @@ describe("Session", () => {
     });
   });
 
-  describe("output sequence numbers (ADR-159)", () => {
+  describe("output sequence numbers", () => {
     /**
      * Sequence numbers carried by the data events a socket received.
      *
-     * `seq` is optional on the wire (a pre-ADR-159 host omits it), so a data
+     * `seq` is optional on the wire (an older host omits it), so a data
      * event without one is exactly what these tests exist to catch: it fails
      * here, by name, instead of arriving as an `undefined` inside an
      * assertion about numbers.
@@ -336,7 +336,7 @@ describe("Session", () => {
     });
   });
 
-  describe("attachedClients (ADR-225 D5)", () => {
+  describe("attachedClients", () => {
     it("counts attached stream sockets in the session info", () => {
       const a = mockSocket();
       const b = mockSocket();
@@ -459,15 +459,15 @@ describe("Session", () => {
   });
 
   /**
-   * The property under test is not "resizes are ordered" — ADR-164 owns that,
-   * and `src/lib/__tests__/terminal-resize-ordering.test.ts` drives the client
-   * half of it. It is that a client can never be left believing a size the pty
+   * The property under test is not "resizes are ordered" — that is tested
+   * elsewhere, and `src/lib/__tests__/terminal-resize-ordering.test.ts` drives
+   * the client half of it. It is that a client can never be left believing a size the pty
    * does not have. A grid that wraps at a different width than the program does
    * strands a copy of every frame the program repaints, off the top of the
    * screen where nothing can erase it afterwards, and it stays wrong until
-   * something puts it right. See ADR-165.
+   * something puts it right.
    */
-  describe("resize (ADR-165)", () => {
+  describe("resize", () => {
     /** The `resized` events a socket received, in order. */
     function resizedEvents(
       written: string[],
@@ -566,7 +566,7 @@ describe("Session", () => {
     });
   });
 
-  describe("Pane facts (ADR-184)", () => {
+  describe("Pane facts", () => {
     function paneFactsEvents(written: string[]) {
       return written
         .map((line) => JSON.parse(line) as StreamEvent)

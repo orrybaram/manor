@@ -1,7 +1,7 @@
 import type { StatsSummary } from "./stats-store";
 
 /**
- * Milestone badges (ADR-168 §4). Pure and Electron-free so the predicates are
+ * Milestone badges. Pure and Electron-free so the predicates are
  * unit-testable without a `StatsStore`. `StatsStore` runs `evaluateBadges`
  * once per commit and persists newly-earned ids; badges are never revoked.
  *

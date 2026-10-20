@@ -5,7 +5,7 @@ import { createTestRoot, type TestRoot } from "../../../../test-utils/react-root
 import { ConfirmDialog } from "../ConfirmDialog";
 import { addErrorToast, useToastStore } from "../../../../store/toast-store";
 
-/** ADR-232 D6: an async confirm waits, and a failure keeps the dialog open. */
+/** An async confirm waits, and a failure keeps the dialog open. */
 describe("ConfirmDialog with an async onConfirm", () => {
   let root: TestRoot;
 

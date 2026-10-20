@@ -1,5 +1,5 @@
 /**
- * ADR-202 §2: an in-memory tracker for tests. Lists the rows it was given,
+ * An in-memory tracker for tests. Lists the rows it was given,
  * matches links by URL, and never touches `window.electronAPI`.
  */
 

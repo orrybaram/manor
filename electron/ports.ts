@@ -15,8 +15,7 @@ export const RESCAN_MIN_MS = 3000;
  * Polls listening ports for the open workspaces. Workspaces are scanned per
  * host, each host on its own cadence: a slow or unreachable remote host
  * holds back only its own results, never the local ones. Each host is asked
- * through its own backend, and every port comes back tagged with its host
- * (ADR-183).
+ * through its own backend, and every port comes back tagged with its host.
  */
 export class PortScanner {
   private readonly poller: PerHostPoller<ActivePort[]>;
@@ -38,7 +37,7 @@ export class PortScanner {
       },
       intervalMs: () => 3000,
       merge: (results) => this.enrich(results.flat()),
-      // ADR-180 D5: every renderer — desktop windows and paired browsers —
+      // Every renderer — desktop windows and paired browsers —
       // hears `ports.changed`; the scanner knows nothing about windows.
       emit: (ports) => publishRendererBroadcast("ports", "changed", ports),
       // With no workspaces open, this machine's ports are still listed.
@@ -96,8 +95,7 @@ export class PortScanner {
    * Scan `hostId` right away, outside the poller's cadence, and record the
    * result as its latest. Resolves with every host's latest ports (this one
    * fresh), or null when the host has no open workspaces or cannot answer.
-   * For a URL naming a port a remote dev server opened since the last poll
-   * (ADR-178 §5).
+   * For a URL naming a port a remote dev server opened since the last poll.
    */
   async scanHost(hostId: string): Promise<ActivePort[] | null> {
     if (!this.poller.hasHost(hostId)) return null;

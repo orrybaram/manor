@@ -1,5 +1,5 @@
 /**
- * What a caller's *class* changes, and nothing else (ADR-180 D4).
+ * What a caller's *class* changes, and nothing else.
  *
  * Dispatch knows two kinds of caller: `local`, an Electron renderer window on
  * this machine, authenticated by being one, and `device`, a paired device
@@ -7,7 +7,7 @@
  * and exactly two things read the difference:
  *
  * - **`LOCAL_ONLY`** — fifteen methods a device may not call. It is asserted here through real dispatch, method by method,
- *   because the whole point of D4 is that the refusal is a decision written
+ *   because the whole point is that the refusal is a decision written
  *   down rather than an absence: a `Set` entry is one line to delete, and
  *   deleting it has to fail something. The last block pins the membership
  *   by name; the rest pin what membership *does*.
@@ -140,7 +140,7 @@ describe("LOCAL_ONLY, through dispatch", () => {
     },
   );
 
-  // The owner class is a host server's (ADR-225 D4). The desktop's table
+  // The owner class is a host server's. The desktop's table
   // does not name owners in `localOnlyCallers`, so one that reached it would
   // be held to a device's rules, never trusted with what a window may do.
   it.each([...LOCAL_ONLY])(
@@ -181,7 +181,7 @@ describe("LOCAL_ONLY, through dispatch", () => {
 });
 
 /**
- * The table says what kind of server answers (ADR-226): who may call
+ * The table says what kind of server answers: who may call
  * `LOCAL_ONLY`, and the refusal everyone else gets. A host server's names the
  * owner and not a window.
  */
@@ -227,7 +227,7 @@ describe("a table's localOnlyCallers and unavailable", () => {
 });
 
 /**
- * `bridge.ping` (ADR-231 D8): a page's liveness check, answered by the
+ * `bridge.ping`: a page's liveness check, answered by the
  * server itself for every caller class, whatever its table holds or refuses,
  * and never handed to a handler.
  */
@@ -328,7 +328,7 @@ describe("the audit log, by caller class", () => {
   });
 
   /**
-   * A pasted image (ADR-239 D2) is audited once, at the write, with the pane
+   * A pasted image is audited once, at the write, with the pane
    * as target. Its chunks are not: a 16 MiB image is 32 of them, so they
    * would bury the log, and a body is never recorded anyway.
    */
@@ -387,32 +387,32 @@ describe("the audit log, by caller class", () => {
 });
 
 /**
- * The handler table's own refusal list (ADR-180 D4), pinned by name: a
+ * The handler table's own refusal list, pinned by name: a
  * method absent from `HANDLERS` is refused by not existing, and a method
  * present but named here is refused on purpose, in writing, instead of by an
  * accident of the preload never implementing it. The blocks above pin what
  * membership *does*; this one pins who the members are.
  */
-describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
+describe("the bridge's LOCAL_ONLY", () => {
   it("is exactly the methods that name a window or a per-host resource", () => {
     expect([...LOCAL_ONLY].sort()).toEqual(
       [
-        // ADR-180 ticket 5: one prewarmed session per host.
+        // One prewarmed session per host.
         "pty.consumePrewarmed",
         "pty.updatePrewarmCwd",
-        // ADR-180 ticket 6: the desk's own viewport file, and the reply half
+        // The desk's own viewport file, and the reply half
         // of an app-command addressed to the primary window only.
         "viewport.load",
         "viewport.save",
         "appCommands.result",
-        // ADR-180 ticket 7: the keybindings page is read-only on web
-        // (ADR-178 ticket 6), and a popout's forwarded command names a
+        // The keybindings page is read-only on web
+        // and a popout's forwarded command names a
         // window a device does not have.
         "keybindings.set",
         "keybindings.reset",
         "keybindings.resetAll",
         "keybindings.runInMainWindow",
-        // ADR-180 ticket 10: the keys, and the lock they turn. A stolen
+        // The keys, and the lock they turn. A stolen
         // `full` token that can pair more devices is a token that survives
         // its own revocation, and one that can turn remote control off can lock
         // the owner out of taking it back. `getStatus` is absent from this list
@@ -421,7 +421,7 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         "remoteControl.setEnabled",
         "remoteControl.startRelay",
         "remoteControl.pair",
-        // ADR-240 D6: a new link for a device that has not connected yet.
+        // A new link for a device that has not connected yet.
         "remoteControl.reissue",
         "remoteControl.resetRelayAddress",
         "remoteControl.revoke",
@@ -430,45 +430,45 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.
         "linear.connect",
-        // ADR-225 D3: pairing a phone with a host's server, and the keys
+        // Pairing a phone with a host's server, and the keys
         // that go with it — the same grant as `remoteControl.pair`.
         "hosts.serverStatus",
         "hosts.pairDevice",
         "hosts.revokeDevice",
         "hosts.resetPairingKeys",
-        // ADR-227 D7: sends this computer's Linear key to a host.
+        // Sends this computer's Linear key to a host.
         "hosts.setLinearOnHost",
-        // ADR-228 D9: lets the desktop pair its phones on a host, or revokes them.
+        // Lets the desktop pair its phones on a host, or revokes them.
         "hosts.setLinkPhones",
-        // ADR-229 D1: stopping a box is the desktop user's call; waking one
-        // is not refused, since a phone wakes a host through home (D7).
+        // Stopping a box is the desktop user's call; waking one
+        // is not refused, since a phone wakes a host through home.
         "hosts.stop",
-        // ADR-229 D2: runs the user's recipe commands on this machine.
+        // Runs the user's recipe commands on this machine.
         "hosts.addRecipeHost",
-        // ADR-229 D8: writes scripts that this machine will run.
+        // Writes scripts that this machine will run.
         "hosts.createRecipe",
         "hosts.listTemplates",
-        // ADR-234 D6: runs docker / kubectl on this machine with its config.
+        // Runs docker / kubectl on this machine with its config.
         "hosts.checkTemplate",
-        // ADR-234 D8: opens apps and runs docker pull / build on this machine.
+        // Opens apps and runs docker pull / build on this machine.
         "hosts.runTemplateFix",
-        // ADR-229 D4: writes units onto a host and runs commands there.
+        // Writes units onto a host and runs commands there.
         "hosts.setSupervised",
-        // ADR-236 D7: runs `manor-host secrets encrypt` on a host.
+        // Runs `manor-host secrets encrypt` on a host.
         "hosts.encryptKeys",
-        // ADR-229 D8: writes a recipe this machine will run; forgets a host
+        // Writes a recipe this machine will run; forgets a host
         // for every viewer and may destroy its box; names what that loses.
         "hosts.createCustomRecipe",
         "hosts.remove",
         "hosts.projectsOnHost",
-        // ADR-235 D1: profiles this machine runs recipes from.
+        // Profiles this machine runs recipes from.
         "hostProfiles.list",
         "hostProfiles.save",
         "hostProfiles.remove",
         "hostProfiles.setSignIn",
         "hostProfiles.removeSignIn",
         "hostProfiles.restartPods",
-        // ADR-235 D3: starts a box from a profile on this machine.
+        // Starts a box from a profile on this machine.
         "projects.openInNewHost",
       ].sort(),
     );
@@ -520,7 +520,7 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
    * What a `full` device's bridge surface *is*, said once: the table, minus
    * the refusals. There is no third list and no per-method gate — `dispatch`
    * looks the method up and asks `LOCAL_ONLY` about the caller's class, and
-   * that is the whole of it (ADR-180 D4).
+   * that is the whole of it.
    */
   it("is the whole of what a paired device may not reach on the bridge", () => {
     const table = Object.keys(HANDLERS);
@@ -530,7 +530,7 @@ describe("the bridge's LOCAL_ONLY (ADR-180 D4)", () => {
     expect(refused.sort()).toEqual([...LOCAL_ONLY].sort());
     expect(reachable).toHaveLength(table.length - LOCAL_ONLY.size);
     // Not a token subset: the reads, the writes and the whole of `pty` are in
-    // it, which is ADR-178 D3 as written.
+    // it, by design.
     expect(reachable).toContain("pty.create");
     expect(reachable).toContain("projects.removeWorktree");
     expect(reachable).toContain("git.commit");

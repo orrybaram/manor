@@ -161,7 +161,7 @@ function PreviewUrlsField(props: MemberProps) {
 
 /**
  * Repair for a repo a connected remote host reports missing: re-clone it in
- * place, or point at another folder (ADR-237 D3).
+ * place, or point at another folder.
  */
 function MissingRepoRepair(props: MemberProps) {
   const { member } = props;
@@ -239,7 +239,7 @@ type ProjectHostRowProps = {
 };
 
 /**
- * One host a project is set up on (ADR-237 D3): the host and the project's
+ * One host a project is set up on: the host and the project's
  * path there in the header, and behind it what differs per host — default
  * branch, worktrees, preview URLs and a missing repo's repair.
  *

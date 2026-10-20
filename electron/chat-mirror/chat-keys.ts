@@ -1,7 +1,6 @@
 /**
  * The keystrokes the phone's chat view sends into a pane's PTY outside of
- * picker answers (`picker-keys.ts`): the TUI-menu navigation keys (ADR-218
- * D3) and the Enter that submits a prompt.
+ * picker answers (`picker-keys.ts`): the TUI-menu navigation keys and the Enter that submits a prompt.
  */
 
 /** The keystroke that submits Claude's prompt. */

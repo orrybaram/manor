@@ -2,12 +2,12 @@
  * The `agents` reads and the stale-agent sweep, shared by the desktop's table
  * (`./agents.ts`) and the host server's (`../../host-server/handlers.ts`).
  *
- * Electron-free on purpose (ADR-226 S1): every handler here reads only the
+ * Electron-free on purpose: every handler here reads only the
  * {@link AgentReadDeps} slice, which both `HostDeps` and `HostServerDeps`
  * satisfy, so the host server lists these directly instead of copying them.
  * The desktop-only writes (dock badge, notification log) stay in `./agents.ts`.
  *
- * **On the desktop the reads are merged** (ADR-227 D4): this server's agents
+ * **On the desktop the reads are merged**: this server's agents
  * and every adopted remote host's, from its server.
  */
 
@@ -55,7 +55,7 @@ export interface AgentReadDeps {
    */
   getPaneHostId?: PaneHostLookup;
   hostStatus?: (hostId: string) => HostStatus | undefined;
-  /** Adopted remote hosts' agents, on the desktop (ADR-227 D4). */
+  /** Adopted remote hosts' agents, on the desktop. */
   hostRouting?: HostRouting;
 }
 
@@ -63,9 +63,9 @@ type Ctx = HandlerCtx<AgentReadDeps>;
 
 /**
  * The `agents` namespace of the handler table. "Check on my agents from
- * anywhere" is the sentence ADR-178 started from, so none of it is
+ * anywhere" is the whole point of the bridge, so none of it is
  * local-only — a browser that could watch an agent but not mark it seen was
- * exactly the read-and-type state this ADR exists to end.
+ * exactly the read-only state the bridge exists to end.
  */
 export function agentsGetAll(ctx: Ctx, opts?: AgentQuery): AgentInfo[] {
   const remote = ctx.deps.hostRouting?.agents() ?? [];
@@ -118,7 +118,7 @@ export function agentsGetUnseen(ctx: Ctx): {
 }
 
 /**
- * Every pane's currently published Agent status (ADR-184 ticket 5). Called
+ * Every pane's currently published Agent status. Called
  * once on renderer startup — including a detached/popout window, a reload, or
  * a browser, which always starts after some were already sent — so it paints
  * current dots instead of waiting on the next signal.
@@ -159,12 +159,12 @@ export function reconcileStaleAgents(
     // `listSessions` because nobody could ask, not because they ended.
     if (!isAgentHostConnected(deps, agent)) continue;
     if (agent.lastAgentStatus === "responded") continue;
-    // Its pty was killed by a daemon replacement (ADR-185 §A): the pane is
+    // Its pty was killed by a daemon replacement: the pane is
     // about to be cold-restored, which resumes the Agent. Abandoning it
     // here would race that resume and win.
     if (agentStatus.isPaneLossExpected(agent.paneId)) continue;
 
-    // Its pane is gone: the same `user` signal as closing it (ADR-184).
+    // Its pane is gone: the same `user` signal as closing it.
     agentStatus.signal(agent.paneId, { type: "user", action: "abandon" });
   }
 }

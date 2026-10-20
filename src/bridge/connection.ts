@@ -3,16 +3,16 @@
  * as components read them.
  *
  * - `activeRoomId` — the relay room the home server is dialled through.
- * - `hostName` — the server names itself in its hello (ADR-225 D7); both the
+ * - `hostName` — the server names itself in its hello; both the
  *   desktop and a host server do.
  * - `isHostServer` — the hello says `hostServer: true` only from a host
- *   server (ADR-226), which serves only a slice of the desktop's bridge
- *   (ADR-225 D5, D6): a phone paired with one can browse and drive existing agents but cannot create
+ *   server, which serves only a slice of the desktop's bridge:
+ *  a phone paired with one can browse and drive existing agents but cannot create
  *   workspaces or launch new agents. Entry points read this and state the
  *   limit up front rather than learning it from a refused call.
  *
- * The facts live on the home entry of the server set (`./server-set.ts`,
- * ADR-228 D1); this module is a selector over it, kept so its callers did not
+ * The facts live on the home entry of the server set (`./server-set.ts`);
+ * this module is a selector over it, kept so its callers did not
  * have to change. The desktop never writes any of it: there every fact keeps
  * its default.
  *
@@ -20,7 +20,7 @@
  * `hostServer` gate (`App`, `useCommands`, `menu-handlers`,
  * `keybinding-commands`) asks what the page's own server can do, and on a
  * phone that holds several pairings home is the paired desktop whenever
- * there is one (ADR-228 D8). A caller that means "the host this workspace is
+ * there is one. A caller that means "the host this workspace is
  * on" reads that host's entry in `useServers()` instead.
  */
 

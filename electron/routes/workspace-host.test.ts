@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { withWorkspaceHost } from "./workspace-host";
 import type { RouteDeps } from "./types";
 
-// ADR-191: main names the host of the workspace an app-command targets.
+// Main names the host of the workspace an app-command targets.
 const projectManager = {
   hostIdForPath: (p: string) => (p.startsWith("/srv/") ? "box" : "local"),
 } as unknown as RouteDeps["projectManager"];

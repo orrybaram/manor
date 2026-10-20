@@ -1,5 +1,5 @@
 /**
- * The bridge's socket transport (ADR-178 D8, ADR-180 D1, ADR-207 D2).
+ * The bridge's socket transport.
  *
  * One multiplexed connection per web renderer, carrying the bridge's frames
  * for what `invoke` did and what `on` did, plus the PTY stream. The renderer
@@ -7,28 +7,28 @@
  * was designed for a loopback caller — so everything arrives here and is
  * proxied.
  *
- * What is left in this file after ADR-180 is *the connection*: the hello
+ * What is left in this file is *the connection*: the hello
  * handshake, the close codes, JSON, and the id a client keeps across a
  * reconnect. What `ns.method` means, who is subscribed to what, and what
  * happens when a pane's owner changes are `bridge/server.ts`'s, because a
  * desktop window needs all three and none of this. The only thing this file
  * hands over is a `BridgeConnection`.
  *
- * **What carries the frames is a `FrameSocket`.** Since ADR-207 there is no
+ * **What carries the frames is a `FrameSocket`.** There is no
  * listener and so no `/ws` upgrade: every connection is a relay channel that
  * `remote-control/relay-gate.ts` hands to `attach`.
  *
  * **Authentication is a frame, not a URL.** The connection is accepted, and
  * then has until its hello timeout to present `{"type":"hello","token":…}`
- * (plus a `ticket` on the first hello of a newly paired device, ADR-240)
+ * (plus a `ticket` on the first hello of a newly paired device)
  * before it is closed. Until that frame lands the connection can do exactly
  * nothing, and the gate's `BridgeAuthenticator` runs the device verify and
  * the failed-auth backoff against it.
  *
- * **Every device is the same device.** There are no tiers (ADR-207 D4): a
+ * **Every device is the same device.** There are no tiers: a
  * paired device reaches the whole handler table, terminal included, and
  * every connection the relay gate authenticates is `callerClass: "device"`.
- * The one exception is the host server's own unix socket (ADR-225 D4), whose
+ * The one exception is the host server's own unix socket, whose
  * authenticator answers an `owner` caller for the owner token.
  *
  * Close codes are in the application range on purpose — 4401 reads as the
@@ -55,13 +55,13 @@ const HELLO_TIMEOUT_MS = 5_000;
 /**
  * Who a hello turned out to be: a paired device
  * (`remote-control/relay-gate.ts`), or the owner — the desktop on a host
- * server's own socket, whose token is the 0600 owner token (ADR-225 D4). It
+ * server's own socket, whose token is the 0600 owner token. It
  * becomes the connection's identity as it is.
  */
 export interface AuthenticatedCaller {
   callerClass: CallerClass;
   /**
-   * A desktop window's viewer stream (ADR-228 D4), when the authenticator
+   * A desktop window's viewer stream, when the authenticator
    * honoured the hello's `viewer`. Absent otherwise.
    */
   viewer?: ViewerKind;
@@ -79,7 +79,7 @@ export type BridgeAuthResult =
  * The `verify + backoff` decision, which lives in `relay-gate.ts` (or the
  * owner socket's token check), handed the hello's token — and the whole
  * hello, for the authenticators that read more of it (the relay gate's
- * `ticket`, ADR-240 D1; the owner socket's `viewer`, ADR-228 D4). Whatever
+ * `ticket`; the owner socket's `viewer`). Whatever
  * else a hello says is the authenticator's to honour or ignore; this
  * transport takes none of it on trust.
  */
@@ -98,7 +98,7 @@ type Dispatcher = Pick<
 interface Socket {
   socket: FrameSocket;
   /**
-   * This socket's id, and so this browser's *renderer* id (ADR-179 D3): it
+   * This socket's id, and so this browser's *renderer* id: it
    * goes back in the hello reply and becomes the `BridgeConnection`'s id.
    *
    * Mutable, not `readonly`: `onHello` may replace the freshly generated id
@@ -157,17 +157,17 @@ export class WsBridgeServer {
    * @param server The host surface to feed — shared with the IPC transport,
    *   and disposed by whoever built it, not by this.
    * @param options.appVersion The desktop's version, sent in every hello
-   *   reply so a relay-served page can load the matching build (ADR-206 D4).
+   *   reply so a relay-served page can load the matching build.
    */
   constructor(
     private readonly server: Dispatcher,
     private readonly options: {
       appVersion?: string;
-      /** The host's display name for the hello (ADR-225 D7). */
+      /** The host's display name for the hello. */
       hostName?: () => string | undefined;
       /**
        * Set by the host server only: every hello says `hostServer: true` so
-       * the page knows it is on a bridge slice (ADR-226).
+       * the page knows it is on a bridge slice.
        */
       hostServer?: boolean;
     } = {},

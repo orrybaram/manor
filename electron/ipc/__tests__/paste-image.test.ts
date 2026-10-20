@@ -53,7 +53,7 @@ describe("uploadClipboardImage", () => {
   });
 
   it("uploads to the host the caller names when main has never seen the pane", async () => {
-    // A pane made through the renderer's viewer stream (ADR-228 D5): main's
+    // A pane made through the renderer's viewer stream: main's
     // session owners only learn of it on the next reconnect.
     const { registry, get } = makeRegistry({ ownerOf: undefined });
     const result = await uploadClipboardImage(

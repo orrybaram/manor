@@ -1,5 +1,5 @@
 /**
- * `layout.setPendingCommand` for panes no layout holds yet (ADR-228 D1).
+ * `layout.setPendingCommand` for panes no layout holds yet.
  *
  * The renderer cannot tell which server such a pane will be on until the
  * layout command that adds it goes out, so the queued line waits for it and

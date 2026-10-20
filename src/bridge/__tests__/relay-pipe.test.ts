@@ -1,5 +1,5 @@
 /**
- * The relay pipe under the real transport and client (ADR-206 D2, D3),
+ * The relay pipe under the real transport and client,
  * against a fake relay socket with the real Noise responder behind it.
  *
  * What `ws.test.ts` proves for the plain WebSocket — the hello, the outbox,

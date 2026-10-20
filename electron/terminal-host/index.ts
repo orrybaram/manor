@@ -120,7 +120,7 @@ interface Daemon {
   connections: Map<net.Socket, Connection>;
   /**
    * Which stream socket `manor` CLI requests are relayed to, and the requests
-   * waiting on its answer (ADR-189 §1). Only the remote role's listener ever
+   * waiting on its answer. Only the remote role's listener ever
    * relays, but tracking the socket is harmless on a local daemon.
    */
   controlRelay: ControlRelayStreams<net.Socket>;
@@ -229,7 +229,7 @@ async function handleControlMessage(
 
     case "getPaneFacts":
       // Null for an unknown session: main resyncs every pane it knows of
-      // after a reconnect, and a missing one simply has no facts (ADR-184 §3).
+      // after a reconnect, and a missing one simply has no facts.
       return { type: "paneFacts", facts: host.getPaneFacts(request.sessionId) };
 
     case "disposeDead":
@@ -246,7 +246,7 @@ async function handleControlMessage(
       // Update daemon process.env so new PTY sessions inherit fresh values.
       // This is needed when the Electron app restarts (new hook port, etc.)
       // but reconnects to an existing daemon. The role drops keys that mean
-      // nothing on this host (ADR-178 §2).
+      // nothing on this host.
       for (const [key, value] of Object.entries(request.env)) {
         if (role.acceptsEnvKey(key)) process.env[key] = value;
       }
@@ -303,7 +303,7 @@ async function handleControlMessage(
         }
         await fsMkdir(dirname(request.path), { recursive: true });
         // Write next to the target and rename over it, so a reader never
-        // sees a partial file (ADR-187 §1).
+        // sees a partial file.
         const tmpPath = `${request.path}.${process.pid}.${crypto
           .randomBytes(4)
           .toString("hex")}.tmp`;
@@ -354,7 +354,7 @@ async function handleControlMessage(
       // Client sends its app version; daemon replies with its own plus the
       // two protocols it speaks. The client replaces the daemon only when
       // one of those protocols does not match its own — the app version is
-      // just for diagnostics/logging now (ADR-185 §B, see `isDaemonStale`).
+      // just for diagnostics/logging now (see `isDaemonStale`).
       return {
         type: "handshake",
         daemonVersion: daemonVersion ?? "unknown",
@@ -567,7 +567,7 @@ function startServer(role: DaemonRole): DaemonServer {
 
   role.onStartup({
     // Hook events go to every authenticated stream socket, subscribed to a
-    // session or not (ADR-178 §2).
+    // session or not.
     onHookEntry: (entry) => {
       const event: StreamEvent = {
         type: "hookEvent",
@@ -580,7 +580,7 @@ function startServer(role: DaemonRole): DaemonServer {
         }
       }
     },
-    // CLI requests go to the relay stream only, never broadcast (ADR-189 §1).
+    // CLI requests go to the relay stream only, never broadcast.
     relayControlRequest: d.controlRelay.relay,
   });
 
@@ -702,7 +702,7 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //
 // `manor-host` (this same compiled bundle) plays several roles depending on
 // argv:
-//   - `--version` reports the version the bootstrap step (ADR-160 ticket 6)
+//   - `--version` reports the version the bootstrap step
 //     compares against `app.getVersion()`.
 //   - `remote-bridge` is the far end of an ssh stdio bridge: it never opens
 //     the socket server itself, it only makes sure a daemon is running on
@@ -712,14 +712,14 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     daemon would be wrong here, since this process did not spawn it — see
 //     `bridge.ts`.
 //   - `server-bridge` is the far end of the desktop's owner channel to this
-//     box's host server (ADR-225 D4): it reads the server's owner token,
+//     box's host server: it reads the server's owner token,
 //     says the owner hello on the desktop's behalf and pumps stdin/stdout
 //     against `~/.manor/remote/server/server.sock` — see `server-bridge.ts`.
 //     Exits non-zero, with nothing on stdout, when no server is running.
-//     `server-bridge --viewer` is a desktop window's own stream (ADR-228 D4):
+//     `server-bridge --viewer` is a desktop window's own stream:
 //     the same, with `viewer: "desktop"` in the hello.
 //   - `port-pipe <port> [--host ::1]` is the far end of one port-forward
-//     connection over an exec transport (ADR-229 D3): it connects to
+//     connection over an exec transport: it connects to
 //     127.0.0.1:<port> (or [::1]) on this box and pumps stdin/stdout against
 //     it until either side closes. Only loopback is reachable. Exits
 //     non-zero, with one stderr line, when the connect fails — see
@@ -729,22 +729,21 @@ function installDaemonSignalHandlers(onShutdown: () => void): void {
 //     using the same path logic as a local client (`LocalTransport.stop`).
 //     The next `remote-bridge` starts the replacement. `SshTransport.restart`
 //     runs this over ssh when the handshake reports a protocol mismatch.
-//     Under a supervisor both the stop and that start go through it
-//     (ADR-229 D4).
+//     Under a supervisor both the stop and that start go through it.
 //   - `supervisor install|uninstall|status [--json]` puts this box's daemon
 //     and host server under systemd, launchd or `supervise`, takes them out,
-//     or says which (ADR-229 D4) — see `host-server/supervisor/index.ts`.
+//     or says which — see `host-server/supervisor/index.ts`.
 //     The desktop runs it through the host transport's `exec`.
-//   - `supervise` is a container's entrypoint (ADR-229 D4): it runs the
+//   - `supervise` is a container's entrypoint: it runs the
 //     daemon and the host server as its children, restarting either when it
 //     exits, until SIGTERM — see `host-server/supervisor/supervise.ts`.
 //   - `secrets encrypt|status [--json]` moves this box's pairing keys off
 //     plaintext onto a key Manor makes outside ~/.manor, then restarts the
-//     host server so it re-seals them; or says where they stand (ADR-236 D1)
+//     host server so it re-seals them; or says where they stand
 //     — see `host-server/secrets-command.ts`. The desktop runs it through
 //     the host transport's `exec`.
 //   - `restart-server` stops this box's host server (through its supervisor,
-//     if any) and starts one of this version (ADR-236 D4). The terminal
+//     if any) and starts one of this version. The terminal
 //     daemon is left alone. Prints one line; exits non-zero on failure.
 //   - Anything else (the normal case: no argv) starts the daemon itself, as
 //     `localRole` unless argv has `--namespace remote` (see daemon-role.ts).
@@ -773,7 +772,7 @@ async function main(): Promise<void> {
   }
 
   if (mode === "serve") {
-    // The host server (ADR-225) ships as a sibling bundle in the same install
+    // The host server ships as a sibling bundle in the same install
     // dir; it reads `serve [--data-dir]` and `MANOR_VERSION` itself.
     createRequire(__filename)(join(__dirname, "host-server-index.js"));
     return;
@@ -822,8 +821,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  // The key sealing the host server's pairing keys is the server's alone
-  // (ADR-236 D2). A systemd unit's `EnvironmentFile`, a container's
+  // The key sealing the host server's pairing keys is the server's alone.
+  // A systemd unit's `EnvironmentFile`, a container's
   // environment or the ssh session that spawned this daemon may carry it;
   // no shell or agent started here gets it.
   delete process.env.MANOR_SECRET_KEY;

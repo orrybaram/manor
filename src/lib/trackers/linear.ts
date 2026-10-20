@@ -1,5 +1,5 @@
 /**
- * ADR-202 §2: the Linear tracker adapter. Lists the open issues of a
+ * The Linear tracker adapter. Lists the open issues of a
  * project's associated teams, maps them to `TaskRow`s and starts work on
  * one. With `github.ts`, the only reader of `row.raw` for the task list.
  */
@@ -104,7 +104,7 @@ export const linearTracker: TaskTracker = {
 
   statusQuery: () => ({
     queryKey: ["trackers", "linear", "status"],
-    // Connected if any reachable server has it (ADR-228 D10): the desktop,
+    // Connected if any reachable server has it: the desktop,
     // or a host the user turned it on for.
     queryFn: () => linearServers(servers).anyConnected(),
     staleTime: STALE_MS,
@@ -128,7 +128,7 @@ export const linearTracker: TaskTracker = {
       queryFn: async () => {
         const opts = { stateTypes: OPEN_LINEAR_STATES, limit: LIMIT };
         // On behalf of the project's host: its own server answers if Linear
-        // is on there, else the desktop that lists it (D10).
+        // is on there, else the desktop that lists it.
         const issues = await onBehalfOf(member.hostId, () =>
           scope === "assigned"
             ? window.electronAPI.linear.getMyIssues(teamIds, opts)

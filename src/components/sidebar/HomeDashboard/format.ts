@@ -1,5 +1,5 @@
 /**
- * Short duration labels for the Home dashboard (ADR-198): card ages, the
+ * Short duration labels for the Home dashboard: card ages, the
  * longest wait, the oldest open PR. One unit only — "40s", "12m", "3h", "2d" —
  * so they fit in a card header next to the project chip.
  */

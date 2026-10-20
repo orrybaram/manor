@@ -1,6 +1,5 @@
 /**
- * `LocalTransport` in the `remote` namespace under a supervisor (ADR-229
- * D4): it starts and stops the daemon through it, falls back to the detached
+ * `LocalTransport` in the `remote` namespace under a supervisor: it starts and stops the daemon through it, falls back to the detached
  * spawn when the supervisor fails, and the desktop's `local` namespace never
  * asks.
  */

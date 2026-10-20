@@ -1,5 +1,5 @@
 /**
- * A desktop's records before adoption (ADR-227 D3), on disk, and the
+ * A desktop's records before adoption, on disk, and the
  * desktop's stores opened over them — for `host-adoption.test.ts` and the
  * host server's `adoption.test.ts`.
  *

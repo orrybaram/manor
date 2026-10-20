@@ -1,5 +1,5 @@
 /**
- * Hook listener — the remote daemon's own agent-hook endpoint (ADR-178 §2).
+ * Hook listener — the remote daemon's own agent-hook endpoint.
  *
  * On a remote host there is no `AgentHookServer` (that lives in Electron
  * main, on the laptop), so the daemon listens instead. It accepts exactly

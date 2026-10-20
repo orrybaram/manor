@@ -11,7 +11,7 @@ type HostStateIconProps = {
 
 /**
  * A remote host's glyph: a cloud, crossed out while away, pulsing while a
- * connect runs; a moon while it is asleep (ADR-229 D1), which is not being
+ * connect runs; a moon while it is asleep, which is not being
  * away. Colour comes from the surrounding tone class.
  */
 export function HostStateIcon(props: HostStateIconProps) {

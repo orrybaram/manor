@@ -1,5 +1,5 @@
 /**
- * Recipe-host E2E against a real Docker daemon (ADR-229 ticket 9).
+ * Recipe-host E2E against a real Docker daemon.
  *
  * Everything else in the recipe stack is tested against fakes; this drives
  * the desktop's real `BackendRegistry` (with a real `RecipeHostProvider`
@@ -24,11 +24,11 @@
  * 8. A forced drop: the box's ends of the exec streams are killed, as an
  *    API server's idle timeout would cut them. The owner channel and the
  *    host come back by themselves, to the same host server.
- * 9. A forced drop after the box moved (ADR-230 D2): the container is
+ * 9. A forced drop after the box moved: the container is
  *    renamed and `up` now returns the new name, so redialling the old exec
  *    target fails. The reconnect re-runs `up` and finds it, with no
  *    connect from outside.
- * 10. A port forward carries half-close (ADR-230 D4): a client that shuts
+ * 10. A port forward carries half-close: a client that shuts
  *    its write side after its request still gets the reply.
  *
  * Skipped unless MANOR_E2E_RECIPE=1 — `pnpm test:unit` never runs it. Run
@@ -330,8 +330,8 @@ describe.skipIf(SKIP !== null)("a recipe host on a real Docker daemon", () => {
             });
             socket.on("error", () => {});
           });
-        // Retried only until the server on the box listens: before ADR-230
-        // D4 every answer was empty, since the pipe tore down on the EOF.
+        // Retried only until the server on the box listens: every answer used
+        // to be empty, since the pipe tore down on the EOF.
         const reply = await pollFor(
           "the reply after a half-close",
           async () => {

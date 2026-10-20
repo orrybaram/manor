@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 import { expect, importSeededProject, test } from "./fixtures";
 
 /**
- * Sidebar multi-select (ADR-190): shift-click a range, Cmd/Ctrl-click to
+ * Sidebar multi-select: shift-click a range, Cmd/Ctrl-click to
  * toggle, act on the selection from its context menu, and drag it as one
  * block into and out of a folder.
  */

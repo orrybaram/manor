@@ -21,14 +21,14 @@ export function PortBadge(props: PortBadgeProps) {
   const { port } = props;
 
   const addBrowserTab = useAppStore((s) => s.addBrowserTab);
-  // The Dashboard has no tabs to open a browser in (ADR-197).
+  // The Dashboard has no tabs to open a browser in.
   const canOpenInTab = useAppStore((s) => !isHomePath(s.activeWorkspacePath));
 
   const url = port.hostname
     ? `http://${port.hostname}`
     : `http://localhost:${port.port}`;
 
-  // A remote host's port is reached through a port forward (ADR-178 §5):
+  // A remote host's port is reached through a port forward:
   // main swaps in the forward's local port before the URL is opened.
   const hostId = port.hostId;
   const isRemote = isRemoteHost(hostId);
@@ -38,7 +38,7 @@ export function PortBadge(props: PortBadgeProps) {
         open(url);
         return;
       }
-      // A forward that fails toasts and opens nothing (ADR-232 D8).
+      // A forward that fails toasts and opens nothing.
       void forwardedUrl(url, hostId).then((target) => {
         if (target) open(target);
       });
@@ -83,7 +83,7 @@ export function PortBadge(props: PortBadgeProps) {
   const badgeRef = useRef<HTMLDivElement | null>(null);
   // Set when the badge's context menu was opened via the keyboard, so
   // `onCloseAutoFocus` knows to return focus to the badge; a mouse-opened
-  // menu keeps Radix's own default (ADR-175). The badge isn't focusable yet
+  // menu keeps Radix's own default. The badge isn't focusable yet
   // (ticket 8 makes it so) — this handler is ready for when it is.
   const menuOpenedByKeyboard = useRef(false);
 

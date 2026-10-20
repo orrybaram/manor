@@ -1,5 +1,5 @@
 /**
- * Supervision that survives a reboot (ADR-229 D4): the unit files and
+ * Supervision that survives a reboot: the unit files and
  * plists, picking a supervisor, `supervisor.env`, the install and uninstall
  * steps against fake commands, and the `supervisor` CLI's JSON.
  */
@@ -57,7 +57,7 @@ function fakeRunner(answer: (cmd: string, args: string[]) => Partial<CommandResu
 describe("unit files and plists", () => {
   it("writes the daemon's systemd unit", () => {
     expect(systemdUnitFile("daemon")).toMatchInlineSnapshot(`
-      "# Written by \`manor-host supervisor install\` (ADR-229 D4);
+      "# Written by \`manor-host supervisor install\`;
       # \`manor-host supervisor uninstall\` removes it.
       [Unit]
       Description=Manor host daemon (terminal sessions)
@@ -76,7 +76,7 @@ describe("unit files and plists", () => {
 
   it("writes the server's systemd unit", () => {
     expect(systemdUnitFile("server")).toMatchInlineSnapshot(`
-      "# Written by \`manor-host supervisor install\` (ADR-229 D4);
+      "# Written by \`manor-host supervisor install\`;
       # \`manor-host supervisor uninstall\` removes it.
       [Unit]
       Description=Manor host server
@@ -98,7 +98,7 @@ describe("unit files and plists", () => {
       .toMatchInlineSnapshot(`
         "<?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-        <!-- Written by \`manor-host supervisor install\` (ADR-229 D4). -->
+        <!-- Written by \`manor-host supervisor install\`. -->
         <plist version="1.0">
         <dict>
           <key>Label</key><string>sh.manor.host-server</string>
@@ -253,7 +253,7 @@ describe("applySupervisorEnv", () => {
   });
 });
 
-describe("takeSecretEnv (ADR-236 D2)", () => {
+describe("takeSecretEnv", () => {
   function envFile(text: string): string {
     const file = path.join(dir, "supervisor.env");
     fs.writeFileSync(file, text);

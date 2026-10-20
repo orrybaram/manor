@@ -77,7 +77,7 @@ describe("createPageKeyHandler", () => {
     frames = [];
     stopSink = addRendererBroadcastSink((frame) => frames.push(frame));
     // The host's `id` names a connection the same way a real renderer window
-    // would (ADR-180 D5) — the transport this test stands in for.
+    // would — the transport this test stands in for.
     setRendererWindowResolver((win) => String(win.webContents.id));
   });
 

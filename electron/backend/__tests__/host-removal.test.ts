@@ -1,5 +1,5 @@
 /**
- * What `hosts.remove` deletes of a removed host (ADR-229 D8): its cache, a
+ * What `hosts.remove` deletes of a removed host: its cache, a
  * recipe host's `known_hosts`, and its recipe's directory when the box was
  * destroyed, or only the recipe's record of it when it was not.
  */

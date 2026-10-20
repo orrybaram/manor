@@ -115,7 +115,7 @@ async function detectAgentFromChildArgs(
 
     for (const line of result.trim().split("\n")) {
       if (!line.trim()) continue;
-      // One Agent kind table, shared with the Pane facts extractor (ADR-184).
+      // One Agent kind table, shared with the Pane facts extractor.
       for (const [pattern, agent] of AGENT_COMMAND_PATTERNS) {
         if (pattern.test(line)) {
           return agent;
@@ -191,8 +191,8 @@ async function processArgs(pid: number): Promise<string[]> {
 }
 
 /**
- * The foreground name to report while a shell leads the pane's foreground
- * (ADR-231 D5): null when it is the pane's own shell, otherwise the agent or
+ * The foreground name to report while a shell leads the pane's foreground:
+ * null when it is the pane's own shell, otherwise the agent or
  * script the other shell runs (e.g. a `#!/bin/sh` wrapper that didn't `exec`).
  * A failed lookup reports null, as before.
  */

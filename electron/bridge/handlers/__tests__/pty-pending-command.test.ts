@@ -29,7 +29,7 @@ describe("ptyCreate and pending commands", () => {
   /** Panes some layout still holds. */
   let laidOut: Set<string>;
   let deps: HostDeps;
-  /** Files written through a host's shell, by host (ADR-209). */
+  /** Files written through a host's shell, by host. */
   let hostWrites: Array<{ hostId: string; path: string; data: string }>;
   let hostExecs: Array<{ hostId: string; cmd: string; args: string[] }>;
   /** Make every host's `writeFile` reject. */
@@ -158,7 +158,7 @@ describe("ptyCreate and pending commands", () => {
     expect(afterReady).toEqual([[PANE, "claude\r"]]);
   });
 
-  it("types text queued to review without pressing Enter (ADR-183)", async () => {
+  it("types text queued to review without pressing Enter", async () => {
     pendingCommands.set(PANE, "brew install gh", "shell", { submit: false });
 
     await ptyCreate(localCtx(deps), PANE, "/repo", 80, 24);
@@ -181,7 +181,7 @@ describe("ptyCreate and pending commands", () => {
     expect(result.ok).toBe(true);
   });
 
-  describe("a remote host that drops before the shell is ready (ADR-178 §6)", () => {
+  describe("a remote host that drops before the shell is ready", () => {
     function failWrites(): void {
       (
         deps.backend.pty as unknown as { writeAfterReady: () => Promise<void> }
@@ -254,7 +254,7 @@ describe("ptyCreate and pending commands", () => {
     });
   });
 
-  describe("an agent launch with a prompt (ADR-209)", () => {
+  describe("an agent launch with a prompt", () => {
     const PROMPT = "Work on issue #1\n\n" + "x".repeat(3000) + ' "$HOME" `id`';
 
     it("writes the prompt to a file on the session's host and types a short line", async () => {

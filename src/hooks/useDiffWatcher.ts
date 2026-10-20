@@ -12,8 +12,8 @@ export function useDiffWatcher() {
   );
 
   // Build a stable map of WorkspaceKey → { path, defaultBranch, hostId } —
-  // each workspace travels with its project's host (ADR-183), and is keyed by
-  // it so two hosts' identical paths stay apart (ADR-204).
+  // each workspace travels with its project's host, and is keyed by
+  // it so two hosts' identical paths stay apart.
   type Entry = { path: string; defaultBranch: string; hostId: string };
   const prevMapRef = useRef<Record<WorkspaceKey, Entry>>({});
   const workspaceMap = (() => {

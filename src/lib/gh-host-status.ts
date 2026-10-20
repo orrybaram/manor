@@ -1,6 +1,6 @@
 /**
- * `gh` runs on the host a repo lives on, with that host's own sign-in
- * (ADR-227 D7). A host where it isn't installed or signed in is a stated
+ * `gh` runs on the host a repo lives on, with that host's own sign-in.
+ * A host where it isn't installed or signed in is a stated
  * empty state — "gh isn't signed in on <host>" — not an error: the issues
  * panel and the PR badges say so instead of failing quietly.
  */

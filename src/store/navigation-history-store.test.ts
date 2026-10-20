@@ -38,7 +38,7 @@ describe("locationsEqual", () => {
     ).toBe(true);
   });
 
-  it("tells apart the same path on two hosts (ADR-191)", () => {
+  it("tells apart the same path on two hosts", () => {
     expect(
       locationsEqual(workspace("/repo"), workspace("/repo", "panel-1", "tab-1", "box")),
     ).toBe(false);

@@ -8,7 +8,7 @@ export function useBranchWatcher() {
     (s) => s.updateWorkspaceBranches,
   );
 
-  // Stabilize workspaces (each with its project's host, ADR-183): only
+  // Stabilize workspaces (each with its project's host): only
   // produce a new reference when a path or host actually changes. This
   // prevents the watcher from restarting when branches update in the store.
   const prevPathsRef = useRef<Array<{ path: string; hostId: string }>>([]);

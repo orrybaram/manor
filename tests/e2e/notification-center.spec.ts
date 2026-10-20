@@ -16,7 +16,7 @@ import { Filmstrip } from "./helpers/filmstrip";
 import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
 
 /**
- * ADR-162 end to end: what the app remembers about a notification, and what
+ * Notifications end to end: what the app remembers about a notification, and what
  * the bell in the sidebar does with it.
  *
  * The claim under test is not "a banner appears" — a test cannot see an OS
@@ -377,7 +377,7 @@ test.describe("notification center", () => {
     // Answer it. The reply is a Stop the relay turns into `responded`.
     //
     // (The agent parks again straight after, but the relay drops a re-park
-    // that arrives while the session is already `responded` — ADR-139's
+    // that arrives while the session is already `responded`
     // late-active guard. No banner for it, so no record either.)
     await runInTerminal(window, "hello");
     await expect

@@ -6,7 +6,7 @@ import { Button } from "./components/ui/Button/Button";
 import { ipcErrorMessage } from "./lib/ipc-error";
 
 /**
- * What `main.tsx` and `web-main.tsx` render identically (ADR-182 D11): the
+ * What `main.tsx` and `web-main.tsx` render identically: the
  * `QueryClient` options and the `<App/>` tree. Only how each entry gets
  * there — the preload's bridge vs. a paired token — differs, so that stays
  * in the two files rather than moving here.
@@ -24,7 +24,7 @@ export function createQueryClient(): QueryClient {
   });
 }
 
-// One renderer for every window (ADR-179 D4). A detached window is not a
+// One renderer for every window. A detached window is not a
 // different app: it is `App` with a claim on one tab of the shared layout.
 // Loaded lazily so a splash can paint while its chunk graph loads. (The entry
 // modules are never hot-swapped, so fast refresh has nothing to preserve.)
@@ -38,7 +38,7 @@ export function AppRoot(props: {
   return (
     <QueryClientProvider client={props.queryClient}>
       {/* Every window — a detached one included — is this `App`, so one
-          boundary covers them all (ADR-232 D3). */}
+          boundary covers them all. */}
       <ErrorBoundary
         label="app"
         fallback={(error) => (

@@ -67,7 +67,7 @@ function hasResumeToken(command: string, tokens: string[]): boolean {
  * read or parsed — the caller must not write to `configPath` in this case,
  * since doing so with empty fallback data would silently replace content we
  * could not understand rather than merge with it. Callers log the warning
- * once, themselves (ADR-183) — this module never logs on their behalf.
+ * once, themselves — this module never logs on their behalf.
  */
 type ConfigReadResult<T> = { ok: true; data: T } | { ok: false; warning: string };
 
@@ -619,12 +619,12 @@ export class OpencodeConnector implements AgentConnector {
   }
 
   registerHooks(_hookScriptPath: string): string[] {
-    // opencode hook wiring is out of scope for ADR-144; no-op for now.
+    // opencode hook wiring is not supported yet; no-op for now.
     return [];
   }
 
   registerMcp(_mcpServerScriptPath: string): string[] {
-    // opencode MCP wiring is out of scope for ADR-144; no-op for now.
+    // opencode MCP wiring is not supported yet; no-op for now.
     return [];
   }
 }

@@ -134,8 +134,7 @@ function makeTwoPanelLayout(): WorkspaceLayout {
 
 /**
  * Set up the store with a known workspace layout — and give the Manor server
- * the same one, since that is where every layout action now lands (ADR-179
- * D1). The store's copy is a replica of it.
+ * the same one, since that is where every layout action now lands. The store's copy is a replica of it.
  */
 function setupStore(layout?: WorkspaceLayout) {
   resetFakeLayoutServer();
@@ -146,7 +145,7 @@ function setupStore(layout?: WorkspaceLayout) {
     workspaceLayouts: { [WS_PATH]: start },
     // The selection is this renderer's, and a freshly seeded layout gets the
     // one `reconcileViewport` would have written: first panel, first tab,
-    // first pane (ADR-179 D3).
+    // first pane.
     viewports: { [WS_PATH]: reconcileViewport(start, emptyViewport()) },
     layoutVersions: {},
     mountedWorkspaces: {},
@@ -189,7 +188,7 @@ function activeTab(): Tab {
 
 /**
  * `action` leaves the same state object — so nothing re-renders — and sends
- * the server nothing (ADR-179 D1) nor reports a viewport (D3).
+ * the server nothing nor reports a viewport.
  */
 function expectNoOp(action: () => void) {
   vi.useFakeTimers();
@@ -264,7 +263,7 @@ describe("Tab operations", () => {
     await settled();
 
     expect(selectedTabId()).toBe("tab-2");
-    // Viewport only: no command, so the shared structure is untouched (D3).
+    // Viewport only: no command, so the shared structure is untouched.
     expect(getLayout()).toBe(before);
   });
 
@@ -381,7 +380,7 @@ describe("Pane operations", () => {
     await settled();
     expect(getActivePanel().tabs).toHaveLength(1);
 
-    // The stack is the server's (ADR-179 D3): the command pops it, and the
+    // The stack is the server's: the command pops it, and the
     // broadcast is what puts the tab back here.
     useAppStore.getState().reopenClosedPane();
     await settled();
@@ -486,7 +485,7 @@ describe("Panel operations", () => {
       expect(layout.panelTree.direction).toBe("horizontal");
     }
     expect(Object.keys(layout.panels)).toHaveLength(2);
-    // The command hinted the sender to move to the new panel (D3).
+    // The command hinted the sender to move to the new panel.
     expect(selectActivePanelId(useAppStore.getState())).not.toBe("panel-1");
   });
 
@@ -592,7 +591,7 @@ describe("Workspace management", () => {
     const state = useAppStore.getState();
     expect(state.activeWorkspacePath).toBe(WS_PATH);
     // No layout at all, rather than an invented one: the empty state renders,
-    // and the first `new-tab` creates the panel on the server (ADR-179 D1).
+    // and the first `new-tab` creates the panel on the server.
     expect(state.workspaceLayouts[WS_PATH]).toBeUndefined();
   });
 
@@ -699,7 +698,7 @@ describe("Metadata tracking", () => {
     );
   });
 
-  // What a pane is lives on its leaf (ADR-182 D9): nothing changes here
+  // What a pane is lives on its leaf: nothing changes here
   // until the server's broadcast brings the leaf back.
   it("setPaneContentType retypes the pane's leaf, by way of the server", async () => {
     useAppStore.getState().setPaneContentType("pane-1", "browser");
@@ -736,13 +735,13 @@ describe("Metadata tracking", () => {
 });
 
 /**
- * A tab whose terminal runs a command (ADR-179 ticket 11). The command is no
+ * A tab whose terminal runs a command. The command is no
  * longer a store field: it is queued on the server against the pane the tab
  * mints, *before* the layout command that creates it, so whichever renderer
  * mounts the pane runs it — including one that is not this window.
  */
 /**
- * A tab whose terminal runs a command (ADR-179 ticket 11). The command is no
+ * A tab whose terminal runs a command. The command is no
  * longer a store field: it is queued on the server against the pane the tab
  * mints, *before* the layout command that creates it, so whichever renderer
  * mounts the pane runs it — including one that is not this window.

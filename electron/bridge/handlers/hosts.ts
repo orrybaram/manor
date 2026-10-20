@@ -1,9 +1,9 @@
 /**
- * Remote hosts (ADR-160 ticket 11): listing every host and its connection
+ * Remote hosts: listing every host and its connection
  * status, adding one, retrying a stuck connection, and checking one's tools
- * against a project (moved from `ipc/projects.ts` on main, ADR-183).
+ * against a project (moved from `ipc/projects.ts` on main).
  *
- * One namespace table (ADR-182 D3), so a renderer window and a paired
+ * One namespace table, so a renderer window and a paired
  * `full` device reach the same code. Thin by
  * design: every decision about what a host's state means, and what adding one
  * does, lives in `BackendRegistry` and `ProjectManager`. This only validates
@@ -50,7 +50,7 @@ import { LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 /**
  * Every host and its connection status — with, for a remote host, its
  * server's relay room and whether it takes desktop viewer streams, from the
- * last status read (ADR-228 D2, D3; `HostServerSync`).
+ * last status read (`HostServerSync`).
  */
 export function hostsList(ctx: HandlerCtx<ServerDeps>): HostStatusInfo[] {
   return ctx.deps.backendRegistry.list();
@@ -70,7 +70,7 @@ export function hostsAdd(
   const hostId = crypto.randomUUID();
   const spec = { kind: "ssh" as const, target: trimmed };
   deps.projectManager.saveHost(hostId, spec);
-  // On by default for hosts added from now on (ADR-229 D4).
+  // On by default for hosts added from now on.
   deps.projectManager.setHostSupervised(hostId, true);
   deps.backendRegistry.register(hostId, spec);
   deps.backendRegistry.connectInBackground(hostId);
@@ -78,7 +78,7 @@ export function hostsAdd(
 }
 
 /**
- * Register a host Manor starts from recipe `recipeId` (ADR-229 D2) and
+ * Register a host Manor starts from recipe `recipeId` and
  * connect it: the connect runs the recipe's `up`, its stderr lines showing
  * as the host's progress. The recipe is read from `~/.manor/host-recipes/`
  * and nowhere else, and must be valid; a recipe already used by another
@@ -106,8 +106,7 @@ export function assertFormValues(
 }
 
 /**
- * Write a recipe from a bundled template and the form's answers (ADR-229
- * D8), and return its id. It only writes files under `~/.manor/host-recipes/`;
+ * Write a recipe from a bundled template and the form's answers, and return its id. It only writes files under `~/.manor/host-recipes/`;
  * `addRecipeHost` is what starts a host from it.
  */
 export function hostsCreateRecipe(
@@ -121,7 +120,7 @@ export function hostsCreateRecipe(
 }
 
 /**
- * "Create recipe folder" (ADR-229 D8): write a custom recipe's skeleton —
+ * "Create recipe folder": write a custom recipe's skeleton —
  * `recipe.json` and an `up.sh` to finish — for a host named `name`, and
  * answer its id and the file the page reveals. Starts nothing.
  */
@@ -133,14 +132,14 @@ export function hostsCreateCustomRecipe(
   return createCustomRecipe(name);
 }
 
-/** The bundled templates' names and form fields (ADR-229 D8). */
+/** The bundled templates' names and form fields. */
 export function hostsListTemplates(ctx: HandlerCtx<ServerDeps>): TemplateInfo[] {
   return listTemplates({ appVersion: ctx.deps.backendRegistry.version });
 }
 
 /**
  * A template's readiness checklist and its `choice` fields' options for the
- * form's answers so far (ADR-234 D6): probes `docker` / `kubectl` on this
+ * form's answers so far: probes `docker` / `kubectl` on this
  * machine, each with a short timeout. Writes nothing.
  */
 export function hostsCheckTemplate(
@@ -154,7 +153,7 @@ export function hostsCheckTemplate(
 }
 
 /**
- * Carry out one of a template's `run` fixes (ADR-234 D8) on this machine:
+ * Carry out one of a template's `run` fixes on this machine:
  * open Docker, or start pulling or building the host image in the
  * background. Resolves once started; the next `checkTemplate` shows how it
  * is going. `url` and `set` fixes are the renderer's and never come here.
@@ -172,11 +171,11 @@ export function hostsRunTemplateFix(
 }
 
 /**
- * Remove remote host `hostId` from Manor (ADR-229 D8). With `destroy`, its
+ * Remove remote host `hostId` from Manor. With `destroy`, its
  * provider's `destroy()` runs first and deletes the box and its disk; if it
  * fails, nothing is removed and the error says why. Then the host is
  * forgotten: its record and every project on it (with their group
- * memberships, ADR-192), its connection, its cache, a recipe host's
+ * memberships), its connection, its cache, a recipe host's
  * `known_hosts` — and with `destroy`, its recipe's directory; without,
  * only the recipe's record of this host (`host.json`). The box itself is
  * left alone unless destroyed.
@@ -212,9 +211,9 @@ export async function hostsRemove(
 }
 
 /**
- * The names of the projects on `hostId` (ADR-229 D8): what the "Destroy
+ * The names of the projects on `hostId`: what the "Destroy
  * host and its disk" dialog lists, since the host is their source of truth
- * (ADR-227) — from the host's live list, or its cache while it is away.
+ * — from the host's live list, or its cache while it is away.
  */
 export function hostsProjectsOnHost(ctx: HandlerCtx<ServerDeps>, hostId: string): string[] {
   assertString(hostId, "hosts:projectsOnHost.hostId");
@@ -233,15 +232,15 @@ export function hostsRetryConnect(
 /**
  * How long `hosts.wake` waits for the host to come up before answering that
  * it is still starting: a box that takes longer goes on starting, and its
- * status says how far it got (ADR-229 D1).
+ * status says how far it got.
  */
 const HOST_WAKE_WAIT_MS = 2 * 60_000;
 
 /**
- * Wake `hostId` and connect it (ADR-229 D1). Answers once it is connected;
+ * Wake `hostId` and connect it. Answers once it is connected;
  * rejects when it cannot be brought up, or with "<host> is still starting"
  * when `HOST_WAKE_WAIT_MS` passes with the box still coming up — a recipe's
- * `up` may take 15 minutes (ADR-229 D2). The start goes on either way, its
+ * `up` may take 15 minutes. The start goes on either way, its
  * progress in the host's status. A host that is awake already answers at
  * once.
  */
@@ -269,7 +268,7 @@ async function hostsWake(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<v
 }
 
 /**
- * Put `hostId`'s box to sleep (ADR-229 D1). Refused for a host whose
+ * Put `hostId`'s box to sleep. Refused for a host whose
  * provider cannot stop it — every ssh box.
  */
 async function hostsStop(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<void> {
@@ -277,7 +276,7 @@ async function hostsStop(ctx: HandlerCtx<ServerDeps>, hostId: string): Promise<v
   await ctx.deps.backendRegistry.stop(hostId);
 }
 
-/** The ADR-178 (main) §4 checks, run through the host itself. */
+/** The host health checks, run through the host itself. */
 export async function hostsHealthCheck(
   ctx: HandlerCtx<ServerDeps>,
   hostId: string,
@@ -291,7 +290,7 @@ export async function hostsHealthCheck(
   return runHealthChecks(shell, git, projectPath);
 }
 
-// ── Phone access through a host's server (ADR-225 D3, D4, D6) ──
+// ── Phone access through a host's server ──
 
 /** What the Hosts page shows for one host's server. */
 export interface HostServerView {
@@ -301,26 +300,26 @@ export interface HostServerView {
   /** Paired phones, read with the status so the two can never disagree. */
   devices: RemoteDeviceInfo[];
   /**
-   * "Phones paired with this Mac can reach <host>" (ADR-228 D9): whether
+   * "Phones paired with this Mac can reach <host>": whether
    * this desktop's devices are paired here too. On by default.
    */
   linkPhones: boolean;
   /** The ids, among `devices`, of pairings this desktop minted ("via This Mac"). */
   linkedDeviceIds: string[];
   /**
-   * Phones whose pairing was revoked on this host (ADR-238 D2): this desktop
+   * Phones whose pairing was revoked on this host: this desktop
    * links them here no more until the phone-link switch is turned off and on.
    */
   blockedDevices: Array<{ id: string; label: string }>;
   /**
-   * What keeps the host's Manor running across a reboot (ADR-229 D4), from
+   * What keeps the host's Manor running across a reboot, from
    * the server's status: null when nothing does, or when the status could
    * not be read.
    */
   supervisor: SupervisorFacts | null;
   /**
    * "Keep Manor running when <host> restarts" as this desktop remembers it
-   * (`PersistedHost.supervise`, ADR-229 D4): the switch's state, readable
+   * (`PersistedHost.supervise`): the switch's state, readable
    * with the host away.
    */
   supervise: boolean;
@@ -401,7 +400,7 @@ export async function hostsServerStatus(
 }
 
 /**
- * "Keep Manor running when <host> restarts" (ADR-229 D4): run `manor-host
+ * "Keep Manor running when <host> restarts": run `manor-host
  * supervisor install` (or `uninstall`) on the host through its transport,
  * and remember the choice, so a later connect installs it again if the
  * host has lost it. Answers what supervises the host afterwards. Rejects
@@ -432,7 +431,7 @@ const SERVER_RESTART_WAIT_MS = 15_000;
 const SERVER_RESTART_POLL_MS = 500;
 
 /**
- * "Encrypt keys" (ADR-236 D7): run `manor-host secrets encrypt` on the host
+ * "Encrypt keys": run `manor-host secrets encrypt` on the host
  * through its transport. The host's server restarts to pick the key up, so
  * wait (up to about 15 s) until it reports the new backend, then tell the
  * page to re-read the server's status. Answers the key facts.
@@ -494,7 +493,7 @@ async function waitForServerBackend(
 
 /**
  * Pair a device on a host's server (no UI; the e2e drives it). The host's
- * default, so the link carries a single-use ticket (ADR-240 D7): the desktop
+ * default, so the link carries a single-use ticket: the desktop
  * never sees the device's token.
  */
 export async function hostsPairDevice(
@@ -516,7 +515,7 @@ export async function hostsRevokeDevice(
 ): Promise<RemoteDeviceInfo[]> {
   assertString(deviceId, "hosts:revokeDevice.deviceId");
   const revoke = () => connectedServer(ctx, hostId).api.remoteControl.revoke(deviceId);
-  // Through the links' queue, which also blocks the phone's link here (ADR-238 D3).
+  // Through the links' queue, which also blocks the phone's link here.
   const devices = ctx.deps.hostLinks
     ? await ctx.deps.hostLinks.revokeOnHost(hostId, deviceId, revoke)
     : await revoke();
@@ -531,8 +530,7 @@ export async function hostsResetPairingKeys(
   const client = connectedServer(ctx, hostId);
   const reset = () => client.api.hostServer.resetIdentity();
   // After any mint in flight on the host, whose link the reset would leave
-  // pointing at a revoked device; the host's links go with the reset
-  // (ADR-230 D11).
+  // pointing at a revoked device; the host's links go with the reset.
   const links = ctx.deps.hostLinks;
   const status = links ? await links.resetHost(hostId, reset) : await reset();
   pairingChanged(ctx, hostId);
@@ -540,7 +538,7 @@ export async function hostsResetPairingKeys(
 }
 
 /**
- * "Use Linear on <host>" (ADR-227 D7): copy this computer's Linear key to the
+ * "Use Linear on <host>": copy this computer's Linear key to the
  * host's server, or delete the copy. The key goes over the owner channel to
  * the host's own `SecretBox`; it is never returned or logged. Answers whether
  * Linear is on for the host afterwards.
@@ -563,7 +561,7 @@ export async function hostsSetLinearOnHost(
 }
 
 /**
- * "Phones paired with this Mac can reach <host>" (ADR-228 D9). Off revokes
+ * "Phones paired with this Mac can reach <host>". Off revokes
  * every pairing this desktop minted there — now, or on the host's next
  * connect — and `remoteControl.linkHostPairings` mints none there again
  * until it is back on. Allowed with the host away: that is when the revoke
@@ -590,9 +588,8 @@ export async function hostsSetLinkPhones(
  * changes, so the settings panel and the status-bar indicator can never
  * disagree about a host's state. `hosts.reconnected` says a remote host came
  * back from a drop and its hooks replayed: every renderer reattaches its
- * panes there and recovers the ones whose sessions are gone (ADR-178 §6 on
- * main) — each acting only on the panes it has, a browser as much as a
- * window (ADR-180 D5).
+ * panes there and recovers the ones whose sessions are gone — each acting only on the panes it has, a browser as much as a
+ * window.
  */
 export function wireHostBroadcasts(
   deps: Pick<ServerDeps, "backendRegistry">,
@@ -613,33 +610,33 @@ export function wireHostBroadcasts(
  * `add` registers an ssh target and connects to it with this machine's ssh
  * config and keys; `retryConnect` kicks a stuck connection. Neither is
  * `localOnly`: a `full` device already reaches this machine's shell through
- * `pty.*` (ADR-178 D3), so pointing ssh somewhere is not a new grant — but
+ * `pty.*`, so pointing ssh somewhere is not a new grant — but
  * both change what every viewer's host list shows, so both are `mutating`.
  */
 export const hosts = {
   list: method(hostsList),
   add: method(hostsAdd, { mutating: true }),
-  // Runs the user's own recipe commands on this machine (ADR-229 D2): the
+  // Runs the user's own recipe commands on this machine: the
   // desktop user's call alone, and home's to answer.
   addRecipeHost: method(hostsAddRecipeHost, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
-  // Writes scripts this machine will run (ADR-229 D8): the desktop user's.
+  // Writes scripts this machine will run: the desktop user's.
   createRecipe: method(hostsCreateRecipe, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   listTemplates: method(hostsListTemplates, { localOnly: true, route: LOCAL_ROUTE }),
-  // Runs docker / kubectl on this machine with its config (ADR-234 D6).
+  // Runs docker / kubectl on this machine with its config.
   checkTemplate: method(hostsCheckTemplate, { localOnly: true, route: LOCAL_ROUTE }),
-  // Opens apps and starts docker pulls / builds on this machine (ADR-234 D8).
+  // Opens apps and starts docker pulls / builds on this machine.
   runTemplateFix: method(hostsRunTemplateFix, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   createCustomRecipe: method(hostsCreateCustomRecipe, {
     localOnly: true,
     mutating: true,
     route: LOCAL_ROUTE,
   }),
-  // Forgets a host for every viewer, and may delete its box and disk
-  // (ADR-229 D8): the desktop user's call alone, and home's to answer.
+  // Forgets a host for every viewer, and may delete its box and disk:
+  // the desktop user's call alone, and home's to answer.
   remove: method(hostsRemove, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   projectsOnHost: method(hostsProjectsOnHost, { localOnly: true, route: LOCAL_ROUTE }),
   retryConnect: method(hostsRetryConnect, { mutating: true }),
-  // A phone wakes a sleeping host through its home desktop (ADR-229 D7), so
+  // A phone wakes a sleeping host through its home desktop, so
   // `wake` is a `full` device's too: like `retryConnect`, it only connects
   // a host already listed here. Stopping one is the desktop user's call,
   // so `stop` is local. Both are home's to answer (`ROUTES`).
@@ -647,7 +644,7 @@ export const hosts = {
   stop: method(hostsStop, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   healthCheck: method(hostsHealthCheck),
   // Pairing a phone with a host's server hands out a key to that host, so
-  // these are `localOnly` like `remoteControl.pair` (ADR-225 D3).
+  // these are `localOnly` like `remoteControl.pair`.
   serverStatus: method(hostsServerStatus, { localOnly: true }),
   pairDevice: method(hostsPairDevice, { localOnly: true, mutating: true }),
   revokeDevice: method(hostsRevokeDevice, { localOnly: true, mutating: true }),
@@ -659,13 +656,12 @@ export const hosts = {
   // its arguments are the host id and a flag; the key is read here.
   setLinearOnHost: method(hostsSetLinearOnHost, { localOnly: true, mutating: true }),
   // Turning it off revokes phones on the host; on lets the desktop pair its
-  // own there. The same grant as `pairDevice`, so local too (ADR-228 D9).
+  // own there. The same grant as `pairDevice`, so local too.
   setLinkPhones: method(hostsSetLinkPhones, { localOnly: true, mutating: true }),
   // Writes systemd units (or LaunchAgents) onto the host and runs its
-  // commands there: the owner's call, and home's, which holds the transport
-  // (ADR-229 D4).
+  // commands there: the owner's call, and home's, which holds the transport.
   setSupervised: method(hostsSetSupervised, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
   // Runs `manor-host secrets encrypt` on the host through its transport,
-  // which home holds (ADR-236 D7).
+  // which home holds.
   encryptKeys: method(hostsEncryptKeys, { localOnly: true, mutating: true, route: LOCAL_ROUTE }),
 };

@@ -316,7 +316,7 @@ describe("navigator bridge — project-store sync", () => {
   });
 });
 
-describe("navigator bridge — hosts (ADR-191)", () => {
+describe("navigator bridge — hosts", () => {
   it("goes back to the workspace on its own host when another host has the same path", async () => {
     const selectWorkspaceSpy = vi.fn();
     vi.stubGlobal("window", {

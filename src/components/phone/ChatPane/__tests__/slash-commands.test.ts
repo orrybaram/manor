@@ -1,5 +1,5 @@
 /**
- * ADR-217 D5: the phone composer's `/` menu, as pure functions.
+ * The phone composer's `/` menu, as pure functions.
  */
 import { describe, expect, it } from "vitest";
 import {

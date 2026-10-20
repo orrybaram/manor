@@ -11,7 +11,7 @@
  * status push. That return value is also why seven of the eleven below are
  * `localOnly`: a stolen device token that can pair more devices is a token
  * that survives its own revocation, which is a different class of loss from
- * "can remove a workspace" — the one ADR-178 D3 accepted knowingly.
+ * "can remove a workspace" — the one accepted knowingly.
  * `getStatus` is a read and stays open, so a device's own settings page is
  * not lying to it about the surface it is on; the two push methods are for
  * paired devices only.
@@ -35,7 +35,7 @@ import { method, type Caller, type HandlerCtx } from "../method";
 
 /**
  * A handler that reads only `keys` of the remote-control surface. The host
- * server (ADR-225 D3) reuses these over its own relay, pairing and push,
+ * server reuses these over its own relay, pairing and push,
  * which have the same shape and none of the desktop's enable/disable.
  */
 type RemoteControlCtx<K extends keyof RemoteControlController> = HandlerCtx<{
@@ -43,7 +43,7 @@ type RemoteControlCtx<K extends keyof RemoteControlController> = HandlerCtx<{
 }>;
 
 /**
- * The one read the ADR-178 bridge needs, lifted out of its `ipcMain.handle`
+ * The one read the bridge needs, lifted out of its `ipcMain.handle`
  * wrapper the way `preferencesGetAll` was — a paired device may see who else
  * is paired (device labels, never tokens), the same view the desktop settings
  * panel gets.
@@ -59,8 +59,7 @@ export function remoteControlGetStatus(
  * exposure indicator can never disagree about whether we are reachable.
  *
  * Never an `ipcMain.handle`, which is why it outlived `register()`: the
- * `webContents.send("remoteControl:status")` loop beside it is gone (ADR-180
- * D5), and `publishRendererBroadcast` now reaches a desktop window and a
+ * `webContents.send("remoteControl:status")` loop beside it is gone, and `publishRendererBroadcast` now reaches a desktop window and a
  * paired device through the one sink — `remoteControl.status`, which is what
  * `remoteControl.onStatus(cb)` subscribes to on both platforms.
  */
@@ -83,7 +82,7 @@ export function remoteControlSetEnabled(
 /**
  * Pair a device through the relay, returning its pairing link once: a
  * single-use ticket by default, or with `{ direct: true }` the device's raw
- * token as well (ADR-240 D7).
+ * token as well.
  *
  * The label is trimmed and bounded here rather than in the dialog, because
  * the dialog is not the only caller any more — an empty label on a device in
@@ -120,7 +119,7 @@ function asPairOptions(options: unknown): { direct?: boolean } | undefined {
 }
 
 /**
- * A new link for a device that has not connected yet (ADR-240 D6); the old
+ * A new link for a device that has not connected yet; the old
  * one is dead. Local only, like `pair`: a link is a way in.
  */
 export function remoteControlReissue(
@@ -133,7 +132,7 @@ export function remoteControlReissue(
 
 /**
  * Revoking a device also revokes the pairings it was given on each remote
- * host (ADR-228 D9): the device store hands them to `HostPairingLinks`,
+ * host: the device store hands them to `HostPairingLinks`,
  * which revokes each now, or on that host's next connect.
  */
 export function remoteControlRevoke(
@@ -164,7 +163,7 @@ export function remoteControlResetRelayAddress(
 }
 
 /**
- * Push, over the bridge (ADR-206 D7) — since ADR-207 the only way a device
+ * Push, over the bridge — the only way a device
  * subscribes. Device callers only — a desktop window has no device to subscribe — and the
  * subscription lands on the calling connection's device, never one the frame
  * names.
@@ -193,14 +192,14 @@ export function remoteControlSubscribePush(
 const MAX_HELD_ROOMS = 256;
 
 /**
- * One pairing covers every host (ADR-228 D9): pair the calling device with
+ * One pairing covers every host: pair the calling device with
  * each remote host's server it can reach and does not already hold a room
  * for, and hand it what it needs to dial each — inside its own Noise
  * channel. The phone calls it on every hello from this desktop, so a host
  * added later, or away the last time, is picked up on a later connect.
  *
  * **Not `localOnly`**, though it hands out pairings, which is what keeps
- * `pair` local (ADR-228 D9):
+ * `pair` local:
  * - a `full` device on this desktop already reaches every host through
  *   `HostRouting`. A direct pairing adds no reach; it only lets the device
  *   keep it while this desktop sleeps;

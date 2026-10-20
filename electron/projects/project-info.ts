@@ -1,6 +1,6 @@
 /**
  * Building what the renderer sees of a project, and the commands a new
- * project starts with (ADR-183 split this out of `ProjectManager`).
+ * project starts with.
  */
 
 import crypto from "node:crypto";
@@ -82,7 +82,7 @@ async function detectPackageManager(
  * One command per `package.json` script at `projectPath`, run with the
  * package manager its `packageManager` field or lockfile names (see
  * `detectPackageManager`); empty when there is no `package.json`. Read
- * through the project's host (ADR-178 §3), which for a remote project is
+ * through the project's host, which for a remote project is
  * not this filesystem.
  */
 export async function seedCommands(
@@ -128,7 +128,7 @@ async function currentWorkspaces(p: PersistedProject, git: GitBackend): Promise<
 /**
  * The renderer's view of `p`: its persisted settings over the workspaces
  * git lists now. Records those workspace paths with `paths`, which routes
- * by them. `group` is the project's linked-project group (ADR-192), whose
+ * by them. `group` is the project's linked-project group, whose
  * shared settings (name, color, agent command, Linear, theme, commands) win
  * over the project's own.
  */
@@ -157,7 +157,7 @@ export async function buildProjectInfo(
   const persistedFolders = p.workspaceFolders ?? [];
   const folderIds = p.workspaceFolderIds ?? {};
   const folderIdSet = new Set(persistedFolders.map((f) => f.id));
-  // A parent absent (pre-ADR-172), deleted, or pointing at the folder
+  // A parent absent (an older file), deleted, or pointing at the folder
   // itself reads as "top level" — the renderer never sees undefined.
   const folders: WorkspaceFolder[] = persistedFolders.map((f) => ({
     ...f,
@@ -210,9 +210,9 @@ export async function buildProjectInfo(
 }
 
 /**
- * A remote host's project as this desktop shows it (ADR-227 D4): what its
+ * A remote host's project as this desktop shows it: what its
  * server holds, with the desktop's linked-project group over it. The host
- * knows nothing of groups (D2): it holds its own resolved copy of the
+ * knows nothing of groups: it holds its own resolved copy of the
  * shared settings, and the group's are written through to it, so the group
  * here only wins where a write has not landed yet.
  */
@@ -226,7 +226,7 @@ export function withGroup(
 
 /**
  * The record `projects.json` would hold for a project its host's server
- * holds (ADR-227 D4), rebuilt from what that server answers: per-workspace
+ * holds, rebuilt from what that server answers: per-workspace
  * names, issues, hidden flags, folders and order come back out of its
  * workspaces. What the server never says — paths on other hosts — is absent.
  * For the desktop's own lookups (a group's members, a path's host) and for

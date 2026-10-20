@@ -1,5 +1,5 @@
 /**
- * The key sealing the pairing keys stays the server's (ADR-236 D2): taken
+ * The key sealing the pairing keys stays the server's: taken
  * out of `process.env` at start, so the daemon the server starts (every
  * shell and agent on the box) and its busy hooks never inherit it, yet
  * handed to the secret box, which seals with it.
@@ -14,7 +14,7 @@ import { serverKeyStatus } from "../secrets-command";
 import { takeSecretEnv } from "../supervisor";
 import { useHostServerHarness } from "./harness";
 
-describe("the host server's private key environment (ADR-236 D2)", () => {
+describe("the host server's private key environment", () => {
   const h = useHostServerHarness();
   const saved = {
     file: process.env.MANOR_SECRET_KEY_FILE,

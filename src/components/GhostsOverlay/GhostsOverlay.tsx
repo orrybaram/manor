@@ -14,7 +14,7 @@ function generateGhostStyles() {
 }
 
 /**
- * Help > "Ghosts!?" easter egg (ADR-170 §8). Owned by `App` so it can be
+ * Help > "Ghosts!?" easter egg. Owned by `App` so it can be
  * driven by both the palette (via `requestUi({ type: "ghosts" })`) and the
  * native menu, and stays visible with the palette closed.
  */

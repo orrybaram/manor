@@ -85,7 +85,7 @@ describe("parseWorkspaceKey", () => {
 });
 
 describe("migration of path-only keys", () => {
-  // The collision the ADR fixes: the same repo checked out at the same path
+  // The collision host-qualified keys fix: the same repo checked out at the same path
   // on the laptop and on the box.
   const local: WorkspaceKeyOwner = {
     hostId: LOCAL_HOST_ID,

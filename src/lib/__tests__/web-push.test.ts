@@ -1,5 +1,5 @@
 /**
- * ADR-206 D7, browser side: permission is asked only from the tap and before
+ * Web push, browser side: permission is asked only from the tap and before
  * any `await` (WebKit needs the user activation), the mount path never asks,
  * a subscription bound to another VAPID key is replaced, and nothing
  * subscribes before the service worker is active.

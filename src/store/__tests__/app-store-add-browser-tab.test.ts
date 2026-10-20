@@ -46,7 +46,7 @@ function makeLayout(): WorkspaceLayout {
 
 function setupStore(layout?: WorkspaceLayout) {
   // The server holds the same layout the store starts from: every
-  // structural action goes through it now (ADR-179 D1).
+  // structural action goes through it now.
   resetFakeLayoutServer();
   const start = layout ?? makeLayout();
   seedLayout(WS_PATH, start);
@@ -72,7 +72,7 @@ function getActivePanel(): Panel {
   return state.workspaceLayouts[WS_PATH].panels[selectActivePanelId(state)!];
 }
 
-/** This renderer's selected tab in the active panel (ADR-179 D3). */
+/** This renderer's selected tab in the active panel. */
 function selectedTabId(): string | null {
   const state = useAppStore.getState();
   return selectSelectedTabId(state, selectActivePanelId(state));

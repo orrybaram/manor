@@ -7,7 +7,7 @@
 #
 # The E2E suite runs this over its side-channel ssh alias while the app's own
 # connection is down: the remote daemon journals the hook, and the app must
-# replay it on reconnect (ADR-178 §2). The env is what a pane's own processes
+# replay it on reconnect. The env is what a pane's own processes
 # would carry: MANOR_PANE_ID, and the listener's port file.
 
 set -eu

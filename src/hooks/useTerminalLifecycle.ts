@@ -57,15 +57,14 @@ export function useTerminalLifecycle(
   const [fitAddon, setFitAddon] = useState<FitAddon | null>(null);
   const [ptyError, setPtyError] = useState<string | null>(null);
   /**
-   * The winsize owner's grid, when this viewer is not the owner (ADR-178 D5).
+   * The winsize owner's grid, when this viewer is not the owner.
    *
    * Null until the create reply says otherwise — absent means owner, which is
    * what every viewer that is alone on a pane gets. It used to be null
    * *forever* on the desktop, because `pty.create` went through the preload
-   * and the preload never decorated a reply; since ADR-180 ticket 5 both
-   * platforms reach the same table entry, so a second window on a pane
-   * follows the one that attached most recently exactly as a browser does
-   * (D6). Held as one object so the identity a follower hands
+   * and the preload never decorated a reply; now both platforms reach the
+   * same table entry, so a second window on a pane follows the one that
+   * attached most recently exactly as a browser does. Held as one object so the identity a follower hands
    * `useFollowerFit` is stable between renders.
    */
   const [follower, setFollower] = useState<{ cols: number; rows: number } | null>(
@@ -75,8 +74,7 @@ export function useTerminalLifecycle(
   /**
    * Set the follower grid, keeping the same object back when it has not
    * moved — the identity `useFollowerFit` re-runs its effect on. The one
-   * merge both `applyWinsize` and `pty.onWinsizeOwner` below used to repeat
-   * (ADR-182 ticket 1).
+   * merge both `applyWinsize` and `pty.onWinsizeOwner` below used to repeat.
    */
   const setFollowerGrid = useCallback((cols: number, rows: number) => {
     setFollower((prev) =>
@@ -89,7 +87,7 @@ export function useTerminalLifecycle(
    *
    * Every field here is optional, so the one shape this has to get right is
    * "said nothing" — which means this viewer owns the winsize and the hook
-   * behaves exactly as it did before ADR-178. A host that does decorate the
+   * behaves exactly as a lone viewer always has. A host that does decorate the
    * reply is answering the same question, just out loud.
    */
   const applyWinsize = useCallback(
@@ -104,7 +102,7 @@ export function useTerminalLifecycle(
     [setFollowerGrid],
   );
 
-  // Ownership can move after the create reply too (ADR-179 D6) — another
+  // Ownership can move after the create reply too — another
   // bridge viewer's `pty.create` outbids this one, or a desktop window
   // attaches or lets go — and `applyWinsize` only ever reads the reply of a
   // call *this* viewer made. `pty.onWinsizeOwner` is the live half: on the
@@ -142,7 +140,7 @@ export function useTerminalLifecycle(
   );
 
   // Auto-resize (owner) or auto-*fit* (follower) — never both, and always
-  // both called: see ADR-178 D5, and each hook's own comment.
+  // both called: see each hook's own comment.
   const refitOwner = useOwnerFit(containerRef, fitAddon, term, resize, follower === null);
   const refitFollower = useFollowerFit(containerRef, term, follower, follower !== null);
 
@@ -155,7 +153,7 @@ export function useTerminalLifecycle(
 
   // An explicit refocusActivePane() — Escape out of the sidebar, say — bumps
   // this nonce; the bump is the only thing that overrides the sidebar guard
-  // below (ADR-172).
+  // below.
   const paneFocusNonce = useAppStore((state) => state.paneFocusNonce);
   const seenFocusNonce = useRef(paneFocusNonce);
   const firstFocusRun = useRef(true);
@@ -174,7 +172,7 @@ export function useTerminalLifecycle(
     if (!isFocusedPane || !termRef.current) return;
     const t = termRef.current;
     // Focus the terminal for keyboard input — unless the user is driving a
-    // navigation region (sidebar, tab bar, status bar; ADR-175) from the
+    // navigation region (sidebar, tab bar, status bar) from the
     // keyboard. Arrowing to a row switches workspaces, which flips this
     // selector, and focusing here would yank focus straight back out of the
     // row. A mouse click on a row or tab hands the keyboard to the pane.
@@ -232,8 +230,8 @@ export function useTerminalLifecycle(
     // The terminal is created once its fonts and render add-ons are in hand
     // (see `terminal/addons`); a pane unmounted before then never makes one.
     const openTerminal = (addons: RenderAddons): (() => void) => {
-      // Remounted because its remote host came back (ADR-178 §6) or its
-      // bridge did (ADR-220), not opened by the user: it must not take focus
+      // Remounted because its remote host came back or its
+      // bridge did, not opened by the user: it must not take focus
       // from wherever the user is now.
       const reattached = useRemotePaneStore.getState().consumeReattach(paneId);
       // A resync's remount: the session is running and this pane was set up
@@ -268,18 +266,17 @@ export function useTerminalLifecycle(
 
       // `open` is what creates xterm's hidden textarea — the one every
       // keystroke, a phone's soft keyboard included, goes through. Keep the
-      // keyboard from capitalising or "correcting" what is typed into it
-      // (ADR-181 D6).
+      // keyboard from capitalising or "correcting" what is typed into it.
       configureHelperTextarea(t.textarea);
 
       // Intercept the DOM paste event when the clipboard holds an image and
       // no text (Cmd+V on macOS, Ctrl+Shift+V, the Edit menu). Capture phase
       // so this runs before xterm's own paste listener on the same element.
-      // - Web (ADR-239 D3): the image is on the browser's clipboard, which
+      // - Web: the image is on the browser's clipboard, which
       //   only this event can read, so upload the file it carries. Ctrl+V
       //   arrives here too: attachHandler lets the browser paste it. Checked
       //   before isRemotePane, which is true for every pane on the web.
-      // - Desktop remote pane (ADR-187 §4): main reads the native clipboard.
+      // - Desktop remote pane: main reads the native clipboard.
       //   Ctrl+V is handled by attachHandler and never reaches here on
       //   Linux/Windows.
       const onDomPaste = (e: ClipboardEvent) => {
@@ -416,15 +413,14 @@ export function useTerminalLifecycle(
       // sends in xterm.js. Under zsh's raw-mode line editor, \n (Ctrl+J) is
       // not reliably bound to accept-line, so the command would sit in the
       // buffer un-submitted. Without `submit` the text is only typed, for the
-      // user to review (ADR-178 ticket 5's "fix in terminal").
+      // user to review ("fix in terminal").
       const withEnter = (text: string, submit: boolean) =>
         submit ? text + "\r" : text;
 
       // Send `text` once: either when the shell prompt is ready (CWD event) or
       // after a 3s fallback, whichever comes first. A write the pane's away
       // remote host drops (see `useTerminalConnection`) does not count: the
-      // text stays unsent instead. One path for commands and typed text alike
-      // (ADR-183).
+      // text stays unsent instead. One path for commands and typed text alike.
       const sendOnShellReady = (
         text: string,
         { submit, onSent }: { submit: boolean; onSent?: () => void },
@@ -468,7 +464,7 @@ export function useTerminalLifecycle(
       // casing here — pass it through like any workspace path.
       const spawnCwd = cwd ?? null;
 
-      // The one way in. A resync only attaches (`pty.attach`, ADR-220): the
+      // The one way in. A resync only attaches (`pty.attach`): the
       // session's `exit` may have been lost with the socket, and a create
       // would answer that with a fresh shell; and coming back must not take
       // the winsize off whoever attached meanwhile. Anything else creates,
@@ -488,7 +484,7 @@ export function useTerminalLifecycle(
               return;
             }
             // A remote session a daemon restart took is recreated on its
-            // host, as the desk's recovery does (ADR-178 §6).
+            // host, as the desk's recovery does.
             if (result.reason === "lost") {
               useRemotePaneStore.getState().reattach([paneId], "host-recovered");
               return;
@@ -540,7 +536,7 @@ export function useTerminalLifecycle(
           // A pane opened "with a command" — a new agent, a split with an
           // agent, `POST /tabs { command }`, a fix-it command to review — has
           // its line waiting on the server, and `pty.create` typed it on the
-          // way in (ADR-179 ticket 11). Nothing to read back here: the queue
+          // way in. Nothing to read back here: the queue
           // is not this renderer's any more, which is what lets a route open
           // such a pane at all.
           if (!result.snapshot) {
@@ -606,11 +602,11 @@ export function useTerminalLifecycle(
         // Detach, never kill: the session stays alive in the daemon and this pane
         // may be about to mount again somewhere else. Ending a session is the
         // Manor server's job — it kills the panes a `close-pane` orphaned
-        // (ADR-179 D2 `effects.killPanes`) — so a pane that unmounts *because*
+        // (`effects.killPanes`) — so a pane that unmounts *because*
         // it was closed has already lost its session by the time we get here,
         // and detaching from a session that is gone is quiet by design.
         //
-        // Not when the pane is unmounting for a resync's remount (ADR-220),
+        // Not when the pane is unmounting for a resync's remount,
         // whose next mount attaches again straight away: letting go in
         // between would hand the winsize to another viewer, and drop a claim,
         // that this viewer never meant to give up.
@@ -655,7 +651,7 @@ export function useTerminalLifecycle(
     try {
       t.reset();
       // A fresh session on the host the pane runs on, as create picks it: a
-      // pane moved to another host (ADR-183) stays there.
+      // pane moved to another host stays there.
       const result = await window.electronAPI.pty.reset(
         paneId,
         cwd ?? null,
@@ -664,7 +660,7 @@ export function useTerminalLifecycle(
         { hostId: paneCreateHostId(paneId, workspaceKey) },
       );
       // Reset is create-shaped on the bridge too, and a pane the desktop holds
-      // is still the desktop's after one (ADR-178 D5).
+      // is still the desktop's after one.
       applyWinsize(result);
       if (!result.ok) {
         setPtyError(result.error ?? "Failed to create terminal session");

@@ -46,7 +46,7 @@ function sources(overrides: {
     app: {
       paneAgentStatus: overrides.paneAgentStatus ?? {},
       workspaceLayouts: active ? { [workspaceKey("local", "/active")]: layout(...active) } : {},
-      // No viewport: each panel shows its first tab (ADR-179 D3).
+      // No viewport: each panel shows its first tab.
       viewports: {},
       claims: {},
       activeWorkspacePath: active ? "/active" : null,

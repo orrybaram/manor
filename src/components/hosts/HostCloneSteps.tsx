@@ -25,8 +25,8 @@ type HostCloneStepsProps = {
 
 /**
  * The cloning-progress and post-clone health-check views shared by
- * `AddProjectDialog`'s remote clone and `CloneToHostDialog` (ADR-183 ticket
- * 10) — everything after the form, driven by `useHostCloneFlow`.
+ * `AddProjectDialog`'s remote clone and `CloneToHostDialog` — everything
+ * after the form, driven by `useHostCloneFlow`.
  */
 export function HostCloneSteps(props: HostCloneStepsProps) {
   const { step, starting, progressLines, checks, checksRunning, onRerun, onFix, onDone } = props;
@@ -89,7 +89,7 @@ type RepoUrlFieldProps = {
   label?: string;
 };
 
-/** The "Repo URL" field shared by both clone dialogs (ADR-183 ticket 10). */
+/** The "Repo URL" field shared by both clone dialogs. */
 export function RepoUrlField(props: RepoUrlFieldProps) {
   const { id, value, onChange, label = "Repo URL" } = props;
 
@@ -114,13 +114,13 @@ type CloneDirFieldProps = {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
-  /** Rendered beside the input — `AddProjectDialog`'s "Browse…" (ADR-194). */
+  /** Rendered beside the input — `AddProjectDialog`'s "Browse…". */
   action?: ReactNode;
 };
 
 /**
  * Where the clone goes: "Remote directory" in `CloneToHostDialog`,
- * "Location" in `AddProjectDialog` (ADR-194), which can target this machine.
+ * "Location" in `AddProjectDialog`, which can target this machine.
  */
 export function CloneDirField(props: CloneDirFieldProps) {
   const { id, label, value, onChange, placeholder = "~/code/repo", action } = props;

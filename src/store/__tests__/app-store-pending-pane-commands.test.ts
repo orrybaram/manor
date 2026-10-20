@@ -1,8 +1,7 @@
 /**
- * Text queued for a pane's shell (ADR-183) lives on the Manor server since
- * ADR-179 ticket 11: the renderer queues it and whichever renderer creates
- * the pane's session has it typed. Typed-only text (`submit: false`, ADR-178
- * ticket 5's "fix in terminal") takes the same road. Dropping a closed pane's
+ * Text queued for a pane's shell lives on the Manor server since
+ * The renderer queues it and whichever renderer creates
+ * the pane's session has it typed. Typed-only text (`submit: false`'s "fix in terminal") takes the same road. Dropping a closed pane's
  * entry is the server's too — see `electron/layout/__tests__/layout-store.test.ts`.
  */
 import { describe, it, expect, beforeEach } from "vitest";
@@ -60,7 +59,7 @@ function setupStore() {
   });
 }
 
-describe("addTerminalTab with submit: false (ADR-178 ticket 5 — fix in terminal)", () => {
+describe("addTerminalTab with submit: false (fix in terminal)", () => {
   beforeEach(() => setupStore());
 
   it("creates a new tab and queues the text, unsubmitted, before the tab", async () => {
@@ -68,7 +67,7 @@ describe("addTerminalTab with submit: false (ADR-178 ticket 5 — fix in termina
       .getState()
       .addTerminalTab("claude setup-token", { submit: false });
     expect(result).not.toBeNull();
-    // The tab arrives with the server's broadcast (ADR-182 D9).
+    // The tab arrives with the server's broadcast.
     await settled();
 
     const panel = useAppStore.getState().workspaceLayouts[WS_PATH].panels["panel-1"];
@@ -87,7 +86,7 @@ describe("addTerminalTab with submit: false (ADR-178 ticket 5 — fix in termina
     ]);
   });
 
-  it("passes an agent prompt beside the command (ADR-209)", () => {
+  it("passes an agent prompt beside the command", () => {
     const result = useAppStore
       .getState()
       .addTerminalTab("claude", { kind: "agent-startup", prompt: 'say "hi"\nnow' });

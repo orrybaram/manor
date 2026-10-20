@@ -1,5 +1,5 @@
 /**
- * Which host a pane's new (or reset) session is created on (ADR-191).
+ * Which host a pane's new (or reset) session is created on.
  */
 import { describe, it, expect } from "vitest";
 import { paneCreateHostId } from "../useTerminalConnection";
@@ -28,7 +28,7 @@ describe("paneCreateHostId", () => {
   });
 
   it("keeps a pane on the remote host it is known to run on", () => {
-    // Moved there, or its project moved away from it (ADR-183).
+    // Moved there, or its project moved away from it.
     expect(paneCreateHostId("pane-1", onLocal, runningOn("pane-1", "box"))).toBe("box");
     // Another pane's host is not this one's.
     expect(paneCreateHostId("pane-2", onLocal, runningOn("pane-1", "box"))).toBe("local");

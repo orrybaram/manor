@@ -1,12 +1,12 @@
 /**
- * A project record as the desktop hands it to a host server (ADR-227 D3).
+ * A project record as the desktop hands it to a host server.
  *
- * The host server owns its projects (ADR-227 D2): they live in its own
+ * The host server owns its projects: they live in its own
  * `projects.json`, every one `hostId: "local"`, because to the host server
  * its own host is local. Before the flip they lived in the desktop's
  * `projects.json`; adoption (`hostServer.adopt`, `./adopt.ts`) moves them onto
  * the box as these — the desktop's records for this host, `hostPaths`
- * dropped and a grouped project's shared settings (ADR-192) already
+ * dropped and a grouped project's shared settings already
  * resolved, since the host server knows nothing of groups
  * (`ProjectManager.manifestRecords`).
  */

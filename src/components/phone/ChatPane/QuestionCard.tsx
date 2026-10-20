@@ -20,7 +20,7 @@ type QuestionEntry = Extract<ChatEntry, { kind: "question" }>;
 type QuestionCardProps = {
   paneId: string;
   entry: QuestionEntry;
-  /** Only the newest open picker can be answered (ADR-215 D5). */
+  /** Only the newest open picker can be answered. */
   answerable: boolean;
   onShowTerminal: () => void;
 };

@@ -54,7 +54,7 @@ export function KeybindingsPage() {
   recordingIdRef.current = recordingId;
 
   // The row's own "shortcut" button, keyed by command id, so recording can
-  // hand focus back to the row that started it (ADR-175).
+  // hand focus back to the row that started it.
   const shortcutBtnRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
   // The id recording just ended for, consumed by the effect below once the
   // row has re-rendered back into its non-recording state and the button
@@ -100,7 +100,7 @@ export function KeybindingsPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Never captured: the browser keeps moving focus, so Tab (or
       // Shift+Tab) reaches the Confirm/Cancel buttons — or leaves the row
-      // entirely — like it would anywhere else (ADR-175).
+      // entirely — like it would anywhere else.
       if (e.key === "Tab") return;
 
       e.preventDefault();
@@ -124,7 +124,7 @@ export function KeybindingsPage() {
 
       const combo = comboFromEvent(e);
 
-      // Bindings need ⌘, Ctrl or Alt, except a bare function key (ADR-175).
+      // Bindings need ⌘, Ctrl or Alt, except a bare function key.
       if (!isBindableCombo(combo)) {
         setRecordedCombo(null);
         setConflict("Needs ⌘, Ctrl, Alt or an unmodified F1–F12");
@@ -147,7 +147,7 @@ export function KeybindingsPage() {
   }, [recordingId, bindings, cancelRecording]);
 
   // `keybindings.set`/`reset`/`resetAll` aren't on the slice-1 bridge table
-  // (ADR-178), so a rebind here would only round-trip to a refusal. Read-only
+  // so a rebind here would only round-trip to a refusal. Read-only
   // with a note beats a "Press keys..." recorder that can never confirm.
   const webApp = isWebApp();
 

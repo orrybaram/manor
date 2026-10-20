@@ -36,9 +36,8 @@ in `phone.spec.ts` and `detach.spec.ts` — runs a local relay through
 `helpers/relay-fixture.ts`, so it needs that output and Node >= 22.
 
 **`pnpm build` runs `pnpm typecheck` first** (`tsc --noEmit` over both
-`tsconfig.json` and `tsconfig.electron.json`, zero baseline in either,
-ADR-180 ticket 15). A green build is a build in which the surface check
-(ADR-180 D7, `electron/bridge/surface.ts`) ran: adding a method to
+`tsconfig.json` and `tsconfig.electron.json`, zero baseline in either). A green build is a build in which the surface check
+(`electron/bridge/surface.ts`) ran: adding a method to
 `ElectronAPI` without placing it fails the build by name rather than showing
 up later as a call that resolves to nothing. "Placing" a method means it
 appears in exactly one of four sets — `HANDLERS` (the handler table, reached
@@ -91,8 +90,8 @@ The app's Electron `userData` (localStorage, session storage) is pointed at
 sees what the last one persisted.
 
 `openTerminalTab` waits on the first *visible* `terminal-pane`, not the first
-one in the DOM — ADR-181 keeps every workspace's panes mounted while hidden
-(D1), so once a test has opened anything before this call, the first pane in
+one in the DOM — phone mode keeps every workspace's panes mounted while
+hidden, so once a test has opened anything before this call, the first pane in
 the page is usually one of those, not the new one.
 
 The launched app's environment is scrubbed of `MANOR_*` and `ZDOTDIR`. A run
@@ -111,7 +110,7 @@ Terminal output is **not** in the DOM: xterm renders into a WebGL canvas.
 Observe a pane through `helpers/terminal.ts` (the daemon's scrollback file) or
 `helpers/local-api.ts` (the app's own control surface) instead.
 
-## Keyboard navigation (ADR-175)
+## Keyboard navigation
 
 `keyboard-navigation.spec.ts` checks that the whole app works without a
 pointer. After boot, every interaction in it is a key press. It never calls
@@ -199,7 +198,7 @@ earns an agent row — no project, no pane in the layout, name is just a uuid.
 Tests pick their session by intersecting `GET /agents` with `GET /panes`
 rather than taking the first row.
 
-## The remote-host harness (ADR-160 / ADR-178)
+## The remote-host harness
 
 `remote-host.spec.ts` (and `host-server.spec.ts`, `host-ownership.spec.ts`, `pairing-keys.spec.ts`) run against a real sshd and is skipped unless
 `MANOR_E2E_SSH=1`. Don't run it with bare `playwright test`. Use
@@ -225,8 +224,7 @@ node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
 - **Needs a display.** On a headless or WSL2 box, run it as
   `DISPLAY=:0 node scripts/test-remote-e2e.mjs --playwright-only`. If
   `/tmp/.X11-unix/X0` is missing: `ln -s /mnt/wslg/.X11-unix/X0 /tmp/.X11-unix/X0`.
-- **`host-server.spec.ts`** and **`host-ownership.spec.ts`** (ADR-225,
-  ADR-227) pair a phone with the box's host server through a local relay, so
+- **`host-server.spec.ts`** and **`host-ownership.spec.ts`** pair a phone with the box's host server through a local relay, so
   they need the private-sshd target, `pnpm build:web:relay` and Node 22.
   `host-ownership.spec.ts` launches the desktop with a remote project already
   in its `projects.json` (the `tempHome` fixture is overridden to seed it),
@@ -239,22 +237,22 @@ node scripts/test-remote-e2e.mjs --playwright-only --no-build -- --grep ports
   `pr-badge-matrix.spec.ts`, `sidebar-pr-tweaks.spec.ts`'s big test, both
   failing `bridge.spec.ts` tests (`Meta+t`, and quitting on the last window
   close), `smoke.spec.ts` "reopening a closed pane", and `remote-host.spec.ts`
-  "laptop closed … one notification" (fixed on the ADR-227 branch). The list is
+  "laptop closed … one notification". The list is
   in `docs/remote-hosts.md#testing`.
 - The launched app keeps `MANOR_E2E_SSH_CONFIG` through the fixture's
   `MANOR_*` scrub. Manor's managed ssh config includes that file ahead of
   `~/.ssh/config` (a test-only hook). See `docs/remote-hosts.md#testing`.
 
-## The web app (ADR-178)
+## The web app
 
-`web-app.spec.ts` proves slice 1's tracer bullet: a browser on a PC opens
+`web-app.spec.ts` proves the web app's tracer bullet: a browser on a PC opens
 `/app`, pairs, and drives a live terminal over the bridge — through the real
 web bundle and the real daemon, the same discipline as the shared helpers
 above. It reaches the app through the local relay setup `relay.spec.ts` uses
 (`helpers/relay-fixture.ts`): remote control opens no listener of its own, so
-the relay is the only way a browser gets in (ADR-207).
+the relay is the only way a browser gets in.
 
-The web app *is* the desktop renderer (ADR-178 D1), so once
+The web app *is* the desktop renderer, so once
 `helpers/phone.ts`'s `openWebApp` has loaded it, it shares the desktop's test
 ids and its "terminal draws into a WebGL canvas" problem — `paneText` in the
 spec reads a pane's grid through `window.__manorTerminals`
@@ -264,41 +262,39 @@ browser page runs the identical component. `helpers/phone.ts` also exports the
 more general `openClient(url, { viewport })` that `openWebApp` is built on,
 for anything future that needs another shape.
 
-`terminal-follower` (`TerminalPane.tsx`) is the D5 affordance: it appears in
+`terminal-follower` (`TerminalPane.tsx`) is the follower affordance: it appears in
 the browser exactly when the desktop still has the pane mounted, and the
 spec's whole "the desktop owns the winsize" assertion is watching for it plus
 the daemon's `cols` refusing to move while the browser's own viewport does.
 
-## The phone layout (ADR-181)
+## The phone layout
 
 `phone.spec.ts` proves the desk's shared layout walks one pane at a time on a
 phone, over the same paired web app `web-app.spec.ts` opens, at a
 390×844 viewport: one pane full screen with the top bar, tab strip and no
-status bar or inline sidebar (D3); picking the split's other pane in the pane
+status bar or inline sidebar; picking the split's other pane in the pane
 switcher moves the viewport with **no `pty.create` and no pane resize** — the
 audit log's `bridge`-transport count and each pane's grid before and after are
-the witnesses, since this is D1's whole promise; the drawer closing itself on
+the witnesses, since this is phone mode's whole promise; the drawer closing itself on
 a workspace pick; the command palette opening full screen and a command run
 from it (a split) landing on the desk's own layout too; the breakpoint reading
 width and not platform — a desktop window dragged narrow switches to phone
-chrome, a detached window below 768 px does not (D2); a drag gesture on a tab
-starting no drag (D5); and a tap on a terminal focusing xterm's own
+chrome, a detached window below 768 px does not; a drag gesture on a tab
+starting no drag; and a tap on a terminal focusing xterm's own
 `.xterm-helper-textarea` synchronously, with `autocapitalize`, `autocorrect`,
 `autocomplete` and `spellcheck` all off and the viewport meta carrying
-`interactive-widget=resizes-visual` (D6). What it cannot do: raise a real soft
+`interactive-widget=resizes-visual`. What it cannot do: raise a real soft
 keyboard. Playwright has no way to simulate one, so "opening the keyboard
-does not resize the terminal" is on the phone-layout ADR's hand-checked list,
-not asserted here — the spec proves the *focus* is keyboard-ready, not that a
+does not resize the terminal" is checked by hand, not asserted here — the spec proves the *focus* is keyboard-ready, not that a
 keyboard came up.
 
-## The bridge (ADR-180)
+## The bridge
 
 `bridge.spec.ts` is `web-app.spec.ts`'s sibling for what only makes sense once
 the desktop and a browser share one host surface: two desktop windows on one
-pane (the more recent attach owns the winsize, the older one follows — D6's
-repair, untested before this ADR), and the CLI's `app-command` path landing on
+pane (the more recent attach owns the winsize, the older one follows), and the CLI's `app-command` path landing on
 whichever window comes back after every window has been closed. `web-app.spec.ts`
-itself carries the other two bridge scenarios ADR-180 added — a desktop window
+itself carries the other two bridge scenarios — a desktop window
 closing and handing winsize ownership to the browser it shared a pane with, and
 a paired device refused a `LOCAL_ONLY` method with the device list unmoved —
 because they are extensions of tests already living there.
@@ -310,7 +306,7 @@ would) is defined four times — once as the real helper,
 in `app-menu.spec.ts`, `keyboard-navigation.spec.ts` and `detach.spec.ts`. It
 should be one helper; nothing here does that yet.
 
-## The relay (ADR-206, ADR-207)
+## The relay
 
 The relay is the only road to the app, so every spec that opens the web app
 runs through it. `relay.spec.ts` reaches the app the way a relay device does: a browser opens
@@ -336,7 +332,7 @@ the hello reply both name it.
   it. The main test then asserts that its markers, the link's pairing ticket
   and the token the browser chose (`deviceToken`) appear in no forwarded
   payload — as text, hex, or base64 — nor anywhere else in wrangler's output.
-- **Pairing links (ADR-240).** A link carries a single-use pairing ticket
+- **Pairing links.** A link carries a single-use pairing ticket
   (`&ticket=`), never a token; `pairDevice` / `pairHostPhone` throw on a link
   with `t=`. `pairing-ticket.spec.ts` covers the ticket's life: used once,
   refused to a second browser, expired (the app launched with

@@ -1,6 +1,6 @@
 /**
  * A relay room with a desktop behind it, as one fake `WebSocket` the test
- * drives by hand (ADR-206). It runs the real Noise responder from
+ * drives by hand. It runs the real Noise responder from
  * `relay-crypto`, so what it accepts is what the desktop connector accepts.
  */
 
@@ -32,7 +32,7 @@ export function desktopKey(): DesktopKey {
   return { priv, pub: x25519.getPublicKey(priv) };
 }
 
-/** The transport's liveness ping (ADR-231 D8). */
+/** The transport's liveness ping. */
 function isPing(frame: Frame): boolean {
   return (
     frame.kind === "invoke" && frame.ns === "bridge" && frame.method === "ping"

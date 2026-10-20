@@ -27,7 +27,7 @@ type StatTilesProps = {
 };
 
 /**
- * The four stat tiles (ADR-198 §1.3). The two sparklines count Agent statuses
+ * The four stat tiles. The two sparklines count Agent statuses
  * over the activity window; Merged this week reads `dailyPrsMerged` from
  * the stats summary.
  */

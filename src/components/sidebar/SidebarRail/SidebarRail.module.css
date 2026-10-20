@@ -1,6 +1,6 @@
-/* ── Collapsed sidebar rail (ADR-195) ── */
+/* ── Collapsed sidebar rail ── */
 
-/* On the frame, flush to the window's left edge (ADR-196): no surface or
+/* On the frame, flush to the window's left edge: no surface or
    edge of its own, so nothing under the traffic lights has a border. */
 .rail {
   /* A 32px column of tiles with the same space on both sides: from the
@@ -26,7 +26,7 @@
   overflow: visible;
 }
 
-/* The row the WindowLead sits in (ADR-196), draggable. */
+/* The row the WindowLead sits in, draggable. */
 .dragSpacer {
   height: var(--title-row);
   width: 100%;

@@ -5,7 +5,7 @@ import { useHostStore } from "../store/host-store";
 
 /**
  * Whether host `hostId` is away (`isHostAway`), live: by main's host list and
- * this page's own servers (ADR-228 D6). This machine (a missing id) never is.
+ * this page's own servers. This machine (a missing id) never is.
  */
 export function useHostAway(hostId: string | null | undefined): boolean {
   const hosts = useHostStore((s) => s.hosts);
@@ -14,7 +14,7 @@ export function useHostAway(hostId: string | null | undefined): boolean {
 
 /**
  * Which of `hostIds` are away now (`isHostAway`), live: a linked group's
- * sections and its host state read the same answer (ADR-192 §5).
+ * sections and its host state read the same answer.
  */
 export function useAwayHosts(
   hostIds: readonly (string | null | undefined)[],

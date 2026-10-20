@@ -43,8 +43,7 @@ export function useIssuesShortcut() {
     installed: boolean;
     authenticated: boolean;
   } | null>(null);
-  // `gh` runs on the project's own host with that host's sign-in (ADR-227
-  // D7): a remote project asks its box, not this machine.
+  // `gh` runs on the project's own host with that host's sign-in: a remote project asks its box, not this machine.
   const remoteHostId = repoHostId && isRemoteHost(repoHostId) ? repoHostId : undefined;
   const current = ghStatus?.hostId === remoteHostId ? ghStatus : null;
   const githubAvailable = !!current?.installed && current.authenticated;

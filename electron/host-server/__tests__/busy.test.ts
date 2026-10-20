@@ -10,7 +10,7 @@ import {
   IDLE_DEBOUNCE_MS,
 } from "../busy";
 
-describe("busy tracker (ADR-229 D7)", () => {
+describe("busy tracker", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -65,7 +65,7 @@ class FakeChild extends EventEmitter {
   kill = vi.fn();
 }
 
-describe("hook runner (ADR-229 D7)", () => {
+describe("hook runner", () => {
   let dir: string;
   let logFile: string;
   beforeEach(() => {

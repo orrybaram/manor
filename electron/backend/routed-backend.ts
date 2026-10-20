@@ -1,6 +1,6 @@
 /**
  * RoutedBackend — one `WorkspaceBackend` over every host in a
- * `BackendRegistry` (ADR-160 §6).
+ * `BackendRegistry`.
  *
  * The IPC handlers, control routes and process tools were written against a
  * single backend and address things by what they already have: a pane id,
@@ -15,16 +15,15 @@
  * - git calls go to the host their cwd belongs to;
  * - `ports.kill` goes to the host whose last scan reported the pid;
  *   `ports.scan` is this machine's — `PortScanner` scans each host through
- *   the registry itself (ADR-183);
+ *   the registry itself;
  * - `shell.which` is always local (it answers "is this CLI installed here");
  *   `shell.writeFile` goes to the host its path belongs to.
  *
  * A cwd here is a bare path from outside (a pty cwd, a git call from the
- * renderer), so this is the one place a path's host is inferred (ADR-183);
+ * renderer), so this is the one place a path's host is inferred;
  * everything that knows a workspace's host passes it along instead.
  *
- * **A session on an adopted remote host is that host's server's** (ADR-228
- * D5): a viewer's create, attach and reset for one are forwarded there
+ * **A session on an adopted remote host is that host's server's**: a viewer's create, attach and reset for one are forwarded there
  * (`HostRouting`), and its bytes come back through `HostProxy`, so this
  * process never creates or attaches one over the host's daemon stream —
  * `ServedByHost` says which hosts, and a create or attach for one is refused.
@@ -63,7 +62,7 @@ export interface RoutedCreateOptions {
   /**
    * The host a NEW session is created on — the host of the workspace its
    * pane belongs to. An existing session stays on the host that owns it,
-   * whatever this says: a pane moved to another host (ADR-183) keeps
+   * whatever this says: a pane moved to another host keeps
    * running, and reporting, where it really is. Without it, a new session
    * goes to the host its cwd belongs to (local wins a path both hosts have).
    */
@@ -77,13 +76,13 @@ type CreateOrAttachResult = Awaited<ReturnType<PtyBackend["createOrAttach"]>> & 
 };
 
 /**
- * Whether `hostId`'s sessions are its own server's to create and attach
- * (ADR-228 D5): an adopted host whose server this desktop is a client of.
+ * Whether `hostId`'s sessions are its own server's to create and attach:
+ * an adopted host whose server this desktop is a client of.
  */
 export type ServedByHost = (hostId: string) => boolean;
 
 /**
- * The remote host whose layout holds pane `sessionId`, or null (ADR-228 D5).
+ * The remote host whose layout holds pane `sessionId`, or null.
  * A desktop window starts and attaches a remote pane's session on that
  * host's server itself, so this process may never have claimed it; a call
  * made here for it — a control route's read, a fallback write — still
@@ -218,7 +217,7 @@ export class RoutedBackend implements WorkspaceBackend {
       exec: (cmd, args, opts) =>
         (opts?.cwd ? byPath(opts.cwd) : local()).shell.exec(cmd, args, opts),
       // No cwd to route by; callers that need a specific host's home
-      // (ProjectManager, ADR-178 §3) go through the registry directly.
+      // (ProjectManager) go through the registry directly.
       homeDir: () => local().shell.homeDir(),
       writeFile: (path, data) => byPath(path).shell.writeFile(path, data),
     };

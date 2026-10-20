@@ -1,5 +1,5 @@
 /**
- * The agent CLIs a host can install onto its home volume (ADR-234 D11): the
+ * The agent CLIs a host can install onto its home volume: the
  * one place that says which ids exist, what they are called, and which npm
  * package and binary each one is. The form's options, the recipe's
  * validation and the `up.sh` install loop all come from this list.

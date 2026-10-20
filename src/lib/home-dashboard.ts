@@ -1,5 +1,5 @@
 /**
- * ADR-194 §1–§2: pure ranking selectors for the Home dashboard.
+ * Pure ranking selectors for the Home dashboard.
  * Everything here is a plain function over data the
  * caller already has in its stores — no store or React imports, so it can be
  * unit-tested the same way `prReadiness` is (`pr-readiness.test.ts`). The
@@ -20,7 +20,7 @@ import { workspaceKey } from "./workspace-key";
 
 // ── Needs you ──
 
-/** The five Needs-you tiers, in ADR §1 priority order. */
+/** The five Needs-you tiers, in priority order. */
 export type NeedsYouTier = "input" | "error" | "blocked" | "ready" | "finished";
 
 const TIER_RANK: Record<NeedsYouTier, number> = {
@@ -47,7 +47,7 @@ export type NeedsYouItem =
       workspace: WorkspaceInfo;
       /** "conflicts" / "checks failing" / "changes requested" / "N unresolved threads" / "ready to merge". */
       reason: string;
-      /** What blocks a `blocked` PR (ADR-202); null when it's `ready`. */
+      /** What blocks a `blocked` PR; null when it's `ready`. */
       blocker: PrBlocker | null;
     };
 
@@ -59,7 +59,7 @@ export interface NeedsYouInput {
 }
 
 /**
- * The workspace key (ADR-191) of the workspace `agent` runs in: on the host
+ * The workspace key of the workspace `agent` runs in: on the host
  * its terminal runs on, falling back to its project's host when no project on
  * the agent's own host has the path. Mirrors `agentWorkspaceKey`
  * (`src/utils/agent-navigation.ts`) — not imported from there because that
@@ -106,7 +106,7 @@ export function blockedReason(pr: PrInfo): string {
 
 /**
  * A Needs-you item's stable identity: the agent id or the PR URL. React keys
- * and snoozes (ADR-198 §4) both use it, so a snoozed card stays hidden across
+ * and snoozes both use it, so a snoozed card stays hidden across
  * re-renders and ranking changes.
  */
 export function itemKey(item: NeedsYouItem): string {
@@ -115,7 +115,7 @@ export function itemKey(item: NeedsYouItem): string {
 
 /**
  * Every agent pane and PR that needs the user, ranked across the five tiers
- * of ADR §1: agent `requires_input`, agent `error`, PR `blocked`, PR `ready`,
+ * in order: agent `requires_input`, agent `error`, PR `blocked`, PR `ready`,
  * agent `responded` (unseen). Within the agent tiers, oldest
  * `AgentInfo.updatedAt` first. Within a PR tier, `projects` order, then
  * workspace order. PRs are deduped by `pr.url`. Home agents (no `projectId`)

@@ -11,7 +11,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("ProjectManager.autoJoin / keepSeparate (ADR-214)", () => {
+describe("ProjectManager.autoJoin / keepSeparate", () => {
   let tmpDir: string;
   /** `origin` by `host:path`; a missing entry is a repo with no origin. */
   let origins: Record<string, string>;

@@ -36,7 +36,7 @@ type PhoneAgentsPanelProps = {
   onOpenSettings: () => void;
   onOpenSearch?: () => void;
   onOpenNotifications?: () => void;
-  /** The paired hosts (ADR-228 D8); only a browser has any. */
+  /** The paired hosts; only a browser has any. */
   onOpenHosts?: () => void;
   /** Closes the drawer after any navigation. */
   onNavigate: () => void;
@@ -45,7 +45,7 @@ type PhoneAgentsPanelProps = {
 const NEEDS_YOU_FALLBACK = "Waiting for your input";
 
 /**
- * ADR-219 §2: the phone drawer's agents-first content. Agents waiting on the
+ * The phone drawer's agents-first content. Agents waiting on the
  * user are pinned at the top as cards, the rest are grouped by project, and
  * the bottom holds an icon nav.
  */

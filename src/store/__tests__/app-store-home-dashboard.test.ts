@@ -33,7 +33,7 @@ function makeLayout(prefix: string): WorkspaceLayout {
 /**
  * Home active, with a stale layout keyed to it — the worst case: even with
  * something to act on, the central guard must keep every creation path a
- * no-op, and no command may reach the server (ADR-179 D1).
+ * no-op, and no command may reach the server.
  */
 function seedHome() {
   resetFakeLayoutServer();
@@ -52,7 +52,7 @@ function seedHome() {
   });
 }
 
-describe("Home holds no tabs (ADR-197 §1)", () => {
+describe("Home holds no tabs", () => {
   beforeEach(() => seedHome());
 
   const noOps: Array<[string, () => unknown]> = [
@@ -120,7 +120,7 @@ describe("setActiveWorkspace(HOME_PATH)", () => {
 
 /**
  * The server drops a legacy Home layout when it loads the file and ends its
- * sessions (`LayoutStore.load`, ADR-197 §2). Should one ever reach a
+ * sessions (`LayoutStore.load`). Should one ever reach a
  * renderer anyway, Home still never adopts it.
  */
 describe("a Home layout from the server is never adopted", () => {

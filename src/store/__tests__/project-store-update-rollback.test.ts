@@ -35,7 +35,7 @@ describe("updateProject rollback", () => {
     expect(project().name).toBe("app");
   });
 
-  it("explains the rollback with a toast, marking the error reported (ADR-232 D6)", async () => {
+  it("explains the rollback with a toast, marking the error reported", async () => {
     useToastStore.setState({ toasts: [] });
     const err = new Error("write failed");
     electronAPI.projects = { update: vi.fn().mockRejectedValue(err) };

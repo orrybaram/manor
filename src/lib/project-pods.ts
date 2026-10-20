@@ -13,7 +13,7 @@ export interface ProjectPod {
 }
 
 /**
- * The hosts a removal of `members` could take with it (ADR-235 D6): each
+ * The hosts a removal of `members` could take with it: each
  * member's host, when it was made for that member and Manor can destroy it.
  */
 export function podsOf(
@@ -46,7 +46,7 @@ export function deletePodsLabel(pods: readonly ProjectPod[]): string {
 
 /**
  * After the projects are removed: delete each pod and its disk, or leave it
- * stopped (ADR-235 D6). A failed delete leaves the host in `error` and says
+ * stopped. A failed delete leaves the host in `error` and says
  * so; the projects stay removed either way.
  */
 export async function finishPods(pods: readonly ProjectPod[], destroy: boolean): Promise<void> {

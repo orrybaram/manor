@@ -1,19 +1,19 @@
 /**
- * `GET /context?paneId=…&cwd=…` — "which project is calling me?" (ADR-150).
+ * `GET /context?paneId=…&cwd=…` — "which project is calling me?".
  *
  * A three-rung ladder: the caller's pane id, then its cwd, then a 404 carrying
  * the candidate list so the model can retry with an explicit `projectId`.
  *
- * Every caller has a host (ADR-191 §4): the host that
- * owns the calling pane (`SessionOwners`, keyed by pane id — a pane ADR-183
- * moved to another host still answers to its session owner), else local.
+ * Every caller has a host: the host that
+ * owns the calling pane (`SessionOwners`, keyed by pane id — a pane moved
+ * to another host still answers to its session owner), else local.
  * That host's projects are the only candidates on rungs 2 and 3 — a project
  * on another host at the same path must not win, and the 404's list must
  * not offer a retry the relay would refuse anyway. Rung 1 needs no such
- * guess: the layout (the Manor server's, ADR-179) keys each workspace by its
- * host-qualified `WorkspaceKey` (ADR-191, #240), so the pane's workspace host is read
+ * guess: the layout (the Manor server's) keys each workspace by its
+ * host-qualified `WorkspaceKey` (#240), so the pane's workspace host is read
  * straight off that key — the workspace the pane lives in, even when
- * ADR-183 has moved its session to another host. `SessionOwners` only
+ * its session has moved to another host. `SessionOwners` only
  * stands in when the layout has no record of the pane.
  */
 
@@ -57,7 +57,7 @@ function resolveByPane(
 
 /**
  * The key of the workspace whose tree holds `paneId`. The Manor server's
- * layout store is the authority (ADR-179 D1) and holds every pane the moment
+ * layout store is the authority and holds every pane the moment
  * it exists; the file it writes on a debounce is the fallback for a server
  * built without one.
  */

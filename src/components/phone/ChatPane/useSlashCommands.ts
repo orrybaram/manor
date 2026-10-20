@@ -27,7 +27,7 @@ export type ListboxRow = {
 
 /**
  * The listbox the composer drives from its textarea: the `/` menu, or the
- * choice sheet that one of its commands opens (ADR-218 D2). Only one is
+ * choice sheet that one of its commands opens. Only one is
  * active at a time.
  */
 export type ListboxLevel = {
@@ -52,8 +52,8 @@ function wrap(index: number, n: number): number {
 }
 
 /**
- * The composer's `/` menu state (ADR-217 D5), and the choice sheet a command
- * with `choices` opens in its place (ADR-218 D2). `level` is whichever is
+ * The composer's `/` menu state, and the choice sheet a command
+ * with `choices` opens in its place. `level` is whichever is
  * showing, as one listbox; picking a row calls back into `actions`.
  *
  * The command list is fetched lazily with `chat.getCommands` the first time a
@@ -62,8 +62,8 @@ function wrap(index: number, n: number): number {
  * is never blocked on it.
  *
  * The composer calls `sync(text, caret)` from its change and select handlers,
- * which is where a fetch is started. The one effect is the bridge resync
- * (ADR-220 D3): a list already fetched is marked stale, since skills may
+ * which is where a fetch is started. The one effect is the bridge resync:
+ * a list already fetched is marked stale, since skills may
  * have changed while the socket was down, so the next open refetches it.
  * One never fetched stays lazy.
  */

@@ -65,7 +65,7 @@ function buildTabDragImage(
 type TabBarProps = {
   onNewAgent: () => void;
   panelId?: string;
-  /** Key of the workspace the panel is in (ADR-191); the active one if absent. */
+  /** Key of the workspace the panel is in; the active one if absent. */
   workspaceKey?: WorkspaceKey;
 };
 
@@ -82,7 +82,7 @@ export function TabBar(props: TabBarProps) {
   // Tabs running elsewhere are badged against the workspace's own host.
   const layoutHostId = layoutKey ? parseWorkspaceKey(layoutKey).hostId : undefined;
   // Tabs claimed by another window are somewhere else on screen and are not
-  // drawn here (ADR-179 D4); a claiming window draws only the one it holds.
+  // drawn here; a claiming window draws only the one it holds.
   const tabs = useVisibleTabs(layoutKey, panel);
   const selectedTabId = useSelectedTab(panel?.id, layoutKey);
   const selectTab = useAppStore((s) => s.selectTab);
@@ -104,7 +104,7 @@ export function TabBar(props: TabBarProps) {
     }
   }, [panelId]);
   // Only the window's top-left panel starts in far enough to clear the
-  // WindowLead (ADR-196); every other panel's tabs run flush to its left edge.
+  // WindowLead; every other panel's tabs run flush to its left edge.
   const isTopLeft = useAppStore((s) => {
     if (!panelId || !workspaceKey) return false;
     const tree = s.workspaceLayouts[workspaceKey]?.panelTree;
@@ -141,7 +141,7 @@ export function TabBar(props: TabBarProps) {
   // orphan-window move can keep the tab under the cursor.
   const dragTabLeftInWindow = useRef(0);
   const dragTabTopInWindow = useRef(0);
-  // Drag-out-to-detach (ADR-156): this window's outer bounds and the other
+  // Drag-out-to-detach: this window's outer bounds and the other
   // manor windows a tab can be dropped into, snapshotted at drag start so the
   // `dragend` hit-test needs no async IPC.
   const windowBounds = useRef<{
@@ -508,7 +508,7 @@ export function TabBar(props: TabBarProps) {
       };
       // Released over another manor window. From a detached window that means
       // "put it back": closing releases the claim and the tab is already in
-      // the primary, with its panes and sessions untouched (ADR-179 D4).
+      // the primary, with its panes and sessions untouched.
       // There is nothing to hand over, so from the primary it is a no-op —
       // the tab it would "move" is the one that window is already showing.
       if (target) {
@@ -618,8 +618,7 @@ export function TabBar(props: TabBarProps) {
                     }}
                     onKeyDown={(e) => {
                       // Shift+F10, the ContextMenu key or ⌘. open the
-                      // Browser/Agent menu that otherwise needs a right-click
-                      // (ADR-175).
+                      // Browser/Agent menu that otherwise needs a right-click.
                       if (isContextMenuKey(e)) {
                         e.preventDefault();
                         e.stopPropagation();

@@ -134,7 +134,7 @@
   margin-bottom: 24px;
 }
 
-/* ── Bulk delete's workspace list (ADR-190 §2) ── */
+/* ── Bulk delete's workspace list ── */
 
 .bulkDeleteList {
   list-style: none;

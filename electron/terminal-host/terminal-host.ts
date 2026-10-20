@@ -25,7 +25,7 @@ export class TerminalHost {
    * The reconciliation matters as much as the creation. A session that outlives
    * the pane showing it comes back at whatever size it was left at, and a grid
    * that wraps at a different width than the program does strands a copy of
-   * every frame the program repaints (ADR-165). `client.doCreateOrAttach` does
+   * every frame the program repaints. `client.doCreateOrAttach` does
    * send a resize of its own before it subscribes, but that is one caller's
    * good manners standing in for an invariant, and the invariant belongs here.
    *
@@ -117,7 +117,7 @@ export class TerminalHost {
     return this.sessions.get(sessionId)?.getSnapshot() ?? null;
   }
 
-  /** A session's current Pane facts (ADR-184 §3); null when there is no such session. */
+  /** A session's current Pane facts; null when there is no such session. */
   getPaneFacts(sessionId: string): PaneFacts | null {
     return this.sessions.get(sessionId)?.getPaneFacts() ?? null;
   }

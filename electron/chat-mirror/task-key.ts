@@ -1,5 +1,5 @@
 /**
- * The subscription key of one task's `chat.taskEntry` (ADR-224 D3).
+ * The subscription key of one task's `chat.taskEntry`.
  *
  * `chat.entry` is keyed by `paneId`, and its subscriber count is what turns
  * a pane's watcher on. A task's stream is watched the same way, so its key

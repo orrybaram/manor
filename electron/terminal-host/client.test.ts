@@ -58,11 +58,11 @@ class TestDaemon {
   failNextSnapshot = false;
   /** Set to make the next `listSessions` fail, as a very old daemon might. */
   failNextListSessions = false;
-  /** Behave like a daemon from before ADR-159: no protocol, no `notFound`, so
+  /** Behave like a very old daemon: no protocol, no `notFound`, so
    *  the client must replace it. */
   legacyProtocol = false;
   /** Control request types to swallow without a reply, as a wedged
-   *  connection would (ADR-188). They are still recorded in `seen`. */
+   *  connection would. They are still recorded in `seen`. */
   readonly silentTypes = new Set<string>();
 
   constructor(dir: string) {
@@ -335,7 +335,7 @@ class TestDaemon {
       case "handshake":
         // Echo the client's version so it does not decide we are stale and
         // respawn us. `protocol`/`ptyProtocol` are omitted when playing an
-        // older daemon (ADR-185 §B).
+        // older daemon.
         this.send(
           socket,
           this.legacyProtocol
@@ -515,7 +515,7 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
-    it("reports a stale daemon's live sessions before replacing it (ADR-185 §A)", async () => {
+    it("reports a stale daemon's live sessions before replacing it", async () => {
       const warmClient = createTestClient(daemon);
       await warmClient.connect();
       await warmClient.createOrAttach("pane-1", "/tmp", 80, 24);
@@ -727,7 +727,7 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
-    it("resizes, then subscribes, then snapshots when reattaching (ADR-159)", async () => {
+    it("resizes, then subscribes, then snapshots when reattaching", async () => {
       const client = createTestClient(daemon);
       await client.connect();
       await client.createOrAttach("pane-1", "/tmp", 80, 24);
@@ -817,7 +817,7 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
-    it("attachExisting subscribes and snapshots a live session, never resizing it (ADR-220)", async () => {
+    it("attachExisting subscribes and snapshots a live session, never resizing it", async () => {
       const client = createTestClient(daemon);
       await client.connect();
       await client.createOrAttach("pane-1", "/tmp", 80, 24);
@@ -841,7 +841,7 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
-    it("attachExisting answers null and spawns nothing for a session that is gone (ADR-220)", async () => {
+    it("attachExisting answers null and spawns nothing for a session that is gone", async () => {
       const client = createTestClient(daemon);
       await client.connect();
       daemon.seen.length = 0;
@@ -852,7 +852,7 @@ describe("TerminalHostClient", () => {
       client.disconnect();
     });
 
-    it("attachExisting answers null for a session whose shell exited (ADR-220)", async () => {
+    it("attachExisting answers null for a session whose shell exited", async () => {
       const client = createTestClient(daemon);
       await client.connect();
       await client.createOrAttach("pane-1", "/tmp", 80, 24);
@@ -1119,7 +1119,7 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("Pane facts (ADR-184)", () => {
+  describe("Pane facts", () => {
     it("getPaneFacts round-trips the session's current snapshot", async () => {
       const client = createTestClient(daemon);
       await client.connect();
@@ -1168,7 +1168,7 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("daemon loss (ADR-169)", () => {
+  describe("daemon loss", () => {
     /** Wait until `pred()` holds, or fail after `timeoutMs`. */
     async function waitFor(
       pred: () => boolean,
@@ -1297,7 +1297,7 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("liveness (ADR-188)", () => {
+  describe("liveness", () => {
     /** Wait until `pred()` holds, or fail after `timeoutMs`. */
     async function waitFor(
       pred: () => boolean,
@@ -1509,7 +1509,7 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("daemonDir (ADR-116)", () => {
+  describe("daemonDir", () => {
     it("uses a fixed path independent of app version", () => {
       const clientA = new LocalTransport();
       const clientB = new LocalTransport();
@@ -1529,7 +1529,7 @@ describe("TerminalHostClient", () => {
     });
   });
 
-  describe("migrateOldDaemons (ADR-116)", () => {
+  describe("migrateOldDaemons", () => {
     it("sends SIGTERM to PIDs found in legacy versioned daemon directories", async () => {
       // Build a temp legacy daemons dir with two versioned subdirs
       const legacyRoot = path.join(tmpDir, "daemons");
@@ -1667,7 +1667,7 @@ describe("isDaemonStale", () => {
     expect(isDaemonStale(current())).toBe(false);
   });
 
-  // ADR-185 §B: the app version plays no part any more — a daemon outlives
+  // The app version plays no part any more — a daemon outlives
   // the app that spawned it, and a different `daemonVersion` alone is not a
   // reason to replace it.
   it("keeps a daemon built from a different app version, protocols matching", () => {
@@ -1686,7 +1686,7 @@ describe("isDaemonStale", () => {
     );
   });
 
-  it("replaces a daemon that omits ptyProtocol (built before ADR-185)", () => {
+  it("replaces a daemon that omits ptyProtocol (an older build)", () => {
     const legacy = {
       type: "handshake",
       daemonVersion: CURRENT,

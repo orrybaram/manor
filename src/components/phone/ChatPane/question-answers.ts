@@ -1,6 +1,6 @@
 /**
- * What a question card has chosen, and the `PickerAnswer`s it sends
- * (ADR-215 D5). Pure, so the card's rules are pinned by tests.
+ * What a question card has chosen, and the `PickerAnswer`s it sends.
+ * Pure, so the card's rules are pinned by tests.
  *
  * - A single-select question has one option or "Other" with its text.
  * - A multi-select question has any non-empty set of options. It has no

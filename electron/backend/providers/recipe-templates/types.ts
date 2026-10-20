@@ -1,5 +1,5 @@
 /**
- * What a bundled recipe template is (ADR-229 D8): a short form, the scripts
+ * What a bundled recipe template is: a short form, the scripts
  * it writes, and the `recipe.json` it makes from the form's answers.
  */
 
@@ -20,7 +20,7 @@ export function defaultHostImage(ctx: TemplateContext): string {
 }
 
 /**
- * One option for a field (ADR-234 D6): a `choice` field's, listed by main
+ * One option for a field: a `choice` field's, listed by main
  * (`checkTemplate`), or a `size` field's, fixed in the template.
  */
 export interface Choice {
@@ -32,7 +32,7 @@ export interface Choice {
 }
 
 /**
- * How the form renders a field (ADR-234 D6): free `text` (the default), a
+ * How the form renders a field: free `text` (the default), a
  * `choice` among options main lists (`TemplateCheckResult.choices`; the user
  * may still type one that isn't listed), or a `size` among the template's
  * own fixed `options`, or a `segmented` pick of one of a few fixed `options`
@@ -53,7 +53,7 @@ export interface FormField {
   required?: boolean;
   /** Absent means `text`. */
   type?: FormFieldType;
-  /** Shown under the form's "Advanced" disclosure rather than up front (ADR-234 D7). */
+  /** Shown under the form's "Advanced" disclosure rather than up front. */
   advanced?: boolean;
   /** A `size`, `segmented` or `multi` field's options, in the order shown. */
   options?: Choice[];
@@ -66,7 +66,7 @@ export interface FormField {
 }
 
 /**
- * A check's one fix (ADR-234 D8), by what carries it out:
+ * A check's one fix, by what carries it out:
  *
  * - `run`: main does it — `hosts.runTemplateFix(templateId, id, values)`
  *   opens an app or starts a background pull or build; the next
@@ -84,7 +84,7 @@ export type TemplateFix =
   | { kind: "set"; label: string; key: string; value: string };
 
 /**
- * One row of a template's readiness checklist (ADR-234 D8): a plain
+ * One row of a template's readiness checklist: a plain
  * sentence, its state, and at most one fix. Later checks are `todo` until
  * the earlier ones pass.
  */
@@ -99,8 +99,8 @@ export interface TemplateCheck {
 }
 
 /**
- * What `hosts.checkTemplate` answers for a template and the form's values
- * (ADR-234 D6): its checklist, and the options of its `choice` fields, by
+ * What `hosts.checkTemplate` answers for a template and the form's values:
+ * its checklist, and the options of its `choice` fields, by
  * field key. One round trip per refresh.
  */
 export interface TemplateCheckResult {
@@ -127,8 +127,8 @@ export interface RecipeTemplate {
   description: string;
   fields: FormField[];
   /**
-   * The keys of the fields that differ for each host made from a profile
-   * (ADR-235 D1): a profile never stores them, and its editor hides them.
+   * The keys of the fields that differ for each host made from a profile:
+   * a profile never stores them, and its editor hides them.
    */
   perHost: string[];
   /** File name in the recipe's directory -> its content. */

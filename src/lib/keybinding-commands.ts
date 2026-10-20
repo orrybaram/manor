@@ -42,9 +42,9 @@ import { currentLayoutMode } from "../hooks/useLayoutMode";
 /**
  * The renderer half of the command table (`commands.ts`) for commands that
  * are meaningful in ANY window — the primary window and the detached popup
- * windows of ADR-156 alike — plus the key dispatcher both kinds of window use.
+ * windows alike — plus the key dispatcher both kinds of window use.
  *
- * Every window runs `App` (ADR-179 D4), but a detached one withholds the
+ * Every window runs `App`, but a detached one withholds the
  * primary-only handlers and forwards those combos to the primary window
  * instead — so what the shared context backs is what a popout can actually
  * run: new tab / new agent / new browser / pane / panel / browser commands,
@@ -115,7 +115,7 @@ export async function startNewAgent(
   }
   // The prewarmed session already exists, so its pane id is known before the
   // tab is: queue the launch line against it directly, and only when the
-  // warm session is not already running one (ADR-179 ticket 11).
+  // warm session is not already running one.
   if (!prewarmed.commandInjected) {
     await window.electronAPI.layout.setPendingCommand(
       prewarmed.paneId,
@@ -129,7 +129,7 @@ export async function startNewAgent(
 /**
  * "New agent", from any trigger. A phone opens the new-agent composer
  * instead: nothing launches until its first message, wherever its chips
- * point (ADR-222 D1). Elsewhere it is `startNewAgent`.
+ * point. Elsewhere it is `startNewAgent`.
  */
 export async function newAgent({ prewarm }: { prewarm: boolean }): Promise<void> {
   if (currentLayoutMode() === "phone") {
@@ -165,7 +165,7 @@ export function activeSurface(): {
 } {
   const app = useAppStore.getState();
   const path = app.activeWorkspacePath;
-  // By key: a local and a remote project can share a path (ADR-191).
+  // By key: a local and a remote project can share a path.
   const key = selectActiveWorkspaceKey(app);
   const found = key ? find(useProjectStore.getState().projects, key) : undefined;
   const project =
@@ -267,7 +267,7 @@ function openDialogTestId(): string | null {
   );
 }
 
-/** Whether an open dialog leaves `commandId` alone (ADR-175 modal scope). */
+/** Whether an open dialog leaves `commandId` alone (modal scope). */
 function blockedByDialog(commandId: string): boolean {
   const openDialog = openDialogTestId();
   return openDialog !== null && DIALOG_OWN_TOGGLE[openDialog] !== commandId;

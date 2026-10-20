@@ -75,7 +75,7 @@ export function initApp(devTitle: string | null): void {
   let mainWindow: BrowserWindow | null = null;
   // Installed inside `app.whenReady()` below; `ipcDeps.appMenu` reads this
   // through a getter so the IPC modules can be registered before then, as
-  // they are today (ADR-170 §4).
+  // they are today.
   let appMenu: AppMenuController;
 
   // ── Window registry ────────────────────────────────────────────────────
@@ -86,7 +86,7 @@ export function initApp(devTitle: string | null): void {
   const rendererWindows = new Set<BrowserWindow>();
   const detachedWindows = new Map<string, BrowserWindow>();
   // The tab each detached window was opened to hold, by renderer id — the
-  // same fact its `--manor-claim=` argument tells the page (ADR-179 D4).
+  // same fact its `--manor-claim=` argument tells the page.
   const windowClaims = new Map<
     string,
     { workspacePath: string; tabId: string }
@@ -173,7 +173,7 @@ export function initApp(devTitle: string | null): void {
     });
   }
 
-  // ── The server (ADR-227 D1) ────────────────────────────────────────────
+  // ── The server ────────────────────────────────────────────
   // Everything a Manor server has wherever it runs is `createManorServer`'s;
   // what follows it here is what only the desktop has.
   // The desktop's notifier, which `createManorServer` builds through the
@@ -183,10 +183,10 @@ export function initApp(devTitle: string | null): void {
     dataDir: manorDataDir(),
     layoutFile: layoutFile(),
     // The remote-control and relay modules take their platform from these ports
-    // rather than importing Electron, so the host server can reuse them (ADR-225 D6).
+    // rather than importing Electron, so the host server can reuse them.
     secretBox: electronSecretBox,
     appVersion: app.getVersion(),
-    // So a phone's pairings show this machine's real name (ADR-225 D7).
+    // So a phone's pairings show this machine's real name.
     hostName: () => os.hostname(),
     // The process-wide sinks: the menu, the updater and the IPC transport
     // publish into them too.
@@ -194,7 +194,7 @@ export function initApp(devTitle: string | null): void {
     notifier: (parts) =>
       (notifier = new Notifier({ ...parts, getMainWindow: () => mainWindow, getRendererWindows })),
     windows: {
-      // Which renderer is the primary window's (ADR-179 D4). Read at call
+      // Which renderer is the primary window's. Read at call
       // time, not captured: `mainWindow` is nulled on close and set again on
       // reopen, and a stale answer here would make `list_panes` describe a
       // popout.
@@ -207,7 +207,7 @@ export function initApp(devTitle: string | null): void {
       claimOf: (rendererId) => windowClaims.get(rendererId) ?? null,
     },
     // The diff watcher runs no git while the primary window is hidden or
-    // minimized and no paired browser watches (ADR-230 D6). Read at each
+    // minimized and no paired browser watches. Read at each
     // start: `mainWindow` is nulled on close and set again on reopen.
     diffWindow: () => mainWindow,
     remoteHosts: { remoteVersion: manorVersion() },
@@ -216,9 +216,9 @@ export function initApp(devTitle: string | null): void {
   };
 
   /**
-   * The web app's transport (ADR-178 D8, ADR-180 D1), built with the
+   * The web app's transport, built with the
    * remote-control runtime because it is only reachable through the relay
-   * (and so loads lazily with it, ADR-205 §3). It attaches to the same
+   * (and so loads lazily with it). It attaches to the same
    * bridge the desktop's windows do: one table, one connection registry,
    * two transports.
    */
@@ -235,16 +235,16 @@ export function initApp(devTitle: string | null): void {
     // The bridge is built synchronously during `initApp`, long before
     // anything can enable remote control. Its hello reply carries the app
     // version, so a relay page built for another version can move to the
-    // matching build (ADR-206 D4).
+    // matching build.
     const ws = new WsBridgeServer(server.bridge, {
       appVersion: electronPlatform.appVersion,
       hostName: electronPlatform.hostName,
     });
     wsBridge = ws;
-    // The hello gate every relay channel passes (ADR-207 D3): device verify,
+    // The hello gate every relay channel passes: device verify,
     // failed-auth backoff, and the device's live connections for a revoke.
     const gate = new RelayGate(server.relayStores.devices, ws);
-    // ADR-206's relay: the only way in. Constructed, never started here —
+    // The relay: the only way in. Constructed, never started here —
     // only an explicit user action (via the controller) dials it.
     const relay = new RelayConnector({ identity: relayIdentityStore, gate });
     return { gate, relay, relayIdentity: relayIdentityStore };
@@ -269,19 +269,19 @@ export function initApp(devTitle: string | null): void {
   function desktopDeps(core: ManorCore): HostDeps {
     const { client, shared } = core;
     const { backendRegistry, portScanner } = shared;
-    // Remote dev servers opened from Manor go through these (ADR-178 §5).
+    // Remote dev servers opened from Manor go through these.
     const remoteForwards = new RemoteForwards(backendRegistry);
     // Which host each pane's workspace lives on, and the resolver that turns a
     // URL opened in that host's context into the one to load. Built here, once,
     // so `resolvePaneUrl` below is wired into `HostDeps` before any IPC
     // module registers — no more racing a setter installed as a side effect of
-    // `ports.register` (ADR-183).
+    // `ports.register`.
     const paneHosts = new Map<string, string>();
     const remoteUrlResolver = new RemoteUrlResolver(portScanner, backendRegistry, remoteForwards);
     /**
      * The URL to actually load for a `navigate` in `paneId`'s webview
      * (`HostDeps.resolvePaneUrl`): itself, or rewritten through the pane's
-     * host's port forward for a remote workspace (ADR-178 §5). Gives up
+     * host's port forward for a remote workspace. Gives up
      * (rejects) rather than wait forever on an absent host.
      */
     const resolvePaneUrl = async (paneId: string, url: string): Promise<string> => {
@@ -297,10 +297,10 @@ export function initApp(devTitle: string | null): void {
     });
     const prewarmManager = new PrewarmManager(client, process.env.HOME || "/");
 
-    // One pairing covers every host (ADR-228 D9): what this desktop mints for
+    // One pairing covers every host: what this desktop mints for
     // its devices on each host's server, and the revokes that follow them.
-    // Built before the sync, which reconciles its lost mints on each connect
-    // (ADR-230 D11); it reaches the sync only once a link or revoke runs.
+    // Built before the sync, which reconciles its lost mints on each connect;
+    // it reaches the sync only once a link or revoke runs.
     const hostLinks: HostPairingLinks = new HostPairingLinks({
       devices: core.relayStores.devices,
       hostServers: () => backendRegistry.hostServers(),
@@ -325,32 +325,32 @@ export function initApp(devTitle: string | null): void {
       },
     });
 
-    // ADR-225 D3: each remote host's host server signs pushes with the
+    // Each remote host's host server signs pushes with the
     // desktop's VAPID pair, sent on every connect of the owner channel; the
     // sync also caches each host's push endpoints, which the controller below
     // reads so the desktop skips what the host server sends. The host server
-    // owns its projects and layout (ADR-227 D2): neither is pushed, but what
-    // the desktop held for a host is handed over once (D3).
+    // owns its projects and layout: neither is pushed, but what
+    // the desktop held for a host is handed over once.
     const hostServerSync: HostServerSync = new HostServerSync({
       registry: backendRegistry,
       // The desktop's own VAPID pair, so a phone's one browser subscription is
-      // valid in every room (D3).
+      // valid in every room.
       vapidKeys: () => core.relayStores.push.vapidKeys(),
-      // What the desktop still holds for each host, handed to its server
-      // (ADR-227 D3); from then on it reads them through that server (D4).
+      // What the desktop still holds for each host, handed to its server;
+      // from then on it reads them through that server.
       adoption: core.hostAdoption,
-      // The linked pairings each host is owed a revoke of (ADR-228 D9).
+      // The linked pairings each host is owed a revoke of.
       pendingRevokes: {
         list: (hostId) => shared.projectManager.pendingHostRevokes(hostId),
         clear: (hostId, ids) => shared.projectManager.clearPendingHostRevokes(hostId, ids),
         revoked: (hostId) => publishRendererBroadcast("hosts", "pairingChanged", hostId),
       },
-      // Pairings minted on a host whose answer was lost (ADR-230 D11).
+      // Pairings minted on a host whose answer was lost.
       pendingMints: hostLinks.pendingMints(),
-      // Linked pairings revoked on the host, or lost to a reset there (ADR-238 D2).
+      // Linked pairings revoked on the host, or lost to a reset there.
       reconcileLinks: (hostId) => hostLinks.reconcileLinks(hostId),
       // "Keep Manor running when <host> restarts", installed on connect
-      // where it is on and the host has none (ADR-229 D4).
+      // where it is on and the host has none.
       supervision: {
         wanted: (hostId) => shared.projectManager.hostSupervised(hostId),
         install: async (hostId) => {
@@ -366,11 +366,11 @@ export function initApp(devTitle: string | null): void {
     hostServerSync.start();
     hostLinks.start();
 
-    // ADR-161's remote control. Constructed here so the status sink and the
+    // Remote control. Constructed here so the status sink and the
     // quit hook can see it; deliberately *not* started — remote control is off
     // until the user turns it on, and even then nothing is reachable until they
-    // separately start the relay (ADR-207: there is no listener). The gate and
-    // relay modules are not even loaded until then (ADR-205 §3): `loadRuntime`
+    // separately start the relay (there is no listener). The gate and
+    // relay modules are not even loaded until then: `loadRuntime`
     // runs at most once, on the first enable.
     const remoteControl = new RemoteControlController({
       loadRuntime: loadRemoteControlRuntime,
@@ -380,12 +380,12 @@ export function initApp(devTitle: string | null): void {
       hostPushEndpoints: (hostId) => hostServerSync.pushEndpoints(hostId),
     });
 
-    // Its control routes (ADR-171) run over `ipcDeps`, which holds this server
+    // Its control routes run over `ipcDeps`, which holds this server
     // and so is built just below; the first request waits on `start()`.
     const webviewServer = webviewIpc.createWebviewServer(() => ipcDeps);
 
     // The one deps object every host-side handler runs over — the bridge's
-    // table, the IPC modules below, and the control routes (ADR-182 D8).
+    // table, the IPC modules below, and the control routes.
     const ipcDeps: HostDeps = {
       ...shared,
       get mainWindow() {
@@ -402,7 +402,7 @@ export function initApp(devTitle: string | null): void {
       jevClient,
       webviewServer,
       // Pane inspection routes' access to WebviewServer's own pane registry
-      // and console-log buffers (ADR-183) — always itself.
+      // and console-log buffers — always itself.
       webviewPanes: webviewServer,
       resolvePaneUrl,
       workspaceMeta: [],
@@ -429,20 +429,20 @@ export function initApp(devTitle: string | null): void {
 
   // A connection that drops has already let go of every pane it viewed
   // (`BridgeServer.drop`); whatever tab it claimed comes back to the primary
-  // too (ADR-179 D4) — a claim that outlives its window is a tab no renderer
+  // too — a claim that outlives its window is a tab no renderer
   // shows. Only a desktop window ever claims, so for a socket this is a
   // no-op.
   server.bridge.onDisconnect((connectionId) =>
     server.shared.layoutStore.releaseWindow(connectionId),
   );
-  // The desktop's transport (D2): the same frames over `bridge:*` IPC, one
+  // The desktop's transport: the same frames over `bridge:*` IPC, one
   // connection per renderer window. Started unconditionally and for the life
   // of the app — a window's first frame makes its connection, and remote
   // control being off has nothing to do with it.
   const ipcBridge = new IpcBridgeTransport(ipcDeps, server.bridge);
   ipcBridge.start();
 
-  // `electron/ipc/` keeps exactly six things now (ADR-180 D8, ticket 11):
+  // `electron/ipc/` keeps exactly six things now:
   // `webview`/`webview-keys`, `window`, `popups`, `menu` and the native
   // remnant of `misc.ts` (dialog/shell/clipboard/updater, and the terminal's
   // clipboard-image upload), renamed `native.ts`. Everything else that used
@@ -454,7 +454,7 @@ export function initApp(devTitle: string | null): void {
   nativeIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
   menuIpc.register(ipcDeps);
-  // Each window's own streams to its hosts' servers (ADR-228 D4): main
+  // Each window's own streams to its hosts' servers: main
   // carries their frames between IPC and SSH, and reads none of them.
   const hostPipes = hostPipeIpc.register(ipcDeps);
   // What is left of a few crossed namespaces' `register()` is a subscription
@@ -476,7 +476,7 @@ export function initApp(devTitle: string | null): void {
     // for them. A store that cannot be read stays unread (and its file
     // untouched) rather than keeping the app from starting.
     await server.initSecrets();
-    // Native application menu (ADR-170). Must run after `whenReady()` (Menu
+    // Native application menu. Must run after `whenReady()` (Menu
     // isn't available before then) and before the primary window opens so the
     // menu is in place the instant the window can take focus.
     appMenu = installAppMenu({
@@ -488,7 +488,7 @@ export function initApp(devTitle: string | null): void {
     });
 
     // A wake from sleep or an unlock can leave a remote host's connection up
-    // but wedged (ADR-188 §3): the transport never closed, so nothing would
+    // but wedged: the transport never closed, so nothing would
     // otherwise notice. `powerMonitor` is only available once the app is
     // ready.
     const checkRemoteHostsOnWake = (reason: "resume" | "unlock-screen"): void => {
@@ -546,7 +546,7 @@ export function initApp(devTitle: string | null): void {
     ]);
 
     // Ensure shell integration and agent hooks are set up — the same bootstrap
-    // a remote daemon runs on its own host (ADR-160 ticket 10). A connector
+    // a remote daemon runs on its own host. A connector
     // that skips registration (e.g. a config it couldn't safely parse) is
     // reported here, not thrown — one agent's bad config must never abort
     // local startup.
@@ -590,7 +590,7 @@ export function initApp(devTitle: string | null): void {
     prewarmManager.warm().catch(() => {});
 
     // The local daemon's panes may already have facts (a daemon that outlived
-    // the last app run): resync them now that it is connected (ADR-184).
+    // the last app run): resync them now that it is connected.
     void server.resyncHostPanes(LOCAL_HOST_ID);
 
     // The dock badge follows preferences from here, and hooks reach the
@@ -724,7 +724,7 @@ export function initApp(devTitle: string | null): void {
     step("server", () => server.stop());
     step("portless", () => portlessManager.stop());
     step("prewarm", () => prewarmManager.dispose().catch(() => {}));
-    // Background `docker pull` / `docker build` a template fix started (ADR-234 D8).
+    // Background `docker pull` / `docker build` a template fix started.
     step("template jobs", () => stopTemplateJobs());
     // Last: the relay is down by now, so nothing new joins the queues.
     return flushSealedStores(remoteControlDown);

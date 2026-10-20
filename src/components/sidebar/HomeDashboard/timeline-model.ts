@@ -1,6 +1,6 @@
 import type { AgentStatus } from "../../../electron.d";
 
-/** Status colours (ADR-198 §1.5); `responded` and `idle` never draw as bars. */
+/** Status colours; `responded` and `idle` never draw as bars. */
 export const STATUS_COLOR: Record<AgentStatus, string> = {
   working: "var(--green)",
   thinking: "var(--accent)",

@@ -1,15 +1,15 @@
 /**
  * RemoteBackend — a `WorkspaceBackend` whose host is another machine,
- * reached over ssh (ADR-160).
+ * reached over ssh.
  *
  * Nothing here re-implements pty, git, shell or ports logic. It is the same
- * `createHostBackend` the local host is built with (ADR-183); the pty
+ * `createHostBackend` the local host is built with; the pty
  * backend gets a `TerminalHostClient` riding an `SshTransport`, and the
  * other three, and the host's `MachineFacts`, get an `Exec` that runs their
  * commands on the remote daemon. The only things that
  * are genuinely remote-specific live here: bootstrapping the host and the
- * reconnect policy. The transport comes from the host's `HostProvider`
- * (ADR-178 §1); for an ssh box that is an `SshTransport`.
+ * reconnect policy. The transport comes from the host's `HostProvider`;
+ * for an ssh box that is an `SshTransport`.
  */
 
 import { errorMessage } from "../lib/errors";
@@ -42,12 +42,12 @@ const RECONNECT_BASE_MS = 1_000;
 const RECONNECT_CAP_MS = 30_000;
 
 /**
- * Heartbeat for a remote host's client (ADR-188 §2): ssh's own keepalives
+ * Heartbeat for a remote host's client: ssh's own keepalives
  * (`ServerAliveInterval`/`CountMax`) only catch a dead TCP peer, not a
  * connection that is up but has stopped delivering — the failure mode a Mac
  * waking from sleep hit. Pinging on the control channel notices that within
  * about 25s (one interval plus one timeout), and within `HEARTBEAT_TIMEOUT_MS`
- * of a wake check (ADR-188 §3).
+ * of a wake check.
  */
 const HEARTBEAT_INTERVAL_MS = 15_000;
 const HEARTBEAT_TIMEOUT_MS = 10_000;
@@ -93,7 +93,7 @@ export interface RemoteBackendOptions {
   onBootstrapWarning?: (warnings: string[]) => void;
   /**
    * The remote daemon is about to be replaced and these are its still-live
-   * sessions (ADR-185 §A). Handed to the host's `TerminalHostClient`.
+   * sessions. Handed to the host's `TerminalHostClient`.
    */
   onDaemonReplacing?: (sessionIds: string[]) => void;
   /**
@@ -103,15 +103,15 @@ export interface RemoteBackendOptions {
   transport: HostTransport;
   /**
    * Asked before each reconnect attempt; false stops the loop quietly (the
-   * host's provider says it is asleep, ADR-229 D1). The next `connect()`
+   * host's provider says it is asleep). The next `connect()`
    * resumes its sessions. `attempt` is 0-based, counted from the drop; a
-   * recipe host re-runs `up` on a later one (ADR-230 D2).
+   * recipe host re-runs `up` on a later one.
    */
   beforeReconnect?: (attempt: number) => Promise<boolean>;
   /**
    * Asked when a reconnect attempt fails in a way that would stop the loop
    * (`classifyHostFailure`); true retries it anyway. A recipe host says so
-   * until its once-per-drop re-run of `up` has had its turn (ADR-230 D2).
+   * until its once-per-drop re-run of `up` has had its turn.
    */
   retryPermanentFailure?: (err: unknown) => boolean;
   /** Replaces `remoteReconnectDelayMs`. For tests. */
@@ -148,13 +148,13 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
     const transport = (this.transport = opts.transport);
 
     // The laptop's MANOR_* ports are pushed like to any daemon; the remote
-    // daemon's role drops them (ADR-178 §2).
+    // daemon's role drops them.
     this.client = new TerminalHostClient(opts.version, transport, opts.onDaemonReplacing);
     this.client.setReconnectPolicy(this.reconnectDelayMs, {
       // Retrying bad credentials or a host without Node every 30s forever
       // only re-runs the bootstrap; stop and tell the user instead.
       // A recipe box that moved fails at its old way in until `up` has run
-      // again (ADR-230 D2), so it may ask to keep going.
+      // again, so it may ask to keep going.
       isPermanentFailure: (err) =>
         classifyHostFailure(err) !== null && !(opts.retryPermanentFailure?.(err) ?? false),
       ...(opts.beforeReconnect ? { beforeAttempt: opts.beforeReconnect } : {}),
@@ -237,7 +237,7 @@ export class RemoteBackend implements RemoteHostBackend, HostBackend {
   }
 
   /**
-   * Ping the daemon once and resolve whether it answered (ADR-188 §3), for a
+   * Ping the daemon once and resolve whether it answered, for a
    * wake check. A failure is reported through `onHostEvent`'s
    * `hostDisconnected`, the same as a heartbeat tick going unanswered.
    */

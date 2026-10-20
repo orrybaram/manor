@@ -73,7 +73,7 @@ import { allPaneIds } from "../../src/lib/layout/pane-tree";
 import type { LayoutStoreBackend } from "../layout/layout-store";
 import type { HostDeps } from "../ipc/types";
 
-// ── The renderer, as the bridge sees it (ADR-180 D5) ──
+// ── The renderer, as the bridge sees it ──
 
 /**
  * Main's app-commands are bridge event frames now, not `webContents.send`:
@@ -89,7 +89,7 @@ function bridgeHarness() {
   const frames: RendererBroadcast[] = [];
   const stops = [addRendererBroadcastSink((frame) => frames.push(frame))];
   // The window is only ever looked at for its id now: every push main
-  // makes to a renderer is a broadcast frame (ADR-180 D5).
+  // makes to a renderer is a broadcast frame.
   (BrowserWindow.getAllWindows as ReturnType<typeof vi.fn>).mockReturnValue([
     { webContents: { id: 1 } },
   ]);
@@ -191,7 +191,7 @@ async function resolvePaneId(
 /**
  * A `WebviewServer` whose control routes run over `deps` — held by reference,
  * so a test may swap a manager in after construction. Only what a test
- * reaches is there: `HostDeps` is non-null (ADR-182 D8), and the cast is what
+ * reaches is there: `HostDeps` is non-null, and the cast is what
  * lets a test stub the handful of managers it touches.
  */
 function serverWith(
@@ -216,11 +216,11 @@ function serverWith(
 
 // ── Tests ──
 
-/** The server's setup-script runner (ADR-227 D5), as the routes reach it. */
+/** The server's setup-script runner, as the routes reach it. */
 const runSetupScript = vi.fn<WorkspaceOpsDeps["runSetupScript"]>(async () => {});
 
 /**
- * The workspace ops `createManorServer` builds (ADR-203), over the test's
+ * The workspace ops `createManorServer` builds, over the test's
  * fake manager and the real (electron-mocked) renderer bridge, so the create /
  * remove / batch routes run end to end.
  */
@@ -532,7 +532,7 @@ describe("WebviewServer project/workspace routes", () => {
       linkedIssue: undefined,
       baseBranch: "origin/main",
       useExistingBranch: undefined,
-      // No renderer asked: the setup progress is broadcast (ADR-180 D5).
+      // No renderer asked: the setup progress is broadcast.
       origin: null,
     });
   });
@@ -546,7 +546,7 @@ describe("WebviewServer project/workspace routes", () => {
       linkedIssue: undefined,
       baseBranch: undefined,
       useExistingBranch: undefined,
-      // No renderer asked: the setup progress is broadcast (ADR-180 D5).
+      // No renderer asked: the setup progress is broadcast.
       origin: null,
     });
   });
@@ -580,7 +580,7 @@ describe("WebviewServer project/workspace routes", () => {
       name: "feature",
     });
 
-    // On the server, with no renderer round trip (ADR-227 D5); the
+    // On the server, with no renderer round trip; the
     // project's host, as the path alone may be on two hosts.
     expect(runSetupScript).toHaveBeenCalledWith("/repos/demo-ws", "npm install", "box", null);
   });
@@ -600,8 +600,8 @@ describe("WebviewServer project/workspace routes", () => {
       name: "feature",
     });
 
-    // A broadcast rather than a `webContents.send` to the first window
-    // (ADR-180 ticket 6): every renderer that subscribed hears it, windows
+    // A broadcast rather than a `webContents.send` to the first window:
+    // every renderer that subscribed hears it, windows
     // and browsers alike.
     expect(bridge.frames).toContainEqual({
       ns: "projects",
@@ -664,7 +664,7 @@ describe("WebviewServer agent orchestration routes", () => {
 
   let server: WebviewServer;
   let baseUrl: string;
-  /** `POST /agents` opens the tab itself now (ADR-179 ticket 11), so the
+  /** `POST /agents` opens the tab itself now, so the
    *  orchestration routes need a real layout store like the pane routes do. */
   let layoutStore: LayoutStore;
   /** What the server's routes run over; a test may swap a manager in. */
@@ -730,7 +730,7 @@ describe("WebviewServer agent orchestration routes", () => {
 
   beforeEach(async () => {
     pm = {
-      // The workspace host `POST /agents` names for the renderer (ADR-191).
+      // The workspace host `POST /agents` names for the renderer.
       hostIdForPath: vi.fn(() => "local"),
       getProjects: vi.fn(async () => [PROJECT]),
       addProject: vi.fn(),
@@ -1042,7 +1042,7 @@ describe("WebviewServer agent orchestration routes", () => {
 
   describe("POST /agents", () => {
     it("opens the tab itself and returns the pane it created", async () => {
-      // No window, no round-trip (ADR-179 ticket 11): the route applies a
+      // No window, no round-trip: the route applies a
       // `new-tab` to the layout store and queues the launch line for the pane
       // it minted, so the answer names a pane that really exists.
       const result = (await mcpHttpPost(baseUrl, "/agents", {
@@ -1051,7 +1051,7 @@ describe("WebviewServer agent orchestration routes", () => {
       })) as { tabId: string; paneId: string; workspacePath: string };
 
       expect(result.workspacePath).toBe("/repos/demo");
-      // A local workspace's layout key is its bare path (ADR-191).
+      // A local workspace's layout key is its bare path.
       const entry = layoutStore.get("/repos/demo")!;
       const panel = entry.layout.panels[Object.keys(entry.layout.panels)[0]];
       const tab = panel.tabs.find((t) => t.id === result.tabId);
@@ -1320,7 +1320,7 @@ describe("WebviewServer agent orchestration routes", () => {
       expect(result.results[1].error).toContain("gh issue view failed");
     });
 
-    // ADR-176: step 3 (assign + launch) runs one issue at a time, not fanned
+    // Step 3 (assign + launch) runs one issue at a time, not fanned
     // out — a launch is now a correlated round-trip to the renderer, and N of
     // those concurrently is both needless load and harder to reason about.
     // Assign shares the same loop iteration, so it inherits the same
@@ -1397,7 +1397,7 @@ describe("WebviewServer agent orchestration routes", () => {
   });
 });
 
-// ── Pane & tab routes (ADR-149 §4) ──
+// ── Pane & tab routes ──
 
 describe("WebviewServer pane routes", () => {
   let server: WebviewServer;
@@ -1406,7 +1406,7 @@ describe("WebviewServer pane routes", () => {
   let layoutStore: LayoutStore;
 
   /** Seed a workspace with one plain terminal tab/pane, for the structural
-   *  routes (ADR-179 D5) that need something real to act on. */
+   *  routes that need something real to act on. */
   async function seedPane(
     workspacePath: string,
     tabId: string,
@@ -1433,7 +1433,7 @@ describe("WebviewServer pane routes", () => {
       () => {},
       { pty: { kill: vi.fn().mockResolvedValue(undefined) } } as unknown as LayoutStoreBackend,
     );
-    // ADR-179 D5: the structural pane/tab routes drive this directly now, no
+    // The structural pane/tab routes drive this directly now, no
     // renderer round-trip — only `/panes/:paneId/focus` below still proxies.
     server = serverWith({ layoutStore });
     await server.start();
@@ -1446,7 +1446,7 @@ describe("WebviewServer pane routes", () => {
     vi.useRealTimers();
   });
 
-  // ADR-179 D5: `GET /panes`, `POST /panes/split`, `DELETE /panes/:paneId`
+  // `GET /panes`, `POST /panes/split`, `DELETE /panes/:paneId`
   // and `POST /tabs` drive `LayoutStore` directly now — no renderer, no
   // "app-command" round-trip. `POST /panes/:paneId/focus` below is the one
   // pane route left that still proxies (viewport, D3).
@@ -1546,7 +1546,7 @@ describe("WebviewServer pane routes", () => {
     bridge.closeWindow();
 
     // `/panes/:paneId/focus` is the viewport route left that still needs a
-    // window (D3); the structural routes above no longer do.
+    // window; the structural routes above no longer do.
     await expect(mcpHttpPost(baseUrl, "/panes/pane-1/focus")).rejects.toThrow(
       "HTTP 503",
     );
@@ -1564,14 +1564,14 @@ describe("WebviewServer pane routes", () => {
   }, 7000);
 });
 
-// ── Correlated main→renderer request/response (ADR-149 §1) ──
+// ── Correlated main→renderer request/response ──
 
 describe("requestRenderer", () => {
   let bridge: ReturnType<typeof bridgeHarness>;
 
   /**
    * Play the renderer: an `appCommands.result` invoke, which is what the
-   * reply is on the handler table (ADR-180 D5).
+   * reply is on the handler table.
    */
   function reply(result: AppCommandResult): void {
     appCommandResult(result);
@@ -1712,7 +1712,7 @@ describe("requestRenderer", () => {
   });
 });
 
-// ── TOOLS/handlers parity test (ADR-149) ──
+// ── TOOLS/handlers parity test ──
 
 describe("MCP tools composition and parity", () => {
   it("composes exactly 50 tools with matching handlers", () => {
@@ -1757,7 +1757,7 @@ describe("MCP tools composition and parity", () => {
   });
 });
 
-// ── GET /context (ADR-150) ──
+// ── GET /context ──
 //
 // Ticket 1 (pane-context.test.ts) already unit-tests the pure resolver.
 // These tests are about routing, the resolution ladder, dep-guards, and the
@@ -1798,7 +1798,7 @@ function contextPanel(id: string, tabs: PersistedTab[]): PersistedPanel {
 
 /**
  * A v3 workspace: structure, plus the one default viewport that carries the
- * selection the tree used to (ADR-179 D3). `/context` never reads the
+ * selection the tree used to. `/context` never reads the
  * viewport — it walks panes — but a fixture that still put focus in the tree
  * would be describing a file this version cannot write.
  */

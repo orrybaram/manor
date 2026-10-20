@@ -11,14 +11,14 @@ import {
 } from "./relay";
 
 /**
- * The local Manor relay as Playwright fixtures (ADR-206, ADR-207 D3).
+ * The local Manor relay as Playwright fixtures.
  *
  * The relay is the only road from a browser to the desktop, so every spec
  * that opens the web app runs one: `wrangler dev` on a port of its own
  * (`./relay.ts`), its local R2 seeded with this checkout's
  * `pnpm build:web:relay` output, and the app launched with `MANOR_RELAY_URL`
  * pointing at it — and as the repo root (`asPackage`), so it reports Manor's
- * version, which every pairing link and hello names (ADR-206 D4).
+ * version, which every pairing link and hello names.
  *
  * Needs Node >= 22 on PATH (wrangler's floor) and `dist-relay-web/`; the
  * e2e package scripts build it before they run.

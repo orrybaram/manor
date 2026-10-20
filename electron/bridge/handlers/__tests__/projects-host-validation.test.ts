@@ -14,7 +14,7 @@ import {
 
 /**
  * The handlers under test, by their old IPC channel names. There is no
- * `register()` any more (ADR-180 D8): the handler table calls the lifted
+ * `register()` any more: the handler table calls the lifted
  * functions with the one long-lived `HostDeps`, so `register` here only
  * records the deps a test built, and each channel calls its function over
  * them. The first argument stands in for the IPC event and is ignored.
@@ -63,15 +63,15 @@ function makeDeps(opts: { currentHostId?: string; pathExists?: boolean } = {}) {
       ? vi.fn().mockRejectedValue(new Error("does not exist"))
       : vi.fn().mockImplementation(async (_id: string, hostId: string) => moved(hostId)),
     moveProjectToHost: vi.fn().mockImplementation(async () => moved("box")),
-    // A host whose projects are its server's takes the moved layouts too
-    // (ADR-227 D4); none here is.
+    // A host whose projects are its server's takes the moved layouts too;
+    // none here is.
     handOverHost: vi.fn().mockResolvedValue(undefined),
     autoJoin: vi.fn().mockResolvedValue([{ joinedId: "p2", intoId: "p1" }]),
     keepSeparate: vi.fn(),
     undoAutoJoin: vi.fn(),
   };
   const backendRegistry = { ensureConnected: vi.fn().mockResolvedValue(undefined) };
-  // The layouts are the server's to move (ADR-179 D1), and it broadcasts the
+  // The layouts are the server's to move, and it broadcasts the
   // move to every renderer.
   const layoutStore = { moveWorkspaces: vi.fn().mockResolvedValue(undefined) };
   return { projectManager, backendRegistry, layoutStore, statsStore: { record: vi.fn() } };
@@ -89,7 +89,7 @@ describe("projects:update", () => {
   });
 });
 
-describe("projects:switchHost (ADR-179)", () => {
+describe("projects:switchHost", () => {
   it("passes an explicit path through", async () => {
     const deps = makeDeps({ currentHostId: "box" });
     register(deps as never);
@@ -111,7 +111,7 @@ describe("projects:switchHost (ADR-179)", () => {
   });
 });
 
-describe("projects:moveToHost (ADR-179)", () => {
+describe("projects:moveToHost", () => {
   const opts = { hostId: "box", repoUrl: "https://github.com/org/app.git", remoteDir: "~/code/app" };
 
   it("connects to the host before moving the project", async () => {
@@ -135,7 +135,7 @@ describe("projects:moveToHost (ADR-179)", () => {
     expect(deps.projectManager.moveProjectToHost).toHaveBeenCalledTimes(1);
   });
 
-  // ADR-191: the workspaces it keeps keep their saved layouts, under their
+  // The workspaces it keeps keep their saved layouts, under their
   // keys on the new host.
   it("moves the kept workspaces' saved layouts to the new host's keys", async () => {
     const deps = makeDeps();
@@ -147,7 +147,7 @@ describe("projects:moveToHost (ADR-179)", () => {
   });
 });
 
-describe("projects:transfer (ADR-213)", () => {
+describe("projects:transfer", () => {
   const opts = { projectId: "p1", hostId: "box", mode: "copy" as const };
 
   it("connects to a remote host, then transfers", async () => {
@@ -194,7 +194,7 @@ describe("projects:transfer (ADR-213)", () => {
   });
 });
 
-describe("projects:switchHost layouts (ADR-191)", () => {
+describe("projects:switchHost layouts", () => {
   it("moves the kept workspaces' saved layouts back to local keys", async () => {
     const deps = makeDeps({ currentHostId: "box" });
     register(deps as never);
@@ -205,7 +205,7 @@ describe("projects:switchHost layouts (ADR-191)", () => {
   });
 });
 
-describe("projects:autoJoin / keepSeparate (ADR-214)", () => {
+describe("projects:autoJoin / keepSeparate", () => {
   it("returns the pairs autoJoin joined", async () => {
     const deps = makeDeps();
     register(deps as never);
@@ -226,7 +226,7 @@ describe("projects:autoJoin / keepSeparate (ADR-214)", () => {
   });
 });
 
-describe("projects:undoAutoJoin (ADR-214)", () => {
+describe("projects:undoAutoJoin", () => {
   it("passes the pair through, and rejects a non-string", () => {
     const deps = makeDeps();
     register(deps as never);

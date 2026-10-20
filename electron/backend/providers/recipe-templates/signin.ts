@@ -1,5 +1,5 @@
 /**
- * "Sign new pods in for me" (ADR-235 D9), Kubernetes profiles only.
+ * "Sign new pods in for me", Kubernetes profiles only.
  *
  * Manor writes one Secret per profile, `manor-signin-<profileId>`, in the profile's namespace, with
  * keys `GH_TOKEN` and `CLAUDE_CODE_OAUTH_TOKEN`. The `kubernetes` template's
@@ -29,7 +29,7 @@
  *   runner's output capture (the host's start log) never sees them, and any
  *   error message is scrubbed of the token before it is thrown.
  *
- * The trade (the ADR's copy): anyone who can read Secrets in the namespace,
+ * The trade: anyone who can read Secrets in the namespace,
  * or exec into any of its pods, can read both tokens. Each profile has its own
  * Secret, so removing a token through one never touches another's.
  */
@@ -116,7 +116,7 @@ export const defaultSignInDeps: SignInDeps = {
 /**
  * The profile's cluster and namespace, checked with the template's own
  * patterns. Throws for a profile that isn't Kubernetes: Docker profiles have
- * no Secret store that isn't a file on the daemon's disk (D9).
+ * no Secret store that isn't a file on the daemon's disk.
  */
 export function profileKubeTarget(profile: HostProfile): KubeTarget {
   if (profile.templateId !== "kubernetes") {

@@ -1,6 +1,5 @@
 /**
- * How a set of the server's workspaces lands in this renderer's replica
- * (ADR-179 D1, ADR-221 ticket 7).
+ * How a set of the server's workspaces lands in this renderer's replica.
  *
  * Pure: every function here takes the store's state and answers the patch to
  * write, so a broadcast, the boot read and a resync all merge the same way.
@@ -56,7 +55,7 @@ export function sessionSideMaps(
   for (const [paneId, session] of Object.entries(sessions)) {
     if (session.lastCwd) cwds[paneId] = session.lastCwd;
     if (session.lastTitle) titles[paneId] = session.lastTitle;
-    // The Status reconciler's shape (ADR-184); a renderer reads only
+    // The Status reconciler's shape; a renderer reads only
     // `status` and `kind` back out of what an older file kept.
     const agent = session.lastAgentStatus;
     if (agent) agents[paneId] = agent as PaneAgentStatus;
@@ -149,7 +148,7 @@ export interface AdoptOptions {
  * A version *below* the one held is dropped: replays and the overlap between
  * a read and the broadcasts around it are both normal. One at the **same**
  * version is not necessarily stale, though — a claim changing carries no new
- * tree (D4), so `(version, claims)` is compared.
+ * tree, so `(version, claims)` is compared.
  *
  * Every workspace's layout is kept, opened here or not; only an opened one
  * has its viewport repaired — never replaced — because nothing else is
@@ -214,7 +213,7 @@ export interface SnapshotOptions {
   before: Record<string, number>;
   /**
    * Where a workspace this renderer holds no viewport for starts from: its
-   * own saved one, else the host's default (ADR-179 D3). Boot passes the
+   * own saved one, else the host's default. Boot passes the
    * viewport file; a resync leaves it out, and a workspace it does not hold
    * a viewport for gets one when it is first opened (`mountPatch`). Either
    * way a viewport this renderer already holds is repaired, never replaced.
@@ -235,7 +234,7 @@ export interface SnapshotResult {
 
 /**
  * Merge a `layout.getAll()` snapshot into `state` — the boot read and a
- * bridge resync (ADR-220 D2) both land through here.
+ * bridge resync both land through here.
  *
  * Each entry is adopted like a broadcast, except one a broadcast already
  * brought to the same version while the read was in flight: that broadcast

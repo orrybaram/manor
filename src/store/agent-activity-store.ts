@@ -12,7 +12,7 @@ import { liveValue } from "../bridge/resync";
 export const ACTIVITY_WINDOW_MS = 3 * 60 * 60 * 1000;
 
 /**
- * Renderer cache of main's Agent activity history (ADR-199 §2).
+ * Renderer cache of main's Agent activity history.
  *
  * Main records and persists; the renderer never mutates its copy. Every change
  * arrives back through `onChanged`, the same split `stats-store` uses.

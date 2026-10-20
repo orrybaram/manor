@@ -29,7 +29,7 @@ async function takenNames(project: ProjectInfo): Promise<Set<string>> {
   return taken;
 }
 
-/** Whether `project` launches Claude (a chat from the start, ADR-215 D7). */
+/** Whether `project` launches Claude (a chat from the start). */
 function isClaude(project: ProjectInfo): boolean {
   return getAgentKindForCommand(project.agentCommand ?? DEFAULT_AGENT_COMMAND) === "claude";
 }
@@ -70,7 +70,7 @@ async function sendToNewWorktree(prompt: string, resolved: ResolvedTarget<Projec
 }
 
 /**
- * The phone new-agent composer's send (ADR-222 D6): launch `prompt` at
+ * The phone new-agent composer's send: launch `prompt` at
  * `target`. Nothing happens for a blank prompt or a target that went stale.
  */
 export function sendNewAgent(rawPrompt: string, target: NewAgentTarget): void {

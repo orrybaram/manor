@@ -1,7 +1,7 @@
 /**
- * Workspace folders and the sidebar order they live in (ADR-167/172), plus
+ * Workspace folders and the sidebar order they live in, plus
  * the per-workspace settings kept beside them: names, hidden flags and
- * linked issues (ADR-183 split this out of `ProjectManager`).
+ * linked issues.
  */
 
 import crypto from "node:crypto";
@@ -293,7 +293,7 @@ export function setWorkspaceHidden(
 
 /**
  * Persists the sidebar order verbatim. `orderedKeys` entries may be
- * workspace paths or folder ids (see ADR-167).
+ * workspace paths or folder ids.
  */
 export function reorderWorkspaces(
   ctx: ProjectContext,

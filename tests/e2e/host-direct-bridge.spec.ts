@@ -23,18 +23,18 @@ import {
 import { paneText, runInTerminal } from "./helpers/terminal";
 
 /**
- * A desktop window talks to a remote host's server itself (ADR-228 D4, D5):
+ * A desktop window talks to a remote host's server itself:
  * its own `manor-host server-bridge --viewer` stream to the box, which carries
  * the window's calls for that host, its terminals included.
  *
  * - A pane on the box is typed into and resized over that stream.
- * - The stream dies: the window goes on through main (D6) and dials the
+ * - The stream dies: the window goes on through main and dials the
  *   stream again, and the pane is typed into once it is back.
- * - A host server from before ADR-228 (it does not report `viewer-bridge`)
- *   gets no stream, and its pane works through main as in slice 2 (D3).
+ * - An older host server (it does not report `viewer-bridge`) gets no
+ *   stream, and its pane works through main.
  * - A phone paired only with the desktop types into a pane on the box, and
  *   sees its output: main forwards the pane's terminal to the box's server
- *   (D5), over a local relay (`relayTest`).
+ *   over a local relay (`relayTest`).
  *
  * Each test starts from a clean box, so each one's project is the box's only
  * one. Skipped unless MANOR_E2E_SSH=1; run through the harness:
@@ -49,7 +49,7 @@ test.describe.configure({ mode: "serial" });
 
 /**
  * Make the box's host server, from its next start, report no capabilities:
- * a server from before ADR-228 (`reportedCapabilities`). The harness's
+ * an older server (`reportedCapabilities`). The harness's
  * ForceCommand sources `~/.manor-e2e/env` into every session, the one that
  * starts the server included; `resetRemoteBox` deletes it.
  */
@@ -149,7 +149,7 @@ test.describe("a desktop window's own bridge to the host server", () => {
     expect((await hostStatus(window, hostId))?.status).toBe("connected");
     await expect(window.getByTestId("host-offline-banner")).not.toBeVisible();
     // Main forwards the pane's terminal to the box's server meanwhile, its
-    // output included (ADR-228 D5), so what was typed is on the screen too.
+    // output included, so what was typed is on the screen too.
     await typeAndSee(window, request, tempHome, paneId, "FALLBACK");
 
     // The window dials its stream again, and its pane reattaches over it:

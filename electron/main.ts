@@ -56,7 +56,7 @@ if (!app.isPackaged) {
   }
 }
 
-// Mirror console output to disk (ADR-188 §4), so incidents survive a launch
+// Mirror console output to disk, so incidents survive a launch
 // from Finder/Dock where stdout goes nowhere. Must come after the app name is
 // set above, since `app.getPath("logs")` is name-dependent on macOS
 // (~/Library/Logs/<name>/main.log). Guarded so a logging failure can never

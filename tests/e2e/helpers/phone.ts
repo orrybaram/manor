@@ -9,7 +9,7 @@ import {
  * but a URL — the pairing dialog's link, with a fragment holding the token —
  * and a Chromium viewport.
  *
- * The ADR-178 web app (`openWebApp`) renders the *same* `App` the desktop
+ * The web app (`openWebApp`) renders the *same* `App` the desktop
  * shows — same test ids, same sidebar, same terminal pane — so a test can
  * drive it with the desktop's own helpers.
  */
@@ -75,9 +75,9 @@ export async function openClient(
 export interface OpenWebAppOptions {
   headed?: boolean;
   /**
-   * Defaults to a PC viewport. ADR-181's phone tests pass a phone size
+   * Defaults to a PC viewport. The phone tests pass a phone size
    * instead — the same `/app` bundle, the same desktop renderer, dropped
-   * into phone mode by width alone (ADR-181 D2), with nothing else about
+   * into phone mode by width alone, with nothing else about
    * how it is opened any different from a PC browser.
    */
   viewport?: { width: number; height: number };
@@ -86,7 +86,7 @@ export interface OpenWebAppOptions {
 }
 
 /**
- * The ADR-178 web app — the desktop renderer served to a browser by the
+ * The web app — the desktop renderer served to a browser by the
  * relay — at a PC viewport, opened on `pairDevice`'s link. The spec has to
  * run against a local relay (`./relay-fixture.ts`) for the link to load.
  */

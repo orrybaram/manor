@@ -2,9 +2,9 @@
  * The three worktree calls, and where their progress goes.
  *
  * These are handler-table functions, so the test calls them the way dispatch
- * does — with a `ctx` naming the caller, which is where their progress goes
- * (ADR-180 D5). The stats counters and the `projects.changed` broadcast are
- * `workspaceOps`'s to owe (ADR-203) and are tested in `workspace-ops.test.ts`;
+ * does — with a `ctx` naming the caller, which is where their progress goes.
+ * The stats counters and the `projects.changed` broadcast are
+ * `workspaceOps`'s to owe and are tested in `workspace-ops.test.ts`;
  * this file checks that the handlers go through it, and that the caller's
  * connection is what the progress is addressed to.
  */

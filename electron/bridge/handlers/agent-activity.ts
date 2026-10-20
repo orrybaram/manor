@@ -5,7 +5,7 @@ import { method, type HandlerCtx } from "../method";
 import type { AgentActivitySnapshot } from "../../agent-activity-store";
 
 /**
- * ADR-199's Agent activity surface, one namespace table (ADR-182 D3).
+ * The Agent activity surface, one namespace table.
  * `agentActivityStore` is main's single source of truth; the renderer only
  * caches the snapshot broadcast here.
  */

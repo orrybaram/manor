@@ -88,7 +88,7 @@ function LinkedIssueIcon(props: LinkedIssueIconProps) {
 
 interface StatusBarProps {
   onNewWorkspace?: CommandPaletteProps["onNewWorkspace"];
-  /** Opens the command palette on the stats view (ADR-168 §6). */
+  /** Opens the command palette on the stats view. */
   onOpenStats?: () => void;
 }
 
@@ -97,7 +97,7 @@ interface StatsSegmentProps {
 }
 
 /**
- * Compact usage-stats readout (ADR-168 §6). Hidden while collection is off or
+ * Compact usage-stats readout. Hidden while collection is off or
  * before anything worth showing has been recorded, so a fresh install never
  * sees a row of zeroes.
  */
@@ -139,7 +139,7 @@ export function StatusBar(props: StatusBarProps) {
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
   const browserFocused = useAppStore(selectWebviewFocusVisible);
   const projects = useProjectStore((s) => s.projects);
-  // The Tasks view (ADR-198) covers the active workspace, which stays active
+  // The Tasks view covers the active workspace, which stays active
   // underneath; its trail must not leak into the Tasks bar.
   const surface = useAppStore((s) => s.activeSurface);
   // With zero projects the onboarding screen replaces everything.

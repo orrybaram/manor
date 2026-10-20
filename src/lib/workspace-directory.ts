@@ -1,7 +1,7 @@
 /**
- * The project list, addressed by `WorkspaceKey` (ADR-204).
+ * The project list, addressed by `WorkspaceKey`.
  *
- * A workspace is *(host, path)* (ADR-191): a local and a remote project of
+ * A workspace is *(host, path)*: a local and a remote project of
  * the same repo, under the same username, list byte-identical workspace
  * paths. Every "which workspace is this" question goes through here, by key,
  * so one host's branch, PR or diff stats can't land on the other's workspace.
@@ -36,7 +36,7 @@ interface DirectoryWorkspace {
 
 /**
  * What the directory needs to know about a project. `ProjectInfo` fits as
- * is. A missing `hostId` means local, as on disk (ADR-160).
+ * is. A missing `hostId` means local, as on disk.
  */
 export interface DirectoryProject<W extends DirectoryWorkspace = DirectoryWorkspace> {
   id?: string;
@@ -193,7 +193,7 @@ export function reconcile<P extends DirectoryProject<WatchedWorkspace>>(
  * A path-only guess, and the only one left: a caller that knows the host
  * (an active workspace, a pane's key, a port's `hostId`) should build a key
  * and use `ownerOf` / `find` instead. Remaining callers are the
- * control-server commands whose `hostId` is optional (ADR-204 §4).
+ * control-server commands whose `hostId` is optional.
  */
 export function hostForPath(
   selection: ProjectSelection,

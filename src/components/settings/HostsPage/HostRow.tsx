@@ -41,15 +41,15 @@ import styles from "./HostsPage.module.css";
 /** How the Hosts page names this computer in "only while … is awake". */
 const DESKTOP_NAME = "This Mac";
 
-/** Where enabling systemd-creds on a host is explained (ADR-225 D6). */
+/** Where enabling systemd-creds on a host is explained. */
 const SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#encrypting-pairing-keys";
 
-/** Where a recipe giving its host a key is explained (ADR-236 D6). */
+/** Where a recipe giving its host a key is explained. */
 const RECIPE_SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/hosts/recipes.md#pairing-key-encryption";
 
-/** Where giving a container a key from its environment is explained (ADR-236 D6). */
+/** Where giving a container a key from its environment is explained. */
 const CONTAINER_SECRETS_DOCS_URL =
   "https://github.com/orrybaram/manor/blob/main/docs/remote-hosts.md#a-key-from-outside-the-box";
 
@@ -62,7 +62,7 @@ type HostRowProps = {
 };
 
 /**
- * One remote host on the Hosts page (ADR-233 D1): a header with its state
+ * One remote host on the Hosts page: a header with its state
  * and device reach in one line, and behind it everything about the host —
  * whether devices can reach it, its supervision, its pairing-key warnings,
  * its integrations, and what its provider lets Manor do to it.
@@ -232,16 +232,16 @@ type HostDeviceAccessProps = {
   run: RunAction;
   /**
    * Encrypt plaintext pairing keys without being asked, once, as soon as the
-   * host can (ADR-236 D6): the Add a host wizard's last step does this for a
+   * host can: the Add a host wizard's last step does this for a
    * host Manor just set up.
    */
   autoEncrypt?: boolean;
 };
 
 /**
- * A host's Device access group (ADR-233 D1): whether devices reach it, what
+ * A host's Device access group: whether devices reach it, what
  * keeps its Manor running, the state of its pairing keys. Shared by its row
- * and the Add a host wizard's last step (D4).
+ * and the Add a host wizard's last step.
  */
 export function HostDeviceAccess(props: HostDeviceAccessProps) {
   const { host, name, readOnly, view, busy, run, autoEncrypt = false } = props;
@@ -255,7 +255,7 @@ export function HostDeviceAccess(props: HostDeviceAccessProps) {
   const connected = host.status === "connected";
   const status = view?.status ?? null;
 
-  // Whether, and how, the plaintext warning can be fixed from here (ADR-236 D6).
+  // Whether, and how, the plaintext warning can be fixed from here.
   const inContainer = view?.supervisor?.kind === "container";
   const fix: KeyFix =
     host.providerKind === "recipe"
@@ -345,7 +345,7 @@ type HostIntegrationsProps = {
 };
 
 /**
- * A host's Integrations group (ADR-233 D1): today only Linear, shown when
+ * A host's Integrations group: today only Linear, shown when
  * this computer has it or the host already holds a copy. Nothing otherwise.
  */
 export function HostIntegrations(props: HostIntegrationsProps) {
@@ -390,9 +390,9 @@ type HostRowShellProps = {
   name: string;
   /** The header's one line, after the dot. */
   status: ReactNode;
-  /** Open on mount, before any jump; a lone project's only row (ADR-237 D3). */
+  /** Open on mount, before any jump; a lone project's only row. */
   defaultOpen?: boolean;
-  /** A third line under the status: the project's path on this host (ADR-237 D3). */
+  /** A third line under the status: the project's path on this host. */
   detail?: ReactNode;
   /** Buttons that sit beside the header, outside the toggle. */
   headerActions?: ReactNode;
@@ -405,7 +405,7 @@ type HostRowShellProps = {
 };
 
 /**
- * What every row on the Hosts page shares (ADR-233 D1, D2): the header that
+ * What every row on the Hosts page shares: the header that
  * opens and closes it, the collapsing body and its footer. Collapsed until
  * opened, or until a link jumps to its section.
  */
@@ -536,9 +536,9 @@ const PILL_ICONS: Record<PairingKeysTone, ReactNode> = {
 };
 
 /**
- * The Pairing keys row (ADR-236 D6): the keys' state as a pill, one line on
+ * The Pairing keys row: the keys' state as a pill, one line on
  * it, the caveats behind a disclosure, and **Encrypt** where Manor can do it.
- * Then what the host's server says about itself (ADR-225 D6).
+ * Then what the host's server says about itself.
  */
 function PairingKeys(props: PairingKeysProps) {
   const { status, hostId, hostName, fix, busy, run, autoEncrypt } = props;

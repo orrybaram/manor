@@ -129,7 +129,7 @@ describe("LinearManager", () => {
     });
   });
 
-  describe("onChange (ADR-230 D8)", () => {
+  describe("onChange", () => {
     it("fires with true on save and false on clear", async () => {
       const onChange = vi.fn();
       const watched = new LinearManager(secretBox, undefined, onChange);

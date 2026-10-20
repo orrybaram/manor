@@ -1,5 +1,5 @@
 /**
- * The one seam the lifecycle code branches on (ADR-229 D4): whichever of the
+ * The one seam the lifecycle code branches on: whichever of the
  * operating system's supervisors keeps this box's daemon and host server
  * running across a reboot. Kept apart from `./index.ts` so each
  * implementation can import it without importing the others.

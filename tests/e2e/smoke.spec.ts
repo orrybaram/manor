@@ -42,7 +42,7 @@ test("pane lifecycle", { tag: "@smoke" }, async ({ app, window, tempHome }) => {
 });
 
 /**
- * Reopen is an undo, so the shell has to survive the close (ADR-179 t10).
+ * Reopen is an undo, so the shell has to survive the close.
  *
  * The server holds the kill for a grace period; a reopen inside it cancels
  * the kill and reattaches the same session. A shell variable is the proof

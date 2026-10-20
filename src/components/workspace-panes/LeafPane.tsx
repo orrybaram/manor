@@ -75,7 +75,7 @@ import chatViewStyles from "../phone/ChatPane/PaneView.module.css";
 import styles from "./PaneLayout/PaneLayout.module.css";
 import browserStyles from "./BrowserPane/BrowserPane.module.css";
 
-// Phone only (ADR-215), so it stays out of the desk's bundle path.
+// Phone only, so it stays out of the desk's bundle path.
 const ChatPane = lazy(() =>
   import("../phone/ChatPane/ChatPane").then((m) => ({ default: m.ChatPane })),
 );
@@ -86,7 +86,7 @@ function stripUrlForDisplay(url: string): string {
 
 type LeafPaneProps = {
   paneId: string;
-  /** Key of the workspace the pane belongs to (ADR-191). */
+  /** Key of the workspace the pane belongs to. */
   workspaceKey?: WorkspaceKey;
 };
 
@@ -100,7 +100,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const contentType = usePaneContentType(paneId);
   const paneUrl = usePaneUrl(paneId);
   // A browser pane of a remote workspace reaches that host's dev servers
-  // through port forwards (ADR-178 §5). Null for this machine.
+  // through port forwards. Null for this machine.
   const remoteHostId =
     contentType === "browser" && workspace && isRemoteHost(workspace.hostId)
       ? workspace.hostId
@@ -110,10 +110,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const remoteProjectId = useWorkspaceProjectId(remoteHostId ? workspaceKey : null);
   const recordingStartedAt = useAppStore((s) => s.paneRecordingStartedAt[paneId]);
   // Bumped when this pane's remote host comes back, to remount its terminal
-  // and create/attach its session again (ADR-178 §6). 0 for every local pane.
+  // and create/attach its session again. 0 for every local pane.
   const reattachEpoch = useRemotePaneStore((s) => s.panes[paneId]?.reattachEpoch ?? 0);
 
-  // ADR-215 D7: on a phone, a Claude pane with a transcript can be read as a
+  // On a phone, a Claude pane with a transcript can be read as a
   // chat. The desk never offers it. Keyed off the transcript, so `/clear` or a
   // resume remounts the chat with the new session's history.
   const phone = useLayoutMode() === "phone";
@@ -128,7 +128,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const showChat = (chatTranscript !== null || chatStarting) && paneView === "chat";
   const showTerminal = useCallback(() => setPaneView("terminal"), [setPaneView]);
 
-  // ADR-218 D3: while the chat has handed the terminal a TUI menu, a key bar
+  // While the chat has handed the terminal a TUI menu, a key bar
   // drives it. The handoff covers the pane's view until it ends; a new
   // transcript (`/resume` picked a session) ends it on that session's chat.
   const handoff = usePaneMenuHandoff(paneId, chatTranscript);
@@ -177,7 +177,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     };
   });
 
-  // Native HTML5 drag-and-drop tear-off (ADR-157), mirroring the tab bar: the
+  // Native HTML5 drag-and-drop tear-off, mirroring the tab bar: the
   // OS renders one drag image via setDragImage, and dragging the pane clearly
   // outside this window tears it into a new popout window (or hands it to
   // another manor window).
@@ -311,7 +311,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     if (hasOwnClaim() && panesInOwnClaim() === 1) return;
 
     // Commit the new-window tear-off NOW. The pane becomes a tab of its own
-    // (one command) and the new window claims that tab (ADR-179 D4) — nothing
+    // (one command) and the new window claims that tab — nothing
     // is handed over and no session is released.
     tearOffCommitted.current = true;
     const grab = dragGrabOffset.current;
@@ -366,7 +366,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     }
 
     // Released over another manor window. There is nothing to hand over any
-    // more (ADR-179 D4): from a detached window the gesture means "put it
+    // more: from a detached window the gesture means "put it
     // back", which is this window closing, and from the primary the pane is
     // already where it was dropped.
     if (target) {
@@ -392,7 +392,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       <ContextMenu.Trigger asChild>
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
-        // This one gesture is drag-to-split AND detach-by-drag (ADR-181 D5).
+        // This one gesture is drag-to-split AND detach-by-drag.
         draggable={dragEnabled}
         onDragStart={handleStatusBarDragStart}
         onDrag={handleStatusBarDrag}
@@ -676,7 +676,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           </PaneContextMenu>
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
-            {/* `<webview>` is Electron-only (ADR-178); the web app gets a
+            {/* `<webview>` is Electron-only; the web app gets a
                 stand-in whose ref methods all no-op. */}
             {isWebApp() ? (
               <BrowserPaneUnavailable
@@ -707,7 +707,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           </ShownLayer>
         )}
         {/* After the terminal, and always in this slot, so it showing or not
-            never remounts the terminal (ADR-181 D1). */}
+            never remounts the terminal. */}
         {chatTranscript !== null && !chatStarting && (
           <Suspense fallback={null}>
             <ChatPane

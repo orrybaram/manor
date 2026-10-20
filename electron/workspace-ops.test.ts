@@ -90,7 +90,7 @@ describe("create", () => {
         linkedIssue,
         baseBranch: "dev",
         useExistingBranch: true,
-        // The bridge connection that asked (ADR-180 D5).
+        // The bridge connection that asked.
         origin: "7",
       },
     );

@@ -1,5 +1,5 @@
 /**
- * The agent pipeline (ADR-178 §2, ADR-184, ADR-226 S1): how a hook becomes
+ * The agent pipeline: how a hook becomes
  * an Agent's status, built once for every server that owns agents, by
  * `createManorServer` (`../server/create-manor-server.ts`).
  *
@@ -38,13 +38,13 @@ export interface AgentPipelineOptions
     | "broadcastAgent"
     | "publishPaneStatus"
   > {
-  /** The server's unseen flags, written by the reconciler (ADR-227 D1). */
+  /** The server's unseen flags, written by the reconciler. */
   unseen: UnseenAgents;
   /** A status transition worth a notification; a replay's are coalesced. */
   onStatus: EffectApplierDeps["maybeSendNotification"];
   /** After the reconciler has seen a hook (the chat mirror pokes its pane). */
   onHook?: (event: AgentHookEvent) => void;
-  /** The driver's hook observer (the desktop's stats tap, ADR-168 §2). */
+  /** The driver's hook observer (the desktop's stats tap). */
   onHookEvent?: AgentStatusDriverDeps["onHookEvent"];
   /** Driver clocks and log, injectable so two pipelines can be compared. */
   clocks?: Pick<AgentStatusDriverDeps, "monoClock" | "wallClock" | "log">;
@@ -61,7 +61,7 @@ export interface ServerAgentPipelineDeps extends Omit<AgentPipelineOptions, "get
   /** What a renderer said about a pane (`agents.setPaneContext`): an override. */
   paneContexts: ReadonlyMap<string, PaneContext>;
   /**
-   * A pane's context from the server's own state (ADR-227 D5): the
+   * A pane's context from the server's own state: the
    * workspace whose layout holds the pane, and the project that owns that
    * workspace. A pane the server launched has one before any renderer has
    * mounted it.

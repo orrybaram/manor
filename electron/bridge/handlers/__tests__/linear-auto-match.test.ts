@@ -1,5 +1,5 @@
 /**
- * Linear's auto-match (ADR-228 D10): the match is a read any server holding
+ * Linear's auto-match: the match is a read any server holding
  * the token may answer, and the write is the project's own.
  */
 

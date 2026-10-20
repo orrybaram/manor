@@ -3,7 +3,7 @@ import { isWebApp } from "../platform";
 
 /**
  * `isWebApp` reads the one field the two bridge implementations disagree on
- * (ADR-178 D8) — nothing about the browser itself, so a stubbed
+ * — nothing about the browser itself, so a stubbed
  * `window.electronAPI.platform` is the whole fixture.
  */
 describe("isWebApp", () => {

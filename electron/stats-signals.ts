@@ -1,5 +1,5 @@
 /**
- * Pure signal predicates and mappings for the stats layer (ADR-168).
+ * Pure signal predicates and mappings for the stats layer.
  *
  * This module deliberately imports nothing at runtime — not Electron, not Node
  * — so the logic that decides *what counts* can be unit-tested without a
@@ -14,8 +14,8 @@ import type { StatCounter, StatGauge } from "./stats-store";
 type AgentLike = { status: string; lastAgentStatus: string | null };
 
 /**
- * The busy count over the desktop's own agents and every adopted host's
- * (ADR-230 D14): remote hook events no longer reach the desktop, so the
+ * The busy count over the desktop's own agents and every adopted host's:
+ * remote hook events no longer reach the desktop, so the
  * host proxies' agents are read alongside.
  */
 export function countBusyAcross(
@@ -29,7 +29,7 @@ export function countBusyAcross(
  * Agent statuses that make a termination a *kill*: any live agent that has
  * reported a status. Finished (`responded`, `idle`) agents count too — closing
  * a session the user could still have prompted is a kill. Only an agent that
- * never reported anything (`lastAgentStatus == null`) is exempt (ADR-168 §3).
+ * never reported anything (`lastAgentStatus == null`) is exempt.
  */
 export const KILL_STATUSES: ReadonlySet<string> = new Set([
   "working",
@@ -92,7 +92,7 @@ export function killCounters(agent: {
     : ["agentsKilled"];
 }
 
-// ── Hook-event → counter deltas (ADR-168 §2, first table row) ──
+// ── Hook-event → counter deltas (first table row) ──
 
 /**
  * Agent statuses that make a live agent count toward *concurrency*: it is
@@ -168,7 +168,7 @@ export function deltasForHookEvent(
      */
     isRootSession?: boolean;
     /**
-     * The root session a SessionStart just replaced, if any (ADR-184). Its
+     * The root session a SessionStart just replaced, if any. Its
      * pending block is dropped, same as the old relay's `DeleteSessionState`
      * effect did.
      */

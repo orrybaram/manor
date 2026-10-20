@@ -1,6 +1,6 @@
 /**
  * What the remote-exposure badge says, derived from the remote-control status
- * alone (ADR-161 §5, ADR-206 D6). Kept out of the component so the rules —
+ * alone. Kept out of the component so the rules —
  * what state the relay is in, what colour that is — can be tested without
  * rendering.
  */

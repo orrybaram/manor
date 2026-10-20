@@ -14,7 +14,7 @@ import {
 } from "../secrets-command";
 
 /**
- * `manor-host secrets` (ADR-236 D1) against a temp home. The "restart"
+ * `manor-host secrets` against a temp home. The "restart"
  * stands in for a server start: it reads `supervisor.env` and records the
  * backend that start would pick, the way `pickHostSecretBox` does.
  */

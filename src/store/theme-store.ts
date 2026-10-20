@@ -107,7 +107,7 @@ async function fetchServerTheme(): Promise<ServerTheme> {
 /**
  * Show main's selected theme: at boot, on a resync, and when it changed
  * somewhere other than this window's own `setTheme` — another desktop
- * window, or a browser on the bridge (ADR-179 ticket 7). Skipped while a
+ * window, or a browser on the bridge. Skipped while a
  * project override is showing, so a workspace's own theme is not yanked out
  * from under it by an unrelated preference change elsewhere; at boot there
  * is no override yet.

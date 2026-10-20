@@ -82,7 +82,7 @@ describe("pairings store", () => {
     expect(listPairings()[0].name).toBe("My Mac");
   });
 
-  it("keeps a pairing a desktop linked, named by it, without making it last used (ADR-228 D9)", () => {
+  it("keeps a pairing a desktop linked, named by it, without making it last used", () => {
     upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
     linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
     expect(listPairings()[1]).toEqual({
@@ -170,7 +170,7 @@ describe("pairings store", () => {
     expect(listPairings().map((p) => p.roomId)).toEqual([B]);
   });
 
-  it("remembers a declined room, which a desktop's link does not bring back but a fresh link does (ADR-228 D9)", () => {
+  it("remembers a declined room, which a desktop's link does not bring back but a fresh link does", () => {
     upsertPairing({ roomId: A, serverKey: KEY, token: "desk" }, 10);
     linkPairing({ roomId: B, serverKey: KEY, token: "box", name: "me@box" }, 20);
     const box = listPairings()[1];
@@ -243,7 +243,7 @@ describe("pairings store", () => {
     expect(listPairings().find((p) => p.roomId === A)?.name).toBe("Host 1");
   });
 
-  describe("single-use links (ADR-240 D5)", () => {
+  describe("single-use links", () => {
     /** Each call a new token, so a test can tell which one was kept. */
     function minter(): () => string {
       let n = 0;

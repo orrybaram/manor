@@ -7,14 +7,14 @@ import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
 
 /**
  * Remount every open terminal when the bridge comes back from a drop, or the
- * user asks for a refresh (ADR-220 D3): whatever was printed while the socket
+ * user asks for a refresh: whatever was printed while the socket
  * was down never arrived, so each pane attaches again and redraws from a
- * fresh snapshot. The remount is the one remote recovery uses (ADR-178 §6),
+ * fresh snapshot. The remount is the one remote recovery uses,
  * for reason `resync`: the mount only attaches (see `useTerminalLifecycle`).
  *
  * Once per window, not once per pane. A resync names the server whose hello
- * resumed (ADR-228 D1): when that is one host's own server — a desktop
- * window's bridge to it (D4) — only that host's panes missed anything, so
+ * resumed: when that is one host's own server — a desktop
+ * window's bridge to it — only that host's panes missed anything, so
  * only they remount. The desktop's own server never resyncs.
  *
  * A host's bridge also comes back after the host itself was away, and then

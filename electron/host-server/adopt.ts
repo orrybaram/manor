@@ -1,5 +1,5 @@
 /**
- * Adoption (ADR-227 D3): the host server takes over the records the desktop
+ * Adoption: the host server takes over the records the desktop
  * held for this host, over the owner channel (`hostServer.adopt`).
  *
  * The bundle is this host's projects (`ManifestProject`, group settings

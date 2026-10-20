@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-229 D8, ADR-233 D1: Settings → Hosts. A host's row offers only what
+ * Settings → Hosts. A host's row offers only what
  * its provider can do (Stop, Start it again, Wake), says what keeps its Manor
  * running and whether devices reach it, and is destroyed only once its name
  * is typed.
@@ -236,7 +236,7 @@ describe("HostRow", () => {
     });
   });
 
-  describe("pairing-key encryption (ADR-236 D6)", () => {
+  describe("pairing-key encryption", () => {
     const ssh = (over: Partial<HostStatusInfo> = {}) =>
       host({ spec: { kind: "ssh", target: "dev@build" }, providerKind: "ssh", label: "build", ...over });
     const keys = (over: Record<string, unknown> = {}) =>
@@ -409,7 +409,7 @@ describe("HostRow", () => {
     });
   });
 
-  describe("phones removed on the host (ADR-238 D3)", () => {
+  describe("phones removed on the host", () => {
     it("shows the hint under the switch", async () => {
       await render(host(), view({ blockedDevices: [{ id: "p1", label: "Orry's phone" }] }));
       expect(q("host-blocked-devices")?.textContent).toBe(
@@ -475,7 +475,7 @@ describe("HostRow", () => {
   });
 });
 
-describe("devicesReachText (ADR-238)", () => {
+describe("devicesReachText", () => {
   it("words 0, 1 and 2 devices", () => {
     expect(devicesReachText(0)).toBe("Devices you pair reach");
     expect(devicesReachText(1)).toBe("Your device reaches");
@@ -483,7 +483,7 @@ describe("devicesReachText (ADR-238)", () => {
   });
 });
 
-describe("blockedDevicesLine (ADR-238 D3)", () => {
+describe("blockedDevicesLine", () => {
   it("names one device", () => {
     expect(blockedDevicesLine(["Orry's phone"], "build")).toBe(
       "Orry's phone was removed on build. Turn the switch off and on to pair it again.",
@@ -498,7 +498,7 @@ describe("blockedDevicesLine (ADR-238 D3)", () => {
   });
 });
 
-describe("host settings text (ADR-229 D4, D7)", () => {
+describe("host settings text", () => {
   const ssh = { kind: "ssh", target: "dev@build" } as const;
 
   it("says what supervises the host", () => {
@@ -521,7 +521,7 @@ describe("host settings text (ADR-229 D4, D7)", () => {
     expect(supervisionHint(null, "build", false)).toBe("Change this while build is connected.");
   });
 
-  it("words the Pairing keys row (ADR-236 D6)", () => {
+  it("words the Pairing keys row", () => {
     const plain = { secretBackend: "plaintext" };
     expect(pairingKeysState(plain, "button", "build")).toEqual({
       tone: "caution",

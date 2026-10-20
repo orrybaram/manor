@@ -1,5 +1,5 @@
 /**
- * The web app's half of a tapped push notification (ADR-206 D7): `sw.ts`
+ * The web app's half of a tapped push notification: `sw.ts`
  * focuses an open tab and posts `{ type: "open-agent", agentId }` to it;
  * this opens that agent the way a clicked desktop notification does
  * (`navigateToNotification`) — from the agent store, or fetched if the store

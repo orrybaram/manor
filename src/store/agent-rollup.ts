@@ -27,8 +27,7 @@ const APP_FIELDS = [
   "workspaceLayouts",
   "activeWorkspacePath",
   "activeWorkspaceHostId",
-  // What this window is looking at, and what other windows hold (ADR-179
-  // D3/D4): both decide which panes are on screen.
+  // What this window is looking at, and what other windows hold: both decide which panes are on screen.
   "viewports",
   "claims",
 ] as const satisfies readonly (keyof AppState)[];
@@ -61,7 +60,7 @@ type UnseenDeps = Pick<AgentStoreState, "unseenRespondedAgentIds" | "unseenInput
 };
 
 /**
- * The one pulse predicate (ADR-136 §"Change 3"), shared by every agent dot —
+ * The one pulse predicate, shared by every agent dot —
  * tab, workspace, project and the agents lists — so they cannot disagree.
  * Pulse iff the pane is off screen and `status` matches an axis main still
  * holds unseen for the agent.
@@ -86,7 +85,7 @@ export function isUnseenStatus(
  * seen, so a fresh unseen status isn't hidden behind an older seen one.
  *
  * Display only: the Status reconciler is the one decider of a pane's Agent
- * status (ADR-184 §4); this only picks among what it published.
+ * status; this only picks among what it published.
  */
 export function selectAgentRollup(
   sources: AgentRollupSources,

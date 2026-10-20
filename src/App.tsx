@@ -120,7 +120,7 @@ function openSelectedProjectWorkspace(): void {
 }
 
 /**
- * Retry a project load that failed at launch (ADR-232 D4). Once it works,
+ * Retry a project load that failed at launch. Once it works,
  * reopen what the launch would have, since the launch found nothing to open.
  */
 async function retryLoadProjects(): Promise<void> {
@@ -137,27 +137,27 @@ function App() {
   const loadPersistedLayout = useAppStore((s) => s.loadPersistedLayout);
   const setActiveWorkspace = useAppStore((s) => s.setActiveWorkspace);
   const [appReady, setAppReady] = useState(false);
-  // ADR-181 D2: one hook decides phone vs. desk for every renderer. A
+  // One hook decides phone vs. desk for every renderer. A
   // detached window (OWN_CLAIM below) holds a claim, and the hook always
   // answers "desk" for one, so both render paths below can share this single
   // call.
   const layoutMode = useLayoutMode();
 
-  // Mirror main's persisted agent activity for Home's timeline and sparklines (ADR-199).
+  // Mirror main's persisted agent activity for Home's timeline and sparklines.
   useMountEffect(() => startAgentActivitySync());
 
-  // The host profiles "In a new pod" offers (ADR-235 D4); kept current by
+  // The host profiles "In a new pod" offers; kept current by
   // the store's own change subscription.
   useMountEffect(() => void useHostProfileStore.getState().refresh());
 
   // The selected theme, kept live, and re-read on a bridge resync.
   useMountEffect(() => startThemeSync());
 
-  // A rejection nothing caught reaches the user as a toast (ADR-232 D2).
+  // A rejection nothing caught reaches the user as a toast.
   useMountEffect(() => installUnhandledRejectionToasts());
 
-  // A reconnected browser missed whatever was pushed while it was gone
-  // (ADR-220 D2): re-read the projects and every workspace. The layout's
+  // A reconnected browser missed whatever was pushed while it was gone:
+  // re-read the projects and every workspace. The layout's
   // resync is not its boot read — see `resyncLayout`.
   useMountEffect(() =>
     onBridgeResync(() => Promise.all([loadProjects(), resyncLayout()])),
@@ -167,20 +167,20 @@ function App() {
     // `layout.getAll()` is a read of the Manor server's layout, and the
     // subscription that keeps it current is installed when `app-store.ts` is
     // imported — well before this runs, so a change that lands in the gap is
-    // delivered rather than lost (ADR-179 D1).
+    // delivered rather than lost.
     Promise.all([loadProjects(), loadPersistedLayout()]).then(() => {
       // A detached window opens on the workspace holding the tab it claims,
-      // whatever this renderer would otherwise have reopened on (ADR-179 D4).
+      // whatever this renderer would otherwise have reopened on.
       // Its claim names the workspace by key, so it opens on the right host.
       if (OWN_CLAIM) {
         const { path, hostId } = parseWorkspaceKey(OWN_CLAIM.workspacePath);
         setActiveWorkspace(path, hostId);
         // No sidebar in a detached window: plain setState, not the persisting
-        // action, so the primary's mode is untouched (ADR-195). Its tab bar
+        // action, so the primary's mode is untouched. Its tab bar
         // clears the macOS traffic lights through the `:root` default of
-        // `--window-lead-inset` (ADR-196).
+        // `--window-lead-inset`.
         useProjectStore.setState({ sidebarMode: "hidden" });
-        // Its panes reopen without waking a sleeping host (ADR-230 D3).
+        // Its panes reopen without waking a sleeping host.
         useAppStore.getState().seedRestoredPanes();
         setAppReady(true);
         window.electronAPI.agents.reconcileStale().catch(console.error);
@@ -195,9 +195,9 @@ function App() {
         openSelectedProjectWorkspace();
       }
       // The workspace this window reopened on: its panes reopen without
-      // waking a sleeping host; any opened later is the user's (ADR-230 D3).
+      // waking a sleeping host; any opened later is the user's.
       // A failed project load has reopened nothing yet: the Retry that
-      // succeeds does it (ADR-232 D4).
+      // succeeds does it.
       if (useProjectStore.getState().loadError === null) {
         useAppStore.getState().seedRestoredPanes();
       }
@@ -223,7 +223,7 @@ function App() {
     setPaletteOrigin("search");
     setPaletteOpen(true);
   }, []);
-  // The phone's command surface (ADR-181 D5): the drawer's Search row and the
+  // The phone's command surface: the drawer's Search row and the
   // top bar's menu open the same palette, scoped like the keyboard shortcut.
   const openPhonePalette = useCallback(() => {
     setPaletteOrigin("shortcut");
@@ -254,7 +254,7 @@ function App() {
         ]?.themeName ?? null;
     applyProjectTheme(activeTheme);
   }, [applyProjectTheme]);
-  // Help > "Ghosts!?" easter egg (ADR-170 §8). Owned here rather than the
+  // Help > "Ghosts!?" easter egg. Owned here rather than the
   // palette so it stays visible with the palette closed, and so both the
   // palette and the native menu can trigger the same overlay.
   const [showGhosts, setShowGhosts] = useState(false);
@@ -322,7 +322,7 @@ function App() {
   }, [openWizardForProject]);
 
   const handleAddLocalProject = useCallback(async () => {
-    // No filesystem picker in a browser tab (ADR-178). The buttons that call
+    // No filesystem picker in a browser tab. The buttons that call
     // this are hidden on web (`Onboarding`, `HomeEmptyState`); this
     // guard covers any other route to it (the sidebar's context menu among
     // them) so it is a no-op rather than an unhandled `dialog.openDirectory`
@@ -343,7 +343,7 @@ function App() {
     setAddProjectDialogMode("folder");
     setAddProjectDialogOpen(true);
   }, []);
-  // ADR-194: the palette's "Clone Repository…" opens straight onto cloning.
+  // The palette's "Clone Repository…" opens straight onto cloning.
   const handleCloneRepository = useCallback(() => {
     setAddProjectDialogMode("clone");
     setAddProjectDialogOpen(true);
@@ -436,7 +436,7 @@ function App() {
         if (request.type === "open-project-settings") {
           handleOpenProjectSettings(request.projectId, request.section);
         }
-        // The switch lives on This Mac's row of Settings → Hosts (ADR-233 D2).
+        // The switch lives on This Mac's row of Settings → Hosts.
         if (request.type === "open-hosts-settings") {
           setSettingsPage("hosts");
           if (request.hostId) setSettingsSection(`host-${request.hostId}`);
@@ -458,7 +458,7 @@ function App() {
 
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const activeWorkspaceKey = useAppStore(selectActiveWorkspaceKey);
-  // The workspace's host travels with its key (ADR-191); Home is local.
+  // The workspace's host travels with its key; Home is local.
   const activeWorkspaceHostId = useAppStore((s) => s.activeWorkspaceHostId);
   const activePanelHasTabs = useAppStore(
     (s) => (selectActiveWorkspace(s)?.tabs.length ?? 0) > 0,
@@ -478,7 +478,7 @@ function App() {
   const wizardStillValid = wizardOpen && wizardProjectId && projects.some((p) => p.id === wizardProjectId);
 
   const tasksViewShown = useAppStore((s) => s.activeSurface === "tasks");
-  // ADR-222: the phone new-agent composer covers the workspace. It is a
+  // The phone new-agent composer covers the workspace. It is a
   // phone surface: a renderer that widens out of phone layout goes back to
   // the workspace, so every reader of the surface agrees.
   const composerShown = useAppStore((s) => s.activeSurface === "composer");
@@ -492,7 +492,7 @@ function App() {
   // theme override; Home and the Tasks view have no owning project, so they
   // inherit the global theme (null override) — switching to/from either
   // re-applies here.
-  // A detached window paints in its claimed workspace's theme (ADR-179 D4):
+  // A detached window paints in its claimed workspace's theme:
   // it has no sidebar selection of its own to read one from.
   const effectiveThemeName = OWN_CLAIM
     ? (ownerOf(projects, OWN_CLAIM.workspacePath as WorkspaceKey)?.themeName ?? null)
@@ -509,8 +509,8 @@ function App() {
   const sidebarAnimating = useSidebarModeTransition(sidebarMode);
 
   const hasProjects = projects.length > 0;
-  // How far the top-left panel's tab bar starts in to clear the WindowLead
-  // (ADR-196). With no projects there is no sidebar and no lead; the
+  // How far the top-left panel's tab bar starts in to clear the WindowLead.
+  // With no projects there is no sidebar and no lead; the
   // `:root` default in App.css still clears the traffic lights.
   const appBodyStyle = hasProjects
     ? ({
@@ -518,29 +518,29 @@ function App() {
         "--sidebar-mode-transition": `${SIDEBAR_MODE_TRANSITION_MS}ms`,
       } as CSSProperties)
     : undefined;
-  // Home is the Dashboard and never shows tabs (ADR-197 §1): its view is
+  // Home is the Dashboard and never shows tabs: its view is
   // always rendered, even if a stale layout were somehow keyed to it.
   const hasTabs = !isHomePath(activeWorkspacePath) && activePanelHasTabs;
-  // With zero projects the onboarding screen (ADR-194 §3) replaces everything.
-  // A failed load is not a fresh install (ADR-232 D4): it gets a retry
+  // With zero projects the onboarding screen replaces everything.
+  // A failed load is not a fresh install: it gets a retry
   // screen in onboarding's place.
   const projectsLoadFailed = projectsLoadError !== null && !hasProjects;
   const showOnboarding = !hasProjects && !projectsLoadFailed;
-  // The Tasks view (ADR-198) covers the active workspace, which stays active
+  // The Tasks view covers the active workspace, which stays active
   // (and mounted) underneath.
   const showTasksView = tasksViewShown && hasProjects;
 
   // Keep the prewarmed session in sync with the active workspace.
   // Derive the agent command outside the effect so it only re-fires when the
   // command actually changes, not on every unrelated project mutation.
-  // By key: a local and a remote project can share a path (ADR-191).
+  // By key: a local and a remote project can share a path.
   const activeProject = ownerOf(projects, activeWorkspaceKey);
   // The launch command for the active project workspace. Shared by prewarming
   // and both new-agent handlers below.
   const activeWorkspaceCommand =
     activeProject?.agentCommand ?? DEFAULT_AGENT_COMMAND;
   useEffect(() => {
-    // The Dashboard hosts no panes (ADR-197 §1), so there is nothing to prewarm
+    // The Dashboard hosts no panes, so there is nothing to prewarm
     // for; the session keeps the last project workspace's cwd.
     if (!activeWorkspacePath || isHomePath(activeWorkspacePath)) return;
     const prewarmKind = getAgentKindForCommand(activeWorkspaceCommand);
@@ -569,7 +569,7 @@ function App() {
     return () => window.removeEventListener("focus", onFocus);
   });
 
-  // Webview recording (ADR-158). Main owns the file and the lifecycle, but only
+  // Webview recording. Main owns the file and the lifecycle, but only
   // a renderer can call `getUserMedia`, so it drives the `MediaRecorder` here.
   // The store mirrors the same state so the pane can show a "Recording"
   // indicator — a capture the user cannot see running is not acceptable, so
@@ -602,7 +602,7 @@ function App() {
 
   // App-commands from the main process, answered by `appCommandHandlers`.
   // A new workspace's setup script no longer comes this way: the server runs
-  // it itself, in a tab of its own (ADR-227 D5).
+  // it itself, in a tab of its own.
   useEffect(() => {
     const cleanup = window.electronAPI.appCommands.onCommand(
       async ({ cmd, requestId, args }) => {
@@ -627,13 +627,13 @@ function App() {
 
   // Keybindings
   // One command ID → action map for the keyboard, the native menu AND the
-  // command palette — `run` over the command table (ADR-170, ADR-182 D10).
+  // command palette — `run` over the command table.
   // The window-agnostic half is shared with the detached-window renderer (see
   // `keybinding-commands`); the rest needs this window's chrome — the
   // callbacks below. The primary window is the one that owns the prewarmed
   // session, so it is also the only window that consumes it for a new agent.
   //
-  // A detached window shows one tab and none of the primary's chrome (D4), so
+  // A detached window shows one tab and none of the primary's chrome, so
   // its map holds only the table's `scope: "any"` commands, and a combo bound
   // to the sidebar, the palette or settings runs in the primary window
   // instead of silently doing nothing here: the dispatcher finds no handler
@@ -672,7 +672,7 @@ function App() {
       },
       showGhosts: triggerGhosts,
     },
-    // Rebuilt when the hello says this is a host server (ADR-225 D5), which
+    // Rebuilt when the hello says this is a host server, which
     // drops the commands it cannot serve.
     { primary: !OWN_CLAIM, hostServer: onHostServer },
   );
@@ -708,7 +708,7 @@ function App() {
   });
 
   // Bound combos pressed inside a web page, or primary-only shortcuts pressed
-  // in a popout, arrive from main and run like a local key press (ADR-175).
+  // in a popout, arrive from main and run like a local key press.
   useMountEffect(() =>
     window.electronAPI.keybindings.onForwardedCommand((payload) =>
       runForwardedCommand(payload, localHandlers(), dispatchOptions),
@@ -753,7 +753,7 @@ function App() {
   const handleNewAgent = useCallback(() => newAgent({ prewarm: true }), []);
 
   // A detached window's one panel: the one holding the tab it claims, in this
-  // window's replica of the shared layout (ADR-179 D4). A string, so the
+  // window's replica of the shared layout. A string, so the
   // selector is stable across unrelated layout changes.
   const claimPanelId = useAppStore((s) => {
     if (!OWN_CLAIM) return null;
@@ -771,8 +771,8 @@ function App() {
     );
   }
 
-  // A detached window: one panel, one tab, and none of the primary's chrome
-  // (ADR-179 D4). The tab bar it renders is the claimed tab's own — which is
+  // A detached window: one panel, one tab, and none of the primary's chrome.
+  // The tab bar it renders is the claimed tab's own — which is
   // where "Move Back to Main Window" lives — and the panel tree around it
   // belongs to the primary, which is still showing every other tab of the
   // same workspace.
@@ -806,9 +806,9 @@ function App() {
             data-sidebar-animating={sidebarAnimating || undefined}
           >
             {/* One column for every sidebar mode, so a mode change animates its
-                width instead of swapping views at a new size. ADR-181 D3: in
-                phone mode the sidebar is a drawer instead, never rendered inline
-                — it would eat the whole screen at phone width. */}
+                width instead of swapping views at a new size. In phone mode the
+                sidebar is a drawer instead, never rendered inline — it would
+                eat the whole screen at phone width. */}
             {hasProjects && layoutMode === "desk" && (
               <div
                 className="sidebar-column"
@@ -835,7 +835,7 @@ function App() {
               <div
                 className={`main-content ${hasProjects && layoutMode === "desk" ? "" : "main-content--gutter-left"}`}
               >
-                {/* ADR-181 D3: the phone shell — top bar, sidebar drawer and pane
+                {/* The phone shell — top bar, sidebar drawer and pane
                     switcher — sits around the workspace stack, not inside it. */}
                 {layoutMode === "phone" && (
                   <PhoneChrome
@@ -852,7 +852,7 @@ function App() {
                     full-screen TUIs repaint their frame into the scrollback — which
                     shows up as the same output duplicated over and over. */}
                 <div className="workspace-stack">
-                  {/* `workspaceLayouts` is keyed by `WorkspaceKey` (ADR-191). */}
+                  {/* `workspaceLayouts` is keyed by `WorkspaceKey`. */}
                   <WorkspaceStack
                     visibleKey={
                       hasTabs && !showOnboarding && !projectsLoadFailed && !showTasksView && !composerShown
@@ -910,7 +910,7 @@ function App() {
                     </div>
                   )}
                 </div>
-                {/* ADR-181 D3: no status bar in phone mode — the top bar and the
+                {/* No status bar in phone mode — the top bar and the
                     palette are the phone's chrome. */}
                 {layoutMode === "desk" && (
                   <StatusBar
@@ -920,7 +920,7 @@ function App() {
                 )}
               </div>
             </PaneDragProvider>
-            {/* The top-left and top-right controls (ADR-196). Not shown before the first
+            {/* The top-left and top-right controls. Not shown before the first
                 project: the onboarding overview has no sidebar to toggle or
                 history to walk, and its drag region clears the traffic lights.
                 Rendered last on purpose: Electron resolves overlapping

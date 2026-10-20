@@ -61,7 +61,7 @@ export function resolveAgentTitle(
  * Unified hook that derives display title and Agent status for an agent.
  *
  * The status is exactly what main's Status reconciler published for the
- * agent's pane (ADR-184 §4) — this hook does not re-derive it. It is
+ * agent's pane — this hook does not re-derive it. It is
  * `undefined` when the agent has no pane, or the reconciler has not
  * published a status for it yet (e.g. a `completed` agent whose pane closed);
  * the agents list shows the lifecycle as a badge instead of a dot then.

@@ -14,7 +14,7 @@ function git(cwd: string, ...args: string[]) {
 }
 
 /**
- * Every `branches.changed` broadcast (ADR-180 D5: the watcher publishes to
+ * Every `branches.changed` broadcast (the watcher publishes to
  * every renderer rather than sending on one window's `webContents`).
  */
 const stopSinks: (() => void)[] = [];
@@ -142,7 +142,7 @@ describe("BranchWatcher", () => {
     expect(calls).toEqual(["/remote/ws", "/remote/ws"]);
   });
 
-  // ADR-204: a local and a remote workspace can share a path; the payload is
+  // A local and a remote workspace can share a path; the payload is
   // keyed by WorkspaceKey so neither host's branch lands on the other's.
   it("keeps two hosts' identical paths apart, keyed by WorkspaceKey", async () => {
     const gitBackend = fakeGit(async () => "box-branch");
@@ -204,7 +204,7 @@ describe("BranchWatcher", () => {
     errorSpy.mockRestore();
   });
 
-  // ADR-183: a tick in flight across stop()/start() used to write its stale
+  // A tick in flight across stop()/start() used to write its stale
   // branches into the restarted watcher, and stop() cleared the in-flight
   // guard so the restart piled a second scan onto the same host.
   it("never lets a tick from before a restart write into the new state, or run beside a new one", async () => {
@@ -250,7 +250,7 @@ describe("BranchWatcher", () => {
     expect(maxInFlight).toBe(1);
   });
 
-  // ADR-230 D6: a phone's watch used to replace the desktop window's on the
+  // A phone's watch used to replace the desktop window's on the
   // same server. Each connection keeps its own, and the watcher polls them all.
   it("watches the union of every connection's workspaces, and one's stop leaves the rest", async () => {
     const gitBackend = fakeGit(async (p) => `branch-of-${p}`);

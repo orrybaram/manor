@@ -55,11 +55,11 @@ export function HostIndicator(props: HostIndicatorProps) {
 
 /**
  * This machine's counterpart to a remote host's chip, where a list shows
- * every host of a linked group (ADR-192): the sidebar's host sections and
+ * every host of a linked group: the sidebar's host sections and
  * the New Workspace host picker.
  */
 export function LocalHostLabel() {
-  // On a phone "this machine" is the desktop, by name (ADR-228 D8).
+  // On a phone "this machine" is the desktop, by name.
   const name = useServerHostName(LOCAL_HOST_ID);
   return (
     <span className={styles.local} data-testid="local-host-label">
@@ -250,7 +250,7 @@ function HostAwayMenu(props: { hostId: string; display: HostDisplay; projectId?:
   const wake = useHostStore((s) => s.wake);
 
   const options: MenuOption[] = [];
-  // Asleep (ADR-229 D1): nothing to retry, but it can be woken.
+  // Asleep: nothing to retry, but it can be woken.
   if (display.tone === "asleep") {
     options.push({
       label: "wake it",

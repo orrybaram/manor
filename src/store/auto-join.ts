@@ -3,7 +3,7 @@ import { useHostStore } from "./host-store";
 import { addErrorToast, useToastStore } from "./toast-store";
 
 /**
- * Same-origin projects on different hosts join on their own (ADR-214). Main
+ * Same-origin projects on different hosts join on their own. Main
  * does the joining (`projects.autoJoin`); this shows what it did, with an
  * Undo, and decides when to ask: at the first project load, when a host
  * first connects, and after an add or clone.

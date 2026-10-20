@@ -1,5 +1,5 @@
 /**
- * The one way a host's backend is built (ADR-183). Local or remote, a host
+ * The one way a host's backend is built. Local or remote, a host
  * is the same four backends: ptys on its terminal-host daemon, and git,
  * shell and ports commands through an `Exec` that runs on its machine, plus
  * the `MachineFacts` that describe that machine. Only the client, the exec

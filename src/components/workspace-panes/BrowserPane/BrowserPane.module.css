@@ -27,7 +27,7 @@
   color: var(--text-dim);
 }
 
-/* ADR-178: the stated empty state a browser pane renders on the web app,
+/* The stated empty state a browser pane renders on the web app,
    instead of the `<webview>` it cannot mount there. */
 .webUnavailable {
   position: absolute;
@@ -179,7 +179,7 @@
   white-space: nowrap;
 }
 
-/* ── Recording Indicator (ADR-158) ── */
+/* ── Recording Indicator ── */
 
 .recordingIndicator {
   display: flex;

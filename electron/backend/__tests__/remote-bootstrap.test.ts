@@ -340,7 +340,7 @@ describe("buildInstallCommands", () => {
   });
 });
 
-describe("baked host package (ADR-235 D10)", () => {
+describe("baked host package", () => {
   const staging = '"$HOME/.manor/.host-staging-abc123"';
   const upload = buildInstallCommands("1.2.3", "/usr/local/bin/node", "abc123");
   const baked = buildInstallCommands("1.2.3", "/usr/local/bin/node", "abc123", "baked");
@@ -550,7 +550,7 @@ describe("ensureRemoteHost", () => {
     expect(progress.find((p) => p.phase === "install")?.message).toBe("Installing Manor host 0.13.2 on me@box…");
   });
 
-  it("copies a baked package instead of uploading when the image has one (ADR-235 D10)", async () => {
+  it("copies a baked package instead of uploading when the image has one", async () => {
     const probe = bakedProbeCommand("0.13.2", "/usr/local/bin/node")!;
     const { exec, calls } = fakeSsh([
       ...HEALTHY,
@@ -705,7 +705,7 @@ describe("ensureRemoteHost", () => {
     },
   );
 
-  it("names the exec program, not ssh, when the channel is an exec prefix (ADR-229 D3)", async () => {
+  it("names the exec program, not ssh, when the channel is an exec prefix", async () => {
     const { exec } = fakeSsh([[DETECT_COMMAND, fail(255, "error: unable to upgrade connection")]]);
     const err = await ensureRemoteHost("Dev pod", "0.13.2", exec, { ...baseOpts, via: "kubectl" }).catch(
       (e) => e,

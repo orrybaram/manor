@@ -1,6 +1,5 @@
 /**
- * Per-source backoff for failed remote-control authentication (ADR-161,
- * ADR-207 D3).
+ * Per-source backoff for failed remote-control authentication.
  *
  * A 32-byte token is not guessable, so this is not really about brute force —
  * it is about making a knock loud and slow: the counter is what turns "someone

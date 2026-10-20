@@ -44,7 +44,7 @@ describe("StatsStore", () => {
       const now = () => localMs(2026, 9, 5);
       const store = new StatsStore(tmpDir, { now });
       // Deliberately not `agentsKilled`: that counter auto-awards `first-blood`
-      // (ADR-168 §4) and would collide with the manual award below.
+      // and would collide with the manual award below.
       store.record("prompts", 3);
       store.record("toolCalls", 2);
       store.recordMax("maxConcurrentAgents", 4);
@@ -686,7 +686,7 @@ describe("StatsStore", () => {
     expect(store.getSummary().today.prompts).toBe(2);
   });
 
-  describe("badge evaluation (ADR-168 §4)", () => {
+  describe("badge evaluation", () => {
     it("fires onBadge once with first-blood on the first agentsKilled", () => {
       const onBadge = vi.fn();
       const store = new StatsStore(tmpDir, { now: () => localMs(2026, 9, 5), onBadge });

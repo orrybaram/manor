@@ -6,11 +6,11 @@ import { allPaneIds, type PaneNode } from "../lib/layout/pane-tree";
 /**
  * Why a pane's terminal is being remounted (`reattach`).
  *
- * - `host-recovered`: its remote host came back (ADR-178 §6), or its session
+ * - `host-recovered`: its remote host came back, or its session
  *   was lost to that host's daemon restarting. The mount creates or attaches
  *   as any mount does.
  * - `resync`: this browser's bridge came back from a drop, or the user asked
- *   for a refresh (ADR-220 D3). The session is already running and the pane
+ *   for a refresh. The session is already running and the pane
  *   already set up, so the mount only attaches (`pty.attach`): no shell is
  *   spawned and no winsize bid for.
  */
@@ -18,8 +18,8 @@ export type RemountReason = "host-recovered" | "resync";
 
 /**
  * What the renderer knows about a pane that runs — or waits to run — on a
- * remote host (ADR-160, ADR-178 §6), and about a pane being remounted. One
- * entry per pane, one store for all of it (ADR-183), so forgetting a pane
+ * remote host, and about a pane being remounted. One
+ * entry per pane, one store for all of it, so forgetting a pane
  * forgets everything about it.
  */
 export interface RemotePane {
@@ -190,7 +190,7 @@ export const useRemotePaneStore = create<RemotePaneState>((set, get) => ({
 }));
 
 // A pane no layout holds yet still names its host here, for the bridge
-// router (ADR-228 D1).
+// router.
 provideHostLookups({
   paneHost: (paneId) => useRemotePaneStore.getState().panes[paneId]?.hostId,
 });

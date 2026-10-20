@@ -1,6 +1,6 @@
 /**
  * The tabs a sender builds for a `new-tab` or `duplicate-tab` command, and
- * the lookup that decides whether a diff tab is needed at all (ADR-182 D8).
+ * the lookup that decides whether a diff tab is needed at all.
  *
  * Both senders use these: the desktop store (`src/store/app-store.ts`) and
  * the structural routes (`electron/routes/panes-structural.ts`). Every id is

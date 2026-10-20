@@ -40,7 +40,7 @@ export function LinearIntegrationSection() {
         }
       });
     void refresh();
-    // The key was saved or cleared elsewhere (ADR-230 D8).
+    // The key was saved or cleared elsewhere.
     return window.electronAPI.linear.onConnectionChanged(() => void refresh());
   });
 

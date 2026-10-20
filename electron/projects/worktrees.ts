@@ -1,8 +1,7 @@
 /**
  * A project's git worktrees: creating, removing, quick-merging and
- * converting the main checkout into one (ADR-183 split this out of
- * `ProjectManager`). Every git and shell call goes through the project's
- * own host.
+ * converting the main checkout into one. Every git and shell call goes
+ * through the project's own host.
  */
 
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -97,7 +96,7 @@ export async function createWorktree(
   opts: CreateWorktreeOptions = {},
 ): Promise<ProjectInfo | null> {
   // `origin`: the bridge connection that asked, so its own window gets the
-  // setup progress (ADR-180 D5). Null — the default, and what the CLI, MCP
+  // setup progress. Null — the default, and what the CLI, MCP
   // and the issue-batch path pass — broadcasts it instead.
   const {
     branch,
@@ -308,8 +307,8 @@ export async function removeWorktree(
   const git = gitOf(ctx, project);
 
   // Before anything touches the directory: the workspace's panes end here —
-  // shells killed, agents abandoned — and every renderer drops its layout
-  // (ADR-182 D7). The one teardown for every way a worktree is removed: the
+  // shells killed, agents abandoned — and every renderer drops its layout.
+  // The one teardown for every way a worktree is removed: the
   // sidebar, quick merge, the CLI and MCP all come through this function.
   ctx.layout?.remove(workspaceKey(project.hostId, worktreePath));
 
@@ -323,7 +322,7 @@ export async function removeWorktree(
   }
 
   // Run worktree teardown script before removal, through the project's
-  // host (ADR-178 §3). Remote hosts get a generous timeout since teardown
+  // host. Remote hosts get a generous timeout since teardown
   // (e.g. `docker compose down`) can run well past a daemon's default exec
   // timeout; local keeps its original, tighter timeout.
   if (project.worktreeTeardownScript) {
@@ -349,7 +348,7 @@ export async function removeWorktree(
     console.error("[ProjectManager] git worktree remove failed:", message);
 
     // Check if the directory is actually gone (e.g. already removed
-    // externally), on the project's host (ADR-178 §3).
+    // externally), on the project's host.
     if (await ctx.host(project.hostId).facts.exists(worktreePath)) {
       // Directory still exists — this is a real failure, surface it
       throw new Error(`Failed to remove worktree: ${message}`, { cause: err });

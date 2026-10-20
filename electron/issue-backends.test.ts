@@ -147,7 +147,7 @@ describe("issueBackend('github')", () => {
     expect(ctx.githubManager.getMyIssues).not.toHaveBeenCalled();
   });
 
-  // `list()` emits "#42"; ADR-148 promised that ref feeds straight back in.
+  // `list()` emits "#42"; that ref must feed straight back in.
   it.each(["42", "#42"])(
     "detail(%o) resolves issue 42 — the listing's ref round-trips",
     async (ref) => {
@@ -384,7 +384,7 @@ describe("issueBackend('linear')", () => {
 // ─── ref round-trip ─────────────────────────────────────────────────────────
 
 /**
- * The property ADR-148 claimed and never had: whatever `ref` a listing prints
+ * The property once claimed and never had: whatever `ref` a listing prints
  * is a ref `detail()` accepts. `list_issues` shows the model nothing else.
  */
 describe("ref round-trip: list() → detail()", () => {

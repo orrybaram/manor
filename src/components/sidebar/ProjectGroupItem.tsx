@@ -46,7 +46,7 @@ type ProjectGroupItemProps = {
   onDragStart?: (e: ReactPointerEvent) => void;
   /**
    * Renders one member's section — a `ProjectItem` in `variant="section"` —
-   * sharing `selectionScope`, the group-wide multi-select (ADR-192 ticket 7).
+   * sharing `selectionScope`, the group-wide multi-select.
    */
   renderSection: (
     section: GroupSection,
@@ -70,7 +70,7 @@ type ProjectGroupItemProps = {
 };
 
 /**
- * A linked-project group (ADR-192): one sidebar entry for a repo that lives
+ * A linked-project group: one sidebar entry for a repo that lives
  * on several hosts. The header collapses, expands and drags like a project;
  * beneath it each member keeps its own section, labeled with its host, with
  * its own workspaces, folders and menus.
@@ -114,7 +114,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
     }),
     [group.id, sections, collapsedFolderKeys, collapsedProjectIds],
   );
-  // Agents from every host section, each on its own host (ADR-191).
+  // Agents from every host section, each on its own host.
   const members = useMemo(() => sections.map((section) => section.project), [sections]);
   const { status, pulse } = useGroupAgentStatus(members);
   const hosts = useHostStore((s) => s.hosts);
@@ -138,8 +138,8 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   const hiddenWorkspaces = members.flatMap((project) =>
     project.workspaces.filter((ws) => ws.hidden).map((ws) => ({ project, ws })),
   );
-  // Shared settings live on the group from ADR-192 ticket 2; until then the
-  // first member with a color stands for the group.
+  // Until shared settings live on the group, the first member with a color
+  // stands for the group.
   const color = sections.find((s) => s.project.color)?.project.color ?? null;
 
   return (
@@ -166,7 +166,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
           >
             <ProjectChevron expanded={!collapsed} />
             <span className={styles.projectSwatch} aria-hidden="true" />
-            {/* No icon beside the name while expanded (ADR-193 §3): each
+            {/* No icon beside the name while expanded: each
                 host's heading shows its own state. A group with every host
                 away dims its name, and once collapsed — its headings hidden —
                 says so with one crossed-out cloud. */}
@@ -263,7 +263,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
         <div className={styles.groupSections}>
           {sections.map((section) => {
             // An away host's section keeps its last known workspaces, dimmed;
-            // the other sections stay as they are (ADR-192 §5).
+            // the other sections stay as they are.
             const offline = isAway(section.project.hostId);
             return (
               <div

@@ -1,4 +1,4 @@
-/* ── Panel splits (ADR-196) ──
+/* ── Panel splits ──
    Panels are separate rounded bodies on the frame, so the divider between
    them is the frame gutter itself: transparent until hovered or dragged.
    Pane splits inside a tab keep PaneLayout's 3px divider. */

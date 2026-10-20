@@ -1,11 +1,11 @@
 /**
  * Serializable snapshot of one workspace's layout, for introspection by the
- * MCP `list_panes` tool and `GET /panes` (ADR-152, ADR-179 D5).
+ * MCP `list_panes` tool and `GET /panes`.
  *
  * This is the single declaration of the snapshot shape: `electron/mcp/`
  * imports `LayoutSnapshot` from here type-only, so the two processes cannot
  * drift. Pure — no store, no renderer — so the Manor server builds it
- * straight from `LayoutStore.get()` and `primaryViewport()` (ADR-179 D5),
+ * straight from `LayoutStore.get()` and `primaryViewport()`,
  * with no window involved at all.
  *
  * Focus and activation are recorded **once**, at the top level. A tab's
@@ -45,7 +45,7 @@ export interface LayoutSnapshot {
 }
 
 /** A tab's panes, depth-first left-to-right, straight from the tree's own
- *  leaf fields — contentType and url are structure (ADR-179 D3). */
+ *  leaf fields — contentType and url are structure. */
 function paneSnapshots(node: PaneNode): PaneSnapshot[] {
   if (node.type === "leaf") {
     const contentType = node.contentType ?? "terminal";
@@ -66,7 +66,7 @@ function paneSnapshots(node: PaneNode): PaneSnapshot[] {
  * Snapshot a workspace's layout, listing every tab in every panel.
  *
  * `viewport` is null when no window has reported one for this workspace yet
- * (ADR-179 D5) — the top-level `activeTabId`/`focusedPaneId` are then null,
+ * — the top-level `activeTabId`/`focusedPaneId` are then null,
  * and each tab's own `focusedPaneId` falls back to its first pane.
  */
 export function buildLayoutSnapshot(

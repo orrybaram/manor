@@ -3,8 +3,8 @@
  * `shouldSendFit`'s contract: a measurement is judged against the last size
  * *sent*, and the grid is never consulted.
  *
- * That is the whole of the renderer's half of ADR-165. After ADR-164 the grid
- * is driven by the daemon, so it cannot also be the evidence for what the
+ * That is the whole of the renderer's half of the winsize fix. The grid is
+ * driven by the daemon, so it cannot also be the evidence for what the
  * daemon knows — and when the two have drifted apart, a request for the size
  * the pty should already have is the only thing that puts them back. Deciding
  * from the grid suppresses exactly that request, at exactly the moment it is
@@ -72,7 +72,7 @@ describe("shouldSendFit", () => {
 });
 
 /**
- * Follower mode's geometry (ADR-178 D5, ADR-177's rule).
+ * Follower mode's geometry.
  *
  * The hook around this is DOM and effects; the decision it makes is these five
  * numbers, so they are what is pinned here. The properties that matter are the
@@ -186,7 +186,7 @@ describe("measureCellWidth", () => {
 });
 
 /**
- * `useFollowerFit`'s font restore (regression 6, ADR-182 ticket 1).
+ * `useFollowerFit`'s font restore (regression 6).
  *
  * jsdom has no `ResizeObserver`; a no-op stub is enough here since nothing in
  * this test resizes the container after mount.

@@ -1,4 +1,4 @@
-/* ADR-198 §1.2: mockup `.alert` — a yellow-tinted strip above the stat tiles. */
+/* Mockup `.alert` — a yellow-tinted strip above the stat tiles. */
 .alert {
   display: flex;
   align-items: center;

@@ -61,7 +61,7 @@ function onChannelArgs<Args extends unknown[]>(
 }
 
 /**
- * A bridge event heard by a native namespace (ADR-180 D5): `updater.*` and
+ * A bridge event heard by a native namespace: `updater.*` and
  * `menu.command`, typed by their row in `BridgeEvents`.
  */
 function nativeEvent<
@@ -80,7 +80,7 @@ function nativeEvent<
 // Synchronously read isPackaged from the CLI argument injected by main via additionalArguments
 const isPackaged = process.argv.includes("--manor-packaged=true");
 
-// The tab this window holds (ADR-179 D4), as `--manor-claim=<tabId>::<path>`.
+// The tab this window holds, as `--manor-claim=<tabId>::<path>`.
 // Split on the FIRST separator: a tab id is `tab-<uuid>` and cannot contain
 // one, a workspace path can contain anything. Read synchronously for the same
 // reason `isPackaged` is — the store needs it before it loads anything. A
@@ -98,13 +98,13 @@ const claim = (() => {
 })();
 
 // Who this renderer is, as the Manor server names it in a layout command's
-// origin (ADR-179 D3): `webContents.id`, which main knows and a page cannot
+// origin: `webContents.id`, which main knows and a page cannot
 // be told through `additionalArguments` — the id does not exist until the
 // window that owns this preload does. Synchronous for the same reason
 // `isPackaged` is: the store reads it while handling a broadcast.
 //
-// Asked on `bridge:rendererId` since `viewport` crossed to the handler table
-// (ADR-180 ticket 6). It is the same question with the same answer — the
+// Asked on `bridge:rendererId` since `viewport` crossed to the handler table.
+// It is the same question with the same answer — the
 // window's connection id — put to the file that decides what a connection id
 // is.
 let rendererId: string | null = null;
@@ -117,9 +117,9 @@ try {
 }
 
 /**
- * `manorHost.native` — the namespaces `electron/ipc/` still answers itself
- * (ADR-180 D8, ticket 11): what ADR-178's "what can never leave the preload"
- * table named from the start, and nothing else. `src/bridge/client.ts` calls
+ * `manorHost.native` — the namespaces `electron/ipc/` still answers itself:
+ * what was named from the start as never able to leave the preload, and
+ * nothing else. `src/bridge/client.ts` calls
  * straight through to these and reaches `invoke` for everything else —
  * `window.electronAPI` is built *over* this in the page, not exposed
  * straight from here, because a `Proxy` cannot cross `contextBridge`: the
@@ -167,7 +167,7 @@ const nativeApi = {
     checkForUpdates: () => invoke("updater:checkForUpdates"),
     quitAndInstall: () => invoke("updater:quitAndInstall"),
     /**
-     * The six `updater.*` broadcasts (ADR-180 D5), which `electron/updater.
+     * The six `updater.*` broadcasts, which `electron/updater.
      * ts` publishes instead of pushing at the primary window. Written out
      * here for the same reason `menu.onMenuCommand` is: `updater` is a
      * namespace the client refuses outright in a browser, so its
@@ -199,7 +199,7 @@ const nativeApi = {
     /**
      * A native menu item was clicked; fire-and-forget, like a keybinding.
      *
-     * A `menu.command` bridge event (ADR-180 D5), addressed by main to this
+     * A `menu.command` bridge event, addressed by main to this
      * window's connection. It stays written out here rather than falling
      * through to `manorHost.subscribe` because `menu` is a namespace the
      * client refuses outright in a browser (`src/bridge/unavailable.ts`) —
@@ -216,8 +216,8 @@ const nativeApi = {
   },
 
   /**
-   * Uploads *this machine's* clipboard image to a remote pane's host
-   * (ADR-187 §3). Native because the clipboard it reads is the machine's;
+   * Uploads *this machine's* clipboard image to a remote pane's host.
+   * Native because the clipboard it reads is the machine's;
    * a browser answers it itself with "nothing to paste"
    * (`src/bridge/unavailable.ts`), and its caller falls back to an ordinary
    * paste.
@@ -229,7 +229,7 @@ const nativeApi = {
 
   webview: {
     // `remoteHostId`: the remote host the pane's workspace lives on, so an
-    // agent's `navigate` to its `localhost:<port>` is forwarded (ADR-178 §5).
+    // agent's `navigate` to its `localhost:<port>` is forwarded.
     register: (
       paneId: string,
       webContentsId: number,
@@ -291,7 +291,7 @@ const nativeApi = {
     setAudioMuted: (paneId: string, muted: boolean) =>
       invoke("webview:set-audio-muted", paneId, muted),
     /**
-     * One webm chunk from a pane's `MediaRecorder` (ADR-158). `send`, not
+     * One webm chunk from a pane's `MediaRecorder`. `send`, not
      * `invoke`: chunks arrive once a second per recording and main has nothing
      * useful to answer.
      */
@@ -303,7 +303,7 @@ const nativeApi = {
     /** Main-initiated start/stop of a pane recording. */
     onRecordingCommand: (callback: (command: RecordingCommand) => void) =>
       onChannel("webview:recording-command", callback),
-    /** User clicked the pane's "Recording" indicator to stop it (ADR-158). */
+    /** User clicked the pane's "Recording" indicator to stop it. */
     stopRecording: (paneId: string) => invoke("webview:stop-recording", paneId),
     onAudioStateChanged: (
       callback: (paneId: string, audible: boolean) => void,
@@ -311,7 +311,7 @@ const nativeApi = {
   },
 
   /**
-   * This window's own streams to host servers (ADR-228 D4). Main carries
+   * This window's own streams to host servers. Main carries
    * their frames as text and reads none of them; the bridge over one is
    * `src/bridge/transports/host-pipe.ts`'s. Native because a browser cannot
    * open SSH, and refused whole in one (`src/bridge/unavailable.ts`).
@@ -332,7 +332,7 @@ const nativeApi = {
       onChannelArgs(HOST_PIPE_CLOSED, callback),
   },
 
-  // Multi-window (ADR-156, ADR-179 D4). Named `window` on electronAPI — this
+  // Multi-window. Named `window` on electronAPI — this
   // does NOT shadow the global `window`, which is untouched here.
   window: {
     detachTab: (
@@ -400,7 +400,7 @@ ipcRenderer.on(
 
 /**
  * `window.manorHost` — the one concrete object the page builds a host client
- * over (ADR-180 D1–D3), and the only thing this file exposes. `ElectronAPI`
+ * over, and the only thing this file exposes. `ElectronAPI`
  * is not built here: `contextBridge` copies the shape it is handed, and the
  * `ns.method(...)` proxy `src/bridge/client.ts` builds over `invoke` has no
  * members to copy, so the page builds it the same way the web renderer
@@ -412,7 +412,7 @@ contextBridge.exposeInMainWorld("manorHost", {
   /**
    * The namespaces the preload still answers. `src/bridge/client.ts` calls
    * straight through to these and only reaches `invoke` for what is *not*
-   * here (ADR-180 D3).
+   * here.
    */
   native: nativeApi,
 

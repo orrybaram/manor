@@ -1,5 +1,5 @@
 /**
- * Grouping a profile's hosts (ADR-235 D7): hosts made from one profile list
+ * Grouping a profile's hosts: hosts made from one profile list
  * together, under its name, with "N of M running".
  */
 

@@ -1,9 +1,9 @@
 /**
  * CommandHostProvider — a box reached through an exec prefix rather than
- * ssh (ADR-229 D3): `kubectl exec -i … --`, `docker exec -i <name>`.
+ * ssh: `kubectl exec -i … --`, `docker exec -i <name>`.
  *
  * Wraps a `CommandTransport`. Only ever built inside a `RecipeHostProvider`
- * (ADR-229 D2), when a recipe's `up` returns `connection.type: "exec"`; the
+ * when a recipe's `up` returns `connection.type: "exec"`; the
  * recipe provider is the one the registry holds, and adds the real
  * lifecycle around this one. Here the lifecycle is the no-op one, as for an
  * ssh box: `ensureUp` resolves at once, nothing can be stopped or destroyed,
@@ -90,7 +90,7 @@ interface CommandForward {
 
 export class CommandHostProvider implements HostProvider {
   /**
-   * Only a recipe hands back an exec prefix (ADR-229 D2). Never what
+   * Only a recipe hands back an exec prefix. Never what
    * `hosts.list` reports: the registry holds the `RecipeHostProvider`
    * around this one, whose kind says how the host was configured.
    */
@@ -146,7 +146,7 @@ export class CommandHostProvider implements HostProvider {
     return this.commandTransport.openServerBridge();
   }
 
-  /** `manor-host server-bridge --viewer`, the server's hello reply left in (ADR-228 D4). */
+  /** `manor-host server-bridge --viewer`, the server's hello reply left in. */
   openViewerChannel(): Promise<Duplex> {
     return this.commandTransport.openViewerBridge();
   }

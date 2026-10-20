@@ -1,6 +1,6 @@
 /**
  * The attributes xterm's hidden `.xterm-helper-textarea` must carry for a
- * phone's soft keyboard to type into a terminal (ADR-181 D6).
+ * phone's soft keyboard to type into a terminal.
  *
  * xterm takes every keystroke through that one textarea, and a soft keyboard
  * treats it like any other text field unless told otherwise: it capitalises

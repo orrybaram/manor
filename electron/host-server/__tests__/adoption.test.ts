@@ -1,5 +1,5 @@
 /**
- * Adoption (ADR-227 D3), end to end: a desktop's records for `box` handed to
+ * Adoption, end to end: a desktop's records for `box` handed to
  * box's host server over the owner channel (the real `HostServerClient`),
  * merged into the server's stores, and only then removed from the desktop.
  * See `harness.ts`, and `../../backend/__tests__/adoption-fixtures.ts` for
@@ -28,7 +28,7 @@ import {
   seedDesktop,
 } from "../../backend/__tests__/adoption-fixtures";
 
-describe("adoption (ADR-227 D3)", () => {
+describe("adoption", () => {
   const h = useHostServerHarness();
 
   const desktopDir = (name = "desktop") => path.join(h.tmp, name);

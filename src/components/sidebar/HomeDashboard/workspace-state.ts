@@ -1,6 +1,6 @@
 import type { WorkspaceTileState } from "../../../lib/home-dashboard-studio";
 
-/** How a project tile's workspace block names its state (ADR-198 §1.8). */
+/** How a project tile's workspace block names its state. */
 export const WORKSPACE_STATE_LABEL: Record<WorkspaceTileState, string> = {
   "needs-you": "Needs you",
   running: "Agent running",

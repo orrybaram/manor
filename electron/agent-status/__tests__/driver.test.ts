@@ -1,5 +1,5 @@
 /**
- * Integration tests for the Status reconciler's driver (ADR-184 ticket 3).
+ * Integration tests for the Status reconciler's driver.
  *
  * The first half ports the old hook relay's integration tests
  * (`relay-subagent-tracking.test.ts`, `hook-relay-on-event.test.ts`) to run
@@ -221,7 +221,7 @@ describe("driver — subagent tracking (ported from the relay)", () => {
     t.driver.hook(stop({ sessionId: "s1" }));
     expect(t.driver.getPaneState("pane-1")!.pendingStopAt).not.toBeNull();
     expect(t.agentManager.getAgentBySessionId("s1")!.lastAgentStatus).not.toBe("responded");
-    // A held Stop does not show responded (ADR-184 divergence fixed).
+    // A held Stop does not show responded.
     expect(t.driver.getPaneState("pane-1")!.status).toBe("working");
 
     t.driver.hook(subagentStop({ sessionId: "s1", toolUseId: "tool-a" }));
@@ -312,7 +312,7 @@ describe("driver — ticks replace the sweeps (ported)", () => {
     expect(t.agentManager.getAgentBySessionId("s1")!.resumedAt).toBeNull();
   });
 
-  it("a hook's transcriptPath lands on its Agent, the latest winning (ADR-215 D2)", () => {
+  it("a hook's transcriptPath lands on its Agent, the latest winning", () => {
     t.driver.hook({ ...userPromptSubmit({ sessionId: "s1" }), transcriptPath: "/t/one.jsonl" });
     expect(t.agentManager.getAgentBySessionId("s1")!.transcriptPath).toBe("/t/one.jsonl");
     t.driver.hook(postToolUse({ sessionId: "s1" }));
@@ -533,7 +533,7 @@ describe("driver — lifecycle (ported)", () => {
       "responded",
     );
     expect(agent.status).toBe("completed");
-    // ADR-184: "idle", not the old relay's "complete".
+    // "idle", not the old relay's "complete".
     expect(agent.lastAgentStatus).toBe("idle");
     expect(agent.completedAt).not.toBeNull();
     expect(t.unseenRespondedAgents.has(agent.id)).toBe(false);
@@ -551,7 +551,7 @@ describe("driver — lifecycle (ported)", () => {
     expect(t.unseenInputAgents.has(id)).toBe(false);
   });
 
-  it("ADR-162: a session that opens needing input notifies", () => {
+  it("A session that opens needing input notifies", () => {
     t.driver.hook(permissionRequest({ sessionId: "s1" }));
     const agent = t.agentManager.getAgentBySessionId("s1")!;
     expect(t.maybeSendNotification).toHaveBeenCalledWith(
@@ -562,7 +562,7 @@ describe("driver — lifecycle (ported)", () => {
     expect(t.unseenInputAgents.has(agent.id)).toBe(true);
   });
 
-  it("ADR-142: a session handoff retires the previous pane Agent before creating the new one", () => {
+  it("A session handoff retires the previous pane Agent before creating the new one", () => {
     t.driver.hook(userPromptSubmit({ sessionId: "old" }));
     const oldId = t.agentManager.getAgentBySessionId("old")!.id;
     t.unseenRespondedAgents.add(oldId);
@@ -630,7 +630,7 @@ describe("paneContextBackfill", () => {
   });
 });
 
-// ── Effect ordering (ADR-139 parity) ──
+// ── Effect ordering (parity with the old hook relay) ──
 
 describe("driver — effect ordering", () => {
   it("Stop: publish, persist, notify, broadcast — with unseen set before notify", () => {
@@ -921,13 +921,13 @@ describe("driver — restores pane status from saved agents (main restart)", () 
 
     t.agentManager.seed({ agentSessionId: "s-old", paneId: "pane-2", lastAgentStatus: "responded" });
     t.driver.hook(userPromptSubmit({ sessionId: "s-new", paneId: "pane-2" }));
-    // The new session claims the pane (and ADR-142 retires the old Agent).
+    // The new session claims the pane (and the old Agent is retired).
     expect(t.driver.getPaneState("pane-2")!.rootSessionId).toBe("s-new");
     expect(t.agentManager.getAgentBySessionId("s-old")!.status).toBe("completed");
   });
 });
 
-// ── Expected pane loss (ADR-185 §A) ──
+// ── Expected pane loss ──
 
 describe("driver — expected pane loss during a daemon replacement", () => {
   let t: ReturnType<typeof build>;
@@ -1034,7 +1034,7 @@ describe("driver — a new Agent is named from the pane's title", () => {
   it("uses the title the pane set before the first hook created the Agent", () => {
     // Pane facts are only sent on change, and an agent CLI usually sets its
     // title before its first hook — so the title is known before the Agent
-    // exists, and nothing re-sends it afterwards (ADR-184).
+    // exists, and nothing re-sends it afterwards.
     const t = build();
     t.driver.signal("pane-1", {
       type: "paneFacts",
@@ -1053,7 +1053,7 @@ describe("driver — a new Agent is named from the pane's title", () => {
   });
 });
 
-// ── The host an Agent runs on (ADR-191 §5) ──
+// ── The host an Agent runs on ──
 
 describe("driver — an Agent records the host its pane runs on", () => {
   it("records the pane's session owner when the Agent is created", () => {
@@ -1068,7 +1068,7 @@ describe("driver — an Agent records the host its pane runs on", () => {
     t.paneOwners.set("pane-1", "local");
     t.driver.hook(userPromptSubmit({ sessionId: "s1" }));
 
-    // The pane was reset onto the box (ADR-183).
+    // The pane was reset onto the box.
     t.paneOwners.set("pane-1", "box");
     t.driver.hook(preToolUse({ sessionId: "s1" }));
 

@@ -1,5 +1,5 @@
 /*
- * ADR-198 §1.7: the Up next panel. Rows are the Tasks view's compact table
+ * The Up next panel. Rows are the Tasks view's compact table
  * rows (`TaskTableRow`); this only frames them.
  */
 .body {

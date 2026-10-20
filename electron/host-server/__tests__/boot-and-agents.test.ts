@@ -1,5 +1,5 @@
 /**
- * The host server end to end (ADR-225 D1, D2): boot, files, the agents its
+ * The host server end to end: boot, files, the agents its
  * daemon's hooks describe, and what its allowlist refuses. See `harness.ts`.
  */
 
@@ -127,7 +127,7 @@ describe("host server", () => {
       ["projects", "link"],
       ["layout", "save"],
       ["github", "getIssues"],
-      // GitHub is host-native (ADR-227 D7) bar the desktop's feedback flow.
+      // GitHub is host-native bar the desktop's feedback flow.
       ["github", "uploadFeedbackImages"],
       ["linear", "getAllIssues"],
       ["linear", "proxyImage"],

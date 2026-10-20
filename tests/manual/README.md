@@ -5,10 +5,10 @@ Playwright/vitest harnesses because it requires a live Electron `<webview>` gues
 page, real `webContents.setWindowOpenHandler` dispatch, or real `BrowserWindow`
 instances.
 
-## window-targeting.html — ADR-145
+## window-targeting.html
 
-Covers the window/link targeting matrix from ADR-145. The automated suite covers the
-pure logic (`addBrowserTab` background behavior, `buildPopupWindowOptions`
+Covers the window/link targeting matrix. The automated suite covers the pure
+logic (`addBrowserTab` background behavior, `buildPopupWindowOptions`
 clamping); this page covers the end-to-end behavior that needs a real webview.
 
 ### How to run
@@ -25,7 +25,7 @@ clamping); this page covers the end-to-end behavior that needs a real webview.
 4. Click through each section and watch the on-page **Log** plus the Manor tab
    strip / window list.
 
-### Expected results (maps to the ADR matrix)
+### Expected results
 
 | Section | Case | Expected |
 |---|---|---|
@@ -47,4 +47,4 @@ clamping); this page covers the end-to-end behavior that needs a real webview.
 - `_self`/`_top`/`_parent` at the top level intentionally replace the harness — that
   *is* the correct in-place behavior. Use the browser Back button to return.
 - If a features-popup logs `window.open returned null`, that's a regression — the
-  managed-child-window path (ADR-145 ticket 3) failed to open the window.
+  managed-child-window path failed to open the window.

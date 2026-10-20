@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-235 D2: the Profiles section of Settings → Hosts, and the profile
+ * The Profiles section of Settings → Hosts, and the profile
  * editor (`StartHostForm` in profile mode).
  */
 import { act, createElement } from "react";

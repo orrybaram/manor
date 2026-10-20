@@ -24,7 +24,7 @@ export function pullTriggers(pull: number): boolean {
 type PullState = { pull: number; refreshing: boolean };
 
 /**
- * Pull-to-refresh for a scroller (ADR-220 D5). A downward drag that starts
+ * Pull-to-refresh for a scroller. A downward drag that starts
  * with the element scrolled to the top travels an indicator; released far
  * enough, it runs `onRefresh` and holds the indicator until it settles.
  *

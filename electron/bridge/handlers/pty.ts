@@ -1,12 +1,12 @@
 /**
- * The terminal (ADR-180 D8), as the `pty` namespace of the handler table.
+ * The terminal, as the `pty` namespace of the handler table.
  *
  * `create`, `attach` and `reset` answer with who owns the winsize, and
  * attach the calling connection as a viewer once they succeed. Every caller
  * comes through here — a renderer window over `bridge:*` IPC and a paired device
  * over the socket — so this is the one place a pane gains a viewer, and
- * `resize` is a no-op for anyone who is not the one that owns it (ADR-180 D6,
- * `pty-attachments.ts`).
+ * `resize` is a no-op for anyone who is not the one that owns it
+ * (`pty-attachments.ts`).
  */
 
 import fs from "node:fs";
@@ -51,7 +51,7 @@ import { sessionGrid, type BridgeServerDeps } from "../server";
  * machine's own checkout only. Its one caller (`main.ts`) reads
  * `process.cwd()` — Manor's own source tree — before `app.whenReady()`, so
  * before any `BackendRegistry` exists and always on this machine; it is
- * intentionally not routed through the backend (ADR-178 §3 concerns
+ * intentionally not routed through the backend (backend routing concerns
  * *projects*' branches, read by `BranchWatcher`, not Manor's own repo).
  */
 export function readBranchSync(repoPath: string): string | null {
@@ -85,7 +85,7 @@ export function readBranchSync(repoPath: string): string | null {
 
 /**
  * What a viewer's own calls on a session read — write, resize, detach — and
- * nothing else (ADR-225 D6). `ServerDeps` has it, and so does the host
+ * nothing else. `ServerDeps` has it, and so does the host
  * server's `HostServerDeps`, which reuses these handlers as they are.
  */
 export interface PtyViewerDeps {
@@ -107,22 +107,22 @@ function asViewer(caller: Caller): Viewer {
   };
 }
 
-/** What a create-shaped call tells the caller about the winsize (D5). */
+/** What a create-shaped call tells the caller about the winsize. */
 type WinsizeDecoration = Required<PtyWinsize>;
 
 /**
  * Run a create-shaped call, tell the caller who owns the winsize, and attach
- * it as a viewer once the call succeeds (D5/D6).
+ * it as a viewer once the call succeeds.
  *
  * When someone who outranks this caller holds the pane, the caller's own
  * `cols×rows` is dropped before the call: `createOrAttach` resizes the
  * session before it snapshots it (see `terminal-host/client.ts`), so passing
  * a follower's grid through would resize the owner's pane as a side effect of
- * merely looking at it — the exact bug ADR-163/164/165 are about, arriving
+ * merely looking at it — the long-running winsize bug, arriving
  * through the one door marked "read". The answer carries the owner's grid,
  * which is what the follower renders.
  *
- * A host server's daemon-reported attach count (ADR-225 D5) reaches here as
+ * A host server's daemon-reported attach count reaches here as
  * the registry's foreign hold, set before the call: nobody follows anything
  * but the registry.
  *
@@ -161,7 +161,7 @@ export async function createShaped<T extends { ok: boolean }>(
  * a renderer, it is less.
  *
  * Reads only what spawning does (`SpawnPaneDeps`), so a host server — which
- * has no prewarm — runs it as it is (ADR-227 D6).
+ * has no prewarm — runs it as it is.
  */
 export function ptyCreate(
   ctx: HandlerCtx<SpawnPaneDeps & BridgeServerDeps>,
@@ -171,10 +171,10 @@ export function ptyCreate(
   rows: number,
   opts?: PtyCreateOptions | null,
 ): Promise<PtyCreateResult> {
-  // The same spawn the server's own launches use (ADR-227 D5): a pane the
+  // The same spawn the server's own launches use: a pane the
   // server already started is attached here, its command not typed again.
   // A remote pane on an adopted host never gets here: its create is that
-  // host's server's (ADR-228 D5, `HostRouting`).
+  // host's server's (`HostRouting`).
   return createShaped(ctx, paneId, cols, rows, (c, r) =>
     spawnPane(ctx.deps, paneId, {
       cwd,
@@ -188,8 +188,8 @@ export function ptyCreate(
 }
 
 /**
- * Re-attach a viewer to a pane whose session must already be running
- * (ADR-220): what a viewer resyncing after its connection dropped asks for.
+ * Re-attach a viewer to a pane whose session must already be running:
+ * what a viewer resyncing after its connection dropped asks for.
  *
  * Unlike `pty.create` it never spawns — a session whose shell exited while
  * the viewer was away answers `exited`, and the viewer does what it would
@@ -207,7 +207,7 @@ export async function ptyAttach(
   const { deps } = ctx;
   const { sessions } = deps.backendRegistry;
   try {
-    // A restored pane's first attach leaves a sleeping host asleep (ADR-230 D3).
+    // A restored pane's first attach leaves a sleeping host asleep.
     const snapshot = await (opts?.wake === false
       ? deps.backend.pty.attachExisting(paneId, { wake: false })
       : deps.backend.pty.attachExisting(paneId));
@@ -281,8 +281,8 @@ export function ptyClaimWinsize(
  *
  * It is answered rather than refused because refusing is a rejected promise
  * on every layout tick, which `useTerminalResize` would log; and it is
- * dropped rather than forwarded because it is not this caller's grid to move
- * (D6) — it belongs to another viewer, which may be a second window of the
+ * dropped rather than forwarded because it is not this caller's grid to move —
+ * it belongs to another viewer, which may be a second window of the
  * desktop as readily as a browser. A caller that owns the pane's winsize
  * resizes normally.
  */
@@ -306,7 +306,7 @@ export async function ptyResize(
 
 /**
  * What ending or replacing a session reads: the backend alone, so a host
- * server's table answers both as well (ADR-228 D5).
+ * server's table answers both as well.
  */
 type PtySessionDeps = Pick<ServerDeps, "backend">;
 
@@ -357,7 +357,7 @@ export async function ptyDetach(
  * Kill this pane's session and spawn a fresh one in its place.
  *
  * Create-shaped — it answers with a snapshot and leaves the caller attached —
- * so it is decorated with the same winsize ownership `pty.create` gets (D5).
+ * so it is decorated with the same winsize ownership `pty.create` gets.
  */
 export function ptyReset(
   ctx: HandlerCtx<PtySessionDeps & BridgeServerDeps>,
@@ -378,7 +378,7 @@ export type PtyResetResult = {
   snapshot?: string | null;
   error?: string;
   prewarmed?: boolean;
-  /** The host the fresh session runs on (ADR-160). */
+  /** The host the fresh session runs on. */
   hostId?: string;
 } & PtyWinsize;
 
@@ -449,9 +449,9 @@ async function resetSession(
 }
 
 /**
- * Hand out the background-warmed session, if one is ready (ADR-083) and it
+ * Hand out the background-warmed session, if one is ready and it
  * sits where the caller is asking for one — the renderer names the
- * workspace's host alongside its cwd (ADR-183).
+ * workspace's host alongside its cwd.
  */
 export function ptyConsumePrewarmed(
   ctx: HandlerCtx<ServerDeps>,
@@ -486,14 +486,14 @@ export async function ptyUpdatePrewarmCwd(
 }
 
 /**
- * Routed by pane (ADR-228 D5): a pane on an adopted host is that host
+ * Routed by pane: a pane on an adopted host is that host
  * server's terminal, so on the desktop each call for one is forwarded there
  * (`HostRouting`), and its events come back keyed by pane (`HostProxy`). A
  * new pane's create and reset name the host in their options.
  */
 export const pty = {
   // Starting or ending a session is audited; `write` is the keyboard, and a
-  // line per keystroke is a keylogger (ADR-161). `resize` and `detach` are
+  // line per keystroke is a keylogger. `resize` and `detach` are
   // what a viewer does to its own view.
   create: method(ptyCreate, { mutating: true, route: byPane(0, 4) }),
   // Never starts a session: a viewer coming back to one, like `detach`.

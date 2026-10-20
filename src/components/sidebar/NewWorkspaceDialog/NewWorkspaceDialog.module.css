@@ -87,7 +87,7 @@
 }
 
 /* Jev is picking a folder: a soft accent sweep crosses the folder picker
-   (ADR-210). The label stays as it is; the picked folder replaces it. */
+  . The label stays as it is; the picked folder replaces it. */
 .folderSuggesting {
   position: relative;
 }

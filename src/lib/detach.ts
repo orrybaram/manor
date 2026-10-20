@@ -1,8 +1,8 @@
 /**
- * Popping a tab or a pane out into a window of its own (ADR-179 D4).
+ * Popping a tab or a pane out into a window of its own.
  *
  * What this replaces is worth stating, because the shape of the code changed
- * completely: ADR-156/157 moved a tab *out* of the workspace by serializing
+ * completely: the old design moved a tab *out* of the workspace by serializing
  * it, releasing its sessions, and handing a payload to another window, which
  * rebuilt it. Under a server-owned layout there is nothing to move. The tab
  * stays exactly where it is — a browser goes on seeing it, `GET /panes` goes
@@ -69,7 +69,7 @@ async function openClaimWindow(
 /**
  * The panes are the claiming window's now: this one stops drawing them, so it
  * must not badge them, or plan to recover them when their remote host comes
- * back (ADR-178 §6). They register again if the tab comes back here.
+ * back. They register again if the tab comes back here.
  */
 function forgetPanes(paneIds: readonly string[]): void {
   const remote = useRemotePaneStore.getState();
@@ -112,7 +112,7 @@ export async function detachTabToNewWindow(
     await openClaimWindow(workspacePath, tabId, spawnBounds);
     if (found) forgetPanes(allPaneIds(found.tab.rootNode));
   } catch (err) {
-    // The tab never left this window (D4), so there is nothing to put back.
+    // The tab never left this window, so there is nothing to put back.
     console.error("Failed to move tab to a new window", err);
     addErrorToast(`detach-tab-${tabId}`, "Couldn't move tab to a new window", err);
   }
@@ -122,7 +122,7 @@ export async function detachTabToNewWindow(
  * Pop one pane out: make it a tab, then claim that tab.
  *
  * `extractPaneToTab` mints the new tab's id itself and returns it before the
- * server has answered (the id is the sender's, D1), so the window can be
+ * server has answered (the id is the sender's), so the window can be
  * opened in the same breath — it will not report its claim until it has
  * booted, by which time the tab is in the tree.
  */
@@ -136,7 +136,7 @@ export async function movePaneToNewWindow(
     // The workspace is read from the *pane*, which is in the tree right now;
     // the tab the command creates is not there yet, and will not be until the
     // broadcast lands. The new window claims it either way — a claim on a tab
-    // the server has not made yet is kept, not dropped (D4).
+    // the server has not made yet is kept, not dropped.
     const workspacePath = workspaceOfPane(paneId);
     if (!workspacePath) return;
     const tabId = useAppStore.getState().extractPaneToTab(paneId);
@@ -146,8 +146,7 @@ export async function movePaneToNewWindow(
     forgetPanes([paneId]);
   } catch (err) {
     // Once extracted, the pane is a tab of its own here and that tab stays:
-    // the pane is not lost, only not where it was — the toast says so
-    // (ADR-232 D5).
+    // the pane is not lost, only not where it was — the toast says so.
     console.error("Failed to move pane to a new window", err);
     addErrorToast(
       `detach-pane-${paneId}`,
@@ -162,7 +161,7 @@ export async function movePaneToNewWindow(
 /**
  * Give the tab back to the primary: close this window.
  *
- * That is the whole operation (D4). The claim is released by the window
+ * That is the whole operation. The claim is released by the window
  * dying, the server broadcasts claims without it, and the primary draws the
  * tab again — same panes, same sessions, nothing re-attached.
  */

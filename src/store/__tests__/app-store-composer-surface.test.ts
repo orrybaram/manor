@@ -35,7 +35,7 @@ beforeEach(() => {
   });
 });
 
-describe("composer surface (ADR-222)", () => {
+describe("composer surface", () => {
   it("showComposer / closeComposer toggle the surface, keeping the workspace", () => {
     useAppStore.getState().showComposer();
     expect(useAppStore.getState().activeSurface).toBe("composer");
@@ -57,7 +57,7 @@ describe("composer surface (ADR-222)", () => {
   });
 });
 
-describe("composerDraft (ADR-222)", () => {
+describe("composerDraft", () => {
   it("merges patches and clears", () => {
     const target = { projectId: "p", workspacePath: "/w", newWorktree: true };
     useAppStore.getState().setComposerDraft({ text: "hi" });

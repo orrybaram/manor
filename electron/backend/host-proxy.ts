@@ -1,6 +1,6 @@
 /**
  * HostProxy — the desktop's view of one remote host's state, as that host's
- * server holds it (ADR-227 D4). One per remote host, owned beside its
+ * server holds it. One per remote host, owned beside its
  * `HostServerClient` by `RemoteHostConnection`.
  *
  * - **Snapshot.** Whenever the owner channel comes up it reads the host's
@@ -16,10 +16,10 @@
  *   default: `watchChat(event, key)` forwards one subscription to the host
  *   and republishes what comes back through `publishKeyed`, at the same key.
  *   Pane ids are the same on both sides, so nothing in it is rewritten.
- * - **A pane's terminal** (ADR-228 D5) is heard the same way: `watchPty`
+ * - **A pane's terminal** is heard the same way: `watchPty`
  *   forwards one of the pane's `pty.*` subscriptions, for a caller of the
  *   desktop's that views a remote pane through it.
- * - **Claims** (ADR-228 D7). A tab a detached desktop window holds is the
+ * - **Claims**. A tab a detached desktop window holds is the
  *   desktop's to know (`claimsFor`), not the host's: every layout entry this
  *   hands out or publishes carries the desktop's claims on it.
  * - **Rewriting.** To the host server its own host is `local` and its
@@ -83,7 +83,7 @@ export type HostProxyChannel = Pick<
 /** The keyed chat events `watchChat` forwards. */
 export type HostChatEvent = "entry" | "taskEntry";
 
-/** A pane's terminal events `watchPty` forwards, keyed by pane (ADR-228 D5). */
+/** A pane's terminal events `watchPty` forwards, keyed by pane. */
 export const HOST_PTY_EVENTS = ["output", "resized", "exit", "cwd", "error", "winsizeOwner"] as const;
 export type HostPtyEvent = (typeof HOST_PTY_EVENTS)[number];
 
@@ -141,14 +141,14 @@ export interface HostProxyOptions {
     key: string,
   ) => void;
   /**
-   * The desktop windows' claims on a workspace of this host's, by its key
-   * (ADR-228 D7). Read at use; none without it.
+   * The desktop windows' claims on a workspace of this host's, by its key.
+   * Read at use; none without it.
    */
   claimsFor?: (key: WorkspaceKey) => LayoutClaim[];
   /**
    * A workspace's layout is about to be published, moving from `before` to
    * `after` (`null`: the workspace was removed). Lets the desktop drop claims
-   * on tabs that left, so the publish carries that (ADR-230 D9).
+   * on tabs that left, so the publish carries that.
    */
   onLayoutMoved?: (
     key: WorkspaceKey,
@@ -256,7 +256,7 @@ export class HostProxy {
           unseen as EventArgs<"agents", "updated">[1],
         ),
       ),
-      // Each pane's Agent status is the host's reconciler's (ADR-184); the
+      // Each pane's Agent status is the host's reconciler's; the
       // desktop derives none for a pane on an adopted host.
       client.subscribe("agents", "status", undefined, (update) => {
         if (this.disposed || !isPlainObject(update) || typeof update.paneId !== "string") return;
@@ -377,7 +377,7 @@ export class HostProxy {
 
   /**
    * Hear the host's `pty.<event>` for `paneId`, republished through
-   * `publishKeyed` at the pane (ADR-228 D5). The host's `winsizeOwner` says
+   * `publishKeyed` at the pane. The host's `winsizeOwner` says
    * whether the desktop's owner channel owns the pane's grid, which is what
    * a caller viewing the pane through the desktop is told. Returns the
    * release.
@@ -387,7 +387,7 @@ export class HostProxy {
   }
 
   /**
-   * Tell the desktop's renderers a workspace's claims again (ADR-228 D7): a
+   * Tell the desktop's renderers a workspace's claims again: a
    * desktop window took or let go of one of its tabs, which the host never
    * hears of. At the version the proxy holds; nothing for one it lacks.
    */

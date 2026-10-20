@@ -12,7 +12,7 @@ function readPreference(): boolean {
 
 /**
  * The "Also delete local branch" choice, remembered across deletes. Shared by
- * the single and bulk delete dialogs (ADR-190 §2) so both read and write the
+ * the single and bulk delete dialogs so both read and write the
  * same preference.
  */
 export function useDeleteBranchPreference(): [boolean, (next: boolean) => void] {

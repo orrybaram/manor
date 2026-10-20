@@ -5,8 +5,7 @@ import { Tooltip } from "../Tooltip/Tooltip";
 /**
  * `AgentDot` has no hooks and no context dependency, so calling it directly
  * (rather than mounting it) is enough to inspect the element tree it
- * returns — including which node the reason ends up as a tooltip on
- * (ADR-184 §4).
+ * returns — including which node the reason ends up as a tooltip on.
  */
 describe("AgentDot", () => {
   it("shows the published reason as the dot's tooltip", () => {

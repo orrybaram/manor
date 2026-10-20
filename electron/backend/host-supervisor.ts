@@ -1,5 +1,5 @@
 /**
- * The desktop's side of supervision (ADR-229 D4): running
+ * The desktop's side of supervision: running
  * `manor-host supervisor install|uninstall|status --json` on a remote host,
  * through its transport's `exec` (ssh, or a recipe's exec prefix).
  *

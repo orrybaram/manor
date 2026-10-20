@@ -43,7 +43,7 @@ function seedTasksView() {
   useAppStore.getState().showTasksView();
 }
 
-describe("activeSurface (ADR-194)", () => {
+describe("activeSurface", () => {
   beforeEach(() => seedTasksView());
 
   it("setActiveWorkspace resets it to the workspace", () => {
@@ -88,7 +88,7 @@ describe("activeSurface (ADR-194)", () => {
   });
 });
 
-describe("showTasksView (ADR-198)", () => {
+describe("showTasksView", () => {
   beforeEach(() => seedTasksView());
 
   it("shows the tasks surface and keeps the workspace active", () => {
@@ -105,7 +105,7 @@ describe("showTasksView (ADR-198)", () => {
   });
 });
 
-describe("showTasksView intent (ADR-208 §5)", () => {
+describe("showTasksView intent", () => {
   beforeEach(() => {
     seedTasksView();
     useAppStore.setState({ tasksIntent: null });

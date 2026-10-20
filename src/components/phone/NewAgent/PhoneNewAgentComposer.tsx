@@ -75,7 +75,7 @@ function shownTarget(
 }
 
 /**
- * The phone's new-agent composer (ADR-222 D5): a chat that hasn't started
+ * The phone's new-agent composer: a chat that hasn't started
  * yet, whose first message is the agent's prompt. Chips above the field pick
  * where it runs (host, project, workspace, or a new worktree off it), the
  * greeting and the recents rail follow that choice, and nothing launches

@@ -11,7 +11,7 @@ import { CONNECT_TIMEOUT, STEP, hostStatus } from "./helpers/remote-project";
 import { openHostRow, openHostsSettings } from "./helpers/settings";
 
 /**
- * Pairing-key encryption on a real ssh box (ADR-236 D6), against the
+ * Pairing-key encryption on a real ssh box, against the
  * harness's private sshd:
  *
  * 1. A host registered outside the wizard arrives on plaintext keys. Its row

@@ -24,7 +24,7 @@ const SSH_UP = {
   },
 };
 
-describe("recipe.json (ADR-229 D2)", () => {
+describe("recipe.json", () => {
   it("reads the full schema", () => {
     expect(
       parseRecipe(
@@ -109,7 +109,7 @@ describe("recipe.json (ADR-229 D2)", () => {
   });
 });
 
-describe("up's result (ADR-229 D2)", () => {
+describe("up's result", () => {
   it("reads an ssh connection", () => {
     expect(parseUpResult(SSH_UP)).toEqual(SSH_UP);
   });
@@ -179,7 +179,7 @@ describe("up's result (ADR-229 D2)", () => {
   });
 });
 
-describe("status's result (ADR-229 D2)", () => {
+describe("status's result", () => {
   it("reads each state", () => {
     for (const state of ["up", "sleeping", "missing", "error"]) {
       expect(parseStatusResult({ state })).toEqual({ state });

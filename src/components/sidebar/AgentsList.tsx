@@ -37,7 +37,7 @@ function AgentRow({ agent, shouldPulse, onClose, onClick, onRename }: {
   const rowRef = useRef<HTMLDivElement | null>(null);
   // Set when the row's context menu was opened via the keyboard, so
   // `onCloseAutoFocus` knows to return focus to the row; a mouse-opened menu
-  // keeps the rename hook's own restore behaviour (ADR-175).
+  // keeps the rename hook's own restore behaviour.
   const menuOpenedByKeyboard = useRef(false);
   return (
     <ContextMenu.Root>
@@ -153,7 +153,7 @@ type AgentsListProps = {
   onShowAll?: () => void;
   /**
    * Sized by its content, without the drag-to-resize handle: the collapsed
-   * rail's Agents popover (ADR-195), which scrolls on its own.
+   * rail's Agents popover, which scrolls on its own.
    */
   fitContent?: boolean;
   /** Called after a row navigates to its agent's pane. */

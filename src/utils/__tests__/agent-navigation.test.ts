@@ -206,7 +206,7 @@ describe("navigateToAgent toast cleanup", () => {
   });
 });
 
-describe("navigateToAgent into a linked group (ADR-192)", () => {
+describe("navigateToAgent into a linked group", () => {
   // The collapsed set is localStorage-backed; this suite runs without a DOM.
   beforeEach(() => {
     vi.stubGlobal("localStorage", { getItem: vi.fn(() => null), setItem: vi.fn() });

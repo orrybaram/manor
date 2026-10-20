@@ -17,7 +17,7 @@ import {
  * workspace can be created and its setup script runs long enough for us to
  * navigate away mid-flight.
  *
- * The script runs on the server, in a tab of its own (ADR-227 D5): no
+ * The script runs on the server, in a tab of its own: no
  * renderer drives it, so it finishes — and its tab closes — whether or not
  * anyone is looking.
  */

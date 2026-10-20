@@ -16,7 +16,7 @@ type ErrorBoundaryState = {
 
 /**
  * Catch a render error below this point and show `fallback` instead of
- * letting it unmount the whole tree (ADR-232 D3).
+ * letting it unmount the whole tree.
  */
 export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   state: ErrorBoundaryState = { error: null, generation: 0 };

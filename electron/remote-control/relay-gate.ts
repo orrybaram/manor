@@ -1,5 +1,5 @@
 /**
- * The relay's hello gate (ADR-206 D5, ADR-207 D3).
+ * The relay's hello gate.
  *
  * Remote control opens no listening socket: the only way in is a Noise
  * channel through the relay, handed to the bridge like any other
@@ -12,12 +12,12 @@
  * source (`rate-limit.ts`), so a backoff someone else earned must never be
  * able to close a channel holding a valid token. A token is checked before
  * the backoff is consulted, and only a hello that failed is penalised. A hello
- * whose token is not known yet but that carries a pairing ticket (ADR-240)
+ * whose token is not known yet but that carries a pairing ticket
  * is offered to `redeem`, which turns a pending device into an active one
  * under the token the browser chose; a failed ticket is a failed hello.
  *
  * There is one answer to a hello that fails: 4401. Every paired device
- * reaches the whole bridge (ADR-207 D4), so nothing is ever closed 4403.
+ * reaches the whole bridge, so nothing is ever closed 4403.
  */
 
 import { AuthRateLimiter } from "./rate-limit";
@@ -33,7 +33,7 @@ export interface AuthenticatedDevice {
 
 interface DeviceVerifier {
   verify(rawToken: unknown): AuthenticatedDevice | null;
-  /** Spend a pairing ticket for the token the device chose (ADR-240). */
+  /** Spend a pairing ticket for the token the device chose. */
   redeem(ticket: unknown, token: unknown): AuthenticatedDevice | null;
 }
 

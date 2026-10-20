@@ -1,5 +1,5 @@
 /*
- * ADR-198 §1.6: the PR pipeline (mockup `.pipe` / `.stage` / `.prc` /
+ * The PR pipeline (mockup `.pipe` / `.stage` / `.prc` /
  * `.checks`). A stage sets `--c` to its colour for the header underline.
  */
 .empty {

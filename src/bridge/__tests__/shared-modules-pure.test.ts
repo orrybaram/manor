@@ -1,5 +1,5 @@
 /**
- * The renderer imports the route manifest and the host rewrite (ADR-228 D1),
+ * The renderer imports the route manifest and the host rewrite,
  * so neither may reach Node or Electron. Walks each module's static imports
  * and asserts the closure is made of `src/lib/workspace-key.ts` and the two
  * modules themselves.

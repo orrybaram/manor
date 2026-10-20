@@ -15,7 +15,7 @@
   display: block;
 }
 
-/* Follower mode (ADR-178 D5): the grid belongs to the winsize owner, so a
+/* Follower mode: the grid belongs to the winsize owner, so a
    pane too narrow for it at the font floor pans sideways rather than
    reflowing the agent's boxes and gutters to a width it was never drawn at.
    `contain: strict` has to go with it — strict containment would clip the
@@ -26,7 +26,7 @@
   contain: layout paint;
 }
 
-/* A finger on a phone (ADR-181 D5, D6; `useTerminalTouch`). The browser keeps
+/* A finger on a phone (`useTerminalTouch`). The browser keeps
    exactly one gesture on the terminal — a horizontal pan, which is how a
    follower wider than the phone scrolls sideways in its `overflow-x: auto`
    box — and hands every vertical drag to the script, which turns it into

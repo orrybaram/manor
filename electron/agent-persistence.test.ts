@@ -42,7 +42,7 @@ describe("AgentManager", () => {
     });
   }
 
-  describe("resumedAt field (ADR-118)", () => {
+  describe("resumedAt field", () => {
     it("defaults to null when an agent is created", () => {
       const agent = makeAgent();
       expect(agent.resumedAt).toBeNull();
@@ -96,7 +96,7 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("pruneOlderThan (ADR-136)", () => {
+  describe("pruneOlderThan", () => {
     function isoDaysAgo(days: number): string {
       return new Date(Date.now() - days * 86_400_000).toISOString();
     }
@@ -188,7 +188,7 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("tasks.json → agents.json migration (ADR-166)", () => {
+  describe("tasks.json → agents.json migration", () => {
     function legacyRecord(agentSessionId: string) {
       return {
         id: crypto.randomUUID(),
@@ -229,7 +229,7 @@ describe("AgentManager", () => {
       expect(onDisk.agents[0].agentSessionId).toBe(sessionId);
     });
 
-    it("defaults transcriptPath to null on a record saved without one (ADR-215)", () => {
+    it("defaults transcriptPath to null on a record saved without one", () => {
       const sessionId = `session-${crypto.randomUUID()}`;
       fs.writeFileSync(
         path.join(tmpDir, "agents.json"),
@@ -258,7 +258,7 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("claudeSessionId migration (ADR-138)", () => {
+  describe("claudeSessionId migration", () => {
     function writeLegacyAgentsJson(dir: string, agents: object[]): void {
       const state = { agents };
       fs.writeFileSync(
@@ -361,7 +361,7 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("getAgentById / idIndex (ADR-138)", () => {
+  describe("getAgentById / idIndex", () => {
     it("returns the agent after createAgent", () => {
       const agent = makeAgent();
       const found = manager.getAgentById(agent.id);
@@ -413,7 +413,7 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("hostId (ADR-191 §5)", () => {
+  describe("hostId", () => {
     function savedRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
       return {
         id: crypto.randomUUID(),
@@ -479,7 +479,7 @@ describe("AgentManager", () => {
     });
 
     it("keeps a recorded host, even when its project now lives elsewhere", () => {
-      // The pane stayed on the box after its project moved local (ADR-183).
+      // The pane stayed on the box after its project moved local.
       const moved = savedRecord({ projectId: "here", hostId: "box" });
       writeAgents([moved]);
       const before = fs.readFileSync(path.join(tmpDir, "agents.json"), "utf-8");

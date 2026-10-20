@@ -1,8 +1,8 @@
 /**
- * What the browser refuses without asking the host (ADR-178 D8).
+ * What the browser refuses without asking the host.
  *
  * A browser's list, and only a browser's: the desktop answers every one of
- * these out of `manorHost.native` (ADR-180 D3), so the WebSocket transport is
+ * these out of `manorHost.native`, so the WebSocket transport is
  * the only consumer of this file and the client's step 3 is dead code under
  * Electron.
  *
@@ -10,7 +10,7 @@
  * entry for `webview.*` or `dialog.*` either, so the server would answer
  * `unavailable:web` and the client would raise the same error. The table
  * exists anyway for two reasons. A `<webview>` is not missing from the web
- * *build*, it is missing from the web — ADR-178's "what can never mirror in a
+ * *build*, it is missing from the web's "what can never mirror in a
  * browser" list is a design fact, not a gap in a handler table, and a design
  * fact should not need a network round trip to state. And these are the
  * namespaces a mounting component touches on its way up: a hundred refusals
@@ -30,14 +30,14 @@ import type { LocalOnlyMethod } from "../../electron/bridge/local-only";
  *
  * | namespace  | why |
  * | ---------- | --- |
- * | `webview`  | `<webview>` is Electron's; a page cannot embed *and* script arbitrary cross-origin sites (ADR-052/056/058/158) |
- * | `window`   | detach-to-window needs native chrome and survives no popup blocker (ADR-156/179 D4) |
- * | `menu`     | there is no native app menu to label (ADR-170) |
+ * | `webview`  | `<webview>` is Electron's; a page cannot embed *and* script arbitrary cross-origin sites |
+ * | `window`   | detach-to-window needs native chrome and survives no popup blocker |
+ * | `menu`     | there is no native app menu to label |
  * | `dialog`   | no native file pickers |
- * | `shell`    | no "reveal in Finder", no "open in editor" (ADR-050) |
+ * | `shell`    | no "reveal in Finder", no "open in editor" |
  * | `updater`  | the tab is updated by reloading it |
  * | `clipboard`| except `writeText`, which is served locally below |
- * | `hostPipe` | a window's own SSH stream to a host server (ADR-228 D4); a page cannot open SSH |
+ * | `hostPipe` | a window's own SSH stream to a host server; a page cannot open SSH |
  *
  * `remoteControl` is *not* here: a device's push subscription and its host
  * pairings are the browser's to ask for, and the methods that pair, reissue,
@@ -60,7 +60,7 @@ export const UNAVAILABLE_NAMESPACES: ReadonlySet<string> = new Set(UNAVAILABLE);
 /**
  * One of them, as a literal. `electron/bridge/surface.ts` reads it: a method
  * in a namespace named here needs no other placement for the web, because
- * refusing it *is* the answer (ADR-180 D7).
+ * refusing it *is* the answer.
  */
 export type UnavailableNamespace = (typeof UNAVAILABLE)[number];
 
@@ -76,7 +76,7 @@ export type UnavailableNamespace = (typeof UNAVAILABLE)[number];
  *    clipboard the user means is the one in front of them. (Every other call
  *    site in `src/` already reaches for `navigator.clipboard` directly.)
  * 2. **The browser's own memory.** `viewport.*` is what *this tab* was
- *    looking at (ADR-179 D3). Asking the host would be asking the wrong
+ *    looking at. Asking the host would be asking the wrong
  *    machine: the selection a phone remembers is the phone's, and the desk
  *    keeps its own in `~/.manor/viewport.json`. `localStorage` is exactly the
  *    right store for it, and serving it here means the store code that calls
@@ -89,7 +89,7 @@ export type UnavailableNamespace = (typeof UNAVAILABLE)[number];
  *    rejection per keystroke. `menu.setContext` alone fires on every focus
  *    change (`useMenuContextSync`).
  */
-/** Where a browser tab keeps its viewport (ADR-179 D3). */
+/** Where a browser tab keeps its viewport. */
 const VIEWPORT_KEY = "manor.web.viewport";
 
 const SERVED_HERE = {
@@ -130,7 +130,7 @@ const SERVED_HERE = {
   "keybindings.runInMainWindow": () => undefined,
 
   /**
-   * The prewarm pair — local-only on the table (ADR-180 D4), answered here
+   * The prewarm pair — local-only on the table, answered here
    * so a browser never asks.
    *
    * There is one prewarmed shell per host and its cwd follows the *primary
@@ -146,9 +146,9 @@ const SERVED_HERE = {
   "pty.updatePrewarmCwd": () => Promise.resolve(),
   "pty.consumePrewarmed": () => Promise.resolve(null),
   /**
-   * The remote-pane image paste (ADR-187 §3) uploads the *machine's*
+   * The remote-pane image paste uploads the *machine's*
    * clipboard image, which is not the clipboard a browser user means. The
-   * web pastes images through `pasteImage.*` instead (ADR-239), with the
+   * web pastes images through `pasteImage.*` instead, with the
    * bytes from the paste event; this entry only keeps the desktop's native
    * method answered for the surface check, with "nothing to paste".
    */
@@ -157,7 +157,7 @@ const SERVED_HERE = {
   "appCommands.result": () => undefined,
   // `satisfies` rather than an annotation, so the keys stay literal for
   // `electron/bridge/surface.ts`: this is one of the four places a method of
-  // `ElectronAPI` may be served, and the check reads it (ADR-180 D7).
+  // `ElectronAPI` may be served, and the check reads it.
 } satisfies Record<string, (...args: never[]) => unknown>;
 
 export const LOCALLY_SERVED: Record<string, (...args: unknown[]) => unknown> =

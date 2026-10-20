@@ -7,7 +7,7 @@ import { useHostStore } from "../host-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
 
-// One-click Copy to / Move to (ADR-213 ticket 3): the progress toast's
+// One-click Copy to / Move to: the progress toast's
 // lifecycle, `needsInput` handing off to the fallback dialog's state, and a
 // thrown transfer becoming an error toast that can open the same dialog.
 

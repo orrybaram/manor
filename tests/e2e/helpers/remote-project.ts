@@ -16,7 +16,7 @@ import { runInTerminal, activePaneId } from "./terminal";
 
 /**
  * A project on the remote-host suite's box, set up through the app the way a
- * user does it (ADR-160 ticket 12): register the host, clone the seed repo
+ * user does it: register the host, clone the seed repo
  * onto it, open a terminal on it. Shared by `remote-host.spec.ts` and
  * `host-server.spec.ts`; the box itself is `./remote-host.ts`.
  */
@@ -95,7 +95,7 @@ export async function openRemoteProject(
     500,
   );
 
-  // The onboarding screen's clone row (ADR-194) opens the Add Project dialog
+  // The onboarding screen's clone row opens the Add Project dialog
   // already on its clone tab.
   await window.getByTestId("add-remote-project-button").click();
   const dialog = window.getByTestId("add-project-dialog");

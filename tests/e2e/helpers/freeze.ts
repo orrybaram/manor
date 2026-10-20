@@ -3,7 +3,7 @@ import { spawnSync } from "child_process";
 import type { ElectronApplication } from "@playwright/test";
 
 /**
- * A closed lid, as the process table sees it (ADR-231 D4): every process of
+ * A closed lid, as the process table sees it: every process of
  * the app stops where it is — timers, sockets, the renderer — and later
  * carries on as if nothing happened, its timers firing late and its sockets
  * whatever the world left of them.

@@ -1,5 +1,5 @@
 /**
- * The reconnect loop's pre-attempt check (ADR-229 D1): a host whose provider
+ * The reconnect loop's pre-attempt check: a host whose provider
  * says the box is asleep stops the loop without reporting anything, and the
  * connect that wakes it reports the sessions as reconnected.
  */
@@ -27,7 +27,7 @@ function fakeTarget(sessions: string[] = ["pane-a"]) {
   };
 }
 
-describe("ReconnectSupervisor beforeAttempt (ADR-229 D1)", () => {
+describe("ReconnectSupervisor beforeAttempt", () => {
   beforeEach(() => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
   });
@@ -73,7 +73,7 @@ describe("ReconnectSupervisor beforeAttempt (ADR-229 D1)", () => {
     expect(onReconnected).toHaveBeenCalledWith({ sessionIds: ["pane-a"], attempts: 1 });
   });
 
-  it("tells the check which attempt it precedes, from 0 (ADR-230 D2)", async () => {
+  it("tells the check which attempt it precedes, from 0", async () => {
     const { target, setConnected } = fakeTarget();
     target.connect
       .mockRejectedValueOnce(new Error("box is down"))

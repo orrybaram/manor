@@ -1,6 +1,6 @@
 /**
  * A bridge resync re-reads every workspace and merges it the way the boot
- * read does (ADR-220 D2, ADR-221 ticket 7): newer local state is kept, older
+ * read does: newer local state is kept, older
  * local state is replaced, a workspace the server dropped goes, and this
  * window's own viewport survives either way.
  */

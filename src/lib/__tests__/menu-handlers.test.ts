@@ -249,7 +249,7 @@ describe("workspace stepping", () => {
     expect(selectWorkspace).toHaveBeenCalledWith("a", 1);
   });
 
-  // ADR-191: the same path on two hosts is two workspaces.
+  // The same path on two hosts is two workspaces.
   describe("with the same path on two hosts", () => {
     beforeEach(() => {
       const onHost = (id: string, hostId: string) => ({

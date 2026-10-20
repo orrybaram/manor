@@ -5,7 +5,7 @@ const electronAPI = (window as unknown as { electronAPI: Record<string, unknown>
   .electronAPI;
 const originalProjects = electronAPI.projects;
 
-describe("cloneProject (ADR-178 ticket 5)", () => {
+describe("cloneProject", () => {
   beforeEach(() => {
     useProjectStore.setState({ projects: [], selectedProjectIndex: 0 } as never);
   });

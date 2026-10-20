@@ -118,8 +118,8 @@ function git(...gitArgs) {
   return execFileSync("git", gitArgs, { cwd: ROOT, encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 }).trim();
 }
 
-// Commit types that never reach users. ADR bookkeeping ("docs(adr-NNN): ticket
-// 3 done") makes up most of a release's commits and only adds noise.
+// Commit types that never reach users. Bookkeeping commits make up most of a
+// release's commits and only add noise.
 const NOISE_RE = /^(chore|ci|test|docs|build|style|refactor)(\(.*?\))?!?:|^Merge (branch|remote-tracking|origin|ticket)/i;
 const MAX_BODY = 1500;
 

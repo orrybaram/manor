@@ -1,5 +1,5 @@
 /*
- * ADR-198: the workspace hover card on project tiles. Sized and surfaced like
+ * The workspace hover card on project tiles. Sized and surfaced like
  * the PR popover (`PrPopover.module.css`) so the two read as one family; the
  * content sets `--c` to the workspace's state colour.
  */

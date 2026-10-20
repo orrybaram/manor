@@ -16,7 +16,7 @@ import { addRendererBroadcastSink } from "../renderer-broadcast";
 
 /**
  * The watcher publishes `diffs.changed` / `diffs.fingerprintsChange` to every
- * renderer (ADR-180 D5) rather than sending on one window's `webContents`, so
+ * renderer rather than sending on one window's `webContents`, so
  * `send` below hears the broadcast sink: `send("diffs.changed", stats)`.
  */
 const stopSinks: (() => void)[] = [];
@@ -185,7 +185,7 @@ describe("DiffWatcher", () => {
     watcher.stop();
   });
 
-  // ADR-230 D6: one connection's start no longer replaces another's.
+  // One connection's start no longer replaces another's.
   it("watches every connection's workspaces, and one's stop leaves the rest", async () => {
     const { git, shell } = fakeGit(repo({ shortstat: " 1 file changed, 2 insertions(+)" }));
     const watcher = new DiffWatcher(hostsWith(git, shell));

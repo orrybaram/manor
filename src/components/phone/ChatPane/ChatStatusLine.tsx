@@ -23,9 +23,9 @@ import styles from "./ChatPane.module.css";
  * background workspace's chat is mounted but hidden.
  */
 type ChatStatusLineProps = {
-  /** The session's context size in tokens, or null if not known (ADR-223 D4). */
+  /** The session's context size in tokens, or null if not known. */
   contextTokens?: number | null;
-  /** How many tasks are running in the chat (ADR-224 D4). */
+  /** How many tasks are running in the chat. */
   runningTasks?: number;
 };
 

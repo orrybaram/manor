@@ -1,7 +1,7 @@
 /**
- * ADR-198 §3: the task row types and field model. GitHub and Linear list
+ * The task row types and field model. GitHub and Linear list
  * results are normalised into one `TaskRow` shape; the list pipeline over
- * them lives in `task-list.ts` (ADR-202 §3). No store or React imports, so
+ * them lives in `task-list.ts`. No store or React imports, so
  * everything here is unit-tested directly (`tasks.test.ts`).
  */
 
@@ -86,7 +86,7 @@ export interface TaskContext {
 }
 
 /**
- * ADR-208 §1: enough to fetch and act on one task, whether it came from a
+ * Enough to fetch and act on one task, whether it came from a
  * listed `TaskRow` (`refOf`) or a workspace's `LinkedIssue` (`refFromLink`).
  */
 export interface TaskRef {
@@ -101,7 +101,7 @@ export interface TaskRef {
   url: string;
 }
 
-/** ADR-208 §1: a task's detail, normalised across trackers. */
+/** A task's detail, normalised across trackers. */
 export interface TaskDetail {
   /** The markdown body / description; null when it has none. */
   body: string | null;
@@ -135,7 +135,7 @@ export type EntryOf = (project: ProjectInfo) => {
 };
 
 /*
- * ADR-201 §4: the field model. Every column the trackers give us is described
+ * The field model. Every column the trackers give us is described
  * once in `TASK_FIELDS` — which providers have it, how to read its filter
  * values (`facet`) and how to order rows by it (`sortKey` / `compare`) — and
  * the filter / sort helpers below are generic over that table.
@@ -262,7 +262,7 @@ function sortedBy(
   };
 }
 
-/** Which fields apply to which provider, and how each filters and sorts (ADR-201 §4 table). In display order. */
+/** Which fields apply to which provider, and how each filters and sorts. In display order. */
 export const TASK_FIELDS: Record<TaskFieldId, TaskFieldDef> = {
   progress: {
     label: "Progress",
@@ -468,7 +468,7 @@ export interface TaskSort {
   direction: "asc" | "desc";
 }
 
-/** Most recently updated first — the Tasks view's order before ADR-201. */
+/** Most recently updated first — the Tasks view's original order. */
 export const DEFAULT_TASK_SORT: TaskSort = {
   field: "updated",
   direction: "desc",

@@ -14,8 +14,8 @@ import type { PtyAttachResult, PtyCreateResult } from "../electron.d";
 /**
  * The host a pane's new session runs on, for create and reset alike. A pane
  * known to run on a remote host keeps it — it may have been moved there, or
- * its project moved away from it (ADR-183) — else it is the host named by
- * the key of the workspace it belongs to (ADR-191), never a guess from its
+ * its project moved away from it — else it is the host named by
+ * the key of the workspace it belongs to, never a guess from its
  * path: a restored pane goes back to its own host even when another host's
  * project with the same path is selected. Undefined with no workspace, so
  * main falls back to the host its cwd belongs to. Main attaches an existing
@@ -34,8 +34,8 @@ export function paneCreateHostId(
 
 /**
  * Note where a create or attach found the pane's session: badge the tab from
- * where it really runs (ADR-160), or wait for its remote host while it is
- * away (ADR-178 §6) — not an error.
+ * where it really runs, or wait for its remote host while it is
+ * away — not an error.
  */
 function recordPaneHost<R extends PtyCreateResult | PtyAttachResult>(
   paneId: string,
@@ -61,10 +61,9 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
   /** Send `data` to the pane's pty. Returns whether it was delivered. */
   const write = useCallback((data: string): boolean => {
     const paneId = paneIdRef.current;
-    // Read-only while the pane's remote host is away (ADR-178 §6): input is
+    // Read-only while the pane's remote host is away: input is
     // dropped, not queued for a shell that may be gone by the time it lands.
-    // A host reached only through servers that are all gone is away too
-    // (ADR-228 D6).
+    // A host reached only through servers that are all gone is away too.
     if (
       isHostAway(
         paneRemoteHost(useRemotePaneStore.getState(), paneId),
@@ -85,10 +84,10 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
    * Create or attach, and learn who owns this session's winsize.
    *
    * The `cols×rows` here is a *request*. It is refused silently when someone
-   * who outranks this viewer already has the pane (ADR-178 D5), and the reply
+   * who outranks this viewer already has the pane, and the reply
    * carries the owner's grid instead — `useTerminalLifecycle` reads that into
    * its `follower` state. A window on the machine outranks a paired device
-   * and is outranked only by a window that attached after it (ADR-180 D6), so
+   * and is outranked only by a window that attached after it, so
    * the common case — one viewer, or the one that just opened the pane — is
    * the owner asking, and nothing is refused.
    */
@@ -106,7 +105,7 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
         panes.setPaneHost(paneId, hostId);
       }
       // A pane of the workspace shown at launch, mounting for the first
-      // time, is not the user asking for its host (ADR-230 D3; one opened
+      // time, is not the user asking for its host (one opened
       // later is, see `seedRestoredPanes`): a sleeping one stays asleep
       // and the pane waits behind its banner. Forgotten once that create
       // settles — not as it is sent, so React's dev double-mount sends the
@@ -128,7 +127,7 @@ export function useTerminalConnection(paneId: string, workspaceKey?: WorkspaceKe
   );
 
   /**
-   * Attach to the pane's running session, and nothing more (ADR-220): a
+   * Attach to the pane's running session, and nothing more: a
    * resync's way back in. No shell is spawned and no size asked for, and the
    * answer says `exited` or `lost` when the session ended meanwhile.
    */

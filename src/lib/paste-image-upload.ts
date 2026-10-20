@@ -1,5 +1,5 @@
 /**
- * Uploads an image pasted in the browser into a pane's host (ADR-239 D3),
+ * Uploads an image pasted in the browser into a pane's host,
  * through the `pasteImage` namespace: `begin`, each chunk in order, `commit`.
  */
 

@@ -1,8 +1,8 @@
 /**
- * ADR-178's bridge, tested end to end through the relay's hello gate: the real
+ * The bridge, tested end to end through the relay's hello gate: the real
  * `RelayGate`, the real `WsBridgeServer` and the real `BridgeServer` over an
  * in-memory `FrameSocket` — what a relay channel is once its Noise handshake
- * is done (ADR-207 D2). The properties are transport-level. "A bad token is
+ * is done. The properties are transport-level. "A bad token is
  * closed with 4401" is only true if the attach, the hello and the verify are
  * wired to each other, and a unit-level call to any one of them would let
  * the others come loose and still pass.
@@ -28,7 +28,7 @@ import {
 } from "../../pty-attachments";
 
 /**
- * A renderer window, as `pty-attachments.ts` now sees one (ADR-180 D6): a
+ * A renderer window, as `pty-attachments.ts` now sees one: a
  * connection id — `webContents.id` as a string — and the class of caller it
  * is. `local` is what outranks the sockets these tests open.
  */
@@ -163,7 +163,7 @@ describe("WsBridgeServer", () => {
   let sessionSize: { cols: number; rows: number } | null;
   /** `[key, value]` pairs `preferences.set` actually reached the manager with. */
   let preferencesSet: Array<[string, unknown]>;
-  /** ADR-179's layout authority, real: `layout.apply` has to reach a reducer. */
+  /** The layout authority, real: `layout.apply` has to reach a reducer. */
   let layoutStore: LayoutStore;
 
   beforeEach(async () => {
@@ -398,7 +398,7 @@ describe("WsBridgeServer", () => {
     });
 
     /**
-     * ADR-179 ticket 4's report: a reconnecting client's id used to change
+     * A reconnecting client's id used to change
      * every time, dropping a selection hint addressed to the id it had
      * before, and resetting its `pty-attachments` viewer identity as if it
      * were a brand new tab.
@@ -456,7 +456,7 @@ describe("WsBridgeServer", () => {
 
     /**
      * The read a `full` device needs to see who else is paired, added
-     * alongside its status broadcast (ADR-178 ticket 9). Reads only —
+     * alongside its status broadcast. Reads only —
      * `setEnabled`/`pair`/`revoke`/the relay methods stay off the table.
      */
     it("resolves remoteControl.getStatus for a paired device", async () => {
@@ -471,7 +471,7 @@ describe("WsBridgeServer", () => {
     });
 
     /**
-     * A `full` device may write preferences (D3) — off the slice-1 table for
+     * A `full` device may write preferences — left off the first table for
      * scope, not policy.
      */
     it("resolves preferences.set and reaches the manager", async () => {
@@ -486,7 +486,7 @@ describe("WsBridgeServer", () => {
 
     /**
      * A pane opened from a browser needs the same project/workspace context
-     * as one opened on the desktop (ADR-178 ticket 10) — otherwise the
+     * as one opened on the desktop — otherwise the
      * sidebar's per-pane agent metadata has nothing to point at.
      */
     it("resolves agents.setPaneContext and reaches the map", async () => {
@@ -519,7 +519,7 @@ describe("WsBridgeServer", () => {
       expect(result).toMatchObject({ ok: false, code: "unavailable:web" });
     });
 
-    /** ADR-179 ticket 3 deleted the renderer's save path; nothing serves it. */
+    /** The renderer's save path is gone; nothing serves it. */
     it("has no layout.save at all", async () => {
       const client = await greet(FULL_TOKEN);
       const result = await invoke(client, "d", "layout", "save", [{}]);
@@ -527,7 +527,7 @@ describe("WsBridgeServer", () => {
     });
 
     /**
-     * ADR-179 D7: arranging panes from a browser is an ordinary command that
+     * Arranging panes from a browser is an ordinary command that
      * shows up on the desk. The answer is a version, never a layout — the
      * layout arrives on `layout.changed`, at every renderer at once.
      */
@@ -552,7 +552,7 @@ describe("WsBridgeServer", () => {
     });
 
     /**
-     * ADR-179 ticket 11: "a new tab running `pnpm dev`" from a browser is two
+     * "a new tab running `pnpm dev`" from a browser is two
      * calls — the line, then the tab — and the line waits in the server's map
      * until whichever renderer mounts the pane reaches `pty.create`.
      */
@@ -703,7 +703,7 @@ describe("WsBridgeServer", () => {
     /**
      * The second sink `renderer-broadcast.ts` exists for: a change the
      * desktop windows learn about via `webContents.send` reaches a
-     * subscribed browser the same way (ADR-178 ticket 9).
+     * subscribed browser the same way.
      */
     it("forwards a remoteControl.status broadcast to a subscribed socket", async () => {
       const client = await greet(FULL_TOKEN);
@@ -724,7 +724,7 @@ describe("WsBridgeServer", () => {
       });
     });
 
-    /** ADR-179 D1: the sender hears its own change, the same way everyone
+    /** The sender hears its own change, the same way everyone
      *  else does — there is no optimistic apply on either side. */
     it("delivers layout.changed to a subscribed socket", async () => {
       const client = await greet(FULL_TOKEN);
@@ -757,7 +757,7 @@ describe("WsBridgeServer", () => {
       });
       expect(JSON.stringify(payload.layout)).toContain("pane-1");
       // The origin is the socket's, not the frame's: a browser cannot claim
-      // to be another renderer and collect its selection hints (ADR-179 D3).
+      // to be another renderer and collect its selection hints.
       const origin = payload.origin as { kind: string; id: string };
       expect(origin.kind).toBe("bridge");
       expect(origin.id).toMatch(/^bridge-/);
@@ -768,7 +768,7 @@ describe("WsBridgeServer", () => {
       const client = await greet(FULL_TOKEN);
 
       // The same id every `layout.apply` from this socket carries, so the tab
-      // can tell its own broadcast from every other viewer's (ADR-179 D3).
+      // can tell its own broadcast from every other viewer's.
       const hello = await client.next((f) => f.type === "hello");
       expect(hello.rendererId).toMatch(/^bridge-/);
     });
@@ -858,7 +858,7 @@ describe("WsBridgeServer", () => {
   });
 
   /**
-   * ADR-178 D5. The bridge is the one place that knows a caller is a *web*
+   * The bridge is the one place that knows a caller is a *web*
    * viewer, so it is the one place that can answer "who owns the winsize" —
    * and the answer has to be carried on the create reply, because by the time
    * the browser could ask separately it has already fitted itself.
@@ -963,11 +963,11 @@ describe("WsBridgeServer", () => {
   });
 
   /**
-   * ADR-179 D6: with no desktop window in the picture, the most recently
+   * With no desktop window in the picture, the most recently
    * attached bridge viewer owns a pane's winsize, and everyone else that is
    * watching it hears about a change live rather than on their next create.
    */
-  describe("winsize ownership (D6)", () => {
+  describe("winsize ownership", () => {
     const PANE = "pane-a";
 
     async function watch(client: Client): Promise<void> {

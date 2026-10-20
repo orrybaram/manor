@@ -1,4 +1,4 @@
-/* ── Palette scope chip (ADR-200): a project picker, tinted with the
+/* ── Palette scope chip: a project picker, tinted with the
    scoped project's colour (`--project-color`, falling back to accent). ── */
 
 .chip {

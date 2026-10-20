@@ -1,7 +1,7 @@
 /**
- * The desktop as a client of each host server (ADR-227 D4).
+ * The desktop as a client of each host server.
  *
- * Once a remote host has adopted its records (D3), its projects, layout and
+ * Once a remote host has adopted its records, its projects, layout and
  * agents are its server's. The desktop reaches them only through that
  * host's `HostProxy`, and this is where it does:
  *
@@ -10,7 +10,7 @@
  *   adopted remote host is answered by that host's server: the proxy
  *   rewrites the arguments and the answer, and a host that is away refuses
  *   with `unavailable:host-away` ("wsl-box is offline"). Nothing is queued.
- * - **Waking** (ADR-229 D1). A write for a host whose box is asleep wakes
+ * - **Waking**. A write for a host whose box is asleep wakes
  *   it first, waits for it (bounded by `WAKE_WAIT_MS`), then goes; a read
  *   never wakes one, and answers from the cache as for any host away.
  * - **Merged reads.** The proxies' projects (for `ProjectManager`, as
@@ -22,7 +22,7 @@
  *   renderer queued a moment before without knowing the pane's host. Setup
  *   and teardown progress the host sends its owner goes back to whoever
  *   asked.
- * - **A remote pane's terminal** (ADR-228 D5). Its `pty.*` calls are routed
+ * - **A remote pane's terminal**. Its `pty.*` calls are routed
  *   by pane like any other: the host's server creates, attaches, types into
  *   and resizes it, and types its pending command into a fresh one. Its
  *   events come back through the proxy (`wirePty`) while a caller of the
@@ -31,7 +31,7 @@
  *   never attaches it over the host's daemon stream. A host that is away
  *   answers a create or attach with the `host-unavailable` failure a
  *   renderer waits out, as the daemon's did.
- * - **Claims** (ADR-228 D7): a detached window's claim on a remote tab is
+ * - **Claims**: a detached window's claim on a remote tab is
  *   the desktop's, and the proxy publishes the host's layout with it
  *   (`republishClaims`).
  *
@@ -100,7 +100,7 @@ export interface HostRoutingOptions {
   handOver(hostId: string, projectIds: readonly string[]): Promise<void>;
   /**
    * Who of the desktop's callers holds a remote pane, and owns its winsize
-   * among them (ADR-230 D10): the process's registry, unless a test that
+   * among them: the process's registry, unless a test that
    * runs a host server in this process gives main one of its own.
    */
   attachments?: PtyAttachments;
@@ -154,7 +154,7 @@ function callTimeout(ns: string, method: string): { timeoutMs?: number } {
 
 /**
  * How long a write for a sleeping host waits for it to wake before it is
- * refused as away (ADR-229 D1). A box slower than this goes on starting; the
+ * refused as away. A box slower than this goes on starting; the
  * next call finds it up.
  */
 const WAKE_WAIT_MS = 2 * 60_000;
@@ -190,7 +190,7 @@ function ptyAway(method: string, hostId: string, error: string): { value: unknow
 
 /**
  * The bridge `wirePty` listens on: who is subscribed to a pane's events, and
- * the door that tells one connection its own `winsizeOwner` (ADR-230 D10).
+ * the door that tells one connection its own `winsizeOwner`.
  */
 export interface PtySubscriptions {
   onSubscriptionChange(cb: (name: string, key: string) => void): () => void;
@@ -249,7 +249,7 @@ export class HostRouting implements BridgeForward {
   private ptySubscriptions: PtySubscriptions | null = null;
   /**
    * Who of the desktop's callers holds each remote pane, and which of them
-   * owns its winsize here (ADR-230 D10). The host decides only between the
+   * owns its winsize here. The host decides only between the
    * desktop as a whole and its own viewers.
    */
   private readonly attachments: PtyAttachments;
@@ -293,7 +293,7 @@ export class HostRouting implements BridgeForward {
   // ── routing (BridgeForward) ──
 
   target(rule: RouteRule, args: readonly unknown[]): string | null {
-    // A delegated call (Linear, ADR-228 D10) rides the token this server holds.
+    // A delegated call (Linear) rides the token this server holds.
     if (rule.by === "delegated") return null;
     const arg = args[rule.arg];
     switch (rule.by) {
@@ -336,7 +336,7 @@ export class HostRouting implements BridgeForward {
     }
     if (wakesHost(ns, method)) {
       // A pane restored at launch leaves its sleeping host asleep, and waits
-      // behind the host's asleep banner (ADR-230 D3).
+      // behind the host's asleep banner.
       if (declinesWake(ns, method, args)) {
         const asleep = this.opts.registry.status?.(hostId) === "sleeping";
         const away = asleep ? ptyAway(method, hostId, `${proxy.label} is asleep`) : null;
@@ -382,13 +382,13 @@ export class HostRouting implements BridgeForward {
   }
 
   /**
-   * A remote pane's `pty.<method>` on its host's server (ADR-228 D5). The
+   * A remote pane's `pty.<method>` on its host's server. The
    * desktop's owner channel is the viewer there, for whichever caller of the
    * desktop's asked; the pane's events are watched for as long as one of
    * them is subscribed (`wirePty`).
    *
    * The host sees the desktop as one viewer, so the desktop decides among
-   * its own callers first (ADR-230 D10), with the same registry rules a pane
+   * its own callers first, with the same registry rules a pane
    * of its own has: a caller that would not own the pane here is sent the
    * host's grid, not its own; only the caller that owns it here resizes it;
    * and the host is detached only when no caller here holds the pane.
@@ -471,7 +471,7 @@ export class HostRouting implements BridgeForward {
    * One of a remote pane's events from its host, before it goes on to the
    * desktop's callers (`HostProxyOptions.publishKeyed`). Its grid is noted;
    * and the host's `winsizeOwner`, which is about the desktop as a whole, is
-   * told to each caller here with this side's answer for it (ADR-230 D10).
+   * told to each caller here with this side's answer for it.
    * Returns whether the event was delivered here, and so goes no further.
    */
   onHostPtyEvent(event: HostPtyEvent, args: readonly unknown[], paneId: string): boolean {
@@ -528,13 +528,13 @@ export class HostRouting implements BridgeForward {
 
   /**
    * Forward each remote pane's `pty.*` events to the desktop's callers that
-   * subscribe to them (ADR-228 D5), through its host's proxy, for as long as
+   * subscribe to them, through its host's proxy, for as long as
    * one of them is: `bridge` says who is. When the last caller here lets go
    * of a pane — it detached, or dropped without detaching, which releases
    * it (`BridgeServer.drop`) — the owner channel lets go of the pane on the
    * host, so a caller gone does not hold its winsize there; as it does when
    * nobody is left listening to its output and nobody holds it. Each
-   * caller holding a pane is told its own `winsizeOwner` (ADR-230 D10).
+   * caller holding a pane is told its own `winsizeOwner`.
    * Returns the unwiring.
    */
   wirePty(bridge: PtySubscriptions): () => void {
@@ -601,8 +601,7 @@ export class HostRouting implements BridgeForward {
   }
 
   /**
-   * A desktop window's claim moved on `key`, a remote workspace (ADR-228
-   * D7): its host's proxy publishes the layout again, with the claims.
+   * A desktop window's claim moved on `key`, a remote workspace: its host's proxy publishes the layout again, with the claims.
    */
   republishClaims(key: string, origin: LayoutOrigin): void {
     const hostId = this.routable(parseWorkspaceKey(key).hostId);
@@ -612,8 +611,8 @@ export class HostRouting implements BridgeForward {
 
   /**
    * A control request (`electron/routes/`) for one of `hostId`'s projects or
-   * agents, answered by its server's own routes (`hostServer.control`,
-   * ADR-227 D8) — the desktop's MCP and CLI reach an adopted host this way,
+   * agents, answered by its server's own routes (`hostServer.control`) —
+   * the desktop's MCP and CLI reach an adopted host this way,
    * as the bridge does through `invoke`. The answer's records carry
    * `hostId`. Never rejects: a host that is away, or refuses, is a 503.
    */
@@ -658,7 +657,7 @@ export class HostRouting implements BridgeForward {
   }
 
   /**
-   * Wake `hostId` if its box is asleep (ADR-229 D1), and wait — at most
+   * Wake `hostId` if its box is asleep, and wait — at most
    * `WAKE_WAIT_MS` — for it to connect. Never rejects: a host that did not
    * wake in time, or could not, is away, and the call then refuses as for
    * any host away — "still starting" while its start goes on (`refusal`).
@@ -684,7 +683,7 @@ export class HostRouting implements BridgeForward {
   /**
    * A host that is away, or that refused, as the bridge answers it. A host
    * still coming up — a woken box whose start outlasted `WAKE_WAIT_MS`, a
-   * recipe's `up` may take 15 minutes (ADR-229 D2) — is away, but says so.
+   * recipe's `up` may take 15 minutes — is away, but says so.
    */
   private refusal(proxy: HostProxy, err: unknown): unknown {
     if (!(err instanceof HostServerUnavailableError)) return err;
@@ -827,7 +826,7 @@ export class HostRouting implements BridgeForward {
     return null;
   }
 
-  /** The proxies' projects, for `ProjectManager` (ADR-227 D4). */
+  /** The proxies' projects, for `ProjectManager`. */
   remoteProjects(): RemoteProjects {
     return {
       list: () => this.proxies().flatMap((proxy) => proxy.projects()),

@@ -1,5 +1,5 @@
 /**
- * ADR-222 D6: the composer's send. An existing workspace launches at once; a
+ * The composer's send. An existing workspace launches at once; a
  * new worktree is named from the prompt, branched off the chosen workspace,
  * and keeps the draft when creation fails.
  */

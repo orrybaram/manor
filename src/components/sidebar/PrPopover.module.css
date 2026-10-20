@@ -140,7 +140,7 @@
   animation: popoverFadeOut 120ms ease-in forwards;
 }
 
-/* The wrapper a custom trigger sits in (ADR-198's pipeline cards). */
+/* The wrapper a custom trigger sits in (the pipeline cards). */
 .prAnchor {
   display: flex;
   flex-direction: column;

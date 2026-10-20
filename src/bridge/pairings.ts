@@ -1,11 +1,11 @@
 /**
- * Every host this browser is paired with (ADR-225 D7), kept in `localStorage`
+ * Every host this browser is paired with, kept in `localStorage`
  * keyed by relay room id. A phone can hold a pairing for the desktop and one
- * for each host server, and the page dials them all at once (ADR-228 D8):
+ * for each host server, and the page dials them all at once:
  * `install-web.ts` holds a server per pairing, and follows this list as it
  * changes — a pairing removed in the Hosts sheet, or added in another tab.
  *
- * Which one is the page's **home** server (D1): the paired desktop, known
+ * Which one is the page's **home** server: the paired desktop, known
  * from an earlier hello (`hostServer: false`), else the most recently used —
  * the one with the greatest `lastUsedAt`, which a fresh link stamps.
  * Before this list existed a single pairing lived at `manor.web.relay`; the
@@ -23,8 +23,8 @@ import { ROOM_ID_LENGTH, base64urlDecode, base64urlEncode } from "../lib/relay-c
 export const PAIRINGS_KEY = "manor.web.pairings";
 
 /**
- * Rooms this browser has let go of (ADR-228 D9): a pairing removed by hand in
- * the Hosts sheet. A host's 4401 refusal does not decline (ADR-238). Sent with the held
+ * Rooms this browser has let go of: a pairing removed by hand in
+ * the Hosts sheet. A host's 4401 refusal does not decline. Sent with the held
  * rooms to `remoteControl.linkHostPairings`, so a desktop does not mint the
  * room again on its next hello. A link for the room (`upsertPairing`, a QR
  * re-pair) takes it back. JSON `string[]`, newest last.
@@ -46,7 +46,7 @@ export interface RelayCredentials {
 }
 
 /**
- * What a single-use pairing link carries (ADR-240 D1): the host's room and
+ * What a single-use pairing link carries: the host's room and
  * key, and a pairing ticket in place of a token. The browser chooses its own
  * token (`freshDeviceToken`) and sends both in its first hello; the host
  * redeems the ticket by storing that token's hash.
@@ -71,12 +71,12 @@ export interface StoredPairing extends RelayCredentials {
   hostServer?: boolean;
   /**
    * A desktop's remote hosts, by its id for each, with the room each one's
-   * server reported, or null (ADR-228 D2) — so a reload names them as before
+   * server reported, or null — so a reload names them as before
    * its `hosts.list` has answered.
    */
   hosts?: Record<string, string | null>;
   /**
-   * The pairing ticket `token` is to be redeemed with (ADR-240 D5): sent in
+   * The pairing ticket `token` is to be redeemed with: sent in
    * every hello until the first accepted one, then dropped
    * (`clearPairingTicket`). Absent on a pairing whose token the host knows.
    */
@@ -238,7 +238,7 @@ export function lastUsedPairing(): StoredPairing | null {
 }
 
 /**
- * The page's home server (ADR-228 D1): the most recently used pairing whose
+ * The page's home server: the most recently used pairing whose
  * last hello came from a desktop, else the most recently used of all.
  */
 export function homePairing(list: readonly StoredPairing[] = listPairings()): StoredPairing | null {
@@ -285,7 +285,7 @@ export function upsertPairing(
 }
 
 /**
- * A device token this browser chose for itself (ADR-240 D1): 32 random bytes,
+ * A device token this browser chose for itself: 32 random bytes,
  * base64url, unpadded — 43 characters, the same shape as one
  * `electron/remote-control/devices.ts` mints.
  */
@@ -294,7 +294,7 @@ export function freshDeviceToken(): string {
 }
 
 /**
- * Add or update `link.roomId`'s pairing from a single-use link (ADR-240 D5),
+ * Add or update `link.roomId`'s pairing from a single-use link,
  * and mark it last used. A link never replaces the other pairings.
  *
  * - **A ticket already stored for the room** (the same link loaded again, or
@@ -331,7 +331,7 @@ export function upsertTicketPairing(
 }
 
 /**
- * `roomId`'s host accepted a hello carrying `ticket` (ADR-240 D1): the ticket
+ * `roomId`'s host accepted a hello carrying `ticket`: the ticket
  * is spent, so send it no more; it is kept as `spentTicket`, which is no
  * longer a credential. Only while it is still the stored one — another tab
  * may have taken a newer link for the room meanwhile, whose ticket has yet to
@@ -353,7 +353,7 @@ function withoutTicket(pairing: StoredPairing): StoredPairing {
 
 /**
  * A pairing a desktop minted for this browser on one of its hosts
- * (`remoteControl.linkHostPairings`, ADR-228 D9): added, or its key and
+ * (`remoteControl.linkHostPairings`): added, or its key and
  * token renewed. Named as the desktop names the host, unless the user named
  * it; known to be a host server before its first hello; and never marked last
  * used, which is the user's choice of where to land. A room the user let go
@@ -463,7 +463,7 @@ export function removePairing(credentials: RelayCredentials): boolean {
 /**
  * The user removed `credentials`' pairing: drop it (as `removePairing`) and
  * remember the room as declined, so a desktop's `linkHostPairings` does not
- * hand it back (ADR-228 D9). The declined list is written first, so a
+ * hand it back. The declined list is written first, so a
  * subscriber notified of the removal already sees the room declined.
  */
 export function declinePairing(credentials: RelayCredentials): void {

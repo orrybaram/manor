@@ -38,7 +38,7 @@ function panel(id: string, tabs: PersistedTab[]): PersistedPanel {
 
 /**
  * A v3 workspace: the tree, plus the default viewport that holds the
- * selection the tree used to (ADR-179 D3). `findWorkspaceForPane` walks
+ * selection the tree used to. `findWorkspaceForPane` walks
  * panes and never reads it, but a fixture with focus still in the tree
  * describes a file this version does not write.
  */
@@ -88,7 +88,7 @@ describe("pane-context", () => {
       expect(findWorkspaceForPane(layout, "pane-1")).toBe("/repo/a");
     });
 
-    it("returns the host-qualified key of a remote workspace (ADR-191)", () => {
+    it("returns the host-qualified key of a remote workspace", () => {
       const layout: PersistedLayout = {
         version: 3,
         workspaces: [

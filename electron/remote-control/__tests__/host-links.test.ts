@@ -1,5 +1,5 @@
 /**
- * One pairing covers every host (ADR-228 D9): the desktop mints a pairing
+ * One pairing covers every host: the desktop mints a pairing
  * on each host for its own device, skips what the device already holds, and
  * every revoke of the device — or the per-host switch going off — reaches
  * the host, now or on its next connect.
@@ -61,7 +61,7 @@ function fakeHost(hostId: string, roomId: string) {
           const id = `${hostId}-device-${++minted}`;
           paired.add(id);
           rows.set(id, { label, createdAt: Date.now() });
-          // A ticket link unless asked for the token (ADR-240 D7).
+          // A ticket link unless asked for the token.
           return options?.direct
             ? {
                 device: { id, label },
@@ -341,7 +341,7 @@ describe("HostPairingLinks", () => {
     for (const listener of stateListeners) listener(host.hostId, "connected");
   };
 
-  it("a host answering a ticket link links nothing, and what it minted is revoked (ADR-240 D7)", async () => {
+  it("a host answering a ticket link links nothing, and what it minted is revoked", async () => {
     const id = await phone();
     const pair = box().api.remoteControl.pair.getMockImplementation()!;
     // An older desktop's newer host: it ignores `direct`.
@@ -464,7 +464,7 @@ describe("HostPairingLinks", () => {
     expect(box().api.remoteControl.revoke).not.toHaveBeenCalledWith(direct);
   });
 
-  describe("a pairing revoked on the host (ADR-238 D2)", () => {
+  describe("a pairing revoked on the host", () => {
     /** The phone, linked on the box only. */
     const linkedOnBox = async () => {
       const id = await phone();
@@ -594,7 +594,7 @@ describe("HostPairingLinks", () => {
       expect(linked.map((p) => p.roomId)).toEqual(["room-box"]);
     });
 
-    it("takes a link from before ADR-238, missing from the host, as revoked", async () => {
+    it("takes a link with no roomId, missing from the host, as revoked", async () => {
       const id = await phone();
       await devices.setHostLink(id, { hostId: "box", hostDeviceId: "box-old" });
       await expect(links.link(id, ["room-wsl"])).resolves.toEqual([]);

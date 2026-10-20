@@ -2,7 +2,7 @@
  * Main-process owner of all webview recording state.
  *
  * A recording is a `fs.WriteStream` fed by webm chunks the renderer produces
- * from a `MediaRecorder` (see ADR-158). This module holds nothing Electron-
+ * from a `MediaRecorder`. This module holds nothing Electron-
  * specific on purpose: screenshot capture is injected as a `capture` callback,
  * so the whole lifecycle — timers, streams, keyframes — is unit-testable in a
  * plain Node process.

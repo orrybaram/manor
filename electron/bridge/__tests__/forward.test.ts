@@ -1,5 +1,5 @@
 /**
- * `BridgeServer`'s `forward` (ADR-227 D4): a routed call that names a remote
+ * `BridgeServer`'s `forward`: a routed call that names a remote
  * host is answered by that host's server, a refusal from an away host is a
  * stated `unavailable:host-away`, and everything else runs here as before.
  */
@@ -65,7 +65,7 @@ function server(forward: BridgeForward) {
   return { bridge, auditFile };
 }
 
-describe("BridgeServer forward (ADR-227 D4)", () => {
+describe("BridgeServer forward", () => {
   it("answers a call for a remote host's project from that host", async () => {
     here.mockClear();
     const forward: BridgeForward = {
@@ -150,7 +150,7 @@ describe("BridgeServer forward (ADR-227 D4)", () => {
   });
 });
 
-describe("BridgeServer and a remote pane's winsize (ADR-230 D10)", () => {
+describe("BridgeServer and a remote pane's winsize", () => {
   /** A bridge whose `forward` says `pane-box` is box's, and a window recording what it hears. */
   function withRemotePane() {
     const bridge = new BridgeServer<Deps>(

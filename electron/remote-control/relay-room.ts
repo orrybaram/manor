@@ -1,7 +1,7 @@
 /**
  * One relay room: its identity, the devices paired to it, the gate that
  * closes a device's live channels, and the connector that holds the room
- * open (ADR-206, ADR-226). The desktop's `RemoteControlController` and the
+ * open. The desktop's `RemoteControlController` and the
  * host server's relay (`host-server/relay.ts`) both keep their own policies —
  * enable switches, notices, always-on redialling — and come here for the
  * operations that change who is paired:
@@ -16,11 +16,11 @@
  * pair landing inside a reset, or two resets interleaving, would leave a
  * device paired to a dead room or the identity reset twice under one revoke.
  * Each resolves only once its change is on disk and rejects when it could not
- * be saved (ADR-226 B2): a revoke that was not saved comes back on restart,
+ * be saved: a revoke that was not saved comes back on restart,
  * and whoever asked has to hear that.
  *
  * The gate and the relay are read through getters, so the desktop can hand
- * over its lazily loaded runtime (ADR-205 §3): before it loads there is no
+ * over its lazily loaded runtime: before it loads there is no
  * live connection to close and nothing to pair through.
  */
 
@@ -35,13 +35,13 @@ export interface PairResult {
   device: RemoteDeviceInfo;
   /**
    * The relay link (`https://<relay>/app/<version>/#relay=…`): a single-use
-   * pairing ticket by default, the raw token for a `direct` pairing
-   * (ADR-240 D1). Shown once, never stored.
+   * pairing ticket by default, the raw token for a `direct` pairing.
+   * Shown once, never stored.
    */
   pairingUrl: string;
   /** When the link's ticket stops working; null for a `direct` pairing. */
   expiresAt: number | null;
-  /** The device's token, only for a `direct` pairing (ADR-240 D7). */
+  /** The device's token, only for a `direct` pairing. */
   rawToken?: string;
 }
 
@@ -82,7 +82,7 @@ export class RelayRoom {
    * Pair a device to this room. Devices left on a stale room are revoked
    * first, so the list never mixes a dead room with the live one. By default
    * the link carries a pairing ticket; `direct` mints the token itself, for a
-   * caller that hands it over an authenticated channel (ADR-240 D7). Resolves
+   * caller that hands it over an authenticated channel. Resolves
    * once the device is on disk.
    */
   pair(label: string, options?: { direct?: boolean }): Promise<PairResult> {
@@ -109,7 +109,7 @@ export class RelayRoom {
   }
 
   /**
-   * A new link for a device that has not connected yet (ADR-240 D3); the
+   * A new link for a device that has not connected yet; the
    * old one is dead. Revokes nothing, but refuses a device paired to a room
    * this identity no longer is: a link to the current room would let it
    * redeem, and the next stale-room sweep would then revoke it. Resolves once

@@ -1,6 +1,6 @@
-// Sidebar workspace multi-select (ADR-190 §1). Selection is per scope — a
-// lone project, or a linked group whose host sections share one selection
-// (ADR-192 ticket 7). A selection in one scope has no valid bulk action or
+// Sidebar workspace multi-select. Selection is per scope — a
+// lone project, or a linked group whose host sections share one selection.
+// A selection in one scope has no valid bulk action or
 // drag target in another, so picking a row elsewhere replaces it outright
 // rather than merging with it.
 //

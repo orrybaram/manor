@@ -269,7 +269,7 @@ describe("ExecGitBackend", () => {
 
     it(
       "puts `--` before the repo URL and target dir, so a value starting " +
-        "with `-` cannot be misread as a git option (ADR-178 ticket 5 review)",
+        "with `-` cannot be misread as a git option",
       async () => {
         const calls: Array<{ args: string[] }> = [];
         const fakeExecImpl = {

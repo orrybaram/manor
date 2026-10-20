@@ -1,5 +1,5 @@
 /**
- * A desktop window's host pipe (ADR-228 D4), and the socket transport over
+ * A desktop window's host pipe, and the socket transport over
  * it, against a fake `hostPipe` — what the preload exposes and main answers
  * (`electron/ipc/host-pipe.ts`). The other half, a real server behind a real
  * `server-bridge --viewer`, is `electron/host-server/__tests__/viewer-pipe.test.ts`.
@@ -92,7 +92,7 @@ const HELLO = {
   hostServer: true,
 };
 
-describe("the host pipe transport (ADR-228 D4)", () => {
+describe("the host pipe transport", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
   });
@@ -212,7 +212,7 @@ describe("the host pipe transport (ADR-228 D4)", () => {
     expect(fake.opened).toHaveLength(1);
 
     // Probing an open pipe asks main nothing, but asks the server behind
-    // it (ADR-231 D8): its answer is what makes the line alive.
+    // it: its answer is what makes the line alive.
     fake.releaseOpens();
     await settle();
     fake.frame("p1", HELLO);

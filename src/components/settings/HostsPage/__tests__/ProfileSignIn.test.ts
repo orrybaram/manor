@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** ADR-235 D9: the "Sign new pods in for me" section of the profile editor. */
+/** The "Sign new pods in for me" section of the profile editor. */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

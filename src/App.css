@@ -55,7 +55,7 @@
   --danger: #ee5555;
   --danger-hover: #dd3333;
   --bg-deep: color-mix(in srgb, var(--bg) 80%, black);
-  /* ADR-196: gutter between panels and around the window edges, and how far
+  /* Gutter between panels and around the window edges, and how far
      the top-left tab bar starts in to clear the window lead. App.tsx
      overrides the inset per sidebar mode; the default clears the macOS
      traffic lights for windows without a lead (DetachedApp). */
@@ -108,7 +108,7 @@ body,
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
-/* The frame (ADR-196): the window's darkest shade, behind the panels. */
+/* The frame: the window's darkest shade, behind the panels. */
 .app {
   background: var(--bg-deep);
   display: flex;
@@ -176,7 +176,7 @@ html:has(
   }
 }
 
-/* The top and right window edges get the edge gutter (ADR-196). The left edge only
+/* The top and right window edges get the edge gutter. The left edge only
    does when nothing to its left supplies one: with projects, the sidebar
    column ends in one in every mode (a bare gutter when hidden). The
    padding is the same for every workspace in the stack, so switching
@@ -230,7 +230,7 @@ html:has(
   margin-top: 8px;
 }
 
-/* Home, Tasks, projects overview and wizard (ADR-196): one bordered panel
+/* Home, Tasks, projects overview and wizard: one bordered panel
    from the top gutter down, like a tabbed panel, with a header naming the
    view where the tab bar would be. */
 .empty-surface {

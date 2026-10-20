@@ -1,5 +1,5 @@
 /**
- * The host server's test harness (ADR-225 D1, D2): `runServe` against an
+ * The host server's test harness: `runServe` against an
  * in-process daemon (`daemon-harness.ts`) in a temp `dataDir`, a `FakeRelay`
  * for its room, and the two ways in — the owner, over `server.sock` through
  * the real `HostServerClient`, and a phone, through the relay.
@@ -156,7 +156,7 @@ export function hook(eventType: string, extra: Record<string, string> = {}) {
 
 /**
  * What a pairing link carries in its fragment: the device's token (`&t=`, a
- * `direct` pairing) or a single-use ticket (`&ticket=`, ADR-240 D1).
+ * `direct` pairing) or a single-use ticket (`&ticket=`).
  */
 export function parsePairingUrl(url: string): {
   base: string;
@@ -267,7 +267,7 @@ export interface PhoneHandle {
   hello: Frame;
   /**
    * The token the phone said hello with: the link's own, or for a ticket
-   * link one it chose, as a browser does (ADR-240 D1). What it redials with.
+   * link one it chose, as a browser does. What it redials with.
    */
   token: string;
   call(ns: string, method: string, ...args: unknown[]): Promise<Frame>;
@@ -287,7 +287,7 @@ export interface HostServerHarness {
   /** Start the server; `over` adds to (or replaces) the harness's options. */
   serve(over?: Partial<ServeOptions>): Promise<RunningServer>;
   /**
-   * Mark the host adopted (ADR-227 D3) before the next `serve()`, as an
+   * Mark the host adopted before the next `serve()`, as an
    * empty `hostServer.adopt` would: its project and layout writes open.
    */
   adopt(): void;

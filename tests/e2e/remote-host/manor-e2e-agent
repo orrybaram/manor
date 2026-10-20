@@ -5,20 +5,20 @@
 # Like tests/e2e/helpers/fake-agent.sh it reports its lifecycle through the
 # hook protocol — but through the *real* hook script the remote daemon's
 # bootstrap installed (~/.manor/hooks/notify.sh), so the hook reaches the
-# remote daemon's listener and journal (ADR-178 §2), exactly as a real
+# remote daemon's listener and journal, exactly as a real
 # agent's would.
 #
 #   manor-e2e-agent               start a session: SessionStart, UserPromptSubmit
 #   manor-e2e-agent PROMPT        the same, and prints the prompt it was given
 #   manor-e2e-agent --session ID  the same, with a session id the test chose
 #   manor-e2e-agent --resume ID   what Manor types to resume session ID after
-#                                 the remote daemon restarted (ADR-178 §6);
+#                                 the remote daemon restarted;
 #                                 appends ID to ~/.manor-e2e/resumed.log
 #   manor-e2e-agent --linger-ms N ...
 #                                 any of the above, then N ms as a shell after
 #                                 the last hook: the script's shell leads the
 #                                 pane's foreground, as a wrapper that doesn't
-#                                 `exec` its agent would (ADR-231 D5)
+#                                 `exec` its agent would
 #
 # Then it echoes input lines until killed, so the pane stays in the agent.
 
@@ -60,6 +60,6 @@ if [ "$linger_ms" -gt 0 ]; then
 fi
 
 # The loop is not a shell: a pane whose foreground is a shell has no agent
-# in it, to whoever reads the pane's facts — and since ADR-227 D4 the host
-# server that starts the session reads them too.
+# in it, to whoever reads the pane's facts — and the host server that
+# starts the session reads them too.
 exec awk '{ print "received: " $0; fflush() }'

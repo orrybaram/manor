@@ -1,6 +1,6 @@
 /**
- * Config-writer safety for `AgentConnector.registerHooks` / `registerMcp`
- * (ADR-160 ticket 10 review): a config file that can't be read or parsed
+ * Config-writer safety for `AgentConnector.registerHooks` / `registerMcp`:
+ * a config file that can't be read or parsed
  * must never be treated as empty and rewritten — that would silently wipe
  * whatever the user actually had there. Runs against a temp HOME so it
  * never touches the real ~/.claude or ~/.codex.

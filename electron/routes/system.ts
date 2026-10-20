@@ -1,7 +1,7 @@
 /**
  * The app-level control surface: notifications, processes, ports,
  * preferences, theme, stats, remote control, the shell escape hatches,
- * windows, and the updater (ADR-171).
+ * windows, and the updater.
  *
  * Every route here mirrors one `ipcMain.handle` in `../ipc/*`, calling the
  * same manager method with the same validation — where that handler carried
@@ -10,7 +10,7 @@
  * private copy.
  *
  * Every manager is on `deps`, non-null — the same `HostDeps` the bridge
- * handlers run over (ADR-182 D8) — so no handler here checks for one.
+ * handlers run over — so no handler here checks for one.
  */
 
 import { shell } from "electron";
@@ -221,7 +221,7 @@ export const systemRoutes: Route[] = [
         return;
       }
       // Not `setSelectedThemeName` directly: a theme set from the CLI or MCP
-      // is every viewer's, exactly as one set from the UI is (ADR-179 D6).
+      // is every viewer's, exactly as one set from the UI is.
       const theme = themeSetSelected(localCtx(deps), name);
       json(200, { name, theme });
     },

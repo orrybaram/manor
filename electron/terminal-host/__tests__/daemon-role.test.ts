@@ -46,7 +46,7 @@ describe("localRole", () => {
     expect(fs.existsSync(flag)).toBe(false);
   });
 
-  it("does not start the control relay listener (ADR-189 §1)", () => {
+  it("does not start the control relay listener", () => {
     const saved = process.env.MANOR_CONTROL_PORT_FILE;
     delete process.env.MANOR_CONTROL_PORT_FILE;
     try {
@@ -85,7 +85,7 @@ describe("remoteRole", () => {
     expect(r.paths.dir).toBe(daemonDir("remote"));
   });
 
-  it("refuses env naming ports on the client's machine (ADR-178 §2)", () => {
+  it("refuses env naming ports on the client's machine", () => {
     const r = remoteRole(() => {});
     for (const key of CLIENT_MACHINE_KEYS) expect(r.acceptsEnvKey(key)).toBe(false);
     expect(r.acceptsEnvKey("FOO")).toBe(true);
@@ -114,7 +114,7 @@ describe("remoteRole", () => {
     // The hook listener is up once `bootstrap` answers.
     expect(Number(process.env.MANOR_HOOK_PORT)).toBeGreaterThan(0);
 
-    // So is the control relay listener, published for the CLI (ADR-189 §1).
+    // So is the control relay listener, published for the CLI.
     expect(process.env.MANOR_CONTROL_PORT_FILE).toBe(remoteControlPortFile());
     const [port] = fs.readFileSync(remoteControlPortFile(), "utf-8").split("\n");
     expect(Number(port)).toBeGreaterThan(0);

@@ -1,5 +1,5 @@
 /**
- * Browser side of Web Push for the web app (ADR-206 D7): registers the
+ * Browser side of Web Push for the web app: registers the
  * service worker at the current base, subscribes with the host's VAPID key
  * and hands the subscription to the machine over the bridge.
  */

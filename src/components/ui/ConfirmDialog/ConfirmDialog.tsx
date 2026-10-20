@@ -14,7 +14,7 @@ type ConfirmDialogProps = {
   /** `danger` for destructive actions; `primary` otherwise. */
   confirmVariant?: "primary" | "danger";
   /**
-   * May return a promise (ADR-232 D6): the dialog then waits, its confirm
+   * May return a promise: the dialog then waits, its confirm
    * button disabled, and stays open if it rejects — so it never closes on a
    * failure. Closing on success is still the caller's, through `open`.
    * Cancel stays live, so an answer that never comes can't trap the user.

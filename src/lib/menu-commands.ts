@@ -1,5 +1,5 @@
 /**
- * The command catalog behind the native application menu (ADR-170).
+ * The command catalog behind the native application menu.
  *
  * Like `keybinding-defs.ts`, this module has no DOM references and imports
  * only the command table (`commands.ts`), which every list here is derived
@@ -34,7 +34,7 @@ export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>(
 
 /**
  * Commands whose only implementation reaches a namespace `src/bridge/unavailable.ts`
- * has no browser meaning for at all — ADR-178's "what can never mirror in a
+ * has no browser meaning for at all's "what can never mirror in a
  * browser" table, expressed as command ids instead of preload namespaces.
  * Derived from the table's `native` field; `availableCommands` (`commands.ts`)
  * is where the web app actually applies it.
@@ -44,8 +44,8 @@ export const NATIVE_ONLY_COMMANDS: ReadonlySet<string> = new Set<string>(
 );
 
 /**
- * Payload of the main → renderer `keybindings.forwardedCommand` event
- * (ADR-180 D5): a bound combo pressed somewhere the renderer's own key
+ * Payload of the main → renderer `keybindings.forwardedCommand` event:
+ * a bound combo pressed somewhere the renderer's own key
  * handler can't see it — inside a web page (`webview`) or in a popout for a
  * primary-only command (`popout`).
  */
@@ -70,7 +70,7 @@ export interface MenuCommandPayload {
 export interface MenuContext {
   activeWorkspacePath: string | null;
   isHome: boolean;
-  /** A tab-hosting workspace is active: false on the Dashboard (ADR-197). */
+  /** A tab-hosting workspace is active: false on the Dashboard. */
   canCreateTabs: boolean;
   workspace: {
     projectId: string;
@@ -83,7 +83,7 @@ export interface MenuContext {
     id: string;
     name: string;
     hasSetupScript: boolean;
-    /** `name` is the folder's full path (`epic / api`) since ADR-172. */
+    /** `name` is the folder's full path (`epic / api`), since folders nest. */
     folders: { id: string; name: string; parentId: string | null }[];
   } | null;
   /** Visible projects in sidebar order, each with its visible workspaces. */

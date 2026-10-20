@@ -1,6 +1,6 @@
 /**
  * The `manor` CLI surface, generated from the same `ToolModule` definitions the
- * MCP entry (`mcp-webview-server.ts`) registers (ADR-170). Every subcommand,
+ * MCP entry (`mcp-webview-server.ts`) registers. Every subcommand,
  * flag, and help line is derived from a `ToolDef`; there is no hand-written
  * command table, so a tool added to a module becomes a subcommand for free and
  * the two surfaces cannot drift.
@@ -355,7 +355,7 @@ function printResult(result: ToolResult, command: string, io: CliIo): void {
 
 /**
  * An error response's `{ error }` message when it has one — the host
- * server's relay (ADR-227 D8) answers "needs Manor desktop; it isn't
+ * server's relay answers "needs Manor desktop; it isn't
  * available from remote hosts" and "Manor's host server isn't running on this
  * host" that way, and those read better than a JSON blob. Otherwise the raw
  * body.

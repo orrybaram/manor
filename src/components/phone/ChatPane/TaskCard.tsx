@@ -13,7 +13,7 @@ type TaskCardProps = {
 };
 
 /**
- * A delegated or background task (ADR-224 D4): status dot, title, agent type,
+ * A delegated or background task: status dot, title, agent type,
  * and the time it has run, or a line of what it found. A task with a
  * transcript opens it in a sheet; one without (a foreground agent still
  * running, a shell command) expands its result inline.

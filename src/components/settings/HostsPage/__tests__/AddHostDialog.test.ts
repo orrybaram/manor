@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-233 D4: Settings → Hosts' "Add a host…" wizard. Where, then the ssh
+ * Settings → Hosts' "Add a host…" wizard. Where, then the ssh
  * or start form, then the new host's device access; Closing it opens its row.
  */
 import { act, createElement } from "react";
@@ -179,7 +179,7 @@ describe("AddHostDialog", () => {
     expect(goTo).toHaveBeenCalledWith({ type: "hosts" }, "host-box");
   });
 
-  describe("pairing keys (ADR-236 D6)", () => {
+  describe("pairing keys", () => {
     const plaintext = {
       version: "1.2.3",
       relay: { connected: true },

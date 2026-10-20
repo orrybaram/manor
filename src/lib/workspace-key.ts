@@ -1,5 +1,5 @@
 /**
- * Host-qualified workspace identity (ADR-191).
+ * Host-qualified workspace identity.
  *
  * A workspace is identified by *(host, path)*, not by its bare path: a laptop
  * and a remote box that share a username produce byte-identical workspace
@@ -13,7 +13,7 @@
  * - a workspace on a remote host is keyed `<hostId>:<path>` (`box:/a/b`).
  *
  * So a bare path always parses as local. That makes a bare key ambiguous only
- * in data written before ADR-191, which `migrateWorkspaceKey` resolves once,
+ * in data written before keys were host-qualified, which `migrateWorkspaceKey` resolves once,
  * at load, to the host of the project that owns the path.
  *
  * Pure and dependency-free: imported by the main process (`electron/`) and
@@ -92,7 +92,7 @@ export function workspaceKey(
 
 /**
  * The host id and path a key names. A key with no host part, including any
- * path-only key written before ADR-191, parses as local: call
+ * path-only key written before keys were host-qualified, parses as local: call
  * `migrateWorkspaceKey` on legacy data first if it may name a remote path.
  *
  * A key is remote only when its host part could have come from
@@ -122,7 +122,7 @@ export function isRemoteWorkspaceKey(key: string): boolean {
  * it owns a path. `ProjectInfo`, in main and in the renderer, fits as is.
  */
 export interface WorkspaceKeyOwner {
-  /** The project's host. Missing means local, as on disk (ADR-160). */
+  /** The project's host. Missing means local, as on disk. */
   hostId?: string | null;
   /** The project's root. */
   path: string;
@@ -176,7 +176,8 @@ export function ownerHostIdForPath(
 }
 
 /**
- * The host-qualified form of a key read from data written before ADR-191.
+ * The host-qualified form of a key read from data written before keys were
+ * host-qualified.
  *
  * A key that already names a remote host is returned unchanged. A bare path
  * is assigned to the host of the project that owns it (`ownerHostIdForPath`),

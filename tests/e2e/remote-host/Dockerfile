@@ -1,4 +1,4 @@
-# A throwaway Linux box for the remote-host E2E suite (ADR-160 / ADR-178).
+# A throwaway Linux box for the remote-host E2E suite.
 #
 # Built and run by scripts/test-remote-e2e.mjs in `--docker` mode. It is what
 # exercises the Linux paths a macOS sshd cannot: `uname` → Linux, node-pty

@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { useEmojiAutocomplete } from "../components/ui/EmojiAutocomplete/useEmojiAutocomplete";
 
 type InlineRenameOptions = {
-  /** Enable `:shortcode` emoji autocomplete while editing (ADR-174). */
+  /** Enable `:shortcode` emoji autocomplete while editing. */
   emoji?: boolean;
 };
 

@@ -1,11 +1,11 @@
 /**
- * The box's `manor` CLI, answered by its host server (ADR-227 D8).
+ * The box's `manor` CLI, answered by its host server.
  *
  * The CLI on a remote host talks to its daemon's control relay listener
- * (ADR-189 §1), which hands each request down the stream of whoever asked
+ * which hands each request down the stream of whoever asked
  * for them. That was the desktop, which ran it through its own routes — and
  * so the CLI failed with "Manor desktop is not connected" while the lid was
- * closed. The host server owns this host now (ADR-227 D2), so it asks
+ * closed. The host server owns this host now, so it asks
  * instead (`enableControlRelay` with `role: "server"`, which a daemon puts
  * ahead of any app) and answers with the routes every server shares
  * (`../routes/server-routes.ts`), over its own deps.
@@ -16,8 +16,8 @@
  * routes — answers that it needs Manor desktop. To the host every caller is
  * local, and every project is its own.
  *
- * Until the desktop has handed this host over (`ownership: "pending"`,
- * ADR-227 D3) every request is refused, as the server's bridge writes are.
+ * Until the desktop has handed this host over (`ownership: "pending"`)
+ * every request is refused, as the server's bridge writes are.
  *
  * The same dispatch answers the desktop's own requests about this host's
  * projects (`hostServer.control`, `answerOwnerRequest`), with no allowlist:
@@ -155,7 +155,7 @@ async function dispatchRequest(
 
   let handled: boolean;
   try {
-    // Every caller here is local (ADR-227 D8).
+    // Every caller here is local.
     handled = await handleServerControlRequest(deps, method, url, json, async () => body);
   } catch (err) {
     return captured.result ?? { status: 500, body: { error: errorMessage(err) } };
@@ -176,7 +176,7 @@ function parsePath(path: string): URL | null {
   }
 }
 
-/** The refusal until this host is adopted (ADR-227 D3). */
+/** The refusal until this host is adopted. */
 function pending(): ControlRelayResult {
   return {
     status: 503,
@@ -241,7 +241,7 @@ export interface CliRelayClient {
 
 /**
  * Claim the daemon's control relay for this server and answer what it
- * relays (ADR-227 D8). The daemon relays to the socket that last asked and
+ * relays. The daemon relays to the socket that last asked and
  * forgets one that closes, so every new stream socket asks again. Returns
  * the release.
  */

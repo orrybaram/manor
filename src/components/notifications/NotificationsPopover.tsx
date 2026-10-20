@@ -111,7 +111,7 @@ const READ_HOVER_DELAY = 3000;
  * for `READ_HOVER_DELAY`. Returns the handlers to spread on the row; leaving
  * early cancels, and a row that is already read arms nothing. Keyboard focus
  * arms the same timer as a hover — arrowing onto a row and pausing there
- * reads it exactly as resting the pointer on it would (ADR-175).
+ * reads it exactly as resting the pointer on it would.
  */
 function useHoverMarksRead(record: NotificationRecord) {
   const markRead = useNotificationStore((s) => s.markRead);
@@ -195,7 +195,7 @@ function NotificationRow(props: {
 
 /**
  * Wraps a `pr-comment` row so resting on it opens the comment beside the
- * list. Hover-intent, not click: a click is already "go there" (ADR-162 §4).
+ * list. Hover-intent, not click: a click is already "go there".
  *
  * `Popover.Anchor` rather than `Popover.Trigger` — the trigger would toggle
  * on click and fight the row's own handler.
@@ -286,7 +286,7 @@ type NotificationsPanelProps = {
 };
 
 /**
- * The notification list itself (ADR-162 §6): a header with mark-all-read and
+ * The notification list itself: a header with mark-all-read and
  * clear, the kind filter, and the records grouped by day. Fills whatever
  * column it is put in; only the list scrolls. Shared by the desk's popover and
  * the phone's sheet.
@@ -439,7 +439,7 @@ export function NotificationsPanel(props: NotificationsPanelProps) {
 }
 
 /**
- * The notification history (ADR-162 §6). Click-triggered rather than
+ * The notification history. Click-triggered rather than
  * hover-triggered like `PrPopover`: this is something you deliberately open,
  * not a badge you brush past.
  */

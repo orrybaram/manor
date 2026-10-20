@@ -74,7 +74,7 @@ describe("navigateToContext", () => {
     const state = useAppStore.getState();
     expect(state.activeWorkspacePath).toBe(WS_PATH);
 
-    // All three are viewport now — this renderer's alone (ADR-179 D3).
+    // All three are viewport now — this renderer's alone.
     expect(selectActivePanelId(state)).toBe(PANEL_ID);
     expect(selectSelectedTabId(state, PANEL_ID)).toBe(TAB_ID);
     expect(selectFocusedPaneId(state, TAB_ID)).toBe(PANE_ID);
@@ -124,7 +124,7 @@ describe("navigateToContext", () => {
     expect(after.workspaceLayouts).toBe(before.workspaceLayouts);
   });
 
-  it("activates the workspace on the key's host (ADR-191)", () => {
+  it("activates the workspace on the key's host", () => {
     const remote = workspaceKey("box", WS_PATH);
     seedStore({ workspaceLayouts: { [WS_PATH]: makeLayout(), [remote]: makeLayout() } });
 

@@ -11,7 +11,7 @@ import {
 } from "../../lib/workspace-key";
 
 export interface WorkspacePortGroup {
-  /** The workspace the ports belong to: its path on the ports' host (ADR-204). */
+  /** The workspace the ports belong to: its path on the ports' host. */
   key: WorkspaceKey;
   workspacePath: string;
   /** The host the group's ports listen on. */

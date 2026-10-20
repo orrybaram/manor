@@ -9,7 +9,7 @@ type CloneProgressLogProps = {
 
 /**
  * "Cloning…" spinner plus the last 8 lines of clone progress. Shared by
- * `AddProjectDialog` (ADR-178 ticket 5) and `CloneToHostDialog` (ADR-179).
+ * `AddProjectDialog` and `CloneToHostDialog`.
  */
 export function CloneProgressLog(props: CloneProgressLogProps) {
   const { lines } = props;

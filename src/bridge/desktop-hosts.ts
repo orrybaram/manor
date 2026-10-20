@@ -1,5 +1,5 @@
 /**
- * A desktop window's host servers in its server set (ADR-228 D4): one entry
+ * A desktop window's host servers in its server set: one entry
  * per remote host that takes this window's own viewer stream, each over its
  * own `hostPipe` (`./transports/host-pipe.ts`).
  *
@@ -18,12 +18,12 @@
  *
  * - **Away** (`reconnecting`, `error`, …). Main closes the stream, the
  *   transport reports `unreachable` and dials again with backoff, and the
- *   router falls back to main's `HostRouting` for the host meanwhile (D6),
+ *   router falls back to main's `HostRouting` for the host meanwhile,
  *   which serves its cache. When the host is `connected` again this dials at
  *   once instead of waiting out the backoff; the resumed hello resyncs.
  * - **Gone** (removed, or its server no longer takes a viewer stream: an
  *   older server after a reinstall, or no server at all). The entry leaves
- *   the set and its transport stops; the host is main's again (D3).
+ *   the set and its transport stops; the host is main's again.
  *
  * A host without `viewerBridge` never gets an entry and is reached through
  * main's `HostRouting`, as in slice 2.
@@ -59,7 +59,7 @@ function streamable(host: HostStatusInfo): boolean {
   return host.viewerBridge === true && host.adopted === true;
 }
 
-/** Whether a window may hold its own bridge to `host` now (D3, D4). */
+/** Whether a window may hold its own bridge to `host` now. */
 export function takesViewerStream(host: HostStatusInfo): boolean {
   return host.hostId !== LOCAL_HOST_ID && host.status === "connected" && streamable(host);
 }

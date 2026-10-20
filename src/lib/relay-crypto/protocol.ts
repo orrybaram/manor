@@ -1,5 +1,5 @@
 /**
- * The relay's wire protocol (ADR-206 D1): ops, limits and close codes.
+ * The relay's wire protocol: ops, limits and close codes.
  *
  * Imported by both sides of the room — the Worker in `relay/` and the desktop
  * connector in Electron main — so the numbers cannot drift. Constants only,
@@ -111,7 +111,7 @@ export const CLOSE_LIMIT = 4429;
  * Bridge close codes a host may pass through `OP_CLOSE` to its viewer: 4401
  * (no hello, bad or revoked token), which the page treats as "forget
  * credentials", and 4403 — reserved, not sent. 4403 meant "capability below
- * `full`" until ADR-207 D4 removed the tiers; it stays listed (and stays
+ * `full`" until the tiers were removed; it stays listed (and stays
  * `CLOSE_FORBIDDEN` in `electron/bridge/types.ts`) so the code is never
  * reused for something an older page would misread. Anything else reaches
  * the viewer as `CLOSE_NORMAL`.

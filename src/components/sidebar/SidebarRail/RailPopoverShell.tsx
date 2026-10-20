@@ -39,7 +39,7 @@ function inOtherLayer(target: EventTarget | null): boolean {
 }
 
 /**
- * A rail popover (ADR-195): a piece of the full sidebar, opened beside the
+ * A rail popover: a piece of the full sidebar, opened beside the
  * rail button it belongs to, at the sidebar's width. Navigating from inside
  * it (to a workspace, to an agent's pane) closes it.
  */

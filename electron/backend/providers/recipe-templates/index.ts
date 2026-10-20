@@ -1,5 +1,5 @@
 /**
- * The bundled recipe templates (ADR-229 D8). Creating a recipe from one
+ * The bundled recipe templates. Creating a recipe from one
  * writes its scripts and a `recipe.json` into `~/.manor/host-recipes/<id>/`;
  * after that it is an ordinary recipe, run by `recipe-runner.ts`.
  */
@@ -46,7 +46,7 @@ export function listTemplates(ctx: TemplateContext): TemplateInfo[] {
 
 /**
  * Template `templateId`'s checklist and its `choice` fields' options for the
- * form's `values` (ADR-234 D6, D8). `deps` overrides the real probes in
+ * form's `values`. `deps` overrides the real probes in
  * part (the app version, tests' fakes). Probes never throw for a missing CLI or a
  * broken config; they list nothing. An unknown template is an error.
  */
@@ -63,7 +63,7 @@ export function checkTemplate(
 
 /**
  * Carry out template `templateId`'s `run` fix `fixId` for the form's
- * `values` (ADR-234 D8): open an app, or start a background pull or build
+ * `values`: open an app, or start a background pull or build
  * that the next `checkTemplate` reports on. Resolves once started.
  */
 export function runTemplateFix(

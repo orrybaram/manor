@@ -1,14 +1,14 @@
 /**
  * `ProjectManager`: the facade over `projects.json` that IPC, the control
  * routes and MCP talk to. It owns the state and composes the modules beside
- * it — each operation lives in the module for its job (ADR-183).
+ * it — each operation lives in the module for its job.
  *
- * **On the desktop it holds this machine's projects only** (ADR-227 D4), and
- * a remote host's until that host has adopted them (D3). An adopted host's
+ * **On the desktop it holds this machine's projects only**, and
+ * a remote host's until that host has adopted them. An adopted host's
  * projects are its server's: they come in through `RemoteProjects` (each
  * host's `HostProxy`) and are merged into what `getProjects` answers, under
  * the desktop's linked-project groups — which only the desktop has, since
- * linking spans hosts (D2). A group's shared settings are written through to
+ * linking spans hosts. A group's shared settings are written through to
  * each remote member's host. Workspace writes for a remote project never
  * reach here: the bridge forwards them to its host (`BridgeForward`).
  */
@@ -110,7 +110,7 @@ export class ProjectManager {
   private readonly joinedOwn = new Map<string, SharedSettings>();
   private readonly hostFor: ProjectHostResolver;
   private resyncDone = false;
-  /** Adopted remote hosts' projects, on the desktop (ADR-227 D4). */
+  /** Adopted remote hosts' projects, on the desktop. */
   private readonly remote: RemoteProjects | undefined;
 
   /**
@@ -124,18 +124,18 @@ export class ProjectManager {
     options: {
       /**
        * The server's layout store, as far as removing a worktree or a
-       * project needs it (ADR-182 D7). Optional so a test about projects
+       * project needs it. Optional so a test about projects
        * alone need not build one.
        */
       layout?: WorkspaceLayoutOwner;
       /**
-       * How setup and clone progress reach renderers (ADR-227 D1): the
+       * How setup and clone progress reach renderers: the
        * composer's publish function. Without one, progress goes nowhere —
        * a test about projects alone has no renderer to tell.
        */
       publish?: PublishToRenderer;
       /**
-       * Adopted remote hosts' projects (ADR-227 D4): the desktop's. A host
+       * Adopted remote hosts' projects: the desktop's. A host
        * server, which has no hosts of its own, has none.
        */
       remote?: RemoteProjects;
@@ -151,7 +151,7 @@ export class ProjectManager {
     this.store = new StateStore(dataDir ?? manorDataDir());
     this.hosts = new HostRecords(this.store);
     this.profiles = new HostProfiles(this.store);
-    // Remote hosts' projects route their paths too (ADR-227 D4).
+    // Remote hosts' projects route their paths too.
     this.paths = new PathRouter(
       () => this.allRecords(),
       (hostId) => this.hostFor(hostId).facts,
@@ -178,7 +178,7 @@ export class ProjectManager {
     return this.store.state.projects.find((p) => p.id === projectId);
   }
 
-  // ── Remote hosts' projects (ADR-227 D4) ──
+  // ── Remote hosts' projects ──
 
   /**
    * Adopted remote hosts' projects, as their servers hold them, less any
@@ -285,10 +285,10 @@ export class ProjectManager {
   }
 
   /**
-   * Forget remote host `hostId` (ADR-229 D8): its record, and every project
+   * Forget remote host `hostId`: its record, and every project
    * on it — this desktop's records of them, and the ones its server holds
    * (by the host's live list, and the ids handed over at adoption). Their
-   * group memberships go as a removed project's do (ADR-192: the group
+   * group memberships go as a removed project's do (the group
    * dissolves when one member is left), and with them their link
    * dismissals and their places in the sidebar's order. Nothing on the box
    * is touched: call before the registry lets go of the host, while its
@@ -324,8 +324,8 @@ export class ProjectManager {
   }
 
   /**
-   * The names of the projects on `hostId` (ADR-229 D8): what destroying it
-   * loses, since the host is their source of truth (ADR-227). This desktop's
+   * The names of the projects on `hostId`: what destroying it
+   * loses, since the host is their source of truth. This desktop's
    * own records of them, and what its server last listed (live or cached).
    */
   projectNamesOnHost(hostId: string): string[] {
@@ -357,7 +357,7 @@ export class ProjectManager {
     for (const project of this.remoteInfos()) ids.add(project.hostId);
     // An adopted host's projects are known only from its server, through
     // a cache that may be gone: it is in use whether or not one is listed,
-    // or it would never connect to say what it has (ADR-227 D3).
+    // or it would never connect to say what it has.
     for (const hostId of adoptedProjectHosts(this.store.state).values()) ids.add(hostId);
     for (const [hostId, host] of Object.entries(this.store.state.hosts ?? {})) {
       if (host?.adopted) ids.add(hostId);
@@ -374,8 +374,8 @@ export class ProjectManager {
 
   /**
    * The projects on `hostId` as `projects.json` holds them, for adoption
-   * onto that host's server (ADR-227 D3): copies, with a linked-project group's
-   * shared settings (ADR-192) already resolved into each one — the host
+   * onto that host's server: copies, with a linked-project group's
+   * shared settings already resolved into each one — the host
    * server knows nothing of groups — without `hostPaths` (which name other
    * hosts) and with `hostId` rewritten to `local`, as the box knows it.
    */
@@ -400,7 +400,7 @@ export class ProjectManager {
 
   /**
    * The projects on `hostId` exactly as `projects.json` holds them, copied —
-   * what adoption backs up before it removes them (ADR-227 D3) — with the
+   * what adoption backs up before it removes them — with the
    * groups that name any of them.
    */
   hostProjectRecords(hostId: string): {
@@ -417,8 +417,7 @@ export class ProjectManager {
   }
 
   /**
-   * Forget `projectIds` on `hostId` once its server has adopted them (ADR-227
-   * D3). Unlike `removeProject` this ends nothing: their workspaces, layout
+   * Forget `projectIds` on `hostId` once its server has adopted them. Unlike `removeProject` this ends nothing: their workspaces, layout
    * and sessions live on, on the host. A linked-project group keeps their ids
    * in `memberIds` — the ids survive adoption — and the host's record keeps
    * them too (`adoptedProjectIds`), so the next load does not drop them as
@@ -429,7 +428,7 @@ export class ProjectManager {
     const wanted = new Set(projectIds);
     const removed = state.projects.filter((p) => p.hostId === hostId && wanted.has(p.id));
     if (removed.length === 0) return [];
-    // They stay in the sidebar, from the host (ADR-227 D4), in their places;
+    // They stay in the sidebar, from the host, in their places;
     // the selection, an index into the sidebar's list, stays where it was.
     state.projectOrder ??= state.projects.map((p) => p.id);
     state.projects = state.projects.filter((p) => !removed.includes(p));
@@ -441,7 +440,7 @@ export class ProjectManager {
 
   /**
    * Point every reference to an id the host merged away at the id it lives
-   * on under now (ADR-227 D3): a record that matched one of `hostId`'s by
+   * on under now: a record that matched one of `hostId`'s by
    * path joined that one. Groups, dismissed pairs and the sidebar's order
    * follow; the new id is remembered as `hostId`'s. Saves.
    */
@@ -462,17 +461,17 @@ export class ProjectManager {
     this.store.save();
   }
 
-  /** Whether `hostId`'s records have been handed over (ADR-227 D3). */
+  /** Whether `hostId`'s records have been handed over. */
   isHostAdopted(hostId: string): boolean {
     return this.hosts.isAdopted(hostId);
   }
 
-  /** The hand-over of `hostId`'s records is complete (ADR-227 D3). */
+  /** The hand-over of `hostId`'s records is complete. */
   markHostAdopted(hostId: string): void {
     this.hosts.markAdopted(hostId);
   }
 
-  /** "Phones paired with this Mac can reach <host>" (ADR-228 D9). */
+  /** "Phones paired with this Mac can reach <host>". */
   hostLinksPhones(hostId: string): boolean {
     return this.hosts.linkPhones(hostId);
   }
@@ -481,7 +480,7 @@ export class ProjectManager {
     this.hosts.setLinkPhones(hostId, on);
   }
 
-  /** "Keep Manor running when <host> restarts" (ADR-229 D4). */
+  /** "Keep Manor running when <host> restarts". */
   hostSupervised(hostId: string): boolean {
     return this.hosts.supervise(hostId);
   }
@@ -490,7 +489,7 @@ export class ProjectManager {
     this.hosts.setSupervise(hostId, on);
   }
 
-  /** The host profile `hostId` was made from (ADR-235 D1), if any. */
+  /** The host profile `hostId` was made from, if any. */
   hostProfileId(hostId: string): string | undefined {
     return this.hosts.profileId(hostId);
   }
@@ -499,7 +498,7 @@ export class ProjectManager {
     this.hosts.setProfileId(hostId, profileId);
   }
 
-  /** The project `hostId` was made for (ADR-235 D5), if any. */
+  /** The project `hostId` was made for, if any. */
   hostForProject(hostId: string): string | undefined {
     return this.hosts.forProject(hostId);
   }
@@ -509,7 +508,7 @@ export class ProjectManager {
   }
 
   /**
-   * Hosts that were made for `projectId` (ADR-235 D5): `removeProject` and
+   * Hosts that were made for `projectId`: `removeProject` and
    * `removeHost` clear their `forProject`, so callers read this first to
    * know which hosts' records changed.
    */
@@ -517,7 +516,7 @@ export class ProjectManager {
     return this.hosts.list().filter((h) => this.hosts.forProject(h.hostId) === projectId).map((h) => h.hostId);
   }
 
-  /** Every host profile (ADR-235 D1). */
+  /** Every host profile. */
   listHostProfiles(): HostProfile[] {
     return this.profiles.list();
   }
@@ -531,7 +530,7 @@ export class ProjectManager {
     return this.profiles.save(input, ctx);
   }
 
-  /** Record or clear a profile's sign-in metadata (ADR-235 D9); never a token. */
+  /** Record or clear a profile's sign-in metadata; never a token. */
   setHostProfileSignIn(profileId: string, which: SignInKind, meta: SignInMeta | null): HostProfile {
     return this.profiles.setSignIn(profileId, which, meta);
   }
@@ -541,7 +540,7 @@ export class ProjectManager {
     this.profiles.remove(profileId);
   }
 
-  /** Linked pairings on `hostId` still to revoke (ADR-228 D9). */
+  /** Linked pairings on `hostId` still to revoke. */
   pendingHostRevokes(hostId: string): string[] {
     return this.hosts.pendingRevokes(hostId);
   }
@@ -554,7 +553,7 @@ export class ProjectManager {
     this.hosts.clearPendingRevokes(hostId, hostDeviceIds);
   }
 
-  /** Pairings started on `hostId` whose answer was not handled yet (ADR-230 D11). */
+  /** Pairings started on `hostId` whose answer was not handled yet. */
   pendingHostMints(hostId: string): Array<{ label: string; startedAt: number }> {
     return this.hosts.pendingMints(hostId);
   }
@@ -573,8 +572,7 @@ export class ProjectManager {
   }
 
   /**
-   * On a host server: take in the desktop's records for this host (ADR-227
-   * D3). A project matched by id — or, failing that, by path — is merged with
+   * On a host server: take in the desktop's records for this host. A project matched by id — or, failing that, by path — is merged with
    * the host winning every conflict (`mergeAdoptedProject`); any other is
    * added, as this host's own. Writes once.
    */
@@ -592,7 +590,7 @@ export class ProjectManager {
 
   /**
    * The project a workspace on `hostId` belongs to, as an agent's record
-   * names it (ADR-227 D5): its id, and the name and agent command the
+   * names it: its id, and the name and agent command the
    * renderer sees — a linked group's shared values where it has them. Null
    * when no project owns the path. Synchronous, from what is already known
    * (`PathRouter.projectForPath`): the agent pipeline asks on every hook.
@@ -627,7 +625,7 @@ export class ProjectManager {
     );
   }
 
-  /** Whether a project lives on a remote host's server (ADR-227 D4). */
+  /** Whether a project lives on a remote host's server. */
   isRemoteProject(projectId: string): boolean {
     return !this.findProject(projectId) && this.remoteInfo(projectId) !== undefined;
   }
@@ -754,14 +752,14 @@ export class ProjectManager {
 
   /**
    * Create a project on any host, this machine included, by cloning it
-   * there first (ADR-178 ticket 5, ADR-194), with progress on `projects:clone-progress` (ADR-183 ticket
-   * 1), then the normal `addProject` path.
+   * there first, with progress on `projects:clone-progress`, then the
+   * normal `addProject` path.
    *
    * If `targetDir` already exists and is a clone of `repoUrl`, cloning is
    * skipped and the existing checkout is adopted instead of clobbered. Any
    * other non-empty directory is refused. A checkout Manor already has a
    * project for returns that project rather than a second record for the
-   * same host+path (ADR-178 ticket 5 review).
+   * same host+path.
    */
   async cloneProject(opts: {
     hostId: string;
@@ -770,8 +768,8 @@ export class ProjectManager {
     name: string;
   }): Promise<ProjectInfo> {
     this.hosts.assertKnown(opts.hostId);
-    // A host whose projects are its server's clones and adds it there
-    // (ADR-227 D4); the host's server reports the progress.
+    // A host whose projects are its server's clones and adds it there;
+    // the host's server reports the progress.
     if (this.remote?.owns(opts.hostId)) {
       const cloned = (await this.remote.call(opts.hostId, "clone", [opts])) as ProjectInfo;
       this.appendToOrder(cloned.id);
@@ -811,8 +809,8 @@ export class ProjectManager {
 
   /**
    * Hand what this desktop still holds for `hostId` — a moved project's
-   * layout, say — to its server, when its projects are its server's
-   * (ADR-227 D4). A no-op for any other host.
+   * layout, say — to its server, when its projects are its server's.
+   * A no-op for any other host.
    */
   async handOverHost(hostId: string): Promise<void> {
     if (this.remote?.owns(hostId)) await this.remote.handOver(hostId, []);
@@ -832,13 +830,13 @@ export class ProjectManager {
     };
   }
 
-  /** See `host-transfer.ts` (ADR-213). Changes nothing. */
+  /** See `host-transfer.ts`. Changes nothing. */
   planTransfer(projectId: string, hostId: string): Promise<TransferPlan> {
     return planTransfer(this.ctx, this.transferDeps(), projectId, hostId);
   }
 
   /**
-   * Copy or move a project onto a host in one call (ADR-213); see
+   * Copy or move a project onto a host in one call; see
    * `host-transfer.ts`. A move forgets the project's last workspace
    * listing through `moveProjectToHost`/`switchProjectHost`. The caller
    * connects a remote host first.
@@ -889,7 +887,7 @@ export class ProjectManager {
   /**
    * Forget a project, and tear down the layout of every one of its
    * workspaces the same way `removeWorktree` does: their panes end and every
-   * renderer drops them (ADR-182 D7). The directories stay; only Manor lets
+   * renderer drops them. The directories stay; only Manor lets
    * go of them.
    *
    * The project leaves the list before the first `await`, so a caller that
@@ -899,7 +897,7 @@ export class ProjectManager {
     const selectedId = this.selectedProjectId();
     const remote = this.remoteInfo(projectId);
     if (remote && !this.findProject(projectId)) {
-      // Its host's server forgets it and ends its panes there (ADR-227 D4);
+      // Its host's server forgets it and ends its panes there;
       // this desktop only lets go of its groups' and dismissals' mention.
       await this.requireRemote("Removing it").call(remote.hostId, "remove", [projectId]);
       const state = this.store.state;
@@ -940,10 +938,10 @@ export class ProjectManager {
   /**
    * A `~` worktree root is stored as written and expanded only when read,
    * so it keeps meaning "home" on whichever host the project moves to
-   * (ADR-183) — and saving one never asks the host anything.
+   * — and saving one never asks the host anything.
    *
    * For a grouped project the shared settings (name, color, agent command,
-   * Linear) are the group's, so those go to the group (ADR-192).
+   * Linear) are the group's, so those go to the group.
    */
   async updateProject(
     projectId: string,
@@ -967,7 +965,7 @@ export class ProjectManager {
   }
 
   /**
-   * `updateProject` for a project on a remote host's server (ADR-227 D4):
+   * `updateProject` for a project on a remote host's server:
    * its own settings are written there, a group's shared ones to the group,
    * which writes them through to every remote member. Null when no host
    * has it.
@@ -996,7 +994,7 @@ export class ProjectManager {
   reorderProjects(orderedIds: string[]): void {
     const state = this.store.state;
     const selectedId = this.selectedProjectId();
-    // The whole sidebar's order, remote hosts' projects included (ADR-227 D4).
+    // The whole sidebar's order, remote hosts' projects included.
     if (this.remote || state.projectOrder) {
       const known = new Set(this.allRecords().map((p) => p.id));
       const listed = orderedIds.filter((id) => known.has(id));
@@ -1016,7 +1014,7 @@ export class ProjectManager {
     this.store.save();
   }
 
-  // ── Linked-project groups (see `project-groups.ts`, ADR-192) ──
+  // ── Linked-project groups (see `project-groups.ts`) ──
 
   /**
    * Link two projects on different hosts: `projectId` joins `otherId`'s
@@ -1025,7 +1023,7 @@ export class ProjectManager {
    */
   linkProjects(projectId: string, otherId: string): ProjectGroupInfo {
     const group = groups.linkProjects(this.ctx, projectId, otherId);
-    // Record the group's `origin` once a member's host reports it (ticket 5).
+    // Record the group's `origin` once a member's host reports it.
     void this.origins.rememberGroupOrigin(group.id);
     this.writeThrough(group.id);
     return group;
@@ -1033,7 +1031,7 @@ export class ProjectManager {
 
   /**
    * Write `groupId`'s shared settings through to its remote members'
-   * hosts (ADR-227 D2), without waiting: a link answers at once.
+   * hosts, without waiting: a link answers at once.
    */
   private writeThrough(groupId: string): void {
     const group = this.store.state.groups?.find((g) => g.id === groupId);
@@ -1077,7 +1075,7 @@ export class ProjectManager {
   }
 
   /**
-   * "Keep separate…" (ADR-214): dissolve `projectId`'s group as
+   * "Keep separate…": dissolve `projectId`'s group as
    * `unlinkGroup` does, and dismiss every pair of its former members, so
    * `autoJoin` never joins them again. An ungrouped project is a no-op.
    */
@@ -1097,7 +1095,7 @@ export class ProjectManager {
     groups.setGroupLastUsedHost(this.ctx, groupId, hostId);
   }
 
-  // ── Link suggestions by `origin` (see `origin-links.ts`, ADR-192 ticket 5) ──
+  // ── Link suggestions by `origin` (see `origin-links.ts`) ──
 
   /**
    * Projects and groups on other hosts whose `origin` matches `projectId`'s,
@@ -1113,8 +1111,8 @@ export class ProjectManager {
   }
 
   /**
-   * Join every pair `suggestLinks` finds among projects not yet in a group
-   * (ADR-214): same-origin projects on different hosts become one project
+   * Join every pair `suggestLinks` finds among projects not yet in a group:
+   * same-origin projects on different hosts become one project
    * set up on both, without asking. Returns the pairs joined, each as the
    * project that joined and the one it joined; undoing one is
    * `unlinkProject(joinedId)` and then `dismissLinkSuggestion(joinedId,
@@ -1153,7 +1151,7 @@ export class ProjectManager {
   }
 
   /**
-   * Undo one `autoJoin` pair for good (ADR-214): take `joinedId` out of its
+   * Undo one `autoJoin` pair for good: take `joinedId` out of its
    * group, give it back the settings it had before it joined (unlinking
    * alone leaves it the group's), and dismiss the pair so it is never
    * joined again. Saves once. The settings are remembered in memory only,
@@ -1255,7 +1253,7 @@ export class ProjectManager {
     const projectIndex = this.orderOf(projectId);
     if (projectIndex >= 0) this.store.state.selectedProjectIndex = projectIndex;
     this.store.save();
-    // A remote project's selection is its host's record (ADR-227 D4). Not
+    // A remote project's selection is its host's record. Not
     // waited for: a host that is away keeps the one it had.
     if (remote && this.remote) {
       void this.remote

@@ -1,5 +1,5 @@
 /**
- * The desktop's control routes for an adopted host (ADR-227 D4, D8).
+ * The desktop's control routes for an adopted host.
  *
  * Once a remote host has adopted its records, its projects, workspaces and
  * agents are its server's. A control-route write that names one — a

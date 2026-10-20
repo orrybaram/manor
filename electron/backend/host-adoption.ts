@@ -1,5 +1,5 @@
 /**
- * The desktop's half of adoption (ADR-227 D3): handing what it holds for a
+ * The desktop's half of adoption: handing what it holds for a
  * remote host — that host's projects, agents and layout — to the host's own
  * server, then letting go of it.
  *
@@ -30,7 +30,7 @@
  * `ownership` in its status) is left alone.
  *
  * Once adopted, the desktop reads and writes a host's state through its
- * server (ADR-227 D4), and records no agents for it: any left from before
+ * server, and records no agents for it: any left from before
  * the desktop stopped replaying the host's hooks are dropped on connect.
  */
 
@@ -76,7 +76,7 @@ export interface HostAdoptionOptions {
     LayoutStore,
     "whenLoaded" | "getAll" | "getLastActiveWorkspacePath" | "release"
   >;
-  /** A pane's session owner: which host an agent runs on (ADR-191 §5). */
+  /** A pane's session owner: which host an agent runs on. */
   getPaneHostId: PaneHostLookup;
   /**
    * Told after a host's projects left `projects.json`, or it was first
@@ -151,7 +151,7 @@ export class HostAdoption {
    * else when a run marks it so — or `false` when `timeoutMs` passes first:
    * a server that predates ownership, or an owner channel that never came
    * up. Never rejects; a failed run leaves it waiting for the next one.
-   * `openInNewHost` (ADR-235 D3) waits on it so a new host's first project
+   * `openInNewHost` waits on it so a new host's first project
    * is made on its server rather than handed over later.
    */
   whenAdopted(hostId: string, timeoutMs = 30_000): Promise<boolean> {
@@ -185,7 +185,7 @@ export class HostAdoption {
   /**
    * Hand `projectIds` — projects this desktop holds for `hostId` — and its
    * `<hostId>:*` layout to the host's server, adopted or not, then let go
-   * of them: how a project moved onto the host gets there (ADR-227 D4).
+   * of them: how a project moved onto the host gets there.
    * The host merges them as it does any adoption. No agents go: a host
    * that has adopted holds its own. Runs after any adoption in flight for
    * the host.
@@ -321,7 +321,7 @@ export class HostAdoption {
 
   /**
    * A record the host already had at the same path, under another id — a
-   * second laptop's, say — was merged into the host's (ADR-227 D3), so
+   * second laptop's, say — was merged into the host's, so
    * that id is gone. Point this desktop's groups and order at the host's.
    */
   private async remapMergedIds(

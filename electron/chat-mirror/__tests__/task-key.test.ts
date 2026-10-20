@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { chatTaskKey, parseChatTaskKey } from "../task-key";
 
-describe("chat.taskEntry keys (ADR-224 D3)", () => {
+describe("chat.taskEntry keys", () => {
   it("round-trips a pane and a task", () => {
     expect(parseChatTaskKey(chatTaskKey("pane-1", "toolu_01AB"))).toEqual({
       paneId: "pane-1",

@@ -1,5 +1,5 @@
 /**
- * LaunchAgents for the daemon and the host server on macOS (ADR-229 D4).
+ * LaunchAgents for the daemon and the host server on macOS.
  *
  * Two plists under `~/Library/LaunchAgents/`, with `RunAtLoad` and
  * `KeepAlive`, loaded into the user's GUI domain. A LaunchAgent starts at
@@ -50,7 +50,7 @@ export function launchdPlist(unit: SupervisedUnit, logFile: string): string {
   return [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
-    "<!-- Written by `manor-host supervisor install` (ADR-229 D4). -->",
+    "<!-- Written by `manor-host supervisor install`. -->",
     '<plist version="1.0">',
     "<dict>",
     `  <key>Label</key>${string(LAUNCHD_LABELS[unit])}`,

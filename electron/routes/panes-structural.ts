@@ -1,5 +1,5 @@
 /**
- * Structural pane and tab routes (ADR-179 D5, ADR-182 D8): split, close,
+ * Structural pane and tab routes: split, close,
  * move, extract, pin, reorder, duplicate, new tab, reopen — plus `GET /panes`
  * and a pane's title, which read and write the store without a command.
  *
@@ -56,7 +56,7 @@ export const structuralRoutes: Route[] = [
     path: "/panes",
     async handler({ deps, url, json }) {
       const store = deps.layoutStore;
-      // A named workspace is keyed on its host (ADR-191).
+      // A named workspace is keyed on its host.
       const named = url.searchParams.get("workspacePath");
       let workspacePath: string | null;
       if (named) {
@@ -181,7 +181,7 @@ export const structuralRoutes: Route[] = [
         json(400, { error: "Argument title must be a string or null" });
         return;
       }
-      // Off the command channel (ADR-182 D1): `LayoutStore.setPaneTitle`
+      // Off the command channel: `LayoutStore.setPaneTitle`
       // finds the owning workspace itself and broadcasts, so this route
       // neither resolves a workspace nor sends a command.
       if (!store.setPaneTitle(paneId, body.title as string | null)) {

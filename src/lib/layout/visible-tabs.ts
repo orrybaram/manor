@@ -1,5 +1,5 @@
 /**
- * Which tabs a renderer shows, given who is holding what (ADR-179 D4).
+ * Which tabs a renderer shows, given who is holding what.
  *
  * A detached window does not *take* a tab any more — the tab stays in the
  * workspace, and the window reports a **claim** on it. The server hands every
@@ -11,7 +11,7 @@
  *   leaves its tab bar the moment the popup reports;
  * - a **browser** shows the whole workspace, claims and all — a claim is about
  *   a desktop window's chrome, and a phone that stopped seeing a tab because
- *   somebody popped it out on the desk would be a bug, not a feature (D4).
+ *   somebody popped it out on the desk would be a bug, not a feature.
  *
  * Pure, and deliberately in `src/lib/` rather than in the store: it is the one
  * definition of "visible", read by the tab bar, by the panel that renders the
@@ -27,7 +27,7 @@ export interface LayoutClaim {
   tabId: string;
 }
 
-/** Which bridge a renderer is on; a browser is never a claimant (D4). */
+/** Which bridge a renderer is on; a browser is never a claimant. */
 export type RendererPlatform = "electron" | "web";
 
 /**

@@ -6,7 +6,7 @@ import { BrowserWindow, shell } from "electron";
 const DEFAULT_POPUP_WIDTH = 600;
 const DEFAULT_POPUP_HEIGHT = 700;
 // Clamp requested sizes so a guest can't open a 1px or a screen-swallowing
-// window. These are best-effort, per the ADR ("manor may normalize them").
+// window. These are best-effort: manor may normalize them.
 const MIN_POPUP_DIMENSION = 200;
 const MAX_POPUP_DIMENSION = 2000;
 

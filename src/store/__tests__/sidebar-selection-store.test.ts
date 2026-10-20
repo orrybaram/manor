@@ -103,7 +103,7 @@ describe("selectRange", () => {
   });
 });
 
-describe("a linked group's sections (ADR-192 ticket 7)", () => {
+describe("a linked group's sections", () => {
   const GROUP = "group-1";
   // Two hosts with the same checkout path: distinct rows in one scope.
   const localA = selectionKey("local-proj", "/repo/a");

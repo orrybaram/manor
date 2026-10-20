@@ -1,12 +1,12 @@
 /**
  * What the desktop pushes to each remote host's host server over the owner
- * channel (ADR-225 D3, D4), and when.
+ * channel, and when.
  *
  * - **The desktop's VAPID pair**, whole, after every connect of the owner
  *   channel — the first, and each after a host reconnect
  *   (`BackendRegistry.onHostServerStateChange` reporting `connected`) — so a
  *   phone's one browser subscription is valid in every room.
- * - **Adoption** (ADR-227 D3), after the key: what the desktop still holds
+ * - **Adoption**, after the key: what the desktop still holds
  *   for the host — its projects, agents and layout, the layout in the shape
  *   `hostLayoutSnapshot` builds, below — handed to the host's server and
  *   then let go of (`./host-adoption.ts`). Once a host is adopted, this is
@@ -15,28 +15,28 @@
  *   a phone is paired or revoked (`pairingChanged`): the desktop skips its
  *   own push to those for that host's agents. The same status read gives
  *   the host's relay room and whether it takes desktop viewer streams
- *   (ADR-228 D2, D3), which `hosts.list` carries.
- * - **Owed revokes** (ADR-228 D9): a pairing this desktop minted on the host
+ *  which `hosts.list` carries.
+ * - **Owed revokes**: a pairing this desktop minted on the host
  *   for one of its own devices, whose revoke could not reach the host —
  *   the device was revoked, or "Phones paired with this Mac can reach" turned
  *   off, while the host was away. Stored on the host's record, and revoked
  *   on the next connect, before the endpoints are read.
- * - **Lost mints** (ADR-230 D11): a pairing the desktop asked the host for,
+ * - **Lost mints**: a pairing the desktop asked the host for,
  *   whose answer never came back — the owner channel dropped after the host
  *   committed it. The mint's label is unique (a random suffix), so on the
  *   next connect every device on the host under that label, made since the
  *   mint started, and that no desktop link points to, is revoked.
- * - **Revokes made on the host** (ADR-238 D2): after the owed revokes, each
+ * - **Revokes made on the host**: after the owed revokes, each
  *   linked pairing the host no longer lists is settled
  *   (`HostPairingLinks.reconcileLinks`) — its device blocked there if it was
  *   revoked on the box, its link forgotten if the host was reset elsewhere.
  *
- * - **Supervision** (ADR-229 D4): a host whose record says `supervise`, and
+ * - **Supervision**: a host whose record says `supervise`, and
  *   whose server reports no supervisor, gets `manor-host supervisor install`
  *   run on it, after the rest. A host where it fails (no supervisor there)
  *   is tried again on its next connect.
  *
- * The host server owns its projects and layout (ADR-227 D2), so neither is
+ * The host server owns its projects and layout, so neither is
  * pushed any more.
  */
 
@@ -64,13 +64,13 @@ export interface HostServerRegistry {
     listener: (hostId: string, state: HostServerClientState) => void,
   ): () => void;
   /**
-   * Record what a host's server said in its last status (ADR-228 D2, D3), so
+   * Record what a host's server said in its last status, so
    * `hosts.list` carries its room and whether it takes viewer streams.
    * Optional: a registry that does not list hosts has nowhere to put them.
    */
   setServerFacts?(hostId: string, facts: HostServerFacts | null): void;
   /**
-   * The busy side (ADR-229 D7): the provider is told, and the idle stop reads
+   * The busy side: the provider is told, and the idle stop reads
    * the rest. All optional: a registry without them has no idle stop.
    */
   setBusy?(hostId: string, busy: boolean): void;
@@ -81,7 +81,7 @@ export interface HostServerRegistry {
 }
 
 /**
- * The facts `hosts.list` carries, from one status (ADR-228 D2, D3). A host
+ * The facts `hosts.list` carries, from one status. A host
  * still waiting to be adopted takes no viewer stream yet (main refuses one,
  * `electron/ipc/host-pipe.ts`), so it does not say it does: a window would
  * only dial it to be turned away.
@@ -91,10 +91,10 @@ export function serverFactsOf(
     Partial<Pick<HostServerStatus, "ownership" | "busy" | "hooks">>,
 ): HostServerFacts {
   return {
-    // From a server that has ADR-229 D7 (an older one has neither).
+    // From a server new enough to report them (an older one has neither).
     ...(status.busy !== undefined ? { busy: status.busy } : {}),
     ...(status.hooks ? { hooks: status.hooks } : {}),
-    // A server from before ADR-228 has no top-level `roomId`; its relay's is
+    // An older server has no top-level `roomId`; its relay's is
     // the same room.
     roomId: status.roomId !== undefined ? status.roomId : (status.relay?.roomId ?? null),
     viewerBridge: hasViewerBridge(status) && status.ownership !== "pending",
@@ -102,7 +102,7 @@ export function serverFactsOf(
 }
 
 /**
- * The linked pairings each host is owed a revoke of (ADR-228 D9), by the
+ * The linked pairings each host is owed a revoke of, by the
  * host's own device id: `PersistedHost.pendingRevokes`, through
  * `ProjectManager`.
  */
@@ -115,7 +115,7 @@ export interface PendingRevokes {
 }
 
 /**
- * A pairing this desktop started minting on a host (ADR-230 D11):
+ * A pairing this desktop started minting on a host:
  * `PersistedHost.pendingMints`, until the answer is recorded.
  */
 export interface PendingMint {
@@ -142,7 +142,7 @@ export interface PendingMints {
  */
 export const MINT_CLOCK_SKEW_MS = 10 * 60_000;
 
-/** Which hosts should be supervised, and how to install it on one (ADR-229 D4). */
+/** Which hosts should be supervised, and how to install it on one. */
 export interface HostSupervision {
   /** `PersistedHost.supervise`. */
   wanted(hostId: string): boolean;
@@ -153,19 +153,19 @@ export interface HostSupervision {
 export interface HostServerSyncOptions {
   registry: HostServerRegistry;
   /**
-   * The desktop's VAPID pair, sent so the host server signs pushes with it
-   * (D3). Null when it cannot be stored safely; nothing is sent then.
+   * The desktop's VAPID pair, sent so the host server signs pushes with it.
+   * Null when it cannot be stored safely; nothing is sent then.
    */
   vapidKeys?(): Promise<VapidKeys | null>;
-  /** Hands each host's records to its server (ADR-227 D3). */
+  /** Hands each host's records to its server. */
   adoption?: Pick<HostAdoption, "run">;
-  /** Revokes owed to each host, sent on every connect (ADR-228 D9). */
+  /** Revokes owed to each host, sent on every connect. */
   pendingRevokes?: PendingRevokes;
-  /** Mints whose answer was lost, reconciled on every connect (ADR-230 D11). */
+  /** Mints whose answer was lost, reconciled on every connect. */
   pendingMints?: PendingMints;
-  /** Settles the linked pairings the host no longer lists, on every connect (ADR-238 D2). */
+  /** Settles the linked pairings the host no longer lists, on every connect. */
   reconcileLinks?: (hostId: string) => Promise<void>;
-  /** Installs supervision on connect where it is wanted and missing (ADR-229 D4). */
+  /** Installs supervision on connect where it is wanted and missing. */
   supervision?: HostSupervision;
   log?: Pick<Console, "warn">;
 }
@@ -183,7 +183,7 @@ export class HostServerSync {
   /** Clients whose `busyChanged` is already listened to (subscriptions outlive channels). */
   private readonly busyWatched = new WeakSet<HostServerClient>();
   private readonly idleStop: HostIdleStop;
-  /** The push endpoints each host's server sends to (ADR-225 D3). */
+  /** The push endpoints each host's server sends to. */
   private readonly endpoints: HostPushEndpoints;
 
   constructor(opts: HostServerSyncOptions) {
@@ -221,7 +221,7 @@ export class HostServerSync {
     });
   }
 
-  /** A status or `busyChanged` said whether `hostId` is busy (ADR-229 D7). */
+  /** A status or `busyChanged` said whether `hostId` is busy. */
   private noteBusy(hostId: string, state: { busy?: boolean; idleForMs?: number | null }): void {
     if (state.busy === undefined) return;
     this.registry.setBusy?.(hostId, state.busy);
@@ -310,7 +310,7 @@ export class HostServerSync {
   }
 
   /**
-   * Revoke what each lost mint left on `hostId` (ADR-230 D11): every device
+   * Revoke what each lost mint left on `hostId`: every device
    * under the mint's label, made at or after it started (on an older host
    * that does not say when, the label alone), that no desktop link points
    * to. A mint is let go of once all of its are revoked; one that could not
@@ -378,7 +378,7 @@ export class HostServerSync {
     await this.ensureSupervised(hostId, client);
   }
 
-  /** Settle the host's linked pairings it no longer lists (ADR-238 D2). */
+  /** Settle the host's linked pairings it no longer lists. */
   private async reconcileLinks(hostId: string): Promise<void> {
     if (!this.reconcileLinksFn) return;
     try {
@@ -428,7 +428,7 @@ export class HostServerSync {
 }
 
 /**
- * The layout snapshot for `hostId`, for adoption (ADR-227 D3): the entries of
+ * The layout snapshot for `hostId`, for adoption: the entries of
  * the desktop's layout (`LayoutStore.getAll()`, keyed `<hostId>:<path>` for a
  * remote workspace) that belong to `hostId`, rekeyed to their bare path, with
  * no window claims (a claim is a desktop window's, and means nothing on the

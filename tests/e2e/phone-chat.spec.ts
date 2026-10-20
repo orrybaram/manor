@@ -19,7 +19,7 @@ import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
 
 /**
- * ADR-215 end to end: a phone shows a Claude pane as a chat — the pane's
+ * Phone chat end to end: a phone shows a Claude pane as a chat — the pane's
  * transcript as a conversation, its AskUserQuestion as a card that answers
  * through the PTY, and a composer that sends a prompt — with the terminal one
  * toggle away and nothing remounted either way.
@@ -67,7 +67,7 @@ function inputLog(file: string): string {
   return fs.existsSync(file) ? fs.readFileSync(file, "utf-8").replace(/\n/g, ENTER) : "";
 }
 
-test.describe("phone chat view (ADR-215)", () => {
+test.describe("phone chat view", () => {
   test.setTimeout(240_000);
 
   test("a phone reads a Claude pane as a chat, answers its picker, sends a prompt, and toggles to the terminal and back", async ({
@@ -95,7 +95,7 @@ test.describe("phone chat view (ADR-215)", () => {
     expect(fs.existsSync(transcriptFile)).toBe(true);
     await film.shot(window, "desk-agent-running");
 
-    // The desk never offers the chat (ADR-215 D7): it has no phone top bar,
+    // The desk never offers the chat: it has no phone top bar,
     // so no overflow menu to switch views from, and no chat in the pane.
     await expect(window.getByTestId("phone-top-bar")).toHaveCount(0);
     await expect(window.getByTestId("phone-overflow-view")).toHaveCount(0);
@@ -202,7 +202,7 @@ test.describe("phone chat view (ADR-215)", () => {
   });
 });
 
-/** A transcript line, the way Claude Code writes a skill listing (ADR-217). */
+/** A transcript line, the way Claude Code writes a skill listing. */
 function skillListingLine(isInitial: boolean, skills: Record<string, string>): string {
   return JSON.stringify({
     type: "attachment",
@@ -284,7 +284,7 @@ async function openChatPhone(
   return { client, page, pane, chat, transcriptFile, inputLogFile };
 }
 
-test.describe("phone chat slash commands (ADR-217)", () => {
+test.describe("phone chat slash commands", () => {
   test.setTimeout(240_000);
 
   test("the slash menu lists built-ins and skills, filters, picks, and sends a skill to the PTY", async ({
@@ -580,7 +580,7 @@ function blockLine(
   });
 }
 
-test.describe("phone chat background tasks (ADR-224)", () => {
+test.describe("phone chat background tasks", () => {
   test.setTimeout(240_000);
 
   test("a background agent shows as a running card with a chip, opens its transcript, and settles on its notification", async ({

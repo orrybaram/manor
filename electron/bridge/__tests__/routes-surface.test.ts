@@ -1,5 +1,5 @@
 /**
- * The routing surface (ADR-227 D4): which shared methods the desktop answers
+ * The routing surface: which shared methods the desktop answers
  * through a remote host's server.
  *
  * A missing `route` is silent — the call runs here, against a host whose
@@ -27,7 +27,7 @@ function inNamespace(key: string, ns: string): boolean {
   return key.startsWith(`${ns}.`) && !key.slice(ns.length + 1).includes(".");
 }
 
-describe("routing surface (ADR-227 D4)", () => {
+describe("routing surface", () => {
   it.each(ROUTED_NAMESPACES)("every %s method declares a route or LOCAL_ROUTE", (ns) => {
     const keys = Object.keys(methods).filter((key) => inNamespace(key, ns));
     expect(keys.length).toBeGreaterThan(0);
@@ -55,7 +55,7 @@ describe("routing surface (ADR-227 D4)", () => {
 
   it("reads each route's target off an argument the method takes", () => {
     for (const [key, rule] of DESKTOP_TABLE.routes) {
-      // A delegated call names no argument (ADR-228 D10).
+      // A delegated call names no argument.
       if (rule.by === "delegated") continue;
       const fn = DESKTOP_TABLE.handlers[key] as (...args: unknown[]) => unknown;
       // `fn.length` counts the context and every parameter before the first
@@ -64,7 +64,7 @@ describe("routing surface (ADR-227 D4)", () => {
     }
   });
 
-  it("agrees with the route manifest (ADR-228 D1)", () => {
+  it("agrees with the route manifest", () => {
     // `merge`, `split` and `home` are all `LOCAL_ROUTE` on a table.
     const disagree = Object.entries(methods)
       .filter(([key, entry]) => entry.rules.route !== undefined && key in ROUTES)
@@ -89,7 +89,7 @@ describe("routing surface (ADR-227 D4)", () => {
     expect(stray).toEqual([]);
   });
 
-  it("routes a remote pane's terminal by pane, and keeps viewport reports home (ADR-228 D5, D7)", () => {
+  it("routes a remote pane's terminal by pane, and keeps viewport reports home", () => {
     for (const name of ["create", "attach", "reset", "write", "resize", "claimWinsize", "close", "detach"]) {
       expect({ name, route: DESKTOP_TABLE.routes.get(`pty.${name}`)?.by }).toEqual({ name, route: "pane" });
     }
@@ -103,7 +103,7 @@ describe("routing surface (ADR-227 D4)", () => {
   });
 });
 
-describe("branch and diff watches, split across the servers (ADR-230 D6)", () => {
+describe("branch and diff watches, split across the servers", () => {
   const SPLIT = ["branches.start", "branches.stop", "diffs.start", "diffs.stop"];
 
   it("lists each watch's start and stop as split, and nothing else", () => {
@@ -122,7 +122,7 @@ describe("branch and diff watches, split across the servers (ADR-230 D6)", () =>
   });
 });
 
-describe("which routed calls wake a sleeping host (ADR-229 D1)", () => {
+describe("which routed calls wake a sleeping host", () => {
   it("wakes for opening a pane, a workspace or an agent's work", () => {
     for (const key of ["pty.create", "pty.attach", "projects.createWorktree", "layout.apply", "chat.send"]) {
       const [ns, method] = key.split(".");

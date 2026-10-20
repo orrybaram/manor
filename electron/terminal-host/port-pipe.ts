@@ -1,6 +1,5 @@
 /**
- * port-pipe — the box's end of a port forward over an exec transport
- * (ADR-229 D3).
+ * port-pipe — the box's end of a port forward over an exec transport.
  *
  * Invoked as `manor-host port-pipe <port> [--host ::1]` through the exec
  * prefix (`kubectl exec -i … -- sh -c 'exec manor-host port-pipe 5173'`),

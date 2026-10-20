@@ -124,7 +124,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
 
   const handleSetupComplete = useCallback(() => {
     // The setup script's success toast is `createWorktree`'s, which follows
-    // the script the server runs (ADR-227 D5). Here we only drive the
+    // the script the server runs. Here we only drive the
     // fade-out transition.
     setFade("transitioning");
   }, []);
@@ -149,7 +149,7 @@ export function WorkspaceEmptyState(props: WorkspaceEmptyStateProps) {
   // chat that hasn't started yet. The first message is the new agent's
   // prompt, and nothing is launched until it is sent, so closing the last
   // agent lands back here rather than spawning another one. It is the
-  // new-agent composer (ADR-222) with nothing to close back to, keyed by
+  // new-agent composer with nothing to close back to, keyed by
   // workspace so each workspace's screen starts on that workspace.
   const content = phone ? (
     <PhoneNewAgentComposer key={activeWorkspaceKey ?? ""} closable={false} />

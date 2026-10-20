@@ -813,7 +813,7 @@ describe("GitHubManager", () => {
   });
 
   // -------------------------------------------------------------------------
-  // A host's own checkouts (ADR-227 D7): no resolver, `gh` runs in the path
+  // A host's own checkouts: no resolver, `gh` runs in the path
   // with the signed-in user of the machine the server runs on.
   // -------------------------------------------------------------------------
   describe("host-native checkouts", () => {

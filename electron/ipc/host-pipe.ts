@@ -15,7 +15,7 @@ import { isRendererSender } from "../bridge/transports/ipc";
 import type { HostDeps } from "./types";
 
 /**
- * A window's own streams to host servers (ADR-228 D4): `hostPipe` in the
+ * A window's own streams to host servers: `hostPipe` in the
  * preload, one `manor-host server-bridge --viewer` child per window per
  * host, through the host's transport — so on the ControlMaster its owner
  * channel and daemon streams already share.
@@ -50,7 +50,7 @@ export interface PipeOwner {
 export interface HostPipesOptions {
   /**
    * May a window have its own stream to this host now: connected, adopted,
-   * and its server reports `viewer-bridge` (ADR-228 D3)?
+   * and its server reports `viewer-bridge`?
    */
   canOpen(hostId: string): boolean;
   /** Spawn the viewer stream (`HostProvider.openViewerChannel`). */
@@ -187,7 +187,7 @@ export class HostPipes {
   }
 }
 
-/** Whether a window may stream straight to `host`'s server (ADR-228 D3). */
+/** Whether a window may stream straight to `host`'s server. */
 export function viewerStreamable(
   host: HostStatusInfo | undefined,
   adopted: boolean,

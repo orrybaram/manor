@@ -130,7 +130,7 @@ describe("ExecPortsBackend", () => {
   });
 });
 
-// ── Platform scanners (ADR-178 §5) ──
+// ── Platform scanners ──
 
 type Call = { cmd: string; args: string[] };
 type Answer = string | ExecError;

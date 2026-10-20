@@ -5,7 +5,7 @@ type AnswerInTerminalProps = {
   onShowTerminal: () => void;
 };
 
-/** What a picker card shows when the chat can't answer it (ADR-215 D6). */
+/** What a picker card shows when the chat can't answer it. */
 export function AnswerInTerminal(props: AnswerInTerminalProps) {
   const { onShowTerminal } = props;
 

@@ -1,5 +1,5 @@
 /**
- * The structural-route factory (ADR-182 D8).
+ * The structural-route factory.
  *
  * A structural route is a `structural({ parse, locate, command, respond })`
  * spec. The factory owns everything those routes used to repeat: the 400
@@ -65,7 +65,7 @@ interface Structural<P, C extends LayoutCommand> {
 /**
  * One structural route's handler.
  *
- * Which workspace, the same way every time (ADR-179 D5): `body.workspacePath`
+ * Which workspace, the same way every time: `body.workspacePath`
  * always wins; failing that, the workspace holding the located pane or tab
  * (it lives in exactly one); failing that, the last-active workspace, the
  * only thing left to try before answering 400.
@@ -87,7 +87,7 @@ export function structural<P = undefined, C extends LayoutCommand = LayoutComman
       const target = spec.locate?.(parsed);
       const located = target ? store.locate(target) : null;
       // A named workspace is keyed on the host `hostScoped` resolved into
-      // `body.hostId` (ADR-191) — the caller's own host for a relayed
+      // `body.hostId` — the caller's own host for a relayed
       // request, else the host it named or the host of the project that
       // owns the path.
       const workspacePath =

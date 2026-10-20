@@ -1,8 +1,8 @@
-# The reference Manor host image (ADR-229 D8). No Manor *state* is baked in:
+# The reference Manor host image. No Manor *state* is baked in:
 # the first connect installs `manor-host` onto the home volume, so a snapshot
-# of this image holds no identity (D6). See README.md.
+# of this image holds no identity. See README.md.
 #
-# A release build may bake in Manor *code* (ADR-235 D10): the version's host
+# A release build may bake in Manor *code*: the version's host
 # package, already `npm install`ed, under /opt/manor/host-<version>/. The
 # first connect then copies it onto the volume instead of uploading the
 # tarball and compiling node-pty. A plain `docker build docker/host-image`
@@ -31,7 +31,7 @@ RUN apt-get update \
 RUN userdel -r node \
  && useradd --create-home --home-dir /home/manor --shell /bin/bash --uid 1000 manor
 
-# The baked host package (ADR-235 D10). COPY cannot depend on a build arg, so
+# The baked host package. COPY cannot depend on a build arg, so
 # prebuilt/ is always copied (it holds only a .gitignore unless the release
 # job put the tarball there) and MANOR_HOST_TARBALL names the file in it to
 # install. Empty: nothing is installed. VERSION, when given, must match the

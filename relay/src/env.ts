@@ -5,7 +5,7 @@ import type { Room } from "./room";
 export interface Env {
   ROOM: DurableObjectNamespace<Room>;
   JOIN_LIMITER: RateLimit;
-  /** Per-version web app builds, keyed `app/<version>/<path>` (D4). */
+  /** Per-version web app builds, keyed `app/<version>/<path>`. */
   WEB: R2Bucket;
   /** Per-room byte budget per UTC day; decimal string. */
   RELAY_DAILY_BYTES?: string;
@@ -20,7 +20,7 @@ export interface Env {
    * Never set in `wrangler.toml`; only `wrangler dev --var` sets it.
    */
   RELAY_DEV_PAYLOAD_LOG?: string;
-  /** `/jev/folder` calls per client IP, keyed `jevip:<ip>` (ADR-211 D3). */
+  /** `/jev/folder` calls per client IP, keyed `jevip:<ip>`. */
   JEV_LIMITER: RateLimit;
   /** `/jev/folder` calls per relay identity, keyed `jevid:<roomId>`. */
   JEV_ID_LIMITER: RateLimit;

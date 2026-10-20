@@ -1,5 +1,5 @@
 /**
- * ADR-234 D6: each template's checks list its `choice` fields' options from
+ * Each template's checks list its `choice` fields' options from
  * the CLI, and list nothing (never throw) when the CLI is missing or its
  * output is unreadable.
  */
@@ -69,7 +69,7 @@ describe("kubernetes checks", () => {
   });
 });
 
-describe("kubernetes checks: the last used cluster (ADR-234 D5)", () => {
+describe("kubernetes checks: the last used cluster", () => {
   let dir: string;
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), "k8s-recipes-"));

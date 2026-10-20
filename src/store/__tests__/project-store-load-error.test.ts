@@ -6,7 +6,7 @@ const electronAPI = (window as unknown as { electronAPI: Record<string, unknown>
   .electronAPI;
 const originalProjects = electronAPI.projects;
 
-/** ADR-232 D4/D6: failures are not empty lists, and mutations say they failed. */
+/** Failures are not empty lists, and mutations say they failed. */
 describe("project store failures", () => {
   beforeEach(() => {
     useToastStore.setState({ toasts: [] });

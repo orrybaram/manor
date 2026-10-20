@@ -15,7 +15,7 @@ function project(id: string, hostId: string, path: string): ProjectInfo {
   } as unknown as ProjectInfo;
 }
 
-/** Same path on this machine and on "box" — the ambiguity ADR-189 §2 removes. */
+/** Same path on this machine and on "box" — the ambiguity host scoping removes. */
 const projects = [project("local-p", "local", "/repo"), project("box-p", "box", "/repo")];
 
 /** A minimal `layout.json` naming one pane's host-qualified workspace key. */
@@ -101,7 +101,7 @@ describe("GET /context", () => {
     expect(body.projectId).toBe("local-p");
   });
 
-  // ADR-179: the server's layout store holds a pane the moment it exists;
+  // The server's layout store holds a pane the moment it exists;
   // the file it writes on a debounce may not have it yet.
   it("rung 1 asks the server's layout store before the file", async () => {
     const layoutStore = {

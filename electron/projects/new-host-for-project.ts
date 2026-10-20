@@ -1,14 +1,14 @@
 /**
- * "In a new pod" (ADR-235 D3): make a host for one project from a host
+ * "In a new pod": make a host for one project from a host
  * profile, bring it up, and clone the project onto it — the one operation
  * behind `projects.openInNewHost`.
  *
  * In order: pick a free name from the repo's (`podNameFor`), write a recipe
  * from the profile's template and answers, add the host (`addRecipeHost`,
  * also `hosts.addRecipeHost`'s), wait for it to come up and for its server
- * to adopt it (ADR-227), so the clone is made on the host's server; then
+ * to adopt it, so the clone is made on the host's server; then
  * clone the repo there — or, from Set up on, copy the source project there,
- * joining its group (ADR-214) — and mark the host as the project's (D5).
+ * joining its group — and mark the host as the project's.
  *
  * A failure keeps the host, and says at which stage it failed: the recipe's
  * output is what the user needs to fix it, and nothing is destroyed without
@@ -46,7 +46,7 @@ export interface AddRecipeHostDeps {
 }
 
 export interface AddRecipeHostOptions {
-  /** The host profile the host is made from (ADR-235 D1). */
+  /** The host profile the host is made from. */
   profileId?: string;
   /** What the host is called: written as the recipe's `name`. */
   displayName?: string;
@@ -55,7 +55,7 @@ export interface AddRecipeHostOptions {
 }
 
 /**
- * Register a host Manor starts from recipe `recipeId` (ADR-229 D2) and
+ * Register a host Manor starts from recipe `recipeId` and
  * start connecting it: the connect runs the recipe's `up`, its stderr lines
  * showing as the host's progress. The recipe must be valid, and a recipe
  * already used by another host is refused, since a recipe's state belongs
@@ -82,7 +82,7 @@ export function addRecipeHost(
   const hostId = crypto.randomUUID();
   const spec = { kind: "recipe" as const, recipeId };
   deps.projectManager.saveHost(hostId, spec);
-  // A box Manor starts is Manor's to keep running (ADR-229 D4).
+  // A box Manor starts is Manor's to keep running.
   deps.projectManager.setHostSupervised(hostId, true);
   if (opts.profileId !== undefined) deps.projectManager.setHostProfileId(hostId, opts.profileId);
   deps.backendRegistry.register(hostId, spec);
@@ -154,12 +154,12 @@ function nameLimit(
 export interface OpenInNewHostInput {
   profileId: string;
   repoUrl: string;
-  /** Set up on (ADR-235 D4): copy this project onto the new host, joining its group. */
+  /** Set up on: copy this project onto the new host, joining its group. */
   sourceProjectId?: string;
   /**
    * Resume on `hostId`, made by an earlier call, at the stage that failed.
    * `overrides` — the fallback dialog's answer to a `needsInput` — replace
-   * the clone's planned repo and directory (ADR-213).
+   * the clone's planned repo and directory.
    */
   retryFrom?: {
     hostId: string;
@@ -176,7 +176,7 @@ export type OpenInNewHostResult =
       hostId?: string;
       error: string;
       /**
-       * Set up on could not plan the copy (ADR-213): what to ask, for the
+       * Set up on could not plan the copy: what to ask, for the
        * existing fallback dialog, which answers through a `retryFrom` with
        * `overrides`.
        */
@@ -265,7 +265,7 @@ export async function openInNewHost(
             ...(profile.idleStopMinutes !== undefined
               ? { idleStopMinutes: profile.idleStopMinutes }
               : {}),
-            // The pod reads this profile's sign-in Secret (ADR-235 D9).
+            // The pod reads this profile's sign-in Secret.
             ...(isKube
               ? { env: { ...recipe.env, MANOR_K8S_SIGNIN_SECRET: signInSecretName(profile.id) } }
               : {}),

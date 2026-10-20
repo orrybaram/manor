@@ -14,12 +14,12 @@ type SidebarDrawerProps = {
   onOpenSearch: () => void;
   /** The nav group's Notifications row (phone only). */
   onOpenNotifications: () => void;
-  /** The nav group's Hosts icon (a browser only, ADR-228 D8). */
+  /** The nav group's Hosts icon (a browser only). */
   onOpenHosts?: () => void;
 };
 
 /**
- * ADR-181 D3: in phone mode the sidebar lives in a left-edge drawer
+ * In phone mode the sidebar lives in a left-edge drawer
  * instead of inline — inline would eat the whole screen at phone width.
  * Radix `Dialog` supplies most of what a drawer needs: the overlay, Escape
  * and an overlay tap both closing it, a focus trap
@@ -27,7 +27,7 @@ type SidebarDrawerProps = {
  * `Dialog.Trigger` of its own — focus returned to whatever had it when the
  * drawer opened (`PhoneTopBar`'s drawer toggle) once it closes.
  *
- * ADR-219: the drawer holds the agents-first view (`PhoneAgentsPanel`).
+ * The drawer holds the agents-first view (`PhoneAgentsPanel`).
  */
 export function SidebarDrawer(props: SidebarDrawerProps) {
   const {

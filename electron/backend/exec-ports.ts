@@ -4,7 +4,7 @@ import { localFacts, type MachineFacts } from "./machine-facts";
 
 /**
  * The OS family of a scanned machine, as far as picking a scanner goes:
- * macOS scans with `/usr/sbin/lsof`; Linux with `ss` + `/proc` (ADR-178 §5),
+ * macOS scans with `/usr/sbin/lsof`; Linux with `ss` + `/proc`,
  * falling back to `lsof` on PATH; anything else with `lsof` on PATH.
  */
 export type PortsPlatform = "darwin" | "linux" | "other";
@@ -40,7 +40,7 @@ function isIpv6Loopback(address: string): boolean {
  * One `ScannedPort` per port, the first socket's pid winning (as lsof lists
  * them). A port every one of whose sockets is bound to `[::1]` only is
  * marked with `loopbackHost: "::1"`: a forward to the box's 127.0.0.1 would
- * not reach it (ADR-178 §5).
+ * not reach it.
  */
 function collapseListeners(sockets: ListenSocket[]): ScannedPort[] {
   const byPort = new Map<number, { port: ScannedPort; v6Only: boolean }>();
@@ -161,7 +161,7 @@ async function stdoutEvenOnFailure(
 }
 
 /**
- * Listening ports on whichever machine an `Exec` reaches (ADR-183). The uid
+ * Listening ports on whichever machine an `Exec` reaches. The uid
  * whose listeners count, the home directory never attributed to a
  * workspace, the OS (which picks the scanner) and how to signal a pid all
  * come from that machine's `MachineFacts`, so a pid from a remote scan is

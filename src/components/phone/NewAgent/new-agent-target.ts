@@ -6,7 +6,7 @@ import { startingMemberId } from "../../../lib/workspace-host-choices";
 import { branchesEqual } from "../../../utils/branch-name";
 import { buildTopLevelEntries, type TopLevelEntry } from "../../../utils/sidebar-items";
 
-/** Where the phone new-agent composer will start its agent (ADR-222). */
+/** Where the phone new-agent composer will start its agent. */
 export type NewAgentTarget = {
   projectId: string;
   workspacePath: string;
@@ -14,7 +14,7 @@ export type NewAgentTarget = {
 };
 
 /*
- * The target model (ADR-222 D2): pure functions over the project list, so the
+ * The target model: pure functions over the project list, so the
  * composer's chips and the launch read the same decisions. A target names a
  * member project (never a group), so "which host" is already in `projectId`.
  */

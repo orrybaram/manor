@@ -1,15 +1,15 @@
 import { useSyncExternalStore } from "react";
 
 /**
- * ADR-181 D2: one hook decides "is this renderer in phone mode?" so CSS and
- * components read the same answer. Everything else in ADR-181 builds on top
- * of `useLayoutMode()` — it introduces no new state, only a read of the
+ * One hook decides "is this renderer in phone mode?" so CSS and
+ * components read the same answer. Everything else in phone mode builds on
+ * top of `useLayoutMode()` — it introduces no new state, only a read of the
  * viewport the renderer already has.
  */
 export type LayoutMode = "phone" | "desk";
 
 /**
- * ADR-178 D9 set the phone breakpoint at "~768 px" — below it a renderer's
+ * The phone breakpoint is "~768 px" — below it a renderer's
  * width alone reads as a phone. `.app[data-layout="phone"]` CSS keys off the
  * same number.
  */
@@ -57,9 +57,9 @@ function subscribe(onChange: () => void): () => void {
 
 /**
  * `"phone"` below the breakpoint, with one exception: a detached window
- * (ADR-179 D4) — one holding a claim — is always `"desk"`. It is often
- * narrow on purpose — a single claimed tab with no chrome — and ADR-181 D2
- * excludes it regardless of width, so tearing a pane out into a small window
+ * — one holding a claim — is always `"desk"`. It is often
+ * narrow on purpose — a single claimed tab with no chrome — and is excluded
+ * regardless of width, so tearing a pane out into a small window
  * never flips it into phone mode.
  */
 function getSnapshot(): LayoutMode {

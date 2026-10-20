@@ -1,5 +1,5 @@
 /**
- * What `ProjectManager` shares with the modules it composes (ADR-183): the
+ * What `ProjectManager` shares with the modules it composes: the
  * state, the per-host backends, and the lookups every operation starts from.
  */
 
@@ -12,7 +12,7 @@ import type { LayoutEntry } from "../../src/lib/layout/protocol";
 
 /**
  * What removing a worktree or a project needs of `LayoutStore`: to forget a
- * workspace — its panes ended, every renderer told (ADR-182 D7). A project
+ * workspace — its panes ended, every renderer told. A project
  * moving off an adopted host also brings its layouts here (`take`) for the
  * move to carry on, and lets them go again (`release`) if it fails.
  */
@@ -30,7 +30,7 @@ export interface ProjectContext {
   host(hostId: string): ProjectHost;
   find(projectId: string): PersistedProject | undefined;
   /**
-   * `find`, or a remote host's project as its server holds it (ADR-227 D4),
+   * `find`, or a remote host's project as its server holds it,
    * rebuilt as a record: a copy, so writing to it changes nothing. For a
    * group's members, which may live on any host.
    */
@@ -46,7 +46,7 @@ export interface ProjectContext {
   findAt(hostId: string, dir: string): PersistedProject | undefined;
   /** The renderer's view of `project`, asking its host's git. */
   info(project: PersistedProject): Promise<ProjectInfo>;
-  /** Where setup and clone progress go (ADR-227 D1). */
+  /** Where setup and clone progress go. */
   readonly progress: ProjectProgress;
   /** The server's layout store, when there is one (tests may omit it). */
   readonly layout?: WorkspaceLayoutOwner;

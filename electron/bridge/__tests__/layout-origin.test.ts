@@ -1,5 +1,5 @@
 /**
- * Whose window a layout command came from (ADR-179 D3).
+ * Whose window a layout command came from.
  *
  * Nothing about the origin is checked by a type. The server hands every
  * handler the *connection* it was called on as `ctx.caller`, and
@@ -178,7 +178,7 @@ describe("a layout command's origin", () => {
     windows.push(win);
 
     // A page that puts an origin in the arguments is ignored, not believed:
-    // who is calling is the transport's to say (D3).
+    // who is calling is the transport's to say.
     await invoke(
       "layout",
       "apply",
@@ -208,7 +208,7 @@ describe("a layout command's origin", () => {
   });
 
   /**
-   * The claim is what makes detach-to-window work (ADR-179 D4): a popout
+   * The claim is what makes detach-to-window work: a popout
    * reports one, and the primary stops showing the tab it took. The store
    * honours it only from a `window` origin, so a phone cannot make a tab
    * vanish off the desk (`layout-store.test.ts`) — which makes the origin

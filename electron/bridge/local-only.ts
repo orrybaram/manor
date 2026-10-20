@@ -1,6 +1,5 @@
 /**
- * The methods a paired device may not call, however `full` its tier
- * (ADR-180 D4).
+ * The methods a paired device may not call, however `full` its tier.
  *
  * The tables in `./handlers/` flag each of these `localOnly`, and that flag is
  * what dispatch reads. This list is the same fact for the browser, which may

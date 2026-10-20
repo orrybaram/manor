@@ -1,5 +1,5 @@
 /**
- * The command table (ADR-182 D10): every command the keyboard, the native
+ * The command table: every command the keyboard, the native
  * menu and the command palette can run, each described once.
  *
  * A command used to live in about seven hand-synced places — the keybinding
@@ -78,7 +78,7 @@ export interface ActiveSurface {
   path: string | null;
   project: {
     id: string;
-    /** The project's host (ADR-191); a missing one is local. */
+    /** The project's host; a missing one is local. */
     hostId?: string | null;
     worktreeStartScript?: string | null;
   } | null;
@@ -108,12 +108,12 @@ export interface SharedCommandContext {
   focusRegion(region: "sidebar" | "tabbar"): boolean;
   diffOpensInNewPanel(): boolean;
   /**
-   * The Dashboard (Home) is active: it has no tabs, panes or panels (ADR-197),
+   * The Dashboard (Home) is active: it has no tabs, panes or panels,
    * so the commands that make or split one do nothing there.
    */
   onDashboard(): boolean;
   /**
-   * The Tasks view (ADR-198) covers the active workspace, which stays mounted
+   * The Tasks view covers the active workspace, which stays mounted
    * underneath: the close commands do nothing then, so ⌘W cannot close a tab
    * the user cannot see.
    */
@@ -143,18 +143,18 @@ export interface CommandChrome {
 /** Everything a primary-window command may touch. */
 export interface CommandContext extends SharedCommandContext {
   chrome: CommandChrome;
-  /** Collapse the sidebar to its rail, or expand it back (ADR-195). */
+  /** Collapse the sidebar to its rail, or expand it back. */
   toggleSidebar(): void;
   /** Hide the sidebar outright, or bring it back. */
   hideSidebar(): void;
-  /** The Tasks view (ADR-198). */
+  /** The Tasks view. */
   showTasksView(): void;
   /** The sidebar owns several flows; a hidden one would swallow them. */
   ensureSidebarVisible(): void;
   focusRegionWhenReady(region: "sidebar"): void;
   navigateBack(): void;
   navigateForward(): void;
-  /** By path, on the host of `projectId`'s project when one is named (ADR-191). */
+  /** By path, on the host of `projectId`'s project when one is named. */
   switchToWorkspace(path: string, projectId?: string | null): void;
   stepWorkspace(delta: 1 | -1): void;
   hideWorkspace(projectId: string, path: string): void;
@@ -185,7 +185,7 @@ interface CommandMeta {
   /**
    * Present (even as `null`) for a command the user can bind: it is listed in
    * `DEFAULT_KEYBINDINGS` and Settings › Keybindings. `null` is bindable with
-   * no shortcut of its own (ADR-175) — `open-notifications`, so far.
+   * no shortcut of its own — `open-notifications`, so far.
    */
   defaultCombo?: KeyCombo | null;
   /**
@@ -197,7 +197,7 @@ interface CommandMeta {
    */
   native?: UnavailableNamespace;
   /**
-   * `false` for a command a host server cannot serve (ADR-225 D5): it
+   * `false` for a command a host server cannot serve: it
    * neither creates workspaces nor launches agents. A page connected to one
    * leaves it out of the handler maps and palette, as the web does a
    * `native` command.
@@ -237,7 +237,7 @@ function metaCombo(
   return { key, meta: true, ctrl, shift, alt };
 }
 
-/** A combo without ⌘ — only function keys may be bound this way (ADR-175). */
+/** A combo without ⌘ — only function keys may be bound this way. */
 function plainCombo(key: string, shift = false): KeyCombo {
   return { key, meta: false, ctrl: false, shift, alt: false };
 }
@@ -742,7 +742,7 @@ export const COMMANDS: readonly CommandDef[] = [
     run: (ctx) => ctx.requestUi({ type: "open-notifications" }),
   },
   {
-    // Every tracker's issues, in the Tasks view (ADR-198).
+    // Every tracker's issues, in the Tasks view.
     id: "your-issues",
     label: "Your Issues",
     category: "app",
@@ -778,7 +778,7 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     scope: "primary",
     run: (ctx, args) => {
-      // The menu names the workspace's project, so its host (ADR-191).
+      // The menu names the workspace's project, so its host.
       const path = stringArg(args, "path");
       if (path) ctx.switchToWorkspace(path, stringArg(args, "projectId"));
     },
@@ -894,7 +894,7 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "terminal",
     scope: "primary",
     // `window.detachTab`/`window.setPosition` — no native chrome, and
-    // `window.open` under a popup blocker is not a substitute (ADR-156).
+    // `window.open` under a popup blocker is not a substitute.
     native: "window",
     run: (ctx) => {
       const paneId = ctx.focusedPaneId();
@@ -1022,13 +1022,13 @@ export function getCommand(id: string): CommandDef | undefined {
   return BY_ID.get(id);
 }
 
-/** Whether `commandId` does anything on the web app (ADR-178 ticket 6). */
+/** Whether `commandId` does anything on the web app. */
 export function commandAvailableOnWeb(commandId: string): boolean {
   const native = BY_ID.get(commandId)?.native;
   return !native || !UNAVAILABLE_NAMESPACES.has(native);
 }
 
-/** Whether a host server can serve `commandId` (ADR-225 D5). */
+/** Whether a host server can serve `commandId`. */
 export function commandAvailableOnHostServer(commandId: string): boolean {
   return BY_ID.get(commandId)?.hostServer !== false;
 }

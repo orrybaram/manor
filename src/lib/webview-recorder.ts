@@ -1,5 +1,5 @@
 /**
- * Renderer half of webview video recording (ADR-158).
+ * Renderer half of webview video recording.
  *
  * Main owns the file and the lifecycle (see `electron/recording-manager.ts`);
  * this module owns the `MediaRecorder`, because only a renderer can call
@@ -203,7 +203,7 @@ export function activeRecordingIds(): string[] {
  * an empty file waiting for chunks that will never arrive.
  *
  * Returns whether a "start" actually got a `MediaRecorder` running, so a
- * caller driving a UI indicator (ADR-158 ticket 5) never lights one up for a
+ * caller driving a UI indicator never lights one up for a
  * capture that failed before it began.
  */
 export async function handleRecordingCommand(

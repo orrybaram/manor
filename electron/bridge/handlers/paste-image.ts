@@ -1,5 +1,5 @@
 /**
- * A browser's pasted image, uploaded into a pane's host (ADR-239 D2), as the
+ * A browser's pasted image, uploaded into a pane's host, as the
  * `pasteImage` namespace of the handler table.
  *
  * The bridge is JSON text with a 1 MiB frame cap, so the bytes arrive as

@@ -54,7 +54,7 @@ export function ThemeSection() {
         el?.scrollIntoView({ block: "center" });
       });
     }, (err: unknown) => {
-      // Not an empty list: say the themes couldn't be read (ADR-232 D8).
+      // Not an empty list: say the themes couldn't be read.
       addErrorToast("theme-list", "Couldn't load themes", err);
     });
   });

@@ -9,7 +9,7 @@ import type { WorkspaceKey } from "../lib/workspace-key";
  * of it) is expected to translate its own state into a `Location` and feed
  * it into this store via `record`.
  *
- * A workspace is named by its host-qualified key (ADR-191), so going back
+ * A workspace is named by its host-qualified key, so going back
  * never lands in another host's workspace with the same path. History lives
  * in memory only, so there are no path-keyed entries to migrate.
  */

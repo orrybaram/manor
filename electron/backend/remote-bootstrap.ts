@@ -1,6 +1,6 @@
 /**
  * Remote bootstrap — make sure a remote box has a `manor-host` matching this
- * app's version before `SshTransport` bridges to it (ADR-160, ticket 6).
+ * app's version before `SshTransport` bridges to it.
  *
  * The shape follows herdr's `src/remote/attach.rs`: detect the platform, look
  * for an installed host, and if it is missing or the wrong version, install
@@ -13,7 +13,7 @@
  * installed with `npm install --omit=dev` so node-pty resolves (or builds)
  * for the remote's platform.
  *
- * An image may carry the version's package already installed (ADR-235 D10):
+ * An image may carry the version's package already installed:
  * `/opt/manor/host-<version>/`, with node_modules and a built node-pty. When
  * it is there and node-pty loads from it, the install copies it into staging
  * instead of uploading the tarball and running npm; everything after that
@@ -28,7 +28,7 @@
  *   bin/manor-host              launcher shim: pins MANOR_VERSION and the
  *                               absolute node path, then execs the daemon entry
  *   bin/manor                   CLI shim: pins the absolute node path, then
- *                               execs host/manor-cli.js (ADR-189 ticket 4) —
+ *                               execs host/manor-cli.js —
  *                               written alongside manor-host in the same
  *                               commit, so it always matches the installed
  *                               host package
@@ -83,10 +83,10 @@ const MAX_ERROR_DETAIL = 2_000;
 /** The daemon entry inside the package — `LocalTransport` respawns it by this name. */
 const HOST_ENTRY = "terminal-host-index.js";
 
-/** The CLI entry inside the package, run by the `manor` shim (ADR-189 ticket 4). */
+/** The CLI entry inside the package, run by the `manor` shim. */
 const CLI_ENTRY = "manor-cli.js";
 
-/** Where an image keeps baked host packages, one per version (ADR-235 D10). */
+/** Where an image keeps baked host packages, one per version. */
 const BAKED_ROOT = "/opt/manor";
 /**
  * The versions a baked package may be looked up under. Strict, because the
@@ -123,7 +123,7 @@ export class RemoteBootstrapError extends Error {
  * `RemoteBootstrapError`: those describe the host and will not fix
  * themselves, while this is the network and a reconnect may well succeed.
  * `via` names the channel: `ssh`, or an exec prefix's program (`kubectl`,
- * `docker` — ADR-229 D3), whose 255 is its own and not ssh's.
+ * `docker`), whose 255 is its own and not ssh's.
  */
 class SshSessionError extends Error {
   constructor(target: string, command: string, res: RemoteExecResult, via = "ssh") {
@@ -279,7 +279,7 @@ const NODE_PTY_PREBUILT = new Set(["darwin-x64", "darwin-arm64"]);
 export const HOST_VERSION_COMMAND = `${HOST_BIN} --version 2>/dev/null`;
 
 /**
- * The directory an image bakes `version`'s host package into (ADR-235 D10),
+ * The directory an image bakes `version`'s host package into,
  * or null for a version that does not match `BAKED_VERSION_RE` (such a
  * version never uses a baked package).
  */
@@ -321,7 +321,7 @@ export function renderLauncherShim(version: string, nodePath: string): string {
 }
 
 /**
- * The CLI shim written to `~/.manor/bin/manor` (ADR-189 ticket 4), put on
+ * The CLI shim written to `~/.manor/bin/manor`, put on
  * every remote PTY's PATH the same way `manor-host` is (`session.ts`). Unlike
  * the launcher shim it does not need to pin `MANOR_VERSION`: the CLI talks to
  * whichever daemon is running over the control relay, not to itself.
@@ -354,7 +354,7 @@ function writeShimCommands(bin: string, shimBody: string[]): string[] {
 /**
  * Where the package comes from: `upload`, the tarball piped from this
  * machine and `npm install`ed on the remote; or `baked`, an image's
- * `/opt/manor/host-<version>/` copied as is (ADR-235 D10).
+ * `/opt/manor/host-<version>/` copied as is.
  */
 export type InstallSource = "upload" | "baked";
 
@@ -456,7 +456,7 @@ export function buildInstallCommands(
       ...writeShimCommands(CLI_BIN, cliShimBody),
       // Agents run the hook copy in hooks/, which a running daemon writes
       // only at startup — and an update with no protocol change keeps the
-      // daemon (ADR-185). Refresh an existing copy from the new package so
+      // daemon. Refresh an existing copy from the new package so
       // the update's hook takes effect now. Best-effort: the daemon rewrites
       // it on the next `bootstrap` request too.
       `if [ -f ${HOOK_JS} ] && [ -f ${HOST_DIR}/agent-hook.js ]; then` +
@@ -503,7 +503,7 @@ export function buildInstallCommands(
       '$T "$NPM" install --omit=dev --no-audit --no-fund --no-package-lock',
       // node-pty's prebuilt `spawn-helper` (macOS) is unpacked without its
       // exec bit, and every pty spawn then fails with posix_spawnp. Found by
-      // the real-sshd E2E suite (ADR-160 ticket 12).
+      // the real-sshd E2E suite.
       'for f in node_modules/node-pty/prebuilds/*/spawn-helper; do if [ -f "$f" ]; then chmod 755 "$f"; fi; done',
       proveNodePty,
     ].join("; "),
@@ -536,7 +536,7 @@ export interface EnsureRemoteHostOptions {
   onProgress?: (progress: BootstrapProgress) => void;
   /**
    * What carries the commands, for the wording of a failed channel: `ssh`
-   * (the default), or an exec prefix's program (ADR-229 D3).
+   * (the default), or an exec prefix's program.
    */
   via?: string;
   /** The tarball for `version`. Defaults to reading `hostTarballPath(version)`. */
@@ -600,13 +600,12 @@ export async function ensureRemoteHost(
 
   // 4. Install
   const stagingId = opts.stagingId?.() ?? crypto.randomBytes(6).toString("hex");
-  // A baked package in the image (ADR-235 D10) needs no upload and no npm;
+  // A baked package in the image needs no upload and no npm;
   // anything short of a working one falls back to the upload.
   const probe = bakedProbeCommand(version, nodePath);
   const baked = probe !== null && parseBakedProbe(await ssh(probe));
   // Without a baked package or a node-pty prebuild the install compiles it,
-  // which is the slow part: say so, so a long wait doesn't read as stuck
-  // (ADR-234 D9).
+  // which is the slow part: say so, so a long wait doesn't read as stuck.
   const compiles = !baked && !NODE_PTY_PREBUILT.has(`${platform.os}-${platform.arch}`);
   report(
     "install",

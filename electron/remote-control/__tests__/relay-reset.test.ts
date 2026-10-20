@@ -1,5 +1,5 @@
 /**
- * "Reset relay address", end to end (ADR-206): the real controller, the real
+ * "Reset relay address", end to end: the real controller, the real
  * connector against the in-process fake relay, the real relay gate and bridge
  * hello gate.
  *

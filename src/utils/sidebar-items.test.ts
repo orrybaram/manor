@@ -1001,7 +1001,7 @@ describe("applyGroupDrop", () => {
   });
 });
 
-describe("linked-project groups at the top level (ADR-192)", () => {
+describe("linked-project groups at the top level", () => {
   type TopProject = Pick<
     ProjectInfo,
     "id" | "hostId" | "workspaces" | "folders" | "sidebarOrder" | "group"
@@ -1142,7 +1142,7 @@ describe("linked-project groups at the top level (ADR-192)", () => {
   });
 });
 
-describe("selection across a linked group's host sections (ADR-192 ticket 7)", () => {
+describe("selection across a linked group's host sections", () => {
   type Member = Pick<
     ProjectInfo,
     "id" | "hostId" | "workspaces" | "folders" | "sidebarOrder" | "group"

@@ -1,5 +1,5 @@
 /**
- * The sidebar's focusable rows (ADR-172, ADR-175): the Home row, project
+ * The sidebar's focusable rows: the Home row, project
  * headers, workspace rows and folder headers.
  *
  * `data-sidebar-row` marks whatever element takes focus for a row. Keyboard

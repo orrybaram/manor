@@ -1,5 +1,5 @@
 /**
- * Host recipes (ADR-229 D2): the user's own commands that start, stop and
+ * Host recipes: the user's own commands that start, stop and
  * delete one host, and the strict shapes of what they say back.
  *
  * - **Where.** `~/.manor/host-recipes/<recipeId>/recipe.json`, next to its
@@ -31,14 +31,14 @@ export interface Recipe {
   id: string;
   /** How the host is named: in the sidebar, in messages. */
   name: string;
-  /** The bundled template it was made from (ADR-229 D8), if any. */
+  /** The bundled template it was made from, if any. */
   template?: string;
   /** Creates the box if missing, resumes it if stopped; prints a way in. */
   up: string;
   status?: string;
   stop?: string;
   destroy?: string;
-  /** Stop the box after this long idle, while this desktop is awake (D7). */
+  /** Stop the box after this long idle, while this desktop is awake. */
   idleStopMinutes?: number;
   /** Non-secret parameters, added to each command's environment. */
   env?: Record<string, string>;
@@ -123,7 +123,7 @@ export function resolveRecipeCommand(dir: string, command: string): string {
 }
 
 /**
- * Validate a parsed `recipe.json` strictly (ADR-229 D2). `dir` is where it
+ * Validate a parsed `recipe.json` strictly. `dir` is where it
  * was read from: its name must be the recipe's `id`, and every relative
  * command must resolve inside it.
  */
@@ -234,7 +234,7 @@ export function hostSpecLabel(spec: HostSpec): string {
 
 // ── Command results ──
 
-/** How `up` says to reach the box over ssh (ADR-229 D2). */
+/** How `up` says to reach the box over ssh. */
 export interface RecipeSshTarget {
   host: string;
   port: number;
@@ -249,7 +249,7 @@ export interface RecipeSshTarget {
 
 export type RecipeConnection =
   | { type: "ssh"; target: RecipeSshTarget }
-  /** An argv prefix that runs one command on the box with stdio attached (D3). */
+  /** An argv prefix that runs one command on the box with stdio attached. */
   | { type: "exec"; argv: string[] };
 
 export interface RecipeUpResult {
@@ -371,7 +371,7 @@ function parseConnection(value: unknown): RecipeConnection {
   throw new RecipeError(`${what}.type must be "ssh" or "exec", not ${JSON.stringify(value.type)}`);
 }
 
-/** Validate what `up` printed (ADR-229 D2). */
+/** Validate what `up` printed. */
 export function parseUpResult(value: unknown): RecipeUpResult {
   const what = "up's result";
   if (!isPlainObject(value)) throw new RecipeError(`${what} must be a JSON object`);
@@ -388,7 +388,7 @@ export function parseUpResult(value: unknown): RecipeUpResult {
   return result;
 }
 
-/** Validate what `status` printed (ADR-229 D2). */
+/** Validate what `status` printed. */
 export function parseStatusResult(value: unknown): RecipeStatusResult {
   const what = "status's result";
   if (!isPlainObject(value)) throw new RecipeError(`${what} must be a JSON object`);
@@ -453,7 +453,7 @@ export function writeRecipeHostState(dir: string, state: RecipeHostState): void 
 
 /**
  * Drop `dir`'s record when it is `hostId`'s: the host was removed from Manor
- * but its box was kept (ADR-229 D8), so a host added from the recipe later
+ * but its box was kept, so a host added from the recipe later
  * starts with no `resource` of its predecessor's. Best effort.
  */
 export function forgetRecipeHostState(dir: string, hostId: string): void {

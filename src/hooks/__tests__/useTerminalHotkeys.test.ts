@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * Ctrl+V in a terminal (ADR-187 §4, ADR-239 D3). On the web xterm must not
+ * Ctrl+V in a terminal. On the web xterm must not
  * write \x16 and nothing reads the server's clipboard: the browser's own
  * paste fires the DOM `paste` event instead. On the desktop a remote pane
  * still pastes the native clipboard's image.

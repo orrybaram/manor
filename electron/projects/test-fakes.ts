@@ -1,5 +1,5 @@
 /**
- * Test helpers for `ProjectManager`'s host resolver (ADR-183): wire a fake
+ * Test helpers for `ProjectManager`'s host resolver: wire a fake
  * git and shell into the `{ git, shell, facts }` it resolves per host.
  */
 

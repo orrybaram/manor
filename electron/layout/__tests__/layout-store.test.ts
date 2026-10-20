@@ -1,5 +1,5 @@
 /**
- * `LayoutStore` — the Manor server's layout authority (ADR-179 D1/D3).
+ * `LayoutStore` — the Manor server's layout authority.
  *
  * The four properties worth pinning: a command bumps the version and reaches
  * every renderer, commands on one workspace never interleave, a closed
@@ -122,7 +122,7 @@ describe("LayoutStore", () => {
 
   /**
    * A window's viewport report. `claim` makes it a detached window holding
-   * that tab — main's fact about it, not anything in the report (D4).
+   * that tab — main's fact about it, not anything in the report.
    */
   function report(windowId: string, claim?: string, workspacePath = WS): void {
     if (claim !== undefined) windowClaims.set(windowId, claim);
@@ -181,7 +181,7 @@ describe("LayoutStore", () => {
         selectedTabIds: { "panel-1": "tab-1" },
         focusedPaneIds: { "tab-1": "pane-1" },
       });
-      // The focus fields leave the tree (ADR-179 ticket 4): they live in
+      // The focus fields leave the tree: they live in
       // `defaultViewport` and in each renderer's own file.
       const savedPanel = readFile().workspaces[0].panels["panel-1"];
       expect(savedPanel.selectedTabId).toBeUndefined();
@@ -189,7 +189,7 @@ describe("LayoutStore", () => {
       expect(readFile().workspaces[0].activePanelId).toBeUndefined();
       // Per-tab in the file, one map per workspace in memory.
       expect(entry!.paneSessions["pane-1"].lastCwd).toBe("/project/main");
-      // Still keyed by bare path: the workspace-key migration (ADR-191) is
+      // Still keyed by bare path: the workspace-key migration is
       // what moves a file past version 2.
       expect(readFile().version).toBe(2);
     });
@@ -297,8 +297,8 @@ describe("LayoutStore", () => {
       );
 
       // Still warm: the whole point of the grace is that a reopen can have
-      // this shell back (ticket 10). The row stays in memory for that, but
-      // the snapshot only lists panes the tree holds (ticket 4).
+      // this shell back. The row stays in memory for that, but
+      // the snapshot only lists panes the tree holds.
       expect(kill).not.toHaveBeenCalled();
       expect(store.get(WS)!.paneSessions["pane-1"]).toBeUndefined();
       expect(broadcasts[0].restored).toBeUndefined();
@@ -322,7 +322,7 @@ describe("LayoutStore", () => {
       );
 
       // At once, not after the grace: the agent's turn ended with its pane,
-      // and every close path — not only `close-pane` — lands here (D7).
+      // and every close path — not only `close-pane` — lands here.
       expect(abandonForPanes).toHaveBeenCalledTimes(1);
       expect(abandonForPanes).toHaveBeenCalledWith([
         { paneId: "pane-1", title: "claude ⠋" },
@@ -343,7 +343,7 @@ describe("LayoutStore", () => {
     it("drops the pending command of a pane that leaves the tree", async () => {
       // Queued for a pane nothing ever mounted — closed from another window,
       // say. Without this the line would be typed into whatever pane next
-      // happened to reuse the id (ADR-179 ticket 11).
+      // happened to reuse the id.
       store.pendingCommands.set("pane-1", "pnpm dev");
 
       await store.apply(
@@ -371,7 +371,7 @@ describe("LayoutStore", () => {
 
     it("reopens a closed browser pane with its url, and says what came back", async () => {
       // Nothing about the pane travels in the commands: the leaf goes onto
-      // the reopen stack whole and comes back whole (ADR-182 D6).
+      // the reopen stack whole and comes back whole.
       await store.apply(
         WS,
         {
@@ -447,7 +447,7 @@ describe("LayoutStore", () => {
   });
 
   /**
-   * Off the command channel entirely (ADR-182 D1): `setPaneTitle` is a direct
+   * Off the command channel entirely: `setPaneTitle` is a direct
    * method now, not a `LayoutCommand`, so it neither touches the layout nor
    * rides on `layout.changed` — it has its own publish, asserted here rather
    * than in `apply`'s tests above.
@@ -487,7 +487,7 @@ describe("LayoutStore", () => {
   });
 
   /**
-   * The reopen grace (ADR-179 ticket 10).
+   * The reopen grace.
    *
    * "Reopen closed pane" is an undo, so the session a close ends has to still
    * be there to be undone — the shell, its scrollback, its cwd. The kill is
@@ -656,13 +656,13 @@ describe("LayoutStore", () => {
 
     it("folds cwd, title and agent status into paneSessions without broadcasting", () => {
       store.onPtyEvent({ type: "cwd", sessionId: "pane-1", cwd: "/tmp/other" });
-      // The title is one of the pane's facts (ADR-184 §3)...
+      // The title is one of the pane's facts...
       store.onPtyEvent({
         type: "paneFacts",
         sessionId: "pane-1",
         facts: { foreground: null, title: "refactoring", outputHint: null },
       });
-      // ...and the status is the Status reconciler's to publish (ADR-184 §4).
+      // ...and the status is the Status reconciler's to publish.
       store.onPaneStatus({
         paneId: "pane-1",
         status: "working",
@@ -674,7 +674,7 @@ describe("LayoutStore", () => {
       expect(session.lastCwd).toBe("/tmp/other");
       expect(session.lastTitle).toBe("refactoring");
       expect(session.lastAgentStatus?.status).toBe("working");
-      // Every renderer already receives the PTY event itself (D3).
+      // Every renderer already receives the PTY event itself.
       expect(broadcasts).toHaveLength(0);
 
       store.flush();
@@ -803,7 +803,7 @@ describe("LayoutStore", () => {
     });
   });
 
-  describe("claims (D4)", () => {
+  describe("claims", () => {
     beforeEach(() => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
       store.load();
@@ -954,7 +954,7 @@ describe("LayoutStore", () => {
       ]);
     });
 
-    it("leaves a claim on a workspace it does not hold to whoever publishes it (ADR-228 D7)", () => {
+    it("leaves a claim on a workspace it does not hold to whoever publishes it", () => {
       // A remote host's workspace: its layout is its server's, the claim the desktop's.
       const remote = "box:/srv/app" as WorkspaceKey;
       const desktop = new LayoutStore(
@@ -985,7 +985,7 @@ describe("LayoutStore", () => {
       expect(told).toHaveLength(2);
     });
 
-    describe("dropForeignClaims (ADR-230 D9)", () => {
+    describe("dropForeignClaims", () => {
       const remote = "box:/srv/app" as WorkspaceKey;
       const layoutOf = (...tabIds: string[]) =>
         createSinglePanelLayout(
@@ -1076,7 +1076,7 @@ describe("LayoutStore", () => {
       expect(kill).not.toHaveBeenCalled();
 
       // A removed worktree is a directory about to be deleted; a shell left
-      // warm inside it for ten seconds is an orphan (ticket 10's report).
+      // warm inside it for ten seconds is an orphan.
       store.remove(WS);
 
       expect(kill).toHaveBeenCalledWith("pane-1");
@@ -1107,8 +1107,7 @@ describe("LayoutStore", () => {
     /**
      * Without this a popout whose worktree was just deleted never hears its
      * claim is gone: `remove` used to leave silently, so `checkOwnClaim`
-     * never sees a broadcast to react to and the window sits on a splash
-     * (ticket 6's report).
+     * never sees a broadcast to react to and the window sits on a splash.
      */
     it("broadcasts the dropped claim so a popout on the removed workspace closes", () => {
       fs.writeFileSync(layoutFile, JSON.stringify(v2File(), null, 2));
@@ -1253,8 +1252,8 @@ describe("LayoutStore", () => {
     });
   });
 
-  // ADR-191: workspaces are keyed by host plus path, on the server as in the
-  // file; ADR-179 adds the viewport split as version 4.
+  // Workspaces are keyed by host plus path, on the server as in the
+  // file; version 4 adds the viewport split.
   describe("workspace keys", () => {
     const BOX = workspaceKey("box", WS);
 
@@ -1330,7 +1329,7 @@ describe("LayoutStore", () => {
       ).toEqual(["tab-1", "tab-2"]);
     });
 
-    describe("moveWorkspaces (ADR-191 §3)", () => {
+    describe("moveWorkspaces", () => {
       it("moves a workspace's layout to its key on the new host", async () => {
         fs.writeFileSync(layoutFile, JSON.stringify(keyedFile(), null, 2));
         store.load();
@@ -1376,7 +1375,7 @@ describe("LayoutStore", () => {
     });
   });
 
-  // ADR-197: Home is the Dashboard and never holds tabs.
+  // Home is the Dashboard and never holds tabs.
   describe("Home", () => {
     it("drops a legacy Home layout on load and ends its sessions and agents", () => {
       const file = v2File() as unknown as { workspaces: Array<Record<string, unknown>> };
@@ -1390,7 +1389,7 @@ describe("LayoutStore", () => {
       expect(store.get(HOME_PATH)).toBeNull();
       expect(store.get(WS)).not.toBeNull();
       expect(kill).toHaveBeenCalledWith("pane-1");
-      // Its agents end with its panes (ADR-182 D7), as a removed
+      // Its agents end with its panes, as a removed
       // workspace's do.
       expect(abandonForPanes).toHaveBeenCalledWith(
         expect.arrayContaining([expect.objectContaining({ paneId: "pane-1" })]),

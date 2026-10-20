@@ -1,5 +1,5 @@
 /**
- * ADR-198 §2: pure selectors for the full Home dashboard ("Studio") — the PR
+ * Pure selectors for the full Home dashboard ("Studio") — the PR
  * pipeline, Needs you cards, the headline sentence, the Open PRs stat tile
  * and the project tiles. Like `home-dashboard.ts` (whose helpers these build
  * on) there are no store or React imports: the components wire store state in.
@@ -161,7 +161,7 @@ export function openPrStats(pipeline: readonly PipelineColumn[]): OpenPrStats {
 
 // ── Needs you cards ──
 
-/** What a Needs you card shows under its title (ADR-198 §2). */
+/** What a Needs you card shows under its title. */
 export type NeedsYouCardContext =
   | { kind: "input" }
   | { kind: "error"; paneTitle?: string }
@@ -185,7 +185,7 @@ export type NeedsYouCard = NeedsYouItem & {
 export interface NeedsYouCardsInput extends NeedsYouInput {
   /** Live pane titles, for an errored agent's card. */
   paneTitle?: Readonly<Record<string, string>>;
-  /** Item keys the user snoozed (ADR-198 §4); those cards are dropped. */
+  /** Item keys the user snoozed; those cards are dropped. */
   snoozed?: ReadonlySet<string>;
 }
 
@@ -327,7 +327,7 @@ function capitalize(text: string): string {
 }
 
 /**
- * The header sentence (ADR-198 §1.1): a lead about Needs you, then what's
+ * The header sentence: a lead about Needs you, then what's
  * in flight — "3 things want your eyes." then "2 agents are cooking and a
  * PR is out for review." Each situation has a few phrasings; `seed` picks
  * one, so the caller holds a line steady by holding the seed (Home passes
@@ -381,7 +381,7 @@ export function headline(
 
 // ── Project tiles ──
 
-/** A workspace block's colour, most urgent first (ADR-198 §2). */
+/** A workspace block's colour, most urgent first. */
 export type WorkspaceTileState =
   | "needs-you"
   | "running"
@@ -410,7 +410,7 @@ export interface ProjectTile {
     status?: string;
   };
   workspaces: {
-    /** ADR-191 workspace key (falls back to the path when it can't be keyed). */
+    /** Host-qualified workspace key (falls back to the path when it can't be keyed). */
     key: string;
     projectId: string;
     name: string;
@@ -464,8 +464,8 @@ function basename(path: string): string {
 }
 
 /**
- * One tile per top-level sidebar entry (a lone project, or an ADR-192 linked
- * group whose members aggregate), keyed like Up next's entries. `projects`
+ * One tile per top-level sidebar entry (a lone project, or a linked group
+ * whose members aggregate), keyed like Up next's entries. `projects`
  * must be the full list: agents are resolved against it the same way
  * `needsYouItems` does. Hidden workspaces are left out of the blocks and the
  * diff totals.

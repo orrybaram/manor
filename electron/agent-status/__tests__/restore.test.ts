@@ -1,5 +1,5 @@
 /**
- * `stateFromSavedAgent` (ADR-184): a pane's state rebuilt from its persisted
+ * `stateFromSavedAgent`: a pane's state rebuilt from its persisted
  * Agent after a main restart.
  */
 

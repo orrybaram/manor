@@ -7,7 +7,7 @@ import { LayoutStore, type LayoutFile } from "../../../layout/layout-store";
 
 /**
  * The handlers under test, by their old IPC channel names. There is no
- * `register()` any more (ADR-180 D8): the handler table calls the lifted
+ * `register()` any more: the handler table calls the lifted
  * functions with the one long-lived `HostDeps`, so `register` here only
  * records the deps a test built, and each channel calls its function over
  * them. The first argument stands in for the IPC event and is ignored.
@@ -58,7 +58,7 @@ function setup(hostId: string) {
   return handlers.get("pty:create")!;
 }
 
-describe("pty:create host reporting (ADR-160)", () => {
+describe("pty:create host reporting", () => {
 
   it("reports the host the session actually runs on", async () => {
     const create = setup("box");
@@ -73,7 +73,7 @@ describe("pty:create host reporting (ADR-160)", () => {
   });
 });
 
-describe("pty:create on a remote host that is not connected (ADR-178 §6)", () => {
+describe("pty:create on a remote host that is not connected", () => {
 
   function failing(err: Error) {
     const backend = {
@@ -104,7 +104,7 @@ describe("pty:create on a remote host that is not connected (ADR-178 §6)", () =
   });
 });
 
-describe("pty:create on the host it was asked for (ADR-191)", () => {
+describe("pty:create on the host it was asked for", () => {
 
   // The same repo cloned at the same path on this machine and on "box" —
   // same username, same default root — as two projects.

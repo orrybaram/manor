@@ -1,5 +1,5 @@
 /**
- * The box's `manor` CLI is answered by its host server (ADR-227 D8): with no
+ * The box's `manor` CLI is answered by its host server: with no
  * desktop connected, `manor create-workspace` and `manor list-workspaces`
  * reach the server through the daemon's control relay, and the workspace is
  * there for a phone paired to the same server. See `harness.ts`.
@@ -85,7 +85,7 @@ async function manor(...argv: string[]): Promise<{ code: number; out: string; er
   return { code, out: out.join(""), err: err.join("") };
 }
 
-describe("the box's manor CLI, with no desktop connected (ADR-227 D8)", () => {
+describe("the box's manor CLI, with no desktop connected", () => {
   const h = useHostServerHarness();
   const savedPortFile = process.env.MANOR_CONTROL_PORT_FILE;
 

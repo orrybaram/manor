@@ -121,7 +121,7 @@ export function renderSshConfig(
 ): string {
   return [
     "# Written by Manor for its remote host bridge. Safe to delete.",
-    // A recipe host's own stanza (ADR-229 D2) goes first: ssh keeps the
+    // A recipe host's own stanza goes first: ssh keeps the
     // first value it reads, so neither `Host *` below nor the user's config
     // can change where the alias points or which key it trusts.
     ...(hostStanza ? [hostStanza] : []),
@@ -168,7 +168,7 @@ export function createManagedSshConfig(
   return { dir, configPath, controlPath };
 }
 
-// ── A recipe host's own stanza (ADR-229 D2) ──
+// ── A recipe host's own stanza ──
 
 /** Where a recipe's `up` says the box is, as its stanza needs it. */
 export interface ManagedHostTarget {
@@ -195,7 +195,7 @@ function configValue(value: string, what: string): string {
 }
 
 /**
- * The `Host <alias>` block for a recipe host (ADR-229 D2): where the box is,
+ * The `Host <alias>` block for a recipe host: where the box is,
  * and its own `known_hosts`. Keys are stored under the alias
  * (`HostKeyAlias`), so a box re-provisioned at a new address keeps its
  * entry, and nothing else in the user's `known_hosts` is read or written.
@@ -251,7 +251,7 @@ export function knownHostsHasKey(file: string): boolean {
 /**
  * Trust `hostKey` (`<type> <base64>`) for `alias` alone: `file` is replaced
  * with that one line, dropping any key it held before. Only the recipe that
- * started the box can vouch for a new key (ADR-229 D2).
+ * started the box can vouch for a new key.
  */
 export function writeKnownHostKey(file: string, alias: string, hostKey: string): void {
   if (/[\r\n]/.test(hostKey)) throw new Error("A host key must be one line");
@@ -298,10 +298,10 @@ export function remoteBridgeCommand(): string {
 }
 
 /**
- * The remote command that opens the owner channel to the box's host server
- * (ADR-225 D4): `manor-host server-bridge` pipes the stream to the server's
+ * The remote command that opens the owner channel to the box's host server:
+ * `manor-host server-bridge` pipes the stream to the server's
  * socket after saying the owner hello for us. `viewer` opens a desktop
- * window's own viewer stream instead (ADR-228 D4).
+ * window's own viewer stream instead.
  */
 export function remoteServerBridgeCommand(opts: { viewer?: boolean } = {}): string {
   return `exec ${REMOTE_HOST_BIN} server-bridge${opts.viewer ? " --viewer" : ""}`;
@@ -393,7 +393,7 @@ export class SshHostKeyError extends Error {
   constructor(
     readonly target: string,
     readonly stderr: string,
-    /** Replaces the wording, for a host whose keys Manor manages (ADR-229 D2). */
+    /** Replaces the wording, for a host whose keys Manor manages. */
     message?: string,
   ) {
     super(
@@ -416,7 +416,7 @@ export class SshAuthError extends Error {
     readonly stderr: string,
     /**
      * Replaces the wording, for a host reached at an alias only Manor's own
-     * config has, where `ssh <alias>` from a terminal means nothing (ADR-229 D2).
+     * config has, where `ssh <alias>` from a terminal means nothing.
      */
     message?: string,
   ) {

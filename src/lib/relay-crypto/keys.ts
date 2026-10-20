@@ -1,5 +1,5 @@
 /**
- * Relay identity (ADR-206 D3): an Ed25519 key that proves to the relay the
+ * Relay identity: an Ed25519 key that proves to the relay the
  * desktop owns its room, and an X25519 key that is the Noise NK static key.
  */
 import { ed25519, x25519 } from "@noble/curves/ed25519.js";

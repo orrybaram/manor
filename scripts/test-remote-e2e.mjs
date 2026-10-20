@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Remote-host E2E harness (ADR-160 ticket 12, ADR-178 ticket 8).
+ * Remote-host E2E harness.
  *
  * Starts a real sshd for the suite to reach as its "remote box", runs the
  * gated tests against it, and tears it all down. Two target kinds:
@@ -17,14 +17,14 @@
  *                    the Linux paths: `uname` → Linux, node-pty compiled from
  *                    source during bootstrap, `ss` + /proc port scanning.
  *                    Select with --docker or MANOR_E2E_SSH_TARGET_KIND=docker.
- *   recipe           no sshd: a host Manor starts itself (ADR-229). Builds
+ *   recipe           no sshd: a host Manor starts itself. Builds
  *                    docker/host-image as manor-host:e2e and runs the
  *                    recipe-host vitest suite, which creates a recipe from the
  *                    `docker` template and drives the desktop's registry
  *                    against the container it starts (over `docker exec`).
  *                    Select with --recipe. Skipped, with a message, when
  *                    Docker is absent.
- *   k8s              no sshd: a kind cluster (ADR-231 D1). Uses `kind` and
+ *   k8s              no sshd: a kind cluster. Uses `kind` and
  *                    `kubectl` from PATH, else downloads pinned, checksummed
  *                    builds into ~/.cache/manor-e2e/bin. Creates the
  *                    `manor-e2e` cluster with its own kubeconfig (never
@@ -258,7 +258,7 @@ async function startMacTarget(tmp) {
       "# ForceCommand for the remote-host E2E sshd: an isolated HOME.",
       `HOME='${remoteHome}'`,
       `PATH='${process.env.PATH ?? "/usr/bin:/bin"}'`,
-      // The box's host server (ADR-225) dials MANOR_RELAY_URL. Never the
+      // The box's host server dials MANOR_RELAY_URL. Never the
       // production relay from a test box: a closed local port unless a spec
       // points it at its own local relay (helpers/remote-host.ts
       // `pointHostServerAtRelay`), through this file.

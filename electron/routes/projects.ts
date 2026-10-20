@@ -55,7 +55,7 @@ export const HERE = (): boolean => true;
  * resolves to nothing is the caller's mistake (404). Resolving the project
  * here means it is fetched exactly once per request, as before.
  *
- * A project on an adopted host is its server's (ADR-227 D4): the request
+ * A project on an adopted host is its server's: the request
  * goes there whole and runs through this same route (`./host-forward.ts`),
  * unless `here` says this one is answered here — a read the merged list
  * already has, a write `ProjectManager` fans out itself, or a create that
@@ -117,7 +117,7 @@ async function createOnHost(
   return true;
 }
 
-// ── Linked-project groups on the control surface (ADR-192 ticket 8) ──
+// ── Linked-project groups on the control surface ──
 
 /** One member of a linked group as `GET /projects` lists it. */
 interface GroupMemberListing {
@@ -617,7 +617,7 @@ export const projectRoutes: ServerRoute[] = [
           : undefined;
       const ops = ctx.deps.workspaceOps;
       // The op starts `worktreeStartScript` on the server, as it does for
-      // the UI (ADR-227 D5): no window need be open.
+      // the UI: no window need be open.
       const { project: updated } = await ops.create({
         projectId: project.id,
         name,

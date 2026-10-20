@@ -31,13 +31,13 @@ import { stripAnsi } from "./helpers/ansi";
 
 /**
  * The laptop is gone, and a phone still sees and steers an agent on a remote
- * host (ADR-225): the host's own Manor server, not the desktop's, answers it.
+ * host: the host's own Manor server, not the desktop's, answers it.
  *
  * 1. The desktop clones a project onto the box and starts the stub agent in a
  *    pane there.
  * 2. A browser is paired with the box's host server from the host's section of
- *    Settings → Hosts (host-only pairing has no button since ADR-233, so
- *    the helper mints it over the host bridge) — through a local relay the host
+ *    Settings → Hosts (host-only pairing has no button, so the helper mints
+ *    it over the host bridge) — through a local relay the host
  *    server dials, exactly as it would dial relay.manor.sh.
  * 3. The desktop loses the box: its alias becomes unreachable and its SSH
  *    connections are killed (what a closed lid does to them).
@@ -48,9 +48,9 @@ import { stripAnsi } from "./helpers/ansi";
  *      "responded" — live, with no desktop anywhere;
  *    - types into the agent's terminal, and the agent on the box echoes it.
  * 5. The desktop reconnects and replays the same journal: its agent state
- *    matches the host server's (D2, two readers of one journal).
+ *    matches the host server's (two readers of one journal).
  *
- * The host server owns its host's projects and layout (ADR-227 D2): the
+ * The host server owns its host's projects and layout: the
  * project the desktop cloned onto the box lives there, so the phone finds it
  * in its sidebar and types into the agent's pane. Adoption, and a phone that
  * makes a workspace and launches an agent, are `host-ownership.spec.ts`.
@@ -158,7 +158,7 @@ relayTest.describe("host server", () => {
         const page = client.page;
 
         // The pairing carries the host's name from the host server's hello:
-        // the box's own (ADR-225 D7).
+        // the box's own.
         const boxName = onRemote("hostname").stdout.trim();
         await expect
           .poll(
@@ -172,8 +172,8 @@ relayTest.describe("host server", () => {
           )
           .toEqual([boxName]);
 
-        // The host was adopted on the desktop's first connect (ADR-227 D3),
-        // so the project the desktop cloned onto it lives there (D4): the
+        // The host was adopted on the desktop's first connect,
+        // so the project the desktop cloned onto it lives there: the
         // phone's sidebar lists it, as the desktop's does.
         await expect(page.getByTestId("workspace-item").first()).toBeVisible({ timeout: 30_000 });
         await expect(page.getByText(PROJECT_NAME, { exact: true }).first()).toBeVisible();
@@ -236,7 +236,7 @@ relayTest.describe("host server", () => {
         const server = await phoneAgent();
         expect(server).not.toBeNull();
         // Each side names the agent's project from its own pane context; the
-        // desktop's replay is retired by ADR-227 ticket 9. Compared without.
+        // desktop's replay is retired. Compared without.
         expect({ ...agentState(server!), projectName: null }).toEqual({
           ...agentState(desktop),
           projectName: null,

@@ -1,6 +1,5 @@
 /**
- * Commands waiting for a pane that does not have a shell yet (ADR-179 ticket
- * 11).
+ * Commands waiting for a pane that does not have a shell yet.
  *
  * "Open a tab and run `pnpm dev` in it" is two things happening in two places:
  * a structural change, which the `LayoutStore` owns, and a line of text typed
@@ -19,8 +18,8 @@
  * `take` is destructive, so a second viewer's `pty.create` for the same pane
  * finds nothing and nobody's command is typed twice.
  *
- * Most entries wait for a renderer to mount their pane. A launch does not
- * (ADR-227 D5): an agent's startup line or a new workspace's setup script
+ * Most entries wait for a renderer to mount their pane. A launch does not:
+ * an agent's startup line or a new workspace's setup script
  * starts its session on the server as soon as its pane is in a tree
  * (`launchesOnApply`), so a host with no viewer still runs it.
  *
@@ -39,20 +38,20 @@ export interface PendingCommand {
   kind: PendingCommandKind;
   /**
    * Send it with Enter. Without, the text is only typed, for the user to
-   * review and run — a health-check fix-it command (ADR-178 ticket 5's "fix
-   * in terminal"). One queue for both (ADR-183).
+   * review and run — a health-check fix-it command ("fix in terminal").
+   * One queue for both.
    */
   submit: boolean;
   /**
    * An agent's first prompt, raw and unflattened, kept apart from `text`
-   * (the bare harness command) (ADR-209). `pty.create` writes it to a file
+   * (the bare harness command). `pty.create` writes it to a file
    * on the pane's host and types a short line that reads it, because a long
    * line typed into a fresh shell is cut at the tty's canonical line limit.
    */
   prompt?: string;
   /**
    * Taken once already and never delivered: its remote host dropped before
-   * the shell was ready (ADR-178 §6). The next `pty.create` for the pane
+   * the shell was ready. The next `pty.create` for the pane
    * types it even on a reattach, since the session it was meant for may have
    * survived on the host.
    */
@@ -62,7 +61,7 @@ export interface PendingCommand {
 export interface PendingCommandOptions {
   /** Defaults to true: run the command. */
   submit?: boolean;
-  /** An agent launch's prompt, delivered through a file (ADR-209). */
+  /** An agent launch's prompt, delivered through a file. */
   prompt?: string;
 }
 
@@ -107,7 +106,7 @@ export class PendingCommands {
 
   /**
    * Whether the pane's queued command starts its session the moment its pane
-   * joins a tree, rather than when a renderer mounts it (ADR-227 D5): an
+   * joins a tree, rather than when a renderer mounts it: an
    * agent launch or a setup script. A plain shell line still waits for a
    * viewer, who is the one that asked to watch it run.
    */

@@ -1,7 +1,7 @@
 /**
- * `POST /agents` — the launch route, server-side (ADR-179 ticket 11).
+ * `POST /agents` — the launch route, server-side.
  *
- * This is where ADR-176's guarantees live now. They used to be a correlated
+ * This is where the launch route's guarantees live now. They used to be a correlated
  * round-trip to a window, for one reason: the launch line had to be seeded
  * into the *sending renderer's* pending-command map. With that map on the
  * server both halves of a launch happen here, so what these tests pin is:
@@ -12,7 +12,7 @@
  *   retryable rather than reported as success;
  * - the launch is queued for exactly that pane, as the bare harness command
  *   with the prompt beside it, raw — `pty.create` delivers it through a file
- *   on the pane's host (ADR-209);
+ *   on the pane's host;
  * - and none of it needs a window.
  */
 
@@ -67,7 +67,7 @@ describe("POST /agents", () => {
   /**
    * A project manager that owns `WS` with an `agentCommand` of its own — and,
    * with `remoteCommand`, a remote project on host "box" that lists the very
-   * same path (ADR-191).
+   * same path.
    */
   function projectManager(agentCommand: string | null, remoteCommand?: string) {
     const ws = [{ path: WS, branch: "main", isMain: false, name: "ws" }];
@@ -128,7 +128,7 @@ describe("POST /agents", () => {
   });
 
   it("resolves the command from the requested workspace's project", async () => {
-    // The ADR-176 regression in its new home: a launch aimed at one workspace
+    // The old regression in its new home: a launch aimed at one workspace
     // must not pick up another's command, and there is no "active" workspace
     // here to pick up in the first place.
     const res = await call(deps, { workspacePath: WS });
@@ -178,7 +178,7 @@ describe("POST /agents", () => {
     expect(queued?.prompt).toBe("go");
   });
 
-  it("refuses the Dashboard, which hosts no panes (ADR-197)", async () => {
+  it("refuses the Dashboard, which hosts no panes", async () => {
     const res = await call(deps, { workspacePath: HOME_PATH, prompt: "go" });
 
     expect(res.status).toBe(400);
@@ -186,7 +186,7 @@ describe("POST /agents", () => {
     expect(store.pendingCommands.size).toBe(0);
   });
 
-  it("opens the tab on the named host's workspace, with that project's command (ADR-191)", async () => {
+  it("opens the tab on the named host's workspace, with that project's command", async () => {
     deps.projectManager = projectManager(PROJECT_COMMAND, "codex");
 
     const res = await call(deps, { workspacePath: WS, hostId: "box" });
@@ -197,7 +197,7 @@ describe("POST /agents", () => {
     expect(store.pendingCommands.take(res.body.paneId)?.text).toBe("codex");
   });
 
-  it("queues the prompt raw — unescaped and unflattened (ADR-209)", async () => {
+  it("queues the prompt raw — unescaped and unflattened", async () => {
     // The exact shape `renderPrompt` (routes/projects.ts) builds for the
     // default batch prompt. It reaches the agent through a file on the pane's
     // host, so its quotes, `$` and newlines arrive as written; nothing here is

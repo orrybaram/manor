@@ -5,7 +5,7 @@ import { Button } from "../ui/Button/Button";
 import { ipcErrorMessage } from "../../lib/ipc-error";
 
 /**
- * One pane's render error stays in that pane (ADR-232 D3): its siblings, the
+ * One pane's render error stays in that pane: its siblings, the
  * tab bar and the sidebar keep working, and "Reload pane" remounts it.
  */
 export function PaneErrorBoundary(props: { paneId: string; children: ReactNode }) {

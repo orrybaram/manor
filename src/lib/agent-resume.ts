@@ -16,7 +16,7 @@ import { parseWorkspaceKey } from "./workspace-key";
  */
 export function resumeAgent(agent: AgentInfo): void {
   const { projects } = useProjectStore.getState();
-  // The agent's workspace, on its host (ADR-191).
+  // The agent's workspace, on its host.
   const agentKey = agentWorkspaceKey(agent, projects);
   // If the agent is active and has a pane, switch to it instead of opening a new tab
   if (agent.status === "active" && agent.paneId && agentKey) {
@@ -37,7 +37,7 @@ export function resumeAgent(agent: AgentInfo): void {
   }
 
   const wsPath = agent.workspacePath;
-  // The Dashboard hosts no panes (ADR-197 §2), so a Home agent has
+  // The Dashboard hosts no panes, so a Home agent has
   // nowhere to resume into.
   if (isHomePath(wsPath)) {
     useToastStore.getState().addToast({
@@ -59,7 +59,7 @@ export function resumeAgent(agent: AgentInfo): void {
       agentProject?.agentCommand ??
       DEFAULT_AGENT_COMMAND;
     // Don't consume prewarmed — resume needs a specific --resume command.
-    // The line is queued on the server (ADR-179 ticket 11).
+    // The line is queued on the server.
     useAppStore
       .getState()
       .addTerminalTab(`${agentCommand} --resume ${agent.agentSessionId}`, {

@@ -1,5 +1,5 @@
 /**
- * The relay connector end to end (ADR-206 D5): a real `ws` relay in-process,
+ * The relay connector end to end: a real `ws` relay in-process,
  * a viewer running the real Noise initiator, the real `RelayGate` in front of
  * the real `WsBridgeServer` hello gate — only the bridge's handler table is a
  * stub.

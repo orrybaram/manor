@@ -6,16 +6,16 @@ import { useHostStore } from "../store/host-store";
 import { remoteHostByPane, useRemotePaneStore } from "../store/remote-pane-store";
 import { useToastStore } from "../store/toast-store";
 
-/** This window's panes, as of now — computed once per event (ADR-183). */
+/** This window's panes, as of now — computed once per event. */
 const thisWindowsPanes = () => windowPaneIds(useAppStore.getState().workspaceLayouts);
 
 /**
  * Recover this window's panes on a remote host each time it comes back from
- * a drop (ADR-178 §6; see `lib/remote-recovery`), and create the panes that
+ * a drop (see `lib/remote-recovery`), and create the panes that
  * were waiting for a host that was away when they opened — the app launched
  * while it was down, or a pane opened on it since — once it connects.
  *
- * A host this window holds its own bridge to (ADR-228 D4) is its pane's
+ * A host this window holds its own bridge to is its pane's
  * source once that bridge is back, so both wait for it first
  * (`whenDirectSettled`): a remount any sooner would go through main.
  */
@@ -56,7 +56,7 @@ export function useRemoteRecovery() {
     );
 
     // A waiting pane remounts once its host connects, and its mount creates
-    // the session as on relaunch (ADR-144): a fresh shell in its cwd that
+    // the session as on relaunch: a fresh shell in its cwd that
     // resumes the pane's agent, or the session itself if the host kept it.
     const connected = new Set(
       useHostStore

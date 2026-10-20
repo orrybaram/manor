@@ -7,8 +7,8 @@ type HomeEmptyStateProps = {
 };
 
 /**
- * The Dashboard surface (internally "home"): the full-width Studio dashboard
- * (ADR-198). No launchers — the Dashboard never holds tabs (ADR-197).
+ * The Dashboard surface (internally "home"): the full-width Studio dashboard.
+ * No launchers — the Dashboard never holds tabs.
  */
 export function HomeEmptyState(props: HomeEmptyStateProps) {
   const { onNewWorkspace } = props;

@@ -12,7 +12,7 @@ vi.mock("electron", () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
-describe("validateRepoUrl (ADR-178 ticket 5)", () => {
+describe("validateRepoUrl", () => {
   it.each([
     "https://github.com/org/repo.git",
     "https://github.com/org/repo",
@@ -29,15 +29,14 @@ describe("validateRepoUrl (ADR-178 ticket 5)", () => {
     "https://github.com/org/repo.git; rm -rf /",
     "-oProxyCommand=whoami",
     // scp-style user part starting with `-` — otherwise a valid-looking
-    // remote that `git clone` could misread as an option (ADR-178 ticket 5
-    // review).
+    // remote that `git clone` could misread as an option.
     "-oProxyCommand=whoami@github.com:org/repo.git",
   ])("rejects %s", (url) => {
     expect(() => validateRepoUrl(url)).toThrow();
   });
 });
 
-describe("validateRemoteDir (ADR-178 ticket 5)", () => {
+describe("validateRemoteDir", () => {
   it.each(["/srv/app", "~/code/repo", "~", "/home/user/my-app_2"])(
     "accepts %s",
     (dir) => {
@@ -57,7 +56,7 @@ describe("validateRemoteDir (ADR-178 ticket 5)", () => {
   });
 });
 
-describe("normalizeOriginUrl (ADR-178 ticket 5 review)", () => {
+describe("normalizeOriginUrl", () => {
   it("treats git@host:path, ssh://git@host/path and https://host/path as the same identity", () => {
     const forms = [
       "git@github.com:org/repo.git",
@@ -128,7 +127,7 @@ describe("describeCloneFailure", () => {
   });
 });
 
-describe("resolveCloneDir (ADR-194)", () => {
+describe("resolveCloneDir", () => {
   const home = async () => "/home/me";
   const join = (...parts: string[]) => path.posix.join(...parts);
 
@@ -154,7 +153,7 @@ describe("resolveCloneDir (ADR-194)", () => {
   });
 });
 
-describe("ProjectManager.cloneProject (ADR-178 ticket 5)", () => {
+describe("ProjectManager.cloneProject", () => {
   let tmpDir: string;
 
   beforeEach(() => {
@@ -238,7 +237,7 @@ describe("ProjectManager.cloneProject (ADR-178 ticket 5)", () => {
     } as unknown as ShellBackend;
   }
 
-  it("clones onto the local host too (ADR-194)", async () => {
+  it("clones onto the local host too", async () => {
     const git = fakeGit();
     const mgr = new ProjectManager(hostsOf(git, fakeShell("/home/u")), tmpDir);
     const project = await mgr.cloneProject({

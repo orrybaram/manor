@@ -9,7 +9,7 @@ import {
 } from "./fixtures";
 
 /**
- * The selection is this renderer's and survives a relaunch (ADR-179 D3).
+ * The selection is this renderer's and survives a relaunch.
  *
  * Layout is the Manor server's — the tab set comes back because the server
  * persisted it. *Which* tab is selected is not: it lives in this window's own

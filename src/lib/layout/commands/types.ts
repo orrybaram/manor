@@ -1,5 +1,5 @@
 /**
- * The layout command vocabulary (ADR-179 D1/D2, ADR-182 D6): every command,
+ * The layout command vocabulary: every command,
  * the reopen stack's entries, and the reducer's input and output.
  */
 
@@ -166,7 +166,7 @@ export interface LayoutState {
 export interface LayoutResult extends LayoutState {
   /** Panes that left the tree for good; the host ends their sessions. */
   killPanes: string[];
-  /** What the command implies about the sender's selection (ADR-179 D3). */
+  /** What the command implies about the sender's selection. */
   hint?: LayoutHint;
 }
 

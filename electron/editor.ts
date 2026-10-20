@@ -1,6 +1,6 @@
 /**
  * Open a directory in the user's configured editor. Shared by the
- * `shell:openInEditor` IPC handler and, once ADR-171's system routes land,
+ * `shell:openInEditor` IPC handler and, once the system routes land,
  * the `/shell/open-in-editor` route.
  */
 

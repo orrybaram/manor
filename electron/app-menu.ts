@@ -1,5 +1,5 @@
 /**
- * The native application menu controller (ADR-170 §4).
+ * The native application menu controller.
  *
  * `installAppMenu` builds the menu from `buildMenuTemplate`, installs it with
  * `Menu.setApplicationMenu`, and keeps it fresh: a keybinding override, a
@@ -102,7 +102,7 @@ export function installAppMenu(deps: AppMenuDeps): AppMenuController {
         deps.getRendererWindows(),
       );
       if (!isLive(target)) return;
-      // ADR-180 D5: one of the two addressed pushes — the menu item was
+      // One of the two addressed pushes — the menu item was
       // clicked *for* a window, and every native menu item in the app comes
       // through here. A window with no connection has not installed the
       // bridge yet and could not have heard the old channel either.

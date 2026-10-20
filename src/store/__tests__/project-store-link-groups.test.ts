@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useProjectStore, type ProjectGroupInfo, type ProjectInfo } from "../project-store";
 import { useToastStore } from "../toast-store";
 
-// Linked-project groups (ADR-192): the store's link and unlink actions, and
+// Linked-project groups: the store's link and unlink actions, and
 // the collapsed-group key they leave behind.
 
 const api = {

@@ -11,7 +11,7 @@ import { StateStore } from "./state-store";
 const ctx = { appVersion: "1.2.3" };
 const recipeSpec = { kind: "recipe" as const, recipeId: "kubernetes-manor-web" };
 
-describe("HostProfiles (ADR-235 D1)", () => {
+describe("HostProfiles", () => {
   let dir: string;
 
   beforeEach(() => {
@@ -79,7 +79,7 @@ describe("HostProfiles (ADR-235 D1)", () => {
     expect(edited.signIn).toEqual(signIn);
   });
 
-  it("sets and clears sign-in metadata, persisting it (ADR-235 D9)", () => {
+  it("sets and clears sign-in metadata, persisting it", () => {
     const { profiles } = open();
     const saved = profiles.save({ name: "Work", templateId: "kubernetes", values: { context: "kind-test" } }, ctx);
     profiles.setSignIn(saved.id, "github", { setAt: 1, source: "gh" });
@@ -160,7 +160,7 @@ describe("HostProfiles (ADR-235 D1)", () => {
   });
 });
 
-describe("HostRecords profileId / forProject (ADR-235 D1, D5)", () => {
+describe("HostRecords profileId / forProject", () => {
   let dir: string;
 
   beforeEach(() => {
@@ -190,7 +190,7 @@ describe("HostRecords profileId / forProject (ADR-235 D1, D5)", () => {
     expect(saved.hosts.h1).not.toHaveProperty("forProject");
   });
 
-  it("clears forProject on hosts naming a removed project (ADR-235 D6)", () => {
+  it("clears forProject on hosts naming a removed project", () => {
     const hosts = new HostRecords(new StateStore(dir));
     hosts.save("h1", recipeSpec);
     hosts.save("h2", recipeSpec);
@@ -208,7 +208,7 @@ describe("HostRecords profileId / forProject (ADR-235 D1, D5)", () => {
   });
 });
 
-describe("listTemplates perHost (ADR-235 D1)", () => {
+describe("listTemplates perHost", () => {
   it("names each bundled template's per-host fields", () => {
     const perHost = Object.fromEntries(listTemplates(ctx).map((t) => [t.id, t.perHost]));
     expect(perHost).toEqual({ docker: ["name"], kubernetes: ["name"] });

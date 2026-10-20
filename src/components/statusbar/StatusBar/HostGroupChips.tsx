@@ -13,7 +13,7 @@ import popoverStyles from "../../hosts/HostPopover.module.css";
 import styles from "./HostGroupChips.module.css";
 
 /**
- * A profile's hosts in the status bar (ADR-235 D7): one chip per profile,
+ * A profile's hosts in the status bar: one chip per profile,
  * "<profile>: N of M running", opening to the hosts it covers. A host in
  * `error` is also shown on its own, so a failure is never folded away.
  * Nothing at all when no host came from a profile.

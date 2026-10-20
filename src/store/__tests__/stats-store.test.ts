@@ -50,7 +50,7 @@ describe("useStatsStore", () => {
     expect(useStatsStore.getState().loaded).toBe(true);
   });
 
-  it("records a failed read and clears it on a successful retry (ADR-232 D7)", async () => {
+  it("records a failed read and clears it on a successful retry", async () => {
     useStatsStore.setState({ loadError: null });
     statsApi.getSummary.mockRejectedValueOnce(new Error("main is busy"));
     await useStatsStore.getState().retry();

@@ -1,5 +1,5 @@
 /**
- * Away and back (ADR-178 §6): what a window does when one of its remote
+ * Away and back: what a window does when one of its remote
  * hosts comes back after a drop.
  *
  * Main announces `hosts:reconnected` once the host's state is in, with
@@ -11,7 +11,7 @@
  *   and restores from the session's snapshot.
  * - **lost** — the daemon restarted (the box rebooted, the daemon was
  *   killed) and took the session with it. It goes through the same path a
- *   pane takes on app relaunch (ADR-144): a fresh shell in the pane's cwd,
+ *   pane takes on app relaunch: a fresh shell in the pane's cwd,
  *   and if the pane had an agent, the agent connector's resume command, run
  *   once the shell is ready. The window says so once: "Remote host
  *   restarted — N sessions resumed".

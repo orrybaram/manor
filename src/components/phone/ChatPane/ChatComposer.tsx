@@ -20,23 +20,23 @@ type ChatComposerProps = {
   /** The transcript the chat shows, which a `/clear` leaves behind. Absent
    *  while the chat is already fresh. */
   transcript?: string;
-  /** The session's context size, for the status line (ADR-223 D4). */
+  /** The session's context size, for the status line. */
   contextTokens?: number | null;
-  /** Tasks running in the chat, for the status line's chip (ADR-224 D4). */
+  /** Tasks running in the chat, for the status line's chip. */
   runningTasks?: number;
 };
 
 /**
- * The chat's input (ADR-215 D7): typed text goes to the pane's PTY as a
+ * The chat's input: typed text goes to the pane's PTY as a
  * prompt (`chat.send`), and Stop is Esc (`chat.interrupt`).
  *
  * One round button inside the field sends, and turns into Stop while Claude
  * works. Typing mid-turn turns it back into Send, which Claude Code queues,
  * with a smaller Stop beside it.
  *
- * Typing `/` at the start opens the command menu (ADR-217 D5). Sending a
+ * Typing `/` at the start opens the command menu. Sending a
  * command that opens a TUI menu (`commandEffect`) hands the pane to the
- * terminal, where that menu is, until it closes (ADR-218 D3). Sending `/clear` leaves the old
+ * terminal, where that menu is, until it closes. Sending `/clear` leaves the old
  * conversation behind for a fresh chat.
  *
  * `data-keyboard-lift` is what `KeyboardLift` looks for: while this has

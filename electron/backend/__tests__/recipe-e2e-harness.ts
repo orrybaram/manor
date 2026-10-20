@@ -1,5 +1,5 @@
 /**
- * The desktop's side of the recipe-host E2E suites (ADR-231 D2), shared by
+ * The desktop's side of the recipe-host E2E suites, shared by
  * the Docker and Kubernetes suites: the real `BackendRegistry` with a real
  * `RecipeHostProvider`, a `HostRouting`, and the helpers that drive a host
  * server through them. Everything that touches the box goes through a

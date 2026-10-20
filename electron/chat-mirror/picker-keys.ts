@@ -1,6 +1,6 @@
 /**
- * Keystrokes that answer Claude Code's pickers from outside its TUI
- * (ADR-215 D5). The chat view writes these into the agent's PTY.
+ * Keystrokes that answer Claude Code's pickers from outside its TUI.
+ * The chat view writes these into the agent's PTY.
  *
  * Established by `scripts/spike-picker-keys.mjs` against Claude Code 2.1.296
  * (2026-10-10). Rerun it when Claude Code's picker changes, and re-pin here.

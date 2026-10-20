@@ -4,7 +4,6 @@ import { addErrorToast, useToastStore } from "../../store/toast-store";
 
 type Handler = (event: PromiseRejectionEvent) => void;
 
-/** ADR-232 D2. */
 describe("installUnhandledRejectionToasts", () => {
   let handler: Handler | null = null;
   let uninstall: () => void;

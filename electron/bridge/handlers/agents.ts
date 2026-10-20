@@ -102,7 +102,7 @@ async function fallbackAgentCommand(
 /**
  * Records which project/workspace a pane belongs to, so the sidebar's
  * per-pane agent metadata (and a later agent record for that pane) has a
- * project to point at. A write — this is why it is `mutating` on the ADR-178
+ * project to point at. A write — this is why it is `mutating` on the
  * bridge, audited by paneId the same way `pty.create` is.
  */
 export function agentsSetPaneContext(
@@ -171,7 +171,7 @@ export function agentsDelete(
 
 /**
  * Clears both unseen Sets for `agentId`, marks its notification-log entries
- * read (ADR-162 §6 — the bell must not keep an indicator up for a session
+ * read (the bell must not keep an indicator up for a session
  * already on screen), and re-broadcasts so the renderer cache reflects the
  * cleared flags. The agent record itself didn't mutate, but `sendAgentUpdate`
  * ships the unseen flags alongside it — this is what keeps main authoritative
@@ -209,7 +209,7 @@ export function agentsMarkResumed(
 
 /**
  * What ending a pane's agent needs: the record, the stats, the dock badge,
- * and the Status reconciler that owns the lifecycle (ADR-184).
+ * and the Status reconciler that owns the lifecycle.
  */
 type AbandonDeps = Pick<
   ServerDeps,
@@ -233,7 +233,7 @@ function abandonAgentForPane(
   // so the reconciler's broadcast carries it.
   const nameUpdate = !agent.name && title ? cleanAgentTitle(title) : null;
   const named = nameUpdate ? agentManager.updateAgent(agent.id, { name: nameUpdate }) : null;
-  // The lifecycle is the Status reconciler's to write (ADR-184): it moves
+  // The lifecycle is the Status reconciler's to write: it moves
   // the Agent to 'abandoned', broadcasts it, and resets the pane's status.
   const result = agentStatus.signal(paneId, { type: "user", action: "abandon" });
   const persisted = result.effects.some(
@@ -265,7 +265,7 @@ export function createAgentService(deps: AbandonDeps): AgentService {
  * The desktop's `agents` namespace: the shared reads (`./agents-read.ts`,
  * which the host server lists too) and the desktop-only writes above.
  *
- * Routed (ADR-227 D4): the reads merge every adopted host's agents, a pane's
+ * Routed: the reads merge every adopted host's agents, a pane's
  * context goes to the host whose layout holds the pane, and a write by agent
  * id goes to the host whose server holds the agent.
  */
@@ -276,7 +276,7 @@ export const agents = {
   getRecent: method(agentsGetRecent, { route: LOCAL_ROUTE }),
   getUnseen: method(agentsGetUnseen, { route: LOCAL_ROUTE }),
   // Every pane's published Agent status, for a renderer that starts after
-  // some were already sent (ADR-184 ticket 5) — a browser always is one.
+  // some were already sent — a browser always is one.
   getPaneStatuses: method(agentsGetPaneStatuses, { route: LOCAL_ROUTE }),
   consumePruneNotice: method(agentsConsumePruneNotice, { route: LOCAL_ROUTE }),
   buildResumeCommand: method(agentsBuildResumeCommand, { route: LOCAL_ROUTE }),

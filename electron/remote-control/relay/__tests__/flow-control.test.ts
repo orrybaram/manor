@@ -1,5 +1,5 @@
 /**
- * Flow control and liveness on the host socket (ADR-206, amendments after
+ * Flow control and liveness on the host socket (amendments after
  * review): the desktop's uplink is throttled by a TCP proxy, the viewers talk
  * to the relay directly. Real connector, real `RelayChannel`s, real bridge
  * hello gate; only the bridge's handler table is a stub.

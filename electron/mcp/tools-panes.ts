@@ -1,8 +1,7 @@
 /**
  * MCP tools for pane and layout management: split panes, open terminal/browser
  * tabs, focus and close panes, plus the wider tab/pane control surface (select,
- * pin, reorder, move, extract, reopen) and workspace switching. See ADR-149,
- * ADR-171.
+ * pin, reorder, move, extract, reopen) and workspace switching.
  */
 
 import { resolveWorkspacePath } from "./context";

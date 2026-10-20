@@ -1,4 +1,4 @@
-// Pure view model for the sidebar's workspace list (ADR-167, ADR-172).
+// Pure view model for the sidebar's workspace list.
 //
 // `ProjectInfo.sidebarOrder` is a single normalized, depth-first array of
 // workspace paths and folder ids. This module turns that array into an
@@ -7,9 +7,9 @@
 // the store, or IPC — the drag hook only produces a `DropTarget`, and the
 // store only persists what `serializeOrder` returns.
 //
-// Since ADR-172 folders nest: structure comes from the links (`parentId` for
-// folders, `folderId` for workspaces) and position from `sidebarOrder`, so
-// every function below is the recursive form of its ADR-167 self.
+// Folders nest: structure comes from the links (`parentId` for folders,
+// `folderId` for workspaces) and position from `sidebarOrder`, so every
+// function below is the recursive form of its flat self.
 
 import type {
   ProjectGroupInfo,
@@ -505,7 +505,7 @@ export function placeAfterFolder(
  * folder the row already lives in*, so the group it creates sits where the eye
  * already is and at the depth the eye is already at — "New Folder…" on a
  * workspace nested in `epic` makes `epic / new-folder` holding that workspace,
- * not a sibling of `epic` (ADR-172). An anchor the tree has never heard of
+ * not a sibling of `epic`. An anchor the tree has never heard of
  * appends at the top level, and an existing item for the same folder is moved
  * rather than duplicated.
  */
@@ -527,7 +527,7 @@ export function insertFolderBefore(
 }
 
 /**
- * Depth-first order of every visible workspace path (ADR-190 §1): a
+ * Depth-first order of every visible workspace path: a
  * collapsed folder hides its members at any depth, exactly like `flattenRows`
  * hides them as rows, so a shift-click range and the flattened row list agree
  * on what's "between" two workspaces.
@@ -552,7 +552,7 @@ export function visibleWorkspacePaths(
 }
 
 /**
- * Bulk "Move to Folder" (ADR-190 §2): append each of `keys`, in the given
+ * Bulk "Move to Folder": append each of `keys`, in the given
  * order, to F — one `placeInFolder` per key, so a key missing from the tree
  * or a folder headed for its own subtree is skipped exactly as a single move
  * would be.
@@ -566,7 +566,7 @@ export function placeManyInFolder(
 }
 
 /**
- * Bulk "Remove from Folder" (ADR-190 §2): every key that lives in a folder
+ * Bulk "Remove from Folder": every key that lives in a folder
  * leaves it for the slot right after, `placeAfterFolder`'s rule applied to
  * each. Keys that share a folder keep their relative tree order in the block
  * that lands after it; a loose key is untouched.
@@ -653,7 +653,7 @@ function keysInTreeOrder(items: SidebarItem[], keys: Set<string>): string[] {
 }
 
 /**
- * Multi-drag (ADR-190 §3): moves `groupKeys` together, following the source
+ * Multi-drag: moves `groupKeys` together, following the source
  * row's drop target. A group of one behaves exactly like `applyDrop`. An
  * `into` target appends the whole group, in tree order, via
  * `placeManyInFolder`. A `slot` target resolves the landing position against
@@ -717,7 +717,7 @@ export function applyGroupDrop(
   return insertBlock(base, at.parentId, at.index + 1, block);
 }
 
-// ── Selection scope: a project, or a group's host sections (ADR-192 t7) ──
+// ── Selection scope: a project, or a group's host sections ──
 
 /**
  * A selected row's key: its member project and its path. Two hosts of one
@@ -800,7 +800,7 @@ export type SectionSelection<P extends Pick<ProjectInfo, "id"> = ProjectInfo> = 
  * against its own member project. Sections with nothing selected are left
  * out. Within a section, rows on screen come first, in tree order, then any
  * a collapsed folder or section hides — the order a bulk "New Folder" and a
- * group drag place them in (ADR-190 §2). A key naming no row in the tree (a
+ * group drag place them in. A key naming no row in the tree (a
  * workspace since deleted or hidden) is dropped, so a stale entry can never
  * drive a bulk action on a row that isn't shown.
  */
@@ -833,7 +833,7 @@ export function selectionBySection<P extends Pick<ProjectInfo, "id">>(
   return result;
 }
 
-// ── Top level: projects and linked-project groups (ADR-192) ──
+// ── Top level: projects and linked-project groups ──
 
 type TopLevelProject = Pick<
   ProjectInfo,

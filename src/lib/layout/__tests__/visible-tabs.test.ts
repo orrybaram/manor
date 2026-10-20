@@ -1,8 +1,8 @@
 /**
- * Who sees which tab (ADR-179 D4).
+ * Who sees which tab.
  *
  * Three renderers, one claim list, three different answers — and the third is
- * the one the ADR insists on: a browser sees the whole workspace, because a
+ * the one that matters most: a browser sees the whole workspace, because a
  * claim is about a desktop window's chrome and not about what exists.
  */
 

@@ -4,13 +4,13 @@ import { find } from "./workspace-directory";
 import { parseWorkspaceKey, type WorkspaceKey } from "./workspace-key";
 
 /**
- * A workspace's display name: "Dashboard" for the Home surface (ADR-197),
+ * A workspace's display name: "Dashboard" for the Home surface,
  * which has no owning project or workspace record; otherwise its name, then
  * its branch, then the last segment of its path, so a workspace with neither
  * still shows something. Empty for no workspace at all.
  *
  * By key, so a local and a remote workspace at one path each name their own
- * workspace (ADR-191).
+ * workspace.
  */
 export function workspaceDisplayName(
   key: WorkspaceKey | null | undefined,

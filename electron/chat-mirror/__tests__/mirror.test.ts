@@ -165,7 +165,7 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory(PANE)).toEqual({ ok: false, reason: "no-transcript" });
     });
 
-    it("has no chat for an agent without an adapter (ADR-224 D1)", async () => {
+    it("has no chat for an agent without an adapter", async () => {
       agent = {
         hostId: "local",
         agentKind: "codex",
@@ -177,7 +177,7 @@ describe("ChatMirror", () => {
       });
     });
 
-    it("reads an agent on a remote host through its source (ADR-216 D4)", async () => {
+    it("reads an agent on a remote host through its source", async () => {
       agent = { hostId: "devbox", agentKind: "claude", transcriptPath: file("t.jsonl", user("u1", "hi")) };
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
@@ -203,7 +203,7 @@ describe("ChatMirror", () => {
     });
   });
 
-  describe("commands (ADR-217 D3)", () => {
+  describe("commands", () => {
     function listing(names: Record<string, string>, isInitial = true): string {
       return line({
         type: "attachment",
@@ -551,7 +551,7 @@ describe("ChatMirror", () => {
     });
   });
 
-  describe("task streams (ADR-224 D3)", () => {
+  describe("task streams", () => {
     /** The parent at `<dir>/sess.jsonl`, and agent `agentId`'s transcript beside it. */
     function session(parent: string): string {
       fs.mkdirSync(path.join(dir, "sess", "subagents"), { recursive: true });
@@ -703,7 +703,7 @@ describe("ChatMirror", () => {
   });
 });
 
-describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
+describe("ChatMirror — poke and poll", () => {
   /** A source with no `watch`, whose reads finish when the test says. */
   let reads: { offset: number; finish: (r: TranscriptRead) => void }[];
   let agent: PaneAgent | null;
@@ -872,7 +872,7 @@ describe("ChatMirror — poke and poll (ADR-216 D3)", () => {
   });
 });
 
-describe("ChatMirror — task streams on a source without watch (ADR-224 D3)", () => {
+describe("ChatMirror — task streams on a source without watch", () => {
   const PARENT = "/remote/sess.jsonl";
   const CHILD = "/remote/sess/subagents/agent-ag1.jsonl";
   let files: Map<string, string>;

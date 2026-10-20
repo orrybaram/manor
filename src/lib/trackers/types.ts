@@ -1,5 +1,5 @@
 /**
- * ADR-202 §2: the tracker port. Each task tracker (GitHub, Linear) is one
+ * The tracker port. Each task tracker (GitHub, Linear) is one
  * adapter behind `TaskTracker`, so the task list never branches on the
  * provider. Query descriptors are plain objects — hooks run them; no React
  * here.
@@ -41,7 +41,7 @@ export interface TaskTracker {
   refFromLink(link: LinkedIssue, project: ProjectInfo): TaskRef;
   /**
    * The task's normalised detail, under `["task-detail", provider, …]` — a
-   * key nothing else caches a different shape under (ADR-208 §1).
+   * key nothing else caches a different shape under.
    */
   detailQuery(ref: TaskRef): TrackerQuery<TaskDetail>;
   /**

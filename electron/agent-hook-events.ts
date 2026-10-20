@@ -6,7 +6,7 @@
  * in-process types: it validates required fields, gates Notification by
  * notificationKind, and stamps each variant with its derived AgentStatus.
  *
- * The Status reconciler (ADR-184, `electron/agent-status/`) reads `event.status`
+ * The Status reconciler (`electron/agent-status/`) reads `event.status`
  * directly as a `hook` Status signal; nothing else needs to know how
  * `eventType` maps to status.
  */
@@ -17,13 +17,12 @@ import { getAllAgentKinds } from "./agent-connectors";
 interface EventBase {
   paneId: string;
   sessionId: string | null;
-  /** Path of the session's JSONL transcript (ADR-215), null when not supplied. */
+  /** Path of the session's JSONL transcript, null when not supplied. */
   transcriptPath: string | null;
   agentKind: AgentKind;
   /**
    * The subagent's id, present on every hook a subagent sends (including
-   * its own tool hooks) and null on the root session's own hooks. See
-   * ADR-186.
+   * its own tool hooks) and null on the root session's own hooks.
    */
   agentId: string | null;
 }
@@ -184,7 +183,7 @@ export function hookRequestParams(rawUrl: string | undefined): URLSearchParams |
 
 /**
  * What a hook HTTP listener should do with a request. Shared by the local
- * `AgentHookServer` and the remote daemon's hook listener (ADR-178 §2), so
+ * `AgentHookServer` and the remote daemon's hook listener, so
  * both accept exactly the same requests:
  *
  * - `status: 404` — no URL, or not `/hook/event`.

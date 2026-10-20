@@ -101,14 +101,14 @@ import { CountBadge } from "../ui/CountBadge/CountBadge";
 
 interface WorkspaceItemProps {
   ws: WorkspaceInfo;
-  /** The host of the workspace's project (ADR-191). */
+  /** The host of the workspace's project. */
   hostId: string;
   /** True for the workspace currently open — matched by path, never by index. */
   isActive: boolean;
-  /** True when this row is part of the sidebar multi-select (ADR-190). */
+  /** True when this row is part of the sidebar multi-select. */
   isSelected: boolean;
   isDragging: boolean;
-  /** Another row of the live group drag: dimmed, not lifted (ADR-190 §3). */
+  /** Another row of the live group drag: dimmed, not lifted. */
   isGroupDragging: boolean;
   /** Size of the group this row is leading in a drag; badged when 2+. */
   dragGroupCount: number;
@@ -121,7 +121,7 @@ interface WorkspaceItemProps {
   dragStyle: React.CSSProperties | undefined;
   justDragged: React.RefObject<boolean>;
   itemRefCallback: (el: HTMLDivElement | null) => void;
-  /** A click the drag didn't swallow; plain, Shift or Cmd/Ctrl (ADR-190 §1). */
+  /** A click the drag didn't swallow; plain, Shift or Cmd/Ctrl. */
   onRowClick: (e: React.MouseEvent) => void;
   onRowKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => void;
   onPointerDown: (e: React.PointerEvent) => void;
@@ -174,7 +174,7 @@ const WorkspaceItem = React.forwardRef<
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
   const { onCelebrate, celebrationProps } = useCelebration();
   // A remote workspace's PR badge comes from the box's own `gh`; where that
-  // isn't signed in there is none to show, and this says why (ADR-227 D7).
+  // isn't signed in there is none to show, and this says why.
   const ghMissing = useGhHostStore((s) => !!s.missing[hostId]);
   const ghHostServerName = useServerHostName(hostId);
   const ghHostName = useHostStore((s) => ghHostServerName ?? hostSentenceName(hostId, s.hosts));
@@ -249,7 +249,7 @@ const WorkspaceItem = React.forwardRef<
               <span className={styles.workspaceName} data-testid="workspace-name">{displayName}</span>
               {ws.diffStats &&
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
-                  // A real button nested inside the row (ADR-175): the row's
+                  // A real button nested inside the row: the row's
                   // own key handler only acts when `e.target ===
                   // e.currentTarget`, so Enter/Space here open the diff
                   // instead of the workspace.
@@ -327,7 +327,7 @@ const WorkspaceItem = React.forwardRef<
 });
 
 /**
- * A host heading's label (ADR-193 §3): host icon and name. A remote host's
+ * A host heading's label: host icon and name. A remote host's
  * icon is `HostIndicator`'s, so it crosses out while away and opens the host
  * popover. The heading stays dim whatever the state: the crossed-out glyph
  * says enough without pulling the eye. Used by a linked group's section
@@ -344,7 +344,7 @@ function SectionHostLabel(props: {
   const { hostId, projectId, path, label, collapsedCount } = props;
   const remote = isRemoteHost(hostId);
   // A sleeping host says so in words: its glyph alone is easy to miss on a
-  // phone (ADR-229 D7).
+  // phone.
   const asleep = useHostDisplay(remote ? hostId : null)?.tone === "asleep";
 
   return (
@@ -374,7 +374,7 @@ function SectionHostLabel(props: {
 
 /**
  * `project`: a lone project's entry. `section`: one host's section of a
- * linked group (ADR-192).
+ * linked group.
  */
 export type ProjectItemVariant = "project" | "section";
 
@@ -393,7 +393,7 @@ type ProjectItemProps = {
   onUnhideWorkspace: (ws: WorkspaceInfo) => void;
   /**
    * `projectId` is this project, or — for a linked project — the member the
-   * New Workspace host picker chose (ADR-192).
+   * New Workspace host picker chose.
    */
   onCreateWorktree: (
     projectId: string,
@@ -411,15 +411,15 @@ type ProjectItemProps = {
   onQuickMergeWorktree?: (ws: WorkspaceInfo) => void;
   onOpenDiff?: (wsIndex: number) => void;
   /**
-   * `section`: this project is one host's section of a linked group
-   * (ADR-192). Its header shows the host rather than the project, and the
+   * `section`: this project is one host's section of a linked group.
+   * Its header shows the host rather than the project, and the
    * group row above it carries the name, color and drag.
    */
   variant?: ProjectItemVariant;
   /**
    * The selection this project's rows share. A section passes its group's,
-   * so ranges, toggles and bulk actions span the group's host sections
-   * (ADR-192 ticket 7); absent, the project is a scope of its own.
+   * so ranges, toggles and bulk actions span the group's host sections;
+   * absent, the project is a scope of its own.
    */
   selectionScope?: SelectionScope;
 };
@@ -451,7 +451,7 @@ export function ProjectItem(props: ProjectItemProps) {
 
   const expanded = !collapsed;
   // On a phone, the name of the machine behind this project: the desktop's
-  // for its own projects, a host's own pairing's for a host (ADR-228 D8).
+  // for its own projects, a host's own pairing's for a host.
   const serverName = useServerHostName(project.hostId);
   // A remote project's main workspace is named for its box, not "local". A
   // relayed server's own projects are local to it: the host heading names
@@ -462,7 +462,7 @@ export function ProjectItem(props: ProjectItemProps) {
   const remoteTarget = serverName === null ? storeTarget : null;
   const hostRowLabel = serverName ?? (isRemoteHost(project.hostId) ? remoteTarget ?? project.hostId : "This machine");
   // A lone project on an away host keeps its last workspaces, dimmed; a
-  // group's section is dimmed by its group (ADR-228 D6).
+  // group's section is dimmed by its group.
   const hostOffline = useHostAway(isSection ? null : project.hostId);
   const showHostHeading = isRemoteHost(project.hostId) || serverName !== null;
   const [editingPath, setEditingPath] = useState<string | null>(null);
@@ -480,15 +480,15 @@ export function ProjectItem(props: ProjectItemProps) {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   // Set when "New Folder…" is picked from a workspace's (or a selection's)
   // menu: the folder is created and those workspaces moved into it in one
-  // step. A single row is still an array of one (ADR-190 §2).
+  // step. A single row is still an array of one.
   const [pendingMovePaths, setPendingMovePaths] = useState<string[] | null>(null);
   // By section: a group-wide selection deletes each workspace through its own
-  // member project (ADR-192 ticket 7).
+  // member project.
   const [confirmBulkDelete, setConfirmBulkDelete] =
     useState<SectionSelection[] | null>(null);
   // The folder the next new folder belongs in: a folder's "New Folder Inside…",
   // or the folder the "New Folder…" anchor already lives in, so the new group
-  // appears where it was asked for rather than at the top level (ADR-172).
+  // appears where it was asked for rather than at the top level.
   const [newFolderParentId, setNewFolderParentId] = useState<string | null>(null);
   // A folder's inline rename input, like a workspace's, suspends dragging.
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -504,10 +504,10 @@ export function ProjectItem(props: ProjectItemProps) {
   const editRef = useRef<HTMLInputElement>(null);
   // Paths of workspace rows whose context menu was opened via the keyboard
   // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the row; a
-  // mouse-opened menu keeps Radix's own default (ADR-175).
+  // mouse-opened menu keeps Radix's own default.
   const workspaceMenuOpenedByKeyboard = useRef<Set<string>>(new Set());
   // The header's keyboard, and its menu's return of focus (shared with the
-  // linked-group header, ADR-192).
+  // linked-group header).
   const projectHeader = useProjectHeaderRow(collapsed, onToggleCollapsed);
 
   const collapsedFolderKeys = useProjectStore((s) => s.collapsedFolderKeys);
@@ -518,7 +518,7 @@ export function ProjectItem(props: ProjectItemProps) {
   const applySidebarChange = useProjectStore((s) => s.applySidebarChange);
   const allProjects = useProjectStore((s) => s.projects);
   // The New Workspace dialog offers every member of a linked group, so its
-  // host picker can create on another host (ADR-192).
+  // host picker can create on another host.
   const dialogProjects = useMemo(() => {
     const memberIds = project.group?.memberIds;
     if (!memberIds) return [project];
@@ -545,7 +545,7 @@ export function ProjectItem(props: ProjectItemProps) {
   );
   // Every folder for the "Move to Folder" submenu, walked in tree order and
   // labelled by its full path, so a flat list of menu items still reads as the
-  // tree it came from (ADR-172).
+  // tree it came from.
   const folderChoices = useMemo(() => {
     const choices: { id: string; label: string }[] = [];
     const walk = (list: SidebarItem[], trail: string[]) => {
@@ -560,8 +560,8 @@ export function ProjectItem(props: ProjectItemProps) {
     return choices;
   }, [items]);
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
-  // A path can be on two hosts (ADR-191): only the active host's section
-  // holds the active workspace. While the Tasks view is shown (ADR-198) no
+  // A path can be on two hosts: only the active host's section
+  // holds the active workspace. While the Tasks view is shown no
   // workspace row is the current one.
   const onActiveHost = useAppStore(
     (s) =>
@@ -578,7 +578,7 @@ export function ProjectItem(props: ProjectItemProps) {
     : undefined;
 
   // What this project's selection is shared across: its group's host
-  // sections when it is one (ADR-192 ticket 7), else just itself.
+  // sections when it is one, else just itself.
   const scope = useMemo<SelectionScope>(
     () =>
       selectionScope ?? {
@@ -589,7 +589,7 @@ export function ProjectItem(props: ProjectItemProps) {
   );
   // Tree order of every workspace a shift-click range can land on, across the
   // scope's sections — a collapsed folder's members are off screen and out of
-  // the range, exactly as they are absent from `flattenRows` (ADR-190 §1).
+  // the range, exactly as they are absent from `flattenRows`.
   const orderedVisibleKeys = useMemo(
     () => visibleSelectionKeys(scope.sections),
     [scope],
@@ -600,8 +600,8 @@ export function ProjectItem(props: ProjectItemProps) {
   const storedKeys = useSidebarSelectionStore((s) =>
     s.scopeId === scope.id ? s.keys : EMPTY_SIDEBAR_SELECTION,
   );
-  // The selection split by owning member project, each in tree order
-  // (ADR-190 §2): visible rows first, then any a collapsed folder hides — the
+  // The selection split by owning member project, each in tree order:
+  // visible rows first, then any a collapsed folder hides — the
   // same rule the group drag uses to order its own block.
   const selectionSections = useMemo(
     () => selectionBySection(scope.sections, storedKeys),
@@ -633,7 +633,7 @@ export function ProjectItem(props: ProjectItemProps) {
       rows: Row[],
       groupKeys: string[] | undefined,
     ) => {
-      // A group of one (or none) is exactly `applyDrop` (ADR-190 §3).
+      // A group of one (or none) is exactly `applyDrop`.
       applySidebarChange(
         projectId,
         applyGroupDrop(items, sourceKey, groupKeys ?? [sourceKey], target, rows),
@@ -699,7 +699,7 @@ export function ProjectItem(props: ProjectItemProps) {
   // takes it in the commit that renders it. Waiting a frame left a window
   // where the input was on screen but the row still held focus, and a key
   // pressed then (Escape, the first letter of the name) went to the row,
-  // which ignores keys while editing (ADR-175).
+  // which ignores keys while editing.
   useLayoutEffect(() => {
     if (!editingPath) return;
     const row = rowRefs.current.get(editingPath);
@@ -716,7 +716,7 @@ export function ProjectItem(props: ProjectItemProps) {
     [editValue, onRenameWorkspace],
   );
 
-  // Menu-driven actions (ADR-170 §8) arrive via the UI request bus rather
+  // Menu-driven actions arrive via the UI request bus rather
   // than props. The subscription must survive re-renders without
   // resubscribing, so the handler lives in a ref and the effect below
   // subscribes exactly once.
@@ -798,7 +798,7 @@ export function ProjectItem(props: ProjectItemProps) {
             ]);
           };
           if (e.shiftKey) {
-            // Modifier clicks select; they never navigate (ADR-190 §1).
+            // Modifier clicks select; they never navigate.
             selection.selectRange(
               scope.id,
               orderedVisibleKeys,
@@ -816,7 +816,7 @@ export function ProjectItem(props: ProjectItemProps) {
           if (isEditing) return;
           // Escape clears the selection before handing off to the shared
           // handler's own Escape (which blurs the row and refocuses the
-          // active pane) — both happen on one press (ADR-190 §1).
+          // active pane) — both happen on one press.
           if (e.key === "Escape") useSidebarSelectionStore.getState().clear();
           handleSidebarRowKeyDown(e, {
             activate: () => onSelectWorkspace(globalIdx),
@@ -828,8 +828,8 @@ export function ProjectItem(props: ProjectItemProps) {
           });
         }}
         onPointerDown={(e) => {
-          // Shift/Cmd/Ctrl-pointerdown are selection gestures, not drags
-          // (ADR-190 §1); shift's browser text-selection needs an explicit
+          // Shift/Cmd/Ctrl-pointerdown are selection gestures, not drags;
+          // shift's browser text-selection needs an explicit
           // preventDefault since a click on plain text still fires from here.
           if (e.shiftKey) {
             e.preventDefault();
@@ -837,7 +837,7 @@ export function ProjectItem(props: ProjectItemProps) {
           }
           if (e.metaKey || e.ctrlKey) return;
           // Grabbing a row of a 2+ selection drags the whole selection, in
-          // tree order (ADR-190 §3) — this project's share of it only, since
+          // tree order — this project's share of it only, since
           // a drag never moves a workspace to another member project.
           const groupKeys =
             selectedPaths.has(ws.path) && orderedSelection.length > 1
@@ -856,7 +856,7 @@ export function ProjectItem(props: ProjectItemProps) {
         onEditKeyDown={(e) => {
           // The input owns its plain keys while it is open — the row's own
           // handling would see them too. ⌘ / Ctrl combos carry on to the
-          // app's shortcuts (ADR-175).
+          // app's shortcuts.
           if (!e.metaKey && !e.ctrlKey) e.stopPropagation();
           if (e.key === "Enter") {
             commitRename(ws);
@@ -877,7 +877,7 @@ export function ProjectItem(props: ProjectItemProps) {
 
     // A right-click on a row that is already part of a 2+ selection acts on
     // the whole selection; anything else clears it and falls back to the
-    // single-workspace menu (ADR-190 §2).
+    // single-workspace menu.
     const isBulkSelected = selectedPaths.has(ws.path) && allSelected.length > 1;
 
     const closeAutoFocus = (e: Event) => {
@@ -907,7 +907,7 @@ export function ProjectItem(props: ProjectItemProps) {
               .then(setMergeState)
               .catch((err: unknown) =>
                 // The cause, not just that it failed; reopening the menu
-                // checks again (ADR-232 D8).
+                // checks again.
                 setMergeState({
                   canMerge: false,
                   reason: `Couldn't check merge eligibility: ${ipcErrorMessage(err)}. Reopen this menu to retry.`,
@@ -921,7 +921,7 @@ export function ProjectItem(props: ProjectItemProps) {
         {/* While the rename input is open the trigger stands down, so a
             right-click inside it reaches the OS text-field menu instead of
             opening this menu — whose focus grab would blur the input and end
-            the edit (ADR-172). */}
+            the edit. */}
         <ContextMenu.Trigger asChild disabled={isEditing}>
           {workspaceEl}
         </ContextMenu.Trigger>
@@ -985,7 +985,7 @@ export function ProjectItem(props: ProjectItemProps) {
             className={styles.contextMenu}
             onCloseAutoFocus={closeAutoFocus}
           >
-            {/* `shell.*` has no browser meaning (ADR-178) — removed, not
+            {/* `shell.*` has no browser meaning — removed, not
                 disabled, following the same rule for an affordance
                 a paired device can't use at all. */}
             {!isWebApp() && (
@@ -1164,7 +1164,7 @@ export function ProjectItem(props: ProjectItemProps) {
     );
   };
 
-  // Folders nest (ADR-172), so a folder's body is the same renderer one level
+  // Folders nest, so a folder's body is the same renderer one level
   // down rather than a flat list of members.
   const renderItem = (item: SidebarItem, depth = 0): React.ReactNode => {
     if (item.kind === "workspace") return renderWorkspace(item.ws);
@@ -1371,7 +1371,7 @@ export function ProjectItem(props: ProjectItemProps) {
         <Collapse open={expanded && items.length > 0}>{workspaceList}</Collapse>
       ) : (
         <Collapse open={expanded && (showHostHeading || items.length > 0)}>
-          {/* Hangs off a guide line under the chevron (ADR-193 §3). */}
+          {/* Hangs off a guide line under the chevron. */}
           <div className={styles.projectBody}>
             {/* A remote-only project names its host above its workspaces,
                 the way a linked group's sections do. */}
@@ -1504,7 +1504,7 @@ export function ProjectItem(props: ProjectItemProps) {
           const current = useProjectStore.getState().projects;
           // Each member project removes its own worktrees on its own host.
           // They are separate repos, so only one project's removals queue up
-          // behind each other (ADR-192 ticket 7).
+          // behind each other.
           for (const { section, workspaces: targets } of bySection) {
             const owner =
               current.find((p) => p.id === section.project.id) ?? section.project;

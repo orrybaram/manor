@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-181 D1: in phone mode a panel split stacks its two children as
+ * In phone mode a panel split stacks its two children as
  * `tab-styles` layers and shows only the one containing the active panel —
  * without changing the element tree, so no panel (and none of its terminals)
  * ever remounts.
@@ -189,7 +189,7 @@ describe("SplitPanelLayout in phone mode", () => {
   });
 });
 
-describe("SplitPanelLayout identity (ADR-181 D1)", () => {
+describe("SplitPanelLayout identity", () => {
   it("never remounts a panel on focus switches or mode flips", () => {
     const mql = stubMatchMedia(true);
     render();

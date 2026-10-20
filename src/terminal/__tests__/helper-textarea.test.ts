@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * ADR-181 D6: a phone's soft keyboard types straight into xterm's hidden
+ * A phone's soft keyboard types straight into xterm's hidden
  * textarea, so that textarea must never let the keyboard rewrite what is
  * typed — `ls` capitalised to `Ls` is a broken terminal.
  */

@@ -21,7 +21,7 @@ import {
 import type { SharedDeps } from "../../ipc/types";
 
 /**
- * Layout, as every renderer sees it (ADR-179 D1, ADR-180 D8).
+ * Layout, as every renderer sees it.
  *
  * There is no `save` and no `load`: the Manor server owns
  * `~/.manor/layout.json`, a renderer reads the whole thing with `getAll` and
@@ -29,13 +29,13 @@ import type { SharedDeps } from "../../ipc/types";
  */
 
 /**
- * The caller, as `LayoutStore` records it (ADR-179 D3).
+ * The caller, as `LayoutStore` records it.
  *
  * `window` for a renderer on this machine and `bridge` for a paired device.
  * A window's id is its `webContents.id` as a string — the same id the page is
  * told as its `rendererId` — so a command's selection hint lands on the
  * window that sent it, and `kind` decides whether a viewport report may stand
- * in for the primary's or take up a detached window's claim (D4). The frame
+ * in for the primary's or take up a detached window's claim. The frame
  * never supplies it.
  */
 function originOf(caller: Caller): LayoutOrigin {
@@ -48,9 +48,9 @@ function originOf(caller: Caller): LayoutOrigin {
 /**
  * Who a command came from, as the layout store records it: the caller — or,
  * on a host server, the desktop's own caller, which the owner forwards it
- * for (ADR-227 D4), so the broadcast's hint lands on the renderer that sent
+ * for, so the broadcast's hint lands on the renderer that sent
  * it. Only main's owner channel may say; anyone else's third argument is
- * ignored. A desktop window's viewer stream (ADR-228 D4) is an owner too,
+ * ignored. A desktop window's viewer stream is an owner too,
  * but it is the renderer itself: its own connection is the origin.
  */
 function commandOrigin(caller: Caller, forwardedFor: unknown): LayoutOrigin {
@@ -72,13 +72,13 @@ function isOrigin(value: unknown): value is LayoutOrigin {
 
 /**
  * Every workspace's layout: this server's, and on the desktop every adopted
- * remote host's, from its server (ADR-227 D4) — the cache's while it is away.
+ * remote host's, from its server — the cache's while it is away.
  */
 export async function layoutGetAll(
   ctx: HandlerCtx<SharedDeps>,
 ): Promise<Record<string, LayoutEntry>> {
   // Waits for the file, and so for the one-time workspace-key migration
-  // (ADR-191) under it: a renderer only ever sees host-qualified keys.
+  // under it: a renderer only ever sees host-qualified keys.
   await ctx.deps.layoutStore.whenLoaded();
   const remote = ctx.deps.hostRouting?.layout() ?? {};
   return { ...remote, ...ctx.deps.layoutStore.getAll() };
@@ -148,7 +148,7 @@ export function layoutSetPendingCommand(
 }
 
 /**
- * A pane's title, off the command channel (ADR-182 D1).
+ * A pane's title, off the command channel.
  *
  * The desktop's OSC-title writes still go through `setPaneTitleFromStream`
  * locally and are not sent here (the server already learns them from the
@@ -166,7 +166,7 @@ export function layoutSetPaneTitle(
 }
 
 /**
- * What the calling renderer is looking at (ADR-179 D3).
+ * What the calling renderer is looking at.
  *
  * Who is reporting is the caller, not anything in the frame: "was this a
  * window or a browser?" decides whether the report stands in for the
@@ -192,14 +192,14 @@ export function layoutReportViewport(
 }
 
 /**
- * On the desktop, a remote workspace's layout is its host server's
- * (ADR-227 D4): a command names it by key, a title or a queued command by
+ * On the desktop, a remote workspace's layout is its host server's:
+ * a command names it by key, a title or a queued command by
  * pane, and goes there. The reads merge every host's.
  */
 export const layout = {
   getAll: method(layoutGetAll, { route: LOCAL_ROUTE }),
   getLastActive: method(layoutGetLastActive, { route: LOCAL_ROUTE }),
-  // ADR-179 D1: a browser arranges panes by sending the same commands the
+  // A browser arranges panes by sending the same commands the
   // desktop sends. `workspacePath` first, so the audit line's target is the
   // workspace the command moved.
   apply: method(layoutApply, { mutating: true, route: byWorkspaceKey(0) }),
@@ -208,6 +208,6 @@ export const layout = {
   // adds it (`HostRouting`).
   setPendingCommand: method(layoutSetPendingCommand, { mutating: true, route: byPane(0) }),
   // A window's report, and its claim, are the desktop's whatever workspace
-  // it names (ADR-228 D7): a host server has no windows to hold a claim.
+  // it names: a host server has no windows to hold a claim.
   reportViewport: method(layoutReportViewport, { route: LOCAL_ROUTE }),
 };

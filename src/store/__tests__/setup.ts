@@ -17,14 +17,14 @@ if (typeof globalThis.window === "undefined") {
     addEventListener: vi.fn(),
     removeEventListener: vi.fn(),
     electronAPI: {
-      // ADR-179 D3: the store compares a broadcast's origin with this to
+      // The store compares a broadcast's origin with this to
       // decide whether a command's selection hint is its own.
       rendererId: FAKE_RENDERER_ID,
       // No claim: the store under test is a primary window, which shows every
-      // tab of the workspace (ADR-179 D4).
+      // tab of the workspace.
       claim: null,
       viewport: fakeViewportApi(),
-      // The Manor server's layout store, in-process (ADR-179 D1): `app-store`
+      // The Manor server's layout store, in-process: `app-store`
       // subscribes to it at import time and every layout action goes through
       // it. See `fake-layout-server.ts`.
       layout: fakeLayoutApi(),
@@ -44,7 +44,7 @@ if (typeof globalThis.window === "undefined") {
         getUnseen: vi.fn().mockResolvedValue([]),
       },
       // notification-store.ts subscribes to onChanged/onNavigate and fetches
-      // the snapshot at module-init time (ADR-162).
+      // the snapshot at module-init time.
       notifications: {
         getAll: vi.fn().mockResolvedValue([]),
         markRead: vi.fn().mockResolvedValue(undefined),
@@ -55,7 +55,7 @@ if (typeof globalThis.window === "undefined") {
         show: vi.fn().mockResolvedValue(true),
       },
       // stats-store.ts fetches the summary and subscribes to onChanged at
-      // module-init time (ADR-168 §5).
+      // module-init time.
       stats: {
         getSummary: vi.fn().mockResolvedValue(null),
         reset: vi.fn().mockResolvedValue(undefined),
@@ -77,7 +77,7 @@ if (typeof globalThis.window === "undefined") {
         resetAll: vi.fn(),
       },
       // theme-store.ts's `startThemeSync` (run by App on mount) reads the
-      // theme and subscribes to onChanged (ADR-179 ticket 7).
+      // theme and subscribes to onChanged.
       theme: {
         get: vi.fn().mockResolvedValue(null),
         getSelectedName: vi.fn().mockResolvedValue("__ghostty__"),

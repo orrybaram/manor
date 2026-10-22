@@ -697,6 +697,11 @@ export interface ManorHost {
   claim: { workspacePath: string; tabId: string } | null;
   env: { isPackaged: boolean };
   /**
+   * A dropped `File`'s path on disk (`webUtils.getPathForFile`), "" for one
+   * with none — an image dragged out of a web page.
+   */
+  pathForFile: (file: File) => string;
+  /**
    * The namespaces the preload answers in process — `webview`, `window`,
    * `menu`, `dialog`, `shell`, `clipboard`, `updater`, the set that can never
    * leave it. The client calls straight through to these and reaches

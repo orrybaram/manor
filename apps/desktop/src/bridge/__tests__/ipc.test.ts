@@ -33,6 +33,7 @@ function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
     rendererId: "3",
     claim: null,
     env: { isPackaged: false },
+    pathForFile: () => "",
     native: {} as ManorHost["native"],
     invoke: answering({ ok: true, result: undefined }),
     subscribe: vi.fn(() => () => {}),

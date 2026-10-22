@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 import type {
   PasteClipboardImageResult,
   PickedElementResult,
@@ -422,6 +422,9 @@ contextBridge.exposeInMainWorld("manorHost", {
   env: {
     isPackaged,
   },
+
+  /** A dropped `File`'s path on disk; "" for one that has none. */
+  pathForFile: (file: File) => webUtils.getPathForFile(file),
 
   /** One invoke frame to the host's handler table, answered with its result frame. */
   invoke: (frame: InvokeFrame) => send(frame),

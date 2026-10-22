@@ -26,6 +26,7 @@ function hostWith(overrides: Partial<ManorHost> = {}): ManorHost {
     rendererId: "1",
     claim: null,
     env: { isPackaged: true },
+    pathForFile: () => "",
     native: {} as ManorHost["native"],
     invoke: vi.fn((frame: { id: unknown }) =>
       Promise.resolve({

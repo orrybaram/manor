@@ -498,6 +498,14 @@ export function useTerminalLifecycle(
             }
             return;
           }
+          // A follower takes the owner's grid before the snapshot goes in. The
+          // snapshot was serialized at that grid, and written into this
+          // viewer's own fit every cursor-addressed cell past its last column
+          // lands clamped to it — a TUI drawn shifted left until it repaints.
+          // `useFollowerFit` resizes too, but a render after the snapshot.
+          if (result.winsizeOwner === false && result.cols && result.rows) {
+            t.resize(result.cols, result.rows);
+          }
           // Sync the terminal with the daemon and let output flow. Writing the
           // snapshot and releasing the queue is one operation — split apart,
           // the snapshot repeats bytes already on screen.

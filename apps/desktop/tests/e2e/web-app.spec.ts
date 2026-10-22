@@ -554,6 +554,54 @@ test.describe("web app", () => {
   });
 
   /**
+   * A follower opens on the desk's grid, not its own. The warm-restore
+   * snapshot is serialized at the owner's size; written into the phone's own
+   * narrower fit, a cell the program drew past the phone's last column lands
+   * clamped to it — and on the alternate screen, which never reflows, it
+   * stays there when the grid widens, a TUI shifted left until it repaints.
+   */
+  test("a phone opening a full-screen program the desk owns draws every cell where the desk does", async ({
+    app,
+    window,
+    tempHome,
+  }) => {
+    await bootWorkspaceWithTerminal(app, window, tempHome, "snapshot-grid-e2e");
+    const paneId = await activePaneId(window);
+    await awaitShellReady(window, tempHome, paneId);
+    await runInTerminal(
+      window,
+      `printf '\\e[?1049h\\e[2J\\e[3;100HRIGHT\\e[6;1HLEFT'; sleep 1000`,
+    );
+    const screen = (page: Page) =>
+      page.evaluate((id) => {
+        const buffer = window.__manorTerminals!.get(id)!.term.buffer.active;
+        const rows: string[] = [];
+        for (let i = 0; i < buffer.length; i++) {
+          rows.push(buffer.getLine(i)!.translateToString(true));
+        }
+        return rows.join("\n").trimEnd();
+      }, paneId);
+    await expect.poll(() => screen(window)).toContain("RIGHT");
+
+    const device = await pairBrowser(window, { label: "phone" });
+    await closeSettings(window);
+
+    const client = await openWebApp(device.link, {
+      viewport: { width: 390, height: 664 },
+      context: { isMobile: true, hasTouch: true, deviceScaleFactor: 3 },
+    });
+    try {
+      await expect(client.page.getByTestId("terminal-follower")).toBeVisible({
+        timeout: 30_000,
+      });
+      await expect.poll(() => screen(client.page)).toContain("LEFT");
+      expect(await screen(client.page)).toBe(await screen(window));
+    } finally {
+      await client.close();
+    }
+  });
+
+  /**
    * End to end: a browser's split, new tab, close and reopen are
    * ordinary layout commands, not a local-only fiction. Every assertion below
    * is made against the desktop window or the daemon's own scrollback file —

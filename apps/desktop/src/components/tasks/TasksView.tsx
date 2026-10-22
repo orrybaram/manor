@@ -57,6 +57,7 @@ import { useTaskScope, useTasks } from "./useTasks";
 import { TaskFilterChip, TaskFilterMenu } from "./TaskFilterMenu";
 import { TaskSortMenu } from "./TaskSortMenu";
 import { TaskTableRow } from "./TaskTableRow";
+import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { useStartTask } from "./useStartTask";
 import { activeFilterCount, initialDirection } from "./task-menus";
 import {
@@ -508,7 +509,19 @@ export function TasksView(props: TasksViewProps) {
                       short={c.short}
                       sort={sort}
                       onSort={sortByColumn}
-                    />
+                    >
+                      {c.field !== "title" && (
+                        <ColumnResizeHandle
+                          column={c.field as TaskColumnId}
+                          label={c.label}
+                          width={columnPrefs.widths[c.field as TaskColumnId]}
+                          edge={c.field === "id" ? "end" : "start"}
+                          onResize={columnPrefs.setWidth}
+                          onCommit={columnPrefs.saveWidth}
+                          onReset={columnPrefs.resetWidth}
+                        />
+                      )}
+                    </SortHeader>
                   ))}
                 </div>
                 {loading && listed.length === 0 ? (
@@ -869,11 +882,13 @@ type SortHeaderProps = {
   short?: string;
   sort: TaskSort;
   onSort: (field: TaskFieldId) => void;
+  /** The column's resize handle, beside the sort button. */
+  children?: ReactNode;
 };
 
 /** A column header that sorts by its column; the active one shows its direction. */
 function SortHeader(props: SortHeaderProps) {
-  const { field, label, short, sort, onSort } = props;
+  const { field, label, short, sort, onSort, children } = props;
 
   const active = sort.field === field;
   const Arrow = sort.direction === "asc" ? ArrowUp : ArrowDown;
@@ -881,6 +896,7 @@ function SortHeader(props: SortHeaderProps) {
   return (
     <span
       role="columnheader"
+      className={styles.headCell}
       aria-sort={
         active
           ? sort.direction === "asc"
@@ -898,6 +914,7 @@ function SortHeader(props: SortHeaderProps) {
         {short ?? label}
         {active && <Arrow size={11} aria-hidden />}
       </Button>
+      {children}
     </span>
   );
 }

@@ -177,6 +177,37 @@
   border-bottom: 1px solid var(--border);
 }
 
+.headCell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* A header's resize edge fills the 12px gap beside it; the glow sits mid-gap. */
+.columnResizeHandle {
+  top: 0;
+  bottom: 0;
+  width: 12px;
+}
+
+.columnResizeEnd {
+  right: -12px;
+}
+
+.columnResizeStart {
+  left: -12px;
+}
+
+.columnResizeHandle:focus-visible {
+  outline: none;
+}
+
+.columnResizeHandle:focus-visible::after,
+.columnResizeHandle:focus-visible::before {
+  opacity: 1;
+}
+
 /* A header that sorts: reads as the header text, not as a button. */
 .headRow .sortHeader {
   height: auto;

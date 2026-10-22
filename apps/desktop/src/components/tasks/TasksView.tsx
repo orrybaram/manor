@@ -11,6 +11,7 @@ import {
 } from "react";
 import { useAppStore } from "../../store/app-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useProjectStore } from "../../store/project-store";
 import { useTasksSummaryStore } from "../../store/tasks-summary-store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -341,9 +342,11 @@ export function TasksView(props: TasksViewProps) {
   // Beside the drawer the table keeps its own hidden set, so it can stay narrow.
   const columnPrefs = useColumnPrefs();
   const tableMode = drawerOpen ? "drawer" : "table";
+  // A phone's card rows have fixed contents, whatever the desk table hides.
+  const phone = useLayoutMode() === "phone";
   const columns = useMemo(
-    () => visibleColumns(provider, columnPrefs.hidden[tableMode]),
-    [provider, columnPrefs.hidden, tableMode],
+    () => visibleColumns(provider, phone ? [] : columnPrefs.hidden[tableMode]),
+    [provider, phone, columnPrefs.hidden, tableMode],
   );
   const columnTemplate = gridTemplate(columns, columnPrefs.widths);
   const hiddenNow = columnPrefs.hidden[tableMode];

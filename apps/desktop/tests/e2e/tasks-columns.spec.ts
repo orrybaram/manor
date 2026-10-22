@@ -360,5 +360,20 @@ test.describe("Tasks table columns", () => {
     });
     await window.mouse.move(1, 400);
     await shot(window, "10-home-up-next-light");
+
+    // A phone-width window shows full cards even with Status hidden on the desk table.
+    await window.getByText("Tasks", { exact: true }).first().click();
+    await header(window, "Updated").click({ button: "right" });
+    await menu.getByRole("menuitemcheckbox", { name: "Status" }).click();
+    await window.keyboard.press("Escape");
+    await expect.poll(() => headerNames(window)).not.toContain("Status");
+    await window.setViewportSize({ width: 400, height: 800 });
+    await expect(window.locator(":root[data-layout='phone']")).toBeAttached({
+      timeout: 10_000,
+    });
+    await expect(
+      window.getByTestId("task-row").first().getByText("Open"),
+    ).toBeVisible();
+    await shot(window, "11-phone-cards-light");
   });
 });

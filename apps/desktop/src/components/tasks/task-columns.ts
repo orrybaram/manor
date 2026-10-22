@@ -28,7 +28,7 @@ export const TASK_COLUMNS: readonly TaskColumnDef[] = [
   { id: "id", label: "ID", defaultWidth: 80, minWidth: 56 },
   { id: "assignee", label: "Assignees", defaultWidth: 88, minWidth: 48 },
   { id: "status", label: "Status", defaultWidth: 88, minWidth: 48 },
-  { id: "priority", label: "Priority", defaultWidth: 48, minWidth: 40 },
+  { id: "priority", label: "Priority", defaultWidth: 40, minWidth: 32 },
   { id: "updated", label: "Updated", defaultWidth: 104, minWidth: 56 },
 ];
 

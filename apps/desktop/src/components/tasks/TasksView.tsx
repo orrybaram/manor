@@ -96,7 +96,7 @@ const HEADER_COLUMNS: { field: TaskFieldId; label: string; short?: string }[] =
     { field: "title", label: "Title / Context" },
     { field: "assignee", label: columnLabel("assignee") },
     { field: "status", label: columnLabel("status") },
-    { field: "priority", label: columnLabel("priority"), short: "Pri" },
+    { field: "priority", label: columnLabel("priority"), short: "" },
     { field: "updated", label: columnLabel("updated") },
   ];
 
@@ -904,7 +904,7 @@ function plural(n: number, word: string): string {
 type SortHeaderProps = {
   field: TaskFieldId;
   label: string;
-  /** Shown in place of `label` when the column is narrow; `label` stays its name. */
+  /** Shown in place of `label` (empty: no text) when the column is narrow; `label` stays its name. */
   short?: string;
   sort: TaskSort;
   onSort: (field: TaskFieldId) => void;
@@ -935,7 +935,7 @@ function SortHeader(props: SortHeaderProps) {
         variant="ghost"
         className={`${styles.sortHeader} ${active ? styles.sortHeaderActive : ""}`}
         onClick={() => onSort(field)}
-        aria-label={short ? label : undefined}
+        aria-label={short === undefined ? undefined : label}
       >
         {short ?? label}
         {active && <Arrow size={11} aria-hidden />}

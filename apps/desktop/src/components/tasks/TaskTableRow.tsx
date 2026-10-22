@@ -14,6 +14,7 @@ import {
   type TaskRow,
 } from "../../lib/tasks";
 import { PriorityIcon } from "./PriorityIcon";
+import type { TaskColumnId } from "./task-columns";
 import { TrackerRowIcon } from "./tracker-icons";
 import styles from "./TasksView.module.css";
 
@@ -22,31 +23,25 @@ const MAX_AVATARS = 3;
 type TaskTableRowProps = {
   row: TaskRow | LinkedTask;
   now: number;
-  /** Linear's Priority column. */
-  showPriority: boolean;
+  /** The columns to show besides the action and Title, as `visibleColumns` gives them. */
+  columns: readonly TaskColumnId[];
   /** "Start" for a tracker row, "Open" (go to its workspace) for a linked one. */
   actionLabel: string;
   onAction: () => void;
-  /** Just ID, title / context, updated and the action — Home's Up next. */
-  compact?: boolean;
-  /** The Assignees column; hidden while the Tasks view's drawer is open. */
-  showAssignees?: boolean;
   /** Makes the title open the task's detail instead of its URL. */
   onOpen?: () => void;
   /** The row whose detail is open. */
   selected?: boolean;
 };
 
-/** One Tasks table row. Pair `compact` with the table's `.compact` class. */
+/** One Tasks table row; its cells follow the table's `gridTemplate`. */
 export function TaskTableRow(props: TaskTableRowProps) {
   const {
     row,
     now,
-    showPriority,
+    columns,
     actionLabel,
     onAction,
-    compact = false,
-    showAssignees = true,
     onOpen,
     selected = false,
   } = props;
@@ -54,6 +49,7 @@ export function TaskTableRow(props: TaskTableRowProps) {
   const shownAssignees = row.assignees.slice(0, MAX_AVATARS);
   const hiddenAssignees = row.assignees.length - shownAssignees.length;
   const updated = relativeTime(row.updatedAt, now);
+  const shows = (id: TaskColumnId) => columns.includes(id);
 
   // A click anywhere on the row opens its detail, except on the row's own
   // controls (Start, the ID link, the title) or when it ends a text selection.
@@ -85,12 +81,14 @@ export function TaskTableRow(props: TaskTableRowProps) {
           {actionLabel}
         </Button>
       </span>
-      <span role="cell" className={styles.idCell}>
-        <Link href={row.url} variant="plain" className={styles.idChip}>
-          <TrackerRowIcon provider={row.provider} />
-          {row.displayId}
-        </Link>
-      </span>
+      {shows("id") && (
+        <span role="cell" className={styles.idCell}>
+          <Link href={row.url} variant="plain" className={styles.idChip}>
+            <TrackerRowIcon provider={row.provider} />
+            {row.displayId}
+          </Link>
+        </span>
+      )}
       <span role="cell" className={styles.titleCell}>
         {onOpen ? (
           <Button
@@ -153,49 +151,53 @@ export function TaskTableRow(props: TaskTableRowProps) {
           ))}
         </span>
       </span>
-      {!compact && (
-        <>
-          {showAssignees && (
-            <span role="cell" className={styles.avatars}>
-              {shownAssignees.map((name) => (
-                <Tooltip key={name} label={name}>
-                  <span className={styles.avatar} aria-label={name}>
-                    {initialOf(name)}
-                  </span>
-                </Tooltip>
-              ))}
-              {hiddenAssignees > 0 && (
-                <span className={styles.avatarMore}>+{hiddenAssignees}</span>
-              )}
-              {row.assignees.length === 0 && (
-                <span className={styles.dim}>—</span>
-              )}
-            </span>
+      {shows("assignee") && (
+        <span role="cell" className={styles.avatars}>
+          {shownAssignees.map((name) => (
+            <Tooltip key={name} label={name}>
+              <span className={styles.avatar} aria-label={name}>
+                {initialOf(name)}
+              </span>
+            </Tooltip>
+          ))}
+          {hiddenAssignees > 0 && (
+            <span className={styles.avatarMore}>+{hiddenAssignees}</span>
           )}
-          <span role="cell" className={styles.statusCell}>
-            <span
-              className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}
-            >
-              {row.status.label}
-            </span>
-          </span>
-          {showPriority && (
-            <span role="cell" className={styles.priority}>
-              {row.priority && row.priority.value > 0 ? (
-                <>
-                  <PriorityIcon value={row.priority.value} />
-                  {row.priority.label}
-                </>
-              ) : (
-                <span className={styles.dim}>—</span>
-              )}
-            </span>
-          )}
-        </>
+          {row.assignees.length === 0 && <span className={styles.dim}>—</span>}
+        </span>
       )}
-      <span role="cell" className={styles.updated}>
-        {updated || <span className={styles.dim}>—</span>}
-      </span>
+      {shows("status") && (
+        <span role="cell" className={styles.statusCell}>
+          <span
+            className={`${styles.status} ${styles[`tone-${row.status.tone}`]}`}
+            title={row.status.label}
+          >
+            {row.status.label}
+          </span>
+        </span>
+      )}
+      {shows("priority") && (
+        <span role="cell" className={styles.priority}>
+          {row.priority && row.priority.value > 0 ? (
+            <Tooltip label={row.priority.label}>
+              <span
+                className={styles.priorityIcon}
+                role="img"
+                aria-label={row.priority.label}
+              >
+                <PriorityIcon value={row.priority.value} />
+              </span>
+            </Tooltip>
+          ) : (
+            <span className={styles.dim}>—</span>
+          )}
+        </span>
+      )}
+      {shows("updated") && (
+        <span role="cell" className={styles.updated}>
+          {updated || <span className={styles.dim}>—</span>}
+        </span>
+      )}
     </div>
   );
 }

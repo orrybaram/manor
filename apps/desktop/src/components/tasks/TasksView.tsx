@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -39,7 +40,6 @@ import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
   TASK_FIELDS,
-  fieldsFor,
   pageWindow,
   type TaskFieldId,
   type LinkedTask,
@@ -63,9 +63,15 @@ import {
   DEFAULT_DRAWER_WIDTH,
   MIN_DRAWER_WIDTH,
   isDefaultFilters,
+  useColumnPrefs,
   useDrawerWidth,
   useTaskPrefs,
 } from "./task-prefs";
+import {
+  gridTemplate,
+  visibleColumns,
+  type TaskColumnId,
+} from "./task-columns";
 import { openLinkedTask } from "./open-linked-task";
 import { TrackerIcon, TrackerRowIcon } from "./tracker-icons";
 import { TaskDetail } from "./TaskDetail/TaskDetail";
@@ -79,13 +85,13 @@ const ALL_PROJECTS = "__all__";
 
 const NO_FILTERS: TaskFilters = {};
 
-/** The table's sortable column headers, in column order (Priority is Linear's). */
-const SORT_COLUMNS: { field: TaskFieldId; label: string }[] = [
+/** The table's column headers, in column order (Priority is Linear's). */
+const HEADER_COLUMNS: { field: TaskFieldId; label: string; short?: string }[] = [
   { field: "id", label: "ID" },
   { field: "title", label: "Title / Context" },
   { field: "assignee", label: "Assignees" },
   { field: "status", label: "Status" },
-  { field: "priority", label: "Priority" },
+  { field: "priority", label: "Priority", short: "Pri" },
   { field: "updated", label: "Updated" },
 ];
 
@@ -143,7 +149,6 @@ export function TasksView(props: TasksViewProps) {
   const sort = prefs.sorts[provider];
   const filters = prefs.filtersBy[provider];
   const filterCount = activeFilterCount(filters);
-  const showPriority = fieldsFor(provider).includes("priority");
 
   // A task linked to a workspace is listed once, as its in-progress link.
   // Facet counts in the filter menu come from `listed`, so they don't shift
@@ -328,8 +333,14 @@ export function TasksView(props: TasksViewProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [drawerOpen, prevKey, nextKey, moveTo, closeDrawer]);
 
-  // Assignees and Priority make room for the drawer.
-  const tableShowsPriority = showPriority && !drawerOpen;
+  // Beside the drawer the table keeps its own hidden set, so it can stay narrow.
+  const columnPrefs = useColumnPrefs();
+  const tableMode = drawerOpen ? "drawer" : "table";
+  const columns = useMemo(
+    () => visibleColumns(provider, columnPrefs.hidden[tableMode]),
+    [provider, columnPrefs.hidden, tableMode],
+  );
+  const columnTemplate = gridTemplate(columns, columnPrefs.widths);
 
   const nothingConnected = providers.length === 0 && !scope.checking;
   // Some sources answered, others are still out: the rows are partial.
@@ -474,7 +485,8 @@ export function TasksView(props: TasksViewProps) {
             <div className={styles.tableArea}>
               <div
                 ref={tableRef}
-                className={`${styles.table} ${tableShowsPriority ? styles.withPriority : ""} ${drawerOpen ? styles.withDrawer : ""}`}
+                className={styles.table}
+                style={{ "--task-columns": columnTemplate } as CSSProperties}
                 role="table"
                 aria-label="Tasks"
                 aria-busy={loading}
@@ -484,25 +496,23 @@ export function TasksView(props: TasksViewProps) {
                   role="row"
                 >
                   <span role="columnheader" aria-label="Actions" />
-                  {SORT_COLUMNS.filter(
+                  {HEADER_COLUMNS.filter(
                     (c) =>
-                      !(drawerOpen && c.field === "assignee") &&
-                      (c.field !== "priority" || tableShowsPriority),
+                      c.field === "title" ||
+                      columns.includes(c.field as TaskColumnId),
                   ).map((c) => (
                     <SortHeader
                       key={c.field}
                       field={c.field}
                       label={c.label}
+                      short={c.short}
                       sort={sort}
                       onSort={sortByColumn}
                     />
                   ))}
                 </div>
                 {loading && listed.length === 0 ? (
-                  <TasksSkeleton
-                    showPriority={tableShowsPriority}
-                    showAssignees={!drawerOpen}
-                  />
+                  <TasksSkeleton columns={columns} />
                 ) : current.rows.length === 0 &&
                   filterCount > 0 &&
                   filtered.length === 0 ? (
@@ -529,8 +539,7 @@ export function TasksView(props: TasksViewProps) {
                         key={row.key}
                         row={row}
                         now={now}
-                        showPriority={tableShowsPriority}
-                        showAssignees={!drawerOpen}
+                        columns={columns}
                         actionLabel="Open"
                         onAction={() => openLinkedTask(row)}
                         onOpen={() => setOpenKey(row.key)}
@@ -541,8 +550,7 @@ export function TasksView(props: TasksViewProps) {
                         key={row.key}
                         row={row}
                         now={now}
-                        showPriority={tableShowsPriority}
-                        showAssignees={!drawerOpen}
+                        columns={columns}
                         actionLabel="Start"
                         onAction={() => void handleStart(row)}
                         onOpen={() => setOpenKey(row.key)}
@@ -857,13 +865,15 @@ function plural(n: number, word: string): string {
 type SortHeaderProps = {
   field: TaskFieldId;
   label: string;
+  /** Shown in place of `label` when the column is narrow; `label` stays its name. */
+  short?: string;
   sort: TaskSort;
   onSort: (field: TaskFieldId) => void;
 };
 
 /** A column header that sorts by its column; the active one shows its direction. */
 function SortHeader(props: SortHeaderProps) {
-  const { field, label, sort, onSort } = props;
+  const { field, label, short, sort, onSort } = props;
 
   const active = sort.field === field;
   const Arrow = sort.direction === "asc" ? ArrowUp : ArrowDown;
@@ -883,19 +893,17 @@ function SortHeader(props: SortHeaderProps) {
         variant="ghost"
         className={`${styles.sortHeader} ${active ? styles.sortHeaderActive : ""}`}
         onClick={() => onSort(field)}
+        aria-label={short ? label : undefined}
       >
-        {label}
+        {short ?? label}
         {active && <Arrow size={11} aria-hidden />}
       </Button>
     </span>
   );
 }
 
-function TasksSkeleton(props: {
-  showPriority: boolean;
-  showAssignees: boolean;
-}) {
-  const { showPriority, showAssignees } = props;
+function TasksSkeleton(props: { columns: readonly TaskColumnId[] }) {
+  const { columns } = props;
 
   return (
     <div aria-busy="true" aria-label="Loading tasks">
@@ -906,7 +914,9 @@ function TasksSkeleton(props: {
           role="row"
         >
           <span />
-          <span className={`${styles.bone} ${styles.boneId}`} />
+          {columns.includes("id") && (
+            <span className={`${styles.bone} ${styles.boneId}`} />
+          )}
           <span className={styles.titleCell}>
             <span
               className={`${styles.bone} ${styles.boneTitle}`}
@@ -914,14 +924,18 @@ function TasksSkeleton(props: {
             />
             <span className={`${styles.bone} ${styles.boneContext}`} />
           </span>
-          {showAssignees && (
+          {columns.includes("assignee") && (
             <span className={`${styles.bone} ${styles.boneAvatar}`} />
           )}
-          <span className={`${styles.bone} ${styles.boneStatus}`} />
-          {showPriority && (
+          {columns.includes("status") && (
+            <span className={`${styles.bone} ${styles.boneStatus}`} />
+          )}
+          {columns.includes("priority") && (
             <span className={`${styles.bone} ${styles.bonePriority}`} />
           )}
-          <span className={`${styles.bone} ${styles.boneUpdated}`} />
+          {columns.includes("updated") && (
+            <span className={`${styles.bone} ${styles.boneUpdated}`} />
+          )}
         </div>
       ))}
     </div>

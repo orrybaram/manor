@@ -15,6 +15,17 @@ import {
   type TaskProvider,
   type TaskSort,
 } from "../../lib/tasks";
+import {
+  DEFAULT_COLUMN_WIDTHS,
+  clampColumnWidth,
+  defaultColumnWidth,
+  parseColumnWidths,
+  parseHiddenColumns,
+  type HiddenColumns,
+  type TaskColumnId,
+  type TaskColumnWidths,
+  type TaskTableMode,
+} from "./task-columns";
 
 const PREF_PROVIDER = "tasks-view:provider";
 const PREF_PROJECT = "tasks-view:project";
@@ -22,6 +33,8 @@ const PREF_PROJECT = "tasks-view:project";
 const PREF_SORT = "tasks-view:sort:";
 const PREF_FILTERS = "tasks-view:filters:";
 const PREF_DRAWER_WIDTH = "tasks-view:drawer-width";
+const PREF_COLUMN_WIDTHS = "tasks-view:column-widths";
+const PREF_HIDDEN_COLUMNS = "tasks-view:hidden-columns";
 /** The saved project value for "All projects". */
 const ALL_PROJECTS = "__all__";
 
@@ -191,4 +204,66 @@ export function useDrawerWidth() {
     writePref(PREF_DRAWER_WIDTH, String(Math.round(next)));
   }, []);
   return { width, setWidth, saveWidth };
+}
+
+/**
+ * The table's column widths and hidden sets. `setWidth` follows a drag
+ * without saving; the other setters save. One set of widths serves both
+ * trackers and both table modes; each mode has its own hidden set.
+ */
+export function useColumnPrefs() {
+  const [widths, setWidths] = useState<TaskColumnWidths>(() =>
+    parseColumnWidths(readPref(PREF_COLUMN_WIDTHS)),
+  );
+  const [hidden, setHiddenState] = useState<HiddenColumns>(() =>
+    parseHiddenColumns(readPref(PREF_HIDDEN_COLUMNS)),
+  );
+
+  const setWidth = useCallback((id: TaskColumnId, next: number) => {
+    setWidths((prev) => ({ ...prev, [id]: clampColumnWidth(id, next) }));
+  }, []);
+
+  const saveWidths = useCallback((next: TaskColumnWidths) => {
+    setWidths(next);
+    writePref(PREF_COLUMN_WIDTHS, JSON.stringify(next));
+  }, []);
+
+  const saveWidth = useCallback((id: TaskColumnId, next: number) => {
+    setWidths((prev) => {
+      const out = { ...prev, [id]: clampColumnWidth(id, next) };
+      writePref(PREF_COLUMN_WIDTHS, JSON.stringify(out));
+      return out;
+    });
+  }, []);
+
+  const resetWidth = useCallback(
+    (id: TaskColumnId) => saveWidth(id, defaultColumnWidth(id)),
+    [saveWidth],
+  );
+
+  const resetWidths = useCallback(
+    () => saveWidths(DEFAULT_COLUMN_WIDTHS),
+    [saveWidths],
+  );
+
+  const setHidden = useCallback(
+    (mode: TaskTableMode, next: readonly TaskColumnId[]) => {
+      setHiddenState((prev) => {
+        const out = { ...prev, [mode]: next };
+        writePref(PREF_HIDDEN_COLUMNS, JSON.stringify(out));
+        return out;
+      });
+    },
+    [],
+  );
+
+  return {
+    widths,
+    hidden,
+    setWidth,
+    saveWidth,
+    resetWidth,
+    resetWidths,
+    setHidden,
+  };
 }

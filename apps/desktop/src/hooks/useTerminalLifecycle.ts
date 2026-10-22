@@ -31,6 +31,7 @@ import {
   pasteClipboardImage,
   pasteImageFile,
 } from "../lib/remote-image-paste";
+import { dropFilesOnTerminal, isFileDrag } from "../lib/terminal-file-drop";
 import type { PtyAttachResult, PtyCreateResult, PtyWinsize } from "../electron.d";
 import { useTerminalStream } from "./useTerminalStream";
 import { useTerminalHotkeys } from "./useTerminalHotkeys";
@@ -306,6 +307,26 @@ export function useTerminalLifecycle(
         }
       };
       container.addEventListener("paste", onDomPaste, true);
+
+      // Files dragged in from outside — a screenshot, a file from Finder —
+      // paste as paths. Pane and tab drags carry no `Files`, so they still
+      // reach `PaneDropZone`.
+      const onDragOver = (e: DragEvent) => {
+        if (!isFileDrag(e.dataTransfer)) return;
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = "copy";
+      };
+      const onDrop = (e: DragEvent) => {
+        if (!isFileDrag(e.dataTransfer)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const files = Array.from(e.dataTransfer!.files);
+        if (files.length === 0) return;
+        t.focus();
+        void dropFilesOnTerminal(t, paneId, files);
+      };
+      container.addEventListener("dragover", onDragOver);
+      container.addEventListener("drop", onDrop);
 
       // Post-open addons (require DOM/canvas)
       if (addons.WebglAddon) {
@@ -594,6 +615,8 @@ export function useTerminalLifecycle(
       return () => {
         disposed = true;
         container.removeEventListener("paste", onDomPaste, true);
+        container.removeEventListener("dragover", onDragOver);
+        container.removeEventListener("drop", onDrop);
         // Queue output again for whoever attaches next: the ordering guarantee
         // belongs to each attach, not to the first one of this component's life.
         closeOutput();

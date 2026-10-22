@@ -55,7 +55,8 @@ import { useHostStore } from "../../store/host-store";
 import { TRACKER_STATUS_KEY, trackerFor } from "../../lib/trackers";
 import { useTaskScope, useTasks } from "./useTasks";
 import { TaskFilterChip, TaskFilterMenu } from "./TaskFilterMenu";
-import { TaskSortMenu } from "./TaskSortMenu";
+import { TaskDisplayMenu } from "./TaskDisplayMenu";
+import { ColumnsContextMenu } from "./ColumnsContextMenu";
 import { TaskTableRow } from "./TaskTableRow";
 import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { useStartTask } from "./useStartTask";
@@ -69,6 +70,8 @@ import {
   useTaskPrefs,
 } from "./task-prefs";
 import {
+  columnLabel,
+  columnsFor,
   gridTemplate,
   visibleColumns,
   type TaskColumnId,
@@ -87,14 +90,15 @@ const ALL_PROJECTS = "__all__";
 const NO_FILTERS: TaskFilters = {};
 
 /** The table's column headers, in column order (Priority is Linear's). */
-const HEADER_COLUMNS: { field: TaskFieldId; label: string; short?: string }[] = [
-  { field: "id", label: "ID" },
-  { field: "title", label: "Title / Context" },
-  { field: "assignee", label: "Assignees" },
-  { field: "status", label: "Status" },
-  { field: "priority", label: "Priority", short: "Pri" },
-  { field: "updated", label: "Updated" },
-];
+const HEADER_COLUMNS: { field: TaskFieldId; label: string; short?: string }[] =
+  [
+    { field: "id", label: columnLabel("id") },
+    { field: "title", label: "Title / Context" },
+    { field: "assignee", label: columnLabel("assignee") },
+    { field: "status", label: columnLabel("status") },
+    { field: "priority", label: columnLabel("priority"), short: "Pri" },
+    { field: "updated", label: columnLabel("updated") },
+  ];
 
 export function TasksView(props: TasksViewProps) {
   const { onNewWorkspace } = props;
@@ -342,6 +346,20 @@ export function TasksView(props: TasksViewProps) {
     [provider, columnPrefs.hidden, tableMode],
   );
   const columnTemplate = gridTemplate(columns, columnPrefs.widths);
+  const hiddenNow = columnPrefs.hidden[tableMode];
+  const { setHidden, resetWidths } = columnPrefs;
+  const columnMenuProps = {
+    columns: columnsFor(provider),
+    hidden: hiddenNow,
+    onToggleColumn: (column: TaskColumnId) =>
+      setHidden(
+        tableMode,
+        hiddenNow.includes(column)
+          ? hiddenNow.filter((id) => id !== column)
+          : [...hiddenNow, column],
+      ),
+    onResetWidths: resetWidths,
+  };
 
   const nothingConnected = providers.length === 0 && !scope.checking;
   // Some sources answered, others are still out: the rows are partial.
@@ -431,10 +449,11 @@ export function TasksView(props: TasksViewProps) {
                   spellCheck={false}
                 />
               </div>
-              <TaskSortMenu
+              <TaskDisplayMenu
                 provider={provider}
                 sort={sort}
                 onChange={changeSort}
+                {...columnMenuProps}
               />
             </div>
 
@@ -492,38 +511,41 @@ export function TasksView(props: TasksViewProps) {
                 aria-label="Tasks"
                 aria-busy={loading}
               >
-                <div
-                  className={`${styles.gridRow} ${styles.headRow}`}
-                  role="row"
-                >
-                  <span role="columnheader" aria-label="Actions" />
-                  {HEADER_COLUMNS.filter(
-                    (c) =>
-                      c.field === "title" ||
-                      columns.includes(c.field as TaskColumnId),
-                  ).map((c) => (
-                    <SortHeader
-                      key={c.field}
-                      field={c.field}
-                      label={c.label}
-                      short={c.short}
-                      sort={sort}
-                      onSort={sortByColumn}
-                    >
-                      {c.field !== "title" && (
-                        <ColumnResizeHandle
-                          column={c.field as TaskColumnId}
-                          label={c.label}
-                          width={columnPrefs.widths[c.field as TaskColumnId]}
-                          edge={c.field === "id" ? "end" : "start"}
-                          onResize={columnPrefs.setWidth}
-                          onCommit={columnPrefs.saveWidth}
-                          onReset={columnPrefs.resetWidth}
-                        />
-                      )}
-                    </SortHeader>
-                  ))}
-                </div>
+                <ColumnsContextMenu {...columnMenuProps}>
+                  <div
+                    className={`${styles.gridRow} ${styles.headRow}`}
+                    role="row"
+                    data-testid="tasks-head-row"
+                  >
+                    <span role="columnheader" aria-label="Actions" />
+                    {HEADER_COLUMNS.filter(
+                      (c) =>
+                        c.field === "title" ||
+                        columns.includes(c.field as TaskColumnId),
+                    ).map((c) => (
+                      <SortHeader
+                        key={c.field}
+                        field={c.field}
+                        label={c.label}
+                        short={c.short}
+                        sort={sort}
+                        onSort={sortByColumn}
+                      >
+                        {c.field !== "title" && (
+                          <ColumnResizeHandle
+                            column={c.field as TaskColumnId}
+                            label={c.label}
+                            width={columnPrefs.widths[c.field as TaskColumnId]}
+                            edge={c.field === "id" ? "end" : "start"}
+                            onResize={columnPrefs.setWidth}
+                            onCommit={columnPrefs.saveWidth}
+                            onReset={columnPrefs.resetWidth}
+                          />
+                        )}
+                      </SortHeader>
+                    ))}
+                  </div>
+                </ColumnsContextMenu>
                 {loading && listed.length === 0 ? (
                   <TasksSkeleton columns={columns} />
                 ) : current.rows.length === 0 &&
@@ -591,7 +613,11 @@ export function TasksView(props: TasksViewProps) {
             </div>
 
             {missingGhHosts.length > 0 && (
-              <div className={styles.ghNotice} role="status" data-testid="gh-not-signed-in">
+              <div
+                className={styles.ghNotice}
+                role="status"
+                data-testid="gh-not-signed-in"
+              >
                 {missingGhHosts.map((label) => (
                   <span key={label}>{ghNotSignedInText(label)}</span>
                 ))}

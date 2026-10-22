@@ -18,17 +18,18 @@ export type TaskColumnId = Extract<
 
 type TaskColumnDef = {
   id: TaskColumnId;
+  label: string;
   defaultWidth: number;
   minWidth: number;
 };
 
 /** In table order; Title sits between ID and Assignees. */
 export const TASK_COLUMNS: readonly TaskColumnDef[] = [
-  { id: "id", defaultWidth: 80, minWidth: 56 },
-  { id: "assignee", defaultWidth: 88, minWidth: 48 },
-  { id: "status", defaultWidth: 88, minWidth: 48 },
-  { id: "priority", defaultWidth: 48, minWidth: 40 },
-  { id: "updated", defaultWidth: 104, minWidth: 56 },
+  { id: "id", label: "ID", defaultWidth: 80, minWidth: 56 },
+  { id: "assignee", label: "Assignees", defaultWidth: 88, minWidth: 48 },
+  { id: "status", label: "Status", defaultWidth: 88, minWidth: 48 },
+  { id: "priority", label: "Priority", defaultWidth: 48, minWidth: 40 },
+  { id: "updated", label: "Updated", defaultWidth: 104, minWidth: 56 },
 ];
 
 const COLUMN_BY_ID = Object.fromEntries(
@@ -59,6 +60,10 @@ export const DEFAULT_HIDDEN_COLUMNS: HiddenColumns = {
 
 export function isTaskColumnId(value: unknown): value is TaskColumnId {
   return typeof value === "string" && value in COLUMN_BY_ID;
+}
+
+export function columnLabel(id: TaskColumnId): string {
+  return COLUMN_BY_ID[id].label;
 }
 
 export function defaultColumnWidth(id: TaskColumnId): number {

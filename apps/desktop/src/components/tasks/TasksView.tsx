@@ -5,11 +5,13 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
 import { useAppStore } from "../../store/app-store";
 import { useMountEffect } from "../../hooks/useMountEffect";
+import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { useProjectStore } from "../../store/project-store";
 import { useTasksSummaryStore } from "../../store/tasks-summary-store";
 import { useQueryClient } from "@tanstack/react-query";
@@ -39,7 +41,6 @@ import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import {
   DEFAULT_TASK_FILTERS,
   TASK_FIELDS,
-  fieldsFor,
   pageWindow,
   type TaskFieldId,
   type LinkedTask,
@@ -55,17 +56,27 @@ import { useHostStore } from "../../store/host-store";
 import { TRACKER_STATUS_KEY, trackerFor } from "../../lib/trackers";
 import { useTaskScope, useTasks } from "./useTasks";
 import { TaskFilterChip, TaskFilterMenu } from "./TaskFilterMenu";
-import { TaskSortMenu } from "./TaskSortMenu";
+import { TaskDisplayMenu } from "./TaskDisplayMenu";
+import { ColumnsContextMenu } from "./ColumnsContextMenu";
 import { TaskTableRow } from "./TaskTableRow";
+import { ColumnResizeHandle } from "./ColumnResizeHandle";
 import { useStartTask } from "./useStartTask";
 import { activeFilterCount, initialDirection } from "./task-menus";
 import {
   DEFAULT_DRAWER_WIDTH,
   MIN_DRAWER_WIDTH,
   isDefaultFilters,
+  useColumnPrefs,
   useDrawerWidth,
   useTaskPrefs,
 } from "./task-prefs";
+import {
+  columnLabel,
+  columnsFor,
+  gridTemplate,
+  visibleColumns,
+  type TaskColumnId,
+} from "./task-columns";
 import { openLinkedTask } from "./open-linked-task";
 import { TrackerIcon, TrackerRowIcon } from "./tracker-icons";
 import { TaskDetail } from "./TaskDetail/TaskDetail";
@@ -79,15 +90,16 @@ const ALL_PROJECTS = "__all__";
 
 const NO_FILTERS: TaskFilters = {};
 
-/** The table's sortable column headers, in column order (Priority is Linear's). */
-const SORT_COLUMNS: { field: TaskFieldId; label: string }[] = [
-  { field: "id", label: "ID" },
-  { field: "title", label: "Title / Context" },
-  { field: "assignee", label: "Assignees" },
-  { field: "status", label: "Status" },
-  { field: "priority", label: "Priority" },
-  { field: "updated", label: "Updated" },
-];
+/** The table's column headers, in column order (Priority is Linear's). */
+const HEADER_COLUMNS: { field: TaskFieldId; label: string; short?: string }[] =
+  [
+    { field: "id", label: columnLabel("id") },
+    { field: "title", label: "Title / Context" },
+    { field: "assignee", label: columnLabel("assignee") },
+    { field: "status", label: columnLabel("status") },
+    { field: "priority", label: columnLabel("priority"), short: "" },
+    { field: "updated", label: columnLabel("updated") },
+  ];
 
 export function TasksView(props: TasksViewProps) {
   const { onNewWorkspace } = props;
@@ -143,7 +155,6 @@ export function TasksView(props: TasksViewProps) {
   const sort = prefs.sorts[provider];
   const filters = prefs.filtersBy[provider];
   const filterCount = activeFilterCount(filters);
-  const showPriority = fieldsFor(provider).includes("priority");
 
   // A task linked to a workspace is listed once, as its in-progress link.
   // Facet counts in the filter menu come from `listed`, so they don't shift
@@ -328,8 +339,30 @@ export function TasksView(props: TasksViewProps) {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [drawerOpen, prevKey, nextKey, moveTo, closeDrawer]);
 
-  // Assignees and Priority make room for the drawer.
-  const tableShowsPriority = showPriority && !drawerOpen;
+  // Beside the drawer the table keeps its own hidden set, so it can stay narrow.
+  const columnPrefs = useColumnPrefs();
+  const tableMode = drawerOpen ? "drawer" : "table";
+  // A phone's card rows have fixed contents, whatever the desk table hides.
+  const phone = useLayoutMode() === "phone";
+  const columns = useMemo(
+    () => visibleColumns(provider, phone ? [] : columnPrefs.hidden[tableMode]),
+    [provider, phone, columnPrefs.hidden, tableMode],
+  );
+  const columnTemplate = gridTemplate(columns, columnPrefs.widths);
+  const hiddenNow = columnPrefs.hidden[tableMode];
+  const { setHidden, resetWidths } = columnPrefs;
+  const columnMenuProps = {
+    columns: columnsFor(provider),
+    hidden: hiddenNow,
+    onToggleColumn: (column: TaskColumnId) =>
+      setHidden(
+        tableMode,
+        hiddenNow.includes(column)
+          ? hiddenNow.filter((id) => id !== column)
+          : [...hiddenNow, column],
+      ),
+    onResetWidths: resetWidths,
+  };
 
   const nothingConnected = providers.length === 0 && !scope.checking;
   // Some sources answered, others are still out: the rows are partial.
@@ -419,10 +452,11 @@ export function TasksView(props: TasksViewProps) {
                   spellCheck={false}
                 />
               </div>
-              <TaskSortMenu
+              <TaskDisplayMenu
                 provider={provider}
                 sort={sort}
                 onChange={changeSort}
+                {...columnMenuProps}
               />
             </div>
 
@@ -474,35 +508,49 @@ export function TasksView(props: TasksViewProps) {
             <div className={styles.tableArea}>
               <div
                 ref={tableRef}
-                className={`${styles.table} ${tableShowsPriority ? styles.withPriority : ""} ${drawerOpen ? styles.withDrawer : ""}`}
+                className={styles.table}
+                style={{ "--task-columns": columnTemplate } as CSSProperties}
                 role="table"
                 aria-label="Tasks"
                 aria-busy={loading}
               >
-                <div
-                  className={`${styles.gridRow} ${styles.headRow}`}
-                  role="row"
-                >
-                  <span role="columnheader" aria-label="Actions" />
-                  {SORT_COLUMNS.filter(
-                    (c) =>
-                      !(drawerOpen && c.field === "assignee") &&
-                      (c.field !== "priority" || tableShowsPriority),
-                  ).map((c) => (
-                    <SortHeader
-                      key={c.field}
-                      field={c.field}
-                      label={c.label}
-                      sort={sort}
-                      onSort={sortByColumn}
-                    />
-                  ))}
-                </div>
+                <ColumnsContextMenu {...columnMenuProps}>
+                  <div
+                    className={`${styles.gridRow} ${styles.headRow}`}
+                    role="row"
+                    data-testid="tasks-head-row"
+                  >
+                    <span role="columnheader" aria-label="Actions" />
+                    {HEADER_COLUMNS.filter(
+                      (c) =>
+                        c.field === "title" ||
+                        columns.includes(c.field as TaskColumnId),
+                    ).map((c) => (
+                      <SortHeader
+                        key={c.field}
+                        field={c.field}
+                        label={c.label}
+                        short={c.short}
+                        sort={sort}
+                        onSort={sortByColumn}
+                      >
+                        {c.field !== "title" && (
+                          <ColumnResizeHandle
+                            column={c.field as TaskColumnId}
+                            label={c.label}
+                            width={columnPrefs.widths[c.field as TaskColumnId]}
+                            edge={c.field === "id" ? "end" : "start"}
+                            onResize={columnPrefs.setWidth}
+                            onCommit={columnPrefs.saveWidth}
+                            onReset={columnPrefs.resetWidth}
+                          />
+                        )}
+                      </SortHeader>
+                    ))}
+                  </div>
+                </ColumnsContextMenu>
                 {loading && listed.length === 0 ? (
-                  <TasksSkeleton
-                    showPriority={tableShowsPriority}
-                    showAssignees={!drawerOpen}
-                  />
+                  <TasksSkeleton columns={columns} />
                 ) : current.rows.length === 0 &&
                   filterCount > 0 &&
                   filtered.length === 0 ? (
@@ -529,8 +577,7 @@ export function TasksView(props: TasksViewProps) {
                         key={row.key}
                         row={row}
                         now={now}
-                        showPriority={tableShowsPriority}
-                        showAssignees={!drawerOpen}
+                        columns={columns}
                         actionLabel="Open"
                         onAction={() => openLinkedTask(row)}
                         onOpen={() => setOpenKey(row.key)}
@@ -541,8 +588,7 @@ export function TasksView(props: TasksViewProps) {
                         key={row.key}
                         row={row}
                         now={now}
-                        showPriority={tableShowsPriority}
-                        showAssignees={!drawerOpen}
+                        columns={columns}
                         actionLabel="Start"
                         onAction={() => void handleStart(row)}
                         onOpen={() => setOpenKey(row.key)}
@@ -570,7 +616,11 @@ export function TasksView(props: TasksViewProps) {
             </div>
 
             {missingGhHosts.length > 0 && (
-              <div className={styles.ghNotice} role="status" data-testid="gh-not-signed-in">
+              <div
+                className={styles.ghNotice}
+                role="status"
+                data-testid="gh-not-signed-in"
+              >
                 {missingGhHosts.map((label) => (
                   <span key={label}>{ghNotSignedInText(label)}</span>
                 ))}
@@ -857,13 +907,17 @@ function plural(n: number, word: string): string {
 type SortHeaderProps = {
   field: TaskFieldId;
   label: string;
+  /** Shown in place of `label` (empty: no text) when the column is narrow; `label` stays its name. */
+  short?: string;
   sort: TaskSort;
   onSort: (field: TaskFieldId) => void;
+  /** The column's resize handle, beside the sort button. */
+  children?: ReactNode;
 };
 
 /** A column header that sorts by its column; the active one shows its direction. */
 function SortHeader(props: SortHeaderProps) {
-  const { field, label, sort, onSort } = props;
+  const { field, label, short, sort, onSort, children } = props;
 
   const active = sort.field === field;
   const Arrow = sort.direction === "asc" ? ArrowUp : ArrowDown;
@@ -871,6 +925,7 @@ function SortHeader(props: SortHeaderProps) {
   return (
     <span
       role="columnheader"
+      className={styles.headCell}
       aria-sort={
         active
           ? sort.direction === "asc"
@@ -883,19 +938,18 @@ function SortHeader(props: SortHeaderProps) {
         variant="ghost"
         className={`${styles.sortHeader} ${active ? styles.sortHeaderActive : ""}`}
         onClick={() => onSort(field)}
+        aria-label={short === undefined ? undefined : label}
       >
-        {label}
+        {short ?? label}
         {active && <Arrow size={11} aria-hidden />}
       </Button>
+      {children}
     </span>
   );
 }
 
-function TasksSkeleton(props: {
-  showPriority: boolean;
-  showAssignees: boolean;
-}) {
-  const { showPriority, showAssignees } = props;
+function TasksSkeleton(props: { columns: readonly TaskColumnId[] }) {
+  const { columns } = props;
 
   return (
     <div aria-busy="true" aria-label="Loading tasks">
@@ -906,7 +960,9 @@ function TasksSkeleton(props: {
           role="row"
         >
           <span />
-          <span className={`${styles.bone} ${styles.boneId}`} />
+          {columns.includes("id") && (
+            <span className={`${styles.bone} ${styles.boneId}`} />
+          )}
           <span className={styles.titleCell}>
             <span
               className={`${styles.bone} ${styles.boneTitle}`}
@@ -914,14 +970,18 @@ function TasksSkeleton(props: {
             />
             <span className={`${styles.bone} ${styles.boneContext}`} />
           </span>
-          {showAssignees && (
+          {columns.includes("assignee") && (
             <span className={`${styles.bone} ${styles.boneAvatar}`} />
           )}
-          <span className={`${styles.bone} ${styles.boneStatus}`} />
-          {showPriority && (
+          {columns.includes("status") && (
+            <span className={`${styles.bone} ${styles.boneStatus}`} />
+          )}
+          {columns.includes("priority") && (
             <span className={`${styles.bone} ${styles.bonePriority}`} />
           )}
-          <span className={`${styles.bone} ${styles.boneUpdated}`} />
+          {columns.includes("updated") && (
+            <span className={`${styles.bone} ${styles.boneUpdated}`} />
+          )}
         </div>
       ))}
     </div>

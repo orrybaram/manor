@@ -144,22 +144,23 @@
   flex-shrink: 0;
 }
 
+/*
+ * `--task-columns` is the Tasks view's `gridTemplate`: the visible columns at
+ * their remembered widths. Past Title's minimum the rows outgrow the table,
+ * which then scrolls sideways.
+ */
 .gridRow {
   display: grid;
-  grid-template-columns: 64px 112px minmax(0, 1fr) 112px 128px 120px;
+  grid-template-columns: var(--task-columns);
   align-items: center;
-  column-gap: 16px;
+  column-gap: 12px;
   padding: 0 16px;
+  min-width: min-content;
 }
 
-/* Linear adds a Priority column between Status and Updated. */
-.withPriority .gridRow {
-  grid-template-columns: 64px 112px minmax(0, 1fr) 112px 128px 104px 120px;
-}
-
-/* The drawer is open: Assignees and Priority make room for it. */
-.withDrawer .gridRow {
-  grid-template-columns: 64px 112px minmax(0, 1fr) 128px 120px;
+/* A header or cell never pushes its column wider than its track. */
+.gridRow > * {
+  min-width: 0;
 }
 
 .headRow {
@@ -176,9 +177,43 @@
   border-bottom: 1px solid var(--border);
 }
 
+.headCell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* A header's resize edge fills the 12px gap beside it; the glow sits mid-gap. */
+.columnResizeHandle {
+  top: 0;
+  bottom: 0;
+  width: 12px;
+}
+
+.columnResizeEnd {
+  right: -12px;
+}
+
+.columnResizeStart {
+  left: -12px;
+}
+
+.columnResizeHandle:focus-visible {
+  outline: none;
+}
+
+.columnResizeHandle:focus-visible::after,
+.columnResizeHandle:focus-visible::before {
+  opacity: 1;
+}
+
 /* A header that sorts: reads as the header text, not as a button. */
 .headRow .sortHeader {
   height: auto;
+  max-width: calc(100% + 4px);
+  overflow: hidden;
+  white-space: nowrap;
   padding: 2px 4px;
   margin-left: -4px;
   gap: 4px;
@@ -235,6 +270,18 @@
   font-family: var(--font-mono);
   color: var(--text-primary);
   white-space: nowrap;
+  max-width: 100%;
+}
+
+/* A column narrower than its ID ellipsizes the ID, not overlaps Title. */
+.idChip > svg {
+  flex-shrink: 0;
+}
+
+.idText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .idChip:hover {
@@ -428,8 +475,8 @@
   white-space: nowrap;
 }
 
-.priority > svg {
-  flex-shrink: 0;
+.priorityIcon {
+  display: inline-flex;
 }
 
 .priorityBars {
@@ -695,6 +742,7 @@
 /* Home's Up next: action, ID, title / context, updated. */
 .compact .gridRow {
   grid-template-columns: 64px 112px minmax(0, 1fr) 120px;
+  column-gap: 16px;
 }
 
 /* ── Phone ── */

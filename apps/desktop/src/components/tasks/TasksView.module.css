@@ -270,6 +270,18 @@
   font-family: var(--font-mono);
   color: var(--text-primary);
   white-space: nowrap;
+  max-width: 100%;
+}
+
+/* A column narrower than its ID ellipsizes the ID, not overlaps Title. */
+.idChip > svg {
+  flex-shrink: 0;
+}
+
+.idText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .idChip:hover {

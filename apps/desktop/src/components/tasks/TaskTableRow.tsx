@@ -85,7 +85,7 @@ export function TaskTableRow(props: TaskTableRowProps) {
         <span role="cell" className={styles.idCell}>
           <Link href={row.url} variant="plain" className={styles.idChip}>
             <TrackerRowIcon provider={row.provider} />
-            {row.displayId}
+            <span className={styles.idText}>{row.displayId}</span>
           </Link>
         </span>
       )}

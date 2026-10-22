@@ -59,7 +59,10 @@ export const DEFAULT_HIDDEN_COLUMNS: HiddenColumns = {
 };
 
 export function isTaskColumnId(value: unknown): value is TaskColumnId {
-  return typeof value === "string" && value in COLUMN_BY_ID;
+  return (
+    typeof value === "string" &&
+    Object.prototype.hasOwnProperty.call(COLUMN_BY_ID, value)
+  );
 }
 
 export function columnLabel(id: TaskColumnId): string {

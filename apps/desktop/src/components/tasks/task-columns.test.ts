@@ -77,7 +77,9 @@ describe("parseHiddenColumns", () => {
   it("keeps known columns per mode and defaults a missing mode", () => {
     expect(
       parseHiddenColumns(
-        JSON.stringify({ table: ["updated", "title", "updated", 3] }),
+        JSON.stringify({
+          table: ["updated", "title", "updated", 3, "constructor"],
+        }),
       ),
     ).toEqual({ table: ["updated"], drawer: DEFAULT_HIDDEN_COLUMNS.drawer });
   });

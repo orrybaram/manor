@@ -4,22 +4,11 @@
  */
 
 .trigger {
+  width: 32px;
   height: 32px;
-  padding: 0 10px;
-  gap: 6px;
-  font-size: 12.5px;
+  padding: 0;
   flex-shrink: 0;
   color: var(--text-primary);
-}
-
-.triggerDim {
-  color: var(--text-dim);
-  margin-right: -2px;
-}
-
-.triggerArrow {
-  color: var(--text-dim);
-  margin-left: -2px;
 }
 
 /* ── Popover shell (as TaskFilterMenu.module.css) ── */

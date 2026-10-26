@@ -1,12 +1,10 @@
 import * as Popover from "@radix-ui/react-popover";
-import ArrowUpDown from "lucide-react/dist/esm/icons/arrow-up-down";
-import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
-import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
 import Check from "lucide-react/dist/esm/icons/check";
 import SlidersHorizontal from "lucide-react/dist/esm/icons/sliders-horizontal";
 import { Button } from "../ui/Button/Button";
 import { Checkbox } from "../ui/Checkbox/Checkbox";
 import { ToggleGroup } from "../ui/ToggleGroup";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
 import {
   TASK_FIELDS,
   sortableFields,
@@ -38,8 +36,8 @@ const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
 
 /**
  * The Display button: the sort (every sortable field of the provider, plus
- * the direction) and which columns the table shows. The button names the
- * sort, so it stays visible.
+ * the direction) and which columns the table shows. The button is its icon;
+ * its tooltip names the sort.
  */
 export function TaskDisplayMenu(props: TaskDisplayMenuProps) {
   const {
@@ -52,25 +50,23 @@ export function TaskDisplayMenu(props: TaskDisplayMenuProps) {
     onResetWidths,
   } = props;
 
-  const Arrow = sort.direction === "asc" ? ArrowUp : ArrowDown;
   const directionWord = sort.direction === "asc" ? "ascending" : "descending";
+  const label = `Display: sorted by ${TASK_FIELDS[sort.field].label}, ${directionWord}`;
 
   return (
     <Popover.Root>
-      <Popover.Trigger asChild>
-        <Button
-          variant="secondary"
-          className={styles.trigger}
-          aria-label={`Display: sorted by ${TASK_FIELDS[sort.field].label}, ${directionWord}`}
-          data-testid="tasks-display-menu"
-        >
-          <SlidersHorizontal size={14} />
-          <span className={styles.triggerDim}>Display</span>
-          <ArrowUpDown size={12} className={styles.triggerDim} />
-          {TASK_FIELDS[sort.field].label}
-          <Arrow size={12} className={styles.triggerArrow} />
-        </Button>
-      </Popover.Trigger>
+      <Tooltip label={label}>
+        <Popover.Trigger asChild>
+          <Button
+            variant="secondary"
+            className={styles.trigger}
+            aria-label={label}
+            data-testid="tasks-display-menu"
+          >
+            <SlidersHorizontal size={14} />
+          </Button>
+        </Popover.Trigger>
+      </Tooltip>
       <Popover.Portal>
         <Popover.Content
           className={styles.popover}

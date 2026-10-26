@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.22.13] - 2026-10-25
+
+### Features
+
+- Tasks: You can resize the Tasks table's columns by dragging their header edges. You can hide columns from the Display menu (formerly Sort) or by right-clicking the header. Columns now start narrower, and the table next to the task drawer keeps its own set of hidden columns.
+- Dropping a file on a terminal pane pastes its path at the prompt, so you can drag a screenshot in for Claude Code.
+
+### Fixes
+
+- Phone: When the phone follows the desktop, a restored full-screen terminal app now lines up with the desktop's grid. Before, it stayed shifted left until you used Fit to screen.
+
+### Improvements
+
+- Tasks: The Display button now shows only its icon, and its tooltip names the current sort. The Priority column header now shows no text because the column shows its icons.
+
 ## [0.22.12] - 2026-10-20
 
 ### Fixes

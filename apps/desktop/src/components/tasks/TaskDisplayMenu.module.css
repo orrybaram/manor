@@ -1,25 +1,14 @@
 /*
- * The Tasks view's Sort button and popover. Its popover
- * matches TaskFilterMenu's.
+ * The Tasks view's Display button and popover: Sort, then Columns. Its
+ * popover matches TaskFilterMenu's.
  */
 
 .trigger {
+  width: 32px;
   height: 32px;
-  padding: 0 10px;
-  gap: 6px;
-  font-size: 12.5px;
+  padding: 0;
   flex-shrink: 0;
   color: var(--text-primary);
-}
-
-.triggerDim {
-  color: var(--text-dim);
-  margin-right: -2px;
-}
-
-.triggerArrow {
-  color: var(--text-dim);
-  margin-left: -2px;
 }
 
 /* ── Popover shell (as TaskFilterMenu.module.css) ── */
@@ -30,7 +19,7 @@
   border-radius: 8px;
   padding: 4px;
   width: 220px;
-  max-height: min(420px, calc(100vh - 32px));
+  max-height: min(560px, calc(100vh - 32px));
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -86,6 +75,61 @@
 
 .item:focus-visible {
   outline-offset: -2px;
+}
+
+/* A column row: the whole row toggles its checkbox. */
+label.item {
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+label.item:hover {
+  background: var(--hover);
+}
+
+.itemDisabled,
+label.itemDisabled:hover {
+  color: var(--text-dim);
+  cursor: default;
+  background: none;
+}
+
+.columns {
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+/* A phone's rows are cards with fixed contents: no columns to choose. */
+:global(:root[data-layout="phone"]) .columns {
+  display: none;
+}
+
+/* The header's right-click list: rows like the popover's. */
+.contextItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--text-primary);
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.contextItem[data-highlighted] {
+  background: var(--hover);
+  color: var(--text-selected);
+}
+
+.separator {
+  height: 1px;
+  margin: 2px 0;
+  background: var(--border);
 }
 
 .itemActive {

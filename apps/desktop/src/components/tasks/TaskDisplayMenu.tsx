@@ -1,0 +1,153 @@
+import * as Popover from "@radix-ui/react-popover";
+import Check from "lucide-react/dist/esm/icons/check";
+import SlidersHorizontal from "lucide-react/dist/esm/icons/sliders-horizontal";
+import { Button } from "../ui/Button/Button";
+import { Checkbox } from "../ui/Checkbox/Checkbox";
+import { ToggleGroup } from "../ui/ToggleGroup";
+import { Tooltip } from "../ui/Tooltip/Tooltip";
+import {
+  TASK_FIELDS,
+  sortableFields,
+  type TaskProvider,
+  type TaskSort,
+} from "../../lib/tasks";
+import { initialDirection, onMenuListKeyDown } from "./task-menus";
+import { columnLabel, type TaskColumnId } from "./task-columns";
+import styles from "./TaskDisplayMenu.module.css";
+
+type TaskDisplayMenuProps = {
+  provider: TaskProvider;
+  sort: TaskSort;
+  onChange: (next: TaskSort) => void;
+  /** The provider's hideable columns, from `columnsFor`. */
+  columns: readonly TaskColumnId[];
+  /** The hidden set for the table as it is now (beside the drawer or not). */
+  hidden: readonly TaskColumnId[];
+  onToggleColumn: (column: TaskColumnId) => void;
+  onResetWidths: () => void;
+};
+
+type Direction = TaskSort["direction"];
+
+const DIRECTION_OPTIONS: { value: Direction; label: string }[] = [
+  { value: "asc", label: "Ascending" },
+  { value: "desc", label: "Descending" },
+];
+
+/**
+ * The Display button: the sort (every sortable field of the provider, plus
+ * the direction) and which columns the table shows. The button is its icon;
+ * its tooltip names the sort.
+ */
+export function TaskDisplayMenu(props: TaskDisplayMenuProps) {
+  const {
+    provider,
+    sort,
+    onChange,
+    columns,
+    hidden,
+    onToggleColumn,
+    onResetWidths,
+  } = props;
+
+  const directionWord = sort.direction === "asc" ? "ascending" : "descending";
+  const label = `Display: sorted by ${TASK_FIELDS[sort.field].label}, ${directionWord}`;
+
+  return (
+    <Popover.Root>
+      <Tooltip label={label}>
+        <Popover.Trigger asChild>
+          <Button
+            variant="secondary"
+            className={styles.trigger}
+            aria-label={label}
+            data-testid="tasks-display-menu"
+          >
+            <SlidersHorizontal size={14} />
+          </Button>
+        </Popover.Trigger>
+      </Tooltip>
+      <Popover.Portal>
+        <Popover.Content
+          className={styles.popover}
+          side="bottom"
+          align="end"
+          sideOffset={6}
+          collisionPadding={8}
+        >
+          <div className={styles.direction}>
+            <ToggleGroup
+              value={sort.direction}
+              onChange={(direction) => onChange({ ...sort, direction })}
+              options={DIRECTION_OPTIONS}
+              size="sm"
+              aria-label="Sort direction"
+            />
+          </div>
+          <div
+            className={styles.list}
+            role="group"
+            aria-label="Sort by"
+            onKeyDown={onMenuListKeyDown}
+          >
+            <div className={styles.heading}>Sort by</div>
+            {sortableFields(provider).map((id) => {
+              const active = id === sort.field;
+              return (
+                <Button
+                  key={id}
+                  variant="ghost"
+                  className={`${styles.item} ${active ? styles.itemActive : ""}`}
+                  aria-pressed={active}
+                  data-menu-item
+                  onClick={() =>
+                    onChange(
+                      active
+                        ? sort
+                        : { field: id, direction: initialDirection(id) },
+                    )
+                  }
+                >
+                  <span className={styles.itemLabel}>
+                    {TASK_FIELDS[id].label}
+                  </span>
+                  {active && <Check size={13} className={styles.itemCheck} />}
+                </Button>
+              );
+            })}
+          </div>
+          <div
+            className={`${styles.list} ${styles.columns}`}
+            role="group"
+            aria-label="Columns"
+            onKeyDown={onMenuListKeyDown}
+          >
+            <div className={styles.heading}>Columns</div>
+            <label className={`${styles.item} ${styles.itemDisabled}`}>
+              <Checkbox checked disabled aria-label="Title / Context" />
+              <span className={styles.itemLabel}>Title / Context</span>
+            </label>
+            {columns.map((id) => (
+              <label key={id} className={styles.item}>
+                <Checkbox
+                  checked={!hidden.includes(id)}
+                  onCheckedChange={() => onToggleColumn(id)}
+                  data-menu-item
+                />
+                <span className={styles.itemLabel}>{columnLabel(id)}</span>
+              </label>
+            ))}
+            <Button
+              variant="ghost"
+              className={styles.item}
+              data-menu-item
+              onClick={onResetWidths}
+            >
+              <span className={styles.itemLabel}>Reset widths</span>
+            </Button>
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}

@@ -9,6 +9,7 @@ import { useTaskScope, useTasks } from "../../tasks/useTasks";
 import { useStartTask } from "../../tasks/useStartTask";
 import { openLinkedTask } from "../../tasks/open-linked-task";
 import { TaskTableRow } from "../../tasks/TaskTableRow";
+import type { TaskColumnId } from "../../tasks/task-columns";
 import tasksStyles from "../../tasks/TasksView.module.css";
 import { Button } from "../../ui/Button/Button";
 import { Panel } from "./Panel";
@@ -16,6 +17,8 @@ import styles from "./UpNextPanel.module.css";
 
 const VISIBLE_ROWS = 5;
 const SKELETON_ROWS = 3;
+/** Up next's fixed columns besides the action and Title (the `.compact` layout). */
+const UP_NEXT_COLUMNS: readonly TaskColumnId[] = ["id", "updated"];
 
 type UpNextPanelProps = {
   onNewWorkspace?: NewWorkspaceHandler;
@@ -105,20 +108,18 @@ export function UpNextPanel(props: UpNextPanelProps) {
                   key={row.key}
                   row={row}
                   now={now}
-                  showPriority={false}
+                  columns={UP_NEXT_COLUMNS}
                   actionLabel="Open"
                   onAction={() => openLinkedTask(row)}
-                  compact
                 />
               ) : (
                 <TaskTableRow
                   key={row.key}
                   row={row}
                   now={now}
-                  showPriority={false}
+                  columns={UP_NEXT_COLUMNS}
                   actionLabel="Start"
                   onAction={() => void startTask(row)}
-                  compact
                 />
               ),
             )}

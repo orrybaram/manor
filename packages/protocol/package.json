@@ -12,7 +12,7 @@
     "@noble/hashes": "^2.4.0"
   },
   "devDependencies": {
-    "typescript": "~5.8.3",
+    "typescript": "~5.9.3",
     "vitest": "^4.1.0"
   }
 }

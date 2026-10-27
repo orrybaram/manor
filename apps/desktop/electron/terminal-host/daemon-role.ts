@@ -147,6 +147,21 @@ export function isDaemonArgv(argv: readonly string[]): boolean {
   return mode === undefined || mode.startsWith("--");
 }
 
+/**
+ * Below this Node major a remote host still runs (bootstrap accepts
+ * `MIN_NODE_MAJOR`), but warns: older lines get no security fixes.
+ */
+export const RECOMMENDED_NODE_MAJOR = 22;
+
+/** The warning for a host running Node `version` (`process.versions.node`), if any. */
+export function nodeVersionWarning(version: string): string | null {
+  if (Number(version.split(".")[0]) >= RECOMMENDED_NODE_MAJOR) return null;
+  return (
+    `Node.js ${version} no longer gets security fixes; ` +
+    `upgrade to Node.js ${RECOMMENDED_NODE_MAJOR} or newer on this host`
+  );
+}
+
 export function remoteRole(log: Log): DaemonRole {
   let journal: HookJournal | null = null;
   let listener: HookListener | null = null;
@@ -236,6 +251,8 @@ export function remoteRole(log: Log): DaemonRole {
     async bootstrap() {
       const { agents, warnings } = runBootstrap();
       const report = { agents, warnings: [...warnings] };
+      const nodeWarning = nodeVersionWarning(process.versions.node);
+      if (nodeWarning) report.warnings.push(nodeWarning);
       // This daemon outlives app updates that keep its protocol,
       // while the package beside it is replaced: rewrite the hook scripts from
       // it on every connect, so agents run the updated hook.

@@ -54,7 +54,7 @@
     "@xterm/xterm": "^6.0.0",
     "cmdk": "^1.1.1",
     "electron-updater": "^6.8.11",
-    "emojibase-data": "^17.0.0",
+    "emojibase-data": "^18.0.0",
     "lucide-react": "^0.577.0",
     "node-pty": "^1.0.0",
     "portless": "^0.7.2",
@@ -88,10 +88,10 @@
     "electron-builder": "^26.18.0",
     "happy-dom": "^20.14.3",
     "jsdom": "^30.0.1",
-    "typescript": "~5.8.3",
+    "typescript": "~5.9.3",
     "vite": "^7.0.4",
     "vite-plugin-electron": "^0.28.0",
-    "vite-plugin-electron-renderer": "^0.14.6",
+    "vite-plugin-electron-renderer": "^1.0.0",
     "vitest": "^4.1.0"
   },
   "build": {

@@ -12,7 +12,7 @@
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20261001.1",
     "@manor/protocol": "workspace:*",
-    "typescript": "~5.8.3",
+    "typescript": "~5.9.3",
     "vitest": "^4.1.0",
     "wrangler": "^4.124.0"
   }

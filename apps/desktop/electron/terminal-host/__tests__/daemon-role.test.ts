@@ -1,7 +1,13 @@
 import { describe, it, expect, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { isDaemonArgv, localRole, remoteRole, type DaemonRole } from "../daemon-role";
+import {
+  isDaemonArgv,
+  localRole,
+  nodeVersionWarning,
+  remoteRole,
+  type DaemonRole,
+} from "../daemon-role";
 import { daemonDir, hooksDir, remoteControlPortFile } from "../../paths";
 import { ShellManager } from "../../shell";
 
@@ -149,5 +155,18 @@ describe("isDaemonArgv", () => {
     expect(isDaemonArgv(["server-bridge"])).toBe(false);
     expect(isDaemonArgv(["server-bridge", "--viewer"])).toBe(false);
     expect(isDaemonArgv(["some-future-mode"])).toBe(false);
+  });
+});
+
+describe("nodeVersionWarning", () => {
+  it("warns on a Node line that no longer gets security fixes", () => {
+    expect(nodeVersionWarning("20.19.1")).toBe(
+      "Node.js 20.19.1 no longer gets security fixes; upgrade to Node.js 22 or newer on this host",
+    );
+  });
+
+  it("stays quiet from Node 22 on", () => {
+    expect(nodeVersionWarning("22.0.0")).toBeNull();
+    expect(nodeVersionWarning("26.12.1")).toBeNull();
   });
 });

@@ -28,6 +28,7 @@ import {
 } from "./helpers/remote-project";
 import { closeSettings, pairHostPhone } from "./helpers/settings";
 import { paneText, runInTerminal } from "./helpers/terminal";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * A phone watching a pane keeps its host awake.
@@ -89,7 +90,7 @@ relayTest.describe("idle stop", () => {
       let link: string;
       try {
         const window = await first.firstWindow();
-        await window.waitForLoadState("domcontentloaded");
+        await waitForAppDocument(window);
         hostId = await addRecipeHost(window, RECIPE.id);
         ({ paneId } = await openRemoteProject(window, request, tempHome, {
           host: { hostId, hostLabel: RECIPE.name },
@@ -142,7 +143,7 @@ relayTest.describe("idle stop", () => {
           .toContain("PHONE_SEES_42");
 
         const window = await second.firstWindow();
-        await window.waitForLoadState("domcontentloaded");
+        await waitForAppDocument(window);
         await pollFor(
           "the host connected",
           async () =>

@@ -1,6 +1,6 @@
 import type { ElectronApplication, Page } from "@playwright/test";
 import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
-import { clickMenuItem } from "./helpers/window";
+import { clickMenuItem, waitForAppDocument } from "./helpers/window";
 
 /**
  * The whole app works from the keyboard.
@@ -794,7 +794,7 @@ test.describe("popout window", () => {
       )
       .toBe(true);
     const popout = await popoutOpened;
-    await popout.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(popout);
     await expect(popout.locator('[data-testid="tab"]:visible')).toHaveCount(1, {
       timeout: 15_000,
     });

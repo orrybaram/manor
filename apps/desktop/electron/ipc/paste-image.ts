@@ -14,11 +14,8 @@ import { LOCAL_HOST_ID } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import { writePastedImage } from "../server/pasted-images";
 
-/** The `clipboard:writeText`/co. surface only needs `NativeImage`'s shape. */
-export interface ClipboardImage {
-  isEmpty(): boolean;
-  toPNG(): Buffer;
-}
+/** Reads the clipboard's image as PNG bytes, or `null` when it holds none. */
+export type ReadClipboardPng = () => Promise<Buffer | null>;
 
 export type PasteClipboardImageResult =
   | { kind: "local" }
@@ -27,7 +24,7 @@ export type PasteClipboardImageResult =
   | { kind: "error"; message: string };
 
 /**
- * Uploads `clipboardImage` to `paneId`'s host's `~/.manor/pasted-images`, or
+ * Uploads the image `readPng` reads to `paneId`'s host's `~/.manor/pasted-images`, or
  * reports why there is nothing to upload: `local` (the pane's own host reads
  * its own clipboard), `none` (the clipboard has no image), or `error` (the
  * upload failed, e.g. the host is away).
@@ -40,24 +37,19 @@ export type PasteClipboardImageResult =
 export async function uploadClipboardImage(
   registry: BackendRegistry,
   paneId: string,
-  clipboardImage: ClipboardImage,
+  readPng: ReadClipboardPng,
   paneHostId?: string,
 ): Promise<PasteClipboardImageResult> {
   const hostId = paneHostId ?? registry.sessions.ownerOf(paneId);
   if (hostId === undefined || hostId === LOCAL_HOST_ID)
     return { kind: "local" };
 
-  if (clipboardImage.isEmpty()) return { kind: "none" };
-
   try {
+    const png = await readPng();
+    if (png === null) return { kind: "none" };
     return {
       kind: "uploaded",
-      path: await writePastedImage(
-        registry,
-        hostId,
-        clipboardImage.toPNG(),
-        "png",
-      ),
+      path: await writePastedImage(registry, hostId, png, "png"),
     };
   } catch (err) {
     return { kind: "error", message: errorMessage(err) };

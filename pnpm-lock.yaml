@@ -224,10 +224,10 @@ importers:
         version: 7.3.1(@types/node@25.5.0)(jiti@2.7.0)(yaml@2.9.0)
       vite-plugin-electron:
         specifier: ^0.28.0
-        version: 0.28.8(vite-plugin-electron-renderer@0.14.6)
+        version: 0.28.8(vite-plugin-electron-renderer@1.0.0)
       vite-plugin-electron-renderer:
-        specifier: ^0.14.6
-        version: 0.14.6
+        specifier: ^1.0.0
+        version: 1.0.0
       vitest:
         specifier: ^4.1.0
         version: 4.1.0(@types/node@25.5.0)(happy-dom@20.14.3)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@7.3.1(@types/node@25.5.0)(jiti@2.7.0)(yaml@2.9.0))
@@ -4694,8 +4694,8 @@ packages:
   vfile@6.0.3:
     resolution: {integrity: sha512-KzIbH/9tXat2u30jf+smMwFCsno4wHVdNmzFyL+T/L3UGqqk6JKfVqOFOZEpZSHADH1k40ab6NUIXZq422ov3Q==}
 
-  vite-plugin-electron-renderer@0.14.6:
-    resolution: {integrity: sha512-oqkWFa7kQIkvHXG7+Mnl1RTroA4sP0yesKatmAy0gjZC4VwUqlvF9IvOpHd1fpLWsqYX/eZlVxlhULNtaQ78Jw==}
+  vite-plugin-electron-renderer@1.0.0:
+    resolution: {integrity: sha512-/9CBdUqnCgwWXn61v5PErWnR5q3Bfne2oI52uHzgJnKnlaoNgEKvxOzS0/XssDXWMK3ElStM2+J/Ko4Q63XhMA==}
 
   vite-plugin-electron@0.28.8:
     resolution: {integrity: sha512-ir+B21oSGK9j23OEvt4EXyco9xDCaF6OGFe0V/8Zc0yL2+HMyQ6mmNQEIhXsEsZCSfIowBpwQBeHH4wVsfraeg==}
@@ -9763,11 +9763,11 @@ snapshots:
       '@types/unist': 3.0.3
       vfile-message: 4.0.3
 
-  vite-plugin-electron-renderer@0.14.6: {}
+  vite-plugin-electron-renderer@1.0.0: {}
 
-  vite-plugin-electron@0.28.8(vite-plugin-electron-renderer@0.14.6):
+  vite-plugin-electron@0.28.8(vite-plugin-electron-renderer@1.0.0):
     optionalDependencies:
-      vite-plugin-electron-renderer: 0.14.6
+      vite-plugin-electron-renderer: 1.0.0
 
   vite@7.3.1(@types/node@25.5.0)(jiti@2.7.0)(yaml@2.9.0):
     dependencies:

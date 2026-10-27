@@ -8,9 +8,14 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 if (process.platform !== "darwin") process.exit(0);
+
+// Electron (>= 42) downloads its binary the first time it's resolved, not at
+// install: resolve it now so there is an Info.plist to patch on a fresh install.
+createRequire(import.meta.url)("electron");
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 const REPO_ROOT = path.resolve(ROOT, "../..");

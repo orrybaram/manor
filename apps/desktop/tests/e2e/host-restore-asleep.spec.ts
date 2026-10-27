@@ -26,6 +26,7 @@ import {
 } from "./helpers/remote-project";
 import { readSession } from "./helpers/local-api";
 import { activePaneId, runInTerminal } from "./helpers/terminal";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * Restoring a window doesn't wake a sleeping host.
@@ -152,7 +153,7 @@ test.describe("restore with a sleeping host", () => {
     let paneId: string;
     try {
       const window = await first.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
       hostId = await addRecipeHost(window, RECIPE.id);
       ({ paneId } = await openRemoteProject(window, request, tempHome, {
         host: { hostId, hostLabel: RECIPE.name },
@@ -167,7 +168,7 @@ test.describe("restore with a sleeping host", () => {
     const second = await launchApp(tempHome);
     try {
       const window = await second.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
 
       await expectStillAsleep(window, tempHome, hostId);
 
@@ -208,7 +209,7 @@ test.describe("restore with a sleeping host", () => {
     let paneId: string;
     try {
       const window = await first.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
       hostId = await addRecipeHost(window, RECIPE.id);
       ({ paneId } = await openRemoteProject(window, request, tempHome, {
         host: { hostId, hostLabel: RECIPE.name },
@@ -239,7 +240,7 @@ test.describe("restore with a sleeping host", () => {
     const second = await launchApp(tempHome);
     try {
       const window = await second.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
 
       await expectStillAsleep(window, tempHome, hostId);
 

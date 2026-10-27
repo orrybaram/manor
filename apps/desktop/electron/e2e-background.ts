@@ -10,8 +10,10 @@ import { app, type BrowserWindow } from "electron";
  * In background mode the app has no Dock icon, so macOS never makes it the
  * active app, and its windows never take focus. macOS has no way to open a
  * window *behind* another app's, so an unfocused window still lands on top;
- * instead it is fully transparent and lets clicks fall through to whatever is
- * under it.
+ * instead it is all but transparent and lets clicks fall through to whatever
+ * is under it. Not fully: Electron 44 (35 didn't; seen on Linux) draws a
+ * window at opacity 0 about once a second, which starves
+ * `requestAnimationFrame` in its pages and webviews.
  *
  * Playwright drives the renderer over CDP — input, screenshots and video all
  * go through the page, not the screen — so it needs neither focus nor a
@@ -32,7 +34,7 @@ export function applyE2eBackgroundSwitches(): void {
 
 /** `BrowserWindow` options for a window that should not take the screen. */
 export function e2eWindowOptions(): Electron.BrowserWindowConstructorOptions {
-  return e2eBackground ? { show: false, opacity: 0, hasShadow: false } : {};
+  return e2eBackground ? { show: false, opacity: 0.01, hasShadow: false } : {};
 }
 
 /** Show a window created with `e2eWindowOptions` without bringing it forward. */

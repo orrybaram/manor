@@ -9,6 +9,7 @@ import {
   type ElectronApplication,
   type Page,
 } from "@playwright/test";
+import { waitForAppDocument } from "./helpers/window";
 
 const appRoot = path.join(__dirname, "../..");
 
@@ -74,7 +75,7 @@ export const test = base.extend<{
 
   window: async ({ app }, use) => {
     const window = await app.firstWindow();
-    await window.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(window);
 
     await use(window);
   },

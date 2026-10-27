@@ -10,7 +10,7 @@ import { openWebApp } from "./helpers/phone";
 import { relayTest } from "./helpers/relay-fixture";
 import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, awaitShellReady, runInTerminal, scrollback } from "./helpers/terminal";
-import { clickMenuItem } from "./helpers/window";
+import { clickMenuItem, waitForAppDocument } from "./helpers/window";
 
 /**
  * A detached window is a claim, not a hand-off.
@@ -51,7 +51,7 @@ test("a tab popped into its own window is still the workspace's", { tag: "@smoke
     app.waitForEvent("window"),
     detachTab(window, 1),
   ]).then(([win]) => win);
-  await popup.waitForLoadState("domcontentloaded");
+  await waitForAppDocument(popup);
 
   // The primary hides it because the popout reported a claim on it…
   await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
@@ -101,7 +101,7 @@ test("a pane popped out becomes a tab of the workspace, not a copy of one", asyn
     app.waitForEvent("window"),
     clickMenuItem(app, ["Pane", "Move Pane to New Window"]),
   ]).then(([win]) => win);
-  await popup.waitForLoadState("domcontentloaded");
+  await waitForAppDocument(popup);
 
   // The split collapsed here and the popout shows the pane that left.
   await assertVisiblePaneCount(window, 1);
@@ -157,7 +157,7 @@ relayTest("a browser still sees and can type into a tab popped out on the desk",
       app.waitForEvent("window"),
       detachTab(window, 1),
     ]).then(([win]) => win);
-    await popup.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(popup);
     await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
 
     // Still two tabs on the server, and the browser still lists both —

@@ -20,6 +20,7 @@ import {
   closeRendererWindows,
   rendererWindowCount,
   reopenPrimaryWindow,
+  waitForAppDocument,
 } from "./helpers/window";
 
 /**
@@ -143,7 +144,7 @@ test.describe("the desktop on the bridge", () => {
       app.waitForEvent("window"),
       clickMenuItem(app, ["Window", "Move Tab to New Window"]),
     ]).then(([win]) => win);
-    await popup.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(popup);
     await expect.poll(() => tabs(window).count(), { timeout: 30_000 }).toBe(1);
     await assertVisiblePaneCount(window, 1);
     expect(await activePaneId(window)).toBe(paneId);

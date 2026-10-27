@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { uploadClipboardImage, type ClipboardImage } from "../paste-image";
+import { uploadClipboardImage, type ReadClipboardPng } from "../paste-image";
 
 function makeRegistry(opts: {
   ownerOf?: string | undefined;
@@ -22,34 +22,39 @@ function makeRegistry(opts: {
 
 function makeImage(
   opts: { empty?: boolean; bytes?: Buffer } = {},
-): ClipboardImage {
-  return {
-    isEmpty: () => opts.empty ?? false,
-    toPNG: () => opts.bytes ?? Buffer.from("png-bytes"),
-  };
+): ReadClipboardPng {
+  return vi
+    .fn()
+    .mockResolvedValue(
+      opts.empty ? null : (opts.bytes ?? Buffer.from("png-bytes")),
+    );
 }
 
 describe("uploadClipboardImage", () => {
   it("returns local when the pane has no remote owner", async () => {
     const { registry, get } = makeRegistry({ ownerOf: undefined });
+    const readPng = makeImage();
     const result = await uploadClipboardImage(
       registry as never,
       "pane-a",
-      makeImage(),
+      readPng,
     );
     expect(result).toEqual({ kind: "local" });
     expect(get).not.toHaveBeenCalled();
+    expect(readPng).not.toHaveBeenCalled();
   });
 
   it("returns local when the pane's owner is the local host", async () => {
     const { registry, get } = makeRegistry({ ownerOf: "local" });
+    const readPng = makeImage();
     const result = await uploadClipboardImage(
       registry as never,
       "pane-a",
-      makeImage(),
+      readPng,
     );
     expect(result).toEqual({ kind: "local" });
     expect(get).not.toHaveBeenCalled();
+    expect(readPng).not.toHaveBeenCalled();
   });
 
   it("uploads to the host the caller names when main has never seen the pane", async () => {

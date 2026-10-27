@@ -1,4 +1,12 @@
-import { BrowserWindow, ipcMain, dialog, shell, clipboard } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  clipboard,
+  nativeImage,
+} from "electron";
 import fs from "node:fs";
 import path from "node:path";
 import { assertString } from "../ipc-validate";
@@ -31,6 +39,9 @@ export function register(deps: HostDeps): void {
   }
 
   // ── Dialog ──
+  // Electron (>= 43) opens a dialog without `defaultPath` in Downloads and no
+  // longer lets the OS restore the last folder, so start beside the last pick.
+  let lastPickedParent: string | undefined;
   ipcMain.handle("dialog:openDirectory", async (event) => {
     // Attach the sheet to the window that asked — a popout gets its own dialog
     // instead of one hung off the main window. Falls through to a parentless
@@ -39,12 +50,14 @@ export function register(deps: HostDeps): void {
       BrowserWindow.fromWebContents(event.sender) ?? getMainWindow();
     const options: Electron.OpenDialogOptions = {
       properties: ["openDirectory"],
+      defaultPath: lastPickedParent ?? app.getPath("home"),
     };
     const result =
       owner && !owner.isDestroyed()
         ? await dialog.showOpenDialog(owner, options)
         : await dialog.showOpenDialog(options);
     if (result.canceled || result.filePaths.length === 0) return null;
+    lastPickedParent = path.dirname(result.filePaths[0]);
     return result.filePaths[0];
   });
 
@@ -120,9 +133,9 @@ export function register(deps: HostDeps): void {
   );
 
   // ── Clipboard ──
-  ipcMain.handle("clipboard:writeText", (_event, text: string) => {
-    clipboard.writeText(text);
-  });
+  ipcMain.handle("clipboard:writeText", (_event, text: string) =>
+    clipboard.writeText(text),
+  );
 
   // ── Terminal ──
   // Uploads the clipboard's image to a remote pane's host so an agent there
@@ -135,7 +148,30 @@ export function register(deps: HostDeps): void {
     (_event, paneId: string, hostId?: string) => {
       assertString(paneId, "paneId");
       if (hostId !== undefined) assertString(hostId, "hostId");
-      return uploadClipboardImage(backendRegistry, paneId, clipboard.readImage(), hostId);
+      return uploadClipboardImage(
+        backendRegistry,
+        paneId,
+        readClipboardPng,
+        hostId,
+      );
     },
   );
+}
+
+/**
+ * The clipboard's image as PNG bytes, or `null` when it holds none. A JPEG
+ * (some screenshot tools copy one) is re-encoded so the upload is always PNG.
+ */
+async function readClipboardPng(): Promise<Buffer | null> {
+  const items = await clipboard.read();
+  const png = items.find((item) => item.types.includes("image/png"));
+  if (png) return blobBytes(await png.getType("image/png"));
+  const jpeg = items.find((item) => item.types.includes("image/jpeg"));
+  if (!jpeg) return null;
+  const bytes = await blobBytes(await jpeg.getType("image/jpeg"));
+  return nativeImage.createFromBuffer(bytes).toPNG();
+}
+
+async function blobBytes(blob: Blob): Promise<Buffer> {
+  return Buffer.from(await blob.arrayBuffer());
 }

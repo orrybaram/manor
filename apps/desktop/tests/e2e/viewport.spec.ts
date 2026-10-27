@@ -7,6 +7,7 @@ import {
   launchApp,
   test,
 } from "./fixtures";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * The selection is this renderer's and survives a relaunch.
@@ -27,7 +28,7 @@ test("the selected tab survives a relaunch", async ({ tempHome }) => {
   const first = await launchApp(tempHome);
   try {
     const window = await first.firstWindow();
-    await window.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(window);
     await bootWorkspaceWithTerminal(first, window, tempHome, "viewport-restart");
 
     // A second tab, which `new-tab` selects — that is the command's hint,
@@ -63,7 +64,7 @@ test("the selected tab survives a relaunch", async ({ tempHome }) => {
   const relaunched = await launchApp(tempHome);
   try {
     const window = await relaunched.firstWindow();
-    await window.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(window);
 
     const tabs = window.locator('[data-testid="tab"]');
     await expect.poll(() => tabs.count(), { timeout: 30_000 }).toBe(2);

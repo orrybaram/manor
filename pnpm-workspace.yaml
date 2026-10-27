@@ -2,4 +2,19 @@ packages:
   - apps/*
   - packages/*
 
-onlyBuiltDependencies: '["esbuild"]'
+# Supply-chain guards. Only these packages may run install scripts; any other
+# package with one fails the install until it is reviewed and listed here (or
+# in ignoredBuiltDependencies).
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - node-pty
+  - workerd
+# Reviewed and not needed: releases build on macOS only.
+ignoredBuiltDependencies:
+  - electron-winstaller
+strictDepBuilds: true
+
+# Don't resolve a version published less than a day ago: most malicious
+# releases are caught and pulled within hours.
+minimumReleaseAge: 1440

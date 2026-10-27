@@ -11,7 +11,7 @@
 # python3, make and g++ are node-gyp's toolchain: node-pty has no Linux
 # prebuilds, so it compiles here (baked package) or on the first connect.
 # iproute2 brings `ss`, which the port list uses on Linux.
-FROM node:22-bookworm-slim
+FROM node:22.23.4-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \

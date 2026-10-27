@@ -119,6 +119,22 @@ function attachWindowOpenHandler(win: BrowserWindow): void {
   });
 }
 
+/**
+ * Lock down every `<webview>` guest before it attaches: no preload, no Node,
+ * sandboxed and isolated, whatever its attributes asked for. A guest loads
+ * arbitrary web pages, so it must never get more than a plain browser tab.
+ */
+function attachWebviewHardening(win: BrowserWindow): void {
+  win.webContents.on("will-attach-webview", (_event, webPreferences) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.nodeIntegrationInWorker = false;
+    webPreferences.nodeIntegrationInSubFrames = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+  });
+}
+
 /** Load the renderer (dev server in development, bundled file when packaged). */
 function loadRenderer(win: BrowserWindow): void {
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -177,6 +193,7 @@ export function createWindow(): BrowserWindow {
   mainWindow.webContents.setZoomFactor(savedZoom);
 
   attachWindowOpenHandler(mainWindow);
+  attachWebviewHardening(mainWindow);
   loadRenderer(mainWindow);
 
   return mainWindow;
@@ -236,6 +253,7 @@ export function createDetachedWindow(
   showE2eWindow(win);
 
   attachWindowOpenHandler(win);
+  attachWebviewHardening(win);
   loadRenderer(win);
 
   return win;

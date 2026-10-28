@@ -241,6 +241,52 @@ describe("ChatPane — entries", () => {
     expect(groups.map((g) => g.textContent)).toEqual(["Ran a command, read a file", "Ran a command"]);
   });
 
+  it("turns a running Edit into a collapsed diff card in its place, which opens its hunks", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    await renderChat();
+    const ts = new Date().toISOString();
+    await act(async () =>
+      listener?.(PANE, { kind: "tool", id: "t1", ts, name: "Read", summary: "a", status: "ok" }),
+    );
+    await act(async () =>
+      listener?.(PANE, { kind: "tool", id: "t2", ts, name: "Edit", summary: "/r/src/a.ts", status: "pending" }),
+    );
+    expect(all("chat-edit-card")).toHaveLength(0);
+    await act(async () =>
+      listener?.(PANE, {
+        kind: "edit",
+        id: "t2",
+        ts,
+        name: "Edit",
+        path: "electron/chat-mirror/stream.ts",
+        hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: ["   keep", "-  old", "+  new"] }],
+        added: 3,
+        removed: 2,
+        truncated: true,
+      }),
+    );
+    expect(all("chat-tool-group").map((g) => g.textContent)).toEqual(["Read a file"]);
+    const [card] = all("chat-edit-card");
+    expect(card.textContent).toContain("stream.ts");
+    expect(card.textContent).toContain("electron/chat-mirror");
+    expect(card.textContent).toContain("+3−2");
+    const toggle = card.querySelector<HTMLButtonElement>('[data-testid="chat-edit-toggle"]')!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(all("chat-edit-diff")).toHaveLength(0);
+
+    await click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("Hide diff");
+    const diff = all("chat-edit-diff")[0];
+    expect(diff.textContent).toContain("@@ -4,2 +4,2 @@");
+    expect([...diff.querySelectorAll("[data-line]")].map((l) => [l.getAttribute("data-line"), l.textContent])).toEqual([
+      ["context", " keep"],
+      ["del", "−old"],
+      ["add", "+new"],
+    ]);
+    expect(diff.textContent).toContain("Diff truncated");
+  });
+
   it("shows Thinking while Claude works with nothing to show", async () => {
     vi.useFakeTimers();
     try {

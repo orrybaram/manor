@@ -874,3 +874,213 @@ describe("TranscriptParser — turn state", () => {
     expect(p.turnState()).toBe("done");
   });
 });
+
+describe("TranscriptParser — edits", () => {
+  const CWD = "/work/repo";
+  const use = (id: string, name: string, input: Record<string, unknown>) =>
+    assistant(`a-${id}`, [{ type: "tool_use", id, name, input }]);
+  const landed = (id: string, toolUseResult: unknown, extra = {}) =>
+    line({
+      type: "user",
+      uuid: `r-${id}`,
+      cwd: CWD,
+      message: {
+        role: "user",
+        content: [{ type: "tool_result", tool_use_id: id, content: "The file has been updated.", ...extra }],
+      },
+      toolUseResult,
+    });
+  const hunk = (lines: string[], oldStart = 10, newStart = 10) => ({
+    oldStart,
+    oldLines: lines.filter((l) => !l.startsWith("+")).length,
+    newStart,
+    newLines: lines.filter((l) => !l.startsWith("-")).length,
+    lines,
+  });
+  const editResult = (patch: unknown[], extra: Record<string, unknown> = {}) => ({
+    filePath: `${CWD}/src/stream.ts`,
+    oldString: "a",
+    newString: "b",
+    originalFile: "a",
+    structuredPatch: patch,
+    userModified: false,
+    replaceAll: false,
+    ...extra,
+  });
+
+  it("turns a landed Edit into an edit entry in the tool's place", () => {
+    const p = new TranscriptParser();
+    p.push(use("t0", "Read", { file_path: `${CWD}/src/stream.ts` }));
+    p.push(use("t1", "Edit", { file_path: `${CWD}/src/stream.ts`, old_string: "a", new_string: "b" }));
+    p.push(userBlocks("u9", "next"));
+    const h = hunk(["   keep", "-  old", "+  new", "+  more", "\\ No newline at end of file"]);
+    const out = p.push(landed("t1", editResult([h])));
+    expect(out).toEqual([
+      {
+        kind: "edit",
+        id: "t1",
+        ts: T,
+        name: "Edit",
+        path: "src/stream.ts",
+        hunks: [h],
+        added: 2,
+        removed: 1,
+        truncated: false,
+      },
+    ]);
+    expect(p.entries().map((e) => `${e.kind}:${e.id}`)).toEqual(["tool:t0", "edit:t1", "user:u9"]);
+  });
+
+  it("keeps a path outside the working directory as written", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: "/elsewhere/x.ts" }));
+    const [e] = p.push(landed("t1", editResult([hunk(["+x"])], { filePath: "/elsewhere/x.ts" })));
+    expect(e).toMatchObject({ kind: "edit", path: "/elsewhere/x.ts" });
+  });
+
+  it("counts every hunk of a MultiEdit", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "MultiEdit", { file_path: `${CWD}/a.ts`, edits: [] }));
+    const [e] = p.push(
+      landed("t1", editResult([hunk(["-a", "+b"], 1, 1), hunk([" c", "+d", "+e"], 20, 20)], { filePath: undefined })),
+    );
+    expect(e).toMatchObject({ kind: "edit", name: "MultiEdit", path: "a.ts", added: 3, removed: 1 });
+    expect(e.kind === "edit" && e.hunks).toHaveLength(2);
+  });
+
+  it("leaves a failed or rejected edit a tool", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    p.push(use("t2", "Edit", { file_path: `${CWD}/b.ts` }));
+    const [failed] = p.push(
+      landed("t1", "Error: String to replace not found", { is_error: true, content: "String not found" }),
+    );
+    expect(failed).toMatchObject({ kind: "tool", status: "error", detail: "String not found" });
+    // An error result that still carries a patch is still an error.
+    const [rejected] = p.push(landed("t2", editResult([hunk(["+x"])]), { is_error: true }));
+    expect(rejected).toMatchObject({ kind: "tool", status: "error" });
+  });
+
+  it("leaves an edit with no patch a tool", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    p.push(use("t2", "Write", { file_path: `${CWD}/b.ts` }));
+    p.push(use("t3", "Edit", { file_path: `${CWD}/c.ts` }));
+    expect(p.push(landed("t1", editResult([])))[0]).toMatchObject({ kind: "tool", status: "ok" });
+    // A Write that changed nothing.
+    expect(p.push(landed("t2", { type: "update", filePath: `${CWD}/b.ts`, content: "x", structuredPatch: [] }))[0])
+      .toMatchObject({ kind: "tool", status: "ok" });
+    expect(p.push(landed("t3", undefined))[0]).toMatchObject({ kind: "tool", status: "ok" });
+  });
+
+  it("never makes a card for a tool that doesn't edit", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Bash", { command: "sed -i s/a/b/ x" }));
+    expect(p.push(landed("t1", editResult([hunk(["+x"])])))[0]).toMatchObject({ kind: "tool" });
+  });
+
+  it("skips malformed hunks and keeps the good ones", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    const good = hunk(["-a", "+b"]);
+    const [e] = p.push(
+      landed(
+        "t1",
+        editResult([
+          null,
+          "@@ -1 +1 @@",
+          { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 },
+          { oldStart: "1", oldLines: 1, newStart: 1, newLines: 1, lines: ["+x"] },
+          { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] },
+          { ...good, lines: [...good.lines, 7, null] },
+        ]),
+      ),
+    );
+    expect(e).toMatchObject({ kind: "edit", added: 1, removed: 1, hunks: [good] });
+  });
+
+  it("leaves a tool when every hunk is malformed", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    expect(p.push(landed("t1", editResult([{ lines: "nope" }, 3])))[0]).toMatchObject({
+      kind: "tool",
+      status: "ok",
+    });
+  });
+
+  it("caps hunks and lines, counting the whole patch first", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    const big = hunk(Array.from({ length: 450 }, (_, i) => `+line ${i}`), 1, 1);
+    const small = Array.from({ length: 44 }, (_, i) => hunk(["-x", "+y"], 1000 + i * 10, 1000 + i * 10));
+    const [e] = p.push(landed("t1", editResult([big, ...small])));
+    if (e.kind !== "edit") throw new Error(`expected an edit, got ${e.kind}`);
+    expect(e.added).toBe(450 + 44);
+    expect(e.removed).toBe(44);
+    expect(e.hunks).toHaveLength(40);
+    expect(e.hunks[0].lines).toHaveLength(400);
+    expect(e.truncated).toBe(true);
+  });
+
+  it("cuts a very long line and says so", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    const [e] = p.push(landed("t1", editResult([hunk([`+${"x".repeat(5000)}`])])));
+    if (e.kind !== "edit") throw new Error(`expected an edit, got ${e.kind}`);
+    expect(e.hunks[0].lines[0].length).toBeLessThan(1100);
+    expect(e.truncated).toBe(true);
+  });
+
+  it("shows a new file from Write as all added lines", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Write", { file_path: `${CWD}/new.md`, content: "# Title\n\nBody\n" }));
+    const [e] = p.push(
+      landed("t1", {
+        type: "create",
+        filePath: `${CWD}/new.md`,
+        content: "# Title\n\nBody\n",
+        structuredPatch: [],
+        originalFile: null,
+        userModified: false,
+      }),
+    );
+    expect(e).toEqual({
+      kind: "edit",
+      id: "t1",
+      ts: T,
+      name: "Write",
+      path: "new.md",
+      hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3, lines: ["+# Title", "+", "+Body"] }],
+      added: 3,
+      removed: 0,
+      truncated: false,
+    });
+  });
+
+  it("caps a long new file", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Write", { file_path: `${CWD}/big.txt` }));
+    const content = Array.from({ length: 1000 }, (_, i) => `l${i}`).join("\n");
+    const [e] = p.push(landed("t1", { type: "create", filePath: `${CWD}/big.txt`, content, structuredPatch: [] }));
+    if (e.kind !== "edit") throw new Error(`expected an edit, got ${e.kind}`);
+    expect(e.added).toBe(1000);
+    expect(e.hunks[0].lines).toHaveLength(400);
+    expect(e.truncated).toBe(true);
+  });
+
+  it("leaves an empty new file a tool", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Write", { file_path: `${CWD}/empty` }));
+    expect(
+      p.push(landed("t1", { type: "create", filePath: `${CWD}/empty`, content: "", structuredPatch: [] }))[0],
+    ).toMatchObject({ kind: "tool", status: "ok" });
+  });
+
+  it("names a MultiEdit or NotebookEdit tool by its file", () => {
+    const p = new TranscriptParser();
+    const [m] = p.push(use("t1", "MultiEdit", { file_path: "/a/b.ts" }));
+    const [n] = p.push(use("t2", "NotebookEdit", { notebook_path: "/a/c.ipynb" }));
+    expect(m).toMatchObject({ summary: "/a/b.ts" });
+    expect(n).toMatchObject({ summary: "/a/c.ipynb" });
+  });
+});

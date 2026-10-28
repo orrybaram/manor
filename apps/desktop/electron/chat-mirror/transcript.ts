@@ -22,6 +22,27 @@ export type ChatEntry =
       detail?: string;
     }
   | {
+      /**
+       * A file edit that landed, with its diff. Replaces the Edit/Write
+       * tool entry of the same id once its result says it succeeded.
+       */
+      kind: "edit";
+      /** The tool_use id. */
+      id: string;
+      ts: string;
+      /** The tool that made it: Edit, Write, MultiEdit or NotebookEdit. */
+      name: string;
+      /** Relative to the session's working directory when inside it, else as written. */
+      path: string;
+      /** At most MAX_HUNKS hunks of at most MAX_HUNK_LINES lines each. */
+      hunks: ChatDiffHunk[];
+      /** Lines added and removed over the whole patch, before any capping. */
+      added: number;
+      removed: number;
+      /** Some hunks, lines or line text were cut to fit. */
+      truncated: boolean;
+    }
+  | {
       kind: "question";
       id: string;
       ts: string;
@@ -96,6 +117,18 @@ export type ChatEntry =
 export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 /**
+ * One hunk of a unified diff, as Claude Code's `structuredPatch` writes it.
+ * Each line starts with " ", "+", "-", or a backslash for "No newline at end of file".
+ */
+export type ChatDiffHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+};
+
+/**
  * The session's context size in tokens. Published by the mirror
  * when it changes; never a `ChatEntry`, never drawn.
  */
@@ -132,6 +165,12 @@ export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
 export type ChatSkill = { name: string; description: string };
 
 const MAX_DETAIL = 4000;
+/** An edit card's caps: hunks, lines per hunk, characters per line. */
+const MAX_HUNKS = 40;
+const MAX_HUNK_LINES = 400;
+const MAX_LINE_CHARS = 1000;
+/** Tools whose landed result carries a `structuredPatch`. */
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 /** User text Claude Code writes for itself, not for the person reading. */
 const META_PREFIXES = [
   "<command-",
@@ -228,7 +267,10 @@ function summarizeTool(name: string, input: Json): string {
     case "Read":
     case "Edit":
     case "Write":
+    case "MultiEdit":
       return str(input.file_path) || name;
+    case "NotebookEdit":
+      return str(input.notebook_path) || name;
     case "Grep":
     case "Glob":
       return str(input.pattern) || name;
@@ -315,6 +357,90 @@ function resultText(content: unknown): string {
     }
   }
   return parts.join("\n");
+}
+
+function isCount(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+/** A `structuredPatch` hunk, or null when it isn't one. */
+function diffHunk(v: unknown): ChatDiffHunk | null {
+  if (!isObject(v) || !Array.isArray(v.lines)) return null;
+  const { oldStart, oldLines, newStart, newLines } = v;
+  if (!isCount(oldStart) || !isCount(oldLines) || !isCount(newStart) || !isCount(newLines)) {
+    return null;
+  }
+  const lines = v.lines.filter((l): l is string => typeof l === "string");
+  if (lines.length === 0) return null;
+  return { oldStart, oldLines, newStart, newLines, lines };
+}
+
+/**
+ * The hunks a landed edit's `toolUseResult` describes. A new file written
+ * with Write has no patch, only its `content`: that is one hunk of added lines.
+ */
+function editHunks(info: Json): ChatDiffHunk[] {
+  const patch = Array.isArray(info.structuredPatch) ? info.structuredPatch : [];
+  const hunks = patch.map(diffHunk).filter((h): h is ChatDiffHunk => h !== null);
+  if (hunks.length > 0 || patch.length > 0) return hunks;
+  const content = str(info.content);
+  if (info.type !== "create" || !content) return [];
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return [
+    { oldStart: 0, oldLines: 0, newStart: 1, newLines: lines.length, lines: lines.map((l) => `+${l}`) },
+  ];
+}
+
+/** `path` relative to `cwd` when it is inside it. */
+function relativeTo(path: string, cwd: string | undefined): string {
+  if (!cwd) return path;
+  const base = cwd.endsWith("/") ? cwd : `${cwd}/`;
+  return path.startsWith(base) && path.length > base.length ? path.slice(base.length) : path;
+}
+
+/**
+ * A landed edit as an edit entry, counted over the whole patch and then
+ * capped. Null when its result carries no diff to show.
+ */
+function editEntry(
+  tool: Extract<ChatEntry, { kind: "tool" }>,
+  info: Json,
+  cwd?: string,
+): ChatEntry | null {
+  const all = editHunks(info);
+  if (all.length === 0) return null;
+  let added = 0;
+  let removed = 0;
+  for (const h of all) {
+    for (const l of h.lines) {
+      if (l.startsWith("+")) added++;
+      else if (l.startsWith("-")) removed++;
+    }
+  }
+  let truncated = all.length > MAX_HUNKS;
+  const hunks = all.slice(0, MAX_HUNKS).map((h) => {
+    if (h.lines.length > MAX_HUNK_LINES) truncated = true;
+    const lines = h.lines.slice(0, MAX_HUNK_LINES).map((l) => {
+      if (l.length <= MAX_LINE_CHARS) return l;
+      truncated = true;
+      return `${l.slice(0, MAX_LINE_CHARS)}…`;
+    });
+    return { ...h, lines };
+  });
+  const written = str(info.filePath) ?? str(info.notebook_path);
+  const path = written || (tool.summary !== tool.name ? tool.summary : "");
+  return {
+    kind: "edit",
+    id: tool.id,
+    ts: tool.ts,
+    name: tool.name,
+    path: relativeTo(path, cwd),
+    hunks,
+    added,
+    removed,
+    truncated,
+  };
 }
 
 /** How a `TranscriptParser` reads. */
@@ -518,7 +644,7 @@ export class TranscriptParser {
         if (!isObject(block)) continue;
         if (block.type === "tool_result") {
           this.setTurn("working");
-          const e = this.resolve(block, parsed.toolUseResult);
+          const e = this.resolve(block, parsed.toolUseResult, str(parsed.cwd));
           if (e) out.push(e);
         } else if (block.type === "text" && typeof block.text === "string") {
           texts.push(block.text);
@@ -696,7 +822,7 @@ export class TranscriptParser {
   }
 
   /** Apply a tool_result block to its pending entry. */
-  private resolve(block: Json, toolUseResult?: unknown): ChatEntry | null {
+  private resolve(block: Json, toolUseResult?: unknown, cwd?: string): ChatEntry | null {
     const id = str(block.tool_use_id);
     if (!id) return null;
     const existing = this.byId.get(id);
@@ -707,13 +833,21 @@ export class TranscriptParser {
     // Entries are replaced with new objects so consumers can compare by identity.
     let next: ChatEntry;
     switch (existing.kind) {
-      case "tool":
-        next = {
+      case "tool": {
+        // A landed edit becomes its diff, in the tool's place.
+        const lands =
+          !isError &&
+          existing.status === "pending" &&
+          EDIT_TOOLS.has(existing.name) &&
+          isObject(toolUseResult);
+        const edit = lands ? editEntry(existing, toolUseResult, cwd) : null;
+        next = edit ?? {
           ...existing,
           status: isError ? "error" : "ok",
           detail: text ? text.slice(0, MAX_DETAIL) : undefined,
         };
         break;
+      }
       case "question":
         next = { ...existing, answer: text };
         break;

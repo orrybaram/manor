@@ -6,6 +6,7 @@ import { Button } from "../../ui/Button/Button";
 import { summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
+import { EditCard } from "./EditCard";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import { TaskCard } from "./TaskCard";
@@ -62,6 +63,8 @@ export function ChatEntryView(props: ChatEntryViewProps) {
       );
     case "task":
       return <TaskCard paneId={paneId} task={entry} />;
+    case "edit":
+      return <EditCard entry={entry} />;
     case "question":
       return entry.answer === null ? (
         <QuestionCard

@@ -251,6 +251,7 @@ async function openChatPhone(
   },
   name: string,
   seed: (transcriptFile: string) => void,
+  viewport = { width: 390, height: 844 },
 ) {
   const { app, window, tempHome, request } = fixtures;
   const chatDir = path.join(tempHome, "fake-chat");
@@ -273,7 +274,7 @@ async function openChatPhone(
   const device = await pairBrowser(window, { label: "chat phone" });
   await closeSettings(window);
   const client = await openWebApp(device.link, {
-    viewport: { width: 390, height: 844 },
+    viewport,
     context: { isMobile: true, hasTouch: true },
   });
   const page = client.page;
@@ -746,6 +747,178 @@ test.describe("phone chat turn state", () => {
       await expect(chat.getByTestId("chat-stop")).toHaveCount(0);
       await expect(chat.getByTestId("chat-send")).toBeVisible();
       await film.shot(page, "turn-done");
+    } finally {
+      film.write("browser-console.log", client.log.join("\n") + "\n");
+      await client.close();
+    }
+  });
+});
+
+/**
+ * A light theme for the evidence shots, Catppuccin Latte's palette, as a
+ * Ghostty theme file where the app's theme manager looks under its HOME.
+ */
+const LIGHT_THEME = "E2E Latte";
+
+function installLightTheme(tempHome: string): void {
+  const palette = [
+    "#5c5f77", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#acb0be",
+    "#6c6f85", "#d20f39", "#40a02b", "#df8e1d", "#1e66f5", "#ea76cb", "#179299", "#bcc0cc",
+  ];
+  const body = [
+    ...palette.map((c, i) => `palette = ${i}=${c}`),
+    "background = #eff1f5",
+    "foreground = #4c4f69",
+    "cursor-color = #dc8a78",
+    "selection-background = #acb0be",
+    "selection-foreground = #4c4f69",
+    "",
+  ].join("\n");
+  for (const dir of [
+    path.join(tempHome, "Library", "Application Support", "ghostty", "themes"),
+    path.join(tempHome, ".config", "ghostty", "themes"),
+  ]) {
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, LIGHT_THEME), body);
+  }
+}
+
+/** Select `name` on the desk and the phone, and let both repaint. */
+async function selectTheme(desk: Page, page: Page, name: string): Promise<void> {
+  await page.evaluate((n) => window.electronAPI.theme.setSelected(n), name);
+  await desk.evaluate((n) => window.electronAPI.theme.setSelected(n), name);
+  await page.waitForTimeout(1_000);
+}
+
+test.describe("phone chat diff cards", () => {
+  test.setTimeout(240_000);
+
+  test("a landed Edit shows a collapsed diff card that opens its hunks; a failed Edit shows none", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("phone-chat-edit");
+    const cwd = "/work/demo";
+    const editId = "toolu_fake_edit";
+    const failedId = "toolu_fake_edit_failed";
+    const { client, page, chat, transcriptFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-edit",
+      // Settle the agent's open question, so the edit lands after it.
+      (file) =>
+        appendTranscript(
+          file,
+          blockLine("user", "u-e2e-answer", [
+            { type: "tool_result", tool_use_id: "toolu_fake_question", content: "Option 1" },
+          ]),
+        ),
+      { width: 360, height: 780 },
+    );
+    try {
+      await expect(chat.getByTestId("chat-question-answered")).toBeVisible({ timeout: 20_000 });
+      installLightTheme(tempHome);
+
+      const file = `${cwd}/electron/chat-mirror/stream.ts`;
+      const patch = [
+        {
+          oldStart: 186,
+          oldLines: 8,
+          newStart: 186,
+          newLines: 9,
+          lines: [
+            "       if (result.size < this.offset) {",
+            "-        this.reset(path);",
+            '+        this.reset(path, "rewritten");',
+            "         generation = this.currentGeneration;",
+            "         continue;",
+            "       }",
+            "-      if (result.skip !== undefined && result.skip > 0) {",
+            "+      if (result.skip) {",
+            "+        this.currentParser.oversized?.(result.head, this.offset);",
+            "         this.offset += result.skip;",
+          ],
+        },
+      ];
+      appendTranscript(
+        transcriptFile,
+        blockLine("assistant", "a-e2e-edit", [
+          { type: "tool_use", id: editId, name: "Edit", input: { file_path: file, old_string: "x", new_string: "y" } },
+          { type: "tool_use", id: failedId, name: "Edit", input: { file_path: `${cwd}/missing.ts`, old_string: "x", new_string: "y" } },
+        ]),
+        blockLine(
+          "user",
+          "u-e2e-edit-result",
+          [{ type: "tool_result", tool_use_id: editId, content: `The file ${file} has been updated successfully.` }],
+          {
+            cwd,
+            toolUseResult: {
+              filePath: file,
+              oldString: "x",
+              newString: "y",
+              originalFile: "",
+              structuredPatch: patch,
+              userModified: false,
+              replaceAll: false,
+            },
+          },
+        ),
+        blockLine(
+          "user",
+          "u-e2e-edit-failed",
+          [
+            {
+              type: "tool_result",
+              tool_use_id: failedId,
+              content: "<tool_use_error>File does not exist.</tool_use_error>",
+              is_error: true,
+            },
+          ],
+          { cwd, toolUseResult: "Error: File does not exist." },
+        ),
+        blockLine("assistant", "a-e2e-edit-done", [
+          { type: "text", text: "Done. A rewritten transcript now resets with a reason." },
+        ]),
+      );
+
+      // One card, for the edit that landed; the failed one stays a tool line.
+      const card = chat.getByTestId("chat-edit-card");
+      await expect(card).toHaveCount(1, { timeout: 20_000 });
+      await expect(card).toHaveAttribute("data-edit-id", editId);
+      await expect(card).toContainText("stream.ts");
+      await expect(card).toContainText("electron/chat-mirror");
+      await expect(card).toContainText("+3");
+      await expect(card).toContainText("−2");
+      await expect(chat.getByTestId("chat-tool-group").filter({ hasText: "Edited a file (1 failed)" })).toBeVisible();
+
+      // Collapsed by default.
+      const toggle = card.getByTestId("chat-edit-toggle");
+      await expect(toggle).toHaveAttribute("aria-expanded", "false");
+      await expect(card.getByTestId("chat-edit-diff")).toHaveCount(0);
+      await card.scrollIntoViewIfNeeded();
+      await film.shot(page, "dark-collapsed");
+
+      await toggle.tap();
+      await expect(toggle).toHaveAttribute("aria-expanded", "true");
+      const diff = card.getByTestId("chat-edit-diff");
+      await expect(diff).toContainText("@@ -186,8 +186,9 @@");
+      await expect(diff.locator('[data-line="add"]')).toHaveCount(3);
+      await expect(diff.locator('[data-line="del"]')).toHaveCount(2);
+      // Nothing spills sideways at 360px.
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+      await card.scrollIntoViewIfNeeded();
+      await film.shot(page, "dark-expanded");
+
+      const darkTheme = await window.evaluate(() => window.electronAPI.theme.getSelectedName());
+      await selectTheme(window, page, LIGHT_THEME);
+      await card.scrollIntoViewIfNeeded();
+      await film.shot(page, "light-expanded");
+      await toggle.tap();
+      await expect(diff).toHaveCount(0);
+      await card.scrollIntoViewIfNeeded();
+      await film.shot(page, "light-collapsed");
+      await selectTheme(window, page, darkTheme);
     } finally {
       film.write("browser-console.log", client.log.join("\n") + "\n");
       await client.close();

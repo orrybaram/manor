@@ -518,6 +518,7 @@ export type {
 
 /** The phone chat view's wire types. */
 export type {
+  ChatDiffHunk,
   ChatEntry,
   ChatPush,
   ChatSkill,

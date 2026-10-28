@@ -1,11 +1,29 @@
-import { memo, useMemo, useRef, useCallback, useSyncExternalStore } from "react";
+import {
+  memo,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import type { ReactNode } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import type { Rect, Virtualizer } from "@tanstack/react-virtual";
+import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
+import type { Range } from "@tanstack/react-virtual";
+import type { RootContent } from "hast";
 import type { DiffLine } from "../types";
-import { extToLang, loadedTokenizer, subscribeTokenizer, type Tokenize } from "../syntax";
+import {
+  extToLang,
+  loadedTokenizer,
+  subscribeTokenizer,
+  type Tokenize,
+} from "../syntax";
 import { highlightSyntaxNodes, highlightText } from "./hast-utils";
 import { countMatches } from "../search-utils";
+import { DiffScrollContext } from "./diff-scroll";
+import { setRowSource } from "../review-anchor";
 import styles from "./DiffLines.module.css";
 
 type DiffLinesProps = {
@@ -26,26 +44,24 @@ type DiffLinesProps = {
 const ROW_HEIGHT_ESTIMATE = 20;
 
 /**
- * The list is not its own scroller: it grows to its full height and the pane
- * around it scrolls. So every row must be in range, which is done by giving
- * the virtualizer a viewport of unbounded height.
- *
- * This used to be faked by estimating each row at the height of the whole
- * file, so the list measured taller than its content. That is quadratic, and
- * past ~1300 rows it exceeds the tallest box Chromium will lay out. The
- * clamped height then only covered a slice of the unmeasured rows, so each
- * commit mounted a slice, measured it and re-rendered for the next — a chain
- * of nested updates that a large file ran past React's limit (error #185).
+ * Rows past the screen to keep built, each way. Enough that a fast wheel
+ * flick or a drag-selection's auto-scroll lands on rows already drawn.
  */
-const UNBOUNDED_RECT: Rect = { width: 0, height: Number.POSITIVE_INFINITY };
+const OVERSCAN = 20;
 
-function observeUnboundedRect(
-  _instance: Virtualizer<HTMLDivElement, Element>,
-  cb: (rect: Rect) => void,
-) {
-  cb(UNBOUNDED_RECT);
-}
-
+/**
+ * The list is not its own scroller: the files stack in the pane, and the pane
+ * scrolls. So the rows virtualize against the pane's scroller, offset by
+ * where this list starts in it (`scrollMargin`), and only the rows near the
+ * screen are built.
+ *
+ * It used to build every row by giving the virtualizer an unbounded viewport,
+ * which cost the window ~300MB per thousand changed lines. Before that, the
+ * viewport was faked by estimating each row at the height of the whole file;
+ * past ~1300 rows that exceeded the tallest box Chromium lays out and chained
+ * re-renders past React's limit (error #185). Here row heights are only ever
+ * measured, never inflated, so neither can happen.
+ */
 /**
  * The syntax highlighter, loaded the first time a file that has a grammar is
  * shown. Rows render as plain text until it arrives, then highlight in place.
@@ -84,18 +100,52 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
     renderRowExtra,
     markedRows = NO_MARKED_ROWS,
   } = props;
-  const parentRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const { scroller, watch, handles } = useContext(DiffScrollContext);
 
   const lang = extToLang(filePath);
   const tokenize = useTokenizer(lang !== null);
 
-  const tokenizedLines = useMemo(() => {
-    if (!lang || !tokenize) return null;
-    return lines.map((line) => {
-      if (line.type === "hunk") return null;
-      return tokenize(line.content, lang);
-    });
-  }, [lines, lang, tokenize]);
+  // Highlighted as rows are built, not up front: a row that is never shown is
+  // never tokenized, and its tokens are not held.
+  const tokenCache = useMemo(
+    () => new Map<number, RootContent[]>(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new cache whenever what it caches changes
+    [lines, lang, tokenize],
+  );
+  const tokensFor = (i: number): RootContent[] | null => {
+    if (!lang || !tokenize || lines[i].type === "hunk") return null;
+    let tokens = tokenCache.get(i);
+    if (!tokens) {
+      tokens = tokenize(lines[i].content, lang);
+      tokenCache.set(i, tokens);
+    }
+    return tokens;
+  };
+
+  // Where this list starts inside the pane's scrolled content. It moves when
+  // anything above it changes height — a file expanding, rows measuring, the
+  // file list above the files in a narrow pane — so it is re-read whenever
+  // any of those resize. `null` until first measured: rows built against a
+  // guessed offset would be measured in the wrong place and jolt the scroll.
+  const [scrollMargin, setScrollMargin] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!scroller || !list) return;
+    const measure = () => {
+      const top =
+        list.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top +
+        scroller.scrollTop;
+      setScrollMargin((prev) =>
+        prev !== null && Math.abs(prev - top) < 1 ? prev : top,
+      );
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    for (const el of watch) observer.observe(el);
+    return () => observer.disconnect();
+  }, [scroller, watch]);
 
   // Pre-compute cumulative match counts so each row knows its offset
   const cumulativeMatches = useMemo(() => {
@@ -111,19 +161,131 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
     return cumulative;
   }, [lines, searchQuery]);
 
+  // The rows holding the selection's two ends stay built however far the
+  // pane scrolls from them. Unbuilding one would move that end of the
+  // selection to whatever row took its place, and a copy or comment would
+  // silently cover the wrong lines.
+  const pinnedRows = useRef<readonly number[]>([]);
+  const rangeExtractor = useCallback((range: Range) => {
+    const indexes = defaultRangeExtractor(range);
+    const extra = pinnedRows.current.filter(
+      (i) => i < range.count && !indexes.includes(i),
+    );
+    return extra.length > 0
+      ? [...indexes, ...extra].sort((a, b) => a - b)
+      : indexes;
+  }, []);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    // An end in a row's code; not one in a comment card hung under the row,
+    // which is typing or a button press rather than a selection of lines.
+    const rowOf = (node: Node | null): number | null => {
+      const el = node instanceof Element ? node : node?.parentElement;
+      const row = el?.closest<HTMLElement>("[data-index]");
+      if (!el || !row || !list.contains(row)) return null;
+      if (!row.children[1]?.contains(el)) return null;
+      return Number(row.dataset.index);
+    };
+    const onSelectionChange = () => {
+      const sel = document.getSelection();
+      pinnedRows.current =
+        sel && sel.rangeCount > 0
+          ? [rowOf(sel.anchorNode), rowOf(sel.focusNode)].filter(
+              (i): i is number => i !== null,
+            )
+          : [];
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () =>
+      document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
+
+  // Rows that are not built are still selectable text, as far as copying and
+  // commenting go: their text is read from here.
+  useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    setRowSource(list, {
+      count: lines.length,
+      text: (i) => {
+        const line = lines[i];
+        if (!line) return null;
+        if (line.type === "hunk") return line.content;
+        const num = line.type === "del" ? line.oldNum : line.newNum;
+        const prefix =
+          line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
+        return num !== undefined
+          ? `${num}: ${prefix}${line.content}`
+          : `${prefix}${line.content}`;
+      },
+      lineNumber: (i) => {
+        const line = lines[i];
+        if (!line || line.type === "hunk") return "";
+        const num = line.type === "del" ? line.oldNum : line.newNum;
+        return num !== undefined ? String(num) : "";
+      },
+    });
+    return () => setRowSource(list, null);
+  }, [lines]);
+
   const virtualizer = useVirtualizer({
     count: lines.length,
-    getScrollElement: () => parentRef.current,
+    getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT_ESTIMATE,
-    initialRect: UNBOUNDED_RECT,
-    observeElementRect: observeUnboundedRect,
-    overscan: 30,
+    scrollMargin: scrollMargin ?? 0,
+    overscan: OVERSCAN,
+    rangeExtractor,
   });
+  const margin = scrollMargin ?? 0;
 
+  // The virtualizer keeps `OVERSCAN` rows at whichever end of the file is
+  // nearest the screen, even when the whole file is far above or below it —
+  // a few dozen rows for every file in the diff. Only rows actually near the
+  // screen are built.
+  const band = OVERSCAN * ROW_HEIGHT_ESTIMATE;
+  const viewTop = (virtualizer.scrollOffset ?? 0) - band;
+  const viewBottom =
+    (virtualizer.scrollOffset ?? 0) +
+    (virtualizer.scrollRect?.height ?? 0) +
+    band;
+  const nearScreen = (row: { index: number; start: number; end: number }) =>
+    (row.end > viewTop && row.start < viewBottom) ||
+    pinnedRows.current.includes(row.index);
+
+  // The pane reaches rows that may not be built through this, by index.
+  const latest = useRef({ virtualizer, cumulativeMatches, matchOffset });
+  latest.current = { virtualizer, cumulativeMatches, matchOffset };
+  useEffect(() => {
+    handles.set(filePath, {
+      scrollToRow: (index) =>
+        latest.current.virtualizer.scrollToIndex(index, { align: "center" }),
+      scrollToMatch: (match) => {
+        const { cumulativeMatches: cum, matchOffset: offset } = latest.current;
+        if (!cum) return false;
+        const local = match - offset;
+        if (local < 0 || local >= cum[cum.length - 1]) return false;
+        // The row whose matches cover `local`: the last i with cum[i] <= local.
+        let lo = 0;
+        let hi = cum.length - 2;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (cum[mid] <= local) lo = mid;
+          else hi = mid - 1;
+        }
+        latest.current.virtualizer.scrollToIndex(lo, { align: "center" });
+        return true;
+      },
+    });
+    return () => {
+      handles.delete(filePath);
+    };
+  }, [handles, filePath]);
+
+  // `null` too: that is how the virtualizer learns a row was unbuilt, and
+  // stops holding (and observing) its element.
   const measureRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      if (el) virtualizer.measureElement(el);
-    },
+    (el: HTMLDivElement | null) => virtualizer.measureElement(el),
     [virtualizer],
   );
 
@@ -140,13 +302,17 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
   };
 
   return (
-    <div ref={parentRef} className={styles.scrollContainer}>
+    <div className={styles.scrollContainer}>
       <div
+        ref={listRef}
         className={styles.virtualList}
         data-diff-lines
         style={{ height: virtualizer.getTotalSize() }}
       >
-        {virtualizer.getVirtualItems().map((virtualRow) => {
+        {(scrollMargin === null
+          ? []
+          : virtualizer.getVirtualItems().filter(nearScreen)
+        ).map((virtualRow) => {
           const i = virtualRow.index;
           const line = lines[i];
           const extra = rowExtra(i);
@@ -165,7 +331,7 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
                 data-commented={commented}
                 className={rowClass}
                 style={{
-                  transform: `translateY(${virtualRow.start}px)`,
+                  transform: `translateY(${virtualRow.start - margin}px)`,
                 }}
               >
                 <div className={styles.lineNum} />
@@ -197,7 +363,7 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
               ? matchOffset + cumulativeMatches[i]
               : matchOffset;
 
-          const tokens = tokenizedLines?.[i];
+          const tokens = tokensFor(i);
           if (tokens) {
             const result = highlightSyntaxNodes(
               tokens,
@@ -225,7 +391,7 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
               data-commented={commented}
               className={rowClass}
               style={{
-                transform: `translateY(${virtualRow.start}px)`,
+                transform: `translateY(${virtualRow.start - margin}px)`,
               }}
             >
               <div className={numClass}>{num}</div>

@@ -1,3 +1,4 @@
+import type { DiffLinesHandle } from "./DiffLines/diff-scroll";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import {
@@ -51,6 +52,8 @@ type DraftReviewOptions = {
   /** The pane's scroll container, searched when jumping to a comment. */
   containerRef: RefObject<HTMLDivElement | null>;
   fileRefs: RefObject<Map<string, HTMLDivElement>>;
+  /** Each file's rows by index, for a card whose row is not built. */
+  lineHandles: RefObject<Map<string, DiffLinesHandle>>;
   /** Un-collapse a file, so a card in it has somewhere to appear. */
   revealFile: (path: string) => void;
 };
@@ -86,7 +89,14 @@ function filePathForSelection(): string | null {
  * `DiffLines` without knowing what is in them.
  */
 export function useDraftReview(opts: DraftReviewOptions): DraftReview {
-  const { workspacePath, files, containerRef, fileRefs, revealFile } = opts;
+  const {
+    workspacePath,
+    files,
+    containerRef,
+    fileRefs,
+    lineHandles,
+    revealFile,
+  } = opts;
 
   const drafts = useReviewStore((s) =>
     workspacePath ? (s.drafts[workspacePath] ?? NO_DRAFTS) : NO_DRAFTS,
@@ -165,9 +175,10 @@ export function useDraftReview(opts: DraftReviewOptions): DraftReview {
    * Scroll a comment back into view for the review bar's jump list.
    *
    * The card may not be in the document yet: its file can be collapsed, and
-   * the rows are virtualized, so un-collapsing is not enough on its own.
-   * Scrolling the *file* into view is what puts the card's row in range, and
-   * only then can it be found — hence the bounded retry rather than a single
+   * only the rows near the screen are built, so un-collapsing is not enough
+   * on its own. The file's rows scroll to the card's row by index (once the
+   * file is mounted, which an un-collapse takes a render to do), and only
+   * then can the card be found — hence the bounded retry rather than a single
    * lookup. Falling back to the file header is a worse answer than the card,
    * but a much better one than nothing happening at all.
    *
@@ -180,9 +191,6 @@ export function useDraftReview(opts: DraftReviewOptions): DraftReview {
   const jumpToComment = useCallback(
     (comment: DraftComment) => {
       revealFile(comment.filePath);
-      fileRefs.current
-        ?.get(comment.filePath)
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
 
       const findCard = () =>
         containerRef.current?.querySelector(
@@ -219,6 +227,7 @@ export function useDraftReview(opts: DraftReviewOptions): DraftReview {
       };
 
       let attempts = 0;
+      let scrolledToRow = false;
       const reveal = () => {
         const card = findCard();
         if (card) {
@@ -227,13 +236,24 @@ export function useDraftReview(opts: DraftReviewOptions): DraftReview {
           jumpTimer.current = setTimeout(settle, JUMP_SETTLE_MS);
           return;
         }
+        if (!scrolledToRow) {
+          const rows = lineHandles.current?.get(comment.filePath);
+          if (rows) {
+            rows.scrollToRow(comment.endIndex);
+            scrolledToRow = true;
+          }
+        }
         if (attempts++ < JUMP_FRAMES) requestAnimationFrame(reveal);
+        else
+          fileRefs.current
+            ?.get(comment.filePath)
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
       };
 
       if (jumpTimer.current) clearTimeout(jumpTimer.current);
       requestAnimationFrame(reveal);
     },
-    [containerRef, fileRefs, revealFile],
+    [containerRef, fileRefs, lineHandles, revealFile],
   );
 
   /** A jump still re-centring must not outlive the pane. */

@@ -27,6 +27,13 @@ import { countMatches } from "./search-utils";
 import { SearchBar } from "./SearchBar/SearchBar";
 import { FileHeader } from "./FileHeader/FileHeader";
 import { DiffLines } from "./DiffLines/DiffLines";
+import { CollapsedPreview } from "./CollapsedPreview/CollapsedPreview";
+import { autoCollapseReason, collapsedFiles } from "./auto-collapse";
+import {
+  DiffScrollContext,
+  type DiffLinesHandle,
+  type DiffScroll,
+} from "./DiffLines/diff-scroll";
 import { FileList } from "./FileList/FileList";
 import { ModeToggle } from "./ModeToggle/ModeToggle";
 import { CommitModal } from "./CommitModal/CommitModal";
@@ -60,6 +67,9 @@ type DiffPaneProps = {
   hostId?: string;
 };
 
+/** Frames to wait for a search match's row to be built before giving up. */
+const MATCH_REVEAL_FRAMES = 30;
+
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
 const NO_STAGED_FILES: Set<string> = new Set();
 
@@ -68,7 +78,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const { paneId, workspacePath, hostId } = props;
     const [raw, setRaw] = useState<string | null>(null);
     const [diffMode, setDiffMode] = useState<DiffMode>("local");
-    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+    // Files the user expanded or collapsed themselves; every other file
+    // follows the default for its size and kind (`collapsedFiles`).
+    const [collapseChoices, setCollapseChoices] = useState<
+      ReadonlyMap<string, boolean>
+    >(new Map());
+    const collapseDefaults = useRef(new Map<string, boolean>());
     const [showBackToTop, setShowBackToTop] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [searchOpen, setSearchOpen] = useState(false);
@@ -76,7 +91,19 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const [currentMatch, setCurrentMatch] = useState(0);
     const [commitOpen, setCommitOpen] = useState(false);
     const [pushing, setPushing] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    // The same element as `containerRef`, as state: the files' rows
+    // virtualize against it, so they re-render once it exists.
+    const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+    const setContainer = useCallback((el: HTMLDivElement | null) => {
+      containerRef.current = el;
+      setScroller(el);
+    }, []);
+    const [fileStackEl, setFileStackEl] = useState<HTMLDivElement | null>(null);
+    // Watched too: in a narrow pane the file list sits above the files, so
+    // opening it moves every file without resizing the stack.
+    const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null);
+    const lineHandles = useRef(new Map<string, DiffLinesHandle>());
     // Cancel detection: set to true when the user clicks the toast's Cancel
     // action so the `done` handler can distinguish a SIGTERM-induced exit from
     // a real error. Reset at the start of every push.
@@ -115,6 +142,17 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       return () => observer.disconnect();
     }, [headerEl]);
 
+    const diffScroll = useMemo<DiffScroll>(
+      () => ({
+        scroller,
+        watch: [headerEl, bodyEl, fileStackEl].filter(
+          (el): el is HTMLDivElement => el !== null,
+        ),
+        handles: lineHandles.current,
+      }),
+      [scroller, headerEl, bodyEl, fileStackEl],
+    );
+
     useImperativeHandle(ref, () => ({
       toggleSearch: () => setSearchOpen((v) => !v),
     }));
@@ -129,21 +167,19 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, []);
 
     const toggleFile = useCallback((path: string) => {
-      setCollapsed((prev) => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path);
-        else next.add(path);
-        return next;
+      setCollapseChoices((prev) => {
+        const closed =
+          prev.get(path) ?? collapseDefaults.current.get(path) ?? false;
+        return new Map(prev).set(path, !closed);
       });
     }, []);
 
     /** Un-collapse a file, so anything anchored inside it has somewhere to go. */
     const revealFile = useCallback((path: string) => {
-      setCollapsed((prev) => {
-        if (!prev.has(path)) return prev;
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
+      setCollapseChoices((prev) => {
+        const closed =
+          prev.get(path) ?? collapseDefaults.current.get(path) ?? false;
+        return closed ? new Map(prev).set(path, false) : prev;
       });
     }, []);
 
@@ -257,12 +293,19 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     );
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
+    const collapsed = useMemo(
+      () => collapsedFiles(files, collapseChoices, collapseDefaults.current),
+      [files, collapseChoices],
+    );
+    const collapsedRef = useRef(collapsed);
+    collapsedRef.current = collapsed;
 
     const review = useDraftReview({
       workspacePath,
       files,
       containerRef,
       fileRefs,
+      lineHandles,
       revealFile,
     });
 
@@ -390,14 +433,31 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       setCurrentMatch(0);
     }, []);
 
+    // The match's row may not be built: its file scrolls there by index
+    // first, and the highlighted match is centred once it exists. Not re-run
+    // when the diff refreshes: that would pull the pane back to the match
+    // every time an agent saves a file.
+    const filesRef = useRef(files);
+    filesRef.current = files;
     useEffect(() => {
       if (!searchQuery || totalMatches === 0) return;
-      requestAnimationFrame(() => {
+      for (const file of filesRef.current) {
+        // A file closing still has its rows mounted, but its matches are no
+        // longer counted (`fileOffsets`).
+        if (collapsedRef.current.has(file.path)) continue;
+        if (lineHandles.current.get(file.path)?.scrollToMatch(currentMatch))
+          break;
+      }
+      let frames = 0;
+      let frame = requestAnimationFrame(function reveal() {
         const el = containerRef.current?.querySelector(
           `[data-match-index="${currentMatch}"]`,
         );
-        el?.scrollIntoView({ block: "center" });
+        if (el) el.scrollIntoView({ block: "center" });
+        else if (frames++ < MATCH_REVEAL_FRAMES)
+          frame = requestAnimationFrame(reveal);
       });
+      return () => cancelAnimationFrame(frame);
     }, [currentMatch, searchQuery, totalMatches]);
 
     const handleSearchNext = useCallback(() => {
@@ -725,7 +785,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     return (
       <div
         className={styles.container}
-        ref={containerRef}
+        ref={setContainer}
         onScroll={handleScroll}
       >
         {fetchers}
@@ -743,7 +803,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           )}
           {topBar}
         </div>
-        <div className={styles.body}>
+        <div className={styles.body} ref={setBodyEl}>
           <div className={styles.fileListWrapper}>
             <FileList
               files={files}
@@ -757,121 +817,136 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               onStagedFilesChange={updateStagedFiles}
             />
           </div>
-          <Stack gap="lg" className={styles.fileStack}>
-            {files.map((file) => {
-              const annotations = review.annotationsFor(file.path);
-              return (
-                <ContextMenu.Root
-                  key={file.path}
-                  onOpenChange={(open) => {
-                    if (!open) return;
-                    const sel = window.getSelection();
-                    setSavedSelection({
-                      text: sel?.toString() ?? "",
-                      anchor: sel ? selectionToAnchor(sel) : null,
-                    });
-                  }}
-                >
-                  <ContextMenu.Trigger asChild>
-                    <div
-                      data-file-path={file.path}
-                      className={[
-                        styles.file,
-                        animationState.get(file.path) === "new"
-                          ? styles.fileNew
-                          : undefined,
-                      ]
-                        .filter(Boolean)
-                        .join(" ")}
-                      ref={(el) => {
-                        if (el) fileRefs.current.set(file.path, el);
-                        else fileRefs.current.delete(file.path);
-                      }}
-                      onCopy={(e) => {
-                        const sel = window.getSelection();
-                        if (!sel || sel.isCollapsed) return;
+          <DiffScrollContext.Provider value={diffScroll}>
+            <Stack gap="lg" className={styles.fileStack} ref={setFileStackEl}>
+              {files.map((file) => {
+                const annotations = review.annotationsFor(file.path);
+                return (
+                  <ContextMenu.Root
+                    key={file.path}
+                    onOpenChange={(open) => {
+                      if (!open) return;
+                      const sel = window.getSelection();
+                      setSavedSelection({
+                        text: sel?.toString() ?? "",
+                        anchor: sel ? selectionToAnchor(sel) : null,
+                      });
+                    }}
+                  >
+                    <ContextMenu.Trigger asChild>
+                      <div
+                        data-file-path={file.path}
+                        className={[
+                          styles.file,
+                          animationState.get(file.path) === "new"
+                            ? styles.fileNew
+                            : undefined,
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        ref={(el) => {
+                          if (el) fileRefs.current.set(file.path, el);
+                          else fileRefs.current.delete(file.path);
+                        }}
+                        onCopy={(e) => {
+                          const sel = window.getSelection();
+                          if (!sel || sel.isCollapsed) return;
 
-                        e.preventDefault();
+                          e.preventDefault();
 
-                        const body = selectionSnippet(sel) ?? sel.toString();
-                        e.clipboardData.setData(
-                          "text/plain",
-                          `${file.path}\n${body}`,
-                        );
-                      }}
-                    >
-                      <FileHeader
-                        file={file}
-                        collapsed={collapsed.has(file.path)}
-                        animated={animationState.get(file.path) === "updated"}
-                        onToggle={() => toggleFile(file.path)}
-                      />
-                      <Collapse open={!collapsed.has(file.path)}>
-                        <DiffLines
-                          lines={file.lines}
-                          filePath={file.path}
-                          searchQuery={searchQuery}
-                          matchOffset={fileOffsets.get(file.path) ?? 0}
-                          currentMatch={currentMatch}
-                          renderRowExtra={annotations?.renderRowExtra}
-                          markedRows={annotations?.markedRows}
-                        />
-                      </Collapse>
-                    </div>
-                  </ContextMenu.Trigger>
-                  <ContextMenu.Portal>
-                    <ContextMenu.Content className={styles.contextMenu}>
-                      {workspacePath && (
-                        <>
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            disabled={!savedSelection.anchor}
-                            onSelect={() => {
-                              const { anchor } = savedSelection;
-                              if (anchor)
-                                review.startComment(anchor, file.path);
-                            }}
-                          >
-                            <MessageSquarePlus size={14} />
-                            Comment on selection
-                          </ContextMenu.Item>
-                          <ContextMenu.Separator
-                            className={styles.contextMenuSeparator}
-                          />
-                        </>
-                      )}
-                      <ContextMenu.Item
-                        className={styles.contextMenuItem}
-                        onSelect={() => {
-                          if (savedSelection.text)
-                            navigator.clipboard.writeText(savedSelection.text);
+                          const body = selectionSnippet(sel) ?? sel.toString();
+                          e.clipboardData.setData(
+                            "text/plain",
+                            `${file.path}\n${body}`,
+                          );
                         }}
                       >
-                        <Clipboard size={14} />
-                        Copy
-                      </ContextMenu.Item>
-                      {workspacePath && (
-                        <>
-                          <ContextMenu.Separator
-                            className={styles.contextMenuSeparator}
+                        <FileHeader
+                          file={file}
+                          collapsed={collapsed.has(file.path)}
+                          animated={animationState.get(file.path) === "updated"}
+                          onToggle={() => toggleFile(file.path)}
+                        />
+                        {collapsed.has(file.path) &&
+                          autoCollapseReason(file) && (
+                            <CollapsedPreview
+                              file={file}
+                              onExpand={() => toggleFile(file.path)}
+                            />
+                          )}
+                        <Collapse open={!collapsed.has(file.path)}>
+                          <DiffLines
+                            lines={file.lines}
+                            filePath={file.path}
+                            // A file closing keeps its rows for the animation,
+                            // but its matches no longer count.
+                            searchQuery={
+                              collapsed.has(file.path) ? "" : searchQuery
+                            }
+                            matchOffset={fileOffsets.get(file.path) ?? 0}
+                            currentMatch={currentMatch}
+                            renderRowExtra={annotations?.renderRowExtra}
+                            markedRows={annotations?.markedRows}
                           />
-                          <ContextMenu.Item
-                            className={styles.contextMenuItem}
-                            onSelect={() => {
-                              openInEditor(`${workspacePath}/${file.path}`);
-                            }}
-                          >
-                            <ExternalLink size={14} />
-                            Open in Editor
-                          </ContextMenu.Item>
-                        </>
-                      )}
-                    </ContextMenu.Content>
-                  </ContextMenu.Portal>
-                </ContextMenu.Root>
-              );
-            })}
-          </Stack>
+                        </Collapse>
+                      </div>
+                    </ContextMenu.Trigger>
+                    <ContextMenu.Portal>
+                      <ContextMenu.Content className={styles.contextMenu}>
+                        {workspacePath && (
+                          <>
+                            <ContextMenu.Item
+                              className={styles.contextMenuItem}
+                              disabled={!savedSelection.anchor}
+                              onSelect={() => {
+                                const { anchor } = savedSelection;
+                                if (anchor)
+                                  review.startComment(anchor, file.path);
+                              }}
+                            >
+                              <MessageSquarePlus size={14} />
+                              Comment on selection
+                            </ContextMenu.Item>
+                            <ContextMenu.Separator
+                              className={styles.contextMenuSeparator}
+                            />
+                          </>
+                        )}
+                        <ContextMenu.Item
+                          className={styles.contextMenuItem}
+                          onSelect={() => {
+                            if (savedSelection.text)
+                              navigator.clipboard.writeText(
+                                savedSelection.text,
+                              );
+                          }}
+                        >
+                          <Clipboard size={14} />
+                          Copy
+                        </ContextMenu.Item>
+                        {workspacePath && (
+                          <>
+                            <ContextMenu.Separator
+                              className={styles.contextMenuSeparator}
+                            />
+                            <ContextMenu.Item
+                              className={styles.contextMenuItem}
+                              onSelect={() => {
+                                openInEditor(`${workspacePath}/${file.path}`);
+                              }}
+                            >
+                              <ExternalLink size={14} />
+                              Open in Editor
+                            </ContextMenu.Item>
+                          </>
+                        )}
+                      </ContextMenu.Content>
+                    </ContextMenu.Portal>
+                  </ContextMenu.Root>
+                );
+              })}
+            </Stack>
+          </DiffScrollContext.Provider>
         </div>
         {workspacePath && (
           <SelectionCommentChip

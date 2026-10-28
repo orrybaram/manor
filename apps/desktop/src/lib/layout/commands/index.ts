@@ -68,6 +68,7 @@ import type {
 } from "./types";
 
 export { findLeaf } from "./graft";
+export { receiveTab, sendTab, type SentTab } from "./transfer";
 export {
   type ClosedPane,
   type LayoutCommand,

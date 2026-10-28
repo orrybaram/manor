@@ -255,3 +255,36 @@ describe("abandoning a pane's agent", () => {
     });
   });
 });
+
+describe("moving a pane's agent to another workspace", () => {
+  it("files the agent and the pane's context under the target's path", () => {
+    const agent = { id: "a1", paneId: "pane-1", status: "active", workspacePath: "/repo/main" };
+    const deps = makeDeps();
+    deps.agentManager.getAgentByPaneId.mockReturnValue(agent);
+    deps.paneContextMap.set("pane-1", {
+      projectId: "p1",
+      projectName: "Repo",
+      workspacePath: "/repo/main",
+      agentCommand: null,
+    });
+
+    createAgentService(deps as never).moveToWorkspace(["pane-1"], "box:/repo/feature");
+
+    expect(deps.agentManager.updateAgent).toHaveBeenCalledWith("a1", {
+      workspacePath: "/repo/feature",
+    });
+    expect(deps.notifier.sendAgentUpdate).toHaveBeenCalledWith({
+      id: "a1",
+      workspacePath: "/repo/feature",
+    });
+    expect(deps.paneContextMap.get("pane-1")).toMatchObject({ workspacePath: "/repo/feature" });
+    // A move ends nothing.
+    expect(deps.agentStatus.signal).not.toHaveBeenCalled();
+  });
+
+  it("leaves a pane with no agent alone", () => {
+    const deps = makeDeps();
+    createAgentService(deps as never).moveToWorkspace(["pane-1"], "/repo/feature");
+    expect(deps.agentManager.updateAgent).not.toHaveBeenCalled();
+  });
+});

@@ -144,6 +144,24 @@ export type LayoutApplyResult =
   | { error: string };
 
 /**
+ * What a tab or a pane moved to another workspace answers
+ * (`layout.moveToWorkspace`): where it landed, enough for the sender to
+ * follow it there. `workspacePath` is the target's workspace key, `tabId` the
+ * tab it is in now, `paneId` the pane to focus (the moved pane, or a moved
+ * tab's first), and `hint` the selection the target's broadcast carried for
+ * the sender. `version` is the target's.
+ */
+export type WorkspaceMoveResult =
+  | {
+      workspacePath: string;
+      tabId: string;
+      paneId: string;
+      version: number;
+      hint: LayoutHint;
+    }
+  | { error: string };
+
+/**
  * A pane's title, off the command channel.
  *
  * `title: null` clears it. A renderer feeds this straight into

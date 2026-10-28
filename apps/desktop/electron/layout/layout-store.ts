@@ -46,6 +46,8 @@ import {
   applyLayoutCommand,
   findLeaf,
   isLayoutCommandType,
+  receiveTab,
+  sendTab,
   type ClosedPane,
   type LayoutCommand,
 } from "../../src/lib/layout/commands";
@@ -58,6 +60,7 @@ import type {
   LayoutEntry,
   LayoutOrigin,
   PersistedPaneSession,
+  WorkspaceMoveResult,
 } from "../../src/lib/layout/protocol";
 import {
   type Panel,
@@ -71,6 +74,7 @@ import {
 import { isHomePath } from "../../src/lib/home-path";
 import {
   isRemoteWorkspaceKey,
+  parseWorkspaceKey,
   type WorkspaceKey,
 } from "../../src/lib/workspace-key";
 import { PendingCommands } from "./pending-commands";
@@ -133,7 +137,24 @@ export interface EndedPane {
  */
 export interface AgentService {
   abandonForPanes(panes: readonly EndedPane[]): void;
+  /**
+   * Panes that moved to another workspace, still running: an agent in one
+   * now belongs to `workspacePath` (a workspace key). Optional, for the
+   * tests that are not about agents.
+   */
+  moveToWorkspace?(paneIds: readonly string[], workspacePath: string): void;
 }
+
+/**
+ * Whether a move from one workspace to another is allowed, beyond what the
+ * store can tell from the keys alone: both are workspaces of the same
+ * project. The refusal's message, or null. Backed by `projectWorkspaceCheck`
+ * (`./workspace-move-check.ts`), so the store never reads projects itself.
+ */
+export type WorkspaceMoveCheck = (
+  from: WorkspaceKey,
+  to: WorkspaceKey,
+) => Promise<string | null>;
 
 const NO_AGENTS: AgentService = { abandonForPanes() {} };
 
@@ -453,6 +474,77 @@ export class LayoutStore {
       workspacePath,
       run.catch(() => {}),
     );
+    return run;
+  }
+
+  /**
+   * Move a tab, or one pane, from workspace `from` to workspace `to` without
+   * ending it: the shell or agent keeps running, with its scrollback and cwd.
+   *
+   * It lands as a new tab in the target's active panel (the primary window's,
+   * else the default viewport's, else the first). A moved tab keeps its split
+   * tree, its pinned state and its pane ids; a moved pane leaves its tab's
+   * other panes behind and travels in a tab of its own, named `newTabId`
+   * (minted here when the caller does not). Nothing is killed and the reopen
+   * stack is not touched: a move is not a close. The source keeps its last
+   * panel, empty, when its last tab leaves.
+   *
+   * Serialized in both workspaces' queues: the move waits for whatever either
+   * was running and both wait for it, and both layouts change in the same
+   * synchronous step — there is no moment the pane is in neither, or both.
+   * Waiting on two tails cannot deadlock: a tail is always an earlier
+   * promise, never one that waits on this. A pane's session row, a pending
+   * kill and its agent's workspace follow it; a queued command is keyed by
+   * pane and needs nothing. A detached window holding a tab that left
+   * `from` loses its claim, as when its tab closes. Both workspaces are
+   * broadcast, the target's with the sender's selection hint.
+   *
+   * Refused: the same workspace, Home, two hosts, a target the pane or tab
+   * is not in `from`, and whatever `check` refuses (another project, a
+   * workspace no project has), which runs inside the queues.
+   */
+  moveToWorkspace(
+    from: string,
+    target: LayoutTarget,
+    to: string,
+    origin: LayoutOrigin,
+    {
+      check,
+      newTabId = `tab-${crypto.randomUUID()}`,
+    }: { check?: WorkspaceMoveCheck; newTabId?: string } = {},
+  ): Promise<WorkspaceMoveResult> {
+    const refusal = moveRefusal(from, to);
+    if (refusal) return Promise.resolve({ error: refusal });
+    const loaded = this.loaded;
+    const previous = Promise.all([
+      this.queues.get(from),
+      this.queues.get(to),
+    ]).then(() => loaded);
+    const removals = new Map(
+      [from, to].map((key) => [key, this.removals.get(key) ?? 0]),
+    );
+    const removed = (): WorkspaceMoveResult | null => {
+      for (const [key, count] of removals) {
+        if ((this.removals.get(key) ?? 0) !== count) {
+          return { error: `Workspace was removed: ${key}` };
+        }
+      }
+      return null;
+    };
+    const run = previous
+      .catch(() => {})
+      .then(async (): Promise<WorkspaceMoveResult> => {
+        const before = removed();
+        if (before) return before;
+        const refused = check
+          ? await check(from as WorkspaceKey, to as WorkspaceKey)
+          : null;
+        if (refused) return { error: refused };
+        return removed() ?? this.moveNow(from, target, to, origin, newTabId);
+      });
+    const tail = run.catch(() => {});
+    this.queues.set(from, tail);
+    this.queues.set(to, tail);
     return run;
   }
 
@@ -1027,6 +1119,107 @@ export class LayoutStore {
     return { version: state.version, addedPaneIds, ...(hint && { hint }) };
   }
 
+  /** {@link moveToWorkspace}'s step, run in both queues: both layouts at once. */
+  private moveNow(
+    from: string,
+    target: LayoutTarget,
+    to: string,
+    origin: LayoutOrigin,
+    newTabId: string,
+  ): WorkspaceMoveResult {
+    const unknown =
+      "paneId" in target
+        ? `Unknown paneId: ${target.paneId}`
+        : `Unknown tabId: ${target.tabId}`;
+    const source = this.entries.get(from);
+    const taken =
+      source &&
+      sendTab(
+        { layout: source.layout, closedStack: source.closedStack },
+        target,
+        newTabId,
+      );
+    if (!source || !taken) return { error: unknown };
+    // A workspace of the project that has never had a layout gets one now —
+    // but only once the tab is sure to land in it.
+    const dest = this.entries.get(to) ?? this.emptyState();
+    const received = receiveTab(
+      { layout: dest.layout, closedStack: dest.closedStack },
+      taken.sent,
+      this.activePanelOf(to, dest),
+    );
+    if (!received?.hint) {
+      return { error: `Can't add tab ${taken.sent.tab.id} to ${to}` };
+    }
+
+    const before = source.layout;
+    source.layout = taken.result.layout;
+    source.version += 1;
+    dest.layout = received.layout;
+    dest.version += 1;
+    this.entries.set(to, dest);
+    this.lastActiveWorkspacePath = to;
+
+    const moved = allPaneIds(taken.sent.tab.rootNode);
+    for (const paneId of moved) {
+      const session = source.paneSessions[paneId];
+      if (session) {
+        dest.paneSessions[paneId] = session;
+        delete source.paneSessions[paneId];
+      }
+      const kill = this.pendingKills.get(paneId);
+      if (kill) kill.workspacePath = to;
+    }
+    // The claim on a tab that left goes, as on a close: the detached window
+    // holding it closes when the broadcast lands, and the tab opens in the
+    // target in the primary window.
+    this.dropClaimsOnGoneTabs(from, before, source.layout);
+    try {
+      this.agents.moveToWorkspace?.(moved, to);
+    } catch (err) {
+      console.error("[layout] failed to move agents:", err);
+    }
+
+    this.schedulePersist();
+    this.broadcast({
+      workspacePath: from,
+      version: source.version,
+      layout: source.layout,
+      claims: this.claimsFor(from),
+      origin,
+    });
+    this.broadcast({
+      workspacePath: to,
+      version: dest.version,
+      layout: dest.layout,
+      claims: this.claimsFor(to),
+      origin,
+      hint: received.hint,
+    });
+    return {
+      workspacePath: to,
+      tabId: taken.sent.tab.id,
+      paneId: taken.sent.focusPaneId,
+      version: dest.version,
+      hint: received.hint,
+    };
+  }
+
+  /**
+   * The panel a tab moved into `workspacePath` lands in: the primary
+   * window's active panel, else the last window report's, else the default
+   * viewport's. The reducer falls back to the first panel for one the
+   * layout lacks.
+   */
+  private activePanelOf(
+    workspacePath: string,
+    state: WorkspaceState,
+  ): string | undefined {
+    const viewport =
+      this.primaryViewport(workspacePath) ?? state.defaultViewport;
+    return viewport?.activePanelId ?? undefined;
+  }
+
   /**
    * Panes a reopen just put back, cancelling the kills they were waiting out.
    *
@@ -1141,8 +1334,15 @@ export class LayoutStore {
   private ensureState(workspacePath: string): WorkspaceState {
     const existing = this.entries.get(workspacePath);
     if (existing) return existing;
+    const state = this.emptyState();
+    this.entries.set(workspacePath, state);
+    return state;
+  }
+
+  /** A workspace's state before its first command: one empty panel. */
+  private emptyState(): WorkspaceState {
     const panelId = `panel-${crypto.randomUUID()}`;
-    const state: WorkspaceState = {
+    return {
       version: this.versionBase,
       layout: createSinglePanelLayout(panelId, [], []),
       defaultViewport: {
@@ -1153,8 +1353,6 @@ export class LayoutStore {
       paneSessions: {},
       closedStack: [],
     };
-    this.entries.set(workspacePath, state);
-    return state;
   }
 
   private find(
@@ -1256,6 +1454,21 @@ export class LayoutStore {
       lastActiveWorkspacePath: this.lastActiveWorkspacePath,
     };
   }
+}
+
+/**
+ * Why a move between two workspace keys is refused on the keys alone, or
+ * null. Projects are `WorkspaceMoveCheck`'s.
+ */
+function moveRefusal(from: string, to: string): string | null {
+  if (isHomePath(from) || isHomePath(to)) return "The Dashboard can't host panes";
+  if (from === to) return `Already in workspace ${parseWorkspaceKey(to).path}`;
+  const fromHost = parseWorkspaceKey(from).hostId;
+  const toHost = parseWorkspaceKey(to).hostId;
+  if (fromHost !== toHost) {
+    return `Can't move between hosts: ${parseWorkspaceKey(from).path} is on ${fromHost}, ${parseWorkspaceKey(to).path} on ${toHost}`;
+  }
+  return null;
 }
 
 // ──────────────────────────── shape conversion ────────────────────────────

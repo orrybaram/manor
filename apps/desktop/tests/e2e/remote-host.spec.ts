@@ -112,7 +112,9 @@ test.describe("remote host", () => {
       async () => ((await hostStatus(window, hostId))?.status === "reconnecting" ? true : null),
       STEP,
     );
-    await expect(window.getByTestId("host-offline-banner")).toBeVisible({ timeout: STEP });
+    // A routine drop: a pill over the pane, which keeps its last screen.
+    await expect(window.getByTestId("host-reconnecting-pill")).toBeVisible({ timeout: STEP });
+    await expect(window.getByTestId("host-offline-banner")).not.toBeVisible();
 
     // The agent finishes, is prompted again, and finishes again — two
     // "responded" transitions nobody was connected to see.
@@ -138,7 +140,8 @@ test.describe("remote host", () => {
       },
       STEP,
     );
-    await expect(window.getByTestId("host-offline-banner")).not.toBeVisible({ timeout: STEP });
+    await expect(window.getByTestId("host-reconnecting-pill")).not.toBeVisible({ timeout: STEP });
+    await expect(window.getByTestId("host-offline-banner")).not.toBeVisible();
 
     // Coalesced: one notification for the whole absence, not one per hook.
     await expect

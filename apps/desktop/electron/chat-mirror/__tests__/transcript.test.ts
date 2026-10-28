@@ -667,7 +667,18 @@ describe("TranscriptParser tasks", () => {
     });
     expect(p.push(queuedPrompt("qm", "<system-reminder>x</system-reminder>"))).toEqual([]);
     expect(p.push(queuedPrompt("qo", "from a hook", { kind: "hook" }))).toEqual([]);
-    expect(p.push(queuedPrompt("qn", [{ type: "text", text: "hi" }]))).toEqual([]);
+  });
+
+  it("keeps the text of a queued prompt with a pasted image", () => {
+    const p = new TranscriptParser();
+    const prompt = [
+      { type: "text", text: "what is this? [Image #2]" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AAAA" } },
+    ];
+    expect(p.push(queuedPrompt("qi", prompt))).toEqual([
+      { kind: "user", id: "qi", ts: T, text: "what is this? [Image #2]" },
+    ]);
+    expect(p.push(queuedPrompt("qe", [{ type: "image" }]))).toEqual([]);
   });
 
   it("ignores a queued_command whose prompt is not a string", () => {

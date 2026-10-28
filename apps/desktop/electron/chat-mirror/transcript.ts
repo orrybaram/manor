@@ -403,10 +403,10 @@ export class TranscriptParser {
         isObject(att) &&
         att.type === "queued_command" &&
         att.commandMode === "prompt" &&
-        typeof att.prompt === "string" &&
         (!isObject(att.origin) || att.origin.kind === "human")
       ) {
-        const e = this.userText(uuid, ts, att.prompt);
+        // A pasted image makes the prompt a block array; keep its text.
+        const e = this.userText(uuid, ts, resultText(att.prompt));
         return e ? [e] : [];
       }
       this.skillListing(att);

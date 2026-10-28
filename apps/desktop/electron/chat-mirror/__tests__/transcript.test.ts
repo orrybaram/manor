@@ -1031,6 +1031,32 @@ describe("TranscriptParser — edits", () => {
     expect(e.truncated).toBe(true);
   });
 
+  it("stops adding lines once the edit's text budget is spent, counting all of it", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    // 40 hunks of 400 lines of 1000 chars: ~16 MB uncapped.
+    const wide = `+${"x".repeat(999)}`;
+    const patch = Array.from({ length: 40 }, (_, i) => hunk(Array(400).fill(wide), i * 1000 + 1, i * 1000 + 1));
+    const [e] = p.push(landed("t1", editResult(patch)));
+    if (e.kind !== "edit") throw new Error(`expected an edit, got ${e.kind}`);
+    expect(e.added).toBe(16_000);
+    expect(e.truncated).toBe(true);
+    const chars = e.hunks.flatMap((h) => h.lines).reduce((n, l) => n + l.length, 0);
+    expect(chars).toBeLessThanOrEqual(64 * 1024);
+    expect(chars).toBeGreaterThan(60 * 1024);
+    expect(e.hunks).toHaveLength(1);
+    expect(JSON.stringify(e).length).toBeLessThan(80 * 1024);
+  });
+
+  it("keeps a small edit whole under the budget", () => {
+    const p = new TranscriptParser();
+    p.push(use("t1", "Edit", { file_path: `${CWD}/a.ts` }));
+    const patch = Array.from({ length: 30 }, (_, i) => hunk(Array(20).fill("+short line"), i * 100 + 1));
+    const [e] = p.push(landed("t1", editResult(patch)));
+    expect(e).toMatchObject({ kind: "edit", truncated: false, added: 600 });
+    expect(e.kind === "edit" && e.hunks).toHaveLength(30);
+  });
+
   it("shows a new file from Write as all added lines", () => {
     const p = new TranscriptParser();
     p.push(use("t1", "Write", { file_path: `${CWD}/new.md`, content: "# Title\n\nBody\n" }));

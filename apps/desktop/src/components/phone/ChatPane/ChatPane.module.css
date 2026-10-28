@@ -906,9 +906,13 @@ button.editToggle {
   color: var(--text-dim);
 }
 
+/* The marker column: the sign and one space, the same width on every line. */
 .diffSign {
   display: inline-block;
-  width: 1.5ch;
+  width: 2ch;
+  overflow: hidden;
+  white-space: pre;
+  vertical-align: top;
   user-select: none;
 }
 

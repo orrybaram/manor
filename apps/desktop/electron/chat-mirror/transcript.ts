@@ -169,6 +169,11 @@ const MAX_DETAIL = 4000;
 const MAX_HUNKS = 40;
 const MAX_HUNK_LINES = 400;
 const MAX_LINE_CHARS = 1000;
+/**
+ * An edit card's whole hunk text, after the caps above: history goes to the
+ * phone in one frame, and every line is a DOM row there.
+ */
+const MAX_EDIT_CHARS = 64 * 1024;
 /** Tools whose landed result carries a `structuredPatch`. */
 const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 /** User text Claude Code writes for itself, not for the person reading. */
@@ -419,15 +424,31 @@ function editEntry(
     }
   }
   let truncated = all.length > MAX_HUNKS;
-  const hunks = all.slice(0, MAX_HUNKS).map((h) => {
+  let budget = MAX_EDIT_CHARS;
+  const hunks: ChatDiffHunk[] = [];
+  for (const h of all.slice(0, MAX_HUNKS)) {
     if (h.lines.length > MAX_HUNK_LINES) truncated = true;
-    const lines = h.lines.slice(0, MAX_HUNK_LINES).map((l) => {
-      if (l.length <= MAX_LINE_CHARS) return l;
+    const lines: string[] = [];
+    for (const raw of h.lines.slice(0, MAX_HUNK_LINES)) {
+      let l = raw;
+      if (l.length > MAX_LINE_CHARS) {
+        truncated = true;
+        l = `${l.slice(0, MAX_LINE_CHARS)}…`;
+      }
+      if (l.length > budget) {
+        budget = 0;
+        break;
+      }
+      budget -= l.length;
+      lines.push(l);
+    }
+    if (lines.length > 0) hunks.push({ ...h, lines });
+    if (budget === 0) {
       truncated = true;
-      return `${l.slice(0, MAX_LINE_CHARS)}…`;
-    });
-    return { ...h, lines };
-  });
+      break;
+    }
+  }
+  if (hunks.length === 0) return null;
   const written = str(info.filePath) ?? str(info.notebook_path);
   const path = written || (tool.summary !== tool.name ? tool.summary : "");
   return {

@@ -280,11 +280,17 @@ describe("ChatPane — entries", () => {
     const diff = all("chat-edit-diff")[0];
     expect(diff.textContent).toContain("@@ -4,2 +4,2 @@");
     expect([...diff.querySelectorAll("[data-line]")].map((l) => [l.getAttribute("data-line"), l.textContent])).toEqual([
-      ["context", " keep"],
-      ["del", "−old"],
-      ["add", "+new"],
+      ["context", "  keep"],
+      ["del", "− old"],
+      ["add", "+ new"],
     ]);
-    expect(diff.textContent).toContain("Diff truncated");
+    // Every marker sits in its own fixed-width column, one space before the text.
+    expect([...diff.querySelectorAll("[data-line]")].map((l) => l.firstElementChild?.textContent)).toEqual([
+      "  ",
+      "− ",
+      "+ ",
+    ]);
+        expect(diff.textContent).toContain("Diff truncated");
   });
 
   it("shows Thinking while Claude works with nothing to show", async () => {

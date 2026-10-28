@@ -67,8 +67,12 @@ export function EditCard(props: EditCardProps) {
               <div className={styles.diffHeader}>{hunkHeader(h)}</div>
               {diffLines(h).map((l, j) => (
                 <div key={j} className={LINE_CLASS[l.kind]} data-line={l.kind}>
-                  {l.sign && <span className={styles.diffSign}>{l.sign}</span>}
-                  {l.text}
+                  {l.kind !== "meta" && (
+                    <span className={styles.diffSign} aria-hidden>
+                      {`${l.sign} `}
+                    </span>
+                  )}
+                  <span>{l.text}</span>
                 </div>
               ))}
             </div>

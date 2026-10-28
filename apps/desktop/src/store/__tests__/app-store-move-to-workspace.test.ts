@@ -5,8 +5,17 @@
  * replica drops its side maps; the target's broadcast hands them back
  * (`restored`), as a reopen's does.
  */
-import { describe, it, expect, beforeEach } from "vitest";
-import { useAppStore, type Tab } from "../app-store";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import {
+  selectActiveWorkspaceKey,
+  selectFocusedPaneId,
+  useAppStore,
+  type Tab,
+} from "../app-store";
+import { useProjectStore, type ProjectInfo } from "../project-store";
+import { useToastStore } from "../toast-store";
+import { moveToWorkspaceAndFollow } from "../workspace-actions";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import { layoutServer, resetFakeLayoutServer, settled } from "./fake-layout-server";
 
 const FROM = "/project/main";
@@ -62,5 +71,48 @@ describe("moving a pane to another workspace", () => {
     await settled();
 
     expect(useAppStore.getState().paneCwd["pane-2"]).toBeUndefined();
+  });
+});
+
+describe("moveToWorkspaceAndFollow", () => {
+  function project(): ProjectInfo {
+    return {
+      id: "p1",
+      name: "project",
+      path: FROM,
+      hostId: "local",
+      workspaces: [
+        { path: FROM, branch: "main", isMain: true, name: null },
+        { path: TO, branch: "feature", isMain: false, name: null },
+      ],
+      selectedWorkspaceIndex: 0,
+    } as unknown as ProjectInfo;
+  }
+
+  beforeEach(() => {
+    (window.electronAPI as unknown as Record<string, unknown>).projects = {
+      selectWorkspace: vi.fn(),
+    };
+    useProjectStore.setState({ projects: [project()], selectedProjectIndex: 0 });
+    useToastStore.setState({ toasts: [] });
+  });
+
+  it("switches to the target and focuses the moved pane", async () => {
+    await moveToWorkspaceAndFollow(FROM as WorkspaceKey, { paneId: "pane-2" }, TO as WorkspaceKey);
+
+    const state = useAppStore.getState();
+    expect(selectActiveWorkspaceKey(state)).toBe(TO);
+    const tabId = state.viewports[TO].selectedTabIds[state.viewports[TO].activePanelId!];
+    expect(selectFocusedPaneId(state, tabId!)).toBe("pane-2");
+    expect(useProjectStore.getState().projects[0].selectedWorkspaceIndex).toBe(1);
+  });
+
+  it("toasts a refusal and stays put", async () => {
+    await moveToWorkspaceAndFollow(FROM as WorkspaceKey, { paneId: "pane-nope" }, TO as WorkspaceKey);
+
+    expect(selectActiveWorkspaceKey(useAppStore.getState())).toBe(FROM);
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ status: "error", detail: "Unknown paneId: pane-nope" }),
+    ]);
   });
 });

@@ -38,6 +38,8 @@ import { TabAgentDot } from "./TabAgentDot";
 import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { PhoneTabMenuContent } from "../phone/PhoneTabMenu";
+import { MoveToWorkspaceMenuItem } from "../move-to-workspace/MoveToWorkspaceMenuItem";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 import styles from "./TabBar/TabBar.module.css";
 
 /** The tab bar's own tabs, in DOM order, within the tab holding `from`. */
@@ -161,6 +163,8 @@ type TabButtonProps = {
    * moved — since the sidebar and status bar already name the workspace's.
    */
   workspaceHostId?: string;
+  /** The workspace the tab is in, for "Move to Workspace…". */
+  workspaceKey?: WorkspaceKey | null;
   isActive: boolean;
   isPinned: boolean;
   canClose: boolean;
@@ -177,7 +181,7 @@ type TabButtonProps = {
 };
 
 export function TabButton(props: TabButtonProps) {
-  const { tabId, rootNode, workspaceHostId, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
+  const { tabId, rootNode, workspaceHostId, workspaceKey, isActive, isPinned, canClose, isDragging, isDropTarget, draggable, onSelect, onClose, onTogglePin, onDragStart, onDrag, onDragEnd, buttonRef } = props;
 
   const { contentType, favicon, audioPlaying, audioMuted, focusedPaneId } = useAppStore(useShallow((s) => {
     const layout = selectActiveLayout(s);
@@ -395,6 +399,11 @@ export function TabButton(props: TabButtonProps) {
                 Move to New Window
               </ContextMenu.Item>
             )}
+            <MoveToWorkspaceMenuItem
+              from={workspaceKey}
+              target={{ tabId }}
+              className={styles.contextMenuItem}
+            />
             {hasOwnClaim() && (
               <ContextMenu.Item
                 className={styles.contextMenuItem}

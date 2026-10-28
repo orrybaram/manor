@@ -1,7 +1,13 @@
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
-import { workspaceKey } from "../lib/workspace-key";
+import {
+  parseWorkspaceKey,
+  workspaceKey,
+  type WorkspaceKey,
+} from "../lib/workspace-key";
+import { find } from "../lib/workspace-directory";
+import type { WorkspaceMoveResult } from "../lib/layout/protocol";
 import { useProjectStore } from "./project-store";
-import { useToastStore } from "./toast-store";
+import { addErrorToast, useToastStore } from "./toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
 import { ipcErrorMessage } from "../lib/ipc-error";
 
@@ -236,4 +242,43 @@ export async function hideWorkspacesAndNavigate(
   for (const path of targets) {
     await projectStore.setWorkspaceHidden(projectId, path, true);
   }
+}
+
+/**
+ * Move a tab or pane to another workspace of its project (`layout.moveToWorkspace`)
+ * and follow it there: open the target as a sidebar click does, then select
+ * the moved tab and focus the pane. Both workspaces' broadcasts reached this
+ * renderer before the answer, on the same channel, so the tab is already in
+ * the target's layout. A refusal is an error toast and nothing else.
+ */
+export async function moveToWorkspaceAndFollow(
+  from: WorkspaceKey,
+  target: { paneId: string } | { tabId: string },
+  to: WorkspaceKey,
+): Promise<void> {
+  let result: WorkspaceMoveResult;
+  try {
+    result = await window.electronAPI.layout.moveToWorkspace(from, target, to);
+  } catch (err) {
+    addErrorToast("move-to-workspace", "Couldn't move to that workspace", err);
+    return;
+  }
+  if ("error" in result) {
+    addErrorToast("move-to-workspace", "Couldn't move to that workspace", result.error);
+    return;
+  }
+  const key = result.workspacePath as WorkspaceKey;
+  const projectStore = useProjectStore.getState();
+  const found = find(projectStore.projects, key);
+  if (found) {
+    projectStore.selectWorkspace(found.project.id, found.index);
+  } else {
+    const { hostId, path } = parseWorkspaceKey(key);
+    useAppStore.getState().setActiveWorkspace(path, hostId);
+  }
+  useAppStore.getState().navigateToContext({
+    workspaceKey: key,
+    tabId: result.tabId,
+    paneId: result.paneId,
+  });
 }

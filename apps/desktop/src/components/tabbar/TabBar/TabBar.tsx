@@ -565,6 +565,7 @@ export function TabBar(props: TabBarProps) {
                   tabId={tab.id}
                   rootNode={tab.rootNode}
                   workspaceHostId={layoutHostId}
+                  workspaceKey={layoutKey}
                   isActive={tab.id === selectedTabId}
                   isPinned={isPinned}
                   canClose={true}

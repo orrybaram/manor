@@ -272,7 +272,7 @@ export function TerminalPane(props: TerminalPaneProps) {
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
 
-          <PaneWindowMenuItems paneId={paneId} />
+          <PaneWindowMenuItems paneId={paneId} workspaceKey={workspaceKey} />
 
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
 

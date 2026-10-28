@@ -1,0 +1,126 @@
+/* ── Move to Workspace… ──
+   A popover at the right-click, in the command palette's idiom: an input on
+   top, rows below, the selected one on the surface fill. */
+
+.picker {
+  z-index: 101;
+  width: 260px;
+  max-height: min(340px, var(--radix-popover-content-available-height));
+  display: flex;
+  flex-direction: column;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+
+.picker[data-state="open"] {
+  animation: pickerIn 120ms ease-out;
+}
+
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  border: none;
+  border-bottom: 1px solid var(--surface);
+  background: transparent;
+  color: var(--text-selected);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  flex-shrink: 0;
+}
+
+.input::placeholder {
+  color: var(--text-dim);
+}
+
+.list {
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.heading {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.item[data-selected="true"] {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+/* The sidebar's indicator, or an empty slot of the same width so the names
+   line up. */
+.indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meta {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.empty {
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* The context menu item, when there is nowhere to move to. */
+.menuItemDisabled[data-disabled] {
+  pointer-events: none;
+  opacity: 0.5;
+}
+
+.menuItemText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.menuItemHint {
+  font-size: 10px;
+  opacity: 0.8;
+}
+
+@keyframes pickerIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

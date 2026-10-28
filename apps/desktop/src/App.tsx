@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
+import { MoveToWorkspacePicker } from "./components/move-to-workspace/MoveToWorkspacePicker";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { WorkspaceStack } from "./components/panels/WorkspaceStack";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
@@ -898,6 +899,7 @@ function App() {
               onRemoteProjectAdded={handleRemoteProjectAdded}
             />
             <TransferDialogHost />
+            {layoutMode === "desk" && <MoveToWorkspacePicker />}
             <RemoveFromHostDialog />
             <DeletePodDialogHost />
             <ProfileEditorDialog />

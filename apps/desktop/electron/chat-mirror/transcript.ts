@@ -591,6 +591,9 @@ export class TranscriptParser {
 
   private add(entry: ChatEntry): ChatEntry | null {
     if (this.byId.has(entry.id)) return null;
+    // A command's output follows it directly; once anything else lands, a
+    // late stdout belongs to no command.
+    if (entry.kind !== "command") this.lastCommandId = null;
     this.byId.set(entry.id, entry);
     this.order.push(entry.id);
     return entry;
@@ -640,8 +643,8 @@ export class TranscriptParser {
       this.skillListing(att);
       return [];
     }
-    // A local command written as system lines (2.1.308 on): the command
-    // itself, then its output. Read as the user-line forms are, so the
+    // A local command written as system lines (seen from 2.1.284): the
+    // command itself, or its output after a command of either form. Read as the user-line forms are, so the
     // output attaches to the command and the turn it didn't start is restored.
     if (type === "system" && parsed.subtype === "local_command") {
       const content = str(parsed.content) ?? "";

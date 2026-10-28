@@ -343,6 +343,21 @@ describe("TranscriptParser", () => {
       expect(r).toEqual([{ kind: "command", id: "c1", ts: T, name: "cost", args: "", output: "$1.23" }]);
     });
 
+    it("attaches no late stdout to a command something else has followed", () => {
+      const p = new TranscriptParser();
+      p.push(userBlocks("c1", "<command-name>/cost</command-name>"));
+      p.push(line({ type: "system", subtype: "local_command", uuid: "s1", content: "<local-command-stdout>$1.23</local-command-stdout>" }));
+      p.push(userBlocks("u1", "next prompt"));
+      expect(
+        p.push(line({ type: "system", subtype: "local_command", uuid: "s2", content: "<local-command-stdout>late</local-command-stdout>" })),
+      ).toEqual([]);
+      p.push(userBlocks("b1", "<bash-input>ls</bash-input>"));
+      p.push(assistant("a1", [{ type: "text", text: "meanwhile" }]));
+      expect(p.push(userBlocks("b2", "<bash-stdout>late</bash-stdout>"))).toEqual([]);
+      expect(p.entry("c1")).toMatchObject({ output: "$1.23" });
+      expect(p.entry("b1")).not.toHaveProperty("output");
+    });
+
     it("drops empty stdout, orphan stdout and caveats", () => {
       const p = new TranscriptParser();
       expect(

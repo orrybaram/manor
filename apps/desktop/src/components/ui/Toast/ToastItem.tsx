@@ -1,13 +1,10 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { ChevronDown, ChevronUp, Info, X } from "lucide-react";
-import { useMountEffect } from "../../../hooks/useMountEffect";
-import { useToastStore, type Toast as ToastData } from "../../../store/toast-store";
+import { toast as toastApi, type ToastRecord } from "../../../toast";
 import styles from "./Toast.module.css";
 
-export const AUTO_DISMISS_MS = 3000;
-
 type ToastItemProps = {
-  toast: ToastData;
+  toast: ToastRecord;
 };
 
 /** Returns true if the detail text is long enough that expanding reveals more. */
@@ -19,38 +16,16 @@ function isExpandable(detail: string | undefined): boolean {
 export function ToastItem(props: ToastItemProps) {
   const { toast } = props;
 
-  const removeToast = useToastStore((s) => s.removeToast);
-  const [exiting, setExiting] = useState(false);
   // `userExpanded` is null until the user toggles. While null, we defer to
   // `toast.autoExpand`, which can transition true after mount (e.g. a loading
   // toast that updates to an error toast with autoExpand: true). Once the
   // user toggles, their choice sticks and overrides further autoExpand
   // changes — so they can collapse a noisy error.
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
-  const dismissRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const exitRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const expandable = isExpandable(toast.detail);
   const expanded =
     userExpanded === null ? (toast.autoExpand ?? false) : userExpanded;
-
-  useMountEffect(() => {
-    if (toast.status === "loading") return;
-    if (toast.persistent) return;
-
-    const delay =
-      toast.duration ??
-      (toast.status === "error" ? AUTO_DISMISS_MS * 2 : AUTO_DISMISS_MS);
-    dismissRef.current = setTimeout(() => {
-      setExiting(true);
-      exitRef.current = setTimeout(() => removeToast(toast.id), 200);
-    }, delay);
-
-    return () => {
-      if (dismissRef.current) clearTimeout(dismissRef.current);
-      if (exitRef.current) clearTimeout(exitRef.current);
-    };
-  });
 
   function handleBodyClick() {
     if (!expandable) return;
@@ -58,7 +33,7 @@ export function ToastItem(props: ToastItemProps) {
   }
 
   return (
-    <div className={`${styles.toast} ${exiting ? styles.exiting : ""}`}>
+    <div className={`${styles.toast} ${toast.leaving ? styles.exiting : ""}`}>
       {toast.status === "loading" && <div className={styles.spinner} />}
       {toast.status === "success" && (
         <span className={`${styles.icon} ${styles.iconSuccess}`}>&#10003;</span>
@@ -125,13 +100,13 @@ export function ToastItem(props: ToastItemProps) {
           {toast.secondaryAction.label}
         </button>
       )}
-      {toast.persistent && (
+      {toast.duration === "sticky" && (
         <button
           className={styles.dismissButton}
           onClick={(e) => {
             e.stopPropagation();
             toast.onClose?.();
-            removeToast(toast.id);
+            toastApi.dismiss(toast.id);
           }}
           type="button"
           aria-label="Dismiss"

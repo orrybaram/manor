@@ -14,6 +14,12 @@ export interface TranscriptLineParser {
    * line that carries no id of its own.
    */
   push(line: string, offset?: number): ChatEntry[];
+  /**
+   * A line too long to read was stepped over at `offset`; `head` is its
+   * first few KiB, likely cut mid-JSON. Returns entries it settled, if it
+   * can tell what the line was. Optional: without it the line is just gone.
+   */
+  oversized?(head: string, offset: number): ChatEntry[];
   entries(): ChatEntry[];
   /** The entry with `id`, as it stands now. */
   entry(id: string): ChatEntry | undefined;

@@ -6,8 +6,10 @@
  * how far it has read (the byte offset), and reads through the source in
  * turn. The offset only ever advances by the byte length of complete lines;
  * a partial trailing line is left unconsumed and re-read, with what follows
- * it, once its newline arrives. Reads never overlap, and triggers that land
- * while one is waiting coalesce into it.
+ * it, once its newline arrives. A source answers a window at a time, so one
+ * read loops until it reaches the end of the file; a line too long for a
+ * record is stepped over, and its parser told. Reads never overlap, and
+ * triggers that land while one is waiting coalesce into it.
  *
  * Everything it finds goes to its owner's `onPush`: each new or updated
  * entry, and the context size whenever that changes.
@@ -195,14 +197,32 @@ export class TranscriptStream {
         continue;
       }
       this.readError = null;
-      // A line too long to read: step over it, and read on from after it.
+      const start = this.offset;
+      let reached: number;
       if (result.skip !== undefined && result.skip > 0) {
-        this.offset += result.skip;
-        continue;
+        // A line too long to read: step over it, and let the parser name it.
+        this.oversized(result.skip, result.head ?? "", this.primed);
+        reached = this.offset;
+      } else {
+        this.consume(result.data, this.primed);
+        reached = start + Buffer.byteLength(result.data, "utf8");
       }
-      this.consume(result.data, this.primed);
+      // A source returns a window at a time: read on until the end, still as
+      // one read (and, the first time, all of it history). A read that got
+      // nowhere is a line still being written; the next trigger tries again.
+      if (reached < result.size && this.offset > start) continue;
+      this.pushContextTokens(this.primed);
       this.primed = true;
       return;
+    }
+  }
+
+  /** Step over the `length`-byte line at the offset; `head` is its start. */
+  private oversized(length: number, head: string, publish: boolean): void {
+    const at = this.offset;
+    this.offset += length;
+    for (const entry of this.currentParser.oversized?.(head, at) ?? []) {
+      this.opts.onPush(entry, publish);
     }
   }
 
@@ -223,6 +243,10 @@ export class TranscriptStream {
       }
       start += Buffer.byteLength(line, "utf8") + 1;
     }
+  }
+
+  /** Push the context size if it changed since the last push. */
+  private pushContextTokens(publish: boolean): void {
     const tokens = this.currentParser.contextTokens();
     if (tokens === this.contextTokens) return;
     this.contextTokens = tokens;

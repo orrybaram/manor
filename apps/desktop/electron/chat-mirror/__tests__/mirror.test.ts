@@ -873,12 +873,10 @@ describe("ChatMirror — poke and poll", () => {
     content = user("u1", "hi") + big + user("u2", "after");
     mirror.setWatched(PANE, true);
     await until(() => reads.length === 1);
-    // The first read stops before the long line, as a capped read would.
+    // The first read stops before the long line, as a capped read would; the
+    // stream reads on from there by itself, still as history.
     reads[0].finish({ ok: true, size: Buffer.byteLength(content), data: user("u1", "hi") + "{" });
     reads[0].finish = noop;
-    await flush();
-
-    mirror.poke(PANE);
     await until(() => reads.length === 2);
     const at = Buffer.byteLength(user("u1", "hi"));
     expect(reads[1].offset).toBe(at);
@@ -887,8 +885,15 @@ describe("ChatMirror — poke and poll", () => {
     await until(() => reads.length === 3);
     expect(reads[2].offset).toBe(at + Buffer.byteLength(big));
     finishRead();
+    await flush();
+    expect(published).toEqual([]);
+
+    content += user("u3", "later");
+    mirror.poke(PANE);
+    await until(() => reads.length === 4);
+    finishRead();
     await until(() => published.length === 1);
-    expect(published.map((e) => e.id)).toEqual(["u2"]);
+    expect(published.map((e) => e.id)).toEqual(["u3"]);
   });
 });
 

@@ -27,7 +27,8 @@
  * fails (the host is offline, the exec failed) changes nothing: the next
  * trigger tries again, and `getHistory` answers `unavailable: "host-offline"`
  * meanwhile. Subscribers keep the entries they already have. A line too long
- * for one read is stepped over without an entry (`TranscriptRead.skip`).
+ * to read is stepped over (`TranscriptRead.skip`); the parser settles the
+ * tool it answered, if it can tell which.
  *
  * The tailing itself (offset, reads, watch and poll, the context size) is a
  * `TranscriptStream` (`stream.ts`); a pane mirror owns one for its

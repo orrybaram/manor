@@ -300,6 +300,10 @@ export interface TranscriptParserOptions {
   sidechain?: boolean;
 }
 
+/** A skipped line's tool result names its tool near the start. */
+const OVERSIZED_TOOL_USE_ID = /"tool_use_id"\s*:\s*"(toolu_[^"]+)"/;
+const TOO_LARGE = "Output too large to show";
+
 export class TranscriptParser {
   private readonly sidechain: boolean;
   private order: string[] = [];
@@ -362,6 +366,27 @@ export class TranscriptParser {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * A line too long to read was skipped; `head` is its start. If it is a
+   * tool's result, settle the tool as an error so it doesn't spin forever.
+   * Anything else is dropped.
+   */
+  oversized(head: string): ChatEntry[] {
+    const id = OVERSIZED_TOOL_USE_ID.exec(head)?.[1];
+    if (!id) return [];
+    const existing = this.byId.get(id);
+    let next: ChatEntry;
+    if (existing?.kind === "tool" && existing.status === "pending") {
+      next = { ...existing, status: "error", detail: TOO_LARGE };
+    } else if (existing?.kind === "task" && !existing.background && existing.status === "running") {
+      next = { ...existing, status: "error", result: TOO_LARGE };
+    } else {
+      return [];
+    }
+    this.byId.set(id, next);
+    return [next];
   }
 
   private add(entry: ChatEntry): ChatEntry | null {

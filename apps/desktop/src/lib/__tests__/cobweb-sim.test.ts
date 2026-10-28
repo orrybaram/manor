@@ -55,6 +55,39 @@ describe("buildCobwebs", () => {
     }
   });
 
+  it.each([
+    [120, 80],
+    [200, 150],
+    [1040, 540],
+    [2500, 300],
+    [300, 1400],
+    [2500, 1400],
+  ])("keeps every web inside a %ix%i panel", (w, h) => {
+    for (const level of [1, 2, 3] as const) {
+      const sim = buildCobwebs(level, w, h, 7);
+      for (let i = 0; i < 200; i++) stepCobwebs(sim, null);
+      for (const p of sim.points) {
+        expect(p.x).toBeGreaterThanOrEqual(0);
+        expect(p.x).toBeLessThanOrEqual(w);
+        expect(p.y).toBeGreaterThanOrEqual(0);
+        expect(p.y).toBeLessThanOrEqual(h);
+      }
+    }
+  });
+
+  it.each([1, 2, 3])("is untouched by a brush that passes nowhere near it (seed %i)", (seed) => {
+    for (const [w, h] of [[120, 80], [200, 150], [1040, 540]] as const) {
+      const sim = buildCobwebs(3, w, h, seed);
+      const before = liveStrands(sim);
+      // Far outside the panel: the pointer is over it, but on nothing.
+      for (let i = 0; i < 60; i++) {
+        stepCobwebs(sim, { x: -1000 - i, y: -1000, prevX: -1000 - i + 1, prevY: -1000, radius: 36 });
+      }
+      for (let i = 0; i < 200; i++) stepCobwebs(sim, null);
+      expect(liveStrands(sim)).toBe(before);
+    }
+  });
+
   it("hangs still when nobody touches it", () => {
     const sim = buildCobwebs(3, W, H, 5);
     const before = liveStrands(sim);

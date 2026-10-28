@@ -68,6 +68,8 @@ const RELAX_PASSES = 5;
 const LOOSE_CHECK_EVERY = 8;
 /** How long after the brush leaves that stretched threads can still snap. */
 const SNAP_WINDOW = 120;
+/** No thread is shorter at rest than this, in px. */
+const MIN_REST = 1;
 
 function seeded(seed: number): () => number {
   let s = seed;
@@ -200,8 +202,15 @@ export function buildCobwebs(
   }
 
   const sim: CobwebSim = { width, height, points, strands, spider, steps: 0, brushedAt: -Infinity };
-  // Let it hang: sag and settle before anyone sees it.
+  // Let it hang: sag and settle before anyone sees it. Then take the way it
+  // hangs as its rest, so no thread starts out already near snapping (the
+  // short ones crowded at a hub would otherwise go at the first touch).
   for (let i = 0; i < 160; i++) stepCobwebs(sim, null);
+  for (const s of strands) {
+    const A = points[s.a]!;
+    const B = points[s.b]!;
+    s.rest = Math.max(s.rest, Math.hypot(A.x - B.x, A.y - B.y), MIN_REST);
+  }
   return sim;
 }
 
@@ -266,17 +275,24 @@ export function stepCobwebs(sim: CobwebSim, brush: Brush | null, options: StepOp
     p.py = p.y;
     p.x += vx;
     p.y += vy + GRAVITY * (p.falling ? 4 : 1);
+    // What's still attached rests on the panel's floor and walls; only loose
+    // pieces drop out of it.
+    if (!p.falling) {
+      p.x = Math.min(sim.width, Math.max(0, p.x));
+      p.y = Math.min(sim.height, Math.max(0, p.y));
+    }
   }
 
   if (brush) {
-    sim.brushedAt = sim.steps;
     const R = brush.radius;
     for (const p of points) {
-      if (p.life <= 0) continue;
+      if (p.life <= 0 || (reducedMotion && p.falling)) continue;
       const dx = p.x - brush.x;
       const dy = p.y - brush.y;
       const d = Math.hypot(dx, dy);
       if (d >= R) continue;
+      // Only a brush that reaches the web lets its threads snap.
+      sim.brushedAt = sim.steps;
       if (p.pinned) {
         if (random() < 0.3) p.pinned = false;
         continue;
@@ -294,6 +310,7 @@ export function stepCobwebs(sim: CobwebSim, brush: Brush | null, options: StepOp
         const B = points[s.b]!;
         if (crosses(brush.prevX, brush.prevY, brush.x, brush.y, A.x, A.y, B.x, B.y) && random() < 0.85) {
           s.broken = true;
+          sim.brushedAt = sim.steps;
         }
       }
     }

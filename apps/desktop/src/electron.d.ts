@@ -32,6 +32,8 @@ export interface AppPreferences {
   achievementTitle: string | null;
   /** Secret badge ids the user chose to reveal. */
   revealedBadges: string[];
+  /** Dusty tabs and cobwebbed panels during Halloween week. */
+  halloweenEffects: boolean;
 }
 
 export type AgentLifecycleStatus =

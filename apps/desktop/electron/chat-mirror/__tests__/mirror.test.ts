@@ -363,6 +363,26 @@ describe("ChatMirror", () => {
       expect(published.map((x) => x.entry.id)).toEqual(["u1"]);
     });
 
+    it("names a line with no uuid by its byte offset, the same tailed or re-read", async () => {
+      // Multi-byte text, so a character count would land elsewhere.
+      const first = user("u1", "héllo wörld");
+      const p = file("t.jsonl", first);
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
+      mirror.setWatched(PANE, true);
+      await mirror.getHistory(PANE);
+
+      fs.appendFileSync(p, line({ type: "system", subtype: "compact_boundary" }));
+      const id = `@${Buffer.byteLength(first, "utf8")}`;
+      await vi.waitFor(() => expect(published.map((x) => x.entry.id)).toEqual([id]));
+
+      const fresh = makeMirror();
+      try {
+        expect(await fresh.getHistory(PANE)).toMatchObject({ entries: [{ id: "u1" }, { id }] });
+      } finally {
+        fresh.dispose();
+      }
+    });
+
     it("resets and re-reads when the pane's transcript path changes", async () => {
       const a = file("a.jsonl", user("u1", "old session"));
       const b = file("b.jsonl", user("u9", "new session"));

@@ -237,7 +237,10 @@ type CommandEntryProps = {
   entry: Extract<ChatEntry, { kind: "command" }>;
 };
 
-/** A slash command as a small chip; expands to its output when it has any. */
+/**
+ * A slash command, or a `!` shell command, as a small chip; expands to its
+ * output when it has any.
+ */
 function CommandEntry(props: CommandEntryProps) {
   const { entry } = props;
 
@@ -245,7 +248,9 @@ function CommandEntry(props: CommandEntryProps) {
 
   const label = (
     <>
-      <span className={styles.commandName}>/{entry.name}</span>
+      <span className={styles.commandName}>
+        {entry.shell ? `! ${entry.name}` : `/${entry.name}`}
+      </span>
       {entry.args && <span className={styles.commandArgs}>{entry.args}</span>}
     </>
   );

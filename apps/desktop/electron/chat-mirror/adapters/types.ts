@@ -9,7 +9,11 @@ import type { ChatEntry, ChatSkill, ChatTaskEntry } from "../transcript";
 
 /** Reads one transcript, a line at a time. */
 export interface TranscriptLineParser {
-  push(line: string): ChatEntry[];
+  /**
+   * Feed one line; `offset` is its starting byte in the file, which names a
+   * line that carries no id of its own.
+   */
+  push(line: string, offset?: number): ChatEntry[];
   entries(): ChatEntry[];
   /** The entry with `id`, as it stands now. */
   entry(id: string): ChatEntry | undefined;

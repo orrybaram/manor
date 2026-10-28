@@ -38,6 +38,16 @@ describe("endsMenuHandoff", () => {
       endsMenuHandoff(handoff, { kind: "user", id: "u", ts: "2026-10-11T12:00:09.000Z", text: "/config" }),
     ).toBe(false);
     expect(endsMenuHandoff(handoff, command("config", ""))).toBe(false);
+    expect(
+      endsMenuHandoff(handoff, {
+        kind: "command",
+        id: "b",
+        ts: "2026-10-11T12:00:09.000Z",
+        name: "config",
+        args: "",
+        shell: true,
+      }),
+    ).toBe(false);
     expect(endsMenuHandoff(handoff, command("config", "soon"))).toBe(false);
   });
 });

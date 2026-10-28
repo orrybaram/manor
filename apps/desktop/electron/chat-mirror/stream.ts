@@ -215,11 +215,13 @@ export class TranscriptStream {
     const end = data.lastIndexOf("\n");
     if (end === -1) return;
     const complete = data.slice(0, end + 1);
+    let start = this.offset;
     this.offset += Buffer.byteLength(complete, "utf8");
     for (const line of complete.slice(0, -1).split("\n")) {
-      for (const entry of this.currentParser.push(line)) {
+      for (const entry of this.currentParser.push(line, start)) {
         this.opts.onPush(entry, publish);
       }
+      start += Buffer.byteLength(line, "utf8") + 1;
     }
     const tokens = this.currentParser.contextTokens();
     if (tokens === this.contextTokens) return;

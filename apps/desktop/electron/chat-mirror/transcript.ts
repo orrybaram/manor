@@ -45,9 +45,14 @@ export type ChatEntry =
       kind: "command";
       id: string;
       ts: string;
-      /** Slash command name, without the leading `/`. */
+      /**
+       * Slash command name, without the leading `/`; for a `shell` command,
+       * the whole command line.
+       */
       name: string;
       args: string;
+      /** A `!` shell command run from the prompt, not a slash command. */
+      shell?: true;
       /** The command's local stdout, attached when it follows the command. */
       output?: string;
     }
@@ -107,7 +112,17 @@ export type ChatPush = ChatEntry | ChatUsage;
 export type ChatSkill = { name: string; description: string };
 
 const MAX_DETAIL = 4000;
-const META_PREFIXES = ["<command-", "<local-command", "<system-reminder>"];
+/** User text Claude Code writes for itself, not for the person reading. */
+const META_PREFIXES = [
+  "<command-",
+  "<local-command",
+  "<system-reminder>",
+  "<artifact-content-authored-by-others",
+  "This session is being continued from a previous conversation",
+  "Caveat: The messages below were generated",
+];
+/** Claude Code's marker for a turn the user stopped, with or without "for tool use". */
+const INTERRUPT_PREFIX = "[Request interrupted by user";
 
 type Json = Record<string, unknown>;
 
@@ -336,10 +351,14 @@ export class TranscriptParser {
     return this.byId.get(id);
   }
 
-  /** Feed one JSONL line; returns entries that are new or updated by it. */
-  push(line: string): ChatEntry[] {
+  /**
+   * Feed one JSONL line; returns entries that are new or updated by it.
+   * `offset` is the line's starting byte in the file: a line with no `uuid`
+   * is named by it, so a full re-read and a tail read agree.
+   */
+  push(line: string, offset?: number): ChatEntry[] {
     try {
-      return this.pushInner(line);
+      return this.pushInner(line, offset);
     } catch {
       return [];
     }
@@ -352,7 +371,7 @@ export class TranscriptParser {
     return entry;
   }
 
-  private pushInner(line: string): ChatEntry[] {
+  private pushInner(line: string, offset?: number): ChatEntry[] {
     if (!line || !line.trim()) return [];
     let parsed: unknown;
     try {
@@ -364,7 +383,8 @@ export class TranscriptParser {
     if (parsed.isSidechain === true && !this.sidechain) return [];
     const type = parsed.type;
     const ts = str(parsed.timestamp) ?? "";
-    const uuid = str(parsed.uuid) ?? `line-${this.order.length}`;
+    const uuid =
+      str(parsed.uuid) ?? (offset !== undefined ? `@${offset}` : `line-${this.order.length}`);
     if (type === "attachment") {
       const att = parsed.attachment;
       // A notification that lands mid-turn is queued, not a user line.
@@ -376,6 +396,17 @@ export class TranscriptParser {
           att.prompt.trimStart().startsWith("<task-notification>"))
       ) {
         const e = this.notification(uuid, ts, att.prompt);
+        return e ? [e] : [];
+      }
+      // A prompt the user sent mid-turn, queued until the model can read it.
+      if (
+        isObject(att) &&
+        att.type === "queued_command" &&
+        att.commandMode === "prompt" &&
+        typeof att.prompt === "string" &&
+        (!isObject(att.origin) || att.origin.kind === "human")
+      ) {
+        const e = this.userText(uuid, ts, att.prompt);
         return e ? [e] : [];
       }
       this.skillListing(att);
@@ -482,18 +513,43 @@ export class TranscriptParser {
       if (e) this.lastCommandId = uuid;
       return e;
     }
-    if (text.trimStart().startsWith("<local-command-stdout>")) {
+    const lead = text.trimStart();
+    if (lead.startsWith(INTERRUPT_PREFIX)) {
+      return this.add({ kind: "notice", id: uuid, ts, text: "Interrupted", status: "error" });
+    }
+    // A `!` command: its input line, then its output as a line of its own.
+    if (lead.startsWith("<bash-input>")) {
+      const line = (tagText(text, "bash-input") ?? "").trim();
+      if (!line) return null;
+      const e = this.add({ kind: "command", id: uuid, ts, name: line, args: "", shell: true });
+      if (e) this.lastCommandId = uuid;
+      return e;
+    }
+    if (lead.startsWith("<bash-stdout>") || lead.startsWith("<bash-stderr>")) {
+      const out = [tagText(text, "bash-stdout"), tagText(text, "bash-stderr")]
+        .map((s) => (s ?? "").trim())
+        .filter(Boolean)
+        .join("\n");
+      const existing = this.lastCommandId
+        ? this.byId.get(this.lastCommandId)
+        : undefined;
+      if (!out || !existing || existing.kind !== "command" || !existing.shell) return null;
+      const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
+      this.byId.set(existing.id, next);
+      return next;
+    }
+    if (lead.startsWith("<local-command-stdout>")) {
       const out = (tagText(text, "local-command-stdout") ?? "").trim();
       const existing = this.lastCommandId
         ? this.byId.get(this.lastCommandId)
         : undefined;
-      if (!out || !existing || existing.kind !== "command") return null;
+      if (!out || !existing || existing.kind !== "command" || existing.shell) return null;
       const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
       this.byId.set(existing.id, next);
       return next;
     }
     // A background task finishing lands as a user turn the user never typed.
-    if (text.trimStart().startsWith("<task-notification>")) {
+    if (lead.startsWith("<task-notification>")) {
       return this.notification(uuid, ts, text);
     }
     if (isMetaText(text)) return null;

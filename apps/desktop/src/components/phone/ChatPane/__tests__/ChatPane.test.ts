@@ -176,6 +176,23 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
+  it("shows a shell command as \"! <cmd>\" and a slash command as \"/<name>\"", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [
+        { kind: "command", id: "c1", ts: "", name: "git status", args: "", shell: true, output: "clean" },
+        { kind: "command", id: "c2", ts: "", name: "review", args: "pr 12" },
+      ],
+    });
+    await renderChat();
+    const [shell, slash] = all("chat-command");
+    expect(shell.textContent).toBe("! git status");
+    expect(slash.textContent).toBe("/reviewpr 12");
+    await click(shell.querySelector("button")!);
+    expect(shell.querySelector("pre")?.textContent).toBe("clean");
+  });
+
   it("keeps a usage push out of the entry list", async () => {
     installChat({ ok: true, contextTokens: 1200, entries: [] });
     await renderChat();

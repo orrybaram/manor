@@ -54,6 +54,9 @@ test("search reaches a match in a row that is not built", async ({
     (el) => el.closest<HTMLElement>("[data-index]")?.dataset.index,
   );
   expect(Number(row)).toBeGreaterThan(FAR_LINES - 10);
+  await window.screenshot({
+    path: test.info().outputPath("search-far-match.png"),
+  });
 });
 
 test("jumping to a comment reaches a row that is not built", async ({
@@ -97,6 +100,9 @@ test("jumping to a comment reaches a row that is not built", async ({
   await window.getByLabel("Jump to a comment").click();
   await window.getByRole("button", { name: /far away note/ }).click();
   await expect(card).toBeInViewport({ timeout: 10_000 });
+  await window.screenshot({
+    path: test.info().outputPath("jumped-to-comment.png"),
+  });
 });
 
 test("copying a long drag selection includes rows that are not built", async ({

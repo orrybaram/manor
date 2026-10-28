@@ -925,3 +925,195 @@ test.describe("phone chat diff cards", () => {
     }
   });
 });
+
+/** A transcript line too long to read, which the chat steps over: over 2 MiB. */
+const OVERSIZED_BYTES = (2 << 20) + 64 * 1024;
+
+test.describe("phone chat transcript fidelity", () => {
+  test.setTimeout(240_000);
+
+  test("a queued prompt, an interrupt, a ! command, a declined question, and an oversized tool result read as Claude Code shows them", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("phone-chat-fidelity");
+    const { client, page, chat, transcriptFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-fidelity",
+      // Settle the agent's open question, so what follows lands after it.
+      (file) =>
+        appendTranscript(
+          file,
+          blockLine("user", "u-e2e-answer", [
+            { type: "tool_result", tool_use_id: "toolu_fake_question", content: "Option 1" },
+          ]),
+        ),
+      { width: 360, height: 780 },
+    );
+    const noSidewaysScroll = async () =>
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+
+    try {
+      await expect(chat.getByTestId("chat-question-answered")).toBeVisible({ timeout: 20_000 });
+      installLightTheme(tempHome);
+
+      // ── 1–3: a queued prompt, an interrupt, a `!` command ─────────────
+      const checking = "Checking the local hosts first.";
+      const queued = "also check remote hosts";
+      const interrupt = "[Request interrupted by user for tool use]";
+      appendTranscript(
+        transcriptFile,
+        blockLine("assistant", "a-e2e-checking", [{ type: "text", text: checking }]),
+        JSON.stringify({
+          type: "attachment",
+          uuid: "att-e2e-queued",
+          timestamp: new Date().toISOString(),
+          isSidechain: false,
+          attachment: {
+            type: "queued_command",
+            prompt: queued,
+            commandMode: "prompt",
+            origin: { kind: "human" },
+          },
+        }),
+        blockLine("user", "u-e2e-interrupt", [{ type: "text", text: interrupt }]),
+        blockLine("user", "u-e2e-bash-input", "<bash-input>git status</bash-input>"),
+        blockLine(
+          "user",
+          "u-e2e-bash-output",
+          "<bash-stdout>On branch main\nnothing to commit</bash-stdout><bash-stderr></bash-stderr>",
+        ),
+      );
+
+      // The queued prompt is a user bubble, after the text it was sent during.
+      const queuedBubble = chat.getByTestId("chat-user").filter({ hasText: queued });
+      await expect(queuedBubble).toBeVisible({ timeout: 20_000 });
+      await expect(chat.getByTestId("chat-assistant").filter({ hasText: checking })).toBeVisible();
+      const order = await chat
+        .locator('[data-testid="chat-assistant"], [data-testid="chat-user"]')
+        .allTextContents();
+      const checkingAt = order.findIndex((t) => t.includes(checking));
+      const queuedAt = order.findIndex((t) => t.includes(queued));
+      expect(checkingAt).toBeGreaterThanOrEqual(0);
+      expect(queuedAt).toBeGreaterThan(checkingAt);
+
+      // The interrupt is a notice, never a bubble of its raw text.
+      await expect(chat.getByTestId("chat-notice").filter({ hasText: "Interrupted" })).toBeVisible();
+      await expect(chat.getByTestId("chat-user").filter({ hasText: "Request interrupted" })).toHaveCount(0);
+
+      // The `!` command is a chip that expands to its output.
+      const bang = chat.getByTestId("chat-command").filter({ hasText: "! git status" });
+      await expect(bang).toBeVisible();
+      await expect(chat.getByTestId("chat-user").filter({ hasText: "git status" })).toHaveCount(0);
+      const bangToggle = bang.getByRole("button");
+      await expect(bangToggle).toHaveAttribute("aria-expanded", "false", { timeout: 20_000 });
+      await expect(bang.getByText("nothing to commit")).toHaveCount(0);
+      await bangToggle.tap();
+      await expect(bangToggle).toHaveAttribute("aria-expanded", "true");
+      await expect(bang.locator("pre")).toContainText("On branch main");
+      await expect(bang.locator("pre")).toContainText("nothing to commit");
+      await noSidewaysScroll();
+      await chat.getByTestId("chat-assistant").filter({ hasText: checking }).scrollIntoViewIfNeeded();
+      await film.shot(page, "dark-queued-interrupt-bang");
+
+      // ── 4: a declined AskUserQuestion ─────────────────────────────────
+      const declinedId = "toolu_e2e_declined";
+      const declinedQuestion = "Which host should the check start with?";
+      appendTranscript(
+        transcriptFile,
+        blockLine("assistant", "a-e2e-ask", [
+          {
+            type: "tool_use",
+            id: declinedId,
+            name: "AskUserQuestion",
+            input: {
+              questions: [
+                {
+                  question: declinedQuestion,
+                  header: "Host",
+                  multiSelect: false,
+                  options: [
+                    { label: "Local", description: "This machine" },
+                    { label: "Remote", description: "The paired hosts" },
+                  ],
+                },
+              ],
+            },
+          },
+        ]),
+        blockLine("user", "u-e2e-declined", [
+          {
+            type: "tool_result",
+            tool_use_id: declinedId,
+            content: "The user doesn't want to proceed with this tool use. The tool use was rejected.",
+            is_error: true,
+          },
+        ]),
+      );
+      const declined = chat
+        .getByTestId("chat-question-answered")
+        .filter({ hasText: "Declined" });
+      await expect(declined).toBeVisible({ timeout: 20_000 });
+      await expect(chat.getByTestId("chat-question")).toHaveCount(0);
+      await expect(chat.getByTestId("chat-question-option")).toHaveCount(0);
+      await noSidewaysScroll();
+      await declined.scrollIntoViewIfNeeded();
+      await film.shot(page, "dark-declined-question");
+
+      // ── 5: a tool result too large to read, then the turn goes on ─────
+      const bigId = "toolu_e2e_oversized";
+      const after = "That log is too long to show; here is the gist.";
+      appendTranscript(
+        transcriptFile,
+        blockLine("assistant", "a-e2e-big-call", [
+          {
+            type: "tool_use",
+            id: bigId,
+            name: "Bash",
+            input: { command: "cat build.log", description: "Read the build log" },
+          },
+        ]),
+      );
+      // Its tool_use_id sits in the line's head, as Claude Code writes it.
+      const oversized = blockLine("user", "u-e2e-big-result", [
+        { type: "tool_result", tool_use_id: bigId, content: "x".repeat(OVERSIZED_BYTES), is_error: false },
+      ]);
+      expect(Buffer.byteLength(oversized)).toBeGreaterThan(2 << 20);
+      appendTranscript(
+        transcriptFile,
+        oversized,
+        blockLine("assistant", "a-e2e-after-big", [{ type: "text", text: after }]),
+      );
+
+      await expect(chat.getByTestId("chat-assistant").filter({ hasText: after })).toBeVisible({
+        timeout: 20_000,
+      });
+      const group = chat.getByTestId("chat-tool-group").last();
+      await expect(group).toHaveAttribute("data-status", "error", { timeout: 20_000 });
+      await group.getByRole("button").first().tap();
+      const tool = group.getByTestId("chat-tool");
+      await expect(tool).toHaveCount(1);
+      await expect(tool).toHaveAttribute("data-status", "error");
+      const toolToggle = tool.getByRole("button");
+      await toolToggle.tap();
+      await expect(toolToggle).toHaveAttribute("aria-expanded", "true");
+      await expect(tool.locator("pre")).toHaveText("Output too large to show");
+      await noSidewaysScroll();
+      await tool.scrollIntoViewIfNeeded();
+      await film.shot(page, "dark-oversized-tool-expanded");
+
+      // ── The main view again, in a light theme ─────────────────────────
+      const darkTheme = await window.evaluate(() => self.electronAPI.theme.getSelectedName());
+      await selectTheme(window, page, LIGHT_THEME);
+      await chat.getByTestId("chat-assistant").filter({ hasText: checking }).scrollIntoViewIfNeeded();
+      await noSidewaysScroll();
+      await film.shot(page, "light-queued-interrupt-bang");
+      await selectTheme(window, page, darkTheme);
+    } finally {
+      film.write("browser-console.log", client.log.join("\n") + "\n");
+      await client.close();
+    }
+  });
+});

@@ -67,3 +67,9 @@ export const FAKE_CHAT_REPLY = "Here are three ways to go.";
 /** The AskUserQuestion it leaves open: one single-select question, three options. */
 export const FAKE_CHAT_QUESTION = "Which option should the fake agent take?";
 export const FAKE_CHAT_OPTIONS = ["Option 1", "Option 2", "Option 3"] as const;
+
+/**
+ * Sent as a prompt, starts a turn whose hooks say working and whose Stop
+ * hook never comes: what a lost Stop hook looks like.
+ */
+export const FAKE_CHAT_LOSE_STOP = "lose the stop hook";

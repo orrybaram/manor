@@ -8,6 +8,7 @@ import {
   groupEntries,
   resultPreview,
   runningTaskCount,
+  sameItem,
   staleTaskIds,
   summarizeTools,
 } from "../chat-entries";
@@ -40,6 +41,34 @@ describe("groupEntries", () => {
   });
 });
 
+describe("groupEntries with edits", () => {
+  const edit = (id: string): ChatEntry => ({
+    kind: "edit",
+    id,
+    ts: "",
+    name: "Edit",
+    path: "src/a.ts",
+    hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }],
+    added: 1,
+    removed: 1,
+    truncated: false,
+  });
+
+  it("draws a landed edit as its own card, ending the tool run", () => {
+    const items = groupEntries([tool("t1", "Read"), edit("t2"), tool("t3", "Bash"), tool("t4", "Edit", "error")]);
+    expect(items.map((i) => [i.kind, i.id])).toEqual([
+      ["tool-group", "t1"],
+      ["edit", "t2"],
+      ["tool-group", "t3"],
+    ]);
+    // The landed edit isn't counted again; the failed one still is.
+    expect(items[2].kind === "tool-group" && summarizeTools(items[2].tools).map((p) => p.text)).toEqual([
+      "Ran a command",
+      "edited a file",
+    ]);
+  });
+});
+
 describe("summarizeTools", () => {
   const text = (tools: Tool[]) =>
     summarizeTools(tools)
@@ -63,18 +92,18 @@ describe("summarizeTools", () => {
   });
 });
 
-describe("staleTaskIds", () => {
-  const task = (id: string, status: ChatTaskEntry["status"] = "running"): ChatTaskEntry => ({
-    kind: "task",
-    id,
-    ts: "",
-    taskKind: "agent",
-    title: id,
-    background: true,
-    status,
-  });
-  const user = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: id });
+const task = (id: string, status: ChatTaskEntry["status"] = "running"): ChatTaskEntry => ({
+  kind: "task",
+  id,
+  ts: "",
+  taskKind: "agent",
+  title: id,
+  background: true,
+  status,
+});
+const user = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: id });
 
+describe("staleTaskIds", () => {
   it("marks a running task from before the latest user turn once the agent is idle or responded", () => {
     const entries = [task("t1"), user("u1"), task("t2")];
     expect([...staleTaskIds(entries, "idle")]).toEqual(["t1"]);
@@ -110,6 +139,21 @@ describe("staleTaskIds", () => {
     ]);
     expect(runningTaskCount(idle)).toBe(2);
     expect(runningTaskCount(groupEntries(entries))).toBe(3);
+  });
+});
+
+describe("sameItem", () => {
+  it("matches items regrouped from the same entries, and not once one changes", () => {
+    const entries = [user("u1"), tool("a", "Read"), tool("b", "Bash"), task("t1")];
+    const before = groupEntries(entries, "idle");
+    const again = groupEntries(entries, "idle");
+    expect(before.every((item, i) => sameItem(item, again[i]))).toBe(true);
+
+    const changed = groupEntries([...entries.slice(0, 2), tool("b", "Bash", "error"), entries[3]], "idle");
+    expect(before.map((item, i) => sameItem(item, changed[i]))).toEqual([true, false, true]);
+    // The task's shown status is part of it.
+    expect(sameItem(before[2], groupEntries(entries, "working")[2])).toBe(true);
+    expect(sameItem(before[2], { ...before[2], display: "unknown" } as typeof before[2])).toBe(false);
   });
 });
 

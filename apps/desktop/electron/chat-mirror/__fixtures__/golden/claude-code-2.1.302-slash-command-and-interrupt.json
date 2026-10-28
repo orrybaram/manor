@@ -1,0 +1,42 @@
+{
+  "turnState": "interrupted",
+  "contextTokens": 68402,
+  "skills": 45,
+  "entries": [
+    {
+      "kind": "command",
+      "id": "00000000-0000-4000-8000-000000000007",
+      "ts": "2025-12-31T23:59:59.805Z",
+      "name": "clear",
+      "args": ""
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-00000000000a",
+      "ts": "2026-01-01T00:00:40.787Z",
+      "text": "magna tempor id minim do labore. sit ut incididunt pariatur et irure, sed ad non dolore ex aliqua ea ullamco d duis laboris aliquip qui aute in occaecat"
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000021:0",
+      "ts": "2026-01-01T00:01:20.008Z",
+      "text": "Dolor's esse fugiat ea commodo non mollit sint qui magna tempor. Occaecat est officia in'o proident consequat id sit minim sed non qui irure labore."
+    },
+    {
+      "kind": "tool",
+      "id": "toolu_366gZjHgEVdHmjCBrXTJMy8T",
+      "ts": "2026-01-01T00:01:21.057Z",
+      "name": "Bash",
+      "summary": "Elit enim dolore EST",
+      "status": "error",
+      "detail": "Sed sint velit'c sunt ex laborum anim amet elit non. Qui enim est sit deserunt (ea. in id sed n quis nisi, non qui_veniam est SIT eiusmod do sed duis). AUTE esse non qui nulla est sint sit sed sunt ut anim non qui et nostrud.\n\nAmet: Est elit'p enim ullamco sit laboris s adipiscing ad incididunt. Sed culpa voluptate — ex quis aliquip nisi duis lorem ea non aute'c cillum qui in esse, pariatur fugiat sint id mollit est tempor occaecat."
+    },
+    {
+      "kind": "notice",
+      "id": "00000000-0000-4000-8000-000000000025",
+      "ts": "2026-01-01T00:01:38.473Z",
+      "text": "Interrupted",
+      "status": "error"
+    }
+  ]
+}

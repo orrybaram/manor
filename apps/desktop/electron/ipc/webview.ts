@@ -393,7 +393,7 @@ export function register(deps: HostDeps): void {
               {
                 label: "Copy Image Address",
                 click: () => {
-                  clipboard.writeText(params.srcURL);
+                  void clipboard.writeText(params.srcURL);
                 },
               },
               { type: "separator" },

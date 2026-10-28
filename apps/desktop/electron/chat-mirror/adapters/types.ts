@@ -5,15 +5,33 @@
  * `ChatEntry` union.
  */
 
-import type { ChatEntry, ChatSkill, ChatTaskEntry } from "../transcript";
+import type { ChatEntry, ChatSkill, ChatTaskEntry, ChatTurnState } from "../transcript";
+
+/** The first and last few KiB of a line too long to read. */
+export interface OversizedRecord {
+  head: string;
+  tail: string;
+}
 
 /** Reads one transcript, a line at a time. */
 export interface TranscriptLineParser {
-  push(line: string): ChatEntry[];
+  /**
+   * Feed one line; `offset` is its starting byte in the file, which names a
+   * line that carries no id of its own.
+   */
+  push(line: string, offset?: number): ChatEntry[];
+  /**
+   * A line too long to read was stepped over at `offset`; `record` is its
+   * two ends, likely cut mid-JSON. Returns entries it settled, if it can
+   * tell what the line was. Optional: without it the line is just gone.
+   */
+  oversized?(record: OversizedRecord, offset: number): ChatEntry[];
   entries(): ChatEntry[];
   /** The entry with `id`, as it stands now. */
   entry(id: string): ChatEntry | undefined;
   contextTokens(): number | null;
+  /** The main thread's turn as the transcript tells it; null until it says. */
+  turnState(): ChatTurnState | null;
   skills(): ChatSkill[];
   hasSkillListing(): boolean;
 }

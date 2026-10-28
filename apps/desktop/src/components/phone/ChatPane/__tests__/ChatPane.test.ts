@@ -17,6 +17,7 @@ vi.hoisted(() => {
 import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../../../electron.d";
 import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
+import { TURN_SETTLE_MS } from "../turn-settle";
 import {
   endMenuHandoff,
   noteChatEntries,
@@ -176,6 +177,34 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
+  it("shows a declined question as declined, and never as an open card", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [{ ...question("q1", [{ multiSelect: false, header: "Pick" }]), declined: true }],
+    });
+    await renderChat();
+    expect(all("chat-question")).toHaveLength(0);
+    expect(all("chat-question-answered")[0].textContent).toBe("PickDeclined");
+  });
+
+  it("shows a shell command as \"! <cmd>\" and a slash command as \"/<name>\"", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [
+        { kind: "command", id: "c1", ts: "", name: "git status", args: "", shell: true, output: "clean" },
+        { kind: "command", id: "c2", ts: "", name: "review", args: "pr 12" },
+      ],
+    });
+    await renderChat();
+    const [shell, slash] = all("chat-command");
+    expect(shell.textContent).toBe("! git status");
+    expect(slash.textContent).toBe("/reviewpr 12");
+    await click(shell.querySelector("button")!);
+    expect(shell.querySelector("pre")?.textContent).toBe("clean");
+  });
+
   it("keeps a usage push out of the entry list", async () => {
     installChat({ ok: true, contextTokens: 1200, entries: [] });
     await renderChat();
@@ -223,6 +252,58 @@ describe("ChatPane — entries", () => {
     expect(groups.map((g) => g.textContent)).toEqual(["Ran a command, read a file", "Ran a command"]);
   });
 
+  it("turns a running Edit into a collapsed diff card in its place, which opens its hunks", async () => {
+    installChat({ ok: true, contextTokens: null, entries: [] });
+    await renderChat();
+    const ts = new Date().toISOString();
+    await act(async () =>
+      listener?.(PANE, { kind: "tool", id: "t1", ts, name: "Read", summary: "a", status: "ok" }),
+    );
+    await act(async () =>
+      listener?.(PANE, { kind: "tool", id: "t2", ts, name: "Edit", summary: "/r/src/a.ts", status: "pending" }),
+    );
+    expect(all("chat-edit-card")).toHaveLength(0);
+    await act(async () =>
+      listener?.(PANE, {
+        kind: "edit",
+        id: "t2",
+        ts,
+        name: "Edit",
+        path: "electron/chat-mirror/stream.ts",
+        hunks: [{ oldStart: 4, oldLines: 2, newStart: 4, newLines: 2, lines: ["   keep", "-  old", "+  new"] }],
+        added: 3,
+        removed: 2,
+        truncated: true,
+      }),
+    );
+    expect(all("chat-tool-group").map((g) => g.textContent)).toEqual(["Read a file"]);
+    const [card] = all("chat-edit-card");
+    expect(card.textContent).toContain("stream.ts");
+    expect(card.textContent).toContain("electron/chat-mirror");
+    expect(card.textContent).toContain("+3−2");
+    const toggle = card.querySelector<HTMLButtonElement>('[data-testid="chat-edit-toggle"]')!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(all("chat-edit-diff")).toHaveLength(0);
+
+    await click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toBe("Hide diff");
+    const diff = all("chat-edit-diff")[0];
+    expect(diff.textContent).toContain("@@ -4,2 +4,2 @@");
+    expect([...diff.querySelectorAll("[data-line]")].map((l) => [l.getAttribute("data-line"), l.textContent])).toEqual([
+      ["context", "  keep"],
+      ["del", "− old"],
+      ["add", "+ new"],
+    ]);
+    // Every marker sits in its own fixed-width column, one space before the text.
+    expect([...diff.querySelectorAll("[data-line]")].map((l) => l.firstElementChild?.textContent)).toEqual([
+      "  ",
+      "− ",
+      "+ ",
+    ]);
+        expect(diff.textContent).toContain("Diff truncated");
+  });
+
   it("shows Thinking while Claude works with nothing to show", async () => {
     vi.useFakeTimers();
     try {
@@ -245,6 +326,71 @@ describe("ChatPane — entries", () => {
       useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "idle", reason: "", kind: "claude" } } });
       await act(async () => {});
       expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops showing Thinking once the transcript says the turn ended for 3s, though hooks say busy", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, contextTokens: null, turnState: "working", entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(1);
+      expect(all("chat-stop")).toHaveLength(1);
+
+      // A turn push is no entry.
+      await act(async () => listener?.(PANE, { kind: "turn", id: "turn", ts: "", state: "done" }));
+      expect(container.textContent).toContain("Nothing in this conversation yet.");
+      await act(async () => vi.advanceTimersByTime(2900));
+      expect(all("chat-thinking")).toHaveLength(1);
+      await act(async () => vi.advanceTimersByTime(100));
+      expect(all("chat-thinking")).toHaveLength(0);
+      // The composer is idle: Send, not Stop.
+      expect(all("chat-stop")).toHaveLength(0);
+      expect(all("chat-send")).toHaveLength(1);
+
+      // Newer transcript activity brings it back at once.
+      await act(async () => listener?.(PANE, { kind: "turn", id: "turn", ts: "", state: "working" }));
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("learns an ended turn from history, through hooks flapping between working and thinking", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, contextTokens: null, turnState: "interrupted", entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(2000));
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
+      await act(async () => vi.advanceTimersByTime(900));
+      expect(all("chat-thinking")).toHaveLength(1);
+      await act(async () => vi.advanceTimersByTime(100));
+      expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps Thinking for a prompt sent after an ended turn, however long its line takes", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, contextTokens: null, turnState: "done", entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "responded", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(TURN_SETTLE_MS));
+      await act(async () => {
+        useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
+      });
+      await act(async () => vi.advanceTimersByTime(5_000));
+      expect(all("chat-stop")).toHaveLength(1);
+      expect(all("chat-thinking")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

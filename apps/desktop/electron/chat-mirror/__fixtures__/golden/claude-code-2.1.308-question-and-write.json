@@ -1,0 +1,143 @@
+{
+  "turnState": "working",
+  "contextTokens": 63302,
+  "skills": 0,
+  "entries": [
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000008:0",
+      "ts": "2026-01-01T00:00:08.145Z",
+      "text": "Elit sit lorem enim (ipsum SED quis labore, Consequat/Pariatur nisi-dolore duis non aliqua dolor). Qui l est veniam voluptate."
+    },
+    {
+      "kind": "question",
+      "id": "toolu_822TVBxBXYJMNHhlhlmw0aDc",
+      "ts": "2026-01-01T00:00:14.916Z",
+      "questions": [
+        {
+          "question": "Sit cillum ullamco do fugiat/magna?",
+          "header": "Aute UT",
+          "options": [
+            {
+              "label": "Laboris esse + mollit minim-irure (Consectetur)",
+              "description": "I 'Aliquip' tempor labore Sint/Dolore sunt d occaecat sed aliqua; velit-proident s veniam nulla non anim amet."
+            },
+            {
+              "label": "Commodo elit enim",
+              "description": "Quis qui officia cillum nisi adipiscing."
+            },
+            {
+              "label": "Fugiat culpa-lorem duis",
+              "description": "Et est laborum mollit; loremipsumdolor ad ipsum."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "question": "Sit tempor deserunt aute?",
+          "header": "Labore",
+          "options": [
+            {
+              "label": "Esse dolore dolor, Magna aliqua (Consectetur)",
+              "description": "Sint minim veniam sed a sunt cillum ex non fugiat'c irure anim; Velit nulla qui excepteur culpa amet a eiusmod lorem; mollit-ipsum tempor e labore. Dolore incididunt aliqua pariatur."
+            },
+            {
+              "label": "Est nostrud dolor, magna ullamco occaecat",
+              "description": "Minim veniam cupidatat Irure sit s velit nulla; proident laboris exercitation."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "question": "Sed cillum Fugiat non Deserunt ea consequat?",
+          "header": "Aliquip",
+          "options": [
+            {
+              "label": "Pariatur occaecat, Proident elit-enim (Consectetur)",
+              "description": "Mollit ~quis (nisi adipiscing), Deserunt culpa duis qui aute esse est lorem in d commodo (~sint), Officia ~sunt, ID ~anim. Amet sit ipsum sed do elit."
+            },
+            {
+              "label": "Pariatur occaecat, enim tempor",
+              "description": "Labore dolore non quis Proident'e nisi dolor."
+            },
+            {
+              "label": "Duis ut laborum",
+              "description": "Eiusmod qui est-nostrud aliqua, et aute'ad ex esse ea magna veniam sint."
+            }
+          ],
+          "multiSelect": false
+        },
+        {
+          "question": "Sunt sit anim cillum minim, Voluptate sed Deserunt amet reprehenderit irure. Elit enim?",
+          "header": "Fugiat",
+          "options": [
+            {
+              "label": "Pariatur mollit non velit tempor quis (Consectetur)",
+              "description": "Qui labore-nisi nulla excepteur est sit dolore ullamco (laboris: Cupidatat sed Occaecat aliqua), in non qui veniam duis culpa aliquip cillum est fugiat."
+            },
+            {
+              "label": "Aute esse-sint id do",
+              "description": "Mollit lorem tempor Consequat/Proident sit; sunt labore commodo ipsum ut sed."
+            },
+            {
+              "label": "Anim amet-elit",
+              "description": "Enim quis non officia nisi laborum; duis deserunt qui dolore est dolor."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answer": "Quis consequat nisi duis proident: \"Sit tempor laborum ex labore/irure?\"=\"Eiusmod aute + dolore velit-nulla (Consectetur)\", \"Sed aliqua deserunt esse?\"=\"Sint veniam culpa, Lorem cillum (Consectetur)\", \"Non fugiat Mollit qui Pariatur ea voluptate?\"=\"Occaecat proident, Deserunt sunt-anim (Consectetur)"
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000013:0",
+      "ts": "2026-01-01T00:01:16.362Z",
+      "text": "Sed consectetur. Ullamco non amet."
+    },
+    {
+      "kind": "edit",
+      "id": "toolu_992sJBzWwvcfCDZkdzy8D013",
+      "ts": "2026-01-01T00:01:28.579Z",
+      "name": "Write",
+      "path": "/tmp/d1/d2/d3/d4/f5.md",
+      "hunks": [
+        {
+          "oldStart": 0,
+          "oldLines": 0,
+          "newStart": 1,
+          "newLines": 24,
+          "lines": [
+            "+# Ipsum dolor: voluptate, deserunt, laborum eiusmod",
+            "+",
+            "+## Elit",
+            "+",
+            "+Non Magna enim minim (`quis/nostrud/qui/incididunt/irure/Excepteur.est`, `Exercitation.sit`, `Cupidatat.mollit.sed`) nisi non ullamco qui duis velit EST aute tempor. Labore sit dolore aliqua, Nulla / Laboris esse pariatur ea f sed adipiscing (non veniam sint occaecat \"Cillum\") culpa Fugiat, IN qui N",
+            "+",
+            "+- **Mollit**: lorem tempor labore est dolore sit Ipsum sed p sunt aliqua id non veniam'e dolor anim (aliquip `do/Exercitation`). Magna minim qui consequat irure (`cillum(EST_VELIT, sit)`). Fugiat-nulla s mollit tempor amet labore. Culpa elit ut o commodo dolore lorem et. Aliqua sed incididunt ad non",
+            "+- **Enim**: c \"Officia\" veniam cillum Quis / Fugiat ipsum n proident nisi ex qui deserunt laborum (EA, Voluptate, Mollit, Pariatur (Tempor duis), Eiusmod); dolor-occaecat est labore magna sit aute esse in sed nostrud. Minim non qui dolore aliqua est'p id veniam. Cillum ullamco sit adipiscing do sed ",
+            "+- **Laboris**: non proident — UT sint, Excepteur sunt, Fugiat anim (amet incididunt elit s aliquip et deserunt), Pariatur enim commodo qui quis nisi duis est irure ad c officia / aute-velit, Laborum nulla.",
+            "+- Culpa esse ex `sint-lorem.ea` cupidatat sit occaecat mollit ipsum.",
+            "+",
+            "+## Adipiscing",
+            "+",
+            "+- Sunt'q In anim (`Consectetur`, `.eiusmod`) dolor sed tempor; id magna'o amet labore minim.",
+            "+- Irure dolore (elit enim, `quis-aliqua=\"velit\"`) do consequat; ut nostrud et Ullamco veniam ad nulla.",
+            "+- Laboris ex cillum culpa lorem ipsum; proident d fugiat nisi non aliquip m duis.",
+            "+- Mollit tempor dolor commodo; `QUI_MAGNA_MINIM` irure voluptate.",
+            "+- Est velit-ea-aute, deserunt sit incididunt, pariatur esse sint officia sunt sed labore (dolore, anim non occaecat nulla qui amet proident).",
+            "+- In est exercitation; Culpa laborum/eiusmod elit enim id nostrud ullamco.",
+            "+- Quis aliqua sit `LABORIS.do`.",
+            "+",
+            "+## Nisi",
+            "+",
+            "+…"
+          ]
+        }
+      ],
+      "added": 24,
+      "removed": 0,
+      "truncated": false
+    }
+  ]
+}

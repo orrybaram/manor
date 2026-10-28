@@ -1,0 +1,58 @@
+{
+  "turnState": "working",
+  "contextTokens": 126802,
+  "skills": 0,
+  "entries": [
+    {
+      "kind": "tool",
+      "id": "toolu_022IPPzZtl0aQtgWlUJQ5Cit",
+      "ts": "2026-01-01T00:00:00.000Z",
+      "name": "Skill",
+      "summary": "Skill",
+      "status": "ok",
+      "detail": "Consequat nulla: in"
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-000000000010",
+      "ts": "2026-01-01T00:00:00.949Z",
+      "text": "veniam magna aliquip 22"
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000018:0",
+      "ts": "2026-01-01T00:00:05.708Z",
+      "text": "D'ut irure est mollit-nisi officia et Duis 22 velit, aute esse sit AD."
+    },
+    {
+      "kind": "tool",
+      "id": "toolu_02YpKVM0O9GrJWR4GEPjcA62",
+      "ts": "2026-01-01T00:00:07.244Z",
+      "name": "Bash",
+      "summary": "Anim Amet 20 laborum incididunt",
+      "status": "ok",
+      "detail": "duis/ullamco/occaecat/aute-veniam/dolor.in:69:  /** Est excepteur'i cillum. Proident id `do`'u (Esse 20 sit ut fugiat). */\nsint/laboris/deserunt/aliquip/__magna__/pariatur.sunt.et:929:      commodo: \"Anim 20+ ad occaecat\",\namet/officia/proident/laborum/__minim__/deserunt.elit.ex:963:      irure: \"Enim 20+ ea pariatur\",\nquis/eiusmod/occaecat/nostrud/__velit__/proident.nisi.in:907:      ullamco: { mollit: \"cupidatat\", duis: \"aute-laboris\", aliquip: \"Esse 20+ id deserunt\" },\nsint/commodo/pariatur/officia/__nulla__/tempor-laborum.sunt.do:941:        () => sed Loremipsumdolorsitam(\"anim-eiusmod\", \"Amet.ut 20 et culpa ad occaecat\"),\nelit/nostrud/proident/ullamco/__lorem__/labore-consequat.enim.ex:72:  [QUIS_IPSUM_LABORIS, ea(\"/usr/d9/bin/d10\\nisi.11.1\\l\")],\nduis/aliquip/deserunt/commodo/__dolor__/dolore-voluptate.aute.in:985:    aliqua(exercitation(\"non.11.1\")).officia({ magna: 20, minim: 11, irure: 1 });\nesse/laborum/pariatur/eiusmod/__velit__/veniam-excepteur.sint.id:929:      \"__NULLA_SUNT__ qui est.1.0 /home/d11/d12 Anim/sit/amet\",\nelit/nostrud/occaecat/ullamco/__culpa__/cillum-cupidatat.enim.do:963:      proident([e(\"sed\", \"non.0.0\", \"/d\"), m(\"lorem\", \"qui.5.0\", \"/a\")])?.quis,\nnisi/laboris/deserunt/aliquip/__ipsum__/fugiat-consequat.duis.ut:907:      pariatur([e(\"dolor\", \"est.0.0\", \"/a\"), m(\"sit\", \"sed.0.0\", \"/v\"), q(\"non\", \"et.0.0\", \"/n\"), e(\"qui\", \"est.1.0\", \"/u\")])\naute/commodo/occaecat/officia/__magna__/mollit-voluptate.esse.ad:941:      [SINT_MINIM_LABORUM, ex(\"/usr/d9/bin/d10\\sunt.11.1\\l\")],\nanim/eiusmod/proident/nostrud/tempor-excepteur.ea:60:labore irure SIT_AMET_VELIT = 20;\nelit/ullamco/deserunt/laboris/dolore-cupidatat.in:985:/** Nulla `sed.11.1` / `20.11.1` (consectetur culpa non qui-aliquip enim consequat). */\nquis/commodo/pariatur/officia/aliqua-voluptate.id:929:  veniam !!n.laborum && a.eiusmod.lorem >= EST_NISI_IPSUM;\nduis/nostrud/occaecat/ullamco/cillum-excepteur.do:963: * Laboris ut proident aute et e esse >= SIT_SINT_DOLOR, ad fugiat ex\n…"
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-00000000001e",
+      "ts": "2026-01-01T00:00:05.261Z",
+      "text": "in commodo"
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000025:0",
+      "ts": "2026-01-01T00:00:11.466Z",
+      "text": "Officia quis do: nisi cupidatat Duis 20 ut labore minim, non aute qui esse pariatur e sint sunt irure anim 22. Velit C'et est sit consequat laborum occaecat ad sed EX nulla."
+    },
+    {
+      "kind": "tool",
+      "id": "toolu_48Jo7iV5UBgQCXPXpryoxwmx",
+      "ts": "2026-01-01T00:00:12.404Z",
+      "name": "Read",
+      "summary": "/work/repo/d13/d14/d15/d16/f17.ts",
+      "status": "ok",
+      "detail": "40\t * id c Culpa eiusmod amet non elit qui do est sit (ut et enim quis nostrud,\n41\t * nisi `sed voluptate`).\n42\t *\n43\t * Lorem duis aute ullamco ad proident `Incididunt`, ex non ea qui deserunt\n44\t * ipsum in pariatur laboris id esse. Occaecat sint est DOLOR do, dolore-sunt\n45\t * sit excepteur-anim: `Exercitation` amet elit sed ut `enim et -d '…'` ad non\n46\t * aliqua magna minim (quis, nisi, …) irure qui ex velit ea (est\n47\t * `loremipsumdolorsit`).\n48\t */\n49\t\n50\tveniam * in cillum duis \"aute:fugiat\";\n51\tmollit * id do esse \"sint:ut\";\n52\ttempor * et sunt anim \"amet:elit\";\n53\tlabore enim {\n54\t  Dolorsitametcons,\n55\t  Adipiscing,\n56\t  Sitametconsectet,\n57\t} quis \"../d18/d19\";\n58\tdolore { incididunt } nisi \"../d18/d20\";\n59\t\n60\taliqua nulla SIT_DUIS_CULPA = 20;\n61\t\n62\t/** sed aliquip ad aute-non qui commodo esse veniam; sint ex sunt. */\n63\tlorem OFFICIA_LABORUM_EA = 10 * 60_996;\n64\t/**\n65\t * Est cillum `eiusmod` nostrud fugiat sit ipsum anim amet mollit sed non\n66\t * ullamco, in a dolor laboris id aliquip *do qui tempor* (commodo est magna\n67\t * sit elit sed enim i officia laborum eiusmod i non).\n68\t */\n69\tminim LABORE_NOSTRUD_DOLORE_R = 30;\n70\t/** Cupidatat irure-velit ut nulla qui ullamco proident est quis. */\n71\tculpa NISI_ALIQUA_LABORIS_ET = 60_930;\n72\t/** Sit veniam duis sed aute ad ex ~non qui v adipiscing aliquip'v esse. */\n73\tlorem CILLUM_COMMODO_EA = 2 * 60_974;\n74\t/** Est sint sit fugiat sunt ipsum sed officia laborum'e anim. */\n75\tdolor EIUSMOD_AMET_ELIT_C = 45;\n76\t/** F enim magna quis nisi (nostrud) in duis aute esse n sint ullamco. */\n77\tminim LABORIS_SUNT_IRURE_NON = 2;\n78\t/** Deserunt id p qui-pariatur aliquip; occaecat est anim velit. */\n79\tnulla MOLLIT_COMMODO_DO = 2 * 60_918;"
+    }
+  ]
+}

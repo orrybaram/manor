@@ -1,3 +1,4 @@
+import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Link } from "../../ui/Link/Link";
@@ -43,8 +44,11 @@ type ChatMarkdownProps = {
  * Claude's prose as GitHub-flavoured markdown. Raw HTML is not parsed (the
  * default), so the transcript can't put elements in the page, and links open
  * in the browser through `<Link>` rather than navigating the app.
+ *
+ * Memoized on its source: parsing is most of what a long chat costs, and a
+ * push must not re-parse every reply above it.
  */
-export function ChatMarkdown(props: ChatMarkdownProps) {
+export const ChatMarkdown = memo(function ChatMarkdown(props: ChatMarkdownProps) {
   const { source, fadeWords = false } = props;
 
   return (
@@ -67,4 +71,4 @@ export function ChatMarkdown(props: ChatMarkdownProps) {
       </Markdown>
     </div>
   );
-}
+});

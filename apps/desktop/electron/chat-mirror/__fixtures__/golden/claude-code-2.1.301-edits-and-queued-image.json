@@ -1,0 +1,78 @@
+{
+  "turnState": "working",
+  "contextTokens": 154202,
+  "skills": 0,
+  "entries": [
+    {
+      "kind": "edit",
+      "id": "toolu_022iPPz9tLC0qTGW1ujqpC8T",
+      "ts": "2026-01-01T00:00:00.000Z",
+      "name": "Edit",
+      "path": "/tmp/d1/d2/d3/d4/d5/d6/f7.json",
+      "hunks": [
+        {
+          "oldStart": 1,
+          "oldLines": 1,
+          "newStart": 1,
+          "newLines": 1,
+          "lines": [
+            "-{\"v\":3,\"ipsumdolorsita\":{\"q\":1,\"id\":\"2025-12-31T19:25:58Z\"},\"lorem\":\"Ipsum & Veniam Deserunt\",\"cillum\":{\"aute\":\"fugiat\"},\"dolor\":[],\"mollit\":{\"Esse.do.sint\":{\"n\":0,\"e\":0,\"u\":9074,\"l\":918,\"magna\":\"Ut · Minim\"},\"Et-Pariatur.ad.sunt\":{\"n\":9529,\"a\":0,\"e\":9630,\"e\":974,\"irure\":\"Ex · Velit, nulla occaecat",
+            "+{\"c\":3,\"dolorsitametco\":{\"c\":1,\"ea\":\"2025-12-31T19:25:58Z\"},\"culpa\":\"Lorem & Tempor Proident\",\"labore\":{\"anim\":\"dolore\"},\"ipsum\":[],\"aliqua\":{\"Amet.in.elit\":{\"d\":0,\"a\":0,\"i\":9185,\"i\":929,\"dolor\":\"Id · Magna\"},\"Do-Deserunt.ut.enim\":{\"r\":9630,\"v\":0,\"v\":9741,\"e\":985,\"minim\":\"Et · Irure, velit pariatur"
+          ]
+        }
+      ],
+      "added": 1,
+      "removed": 1,
+      "truncated": false
+    },
+    {
+      "kind": "edit",
+      "id": "toolu_98PnWRZiFu3vgeVjknIMJN0i",
+      "ts": "2026-01-01T00:00:01.830Z",
+      "name": "Edit",
+      "path": "/tmp/d1/d2/d3/d4/d5/d6/f7.json",
+      "hunks": [
+        {
+          "oldStart": 1,
+          "oldLines": 1,
+          "newStart": 1,
+          "newLines": 1,
+          "lines": [
+            "-{\"d\":3,\"ametconsectetu\":{\"s\":1,\"in\":\"2025-12-31T19:25:58Z\"},\"nulla\":\"Culpa & Fugiat Pariatur\",\"mollit\":{\"quis\":\"tempor\"},\"lorem\":[],\"labore\":{\"Nisi.id.duis\":{\"a\":0,\"c\":0,\"a\":9963,\"e\":907,\"ipsum\":\"Do · Dolor\"},\"Ut-Occaecat.et.aute\":{\"s\":9418,\"d\":0,\"e\":9529,\"t\":963,\"magna\":\"Ad · Minim, irure proident",
+            "+{\"i\":3,\"consecteturadi\":{\"u\":1,\"ex\":\"2025-12-31T19:25:58Z\"},\"velit\":\"Nulla & Dolore Deserunt\",\"aliqua\":{\"esse\":\"veniam\"},\"culpa\":[],\"cillum\":{\"Sint.ea.sunt\":{\"l\":0,\"e\":0,\"d\":9074,\"m\":918,\"lorem\":\"In · Ipsum\"},\"Id-Pariatur.do.anim\":{\"a\":9529,\"e\":0,\"a\":9630,\"m\":974,\"dolor\":\"Ut · Magna, minim occaecat"
+          ]
+        }
+      ],
+      "added": 1,
+      "removed": 1,
+      "truncated": false
+    },
+    {
+      "kind": "tool",
+      "id": "toolu_38PoDR8eIQSzpnoUSEs9C2WG",
+      "ts": "2026-01-01T00:00:05.441Z",
+      "name": "Artifact",
+      "summary": "Artifact",
+      "status": "ok",
+      "detail": "Aliquip qui Proident et https://example.com/d8/d9 (Commodo 14, officia ad 1767225605-sint) sunt /tmp/d1/d2/d3/d4/d5/d6/f7.json (est sit `irure` dolore); sed velit non anim amet elit enim quis.\n\nAliqua — deserunt 0.2.47 (veniam 0.2.80) · exercitation [10 nulla]; culpa; lorem; cillum; pariatur; fugiat; occaecat; ex[1 nisi]; consequat · proident ea duis qui · mollit ipsum (aute) dolor magna; est consectetur minim esse sit Deserunt sint sed non'v in laborum sunt.\n\nAnim exercitation: eiusmod voluptate amet nostrud id elit ullamco — enim laboris irure velit do qui pariatur ut quis occaecat excepteur cupidatat; q est aliquip tempor et nisi sit nulla ad exercitation; n commodo ex ea duis in Labore officia aute laborum culpa esse proident'e dolore sed sint sunt-id\n\nDo aliqua ut lorem, eiusmod et non anim `qui`, ad est amet `elit_enim` ex quis exercitation. Nisi deserunt ea nostrud: duis sit ipsum sed non veniam qui dolor est magna cillum sit aute sed esse. Non fugiat mollit ullamco; sint in sunt anim qui amet'u Minim elit. Id est enim do irure sit laboris quis\n\nSed velit non nisi qui nulla ut duis. Est l culpa, pariatur tempor et n aute lorem esse ad ex sint exercitation, sunt sit Anim amet(a) sed ea Occaecat aliquip in non elit enim_quis proident id qui deserunt, nisi do Duis est ut ipsum commodo aute dolor sit esse: magna minim sed non irure officia et e"
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-000000000013",
+      "ts": "2025-12-31T23:59:03.334Z",
+      "text": "[Nulla #3]"
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-00000000002b:0",
+      "ts": "2026-01-01T00:00:13.135Z",
+      "text": "Est Labore dolore id amet adipiscing do elit. Aliqua sit sed non qui **Exercitation** laborum ut est Veniam eiusmod enim: https://example.com/d8/d9\n\nCillum sit fugiat et sed irure non qui est mollit; quis incididunt sit velit tempor nisi labore.\n\n- **Sed nulla** non qui duis Aute, \"Nostrud culpa ad\" est sit sed esse. Non sint lorem ipsum \"Dolor ullamco sunt…\" qui \"Anim occaecat\".\n- **Est sit laboris** amet magna sed minim, elit non enim \"Quis ex consectetur'c qui nisi duis Est ea d aute, in esse aliquip sit sed id irure velit sint Non dolore.\" Qui aliqua est nulla \"Veniam · Voluptate do sunt Sit\", anim a cillum sed amet ut non culpa: lorem et, fugiat qui.\n- **Ad, est sit / ex commodo mollit**, sed non elit officia, enim ipsum quis.\n\nQui exercitation dolor nisi est i sit ea sed duis magna. Aute non qui in minim laborum, est esse sint irure sit proident velit sed nulla id sunt non culpa qui eiusmod. Do anim'i tempor, R'v labore ut est sit sed consectetur amet v elit dolore."
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-000000000030",
+      "ts": "2026-01-01T00:00:13.262Z",
+      "text": "non enim quis, qui nisi et deserunt lorem ad , E ex est aliqua veniam excepteur. duis ipsum aute ea esse in C"
+    }
+  ]
+}

@@ -33,9 +33,9 @@ export function mergeHistory(
   return [...history, ...live.filter((e) => !known.has(e.id))];
 }
 
-/** An open picker: a question with no answer yet, or a plan with no outcome. */
+/** An open picker: a question neither answered nor declined, or a plan with no outcome. */
 export function isOpenPicker(entry: ChatEntry): boolean {
-  if (entry.kind === "question") return entry.answer === null;
+  if (entry.kind === "question") return entry.answer === null && entry.declined !== true;
   if (entry.kind === "plan") return entry.outcome === null;
   return false;
 }
@@ -74,7 +74,7 @@ export type ChatItem = Exclude<ChatEntry, { kind: "tool" | "task" }> | ToolGroup
 
 /**
  * The chat's items: each run of consecutive tool entries folded into one
- * group (anything else ends a run), and each task with the status it shows
+ * group (anything else ends a run, a landed edit's card too), and each task with the status it shows
  * while the pane's agent is `agentStatus` (`staleTaskIds`).
  */
 export function groupEntries(
@@ -99,6 +99,26 @@ export function groupEntries(
   return items;
 }
 
+/**
+ * Whether two items draw the same: the same entries, field for field. A tool
+ * group's `tools` and a task item are rebuilt on every `groupEntries`, so
+ * identity alone would redraw the whole chat on every push.
+ */
+export function sameItem(a: ChatItem, b: ChatItem): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a) as (keyof ChatItem)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => {
+    if (!(key in b)) return false;
+    const x: unknown = a[key];
+    const y: unknown = b[key];
+    if (Array.isArray(x) && Array.isArray(y)) {
+      return x.length === y.length && x.every((v, i) => v === y[i]);
+    }
+    return x === y;
+  });
+}
+
 type Phrase = {
   /** Tool names this phrase covers. */
   names: readonly string[];
@@ -110,6 +130,7 @@ type Phrase = {
 const PHRASES: readonly Phrase[] = [
   { names: ["Bash"], verb: "ran", noun: ["command", "commands"] },
   { names: ["Read"], verb: "read", noun: ["file", "files"] },
+  // Only edits still running or that failed: a landed one is its own card.
   { names: ["Edit", "MultiEdit", "Write", "NotebookEdit"], verb: "edited", noun: ["file", "files"] },
   { names: ["Grep", "Glob"], verb: "searched", noun: ["the code", "the code"] },
   { names: ["WebSearch", "WebFetch"], verb: "searched the web" },

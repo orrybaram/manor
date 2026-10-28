@@ -14,6 +14,7 @@ import {
 import { FAKE_AGENT } from "./helpers/fake-agent";
 import { Filmstrip } from "./helpers/filmstrip";
 import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * Notifications end to end: what the app remembers about a notification, and what
@@ -304,7 +305,7 @@ test.describe("notification center", () => {
     const first = await launchApp(tempHome);
     try {
       const window = await first.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
       await importSeededProject(first, window, tempHome);
       await expect(bell(window)).toBeVisible({ timeout: 30_000 });
 
@@ -327,7 +328,7 @@ test.describe("notification center", () => {
     const relaunched = await launchApp(tempHome);
     try {
       const window = await relaunched.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
 
       await expect(bell(window)).toBeVisible({ timeout: 30_000 });
       // Unread state survives too — a missed notification stays missed.

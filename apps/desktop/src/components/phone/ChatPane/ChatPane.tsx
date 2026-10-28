@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
@@ -16,7 +16,9 @@ import {
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
+import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
+import { isBusyStatus, TurnSettle } from "./turn-settle";
 import { noteChatEntries } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
@@ -67,6 +69,17 @@ type ChatPaneProps = {
  * Stays subscribed while the terminal shows a TUI menu the chat sent: the
  * menu's command landing in the transcript means it closed, and the pane
  * comes back to the chat.
+ *
+ * Busy is the hook status, unless the transcript has said the turn ended
+ * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
+ * the chat on "Thinking" with its composer held.
+ *
+ * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
+ * top mounts earlier ones; back at the bottom, the window drops back to the
+ * newest. Either way the items that stay mounted must not move on screen, so
+ * every commit moves the scroll offset by however far the first of them
+ * moved (iOS Safari has no scroll anchoring, so the browser's is turned off
+ * everywhere and this does it).
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -79,6 +92,8 @@ export function ChatPane(props: ChatPaneProps) {
   /** The session's context size; a fresh transcript remounts this. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
+  /** The transcript's ended turn outranks a busy hook status, for display. */
+  const [turnSettled, setTurnSettled] = useState(false);
 
   useMountEffect(() => {
     const chat = window.electronAPI.chat;
@@ -89,6 +104,10 @@ export function ChatPane(props: ChatPaneProps) {
     /** The chat is showing a history: the last fetch that answered had one. */
     let shown = false;
     let retry: ReturnType<typeof setInterval> | null = null;
+    const turnSettle = new TurnSettle(setTurnSettled);
+    const statusOf = (s: ReturnType<typeof useAppStore.getState>) =>
+      s.paneAgentStatus[paneId]?.status ?? null;
+    turnSettle.setStatus(statusOf(useAppStore.getState()));
 
     const setOffline = (next: boolean) => {
       offline = next;
@@ -113,6 +132,7 @@ export function ChatPane(props: ChatPaneProps) {
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             // An older host's history has no size: keep what a push said.
             if (history.contextTokens != null) setContextTokens(history.contextTokens);
+            if (history.turnState != null) turnSettle.setTurn(history.turnState);
             setUnavailable(null);
           } else {
             shown = false;
@@ -136,15 +156,20 @@ export function ChatPane(props: ChatPaneProps) {
     // Subscribe first: the mirror only watches the transcript while someone
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
-      // The context size rides the entry channel but is no entry.
+      // The context size and turn state ride the entry channel but are no entries.
       if (entry.kind === "usage") {
         setContextTokens(entry.contextTokens);
+      } else if (entry.kind === "turn") {
+        turnSettle.setTurn(entry.state);
       } else {
         setEntries((prev) => upsertEntry(prev, entry));
         noteChatEntries(paneId, transcript, [entry]);
       }
       // The transcript is readable again: catch up on what was missed.
       if (offline) void fetchHistory();
+    });
+    const unsubscribeStatus = useAppStore.subscribe((state) => {
+      turnSettle.setStatus(statusOf(state));
     });
     const unsubscribeHosts = useHostStore.subscribe((state, prev) => {
       if (offline && state.hosts !== prev.hosts) void fetchHistory();
@@ -159,6 +184,8 @@ export function ChatPane(props: ChatPaneProps) {
       alive = false;
       setOffline(false);
       unsubscribe();
+      unsubscribeStatus();
+      turnSettle.dispose();
       unsubscribeHosts();
       unsubscribeResync();
     };
@@ -169,7 +196,9 @@ export function ChatPane(props: ChatPaneProps) {
   const stuck = useRef(true);
   const newestId = useRef<string | undefined>(undefined);
   const opened = useRef(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const followBottom = useCallback((content: HTMLDivElement | null) => {
+    contentRef.current = content;
     const scroller = content?.parentElement;
     if (!content || !scroller || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
@@ -184,6 +213,20 @@ export function ChatPane(props: ChatPaneProps) {
     return () => observer.disconnect();
   }, []);
 
+  const answerableId = answerablePickerId(entries);
+  const busy = isBusyStatus(status) && !turnSettled;
+  const items = groupEntries(entries, status);
+
+  /** The window's first item; null while at the bottom (the newest items). */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const start = windowStart(items, anchorId);
+  /** Earlier items were asked for and haven't committed yet. */
+  const loadingEarlier = useRef(false);
+  /** Each mounted item's offset as of the last commit, by id. */
+  const placed = useRef(new Map<string, number>());
+  /** Live entries that left the window: back in it, they don't animate again. */
+  const retired = useRef(new Set<string>());
+
   // A smooth scroll down passes through spots far from the bottom, so only
   // moving up counts as the user leaving it.
   const lastScrollTop = useRef(0);
@@ -192,11 +235,48 @@ export function ChatPane(props: ChatPaneProps) {
     if (el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLOP_PX) stuck.current = true;
     else if (el.scrollTop < lastScrollTop.current) stuck.current = false;
     lastScrollTop.current = el.scrollTop;
+
+    if (stuck.current) {
+      if (anchorId !== null) setAnchorId(null);
+    } else if (start > 0 && el.scrollTop < el.clientHeight) {
+      // Within a screen of the top: one load at a time.
+      if (!loadingEarlier.current) {
+        loadingEarlier.current = true;
+        setAnchorId(earlierAnchor(items, start));
+      }
+    } else if (anchorId === null) {
+      // Left the bottom: pin the top, so entries landing below can't trim it.
+      setAnchorId(items[start]?.id ?? null);
+    }
   };
 
-  const answerableId = answerablePickerId(entries);
-  const busy = status === "thinking" || status === "working";
-  const items = groupEntries(entries, status);
+  // Before paint: items mounted or unmounted above moved the ones that
+  // stayed, so move the scroll offset with them. From the offset before the
+  // commit (the last scroll event's): a shorter list may have clamped it.
+  useLayoutEffect(() => {
+    loadingEarlier.current = false;
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (!content || !scroller) return;
+    const rows = [...content.children].filter(
+      (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
+    );
+    const kept = rows.find((el) => placed.current.has(el.dataset.itemId!));
+    const moved = kept ? kept.offsetTop - placed.current.get(kept.dataset.itemId!)! : 0;
+    if (moved !== 0) {
+      scroller.scrollTop = lastScrollTop.current + moved;
+      // Ours, not the user's: moving up here must not unstick the chat.
+      lastScrollTop.current = scroller.scrollTop;
+    }
+    placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
+  });
+  // Live entries above the window have left it (it only ever trims the top).
+  useLayoutEffect(() => {
+    if (settledIds === null) return;
+    for (let i = 0; i < start; i++) {
+      if (!settledIds.has(items[i].id)) retired.current.add(items[i].id);
+    }
+  });
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
   // A running tool call already has its own live line.
@@ -231,10 +311,18 @@ export function ChatPane(props: ChatPaneProps) {
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>
               )}
-              {items.map((entry) => {
-                const live = settledIds !== null && !settledIds.has(entry.id);
+              {items.slice(start).map((entry) => {
+                const live =
+                  settledIds !== null &&
+                  !settledIds.has(entry.id) &&
+                  !retired.current.has(entry.id);
                 return (
-                  <div key={entry.id} className={styles.entry} data-enter={live || undefined}>
+                  <div
+                    key={entry.id}
+                    className={styles.entry}
+                    data-item-id={entry.id}
+                    data-enter={live || undefined}
+                  >
                     <ChatEntryView
                       paneId={paneId}
                       entry={entry}

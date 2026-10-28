@@ -16,6 +16,7 @@ import { openWebApp } from "./helpers/phone";
 import { relayTest } from "./helpers/relay-fixture";
 import { closeSettings, pairBrowser } from "./helpers/settings";
 import { activePaneId, awaitShellReady } from "./helpers/terminal";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * The phone layout end to end: the desk's own tree, walked one leaf at a
@@ -477,7 +478,7 @@ test.describe("phone layout", () => {
       app.waitForEvent("window"),
       detachTab(window, 1),
     ]).then(([win]) => win);
-    await popup.waitForLoadState("domcontentloaded");
+    await waitForAppDocument(popup);
 
     await setWindowContentSize(app, "last", 500, 700);
     // No breakpoint to poll for here — the assertion is that nothing ever

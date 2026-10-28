@@ -1,0 +1,19 @@
+{
+  "turnState": "working",
+  "contextTokens": 80102,
+  "skills": 0,
+  "entries": [
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000005:0",
+      "ts": "2026-01-01T00:00:00.000Z",
+      "text": "L consequat sit lorem ipsum do `pariatur` sed tempor ut et `amet`, dolor non eiusmod `labore/elit`. I dolore enim qui quis magna D nostrud est nisi sit sed `Ad-Occaecat-Ex` duis, non qui aute esse.\n\nEst minim irure velit's sint ullamco ea sit laboris sed."
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-00000000000d",
+      "ts": "2026-01-01T00:13:58.925Z",
+      "text": "\n\n<pasted_content ut=\"esse\">\nmagna-mollit'e `et` tempor (sint 930)\nOccaecat labore minim-irure-dolore-sunt\nvelit-nulla-aliqua-anim\nAdipiscing /d5/d6/.d2/d7/d8/f9.key\nProident cupidatat culpa-veniam amet lorem-elit:ipsum\nCillum ad enim dolor 'magna-quis:minim' officia\nfugiat: Irure deserunt nisi mollit: duis tempor labore qui velit-aute, incididunt esse est nulla ex sit laborum 'dolore culpa'.\nSed 'aliqua non --sint'.\n</pasted_content ea=\"sunt\">\n"
+    }
+  ]
+}

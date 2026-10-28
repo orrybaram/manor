@@ -26,7 +26,7 @@ const HANDOFF_SLACK_MS = 2_000;
  * opens. A `ts` that doesn't parse never ends it.
  */
 export function endsMenuHandoff(handoff: MenuHandoff, entry: ChatEntry): boolean {
-  if (entry.kind !== "command" || entry.name !== handoff.name) return false;
+  if (entry.kind !== "command" || entry.shell || entry.name !== handoff.name) return false;
   const ts = Date.parse(entry.ts);
   return !Number.isNaN(ts) && ts >= handoff.startedAt - HANDOFF_SLACK_MS;
 }

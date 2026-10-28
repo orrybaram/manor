@@ -17,6 +17,7 @@ import {
   waitForVisibleSession,
 } from "./helpers/local-api";
 import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
+import { waitForAppDocument } from "./helpers/window";
 
 /**
  * Renaming an agent by hand.
@@ -233,7 +234,7 @@ test.describe("agent rename", () => {
     const first = await launchApp(tempHome);
     try {
       const window = await first.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
       await bootWorkspaceWithTerminal(first, window, tempHome, "agent-rename-restart");
       const { session } = await startNamedAgent(window, tempHome, request);
       agentId = session.id;
@@ -251,7 +252,7 @@ test.describe("agent rename", () => {
     const relaunched = await launchApp(tempHome);
     try {
       const window = await relaunched.firstWindow();
-      await window.waitForLoadState("domcontentloaded");
+      await waitForAppDocument(window);
 
       // The sidebar only lists agents whose pane is in a layout, and the
       // layout that comes back after a restart is the app's business. The

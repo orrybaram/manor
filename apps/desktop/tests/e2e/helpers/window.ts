@@ -62,8 +62,24 @@ export async function reopenPrimaryWindow(
       electronApp.emit("activate");
     }),
   ]);
-  await page.waitForLoadState("domcontentloaded");
+  await waitForAppDocument(page);
   return page;
+}
+
+/**
+ * Wait for a window Playwright just handed over to hold the app's own page.
+ *
+ * Electron 44 reports a new window while it still shows its initial empty
+ * document, whose `domcontentloaded` has already fired; the app's page (and
+ * with it the preload's `window.electronAPI`) replaces it a moment later. A
+ * bare `waitForLoadState` returns against the empty one, and the next
+ * `evaluate` lands in a context about to be destroyed.
+ */
+export async function waitForAppDocument(page: Page): Promise<void> {
+  await expect
+    .poll(() => page.url(), { timeout: 30_000 })
+    .toMatch(/^(file|https?):/);
+  await page.waitForLoadState("domcontentloaded");
 }
 
 /**

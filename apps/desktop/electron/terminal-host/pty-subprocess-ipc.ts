@@ -91,7 +91,7 @@ export function encodeJsonFrame(type: MessageType, data: unknown): Buffer {
  * Streaming frame decoder. Feed it chunks and it emits complete frames.
  */
 export class FrameDecoder {
-  private buffer = Buffer.alloc(0);
+  private buffer: Buffer = Buffer.alloc(0);
   private onFrame: (type: MessageType, payload: Buffer) => void;
 
   constructor(onFrame: (type: MessageType, payload: Buffer) => void) {

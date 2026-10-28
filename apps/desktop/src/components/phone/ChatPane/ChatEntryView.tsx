@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import { summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
+import { isOpenPicker, sameItem, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
+import { EditCard } from "./EditCard";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import { TaskCard } from "./TaskCard";
@@ -21,8 +22,11 @@ type ChatEntryViewProps = {
   onShowTerminal: () => void;
 };
 
-/** One transcript entry, or a run of tool calls, drawn for its kind. */
-export function ChatEntryView(props: ChatEntryViewProps) {
+/**
+ * One transcript entry, or a run of tool calls, drawn for its kind. Memoized:
+ * a push redraws only the item it changed, not the whole history.
+ */
+export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewProps) {
   const { paneId, entry, answerableId, live, onShowTerminal } = props;
 
   switch (entry.kind) {
@@ -62,8 +66,10 @@ export function ChatEntryView(props: ChatEntryViewProps) {
       );
     case "task":
       return <TaskCard paneId={paneId} task={entry} />;
+    case "edit":
+      return <EditCard entry={entry} />;
     case "question":
-      return entry.answer === null ? (
+      return isOpenPicker(entry) ? (
         <QuestionCard
           paneId={paneId}
           entry={entry}
@@ -85,7 +91,13 @@ export function ChatEntryView(props: ChatEntryViewProps) {
     default:
       return null;
   }
-}
+}, (prev, next) =>
+  prev.paneId === next.paneId &&
+  prev.answerableId === next.answerableId &&
+  prev.live === next.live &&
+  prev.onShowTerminal === next.onShowTerminal &&
+  sameItem(prev.entry, next.entry),
+);
 
 type ToolGroupViewProps = {
   group: ToolGroup;
@@ -237,7 +249,10 @@ type CommandEntryProps = {
   entry: Extract<ChatEntry, { kind: "command" }>;
 };
 
-/** A slash command as a small chip; expands to its output when it has any. */
+/**
+ * A slash command, or a `!` shell command, as a small chip; expands to its
+ * output when it has any.
+ */
 function CommandEntry(props: CommandEntryProps) {
   const { entry } = props;
 
@@ -245,7 +260,9 @@ function CommandEntry(props: CommandEntryProps) {
 
   const label = (
     <>
-      <span className={styles.commandName}>/{entry.name}</span>
+      <span className={styles.commandName}>
+        {entry.shell ? `! ${entry.name}` : `/${entry.name}`}
+      </span>
       {entry.args && <span className={styles.commandArgs}>{entry.args}</span>}
     </>
   );

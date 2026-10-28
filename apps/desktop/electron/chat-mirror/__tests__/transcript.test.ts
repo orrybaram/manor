@@ -686,3 +686,191 @@ describe("TranscriptParser tasks", () => {
     expect(p.push(line({ type: "attachment", uuid: "z", attachment: { type: "queued_command", prompt: [{ type: "text", text: "hi" }] } }))).toEqual([]);
   });
 });
+
+describe("TranscriptParser — turn state", () => {
+  /**
+   * An assistant line as Claude Code writes it: one per content block, each
+   * carrying the whole message's id, model and stop_reason.
+   */
+  function reply(
+    uuid: string,
+    block: Record<string, unknown>,
+    stopReason: string | null,
+    extra: Record<string, unknown> = {},
+  ): string {
+    return line({
+      type: "assistant",
+      uuid,
+      parentUuid: "p",
+      sessionId: "s1",
+      isSidechain: false,
+      requestId: "req_1",
+      message: {
+        id: "msg_1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-5-5",
+        content: [block],
+        stop_reason: stopReason,
+        stop_sequence: null,
+        usage: { input_tokens: 3, cache_read_input_tokens: 1000, output_tokens: 20 },
+      },
+      ...extra,
+    });
+  }
+  const text = (t: string) => ({ type: "text", text: t });
+  const tool = (id: string) => ({ type: "tool_use", id, name: "Bash", input: { command: "ls" } });
+  const result = (uuid: string, id: string, extra = {}) =>
+    userBlocks(uuid, [{ type: "tool_result", tool_use_id: id, content: "ok" }], {
+      toolUseResult: { stdout: "ok" },
+      ...extra,
+    });
+
+  it("is null before any line says", () => {
+    const p = new TranscriptParser();
+    expect(p.turnState()).toBeNull();
+    p.push(line({ type: "attachment", uuid: "x", attachment: { type: "skill_listing", content: "" } }));
+    expect(p.turnState()).toBeNull();
+  });
+
+  it("works through tool calls and is done at end_turn", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "list the files"));
+    expect(p.turnState()).toBe("working");
+    p.push(reply("a1", { type: "thinking", thinking: "", signature: "x" }, "tool_use"));
+    p.push(reply("a2", tool("t1"), "tool_use"));
+    expect(p.turnState()).toBe("working");
+    p.push(result("u2", "t1"));
+    expect(p.turnState()).toBe("working");
+    // The final message's thinking and text lines both carry end_turn.
+    p.push(reply("a3", { type: "thinking", thinking: "", signature: "x" }, "end_turn"));
+    p.push(reply("a4", text("Here they are."), "end_turn"));
+    expect(p.turnState()).toBe("done");
+    // Claude Code's bookkeeping after a turn leaves it done.
+    p.push(line({ type: "system", subtype: "stop_hook_summary", uuid: "s1", hookCount: 1 }));
+    p.push(line({ type: "system", subtype: "turn_duration", uuid: "s2", durationMs: 900 }));
+    p.push(userBlocks("m1", "<system-reminder>x</system-reminder>", { isMeta: true }));
+    expect(p.turnState()).toBe("done");
+  });
+
+  it.each(["stop_sequence", "max_tokens", "refusal"])("is done at %s", (reason) => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", text("stop"), reason));
+    expect(p.turnState()).toBe("done");
+  });
+
+  it("is working on a line still streaming, with no stop_reason", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", text("Done."), "end_turn"));
+    p.push(userBlocks("u2", "again"));
+    p.push(reply("a2", text("partial"), null));
+    expect(p.turnState()).toBe("working");
+  });
+
+  it("is done at a synthetic API error line", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(
+      line({
+        type: "assistant",
+        uuid: "a1",
+        isApiErrorMessage: true,
+        message: {
+          id: "x",
+          role: "assistant",
+          model: "<synthetic>",
+          content: [text("API Error: overloaded")],
+          stop_reason: "stop_sequence",
+          usage: { input_tokens: 0 },
+        },
+      }),
+    );
+    expect(p.turnState()).toBe("done");
+  });
+
+  it("is interrupted when the user stops the turn, and working at the next prompt", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", tool("t1"), "tool_use"));
+    p.push(
+      userBlocks("u2", [
+        { type: "tool_result", tool_use_id: "t1", content: "The user doesn't want to proceed", is_error: true },
+      ]),
+    );
+    p.push(userBlocks("u3", [{ type: "text", text: "[Request interrupted by user for tool use]" }]));
+    expect(p.turnState()).toBe("interrupted");
+    p.push(userBlocks("u4", "try again"));
+    expect(p.turnState()).toBe("working");
+  });
+
+  it("is working again at a queued prompt or a task notification", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", text("Done."), "end_turn"));
+    p.push(
+      line({
+        type: "attachment",
+        uuid: "q1",
+        attachment: { type: "queued_command", commandMode: "prompt", prompt: "and one more" },
+      }),
+    );
+    expect(p.turnState()).toBe("working");
+    p.push(reply("a2", text("Done."), "end_turn"));
+    p.push(
+      userBlocks(
+        "n1",
+        "<task-notification><task-id>b1</task-id><status>completed</status><summary>Agent finished</summary></task-notification>",
+      ),
+    );
+    expect(p.turnState()).toBe("working");
+  });
+
+  it("is working at a slash command, and back where it was after a local one", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", text("Done."), "end_turn"));
+    p.push(userBlocks("c1", "<command-name>/model</command-name><command-args></command-args>"));
+    expect(p.turnState()).toBe("working");
+    p.push(
+      line({
+        type: "system",
+        subtype: "local_command",
+        uuid: "c2",
+        content: "<local-command-stdout>Set model to opus</local-command-stdout>",
+      }),
+    );
+    expect(p.turnState()).toBe("done");
+    // A skill command does start a turn; a later stray output doesn't undo the reply.
+    p.push(userBlocks("c3", "<command-name>/review</command-name><command-args></command-args>"));
+    p.push(reply("a2", tool("t2"), "tool_use"));
+    p.push(
+      line({ type: "system", subtype: "local_command", uuid: "c4", content: "<local-command-stdout>x</local-command-stdout>" }),
+    );
+    expect(p.turnState()).toBe("working");
+  });
+
+  it("never moves on sidechain lines", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", text("Done."), "end_turn"));
+    p.push(userBlocks("s1", "subagent prompt", { isSidechain: true }));
+    p.push(reply("s2", tool("t9"), "tool_use", { isSidechain: true }));
+    expect(p.turnState()).toBe("done");
+    // A task's own transcript (all sidechain) has no main-thread turn.
+    const child = new TranscriptParser({ sidechain: true });
+    child.push(userBlocks("s1", "subagent prompt", { isSidechain: true }));
+    child.push(reply("s2", text("Done."), "end_turn", { isSidechain: true }));
+    expect(child.turnState()).toBeNull();
+  });
+
+  it("is unmoved by a malformed line", () => {
+    const p = new TranscriptParser();
+    p.push(userBlocks("u1", "go"));
+    p.push(reply("a1", text("Done."), "end_turn"));
+    p.push("{not json");
+    p.push(line({ type: "assistant", uuid: "a2", message: "nope" }));
+    expect(p.turnState()).toBe("done");
+  });
+});

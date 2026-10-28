@@ -135,8 +135,10 @@ describe("TranscriptStream — bounded reads", () => {
           reads[i - 1].offset + Buffer.byteLength(prev.data, "utf8"),
         );
     }
-    expect(pushes.length).toBe(n);
+    // Every line, then the turn state once, at the end of the read.
+    expect(pushes.length).toBe(n + 1);
     expect(pushes[n - 1].entry.id).toBe(`u${n - 1}`);
+    expect(pushes[n].entry).toMatchObject({ kind: "turn", id: "turn", state: "working" });
     expect(pushes.every((x) => !x.publish)).toBe(true);
 
     fs.appendFileSync(file, user("after", "new"));

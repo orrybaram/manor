@@ -106,8 +106,27 @@ export type ChatUsage = {
   contextTokens: number;
 };
 
-/** What the `chat.entry` channel carries: an entry or a context-size update. */
-export type ChatPush = ChatEntry | ChatUsage;
+/**
+ * Where the main thread's turn stands, as the transcript tells it:
+ * `working` until an assistant line ends the turn (`done`) or the user
+ * stops it (`interrupted`). Hook signals stay the agent status; the phone
+ * reads this only to stop showing "Thinking" when a Stop hook went missing.
+ */
+export type ChatTurnState = "working" | "done" | "interrupted";
+
+/**
+ * The turn state. Published by the mirror when it changes; never a
+ * `ChatEntry`, never drawn.
+ */
+export type ChatTurn = {
+  kind: "turn";
+  id: "turn";
+  ts: string;
+  state: ChatTurnState;
+};
+
+/** What the `chat.entry` channel carries: an entry, a context-size or a turn-state update. */
+export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
 
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
@@ -124,6 +143,12 @@ const META_PREFIXES = [
 ];
 /** Claude Code's marker for a turn the user stopped, with or without "for tool use". */
 const INTERRUPT_PREFIX = "[Request interrupted by user";
+/**
+ * Stop reasons that end a turn. Claude Code's own synthetic lines (an API
+ * error, "No response requested.") end it with `stop_sequence` too.
+ * `tool_use` goes on, and a line still streaming has none.
+ */
+const TURN_ENDS = new Set(["end_turn", "stop_sequence", "max_tokens", "refusal"]);
 
 type Json = Record<string, unknown>;
 
@@ -317,6 +342,15 @@ export class TranscriptParser {
   private sawSkillListing = false;
   private lastCommandId: string | null = null;
   private lastContextTokens: number | null = null;
+  private turn: ChatTurnState | null = null;
+  /** The line being read is the main thread's, so it may move the turn. */
+  private mainThread = true;
+  /**
+   * The turn state before a slash command that nothing has followed yet: a
+   * local command (`/model`) runs in Claude Code and starts no turn, which
+   * its local output shows. Undefined when no command is pending.
+   */
+  private turnBeforeCommand: ChatTurnState | null | undefined = undefined;
   /** Notifications already turned into a notice; one may arrive in two forms. */
   private seenNotices = new Set<string>();
 
@@ -331,6 +365,14 @@ export class TranscriptParser {
    */
   contextTokens(): number | null {
     return this.lastContextTokens;
+  }
+
+  /**
+   * The main thread's turn state as of the newest line that says, or null
+   * before any has. Sidechain lines never move it.
+   */
+  turnState(): ChatTurnState | null {
+    return this.turn;
   }
 
   /** Skills from the transcript's skill listings, sorted by name. */
@@ -412,6 +454,7 @@ export class TranscriptParser {
     }
     if (!isObject(parsed)) return [];
     if (parsed.isSidechain === true && !this.sidechain) return [];
+    this.mainThread = parsed.isSidechain !== true;
     const type = parsed.type;
     const ts = str(parsed.timestamp) ?? "";
     const uuid =
@@ -426,6 +469,7 @@ export class TranscriptParser {
         (att.commandMode === "task-notification" ||
           att.prompt.trimStart().startsWith("<task-notification>"))
       ) {
+        this.setTurn("working");
         const e = this.notification(uuid, ts, att.prompt);
         return e ? [e] : [];
       }
@@ -437,6 +481,7 @@ export class TranscriptParser {
         (!isObject(att.origin) || att.origin.kind === "human")
       ) {
         // A pasted image makes the prompt a block array; keep its text.
+        this.setTurn("working");
         const e = this.userText(uuid, ts, resultText(att.prompt));
         return e ? [e] : [];
       }
@@ -444,6 +489,10 @@ export class TranscriptParser {
       return [];
     }
     // Compaction: show the boundary, not the summary that follows it.
+    if (type === "system" && parsed.subtype === "local_command") {
+      if (str(parsed.content)?.includes("<local-command-stdout>")) this.localCommandRan();
+      return [];
+    }
     if (type === "system" && parsed.subtype === "compact_boundary") {
       const e = this.add({ kind: "notice", id: uuid, ts, text: "Conversation compacted", status: "ok" });
       return e ? [e] : [];
@@ -467,6 +516,7 @@ export class TranscriptParser {
       for (const block of content) {
         if (!isObject(block)) continue;
         if (block.type === "tool_result") {
+          this.setTurn("working");
           const e = this.resolve(block, parsed.toolUseResult);
           if (e) out.push(e);
         } else if (block.type === "text" && typeof block.text === "string") {
@@ -487,6 +537,8 @@ export class TranscriptParser {
       const size = contextSize(message.usage);
       if (size !== null) this.lastContextTokens = size;
     }
+    const stop = str(message.stop_reason);
+    this.setTurn(stop !== undefined && TURN_ENDS.has(stop) ? "done" : "working");
     if (!Array.isArray(content)) return [];
     content.forEach((block, i) => {
       if (!isObject(block)) return;
@@ -513,6 +565,19 @@ export class TranscriptParser {
     return out;
   }
 
+  /** Move the main thread's turn; a sidechain line leaves it be. */
+  private setTurn(state: ChatTurnState | null): void {
+    if (!this.mainThread) return;
+    this.turn = state;
+    this.turnBeforeCommand = undefined;
+  }
+
+  /** The pending slash command printed local output: it started no turn. */
+  private localCommandRan(): void {
+    const before = this.turnBeforeCommand;
+    if (before !== undefined) this.setTurn(before);
+  }
+
   private skillListing(attachment: unknown): void {
     if (!isObject(attachment) || attachment.type !== "skill_listing") return;
     const listed = parseSkillLines(str(attachment.content) ?? "");
@@ -534,6 +599,9 @@ export class TranscriptParser {
     const cmd = tagText(text, "command-name")?.trim();
     if (cmd && cmd.startsWith("/") && cmd.length > 1) {
       const args = tagText(text, "command-args")?.trim() ?? "";
+      const before = this.turn;
+      this.setTurn("working");
+      if (this.mainThread) this.turnBeforeCommand = before;
       const e = this.add({
         kind: "command",
         id: uuid,
@@ -546,6 +614,7 @@ export class TranscriptParser {
     }
     const lead = text.trimStart();
     if (lead.startsWith(INTERRUPT_PREFIX)) {
+      this.setTurn("interrupted");
       return this.add({ kind: "notice", id: uuid, ts, text: "Interrupted", status: "error" });
     }
     // A `!` command: its input line, then its output as a line of its own.
@@ -574,6 +643,7 @@ export class TranscriptParser {
       const existing = this.lastCommandId
         ? this.byId.get(this.lastCommandId)
         : undefined;
+      this.localCommandRan();
       if (!out || !existing || existing.kind !== "command" || existing.shell) return null;
       const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
       this.byId.set(existing.id, next);
@@ -581,9 +651,11 @@ export class TranscriptParser {
     }
     // A background task finishing lands as a user turn the user never typed.
     if (lead.startsWith("<task-notification>")) {
+      this.setTurn("working");
       return this.notification(uuid, ts, text);
     }
     if (isMetaText(text)) return null;
+    this.setTurn("working");
     return this.add({ kind: "user", id: uuid, ts, text });
   }
 

@@ -18,7 +18,10 @@
 # 3. Reads its tty raw. A line ending in CR is either picker keys — Down×i
 #    then Enter (electron/chat-mirror/picker-keys.ts) — which appends the
 #    question's tool_result for option i, or typed text (`chat.send`), which
-#    appends a user line and an assistant echo.
+#    appends a user line and an assistant echo. The prompt "lose the stop
+#    hook" instead starts a turn (UserPromptSubmit, then PreToolUse, so the
+#    hook status says working) and never sends its Stop; the test writes the
+#    turn's end into the transcript itself.
 # 4. Appends every byte it reads, raw, to the input log. `chat.*` calls are
 #    deliberately not audited, so the log is how a test sees what was typed.
 #
@@ -156,6 +159,11 @@ while IFS= read -r -n 1 -d '' char; do
   hook UserPromptSubmit
   retitle
   user_line "u-sent-$turn" "$text"
+  if [ "$text" = "lose the stop hook" ]; then
+    hook PreToolUse
+    printf 'working, and no Stop will follow\n'
+    continue
+  fi
   printf 'received: %s\n' "$text"
   assistant_text "a-sent-$turn" "received: $text"
   hook Stop

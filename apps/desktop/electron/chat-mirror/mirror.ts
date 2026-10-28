@@ -52,6 +52,7 @@ import {
   type ChatPush,
   type ChatSkill,
   type ChatTaskEntry,
+  type ChatTurnState,
 } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 import { TranscriptStream, type TranscriptTarget } from "./stream";
@@ -71,7 +72,16 @@ export type ChatUnavailableReason =
 
 /** What `chat.getHistory` answers. */
 export type ChatHistory =
-  | { ok: true; entries: ChatEntry[]; contextTokens: number | null }
+  | {
+      ok: true;
+      entries: ChatEntry[];
+      contextTokens: number | null;
+      /**
+       * The pane's turn as its transcript tells it; null until it says.
+       * Absent from a task's history, whose transcript is all sidechain.
+       */
+      turnState?: ChatTurnState | null;
+    }
   | { ok: false; reason: ChatUnavailableReason };
 
 export type { ChatCommand } from "./builtin-commands";
@@ -112,7 +122,7 @@ export interface ChatMirrorDeps {
   /** Type into the pane's PTY. */
   write(paneId: string, data: string): void;
   /**
-   * Push a new or updated entry, or a context-size update, to the pane's
+   * Push a new or updated entry, or a context-size or turn-state update, to the pane's
    * `chat.entry` subscribers.
    */
   publish(paneId: string, entry: ChatPush): void;
@@ -230,6 +240,7 @@ export class ChatMirror {
       ok: true,
       entries: m.stream.parser.entries().map((e) => this.decorate(m, e)),
       contextTokens: m.stream.parser.contextTokens(),
+      turnState: m.stream.parser.turnState(),
     };
   }
 
@@ -460,7 +471,7 @@ export class ChatMirror {
 
   /** What the pane's stream found: publish it, and settle what it answers. */
   private onPanePush(paneId: string, m: PaneMirror, push: ChatPush, publish: boolean): void {
-    if (push.kind === "usage") {
+    if (push.kind === "usage" || push.kind === "turn") {
       if (publish) this.deps.publish(paneId, push);
       return;
     }

@@ -183,12 +183,13 @@ describe("ChatMirror", () => {
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
         contextTokens: null,
+        turnState: "working",
       });
     });
 
     it("treats a transcript that is not written yet as empty", async () => {
       agent = { hostId: "local", agentKind: "claude", transcriptPath: path.join(dir, "missing.jsonl") };
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null });
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null, turnState: null });
     });
 
     it("reads the transcript from the start without publishing it", async () => {
@@ -198,6 +199,7 @@ describe("ChatMirror", () => {
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
         contextTokens: null,
+        turnState: "working",
       });
       expect(published).toEqual([]);
     });
@@ -327,6 +329,35 @@ describe("ChatMirror", () => {
       expect(await mirror.getHistory(PANE)).toMatchObject({ contextTokens: 1050 });
     });
 
+    it("carries the turn state in history and publishes a turn push when it changes", async () => {
+      const ended = (uuid: string, text: string) =>
+        line({
+          type: "assistant",
+          uuid,
+          message: { role: "assistant", content: [{ type: "text", text }], stop_reason: "end_turn" },
+        });
+      const p = file("t.jsonl", user("u1", "hi") + ended("a1", "hello"));
+      agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
+      mirror.setWatched(PANE, true);
+      // A phone subscribing late learns the turn ended from history.
+      expect(await mirror.getHistory(PANE)).toMatchObject({ turnState: "done" });
+      expect(published).toEqual([]);
+
+      fs.appendFileSync(p, user("u2", "again"));
+      await vi.waitFor(() => expect(published).toHaveLength(2));
+      expect(published.map((x) => x.entry)).toMatchObject([
+        { kind: "user", id: "u2" },
+        { kind: "turn", id: "turn", state: "working" },
+      ]);
+      // A second line of the same turn publishes no turn push.
+      fs.appendFileSync(p, assistant("a2", [{ type: "tool_use", id: "t1", name: "Bash", input: { command: "ls" } }]));
+      await vi.waitFor(() => expect(published).toHaveLength(3));
+      fs.appendFileSync(p, ended("a3", "bye"));
+      await vi.waitFor(() => expect(published).toHaveLength(5));
+      expect(published[4].entry).toMatchObject({ kind: "turn", state: "done" });
+      expect(await mirror.getHistory(PANE)).toMatchObject({ turnState: "done" });
+    });
+
     it("stops publishing once nobody watches, and catches up on the next watch", async () => {
       const p = file("t.jsonl", user("u1", "hi"));
       agent = { hostId: "local", agentKind: "claude", transcriptPath: p };
@@ -352,15 +383,17 @@ describe("ChatMirror", () => {
       const bytes = Buffer.from(user("u1", "héllo"), "utf8");
       const cut = bytes.indexOf(Buffer.from("é", "utf8")) + 1;
       fs.appendFileSync(p, bytes.subarray(0, cut));
-      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null });
+      expect(await mirror.getHistory(PANE)).toEqual({ ok: true, entries: [], contextTokens: null, turnState: null });
 
       fs.appendFileSync(p, bytes.subarray(cut));
       expect(await mirror.getHistory(PANE)).toEqual({
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "héllo" }],
         contextTokens: null,
+        turnState: "working",
       });
-      expect(published.map((x) => x.entry.id)).toEqual(["u1"]);
+      // The line, then the turn it starts.
+      expect(published.map((x) => x.entry.id)).toEqual(["u1", "turn"]);
     });
 
     it("names a line with no uuid by its byte offset, the same tailed or re-read", async () => {
@@ -396,6 +429,7 @@ describe("ChatMirror", () => {
         ok: true,
         entries: [{ kind: "user", id: "u9", ts: T, text: "new session" }],
         contextTokens: null,
+        turnState: "working",
       });
       // The new file is tailed; the old one is not.
       fs.appendFileSync(a, user("u2", "stale"));
@@ -430,6 +464,7 @@ describe("ChatMirror", () => {
         ok: true,
         entries: [{ kind: "user", id: "u1", ts: T, text: "hi" }],
         contextTokens: null,
+        turnState: "working",
       });
     });
 

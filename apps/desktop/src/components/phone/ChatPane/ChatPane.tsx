@@ -17,6 +17,7 @@ import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
 import styles from "./ChatPane.module.css";
+import { isBusyStatus, TurnSettle } from "./turn-settle";
 import { noteChatEntries } from "./usePaneChatView";
 
 type Unavailable = Extract<ChatHistory, { ok: false }>["reason"] | "error";
@@ -67,6 +68,10 @@ type ChatPaneProps = {
  * Stays subscribed while the terminal shows a TUI menu the chat sent: the
  * menu's command landing in the transcript means it closed, and the pane
  * comes back to the chat.
+ *
+ * Busy is the hook status, unless the transcript has said the turn ended
+ * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
+ * the chat on "Thinking" with its composer held.
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -79,6 +84,8 @@ export function ChatPane(props: ChatPaneProps) {
   /** The session's context size; a fresh transcript remounts this. */
   const [contextTokens, setContextTokens] = useState<number | null>(null);
   const status = useAppStore((s) => s.paneAgentStatus[paneId]?.status ?? null);
+  /** The transcript's ended turn outranks a busy hook status, for display. */
+  const [turnSettled, setTurnSettled] = useState(false);
 
   useMountEffect(() => {
     const chat = window.electronAPI.chat;
@@ -89,6 +96,10 @@ export function ChatPane(props: ChatPaneProps) {
     /** The chat is showing a history: the last fetch that answered had one. */
     let shown = false;
     let retry: ReturnType<typeof setInterval> | null = null;
+    const turnSettle = new TurnSettle(setTurnSettled);
+    const statusOf = (s: ReturnType<typeof useAppStore.getState>) =>
+      s.paneAgentStatus[paneId]?.status ?? null;
+    turnSettle.setStatus(statusOf(useAppStore.getState()));
 
     const setOffline = (next: boolean) => {
       offline = next;
@@ -113,6 +124,7 @@ export function ChatPane(props: ChatPaneProps) {
             setSettledIds((prev) => prev ?? new Set(history.entries.map((e) => e.id)));
             // An older host's history has no size: keep what a push said.
             if (history.contextTokens != null) setContextTokens(history.contextTokens);
+            if (history.turnState != null) turnSettle.setTurn(history.turnState);
             setUnavailable(null);
           } else {
             shown = false;
@@ -136,15 +148,20 @@ export function ChatPane(props: ChatPaneProps) {
     // Subscribe first: the mirror only watches the transcript while someone
     // is subscribed, and nothing published during the fetch is lost.
     const unsubscribe = chat.onEntry(paneId, (_paneId, entry) => {
-      // The context size rides the entry channel but is no entry.
+      // The context size and turn state ride the entry channel but are no entries.
       if (entry.kind === "usage") {
         setContextTokens(entry.contextTokens);
+      } else if (entry.kind === "turn") {
+        turnSettle.setTurn(entry.state);
       } else {
         setEntries((prev) => upsertEntry(prev, entry));
         noteChatEntries(paneId, transcript, [entry]);
       }
       // The transcript is readable again: catch up on what was missed.
       if (offline) void fetchHistory();
+    });
+    const unsubscribeStatus = useAppStore.subscribe((state) => {
+      turnSettle.setStatus(statusOf(state));
     });
     const unsubscribeHosts = useHostStore.subscribe((state, prev) => {
       if (offline && state.hosts !== prev.hosts) void fetchHistory();
@@ -159,6 +176,8 @@ export function ChatPane(props: ChatPaneProps) {
       alive = false;
       setOffline(false);
       unsubscribe();
+      unsubscribeStatus();
+      turnSettle.dispose();
       unsubscribeHosts();
       unsubscribeResync();
     };
@@ -195,7 +214,7 @@ export function ChatPane(props: ChatPaneProps) {
   };
 
   const answerableId = answerablePickerId(entries);
-  const busy = status === "thinking" || status === "working";
+  const busy = isBusyStatus(status) && !turnSettled;
   const items = groupEntries(entries, status);
   const newest = items[items.length - 1];
   newestId.current = newest?.id;

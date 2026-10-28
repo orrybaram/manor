@@ -51,7 +51,7 @@ export function useTaskChatView(paneId: string, taskId: string): TaskChatView {
 
     // Keyed by pane and task: only this task's pushes arrive here.
     const unsubscribe = chat.onTaskEntry(chatTaskKey(paneId, taskId), (_paneId, _taskId, entry) => {
-      if (entry.kind !== "usage") setEntries((prev) => upsertEntry(prev, entry));
+      if (entry.kind !== "usage" && entry.kind !== "turn") setEntries((prev) => upsertEntry(prev, entry));
     });
     const unsubscribeResync = onBridgeResync(fetchHistory);
     fetchHistory();

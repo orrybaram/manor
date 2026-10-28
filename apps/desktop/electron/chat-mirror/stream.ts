@@ -12,11 +12,11 @@
  * triggers that land while one is waiting coalesce into it.
  *
  * Everything it finds goes to its owner's `onPush`: each new or updated
- * entry, and the context size whenever that changes.
+ * entry, and the context size and turn state whenever they change.
  */
 
 import type { OversizedRecord, TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
-import type { ChatPush } from "./transcript";
+import type { ChatPush, ChatTurnState } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
 /** What a stream reads: one file, in one agent's format, from one host. */
@@ -55,6 +55,8 @@ export class TranscriptStream {
   private primed = false;
   /** The context size last pushed, or that the history carries. */
   private contextTokens: number | null = null;
+  /** The turn state last pushed, or that the history carries. */
+  private turnState: ChatTurnState | null = null;
   /** Bumped on every reset, so a read or timer from before it is discarded. */
   private currentGeneration = 0;
   /** Why the last read failed; null once one succeeds. */
@@ -169,6 +171,7 @@ export class TranscriptStream {
     this.offset = 0;
     this.primed = false;
     this.contextTokens = null;
+    this.turnState = null;
     this.readError = null;
   }
 
@@ -212,6 +215,8 @@ export class TranscriptStream {
       // nowhere is a line still being written; the next trigger tries again.
       if (reached < result.size && this.offset > start) continue;
       this.pushContextTokens(this.primed);
+      // A task's turn is its launching tool's; only the pane's is published.
+      if (this.opts.child !== true) this.pushTurnState(this.primed);
       this.primed = true;
       return;
     }
@@ -242,6 +247,16 @@ export class TranscriptStream {
         this.opts.onPush(entry, publish);
       }
       start += Buffer.byteLength(line, "utf8") + 1;
+    }
+  }
+
+  /** Push the turn state if it changed since the last push. */
+  private pushTurnState(publish: boolean): void {
+    const state = this.currentParser.turnState();
+    if (state === this.turnState) return;
+    this.turnState = state;
+    if (state !== null) {
+      this.opts.onPush({ kind: "turn", id: "turn", ts: new Date().toISOString(), state }, publish);
     }
   }
 

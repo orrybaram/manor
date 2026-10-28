@@ -6,6 +6,7 @@ import { createWorkspace, importSeededProject, openTerminalTab } from "./fixture
 import {
   FAKE_AGENT_BANNER,
   FAKE_AGENT_TRANSCRIPT,
+  FAKE_CHAT_LOSE_STOP,
   FAKE_CHAT_OPTIONS,
   FAKE_CHAT_PROMPT,
   FAKE_CHAT_QUESTION,
@@ -672,6 +673,81 @@ test.describe("phone chat background tasks", () => {
       await expect(chat.getByTestId("chat-running-chip")).toHaveCount(0);
       await expect(chat.getByTestId("chat-notice")).toHaveCount(0);
     } finally {
+      await client.close();
+    }
+  });
+});
+
+test.describe("phone chat turn state", () => {
+  test.setTimeout(240_000);
+
+  test("Thinking clears when the transcript ends the turn though the Stop hook never comes", async ({
+    app,
+    window,
+    tempHome,
+    request,
+  }) => {
+    const film = new Filmstrip("phone-chat-turn");
+    const { client, page, chat, transcriptFile } = await openChatPhone(
+      { app, window, tempHome, request },
+      "phone-chat-turn",
+      // Settle the agent's open question, so nothing is waiting on a picker.
+      (file) =>
+        appendTranscript(
+          file,
+          blockLine("user", "u-e2e-answer", [
+            { type: "tool_result", tool_use_id: "toolu_fake_question", content: "Option 1" },
+          ]),
+        ),
+    );
+    try {
+      await expect(chat.getByTestId("chat-question-answered")).toBeVisible({ timeout: 20_000 });
+
+      // A turn starts; its hooks say working, and no Stop will follow.
+      await chat.getByTestId("chat-composer-input").fill(FAKE_CHAT_LOSE_STOP);
+      await chat.getByTestId("chat-send").tap();
+      await expect(chat.getByTestId("chat-user").filter({ hasText: FAKE_CHAT_LOSE_STOP })).toBeVisible({
+        timeout: 20_000,
+      });
+      await expect(chat.getByTestId("chat-thinking")).toBeVisible({ timeout: 15_000 });
+      await expect(chat.getByTestId("chat-stop")).toBeVisible();
+      await film.shot(page, "thinking");
+
+      // Claude ends the turn in its transcript: one message, thinking then
+      // text, both lines carrying end_turn.
+      const reply = "All done, nothing left to do.";
+      const message = (uuid: string, block: unknown) =>
+        JSON.stringify({
+          type: "assistant",
+          uuid,
+          timestamp: new Date().toISOString(),
+          message: {
+            id: "msg_e2e_turn",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-5-5",
+            content: [block],
+            stop_reason: "end_turn",
+            stop_sequence: null,
+            usage: { input_tokens: 3, cache_read_input_tokens: 1000, output_tokens: 12 },
+          },
+        });
+      appendTranscript(
+        transcriptFile,
+        message("a-e2e-turn-1", { type: "thinking", thinking: "", signature: "x" }),
+        message("a-e2e-turn-2", { type: "text", text: reply }),
+      );
+      await expect(chat.getByTestId("chat-assistant").filter({ hasText: reply })).toBeVisible({
+        timeout: 15_000,
+      });
+
+      // Hooks still say working; after ~3s the chat believes the transcript.
+      await expect(chat.getByTestId("chat-thinking")).toHaveCount(0, { timeout: 5_000 });
+      await expect(chat.getByTestId("chat-stop")).toHaveCount(0);
+      await expect(chat.getByTestId("chat-send")).toBeVisible();
+      await film.shot(page, "turn-done");
+    } finally {
+      film.write("browser-console.log", client.log.join("\n") + "\n");
       await client.close();
     }
   });

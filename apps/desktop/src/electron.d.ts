@@ -522,6 +522,7 @@ export type {
   ChatPush,
   ChatSkill,
   ChatTaskEntry,
+  ChatTurnState,
 } from "../electron/chat-mirror/transcript";
 export type { ChatKey } from "../electron/chat-mirror/chat-keys";
 export type {

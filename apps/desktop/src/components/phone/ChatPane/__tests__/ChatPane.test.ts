@@ -267,6 +267,53 @@ describe("ChatPane — entries", () => {
     }
   });
 
+  it("stops showing Thinking once the transcript says the turn ended for 3s, though hooks say busy", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, contextTokens: null, turnState: "working", entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(1);
+      expect(all("chat-stop")).toHaveLength(1);
+
+      // A turn push is no entry.
+      await act(async () => listener?.(PANE, { kind: "turn", id: "turn", ts: "", state: "done" }));
+      expect(container.textContent).toContain("Nothing in this conversation yet.");
+      await act(async () => vi.advanceTimersByTime(2900));
+      expect(all("chat-thinking")).toHaveLength(1);
+      await act(async () => vi.advanceTimersByTime(100));
+      expect(all("chat-thinking")).toHaveLength(0);
+      // The composer is idle: Send, not Stop.
+      expect(all("chat-stop")).toHaveLength(0);
+      expect(all("chat-send")).toHaveLength(1);
+
+      // Newer transcript activity brings it back at once.
+      await act(async () => listener?.(PANE, { kind: "turn", id: "turn", ts: "", state: "working" }));
+      await act(async () => vi.advanceTimersByTime(800));
+      expect(all("chat-thinking")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("learns an ended turn from history, and starts over when the hook status moves", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, contextTokens: null, turnState: "interrupted", entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "working", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(2000));
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
+      await act(async () => vi.advanceTimersByTime(2000));
+      expect(all("chat-thinking")).toHaveLength(1);
+      await act(async () => vi.advanceTimersByTime(1000));
+      expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows a note and a way to the terminal when there is no chat", async () => {
     installChat({ ok: false, reason: "no-transcript" });
     const onShowTerminal = await renderChat();

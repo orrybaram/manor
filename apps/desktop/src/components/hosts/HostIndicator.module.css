@@ -105,6 +105,83 @@
   gap: 4px;
 }
 
+/* ── pill ── over a pane while its host reconnects. The dock dims the
+   pane's last screen and lets the pointer through to it; only the pill
+   takes clicks. */
+
+.pillDock {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--bg, #1e1e1e) 45%, transparent);
+  pointer-events: none;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  color: var(--text-primary);
+  font-size: 12px;
+  pointer-events: auto;
+  animation: pill-in 0.2s ease-out;
+}
+
+.pill:has(.pillRetry) {
+  padding-right: 2px;
+}
+
+.pillLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pillRetry {
+  border-radius: 999px;
+}
+
+.spinner {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--yellow, #d29922) 30%, transparent);
+  border-top-color: var(--yellow, #d29922);
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes pill-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill,
+  .spinner {
+    animation: none;
+  }
+}
+
 /* ── banner ── covers the pane and reads as terminal output. */
 
 .banner {

@@ -47,6 +47,12 @@ export interface HostDisplay {
   offline: boolean;
   /** Connecting for the first time or after a retry — shown pulsing. */
   busy: boolean;
+  /**
+   * Away, but Manor is getting it back on its own (connecting,
+   * reconnecting): a pane shows a small pill over its last screen instead of
+   * covering it with the banner.
+   */
+  recovering: boolean;
   tone: HostTone;
   /** Sentence-case state on its own: "Connected", "Reconnecting in 4s". */
   status: string;
@@ -139,6 +145,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: false,
         busy: false,
+        recovering: false,
         tone: warnings ? "warn" : "ok",
         status: warnings ? "Connected with warnings" : "Connected",
         banner: `Connected to ${target}`,
@@ -151,6 +158,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: true,
         busy: true,
+        recovering: true,
         tone: "warn",
         status: "Connecting…",
         banner: `Connecting to ${target}…`,
@@ -166,6 +174,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: true,
         busy: attempting,
+        recovering: true,
         tone: "warn",
         status: `Reconnecting${when}`,
         banner: `Lost connection to ${target}. Reconnecting${when}`,
@@ -181,6 +190,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
           target,
           offline: true,
           busy: false,
+          recovering: false,
           tone: "error",
           status: "No longer exists",
           banner: `${target} no longer exists`,
@@ -200,6 +210,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: true,
         busy: false,
+        recovering: false,
         tone: "error",
         status: copy?.status ?? (unreachable ? "Unreachable" : "Connection failed"),
         banner:
@@ -217,6 +228,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: true,
         busy: false,
+        recovering: false,
         tone: "asleep",
         status: "Asleep",
         banner: `${target} is asleep`,
@@ -229,6 +241,7 @@ function describeStatus(host: HostStatusInfo, target: string, now: number): Host
         target,
         offline: true,
         busy: false,
+        recovering: false,
         tone: "warn",
         status: "Not connected",
         banner: `Not connected to ${target}`,
@@ -360,6 +373,7 @@ export function pendingDisplay(hostId: string): HostDisplay {
     sshTarget: hostId,
     offline: true,
     busy: true,
+    recovering: true,
     tone: "warn",
     status: "Checking…",
     banner: "",

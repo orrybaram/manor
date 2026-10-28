@@ -22,7 +22,8 @@ type HostIndicatorProps = {
    * - `icon`: the cloud alone, for the sidebar's project rows.
    * - `chip`: cloud + host name, never the state in words; hover or click opens the
    *   host popover. For the status bar.
-   * - `banner`: covers a pane, only while the host is away.
+   * - `banner`: over a pane, only while the host is away: a small pill while
+   *   Manor gets the host back on its own, the full banner when it needs you.
    * - `label`: the chip's look, inert and without a tooltip, for use inside
    *   another control (the New Workspace host picker).
    */
@@ -50,6 +51,7 @@ export function HostIndicator(props: HostIndicatorProps) {
   if (variant === "icon") return <HostIcon {...common} />;
   if (variant === "chip") return <HostChip {...common} />;
   if (variant === "label") return <HostLabel {...common} />;
+  if (display.recovering) return <HostRecoveringPill {...common} />;
   return <HostBanner {...common} />;
 }
 
@@ -185,7 +187,42 @@ function rawDetail(display: HostDisplay): string | null {
 }
 
 /**
- * Covers a pane while its host is away, written as more terminal output:
+ * Over a pane whose host is connecting or reconnecting: a pill under its top
+ * edge, like the phone's "Reconnecting…" one, so a routine drop doesn't blank
+ * the workspace. The dock dims the pane's last screen but lets the pointer
+ * through, so it still scrolls and selects; input stays ignored until the
+ * host is back (`isHostOffline`).
+ */
+function HostRecoveringPill(props: VariantProps) {
+  const { hostId, display, className } = props;
+  const retryConnect = useHostStore((s) => s.retryConnect);
+  return (
+    <div className={`${styles.pillDock} ${className ?? ""}`}>
+      <div
+        className={styles.pill}
+        role="status"
+        title={tooltipFor(display)}
+        data-testid="host-reconnecting-pill"
+      >
+        <span className={styles.spinner} aria-hidden />
+        <span className={styles.pillLabel}>{display.status}</span>
+        {display.canRetry && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className={styles.pillRetry}
+            onClick={() => void retryConnect(hostId)}
+          >
+            Retry
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Covers a pane while its host is away and needs you, written as more terminal output:
  * a headstone, the ssh command and what ssh said, Manor's verdict, and a
  * keyboard menu (retry, host settings).
  * Calm by default; only the status word takes the host's tone.

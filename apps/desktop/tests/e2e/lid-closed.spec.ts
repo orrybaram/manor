@@ -323,7 +323,8 @@ relayTest.describe("the lid closes", () => {
             BACKOFF_CEILING + STEP,
           );
           console.log(`[lid-closed] host connected ${Date.now() - thawedAt} ms after the thaw`);
-          await expect(window.getByTestId("host-offline-banner")).not.toBeVisible({ timeout: STEP });
+          await expect(window.getByTestId("host-reconnecting-pill")).not.toBeVisible({ timeout: STEP });
+          await expect(window.getByTestId("host-offline-banner")).not.toBeVisible();
 
           await pollFor(
             "the replayed final status",

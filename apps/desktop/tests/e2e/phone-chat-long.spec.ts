@@ -78,7 +78,14 @@ function appendTurn(transcript: string, name: string): void {
   fs.appendFileSync(transcript, lines.map((l) => JSON.stringify(l) + "\n").join(""));
 }
 
-type Geometry = { mounted: number; scrollTop: number; scrollHeight: number; clientHeight: number };
+type Geometry = {
+  mounted: number;
+  /** The first mounted item's id: the top of the window. */
+  firstId: string;
+  scrollTop: number;
+  scrollHeight: number;
+  clientHeight: number;
+};
 
 /** The chat's scroller (the scrolling parent of its entry list) as numbers. */
 function geometry(page: Page): Promise<Geometry> {
@@ -88,6 +95,7 @@ function geometry(page: Page): Promise<Geometry> {
     const scroller = content.parentElement!;
     return {
       mounted: content.children.length,
+      firstId: (content.firstElementChild as HTMLElement).dataset.itemId ?? "",
       scrollTop: scroller.scrollTop,
       scrollHeight: scroller.scrollHeight,
       clientHeight: scroller.clientHeight,
@@ -96,35 +104,45 @@ function geometry(page: Page): Promise<Geometry> {
 }
 
 /**
- * Scroll the chat by `dy` and let it settle. Returns how far the entry at the
- * top of the view moved, against how far the scroll asked it to: equal when
- * the user's place held, whatever mounted above it.
+ * Scroll the chat by `dy` and let it settle: the list unchanged for a few
+ * frames. Returns how far the entry at the top of the view moved, against
+ * how far the scroll asked it to: equal when the user's place held, whatever
+ * mounted above it. `mountedBefore` lets a caller check that no commit landed
+ * between two steps, where a jump would go unmeasured.
  */
-function scrollBy(page: Page, dy: number): Promise<{ moved: number; asked: number; mounted: number }> {
+function scrollBy(
+  page: Page,
+  dy: number,
+): Promise<{ moved: number; asked: number; mounted: number; mountedBefore: number }> {
   return page.evaluate(async (dy) => {
     const content = document.querySelector('[data-testid="chat-user"]')!.parentElement!.parentElement!.parentElement!;
     const scroller = content.parentElement!;
     const view = scroller.getBoundingClientRect();
     const ref = [...content.children].find((el) => el.getBoundingClientRect().bottom > view.top + 1)!;
     const before = ref.getBoundingClientRect().top;
+    const mountedBefore = content.children.length;
     const from = scroller.scrollTop;
     const max = scroller.scrollHeight - scroller.clientHeight;
     const asked = Math.max(-from, Math.min(dy, max - from));
     scroller.scrollTop = from + dy;
-    for (let i = 0; i < 3; i++) await new Promise((r) => requestAnimationFrame(r));
-    await new Promise((r) => setTimeout(r, 60));
-    await new Promise((r) => requestAnimationFrame(r));
-    return { moved: before - ref.getBoundingClientRect().top, asked, mounted: content.children.length };
+    const frame = () => new Promise((r) => requestAnimationFrame(r));
+    let count = content.children.length;
+    for (let stable = 0, i = 0; stable < 4 && i < 120; i++) {
+      await frame();
+      stable = content.children.length === count ? stable + 1 : 0;
+      count = content.children.length;
+    }
+    return { moved: before - ref.getBoundingClientRect().top, asked, mounted: count, mountedBefore };
   }, dy);
 }
 
-/** The top of the first entry in view, for "did what I'm reading move". */
-function topInView(page: Page): Promise<{ text: string; top: number }> {
+/** The first entry in view and its top, for "did what I'm reading move". */
+function topInView(page: Page): Promise<{ id: string; top: number }> {
   return page.evaluate(() => {
     const content = document.querySelector('[data-testid="chat-user"]')!.parentElement!.parentElement!.parentElement!;
     const view = content.parentElement!.getBoundingClientRect();
     const ref = [...content.children].find((el) => el.getBoundingClientRect().bottom > view.top + 1)!;
-    return { text: (ref.textContent ?? "").slice(0, 60), top: ref.getBoundingClientRect().top };
+    return { id: (ref as HTMLElement).dataset.itemId ?? "", top: ref.getBoundingClientRect().top };
   });
 }
 
@@ -171,24 +189,42 @@ test.describe("phone chat on a long session", () => {
 
       // ── What opening costs, on a phone-speed CPU ────────────────────
       const cdp = await page.context().newCDPSession(page);
-      await page.addInitScript(() => {
-        const tasks: number[] = [];
-        (window as unknown as { __longTasks: number[] }).__longTasks = tasks;
+      // Timed on the page: the moment the newest reply is in the DOM, from
+      // navigation start. Playwright's own polling would round it up.
+      await page.addInitScript((reply) => {
+        const w = window as unknown as { __longTasks: number[]; __replyAt?: number };
+        w.__longTasks = [];
         new PerformanceObserver((list) => {
-          for (const e of list.getEntries()) tasks.push(e.duration);
+          for (const e of list.getEntries()) w.__longTasks.push(e.duration);
         }).observe({ type: "longtask", buffered: true });
-      });
+        const seen = new MutationObserver(() => {
+          const replies = document.querySelectorAll('[data-testid="chat-assistant"]');
+          if ([...replies].some((el) => el.textContent?.includes(reply))) {
+            w.__replyAt = performance.now();
+            seen.disconnect();
+          }
+        });
+        seen.observe(document, { childList: true, subtree: true });
+      }, FAKE_CHAT_REPLY);
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 4 });
-      const t0 = Date.now();
       await page.reload();
       await expect(newestReply).toBeVisible({ timeout: 60_000 });
-      const openMs = Date.now() - t0;
-      const longTasks = await page.evaluate(() => (window as unknown as { __longTasks: number[] }).__longTasks);
+      const { openMs, longTasks } = await page.evaluate(() => {
+        const w = window as unknown as { __longTasks: number[]; __replyAt?: number };
+        return { openMs: Math.round(w.__replyAt ?? NaN), longTasks: w.__longTasks };
+      });
       await cdp.send("Emulation.setCPUThrottlingRate", { rate: 1 });
+      // Follow-bottom lands it at the bottom once the history has laid out.
+      await expect
+        .poll(async () => {
+          const g = await geometry(page);
+          return g.scrollHeight - g.scrollTop - g.clientHeight;
+        })
+        .toBeLessThan(48);
       const opened = await geometry(page);
       const report = [
         `── phone chat, ${TURNS} turns, 4× CPU throttle ──`,
-        `  reload → newest reply   ${openMs}ms`,
+        `  navigation → newest reply   ${openMs}ms`,
         `  long tasks              ${longTasks.length}, ${Math.round(longTasks.reduce((a, b) => a + b, 0))}ms total, worst ${Math.round(Math.max(0, ...longTasks))}ms`,
         `  items mounted           ${opened.mounted}`,
         `  scroll height           ${opened.scrollHeight}px`,
@@ -198,18 +234,35 @@ test.describe("phone chat on a long session", () => {
 
       // 1. It opens at the bottom with only the newest items.
       expect(opened.mounted).toBeLessThanOrEqual(MAX_MOUNTED);
-      expect(opened.scrollHeight - opened.scrollTop - opened.clientHeight).toBeLessThan(48);
       await expect(chat.getByTestId("chat-user").filter({ hasText: prompt(TURNS - 1) })).toHaveCount(1);
       await expect(chat.getByTestId("chat-user").filter({ hasText: prompt(0) })).toHaveCount(0);
       await film.shot(page, "open-at-bottom");
 
-      // 2. Up to the first prompt. Each step that mounts earlier items
+      // 2. Up a screen (no load), entries landing below trim nothing from
+      // the top and move nothing on screen: leaving the bottom pinned it.
+      await scrollBy(page, -600);
+      const pinned = await geometry(page);
+      const readingNear = await topInView(page);
+      for (let i = 0; i < 3; i++) appendTurn(transcriptFile, `live near the bottom ${i}`);
+      await expect(chat.getByTestId("chat-user").filter({ hasText: "live near the bottom 2" })).toHaveCount(1, {
+        timeout: 15_000,
+      });
+      await page.waitForTimeout(500);
+      expect((await geometry(page)).firstId).toBe(pinned.firstId);
+      const afterNear = await topInView(page);
+      expect(afterNear.id).toBe(readingNear.id);
+      expect(Math.abs(afterNear.top - readingNear.top)).toBeLessThanOrEqual(JUMP_SLOP_PX);
+
+      // 3. Up to the first prompt. Each step that mounts earlier items
       // leaves the entry in view where the scroll alone put it.
       let loads = 0;
       let worstJump = 0;
-      let mounted = opened.mounted;
+      let mounted: number;
+      mounted = (await geometry(page)).mounted;
       for (let step = 0; step < 400; step++) {
         const r = await scrollBy(page, -900);
+        // Nothing committed between steps, so every load was measured.
+        expect(r.mountedBefore).toBe(mounted);
         if (r.mounted > mounted) {
           loads++;
           worstJump = Math.max(worstJump, Math.abs(r.moved - r.asked));
@@ -224,7 +277,7 @@ test.describe("phone chat on a long session", () => {
       await expect(chat.getByTestId("chat-user").filter({ hasText: prompt(0) })).toBeVisible();
       await film.shot(page, "top-first-prompt");
 
-      // 3. Scrolled up, entries landing below leave the view alone.
+      // 4. Scrolled up, entries landing below leave the view alone.
       await scrollBy(page, 3000);
       const reading = await topInView(page);
       for (let i = 0; i < 3; i++) appendTurn(transcriptFile, `live while reading ${i}`);
@@ -233,11 +286,12 @@ test.describe("phone chat on a long session", () => {
       });
       await page.waitForTimeout(500);
       const after = await topInView(page);
-      expect(after.text).toBe(reading.text);
+      expect(after.id).toBe(reading.id);
       expect(Math.abs(after.top - reading.top)).toBeLessThanOrEqual(JUMP_SLOP_PX);
       await film.shot(page, "reading-while-entries-land");
 
-      // 4. Back at the bottom: the newest items only, and it follows again.
+      // 5. Back at the bottom: the newest items only, and it follows again,
+      // the window sliding rather than growing.
       for (let i = 0; i < 400; i++) {
         const g = await geometry(page);
         if (g.scrollHeight - g.scrollTop - g.clientHeight < 48) break;
@@ -247,6 +301,7 @@ test.describe("phone chat on a long session", () => {
       appendTurn(transcriptFile, "after coming back");
       const landed = chat.getByTestId("chat-assistant").filter({ hasText: "reply to after coming back" });
       await expect(landed).toBeInViewport({ timeout: 15_000 });
+      expect((await geometry(page)).mounted).toBeLessThanOrEqual(MAX_MOUNTED);
       await film.shot(page, "back-at-bottom-following");
     } finally {
       await client.close();

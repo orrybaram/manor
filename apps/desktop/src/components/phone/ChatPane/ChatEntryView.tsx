@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { memo, useState } from "react";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import { isOpenPicker, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
+import { isOpenPicker, sameItem, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { EditCard } from "./EditCard";
@@ -22,8 +22,11 @@ type ChatEntryViewProps = {
   onShowTerminal: () => void;
 };
 
-/** One transcript entry, or a run of tool calls, drawn for its kind. */
-export function ChatEntryView(props: ChatEntryViewProps) {
+/**
+ * One transcript entry, or a run of tool calls, drawn for its kind. Memoized:
+ * a push redraws only the item it changed, not the whole history.
+ */
+export const ChatEntryView = memo(function ChatEntryView(props: ChatEntryViewProps) {
   const { paneId, entry, answerableId, live, onShowTerminal } = props;
 
   switch (entry.kind) {
@@ -88,7 +91,13 @@ export function ChatEntryView(props: ChatEntryViewProps) {
     default:
       return null;
   }
-}
+}, (prev, next) =>
+  prev.paneId === next.paneId &&
+  prev.answerableId === next.answerableId &&
+  prev.live === next.live &&
+  prev.onShowTerminal === next.onShowTerminal &&
+  sameItem(prev.entry, next.entry),
+);
 
 type ToolGroupViewProps = {
   group: ToolGroup;

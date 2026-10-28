@@ -25,6 +25,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* iOS Safari has none, and ChatPane keeps the place itself when earlier
+     items mount; the browser's own would correct twice. */
+  overflow-anchor: none;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }

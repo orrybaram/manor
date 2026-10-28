@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
@@ -16,6 +16,7 @@ import {
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
+import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
 import { noteChatEntries } from "./usePaneChatView";
@@ -72,6 +73,13 @@ type ChatPaneProps = {
  * Busy is the hook status, unless the transcript has said the turn ended
  * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
  * the chat on "Thinking" with its composer held.
+ *
+ * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
+ * top mounts earlier ones; back at the bottom, the window drops back to the
+ * newest. Either way the items that stay mounted must not move on screen, so
+ * every commit moves the scroll offset by however far the first of them
+ * moved (iOS Safari has no scroll anchoring, so the browser's is turned off
+ * everywhere and this does it).
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -188,7 +196,9 @@ export function ChatPane(props: ChatPaneProps) {
   const stuck = useRef(true);
   const newestId = useRef<string | undefined>(undefined);
   const opened = useRef(false);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const followBottom = useCallback((content: HTMLDivElement | null) => {
+    contentRef.current = content;
     const scroller = content?.parentElement;
     if (!content || !scroller || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
@@ -203,6 +213,20 @@ export function ChatPane(props: ChatPaneProps) {
     return () => observer.disconnect();
   }, []);
 
+  const answerableId = answerablePickerId(entries);
+  const busy = isBusyStatus(status) && !turnSettled;
+  const items = groupEntries(entries, status);
+
+  /** The window's first item; null while at the bottom (the newest items). */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const start = windowStart(items, anchorId);
+  /** Earlier items were asked for and haven't committed yet. */
+  const loadingEarlier = useRef(false);
+  /** Each mounted item's offset as of the last commit, by id. */
+  const placed = useRef(new Map<string, number>());
+  /** Live entries that left the window: back in it, they don't animate again. */
+  const retired = useRef(new Set<string>());
+
   // A smooth scroll down passes through spots far from the bottom, so only
   // moving up counts as the user leaving it.
   const lastScrollTop = useRef(0);
@@ -211,11 +235,48 @@ export function ChatPane(props: ChatPaneProps) {
     if (el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLOP_PX) stuck.current = true;
     else if (el.scrollTop < lastScrollTop.current) stuck.current = false;
     lastScrollTop.current = el.scrollTop;
+
+    if (stuck.current) {
+      if (anchorId !== null) setAnchorId(null);
+    } else if (start > 0 && el.scrollTop < el.clientHeight) {
+      // Within a screen of the top: one load at a time.
+      if (!loadingEarlier.current) {
+        loadingEarlier.current = true;
+        setAnchorId(earlierAnchor(items, start));
+      }
+    } else if (anchorId === null) {
+      // Left the bottom: pin the top, so entries landing below can't trim it.
+      setAnchorId(items[start]?.id ?? null);
+    }
   };
 
-  const answerableId = answerablePickerId(entries);
-  const busy = isBusyStatus(status) && !turnSettled;
-  const items = groupEntries(entries, status);
+  // Before paint: items mounted or unmounted above moved the ones that
+  // stayed, so move the scroll offset with them. From the offset before the
+  // commit (the last scroll event's): a shorter list may have clamped it.
+  useLayoutEffect(() => {
+    loadingEarlier.current = false;
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (!content || !scroller) return;
+    const rows = [...content.children].filter(
+      (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
+    );
+    const kept = rows.find((el) => placed.current.has(el.dataset.itemId!));
+    const moved = kept ? kept.offsetTop - placed.current.get(kept.dataset.itemId!)! : 0;
+    if (moved !== 0) {
+      scroller.scrollTop = lastScrollTop.current + moved;
+      // Ours, not the user's: moving up here must not unstick the chat.
+      lastScrollTop.current = scroller.scrollTop;
+    }
+    placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
+  });
+  // Live entries above the window have left it (it only ever trims the top).
+  useLayoutEffect(() => {
+    if (settledIds === null) return;
+    for (let i = 0; i < start; i++) {
+      if (!settledIds.has(items[i].id)) retired.current.add(items[i].id);
+    }
+  });
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
   // A running tool call already has its own live line.
@@ -250,10 +311,18 @@ export function ChatPane(props: ChatPaneProps) {
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>
               )}
-              {items.map((entry) => {
-                const live = settledIds !== null && !settledIds.has(entry.id);
+              {items.slice(start).map((entry) => {
+                const live =
+                  settledIds !== null &&
+                  !settledIds.has(entry.id) &&
+                  !retired.current.has(entry.id);
                 return (
-                  <div key={entry.id} className={styles.entry} data-enter={live || undefined}>
+                  <div
+                    key={entry.id}
+                    className={styles.entry}
+                    data-item-id={entry.id}
+                    data-enter={live || undefined}
+                  >
                     <ChatEntryView
                       paneId={paneId}
                       entry={entry}

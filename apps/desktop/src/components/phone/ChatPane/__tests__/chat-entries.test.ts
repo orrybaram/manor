@@ -8,6 +8,7 @@ import {
   groupEntries,
   resultPreview,
   runningTaskCount,
+  sameItem,
   staleTaskIds,
   summarizeTools,
 } from "../chat-entries";
@@ -91,18 +92,18 @@ describe("summarizeTools", () => {
   });
 });
 
-describe("staleTaskIds", () => {
-  const task = (id: string, status: ChatTaskEntry["status"] = "running"): ChatTaskEntry => ({
-    kind: "task",
-    id,
-    ts: "",
-    taskKind: "agent",
-    title: id,
-    background: true,
-    status,
-  });
-  const user = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: id });
+const task = (id: string, status: ChatTaskEntry["status"] = "running"): ChatTaskEntry => ({
+  kind: "task",
+  id,
+  ts: "",
+  taskKind: "agent",
+  title: id,
+  background: true,
+  status,
+});
+const user = (id: string): ChatEntry => ({ kind: "user", id, ts: "", text: id });
 
+describe("staleTaskIds", () => {
   it("marks a running task from before the latest user turn once the agent is idle or responded", () => {
     const entries = [task("t1"), user("u1"), task("t2")];
     expect([...staleTaskIds(entries, "idle")]).toEqual(["t1"]);
@@ -138,6 +139,21 @@ describe("staleTaskIds", () => {
     ]);
     expect(runningTaskCount(idle)).toBe(2);
     expect(runningTaskCount(groupEntries(entries))).toBe(3);
+  });
+});
+
+describe("sameItem", () => {
+  it("matches items regrouped from the same entries, and not once one changes", () => {
+    const entries = [user("u1"), tool("a", "Read"), tool("b", "Bash"), task("t1")];
+    const before = groupEntries(entries, "idle");
+    const again = groupEntries(entries, "idle");
+    expect(before.every((item, i) => sameItem(item, again[i]))).toBe(true);
+
+    const changed = groupEntries([...entries.slice(0, 2), tool("b", "Bash", "error"), entries[3]], "idle");
+    expect(before.map((item, i) => sameItem(item, changed[i]))).toEqual([true, false, true]);
+    // The task's shown status is part of it.
+    expect(sameItem(before[2], groupEntries(entries, "working")[2])).toBe(true);
+    expect(sameItem(before[2], { ...before[2], display: "unknown" } as typeof before[2])).toBe(false);
   });
 });
 

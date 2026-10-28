@@ -14,6 +14,7 @@ import {
   hiddenLayerAttr,
 } from "../../lib/tab-styles";
 import { ShownLayer } from "../../lib/layer-shown";
+import { PanelCobwebs } from "./PanelCobwebs/PanelCobwebs";
 import styles from "./PanelLayout.module.css";
 
 type LeafPanelProps = {
@@ -53,6 +54,10 @@ export const LeafPanel = memo(function LeafPanel(props: LeafPanelProps) {
             </ShownLayer>
           </div>
         ))}
+        <PanelCobwebs
+          tabId={selectedTabId}
+          rootNode={tabs.find((t) => t.id === selectedTabId)?.rootNode}
+        />
       </div>
     </div>
   );

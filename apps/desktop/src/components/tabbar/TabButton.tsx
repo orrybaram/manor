@@ -35,6 +35,7 @@ import {
 import { HostIndicator } from "../hosts/HostIndicator";
 import { tabBadgeHostId } from "./tab-host-badge";
 import { TabAgentDot } from "./TabAgentDot";
+import { TabDust } from "./TabDust/TabDust";
 import { isWebApp } from "../../lib/platform";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
 import { PhoneTabMenuContent } from "../phone/PhoneTabMenu";
@@ -267,6 +268,7 @@ export function TabButton(props: TabButtonProps) {
           aria-selected={isActive}
           tabIndex={isActive ? 0 : -1}
         >
+          <TabDust tabId={tabId} isActive={isActive} />
           <TabAgentDot tabId={tabId} />
           {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}
           {isBrowser && (favicon && !faviconError ? (

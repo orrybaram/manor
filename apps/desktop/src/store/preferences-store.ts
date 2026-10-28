@@ -31,6 +31,7 @@ const defaultPreferences: AppPreferences = {
   folderSuggestionsEnabled: true,
   achievementTitle: null,
   revealedBadges: [],
+  halloweenEffects: true,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

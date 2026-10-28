@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { onBridgeResync, refreshState } from "../../../bridge/resync";
 import type { ChatEntry, ChatHistory } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
@@ -16,6 +16,7 @@ import {
 import { ChatComposer } from "./ChatComposer";
 import { ChatEntryView } from "./ChatEntryView";
 import { ChatThinking } from "./ChatThinking";
+import { earlierAnchor, windowStart } from "./chat-window";
 import styles from "./ChatPane.module.css";
 import { isBusyStatus, TurnSettle } from "./turn-settle";
 import { noteChatEntries } from "./usePaneChatView";
@@ -72,6 +73,12 @@ type ChatPaneProps = {
  * Busy is the hook status, unless the transcript has said the turn ended
  * for a few seconds (`TurnSettle`): then a missing Stop hook can't leave
  * the chat on "Thinking" with its composer held.
+ *
+ * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
+ * top mounts earlier ones, with the scroll offset moved by their height so
+ * the user's place holds (iOS Safari has no scroll anchoring, so the
+ * browser's is turned off everywhere and this does it). Back at the bottom,
+ * the window drops back to the newest items.
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -188,8 +195,10 @@ export function ChatPane(props: ChatPaneProps) {
   const stuck = useRef(true);
   const newestId = useRef<string | undefined>(undefined);
   const opened = useRef(false);
+  const scrollerRef = useRef<HTMLElement | null>(null);
   const followBottom = useCallback((content: HTMLDivElement | null) => {
     const scroller = content?.parentElement;
+    scrollerRef.current = scroller ?? null;
     if (!content || !scroller || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       // The history the chat opens on lands at the bottom at once.
@@ -203,6 +212,18 @@ export function ChatPane(props: ChatPaneProps) {
     return () => observer.disconnect();
   }, []);
 
+  const answerableId = answerablePickerId(entries);
+  const busy = isBusyStatus(status) && !turnSettled;
+  const items = groupEntries(entries, status);
+
+  /** The window's first item; null while at the bottom (the newest items). */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
+  const start = windowStart(items, anchorId);
+  /** The scroller's height before earlier items mounted, until it's corrected for. */
+  const heightBeforeEarlier = useRef<number | null>(null);
+  /** Live entries that left the window: back in it, they don't animate again. */
+  const retired = useRef(new Set<string>());
+
   // A smooth scroll down passes through spots far from the bottom, so only
   // moving up counts as the user leaving it.
   const lastScrollTop = useRef(0);
@@ -211,11 +232,35 @@ export function ChatPane(props: ChatPaneProps) {
     if (el.scrollHeight - el.scrollTop - el.clientHeight <= STICK_SLOP_PX) stuck.current = true;
     else if (el.scrollTop < lastScrollTop.current) stuck.current = false;
     lastScrollTop.current = el.scrollTop;
+
+    if (stuck.current) {
+      if (anchorId !== null) setAnchorId(null);
+    } else if (start > 0 && el.scrollTop < el.clientHeight) {
+      // Within a screen of the top: one load at a time, until it's placed.
+      if (heightBeforeEarlier.current === null) {
+        heightBeforeEarlier.current = el.scrollHeight;
+        setAnchorId(earlierAnchor(items, start));
+      }
+    } else if (anchorId === null) {
+      // Left the bottom: pin the top, so entries landing below can't trim it.
+      setAnchorId(items[start]?.id ?? null);
+    }
   };
 
-  const answerableId = answerablePickerId(entries);
-  const busy = isBusyStatus(status) && !turnSettled;
-  const items = groupEntries(entries, status);
+  // Before paint: earlier items just mounted above, so move down by their height.
+  useLayoutEffect(() => {
+    const scroller = scrollerRef.current;
+    if (heightBeforeEarlier.current === null || !scroller) return;
+    scroller.scrollTop += scroller.scrollHeight - heightBeforeEarlier.current;
+    heightBeforeEarlier.current = null;
+  });
+  // Live entries above the window have left it (it only ever trims the top).
+  useLayoutEffect(() => {
+    if (settledIds === null) return;
+    for (let i = 0; i < start; i++) {
+      if (!settledIds.has(items[i].id)) retired.current.add(items[i].id);
+    }
+  });
   const newest = items[items.length - 1];
   newestId.current = newest?.id;
   // A running tool call already has its own live line.
@@ -250,8 +295,11 @@ export function ChatPane(props: ChatPaneProps) {
               {loaded && entries.length === 0 && (
                 <p className={styles.empty}>Nothing in this conversation yet.</p>
               )}
-              {items.map((entry) => {
-                const live = settledIds !== null && !settledIds.has(entry.id);
+              {items.slice(start).map((entry) => {
+                const live =
+                  settledIds !== null &&
+                  !settledIds.has(entry.id) &&
+                  !retired.current.has(entry.id);
                 return (
                   <div key={entry.id} className={styles.entry} data-enter={live || undefined}>
                     <ChatEntryView

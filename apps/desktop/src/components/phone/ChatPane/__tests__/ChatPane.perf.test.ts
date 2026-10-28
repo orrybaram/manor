@@ -6,12 +6,13 @@
  * timed.
  *
  * jsdom does no layout or paint, so this measures React and markdown work
- * only. That's the part that grows with the history: before entries were
- * memoized, one push on 400 turns cost ~680ms here (~19ms after).
+ * and the DOM's size. On 400 turns, before entries were memoized and
+ * windowed: one push ~680ms, open ~1,000ms, 12.8k nodes. After: ~2ms,
+ * ~120ms, and the same ~1.2k nodes whatever the length.
+ *
+ * The budgets are loose: they catch the history's length coming back into
+ * the cost, not a few ms of drift.
  */
-
-/** One push on the longest session. Loose: it guards the 30× regression, not a number. */
-const PUSH_BUDGET_MS = 100;
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -23,6 +24,13 @@ vi.hoisted(() => {
 
 import type { ChatEntry, ChatPush } from "../../../../electron.d";
 import { ChatPane } from "../ChatPane";
+
+/** One push, any length. */
+const PUSH_BUDGET_MS = 100;
+/** Opening, any length. */
+const OPEN_BUDGET_MS = 500;
+/** The DOM the chat keeps, any length (the window mounts ~1.2k). */
+const NODE_BUDGET = 2_000;
 
 const PANE = "pane-perf";
 const TRANSCRIPT = "/t/perf.jsonl";
@@ -144,5 +152,7 @@ describe("phone chat on a long session", () => {
     );
     expect(r.entries).toBe(turns * 7);
     expect(r.pushMs, "one live entry redrew the whole history").toBeLessThan(PUSH_BUDGET_MS);
+    expect(r.openMs, "opening drew the whole history").toBeLessThan(OPEN_BUDGET_MS);
+    expect(r.nodes, "the chat mounted the whole history").toBeLessThan(NODE_BUDGET);
   }, 120_000);
 });

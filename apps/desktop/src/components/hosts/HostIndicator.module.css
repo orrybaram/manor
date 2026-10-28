@@ -107,18 +107,23 @@
 
 /* ── pill ── over a pane while its host reconnects. The dock dims the
    pane's last screen and lets the pointer through to it; only the pill
-   takes clicks. */
+   takes clicks. Above xterm's own layers (its scrollbar is z 11), so all of
+   the pane dims, and below the pane's controls (the follower button, z 40). */
 
 .pillDock {
   position: absolute;
   inset: 0;
-  z-index: 5;
+  z-index: 12;
   display: flex;
   justify-content: center;
   align-items: flex-start;
   padding: 8px 12px;
   background: color-mix(in srgb, var(--bg, #1e1e1e) 45%, transparent);
   pointer-events: none;
+}
+
+.pillDockBlocking {
+  pointer-events: auto;
 }
 
 .pill {

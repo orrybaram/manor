@@ -588,7 +588,12 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             // the handler ever runs.
             {...WEBVIEW_ALLOW_POPUPS}
           />
-          <HostIndicator hostId={remoteHostId} variant="banner" projectId={projectId} />
+          <HostIndicator
+            hostId={remoteHostId}
+            variant="banner"
+            projectId={projectId}
+            blocksPointer
+          />
           {remoteBrowserUrl.waiting ? (
             <div className={styles.emptyState}>
               Waiting for {remoteBrowserUrl.hostLabel ?? "the remote host"}…

@@ -25,9 +25,11 @@ describe("HostIndicator over a pane", () => {
   let root: Root;
   const retryConnect = vi.fn(async () => {});
 
-  const render = (status: Partial<HostStatusInfo>) => {
+  const render = (status: Partial<HostStatusInfo>, blocksPointer?: boolean) => {
     act(() => useHostStore.setState({ hosts: [host(status)], retryConnect }));
-    act(() => root.render(createElement(HostIndicator, { hostId: BOX, variant: "banner" })));
+    act(() =>
+      root.render(createElement(HostIndicator, { hostId: BOX, variant: "banner", blocksPointer })),
+    );
   };
   const pill = () => container.querySelector('[data-testid="host-reconnecting-pill"]');
   const banner = () => container.querySelector('[data-testid="host-offline-banner"]');
@@ -62,6 +64,13 @@ describe("HostIndicator over a pane", () => {
     const retry = [...pill()!.querySelectorAll("button")].find((b) => b.textContent === "Retry");
     act(() => retry!.click());
     expect(retryConnect).toHaveBeenCalledWith(BOX);
+  });
+
+  it("lets the pointer through the dim unless the pane asks it to block", () => {
+    render({ status: "reconnecting" });
+    expect(pill()!.parentElement!.className).not.toMatch(/pillDockBlocking/);
+    render({ status: "reconnecting" }, true);
+    expect(pill()!.parentElement!.className).toMatch(/pillDockBlocking/);
   });
 
   it("shows a pill without Retry while connecting", () => {

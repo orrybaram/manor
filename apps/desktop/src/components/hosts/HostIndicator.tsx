@@ -34,6 +34,12 @@ type HostIndicatorProps = {
    * without it the icon is inert and the chip's popover has no link.
    */
   projectId?: string;
+  /**
+   * `banner` only: the pill's dim also takes the pointer. For a pane with no
+   * input guard of its own (a browser pane's webview), so a click can't
+   * navigate the page through the dead tunnel.
+   */
+  blocksPointer?: boolean;
   className?: string;
 };
 
@@ -42,7 +48,7 @@ type HostIndicatorProps = {
  * connected), tinted by `describeHost`'s tone, named by its ssh target.
  */
 export function HostIndicator(props: HostIndicatorProps) {
-  const { hostId, variant, projectId, className } = props;
+  const { hostId, variant, projectId, blocksPointer, className } = props;
   const display = useHostDisplay(hostId);
   if (!hostId || !display) return null;
   if (variant === "banner" && !display.offline) return null;
@@ -51,7 +57,7 @@ export function HostIndicator(props: HostIndicatorProps) {
   if (variant === "icon") return <HostIcon {...common} />;
   if (variant === "chip") return <HostChip {...common} />;
   if (variant === "label") return <HostLabel {...common} />;
-  if (display.recovering) return <HostRecoveringPill {...common} />;
+  if (display.recovering) return <HostRecoveringPill {...common} blocksPointer={blocksPointer} />;
   return <HostBanner {...common} />;
 }
 
@@ -191,13 +197,15 @@ function rawDetail(display: HostDisplay): string | null {
  * edge, like the phone's "Reconnecting…" one, so a routine drop doesn't blank
  * the workspace. The dock dims the pane's last screen but lets the pointer
  * through, so it still scrolls and selects; input stays ignored until the
- * host is back (`isHostOffline`).
+ * host is back (`isHostOffline`). `blocksPointer` stops the pointer too.
  */
-function HostRecoveringPill(props: VariantProps) {
-  const { hostId, display, className } = props;
+function HostRecoveringPill(props: VariantProps & { blocksPointer?: boolean }) {
+  const { hostId, display, blocksPointer, className } = props;
   const retryConnect = useHostStore((s) => s.retryConnect);
   return (
-    <div className={`${styles.pillDock} ${className ?? ""}`}>
+    <div
+      className={`${styles.pillDock} ${blocksPointer ? styles.pillDockBlocking : ""} ${className ?? ""}`}
+    >
       <div
         className={styles.pill}
         role="status"

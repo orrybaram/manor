@@ -109,6 +109,7 @@ export function sameItem(a: ChatItem, b: ChatItem): boolean {
   const keys = Object.keys(a) as (keyof ChatItem)[];
   if (keys.length !== Object.keys(b).length) return false;
   return keys.every((key) => {
+    if (!(key in b)) return false;
     const x: unknown = a[key];
     const y: unknown = b[key];
     if (Array.isArray(x) && Array.isArray(y)) {

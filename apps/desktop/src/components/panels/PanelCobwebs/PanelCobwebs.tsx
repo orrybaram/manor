@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import type { PaneNode } from "../../../lib/layout/pane-tree";
-import { cobwebLevel } from "../../../lib/cobwebs";
+import { allTabIds, cobwebLevel } from "../../../lib/cobwebs";
 import {
   buildCobwebs,
   cobwebsGone,
@@ -8,6 +8,7 @@ import {
   type CobwebSim,
 } from "../../../lib/cobweb-sim";
 import { tabLastReturn, useTabSightings } from "../../../store/tab-sightings";
+import { useAppStore } from "../../../store/app-store";
 import { useHalloweenEffects } from "../../../hooks/useHalloweenEffects";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import styles from "./PanelCobwebs.module.css";
@@ -18,12 +19,12 @@ const BRUSH_RADIUS = 36;
 const DUST_BRUSH_RADIUS = BRUSH_RADIUS * 1.8;
 /** Frames with nothing moving before the loop sleeps until the mouse returns. */
 const SLEEP_AFTER_FRAMES = 90;
-const DUST_RESOLUTION = 2;
 
 /**
  * What a tab's panel is wearing: webs, a dust film, and which return to the
  * front they grew for. Kept per tab, outside React, so a half-wiped panel
- * still has its leftovers when you come back before it gathers more.
+ * still has its leftovers when you come back before it gathers more, and a
+ * wiped one stays wiped (both null) when its panel remounts, say on a split.
  */
 type Remnant = {
   sim: CobwebSim | null;
@@ -41,14 +42,14 @@ function hasBrowserPane(node: PaneNode): boolean {
   return hasBrowserPane(node.first) || hasBrowserPane(node.second);
 }
 
-function buildDust(level: number, width: number, height: number, ink: string): HTMLCanvasElement {
+/** The dust film as an alpha mask; it takes the theme's ink when drawn. */
+function buildDust(level: number, width: number, height: number): HTMLCanvasElement {
   const dust = document.createElement("canvas");
-  dust.width = Math.ceil(width * DUST_RESOLUTION);
-  dust.height = Math.ceil(height * DUST_RESOLUTION);
+  dust.width = Math.ceil(width);
+  dust.height = Math.ceil(height);
   const ctx = dust.getContext("2d");
   if (!ctx) return dust;
-  ctx.scale(DUST_RESOLUTION, DUST_RESOLUTION);
-  ctx.fillStyle = ink;
+  ctx.fillStyle = "#fff";
   ctx.globalAlpha = 0.018 * level;
   ctx.fillRect(0, 0, width, height);
   // Specks settle thicker toward the top of the panel.
@@ -92,7 +93,12 @@ function liveStrands(sim: CobwebSim): number {
 }
 
 /** The remnant to show for this visit: leftovers, fresh webs, or nothing. */
-function remnantFor(tabId: string, width: number, height: number, ink: string): Remnant | null {
+function remnantFor(tabId: string, width: number, height: number): Remnant | null {
+  // Closed tabs take their leftovers (and their dust canvases) with them.
+  const open = allTabIds(useAppStore.getState().workspaceLayouts);
+  for (const id of remnants.keys()) {
+    if (!open.has(id)) remnants.delete(id);
+  }
   const visit = tabLastReturn(tabId);
   const kept = remnants.get(tabId) ?? null;
   if (!visit || (kept && kept.stamp === visit.at)) return kept;
@@ -104,7 +110,7 @@ function remnantFor(tabId: string, width: number, height: number, ink: string): 
   if (width < 40 || height < 40) return null;
   const fresh: Remnant = {
     sim: buildCobwebs(level, width, height, visit.at | 0),
-    dust: level >= 2 ? buildDust(level, width, height, ink) : null,
+    dust: level >= 2 ? buildDust(level, width, height) : null,
     stamp: visit.at,
     width,
     height,
@@ -117,9 +123,10 @@ function remnantFor(tabId: string, width: number, height: number, ink: string): 
 function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement): (() => void) | undefined {
   const ctx = canvas.getContext("2d");
   if (!ctx) return undefined;
-  const ink = getComputedStyle(host).getPropertyValue("--text-selected").trim() || "#cdd6f4";
-  const remnant = remnantFor(tabId, host.clientWidth, host.clientHeight, ink);
-  if (!remnant) return undefined;
+  const remnant = remnantFor(tabId, host.clientWidth, host.clientHeight);
+  if (!remnant || (!remnant.sim && !remnant.dust)) return undefined;
+  const readInk = () => getComputedStyle(host).getPropertyValue("--text-selected").trim() || "#cdd6f4";
+  let ink = readInk();
   canvas.dataset.cobwebs = remnant.sim ? "webs" : "dust";
   if (remnant.sim) canvas.dataset.strands = String(liveStrands(remnant.sim));
 
@@ -128,17 +135,31 @@ function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement)
   let quietFrames = 0;
   let brush: { x: number; y: number } | null = null;
   let lastBrush: { x: number; y: number } | null = null;
+  /** The pointer moved since the last frame; a resting pointer lets the loop sleep. */
+  let moved = false;
 
-  /** Panel CSS px per sim unit; the sim keeps the size it grew at. */
-  const scale = () => (host.clientWidth || remnant.width) / remnant.width;
+  /**
+   * Panel CSS px per sim unit; the sim keeps the size it grew at. The
+   * smaller axis, so the brush reaches its full radius both ways.
+   */
+  const scale = () =>
+    Math.min(
+      (host.clientWidth || remnant.width) / remnant.width,
+      (host.clientHeight || remnant.height) / remnant.height,
+    );
 
   const draw = () => {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.setTransform(canvas.width / remnant.width, 0, 0, canvas.height / remnant.height, 0, 0);
     if (remnant.dust) {
+      // The film is a mask: draw it, then paint the theme's ink through it.
       ctx.globalAlpha = 1;
       ctx.drawImage(remnant.dust, 0, 0, remnant.width, remnant.height);
+      ctx.globalCompositeOperation = "source-in";
+      ctx.fillStyle = ink;
+      ctx.fillRect(0, 0, remnant.width, remnant.height);
+      ctx.globalCompositeOperation = "source-over";
     }
     const sim = remnant.sim;
     if (!sim) return;
@@ -214,14 +235,14 @@ function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement)
     lastBrush = brush;
     if (cobwebsGone(sim)) {
       remnant.sim = null;
-      if (!remnant.dust) remnants.delete(tabId);
       canvas.dataset.cobwebs = remnant.dust ? "dust" : "gone";
       canvas.dataset.strands = "0";
       draw();
       return;
     }
     draw();
-    const settling = brush !== null || sim.points.some((p) => p.falling && p.life > 0);
+    const settling = moved || sim.points.some((p) => p.falling && p.life > 0);
+    moved = false;
     quietFrames = settling ? 0 : quietFrames + 1;
     if (quietFrames < SLEEP_AFTER_FRAMES) raf = requestAnimationFrame(frame);
     else canvas.dataset.strands = String(liveStrands(sim));
@@ -249,6 +270,7 @@ function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement)
       if (!remnant.sim) draw();
     }
     brush = at;
+    moved = true;
     wake();
   };
   const onLeave = () => {
@@ -264,6 +286,12 @@ function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement)
   };
   const observer = new ResizeObserver(resize);
   observer.observe(host);
+  // A theme change rewrites the root's inline style: repaint in the new ink.
+  const themeWatch = new MutationObserver(() => {
+    ink = readInk();
+    draw();
+  });
+  themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
   resize();
   host.addEventListener("pointermove", onMove, { capture: true, passive: true });
   host.addEventListener("pointerleave", onLeave);
@@ -272,6 +300,7 @@ function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement)
   return () => {
     cancelAnimationFrame(raf);
     observer.disconnect();
+    themeWatch.disconnect();
     host.removeEventListener("pointermove", onMove, { capture: true });
     host.removeEventListener("pointerleave", onLeave);
   };

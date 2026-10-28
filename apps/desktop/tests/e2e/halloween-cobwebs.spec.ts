@@ -134,12 +134,19 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await sweepPanel(window, 3);
   await window.screenshot({ path: shot(testInfo, "wipe-mid-dark") });
   await sweepPanel(window, 16);
-  await window.mouse.move(5, 5);
-  // A few wisps may cling at the very edges; nearly everything else is gone.
+  // The pointer stays resting on the panel: the loop still settles and
+  // sleeps (that's when it reports the count). A few wisps may cling at the
+  // very edges; nearly everything else is gone.
   await expect
     .poll(async () => Number(await cobwebs(window).getAttribute("data-strands")), { timeout: 20_000 })
     .toBeLessThan(strandsAtFirst * 0.05);
+  await window.mouse.move(5, 5);
   await window.screenshot({ path: shot(testInfo, "wipe-after-dark") });
+
+  // Straight back to a swept tab: only the leftovers, nothing regrown.
+  await visit(window, 3, 1);
+  await visit(window, 0, 0);
+  expect(Number(await cobwebs(window).getAttribute("data-strands"))).toBeLessThan(strandsAtFirst * 0.05);
 
   // Light theme, 40 min on: the other tabs have been away 61, 46 and 40 min.
   await useLightTheme(window);

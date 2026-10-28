@@ -73,6 +73,7 @@ import {
 } from "../../src/lib/layout/workspace-layout";
 import { isHomePath } from "../../src/lib/home-path";
 import {
+  crossHostMoveRefusal,
   isRemoteWorkspaceKey,
   parseWorkspaceKey,
   type WorkspaceKey,
@@ -1463,12 +1464,7 @@ export class LayoutStore {
 function moveRefusal(from: string, to: string): string | null {
   if (isHomePath(from) || isHomePath(to)) return "The Dashboard can't host panes";
   if (from === to) return `Already in workspace ${parseWorkspaceKey(to).path}`;
-  const fromHost = parseWorkspaceKey(from).hostId;
-  const toHost = parseWorkspaceKey(to).hostId;
-  if (fromHost !== toHost) {
-    return `Can't move between hosts: ${parseWorkspaceKey(from).path} is on ${fromHost}, ${parseWorkspaceKey(to).path} on ${toHost}`;
-  }
-  return null;
+  return crossHostMoveRefusal(from, to);
 }
 
 // ──────────────────────────── shape conversion ────────────────────────────

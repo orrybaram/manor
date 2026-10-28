@@ -85,6 +85,7 @@ import {
 } from "../bridge/handlers/projects";
 import {
   layoutApply,
+  layoutMoveToWorkspace,
   layoutGetAll,
   layoutGetLastActive,
   layoutReportViewport,
@@ -538,6 +539,7 @@ const METHODS = flatten({
     getAll: method(layoutGetAll),
     getLastActive: method(layoutGetLastActive),
     apply: method(owned(layoutApply), { mutating: true }),
+    moveToWorkspace: method(owned(layoutMoveToWorkspace), { mutating: true }),
     setPaneTitle: method(owned(layoutSetPaneTitle), { mutating: true }),
     setPendingCommand: method(owned(layoutSetPendingCommand), { mutating: true }),
     reportViewport: method(owned(layoutReportViewport)),

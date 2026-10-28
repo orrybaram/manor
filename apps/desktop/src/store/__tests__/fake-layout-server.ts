@@ -369,6 +369,16 @@ export function fakeLayoutApi(): LayoutApi {
           ),
       );
     },
+    moveToWorkspace: (workspacePath, target, toWorkspacePath) =>
+      track(
+        server
+          .moveToWorkspace(workspacePath, target, toWorkspacePath, RENDERER)
+          .then((result) =>
+            "error" in result
+              ? result
+              : { ...result, version: external(toWorkspacePath, result.version) },
+          ),
+      ),
     setPendingCommand: async (paneId, text, kind = "shell", opts) => {
       queuedCommands.push({
         paneId,

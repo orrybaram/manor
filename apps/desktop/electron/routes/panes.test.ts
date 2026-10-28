@@ -18,9 +18,10 @@ vi.mock("../renderer-bridge", () => ({
   proxyToRenderer: vi.fn(async (json: (status: number, body: unknown) => void) => {
     json(200, { ok: true });
   }),
+  requestRenderer: vi.fn(async () => ({ ok: true, data: { followed: true } })),
 }));
 
-import { proxyToRenderer } from "../renderer-bridge";
+import { proxyToRenderer, requestRenderer } from "../renderer-bridge";
 import { paneRoutes } from "./panes";
 import type { RouteDeps as HostDeps, Route } from "./types";
 import { LayoutStore } from "../layout/layout-store";
@@ -690,6 +691,130 @@ describe("panes/tabs routes", () => {
     it("400s when no workspace resolves", async () => {
       const res = await call(route, deps, {});
       expect(res.status).toBe(400);
+    });
+  });
+
+  describe("POST /panes/:paneId/move-to-workspace and /tabs/:tabId/move-to-workspace", () => {
+    const paneRoute = findRoute(paneRoutes, "POST", "/panes/:paneId/move-to-workspace");
+    const tabRoute = findRoute(paneRoutes, "POST", "/tabs/:tabId/move-to-workspace");
+    const LIB_WS = "/lib/main";
+
+    beforeEach(() => {
+      vi.mocked(requestRenderer).mockClear();
+      deps = {
+        layoutStore: store,
+        projectManager: {
+          hostIdForPath: () => "local",
+          getProjects: async () => [
+            { id: "p1", name: "project", hostId: "local", workspaces: [{ path: WS }, { path: OTHER_WS }] },
+            { id: "p2", name: "lib", hostId: "local", workspaces: [{ path: LIB_WS }] },
+          ],
+        },
+      } as unknown as HostDeps;
+    });
+
+    function tabsOf(workspacePath: string): string[] {
+      const entry = store.get(workspacePath);
+      return entry ? Object.values(entry.layout.panels).flatMap((p) => p.tabs.map((t) => t.id)) : [];
+    }
+
+    it("moves a pane to another workspace of its project, and asks the window to follow", async () => {
+      const { tabId, paneId } = await seedTab(WS);
+
+      const res = await call(paneRoute, deps, {
+        params: { paneId },
+        body: { workspacePath: OTHER_WS },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        workspacePath: OTHER_WS,
+        hostId: "local",
+        tabId,
+        paneId,
+        followed: true,
+      });
+      expect(tabsOf(WS)).toEqual([]);
+      expect(tabsOf(OTHER_WS)).toEqual([tabId]);
+      expect(requestRenderer).toHaveBeenCalledWith(
+        "follow-move",
+        { fromWorkspacePath: WS, workspacePath: OTHER_WS, hostId: "local", tabId, paneId },
+        expect.any(Number),
+      );
+    });
+
+    it("moves a whole tab", async () => {
+      const { tabId, paneId } = await seedTab(WS);
+      await seedTab(WS);
+
+      const res = await call(tabRoute, deps, {
+        params: { tabId },
+        body: { workspacePath: OTHER_WS },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ workspacePath: OTHER_WS, tabId, paneId });
+      expect(tabsOf(OTHER_WS)).toEqual([tabId]);
+      expect(tabsOf(WS)).toHaveLength(1);
+    });
+
+    it("answers 200 without a window to follow", async () => {
+      vi.mocked(requestRenderer).mockResolvedValueOnce({
+        ok: false,
+        kind: "unavailable",
+        error: "No Manor window is open",
+      });
+      const { paneId } = await seedTab(WS);
+
+      const res = await call(paneRoute, deps, {
+        params: { paneId },
+        body: { workspacePath: OTHER_WS },
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.followed).toBe(false);
+    });
+
+    it.each([
+      ["another project", LIB_WS, /another project/],
+      ["an unknown workspace", "/nowhere", /Unknown workspace: \/nowhere/],
+      ["the same workspace", WS, /Already in workspace/],
+    ])("400s for %s and changes nothing", async (_, workspacePath, error) => {
+      const { tabId, paneId } = await seedTab(WS);
+
+      const res = await call(paneRoute, deps, { params: { paneId }, body: { workspacePath } });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(error);
+      expect(tabsOf(WS)).toEqual([tabId]);
+      expect(requestRenderer).not.toHaveBeenCalled();
+    });
+
+    it("400s for another host", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(paneRoute, deps, {
+        params: { paneId },
+        body: { workspacePath: OTHER_WS, hostId: "box" },
+      });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/between hosts/);
+    });
+
+    it("400s for an unknown pane or tab, or no workspacePath", async () => {
+      const unknownPane = await call(paneRoute, deps, {
+        params: { paneId: "pane-nope" },
+        body: { workspacePath: OTHER_WS },
+      });
+      expect(unknownPane.body).toEqual({ error: "Unknown paneId: pane-nope" });
+      const unknownTab = await call(tabRoute, deps, {
+        params: { tabId: "tab-nope" },
+        body: { workspacePath: OTHER_WS },
+      });
+      expect(unknownTab.body).toEqual({ error: "Unknown tabId: tab-nope" });
+      const { paneId } = await seedTab(WS);
+      const missing = await call(paneRoute, deps, { params: { paneId }, body: {} });
+      expect(missing.status).toBe(400);
+      expect(missing.body.error).toMatch(/workspacePath/);
     });
   });
 });

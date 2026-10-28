@@ -40,7 +40,10 @@ import {
   requireString,
   requireStringArray,
 } from "./pane-validators";
-import { structural, tabRoute } from "./structural-route";
+import { ROUTE_ORIGIN, structural, tabRoute } from "./structural-route";
+import { requestRenderer } from "../renderer-bridge";
+import type { LayoutTarget } from "../layout/layout-store";
+import { projectWorkspaceCheck } from "../layout/workspace-move-check";
 import { withWorkspaceHost } from "./workspace-host";
 import {
   LOCAL_HOST_ID,
@@ -49,6 +52,82 @@ import {
 } from "../../src/lib/workspace-key";
 
 const REORDER_UNKNOWN = "reorder-tabs: no such panel for these tabIds";
+
+/** How long a CLI move waits for the primary window to follow it. */
+const FOLLOW_TIMEOUT_MS = 2_000;
+
+/**
+ * `POST /panes/:paneId/move-to-workspace` and its tab twin: move a pane or a
+ * whole tab, still running, to another workspace of the same project on the
+ * same host (`LayoutStore.moveToWorkspace`). The body names the target as
+ * `{ workspacePath, hostId? }`, host-scoped like every other route here; the
+ * source is wherever the pane or tab is.
+ *
+ * Then the primary window follows it — but only if it was showing the
+ * workspace the move left (`follow-move` in `src/lib/app-commands.ts`). No
+ * window, or one looking elsewhere, is not an error: the move is done.
+ */
+function moveToWorkspaceRoute(
+  path: string,
+  targetOf: (params: Record<string, string>) => LayoutTarget,
+): Route {
+  return {
+    method: "POST",
+    path,
+    async handler({ deps, params, json, readBody }) {
+      const store = deps.layoutStore;
+      const body = await readBody();
+      const target = targetOf(params);
+      let to: string;
+      try {
+        const workspacePath = requireString(body, "workspacePath");
+        const hostId = optionalString(body, "hostId");
+        to = workspaceKey(hostId || LOCAL_HOST_ID, workspacePath);
+      } catch (err) {
+        json(400, { error: err instanceof Error ? err.message : String(err) });
+        return;
+      }
+      const from = store.locate(target)?.workspacePath;
+      if (!from) {
+        json(400, {
+          error:
+            "paneId" in target
+              ? `Unknown paneId: ${target.paneId}`
+              : `Unknown tabId: ${target.tabId}`,
+        });
+        return;
+      }
+      const result = await store.moveToWorkspace(from, target, to, ROUTE_ORIGIN, {
+        check: projectWorkspaceCheck(deps.projectManager),
+      });
+      if ("error" in result) {
+        json(400, { error: result.error });
+        return;
+      }
+      const landed = parseWorkspaceKey(result.workspacePath);
+      const follow = await requestRenderer(
+        "follow-move",
+        {
+          fromWorkspacePath: parseWorkspaceKey(from).path,
+          workspacePath: landed.path,
+          hostId: landed.hostId,
+          tabId: result.tabId,
+          paneId: result.paneId,
+        },
+        FOLLOW_TIMEOUT_MS,
+      );
+      json(200, {
+        workspacePath: landed.path,
+        hostId: landed.hostId,
+        tabId: result.tabId,
+        paneId: result.paneId,
+        followed:
+          follow.ok &&
+          (follow.data as { followed?: unknown } | undefined)?.followed === true,
+      });
+    },
+  };
+}
 
 export const structuralRoutes: Route[] = [
   {
@@ -245,6 +324,13 @@ export const structuralRoutes: Route[] = [
       }),
     }),
   },
+
+  moveToWorkspaceRoute("/panes/:paneId/move-to-workspace", ({ paneId }) => ({
+    paneId,
+  })),
+  moveToWorkspaceRoute("/tabs/:tabId/move-to-workspace", ({ tabId }) => ({
+    tabId,
+  })),
 
   {
     method: "DELETE",

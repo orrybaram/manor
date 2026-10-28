@@ -68,7 +68,7 @@ import { processAttachments, type PtyAttachments, type Viewer } from "../pty-att
 import type { PaneAgentStatusUpdate, PtyFailure, WinsizeOwnerEvent } from "../../src/electron.d";
 import type { LayoutEntry, LayoutOrigin } from "../../src/lib/layout/protocol";
 import { layoutPaneIds } from "../../src/lib/layout/workspace-layout";
-import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
+import { crossHostMoveRefusal, parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 
 /** A control request's answer: its HTTP status and JSON body. */
 export interface ControlAnswer {
@@ -353,6 +353,14 @@ export class HostRouting implements BridgeForward {
         // The host records the desktop's caller as the command's origin, so
         // its broadcast's hint lands on the renderer that sent it.
         callArgs = [args[0], args[1], originOf(caller)];
+      }
+      if (ns === "layout" && method === "moveToWorkspace") {
+        // The host sees both keys bare: another host's target would pass.
+        const refusal = crossHostMoveRefusal(String(args[0]), String(args[2]));
+        if (refusal) return { error: refusal };
+        this.lastActive = String(args[2]);
+        // As for `apply`: the target's broadcast hint is the sender's.
+        callArgs = [args[0], args[1], args[2], originOf(caller)];
       }
       const creating = ns === "projects" && method === "createWorktree";
       if (creating || (ns === "projects" && method === "removeWorktree")) {

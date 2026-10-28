@@ -281,6 +281,7 @@ describe("dispatch table", () => {
       "focus-next-pane",
       "focus-pane",
       "focus-prev-pane",
+      "follow-move",
       "next-tab",
       "prev-tab",
       "select-tab",
@@ -290,5 +291,47 @@ describe("dispatch table", () => {
 
   it("does not expose the fire-and-forget legacy command", () => {
     expect(appCommandHandlers["run-setup-script"]).toBeUndefined();
+  });
+});
+
+describe("follow-move", () => {
+  const moved = {
+    fromWorkspacePath: WS_PATH,
+    workspacePath: OTHER_WS_PATH,
+    tabId: "tab-9",
+    paneId: "pane-9",
+  };
+
+  /** The target already holds the moved tab, as the broadcast left it. */
+  function withTarget(): void {
+    const target = makeLayoutWithTabs([tabWithId("tab-8", "pane-8"), tabWithId("tab-9", "pane-9")]);
+    useAppStore.setState((state) => ({
+      activeWorkspaceHostId: "local",
+      activeSurface: "workspace",
+      workspaceLayouts: { ...state.workspaceLayouts, [OTHER_WS_PATH]: target },
+      viewports: {
+        ...state.viewports,
+        [OTHER_WS_PATH]: reconcileViewport(target, emptyViewport()),
+      },
+    }));
+  }
+
+  it("follows the move from the workspace this window shows", () => {
+    withTarget();
+
+    expect(run("follow-move", moved)).toEqual({ followed: true });
+
+    const state = useAppStore.getState();
+    expect(state.activeWorkspacePath).toBe(OTHER_WS_PATH);
+    expect(state.viewports[OTHER_WS_PATH]?.selectedTabIds["panel-1"]).toBe("tab-9");
+    expect(state.viewports[OTHER_WS_PATH]?.focusedPaneIds["tab-9"]).toBe("pane-9");
+  });
+
+  it("stays put when this window shows another workspace", () => {
+    withTarget();
+    useAppStore.setState({ activeWorkspacePath: "/test/elsewhere" });
+
+    expect(run("follow-move", moved)).toEqual({ followed: false });
+    expect(useAppStore.getState().activeWorkspacePath).toBe("/test/elsewhere");
   });
 });

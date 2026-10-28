@@ -316,6 +316,35 @@ describe("HostRouting", () => {
     expect(routing.lastActiveWorkspace(null)).toBe(`box:${BOX_WT}`);
   });
 
+  it("forwards a move between workspaces to the host, and refuses one between hosts here", async () => {
+    const { routing } = await adoptedDesktop();
+    const tab = createTab(undefined, "pane-moving");
+    await routing.invoke("box", "layout", "apply", [`box:${BOX_APP}`, { type: "new-tab", tab }], WINDOW);
+
+    // Another host's target never reaches the box, where both keys would be bare.
+    expect(
+      await routing.invoke(
+        "box",
+        "layout",
+        "moveToWorkspace",
+        [`box:${BOX_APP}`, { paneId: "pane-moving" }, BOX_WT],
+        WINDOW,
+      ),
+    ).toEqual({ error: expect.stringMatching(/between hosts/) });
+
+    // The box answers for its own: its project check runs there, on its paths.
+    // (No git on this box, so its worktree is no workspace it lists.)
+    expect(
+      await routing.invoke(
+        "box",
+        "layout",
+        "moveToWorkspace",
+        [`box:${BOX_APP}`, { paneId: "pane-moving" }, `box:${BOX_WT}`],
+        WINDOW,
+      ),
+    ).toEqual({ error: `Unknown workspace: ${BOX_WT}` });
+  });
+
   it("writes a group's shared settings through to its remote members", async () => {
     const { projectManager, proxy } = await adoptedDesktop();
     await projectManager.updateGroup("g1", { color: "blue" });

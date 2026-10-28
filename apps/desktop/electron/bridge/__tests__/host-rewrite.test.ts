@@ -59,6 +59,15 @@ describe("toDesktopResult", () => {
     expect(toDesktopResult(HOST, "layout", "getLastActive", null)).toBeNull();
   });
 
+  it("keys where layout.moveToWorkspace landed, and leaves a refusal alone", () => {
+    expect(
+      toDesktopResult(HOST, "layout", "moveToWorkspace", { workspacePath: "/b", tabId: "t" }),
+    ).toEqual({ workspacePath: "box:/b", tabId: "t" });
+    expect(toDesktopResult(HOST, "layout", "moveToWorkspace", { error: "no" })).toEqual({
+      error: "no",
+    });
+  });
+
   it("stamps a record, or each record of a list", () => {
     expect(toDesktopResult(HOST, "projects", "getAll", [{ hostId: "local" }, { hostId: "x" }])).toEqual([
       { hostId: HOST },

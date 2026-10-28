@@ -10,6 +10,8 @@
  *   0x04 Kill    — no payload
  *   0x05 Signal  — JSON: { signal }
  *   0x06 Dispose — no payload
+ *   0x07 Pause   — no payload (stop reading the pty; the daemon is behind)
+ *   0x08 Resume  — no payload (read the pty again)
  *
  * Subprocess → Daemon message types (0x11–0x1F):
  *   0x11 Ready   — no payload (subprocess started, waiting for Spawn)
@@ -31,7 +33,11 @@
  * bundle, so an old daemon can end up forking a new subprocess. `isDaemonStale` (`types.ts`) treats a mismatch here as a reason to
  * replace the daemon, the same as a `TERMINAL_HOST_PROTOCOL` mismatch.
  *
- * 1 — the frame layout and message types documented above.
+ * 1 — the frame layout and message types documented above. Pause/Resume
+ *     joined it without a bump: a subprocess ignores a frame type it does not
+ *     know, and only a daemon that has them sends them, to subprocesses it
+ *     forked from its own bundle. Bumping would have restarted every live
+ *     session on update for nothing.
  */
 export const PTY_SUBPROCESS_PROTOCOL = 1;
 
@@ -45,6 +51,8 @@ export const MSG = {
   KILL: 0x04,
   SIGNAL: 0x05,
   DISPOSE: 0x06,
+  PAUSE: 0x07,
+  RESUME: 0x08,
 
   // Subprocess → Daemon
   READY: 0x11,

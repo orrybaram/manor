@@ -21,7 +21,12 @@ vi.mock("../shell", () => ({
 }));
 
 import os from "node:os";
-import { Session, buildShellEnv, prependManorBinDir, spawnArgsFor } from "./session";
+import {
+  Session,
+  buildShellEnv,
+  prependManorBinDir,
+  spawnArgsFor,
+} from "./session";
 import fs from "node:fs";
 import path from "node:path";
 import { manorBinDir } from "../paths";
@@ -117,8 +122,9 @@ describe("Session", () => {
     function dataSeqs(written: string[]): number[] {
       return written
         .map((line) => JSON.parse(line) as StreamEvent)
-        .filter((event): event is Extract<StreamEvent, { type: "data" }> =>
-          event.type === "data",
+        .filter(
+          (event): event is Extract<StreamEvent, { type: "data" }> =>
+            event.type === "data",
         )
         .map((event) => {
           if (event.seq === undefined) {
@@ -549,6 +555,72 @@ describe("Session", () => {
     });
   });
 
+  describe("flow control", () => {
+    /** Frame types the session sent its pty subprocess, in order. */
+    function subprocessFrameTypes(session: Session): number[] {
+      const types: number[] = [];
+      (session as any).subprocess.stdin.on("data", (c: Buffer) =>
+        types.push(c[0]),
+      );
+      return types;
+    }
+
+    function headlessParsed(session: Session): Promise<void> {
+      return new Promise((resolve) => (session as any).afterHeadless(resolve));
+    }
+
+    it("pauses the pty while the mirror is behind, and resumes it after", async () => {
+      session.spawn();
+      const sent = subprocessFrameTypes(session);
+      const chunk = "y\r\n".repeat(40_000);
+
+      // More than the mirror is allowed to have queued, all at once — what
+      // `yes` produces faster than xterm parses it.
+      for (let i = 0; i < 40; i++) pushDataFrame(session, chunk);
+      expect(sent).toEqual([MSG.PAUSE]);
+
+      await headlessParsed(session);
+      expect(sent).toEqual([MSG.PAUSE, MSG.RESUME]);
+    }, 30_000);
+
+    it("pauses the pty while a client's socket is backed up, and resumes on drain", () => {
+      session.spawn();
+      const sent = subprocessFrameTypes(session);
+      const { socket } = mockSocket();
+      const drain: Array<() => void> = [];
+      socket.on = (event: string, cb: () => void) => {
+        if (event === "drain") drain.push(cb);
+      };
+      socket.writableLength = 0;
+      session.attachClient(socket);
+
+      pushDataFrame(session, "fine");
+      expect(sent).toEqual([]);
+
+      // The app is reading slower than the program prints.
+      socket.writableLength = 8 * 1024 * 1024;
+      pushDataFrame(session, "more");
+      expect(sent).toEqual([MSG.PAUSE]);
+
+      socket.writableLength = 0;
+      for (const cb of drain) cb();
+      expect(sent).toEqual([MSG.PAUSE, MSG.RESUME]);
+    });
+
+    it("survives the mirror refusing a write", () => {
+      session.spawn();
+      (session as any).headless.write = () => {
+        throw new Error("write data discarded, use flow control");
+      };
+      const { socket, written } = mockSocket();
+      session.attachClient(socket);
+
+      expect(() => pushDataFrame(session, "more output")).not.toThrow();
+      // Clients still get the output the mirror dropped.
+      expect(written.map((line) => JSON.parse(line).type)).toContain("data");
+    });
+  });
+
   describe("session info", () => {
     it("returns correct info", () => {
       const info = session.info;
@@ -570,8 +642,9 @@ describe("Session", () => {
     function paneFactsEvents(written: string[]) {
       return written
         .map((line) => JSON.parse(line) as StreamEvent)
-        .filter((event): event is Extract<StreamEvent, { type: "paneFacts" }> =>
-          event.type === "paneFacts",
+        .filter(
+          (event): event is Extract<StreamEvent, { type: "paneFacts" }> =>
+            event.type === "paneFacts",
         );
     }
 
@@ -647,19 +720,26 @@ describe("Session", () => {
       await session.getSnapshot();
 
       const events = paneFactsEvents(written);
-      expect(events.map((e) => [e.facts.foreground?.name ?? null, e.facts.outputHint?.hint ?? null]))
-        .toEqual([
-          ["claude", null],
-          ["claude", "thinking"],
-          [null, "thinking"],
-        ]);
+      expect(
+        events.map((e) => [
+          e.facts.foreground?.name ?? null,
+          e.facts.outputHint?.hint ?? null,
+        ]),
+      ).toEqual([
+        ["claude", null],
+        ["claude", "thinking"],
+        [null, "thinking"],
+      ]);
     });
   });
 });
 
 describe("buildShellEnv", () => {
   it("strips NODE_ENV from base env", () => {
-    const result = buildShellEnv({ NODE_ENV: "development", PATH: "/usr/bin" }, {});
+    const result = buildShellEnv(
+      { NODE_ENV: "development", PATH: "/usr/bin" },
+      {},
+    );
     expect(result).not.toHaveProperty("NODE_ENV");
     expect(result.PATH).toBe("/usr/bin");
   });
@@ -682,7 +762,11 @@ describe("buildShellEnv", () => {
 
   it("passes through unrelated vars unchanged", () => {
     const result = buildShellEnv(
-      { HOME: "/Users/test", PATH: "/usr/bin:/usr/local/bin", LANG: "en_US.UTF-8" },
+      {
+        HOME: "/Users/test",
+        PATH: "/usr/bin:/usr/local/bin",
+        LANG: "en_US.UTF-8",
+      },
       {},
     );
     expect(result.HOME).toBe("/Users/test");
@@ -718,7 +802,10 @@ describe("buildShellEnv", () => {
   });
 
   it("skips undefined values in base env", () => {
-    const base: NodeJS.ProcessEnv = { HOME: "/Users/test", UNDEFINED_VAR: undefined };
+    const base: NodeJS.ProcessEnv = {
+      HOME: "/Users/test",
+      UNDEFINED_VAR: undefined,
+    };
     const result = buildShellEnv(base, {});
     expect(result).not.toHaveProperty("UNDEFINED_VAR");
     expect(result.HOME).toBe("/Users/test");
@@ -751,7 +838,9 @@ describe("prependManorBinDir", () => {
     const already = `/usr/bin:${manorBinDir()}:/usr/local/bin`;
     const result = prependManorBinDir(already);
     expect(result).toBe(already);
-    expect(result.split(":").filter((p) => p === manorBinDir())).toHaveLength(1);
+    expect(result.split(":").filter((p) => p === manorBinDir())).toHaveLength(
+      1,
+    );
   });
 
   it("handles an undefined base PATH", () => {
@@ -780,7 +869,10 @@ describe("spawnArgsFor", () => {
   });
 
   it("starts plain bash with Manor's rcfile", () => {
-    expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual(["--rcfile", bashrc]);
+    expect(spawnArgsFor("/bin/bash", [], () => bashrc)).toEqual([
+      "--rcfile",
+      bashrc,
+    ]);
   });
 
   it("leaves zsh and other shells alone", () => {

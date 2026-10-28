@@ -100,6 +100,16 @@ export function prependManorBinDir(basePath: string | undefined): string {
 /** How long to wait for the pty subprocess to confirm a resize before giving up. */
 const RESIZE_ACK_TIMEOUT_MS = 2_000;
 
+/**
+ * Unparsed output, in chars, at which the pty is paused and below which it
+ * resumes (see `Session.updateFlow`). xterm discards writes past 50MB queued; pausing well short of that
+ * blocks the producing program instead, the way a real terminal does.
+ */
+const HEADLESS_PAUSE_CHARS = 4 * 1024 * 1024;
+const HEADLESS_RESUME_CHARS = 512 * 1024;
+/** The same, for output queued on an attached client's socket. */
+const CLIENT_PAUSE_BYTES = 4 * 1024 * 1024;
+const CLIENT_RESUME_BYTES = 512 * 1024;
 
 /**
  * The shell a pane runs: `$SHELL`, else the user's login shell from the
@@ -107,7 +117,10 @@ const RESIZE_ACK_TIMEOUT_MS = 2_000;
  * `kubectl exec`, or by a supervisor, has no `$SHELL` — only
  * sshd sets it — and a zsh the box doesn't have fails every pane.
  */
-export function defaultShell(env: NodeJS.ProcessEnv = process.env, userShell: () => string | null = passwdShell): string {
+export function defaultShell(
+  env: NodeJS.ProcessEnv = process.env,
+  userShell: () => string | null = passwdShell,
+): string {
   return env.SHELL || userShell() || "/bin/zsh";
 }
 
@@ -159,6 +172,11 @@ export class Session {
   // wait for it before serialize() will return content
   private headlessWritesPending = 0;
   private headlessFlushCallbacks: Array<() => void> = [];
+  // Output written to the headless mirror but not yet parsed. A program that
+  // prints faster than xterm parses (`yes`, a runaway log) would otherwise
+  // grow this until xterm throws and takes the daemon down with it.
+  private headlessPendingChars = 0;
+  private outputPaused = false;
 
   // Scrollback persistence
   private scrollbackWriter: ScrollbackWriter | null = null;
@@ -237,7 +255,11 @@ export class Session {
 
     this.paneFacts = new PaneFactsExtractor({
       onChange: (facts) => {
-        this.broadcastEvent({ type: "paneFacts", sessionId: this.sessionId, facts });
+        this.broadcastEvent({
+          type: "paneFacts",
+          sessionId: this.sessionId,
+          facts,
+        });
       },
     });
   }
@@ -348,9 +370,12 @@ export class Session {
         // Its OSC and title handlers fire while it parses the chunk; output
         // hints follow in the callback, so Pane facts keep the stream's order.
         const seq = ++this.outputSeq;
+        this.headlessPendingChars += data.length;
         this.writeHeadless(data, () => {
           this.paneFacts.feedData(data);
           this.appliedSeq = seq;
+          this.headlessPendingChars -= data.length;
+          this.updateFlow();
         });
 
         // Scrollback persistence
@@ -406,7 +431,9 @@ export class Session {
       }
 
       case MSG.FGPROC: {
-        const { name } = JSON.parse(payload.toString("utf-8")) as { name: string | null };
+        const { name } = JSON.parse(payload.toString("utf-8")) as {
+          name: string | null;
+        };
         // In stream order with the output hints it resets.
         this.afterHeadless(() => this.paneFacts.setForeground(name));
         break;
@@ -466,7 +493,8 @@ export class Session {
       // oldest pending resize is always the first to time out, so it is the one
       // at the head of the queue.
       const timer = setTimeout(() => {
-        if (this.pendingResizes[0]?.timer === timer) this.pendingResizes.shift();
+        if (this.pendingResizes[0]?.timer === timer)
+          this.pendingResizes.shift();
         // A client left waiting on an event that will never come would keep its
         // grid at the old size for good, so the timeout publishes one too.
         this.applyResized(cols, rows);
@@ -529,7 +557,9 @@ export class Session {
     if (!proc || proc.exitCode !== null) return;
     await new Promise<void>((resolve) => {
       const timer = setTimeout(() => {
-        console.warn(`[session ${this.sessionId}] subprocess did not exit within ${timeoutMs}ms`);
+        console.warn(
+          `[session ${this.sessionId}] subprocess did not exit within ${timeoutMs}ms`,
+        );
         resolve();
       }, timeoutMs);
       proc.on("exit", () => {
@@ -567,14 +597,23 @@ export class Session {
    */
   private writeHeadless(data: string, applied: () => void): void {
     this.headlessWritesPending++;
-    this.headless.write(data, () => {
+    const done = () => {
       applied();
       this.headlessWritesPending--;
       if (this.headlessWritesPending === 0) {
         const cbs = this.headlessFlushCallbacks.splice(0);
         for (const cb of cbs) cb();
       }
-    });
+    };
+    try {
+      this.headless.write(data, done);
+    } catch (err) {
+      // xterm refuses a write once its queue passes its discard watermark.
+      // Losing a chunk from the mirror beats an uncaught exception, which
+      // shuts down every session the daemon holds.
+      console.warn(`[Session ${this.sessionId}] headless write dropped:`, err);
+      done();
+    }
   }
 
   /** Run `cb` once the headless mirror has parsed everything written so far. */
@@ -631,6 +670,7 @@ export class Session {
     const onClose = () => this.detachClient(socket);
     this.attachedClients.set(socket, onClose);
     socket.on("close", onClose);
+    socket.on("drain", this.onClientDrain);
   }
 
   /** Detach a stream client socket */
@@ -639,6 +679,9 @@ export class Session {
     if (!onClose) return;
     this.attachedClients.delete(socket);
     socket.off("close", onClose);
+    socket.off("drain", this.onClientDrain);
+    // A client that was behind no longer holds the pty up.
+    this.updateFlow();
   }
 
   private detachAllClients(): void {
@@ -657,7 +700,39 @@ export class Session {
         this.detachClient(client);
       }
     }
+    if (event.type === "data") this.updateFlow();
   }
+
+  /**
+   * Pause the pty while its output is piling up anywhere this daemon holds
+   * it — unparsed in the headless mirror, or unsent in a client's socket —
+   * and resume it once both have drained. Without this a program that prints
+   * faster than the app reads (`yes`, a runaway build log) buffers without
+   * bound in the daemon: gigabytes in under a minute.
+   */
+  private updateFlow(): void {
+    let clientBytes = 0;
+    for (const client of this.attachedClients.keys()) {
+      clientBytes = Math.max(clientBytes, client.writableLength ?? 0);
+    }
+    if (!this.outputPaused) {
+      if (
+        this.headlessPendingChars > HEADLESS_PAUSE_CHARS ||
+        clientBytes > CLIENT_PAUSE_BYTES
+      ) {
+        this.outputPaused = true;
+        this.writeToSubprocess(encodeFrame(MSG.PAUSE));
+      }
+    } else if (
+      this.headlessPendingChars < HEADLESS_RESUME_CHARS &&
+      clientBytes < CLIENT_RESUME_BYTES
+    ) {
+      this.outputPaused = false;
+      this.writeToSubprocess(encodeFrame(MSG.RESUME));
+    }
+  }
+
+  private readonly onClientDrain = (): void => this.updateFlow();
 
   private writeToSubprocess(frame: Buffer): void {
     if (this.subprocess?.stdin?.writable) {

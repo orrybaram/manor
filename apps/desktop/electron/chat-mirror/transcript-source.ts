@@ -25,8 +25,12 @@ export type TranscriptRead =
        * over the line and reads on.
        */
       skip?: number;
-      /** With `skip`: the skipped line's first few KiB, for its parser to name what it was. */
+      /**
+       * With `skip`: the skipped line's first and last few KiB, for its
+       * parser to name what it was. Which fields come first varies.
+       */
       head?: string;
+      tail?: string;
     }
   | { ok: false; error: string };
 
@@ -44,8 +48,8 @@ export interface TranscriptSource {
 export const READ_WINDOW_BYTES = 8 << 20;
 /** A line longer than this is skipped, not read: a huge tool output, say. */
 export const MAX_RECORD_BYTES = 2 << 20;
-/** How much of a skipped line its parser sees. */
-const OVERSIZED_HEAD_BYTES = 4 << 10;
+/** How much of each end of a skipped line its parser sees. */
+const OVERSIZED_EDGE_BYTES = 4 << 10;
 /** The step a search for a skipped line's end reads in. */
 const SCAN_CHUNK_BYTES = 1 << 20;
 
@@ -68,11 +72,17 @@ export class LocalTranscriptSource implements TranscriptSource {
       const first = bytes.indexOf(0x0a);
       // The line at the offset is longer than a record may be.
       if (first === -1 ? got > MAX_RECORD_BYTES : first >= MAX_RECORD_BYTES) {
+        // Decoded now: the search below reuses the window's buffer.
+        const head = new StringDecoder("utf8").write(bytes.subarray(0, OVERSIZED_EDGE_BYTES));
         const end = first !== -1 ? offset + first : await findNewline(handle, offset + got, size, window);
         // Still being written: wait for its end without holding any of it.
         if (end === -1) return { ok: true, size, data: "" };
-        const head = new StringDecoder("utf8").write(bytes.subarray(0, OVERSIZED_HEAD_BYTES));
-        return { ok: true, size, data: "", skip: end - offset + 1, head };
+        const tailStart = Math.max(offset, end - OVERSIZED_EDGE_BYTES);
+        const tailBytes = window.subarray(0, end - tailStart);
+        const tailGot = await readFully(handle, tailBytes, tailStart);
+        // It may start mid-character; the replacement character is harmless.
+        const tail = tailBytes.subarray(0, tailGot).toString("utf8");
+        return { ok: true, size, data: "", skip: end - offset + 1, head, tail };
       }
       return { ok: true, size, data: bytes.subarray(0, readableEnd(bytes, offset + got === size)).toString("utf8") };
     } catch (err) {

@@ -217,6 +217,80 @@ describe("TranscriptStream — bounded reads", () => {
     });
   });
 
+  it("names a tool result longer than a whole window by its own id", async () => {
+    // Longer than a window, so its end is found past it.
+    const huge = toolResult("r-huge", "toolu_huge", "y".repeat(10 * (1 << 20)));
+    fs.writeFileSync(
+      file,
+      toolUse("a1", "toolu_huge") + huge + user("u2", "after"),
+    );
+    await stream.read();
+    const entries = latest();
+    expect(entries.get("toolu_huge")).toMatchObject({
+      status: "error",
+      detail: "Output too large to show",
+    });
+    expect(entries.get("u2")).toMatchObject({ text: "after" });
+  });
+
+  it("does not settle the next tool for a line just past a window", async () => {
+    const huge = toolResult(
+      "r-huge",
+      "toolu_huge",
+      "y".repeat(READ_WINDOW_BYTES + 100),
+    );
+    fs.writeFileSync(
+      file,
+      toolUse("a1", "toolu_huge") +
+        toolUse("a2", "toolu_next") +
+        huge +
+        toolResult("r-next", "toolu_next", "fine"),
+    );
+    await stream.read();
+    const entries = latest();
+    expect(entries.get("toolu_huge")).toMatchObject({
+      status: "error",
+      detail: "Output too large to show",
+    });
+    expect(entries.get("toolu_next")).toMatchObject({
+      status: "ok",
+      detail: "fine",
+    });
+  });
+
+  it("names an oversized error result that writes its content before its id", async () => {
+    // As Claude Code writes a failed tool's result.
+    const failed =
+      JSON.stringify({
+        timestamp: T,
+        type: "user",
+        uuid: "r-err",
+        message: {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              content: "e".repeat(3 * (1 << 20)),
+              is_error: true,
+              tool_use_id: "toolu_err",
+            },
+          ],
+        },
+      }) + "\n";
+    expect(failed.indexOf("toolu_err")).toBeGreaterThan(3 * (1 << 20));
+    fs.writeFileSync(
+      file,
+      toolUse("a1", "toolu_err") + failed + user("u2", "after"),
+    );
+    await stream.read();
+    const entries = latest();
+    expect(entries.get("toolu_err")).toMatchObject({
+      status: "error",
+      detail: "Output too large to show",
+    });
+    expect(entries.get("u2")).toMatchObject({ text: "after" });
+  });
+
   it("settles a task whose result is too large, and leaves unknown lines alone", async () => {
     const task = line({
       type: "assistant",

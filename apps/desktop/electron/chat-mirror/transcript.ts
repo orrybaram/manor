@@ -6,6 +6,7 @@
  * skipped silently. A format change must make the chat lossy, not broken.
  */
 
+import type { OversizedRecord } from "./adapters/types";
 import type { PickerQuestion } from "./picker-keys";
 
 export type ChatEntry =
@@ -300,7 +301,11 @@ export interface TranscriptParserOptions {
   sidechain?: boolean;
 }
 
-/** A skipped line's tool result names its tool near the start. */
+/**
+ * A skipped tool result names its tool near one end: the start, usually,
+ * but an error result writes its content first and its id after. Quotes
+ * inside the content are escaped, so its text can't match.
+ */
 const OVERSIZED_TOOL_USE_ID = /"tool_use_id"\s*:\s*"(toolu_[^"]+)"/;
 const TOO_LARGE = "Output too large to show";
 
@@ -369,12 +374,13 @@ export class TranscriptParser {
   }
 
   /**
-   * A line too long to read was skipped; `head` is its start. If it is a
-   * tool's result, settle the tool as an error so it doesn't spin forever.
-   * Anything else is dropped.
+   * A line too long to read was skipped; `record` is its two ends. If it
+   * is a tool's result, settle the tool as an error so it doesn't spin
+   * forever. Anything else is dropped.
    */
-  oversized(head: string): ChatEntry[] {
-    const id = OVERSIZED_TOOL_USE_ID.exec(head)?.[1];
+  oversized(record: OversizedRecord): ChatEntry[] {
+    const id =
+      OVERSIZED_TOOL_USE_ID.exec(record.head)?.[1] ?? OVERSIZED_TOOL_USE_ID.exec(record.tail)?.[1];
     if (!id) return [];
     const existing = this.byId.get(id);
     let next: ChatEntry;

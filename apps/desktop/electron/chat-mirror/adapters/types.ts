@@ -7,6 +7,12 @@
 
 import type { ChatEntry, ChatSkill, ChatTaskEntry } from "../transcript";
 
+/** The first and last few KiB of a line too long to read. */
+export interface OversizedRecord {
+  head: string;
+  tail: string;
+}
+
 /** Reads one transcript, a line at a time. */
 export interface TranscriptLineParser {
   /**
@@ -15,11 +21,11 @@ export interface TranscriptLineParser {
    */
   push(line: string, offset?: number): ChatEntry[];
   /**
-   * A line too long to read was stepped over at `offset`; `head` is its
-   * first few KiB, likely cut mid-JSON. Returns entries it settled, if it
-   * can tell what the line was. Optional: without it the line is just gone.
+   * A line too long to read was stepped over at `offset`; `record` is its
+   * two ends, likely cut mid-JSON. Returns entries it settled, if it can
+   * tell what the line was. Optional: without it the line is just gone.
    */
-  oversized?(head: string, offset: number): ChatEntry[];
+  oversized?(record: OversizedRecord, offset: number): ChatEntry[];
   entries(): ChatEntry[];
   /** The entry with `id`, as it stands now. */
   entry(id: string): ChatEntry | undefined;

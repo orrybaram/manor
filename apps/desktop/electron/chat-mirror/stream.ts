@@ -15,7 +15,7 @@
  * entry, and the context size whenever that changes.
  */
 
-import type { TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
+import type { OversizedRecord, TranscriptAdapter, TranscriptLineParser } from "./adapters/types";
 import type { ChatPush } from "./transcript";
 import type { TranscriptSource } from "./transcript-source";
 
@@ -201,7 +201,7 @@ export class TranscriptStream {
       let reached: number;
       if (result.skip !== undefined && result.skip > 0) {
         // A line too long to read: step over it, and let the parser name it.
-        this.oversized(result.skip, result.head ?? "", this.primed);
+        this.oversized(result.skip, { head: result.head ?? "", tail: result.tail ?? "" }, this.primed);
         reached = this.offset;
       } else {
         this.consume(result.data, this.primed);
@@ -217,11 +217,11 @@ export class TranscriptStream {
     }
   }
 
-  /** Step over the `length`-byte line at the offset; `head` is its start. */
-  private oversized(length: number, head: string, publish: boolean): void {
+  /** Step over the `length`-byte line at the offset; `edges` are its ends. */
+  private oversized(length: number, edges: OversizedRecord, publish: boolean): void {
     const at = this.offset;
     this.offset += length;
-    for (const entry of this.currentParser.oversized?.(head, at) ?? []) {
+    for (const entry of this.currentParser.oversized?.(edges, at) ?? []) {
       this.opts.onPush(entry, publish);
     }
   }

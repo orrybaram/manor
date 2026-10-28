@@ -61,8 +61,10 @@
   min-width: 0;
 }
 
+/* Tinted like the sidebar's selection: `--surface` alone is near-white on
+   the light themes' picker. */
 .item[data-selected="true"] {
-  background: var(--surface);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--text-selected);
 }
 

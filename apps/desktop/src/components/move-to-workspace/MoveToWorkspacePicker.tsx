@@ -70,11 +70,25 @@ function PickerContent({
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // The context menu that opened this hands focus back to its trigger a
-  // task after it closes (Radix's FocusScope); take it back after that.
+  // The context menu that opened this hands focus back to its trigger as it
+  // closes (Radix's FocusScope), and when that is depends on the menu's exit:
+  // a tab's focusable button takes it after the input already has. For a
+  // moment after opening, any focus leaving the picker is that hand-back, so
+  // the input takes it back.
   useMountEffect(() => {
+    const picker = () => inputRef.current?.closest<HTMLElement>("[data-testid='move-to-workspace-picker']");
+    const reclaim = (e: FocusEvent) => {
+      if (picker()?.contains(e.target as Node)) return;
+      inputRef.current?.focus();
+    };
     const timer = setTimeout(() => inputRef.current?.focus(), 0);
-    return () => clearTimeout(timer);
+    document.addEventListener("focusin", reclaim);
+    const stop = setTimeout(() => document.removeEventListener("focusin", reclaim), 400);
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(stop);
+      document.removeEventListener("focusin", reclaim);
+    };
   });
 
   const rows = useMemo(
@@ -130,6 +144,10 @@ function PickerContent({
           aria-label="Move to workspace"
           // Not back to the menu's trigger: to the pane being looked at. After
           // a move that is the moved pane, which takes focus as it mounts.
+          // A tab's context menu hands focus back to its tab button as it
+          // closes, just after this opens; that is not the user leaving the
+          // picker. Esc and a click outside still close it.
+          onFocusOutside={(e) => e.preventDefault()}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
             useAppStore.getState().refocusActivePane();

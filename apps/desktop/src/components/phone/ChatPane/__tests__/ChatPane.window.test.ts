@@ -4,11 +4,12 @@
  * nearing the top mounts earlier ones with the place kept, entries landing
  * while scrolled up leave the top alone, and the bottom drops back to the
  * newest. jsdom has no layout, so each entry is given a height of `ROW_PX`
- * and the scroller a height of `VIEW_PX`.
+ * and the scroller a height of `VIEW_PX`, and a scroll offset past the end
+ * clamps, as a browser's does.
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,13 +61,14 @@ function scroller(): HTMLElement {
   if (!("fake" in el.dataset)) {
     el.dataset.fake = "";
     let top = 0;
+    const clamp = (v: number) => Math.max(0, Math.min(v, content.children.length * ROW_PX - VIEW_PX));
     Object.defineProperties(el, {
       clientHeight: { get: () => VIEW_PX },
       scrollHeight: { get: () => content.children.length * ROW_PX },
       scrollTop: {
-        get: () => top,
+        get: () => (top = clamp(top)),
         set: (v: number) => {
-          top = Math.max(0, Math.min(v, content.children.length * ROW_PX - VIEW_PX));
+          top = clamp(v);
         },
       },
     });
@@ -91,6 +93,22 @@ async function pushUser(id: string): Promise<void> {
   await act(async () => push?.(PANE, user(id)));
 }
 
+const offsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+
+beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+    configurable: true,
+    get(this: HTMLElement) {
+      if (this.dataset.itemId === undefined || !this.parentElement) return 0;
+      return [...this.parentElement.children].indexOf(this) * ROW_PX;
+    },
+  });
+});
+
+afterAll(() => {
+  if (offsetTop) Object.defineProperty(HTMLElement.prototype, "offsetTop", offsetTop);
+});
+
 beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -102,7 +120,8 @@ afterEach(async () => {
   container.remove();
 });
 
-describe("the chat's window", () => {
+// Slow, not stuck: the fake layout walks the list for every offset.
+describe("the chat's window", { timeout: 30_000 }, () => {
   it("mounts only the newest items of a long history", async () => {
     await open(history(400));
     const shown = mounted();
@@ -123,6 +142,27 @@ describe("the chat's window", () => {
     expect(mounted()).toHaveLength(WINDOW_ITEMS + EARLIER_ITEMS);
     // h250 was the first mounted item, 300px above the view; it still is.
     expect(onScreen("h250")).toBe(-300);
+  });
+
+  it("keeps the place when an entry lands as earlier items load", async () => {
+    await open(history(400));
+    await scrollTo(scroller().scrollTop - 200);
+    const el = scroller();
+    await act(async () => {
+      el.scrollTop = 300;
+      el.dispatchEvent(new Event("scroll", { bubbles: true }));
+      push?.(PANE, user("landed"));
+    });
+    expect(onScreen("h250")).toBe(-300);
+  });
+
+  it("keeps what's on screen in place as the top trims at the bottom", async () => {
+    await open(history(400));
+    const before = onScreen("h399");
+    await pushUser("new");
+    expect(mounted()).toHaveLength(WINDOW_ITEMS);
+    // Follow-bottom (no ResizeObserver in jsdom) then scrolls on from here.
+    expect(onScreen("h399")).toBe(before);
   });
 
   it("keeps loading until the first item is mounted", async () => {

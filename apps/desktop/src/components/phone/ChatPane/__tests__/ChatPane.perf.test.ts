@@ -15,7 +15,7 @@
  */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -144,6 +144,15 @@ afterEach(async () => {
 });
 
 describe("phone chat on a long session", () => {
+  // The first render anywhere pays React's and remark's one-off warm-up; not
+  // the cost being measured.
+  beforeAll(async () => {
+    container = document.createElement("div");
+    root = createRoot(container);
+    await measure(50);
+    await act(async () => root.unmount());
+  });
+
   it.each([50, 200, 400])("%i turns", async (turns) => {
     const r = await measure(turns);
     console.log(

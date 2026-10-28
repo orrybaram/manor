@@ -75,10 +75,11 @@ type ChatPaneProps = {
  * the chat on "Thinking" with its composer held.
  *
  * Only the newest items are mounted (`chat-window.ts`). Scrolling near the
- * top mounts earlier ones, with the scroll offset moved by their height so
- * the user's place holds (iOS Safari has no scroll anchoring, so the
- * browser's is turned off everywhere and this does it). Back at the bottom,
- * the window drops back to the newest items.
+ * top mounts earlier ones; back at the bottom, the window drops back to the
+ * newest. Either way the items that stay mounted must not move on screen, so
+ * every commit moves the scroll offset by however far the first of them
+ * moved (iOS Safari has no scroll anchoring, so the browser's is turned off
+ * everywhere and this does it).
  */
 export function ChatPane(props: ChatPaneProps) {
   const { paneId, transcript, hidden, onShowTerminal } = props;
@@ -195,10 +196,10 @@ export function ChatPane(props: ChatPaneProps) {
   const stuck = useRef(true);
   const newestId = useRef<string | undefined>(undefined);
   const opened = useRef(false);
-  const scrollerRef = useRef<HTMLElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const followBottom = useCallback((content: HTMLDivElement | null) => {
+    contentRef.current = content;
     const scroller = content?.parentElement;
-    scrollerRef.current = scroller ?? null;
     if (!content || !scroller || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       // The history the chat opens on lands at the bottom at once.
@@ -219,8 +220,10 @@ export function ChatPane(props: ChatPaneProps) {
   /** The window's first item; null while at the bottom (the newest items). */
   const [anchorId, setAnchorId] = useState<string | null>(null);
   const start = windowStart(items, anchorId);
-  /** The scroller's height before earlier items mounted, until it's corrected for. */
-  const heightBeforeEarlier = useRef<number | null>(null);
+  /** Earlier items were asked for and haven't committed yet. */
+  const loadingEarlier = useRef(false);
+  /** Each mounted item's offset as of the last commit, by id. */
+  const placed = useRef(new Map<string, number>());
   /** Live entries that left the window: back in it, they don't animate again. */
   const retired = useRef(new Set<string>());
 
@@ -236,9 +239,9 @@ export function ChatPane(props: ChatPaneProps) {
     if (stuck.current) {
       if (anchorId !== null) setAnchorId(null);
     } else if (start > 0 && el.scrollTop < el.clientHeight) {
-      // Within a screen of the top: one load at a time, until it's placed.
-      if (heightBeforeEarlier.current === null) {
-        heightBeforeEarlier.current = el.scrollHeight;
+      // Within a screen of the top: one load at a time.
+      if (!loadingEarlier.current) {
+        loadingEarlier.current = true;
         setAnchorId(earlierAnchor(items, start));
       }
     } else if (anchorId === null) {
@@ -247,12 +250,25 @@ export function ChatPane(props: ChatPaneProps) {
     }
   };
 
-  // Before paint: earlier items just mounted above, so move down by their height.
+  // Before paint: items mounted or unmounted above moved the ones that
+  // stayed, so move the scroll offset with them. From the offset before the
+  // commit (the last scroll event's): a shorter list may have clamped it.
   useLayoutEffect(() => {
-    const scroller = scrollerRef.current;
-    if (heightBeforeEarlier.current === null || !scroller) return;
-    scroller.scrollTop += scroller.scrollHeight - heightBeforeEarlier.current;
-    heightBeforeEarlier.current = null;
+    loadingEarlier.current = false;
+    const content = contentRef.current;
+    const scroller = content?.parentElement;
+    if (!content || !scroller) return;
+    const rows = [...content.children].filter(
+      (el): el is HTMLElement => el instanceof HTMLElement && el.dataset.itemId !== undefined,
+    );
+    const kept = rows.find((el) => placed.current.has(el.dataset.itemId!));
+    const moved = kept ? kept.offsetTop - placed.current.get(kept.dataset.itemId!)! : 0;
+    if (moved !== 0) {
+      scroller.scrollTop = lastScrollTop.current + moved;
+      // Ours, not the user's: moving up here must not unstick the chat.
+      lastScrollTop.current = scroller.scrollTop;
+    }
+    placed.current = new Map(rows.map((el) => [el.dataset.itemId!, el.offsetTop]));
   });
   // Live entries above the window have left it (it only ever trims the top).
   useLayoutEffect(() => {
@@ -301,7 +317,12 @@ export function ChatPane(props: ChatPaneProps) {
                   !settledIds.has(entry.id) &&
                   !retired.current.has(entry.id);
                 return (
-                  <div key={entry.id} className={styles.entry} data-enter={live || undefined}>
+                  <div
+                    key={entry.id}
+                    className={styles.entry}
+                    data-item-id={entry.id}
+                    data-enter={live || undefined}
+                  >
                     <ChatEntryView
                       paneId={paneId}
                       entry={entry}

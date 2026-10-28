@@ -41,14 +41,16 @@ test("search reaches a match in a row that is not built", async ({
 
   await window.getByTitle("Search in diff").click();
   await window.getByPlaceholder("Find...").fill("zqneedle");
-  // Two matches: the first row of a.ts, and the last row of far.ts. Previous
-  // from the first wraps to the last, which starts out unbuilt.
+  // Two matches: the first row of a.ts, and the last row of far.ts, which
+  // starts out unbuilt. Next goes from the first to the second.
   await expect(window.locator("mark[data-match-index]").first()).toBeVisible({
     timeout: 10_000,
   });
-  await window.getByLabel("Previous match").click();
+  await expect(window.locator('mark[data-match-index="1"]')).toHaveCount(0);
+  await window.getByLabel("Next match").click();
 
   const last = window.locator('mark[data-match-index="1"]');
+  await expect(last).toHaveClass(/searchMatchActive/, { timeout: 10_000 });
   await expect(last).toBeInViewport({ timeout: 10_000 });
   const row = await last.evaluate(
     (el) => el.closest<HTMLElement>("[data-index]")?.dataset.index,
@@ -57,6 +59,68 @@ test("search reaches a match in a row that is not built", async ({
   await window.screenshot({
     path: test.info().outputPath("search-far-match.png"),
   });
+});
+
+test("a small diff builds every row, and scrolling never shows a gap", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  window.on("pageerror", (e) => errors.push(e.message));
+  window.on("console", (m) => {
+    if (m.type() === "error") errors.push(m.text());
+  });
+  await bootDiff(app, window, tempHome);
+
+  // a.ts's few rows are all built, as before.
+  const smallRows = window.locator('[data-file-path="a.ts"] [data-index]');
+  const indices = await smallRows.evaluateAll((rows) =>
+    rows.map((r) => Number((r as HTMLElement).dataset.index)),
+  );
+  expect(indices.length).toBeGreaterThan(2);
+  expect(indices).toEqual(indices.map((_, i) => i));
+
+  // Wheel down through far.ts at a reading pace; at every stop, wherever
+  // far.ts is on screen, a row is drawn there — never empty space.
+  const pane = (await window
+    .locator('[data-file-path="far.ts"]')
+    .boundingBox())!;
+  await window.mouse.move(pane.x + pane.width / 2, 400);
+  let sampled = 0;
+  for (let step = 0; step < 50; step++) {
+    await window.mouse.wheel(0, 360);
+    await window.waitForTimeout(60);
+    const gaps = await window.evaluate(() => {
+      const file = document.querySelector('[data-file-path="far.ts"]')!;
+      const box = file.getBoundingClientRect();
+      const header = file.firstElementChild!.getBoundingClientRect();
+      const scroller = file.closest<HTMLElement>("[class*=container]")!;
+      const view = scroller.getBoundingClientRect();
+      const x = box.left + box.width / 2;
+      const missing: number[] = [];
+      let points = 0;
+      for (
+        let y = Math.max(view.top, box.top) + 40;
+        y < Math.min(view.bottom, box.bottom) - 4;
+        y += 37
+      ) {
+        if (y < header.bottom + 2) continue;
+        points++;
+        const el = document.elementFromPoint(x, y);
+        if (!el?.closest("[data-index]") && !el?.closest("[class*=fileHeader]"))
+          missing.push(Math.round(y));
+      }
+      return { missing, points };
+    });
+    sampled += gaps.points;
+    expect(gaps.missing, `blank space in far.ts at step ${step}`).toEqual([]);
+  }
+  // The check looked at a lot of the file, not at nothing.
+  expect(sampled).toBeGreaterThan(300);
+  expect(errors.filter((e) => /Maximum update depth|#185/.test(e))).toEqual([]);
+  expect(errors).toEqual([]);
 });
 
 test("jumping to a comment reaches a row that is not built", async ({
@@ -177,6 +241,13 @@ test("copying a long drag selection includes rows that are not built", async ({
   // them, built or not.
   expect(lines.length - 1).toBe(lastIndex - firstIndex + 1);
   expect(text).toContain('"far2-100"');
+
+  // Comment on selection anchors the same whole range.
+  await window.keyboard.press("ControlOrMeta+Enter");
+  await expect(window.getByPlaceholder("Leave a comment…")).toBeVisible();
+  await expect(
+    window.locator("[data-diff-lines]").getByText(`L3–L${lastIndex}`),
+  ).toBeVisible();
 });
 
 test("a selection scrolled out of view still copies its own rows", async ({

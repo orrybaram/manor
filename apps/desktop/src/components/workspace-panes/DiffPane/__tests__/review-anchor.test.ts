@@ -5,6 +5,7 @@ import {
   selectionRowRange,
   selectionSnippet,
   selectionToAnchor,
+  setRowSource,
 } from "../review-anchor";
 
 /**
@@ -299,5 +300,68 @@ describe("selectionRowRange", () => {
     } finally {
       Selection.prototype.containsNode = real;
     }
+  });
+});
+
+describe("a selection over rows that are not built", () => {
+  /** Rows 0..99 as data; only rows 2 and 97 are in the document. */
+  function sparseList(): HTMLElement {
+    const container = buildDiffLines([
+      { index: 2, num: "3", content: " line 3" },
+      { index: 97, num: "98", content: " line 98" },
+    ]);
+    setRowSource(container, {
+      count: 100,
+      text: (i) => `${i + 1}:  line ${i + 1}`,
+      lineNumber: (i) => String(i + 1),
+    });
+    return container;
+  }
+
+  it("covers every row between its ends, built or not", () => {
+    const container = sparseList();
+    const sel = selectRows(
+      container,
+      { index: 2, offset: 0 },
+      { index: 97, offset: 3 },
+    );
+
+    const anchor = selectionToAnchor(sel)!;
+    expect(anchor.startIndex).toBe(2);
+    expect(anchor.endIndex).toBe(97);
+    expect(anchor.startLabel).toBe("L3–L98");
+    const lines = anchor.snippet.split("\n");
+    expect(lines).toHaveLength(96);
+    expect(lines[0]).toBe("3:  line 3");
+    expect(lines[50]).toBe("53:  line 53");
+    expect(selectionSnippet(sel)).toBe(anchor.snippet);
+    // Only the built rows are elements.
+    expect(rowsInSelection(sel).map((r) => r.dataset.index)).toEqual([
+      "2",
+      "97",
+    ]);
+  });
+
+  it("runs to the file's own last row when it ends past the file", () => {
+    const container = sparseList();
+    const after = document.createElement("p");
+    after.textContent = "after the diff";
+    document.body.appendChild(after);
+
+    const range = document.createRange();
+    range.setStart(
+      container.querySelector('[data-index="97"]')!.children[1].firstChild!,
+      0,
+    );
+    range.setEnd(after.firstChild!, 3);
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    expect(selectionRowRange(sel)).toEqual({
+      startIndex: 97,
+      endIndex: 99,
+      startLabel: "L98–L100",
+    });
   });
 });

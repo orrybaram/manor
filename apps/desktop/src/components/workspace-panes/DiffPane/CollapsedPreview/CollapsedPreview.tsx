@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import type { DiffFile } from "../types";
 import rowStyles from "../DiffLines/DiffLines.module.css";
 import styles from "./CollapsedPreview.module.css";
@@ -17,7 +18,12 @@ type CollapsedPreviewProps = {
  */
 export function CollapsedPreview(props: CollapsedPreviewProps) {
   const { file, onExpand } = props;
-  const code = file.lines.filter((line) => line.type !== "hunk");
+  const code = useMemo(
+    () => file.lines.filter((line) => line.type !== "hunk"),
+    [file.lines],
+  );
+  // A binary or renamed-only file has no lines to preview or show.
+  if (code.length === 0) return null;
   const shown = code.slice(0, PREVIEW_ROWS);
 
   return (

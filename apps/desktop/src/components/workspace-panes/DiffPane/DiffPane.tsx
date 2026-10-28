@@ -83,7 +83,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const [collapseChoices, setCollapseChoices] = useState<
       ReadonlyMap<string, boolean>
     >(new Map());
-    const collapsedRef = useRef<ReadonlySet<string>>(new Set());
+    const collapseDefaults = useRef(new Map<string, boolean>());
     const [showBackToTop, setShowBackToTop] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [searchOpen, setSearchOpen] = useState(false);
@@ -167,14 +167,20 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, []);
 
     const toggleFile = useCallback((path: string) => {
-      const open = collapsedRef.current.has(path);
-      setCollapseChoices((prev) => new Map(prev).set(path, !open));
+      setCollapseChoices((prev) => {
+        const closed =
+          prev.get(path) ?? collapseDefaults.current.get(path) ?? false;
+        return new Map(prev).set(path, !closed);
+      });
     }, []);
 
     /** Un-collapse a file, so anything anchored inside it has somewhere to go. */
     const revealFile = useCallback((path: string) => {
-      if (!collapsedRef.current.has(path)) return;
-      setCollapseChoices((prev) => new Map(prev).set(path, false));
+      setCollapseChoices((prev) => {
+        const closed =
+          prev.get(path) ?? collapseDefaults.current.get(path) ?? false;
+        return closed ? new Map(prev).set(path, false) : prev;
+      });
     }, []);
 
     const scrollToFile = useCallback(
@@ -288,9 +294,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
     const collapsed = useMemo(
-      () => collapsedFiles(files, collapseChoices),
+      () => collapsedFiles(files, collapseChoices, collapseDefaults.current),
       [files, collapseChoices],
     );
+    const collapsedRef = useRef(collapsed);
     collapsedRef.current = collapsed;
 
     const review = useDraftReview({
@@ -871,7 +878,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                           <DiffLines
                             lines={file.lines}
                             filePath={file.path}
-                            searchQuery={searchQuery}
+                            // A file closing keeps its rows for the animation,
+                            // but its matches no longer count.
+                            searchQuery={
+                              collapsed.has(file.path) ? "" : searchQuery
+                            }
                             matchOffset={fileOffsets.get(file.path) ?? 0}
                             currentMatch={currentMatch}
                             renderRowExtra={annotations?.renderRowExtra}

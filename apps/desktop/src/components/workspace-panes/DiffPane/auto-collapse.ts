@@ -45,18 +45,27 @@ export function autoCollapseReason(file: DiffFile): AutoCollapseReason | null {
 
 /**
  * Which files are collapsed: the user's own choice for a file where they made
- * one, and otherwise the default for its size and kind. A choice holds as the
- * diff refreshes, so a file someone expanded stays expanded while an agent
- * keeps editing it; a file new to the diff gets the default.
+ * one, and otherwise the default the file got when it was first seen. Both
+ * hold as the diff refreshes, so a file someone expanded stays expanded while
+ * an agent keeps editing it, and a file that crosses the size line while
+ * being read does not snap shut under the reader.
+ *
+ * `defaults` remembers each path's default the first time it appears and is
+ * filled in here; the caller keeps it for as long as the pane is open.
  */
 export function collapsedFiles(
   files: DiffFile[],
   choices: ReadonlyMap<string, boolean>,
+  defaults: Map<string, boolean>,
 ): Set<string> {
   const collapsed = new Set<string>();
   for (const file of files) {
-    if (choices.get(file.path) ?? autoCollapseReason(file) !== null)
-      collapsed.add(file.path);
+    let byDefault = defaults.get(file.path);
+    if (byDefault === undefined) {
+      byDefault = autoCollapseReason(file) !== null;
+      defaults.set(file.path, byDefault);
+    }
+    if (choices.get(file.path) ?? byDefault) collapsed.add(file.path);
   }
   return collapsed;
 }

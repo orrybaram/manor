@@ -78,14 +78,11 @@ function moveToWorkspaceRoute(
       const store = deps.layoutStore;
       const body = await readBody();
       const target = targetOf(params);
-      let to: string;
+      let workspacePath: string;
+      let hostId: string | undefined;
       try {
-        const workspacePath = requireString(body, "workspacePath");
-        // Without one, the host of the project that has the path.
-        const hostId =
-          optionalString(body, "hostId") ||
-          deps.projectManager?.hostIdForPath(workspacePath);
-        to = workspaceKey(hostId || LOCAL_HOST_ID, workspacePath);
+        workspacePath = requireString(body, "workspacePath");
+        hostId = optionalString(body, "hostId");
       } catch (err) {
         json(400, { error: err instanceof Error ? err.message : String(err) });
         return;
@@ -100,6 +97,9 @@ function moveToWorkspaceRoute(
         });
         return;
       }
+      // Without one, the source's host: a move never leaves its host, and a
+      // path a local project also has would otherwise resolve to local.
+      const to = workspaceKey(hostId || parseWorkspaceKey(from).hostId || LOCAL_HOST_ID, workspacePath);
       const result = await store.moveToWorkspace(from, target, to, ROUTE_ORIGIN, {
         check: projectWorkspaceCheck(deps.projectManager),
       });
@@ -328,13 +328,6 @@ export const structuralRoutes: Route[] = [
     }),
   },
 
-  moveToWorkspaceRoute("/panes/:paneId/move-to-workspace", ({ paneId }) => ({
-    paneId,
-  })),
-  moveToWorkspaceRoute("/tabs/:tabId/move-to-workspace", ({ tabId }) => ({
-    tabId,
-  })),
-
   {
     method: "DELETE",
     path: "/panes/:paneId",
@@ -469,4 +462,18 @@ export const structuralRoutes: Route[] = [
     },
     (_, command) => ({ tabId: command.newTab.id }),
   ),
+];
+
+/**
+ * The two move routes. Not host-scoped like `structuralRoutes`: without a
+ * `hostId` they take the source's host, which `hostScoped` would have
+ * overwritten with whichever host lists the path.
+ */
+export const moveToWorkspaceRoutes: Route[] = [
+  moveToWorkspaceRoute("/panes/:paneId/move-to-workspace", ({ paneId }) => ({
+    paneId,
+  })),
+  moveToWorkspaceRoute("/tabs/:tabId/move-to-workspace", ({ tabId }) => ({
+    tabId,
+  })),
 ];

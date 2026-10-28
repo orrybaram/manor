@@ -363,7 +363,7 @@ const tools: ToolDef[] = [
         hostId: {
           type: "string",
           description:
-            "Host of the target workspace. Defaults to the host of the project that has the path.",
+            "Host of the target workspace. Defaults to the host the pane or tab is on; a move never changes host.",
         },
       },
       required: ["paneId", "workspacePath"],
@@ -384,7 +384,7 @@ const tools: ToolDef[] = [
         hostId: {
           type: "string",
           description:
-            "Host of the target workspace. Defaults to the host of the project that has the path.",
+            "Host of the target workspace. Defaults to the host the pane or tab is on; a move never changes host.",
         },
       },
       required: ["tabId", "workspacePath"],

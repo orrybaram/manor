@@ -800,16 +800,16 @@ describe("panes/tabs routes", () => {
       expect(res.body.error).toMatch(/between hosts/);
     });
 
-    it("takes the host of the project that has the path when none is named", async () => {
+    it("takes the source's host when none is named, whichever host lists the path", async () => {
       deps.projectManager!.hostIdForPath = (p: string) => (p === OTHER_WS ? "box" : "local");
       const { paneId } = await seedTab(WS);
       const res = await call(paneRoute, deps, {
         params: { paneId },
         body: { workspacePath: OTHER_WS },
       });
-      // The target resolved to box's OTHER_WS, not this machine's.
-      expect(res.status).toBe(400);
-      expect(res.body.error).toMatch(/between hosts/);
+      // A move never leaves its host: this machine's OTHER_WS, not box's.
+      expect(res.body.error ?? "").not.toMatch(/between hosts/);
+      expect(res.body).toMatchObject({ workspacePath: OTHER_WS, hostId: "local" });
     });
 
     it("400s for an unknown pane or tab, or no workspacePath", async () => {

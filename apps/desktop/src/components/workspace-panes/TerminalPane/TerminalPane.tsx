@@ -22,6 +22,7 @@ import { Button } from "../../ui/Button/Button";
 import { ConvertToSubmenu } from "../ConvertToSubmenu";
 import { SplitWithSubmenu } from "../SplitWithSubmenu";
 import { PaneWindowMenuItems } from "../PaneWindowMenuItems";
+import { TerminalLinkMenuItems } from "./TerminalLinkMenuItems";
 import { TerminalSearch } from "./TerminalSearchBar";
 import { HostOfflineBanner } from "./HostOfflineBanner";
 import { onUiRequest } from "../../../utils/ui-request";
@@ -91,7 +92,7 @@ export function TerminalPane(props: TerminalPaneProps) {
   }, [paneId, openSearch]);
 
   const shown = useLayerShown();
-  const { ptyError, term, write, reset, follower } = useTerminalLifecycle(
+  const { ptyError, term, write, reset, follower, hoveredLink } = useTerminalLifecycle(
     containerRef,
     paneId,
     cwd,
@@ -110,8 +111,16 @@ export function TerminalPane(props: TerminalPaneProps) {
   const phone = useLayoutMode() === "phone";
   const touch = useTerminalTouch(containerRef, term, phone);
 
+  // The link right-clicked, taken as the menu opens: the pointer leaves the
+  // link for the menu straight after.
+  const [menuLink, setMenuLink] = useState<string | null>(null);
+  const onMenuOpenChange = (open: boolean) => {
+    touch.onMenuOpenChange(open);
+    if (open) setMenuLink(isWebApp() ? null : hoveredLink());
+  };
+
   return (
-    <ContextMenu.Root onOpenChange={touch.onMenuOpenChange}>
+    <ContextMenu.Root onOpenChange={onMenuOpenChange}>
       <ContextMenu.Trigger asChild {...touch.triggerProps}>
         <div
           ref={containerRef}
@@ -197,6 +206,9 @@ export function TerminalPane(props: TerminalPaneProps) {
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className={styles.contextMenu}>
+          {menuLink && (
+            <TerminalLinkMenuItems url={menuLink} paneId={paneId} containerRef={containerRef} />
+          )}
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={() => {

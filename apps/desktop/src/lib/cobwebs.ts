@@ -1,4 +1,5 @@
 import type { WorkspaceViewport } from "./layout/viewport";
+import type { WorkspaceLayout } from "./layout/workspace-layout";
 
 /**
  * Halloween cobwebs: during Halloween week, a tab nobody has looked at for a
@@ -45,25 +46,47 @@ export function frontTabIds(
   return ids;
 }
 
+/** Every tab in every workspace's layout. */
+export function allTabIds(layouts: Record<string, WorkspaceLayout>): Set<string> {
+  const ids = new Set<string>();
+  for (const layout of Object.values(layouts)) {
+    for (const panel of Object.values(layout.panels)) {
+      for (const tab of panel.tabs) ids.add(tab.id);
+    }
+  }
+  return ids;
+}
+
 /**
- * When each tab was last on show. A tab never seen leaving the front counts
- * from `startedAt`, so every tab starts clean when the window opens.
+ * When each tab was last on show. A tab first seen off the front counts from
+ * that moment, so a new tab, or one that was open when tracking began, starts
+ * clean.
  */
-export function createTabSightings(startedAt: number) {
+export function createTabSightings() {
   const lastSeen = new Map<string, number>();
   let front = new Set<string>();
   return {
-    /** Record the tabs on show now; any that just left the front were seen now. */
-    update(next: Set<string>, now: number): void {
+    /**
+     * Record the tabs on show now (`next`) among all open tabs (`all`): any
+     * that just left the front were seen now, and closed tabs are forgotten.
+     */
+    update(next: Set<string>, all: Set<string>, now: number): void {
       for (const tabId of front) {
         if (!next.has(tabId)) lastSeen.set(tabId, now);
       }
+      for (const tabId of all) {
+        if (!next.has(tabId) && !lastSeen.has(tabId)) lastSeen.set(tabId, now);
+      }
+      for (const tabId of lastSeen.keys()) {
+        if (!all.has(tabId)) lastSeen.delete(tabId);
+      }
       front = next;
     },
-    /** Milliseconds since the tab was last on show; 0 while it is. */
+    /** Milliseconds since the tab was last on show; 0 while it is, or if unknown. */
     unseenFor(tabId: string, now: number): number {
       if (front.has(tabId)) return 0;
-      return Math.max(0, now - (lastSeen.get(tabId) ?? startedAt));
+      const seen = lastSeen.get(tabId);
+      return seen === undefined ? 0 : Math.max(0, now - seen);
     },
   };
 }

@@ -1,6 +1,6 @@
 import { useId } from "react";
 import { cobwebLevel } from "../../../lib/cobwebs";
-import { tabUnseenFor } from "../../../store/tab-sightings";
+import { tabUnseenFor, useTabSightings } from "../../../store/tab-sightings";
 import {
   useHalloweenEffects,
   useMinuteClock,
@@ -63,6 +63,7 @@ export function TabDust(props: TabDustProps) {
 
   const now = useMinuteClock();
   const enabled = useHalloweenEffects();
+  useTabSightings(enabled);
   // `useId` ids hold colons, which `url(#…)` would need escaped.
   const id = useId().replace(/:/g, "");
   if (!enabled) return null;

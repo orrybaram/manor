@@ -145,7 +145,7 @@ type AnsweredQuestionProps = {
   entry: QuestionEntry;
 };
 
-/** A question Claude has its answer to, as one compact line. */
+/** A question Claude has its answer to, or that was declined, as one compact line. */
 export function AnsweredQuestion(props: AnsweredQuestionProps) {
   const { entry } = props;
 
@@ -153,7 +153,9 @@ export function AnsweredQuestion(props: AnsweredQuestionProps) {
   return (
     <div className={styles.answered} data-testid="chat-question-answered">
       <span className={styles.answeredTitle}>{title || "Question"}</span>
-      <span className={styles.answeredValue}>{answerSummary(entry.answer ?? "")}</span>
+      <span className={styles.answeredValue}>
+        {entry.declined ? "Declined" : answerSummary(entry.answer ?? "")}
+      </span>
     </div>
   );
 }

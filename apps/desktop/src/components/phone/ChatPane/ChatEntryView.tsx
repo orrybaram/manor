@@ -3,7 +3,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import { summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
+import { isOpenPicker, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
 import { EditCard } from "./EditCard";
@@ -66,7 +66,7 @@ export function ChatEntryView(props: ChatEntryViewProps) {
     case "edit":
       return <EditCard entry={entry} />;
     case "question":
-      return entry.answer === null ? (
+      return isOpenPicker(entry) ? (
         <QuestionCard
           paneId={paneId}
           entry={entry}

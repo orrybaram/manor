@@ -345,3 +345,116 @@ describe("TranscriptStream — bounded reads", () => {
     expect(latest().get("mb")).toMatchObject({ text: "\u{1F600} end" });
   });
 });
+
+/**
+ * A file changing under the tailer, after Orca's transcript-watch tests.
+ * A partial trailing line and a character split across two appends are in
+ * `mirror.test.ts` ("holds a partial trailing line…"), triggers coalescing
+ * there too ("never overlaps reads…"), and an oversized record above.
+ */
+describe("TranscriptStream — a file changing under it", () => {
+  let dir: string;
+  let file: string;
+  let reads: number;
+  let resets: number;
+  let pushes: { entry: ChatPush; publish: boolean }[];
+  let stream: TranscriptStream;
+
+  const local = new LocalTranscriptSource();
+  const source: TranscriptSource = {
+    read: (p, offset) => {
+      reads++;
+      return local.read(p, offset);
+    },
+  };
+
+  /** Entry pushes only, not usage or turn. */
+  function entryPushes(): { entry: ChatPush; publish: boolean }[] {
+    return pushes.filter((p) => p.entry.kind !== "turn" && p.entry.kind !== "usage");
+  }
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "chat-stream-"));
+    file = path.join(dir, "t.jsonl");
+    reads = 0;
+    resets = 0;
+    pushes = [];
+    stream = new TranscriptStream({
+      label: "test",
+      adapter: claudeAdapter,
+      pollIntervalMs: 60_000,
+      unwatchedPollIntervalMs: 60_000,
+      onPush: (entry, publish) => pushes.push({ entry, publish }),
+      onReset: () => resets++,
+    });
+    stream.point({ path: file, adapter: claudeAdapter, source }, false);
+    resets = 0;
+  });
+
+  afterEach(() => {
+    stream.release();
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("starts over, quietly, when the file is truncated and rewritten smaller", async () => {
+    fs.writeFileSync(file, user("u1", "first") + user("u2", "second") + user("u3", "third"));
+    await stream.read();
+    expect(entryPushes().map((p) => p.entry.id)).toEqual(["u1", "u2", "u3"]);
+
+    fs.writeFileSync(file, user("n1", "new"));
+    pushes = [];
+    await stream.read();
+    expect(resets).toBe(1);
+    // Re-read from the start as history, not published as new.
+    expect(entryPushes()).toEqual([{ entry: expect.objectContaining({ id: "n1", text: "new" }), publish: false }]);
+
+    fs.appendFileSync(file, user("n2", "after"));
+    pushes = [];
+    await stream.read();
+    expect(entryPushes()).toEqual([{ entry: expect.objectContaining({ id: "n2" }), publish: true }]);
+  });
+
+  // Only a shrink is noticed: `readNow` resets when `size < offset`. A file
+  // swapped by an atomic rename for a larger one reads on from the old
+  // offset, into the middle of a line. Noticing it needs an identity check
+  // (inode, or the bytes before the offset), which the source doesn't give.
+  it.todo("starts over when the file is replaced by a larger one (atomic rename)");
+
+  it("lands a burst of appends between reads in one read, in order", async () => {
+    fs.writeFileSync(file, user("u0", "start"));
+    await stream.read();
+    reads = 0;
+    pushes = [];
+    for (let i = 1; i <= 50; i++) fs.appendFileSync(file, user(`u${i}`, `line ${i}`));
+    await Promise.all([stream.read(), stream.read(), stream.read()]);
+    expect(reads).toBe(1);
+    expect(entryPushes().map((p) => p.entry.id)).toEqual(Array.from({ length: 50 }, (_, i) => `u${i + 1}`));
+    expect(entryPushes().every((p) => p.publish)).toBe(true);
+  });
+
+  it("skips empty and malformed lines, naming the rest by their offsets as a full read does", async () => {
+    const parts = [
+      "\n",
+      user("u1", "héllo"),
+      "{not json\n",
+      "   \n",
+      line({ type: "system", subtype: "compact_boundary" }),
+      '"just a string"\n',
+      user(null, "no uuid"),
+      user("u2", "end"),
+    ];
+    const all = parts.join("");
+    fs.writeFileSync(file, "");
+    // Appended a part at a time, a read after each.
+    for (const p of parts) {
+      fs.appendFileSync(file, p);
+      await stream.read();
+    }
+    const seen = new Map<string, ChatPush>();
+    for (const { entry } of entryPushes()) seen.set(entry.id, entry);
+    expect([...seen.values()]).toEqual(fullRead(file));
+    const offset = (part: number) => Buffer.byteLength(parts.slice(0, part).join(""), "utf8");
+    expect([...seen.keys()]).toEqual(["u1", `@${offset(4)}`, `@${offset(6)}`, "u2"]);
+    expect(Buffer.byteLength(all, "utf8")).toBe(fs.statSync(file).size);
+  });
+});

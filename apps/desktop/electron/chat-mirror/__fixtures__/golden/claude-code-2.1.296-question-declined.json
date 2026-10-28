@@ -1,0 +1,51 @@
+{
+  "turnState": "working",
+  "contextTokens": 140602,
+  "skills": 0,
+  "entries": [
+    {
+      "kind": "question",
+      "id": "toolu_607wotM9AjvUUdxSjwOkoD0L",
+      "ts": "2026-01-01T00:00:07.852Z",
+      "questions": [
+        {
+          "question": "NON-929 (nulla 2, \"Qui aute esse est sint\") et officia ad ~/d1/d2/d3/d4/d5/.d6 Sit sunt mollit laborum sed consequat non qui pariatur, adipiscing, tempor est labore. Sit eiusmod culpa lorem nostrud anim sed non amet, elit ullamco enim quis laboris qui est",
+          "header": "SIT-963",
+          "options": [
+            {
+              "label": "Aliquip, ipsum sed 14 (Consectetur)",
+              "description": "Non qui commodo ex incididunt dolor ea est magna-sit-907 occaecat, voluptate nisi sed."
+            },
+            {
+              "label": "Officia laborum dolore 13",
+              "description": "Duis non qui-EST aliqua (In) sit aute id sed l minim NON."
+            },
+            {
+              "label": "Irure esse qui Sint",
+              "description": "Sunt eiusmod 1–4 (est loremipsumdolorsi proident) do velit sit SED nulla, anim non amet."
+            },
+            {
+              "label": "Nostrud culpa",
+              "description": "I'ut veniam qui EST sit elit lorem cillum deserunt et ipsum."
+            }
+          ],
+          "multiSelect": false
+        }
+      ],
+      "answer": null,
+      "declined": true
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000011:0",
+      "ts": "2026-01-01T00:03:52.085Z",
+      "text": "EST-930 ut commodo et `~/d1/d2/d3/d4/d5/`, amet 14 officia. Laborum ad nulla sit.\n\nElit culpa sed enim ex eiusmod? Non lorem quis ipsum t fugiat nisi:\n\n- **Qui est dolor I duis aute SIT-974 esse'u:**\n  - **Ea (mollit 13):** sed sint tempor nostrud non qui'l est `magna` SIT. Sunt minim sed non 918 in qui anim deserunt est voluptate.\n  - **Id:** amet pariatur occaecat sit sed irure velit do non elit labore. Proident dolore nulla ullamco enim qui aliqua incididunt ut culpa; laboris et ad est veniam ex quis sit lorem 3.\n- **Ea (cillum sed aliquip nisi non qui):** in duis aute est esse. Sit commodo officia sed sint sunt ipsum non qui deserunt id dolor est laborum, sit magna e fugiat minim. Do anim irure amet sed elit mollit, non qui'd enim quis.\n- **Velit:** est ut SIT-952'm nulla-2 nisi et ad sed NON. Eiusmod 1–4 qui excepteur duis tempor ex pariatur, est culpa aute ea lorem sit SED ipsum."
+    },
+    {
+      "kind": "user",
+      "id": "00000000-0000-4000-8000-000000000016",
+      "ts": "2026-01-01T00:04:03.881Z",
+      "text": "Labore in occaecat adipiscing non QUI est incididunt nostrud"
+    }
+  ]
+}

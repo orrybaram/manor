@@ -102,6 +102,22 @@ describe("TranscriptParser", () => {
     expect((answered as { answer: string }).answer).toContain("Red");
   });
 
+  it("marks a question declined, with no answer, when its result is an error", () => {
+    const p = new TranscriptParser();
+    p.push(assistant("a1", [{ type: "tool_use", id: "q1", name: "AskUserQuestion", input: { questions: QUESTIONS } }]));
+    const [declined] = p.push(
+      userBlocks("u2", [
+        {
+          type: "tool_result",
+          content: "The user doesn't want to proceed with this tool use.",
+          is_error: true,
+          tool_use_id: "q1",
+        },
+      ]),
+    );
+    expect(declined).toEqual({ kind: "question", id: "q1", ts: T, questions: QUESTIONS, answer: null, declined: true });
+  });
+
   it("parses a plan and its outcome", () => {
     const p = new TranscriptParser();
     const [plan] = p.push(
@@ -301,6 +317,32 @@ describe("TranscriptParser", () => {
       expect(p.entries()).toHaveLength(1);
     });
 
+    it("reads a local command written as system lines, as 2.1.308 does", () => {
+      const p = new TranscriptParser();
+      const system = (uuid: string, content: string) => line({ type: "system", subtype: "local_command", uuid, content });
+      expect(
+        p.push(
+          system(
+            "s1",
+            "<command-name>/login</command-name>\n            <command-message>login</command-message>\n            <command-args></command-args>",
+          ),
+        ),
+      ).toEqual([{ kind: "command", id: "s1", ts: T, name: "login", args: "" }]);
+      expect(p.push(system("s2", "<local-command-stdout>Login successful</local-command-stdout>"))).toEqual([
+        { kind: "command", id: "s1", ts: T, name: "login", args: "", output: "Login successful" },
+      ]);
+      expect(p.entries()).toHaveLength(1);
+    });
+
+    it("attaches a system line's stdout to a user-line command, as 2.1.302 writes them", () => {
+      const p = new TranscriptParser();
+      p.push(userBlocks("c1", "<command-name>/cost</command-name>"));
+      const r = p.push(
+        line({ type: "system", subtype: "local_command", uuid: "s1", content: "<local-command-stdout>$1.23</local-command-stdout>" }),
+      );
+      expect(r).toEqual([{ kind: "command", id: "c1", ts: T, name: "cost", args: "", output: "$1.23" }]);
+    });
+
     it("drops empty stdout, orphan stdout and caveats", () => {
       const p = new TranscriptParser();
       expect(
@@ -353,6 +395,21 @@ describe("TranscriptParser", () => {
       expect(e).toMatchObject({ id: "b1" });
       expect(e.kind === "command" && e.output?.length).toBe(4000);
       expect(p.entries()).toHaveLength(1);
+    });
+
+    it("shows no output for Claude Code's no-output placeholder", () => {
+      const p = new TranscriptParser();
+      p.push(userBlocks("b1", "<bash-input>true</bash-input>"));
+      expect(
+        p.push(userBlocks("b2", "<bash-stdout>(Bash completed with no output)</bash-stdout><bash-stderr></bash-stderr>")),
+      ).toEqual([]);
+      expect(p.entries()).toEqual([{ kind: "command", id: "b1", ts: T, name: "true", args: "", shell: true }]);
+      // Stderr alongside it still shows.
+      p.push(userBlocks("b3", "<bash-input>false</bash-input>"));
+      const [e] = p.push(
+        userBlocks("b4", "<bash-stdout>(Bash completed with no output)</bash-stdout><bash-stderr>oops</bash-stderr>"),
+      );
+      expect(e).toMatchObject({ id: "b3", output: "oops" });
     });
 
     it("does not attach shell output to a slash command, or stdout to nothing", () => {
@@ -841,6 +898,11 @@ describe("TranscriptParser — turn state", () => {
         content: "<local-command-stdout>Set model to opus</local-command-stdout>",
       }),
     );
+    expect(p.turnState()).toBe("done");
+    // Written as system lines (2.1.308), the same.
+    p.push(line({ type: "system", subtype: "local_command", uuid: "m1", content: "<command-name>/login</command-name>" }));
+    expect(p.turnState()).toBe("working");
+    p.push(line({ type: "system", subtype: "local_command", uuid: "m2", content: "<local-command-stdout>ok</local-command-stdout>" }));
     expect(p.turnState()).toBe("done");
     // A skill command does start a turn; a later stray output doesn't undo the reply.
     p.push(userBlocks("c3", "<command-name>/review</command-name><command-args></command-args>"));

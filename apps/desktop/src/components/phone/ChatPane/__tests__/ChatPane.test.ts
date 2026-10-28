@@ -177,6 +177,17 @@ describe("ChatPane — entries", () => {
     expect(all("chat-question-answered")[0].textContent).toContain("Alpha");
   });
 
+  it("shows a declined question as declined, and never as an open card", async () => {
+    installChat({
+      ok: true,
+      contextTokens: null,
+      entries: [{ ...question("q1", [{ multiSelect: false, header: "Pick" }]), declined: true }],
+    });
+    await renderChat();
+    expect(all("chat-question")).toHaveLength(0);
+    expect(all("chat-question-answered")[0].textContent).toBe("PickDeclined");
+  });
+
   it("shows a shell command as \"! <cmd>\" and a slash command as \"/<name>\"", async () => {
     installChat({
       ok: true,

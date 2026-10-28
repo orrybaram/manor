@@ -204,7 +204,7 @@ class PaneMirror {
 }
 
 function isOpenPicker(entry: ChatEntry): boolean {
-  if (entry.kind === "question") return entry.answer === null;
+  if (entry.kind === "question") return entry.answer === null && entry.declined !== true;
   if (entry.kind === "plan") return entry.outcome === null;
   return false;
 }

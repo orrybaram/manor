@@ -47,7 +47,10 @@ export type ChatEntry =
       id: string;
       ts: string;
       questions: PickerQuestion[];
+      /** Null until answered; stays null when declined. */
       answer: string | null;
+      /** The user declined it: its result was an error, not an answer. */
+      declined?: true;
       /**
        * Set by the mirror (`mirror.ts`), never by the parser: the chat sent an
        * answer and no `tool_result` followed in time.
@@ -185,6 +188,8 @@ const META_PREFIXES = [
   "This session is being continued from a previous conversation",
   "Caveat: The messages below were generated",
 ];
+/** What Claude Code writes as a `!` command's stdout when there was none. */
+const NO_BASH_OUTPUT = "(Bash completed with no output)";
 /** Claude Code's marker for a turn the user stopped, with or without "for tool use". */
 const INTERRUPT_PREFIX = "[Request interrupted by user";
 /**
@@ -635,9 +640,16 @@ export class TranscriptParser {
       this.skillListing(att);
       return [];
     }
-    // A local command's output, written as a system line: it started no turn.
+    // A local command written as system lines (2.1.308 on): the command
+    // itself, then its output. Read as the user-line forms are, so the
+    // output attaches to the command and the turn it didn't start is restored.
     if (type === "system" && parsed.subtype === "local_command") {
-      if (str(parsed.content)?.includes("<local-command-stdout>")) this.localCommandRan();
+      const content = str(parsed.content) ?? "";
+      const lead = content.trimStart();
+      if (lead.startsWith("<command-name>") || lead.startsWith("<local-command-stdout>")) {
+        const e = this.userText(uuid, ts, content);
+        return e ? [e] : [];
+      }
       return [];
     }
     // Compaction: show the boundary, not the summary that follows it.
@@ -776,6 +788,7 @@ export class TranscriptParser {
     if (lead.startsWith("<bash-stdout>") || lead.startsWith("<bash-stderr>")) {
       const out = [tagText(text, "bash-stdout"), tagText(text, "bash-stderr")]
         .map((s) => (s ?? "").trim())
+        .filter((s) => s !== NO_BASH_OUTPUT)
         .filter(Boolean)
         .join("\n");
       const existing = this.lastCommandId
@@ -870,7 +883,8 @@ export class TranscriptParser {
         break;
       }
       case "question":
-        next = { ...existing, answer: text };
+        // A declined question has no answer to show; the error says why.
+        next = isError ? { ...existing, answer: null, declined: true } : { ...existing, answer: text };
         break;
       case "plan":
         next = { ...existing, outcome: text };

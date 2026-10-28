@@ -1,0 +1,57 @@
+{
+  "turnState": "working",
+  "contextTokens": 208404,
+  "skills": 0,
+  "entries": [
+    {
+      "kind": "task",
+      "id": "toolu_24SGS17SiEJgN7wRPt9arWDT",
+      "ts": "2026-01-01T00:00:19.235Z",
+      "taskKind": "agent",
+      "title": "Magna labore-dolore minim nisi irure",
+      "agentType": "general-purpose",
+      "background": true,
+      "status": "running",
+      "taskRef": "3e594030ace932421"
+    },
+    {
+      "kind": "task",
+      "id": "toolu_981nWR7iFU3vGeVJ6NImjnW4",
+      "ts": "2026-01-01T00:00:34.832Z",
+      "taskKind": "agent",
+      "title": "Sed nulla non QUI-930 In/Id/Do",
+      "agentType": "Explore",
+      "background": true,
+      "status": "ok",
+      "taskRef": "c799184691102b358",
+      "result": "Lorem \"Non ipsum qui EST-930 Ex/Ea/In\" occaecat"
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-000000000016:0",
+      "ts": "2026-01-01T00:01:21.421Z",
+      "text": "Sint consecteturadi sit irure laborum. N'et velit sed NON sunt anim veniam, ad qui nulla est ex culpa ea amet elit enim."
+    },
+    {
+      "kind": "tool",
+      "id": "toolu_33BSap52ZoRBVKgvijICG9tG",
+      "ts": "2026-01-01T00:01:22.662Z",
+      "name": "ScheduleWakeup",
+      "summary": "ScheduleWakeup",
+      "status": "ok",
+      "detail": "Duis cillum excepteur qui 17:43:00 (et ipsum). Ad est sit sed aute p fugiat mollit esse sint, dolor ex non ea proident deserunt sunt; anim qui est amet — sit ullamco in-laboris sed elit non tempor magna id s enim-exercitation aliquip."
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-00000000001e:0",
+      "ts": "2026-01-01T00:01:30.067Z",
+      "text": "C'do nisi QUI-974 ut EST-918, sit dolore-minim duis sed non Qui aliqua aute. Est eiusmodtempori sit irure commodo et sed incididunt:\n- **Non velit nulla.** Ad culpa qui esse sint est lorem ex cupidatat sit officia ea sed laborum sunt.\n- **Non Qui anim.** In veniam est sit eiusmod-ipsum'q-amet, elit-enim sed quis-dolor nisi (NON-952'o Id, Do qui Ut) magna et nostrud est ad sit.\n\n**Ullamco laboris sed non QUI:**\n- **Duis \"aute aliquip\" minim:** esse commodo irure Cillum. Officia est Adipiscing ex consequat ea sint laborum (in eiusmod, sunt, sit id pariatur), do sed anim fugiat amet occaecat mollit, consectetur tempor ut elit non nostrud enim d velit labore. Qui ullamco quis est sit incididunt nisi, et `~/.m\n- **A dolore sed ad non Adipiscing proident, nulla ex ea voluptate in i laboris:** qui `aliqua` veniam aliquip `deserunt` pariatur est sit sed'e culpa. Duis non cillum id `occaecat`, qui excepteur aute lorem (`proident/commodo/esse-incididunt.do:996`). Ut l est sint sunt officia et ipsum ad laborum \n- **Sit \"sed fugiat\" anim:** ex amet mollit non eiusmod elit NOSTRUD tempor enim quis ullamco qui est adipiscing, laboris nisi ea labore in l duis dolor. Magna id'i dolore, sit aliquip do sed, aute commodo ut et non qui, est sit minim irure officia. Esse sed laborum ad aliqua sint ex Velit, non ea d\n\nSunt qui temporincididu veniam, S'in nulla est SIT sed eiusmod, cillum anim (deserunt culpa, id Do-Pariatur-Ut nostrud), ullamco non lorem-occaecat cupidatat amet qui ipsum est, sit elit enim sed quis proident."
+    },
+    {
+      "kind": "assistant",
+      "id": "00000000-0000-4000-8000-00000000002a:0",
+      "ts": "2026-01-01T00:03:59.037Z",
+      "text": "Sit Sed-non labore et ad: Ex qui Ea est in dolore sit id sed, non do qui Ut, aliqua et minim irure 3 aliquip est sit. Velit commodo ad sed nulla culpa."
+    }
+  ]
+}

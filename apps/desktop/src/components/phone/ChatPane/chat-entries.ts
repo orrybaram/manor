@@ -33,9 +33,9 @@ export function mergeHistory(
   return [...history, ...live.filter((e) => !known.has(e.id))];
 }
 
-/** An open picker: a question with no answer yet, or a plan with no outcome. */
+/** An open picker: a question neither answered nor declined, or a plan with no outcome. */
 export function isOpenPicker(entry: ChatEntry): boolean {
-  if (entry.kind === "question") return entry.answer === null;
+  if (entry.kind === "question") return entry.answer === null && entry.declined !== true;
   if (entry.kind === "plan") return entry.outcome === null;
   return false;
 }

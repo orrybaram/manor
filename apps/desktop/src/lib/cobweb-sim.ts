@@ -8,7 +8,7 @@ import type { CobwebLevel } from "./cobwebs";
  * away and fades. Pure: no DOM, so it can be stepped in a test.
  */
 
-export type WebPoint = {
+type WebPoint = {
   x: number;
   y: number;
   /** Where the point was a step ago; the difference is its velocity. */
@@ -21,7 +21,7 @@ export type WebPoint = {
   falling: boolean;
 };
 
-export type Strand = {
+type Strand = {
   a: number;
   b: number;
   rest: number;

@@ -64,8 +64,8 @@ type TabDustProps = {
 export function TabDust(props: TabDustProps) {
   const { tabId, isActive } = props;
 
-  const now = useMinuteClock();
   const enabled = useHalloweenEffects();
+  const now = useMinuteClock(enabled);
   useTabSightings(enabled);
   // `useId` ids hold colons, which `url(#…)` would need escaped.
   const id = useId().replace(/:/g, "");

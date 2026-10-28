@@ -27,9 +27,11 @@ function subscribe(listener: () => void): () => void {
   };
 }
 
-/** The current time, to the minute. */
-export function useMinuteClock(): number {
-  return useSyncExternalStore(subscribe, () => now);
+const idle = () => () => {};
+
+/** The current time, to the minute; frozen (and no timer) while not `active`. */
+export function useMinuteClock(active = true): number {
+  return useSyncExternalStore(active ? subscribe : idle, () => now);
 }
 
 /**
@@ -37,8 +39,10 @@ export function useMinuteClock(): number {
  * anything but the phone layout.
  */
 export function useHalloweenEffects(): boolean {
-  const clock = useMinuteClock();
   const enabled = usePreferencesStore((s) => s.preferences.halloweenEffects);
   const phone = useLayoutMode() === "phone";
+  // With the setting off or on a phone, nothing ticks at all; otherwise the
+  // clock is what notices Oct 25 arriving.
+  const clock = useMinuteClock(enabled && !phone);
   return enabled && !phone && isHalloweenWeek(new Date(clock));
 }

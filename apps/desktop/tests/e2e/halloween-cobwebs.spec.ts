@@ -143,6 +143,13 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await window.mouse.move(5, 5);
   await window.screenshot({ path: shot(testInfo, "wipe-after-dark") });
 
+  // The third tab, away 6 min: one small web in the top-right corner.
+  await visit(window, 2, 0);
+  await expect(cobwebs(window)).toHaveAttribute("data-cobwebs", "webs");
+  await window.mouse.move(5, 5);
+  await window.waitForTimeout(800);
+  await window.screenshot({ path: shot(testInfo, "webs-level1-dark") });
+
   // Straight back to a swept tab: only the leftovers, nothing regrown.
   await visit(window, 3, 1);
   await visit(window, 0, 0);
@@ -160,6 +167,11 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await window.mouse.move(5, 5);
   await window.waitForTimeout(800);
   await window.screenshot({ path: shot(testInfo, "webs-level2-light") });
+  await visit(window, 1, 0);
+  await expect(cobwebs(window)).toHaveAttribute("data-cobwebs", "webs");
+  await window.mouse.move(5, 5);
+  await window.waitForTimeout(800);
+  await window.screenshot({ path: shot(testInfo, "webs-level3-light") });
 
   // A browser tab gathers dust like any other, but never webs.
   await window.keyboard.press("ControlOrMeta+Shift+b");

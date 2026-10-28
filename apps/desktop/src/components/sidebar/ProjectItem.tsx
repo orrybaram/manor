@@ -58,6 +58,7 @@ import { ProjectHeaderActions } from "./ProjectHeaderActions";
 import { useWorkspaceAgentStatus } from "../../hooks/useWorkspaceAgentStatus";
 import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
+import { useMoveDragSourceProject, useWorkspaceMoveDrop } from "./useWorkspaceMoveDrop";
 import { HostIndicator } from "../hosts/HostIndicator";
 import { hostSentenceName, memberDisplayName, useServerHostName } from "../../bridge/server-set";
 import { useHostAway } from "../../hooks/useHostAway";
@@ -131,6 +132,8 @@ interface WorkspaceItemProps {
   onEditClick: (e: React.MouseEvent) => void;
   onEditPointerDown: (e: React.PointerEvent) => void;
   onOpenDiff?: () => void;
+  /** Its project or host section is faded for a pane or tab drag already. */
+  inFadedSection: boolean;
 }
 
 const WorkspaceItem = React.forwardRef<
@@ -165,6 +168,7 @@ const WorkspaceItem = React.forwardRef<
     onEditClick,
     onEditPointerDown,
     onOpenDiff,
+    inFadedSection,
     ...rest
   } = props;
 
@@ -172,6 +176,10 @@ const WorkspaceItem = React.forwardRef<
     workspaceKey(hostId, ws.path),
   );
   const workspaceIndicator = toWorkspaceIndicator(workspaceStatus, workspacePulse);
+  // A pane or tab dragged over this row moves here. A row of another project
+  // or host fades with its whole section; this fades only the source row.
+  const moveDrop = useWorkspaceMoveDrop(workspaceKey(hostId, ws.path));
+  const moveDropOut = moveDrop.state === "invalid" && !inFadedSection;
   const { onCelebrate, celebrationProps } = useCelebration();
   // A remote workspace's PR badge comes from the box's own `gh`; where that
   // isn't signed in there is none to show, and this says why.
@@ -202,7 +210,7 @@ const WorkspaceItem = React.forwardRef<
       className={`${styles.workspace} ${isActive
           ? styles.workspaceActive
           : ""
-        } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isGroupDragging ? styles.workspaceGroupDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""}${rest.className ? ` ${rest.className}` : ""}`}
+        } ${isSelected ? styles.workspaceSelected : ""} ${isDragging ? styles.workspaceDragging : ""} ${isGroupDragging ? styles.workspaceGroupDragging : ""} ${isDeleting ? styles.workspaceDeleting : ""} ${moveDropOut ? styles.moveDropOut : ""} ${moveDrop.hot ? styles.moveDropHot : ""}${rest.className ? ` ${rest.className}` : ""}`}
       style={{ ...dragStyle, ...rest.style }}
       onClick={(e) => {
         if (!justDragged.current) onRowClick(e);
@@ -213,6 +221,8 @@ const WorkspaceItem = React.forwardRef<
         rest.onKeyDown?.(e);
       }}
       onPointerDown={onPointerDown}
+      {...moveDrop.handlers}
+      data-move-drop={moveDrop.state === "off" ? undefined : moveDrop.state}
     >
       {isEditing ? (
         <>
@@ -448,6 +458,10 @@ export function ProjectItem(props: ProjectItemProps) {
   } = props;
 
   const isSection = variant === "section";
+  // While a pane or tab is dragged, a project (or host section) it can't
+  // move into fades back whole: header, folders and rows.
+  const moveSource = useMoveDragSourceProject();
+  const moveFaded = moveSource !== undefined && moveSource !== project.id;
 
   const expanded = !collapsed;
   // On a phone, the name of the machine behind this project: the desktop's
@@ -872,6 +886,7 @@ export function ProjectItem(props: ProjectItemProps) {
         onEditClick={(e) => e.stopPropagation()}
         onEditPointerDown={(e) => e.stopPropagation()}
         onOpenDiff={() => onOpenDiff?.(globalIdx)}
+        inFadedSection={moveFaded}
       />
     );
 
@@ -1224,13 +1239,13 @@ export function ProjectItem(props: ProjectItemProps) {
 
   return (
     <div
-      className={
+      className={`${
         isSection
           ? styles.section
           : `${styles.project} ${isSelected ? styles.projectSelected : ""} ${
               hostOffline ? styles.sectionOffline : ""
             }`
-      }
+      } ${moveFaded ? styles.moveDropOut : ""}`}
       data-host-offline={hostOffline || undefined}
       style={projectColorStyle(project.color)}
     >

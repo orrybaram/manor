@@ -19,6 +19,7 @@ import { useProjectStore } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { isHomePath } from "../../../lib/home";
 import { useDragOverlayStore } from "../../../store/drag-overlay-store";
+import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
 import { useSidebarSelectionStore } from "../../../store/sidebar-selection-store";
 import {
   handleSidebarRowKeyDown,
@@ -76,6 +77,9 @@ export function Sidebar(props: SidebarProps) {
   // ahead of the drawer's scroll and a long-press opening a row's context
   // menu, and no touch idiom needs reordering the sidebar.
   const isPhone = useLayoutMode() === "phone";
+  // Home and the rows beside it take no pane or tab dropped on them: they
+  // fade back while one is dragged, as other projects do.
+  const paneDragging = usePaneDrag().drag !== null;
   const activeWorkspacePath = useAppStore((s) => s.activeWorkspacePath);
   const tasksActive = useAppStore((s) => s.activeSurface === "tasks");
   // While the Tasks view is shown neither Home nor any project is
@@ -244,7 +248,10 @@ export function Sidebar(props: SidebarProps) {
         <div className={styles.content}>
           {/* The menu: destinations, set apart from the lists below by a
               rule. */}
-          <nav className={styles.nav} aria-label="Main">
+          <nav
+            className={`${styles.nav} ${paneDragging ? styles.navMoveDropOut : ""}`}
+            aria-label="Main"
+          >
             <div
               className={`${styles.homeRow} ${homeActive ? styles.homeRowActive : ""}`}
               data-testid="home-row"

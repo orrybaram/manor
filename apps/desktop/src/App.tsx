@@ -744,6 +744,9 @@ function App() {
                 width instead of swapping views at a new size. In phone mode the
                 sidebar is a drawer instead, never rendered inline — it would
                 eat the whole screen at phone width. */}
+            {/* Around the sidebar too: its workspace rows take a pane or
+                tab dropped on them (`useWorkspaceMoveDrop`). */}
+            <PaneDragProvider>
             {hasProjects && layoutMode === "desk" && (
               <div
                 className="sidebar-column"
@@ -766,7 +769,6 @@ function App() {
                 )}
               </div>
             )}
-            <PaneDragProvider>
               <div
                 className={`main-content ${hasProjects && layoutMode === "desk" ? "" : "main-content--gutter-left"}`}
               >

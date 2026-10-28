@@ -91,6 +91,12 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
+  transition: opacity 120ms ease;
+}
+
+/* A pane or tab is being dragged, and none of these rows takes it. */
+.navMoveDropOut {
+  opacity: 0.3;
 }
 
 .navDivider {

@@ -261,7 +261,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     setTimeout(() => img.remove(), 0);
 
     // Signal an active pane drag so pane drop zones render and highlight.
-    startDrag({ type: "pane", paneId, grabOffset: dragGrabOffset.current });
+    startDrag({ type: "pane", paneId, grabOffset: dragGrabOffset.current, workspaceKey });
     tearOffCommitted.current = false;
     beginPointerTracking();
 

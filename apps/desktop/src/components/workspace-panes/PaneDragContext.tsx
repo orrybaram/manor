@@ -8,10 +8,17 @@ import {
 } from "react";
 import { useDragOverlayStore } from "../../store/drag-overlay-store";
 import { useLayoutMode } from "../../hooks/useLayoutMode";
+import type { WorkspaceKey } from "../../lib/workspace-key";
 
-export type DragPayload =
-  | { type: "tab"; tabId: string; grabOffset?: { x: number; y: number } }
-  | { type: "pane"; paneId: string; grabOffset?: { x: number; y: number } };
+/**
+ * A tab or pane being dragged. `workspaceKey` is the workspace it is in, so
+ * a sidebar row knows whether it may take the drop (another workspace of
+ * the same project); without it no row does.
+ */
+export type DragPayload = (
+  | { type: "tab"; tabId: string }
+  | { type: "pane"; paneId: string }
+) & { grabOffset?: { x: number; y: number }; workspaceKey?: WorkspaceKey };
 
 interface PaneDragContextValue {
   drag: DragPayload | null;

@@ -463,13 +463,17 @@ export function useTerminalLifecycle(
 
       // Derive agentKind from the project's agent command so MANOR_AGENT_KIND
       // is set in the PTY env for connector-aware spawns.
-      // The pane's project: its cwd on the pane's host (local when it has no key).
-      const cwdProject = cwd
+      // The workspace the pane is in now, not where its shell is: a pane
+      // moved to another workspace remounts with its shell's cwd still in
+      // the one it left, and an agent started in it later belongs here.
+      const contextPath = workspaceKey ? parseWorkspaceKey(workspaceKey).path : cwd;
+      // The pane's project: that workspace on the pane's host (local when it has no key).
+      const cwdProject = contextPath
         ? ownerOf(
             useProjectStore.getState().projects,
             makeWorkspaceKey(
               workspaceKey ? parseWorkspaceKey(workspaceKey).hostId : null,
-              cwd,
+              contextPath,
             ),
           )
         : undefined;
@@ -543,7 +547,7 @@ export function useTerminalLifecycle(
           if (resyncing) return;
 
           // Set pane context for agent association
-          if (cwd) {
+          if (contextPath) {
             const project = cwdProject;
 
             // Fire-and-forget call to set pane context
@@ -551,7 +555,7 @@ export function useTerminalLifecycle(
               .setPaneContext(paneId, {
                 projectId: project?.id ?? "",
                 projectName: project?.name ?? "",
-                workspacePath: cwd,
+                workspacePath: contextPath,
                 agentCommand: project?.agentCommand ?? null,
               })
               .catch(

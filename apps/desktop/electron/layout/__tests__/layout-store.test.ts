@@ -94,6 +94,9 @@ describe("LayoutStore", () => {
   let paneTitles: Array<{ paneId: string; title: string | null }>;
   let kill: ReturnType<typeof vi.fn>;
   let abandonForPanes: ReturnType<typeof vi.fn<AgentService["abandonForPanes"]>>;
+  let moveAgents: ReturnType<
+    typeof vi.fn<NonNullable<AgentService["moveToWorkspace"]>>
+  >;
   let store: LayoutStore;
 
   /** The tab each detached window was opened to hold, as main knows it. */
@@ -116,7 +119,7 @@ describe("LayoutStore", () => {
       (paneId, title) => {
         paneTitles.push({ paneId, title });
       },
-      { abandonForPanes },
+      { abandonForPanes, moveToWorkspace: moveAgents },
     );
   }
 
@@ -156,6 +159,7 @@ describe("LayoutStore", () => {
     paneTitles = [];
     kill = vi.fn().mockResolvedValue(undefined);
     abandonForPanes = vi.fn<AgentService["abandonForPanes"]>();
+    moveAgents = vi.fn<NonNullable<AgentService["moveToWorkspace"]>>();
     windowClaims = new Map();
     store = makeStore();
   });
@@ -163,6 +167,260 @@ describe("LayoutStore", () => {
   afterEach(() => {
     vi.useRealTimers();
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe("moveToWorkspace", () => {
+    const TARGET = "/project/feature" as WorkspaceKey;
+    const ORIGIN = { kind: "window", id: "primary" } as const;
+
+    function splitTab(id: string, first: string, second: string): Tab {
+      return {
+        id,
+        title: "Build",
+        rootNode: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", paneId: first },
+          second: { type: "leaf", paneId: second },
+        },
+      };
+    }
+
+    /** WS holds a split `tab-1` (pane-1 | pane-2) and `tab-2`; TARGET holds `tab-t`. */
+    async function seed(): Promise<void> {
+      await store.apply(WS, { type: "new-tab", tab: splitTab("tab-1", "pane-1", "pane-2") }, ORIGIN);
+      await store.apply(WS, { type: "new-tab", tab: leafTab("tab-2", "pane-3") }, ORIGIN);
+      await store.apply(TARGET, { type: "new-tab", tab: leafTab("tab-t", "pane-t") }, ORIGIN);
+      broadcasts = [];
+    }
+
+    function tabIds(workspacePath: string): string[] {
+      const entry = store.get(workspacePath)!;
+      return Object.values(entry.layout.panels).flatMap((p) => p.tabs.map((t) => t.id));
+    }
+
+    it("moves one pane of a split into a new tab of the target, ending nothing", async () => {
+      await seed();
+      store.recordSpawn("pane-2", "/project/main/src");
+
+      const result = await store.moveToWorkspace(WS, { paneId: "pane-2" }, TARGET, ORIGIN, {
+        newTabId: "tab-moved",
+      });
+
+      expect(result).toEqual({
+        workspacePath: TARGET,
+        tabId: "tab-moved",
+        paneId: "pane-2",
+        version: expect.any(Number),
+        hint: expect.objectContaining({
+          selectTab: expect.objectContaining({ tabId: "tab-moved" }),
+          focusPane: { tabId: "tab-moved", paneId: "pane-2" },
+        }),
+      });
+      expect(store.workspaceOf("pane-2")).toBe(TARGET);
+      expect(store.workspaceOf("pane-1")).toBe(WS);
+      expect(tabIds(TARGET)).toEqual(["tab-t", "tab-moved"]);
+      // The session row follows the pane; nothing is killed, now or later.
+      expect(store.get(TARGET)!.paneSessions["pane-2"]).toMatchObject({
+        lastCwd: "/project/main/src",
+      });
+      expect(store.get(WS)!.paneSessions["pane-2"]).toBeUndefined();
+      // The target's broadcast hands renderers back what they forgot when the
+      // pane left the source; the source's carries nothing.
+      const [fromCast, toCast] = broadcasts;
+      expect(fromCast.restored).toBeUndefined();
+      expect(toCast.restored).toEqual({
+        "pane-2": expect.objectContaining({ lastCwd: "/project/main/src" }),
+      });
+      vi.advanceTimersByTime(REOPEN_GRACE_MS * 2);
+      expect(kill).not.toHaveBeenCalled();
+      expect(abandonForPanes).not.toHaveBeenCalled();
+      expect(moveAgents).toHaveBeenCalledWith(["pane-2"], TARGET);
+    });
+
+    it("moves a whole tab, split and pinned state intact, and broadcasts both workspaces", async () => {
+      await seed();
+      await store.apply(WS, { type: "toggle-pin-tab", tabId: "tab-1" }, ORIGIN);
+      broadcasts = [];
+
+      const result = await store.moveToWorkspace(WS, { tabId: "tab-1" }, TARGET, ORIGIN);
+
+      expect(result).toMatchObject({ workspacePath: TARGET, tabId: "tab-1", paneId: "pane-1" });
+      expect(tabIds(WS)).toEqual(["tab-2"]);
+      const panel = Object.values(store.get(TARGET)!.layout.panels)[0];
+      expect(panel.tabs.map((t) => t.id)).toEqual(["tab-1", "tab-t"]);
+      expect(panel.tabs[0]).toEqual(splitTab("tab-1", "pane-1", "pane-2"));
+      expect(panel.pinnedTabIds).toEqual(["tab-1"]);
+
+      expect(broadcasts.map((b) => b.workspacePath)).toEqual([WS, TARGET]);
+      // Only the target's carries the sender's selection.
+      expect(broadcasts[0].hint).toBeUndefined();
+      expect(broadcasts[1].hint).toEqual("error" in result ? undefined : result.hint);
+      expect(broadcasts[1].origin).toEqual(ORIGIN);
+      expect(moveAgents).toHaveBeenCalledWith(["pane-1", "pane-2"], TARGET);
+    });
+
+    it("leaves the reopen stack alone: a move is not a close", async () => {
+      await seed();
+      await store.apply(WS, { type: "close-tab", tabId: "tab-2" }, ORIGIN);
+
+      await store.moveToWorkspace(WS, { tabId: "tab-1" }, TARGET, ORIGIN);
+      await store.apply(WS, { type: "reopen-closed-pane", newTabId: "tab-x" }, ORIGIN);
+
+      // What comes back is the closed tab, not the moved one.
+      expect(tabIds(WS)).toEqual(["tab-2"]);
+      expect(tabIds(TARGET)).toEqual(["tab-t", "tab-1"]);
+    });
+
+    it("leaves the source empty, not gone, when its last tab moves", async () => {
+      await store.apply(WS, { type: "new-tab", tab: leafTab("tab-1", "pane-1") }, ORIGIN);
+
+      await store.moveToWorkspace(WS, { tabId: "tab-1" }, TARGET, ORIGIN);
+
+      const source = store.get(WS)!;
+      expect(Object.keys(source.layout.panels)).toHaveLength(1);
+      expect(tabIds(WS)).toEqual([]);
+      // A target with no layout yet gets one.
+      expect(tabIds(TARGET)).toEqual(["tab-1"]);
+    });
+
+    it("lands in the primary window's active panel", async () => {
+      await seed();
+      await store.apply(
+        TARGET,
+        {
+          type: "split-panel-with-new-tab",
+          tab: leafTab("tab-u", "pane-u"),
+          direction: "horizontal",
+          newPanelId: "panel-right",
+          sourcePanelId: Object.keys(store.get(TARGET)!.layout.panels)[0],
+        },
+        ORIGIN,
+      );
+      store.reportViewport(TARGET, ORIGIN, {
+        activePanelId: "panel-right",
+        selectedTabIds: {},
+        focusedPaneIds: {},
+      });
+
+      await store.moveToWorkspace(WS, { paneId: "pane-3" }, TARGET, ORIGIN);
+
+      expect(store.get(TARGET)!.layout.panels["panel-right"].tabs.map((t) => t.id)).toEqual([
+        "tab-u",
+        "tab-2",
+      ]);
+    });
+
+    it("keeps a pane's queued command", async () => {
+      await seed();
+      store.pendingCommands.set("pane-3", "pnpm dev");
+
+      await store.moveToWorkspace(WS, { paneId: "pane-3" }, TARGET, ORIGIN);
+
+      expect(store.pendingCommands.peek("pane-3")).toMatchObject({ text: "pnpm dev" });
+    });
+
+    it("releases a detached window's claim on a tab that moved", async () => {
+      await seed();
+      report("window-2", "tab-1");
+      broadcasts = [];
+
+      await store.moveToWorkspace(WS, { tabId: "tab-1" }, TARGET, ORIGIN);
+
+      expect(store.claimsFor(WS)).toEqual([]);
+      expect(store.claimsFor(TARGET)).toEqual([]);
+      expect(broadcasts[0].claims).toEqual([]);
+    });
+
+    it("keeps a claim on a tab that only lost one of its panes", async () => {
+      await seed();
+      report("window-2", "tab-1");
+
+      await store.moveToWorkspace(WS, { paneId: "pane-2" }, TARGET, ORIGIN);
+
+      expect(store.claimsFor(WS)).toEqual([{ windowId: "window-2", tabId: "tab-1" }]);
+    });
+
+    it("persists both workspaces, the session with the pane", async () => {
+      await seed();
+      store.recordSpawn("pane-3", "/project/main");
+
+      await store.moveToWorkspace(WS, { paneId: "pane-3" }, TARGET, ORIGIN);
+      store.flush();
+
+      const file = readFile();
+      const target = file.workspaces.find((w) => w.workspacePath === TARGET)!;
+      const moved = Object.values(target.panels).flatMap((p) => p.tabs).find((t) => t.id === "tab-2")!;
+      expect(moved.paneSessions?.["pane-3"]).toMatchObject({ lastCwd: "/project/main" });
+      const source = file.workspaces.find((w) => w.workspacePath === WS)!;
+      expect(Object.values(source.panels).flatMap((p) => p.tabs.map((t) => t.id))).toEqual([
+        "tab-1",
+      ]);
+    });
+
+    it("runs in both workspaces' queues", async () => {
+      await seed();
+      // Sent back to back, unawaited: each waits its turn in both queues.
+      const added = store.apply(WS, { type: "new-tab", tab: leafTab("tab-3", "pane-4") }, ORIGIN);
+      const moved = store.moveToWorkspace(WS, { paneId: "pane-4" }, TARGET, ORIGIN);
+      const after = store.apply(
+        TARGET,
+        { type: "close-tab", tabId: "tab-3" },
+        ORIGIN,
+      );
+      await Promise.all([added, moved, after]);
+
+      expect(await moved).toMatchObject({ tabId: "tab-3" });
+      expect(store.workspaceOf("pane-4")).toBeNull();
+      expect(tabIds(TARGET)).toEqual(["tab-t"]);
+    });
+
+    describe("refuses, changing nothing", () => {
+      async function refused(
+        from: string,
+        target: { paneId: string } | { tabId: string },
+        to: string,
+        check?: () => Promise<string | null>,
+      ): Promise<string> {
+        await seed();
+        const before = { source: store.get(WS), target: store.get(TARGET) };
+        const result = await store.moveToWorkspace(from, target, to, ORIGIN, { check });
+        expect(store.get(WS)).toEqual(before.source);
+        expect(store.get(TARGET)).toEqual(before.target);
+        expect(broadcasts).toEqual([]);
+        expect(moveAgents).not.toHaveBeenCalled();
+        if (!("error" in result)) throw new Error("expected a refusal");
+        return result.error;
+      }
+
+      it("the same workspace", async () => {
+        expect(await refused(WS, { paneId: "pane-1" }, WS)).toMatch(/Already in workspace/);
+      });
+
+      it("Home", async () => {
+        expect(await refused(WS, { paneId: "pane-1" }, HOME_PATH)).toMatch(/Dashboard/);
+      });
+
+      it("another host", async () => {
+        const remote = workspaceKey("box", "/project/feature");
+        expect(await refused(WS, { paneId: "pane-1" }, remote)).toMatch(/between hosts/);
+      });
+
+      it("a pane or tab the source does not hold", async () => {
+        expect(await refused(WS, { paneId: "pane-t" }, TARGET)).toBe("Unknown paneId: pane-t");
+        broadcasts = [];
+        expect(await refused(WS, { tabId: "tab-nope" }, TARGET)).toBe("Unknown tabId: tab-nope");
+      });
+
+      it("whatever the project check refuses", async () => {
+        const check = vi.fn(async () => "Can't move to another project");
+        expect(await refused(WS, { paneId: "pane-1" }, TARGET, check)).toBe(
+          "Can't move to another project",
+        );
+        expect(check).toHaveBeenCalledWith(WS, TARGET);
+      });
+    });
   });
 
   describe("load", () => {

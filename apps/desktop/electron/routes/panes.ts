@@ -10,11 +10,12 @@
  *   viewport is per renderer.
  *
  * Body validation is `./pane-validators.ts`. Every body-carrying route is
- * host-scoped first (`hostScoped`).
+ * host-scoped first (`hostScoped`), except the move-to-workspace routes, which
+ * default to the source's host.
  */
 
 import type { Route } from "./types";
-import { structuralRoutes } from "./panes-structural";
+import { moveToWorkspaceRoutes, structuralRoutes } from "./panes-structural";
 import { viewportRoutes } from "./panes-viewport";
 import { withWorkspaceHost } from "./workspace-host";
 
@@ -37,7 +38,7 @@ function scoped(routes: Route[]): Route[] {
   );
 }
 
-export const paneRoutes: Route[] = scoped([
-  ...structuralRoutes,
-  ...viewportRoutes,
-]);
+export const paneRoutes: Route[] = [
+  ...scoped([...structuralRoutes, ...viewportRoutes]),
+  ...moveToWorkspaceRoutes,
+];

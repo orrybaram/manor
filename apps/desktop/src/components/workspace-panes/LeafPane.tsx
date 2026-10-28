@@ -261,7 +261,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
     setTimeout(() => img.remove(), 0);
 
     // Signal an active pane drag so pane drop zones render and highlight.
-    startDrag({ type: "pane", paneId, grabOffset: dragGrabOffset.current });
+    startDrag({ type: "pane", paneId, grabOffset: dragGrabOffset.current, workspaceKey });
     tearOffCommitted.current = false;
     beginPointerTracking();
 
@@ -585,7 +585,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           terminal's belongs to the terminal. */}
       <ContextMenu.Portal>
         <ContextMenu.Content className={styles.contextMenu}>
-          <PaneWindowMenuItems paneId={paneId} />
+          <PaneWindowMenuItems paneId={paneId} workspaceKey={workspaceKey} />
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item
             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
@@ -666,7 +666,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       )}
       <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
         {contentType === "diff" ? (
-          <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
+          <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <DiffPane
               ref={diffRef}
               paneId={paneId}
@@ -675,7 +675,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             />
           </PaneContextMenu>
         ) : contentType === "browser" ? (
-          <PaneContextMenu paneId={paneId} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
+          <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             {/* `<webview>` is Electron-only; the web app gets a
                 stand-in whose ref methods all no-op. */}
             {isWebApp() ? (
@@ -727,8 +727,9 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   );
 });
 
-function PaneContextMenu({ paneId, containerRef, onClose, children }: {
+function PaneContextMenu({ paneId, workspaceKey, containerRef, onClose, children }: {
   paneId: string;
+  workspaceKey?: WorkspaceKey;
   containerRef: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   children: React.ReactNode;
@@ -745,7 +746,7 @@ function PaneContextMenu({ paneId, containerRef, onClose, children }: {
           <SplitWithSubmenu paneId={paneId} containerRef={containerRef} />
           <ConvertToSubmenu paneId={paneId} />
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
-          <PaneWindowMenuItems paneId={paneId} />
+          <PaneWindowMenuItems paneId={paneId} workspaceKey={workspaceKey} />
           <ContextMenu.Separator className={styles.contextMenuSeparator} />
           <ContextMenu.Item
             className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}

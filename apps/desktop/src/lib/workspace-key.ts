@@ -118,6 +118,19 @@ export function isRemoteWorkspaceKey(key: string): boolean {
 }
 
 /**
+ * Why a tab or pane cannot move from workspace `from` to `to` because they
+ * are on two hosts (a PTY lives on one daemon), or null when they share one.
+ * Checked wherever the two keys still name their hosts: a host server sees
+ * every key bare, so the router and the desktop ask before it does.
+ */
+export function crossHostMoveRefusal(from: string, to: string): string | null {
+  const source = parseWorkspaceKey(from);
+  const target = parseWorkspaceKey(to);
+  if (source.hostId === target.hostId) return null;
+  return `Can't move between hosts: ${source.path} is on ${source.hostId}, ${target.path} on ${target.hostId}`;
+}
+
+/**
  * What `migrateWorkspaceKey` needs to know about a project to decide whether
  * it owns a path. `ProjectInfo`, in main and in the renderer, fits as is.
  */

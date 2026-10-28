@@ -87,6 +87,11 @@ export function toDesktopResult(
   if (ns === "layout" && methodName === "getLastActive") {
     return typeof result === "string" ? keyFor(hostId, result) : result;
   }
+  // A move's answer names where the tab landed by the host's own key.
+  if (ns === "layout" && methodName === "moveToWorkspace" && isPlainObject(result)) {
+    const key = typeof result.workspacePath === "string" && keyFor(hostId, result.workspacePath);
+    return key ? { ...result, workspacePath: key } : result;
+  }
   if (Array.isArray(result)) return result.map((item) => toDesktop(hostId, item));
   return toDesktop(hostId, result);
 }

@@ -23,7 +23,7 @@ import type {
 } from "../../src/lib/layout/protocol";
 
 /** Every command from these routes names the same sender. */
-const ROUTE_ORIGIN: LayoutOrigin = { kind: "route", id: "cli" };
+export const ROUTE_ORIGIN: LayoutOrigin = { kind: "route", id: "cli" };
 
 const NO_WORKSPACE_ERROR =
   "No workspace: pass workspacePath, name a paneId/tabId already open in one, or open a workspace first";

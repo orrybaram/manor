@@ -31,6 +31,7 @@ import { toWorkspaceIndicator } from "../../lib/workspace-indicator";
 import { ProjectChevron } from "./ProjectChevron";
 import { ProjectHeaderActions } from "./ProjectHeaderActions";
 import { WorkspaceIndicatorDot } from "./WorkspaceIndicatorDot";
+import { useMoveDragSourceProject } from "./useWorkspaceMoveDrop";
 import styles from "./ProjectItem.module.css";
 import { Collapse } from "../ui/Collapse/Collapse";
 import { CountBadge } from "../ui/CountBadge/CountBadge";
@@ -90,6 +91,12 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
   } = props;
 
   const { group, sections } = entry;
+  // While a pane or tab is dragged, the group's heading fades unless one of
+  // its host sections is where it can go; each section fades on its own.
+  const moveSource = useMoveDragSourceProject();
+  const moveFaded =
+    moveSource !== undefined &&
+    !sections.some((section) => section.project.id === moveSource);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
@@ -158,7 +165,7 @@ export function ProjectGroupItem(props: ProjectGroupItemProps) {
             data-sidebar-row=""
             tabIndex={-1}
             aria-expanded={!collapsed}
-            className={styles.projectHeader}
+            className={`${styles.projectHeader} ${moveFaded ? styles.moveDropOut : ""}`}
             onClick={onToggleCollapsed}
             onKeyDown={header.onKeyDown}
             onPointerDown={onDragStart}

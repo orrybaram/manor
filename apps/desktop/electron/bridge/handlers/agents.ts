@@ -1,6 +1,6 @@
 import { getConnector, getConnectorForCommand } from "../../agent-connectors";
 import { resolveAgentCommand } from "../../../src/lib/resolve-agent-command";
-import { workspaceKey } from "../../../src/lib/workspace-key";
+import { parseWorkspaceKey, workspaceKey } from "../../../src/lib/workspace-key";
 import type { AgentInfo } from "../../agent-persistence";
 import { paneContextBackfill } from "../../agent-status/effects";
 import { assertString } from "../../ipc-validate";
@@ -213,7 +213,7 @@ export function agentsMarkResumed(
  */
 type AbandonDeps = Pick<
   ServerDeps,
-  "agentManager" | "statsStore" | "notifier" | "agentStatus"
+  "agentManager" | "statsStore" | "notifier" | "agentStatus" | "paneContextMap"
 >;
 
 /**
@@ -246,9 +246,37 @@ function abandonAgentForPane(
   }
 }
 
+/**
+ * A pane moved to another workspace, still running: its agent's record and
+ * the pane's context now name that workspace, so an agent the pane's hooks
+ * create later is filed there too. The sidebar's dot follows the layout on
+ * its own; the record is for everything that reads `workspacePath`.
+ */
+function moveAgentForPane(deps: AbandonDeps, paneId: string, path: string): void {
+  const context = deps.paneContextMap.get(paneId);
+  if (context && context.workspacePath !== path) {
+    deps.paneContextMap.set(paneId, { ...context, workspacePath: path });
+  }
+  const agent = deps.agentManager.getAgentByPaneId(paneId);
+  if (!agent || agent.workspacePath === path) return;
+  const updated = deps.agentManager.updateAgent(agent.id, { workspacePath: path });
+  if (updated) deps.notifier.sendAgentUpdate(updated);
+}
+
 /** The {@link AgentService} `app-lifecycle.ts` hands `LayoutStore`. */
-export function createAgentService(deps: AbandonDeps): AgentService {
+export function createAgentService(deps: AbandonDeps): Required<AgentService> {
   return {
+    moveToWorkspace(paneIds, workspacePath) {
+      // Agent records name a workspace by its path on the agent's host.
+      const { path } = parseWorkspaceKey(workspacePath);
+      for (const paneId of paneIds) {
+        try {
+          moveAgentForPane(deps, paneId, path);
+        } catch (err) {
+          console.error(`[agents] failed to move ${paneId}'s agent:`, err);
+        }
+      }
+    },
     abandonForPanes(panes) {
       for (const pane of panes) {
         try {

@@ -3,6 +3,7 @@ import type {
   LayoutApplyResult,
   LayoutEntry,
   LayoutOrigin,
+  WorkspaceMoveResult,
 } from "../../../src/lib/layout/protocol";
 import type { LayoutCommand } from "../../../src/lib/layout/commands";
 import type {
@@ -10,6 +11,8 @@ import type {
   PendingCommandOptions,
 } from "../../layout/pending-commands";
 import { assertString } from "../../ipc-validate";
+import type { LayoutTarget } from "../../layout/layout-store";
+import { projectWorkspaceCheck } from "../../layout/workspace-move-check";
 import {
   byPane,
   byWorkspaceKey,
@@ -114,6 +117,44 @@ export function layoutApply(
 }
 
 /**
+ * Move a tab, or one pane, out of workspace `workspacePath` into
+ * `toWorkspacePath`, still running (`LayoutStore.moveToWorkspace`): it lands
+ * as a new tab in the target's active panel. Both must be workspaces of one
+ * project on one host — the source names the host, so the call goes to the
+ * server that owns both. The answer says where it landed, for the sender to
+ * follow: both workspaces' broadcasts reach every renderer, the target's
+ * with this sender's selection hint.
+ */
+export function layoutMoveToWorkspace(
+  ctx: HandlerCtx<SharedDeps>,
+  workspacePath: string,
+  target: LayoutTarget,
+  toWorkspacePath: string,
+  forwardedFor?: LayoutOrigin | null,
+): Promise<WorkspaceMoveResult> {
+  assertString(workspacePath, "workspacePath");
+  assertString(toWorkspacePath, "toWorkspacePath");
+  assertLayoutTarget(target);
+  ctx.deps.hostRouting?.noteActive(toWorkspacePath);
+  return ctx.deps.layoutStore.moveToWorkspace(
+    workspacePath,
+    "paneId" in target ? { paneId: target.paneId } : { tabId: target.tabId },
+    toWorkspacePath,
+    commandOrigin(ctx.caller, forwardedFor),
+    { check: projectWorkspaceCheck(ctx.deps.projectManager) },
+  );
+}
+
+function assertLayoutTarget(target: unknown): asserts target is LayoutTarget {
+  const { paneId, tabId } = (typeof target === "object" && target !== null
+    ? target
+    : {}) as { paneId?: unknown; tabId?: unknown };
+  if (typeof paneId === "string" && paneId && tabId === undefined) return;
+  if (typeof tabId === "string" && tabId && paneId === undefined) return;
+  throw new Error("target: expected { paneId } or { tabId }");
+}
+
+/**
  * Queue a command for a pane whose shell does not exist yet.
  *
  * The desktop's "new tab running `pnpm dev`", "split with agent" and agent
@@ -203,6 +244,9 @@ export const layout = {
   // desktop sends. `workspacePath` first, so the audit line's target is the
   // workspace the command moved.
   apply: method(layoutApply, { mutating: true, route: byWorkspaceKey(0) }),
+  // Named by the source workspace: a move never leaves its host, so that
+  // host's server answers for both ends.
+  moveToWorkspace: method(layoutMoveToWorkspace, { mutating: true, route: byWorkspaceKey(0) }),
   setPaneTitle: method(layoutSetPaneTitle, { mutating: true, route: byPane(0) }),
   // A pane no layout holds yet stays here, and goes with the command that
   // adds it (`HostRouting`).

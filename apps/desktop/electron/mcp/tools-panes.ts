@@ -7,7 +7,7 @@
 import { resolveWorkspacePath } from "./context";
 // Type-only: erased at compile time, so the MCP process stays Electron-free.
 import type { LayoutSnapshot } from "../../src/lib/layout/snapshot";
-import type { ToolDef, ToolModule } from "./types";
+import type { Http, ToolDef, ToolModule } from "./types";
 import { text } from "./types";
 
 /**
@@ -349,6 +349,48 @@ const tools: ToolDef[] = [
     },
   },
   {
+    name: "move_pane_to_workspace",
+    description:
+      "Move a pane, still running, to another workspace of the same project on the same host. It lands as a new tab in that workspace's active panel; the rest of its tab stays behind. If the app is showing the pane's workspace, it follows the move.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        paneId: { type: "string", description: "Pane to move." },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path of the workspace to move it to.",
+        },
+        hostId: {
+          type: "string",
+          description:
+            "Host of the target workspace. Defaults to the host the pane or tab is on; a move never changes host.",
+        },
+      },
+      required: ["paneId", "workspacePath"],
+    },
+  },
+  {
+    name: "move_tab_to_workspace",
+    description:
+      "Move a whole tab, its split and every pane in it still running, to another workspace of the same project on the same host. It lands as a new tab in that workspace's active panel. If the app is showing the tab's workspace, it follows the move.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        tabId: { type: "string", description: "Tab to move." },
+        workspacePath: {
+          type: "string",
+          description: "Filesystem path of the workspace to move it to.",
+        },
+        hostId: {
+          type: "string",
+          description:
+            "Host of the target workspace. Defaults to the host the pane or tab is on; a move never changes host.",
+        },
+      },
+      required: ["tabId", "workspacePath"],
+    },
+  },
+  {
     name: "reopen_closed_pane",
     description:
       "Reopen the most recently closed pane or tab in the active workspace. Errors if nothing has been closed.",
@@ -384,6 +426,23 @@ const tools: ToolDef[] = [
 ];
 
 // ── Tool handlers ──
+
+/** What `POST …/move-to-workspace` answers. */
+interface MovedToWorkspace {
+  workspacePath: string;
+  tabId: string;
+  paneId: string;
+}
+
+function moveToWorkspace(
+  http: Http,
+  path: string,
+  args: Record<string, unknown>,
+): Promise<MovedToWorkspace> {
+  const body: Record<string, unknown> = { workspacePath: args.workspacePath };
+  if (args.hostId !== undefined) body.hostId = args.hostId;
+  return http.post(path, body) as Promise<MovedToWorkspace>;
+}
 
 const handlers: ToolModule["handlers"] = {
   async list_panes(_args, http) {
@@ -561,6 +620,26 @@ const handlers: ToolModule["handlers"] = {
       body,
     )) as { tabId: string };
     return text(`Extracted pane ${args.paneId} into tab ${result.tabId}.`);
+  },
+
+  async move_pane_to_workspace(args, http) {
+    const result = await moveToWorkspace(
+      http,
+      `/panes/${encodeURIComponent(args.paneId as string)}/move-to-workspace`,
+      args,
+    );
+    return text(
+      `Moved pane ${args.paneId} to ${result.workspacePath} (tab: ${result.tabId}).`,
+    );
+  },
+
+  async move_tab_to_workspace(args, http) {
+    const result = await moveToWorkspace(
+      http,
+      `/tabs/${encodeURIComponent(args.tabId as string)}/move-to-workspace`,
+      args,
+    );
+    return text(`Moved tab ${result.tabId} to ${result.workspacePath}.`);
   },
 
   async reopen_closed_pane(_args, http) {

@@ -492,6 +492,7 @@ export type {
   PersistedDefaultViewport,
   PersistedPaneSession,
   PersistedViewportFile,
+  WorkspaceMoveResult,
 } from "./lib/layout/protocol";
 
 /** The one-click project transfer's wire types. */

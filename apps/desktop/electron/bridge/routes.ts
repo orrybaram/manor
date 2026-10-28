@@ -138,6 +138,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "layout.getAll": "merge",
   "layout.getLastActive": "merge",
   "layout.apply": byWorkspaceKey(0),
+  "layout.moveToWorkspace": byWorkspaceKey(0),
   "layout.setPaneTitle": byPane(0),
   "layout.setPendingCommand": byPane(0),
   // A viewport report is a window's, and a claim is desktop-window state

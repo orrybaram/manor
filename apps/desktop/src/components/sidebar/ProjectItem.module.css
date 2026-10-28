@@ -731,3 +731,34 @@
   padding: 2px 4px;
   font-size: 12px;
 }
+
+/* ── Moving a pane or tab here (useWorkspaceMoveDrop) ──
+   While one is dragged, what can't take it fades back: the source row, and
+   whole projects and host sections it can't go to. The row under the cursor
+   gets the active fill and an accent bar. */
+.workspace,
+.project,
+.section {
+  transition: opacity 120ms ease;
+}
+
+.moveDropOut {
+  opacity: 0.3;
+}
+
+.moveDropHot {
+  position: relative;
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+.moveDropHot::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}

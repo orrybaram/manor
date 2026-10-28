@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { PaneDragProvider } from "./components/workspace-panes/PaneDragContext";
+import { MoveToWorkspacePicker } from "./components/move-to-workspace/MoveToWorkspacePicker";
 import { StatusBar } from "./components/statusbar/StatusBar/StatusBar";
 import { WorkspaceStack } from "./components/panels/WorkspaceStack";
 import { Sidebar } from "./components/sidebar/Sidebar/Sidebar";
@@ -743,6 +744,9 @@ function App() {
                 width instead of swapping views at a new size. In phone mode the
                 sidebar is a drawer instead, never rendered inline — it would
                 eat the whole screen at phone width. */}
+            {/* Around the sidebar too: its workspace rows take a pane or
+                tab dropped on them (`useWorkspaceMoveDrop`). */}
+            <PaneDragProvider>
             {hasProjects && layoutMode === "desk" && (
               <div
                 className="sidebar-column"
@@ -765,7 +769,6 @@ function App() {
                 )}
               </div>
             )}
-            <PaneDragProvider>
               <div
                 className={`main-content ${hasProjects && layoutMode === "desk" ? "" : "main-content--gutter-left"}`}
               >
@@ -898,6 +901,7 @@ function App() {
               onRemoteProjectAdded={handleRemoteProjectAdded}
             />
             <TransferDialogHost />
+            {layoutMode === "desk" && <MoveToWorkspacePicker />}
             <RemoveFromHostDialog />
             <DeletePodDialogHost />
             <ProfileEditorDialog />

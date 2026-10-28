@@ -233,7 +233,12 @@ export function TabBar(props: TabBarProps) {
       setTimeout(() => img.remove(), 0);
 
       // Signal an active tab drag so pane drop zones render and highlight.
-      startDrag({ type: "tab", tabId: tab.id, grabOffset: dragGrabOffset.current });
+      startDrag({
+        type: "tab",
+        tabId: tab.id,
+        grabOffset: dragGrabOffset.current,
+        workspaceKey: layoutKey ?? undefined,
+      });
       setDragIndex(idx);
       tearOffCommitted.current = false;
       beginPointerTracking();
@@ -565,6 +570,7 @@ export function TabBar(props: TabBarProps) {
                   tabId={tab.id}
                   rootNode={tab.rootNode}
                   workspaceHostId={layoutHostId}
+                  workspaceKey={layoutKey}
                   isActive={tab.id === selectedTabId}
                   isPinned={isPinned}
                   canClose={true}

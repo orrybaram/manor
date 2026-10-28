@@ -80,6 +80,7 @@ import type { ElectronAPI, PtyFailure } from "../electron";
 import type { LayoutEntry } from "../lib/layout/protocol";
 import { layoutPaneIds } from "../lib/layout/workspace-layout";
 import {
+  crossHostMoveRefusal,
   LOCAL_HOST_ID,
   normalizeHostId,
   parseWorkspaceKey,
@@ -553,6 +554,11 @@ export function createRouter(
     if (ns === "layout" && name === "getLastActive") {
       return typeof result === "string" ? stampKey(entry, result) : result;
     }
+    // A move's answer names where the tab landed by the server's own key.
+    if (ns === "layout" && name === "moveToWorkspace" && isPlainObject(result)) {
+      const key = typeof result.workspacePath === "string" ? stampKey(entry, result.workspacePath) : null;
+      return key ? { ...result, workspacePath: key } : result;
+    }
     return stampRecords(entry, result);
   }
 
@@ -747,6 +753,12 @@ export function createRouter(
     if (passThrough()) {
       heldCommands.releaseFor(ns, name, args, home);
       return call(home, ns, name, args);
+    }
+    if (ns === "layout" && name === "moveToWorkspace") {
+      // The server it goes to sees both keys in its own form, where another
+      // host's target could pass for one of its own.
+      const refusal = crossHostMoveRefusal(String(args[0]), String(args[2]));
+      if (refusal) return Promise.resolve({ error: refusal });
     }
     const hostId = resolver.hostOf(rule, args);
     if (hostId === null && ns === "layout" && name === "setPendingCommand") {

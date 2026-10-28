@@ -396,6 +396,8 @@ export function createManorServer<D extends BridgeServerDeps>(
     // is built below.
     {
       abandonForPanes: (panes) => agentService.abandonForPanes(panes),
+      moveToWorkspace: (paneIds, workspacePath) =>
+        agentService.moveToWorkspace(paneIds, workspacePath),
     },
     launches,
     // Above any version a client kept from this server's last run.
@@ -667,6 +669,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     statsStore,
     notifier,
     agentStatus: agentStatusDriver,
+    paneContextMap,
   });
 
   /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */

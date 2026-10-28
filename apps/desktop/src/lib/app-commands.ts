@@ -27,6 +27,7 @@ import {
   useAppStore,
   selectActiveLayout,
   selectActivePanelId,
+  selectActiveWorkspaceKey,
   selectFocusedPaneOfActiveTab,
   selectSelectedTabId,
   type AppState,
@@ -196,6 +197,32 @@ function setActiveWorkspace(args: Record<string, unknown>): {
 }
 
 /**
+ * A tab or pane the CLI moved to another workspace: follow it there, but
+ * only when this window is showing the workspace it left — a window looking
+ * anywhere else keeps looking there. The target's layout reached this
+ * renderer first, on the same channel, so the tab is already in it.
+ */
+function followMove(args: Record<string, unknown>): { followed: boolean } {
+  const from = requireString(args, "fromWorkspacePath");
+  const to = requireString(args, "workspacePath");
+  const tabId = requireString(args, "tabId");
+  const paneId = requireString(args, "paneId");
+  const hostId = optionalString(args, "hostId");
+  const state = useAppStore.getState();
+  if (
+    state.activeSurface !== "workspace" ||
+    selectActiveWorkspaceKey(state) !== layoutKeyFor(from, hostId)
+  ) {
+    return { followed: false };
+  }
+  const key = layoutKeyFor(to, hostId);
+  // Mount it first, as a switch does, then select the tab and the pane.
+  state.setActiveWorkspace(to, parseWorkspaceKey(key).hostId);
+  useAppStore.getState().navigateToContext({ workspaceKey: key, tabId, paneId });
+  return { followed: true };
+}
+
+/**
  * Every correlated command main may send. An unrecognised `cmd` must be
  * rejected by the caller, not silently resolved — see `App.tsx`.
  */
@@ -207,4 +234,5 @@ export const appCommandHandlers: Record<string, Handler> = {
   "focus-next-pane": focusNextPane,
   "focus-prev-pane": focusPrevPane,
   "set-active-workspace": setActiveWorkspace,
+  "follow-move": followMove,
 };

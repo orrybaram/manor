@@ -326,3 +326,38 @@ describe("set_active_workspace caller-workspace defaulting", () => {
     });
   });
 });
+
+describe("move_pane_to_workspace / move_tab_to_workspace", () => {
+  const moved = async () => ({ workspacePath: "/repo/feature", tabId: "tab-9", paneId: "pane-1" });
+
+  it("posts the target workspace, omitting hostId when unset", async () => {
+    const http = fakeHttp({ post: moved });
+
+    const result = await panesModule.handlers.move_pane_to_workspace(
+      { paneId: "pane/1", workspacePath: "/repo/feature" },
+      http,
+    );
+
+    expect(http.calls[0]).toEqual({
+      method: "POST",
+      path: "/panes/pane%2F1/move-to-workspace",
+      body: { workspacePath: "/repo/feature" },
+    });
+    expect(result.content[0].text).toBe("Moved pane pane/1 to /repo/feature (tab: tab-9).");
+  });
+
+  it("moves a tab, on the host named", async () => {
+    const http = fakeHttp({ post: moved });
+
+    await panesModule.handlers.move_tab_to_workspace(
+      { tabId: "tab-9", workspacePath: "/repo/feature", hostId: "box" },
+      http,
+    );
+
+    expect(http.calls[0]).toEqual({
+      method: "POST",
+      path: "/tabs/tab-9/move-to-workspace",
+      body: { workspacePath: "/repo/feature", hostId: "box" },
+    });
+  });
+});

@@ -62,8 +62,12 @@ export function allTabIds(layouts: Record<string, WorkspaceLayout>): Set<string>
  * that moment, so a new tab, or one that was open when tracking began, starts
  * clean.
  */
+/** A tab coming back to the front: when, and after how long unseen. */
+export type TabReturn = { at: number; unseenMs: number };
+
 export function createTabSightings() {
   const lastSeen = new Map<string, number>();
+  const returns = new Map<string, TabReturn>();
   let front = new Set<string>();
   return {
     /**
@@ -74,13 +78,25 @@ export function createTabSightings() {
       for (const tabId of front) {
         if (!next.has(tabId)) lastSeen.set(tabId, now);
       }
+      for (const tabId of next) {
+        if (front.has(tabId)) continue;
+        const seen = lastSeen.get(tabId);
+        returns.set(tabId, { at: now, unseenMs: seen === undefined ? 0 : Math.max(0, now - seen) });
+      }
       for (const tabId of all) {
         if (!next.has(tabId) && !lastSeen.has(tabId)) lastSeen.set(tabId, now);
       }
       for (const tabId of lastSeen.keys()) {
         if (!all.has(tabId)) lastSeen.delete(tabId);
       }
+      for (const tabId of returns.keys()) {
+        if (!all.has(tabId)) returns.delete(tabId);
+      }
       front = next;
+    },
+    /** The tab's latest return to the front, if it has come back since tracking began. */
+    lastReturn(tabId: string): TabReturn | undefined {
+      return returns.get(tabId);
     },
     /** Milliseconds since the tab was last on show; 0 while it is, or if unknown. */
     unseenFor(tabId: string, now: number): number {

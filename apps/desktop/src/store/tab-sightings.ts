@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { useAppStore, type AppState } from "./app-store";
-import { allTabIds, createTabSightings, frontTabIds } from "../lib/cobwebs";
+import { allTabIds, createTabSightings, frontTabIds, type TabReturn } from "../lib/cobwebs";
 
 // One tracker for the window, so a tab's last sighting outlives its
 // TabButton (which unmounts whenever its workspace is not the active one).
@@ -44,6 +44,11 @@ const snapshot = () => 0;
 /** Keep tab ages tracked while `active`; stops costing anything once nobody needs them. */
 export function useTabSightings(active: boolean): void {
   useSyncExternalStore(active ? retain : noop, snapshot);
+}
+
+/** The tab's latest return to the front in this window, and how long it had been away. */
+export function tabLastReturn(tabId: string): TabReturn | undefined {
+  return sightings.lastReturn(tabId);
 }
 
 /** Milliseconds since the tab was last on show in this window; 0 while it is. */

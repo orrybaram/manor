@@ -25,6 +25,9 @@ vi.mock("../../workspace-panes/LeafPane", () => ({
     return null;
   },
 }));
+vi.mock("../PanelCobwebs/PanelCobwebs", () => ({
+  PanelCobwebs: () => null,
+}));
 
 const { PanelLayout } = await import("../PanelLayout");
 const { LeafPanel } = await vi.importActual<typeof import("../LeafPanel")>("../LeafPanel");

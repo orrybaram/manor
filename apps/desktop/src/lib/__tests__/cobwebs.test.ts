@@ -90,6 +90,16 @@ describe("createTabSightings", () => {
     expect(sightings.unseenFor("t2", 50 * MIN)).toBe(0);
   });
 
+  it("remembers how long a tab was unseen when it came back", () => {
+    const sightings = createTabSightings();
+    sightings.update(new Set(["t1"]), all, 0);
+    expect(sightings.lastReturn("t2")).toBeUndefined();
+    sightings.update(new Set(["t2"]), all, 25 * MIN);
+    expect(sightings.lastReturn("t2")).toEqual({ at: 25 * MIN, unseenMs: 25 * MIN });
+    sightings.update(new Set(["t1"]), all, 26 * MIN);
+    expect(sightings.lastReturn("t1")).toEqual({ at: 26 * MIN, unseenMs: 1 * MIN });
+  });
+
   it("forgets closed tabs", () => {
     const sightings = createTabSightings();
     sightings.update(new Set(["t1"]), all, 0);

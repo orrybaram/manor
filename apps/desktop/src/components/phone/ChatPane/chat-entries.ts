@@ -99,6 +99,25 @@ export function groupEntries(
   return items;
 }
 
+/**
+ * Whether two items draw the same: the same entries, field for field. A tool
+ * group's `tools` and a task item are rebuilt on every `groupEntries`, so
+ * identity alone would redraw the whole chat on every push.
+ */
+export function sameItem(a: ChatItem, b: ChatItem): boolean {
+  if (a === b) return true;
+  const keys = Object.keys(a) as (keyof ChatItem)[];
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => {
+    const x: unknown = a[key];
+    const y: unknown = b[key];
+    if (Array.isArray(x) && Array.isArray(y)) {
+      return x.length === y.length && x.every((v, i) => v === y[i]);
+    }
+    return x === y;
+  });
+}
+
 type Phrase = {
   /** Tool names this phrase covers. */
   names: readonly string[];

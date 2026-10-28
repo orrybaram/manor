@@ -9,7 +9,8 @@ import styles from "./TabDust.module.css";
 
 /**
  * One layer of specks: fine noise cut down to its brightest grains, kept
- * only where a slower noise says there's a patch, so dust gathers unevenly.
+ * only where a slower noise says there's a patch, so dust gathers unevenly,
+ * then painted in the theme's text color so it reads on light and dark.
  */
 function SpeckFilter(props: {
   id: string;
@@ -27,7 +28,7 @@ function SpeckFilter(props: {
       <feColorMatrix
         in="fine"
         type="matrix"
-        values={`0 0 0 0 .8  0 0 0 0 .84  0 0 0 0 .96  0 0 0 24 ${-cutoff}`}
+        values={`0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 24 ${-cutoff}`}
         result="specks"
       />
       <feTurbulence type="fractalNoise" baseFrequency={patches} numOctaves={2} seed={seed + 3} result="clump" />
@@ -37,7 +38,9 @@ function SpeckFilter(props: {
         values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 6 -2.5"
         result="patches"
       />
-      <feComposite in="specks" in2="patches" operator="in" />
+      <feComposite in="specks" in2="patches" operator="in" result="dust" />
+      <feFlood floodColor="currentColor" />
+      <feComposite in2="dust" operator="in" />
       <feGaussianBlur stdDeviation={blur} />
       {strength !== undefined && (
         <feComponentTransfer>

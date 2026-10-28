@@ -105,6 +105,16 @@ async function dragOnto(
   await window.mouse.up();
 }
 
+/** The focused pane of the workspace the window is showing, as the server has it. */
+async function focusedPane(
+  request: import("@playwright/test").APIRequestContext,
+  tempHome: string,
+): Promise<string | null> {
+  const port = fs.readFileSync(path.join(tempHome, ".manor", "webview-server-port"), "utf-8").trim();
+  const res = await request.get(`http://127.0.0.1:${port}/panes`);
+  return res.ok() ? ((await res.json()) as { focusedPaneId: string | null }).focusedPaneId : null;
+}
+
 async function layoutOf(
   request: import("@playwright/test").APIRequestContext,
   tempHome: string,
@@ -125,6 +135,7 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
 }) => {
   test.setTimeout(240_000);
   installLightTheme(tempHome);
+  let paneA = "";
   let app = await launchApp(tempHome);
   let window = await app.firstWindow();
   await waitForAppDocument(window);
@@ -133,7 +144,7 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     await importSeededProject(app, window, tempHome);
     await createWorkspace(window, "ws-alpha");
     await openTerminalTab(window);
-    const [paneA] = await visiblePaneIds(window);
+    [paneA] = await visiblePaneIds(window);
     await awaitShellReady(window, tempHome, paneA);
     await runInTerminal(window, "echo MOVE-MARKER-$((40+2))");
     await expect.poll(() => paneText(window, paneA)).toContain("MOVE-MARKER-42");
@@ -150,6 +161,7 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     const gamma = await pathOf(window, "ws-gamma");
     await row(window, "ws-alpha").click();
     await expect.poll(() => visiblePaneIds(window)).toEqual([paneA, paneB]);
+    await shot(window, "00-before-dark");
 
     // ── 1. Drag one pane of a split onto ws-beta's row ──────────────────────
     await dragOnto(window, statusBar(window, paneA), row(window, "ws-beta"), async () => {
@@ -160,6 +172,7 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     await expect(row(window, "ws-beta")).toHaveAttribute("aria-current", "true");
     await expect.poll(() => visiblePaneIds(window)).toEqual([paneA]);
     await expect(row(window, "ws-beta")).not.toHaveAttribute("data-move-drop");
+    await expect.poll(() => focusedPane(request, tempHome)).toBe(paneA);
     // Same session: the old output is there, and it still takes input.
     expect(await paneText(window, paneA)).toContain("MOVE-MARKER-42");
     await runInTerminal(window, "echo AFTER-$((1+1))-MOVE");
@@ -185,6 +198,7 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     await expect.poll(() => visiblePaneIds(window)).toEqual([paneB, paneC]);
     expect(await layoutOf(request, tempHome, alpha)).toEqual([]);
     expect(await layoutOf(request, tempHome, gamma)).toEqual([paneB, paneC]);
+    await expect.poll(() => focusedPane(request, tempHome)).toBe(paneB);
     await shot(window, "04-tab-landed-dark");
 
     // ── 3. Dropping on the workspace a pane is already in changes nothing ───
@@ -209,6 +223,8 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     await expect(row(window, "ws-beta")).toHaveAttribute("aria-current", "true");
     expect(await layoutOf(request, tempHome, beta)).toEqual([paneA, paneC]);
     expect(await layoutOf(request, tempHome, gamma)).toEqual([paneB]);
+    await expect.poll(() => focusedPane(request, tempHome)).toBe(paneC);
+    await shot(window, "07b-picker-landed-dark");
 
     // ── 5. Right-click picker, for a tab ────────────────────────────────────
     const betaTab = window.locator('[data-testid="tab"]:visible').first();
@@ -217,6 +233,7 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     await window.getByTestId("move-to-workspace-item").click();
     await expect(picker).toBeVisible();
     await window.keyboard.type("alpha");
+    await shot(window, "08b-tab-picker-dark");
     await window.keyboard.press("Enter");
     await expect(row(window, "ws-alpha")).toHaveAttribute("aria-current", "true");
     expect(await layoutOf(request, tempHome, alpha)).toEqual([paneA]);
@@ -232,6 +249,9 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     await shot(window, "10-picker-light");
     await window.keyboard.press("Escape");
     await expect(picker).not.toBeVisible();
+    await window.locator('[data-testid="tab"]:visible').first().click({ button: "right" });
+    await shot(window, "10b-tab-menu-light");
+    await window.keyboard.press("Escape");
     await dragOnto(window, statusBar(window, paneA), row(window, "ws-gamma"), async () => {
       await shot(window, "11-pane-drag-light");
     });
@@ -294,9 +314,11 @@ test("a pane and a tab move to another workspace by drag, picker and CLI, and st
     window = await app.firstWindow();
     await waitForAppDocument(window);
     await row(window, "ws-gamma").click();
-    const panes = await visiblePaneIds(window);
-    expect(panes).toHaveLength(1);
-    await expect.poll(() => paneText(window, panes[0]), { timeout: 20_000 }).toContain("AFTER-2-MOVE");
+    // The same pane, reattached to its running shell: old output, new input.
+    await expect.poll(() => visiblePaneIds(window)).toEqual([paneA]);
+    await expect.poll(() => paneText(window, paneA), { timeout: 20_000 }).toContain("AFTER-2-MOVE");
+    await runInTerminal(window, "echo RESTARTED-$((3*3))");
+    await expect.poll(() => paneText(window, paneA)).toContain("RESTARTED-9");
     await shot(window, "13-after-restart");
   } finally {
     // Never mask the step that failed with a shutdown error.
@@ -328,6 +350,7 @@ test("an agent's pane keeps its status and takes its sidebar dot to the workspac
     await waitForAgentStatus(request, tempHome, session.id, "responded");
     const indicator = (name: string) => row(window, name).getByTestId("workspace-indicator");
     await expect(indicator("ws-alpha")).toBeVisible({ timeout: 10_000 });
+    await expect(indicator("ws-alpha")).toHaveAttribute("data-pulse", "true");
     await expect(indicator("ws-beta")).toHaveCount(0);
     await shot(window, "14-agent-before-move");
 
@@ -344,6 +367,8 @@ test("an agent's pane keeps its status and takes its sidebar dot to the workspac
     expect(moved.workspacePath).toBe(await pathOf(window, "ws-beta"));
     await expect(indicator("ws-beta")).toBeVisible({ timeout: 10_000 });
     await expect(indicator("ws-alpha")).toHaveCount(0);
+    // Still unread: moving a pane is not looking at it.
+    await expect(indicator("ws-beta")).toHaveAttribute("data-pulse", "true");
     await shot(window, "15-agent-after-move");
   } finally {
     await killApp(app).catch((err) => console.warn("killApp:", err));

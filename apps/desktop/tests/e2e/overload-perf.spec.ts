@@ -526,17 +526,22 @@ test("diff: ramp a worktree's diff until the pane gives out", async ({
       }).trim();
     })();
     const t0 = Date.now();
-    // Wait until the pane shows this step's text, or give up.
+    // Wait until the pane has this step's diff: the first file's header
+    // counting this step's changed lines, and a row on screen. (Not a changed
+    // row's text: only the rows near the screen are built. Not a total: the
+    // sidebar counts the baseline commit too.)
     let shownMs: number | null = null;
     const deadline = Date.now() + 90_000;
     while (Date.now() < deadline) {
       const hit = await window
         .evaluate(
           (mark) =>
-            Array.from(document.querySelectorAll("[data-diff-lines]")).some(
-              (el) => el.textContent?.includes(mark),
-            ),
-          `step${total}-`,
+            (document
+              .querySelector('[data-file-path="mod-0.ts"]')
+              ?.textContent?.includes(mark) ??
+              false) &&
+            document.querySelector("[data-diff-lines] [data-index]") !== null,
+          `+${changedPerFile}`,
         )
         .catch(() => false);
       if (hit) {
@@ -658,11 +663,14 @@ test("diff: crossing the back-to-top threshold costs nothing", async ({
     );
   }
   await window.keyboard.press("ControlOrMeta+Shift+g");
-  await expect
-    .poll(() => window.locator("[data-diff-lines] [data-index]").count(), {
-      timeout: 90_000,
-    })
-    .toBeGreaterThan(3000);
+  // The file list's total says the whole diff has landed; only the rows near
+  // the screen are built, so the row count would not.
+  await expect(window.getByText("+2000").first()).toBeVisible({
+    timeout: 90_000,
+  });
+  await expect(
+    window.locator("[data-diff-lines] [data-index]").first(),
+  ).toBeVisible();
   await window.waitForTimeout(3_000);
 
   const backToTop = window.getByRole("button", { name: "Back to top" });

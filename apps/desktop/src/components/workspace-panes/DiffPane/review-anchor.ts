@@ -84,26 +84,53 @@ function rowAtBoundary(
   return row && container.contains(row) ? row : null;
 }
 
-function stepRow(row: HTMLElement, direction: 1 | -1): HTMLElement | null {
-  let cur =
-    direction === 1 ? row.nextElementSibling : row.previousElementSibling;
-  while (cur) {
-    if (cur instanceof HTMLElement && cur.hasAttribute("data-index"))
-      return cur;
-    cur = direction === 1 ? cur.nextElementSibling : cur.previousElementSibling;
-  }
-  return null;
-}
-
 function edgeRow(container: HTMLElement, edge: "first" | "last") {
   const rows = container.querySelectorAll<HTMLElement>(ROW);
   return (edge === "first" ? rows[0] : rows[rows.length - 1]) ?? null;
 }
 
+/**
+ * A file's rows as data, by index. `DiffLines` builds only the rows near the
+ * screen, so a selection can span rows that are not in the document; their
+ * text comes from here. Text matches `rowText` on a built row.
+ */
+export type RowSource = {
+  count: number;
+  /** `"<num>: <content>"` (or the content alone), as `rowText` reads it. */
+  text: (index: number) => string | null;
+  /** The line number the row shows, or `""` for a hunk header. */
+  lineNumber: (index: number) => string;
+};
+
+const rowSources = new WeakMap<HTMLElement, RowSource>();
+
+/** Register (or with `null`, forget) the rows behind a `[data-diff-lines]` list. */
+export function setRowSource(
+  container: HTMLElement,
+  source: RowSource | null,
+): void {
+  if (source) rowSources.set(container, source);
+  else rowSources.delete(container);
+}
+
+function rowTextAt(container: HTMLElement, index: number): string | null {
+  const source = rowSources.get(container);
+  if (source) return source.text(index);
+  const row = container.querySelector(`[data-index="${index}"]`);
+  return row ? rowText(row) : null;
+}
+
+function lineNumberAt(container: HTMLElement, index: number): string {
+  const source = rowSources.get(container);
+  if (source) return source.lineNumber(index);
+  const row = container.querySelector(`[data-index="${index}"]`);
+  return row ? rowLineNumber(row) : "";
+}
+
 type ResolvedRange = {
   container: HTMLElement;
-  first: HTMLElement;
-  last: HTMLElement;
+  from: number;
+  to: number;
 };
 
 /**
@@ -111,61 +138,75 @@ type ResolvedRange = {
  * endpoints rather than by testing every row in the file. The old scan was
  * O(rows) and ran on every `selectionchange` — which is once per frame for the
  * whole of a drag — so a long file made its own selection feel heavy.
+ *
+ * Indices, not elements: the rows between the endpoints may not be built.
  */
 function resolveRange(sel: Selection): ResolvedRange | null {
   if (sel.isCollapsed || sel.rangeCount === 0) return null;
 
   const container = containerFor(sel);
   if (!container) return null;
+  const source = rowSources.get(container);
 
   const range = sel.getRangeAt(0);
-  // A `null` here means that endpoint left the file, so clamp to the file's
+  // A `null` row means that endpoint left the file, so clamp to the file's
   // own edge instead of reaching into whatever came next.
-  let first: HTMLElement | null =
+  const startRow =
     rowAtBoundary(range.startContainer, range.startOffset, container) ??
-    edgeRow(container, "first");
-  let last: HTMLElement | null =
+    (source ? null : edgeRow(container, "first"));
+  const endRow =
     rowAtBoundary(range.endContainer, range.endOffset, container) ??
-    edgeRow(container, "last");
-  if (!first || !last) return null;
+    (source ? null : edgeRow(container, "last"));
 
   // A range that merely *touches* a row's edge does not cover it — which is
   // what `containsNode(row, true)` reports, and what the rest of this module
-  // has always meant by "covered". Two checks replace the old full scan.
-  if (!sel.containsNode(first, true)) first = stepRow(first, 1);
-  if (last && !sel.containsNode(last, true)) last = stepRow(last, -1);
-  if (!first || !last) return null;
+  // has always meant by "covered".
+  let from: number;
+  if (startRow)
+    from = rowIndex(startRow) + (sel.containsNode(startRow, true) ? 0 : 1);
+  else if (source) from = 0;
+  else return null;
 
-  if (rowIndex(first) > rowIndex(last)) return null;
-  return { container, first, last };
+  let to: number;
+  if (endRow) to = rowIndex(endRow) - (sel.containsNode(endRow, true) ? 0 : 1);
+  else if (source) to = source.count - 1;
+  else return null;
+
+  if (from > to) return null;
+  return { container, from, to };
 }
 
-function coveredRows(resolved: ResolvedRange): HTMLElement[] {
-  const from = rowIndex(resolved.first);
-  const to = rowIndex(resolved.last);
-  const rows: HTMLElement[] = [];
-  for (const row of resolved.container.querySelectorAll<HTMLElement>(ROW)) {
-    const index = rowIndex(row);
-    if (index >= from && index <= to) rows.push(row);
+function coveredText(resolved: ResolvedRange): string[] {
+  const lines: string[] = [];
+  for (let i = resolved.from; i <= resolved.to; i++) {
+    const line = rowTextAt(resolved.container, i);
+    if (line !== null) lines.push(line);
   }
-  return rows;
+  return lines;
 }
 
 /** e.g. "L12" / "L12–L18" (en dash), matching the rendered line numbers. */
-function labelFor(first: HTMLElement, last: HTMLElement): string {
-  const firstNum = rowLineNumber(first);
-  const lastNum = rowLineNumber(last);
+function labelFor(resolved: ResolvedRange): string {
+  const firstNum = lineNumberAt(resolved.container, resolved.from);
+  const lastNum = lineNumberAt(resolved.container, resolved.to);
   if (!firstNum && !lastNum) return "";
   return firstNum !== lastNum ? `L${firstNum}–L${lastNum}` : `L${firstNum}`;
 }
 
 /**
- * The `[data-index]` rows of the nearest `[data-diff-lines]` container that
- * `sel` covers. Empty for a collapsed selection or one that touches no rows.
+ * The built `[data-index]` rows of the nearest `[data-diff-lines]` container
+ * that `sel` covers. Empty for a collapsed selection or one that touches no
+ * rows.
  */
 export function rowsInSelection(sel: Selection): HTMLElement[] {
   const resolved = resolveRange(sel);
-  return resolved ? coveredRows(resolved) : [];
+  if (!resolved) return [];
+  return Array.from(
+    resolved.container.querySelectorAll<HTMLElement>(ROW),
+  ).filter((row) => {
+    const index = rowIndex(row);
+    return index >= resolved.from && index <= resolved.to;
+  });
 }
 
 /**
@@ -176,10 +217,8 @@ export function rowsInSelection(sel: Selection): HTMLElement[] {
  */
 export function selectionSnippet(sel: Selection): string | null {
   if (sel.isCollapsed) return null;
-
-  const lines = rowsInSelection(sel)
-    .map(rowText)
-    .filter((line): line is string => line !== null);
+  const resolved = resolveRange(sel);
+  const lines = resolved ? coveredText(resolved) : [];
   return lines.length > 0 ? lines.join("\n") : sel.toString();
 }
 
@@ -199,9 +238,9 @@ export function selectionRowRange(sel: Selection): SelectionRowRange | null {
   const resolved = resolveRange(sel);
   if (!resolved) return null;
   return {
-    startIndex: rowIndex(resolved.first),
-    endIndex: rowIndex(resolved.last),
-    startLabel: labelFor(resolved.first, resolved.last),
+    startIndex: resolved.from,
+    endIndex: resolved.to,
+    startLabel: labelFor(resolved),
   };
 }
 
@@ -218,14 +257,12 @@ export function selectionToAnchor(sel: Selection): SelectionAnchor | null {
   const resolved = resolveRange(sel);
   if (!resolved) return null;
 
-  const lines = coveredRows(resolved)
-    .map(rowText)
-    .filter((line): line is string => line !== null);
+  const lines = coveredText(resolved);
 
   return {
-    startIndex: rowIndex(resolved.first),
-    endIndex: rowIndex(resolved.last),
+    startIndex: resolved.from,
+    endIndex: resolved.to,
     snippet: lines.length > 0 ? lines.join("\n") : sel.toString(),
-    startLabel: labelFor(resolved.first, resolved.last),
+    startLabel: labelFor(resolved),
   };
 }

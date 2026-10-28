@@ -10,7 +10,10 @@ import { createWorkspace, importSeededProject, test, expect } from "./fixtures";
  * selection — has to reach rows that are not built yet.
  */
 
-/** Rows in the far file: well past one screen plus overscan. */
+/**
+ * Rows in the far file: well past one screen plus overscan, and under the
+ * 1,000 changed lines that would start it collapsed.
+ */
 const FAR_LINES = 900;
 
 test("only rows near the screen are built", async ({
@@ -22,7 +25,7 @@ test("only rows near the screen are built", async ({
   await bootDiff(app, window, tempHome);
 
   const built = await window.locator("[data-diff-lines] [data-index]").count();
-  // Two files of ~1,800 rows between them; a screen and its overscan is a
+  // Two files of ~900 rows between them; a screen and its overscan is a
   // few dozen.
   expect(built).toBeGreaterThan(10);
   expect(built).toBeLessThan(300);
@@ -50,7 +53,7 @@ test("search reaches a match in a row that is not built", async ({
   const row = await last.evaluate(
     (el) => el.closest<HTMLElement>("[data-index]")?.dataset.index,
   );
-  expect(Number(row)).toBeGreaterThan(FAR_LINES);
+  expect(Number(row)).toBeGreaterThan(FAR_LINES - 10);
 });
 
 test("jumping to a comment reaches a row that is not built", async ({
@@ -167,8 +170,156 @@ test("copying a long drag selection includes rows that are not built", async ({
   // One line per row from the start row through the end row, every one of
   // them, built or not.
   expect(lines.length - 1).toBe(lastIndex - firstIndex + 1);
-  expect(text).toContain('"far-100"');
+  expect(text).toContain('"far2-100"');
 });
+
+test("a selection scrolled out of view still copies its own rows", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  test.setTimeout(180_000);
+  await bootDiff(app, window, tempHome);
+
+  // Select rows 3–8 of far.ts with a drag...
+  await window.evaluate(() =>
+    document.querySelector('[data-file-path="far.ts"]')?.scrollIntoView(),
+  );
+  const cell = (i: number) =>
+    window.locator(
+      `[data-file-path="far.ts"] [data-index="${i}"] > :nth-child(2)`,
+    );
+  const from = (await cell(3).boundingBox())!;
+  const to = (await cell(8).boundingBox())!;
+  await window.mouse.move(from.x + 30, from.y + 5);
+  await window.mouse.down();
+  await window.mouse.move(to.x + 60, to.y + 5, { steps: 6 });
+  await window.mouse.up();
+
+  // ...scroll far away, so neither end is anywhere near the screen...
+  await scrollPaneTo(window, 30_000);
+
+  // ...and copy: still rows 3–8, not whatever rows are built now.
+  await window.keyboard.press("ControlOrMeta+c");
+  await expect
+    .poll(() => app.evaluate(({ clipboard }) => clipboard.readText()), {
+      timeout: 5_000,
+    })
+    .toContain("far.ts");
+  const lines = (
+    await app.evaluate(({ clipboard }) => clipboard.readText())
+  ).split("\n");
+  expect(lines).toHaveLength(1 + 6);
+  expect(lines[1]).toContain('"far2-2"');
+});
+
+test("huge and generated files start collapsed, and a choice holds", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  test.setTimeout(180_000);
+  await importSeededProject(app, window, tempHome);
+  await createWorkspace(window, "diff-collapse");
+  const worktree = await waitForWorktree(tempHome);
+
+  const lines = (n: number, gen: string) =>
+    Array.from(
+      { length: n },
+      (_, i) => `export const v${i} = "${gen}-${i}";`,
+    ).join("\n") + "\n";
+  const lock = (gen: string) =>
+    Array.from(
+      { length: 40 },
+      (_, i) => `  pkg-${i}@1.0.${gen}:\n    resolution: x`,
+    ).join("\n") + "\n";
+  fs.writeFileSync(path.join(worktree, "pnpm-lock.yaml"), lock("0"));
+  fs.writeFileSync(path.join(worktree, "small.ts"), lines(300, "small"));
+  git(worktree, "add -A");
+  git(worktree, 'commit -qm "baseline"');
+  fs.writeFileSync(path.join(worktree, "pnpm-lock.yaml"), lock("1"));
+  fs.writeFileSync(path.join(worktree, "small.ts"), lines(300, "small2"));
+  fs.writeFileSync(path.join(worktree, "big.ts"), lines(1500, "big"));
+  git(worktree, "add big.ts");
+
+  await window.keyboard.press("ControlOrMeta+Shift+g");
+  const file = (name: string) => window.locator(`[data-file-path="${name}"]`);
+  const showAll = (name: string) =>
+    file(name).getByRole("button", { name: /^Show all [\d,]+ lines$/ });
+
+  await expect(showAll("big.ts")).toBeVisible({ timeout: 60_000 });
+  await expect(showAll("big.ts")).toHaveText("Show all 1,500 lines");
+  await expect(showAll("pnpm-lock.yaml")).toBeVisible();
+  await expect(file("big.ts").locator("[data-index]")).toHaveCount(0);
+  await expect(showAll("small.ts")).toHaveCount(0);
+  await expect(file("small.ts").locator("[data-index]").first()).toBeVisible();
+
+  await file("big.ts").scrollIntoViewIfNeeded();
+  await window.screenshot({
+    path: test.info().outputPath("collapsed-dark.png"),
+  });
+  await useLightTheme(window);
+  await window.waitForTimeout(800);
+  await window.screenshot({
+    path: test.info().outputPath("collapsed-light.png"),
+  });
+
+  // Expanding is remembered as the agent keeps editing.
+  await showAll("big.ts").click();
+  await expect(file("big.ts").locator("[data-index]").first()).toBeVisible();
+  await expect(showAll("big.ts")).toHaveCount(0);
+  await window.screenshot({
+    path: test.info().outputPath("expanded-light.png"),
+  });
+
+  fs.writeFileSync(path.join(worktree, "big.ts"), lines(1501, "big"));
+  // One more line in small.ts says the diff has refreshed.
+  fs.writeFileSync(path.join(worktree, "small.ts"), lines(301, "small3"));
+  await expect(file("small.ts")).toContainText("+301", { timeout: 30_000 });
+  await expect(showAll("big.ts")).toHaveCount(0);
+  await expect(file("big.ts").locator("[data-index]").first()).toBeVisible();
+});
+
+/**
+ * Catppuccin Latte, the light half of Manor's default palette. Selected by
+ * name; a throwaway profile may not have the theme list loaded, so its
+ * colours are applied directly if selecting it changed nothing.
+ */
+async function useLightTheme(window: Page): Promise<void> {
+  const bg = () =>
+    window.evaluate(() =>
+      getComputedStyle(document.documentElement)
+        .getPropertyValue("--bg")
+        .trim(),
+    );
+  const before = await bg();
+  await window
+    .evaluate(() => window.electronAPI.theme.setSelected("Catppuccin Latte"))
+    .catch(() => {});
+  await window.waitForTimeout(800);
+  if ((await bg()) !== before) return;
+  await window.evaluate(() => {
+    const latte: Record<string, string> = {
+      "--bg": "#eff1f5",
+      "--fg": "#4c4f69",
+      "--dim": "#e6e9ef",
+      "--surface": "#ccd0da",
+      "--hover": "#dce0e8",
+      "--border": "#bcc0cc",
+      "--text": "#4c4f69",
+      "--text-primary": "#4c4f69b3",
+      "--text-selected": "#4c4f69",
+      "--text-dim": "#4c4f6980",
+      "--accent": "#1e66f5",
+      "--blue": "#1e66f5",
+      "--green": "#40a02b",
+      "--red": "#d20f39",
+    };
+    for (const [k, v] of Object.entries(latte))
+      document.documentElement.style.setProperty(k, v);
+    document.documentElement.style.colorScheme = "light";
+  });
+}
 
 async function scrollPaneTo(window: Page, top: number): Promise<void> {
   await window.evaluate((y) => {
@@ -198,19 +349,17 @@ async function bootDiff(
     path.join(worktree, "a.ts"),
     lines(20, "a").join("\n") + "\n",
   );
-  fs.writeFileSync(
-    path.join(worktree, "far.ts"),
-    lines(FAR_LINES, "far").join("\n") + "\n",
-  );
   git(worktree, "add -A");
   git(worktree, 'commit -qm "baseline"');
 
   const a = lines(20, "a");
   a[0] = `export const v0 = "zqneedle";`;
   fs.writeFileSync(path.join(worktree, "a.ts"), a.join("\n") + "\n");
+  // A new file: every line an added row.
   const far = lines(FAR_LINES, "far2");
   far[FAR_LINES - 1] = `export const last = "zqneedle";`;
   fs.writeFileSync(path.join(worktree, "far.ts"), far.join("\n") + "\n");
+  git(worktree, "add far.ts");
 
   await window.keyboard.press("ControlOrMeta+Shift+g");
   await expect(

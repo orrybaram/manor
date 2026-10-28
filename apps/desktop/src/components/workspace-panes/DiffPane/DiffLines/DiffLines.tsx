@@ -9,7 +9,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import type { MouseEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import type { Range } from "@tanstack/react-virtual";
 import type { RootContent } from "hast";
@@ -124,9 +124,11 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
   };
 
   // Where this list starts inside the pane's scrolled content. It moves when
-  // anything above it changes height — a file expanding, rows measuring — so
-  // it is re-read whenever the content resizes.
-  const [scrollMargin, setScrollMargin] = useState(0);
+  // anything above it changes height — a file expanding, rows measuring, the
+  // file list above the files in a narrow pane — so it is re-read whenever
+  // any of those resize. `null` until first measured: rows built against a
+  // guessed offset would be measured in the wrong place and jolt the scroll.
+  const [scrollMargin, setScrollMargin] = useState<number | null>(null);
   useLayoutEffect(() => {
     const list = listRef.current;
     if (!scroller || !list) return;
@@ -135,7 +137,9 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
         list.getBoundingClientRect().top -
         scroller.getBoundingClientRect().top +
         scroller.scrollTop;
-      setScrollMargin((prev) => (Math.abs(prev - top) < 1 ? prev : top));
+      setScrollMargin((prev) =>
+        prev !== null && Math.abs(prev - top) < 1 ? prev : top,
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -157,24 +161,45 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
     return cumulative;
   }, [lines, searchQuery]);
 
-  // The row a drag-selection starts on stays built however far the drag
-  // scrolls: the selection is anchored in it, and unbuilding it would move
-  // the selection's start.
-  const pinnedRow = useRef<number | null>(null);
+  // The rows holding the selection's two ends stay built however far the
+  // pane scrolls from them. Unbuilding one would move that end of the
+  // selection to whatever row took its place, and a copy or comment would
+  // silently cover the wrong lines.
+  const pinnedRows = useRef<readonly number[]>([]);
   const rangeExtractor = useCallback((range: Range) => {
     const indexes = defaultRangeExtractor(range);
-    const pinned = pinnedRow.current;
-    if (pinned === null || pinned >= range.count || indexes.includes(pinned))
-      return indexes;
-    return [...indexes, pinned].sort((a, b) => a - b);
+    const extra = pinnedRows.current.filter(
+      (i) => i < range.count && !indexes.includes(i),
+    );
+    return extra.length > 0
+      ? [...indexes, ...extra].sort((a, b) => a - b)
+      : indexes;
   }, []);
-  const pinRow = (e: MouseEvent) => {
-    const row = (e.target as Element).closest<HTMLElement>("[data-index]");
-    // Only a press in the row's code starts a selection; one in a comment
-    // card hung under the row is a button press or typing.
-    if (!row || !row.children[1]?.contains(e.target as Node)) return;
-    pinnedRow.current = Number(row.dataset.index);
-  };
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    // An end in a row's code; not one in a comment card hung under the row,
+    // which is typing or a button press rather than a selection of lines.
+    const rowOf = (node: Node | null): number | null => {
+      const el = node instanceof Element ? node : node?.parentElement;
+      const row = el?.closest<HTMLElement>("[data-index]");
+      if (!el || !row || !list.contains(row)) return null;
+      if (!row.children[1]?.contains(el)) return null;
+      return Number(row.dataset.index);
+    };
+    const onSelectionChange = () => {
+      const sel = document.getSelection();
+      pinnedRows.current =
+        sel && sel.rangeCount > 0
+          ? [rowOf(sel.anchorNode), rowOf(sel.focusNode)].filter(
+              (i): i is number => i !== null,
+            )
+          : [];
+    };
+    document.addEventListener("selectionchange", onSelectionChange);
+    return () =>
+      document.removeEventListener("selectionchange", onSelectionChange);
+  }, []);
 
   // Rows that are not built are still selectable text, as far as copying and
   // commenting go: their text is read from here.
@@ -208,10 +233,11 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
     count: lines.length,
     getScrollElement: () => scroller,
     estimateSize: () => ROW_HEIGHT_ESTIMATE,
-    scrollMargin,
+    scrollMargin: scrollMargin ?? 0,
     overscan: OVERSCAN,
     rangeExtractor,
   });
+  const margin = scrollMargin ?? 0;
 
   // The virtualizer keeps `OVERSCAN` rows at whichever end of the file is
   // nearest the screen, even when the whole file is far above or below it —
@@ -225,7 +251,7 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
     band;
   const nearScreen = (row: { index: number; start: number; end: number }) =>
     (row.end > viewTop && row.start < viewBottom) ||
-    row.index === pinnedRow.current;
+    pinnedRows.current.includes(row.index);
 
   // The pane reaches rows that may not be built through this, by index.
   const latest = useRef({ virtualizer, cumulativeMatches, matchOffset });
@@ -281,83 +307,22 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
         ref={listRef}
         className={styles.virtualList}
         data-diff-lines
-        onMouseDown={pinRow}
         style={{ height: virtualizer.getTotalSize() }}
       >
-        {virtualizer
-          .getVirtualItems()
-          .filter(nearScreen)
-          .map((virtualRow) => {
-            const i = virtualRow.index;
-            const line = lines[i];
-            const extra = rowExtra(i);
-            const rowClass =
-              extra === null
-                ? styles.row
-                : `${styles.row} ${styles.rowWithExtra}`;
-            const commented = markedRows.has(i) ? "true" : undefined;
+        {(scrollMargin === null
+          ? []
+          : virtualizer.getVirtualItems().filter(nearScreen)
+        ).map((virtualRow) => {
+          const i = virtualRow.index;
+          const line = lines[i];
+          const extra = rowExtra(i);
+          const rowClass =
+            extra === null
+              ? styles.row
+              : `${styles.row} ${styles.rowWithExtra}`;
+          const commented = markedRows.has(i) ? "true" : undefined;
 
-            if (line.type === "hunk") {
-              return (
-                <div
-                  key={virtualRow.key}
-                  ref={measureRef}
-                  data-index={i}
-                  data-commented={commented}
-                  className={rowClass}
-                  style={{
-                    transform: `translateY(${virtualRow.start - scrollMargin}px)`,
-                  }}
-                >
-                  <div className={styles.lineNum} />
-                  <div className={styles.hunkContent}>{line.content}</div>
-                  {extra}
-                </div>
-              );
-            }
-
-            const numClass =
-              line.type === "add"
-                ? styles.lineNumAdd
-                : line.type === "del"
-                  ? styles.lineNumDel
-                  : styles.lineNum;
-            const contentClass =
-              line.type === "add"
-                ? styles.lineContentAdd
-                : line.type === "del"
-                  ? styles.lineContentDel
-                  : styles.lineContent;
-            const num = line.type === "del" ? line.oldNum : line.newNum;
-            const prefix =
-              line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
-
-            let content: ReactNode[];
-            const lineMatchOffset =
-              cumulativeMatches != null
-                ? matchOffset + cumulativeMatches[i]
-                : matchOffset;
-
-            const tokens = tokensFor(i);
-            if (tokens) {
-              const result = highlightSyntaxNodes(
-                tokens,
-                searchQuery,
-                lineMatchOffset,
-                currentMatch,
-                `l${i}`,
-              );
-              content = result.elements;
-            } else {
-              const result = highlightText(
-                line.content,
-                searchQuery,
-                lineMatchOffset,
-                currentMatch,
-              );
-              content = result.fragments;
-            }
-
+          if (line.type === "hunk") {
             return (
               <div
                 key={virtualRow.key}
@@ -366,18 +331,78 @@ export const DiffLines = memo(function DiffLines(props: DiffLinesProps) {
                 data-commented={commented}
                 className={rowClass}
                 style={{
-                  transform: `translateY(${virtualRow.start - scrollMargin}px)`,
+                  transform: `translateY(${virtualRow.start - margin}px)`,
                 }}
               >
-                <div className={numClass}>{num}</div>
-                <div className={contentClass}>
-                  <span className={styles.prefix}>{prefix}</span>
-                  {content}
-                </div>
+                <div className={styles.lineNum} />
+                <div className={styles.hunkContent}>{line.content}</div>
                 {extra}
               </div>
             );
-          })}
+          }
+
+          const numClass =
+            line.type === "add"
+              ? styles.lineNumAdd
+              : line.type === "del"
+                ? styles.lineNumDel
+                : styles.lineNum;
+          const contentClass =
+            line.type === "add"
+              ? styles.lineContentAdd
+              : line.type === "del"
+                ? styles.lineContentDel
+                : styles.lineContent;
+          const num = line.type === "del" ? line.oldNum : line.newNum;
+          const prefix =
+            line.type === "add" ? "+" : line.type === "del" ? "-" : " ";
+
+          let content: ReactNode[];
+          const lineMatchOffset =
+            cumulativeMatches != null
+              ? matchOffset + cumulativeMatches[i]
+              : matchOffset;
+
+          const tokens = tokensFor(i);
+          if (tokens) {
+            const result = highlightSyntaxNodes(
+              tokens,
+              searchQuery,
+              lineMatchOffset,
+              currentMatch,
+              `l${i}`,
+            );
+            content = result.elements;
+          } else {
+            const result = highlightText(
+              line.content,
+              searchQuery,
+              lineMatchOffset,
+              currentMatch,
+            );
+            content = result.fragments;
+          }
+
+          return (
+            <div
+              key={virtualRow.key}
+              ref={measureRef}
+              data-index={i}
+              data-commented={commented}
+              className={rowClass}
+              style={{
+                transform: `translateY(${virtualRow.start - margin}px)`,
+              }}
+            >
+              <div className={numClass}>{num}</div>
+              <div className={contentClass}>
+                <span className={styles.prefix}>{prefix}</span>
+                {content}
+              </div>
+              {extra}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

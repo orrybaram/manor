@@ -27,6 +27,8 @@ import { countMatches } from "./search-utils";
 import { SearchBar } from "./SearchBar/SearchBar";
 import { FileHeader } from "./FileHeader/FileHeader";
 import { DiffLines } from "./DiffLines/DiffLines";
+import { CollapsedPreview } from "./CollapsedPreview/CollapsedPreview";
+import { autoCollapseReason, collapsedFiles } from "./auto-collapse";
 import {
   DiffScrollContext,
   type DiffLinesHandle,
@@ -76,7 +78,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const { paneId, workspacePath, hostId } = props;
     const [raw, setRaw] = useState<string | null>(null);
     const [diffMode, setDiffMode] = useState<DiffMode>("local");
-    const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+    // Files the user expanded or collapsed themselves; every other file
+    // follows the default for its size and kind (`collapsedFiles`).
+    const [collapseChoices, setCollapseChoices] = useState<
+      ReadonlyMap<string, boolean>
+    >(new Map());
+    const collapsedRef = useRef<ReadonlySet<string>>(new Set());
     const [showBackToTop, setShowBackToTop] = useState(false);
     const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
     const [searchOpen, setSearchOpen] = useState(false);
@@ -93,6 +100,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       setScroller(el);
     }, []);
     const [fileStackEl, setFileStackEl] = useState<HTMLDivElement | null>(null);
+    // Watched too: in a narrow pane the file list sits above the files, so
+    // opening it moves every file without resizing the stack.
+    const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null);
     const lineHandles = useRef(new Map<string, DiffLinesHandle>());
     // Cancel detection: set to true when the user clicks the toast's Cancel
     // action so the `done` handler can distinguish a SIGTERM-induced exit from
@@ -135,12 +145,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const diffScroll = useMemo<DiffScroll>(
       () => ({
         scroller,
-        watch: [headerEl, fileStackEl].filter(
+        watch: [headerEl, bodyEl, fileStackEl].filter(
           (el): el is HTMLDivElement => el !== null,
         ),
         handles: lineHandles.current,
       }),
-      [scroller, headerEl, fileStackEl],
+      [scroller, headerEl, bodyEl, fileStackEl],
     );
 
     useImperativeHandle(ref, () => ({
@@ -157,22 +167,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, []);
 
     const toggleFile = useCallback((path: string) => {
-      setCollapsed((prev) => {
-        const next = new Set(prev);
-        if (next.has(path)) next.delete(path);
-        else next.add(path);
-        return next;
-      });
+      const open = collapsedRef.current.has(path);
+      setCollapseChoices((prev) => new Map(prev).set(path, !open));
     }, []);
 
     /** Un-collapse a file, so anything anchored inside it has somewhere to go. */
     const revealFile = useCallback((path: string) => {
-      setCollapsed((prev) => {
-        if (!prev.has(path)) return prev;
-        const next = new Set(prev);
-        next.delete(path);
-        return next;
-      });
+      if (!collapsedRef.current.has(path)) return;
+      setCollapseChoices((prev) => new Map(prev).set(path, false));
     }, []);
 
     const scrollToFile = useCallback(
@@ -285,6 +287,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     );
 
     const files = useMemo(() => (raw ? parseDiff(raw) : []), [raw]);
+    const collapsed = useMemo(
+      () => collapsedFiles(files, collapseChoices),
+      [files, collapseChoices],
+    );
+    collapsedRef.current = collapsed;
 
     const review = useDraftReview({
       workspacePath,
@@ -420,10 +427,17 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, []);
 
     // The match's row may not be built: its file scrolls there by index
-    // first, and the highlighted match is centred once it exists.
+    // first, and the highlighted match is centred once it exists. Not re-run
+    // when the diff refreshes: that would pull the pane back to the match
+    // every time an agent saves a file.
+    const filesRef = useRef(files);
+    filesRef.current = files;
     useEffect(() => {
       if (!searchQuery || totalMatches === 0) return;
-      for (const file of files) {
+      for (const file of filesRef.current) {
+        // A file closing still has its rows mounted, but its matches are no
+        // longer counted (`fileOffsets`).
+        if (collapsedRef.current.has(file.path)) continue;
         if (lineHandles.current.get(file.path)?.scrollToMatch(currentMatch))
           break;
       }
@@ -437,7 +451,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           frame = requestAnimationFrame(reveal);
       });
       return () => cancelAnimationFrame(frame);
-    }, [currentMatch, searchQuery, totalMatches, files]);
+    }, [currentMatch, searchQuery, totalMatches]);
 
     const handleSearchNext = useCallback(() => {
       setCurrentMatch((prev) => (prev + 1) % totalMatches);
@@ -782,7 +796,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
           )}
           {topBar}
         </div>
-        <div className={styles.body}>
+        <div className={styles.body} ref={setBodyEl}>
           <div className={styles.fileListWrapper}>
             <FileList
               files={files}
@@ -846,6 +860,13 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                           animated={animationState.get(file.path) === "updated"}
                           onToggle={() => toggleFile(file.path)}
                         />
+                        {collapsed.has(file.path) &&
+                          autoCollapseReason(file) && (
+                            <CollapsedPreview
+                              file={file}
+                              onExpand={() => toggleFile(file.path)}
+                            />
+                          )}
                         <Collapse open={!collapsed.has(file.path)}>
                           <DiffLines
                             lines={file.lines}

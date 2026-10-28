@@ -201,10 +201,11 @@ async function bootLargeDiff(
   const rows = window.locator("[data-diff-lines] [data-index]");
   await expect(rows.first()).toBeVisible({ timeout: 30_000 });
   // The diff is fetched on an interval, so wait for the whole thing to land
-  // rather than racing the first render.
-  await expect
-    .poll(() => rows.count(), { timeout: 30_000 })
-    .toBeGreaterThan(LINES_PER_FILE);
+  // rather than racing the first render: every file, with its full count.
+  // (Not a row count: only the rows near the screen are built.)
+  const headers = window.locator("[data-file-path]");
+  await expect(headers).toHaveCount(FILE_COUNT, { timeout: 30_000 });
+  await expect(headers.first()).toContainText(`+${LINES_PER_FILE}`);
 }
 
 /** Run the drag `DRAGS` times, print every run, and return the median worst gap. */

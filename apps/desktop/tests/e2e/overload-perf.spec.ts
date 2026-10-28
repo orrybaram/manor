@@ -557,6 +557,24 @@ test("diff: ramp a worktree's diff until the pane gives out", async ({
       ...(await probe.sample()),
     });
     record("diff", `${total} lines idle`, await probe.watchFrames(12_000));
+    // Opening the pane on a diff that is already there: the render cost
+    // alone, without waiting on the poll to notice the files changed.
+    if (shownMs !== null) {
+      await window.getByLabel("Close pane").first().click();
+      await expect(window.locator("[data-file-path]")).toHaveCount(0);
+      const opened = Date.now();
+      await window.keyboard.press("ControlOrMeta+Shift+g");
+      await expect(window.locator("[data-file-path]")).toHaveCount(FILES, {
+        timeout: 60_000,
+      });
+      await expect(
+        window.locator("[data-diff-lines] [data-index]").first(),
+      ).toBeVisible({ timeout: 60_000 });
+      record("diff", `${total} lines reopen`, {
+        openMs: Date.now() - opened,
+        ...(await probe.sample()),
+      });
+    }
     // Scroll through it: the virtualizer's real job.
     const scroll = await scrollDiff(window, probe);
     record("diff", `${total} lines scroll`, scroll);

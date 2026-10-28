@@ -62,15 +62,62 @@ describe("TurnSettle", () => {
     expect(changes).toEqual([true, false, true]);
   });
 
-  it("starts over when the hook status moves", () => {
+  it("keeps Thinking for a prompt just sent while its line lags behind the last turn's end", () => {
+    settle.setStatus("idle");
+    settle.setTurn("done");
+    vi.advanceTimersByTime(TURN_SETTLE_MS * 2);
+    // The phone sends a prompt: hooks go busy, the transcript still says done.
+    settle.setStatus("thinking");
+    vi.advanceTimersByTime(5_000);
+    expect(settle.settled).toBe(false);
+    // The prompt lands, and its turn ends with the Stop hook lost.
+    settle.setTurn("working");
     settle.setStatus("working");
     settle.setTurn("done");
-    vi.advanceTimersByTime(TURN_SETTLE_MS - 1000);
+    vi.advanceTimersByTime(TURN_SETTLE_MS);
+    expect(settle.settled).toBe(true);
+    expect(changes).toEqual([true]);
+  });
+
+  it("settles a turn whose Stop hook never came", () => {
+    settle.setStatus("idle");
     settle.setStatus("thinking");
+    settle.setTurn("working");
+    settle.setStatus("working");
+    settle.setTurn("done");
     vi.advanceTimersByTime(TURN_SETTLE_MS - 1);
     expect(settle.settled).toBe(false);
     vi.advanceTimersByTime(1);
     expect(settle.settled).toBe(true);
+  });
+
+  it("settles once, on time, while hooks flap between working and thinking", () => {
+    settle.setStatus("idle");
+    settle.setStatus("working");
+    settle.setTurn("working");
+    settle.setTurn("done");
+    vi.advanceTimersByTime(1000);
+    settle.setStatus("thinking");
+    vi.advanceTimersByTime(1000);
+    settle.setStatus("working");
+    vi.advanceTimersByTime(1000);
+    expect(settle.settled).toBe(true);
+    settle.setStatus("thinking");
+    settle.setStatus("working");
+    expect(settle.settled).toBe(true);
+    expect(changes).toEqual([true]);
+  });
+
+  it("clears when hooks go idle, and a new busy stretch doesn't revive an old end", () => {
+    settle.setStatus("working");
+    settle.setTurn("done");
+    vi.advanceTimersByTime(TURN_SETTLE_MS);
+    expect(settle.settled).toBe(true);
+    settle.setStatus("responded");
+    expect(settle.settled).toBe(false);
+    settle.setStatus("thinking");
+    vi.advanceTimersByTime(TURN_SETTLE_MS * 2);
+    expect(settle.settled).toBe(false);
   });
 
   it("ignores the same value told again", () => {

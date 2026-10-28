@@ -488,11 +488,12 @@ export class TranscriptParser {
       this.skillListing(att);
       return [];
     }
-    // Compaction: show the boundary, not the summary that follows it.
+    // A local command's output, written as a system line: it started no turn.
     if (type === "system" && parsed.subtype === "local_command") {
       if (str(parsed.content)?.includes("<local-command-stdout>")) this.localCommandRan();
       return [];
     }
+    // Compaction: show the boundary, not the summary that follows it.
     if (type === "system" && parsed.subtype === "compact_boundary") {
       const e = this.add({ kind: "notice", id: uuid, ts, text: "Conversation compacted", status: "ok" });
       return e ? [e] : [];

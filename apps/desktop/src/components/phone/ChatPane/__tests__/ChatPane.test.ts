@@ -17,6 +17,7 @@ vi.hoisted(() => {
 import type { ChatAnswerResult, ChatEntry, ChatHistory, ChatPush } from "../../../../electron.d";
 import { BUILTIN_COMMANDS } from "../../../../../electron/chat-mirror/builtin-commands";
 import { ChatPane } from "../ChatPane";
+import { TURN_SETTLE_MS } from "../turn-settle";
 import {
   endMenuHandoff,
   noteChatEntries,
@@ -297,7 +298,7 @@ describe("ChatPane — entries", () => {
     }
   });
 
-  it("learns an ended turn from history, and starts over when the hook status moves", async () => {
+  it("learns an ended turn from history, through hooks flapping between working and thinking", async () => {
     vi.useFakeTimers();
     try {
       installChat({ ok: true, contextTokens: null, turnState: "interrupted", entries: [] });
@@ -305,10 +306,28 @@ describe("ChatPane — entries", () => {
       await renderChat();
       await act(async () => vi.advanceTimersByTime(2000));
       useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
-      await act(async () => vi.advanceTimersByTime(2000));
+      await act(async () => vi.advanceTimersByTime(900));
       expect(all("chat-thinking")).toHaveLength(1);
-      await act(async () => vi.advanceTimersByTime(1000));
+      await act(async () => vi.advanceTimersByTime(100));
       expect(all("chat-thinking")).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps Thinking for a prompt sent after an ended turn, however long its line takes", async () => {
+    vi.useFakeTimers();
+    try {
+      installChat({ ok: true, contextTokens: null, turnState: "done", entries: [] });
+      useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "responded", reason: "", kind: "claude" } } });
+      await renderChat();
+      await act(async () => vi.advanceTimersByTime(TURN_SETTLE_MS));
+      await act(async () => {
+        useAppStore.setState({ paneAgentStatus: { [PANE]: { status: "thinking", reason: "", kind: "claude" } } });
+      });
+      await act(async () => vi.advanceTimersByTime(5_000));
+      expect(all("chat-stop")).toHaveLength(1);
+      expect(all("chat-thinking")).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

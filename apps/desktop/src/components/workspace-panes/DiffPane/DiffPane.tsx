@@ -192,7 +192,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     }, [paneId, openSearch]);
 
     const project = useProjectStore((s) =>
-      workspacePath ? ownerOf(s.projects, workspaceKey(hostId, workspacePath)) : undefined,
+      workspacePath
+        ? ownerOf(s.projects, workspaceKey(hostId, workspacePath))
+        : undefined,
     );
     const defaultBranch = project?.defaultBranch ?? "main";
 
@@ -630,7 +632,10 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               fetchDiffSingleFlight(fetchKey, () =>
                 diffMode === "local"
                   ? window.electronAPI.diffs.getLocalDiff(workspacePath)
-                  : window.electronAPI.diffs.getFullDiff(workspacePath, defaultBranch),
+                  : window.electronAPI.diffs.getFullDiff(
+                      workspacePath,
+                      defaultBranch,
+                    ),
               )
             }
             onResult={(result) => applyDiff(fetchKey, result)}
@@ -839,9 +844,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                         className={styles.contextMenuItem}
                         onSelect={() => {
                           if (savedSelection.text)
-                            navigator.clipboard.writeText(
-                              savedSelection.text,
-                            );
+                            navigator.clipboard.writeText(savedSelection.text);
                         }}
                       >
                         <Clipboard size={14} />
@@ -884,15 +887,18 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               onJumpToComment={review.jumpToComment}
             />
           )}
-          {showBackToTop && (
-            <button
-              className={styles.backToTop}
-              onClick={scrollToTop}
-              aria-label="Back to top"
-            >
-              <ArrowUp size={14} />
-            </button>
-          )}
+          {/* Always in the dock, only shown past the fold: inserting it
+              resizes the dock, which sits in the scroller's flow, and on a
+              large diff that restyles and relays out every row — seconds. */}
+          <button
+            className={styles.backToTop}
+            onClick={scrollToTop}
+            aria-label="Back to top"
+            data-hidden={showBackToTop ? undefined : ""}
+            tabIndex={showBackToTop ? undefined : -1}
+          >
+            <ArrowUp size={14} />
+          </button>
         </div>
         {workspacePath && (
           <CommitModal

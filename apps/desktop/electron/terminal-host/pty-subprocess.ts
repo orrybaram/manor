@@ -307,6 +307,12 @@ const decoder = new FrameDecoder((type, payload) => {
     case MSG.DISPOSE:
       handleDispose();
       break;
+    case MSG.PAUSE:
+      ptyProcess?.pause();
+      break;
+    case MSG.RESUME:
+      ptyProcess?.resume();
+      break;
   }
 });
 

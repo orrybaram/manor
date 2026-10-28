@@ -157,6 +157,10 @@
     background 120ms ease;
 }
 
+.backToTop[data-hidden] {
+  visibility: hidden;
+}
+
 .backToTop:hover {
   background: var(--hover);
   color: var(--text);

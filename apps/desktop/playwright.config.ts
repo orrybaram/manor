@@ -7,7 +7,11 @@ import { defineConfig } from "@playwright/test";
  * (Not a project dependency: that would drag the whole suite into a run of a
  * single perf spec.)
  */
-const PERF_SPECS = ["**/diff-drag-perf.spec.ts", "**/resize-lockup.spec.ts"];
+const PERF_SPECS = [
+  "**/diff-drag-perf.spec.ts",
+  "**/resize-lockup.spec.ts",
+  "**/overload-perf.spec.ts",
+];
 
 export default defineConfig({
   testDir: "./tests/e2e",

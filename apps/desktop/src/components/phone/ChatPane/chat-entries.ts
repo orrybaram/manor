@@ -33,9 +33,9 @@ export function mergeHistory(
   return [...history, ...live.filter((e) => !known.has(e.id))];
 }
 
-/** An open picker: a question with no answer yet, or a plan with no outcome. */
+/** An open picker: a question neither answered nor declined, or a plan with no outcome. */
 export function isOpenPicker(entry: ChatEntry): boolean {
-  if (entry.kind === "question") return entry.answer === null;
+  if (entry.kind === "question") return entry.answer === null && entry.declined !== true;
   if (entry.kind === "plan") return entry.outcome === null;
   return false;
 }
@@ -74,7 +74,7 @@ export type ChatItem = Exclude<ChatEntry, { kind: "tool" | "task" }> | ToolGroup
 
 /**
  * The chat's items: each run of consecutive tool entries folded into one
- * group (anything else ends a run), and each task with the status it shows
+ * group (anything else ends a run, a landed edit's card too), and each task with the status it shows
  * while the pane's agent is `agentStatus` (`staleTaskIds`).
  */
 export function groupEntries(
@@ -110,6 +110,7 @@ type Phrase = {
 const PHRASES: readonly Phrase[] = [
   { names: ["Bash"], verb: "ran", noun: ["command", "commands"] },
   { names: ["Read"], verb: "read", noun: ["file", "files"] },
+  // Only edits still running or that failed: a landed one is its own card.
   { names: ["Edit", "MultiEdit", "Write", "NotebookEdit"], verb: "edited", noun: ["file", "files"] },
   { names: ["Grep", "Glob"], verb: "searched", noun: ["the code", "the code"] },
   { names: ["WebSearch", "WebFetch"], verb: "searched the web" },

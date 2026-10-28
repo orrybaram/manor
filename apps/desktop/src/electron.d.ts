@@ -518,10 +518,12 @@ export type {
 
 /** The phone chat view's wire types. */
 export type {
+  ChatDiffHunk,
   ChatEntry,
   ChatPush,
   ChatSkill,
   ChatTaskEntry,
+  ChatTurnState,
 } from "../electron/chat-mirror/transcript";
 export type { ChatKey } from "../electron/chat-mirror/chat-keys";
 export type {

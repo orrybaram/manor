@@ -6,6 +6,7 @@
  * skipped silently. A format change must make the chat lossy, not broken.
  */
 
+import type { OversizedRecord } from "./adapters/types";
 import type { PickerQuestion } from "./picker-keys";
 
 export type ChatEntry =
@@ -21,11 +22,35 @@ export type ChatEntry =
       detail?: string;
     }
   | {
+      /**
+       * A file edit that landed, with its diff. Replaces the Edit/Write
+       * tool entry of the same id once its result says it succeeded.
+       */
+      kind: "edit";
+      /** The tool_use id. */
+      id: string;
+      ts: string;
+      /** The tool that made it: Edit, Write, MultiEdit or NotebookEdit. */
+      name: string;
+      /** Relative to the session's working directory when inside it, else as written. */
+      path: string;
+      /** At most MAX_HUNKS hunks of at most MAX_HUNK_LINES lines each. */
+      hunks: ChatDiffHunk[];
+      /** Lines added and removed over the whole patch, before any capping. */
+      added: number;
+      removed: number;
+      /** Some hunks, lines or line text were cut to fit. */
+      truncated: boolean;
+    }
+  | {
       kind: "question";
       id: string;
       ts: string;
       questions: PickerQuestion[];
+      /** Null until answered; stays null when declined. */
       answer: string | null;
+      /** The user declined it: its result was an error, not an answer. */
+      declined?: true;
       /**
        * Set by the mirror (`mirror.ts`), never by the parser: the chat sent an
        * answer and no `tool_result` followed in time.
@@ -45,9 +70,14 @@ export type ChatEntry =
       kind: "command";
       id: string;
       ts: string;
-      /** Slash command name, without the leading `/`. */
+      /**
+       * Slash command name, without the leading `/`; for a `shell` command,
+       * the whole command line.
+       */
       name: string;
       args: string;
+      /** A `!` shell command run from the prompt, not a slash command. */
+      shell?: true;
       /** The command's local stdout, attached when it follows the command. */
       output?: string;
     }
@@ -90,6 +120,18 @@ export type ChatEntry =
 export type ChatTaskEntry = Extract<ChatEntry, { kind: "task" }>;
 
 /**
+ * One hunk of a unified diff, as Claude Code's `structuredPatch` writes it.
+ * Each line starts with " ", "+", "-", or a backslash for "No newline at end of file".
+ */
+export type ChatDiffHunk = {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+};
+
+/**
  * The session's context size in tokens. Published by the mirror
  * when it changes; never a `ChatEntry`, never drawn.
  */
@@ -100,14 +142,62 @@ export type ChatUsage = {
   contextTokens: number;
 };
 
-/** What the `chat.entry` channel carries: an entry or a context-size update. */
-export type ChatPush = ChatEntry | ChatUsage;
+/**
+ * Where the main thread's turn stands, as the transcript tells it:
+ * `working` until an assistant line ends the turn (`done`) or the user
+ * stops it (`interrupted`). Hook signals stay the agent status; the phone
+ * reads this only to stop showing "Thinking" when a Stop hook went missing.
+ */
+export type ChatTurnState = "working" | "done" | "interrupted";
+
+/**
+ * The turn state. Published by the mirror when it changes; never a
+ * `ChatEntry`, never drawn.
+ */
+export type ChatTurn = {
+  kind: "turn";
+  id: "turn";
+  ts: string;
+  state: ChatTurnState;
+};
+
+/** What the `chat.entry` channel carries: an entry, a context-size or a turn-state update. */
+export type ChatPush = ChatEntry | ChatUsage | ChatTurn;
 
 /** A skill from Claude Code's `skill_listing` attachment. */
 export type ChatSkill = { name: string; description: string };
 
 const MAX_DETAIL = 4000;
-const META_PREFIXES = ["<command-", "<local-command", "<system-reminder>"];
+/** An edit card's caps: hunks, lines per hunk, characters per line. */
+const MAX_HUNKS = 40;
+const MAX_HUNK_LINES = 400;
+const MAX_LINE_CHARS = 1000;
+/**
+ * An edit card's whole hunk text, after the caps above: history goes to the
+ * phone in one frame, and every line is a DOM row there.
+ */
+const MAX_EDIT_CHARS = 64 * 1024;
+/** Tools whose landed result carries a `structuredPatch`. */
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+/** User text Claude Code writes for itself, not for the person reading. */
+const META_PREFIXES = [
+  "<command-",
+  "<local-command",
+  "<system-reminder>",
+  "<artifact-content-authored-by-others",
+  "This session is being continued from a previous conversation",
+  "Caveat: The messages below were generated",
+];
+/** What Claude Code writes as a `!` command's stdout when there was none. */
+const NO_BASH_OUTPUT = "(Bash completed with no output)";
+/** Claude Code's marker for a turn the user stopped, with or without "for tool use". */
+const INTERRUPT_PREFIX = "[Request interrupted by user";
+/**
+ * Stop reasons that end a turn. Claude Code's own synthetic lines (an API
+ * error, "No response requested.") end it with `stop_sequence` too.
+ * `tool_use` goes on, and a line still streaming has none.
+ */
+const TURN_ENDS = new Set(["end_turn", "stop_sequence", "max_tokens", "refusal"]);
 
 type Json = Record<string, unknown>;
 
@@ -187,7 +277,10 @@ function summarizeTool(name: string, input: Json): string {
     case "Read":
     case "Edit":
     case "Write":
+    case "MultiEdit":
       return str(input.file_path) || name;
+    case "NotebookEdit":
+      return str(input.notebook_path) || name;
     case "Grep":
     case "Glob":
       return str(input.pattern) || name;
@@ -276,6 +369,106 @@ function resultText(content: unknown): string {
   return parts.join("\n");
 }
 
+function isCount(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+/** A `structuredPatch` hunk, or null when it isn't one. */
+function diffHunk(v: unknown): ChatDiffHunk | null {
+  if (!isObject(v) || !Array.isArray(v.lines)) return null;
+  const { oldStart, oldLines, newStart, newLines } = v;
+  if (!isCount(oldStart) || !isCount(oldLines) || !isCount(newStart) || !isCount(newLines)) {
+    return null;
+  }
+  const lines = v.lines.filter((l): l is string => typeof l === "string");
+  if (lines.length === 0) return null;
+  return { oldStart, oldLines, newStart, newLines, lines };
+}
+
+/**
+ * The hunks a landed edit's `toolUseResult` describes. A new file written
+ * with Write has no patch, only its `content`: that is one hunk of added lines.
+ */
+function editHunks(info: Json): ChatDiffHunk[] {
+  const patch = Array.isArray(info.structuredPatch) ? info.structuredPatch : [];
+  const hunks = patch.map(diffHunk).filter((h): h is ChatDiffHunk => h !== null);
+  if (hunks.length > 0 || patch.length > 0) return hunks;
+  const content = str(info.content);
+  if (info.type !== "create" || !content) return [];
+  const lines = content.split("\n");
+  if (lines[lines.length - 1] === "") lines.pop();
+  return [
+    { oldStart: 0, oldLines: 0, newStart: 1, newLines: lines.length, lines: lines.map((l) => `+${l}`) },
+  ];
+}
+
+/** `path` relative to `cwd` when it is inside it. */
+function relativeTo(path: string, cwd: string | undefined): string {
+  if (!cwd) return path;
+  const base = cwd.endsWith("/") ? cwd : `${cwd}/`;
+  return path.startsWith(base) && path.length > base.length ? path.slice(base.length) : path;
+}
+
+/**
+ * A landed edit as an edit entry, counted over the whole patch and then
+ * capped. Null when its result carries no diff to show.
+ */
+function editEntry(
+  tool: Extract<ChatEntry, { kind: "tool" }>,
+  info: Json,
+  cwd?: string,
+): ChatEntry | null {
+  const all = editHunks(info);
+  if (all.length === 0) return null;
+  let added = 0;
+  let removed = 0;
+  for (const h of all) {
+    for (const l of h.lines) {
+      if (l.startsWith("+")) added++;
+      else if (l.startsWith("-")) removed++;
+    }
+  }
+  let truncated = all.length > MAX_HUNKS;
+  let budget = MAX_EDIT_CHARS;
+  const hunks: ChatDiffHunk[] = [];
+  for (const h of all.slice(0, MAX_HUNKS)) {
+    if (h.lines.length > MAX_HUNK_LINES) truncated = true;
+    const lines: string[] = [];
+    for (const raw of h.lines.slice(0, MAX_HUNK_LINES)) {
+      let l = raw;
+      if (l.length > MAX_LINE_CHARS) {
+        truncated = true;
+        l = `${l.slice(0, MAX_LINE_CHARS)}…`;
+      }
+      if (l.length > budget) {
+        budget = 0;
+        break;
+      }
+      budget -= l.length;
+      lines.push(l);
+    }
+    if (lines.length > 0) hunks.push({ ...h, lines });
+    if (budget === 0) {
+      truncated = true;
+      break;
+    }
+  }
+  if (hunks.length === 0) return null;
+  const written = str(info.filePath) ?? str(info.notebook_path);
+  const path = written || (tool.summary !== tool.name ? tool.summary : "");
+  return {
+    kind: "edit",
+    id: tool.id,
+    ts: tool.ts,
+    name: tool.name,
+    path: relativeTo(path, cwd),
+    hunks,
+    added,
+    removed,
+    truncated,
+  };
+}
+
 /** How a `TranscriptParser` reads. */
 export interface TranscriptParserOptions {
   /**
@@ -285,6 +478,14 @@ export interface TranscriptParserOptions {
   sidechain?: boolean;
 }
 
+/**
+ * A skipped tool result names its tool near one end: the start, usually,
+ * but an error result writes its content first and its id after. Quotes
+ * inside the content are escaped, so its text can't match.
+ */
+const OVERSIZED_TOOL_USE_ID = /"tool_use_id"\s*:\s*"(toolu_[^"]+)"/;
+const TOO_LARGE = "Output too large to show";
+
 export class TranscriptParser {
   private readonly sidechain: boolean;
   private order: string[] = [];
@@ -293,6 +494,15 @@ export class TranscriptParser {
   private sawSkillListing = false;
   private lastCommandId: string | null = null;
   private lastContextTokens: number | null = null;
+  private turn: ChatTurnState | null = null;
+  /** The line being read is the main thread's, so it may move the turn. */
+  private mainThread = true;
+  /**
+   * The turn state before a slash command that nothing has followed yet: a
+   * local command (`/model`) runs in Claude Code and starts no turn, which
+   * its local output shows. Undefined when no command is pending.
+   */
+  private turnBeforeCommand: ChatTurnState | null | undefined = undefined;
   /** Notifications already turned into a notice; one may arrive in two forms. */
   private seenNotices = new Set<string>();
 
@@ -307,6 +517,14 @@ export class TranscriptParser {
    */
   contextTokens(): number | null {
     return this.lastContextTokens;
+  }
+
+  /**
+   * The main thread's turn state as of the newest line that says, or null
+   * before any has. Sidechain lines never move it.
+   */
+  turnState(): ChatTurnState | null {
+    return this.turn;
   }
 
   /** Skills from the transcript's skill listings, sorted by name. */
@@ -336,23 +554,52 @@ export class TranscriptParser {
     return this.byId.get(id);
   }
 
-  /** Feed one JSONL line; returns entries that are new or updated by it. */
-  push(line: string): ChatEntry[] {
+  /**
+   * Feed one JSONL line; returns entries that are new or updated by it.
+   * `offset` is the line's starting byte in the file: a line with no `uuid`
+   * is named by it, so a full re-read and a tail read agree.
+   */
+  push(line: string, offset?: number): ChatEntry[] {
     try {
-      return this.pushInner(line);
+      return this.pushInner(line, offset);
     } catch {
       return [];
     }
   }
 
+  /**
+   * A line too long to read was skipped; `record` is its two ends. If it
+   * is a tool's result, settle the tool as an error so it doesn't spin
+   * forever. Anything else is dropped.
+   */
+  oversized(record: OversizedRecord): ChatEntry[] {
+    const id =
+      OVERSIZED_TOOL_USE_ID.exec(record.head)?.[1] ?? OVERSIZED_TOOL_USE_ID.exec(record.tail)?.[1];
+    if (!id) return [];
+    const existing = this.byId.get(id);
+    let next: ChatEntry;
+    if (existing?.kind === "tool" && existing.status === "pending") {
+      next = { ...existing, status: "error", detail: TOO_LARGE };
+    } else if (existing?.kind === "task" && !existing.background && existing.status === "running") {
+      next = { ...existing, status: "error", result: TOO_LARGE };
+    } else {
+      return [];
+    }
+    this.byId.set(id, next);
+    return [next];
+  }
+
   private add(entry: ChatEntry): ChatEntry | null {
     if (this.byId.has(entry.id)) return null;
+    // A command's output follows it directly; once anything else lands, a
+    // late stdout belongs to no command.
+    if (entry.kind !== "command") this.lastCommandId = null;
     this.byId.set(entry.id, entry);
     this.order.push(entry.id);
     return entry;
   }
 
-  private pushInner(line: string): ChatEntry[] {
+  private pushInner(line: string, offset?: number): ChatEntry[] {
     if (!line || !line.trim()) return [];
     let parsed: unknown;
     try {
@@ -362,9 +609,11 @@ export class TranscriptParser {
     }
     if (!isObject(parsed)) return [];
     if (parsed.isSidechain === true && !this.sidechain) return [];
+    this.mainThread = parsed.isSidechain !== true;
     const type = parsed.type;
     const ts = str(parsed.timestamp) ?? "";
-    const uuid = str(parsed.uuid) ?? `line-${this.order.length}`;
+    const uuid =
+      str(parsed.uuid) ?? (offset !== undefined ? `@${offset}` : `line-${this.order.length}`);
     if (type === "attachment") {
       const att = parsed.attachment;
       // A notification that lands mid-turn is queued, not a user line.
@@ -375,10 +624,35 @@ export class TranscriptParser {
         (att.commandMode === "task-notification" ||
           att.prompt.trimStart().startsWith("<task-notification>"))
       ) {
+        this.setTurn("working");
         const e = this.notification(uuid, ts, att.prompt);
         return e ? [e] : [];
       }
+      // A prompt the user sent mid-turn, queued until the model can read it.
+      if (
+        isObject(att) &&
+        att.type === "queued_command" &&
+        att.commandMode === "prompt" &&
+        (!isObject(att.origin) || att.origin.kind === "human")
+      ) {
+        // A pasted image makes the prompt a block array; keep its text.
+        this.setTurn("working");
+        const e = this.userText(uuid, ts, resultText(att.prompt));
+        return e ? [e] : [];
+      }
       this.skillListing(att);
+      return [];
+    }
+    // A local command written as system lines (seen from 2.1.284): the
+    // command itself, or its output after a command of either form. Read as the user-line forms are, so the
+    // output attaches to the command and the turn it didn't start is restored.
+    if (type === "system" && parsed.subtype === "local_command") {
+      const content = str(parsed.content) ?? "";
+      const lead = content.trimStart();
+      if (lead.startsWith("<command-name>") || lead.startsWith("<local-command-stdout>")) {
+        const e = this.userText(uuid, ts, content);
+        return e ? [e] : [];
+      }
       return [];
     }
     // Compaction: show the boundary, not the summary that follows it.
@@ -405,7 +679,8 @@ export class TranscriptParser {
       for (const block of content) {
         if (!isObject(block)) continue;
         if (block.type === "tool_result") {
-          const e = this.resolve(block, parsed.toolUseResult);
+          this.setTurn("working");
+          const e = this.resolve(block, parsed.toolUseResult, str(parsed.cwd));
           if (e) out.push(e);
         } else if (block.type === "text" && typeof block.text === "string") {
           texts.push(block.text);
@@ -425,6 +700,8 @@ export class TranscriptParser {
       const size = contextSize(message.usage);
       if (size !== null) this.lastContextTokens = size;
     }
+    const stop = str(message.stop_reason);
+    this.setTurn(stop !== undefined && TURN_ENDS.has(stop) ? "done" : "working");
     if (!Array.isArray(content)) return [];
     content.forEach((block, i) => {
       if (!isObject(block)) return;
@@ -451,6 +728,19 @@ export class TranscriptParser {
     return out;
   }
 
+  /** Move the main thread's turn; a sidechain line leaves it be. */
+  private setTurn(state: ChatTurnState | null): void {
+    if (!this.mainThread) return;
+    this.turn = state;
+    this.turnBeforeCommand = undefined;
+  }
+
+  /** The pending slash command printed local output: it started no turn. */
+  private localCommandRan(): void {
+    const before = this.turnBeforeCommand;
+    if (before !== undefined) this.setTurn(before);
+  }
+
   private skillListing(attachment: unknown): void {
     if (!isObject(attachment) || attachment.type !== "skill_listing") return;
     const listed = parseSkillLines(str(attachment.content) ?? "");
@@ -472,6 +762,9 @@ export class TranscriptParser {
     const cmd = tagText(text, "command-name")?.trim();
     if (cmd && cmd.startsWith("/") && cmd.length > 1) {
       const args = tagText(text, "command-args")?.trim() ?? "";
+      const before = this.turn;
+      this.setTurn("working");
+      if (this.mainThread) this.turnBeforeCommand = before;
       const e = this.add({
         kind: "command",
         id: uuid,
@@ -482,21 +775,51 @@ export class TranscriptParser {
       if (e) this.lastCommandId = uuid;
       return e;
     }
-    if (text.trimStart().startsWith("<local-command-stdout>")) {
+    const lead = text.trimStart();
+    if (lead.startsWith(INTERRUPT_PREFIX)) {
+      this.setTurn("interrupted");
+      return this.add({ kind: "notice", id: uuid, ts, text: "Interrupted", status: "error" });
+    }
+    // A `!` command: its input line, then its output as a line of its own.
+    if (lead.startsWith("<bash-input>")) {
+      const line = (tagText(text, "bash-input") ?? "").trim();
+      if (!line) return null;
+      const e = this.add({ kind: "command", id: uuid, ts, name: line, args: "", shell: true });
+      if (e) this.lastCommandId = uuid;
+      return e;
+    }
+    if (lead.startsWith("<bash-stdout>") || lead.startsWith("<bash-stderr>")) {
+      const out = [tagText(text, "bash-stdout"), tagText(text, "bash-stderr")]
+        .map((s) => (s ?? "").trim())
+        .filter((s) => s !== NO_BASH_OUTPUT)
+        .filter(Boolean)
+        .join("\n");
+      const existing = this.lastCommandId
+        ? this.byId.get(this.lastCommandId)
+        : undefined;
+      if (!out || !existing || existing.kind !== "command" || !existing.shell) return null;
+      const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
+      this.byId.set(existing.id, next);
+      return next;
+    }
+    if (lead.startsWith("<local-command-stdout>")) {
       const out = (tagText(text, "local-command-stdout") ?? "").trim();
       const existing = this.lastCommandId
         ? this.byId.get(this.lastCommandId)
         : undefined;
-      if (!out || !existing || existing.kind !== "command") return null;
+      this.localCommandRan();
+      if (!out || !existing || existing.kind !== "command" || existing.shell) return null;
       const next: ChatEntry = { ...existing, output: out.slice(0, MAX_DETAIL) };
       this.byId.set(existing.id, next);
       return next;
     }
     // A background task finishing lands as a user turn the user never typed.
-    if (text.trimStart().startsWith("<task-notification>")) {
+    if (lead.startsWith("<task-notification>")) {
+      this.setTurn("working");
       return this.notification(uuid, ts, text);
     }
     if (isMetaText(text)) return null;
+    this.setTurn("working");
     return this.add({ kind: "user", id: uuid, ts, text });
   }
 
@@ -536,7 +859,7 @@ export class TranscriptParser {
   }
 
   /** Apply a tool_result block to its pending entry. */
-  private resolve(block: Json, toolUseResult?: unknown): ChatEntry | null {
+  private resolve(block: Json, toolUseResult?: unknown, cwd?: string): ChatEntry | null {
     const id = str(block.tool_use_id);
     if (!id) return null;
     const existing = this.byId.get(id);
@@ -547,15 +870,24 @@ export class TranscriptParser {
     // Entries are replaced with new objects so consumers can compare by identity.
     let next: ChatEntry;
     switch (existing.kind) {
-      case "tool":
-        next = {
+      case "tool": {
+        // A landed edit becomes its diff, in the tool's place.
+        const lands =
+          !isError &&
+          existing.status === "pending" &&
+          EDIT_TOOLS.has(existing.name) &&
+          isObject(toolUseResult);
+        const edit = lands ? editEntry(existing, toolUseResult, cwd) : null;
+        next = edit ?? {
           ...existing,
           status: isError ? "error" : "ok",
           detail: text ? text.slice(0, MAX_DETAIL) : undefined,
         };
         break;
+      }
       case "question":
-        next = { ...existing, answer: text };
+        // A declined question has no answer to show; the error says why.
+        next = isError ? { ...existing, answer: null, declined: true } : { ...existing, answer: text };
         break;
       case "plan":
         next = { ...existing, outcome: text };

@@ -50,3 +50,6 @@ apps/desktop/tests/e2e/artifacts/
 
 # Renderer profiles captured by apps/desktop/scripts/profile-renderer.mjs
 *.cpuprofile
+
+# Hashes of real tokens the transcript scrub replaced: guessable, never committed
+apps/desktop/electron/chat-mirror/__fixtures__/leak-hashes.local.json

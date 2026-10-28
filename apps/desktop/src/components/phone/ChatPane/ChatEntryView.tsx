@@ -3,9 +3,10 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { ChatEntry } from "../../../electron.d";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { Button } from "../../ui/Button/Button";
-import { summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
+import { isOpenPicker, summarizeTools, type ChatItem, type ToolGroup } from "./chat-entries";
 import { ChatMarkdown } from "./ChatMarkdown";
 import { ChatTypewriter } from "./ChatTypewriter";
+import { EditCard } from "./EditCard";
 import { PlanCard } from "./PlanCard";
 import { AnsweredQuestion, QuestionCard } from "./QuestionCard";
 import { TaskCard } from "./TaskCard";
@@ -62,8 +63,10 @@ export function ChatEntryView(props: ChatEntryViewProps) {
       );
     case "task":
       return <TaskCard paneId={paneId} task={entry} />;
+    case "edit":
+      return <EditCard entry={entry} />;
     case "question":
-      return entry.answer === null ? (
+      return isOpenPicker(entry) ? (
         <QuestionCard
           paneId={paneId}
           entry={entry}
@@ -237,7 +240,10 @@ type CommandEntryProps = {
   entry: Extract<ChatEntry, { kind: "command" }>;
 };
 
-/** A slash command as a small chip; expands to its output when it has any. */
+/**
+ * A slash command, or a `!` shell command, as a small chip; expands to its
+ * output when it has any.
+ */
 function CommandEntry(props: CommandEntryProps) {
   const { entry } = props;
 
@@ -245,7 +251,9 @@ function CommandEntry(props: CommandEntryProps) {
 
   const label = (
     <>
-      <span className={styles.commandName}>/{entry.name}</span>
+      <span className={styles.commandName}>
+        {entry.shell ? `! ${entry.name}` : `/${entry.name}`}
+      </span>
       {entry.args && <span className={styles.commandArgs}>{entry.args}</span>}
     </>
   );

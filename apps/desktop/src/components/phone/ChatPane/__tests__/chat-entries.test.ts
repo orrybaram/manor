@@ -40,6 +40,34 @@ describe("groupEntries", () => {
   });
 });
 
+describe("groupEntries with edits", () => {
+  const edit = (id: string): ChatEntry => ({
+    kind: "edit",
+    id,
+    ts: "",
+    name: "Edit",
+    path: "src/a.ts",
+    hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }],
+    added: 1,
+    removed: 1,
+    truncated: false,
+  });
+
+  it("draws a landed edit as its own card, ending the tool run", () => {
+    const items = groupEntries([tool("t1", "Read"), edit("t2"), tool("t3", "Bash"), tool("t4", "Edit", "error")]);
+    expect(items.map((i) => [i.kind, i.id])).toEqual([
+      ["tool-group", "t1"],
+      ["edit", "t2"],
+      ["tool-group", "t3"],
+    ]);
+    // The landed edit isn't counted again; the failed one still is.
+    expect(items[2].kind === "tool-group" && summarizeTools(items[2].tools).map((p) => p.text)).toEqual([
+      "Ran a command",
+      "edited a file",
+    ]);
+  });
+});
+
 describe("summarizeTools", () => {
   const text = (tools: Tool[]) =>
     summarizeTools(tools)

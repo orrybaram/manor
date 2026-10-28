@@ -108,6 +108,8 @@ describe("chat entries", () => {
     expect(answerablePickerId([ask("q1", null), user("u"), plan("p1", null), user("v")])).toBe("p1");
     expect(answerablePickerId([ask("q1", null), plan("p1", "approved")])).toBeNull();
     expect(answerablePickerId([user("u")])).toBeNull();
+    // A declined question is closed: nothing to answer.
+    expect(answerablePickerId([{ ...(ask("q1", null) as Extract<ChatEntry, { kind: "question" }>), declined: true }])).toBeNull();
   });
 });
 

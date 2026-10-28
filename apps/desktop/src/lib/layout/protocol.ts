@@ -31,8 +31,8 @@ export interface PersistedAgentState {
  * Server-derived from the PTY stream and the Status reconciler, never
  * reported by a renderer. It rides
  * along with `layout.getAll()` so a restoring renderer can reattach, and with
- * a reopen's `restored` so a pane that came back mounts with its cwd and
- * title.
+ * a reopen's or a move's `restored` so a pane that came back mounts with its
+ * cwd and title.
  */
 export interface PersistedPaneSession {
   daemonSessionId: string;
@@ -113,9 +113,9 @@ export interface LayoutBroadcast {
   hint?: LayoutHint;
   /**
    * What the server knows about the panes a `reopen-closed-pane` just put
-   * back, and only those. Their sessions were still inside the reopen grace,
-   * so the pane reattaches a warm shell and this is the cwd and title to
-   * mount it with. Every other change to `paneSessions` stays unbroadcast — a
+   * back, or a move to another workspace just brought in, and only those.
+   * Their sessions are still running, so the pane reattaches a warm shell and
+   * this is the cwd, title and status to mount it with. Every other change to `paneSessions` stays unbroadcast — a
    * renderer hears the PTY events it is made of.
    */
   restored?: Record<string, PersistedPaneSession>;

@@ -81,7 +81,10 @@ function moveToWorkspaceRoute(
       let to: string;
       try {
         const workspacePath = requireString(body, "workspacePath");
-        const hostId = optionalString(body, "hostId");
+        // Without one, the host of the project that has the path.
+        const hostId =
+          optionalString(body, "hostId") ||
+          deps.projectManager?.hostIdForPath(workspacePath);
         to = workspaceKey(hostId || LOCAL_HOST_ID, workspacePath);
       } catch (err) {
         json(400, { error: err instanceof Error ? err.message : String(err) });

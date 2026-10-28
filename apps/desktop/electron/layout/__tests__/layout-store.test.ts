@@ -226,6 +226,13 @@ describe("LayoutStore", () => {
         lastCwd: "/project/main/src",
       });
       expect(store.get(WS)!.paneSessions["pane-2"]).toBeUndefined();
+      // The target's broadcast hands renderers back what they forgot when the
+      // pane left the source; the source's carries nothing.
+      const [fromCast, toCast] = broadcasts;
+      expect(fromCast.restored).toBeUndefined();
+      expect(toCast.restored).toEqual({
+        "pane-2": expect.objectContaining({ lastCwd: "/project/main/src" }),
+      });
       vi.advanceTimersByTime(REOPEN_GRACE_MS * 2);
       expect(kill).not.toHaveBeenCalled();
       expect(abandonForPanes).not.toHaveBeenCalled();

@@ -1162,10 +1162,15 @@ export class LayoutStore {
     this.lastActiveWorkspacePath = to;
 
     const moved = allPaneIds(taken.sent.tab.rootNode);
+    // What the server knows about the moved panes rides on the target's
+    // broadcast, as a reopen's does: a renderer forgets a pane's cwd, title
+    // and status when it leaves the source, and this hands them back.
+    const restored: Record<string, PersistedPaneSession> = {};
     for (const paneId of moved) {
       const session = source.paneSessions[paneId];
       if (session) {
         dest.paneSessions[paneId] = session;
+        restored[paneId] = session;
         delete source.paneSessions[paneId];
       }
       const kill = this.pendingKills.get(paneId);
@@ -1196,6 +1201,7 @@ export class LayoutStore {
       claims: this.claimsFor(to),
       origin,
       hint: received.hint,
+      ...(Object.keys(restored).length > 0 && { restored }),
     });
     return {
       workspacePath: to,

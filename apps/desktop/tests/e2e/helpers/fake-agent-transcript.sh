@@ -25,7 +25,10 @@
 # 4. Appends every byte it reads, raw, to the input log. `chat.*` calls are
 #    deliberately not audited, so the log is how a test sees what was typed.
 #
-# Usage: fake-agent-transcript.sh <transcript.jsonl> <input.log> [title]
+# Usage: fake-agent-transcript.sh <transcript.jsonl> <input.log> [title] [seed.jsonl]
+#
+# A seed (tests/e2e/phone-chat-long.spec.ts) is a session that came before:
+# its lines open the transcript, ahead of the prompt and the question.
 #
 # The strings it writes are asserted on from helpers/fake-agent.ts.
 
@@ -34,6 +37,7 @@ set -u
 transcript="$1"
 input_log="$2"
 title="${3:-fake chat agent}"
+seed="${4:-}"
 session="e2e-chat-$$"
 
 hook() {
@@ -108,6 +112,7 @@ answer_question() { # label
 
 mkdir -p "$(dirname "$transcript")" "$(dirname "$input_log")"
 : > "$transcript"
+[ -n "$seed" ] && cat "$seed" >> "$transcript"
 : > "$input_log"
 
 # The transcript exists before the first hook names it, as with Claude.

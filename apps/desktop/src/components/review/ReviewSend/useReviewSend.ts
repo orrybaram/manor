@@ -3,6 +3,7 @@ import type { AgentInfo } from "../../../electron.d";
 import { useAgentStore } from "../../../store/agent-store";
 import { useReviewStore, NO_DRAFTS, type DraftComment } from "../../../store/review-store";
 import { submitReview, type ReviewTarget } from "../../../lib/review-submit";
+import { LOCAL_HOST_ID } from "../../../lib/workspace-key";
 
 /** How long "Discard 3 comments?" waits for its "Yes" before backing out. */
 const CONFIRM_TIMEOUT = 4000;
@@ -37,9 +38,16 @@ export function useReviewSend(workspacePath: string, hostId?: string): ReviewSen
   const agents = useMemo(
     () =>
       allAgents
-        .filter((a) => a.workspacePath === workspacePath && a.status === "active" && a.paneId)
+        // The same path on another host is another workspace, with its own agents.
+        .filter(
+          (a) =>
+            a.workspacePath === workspacePath &&
+            a.hostId === (hostId ?? LOCAL_HOST_ID) &&
+            a.status === "active" &&
+            a.paneId,
+        )
         .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)),
-    [allAgents, workspacePath],
+    [allAgents, workspacePath, hostId],
   );
 
   const send = useCallback(

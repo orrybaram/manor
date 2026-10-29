@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { AgentInfo } from "../electron.d";
-import { useToastStore } from "./toast-store";
 import { toast } from "../toast";
 import { isWindowFocused } from "../lib/window-focus";
 import { useAppStore, selectVisiblePaneIds } from "./app-store";
@@ -241,11 +240,9 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
     try {
       const prunedCount = await window.electronAPI.agents.consumePruneNotice();
       if (prunedCount > 0) {
-        useToastStore.getState().addToast({
+        toast.success(`Pruned ${prunedCount} old agent${prunedCount === 1 ? "" : "s"}`, {
           id: "agent-prune-notice",
-          message: `Pruned ${prunedCount} old agent${prunedCount === 1 ? "" : "s"}`,
           detail: "Configure retention in Preferences",
-          status: "success",
           duration: 8_000,
         });
       }

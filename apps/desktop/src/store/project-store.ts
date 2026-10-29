@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import { provideHostLookups } from "../bridge/host-lookups";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
-import { addErrorToast, useToastStore } from "./toast-store";
+import { toast } from "../toast";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "./auto-join";
 import { branchesEqual } from "../utils/branch-name";
 import { ipcErrorMessage } from "../lib/ipc-error";
@@ -267,7 +267,7 @@ interface SetupScriptWatch {
  * Follow a new workspace's setup script, which the server runs in a tab of
  * its own, until it reports the script done. When that tab is
  * not what the user is looking at — an agent tab took its place, or the
- * workspace was made in the background — a persistent toast stands in for
+ * workspace was made in the background — a sticky toast stands in for
  * it meanwhile. Either way the end is a success toast.
  *
  * Listening starts before `projects.createWorktree` is sent, while the
@@ -280,21 +280,15 @@ function watchSetupScript(): SetupScriptWatch {
 
   const finish = (event: SetupProgressEvent, toastId: string) => {
     unsubscribe();
-    useToastStore.getState().removeToast(toastId);
-    useToastStore.getState().addToast(
-      event.status === "done"
-        ? {
-            id: `workspace-setup-${Date.now()}`,
-            message: "Workspace setup complete",
-            status: "success",
-          }
-        : {
-            id: `workspace-setup-${Date.now()}`,
-            message: "Workspace setup script failed",
-            status: "error",
-            detail: event.message,
-          },
-    );
+    toast.dismiss(toastId);
+    if (event.status === "done") {
+      toast.success("Workspace setup complete", { id: `workspace-setup-${Date.now()}` });
+    } else {
+      toast.error("Workspace setup script failed", {
+        id: `workspace-setup-${Date.now()}`,
+        detail: event.message,
+      });
+    }
   };
 
   const unsubscribe = window.electronAPI.projects.onWorktreeSetupProgress(
@@ -316,12 +310,7 @@ function watchSetupScript(): SetupScriptWatch {
         return;
       }
       if (offscreen) {
-        useToastStore.getState().addToast({
-          id: toastId,
-          message: `Setting up "${name}"…`,
-          status: "loading",
-          persistent: true,
-        });
+        toast.progress(`Setting up "${name}"…`, { id: toastId, duration: "sticky" });
       }
     },
     cancel: () => unsubscribe(),
@@ -855,11 +844,11 @@ function closeWorkspacesLeftBehind(
 }
 
 /**
- * An error toast for a failed link or unlink. Through
- * `addErrorToast`, so a rethrow isn't toasted again.
+ * An error toast for a failed link or unlink. Through `toast.error`'s
+ * `error`, so a rethrow isn't toasted again.
  */
 function groupErrorToast(id: string, message: string, err: unknown): void {
-  addErrorToast(id, message, err);
+  toast.error(message, { id, error: err });
 }
 
 /**
@@ -998,20 +987,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   transferProject: async (projectId, hostId, mode, overrides) => {
     const source = get().projects.find((p) => p.id === projectId);
     if (!source) return;
-    const toasts = useToastStore.getState();
     const toastId = `transfer-${projectId}`;
     // Main's "copy" is the dialog's "setUp".
     const dialogMode = mode === "copy" ? "setUp" : "move";
     const hostName = memberDisplayName(hostId, useHostStore.getState().hosts);
-    toasts.addToast({
-      id: toastId,
-      message: `${mode === "copy" ? "Copying" : "Moving"} ${source.name} to ${hostName}…`,
-      status: "loading",
-      persistent: true,
-    });
+    const transferring = toast.progress(
+      `${mode === "copy" ? "Copying" : "Moving"} ${source.name} to ${hostName}…`,
+      { id: toastId, duration: "sticky" },
+    );
     const unsubscribe = window.electronAPI.projects.onCloneProgress((event) => {
       if (event.status !== "error" && event.message) {
-        useToastStore.getState().updateToast(toastId, { detail: event.message });
+        transferring.update({ detail: event.message });
       }
     });
     let result;
@@ -1024,15 +1010,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
     } catch (err) {
       const error = ipcErrorMessage(err);
-      useToastStore.getState().addToast({
+      toast.error(`Couldn't ${mode === "copy" ? "copy" : "move"} ${source.name} to ${hostName}`, {
         id: toastId,
-        message: `Couldn't ${mode === "copy" ? "copy" : "move"} ${source.name} to ${hostName}`,
-        status: "error",
         detail: error,
         action: {
           label: "Choose location…",
           onClick: () => {
-            useToastStore.getState().removeToast(toastId);
+            toast.dismiss(toastId);
             get().openTransferDialog({
               projectId,
               hostId,
@@ -1052,7 +1036,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
     if (!result.ok) {
       const { needsInput } = result;
-      useToastStore.getState().removeToast(toastId);
+      transferring.dismiss();
       get().openTransferDialog({
         projectId,
         hostId,
@@ -1065,26 +1049,24 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     }
 
     const transferred: ProjectInfo = result.project;
-    useToastStore.getState().addToast({
-      id: toastId,
-      message:
-        mode === "copy"
-          ? `${source.name} is set up on ${hostName}`
-          : `${source.name} is on ${hostName}`,
-      status: "success",
-      // A move is a set up, then this. Long enough to reach the
-      // action; the default 3s dismiss hid it before it could be clicked.
-      ...(mode === "copy" && {
-        duration: 15_000,
-        action: {
-          label: `Remove from ${memberDisplayName(source.hostId, useHostStore.getState().hosts)}`,
-          onClick: () => {
-            useToastStore.getState().removeToast(toastId);
-            get().openRemoveFromHost(projectId);
+    toast.success(
+      mode === "copy" ? `${source.name} is set up on ${hostName}` : `${source.name} is on ${hostName}`,
+      {
+        id: toastId,
+        // A move is a set up, then this. Long enough to reach the
+        // action; the default 3s dismiss hid it before it could be clicked.
+        ...(mode === "copy" && {
+          duration: 15_000,
+          action: {
+            label: `Remove from ${memberDisplayName(source.hostId, useHostStore.getState().hosts)}`,
+            onClick: () => {
+              toast.dismiss(toastId);
+              get().openRemoveFromHost(projectId);
+            },
           },
-        },
-      }),
-    });
+        }),
+      },
+    );
     await get().loadProjects();
     if (mode === "move") {
       closeWorkspacesLeftBehind(source, transferred, get().selectWorkspace);
@@ -1098,24 +1080,25 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         .then((checks) => {
           const failed = checks.filter((c) => c.status === "fail");
           if (failed.length === 0) return;
-          useToastStore.getState().addToast({
-            id: `transfer-health-${transferred.id}`,
-            message: `${source.name} on ${hostName}: ${failed.map((c) => c.label).join(", ")} failed`,
-            detail: failed
-              .map((c) => (c.fixCommand ? `${c.detail} Fix: ${c.fixCommand}` : c.detail))
-              .join("\n"),
-            persistent: true,
-            status: "error",
-            action: {
-              label: "Open settings",
-              onClick: () =>
-                requestUi({
-                  type: "open-project-settings",
-                  projectId: transferred.id,
-                  section: "project-host",
-                }),
+          toast.error(
+            `${source.name} on ${hostName}: ${failed.map((c) => c.label).join(", ")} failed`,
+            {
+              id: `transfer-health-${transferred.id}`,
+              detail: failed
+                .map((c) => (c.fixCommand ? `${c.detail} Fix: ${c.fixCommand}` : c.detail))
+                .join("\n"),
+              duration: "sticky",
+              action: {
+                label: "Open settings",
+                onClick: () =>
+                  requestUi({
+                    type: "open-project-settings",
+                    projectId: transferred.id,
+                    section: "project-host",
+                  }),
+              },
             },
-          });
+          );
         })
         .catch(() => {
           // The check itself failed to run; the host section shows its state.
@@ -1129,37 +1112,28 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       .getState()
       .profiles.find((p) => p.id === request.profileId);
     const podName = profile ? `${profile.name} pod` : "pod";
-    useToastStore.getState().addToast({
-      id: toastId,
-      message: `Starting ${podName}…`,
-      status: "loading",
-      persistent: true,
-    });
+    const starting = toast.progress(`Starting ${podName}…`, { id: toastId, duration: "sticky" });
     const unsubscribe = window.electronAPI.projects.onCloneProgress((event) => {
       if (event.status !== "error" && event.message) {
-        useToastStore.getState().updateToast(toastId, { detail: event.message });
+        starting.update({ detail: event.message });
       }
     });
     let result: NewHostResult;
     try {
       result = await get().runOpenInNewHost(request);
     } catch (err) {
-      useToastStore.getState().removeToast(toastId);
-      addErrorToast(toastId, `Couldn't start ${podName}`, err);
+      starting.dismiss();
+      toast.error(`Couldn't start ${podName}`, { id: toastId, error: err });
       return null;
     } finally {
       unsubscribe();
     }
-    useToastStore.getState().removeToast(toastId);
+    starting.dismiss();
     if (!result.ok) {
       get().reportNewHostFailure(request, result);
       return null;
     }
-    useToastStore.getState().addToast({
-      id: toastId,
-      message: `${result.project.name} is set up in ${podName}`,
-      status: "success",
-    });
+    toast.success(`${result.project.name} is set up in ${podName}`, { id: toastId });
     return result.project;
   },
 
@@ -1186,7 +1160,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (needsInput && hostId && request.sourceProjectId) {
       // The copy needs an answer: the fallback dialog asks, and finishes
       // through `openInNewHost` again, so the pod is marked.
-      useToastStore.getState().removeToast(toastId);
+      toast.dismiss(toastId);
       get().openTransferDialog({
         projectId: request.sourceProjectId,
         hostId,
@@ -1198,16 +1172,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       });
       return;
     }
-    useToastStore.getState().addToast({
+    toast.error(stage === "up" ? "The pod didn't start" : "The pod started, but the clone failed", {
       id: toastId,
-      message: stage === "up" ? "The pod didn't start" : "The pod started, but the clone failed",
-      status: "error",
       detail: error,
-      persistent: true,
+      duration: "sticky",
       action: {
         label: "Retry",
         onClick: () => {
-          useToastStore.getState().removeToast(toastId);
+          toast.dismiss(toastId);
           // A clone retry keeps the fallback dialog's answer, if it had one.
           const overrides = stage === "clone" ? request.retryFrom?.overrides : undefined;
           void get().openInNewHost({
@@ -1220,7 +1192,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         secondaryAction: {
           label: "Delete the pod",
           onClick: () => {
-            useToastStore.getState().removeToast(toastId);
+            toast.dismiss(toastId);
             get().openDeletePod(hostId);
           },
         },
@@ -1257,7 +1229,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await get().removeProject(memberId);
     } catch (err) {
       // `removeProject` toasted already; this one names the host instead.
-      useToastStore.getState().removeToast(`remove-project-${memberId}`);
+      toast.dismiss(`remove-project-${memberId}`);
       groupErrorToast(
         `remove-from-host-${memberId}`,
         `Couldn't remove ${member.name} from ${hostName}`,
@@ -1265,10 +1237,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       );
       return false;
     }
-    useToastStore.getState().addToast({
+    toast.success(`Removed ${member.name} from ${hostName}`, {
       id: `remove-from-host-${memberId}`,
-      message: `Removed ${member.name} from ${hostName}`,
-      status: "success",
     });
     return true;
   },
@@ -1320,11 +1290,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       await window.electronAPI.projects.remove(projectId);
     } catch (err) {
-      addErrorToast(
-        `remove-project-${projectId}`,
-        `Couldn't remove ${project?.name ?? "project"}`,
-        err,
-      );
+      toast.error(`Couldn't remove ${project?.name ?? "project"}`, {
+        id: `remove-project-${projectId}`,
+        error: err,
+      });
       throw err;
     }
     if (groupId) {
@@ -1432,12 +1401,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       setupWatch?.cancel();
       useAppStore.getState().clearWorktreeSetup("__pending__");
       const detail = ipcErrorMessage(err);
-      useToastStore.getState().addToast({
-        id: `worktree-error-${Date.now()}`,
-        message: "Failed to create workspace",
-        status: "error",
-        detail,
-      });
+      toast.error("Failed to create workspace", { id: `worktree-error-${Date.now()}`, detail });
       return null;
     }
 
@@ -1567,12 +1531,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       );
     } catch (err) {
       const detail = ipcErrorMessage(err);
-      useToastStore.getState().addToast({
-        id: `convert-error-${Date.now()}`,
-        message: "Failed to convert to workspace",
-        status: "error",
-        detail,
-      });
+      toast.error("Failed to convert to workspace", { id: `convert-error-${Date.now()}`, detail });
       return null;
     }
     if (!updated) return null;
@@ -1800,7 +1759,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         newName,
       );
     } catch (err) {
-      addErrorToast(`rename-workspace-${workspacePath}`, "Couldn't rename workspace", err);
+      toast.error("Couldn't rename workspace", {
+        id: `rename-workspace-${workspacePath}`,
+        error: err,
+      });
       throw err;
     }
     set((s) => ({
@@ -1827,11 +1789,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         hidden,
       );
     } catch (err) {
-      addErrorToast(
-        `hide-workspace-${workspacePath}`,
-        hidden ? "Couldn't hide workspace" : "Couldn't unhide workspace",
-        err,
-      );
+      toast.error(hidden ? "Couldn't hide workspace" : "Couldn't unhide workspace", {
+        id: `hide-workspace-${workspacePath}`,
+        error: err,
+      });
       throw err;
     }
     set((s) => ({
@@ -1862,7 +1823,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         parentId ?? null,
       );
     } catch (err) {
-      addErrorToast(`create-folder-${projectId}`, `Couldn't create folder "${name}"`, err);
+      toast.error(`Couldn't create folder "${name}"`, {
+        id: `create-folder-${projectId}`,
+        error: err,
+      });
       throw err;
     }
     if (!folder) return folder;
@@ -2048,11 +2012,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       }
       // Every settings field saves through here, mostly fire-and-forget:
       // say why it snapped back.
-      addErrorToast(
-        `update-project-${projectId}`,
-        "Couldn't save project settings — your change was undone",
-        err,
-      );
+      toast.error("Couldn't save project settings — your change was undone", {
+        id: `update-project-${projectId}`,
+        error: err,
+      });
       throw err;
     }
     if (updated) {

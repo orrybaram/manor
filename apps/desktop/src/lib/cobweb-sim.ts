@@ -275,14 +275,18 @@ export function buildCobwebs(
   const base = Math.min(width, height);
   const big = ({ 1: 1, 2: 2, 3: 3 + Math.floor(r() * 2) } as const)[level];
   const small = ({ 1: Math.floor(r() * 2), 2: 2 + Math.floor(r() * 3), 3: 5 + Math.floor(r() * 4) } as const)[level];
-  const grow = ({ 1: 0.3, 2: 0.4, 3: 0.52 } as const)[level];
+  const grow = ({ 1: 0.38, 2: 0.5, 3: 0.64 } as const)[level];
   const slots = ["tl", "tr", "top", "bl", "br"] as const;
   type Slot = (typeof slots)[number];
   const free = new Set<Slot>(["tl", "tr", "top"]);
   // Bottom corners only gather web on a panel left a good while.
   if (level >= 2) free.add("br");
   if (level >= 3) free.add("bl");
-  const pick = <T,>(items: readonly T[]): T => items[Math.floor(r() * items.length)]!;
+  // The top-right corner is the favourite: it draws three tickets to every other spot's one.
+  const pick = (items: readonly Slot[]): Slot => {
+    const tickets = items.flatMap((s) => (s === "tr" ? [s, s, s] : [s]));
+    return tickets[Math.floor(r() * tickets.length)]!;
+  };
   // The biggest web, and the spider, go in the first slot filled.
   const wantSpider = level === 3 || (level === 2 && r() < 0.5);
   for (let i = 0; i < big && free.size; i++) {

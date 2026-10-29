@@ -6,10 +6,12 @@ type CloseAgentPaneDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
+  /** A file pane being closed has unsaved edits to this file (its name). */
+  unsavedFile?: string | null;
 };
 
 export function CloseAgentPaneDialog(props: CloseAgentPaneDialogProps) {
-  const { open, onOpenChange, onConfirm } = props;
+  const { open, onOpenChange, onConfirm, unsavedFile } = props;
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -20,8 +22,17 @@ export function CloseAgentPaneDialog(props: CloseAgentPaneDialogProps) {
             Close Pane
           </Dialog.Title>
           <Dialog.Description className={styles.confirmDescription}>
-            An agent is currently running in this pane. Are you sure you want to
-            close it?
+            {unsavedFile ? (
+              <>
+                Unsaved changes to <b>{unsavedFile}</b> will be lost. Are you sure
+                you want to close it?
+              </>
+            ) : (
+              <>
+                An agent is currently running in this pane. Are you sure you want to
+                close it?
+              </>
+            )}
           </Dialog.Description>
           <div className={styles.confirmActions}>
             <Button
@@ -32,12 +43,13 @@ export function CloseAgentPaneDialog(props: CloseAgentPaneDialogProps) {
             </Button>
             <Button
               variant="danger"
+              data-testid="close-pane-confirm"
               onClick={() => {
                 onOpenChange(false);
                 onConfirm();
               }}
             >
-              Close
+              {unsavedFile ? "Discard and close" : "Close"}
             </Button>
           </div>
         </Dialog.Content>

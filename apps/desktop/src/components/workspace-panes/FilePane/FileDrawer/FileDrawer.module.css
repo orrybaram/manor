@@ -90,3 +90,50 @@
   padding: 8px 10px;
   color: var(--text-dim);
 }
+
+.headSpacer {
+  flex: 1;
+}
+
+.headBtn {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.headBtn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.newFile {
+  flex: none;
+  padding: 0 8px 6px;
+}
+
+.newFileInput {
+  width: 100%;
+  box-sizing: border-box;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+}
+
+.newFileError {
+  padding-top: 4px;
+  color: var(--red);
+  line-height: 1.35;
+}

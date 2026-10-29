@@ -27,6 +27,9 @@ import { TasksView } from "./components/tasks/TasksView";
 import { Onboarding } from "./components/onboarding/Onboarding";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
+import { useOpenFileStore, unsavedFileIn } from "./store/open-file-store";
+import { allPaneIds } from "./lib/layout/pane-tree";
+import { fileTitle } from "./lib/pane-title";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { UnlockToast } from "./components/achievements/UnlockToast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
@@ -405,6 +408,17 @@ function App() {
   const closePaneById = useAppStore((s) => s.closePaneById);
   const pendingCloseConfirmTabId = useAppStore((s) => s.pendingCloseConfirmTabId);
   const setPendingCloseConfirmTabId = useAppStore((s) => s.setPendingCloseConfirmTabId);
+  // A file pane among those closing has unsaved edits: the dialog names it.
+  const unsavedInClosingPane = useOpenFileStore((s) =>
+    unsavedFileIn(s, pendingCloseConfirmPaneId ? [pendingCloseConfirmPaneId] : []),
+  );
+  const unsavedInClosingTab = useOpenFileStore((s) => {
+    if (!pendingCloseConfirmTabId) return null;
+    const tab = selectActiveWorkspace(useAppStore.getState())?.tabs.find(
+      (t) => t.id === pendingCloseConfirmTabId,
+    );
+    return tab ? unsavedFileIn(s, allPaneIds(tab.rootNode)) : null;
+  });
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -948,6 +962,7 @@ function App() {
       {content}
       <CloseAgentPaneDialog
         open={pendingCloseConfirmPaneId !== null}
+        unsavedFile={unsavedInClosingPane && fileTitle(unsavedInClosingPane)}
         onOpenChange={(open) => {
           if (!open) setPendingCloseConfirmPaneId(null);
         }}
@@ -960,6 +975,7 @@ function App() {
       />
       <CloseAgentPaneDialog
         open={pendingCloseConfirmTabId !== null}
+        unsavedFile={unsavedInClosingTab && fileTitle(unsavedInClosingTab)}
         onOpenChange={(open) => {
           if (!open) setPendingCloseConfirmTabId(null);
         }}

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
+import { useOpenFileStore } from "../open-file-store";
 import type { WorkspaceLayout, Tab, Panel } from "../app-store";
 import {
   resetFakeLayoutServer,
@@ -113,6 +114,42 @@ describe("closePaneById leaves the agent to the server", () => {
 
     useAppStore.getState().closePaneById("pane-gone");
 
+    expect(sentCommands).toEqual([]);
+  });
+});
+
+describe("closing a file pane with unsaved edits asks first", () => {
+  beforeEach(() => {
+    useOpenFileStore.setState({ byPane: {} });
+  });
+
+  function editPane(paneId: string) {
+    const files = useOpenFileStore.getState();
+    files.open(paneId, "src/a.ts");
+    files.dispatch(paneId, { type: "read", content: "a", hash: "h", reason: "open" });
+    files.dispatch(paneId, { type: "edited", dirty: true });
+  }
+
+  it("asks before closing the pane, and closes a clean one at once", () => {
+    setupStore(makeTwoPaneLayout());
+    editPane("pane-1");
+
+    useAppStore.getState().requestClosePaneById("pane-1");
+    expect(useAppStore.getState().pendingCloseConfirmPaneId).toBe("pane-1");
+    expect(sentCommands).toEqual([]);
+
+    useAppStore.getState().requestClosePaneById("pane-2");
+    expect(sentCommands).toEqual([
+      { workspacePath: WS_PATH, command: { type: "close-pane", paneId: "pane-2" } },
+    ]);
+  });
+
+  it("asks before closing a tab holding one", () => {
+    setupStore(makeTwoPaneLayout());
+    editPane("pane-2");
+
+    useAppStore.getState().requestCloseTab("tab-1");
+    expect(useAppStore.getState().pendingCloseConfirmTabId).toBe("tab-1");
     expect(sentCommands).toEqual([]);
   });
 });

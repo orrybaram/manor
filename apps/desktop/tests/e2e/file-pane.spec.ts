@@ -140,3 +140,98 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "drawer-light") });
 });
+
+const OTHER = `export const other = 1;\n`;
+
+/** The file pane's header (the leaf's own bar, outside the pane body). */
+const header = (window: Page) =>
+  window.locator('[data-testid="workspace-pane"]:visible', { has: pane(window) });
+
+async function typeAtEnd(window: Page, text: string): Promise<void> {
+  await pane(window).locator('[data-testid="file-pane-editor"] .cm-content').click();
+  await window.keyboard.press("ControlOrMeta+End");
+  await window.keyboard.type(text);
+}
+
+test("the file pane edits, saves, asks before swapping and creates files", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(240_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-file-edit");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+
+  await runInTerminal(window, "pwd > \"$HOME/ws-path\"");
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+  const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.mkdirSync(path.dirname(widget), { recursive: true });
+  fs.writeFileSync(widget, WIDGET);
+  fs.writeFileSync(path.join(ws, "src", "other.ts"), OTHER);
+  const onDisk = () => fs.readFileSync(widget, "utf8");
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("Open File");
+  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
+  await expect(pane(window)).toBeVisible();
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Clicked {count} times");
+
+  const dirtyDot = header(window).locator('[data-testid="file-pane-dirty"]');
+
+  // Edit → the dirty dot and the save hint; ⌘S writes it and the dot goes.
+  await expect(dirtyDot).toHaveCount(0);
+  await typeAtEnd(window, "// first edit");
+  await expect(dirtyDot).toBeVisible();
+  await expect(header(window).locator('[data-testid="file-pane-save-hint"]')).toContainText("to save");
+  await window.screenshot({ path: shot(testInfo, "edit-dirty") });
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect.poll(onDisk).toContain("// first edit");
+  await expect(dirtyDot).toHaveCount(0);
+
+  // Dirty, pick another file: the swap bar asks; Discard opens it.
+  await typeAtEnd(window, "// unsaved");
+  await expect(dirtyDot).toBeVisible();
+  await openFromTree(window, ["src", "other.ts"]);
+  const swap = pane(window).locator('[data-testid="file-pane-swap-bar"]');
+  await expect(swap).toBeVisible();
+  await expect(swap).toContainText("Unsaved changes to Widget.tsx.");
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("Widget.tsx");
+  await window.screenshot({ path: shot(testInfo, "swap-confirm") });
+  await swap.locator('[data-testid="file-pane-swap-discard"]').click();
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("other.ts");
+  await expect(editor).toContainText("export const other = 1;");
+  await expect(dirtyDot).toHaveCount(0);
+  expect(onDisk()).not.toContain("// unsaved");
+
+  // "+" makes a new file, prefilled with the open file's folder, and opens it.
+  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await drawer.locator('[data-testid="file-pane-new-file"]').click();
+  const input = drawer.locator('[data-testid="file-pane-new-file-input"]');
+  await expect(input).toHaveValue("src/");
+  // One that exists is refused inline.
+  await input.fill("src/other.ts");
+  await input.press("Enter");
+  await expect(drawer.locator('[data-testid="file-pane-new-file-error"]')).toBeVisible();
+  await window.screenshot({ path: shot(testInfo, "new-file-exists") });
+  // Escape drops the row and keeps the drawer.
+  await input.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(drawer).toBeVisible();
+  await drawer.locator('[data-testid="file-pane-new-file"]').click();
+  await input.fill("src/made/new-file.ts");
+  await window.screenshot({ path: shot(testInfo, "new-file-input") });
+  await input.press("Enter");
+  await expect(drawer).toBeHidden();
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("new-file.ts");
+  await expect.poll(() => fs.existsSync(path.join(ws, "src", "made", "new-file.ts"))).toBe(true);
+  await typeAtEnd(window, "export const made = true;");
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect
+    .poll(() => fs.readFileSync(path.join(ws, "src", "made", "new-file.ts"), "utf8"))
+    .toBe("export const made = true;");
+});

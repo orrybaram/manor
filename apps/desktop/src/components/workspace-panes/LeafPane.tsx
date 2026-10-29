@@ -40,6 +40,7 @@ import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { FilePane } from "./FilePane/FilePane";
+import { FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
@@ -55,7 +56,7 @@ import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pa
 import { isRemoteHost } from "../../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../lib/workspace-key";
 import { useMountEffect } from "../../hooks/useMountEffect";
-import { fileTitle, paneHeaderTitle } from "../../lib/pane-title";
+import { paneHeaderTitle } from "../../lib/pane-title";
 import { PaneHeaderTitle } from "./PaneHeaderTitle";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
@@ -404,9 +405,11 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         {contentType === "diff" ? (
           <span className={styles.paneStatusTitle}>Diff</span>
         ) : contentType === "file" ? (
-          <span className={styles.paneStatusTitle} title={filePath ?? undefined}>
-            {fileTitle(filePath)}
-          </span>
+          <FileHeaderTitle
+            paneId={paneId}
+            filePath={filePath}
+            className={styles.paneStatusTitle}
+          />
         ) : contentType === "browser" ? (
           <div className={styles.paneNavControls}>
             <Tooltip label="Back">
@@ -521,6 +524,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           <PaneHeaderTitle paneId={paneId} className={styles.paneStatusTitle} />
         )}
         <Row align="center" gap="2xs" className={styles.paneStatusActions}>
+          {contentType === "file" && <FileSaveHint paneId={paneId} />}
           {contentType === "diff" && (
             <Tooltip label="Search">
               <button

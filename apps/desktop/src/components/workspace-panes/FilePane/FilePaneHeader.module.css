@@ -1,0 +1,23 @@
+.titleRow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.dirty {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: var(--fg);
+}
+
+.hint {
+  flex: none;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}

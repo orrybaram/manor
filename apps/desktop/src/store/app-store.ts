@@ -75,6 +75,7 @@ import { useProjectStore } from "./project-store";
 import { bootAndResync } from "../bridge/resync";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { useRemotePaneStore } from "./remote-pane-store";
+import { hasUnsavedEdits } from "./open-file-store";
 import {
   type SnapshotResult,
   adoptLayout,
@@ -959,6 +960,14 @@ export function selectPaneUrl(
   paneId: string,
 ): string | null {
   return state.paneLiveUrl[paneId] ?? paneLeaf(state, paneId)?.url ?? null;
+}
+
+/** Whether any workspace's layout still has `paneId`. */
+export function selectHasPane(
+  state: Pick<AppState, "workspaceLayouts">,
+  paneId: string,
+): boolean {
+  return paneLeaf(state, paneId) !== null;
 }
 
 /** The file a file pane has open, workspace-relative; null for none. */
@@ -2108,12 +2117,16 @@ export const useAppStore = create<AppState>((set, get) => ({
 
 
     const activeStatuses = ["thinking", "working", "requires_input"];
-    const hasActiveAgent = allPaneIds(tab.rootNode).some((pid) => {
+    // A running agent, or a file pane's unsaved edits, ask first.
+    const needsConfirm = allPaneIds(tab.rootNode).some((pid) => {
       const agentState = state.paneAgentStatus[pid];
-      return agentState && activeStatuses.includes(agentState.status);
+      return (
+        (agentState && activeStatuses.includes(agentState.status)) ||
+        hasUnsavedEdits(pid)
+      );
     });
 
-    if (hasActiveAgent) {
+    if (needsConfirm) {
       set({ pendingCloseConfirmTabId: tabId });
     } else {
       get().closeTab(tabId);
@@ -2129,7 +2142,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const state = get();
     const agentState = state.paneAgentStatus[paneId];
     const activeStatuses = ["thinking", "working", "requires_input"];
-    if (agentState && activeStatuses.includes(agentState.status)) {
+    // A running agent, or a file pane's unsaved edits, ask first.
+    if (
+      (agentState && activeStatuses.includes(agentState.status)) ||
+      hasUnsavedEdits(paneId)
+    ) {
       set({ pendingCloseConfirmPaneId: paneId });
     } else {
       get().closePaneById(paneId);

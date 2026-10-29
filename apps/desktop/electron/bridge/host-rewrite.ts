@@ -46,9 +46,11 @@ export function toDesktop<T>(hostId: string, value: T): T {
 /**
  * The desktop's arguments in the host's form: a string that is one of
  * this host's keys becomes its bare path, and this host's id becomes
- * `local` — at the top level and one level into a plain object (a
- * command's `workspacePath`, a context's `hostId`). Host ids are UUIDs, so
- * a string that merely looks like `<hostId>:/path` is not a worry.
+ * `local` — at the top level, one level into a plain object (a command's
+ * `workspacePath`, a context's `hostId`), and one more into that object's
+ * `workspace` (an automation's input or patch, `rewriteNestedWorkspace`).
+ * Host ids are UUIDs, so a string that merely looks like `<hostId>:/path`
+ * is not a worry.
  */
 export function toHostArgs(hostId: string, args: unknown[]): unknown[] {
   const value = (v: unknown): unknown => {
@@ -61,13 +63,57 @@ export function toHostArgs(hostId: string, args: unknown[]): unknown[] {
     if (!isPlainObject(arg)) return value(arg);
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(arg)) out[k] = value(v);
-    return out;
+    return rewriteNestedWorkspace(out, value);
   });
 }
 
 /**
+ * `arg` with its `workspace` object's strings through `value`: an
+ * automation's input or patch names the workspace it reuses there
+ * (`workspace.workspacePath`), a level deeper than the rest of the rewrite
+ * reaches. `arg` itself when it has no such object.
+ */
+export function rewriteNestedWorkspace(
+  arg: Record<string, unknown>,
+  value: (v: unknown) => unknown,
+): Record<string, unknown> {
+  const workspace = arg.workspace;
+  if (!isPlainObject(workspace)) return arg;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(workspace)) out[k] = value(v);
+  return { ...arg, workspace: out };
+}
+
+/**
+ * An `automations.*` answer with each workspace path in it through `key`
+ * (a server's own key for it in, the caller's out): a view's
+ * `workspace.workspacePath`, its `lastRun`'s and each of a detail's `runs`'
+ * `workspacePath`, and a run's own (`runNow`) — of a record or each record
+ * of a list. A path `key` can't key is left as it is.
+ */
+export function keyAutomationPaths(
+  result: unknown,
+  key: (path: string) => string | null,
+): unknown {
+  const keyed = (path: unknown): unknown => (typeof path === "string" ? (key(path) ?? path) : path);
+  const record = (value: unknown): unknown => {
+    if (!isPlainObject(value)) return value;
+    const out: Record<string, unknown> = { ...value };
+    if ("workspacePath" in out) out.workspacePath = keyed(out.workspacePath);
+    if (isPlainObject(out.workspace) && "workspacePath" in out.workspace) {
+      out.workspace = { ...out.workspace, workspacePath: keyed(out.workspace.workspacePath) };
+    }
+    if (isPlainObject(out.lastRun)) out.lastRun = record(out.lastRun);
+    if (Array.isArray(out.runs)) out.runs = out.runs.map(record);
+    return out;
+  };
+  return Array.isArray(result) ? result.map(record) : record(result);
+}
+
+/**
  * The host's answer in the desktop's form: `layout.getAll` rekeyed,
- * `layout.getLastActive` keyed, and anything else with `hostId: "local"`
+ * `layout.getLastActive` keyed, an automation's workspace paths keyed
+ * (`keyAutomationPaths`), and anything else with `hostId: "local"`
  * stamped — a record, or each record of a list.
  */
 export function toDesktopResult(
@@ -92,6 +138,8 @@ export function toDesktopResult(
     const key = typeof result.workspacePath === "string" && keyFor(hostId, result.workspacePath);
     return key ? { ...result, workspacePath: key } : result;
   }
-  if (Array.isArray(result)) return result.map((item) => toDesktop(hostId, item));
-  return toDesktop(hostId, result);
+  const answer =
+    ns === "automations" ? keyAutomationPaths(result, (path) => keyFor(hostId, path)) : result;
+  if (Array.isArray(answer)) return answer.map((item) => toDesktop(hostId, item));
+  return toDesktop(hostId, answer);
 }

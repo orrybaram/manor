@@ -219,6 +219,48 @@ describe("routed calls", () => {
     expect(home.invokes[0].args).toEqual(["p0", "/w", "new"]);
   });
 
+  it("key an automation's workspace paths both ways", async () => {
+    const home = fakeServer();
+    const box = fakeServer({
+      "automations.update": () => ({
+        id: "a1",
+        hostId: "local",
+        workspace: { mode: "reuse", workspacePath: "/w" },
+        lastRun: { id: "r1", workspacePath: "/w" },
+      }),
+      "automations.get": () => ({
+        id: "a1",
+        hostId: "local",
+        workspace: { mode: "new" },
+        lastRun: null,
+        runs: [{ id: "r1", workspacePath: "/run-1" }],
+      }),
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({})) as unknown as {
+      automations: Record<string, (...args: unknown[]) => Promise<unknown>>;
+    };
+
+    const updated = await api.automations.update("box", "a1", {
+      workspace: { mode: "reuse", workspacePath: "box:/w" },
+    });
+    expect(box.invokes[0]).toEqual({
+      key: "automations.update",
+      args: ["local", "a1", { workspace: { mode: "reuse", workspacePath: "/w" } }],
+    });
+    expect(updated).toEqual({
+      id: "a1",
+      hostId: "box",
+      workspace: { mode: "reuse", workspacePath: "box:/w" },
+      lastRun: { id: "r1", workspacePath: "box:/w" },
+    });
+    expect(await api.automations.get("box", "a1")).toMatchObject({
+      hostId: "box",
+      runs: [{ id: "r1", workspacePath: "box:/run-1" }],
+    });
+    expect(home.invokes).toEqual([]);
+  });
+
   it("route by workspace key, pane and agent", async () => {
     const home = fakeServer();
     const box = fakeServer();

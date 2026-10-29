@@ -45,6 +45,20 @@ describe("toHostArgs", () => {
   it("leaves another host's key and a bare local path alone", () => {
     expect(toHostArgs(HOST, ["other:/a", "/local/path"])).toEqual(["other:/a", "/local/path"]);
   });
+
+  it("rewrites an automation's nested workspace", () => {
+    expect(
+      toHostArgs(HOST, [
+        HOST,
+        { name: "n", workspace: { mode: "reuse", workspacePath: "box:/a" } },
+      ]),
+    ).toEqual(["local", { name: "n", workspace: { mode: "reuse", workspacePath: "/a" } }]);
+    expect(toHostArgs(HOST, [HOST, "a1", { workspace: { workspacePath: "other:/a" } }])).toEqual([
+      "local",
+      "a1",
+      { workspace: { workspacePath: "other:/a" } },
+    ]);
+  });
 });
 
 describe("toDesktopResult", () => {
@@ -66,6 +80,34 @@ describe("toDesktopResult", () => {
     expect(toDesktopResult(HOST, "layout", "moveToWorkspace", { error: "no" })).toEqual({
       error: "no",
     });
+  });
+
+  it("keys an automation's workspace paths: its reused workspace, its last run's and each run's", () => {
+    const view = {
+      hostId: "local",
+      workspace: { mode: "reuse", workspacePath: "/a" },
+      lastRun: { id: "r2", workspacePath: "/a" },
+    };
+    expect(toDesktopResult(HOST, "automations", "list", [view, { hostId: "local", workspace: { mode: "new" }, lastRun: null }])).toEqual([
+      { hostId: HOST, workspace: { mode: "reuse", workspacePath: "box:/a" }, lastRun: { id: "r2", workspacePath: "box:/a" } },
+      { hostId: HOST, workspace: { mode: "new" }, lastRun: null },
+    ]);
+    expect(
+      toDesktopResult(HOST, "automations", "get", {
+        ...view,
+        runs: [{ id: "r2", workspacePath: "/a" }, { id: "r1", outcome: "skipped" }],
+      }),
+    ).toEqual({
+      hostId: HOST,
+      workspace: { mode: "reuse", workspacePath: "box:/a" },
+      lastRun: { id: "r2", workspacePath: "box:/a" },
+      runs: [{ id: "r2", workspacePath: "box:/a" }, { id: "r1", outcome: "skipped" }],
+    });
+    expect(toDesktopResult(HOST, "automations", "runNow", { id: "r3", workspacePath: "/b" })).toEqual({
+      id: "r3",
+      workspacePath: "box:/b",
+    });
+    expect(toDesktopResult(HOST, "automations", "get", null)).toBeNull();
   });
 
   it("stamps a record, or each record of a list", () => {

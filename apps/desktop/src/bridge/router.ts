@@ -72,7 +72,11 @@
  */
 
 import type { EventName, WireEventArgs } from "../../electron/bridge/events";
-import { keyFor } from "../../electron/bridge/host-rewrite";
+import {
+  keyAutomationPaths,
+  keyFor,
+  rewriteNestedWorkspace,
+} from "../../electron/bridge/host-rewrite";
 import { byPane, declinesWake, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../electron/bridge/types";
@@ -587,13 +591,17 @@ export function createRouter(
       const key = typeof result.workspacePath === "string" ? stampKey(entry, result.workspacePath) : null;
       return key ? { ...result, workspacePath: key } : result;
     }
+    if (ns === "automations") {
+      return stampRecords(entry, keyAutomationPaths(result, (key) => stampKey(entry, key)));
+    }
     return stampRecords(entry, result);
   }
 
   /**
    * Arguments for `entry` in its own form: a string naming one of its hosts,
-   * or keyed on one, at the top level and one level into a plain object —
-   * `toHostArgs`'s reach, which is what main's `HostProxy` rewrites too — and
+   * or keyed on one, at the top level, one level into a plain object and
+   * into that object's `workspace` (an automation's) — `toHostArgs`'s reach,
+   * which is what main's `HostProxy` rewrites too — and
    * in each object of a top-level list (`branches.start`'s workspaces).
    */
   function toServerArgs(entry: ServerEntry, args: unknown[]): unknown[] {
@@ -611,7 +619,7 @@ export function createRouter(
     const object = (arg: Record<string, unknown>): Record<string, unknown> => {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(arg)) out[k] = value(v);
-      return out;
+      return rewriteNestedWorkspace(out, value);
     };
     return args.map((arg) => {
       if (Array.isArray(arg)) return arg.map((item) => (isPlainObject(item) ? object(item) : value(item)));

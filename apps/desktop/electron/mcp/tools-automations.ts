@@ -99,7 +99,7 @@ const tools: ToolDef[] = [
         ...EDITABLE_PROPS,
         timezone: {
           ...EDITABLE_PROPS.timezone,
-          description: `${EDITABLE_PROPS.timezone.description} Defaults to this machine's timezone.`,
+          description: `${EDITABLE_PROPS.timezone.description} Defaults to the timezone of the machine running this command, which on a remote box is often UTC: name one to be sure.`,
         },
         agentKind: { ...EDITABLE_PROPS.agentKind, description: "Which agent runs it. Default 'claude'." },
         workspace: {
@@ -131,6 +131,14 @@ const tools: ToolDef[] = [
       properties: {
         id: ID_PROP,
         ...EDITABLE_PROPS,
+        workspace: {
+          ...EDITABLE_PROPS.workspace,
+          description: `${EDITABLE_PROPS.workspace.description} Changes the mode only when given; workspacePath or keepLast alone edit the current mode's ('reuse' needs workspacePath unless it already reuses one).`,
+        },
+        keepLast: {
+          ...EDITABLE_PROPS.keepLast,
+          description: "For 'new': keep only this many run workspaces; 0 turns it off.",
+        },
         projectId: { type: "string", description: "Move it to another project on the same host." },
         hostId: HOST_ID_PROP,
       },
@@ -217,14 +225,25 @@ function hostBody(args: Record<string, unknown>): Record<string, unknown> {
   return hostId ? { hostId } : {};
 }
 
-/** The workspace the args describe, or undefined when they name none. */
-function workspaceOf(args: Record<string, unknown>, fallback?: "new"): Record<string, unknown> | undefined {
-  const mode =
-    str(args.workspace) ??
-    (args.workspacePath !== undefined ? "reuse" : args.keepLast !== undefined ? "new" : fallback);
-  if (mode === undefined) return undefined;
+/** The workspace a create's args describe: 'new' unless they say otherwise. */
+function workspaceOf(args: Record<string, unknown>): Record<string, unknown> {
+  const mode = str(args.workspace) ?? (args.workspacePath !== undefined ? "reuse" : "new");
   if (mode === "reuse") return { mode, workspacePath: args.workspacePath };
   return args.keepLast !== undefined ? { mode, keepLast: args.keepLast } : { mode };
+}
+
+/**
+ * The workspace fields the args name, and only those, for an update: the
+ * server keeps the rest of the current workspace (a `keepLast` of 0 drops
+ * it). Undefined when they name none.
+ */
+function workspacePatchOf(args: Record<string, unknown>): Record<string, unknown> | undefined {
+  const patch: Record<string, unknown> = {};
+  const mode = str(args.workspace);
+  if (mode !== undefined) patch.mode = mode;
+  if (args.workspacePath !== undefined) patch.workspacePath = args.workspacePath;
+  if (args.keepLast !== undefined) patch.keepLast = args.keepLast === 0 ? null : args.keepLast;
+  return Object.keys(patch).length > 0 ? patch : undefined;
 }
 
 function editableBody(args: Record<string, unknown>): Record<string, unknown> {
@@ -316,7 +335,7 @@ const handlers: ToolModule["handlers"] = {
       ...editableBody(args),
       projectId: await resolveProjectId(http, str(args.projectId)),
       agentKind: args.agentKind ?? "claude",
-      workspace: workspaceOf(args, "new"),
+      workspace: workspaceOf(args),
       schedule: {
         cron: args.cron,
         timezone: str(args.timezone) ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -324,12 +343,16 @@ const handlers: ToolModule["handlers"] = {
       ...hostBody(args),
     };
     const created = (await http.post("/automations", body)) as AutomationView;
-    return text(`Created automation ${created.name} [${created.id}]\n${automationLine(created)}`);
+    const defaulted =
+      str(args.timezone) === undefined
+        ? `\nTimezone ${created.schedule.timezone} is the default, this machine's; name a timezone to use another.`
+        : "";
+    return text(`Created automation ${created.name} [${created.id}]\n${automationLine(created)}${defaulted}`);
   },
 
   async update_automation(args, http) {
     const body: Record<string, unknown> = { ...editableBody(args), ...hostBody(args) };
-    const workspace = workspaceOf(args);
+    const workspace = workspacePatchOf(args);
     if (workspace) body.workspace = workspace;
     const updated = (await http.post(automationPath(args.id, "/update"), body)) as AutomationView;
     return text(`Updated automation ${updated.name} [${updated.id}]\n${automationLine(updated)}`);

@@ -109,9 +109,34 @@ describe("automation tools", () => {
       {
         method: "POST",
         path: "/automations/a1/update",
-        body: { schedule: { cron: "30 7 * * *" }, workspace: { mode: "new", keepLast: 3 } },
+        body: { schedule: { cron: "30 7 * * *" }, workspace: { keepLast: 3 } },
       },
     ]);
+  });
+
+  it("update names a workspace mode only when given, and a keepLast of 0 drops it", async () => {
+    const http = fakeHttp(VIEW);
+    await handlers.update_automation({ id: "a1", workspacePath: "/p1/other" }, http);
+    await handlers.update_automation({ id: "a1", workspace: "new" }, http);
+    await handlers.update_automation({ id: "a1", keepLast: 0 }, http);
+    expect(http.calls.map((c) => c.body)).toEqual([
+      { workspace: { workspacePath: "/p1/other" } },
+      { workspace: { mode: "new" } },
+      { workspace: { keepLast: null } },
+    ]);
+  });
+
+  it("create says when the timezone is this machine's default", async () => {
+    const http = fakeHttp(VIEW);
+    const defaulted = await handlers.create_automation({ name: "N", cron: "0 9 * * *", prompt: "P" }, http);
+    const named = await handlers.create_automation(
+      { name: "N", cron: "0 9 * * *", prompt: "P", timezone: "UTC" },
+      http,
+    );
+    const textOf = (r: unknown) => (r as { content: { text: string }[] }).content[0].text;
+    expect(textOf(defaulted)).toContain("0 9 * * * (UTC)");
+    expect(textOf(defaulted)).toContain("Timezone UTC is the default");
+    expect(textOf(named)).not.toContain("is the default");
   });
 
   it("maps pause, resume, run, runs, get, list and delete to their routes", async () => {

@@ -11,6 +11,7 @@ import * as path from "node:path";
 
 import { AutomationStore } from "../automations/automation-store";
 import { AutomationScheduler } from "../automations/scheduler";
+import { createAutomation, type AutomationDeps } from "../automations/operations";
 import { handleServerControlRequest } from "./server-routes";
 import type { ServerRouteDeps } from "./types";
 import type { AgentInfo } from "../agent-persistence";
@@ -154,6 +155,49 @@ describe("/automations", () => {
     });
     expect(badTz).toEqual({ status: 400, body: { error: "Unknown timezone: Mars/Olympus" } });
     expect((await request("POST", "/automations/missing/run")).status).toBe(404);
+  });
+
+  it("merges a workspace patch: a mode changes only when named, each field only in its own mode", async () => {
+    const reuse = (await request("POST", "/automations", {
+      ...input,
+      workspace: { mode: "reuse", workspacePath: "/p1/ws" },
+    })).body as AutomationView;
+    const update = (patch: Record<string, unknown>) =>
+      request("POST", `/automations/${reuse.id}/update`, { workspace: patch });
+
+    expect(await update({ keepLast: 5 })).toEqual({
+      status: 400,
+      body: { error: "'keepLast' is only for a new workspace per run" },
+    });
+    expect(((await update({ workspacePath: "/p1/other" })).body as AutomationView).workspace).toEqual({
+      mode: "reuse",
+      workspacePath: "/p1/other",
+    });
+    expect(await update({ mode: "new", workspacePath: "/p1/ws" })).toEqual({
+      status: 400,
+      body: { error: "'workspacePath' is only for a reused workspace" },
+    });
+    expect(((await update({ mode: "new", keepLast: 3 })).body as AutomationView).workspace).toEqual({
+      mode: "new",
+      keepLast: 3,
+    });
+    // The new mode's keepLast stays through an edit that names only the mode,
+    // and goes with a null.
+    expect(((await update({ mode: "new" })).body as AutomationView).workspace).toEqual({ mode: "new", keepLast: 3 });
+    expect(((await update({ keepLast: null })).body as AutomationView).workspace).toEqual({ mode: "new" });
+    // Back to reuse needs a path again.
+    expect(await update({ mode: "reuse" })).toEqual({ status: 400, body: { error: "Pick a workspace to reuse" } });
+  });
+
+  it("a bridge create for an adopted host's project, with no host named, says to make it there", async () => {
+    const ops = deps as unknown as AutomationDeps;
+    await expect(createAutomation(ops, { ...input, projectId: "p-box" })).rejects.toThrow(
+      "This project is on me@box-1; create the automation there (hostId box-1)",
+    );
+    await expect(createAutomation(ops, { ...input, projectId: "p-old" })).rejects.toThrow(
+      "me@old-box has no Manor host server yet, so it can't run automations",
+    );
+    expect(store.list()).toEqual([]);
   });
 
   it("sends a request for an adopted host to its server", async () => {

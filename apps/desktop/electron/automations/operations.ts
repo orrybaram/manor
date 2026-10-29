@@ -1,6 +1,11 @@
 import type { SharedDeps } from "../ipc/types";
 import { LOCAL_HOST_ID } from "../../src/lib/workspace-key";
-import type { Automation, AutomationInput, AutomationRun } from "../../src/lib/automations";
+import type {
+  Automation,
+  AutomationInput,
+  AutomationRun,
+  AutomationWorkspace,
+} from "../../src/lib/automations";
 import {
   AUTOMATION_NEXT_RUNS,
   type AutomationDetail,
@@ -23,7 +28,7 @@ import { runAgent } from "./run-agent";
 
 export type AutomationDeps = Pick<
   SharedDeps,
-  "automations" | "agentManager" | "agentStatus" | "projectManager"
+  "automations" | "agentManager" | "agentStatus" | "projectManager" | "hostRouting"
 >;
 
 /** A request this server refuses, with the HTTP status a route answers. */
@@ -80,8 +85,9 @@ export function requireAutomation(deps: AutomationDeps, id: unknown): Automation
 /**
  * A project this server can fire for: one on its own host. The desktop
  * lists a remote host's projects too, but its local server never fires
- * them (`./fire-run.ts`), and a host with no Manor host server has nowhere
- * else to run one.
+ * them (`./fire-run.ts`): an adopted host's server keeps that project's
+ * automations, so a write for it must name that host, and a host with no
+ * Manor host server has nowhere to run one.
  */
 async function assertProjectHere(deps: AutomationDeps, projectId: unknown): Promise<void> {
   // A missing or malformed id is the validation's to word.
@@ -91,7 +97,9 @@ async function assertProjectHere(deps: AutomationDeps, projectId: unknown): Prom
   if (project.hostId !== LOCAL_HOST_ID) {
     const label = deps.projectManager.hostLabel(project.hostId);
     throw new AutomationRequestError(
-      `${label} has no Manor host server yet, so it can't run automations`,
+      deps.hostRouting?.proxy(project.hostId)
+        ? `This project is on ${label}; create the automation there (hostId ${project.hostId})`
+        : `${label} has no Manor host server yet, so it can't run automations`,
       400,
     );
   }
@@ -124,8 +132,41 @@ export async function createAutomation(deps: AutomationDeps, input: unknown): Pr
 }
 
 /**
+ * `current` with the fields of a workspace patch: the mode changes only
+ * when the patch names one, and the field of the mode it ends up in is
+ * kept unless the patch names it too (`keepLast: null` drops it). A
+ * `keepLast` is only for a new workspace per run and a `workspacePath`
+ * only for one reused, so a patch naming the other mode's field is a 400.
+ */
+function mergeWorkspace(current: AutomationWorkspace, value: unknown): AutomationWorkspace {
+  const patch = asRecord(value);
+  const mode = patch.mode ?? current.mode;
+  if (mode === "new") {
+    if (patch.workspacePath !== undefined) {
+      throw new AutomationRequestError("'workspacePath' is only for a reused workspace", 400);
+    }
+    const keepLast =
+      patch.keepLast !== undefined ? patch.keepLast : current.mode === "new" ? current.keepLast : undefined;
+    return keepLast === null || keepLast === undefined
+      ? { mode }
+      : ({ mode, keepLast } as AutomationWorkspace);
+  }
+  if (mode === "reuse") {
+    if (patch.keepLast !== undefined) {
+      throw new AutomationRequestError("'keepLast' is only for a new workspace per run", 400);
+    }
+    const workspacePath =
+      patch.workspacePath ?? (current.mode === "reuse" ? current.workspacePath : undefined);
+    return { mode, workspacePath } as AutomationWorkspace;
+  }
+  // An unknown mode is the validation's to word.
+  return { ...patch } as unknown as AutomationWorkspace;
+}
+
+/**
  * Only the fields `patch` names change. A schedule patch may name only its
- * cron or its timezone; the other is kept.
+ * cron or its timezone, and a workspace patch only some of its fields
+ * (`mergeWorkspace`); the rest are kept.
  */
 export async function updateAutomation(
   deps: AutomationDeps,
@@ -139,6 +180,7 @@ export async function updateAutomation(
   if (body.schedule !== undefined) {
     next.schedule = { ...current.schedule, ...asRecord(body.schedule) };
   }
+  if (body.workspace !== undefined) next.workspace = mergeWorkspace(current.workspace, body.workspace);
   const updated = validated(() => deps.automations.store.update(current.id, next, Date.now()));
   if (!updated) throw new AutomationRequestError(`Automation not found: ${current.id}`, 404);
   return automationView(deps, updated);

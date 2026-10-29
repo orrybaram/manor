@@ -81,7 +81,13 @@ export function automationsUpdate(
   return updateAutomation(ctx.deps, id, patch);
 }
 
-/** Pause or resume: the one edit a device may make wherever it is paired. */
+/**
+ * Pause or resume. On a host server this and `runNow` are the writes a
+ * paired device may make; making, changing and deleting one are the
+ * owner's there (`localOnly` in `../../host-server/handlers.ts`). On the
+ * desktop's table none is `localOnly`, as `projects.update` is not, so a
+ * device paired with the desktop may make every write.
+ */
 export async function automationsSetEnabled(
   ctx: Ctx,
   hostId: string | null,

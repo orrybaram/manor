@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Terminal } from "@xterm/xterm";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import { dropFilesOnTerminal, isFileDrag, shellQuote } from "../terminal-file-drop";
 
 const isRemotePane = vi.hoisted(() => vi.fn<(paneId: string) => boolean>());
@@ -34,7 +34,7 @@ beforeEach(() => {
   paths.clear();
   isRemotePane.mockReturnValue(false);
   isWebApp.mockReturnValue(false);
-  useToastStore.setState({ toasts: [] });
+  clearRecords();
 });
 
 describe("shellQuote", () => {
@@ -101,7 +101,7 @@ describe("dropFilesOnTerminal", () => {
     ]);
     expect(term.paste).not.toHaveBeenCalled();
     expect(pasteImageFile).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ status: "error" }),
     ]);
   });

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { addErrorToast } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import { useHostStore, type HostStatusInfo } from "../../../store/host-store";
 import type { ProjectInfo } from "../../../store/project-store";
@@ -70,7 +70,10 @@ export function HostAlert(props: HostAlertProps) {
                 className={styles.reconnect}
                 onClick={() =>
                   void retryConnect(host.hostId).catch((err: unknown) =>
-                    addErrorToast(`host-retry-${host.hostId}`, "Couldn't reconnect", err),
+                    toast.error("Couldn't reconnect", {
+                      id: `host-retry-${host.hostId}`,
+                      error: err,
+                    }),
                   )
                 }
               >

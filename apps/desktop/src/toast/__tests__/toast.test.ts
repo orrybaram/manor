@@ -1,7 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { setToastStackHovered, toast, wasReported, watchToastSubjects, type ToastSubject } from "..";
-import { toastStore } from "../toast-store";
-import { addErrorToast, useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../toast-store";
 
 // Main's view of this window's focus, driven by the test: the desktop path of
 // `lib/window-focus.ts`, which starts on the first countdown.
@@ -27,13 +26,13 @@ const only = () => {
 
 beforeEach(() => {
   vi.useFakeTimers();
-  useToastStore.setState({ toasts: [] });
+  clearRecords();
   setToastStackHovered(false);
   pushFocus(true);
 });
 
 afterEach(() => {
-  useToastStore.setState({ toasts: [] });
+  clearRecords();
   vi.useRealTimers();
 });
 
@@ -234,41 +233,10 @@ describe("held countdowns", () => {
   });
 });
 
-describe("legacy shims", () => {
-  it("addToast/updateToast/removeToast drive the same toasts, `persistent` as sticky", () => {
-    const { addToast, updateToast, removeToast } = useToastStore.getState();
-    addToast({ id: "old", message: "Working", status: "loading", persistent: true });
-    expect(only()).toMatchObject({ id: "old", duration: "sticky" });
-    expect(useToastStore.getState().toasts).toEqual([
-      { id: "old", message: "Working", status: "loading", persistent: true },
-    ]);
-
-    updateToast("old", { status: "success", message: "Done", persistent: false });
-    expect(useToastStore.getState().toasts[0]).toEqual({
-      id: "old",
-      message: "Done",
-      status: "success",
-    });
-    vi.advanceTimersByTime(3200);
-    expect(toasts()).toEqual([]);
-
-    addToast({ id: "gone", message: "x", status: "info", duration: 100_000 });
-    removeToast("gone");
-    expect(useToastStore.getState().toasts).toEqual([]);
-  });
-
-  it("addErrorToast shows a normalised error and marks it reported", () => {
-    const err = new Error("boom");
-    addErrorToast("e", "Failed", err);
-    expect(useToastStore.getState().toasts).toEqual([
-      { id: "e", message: "Failed", status: "error", detail: "boom" },
-    ]);
-    expect(wasReported(err)).toBe(true);
-  });
-
-  it("setState({ toasts: [] }) clears every toast and its countdown", () => {
+describe("clearRecords", () => {
+  it("clears every toast and its countdown", () => {
     toast.info("a");
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     expect(toasts()).toEqual([]);
     vi.advanceTimersByTime(10_000);
     expect(toasts()).toEqual([]);

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useUpdaterStore } from "../store/updater-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 
 interface PrevState {
   checking: boolean;
@@ -26,49 +26,34 @@ export function useUpdaterToasts() {
         // check until the download completes, so the "checking finished" branch
         // below never fires (it requires pending === null). Dismiss the stuck
         // "Checking for updates…" loading toast here before showing this one.
-        useToastStore.getState().removeToast("updater-checking");
-        useToastStore.getState().addToast({
+        toast.dismiss("updater-checking");
+        toast.success(`Manor ${pending.version} ready to install`, {
           id: "updater-pending",
-          status: "success",
-          message: `Manor ${pending.version} ready to install`,
-          persistent: true,
+          duration: "sticky",
           action: {
             label: "Restart now",
             onClick: () => window.electronAPI.updater.quitAndInstall(),
           },
           secondaryAction: {
             label: "Later",
-            onClick: () => useToastStore.getState().removeToast("updater-pending"),
+            onClick: () => toast.dismiss("updater-pending"),
           },
         });
       }
 
       // --- checking started: manual only ---
       if (checking && !prev.checking && lastTriggerWasManual) {
-        useToastStore.getState().addToast({
-          id: "updater-checking",
-          status: "loading",
-          message: "Checking for updates…",
-        });
+        toast.progress("Checking for updates…", { id: "updater-checking" });
       }
 
       // --- checking finished: manual, no update, no error ---
       if (!checking && prev.checking && lastTriggerWasManual && pending === null && error === null) {
-        useToastStore.getState().addToast({
-          id: "updater-checking",
-          status: "success",
-          message: "You’re on the latest version",
-        });
+        toast.success("You’re on the latest version", { id: "updater-checking" });
       }
 
       // --- error: manual only ---
       if (error !== null && prev.error === null && lastTriggerWasManual) {
-        useToastStore.getState().addToast({
-          id: "updater-checking",
-          status: "error",
-          message: "Couldn’t check for updates",
-          detail: error,
-        });
+        toast.error("Couldn’t check for updates", { id: "updater-checking", detail: error });
       }
 
       prevRef.current = { checking, pending, error };

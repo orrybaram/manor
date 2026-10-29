@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useProjectStore, type ProjectGroupInfo, type ProjectInfo } from "../project-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 
 // Linked-project groups: the store's link and unlink actions, and
 // the collapsed-group key they leave behind.
@@ -63,7 +63,7 @@ const unlinked = () => [project("local-app", "local", null), project("box-app", 
 describe("linked-project groups in the project store", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     useProjectStore.setState({
       projects: linked(),
       selectedProjectIndex: 0,
@@ -123,7 +123,7 @@ describe("linked-project groups in the project store", () => {
       ).rejects.toThrow("nope");
 
       expect(byId("local-app")).toMatchObject({ name: "local-app", color: null, group: GROUP });
-      expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+      expect(toastStore.getState().toasts.map((t) => t.message)).toEqual([
         "Couldn't save shared settings",
       ]);
     });

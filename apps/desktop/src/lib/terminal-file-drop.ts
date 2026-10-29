@@ -14,7 +14,7 @@
 import type { Terminal } from "@xterm/xterm";
 import { isWebApp } from "./platform";
 import { isRemotePane, pasteImageFile } from "./remote-image-paste";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 
 const SHELL_SAFE = /^[A-Za-z0-9@%_+=:,./-]+$/;
 
@@ -53,13 +53,11 @@ export async function dropFilesOnTerminal(
     }
   }
   if (skipped > 0) {
-    useToastStore.getState().addToast({
-      id: `drop-files-${paneId}`,
-      message:
-        skipped === 1
-          ? "Only images can be dropped onto a remote terminal"
-          : `${skipped} files skipped: only images can be dropped onto a remote terminal`,
-      status: "error",
-    });
+    toast.error(
+      skipped === 1
+        ? "Only images can be dropped onto a remote terminal"
+        : `${skipped} files skipped: only images can be dropped onto a remote terminal`,
+      { id: `drop-files-${paneId}` },
+    );
   }
 }

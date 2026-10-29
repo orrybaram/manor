@@ -19,7 +19,7 @@ import { fileIconFor } from "../file-icon";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
-import { useToastStore } from "../../../../store/toast-store";
+import { toast } from "../../../../toast";
 import { openInEditor } from "../../../../lib/editor";
 import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import styles from "./FileList.module.css";
@@ -72,7 +72,6 @@ export function FileList(props: FileListProps) {
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [actionInProgress, setActionInProgress] = useState(false);
   const isLocal = diffMode === "local";
-  const addToast = useToastStore((s) => s.addToast);
 
   // Escape clears selection
   useMountEffect(() => {
@@ -166,11 +165,7 @@ export function FileList(props: FileListProps) {
       setActionInProgress(true);
       try {
         await window.electronAPI.git.stage(workspacePath, targetFiles);
-        addToast({
-          id: toastId,
-          message: `Staged ${fileLabel(targetFiles.length)}`,
-          status: "success",
-        });
+        toast.success(`Staged ${fileLabel(targetFiles.length)}`, { id: toastId });
       } catch (err) {
         // Revert optimistic update
         onStagedFilesChange((prev) => {
@@ -178,12 +173,7 @@ export function FileList(props: FileListProps) {
           for (const f of targetFiles) next.delete(f);
           return next;
         });
-        addToast({
-          id: toastId,
-          message: "Failed to stage files",
-          status: "error",
-          detail: ipcErrorMessage(err),
-        });
+        toast.error("Failed to stage files", { id: toastId, detail: ipcErrorMessage(err) });
       } finally {
         setActionInProgress(false);
       }
@@ -193,7 +183,6 @@ export function FileList(props: FileListProps) {
       actionInProgress,
       getActionFiles,
       onStagedFilesChange,
-      addToast,
     ],
   );
 
@@ -213,11 +202,7 @@ export function FileList(props: FileListProps) {
       setActionInProgress(true);
       try {
         await window.electronAPI.git.unstage(workspacePath, targetFiles);
-        addToast({
-          id: toastId,
-          message: `Unstaged ${fileLabel(targetFiles.length)}`,
-          status: "success",
-        });
+        toast.success(`Unstaged ${fileLabel(targetFiles.length)}`, { id: toastId });
       } catch (err) {
         // Revert optimistic update
         onStagedFilesChange((prev) => {
@@ -225,12 +210,7 @@ export function FileList(props: FileListProps) {
           for (const f of targetFiles) next.add(f);
           return next;
         });
-        addToast({
-          id: toastId,
-          message: "Failed to unstage files",
-          status: "error",
-          detail: ipcErrorMessage(err),
-        });
+        toast.error("Failed to unstage files", { id: toastId, detail: ipcErrorMessage(err) });
       } finally {
         setActionInProgress(false);
       }
@@ -240,7 +220,6 @@ export function FileList(props: FileListProps) {
       actionInProgress,
       getActionFiles,
       onStagedFilesChange,
-      addToast,
     ],
   );
 
@@ -300,22 +279,13 @@ export function FileList(props: FileListProps) {
     setActionInProgress(true);
     try {
       await window.electronAPI.git.discard(workspacePath, targetFiles);
-      addToast({
-        id: toastId,
-        message: `Discarded changes in ${fileLabel(targetFiles.length)}`,
-        status: "success",
-      });
+      toast.success(`Discarded changes in ${fileLabel(targetFiles.length)}`, { id: toastId });
     } catch (err) {
-      addToast({
-        id: toastId,
-        message: "Failed to discard changes",
-        status: "error",
-        detail: ipcErrorMessage(err),
-      });
+      toast.error("Failed to discard changes", { id: toastId, detail: ipcErrorMessage(err) });
     } finally {
       setActionInProgress(false);
     }
-  }, [confirmAction, workspacePath, addToast]);
+  }, [confirmAction, workspacePath]);
 
   const renderFile = (file: DiffFile, name: string, depth: number) => {
     const index = orderedFiles.indexOf(file);

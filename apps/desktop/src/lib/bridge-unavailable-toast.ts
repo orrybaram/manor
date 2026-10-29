@@ -10,7 +10,7 @@
  */
 
 import { BridgeUnavailableError } from "../bridge/client";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 
 const shownIds = new Set<string>();
 
@@ -21,7 +21,7 @@ export function showBridgeUnavailableToastOnce(
 ): void {
   if (shownIds.has(id)) return;
   shownIds.add(id);
-  useToastStore.getState().addToast({ id, status: "error", message });
+  toast.error(message, { id });
 }
 
 /**

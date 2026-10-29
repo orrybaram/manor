@@ -1,6 +1,6 @@
 import type { AgentInfo } from "../electron.d";
 import type { DraftComment } from "../store/review-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 import { navigateToAgent } from "../utils/agent-navigation";
 import { cleanAgentTitle } from "../utils/agent-title";
 import { startAgentWithPrompt } from "./agent-prompt-launch";
@@ -68,15 +68,12 @@ export function submitReview(
   if (comments.length === 0) return;
 
   const prompt = reviewPrompt(comments);
-  const { addToast } = useToastStore.getState();
   const toastId = `review-submit-${workspacePath}`;
 
   if (target.kind === "new") {
     startAgentWithPrompt(workspacePath, prompt, hostId);
-    addToast({
+    toast.success(`Sent ${commentCount(comments.length)} to a new agent`, {
       id: toastId,
-      message: `Sent ${commentCount(comments.length)} to a new agent`,
-      status: "success",
       duration: 3000,
     });
     return;
@@ -85,10 +82,8 @@ export function submitReview(
   const { agent } = target;
   const { paneId } = agent;
   if (!paneId) {
-    addToast({
+    toast.error(`${agentLabel(agent)} has no live pane to send to`, {
       id: toastId,
-      message: `${agentLabel(agent)} has no live pane to send to`,
-      status: "error",
       duration: 3000,
     });
     return;
@@ -106,10 +101,8 @@ export function submitReview(
   // Land the user on the pane that is about to answer.
   navigateToAgent(agent);
 
-  addToast({
+  toast.success(`Sent ${commentCount(comments.length)} to ${agentLabel(agent)}`, {
     id: toastId,
-    message: `Sent ${commentCount(comments.length)} to ${agentLabel(agent)}`,
-    status: "success",
     duration: 3000,
   });
 }

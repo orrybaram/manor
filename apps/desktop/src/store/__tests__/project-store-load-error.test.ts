@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useProjectStore } from "../project-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 
 const electronAPI = (window as unknown as { electronAPI: Record<string, unknown> })
   .electronAPI;
@@ -9,7 +9,7 @@ const originalProjects = electronAPI.projects;
 /** Failures are not empty lists, and mutations say they failed. */
 describe("project store failures", () => {
   beforeEach(() => {
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     useProjectStore.setState({
       projects: [],
       initialLoadDone: false,
@@ -75,7 +75,7 @@ describe("project store failures", () => {
     await expect(useProjectStore.getState().removeProject("p1")).rejects.toThrow("locked");
 
     expect(useProjectStore.getState().projects).toHaveLength(1);
-    const toast = useToastStore.getState().toasts[0];
+    const toast = toastStore.getState().toasts[0];
     expect(toast.message).toBe("Couldn't remove app");
     expect(toast.detail).toBe("locked");
   });
@@ -92,7 +92,7 @@ describe("project store failures", () => {
     await expect(store.setWorkspaceHidden("p1", "/w", true)).rejects.toThrow("b");
     await expect(store.createWorkspaceFolder("p1", "F")).rejects.toThrow("c");
 
-    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+    expect(toastStore.getState().toasts.map((t) => t.message)).toEqual([
       "Couldn't rename workspace",
       "Couldn't hide workspace",
       'Couldn\'t create folder "F"',

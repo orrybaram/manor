@@ -13,7 +13,7 @@ import { useProjectStore, type LinkedIssue, type ProjectInfo } from "../store/pr
 import { BridgeUnavailableError } from "../bridge/client";
 import { onBehalfOf } from "../bridge/router";
 import { showBridgeUnavailableToastOnce } from "./bridge-unavailable-toast";
-import { addErrorToast } from "../store/toast-store";
+import { toast } from "../toast";
 import { sanitizeBranchName, branchesEqual } from "../utils/branch-name";
 import type { CommandPaletteProps } from "../components/command-palette/types";
 import type { GhRepo } from "./gh-repo";
@@ -30,11 +30,10 @@ export type NewWorkspaceHandler = CommandPaletteProps["onNewWorkspace"];
  */
 function assignIssueBestEffort(repo: GhRepo, issueNumber: number): void {
   window.electronAPI.github.assignIssue(repo, issueNumber).catch((err) => {
-    addErrorToast(
-      `assign-issue-error-gh-${issueNumber}`,
-      "Failed to assign task",
-      err,
-    );
+    toast.error("Failed to assign task", {
+      id: `assign-issue-error-gh-${issueNumber}`,
+      error: err,
+    });
   });
 }
 
@@ -149,11 +148,10 @@ export function startLinearIssueWork(
         showBridgeUnavailableToastOnce("linear-start-issue", err.message);
         return;
       }
-      addErrorToast(
-        `start-issue-error-linear-${issue.id}`,
-        "Failed to start task",
-        err,
-      );
+      toast.error("Failed to start task", {
+        id: `start-issue-error-linear-${issue.id}`,
+        error: err,
+      });
     },
   );
 }

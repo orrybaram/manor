@@ -5,7 +5,7 @@ import Check from "lucide-react/dist/esm/icons/check";
 import X from "lucide-react/dist/esm/icons/x";
 import { useAppStore } from "../../store/app-store";
 import type { SetupStep, StepStatus } from "../../store/project-store";
-import { useToastStore } from "../../store/toast-store";
+import { toast } from "../../toast";
 import { ManorLogo } from "../ui/ManorLogo";
 import { Row, Stack } from "../ui/Layout/Layout";
 import { Button } from "../ui/Button/Button";
@@ -104,7 +104,7 @@ export function WorkspaceSetupView({
 
   // Clear any background toast when the user returns to the setup view
   useEffect(() => {
-    useToastStore.getState().removeToast(`worktree-setup-${workspacePath}`);
+    toast.dismiss(`worktree-setup-${workspacePath}`);
   }, [workspacePath]);
 
   // Mark setup as complete in the store when all steps finish

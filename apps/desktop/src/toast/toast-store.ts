@@ -1,7 +1,7 @@
 /**
  * The toasts on screen and their countdowns. Private to `src/toast/`:
- * everything outside reaches it through `toast.*` (`./index.ts`), except the
- * legacy `store/toast-store.ts` shims, which go away with the migration.
+ * everything outside reaches it through `toast.*` (`./index.ts`); tests read
+ * `toastStore` and reset with `clearRecords`.
  *
  * Countdowns live here, not in the component, so they can be held: every
  * toast keeps its *remaining* time, and while the stack is hovered or the
@@ -254,13 +254,12 @@ export function removeRecord(id: string): void {
   if (toastStore.getState().toasts.length === 0) stackHovered = false;
 }
 
-/** Replace every toast — what the legacy `setState({ toasts })` did. */
-export function replaceRecords(records: ToastRecord[]): void {
+/** Take every toast down at once, countdowns and exits with them: a test's reset. */
+export function clearRecords(): void {
   for (const id of [...countdowns.keys()]) stopCountdown(id);
   for (const id of [...exits.keys()]) stopExit(id);
   toastStore.setState({ toasts: [] });
   stackHovered = false;
-  for (const record of records) putRecord(record);
 }
 
 /** The pointer is over the toast stack (true) or has left it (false). */

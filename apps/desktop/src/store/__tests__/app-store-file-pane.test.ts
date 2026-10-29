@@ -8,7 +8,7 @@ import {
 } from "../app-store";
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import { buildLayoutSnapshot } from "../../lib/layout/snapshot";
-import { tabTitle } from "../../lib/pane-title";
+import { paneHeaderTitle, tabTitle } from "../../lib/pane-title";
 import { takeSourceControlRequest } from "../../lib/source-control-request";
 import { convertPaneTo, splitPaneWith } from "../../lib/pane-actions";
 import type { Panel, WorkspaceLayout } from "../app-store";
@@ -117,6 +117,20 @@ describe("file panes", () => {
     useAppStore.getState().setPaneContentType(paneId, "terminal");
     await settled();
     expect(selectPaneFilePath(useAppStore.getState(), paneId)).toBeNull();
+  });
+
+  it("a pane made for Source Control is titled Source Control until a file opens there", async () => {
+    const tabId = useAppStore.getState().openSourceControl();
+    await settled();
+    const tab = activePanel().tabs.find((t) => t.id === tabId)!;
+    const paneId = tab.rootNode.type === "leaf" ? tab.rootNode.paneId : "";
+    expect(tab.title).toBe("Source Control");
+    expect(tabTitle(useAppStore.getState(), paneId, null)).toBe("Source Control");
+    expect(paneHeaderTitle(useAppStore.getState(), paneId)).toBe("Source Control");
+
+    useAppStore.getState().setPaneFilePath(paneId, "src/a.ts");
+    await settled();
+    expect(tabTitle(useAppStore.getState(), paneId, null)).toBe("a.ts");
   });
 
   it("Open Source Control comes back to its pane once a file is open there, on Source Control", async () => {

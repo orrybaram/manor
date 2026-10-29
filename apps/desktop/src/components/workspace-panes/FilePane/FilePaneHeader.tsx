@@ -8,7 +8,8 @@ import { jumpToEdit, useFileEditNav } from "./file-edit-nav";
 import type { FilesWorkspace } from "./open-file-watches";
 import { useWorkspaceChanges } from "./workspace-changes";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import { fileTitle } from "../../../lib/pane-title";
+import { filePaneTitle } from "../../../lib/pane-title";
+import { useAppStore } from "../../../store/app-store";
 import { formatCombo, getPlatform } from "../../../lib/keybindings";
 import styles from "./FilePaneHeader.module.css";
 
@@ -29,12 +30,13 @@ export function FileHeaderTitle({
 }) {
   const dirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
   const reloads = useOpenFileStore((s) => s.byPane[paneId]?.reloads ?? 0);
+  const title = useAppStore((s) => filePaneTitle(s, paneId));
   // Reloads before this header mounted are old news.
   const [seen] = useState(reloads);
   return (
     <span className={styles.titleRow}>
       <span className={className} title={filePath ?? undefined}>
-        {fileTitle(filePath)}
+        {title}
       </span>
       {dirty && (
         <span

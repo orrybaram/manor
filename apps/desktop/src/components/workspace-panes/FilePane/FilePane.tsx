@@ -470,7 +470,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           />
         ) : (
           <div className={styles.empty} data-testid="file-pane-empty">
-            Pick a file from the tree
+            {drawer === "scm" ? "Pick a change to see its diff" : "Pick a file from the tree"}
           </div>
         )}
         {workspace && diff && (diff.deleted || diff.path === filePath) && (

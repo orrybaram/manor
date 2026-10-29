@@ -31,7 +31,7 @@ export function createBrowserTab(url: string): Tab {
 export function createSourceControlTab(): Tab {
   return {
     id: newTabId(),
-    title: "Files",
+    title: "Source Control",
     rootNode: { type: "leaf", paneId: newPaneId(), contentType: "file", startsOn: "scm" },
   };
 }

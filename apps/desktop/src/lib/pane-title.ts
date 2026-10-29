@@ -3,6 +3,7 @@ import type { AgentInfo } from "../electron.d";
 import {
   selectPaneContentType,
   selectPaneFilePath,
+  selectPaneStartsOn,
   selectPaneUrl,
   type AppState,
 } from "../store/app-store";
@@ -44,7 +45,7 @@ export function paneHeaderTitle(
   paneId: string,
 ): string {
   if (selectPaneContentType(state, paneId) === "file") {
-    return fileTitle(selectPaneFilePath(state, paneId));
+    return filePaneTitle(state, paneId);
   }
   const title = terminalTitle(state.paneTitle[paneId]);
   if (title) return shellTitlePath(title) ?? title;
@@ -68,6 +69,16 @@ export function fileTitle(filePath: string | null): string {
 }
 
 /**
+ * A file pane's title: its open file's name; with none open, "Source Control"
+ * for a pane made to show it, else "Files".
+ */
+export function filePaneTitle(state: Pick<AppState, "workspaceLayouts">, paneId: string): string {
+  const filePath = selectPaneFilePath(state, paneId);
+  if (!filePath && selectPaneStartsOn(state, paneId) === "scm") return "Source Control";
+  return fileTitle(filePath);
+}
+
+/**
  * The title a tab shows for its focused pane: the open
  * file's name for a file pane, the pinned
  * agent name, a browser page's title or URL, the cleaned terminal title (just
@@ -79,7 +90,7 @@ export function tabTitle(
   pinnedName: string | null,
 ): string {
   const contentType = selectPaneContentType(state, paneId);
-  if (contentType === "file") return fileTitle(selectPaneFilePath(state, paneId));
+  if (contentType === "file") return filePaneTitle(state, paneId);
   // A user-pinned agent name (rename in the Agents list) labels the tab too,
   // so the sidebar and tab bar never disagree about what a pane is called.
   if (pinnedName && contentType !== "browser") return pinnedName;

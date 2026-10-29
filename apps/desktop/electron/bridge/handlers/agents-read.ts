@@ -11,13 +11,14 @@
  * and every adopted remote host's, from its server.
  */
 
-import { agentHostId, matchesAgentQuery, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
+import { agentHostId, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
 import type { AgentStatusDriver } from "../../agent-status/driver";
 import type { PaneStatusUpdate } from "../../agent-status/effects";
 import type { UnseenAgents } from "../../agent-status/unseen-agents";
 import type { HostStatus } from "../../backend/host-connection";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { assertString } from "../../ipc-validate";
+import { matchesAgentQuery } from "../../../src/lib/agent-query";
 import type { HostRouting } from "../../server/host-routing";
 import type { HandlerCtx } from "../method";
 

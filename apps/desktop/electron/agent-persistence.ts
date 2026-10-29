@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 
 import { LOCAL_HOST_ID, type HostId } from "./backend/types";
 import { manorDataDir } from "./paths";
+import { matchesAgentQuery } from "../src/lib/agent-query";
 
 /**
  * Agent persistence model
@@ -97,25 +98,6 @@ export function agentHostId(
 
 interface PersistedState {
   agents: AgentInfo[];
-}
-
-/**
- * Whether an agent matches a search: every whitespace-separated word appears,
- * ignoring case, in its name, project name or workspace path.
- */
-export function matchesAgentQuery(
-  agent: Pick<AgentInfo, "name" | "projectName" | "workspacePath">,
-  query: string,
-): boolean {
-  const haystack = [agent.name, agent.projectName, agent.workspacePath]
-    .filter(Boolean)
-    .join("\n")
-    .toLowerCase();
-  return query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((word) => haystack.includes(word));
 }
 
 export class AgentManager {

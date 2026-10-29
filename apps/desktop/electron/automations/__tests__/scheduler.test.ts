@@ -3,8 +3,9 @@
  *
  * The rules worth pinning: an occurrence fires once, on time or as a catch-up
  * within the grace window; everything older folds into one `missed` run; a
- * run whose predecessor is still working is skipped; pausing never backfills;
- * and one automation throwing never stops the others.
+ * run whose predecessor is still working (or still being fired) is skipped;
+ * pausing never backfills; a fired occurrence is on disk before it fires;
+ * and one automation throwing or firing slowly never holds up the others.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from "vitest";
@@ -246,23 +247,88 @@ describe("AutomationScheduler", () => {
     expect(store.runs(a.id)[0]).toMatchObject({ outcome: "skipped", reason: "project-missing" });
   });
 
-  it("doesn't start a second tick while one is running", async () => {
-    create();
+  it("fires slow and quick automations concurrently, and skips one still being fired", async () => {
+    const slow = create({ name: "Slow", schedule: { cron: "* * * * *", timezone: "UTC" } });
+    const quick = create({ name: "Quick", schedule: { cron: "* * * * *", timezone: "UTC" } });
     let release!: () => void;
-    fire.mockImplementation(
-      () =>
-        new Promise<AutomationFireResult>((resolve) => {
-          release = () => resolve({ outcome: "started", agentId: "agent-slow" });
-        }),
-    );
-    nowMs = Date.parse("2026-10-29T09:00:05.000Z");
+    fire.mockImplementation(async (automation: Automation) => {
+      if (automation.id !== slow.id) return { outcome: "started", agentId: `agent-${automation.name}` };
+      // A worktree that takes minutes; the clock moves on meanwhile.
+      nowMs += 5 * MINUTE;
+      return new Promise<AutomationFireResult>((resolve) => {
+        release = () => resolve({ outcome: "started", agentId: "agent-slow" });
+      });
+    });
+
+    nowMs = Date.parse("2026-10-29T08:01:05.000Z");
     const first = scheduler.tick();
-    const second = scheduler.tick();
-    expect(second).toBe(first);
-    await vi.waitFor(() => expect(fire).toHaveBeenCalledTimes(1));
+    // The quick one doesn't wait for the slow one, and was judged on time.
+    await vi.waitFor(() => expect(store.runs(quick.id)).toHaveLength(1));
+    expect(store.runs(quick.id)[0]).toMatchObject({ outcome: "started", trigger: "schedule" });
+
+    // The next tick runs while the slow fire is still going.
+    nowMs = Date.parse("2026-10-29T08:02:05.000Z");
+    await scheduler.tick();
+    expect(store.runs(quick.id)).toHaveLength(2);
+    expect(store.runs(slow.id)[0]).toMatchObject({
+      outcome: "skipped",
+      reason: "still-working",
+      scheduledFor: "2026-10-29T08:02:00.000Z",
+    });
+
     release();
     await first;
+    expect(store.runs(slow.id)[0]).toMatchObject({
+      outcome: "started",
+      trigger: "schedule",
+      scheduledFor: "2026-10-29T08:01:00.000Z",
+    });
+    expect(fire.mock.calls.filter(([a]) => a.id === slow.id)).toHaveLength(1);
+  });
+
+  it("fires on time with a grace of 0, and only catch-up is turned off", async () => {
+    const a = create({ missedGraceMinutes: 0 });
+    nowMs = Date.parse("2026-10-29T09:00:25.000Z");
+    await scheduler.tick();
+    expect(store.runs(a.id)[0]).toMatchObject({ outcome: "started", trigger: "schedule" });
+
+    nowMs = Date.parse("2026-10-30T09:05:00.000Z");
+    await scheduler.tick();
     expect(fire).toHaveBeenCalledTimes(1);
+    expect(store.runs(a.id)[0]).toMatchObject({ outcome: "skipped", reason: "missed", missedCount: 1 });
+  });
+
+  it("has the fired occurrence on disk before the fire starts", async () => {
+    const a = create();
+    let onDisk: string | undefined;
+    fire.mockImplementation(async () => {
+      onDisk = new AutomationStore(tmpDir).get(a.id)?.lastScheduledFor;
+      return { outcome: "started", agentId: "agent-1" };
+    });
+    nowMs = Date.parse("2026-10-29T09:00:05.000Z");
+    await scheduler.tick();
+    expect(onDisk).toBe("2026-10-29T09:00:00.000Z");
+  });
+
+  it("restarts the schedule from now when the clock went back past lastScheduledFor", async () => {
+    const log = vi.fn();
+    const logged = new AutomationScheduler({
+      store,
+      now: () => nowMs,
+      fire,
+      isAgentBusy: () => false,
+      log,
+    });
+    const a = create(); // lastScheduledFor 2026-10-29T08:00
+    nowMs = Date.parse("2026-10-28T08:00:00.000Z"); // a day back
+    await logged.tick();
+    expect(store.get(a.id)?.lastScheduledFor).toBe("2026-10-28T08:00:00.000Z");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("clock went back"));
+
+    nowMs = Date.parse("2026-10-28T09:00:05.000Z");
+    await logged.tick();
+    expect(fire).toHaveBeenCalledTimes(1);
+    expect(store.runs(a.id)[0]?.scheduledFor).toBe("2026-10-28T09:00:00.000Z");
   });
 
   it("runNow fires as manual, even paused or overlapping, without moving the schedule", async () => {

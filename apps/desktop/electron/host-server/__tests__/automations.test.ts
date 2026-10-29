@@ -62,6 +62,15 @@ function readRuns(dataDir: string): AutomationRun[] {
   }
 }
 
+/**
+ * The runs the due occurrence fired. Every-minute and 90s behind, the
+ * automation may also fold an earlier occurrence into a `missed` run, which
+ * is on disk before the fire finishes.
+ */
+function firedRuns(dataDir: string): AutomationRun[] {
+  return readRuns(dataDir).filter((r) => r.reason !== "missed");
+}
+
 describe("automations on a host server", () => {
   const h = useHostServerHarness();
 
@@ -82,7 +91,7 @@ describe("automations on a host server", () => {
     await h.serve();
 
     const [run] = await eventually(
-      () => readRuns(h.paths.dataDir),
+      () => firedRuns(h.paths.dataDir),
       (runs) => runs.length > 0,
       "the run on disk",
       15_000,
@@ -109,7 +118,7 @@ describe("automations on a host server", () => {
     writeDueAutomation(h.paths.dataDir, "project-1");
     await h.serve();
     const [run] = await eventually(
-      () => readRuns(h.paths.dataDir),
+      () => firedRuns(h.paths.dataDir),
       (runs) => runs.length > 0,
       "the run on disk",
     );

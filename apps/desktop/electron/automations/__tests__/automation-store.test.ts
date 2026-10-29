@@ -2,11 +2,12 @@
  * `AutomationStore` — automations and their runs on disk.
  *
  * Pinned: what create and update leave in `lastScheduledFor` (so the
- * scheduler never fires a time the user didn't mean), the 50-run ring, runs
- * leaving with their automation, and surviving a missing or corrupt file.
+ * scheduler never fires a time the user didn't mean), the 50-run ring and
+ * the started run it never drops, runs leaving with their automation, and
+ * surviving a missing or corrupt file without losing it.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -136,6 +137,34 @@ describe("AutomationStore", () => {
     expect(reloaded.runs(a.id).map((r) => r.id)).toEqual(runs.map((r) => r.id));
   });
 
+  it("never trims away the newest started run", () => {
+    const a = store.create(input(), NOW);
+    const base = { automationId: a.id, trigger: "schedule" } as const;
+    store.appendRun({
+      ...base,
+      scheduledFor: new Date(NOW).toISOString(),
+      firedAt: new Date(NOW).toISOString(),
+      outcome: "started",
+      agentId: "agent-busy",
+    });
+    for (let i = 1; i <= 60; i++) {
+      store.appendRun({
+        ...base,
+        scheduledFor: new Date(NOW + i * 60_000).toISOString(),
+        firedAt: new Date(NOW + i * 60_000).toISOString(),
+        outcome: "skipped",
+        reason: "still-working",
+      });
+    }
+    expect(store.runs(a.id)).toHaveLength(50);
+    expect(store.lastStartedRun(a.id)?.agentId).toBe("agent-busy");
+
+    store.flushNow();
+    const reloaded = new AutomationStore(tmpDir);
+    expect(reloaded.runs(a.id)).toHaveLength(50);
+    expect(reloaded.lastStartedRun(a.id)?.agentId).toBe("agent-busy");
+  });
+
   it("remove drops the automation and its runs, on disk too", () => {
     const a = store.create(input(), NOW);
     store.appendRun({
@@ -156,18 +185,40 @@ describe("AutomationStore", () => {
     expect(reloaded.runs(a.id)).toEqual([]);
   });
 
-  it("survives a corrupt or missing file", () => {
+  it("survives a corrupt or missing file, moving the corrupt one aside", () => {
     fs.writeFileSync(path.join(tmpDir, "automations.json"), "{ not json");
     fs.writeFileSync(path.join(tmpDir, "automation-runs.json"), '{"runs": [{"id": 3}]}');
-    const corrupt = new AutomationStore(tmpDir);
+    const log = vi.fn();
+    const corrupt = new AutomationStore(tmpDir, log);
     expect(corrupt.list()).toEqual([]);
+    const aside = fs.readdirSync(tmpDir).filter((f) => f.startsWith("automations.json.corrupt-"));
+    expect(aside).toHaveLength(1);
+    expect(fs.readFileSync(path.join(tmpDir, aside[0]), "utf-8")).toBe("{ not json");
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("is corrupt"));
 
     const a = corrupt.create(input(), NOW);
     corrupt.flushNow();
     expect(new AutomationStore(tmpDir).get(a.id)?.name).toBe("Nightly triage");
+    expect(fs.readdirSync(tmpDir).some((f) => f.endsWith(".tmp"))).toBe(false);
 
-    const missing = new AutomationStore(path.join(tmpDir, "does-not-exist"));
+    const missing = new AutomationStore(path.join(tmpDir, "does-not-exist"), log);
     expect(missing.list()).toEqual([]);
+    expect(log).toHaveBeenCalledTimes(1);
+  });
+
+  it("logs a debounced save that fails instead of throwing from the timer", () => {
+    vi.useFakeTimers();
+    try {
+      const blocker = path.join(tmpDir, "blocker");
+      fs.writeFileSync(blocker, "");
+      const log = vi.fn();
+      const broken = new AutomationStore(path.join(blocker, "data"), log);
+      broken.create(input(), NOW);
+      expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("saving automations failed"));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("tells listeners about every change", () => {

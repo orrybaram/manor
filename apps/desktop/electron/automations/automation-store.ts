@@ -16,7 +16,10 @@ import { isValidCron, nextRunAfter } from "./cron";
  *
  * Mirrors `NotificationStore`: in-memory state backed by JSON files in the
  * data dir (`automations.json`, `automation-runs.json`), writes debounced
- * through a single timer, and a missing or corrupt file read as empty.
+ * through a single timer. Each file is written to a `.tmp` and renamed over,
+ * so a crash mid-write never truncates it. A missing file reads as empty; a
+ * corrupt one is moved aside to `<file>.corrupt-<time>` first, so the next
+ * save can't overwrite what might still be recovered.
  *
  * The store keeps `lastScheduledFor` honest so the scheduler never fires an
  * occurrence the user didn't mean: it is the creation time on create, and it
@@ -33,7 +36,11 @@ interface PersistedRuns {
   runs: AutomationRun[];
 }
 
-/** Runs kept per automation, newest first. */
+/**
+ * Runs kept per automation, newest first. The newest started run is always
+ * kept beyond that: the scheduler's overlap check reads it, and fifty skips
+ * in a row must not hide an agent that is still working.
+ */
 const MAX_RUNS_PER_AUTOMATION = 50;
 
 export type AutomationStoreChange =
@@ -48,9 +55,14 @@ export class AutomationStore {
   private runsById = new Map<string, AutomationRun[]>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<(change: AutomationStoreChange) => void>();
+  private log: (message: string) => void;
 
-  constructor(dataDir: string) {
+  constructor(
+    dataDir: string,
+    log: (message: string) => void = (message) => console.warn(`[automations] ${message}`),
+  ) {
     this.dataDir = dataDir;
+    this.log = log;
     this.automations = this.loadAutomations();
     const known = new Set(this.automations.map((a) => a.id));
     for (const run of this.loadRuns()) {
@@ -62,7 +74,7 @@ export class AutomationStore {
     }
     for (const list of this.runsById.values()) {
       list.sort((a, b) => Date.parse(b.firedAt) - Date.parse(a.firedAt));
-      list.splice(MAX_RUNS_PER_AUTOMATION);
+      trimRuns(list);
     }
   }
 
@@ -75,31 +87,52 @@ export class AutomationStore {
   }
 
   private loadAutomations(): Automation[] {
-    try {
-      const state: PersistedAutomations = JSON.parse(
-        fs.readFileSync(this.automationsFilePath(), "utf-8"),
-      );
-      return (state.automations ?? []).filter(isValidAutomation);
-    } catch {
-      return [];
-    }
+    const state = this.readState<PersistedAutomations>(this.automationsFilePath());
+    return (state?.automations ?? []).filter(isValidAutomation);
   }
 
   private loadRuns(): AutomationRun[] {
+    const state = this.readState<PersistedRuns>(this.runsFilePath());
+    return (state?.runs ?? []).filter(isValidRun);
+  }
+
+  /**
+   * The parsed file, or null when it is missing or unreadable. A file that
+   * exists but doesn't parse is renamed aside, never left for the next save
+   * to overwrite.
+   */
+  private readState<T>(filePath: string): Partial<T> | null {
+    let text: string;
     try {
-      const state: PersistedRuns = JSON.parse(fs.readFileSync(this.runsFilePath(), "utf-8"));
-      return (state.runs ?? []).filter(isValidRun);
-    } catch {
-      return [];
+      text = fs.readFileSync(filePath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        this.log(`reading ${filePath} failed: ${errorMessage(err)}`);
+      }
+      return null;
+    }
+    try {
+      const state: unknown = JSON.parse(text);
+      if (state && typeof state === "object") return state as Partial<T>;
+      throw new Error("not an object");
+    } catch (err) {
+      const aside = `${filePath}.corrupt-${Date.now()}`;
+      try {
+        fs.renameSync(filePath, aside);
+        this.log(`${filePath} is corrupt (${errorMessage(err)}); moved it to ${aside}`);
+      } catch (renameErr) {
+        this.log(`${filePath} is corrupt and moving it aside failed: ${errorMessage(renameErr)}`);
+      }
+      return null;
     }
   }
 
   private writeStateSync(): void {
     fs.mkdirSync(this.dataDir, { recursive: true });
     const automations: PersistedAutomations = { automations: this.automations };
-    fs.writeFileSync(this.automationsFilePath(), JSON.stringify(automations, null, 2));
+    writeFileAtomic(this.automationsFilePath(), JSON.stringify(automations, null, 2));
     const runs: PersistedRuns = { runs: [...this.runsById.values()].flat() };
-    fs.writeFileSync(this.runsFilePath(), JSON.stringify(runs, null, 2));
+    writeFileAtomic(this.runsFilePath(), JSON.stringify(runs, null, 2));
   }
 
   private saveState(): void {
@@ -108,7 +141,11 @@ export class AutomationStore {
     }
     this.saveTimer = setTimeout(() => {
       this.saveTimer = null;
-      this.writeStateSync();
+      try {
+        this.writeStateSync();
+      } catch (err) {
+        this.log(`saving automations failed: ${errorMessage(err)}`);
+      }
     }, 500);
   }
 
@@ -240,14 +277,15 @@ export class AutomationStore {
 
   /**
    * Records a run, keeping the newest `MAX_RUNS_PER_AUTOMATION` for its
-   * automation. A run for an unknown automation is returned but not kept.
+   * automation (and its newest started run). A run for an unknown
+   * automation is returned but not kept.
    */
   appendRun(input: Omit<AutomationRun, "id">): AutomationRun {
     const run: AutomationRun = { id: crypto.randomUUID(), ...input };
     if (!this.get(run.automationId)) return run;
     const list = this.runsById.get(run.automationId) ?? [];
     list.unshift(run);
-    list.splice(MAX_RUNS_PER_AUTOMATION);
+    trimRuns(list);
     this.runsById.set(run.automationId, list);
     this.changed({ type: "run", automationId: run.automationId, run });
     return run;
@@ -262,6 +300,29 @@ export class AutomationStore {
   lastStartedRun(automationId: string): AutomationRun | null {
     return this.runs(automationId).find((r) => r.outcome === "started") ?? null;
   }
+}
+
+/**
+ * Trims a newest-first list to `MAX_RUNS_PER_AUTOMATION`, keeping the newest
+ * started run in the last slot when it would otherwise fall off.
+ */
+function trimRuns(list: AutomationRun[]): void {
+  if (list.length <= MAX_RUNS_PER_AUTOMATION) return;
+  const startedIndex = list.findIndex((r) => r.outcome === "started");
+  const started = startedIndex >= MAX_RUNS_PER_AUTOMATION ? list[startedIndex] : null;
+  list.splice(started ? MAX_RUNS_PER_AUTOMATION - 1 : MAX_RUNS_PER_AUTOMATION);
+  if (started) list.push(started);
+}
+
+/** Writes beside the file and renames over it, so a reader never sees half. */
+function writeFileAtomic(filePath: string, data: string): void {
+  const tmp = `${filePath}.tmp`;
+  fs.writeFileSync(tmp, data);
+  fs.renameSync(tmp, filePath);
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function assertValid(input: AutomationInput): void {

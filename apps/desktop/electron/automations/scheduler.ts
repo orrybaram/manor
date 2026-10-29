@@ -12,19 +12,23 @@ import { nextRunAfter, occurrencesBetween } from "./cron";
  * Every `tickMs` it looks at each enabled automation's occurrences since
  * `lastScheduledFor`:
  *
- * - The latest one fires if it is within the automation's grace window:
- *   as `schedule` when it's on time (within two ticks), else as `catch-up`.
- *   A latest one outside the window is missed.
+ * - The latest one fires as `schedule` when it's on time (within two
+ *   ticks), else as `catch-up` if it is within the automation's grace
+ *   window. A latest one outside both is missed; a grace of 0 turns off
+ *   catch-up, never an on-time run.
  * - Every earlier occurrence, and a missed latest one, folds into ONE
  *   skipped run (`missed`, with `missedCount`), so a laptop asleep for a
  *   week records one line, not 168.
- * - Before firing, if the last started run's agent is still busy, the run is
- *   skipped as `still-working` instead.
+ * - Before firing, if the automation is still being fired or the last started
+ *   run's agent is still busy, the run is skipped as `still-working` instead.
  *
- * `lastScheduledFor` moves past an occurrence *before* it fires, so a crash
- * mid-fire never fires it twice. One automation's failure never stops the
- * tick for the others, and a tick still running when the next interval hits
- * is not started again.
+ * A tick decides every automation against one `now` first, and writes
+ * `lastScheduledFor` to disk *before* any fire starts, so a crash mid-fire
+ * never fires an occurrence twice. Then the fires run concurrently: a slow
+ * one (a worktree, say) never makes the others late, and never blocks the
+ * next tick from deciding them. One automation's failure never stops the
+ * others. A `lastScheduledFor` in the future (the clock went back) is pulled
+ * back to now rather than stalling the automation until the clock catches up.
  *
  * Firing itself (workspace, agent) is the injected `fire`; the clock and the
  * timer are injected too, so tests drive it with a fake clock.
@@ -58,7 +62,8 @@ export class AutomationScheduler {
   private deps: AutomationSchedulerDeps;
   private tickMs: number;
   private timer: unknown = null;
-  private inFlight: Promise<void> | null = null;
+  /** automationId → how many of its fires are still running. */
+  private firing = new Map<string, number>();
 
   constructor(deps: AutomationSchedulerDeps) {
     this.deps = deps;
@@ -82,51 +87,60 @@ export class AutomationScheduler {
   }
 
   /**
-   * Handles every automation once. A call while a tick is running returns
-   * that tick rather than starting another.
+   * Decides every automation against one `now`, then fires the due ones
+   * concurrently. Resolves once this tick's fires have settled.
    */
-  tick(): Promise<void> {
-    if (this.inFlight) return this.inFlight;
-    this.inFlight = this.runTick().finally(() => {
-      this.inFlight = null;
-    });
-    return this.inFlight;
-  }
-
-  private async runTick(): Promise<void> {
-    const ids = this.deps.store.list().map((a) => a.id);
-    for (const id of ids) {
+  async tick(): Promise<void> {
+    const now = this.deps.now();
+    const fires: Array<() => Promise<unknown>> = [];
+    for (const automation of this.deps.store.list()) {
       try {
-        await this.tickOne(id);
+        const fire = this.decide(automation, now);
+        if (fire) fires.push(fire);
       } catch (err) {
-        this.deps.log?.(`automation ${id}: tick failed: ${errorMessage(err)}`);
+        this.deps.log?.(`automation ${automation.id}: tick failed: ${errorMessage(err)}`);
       }
     }
+    if (fires.length === 0) return;
+    // Every fired occurrence is past `lastScheduledFor` on disk before its
+    // fire starts, so a crash mid-fire can't fire it again on restart.
+    try {
+      this.deps.store.flushNow();
+    } catch (err) {
+      this.deps.log?.(`saving the schedule failed: ${errorMessage(err)}`);
+    }
+    await Promise.allSettled(fires.map((fire) => fire()));
   }
 
-  private async tickOne(id: string): Promise<void> {
+  /**
+   * Records this tick's outcome for one automation and returns its fire,
+   * or null when nothing fires.
+   */
+  private decide(automation: Automation, now: number): (() => Promise<unknown>) | null {
     const { store } = this.deps;
-    // Re-read: an earlier automation's fire may have taken a while.
-    const automation = store.get(id);
-    if (!automation) return;
+    const id = automation.id;
     if (!automation.enabled) {
       store.setScheduled(id, automation.lastScheduledFor, null);
-      return;
+      return null;
     }
-    const now = this.deps.now();
-    const occurrences = occurrencesBetween(
-      automation.schedule,
-      Date.parse(automation.lastScheduledFor),
-      now,
-    );
+    const lastMs = Date.parse(automation.lastScheduledFor);
+    if (lastMs > now + this.tickMs) {
+      this.deps.log?.(
+        `automation ${id}: last scheduled for ${automation.lastScheduledFor}, after now; the clock went back, restarting the schedule from now`,
+      );
+      store.setScheduled(id, new Date(now).toISOString(), nextRunAfter(automation.schedule, now));
+      return null;
+    }
+    const occurrences = occurrencesBetween(automation.schedule, lastMs, now);
     if (!occurrences) {
       store.setScheduled(id, automation.lastScheduledFor, nextRunAfter(automation.schedule, now));
-      return;
+      return null;
     }
 
     const { earliestMs, latestMs, count } = occurrences;
     const lateMs = now - latestMs;
-    const firesLatest = lateMs <= automation.missedGraceMinutes * 60_000;
+    const onTimeMs = 2 * this.tickMs;
+    const firesLatest = lateMs <= Math.max(onTimeMs, automation.missedGraceMinutes * 60_000);
     const missedCount = firesLatest ? count - 1 : count;
     const firedAt = new Date(now).toISOString();
     const latest = new Date(latestMs).toISOString();
@@ -148,25 +162,32 @@ export class AutomationScheduler {
             : `Missed ${missedCount} scheduled runs`,
       });
     }
-    if (!firesLatest) return;
+    if (!firesLatest) return null;
 
-    const trigger: AutomationRunTrigger = lateMs <= 2 * this.tickMs ? "schedule" : "catch-up";
+    const trigger: AutomationRunTrigger = lateMs <= onTimeMs ? "schedule" : "catch-up";
+    const stillWorking = {
+      automationId: id,
+      scheduledFor: latest,
+      firedAt,
+      trigger,
+      outcome: "skipped",
+      reason: "still-working",
+      detail: "The previous run is still working",
+    } as const;
+    if (this.firing.has(id)) {
+      store.appendRun(stillWorking);
+      return null;
+    }
     const previous = store.lastStartedRun(id);
     if (previous && this.deps.isAgentBusy(previous)) {
       store.appendRun({
-        automationId: id,
-        scheduledFor: latest,
-        firedAt,
-        trigger,
-        outcome: "skipped",
-        reason: "still-working",
-        detail: "The previous run is still working",
+        ...stillWorking,
         ...(previous.agentId ? { agentId: previous.agentId } : {}),
         ...(previous.paneId ? { paneId: previous.paneId } : {}),
       });
-      return;
+      return null;
     }
-    await this.fireAndRecord(automation, trigger, latest, firedAt);
+    return () => this.fireAndRecord(automation, trigger, latest, firedAt);
   }
 
   /**
@@ -197,14 +218,20 @@ export class AutomationScheduler {
     scheduledFor: string,
     firedAt: string,
   ): Promise<AutomationRun> {
-    const base = { automationId: automation.id, scheduledFor, firedAt, trigger };
+    const id = automation.id;
+    const base = { automationId: id, scheduledFor, firedAt, trigger };
+    this.firing.set(id, (this.firing.get(id) ?? 0) + 1);
     try {
       const result = await this.deps.fire(automation, { trigger, scheduledFor });
       return this.deps.store.appendRun({ ...result, ...base });
     } catch (err) {
       const detail = errorMessage(err);
-      this.deps.log?.(`automation ${automation.id}: fire failed: ${detail}`);
+      this.deps.log?.(`automation ${id}: fire failed: ${detail}`);
       return this.deps.store.appendRun({ ...base, outcome: "failed", reason: "error", detail });
+    } finally {
+      const left = (this.firing.get(id) ?? 1) - 1;
+      if (left > 0) this.firing.set(id, left);
+      else this.firing.delete(id);
     }
   }
 }

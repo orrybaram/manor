@@ -13,6 +13,7 @@
  * server, which reads its own store (`../../sessions/preview.ts`).
  */
 
+import { LOCAL_HOST_ID } from "../../backend/types";
 import type { HostRouting } from "../../server/host-routing";
 import { assertSessionRef, readSessionPreview, type SessionPreview } from "../../sessions/preview";
 import { createSessionScanner, processEnv, type SessionScanner } from "../../sessions/scanner";
@@ -54,8 +55,13 @@ export async function sessionsList(ctx: HandlerCtx<SessionsDeps>): Promise<Sessi
  * routed to that host's server. Refuses a path outside the kind's store.
  */
 export async function sessionsTranscript(ctx: HandlerCtx<SessionsDeps>, ref: unknown): Promise<SessionPreview> {
-  const env = (ctx.deps.sessionEnv ?? processEnv)();
-  return readSessionPreview(assertSessionRef(ref), env);
+  const session = assertSessionRef(ref);
+  // A routed call arrives with its host's id rewritten to `local`. Any other
+  // id names a host this server can't reach: never read our own store for it.
+  if (session.hostId !== LOCAL_HOST_ID) {
+    throw new Error(`sessions.transcript: host ${session.hostId} is not connected`);
+  }
+  return readSessionPreview(session, (ctx.deps.sessionEnv ?? processEnv)());
 }
 
 /**

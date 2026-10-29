@@ -217,12 +217,15 @@ function makeDb(
     db.exec("CREATE TABLE backfill_state (id INTEGER PRIMARY KEY, status TEXT NOT NULL, last_watermark TEXT)");
     db.prepare("INSERT INTO backfill_state (id, status) VALUES (1, ?)").run(backfill);
   }
+  // One transaction: a commit per row is slow enough to time out under load.
+  db.exec("BEGIN");
   for (const row of rows) {
     const keys = Object.keys(row);
     db.prepare(
       `INSERT INTO threads (${keys.join(", ")}) VALUES (${keys.map(() => "?").join(", ")})`,
     ).run(...(Object.values(row) as (string | number | null)[]));
   }
+  db.exec("COMMIT");
   db.close();
 }
 

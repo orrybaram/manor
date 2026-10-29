@@ -5,7 +5,8 @@ import type { DatabaseSync } from "node:sqlite";
 import * as zlib from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { assertSessionRef, PREVIEW_TURNS, readSessionPreview, type SessionRef } from "../preview";
+import { assertSessionRef, PREVIEW_TURNS, readSessionPreview, zstdLimits, type SessionRef } from "../preview";
+import { createSqliteCopyCache, readSqliteStore } from "../sqlite-store";
 import type { SessionEnv } from "../types";
 
 const FIXTURES = join(__dirname, "../__fixtures__");
@@ -83,6 +84,38 @@ describe("a Claude preview", () => {
   });
 });
 
+describe("the opening prompt", () => {
+  it("is added by position: a later prompt with the same words does not stand in for it", async () => {
+    const path = store("pi/agent/sessions/--home-u-work-my-repo--/2026-10-24T00-00-00-000Z_99999999-0000-4000-8000-000000000099.jsonl");
+    const msg = (role: string, text: string) => JSON.stringify({ type: "message", message: { role, content: text } });
+    const lines = [JSON.stringify({ type: "session", version: 3, id: "x", cwd: "/w" }), msg("user", "go")];
+    for (let i = 0; i < PREVIEW_TURNS; i++) lines.push(msg("assistant", `step ${i}`));
+    lines.push(msg("user", "go"), msg("assistant", "done"));
+    await writeFile(path, `${lines.join("\n")}\n`);
+    const preview = await readSessionPreview(ref("pi", path), env);
+    expect(preview.truncated).toBe(true);
+    expect(preview.turns[0]).toEqual({ role: "user", text: "go", first: true });
+    expect(preview.turns.slice(-2)).toEqual([
+      { role: "user", text: "go" },
+      { role: "assistant", text: "done" },
+    ]);
+  });
+
+  it("is found past a first message longer than the first head window", async () => {
+    const path = store("pi/agent/sessions/--home-u-work-my-repo--/2026-10-24T00-00-00-000Z_88888888-0000-4000-8000-000000000088.jsonl");
+    const first = JSON.stringify({
+      type: "message",
+      message: { role: "user", content: [{ type: "image", data: "A".repeat(400_000) }, { type: "text", text: "What is this?" }] },
+    });
+    const rest = Array.from({ length: 60 }, (_, i) =>
+      JSON.stringify({ type: "message", message: { role: "assistant", content: `answer ${i} ${"q".repeat(8000)}` } }),
+    );
+    await writeFile(path, `${[JSON.stringify({ type: "session", id: "y" }), first, ...rest].join("\n")}\n`);
+    const preview = await readSessionPreview(ref("pi", path), env);
+    expect(preview.turns[0]).toEqual({ role: "user", text: "What is this?", first: true });
+  });
+});
+
 describe("a Codex preview", () => {
   it("reads response items, skipping injected context and tool output", async () => {
     const preview = await readSessionPreview(ref("codex", store(CODEX_A)), env);
@@ -96,6 +129,45 @@ describe("a Codex preview", () => {
         { role: "assistant", text: "Fixed: the **timer** leaked." },
       ],
     });
+  });
+
+  it("names the files an apply_patch function call touches", async () => {
+    const path = store(CODEX_A);
+    const call = {
+      type: "response_item",
+      payload: {
+        type: "function_call",
+        name: "apply_patch",
+        arguments: JSON.stringify({ input: "*** Begin Patch\n*** Add File: docs/a.md\n+x\n*** End Patch" }),
+      },
+    };
+    await writeFile(path, `${await readFile(path, "utf8")}${JSON.stringify(call)}\n`);
+    const preview = await readSessionPreview(ref("codex", path), env);
+    expect(preview.turns[preview.turns.length - 1]).toEqual({ role: "tool", name: "apply_patch", summary: "docs/a.md" });
+  });
+
+  it.skipIf(!zstdCompressSync)("says when a compressed rollout was too large to read to its end", async () => {
+    const message = (role: string, text: string) =>
+      JSON.stringify({ type: "response_item", payload: { type: "message", role, content: [{ type: "output_text", text }] } });
+    const lines = [message("user", "Start here")];
+    for (let i = 0; i < 400; i++) lines.push(message("assistant", `step ${i} ${"z".repeat(1000)}`));
+    const zst = store(CODEX_A.replace("09-15-00", "07-00-00").concat(".zst"));
+    await writeFile(zst, zstdCompressSync!(Buffer.from(`${lines.join("\n")}\n`)));
+    const before = zstdLimits.maxBytes;
+    zstdLimits.maxBytes = 100_000;
+    try {
+      const preview = await readSessionPreview(ref("codex", zst), env);
+      expect(preview.partial).toBe(true);
+      expect(preview.truncated).toBe(true);
+      expect(preview.turns[0]).toEqual({ role: "user", text: "Start here", first: true });
+    } finally {
+      zstdLimits.maxBytes = before;
+    }
+    // Read whole, it is not partial: the cache keyed on size and mtime does not keep the capped read.
+    await writeFile(zst, zstdCompressSync!(Buffer.from(`${lines.slice(0, 5).join("\n")}\n`)));
+    const whole = await readSessionPreview(ref("codex", zst), env);
+    expect(whole.partial).toBeUndefined();
+    expect(whole.turns).toHaveLength(5);
   });
 
   it.skipIf(!zstdCompressSync)("reads a compressed rollout", async () => {
@@ -185,6 +257,7 @@ describe("an opencode preview", () => {
       CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);
       CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, time_updated INTEGER, data TEXT);
     `);
+    d.exec("BEGIN");
     const message = d.prepare("INSERT INTO message VALUES (?, 'ses_b', ?, ?, ?)");
     const part = d.prepare("INSERT INTO part VALUES (?, ?, 'ses_b', 0, 0, ?)");
     for (let i = 0; i < 30; i++) {
@@ -197,6 +270,7 @@ describe("an opencode preview", () => {
       part.run(`${a}-0`, a, JSON.stringify({ type: "tool", tool: "bash", state: { input: { command: "ls" }, output: "big" } }));
       part.run(`${a}-1`, a, JSON.stringify({ type: "text", text: `answer ${i}` }));
     }
+    d.exec("COMMIT");
     d.close();
     const preview = await readSessionPreview(ref("opencode", dbPath, "ses_b"), env);
     expect(preview.truncated).toBe(true);
@@ -207,6 +281,44 @@ describe("an opencode preview", () => {
       { role: "tool", name: "bash", summary: "ls" },
       { role: "assistant", text: "answer 29" },
     ]);
+  });
+});
+
+describe("a database that can't be read in place", () => {
+  it("is read from one cached copy, made once and shared while the database is unchanged", async () => {
+    const dbPath = join(dir, "data", "opencode", "opencode.db");
+    const db = new sqlite.DatabaseSync(dbPath);
+    db.exec("PRAGMA journal_mode = WAL");
+    db.exec(`CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL,
+      seq INTEGER NOT NULL, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL)`);
+    db.prepare("INSERT INTO session_message VALUES ('m1', 'ses_c', 'user', 1, 0, 0, ?)").run(JSON.stringify({ text: "From the WAL" }));
+    // A crash's leftover: a WAL without its -shm, which a read-only open can't join.
+    await rm(`${dbPath}-shm`);
+    const copies = createSqliteCopyCache();
+    const read = () =>
+      readSqliteStore(sqlite, dbPath, (d) => d.prepare("SELECT COUNT(*) AS n FROM session_message").get(), {
+        tempPrefix: "manor-test-",
+        copies,
+      });
+    expect(await read()).toEqual({ n: 1 });
+    const one = await copies.lease(sqlite, dbPath, "manor-test-");
+    const two = await copies.lease(sqlite, dbPath, "manor-test-");
+    expect(two.path).toBe(one.path);
+    one.release();
+    two.release();
+    // The database moved on: a fresh copy.
+    db.prepare("INSERT INTO session_message VALUES ('m2', 'ses_c', 'user', 2, 0, 0, ?)").run(JSON.stringify({ text: "More" }));
+    await rm(`${dbPath}-shm`, { force: true });
+    const three = await copies.lease(sqlite, dbPath, "manor-test-");
+    expect(three.path).not.toBe(one.path);
+    three.release();
+    expect(await read()).toEqual({ n: 2 });
+    const preview = await readSessionPreview(ref("opencode", dbPath, "ses_c"), env);
+    expect(preview.turns).toEqual([
+      { role: "user", text: "From the WAL" },
+      { role: "user", text: "More" },
+    ]);
+    db.close();
   });
 });
 

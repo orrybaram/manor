@@ -14,7 +14,7 @@
  */
 
 import { open, realpath, stat } from "node:fs/promises";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import { pipeline } from "node:stream";
 import * as zlib from "node:zlib";
@@ -27,7 +27,7 @@ import { claudeProjectsDir } from "./claude-reader";
 import { codexHome, isCodexInjected } from "./codex-reader";
 import { opencodeDbPath } from "./opencode-reader";
 import { piSessionsRoot } from "./pi-reader";
-import { loadSqlite, readSqliteStore, type SqliteModule } from "./sqlite-store";
+import { createSqliteCopyCache, loadSqlite, readSqliteStore, type SqliteModule } from "./sqlite-store";
 import type { SessionEnv } from "./types";
 
 /** One turn of a preview. Plain data: it crosses the bridge, and a host's server, as JSON. */
@@ -44,6 +44,11 @@ export interface SessionPreview {
   turns: PreviewTurn[];
   /** Turns between the opening prompt and the last ones were left out. */
   truncated: boolean;
+  /**
+   * The transcript was too large to read to its end (a compressed rollout
+   * past the decompression cap): the turns are not its latest.
+   */
+  partial?: true;
 }
 
 /** Which Session to preview: a `SessionSummary`'s own fields. */
@@ -150,7 +155,7 @@ async function storeRoots(kind: AgentKind, env: SessionEnv): Promise<string[]> {
     case "claude":
       return [claudeProjectsDir(env)];
     case "codex":
-      return [codexHome(env)];
+      return [join(codexHome(env), "sessions"), join(codexHome(env), "archived_sessions")];
     case "pi":
       return [await piSessionsRoot(env)];
     case "opencode": {
@@ -203,7 +208,7 @@ export async function resolveSessionPath(ref: SessionRef, env: SessionEnv): Prom
 interface ByteSource {
   size: number;
   read(start: number, end: number): Promise<Buffer>;
-  /** Only part of the transcript could be read. */
+  /** Decompression stopped at its cap: `size` is where it stopped, not the transcript's end. */
   partial: boolean;
   close(): Promise<void>;
 }
@@ -228,13 +233,27 @@ async function fileSource(path: string): Promise<ByteSource> {
   };
 }
 
+/** A compressed rollout's kept ends, decompressed. */
+interface ZstdEnds {
+  /** Its first {@link MAX_WINDOW_BYTES}: the head a first prompt is read from. */
+  head: Buffer;
+  /** Its last {@link MAX_WINDOW_BYTES} up to where decompression stopped. */
+  tail: Buffer;
+  total: number;
+  partial: boolean;
+}
+
+/** Rollouts decompressed lately, by path, kept while their size and mtime hold: arrowing back reads none again. */
+const ZSTD_CACHE_SIZE = 4;
+const zstdCache = new Map<string, { stamp: string; ends: Promise<ZstdEnds> }>();
+
 /**
- * A zstd-compressed rollout, decompressed as a stream: its first window and
- * its last {@link MAX_WINDOW_BYTES} are kept, the middle dropped as it goes.
- * Past {@link ZSTD_MAX_BYTES}, or {@link ZSTD_TIMEOUT_MS}, what was read
- * stands in for the whole, marked partial.
+ * A zstd-compressed rollout, decompressed as a stream: its first and last
+ * {@link MAX_WINDOW_BYTES} are kept, the middle dropped as it goes. Past
+ * {@link ZSTD_MAX_BYTES}, or {@link ZSTD_TIMEOUT_MS}, it stops, marked
+ * partial: what it holds then is not the transcript's end.
  */
-async function zstdSource(path: string): Promise<ByteSource> {
+async function decompressEnds(path: string): Promise<ZstdEnds> {
   const createZstdDecompress = (zlib as { createZstdDecompress?: () => import("node:stream").Transform })
     .createZstdDecompress;
   if (typeof createZstdDecompress !== "function") {
@@ -259,7 +278,7 @@ async function zstdSource(path: string): Promise<ByteSource> {
     for await (const raw of decompress) {
       const chunk = raw as Buffer;
       total += chunk.length;
-      if (headBytes < FIRST_WINDOW_BYTES) {
+      if (headBytes < MAX_WINDOW_BYTES) {
         head.push(chunk);
         headBytes += chunk.length;
       }
@@ -269,7 +288,7 @@ async function zstdSource(path: string): Promise<ByteSource> {
         tailBytes -= tail[0].length;
         tail = tail.slice(1);
       }
-      if (total >= ZSTD_MAX_BYTES || timedOut) {
+      if (total >= zstdLimits.maxBytes || timedOut) {
         partial = true;
         break;
       }
@@ -283,69 +302,142 @@ async function zstdSource(path: string): Promise<ByteSource> {
     decompress.destroy();
     await file.close().catch(() => undefined);
   }
-  const headBuf = Buffer.concat(head).subarray(0, FIRST_WINDOW_BYTES);
-  const tailBuf = Buffer.concat(tail);
-  const tailStart = total - tailBuf.length;
+  return { head: Buffer.concat(head).subarray(0, MAX_WINDOW_BYTES), tail: Buffer.concat(tail), total, partial };
+}
+
+/** How far a compressed rollout is decompressed; a test lowers it. */
+export const zstdLimits = { maxBytes: ZSTD_MAX_BYTES };
+
+/** A compressed rollout's ends: from the cache, from a decompression already running, or decompressed now. */
+async function zstdSource(path: string): Promise<ByteSource> {
+  const info = await stat(path);
+  const stamp = `${info.size}:${info.mtimeMs}`;
+  let entry = zstdCache.get(path);
+  if (entry?.stamp !== stamp) {
+    const ends = decompressEnds(path);
+    entry = { stamp, ends };
+    // A failure is not kept: the next preview tries again.
+    ends.catch(() => {
+      if (zstdCache.get(path)?.ends === ends) zstdCache.delete(path);
+    });
+  }
+  // Newest last, so the first key is the one to drop.
+  zstdCache.delete(path);
+  zstdCache.set(path, entry);
+  while (zstdCache.size > ZSTD_CACHE_SIZE) zstdCache.delete(zstdCache.keys().next().value as string);
+  const { head, tail, total, partial } = await entry.ends;
+  const tailStart = total - tail.length;
   return {
     size: total,
     partial,
     async read(start, end) {
-      if (start >= tailStart) return tailBuf.subarray(start - tailStart, end - tailStart);
-      if (end <= headBuf.length) return headBuf.subarray(start, end);
-      // Never asked: windows stay within the kept ends.
-      return tailBuf.subarray(Math.max(0, start - tailStart), end - tailStart);
+      if (start >= tailStart) return tail.subarray(start - tailStart, end - tailStart);
+      // The head: windows stay within the kept ends.
+      return head.subarray(start, Math.min(end, head.length));
     },
     close: async () => undefined,
   };
 }
 
-/** `last`, opened with the Session's first prompt, marked, unless it is already among them. */
-function withOpening(first: PreviewTurn | undefined, last: PreviewTurn[]): PreviewTurn[] {
-  if (first?.role !== "user") return last;
-  if (last.some((t) => t.role === "user" && t.text === first.text)) return last;
-  return [{ ...first, first: true }, ...last];
+/** A line and the byte it starts at. */
+interface Line {
+  text: string;
+  offset: number;
 }
 
-/** The lines of `bytes`, less the first when the window cut it. */
-function lines(bytes: Buffer, cutStart: boolean, cutEnd: boolean): string[] {
-  const out = bytes.toString("utf8").split("\n");
-  if (cutStart) out.shift();
-  if (cutEnd) out.pop();
-  return out.filter((line) => line.length > 0);
+/**
+ * The lines of `bytes`, which start at byte `base`: less the first when the
+ * window cut it, and the last when it ends mid-file.
+ */
+function lineSpans(bytes: Buffer, base: number, cutStart: boolean, cutEnd: boolean): Line[] {
+  const out: Line[] = [];
+  let at = 0;
+  if (cutStart) {
+    const nl = bytes.indexOf(NEWLINE);
+    if (nl < 0) return out;
+    at = nl + 1;
+  }
+  while (at < bytes.length) {
+    let nl = bytes.indexOf(NEWLINE, at);
+    if (nl < 0) {
+      if (cutEnd) break;
+      nl = bytes.length;
+    }
+    if (nl > at) out.push({ text: bytes.toString("utf8", at, nl), offset: base + at });
+    at = nl + 1;
+  }
+  return out;
 }
 
-/** A kind's JSONL lines, in file order, as turns. */
-type LineParser = (lines: readonly string[]) => PreviewTurn[];
+const NEWLINE = 0x0a;
+
+/** Reads one kind's JSONL lines, in file order, into turns. */
+interface LineParser {
+  push(line: string): void;
+  turns(): PreviewTurn[];
+}
+
+function parseAll(make: () => LineParser, input: readonly Line[]): PreviewTurn[] {
+  const parser = make();
+  for (const line of input) parser.push(line.text);
+  return parser.turns();
+}
+
+/**
+ * The Session's first prompt and the byte its line starts at. The head
+ * window grows, up to {@link MAX_WINDOW_BYTES}, while no prompt is found:
+ * a first message carrying a pasted image can be one long line.
+ */
+async function openingPrompt(
+  source: ByteSource,
+  make: () => LineParser,
+): Promise<{ turn: PreviewTurn; offset: number } | null> {
+  let end = Math.min(source.size, FIRST_WINDOW_BYTES);
+  for (;;) {
+    const parser = make();
+    let seen = 0;
+    for (const line of lineSpans(await source.read(0, end), 0, false, end < source.size)) {
+      parser.push(line.text);
+      const turns = parser.turns();
+      const turn = turns.slice(seen).find((t) => t.role === "user");
+      if (turn) return { turn, offset: line.offset };
+      seen = turns.length;
+    }
+    if (end >= source.size || end >= MAX_WINDOW_BYTES) return null;
+    end = Math.min(end * 4, MAX_WINDOW_BYTES, source.size);
+    await yieldToLoop();
+  }
+}
 
 /**
  * The last turns of a JSONL transcript. The window reads back from the end,
  * growing until it holds more than {@link PREVIEW_TURNS} turns, reaches the
  * start, or reaches {@link MAX_WINDOW_BYTES}; the opening prompt, when the
- * window misses it, comes from the head.
+ * window misses it, comes from the head. A window holding no whole line (one
+ * record longer than the cap) still gives the opening prompt.
  */
-async function previewJsonl(source: ByteSource, parse: LineParser): Promise<SessionPreview> {
+async function previewJsonl(source: ByteSource, make: () => LineParser): Promise<SessionPreview> {
   const { size } = source;
   let window = FIRST_WINDOW_BYTES;
   let start: number;
   let turns: PreviewTurn[];
   for (;;) {
     start = Math.max(0, size - window);
-    turns = parse(lines(await source.read(start, size), start > 0, false));
+    turns = parseAll(make, lineSpans(await source.read(start, size), start, start > 0, false));
     if (start === 0 || turns.length > PREVIEW_TURNS || window >= MAX_WINDOW_BYTES) break;
     window = Math.min(window * 4, MAX_WINDOW_BYTES);
     await yieldToLoop();
   }
   const last = turns.slice(-PREVIEW_TURNS);
-  const dropped = turns.length > last.length || start > 0 || source.partial;
-  if (!dropped) return { turns: last, truncated: false };
-  let first: PreviewTurn | undefined;
-  if (start === 0) {
-    first = turns.find((t) => t.role === "user");
-  } else {
-    const end = Math.min(size, FIRST_WINDOW_BYTES);
-    first = parse(lines(await source.read(0, end), false, end < size)).find((t) => t.role === "user");
-  }
-  return { turns: withOpening(first, last), truncated: true };
+  const partial = source.partial ? ({ partial: true } as const) : {};
+  if (turns.length === last.length && start === 0 && !source.partial) return { turns: last, truncated: false };
+  const opening = await openingPrompt(source, make);
+  if (!opening) return { turns: last, truncated: true, ...partial };
+  // Whether the opening line is among the window's lines (the window's cut first line is not),
+  // and then whether its turn survived the cut to the last turns: by position, not by text.
+  const inWindow = start === 0 || opening.offset > start;
+  const shown = inWindow && turns.findIndex((t) => t.role === "user") >= turns.length - last.length;
+  return { turns: shown ? last : [{ ...opening.turn, first: true } as PreviewTurn, ...last], truncated: true, ...partial };
 }
 
 // ---------------------------------------------------------------------------
@@ -374,11 +466,13 @@ function claudeTurn(entry: ChatEntry): PreviewTurn | null {
   }
 }
 
-const parseClaudeLines: LineParser = (input) => {
+function claudeParser(): LineParser {
   const parser = claudeAdapter.createParser();
-  for (const line of input) parser.push(line);
-  return parser.entries().flatMap((entry) => claudeTurn(entry) ?? []);
-};
+  return {
+    push: (line) => void parser.push(line),
+    turns: () => parser.entries().flatMap((entry) => claudeTurn(entry) ?? []),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Codex: rollout `response_item`s
@@ -410,7 +504,9 @@ function codexTurn(payload: Rec): PreviewTurn | null {
     case "function_call": {
       const name = str(payload.name) ?? "tool";
       const args = json(payload.arguments);
-      return toolTurn(name, inputSummary(args) ?? (typeof payload.arguments === "string" ? patchSummary(payload.arguments) : null));
+      // `apply_patch` as a function call carries its patch as `input`.
+      const patch = isRec(args) && typeof args.input === "string" ? patchSummary(args.input) : null;
+      return toolTurn(name, patch ?? inputSummary(args));
     }
     case "custom_tool_call": {
       const name = str(payload.name) ?? "tool";
@@ -426,16 +522,18 @@ function codexTurn(payload: Rec): PreviewTurn | null {
   }
 }
 
-const parseCodexLines: LineParser = (input) => {
+function codexParser(): LineParser {
   const out: PreviewTurn[] = [];
-  for (const line of input) {
-    const record = json(line);
-    if (!isRec(record) || record.type !== "response_item" || !isRec(record.payload)) continue;
-    const turn = codexTurn(record.payload);
-    if (turn) out.push(turn);
-  }
-  return out;
-};
+  return {
+    push(line) {
+      const record = json(line);
+      if (!isRec(record) || record.type !== "response_item" || !isRec(record.payload)) return;
+      const turn = codexTurn(record.payload);
+      if (turn) out.push(turn);
+    },
+    turns: () => out,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // pi: `message` entries
@@ -471,28 +569,33 @@ function blockTurns(
   return out;
 }
 
-const parsePiLines: LineParser = (input) => {
+function piParser(): LineParser {
   const out: PreviewTurn[] = [];
-  for (const line of input) {
-    const record = json(line);
-    if (!isRec(record) || record.type !== "message" || !isRec(record.message)) continue;
-    const { role, content } = record.message;
-    if (role === "user") out.push(...blockTurns(content, userTurn, () => null));
-    else if (role === "assistant") {
-      out.push(
-        ...blockTurns(content, assistantTurn, (block) =>
-          block.type === "toolCall" ? toolTurn(str(block.name) ?? "tool", inputSummary(block.arguments)) : null,
-        ),
-      );
-    }
-  }
-  return out;
-};
+  return {
+    push(line) {
+      const record = json(line);
+      if (!isRec(record) || record.type !== "message" || !isRec(record.message)) return;
+      const { role, content } = record.message;
+      if (role === "user") out.push(...blockTurns(content, userTurn, () => null));
+      else if (role === "assistant") {
+        out.push(
+          ...blockTurns(content, assistantTurn, (block) =>
+            block.type === "toolCall" ? toolTurn(str(block.name) ?? "tool", inputSummary(block.arguments)) : null,
+          ),
+        );
+      }
+    },
+    turns: () => out,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // opencode: the database's newest messages
 
 type Row = Record<string, unknown>;
+
+/** The most messages one preview examines, newest first or oldest first. */
+const OPENCODE_SCAN_MAX = 200;
 
 function tableColumns(db: DatabaseSync, table: string): Set<string> {
   const cols = db.prepare(`PRAGMA table_info("${table}")`).all() as Row[];
@@ -515,32 +618,74 @@ function v2Turns(type: unknown, data: unknown): PreviewTurn[] {
   );
 }
 
-/** v1: a `message` row's role, its words and tool calls in `part` rows. */
-function v1Turns(role: unknown, parts: unknown[]): PreviewTurn[] {
-  const blocks = parts.filter((p): p is Rec => isRec(p) && !p.synthetic && !p.ignored);
+/**
+ * v1 `part` rows, with only the fields a turn needs pulled out in SQL: a
+ * tool part's output, which can run to megabytes, is never parsed here.
+ */
+const V1_PARTS = `
+  SELECT
+    json_extract(data, '$.type') AS type,
+    substr(json_extract(data, '$.text'), 1, ${TEXT_MAX + 1}) AS text,
+    json_extract(data, '$.tool') AS tool,
+    substr(coalesce(
+      json_extract(data, '$.state.title'),
+      json_extract(data, '$.state.input.description'),
+      json_extract(data, '$.state.input.command'),
+      json_extract(data, '$.state.input.filePath'),
+      json_extract(data, '$.state.input.path'),
+      json_extract(data, '$.state.input.pattern'),
+      json_extract(data, '$.state.input.query'),
+      json_extract(data, '$.state.input.url')
+    ), 1, ${SUMMARY_MAX * 4}) AS summary,
+    json_extract(data, '$.synthetic') AS synthetic,
+    json_extract(data, '$.ignored') AS ignored
+  FROM part WHERE message_id = ? AND json_valid(data) ORDER BY id`;
+
+/** v1: a `message` row's role, its words and tool calls in its parts. */
+function v1Turns(role: unknown, parts: Row[]): PreviewTurn[] {
+  const blocks = parts
+    .filter((p) => !p.synthetic && !p.ignored)
+    .map((p) => ({ type: p.type, text: p.text, tool: p.tool, summary: p.summary }) as Rec);
   if (role === "user") return blockTurns(blocks, userTurn, () => null);
   if (role !== "assistant") return [];
   return blockTurns(blocks, assistantTurn, (block) =>
-    block.type === "tool" ? opencodeToolTurn(block.tool, block.state) : null,
+    block.type === "tool" ? toolTurn(str(block.tool) ?? "tool", str(block.summary)) : null,
   );
 }
 
-/** Turns from messages read newest first, put back in order: the newest `PREVIEW_TURNS`, and whether more exist. */
-function newestTurns(rows: Iterable<Row>, turnsOf: (row: Row) => PreviewTurn[]): { turns: PreviewTurn[]; more: boolean } {
-  const batches: PreviewTurn[][] = [];
+/** A turn and the message it came from. */
+interface KeyedTurn {
+  turn: PreviewTurn;
+  key: string;
+}
+
+/**
+ * Turns from messages read newest first, put back in order: the newest
+ * `PREVIEW_TURNS`, each with its message's key, and whether more exist.
+ */
+function newestTurns(
+  rows: Iterable<Row>,
+  turnsOf: (row: Row) => PreviewTurn[],
+  keyOf: (row: Row) => string,
+): { turns: KeyedTurn[]; more: boolean } {
+  const batches: KeyedTurn[][] = [];
   let count = 0;
+  let examined = 0;
   let more = false;
   for (const row of rows) {
-    if (count >= PREVIEW_TURNS) {
-      // One more message with turns says there is more.
-      if (turnsOf(row).length > 0) {
-        more = true;
-        break;
-      }
-      continue;
+    if (++examined > OPENCODE_SCAN_MAX) {
+      more = true;
+      break;
     }
     const turns = turnsOf(row);
-    batches.push(turns);
+    if (turns.length === 0) continue;
+    // A message with turns beyond the newest ones says there is more.
+    if (count >= PREVIEW_TURNS) {
+      more = true;
+      break;
+    }
+    const key = keyOf(row);
+    batches.push(turns.map((turn) => ({ turn, key })));
     count += turns.length;
   }
   const turns = batches.reverse().flat();
@@ -548,66 +693,74 @@ function newestTurns(rows: Iterable<Row>, turnsOf: (row: Row) => PreviewTurn[]):
   return { turns: turns.slice(-PREVIEW_TURNS), more };
 }
 
+/** One schema's newest turns, and how to find its first prompt. */
+interface OpencodeRead {
+  turns: KeyedTurn[];
+  more: boolean;
+  first: () => KeyedTurn | undefined;
+}
+
+/** The first user turn among the oldest messages. */
+function firstUser(rows: Iterable<Row>, turnsOf: (row: Row) => PreviewTurn[], keyOf: (row: Row) => string): KeyedTurn | undefined {
+  let examined = 0;
+  for (const row of rows) {
+    if (++examined > OPENCODE_SCAN_MAX) return undefined;
+    const turn = turnsOf(row).find((t) => t.role === "user");
+    if (turn) return { turn, key: keyOf(row) };
+  }
+  return undefined;
+}
+
+function readV2(db: DatabaseSync, sessionId: string): OpencodeRead | null {
+  const cols = tableColumns(db, "session_message");
+  if (!["id", "session_id", "type", "seq", "data"].every((c) => cols.has(c))) return null;
+  const turnsOf = (row: Row): PreviewTurn[] => v2Turns(row.type, json(row.data));
+  const keyOf = (row: Row): string => String(row.id);
+  const rows = db
+    .prepare(`SELECT id, type, data FROM session_message WHERE session_id = ? ORDER BY seq DESC LIMIT ${OPENCODE_SCAN_MAX + 1}`)
+    .iterate(sessionId) as Iterable<Row>;
+  const result = newestTurns(rows, turnsOf, keyOf);
+  if (result.turns.length === 0) return null;
+  const ascending = db.prepare(
+    `SELECT id, type, data FROM session_message WHERE session_id = ? AND type = 'user' ORDER BY seq LIMIT ${OPENCODE_SCAN_MAX + 1}`,
+  );
+  return { ...result, first: () => firstUser(ascending.iterate(sessionId) as Iterable<Row>, turnsOf, keyOf) };
+}
+
+function readV1(db: DatabaseSync, sessionId: string, tables: Set<string>): OpencodeRead | null {
+  if (!tables.has("message") || !tables.has("part")) return null;
+  const message = tableColumns(db, "message");
+  const part = tableColumns(db, "part");
+  if (!["id", "session_id", "data"].every((c) => message.has(c)) || !part.has("message_id") || !part.has("data"))
+    return null;
+  const order = message.has("time_created") ? "time_created DESC, id DESC" : "id DESC";
+  const parts = db.prepare(V1_PARTS);
+  const turnsOf = (row: Row): PreviewTurn[] => {
+    const id = str(row.id);
+    return id ? v1Turns(row.role, parts.all(id) as Row[]) : [];
+  };
+  const keyOf = (row: Row): string => String(row.id);
+  const select = `SELECT id, CASE WHEN json_valid(data) THEN json_extract(data, '$.role') END AS role FROM message WHERE session_id = ?`;
+  const rows = db
+    .prepare(`${select} ORDER BY ${order} LIMIT ${OPENCODE_SCAN_MAX + 1}`)
+    .iterate(sessionId) as Iterable<Row>;
+  const result = newestTurns(rows, turnsOf, keyOf);
+  const ascending = db.prepare(`${select} ORDER BY ${order.replace(/ DESC/g, "")} LIMIT ${OPENCODE_SCAN_MAX + 1}`);
+  return { ...result, first: () => firstUser(ascending.iterate(sessionId) as Iterable<Row>, turnsOf, keyOf) };
+}
+
 function readOpencode(db: DatabaseSync, sessionId: string): SessionPreview {
   const tables = new Set(
     (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Row[]).map((r) => String(r.name)),
   );
-  let found: { turns: PreviewTurn[]; more: boolean; first: () => PreviewTurn | undefined } | null = null;
-  if (tables.has("session_message") && ["session_id", "type", "seq", "data"].every((c) => tableColumns(db, "session_message").has(c))) {
-    const rows = db
-      .prepare("SELECT type, data FROM session_message WHERE session_id = ? ORDER BY seq DESC")
-      .iterate(sessionId) as Iterable<Row>;
-    const result = newestTurns(rows, (row) => v2Turns(row.type, json(row.data)));
-    if (result.turns.length > 0) {
-      const firstUser = db.prepare(
-        "SELECT type, data FROM session_message WHERE session_id = ? AND type = 'user' ORDER BY seq",
-      );
-      found = {
-        ...result,
-        first: () => {
-          for (const row of firstUser.iterate(sessionId) as Iterable<Row>) {
-            const turn = v2Turns(row.type, json(row.data))[0];
-            if (turn) return turn;
-          }
-          return undefined;
-        },
-      };
-    }
-  }
-  if (!found && tables.has("message")) {
-    const message = tableColumns(db, "message");
-    const part = tables.has("part") ? tableColumns(db, "part") : new Set<string>();
-    if (["id", "session_id", "data"].every((c) => message.has(c)) && part.has("message_id") && part.has("data")) {
-      const order = message.has("time_created") ? "time_created DESC, id DESC" : "id DESC";
-      const parts = db.prepare("SELECT data FROM part WHERE message_id = ? ORDER BY id");
-      const turnsOf = (row: Row): PreviewTurn[] => {
-        const data = json(row.data);
-        const id = str(row.id);
-        if (!isRec(data) || !id) return [];
-        return v1Turns(data.role, (parts.all(id) as Row[]).map((p) => json(p.data)));
-      };
-      const rows = db
-        .prepare(`SELECT id, data FROM message WHERE session_id = ? ORDER BY ${order}`)
-        .iterate(sessionId) as Iterable<Row>;
-      const result = newestTurns(rows, turnsOf);
-      const ascending = db.prepare(
-        `SELECT id, data FROM message WHERE session_id = ? ORDER BY ${order.replace(/ DESC/g, "")}`,
-      );
-      found = {
-        ...result,
-        first: () => {
-          for (const row of ascending.iterate(sessionId) as Iterable<Row>) {
-            const turn = turnsOf(row).find((t) => t.role === "user");
-            if (turn) return turn;
-          }
-          return undefined;
-        },
-      };
-    }
-  }
+  const found = (tables.has("session_message") ? readV2(db, sessionId) : null) ?? readV1(db, sessionId, tables);
   if (!found) return { turns: [], truncated: false };
-  if (!found.more) return { turns: found.turns, truncated: false };
-  return { turns: withOpening(found.first(), found.turns), truncated: true };
+  const turns = found.turns.map((t) => t.turn);
+  if (!found.more) return { turns, truncated: false };
+  const first = found.first();
+  // By position: the first prompt's own message, not a later prompt with the same words.
+  const shown = first && found.turns.some((t) => t.key === first.key && t.turn.role === "user");
+  return { turns: first && !shown ? [{ ...first.turn, first: true } as PreviewTurn, ...turns] : turns, truncated: true };
 }
 
 // ---------------------------------------------------------------------------
@@ -616,6 +769,9 @@ export interface PreviewDeps {
   /** `node:sqlite`; null where this Node lacks it. */
   sqlite?: SqliteModule | null;
 }
+
+/** Copies of a locked opencode database, kept a while and shared by previews. */
+const opencodeCopies = createSqliteCopyCache();
 
 /**
  * The preview of the Session `ref` names, in this host's store as `env`
@@ -633,13 +789,14 @@ export async function readSessionPreview(
     if (!sqlite) throw new Error(`sessions.transcript: this Node (${process.versions.node}) has no node:sqlite`);
     return readSqliteStore(sqlite, path, (db) => readOpencode(db, ref.sessionId), {
       tempPrefix: "manor-opencode-",
+      copies: opencodeCopies,
     });
   }
   if (!(await stat(path)).isFile()) throw new Error("sessions.transcript: not a file");
-  const parse = ref.kind === "claude" ? parseClaudeLines : ref.kind === "codex" ? parseCodexLines : parsePiLines;
+  const make = ref.kind === "claude" ? claudeParser : ref.kind === "codex" ? codexParser : piParser;
   const source = path.endsWith(".zst") ? await zstdSource(path) : await fileSource(path);
   try {
-    return await previewJsonl(source, parse);
+    return await previewJsonl(source, make);
   } finally {
     await source.close();
   }

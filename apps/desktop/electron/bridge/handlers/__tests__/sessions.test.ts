@@ -118,7 +118,16 @@ describe("sessions.transcript", () => {
 
   it("refuses a path outside this host's store", async () => {
     const at = ctx({ sessionEnv: () => ({ home: "/nowhere", env: {} }) });
-    await expect(sessionsTranscript(at, { ...ref, path: "/etc/passwd" })).rejects.toThrow(/no such transcript|store/);
-    await expect(sessionsTranscript(at, { ...ref, kind: "vim" })).rejects.toThrow(/kind/);
+    const own = { ...ref, hostId: "local" };
+    await expect(sessionsTranscript(at, { ...own, path: "/etc/passwd" })).rejects.toThrow(/no such transcript|store/);
+    await expect(sessionsTranscript(at, { ...own, kind: "vim" })).rejects.toThrow(/kind/);
+  });
+
+  it("refuses a host it can't reach, rather than reading its own store", async () => {
+    // An unknown host routes nowhere, so the call lands here with its id intact.
+    const box = proxy("box", async () => []);
+    expect(routing([box]).target(sessions.transcript.rules.route, [{ ...ref, hostId: "ghost" }])).toBeNull();
+    const at = ctx({ sessionEnv: () => ({ home: "/home/u", env: {} }) });
+    await expect(sessionsTranscript(at, { ...ref, hostId: "ghost" })).rejects.toThrow(/ghost is not connected/);
   });
 });

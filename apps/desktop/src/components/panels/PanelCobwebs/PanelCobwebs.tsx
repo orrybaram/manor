@@ -15,8 +15,8 @@ import styles from "./PanelCobwebs.module.css";
 
 /** The brush's reach around the pointer, in CSS px. */
 const BRUSH_RADIUS = 36;
-/** The dust film wipes off a little wider than the threads do. */
-const DUST_BRUSH_RADIUS = BRUSH_RADIUS * 1.8;
+/** The dust film wipes off like a cloth, not a fingertip: a few swipes clear a panel. */
+const DUST_BRUSH_RADIUS = 250;
 /** Threads are drawn a little see-through, so the panel shows through the silk. */
 const STRAND_OPACITY = 0.7;
 /** Frames with nothing moving before the loop sleeps until the mouse returns. */
@@ -80,7 +80,8 @@ function wipeDust(
     const x = from.x + ((to.x - from.x) * i) / steps;
     const y = from.y + ((to.y - from.y) * i) / steps;
     const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    g.addColorStop(0, "rgba(0,0,0,.35)");
+    g.addColorStop(0, "rgba(0,0,0,.5)");
+    g.addColorStop(0.6, "rgba(0,0,0,.3)");
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
     ctx.beginPath();

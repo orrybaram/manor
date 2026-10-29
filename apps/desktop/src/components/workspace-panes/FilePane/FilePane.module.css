@@ -52,7 +52,7 @@
   color: var(--fg);
 }
 
-/* How many files the workspace has changed, on the Changed by agents button. */
+/* How many files the workspace has changed, on the Source Control button. */
 .count {
   position: absolute;
   top: -2px;

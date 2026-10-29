@@ -29,6 +29,8 @@ import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
 import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
 import { useAgentLabel } from "./agent-label";
 import type { FileChange } from "./file-changes";
+import { SourceControl, ScmViewToggle } from "./SourceControl/SourceControl";
+import type { ScmView } from "./SourceControl/scm-entries";
 import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes";
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
@@ -61,7 +63,8 @@ type Drawer = DrawerMode | null;
 /**
  * A file pane: one file of its workspace, with a strip on its left edge whose
  * Files button opens the workspace's tree in a drawer beside the editor, and
- * whose Changed by agents button opens the workspace's changed files. The
+ * whose Source Control button opens the workspace's changes, to stage,
+ * discard and open. The
  * drawer resizes and collapses from its edge, as the app sidebar does; on a
  * phone it floats over the editor instead, and closes once it has done its
  * job. The
@@ -77,6 +80,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const readOnly = isWebApp();
   // A pane with nothing open starts on its tree.
   const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
+  // Local or Branch: kept while the drawer closes and opens, not on the leaf.
+  const [scmView, setScmView] = useState<ScmView>("local");
   const floating = useLayoutMode() === "phone";
   const floatingRef = useRef(floating);
   floatingRef.current = floating;
@@ -148,19 +153,19 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             <Folder size={14} />
           </button>
         </Tooltip>
-        <Tooltip label="Changed by agents">
+        <Tooltip label="Source Control">
           <button
             type="button"
-            className={`${styles.stripBtn} ${drawer === "changes" ? styles.stripBtnOn : ""}`}
-            aria-label={`Changed by agents${changeCount > 0 ? ` (${changeCount})` : ""}`}
-            aria-pressed={drawer === "changes"}
-            data-testid="file-pane-changes-button"
+            className={`${styles.stripBtn} ${drawer === "scm" ? styles.stripBtnOn : ""}`}
+            aria-label={`Source Control${changeCount > 0 ? ` (${changeCount})` : ""}`}
+            aria-pressed={drawer === "scm"}
+            data-testid="file-pane-scm-button"
             disabled={!workspace}
-            onClick={() => setDrawer((d) => (d === "changes" ? null : "changes"))}
+            onClick={() => setDrawer((d) => (d === "scm" ? null : "scm"))}
           >
             <GitBranch size={14} />
             {changeCount > 0 && (
-              <span className={styles.count} data-testid="file-pane-changes-count">
+              <span className={styles.count} data-testid="file-pane-scm-count">
                 {changeCount > 99 ? "99+" : changeCount}
               </span>
             )}
@@ -175,10 +180,24 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           mode={drawer}
           changes={changes}
           openFile={filePath}
-          canCreate={!readOnly}
+          canCreate={!readOnly && drawer === "files"}
           onPick={pick}
           onClose={() => setDrawer(null)}
           resizeHandle={floating ? undefined : openHandle}
+          scmHead={<ScmViewToggle value={scmView} onChange={setScmView} />}
+          scm={
+            <SourceControl
+              workspace={workspace}
+              view={scmView}
+              changes={changes}
+              openFile={filePath}
+              // For now a change opens as its file; a deleted one has none.
+              onOpenChange={(change) => {
+                if (change.status !== "deleted") pick(change.path);
+              }}
+              onOpenFile={pick}
+            />
+          }
         />
       )}
       <div

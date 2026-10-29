@@ -1,6 +1,5 @@
 import { parseDiff } from "../DiffPane/parser";
 import type { DiffLine } from "../DiffPane/types";
-import type { FileAuthor } from "../../../electron.d";
 
 /** How a file differs from the base the diff pane shows by default (HEAD). */
 export type ChangeStatus = "added" | "modified" | "renamed" | "deleted";
@@ -149,42 +148,6 @@ export function foldersWithChanges(paths: Iterable<string>): Set<string> {
     }
   }
   return folders;
-}
-
-/** One agent's changed files, or (with no author) the changes no agent claimed. */
-export type ChangeGroup = { author: FileAuthor | null; files: FileChange[] };
-
-/**
- * The changed files grouped by the agent that last wrote each: the agent
- * that wrote most recently first, each group by path, and the files no
- * agent claimed last, as "Other changes".
- */
-export function groupChangesByAuthor(
-  changes: Iterable<FileChange>,
-  authors: Readonly<Record<string, FileAuthor>>,
-): ChangeGroup[] {
-  const byPane = new Map<string, ChangeGroup>();
-  const other: FileChange[] = [];
-  for (const change of changes) {
-    const author = authors[change.path];
-    if (!author) {
-      other.push(change);
-      continue;
-    }
-    const group = byPane.get(author.paneId);
-    if (!group) {
-      byPane.set(author.paneId, { author, files: [change] });
-      continue;
-    }
-    group.files.push(change);
-    // The group stands for the pane's latest write.
-    if (author.at > group.author!.at) group.author = author;
-  }
-  const byPath = (a: FileChange, b: FileChange) => a.path.localeCompare(b.path);
-  const groups = [...byPane.values()].sort((a, b) => b.author!.at - a.author!.at);
-  for (const group of groups) group.files.sort(byPath);
-  if (other.length > 0) groups.push({ author: null, files: other.sort(byPath) });
-  return groups;
 }
 
 /**

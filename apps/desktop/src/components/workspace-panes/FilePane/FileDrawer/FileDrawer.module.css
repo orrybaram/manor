@@ -189,50 +189,6 @@
   background: var(--yellow);
 }
 
-/* Changed by agents: one group per agent. */
-.group + .group {
-  margin-top: 4px;
-}
-
-.groupHead {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  padding: 6px 10px 3px;
-}
-
-.groupLabel {
-  color: var(--text-dim);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-
-.changeRow {
-  height: 22px;
-  padding-left: 14px;
-}
-
-.changeRow:disabled {
-  cursor: default;
-  opacity: 0.55;
-}
-
-.changeRow:disabled:hover {
-  background: transparent;
-}
-
-.folder {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-dim);
-  font-size: 11px;
-}
-
 /* On a phone the drawer floats over the editor beside the wider strip
    (`FilePane.module.css`), takes most of a 390px screen, and its rows are
    finger-sized: the tree's height is `PHONE_ROW_HEIGHT` in `FileDrawer.tsx`.
@@ -251,10 +207,6 @@
 
 :global(.app[data-layout="phone"]) .fileRow {
   font-size: 13px;
-}
-
-:global(.app[data-layout="phone"]) .changeRow {
-  height: 36px;
 }
 
 :global(.app[data-layout="phone"]) .row :global(button) {

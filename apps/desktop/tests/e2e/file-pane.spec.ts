@@ -646,7 +646,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await expect(
     treeRow(window, "src/components").locator('[data-testid="file-pane-dir-dot"]'),
   ).toBeVisible();
-  await expect(pane(window).locator('[data-testid="file-pane-changes-count"]')).toHaveText("2");
+  await expect(pane(window).locator('[data-testid="file-pane-scm-count"]')).toHaveText("2");
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "markers-tree") });
 
@@ -685,27 +685,95 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(editor.locator(".cm-line.cm-change-mine")).toHaveCount(0);
 
-  // Changed by agents: the agent's file under its chip, the rest under Other changes.
-  await pane(window).locator('[data-testid="file-pane-changes-button"]').click();
-  await expect(drawer).toHaveAttribute("data-mode", "changes");
-  const groups = drawer.locator('[data-testid="file-pane-changes-group"]');
-  await expect(groups).toHaveCount(2);
-  await expect(groups.nth(0).locator('[data-testid="file-pane-agent-chip"]')).toBeVisible();
+  // Source Control: both files under Changes (nothing staged yet), the
+  // agent's with its chip, the new file untracked.
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  const changesGroup = drawer.locator('[data-testid="scm-group-changes"]');
+  await expect(changesGroup.locator('[data-testid="scm-row"]')).toHaveCount(2);
+  await expect(drawer.locator('[data-testid="scm-group-staged"]')).toHaveCount(0);
+  const scmRow = (p: string) => changesGroup.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(scmRow("src/components/Widget.tsx")).toHaveAttribute("data-letter", "M");
   await expect(
-    groups.nth(0).locator('[data-testid="file-pane-change-row"][data-path="src/components/Widget.tsx"]'),
+    scmRow("src/components/Widget.tsx").locator('[data-testid="file-pane-agent-chip"]'),
   ).toBeVisible();
-  await expect(groups.nth(1)).toContainText("Other changes");
-  await expect(
-    groups.nth(1).locator('[data-testid="file-pane-change-row"][data-path="src/helper.ts"]'),
-  ).toContainText("A");
+  await expect(scmRow("src/helper.ts")).toHaveAttribute("data-letter", "U");
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "changed-list") });
 
   // A new file is all green, with nothing to jump between.
-  await groups.nth(1).locator('[data-testid="file-pane-change-row"][data-path="src/helper.ts"]').click();
+  await scmRow("src/helper.ts").locator("button").first().click();
   await expect(editor).toContainText("export const helper = 1;");
   await expect(editor.locator(".cm-line.cm-change-added")).toHaveCount(1);
   await expect(header(window).locator('[data-testid="file-pane-edit-jump"]')).toBeHidden();
+});
+
+test("Source Control stages, unstages and discards a workspace's changes", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Pressed"));
+  fs.writeFileSync(path.join(ws, "src", "helper.ts"), "export const helper = 1;\n");
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  const staged = drawer.locator('[data-testid="scm-group-staged"]');
+  const changes = drawer.locator('[data-testid="scm-group-changes"]');
+  const row = (group: typeof drawer, p: string) =>
+    group.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(row(changes, "src/helper.ts")).toHaveAttribute("data-letter", "U", { timeout: 30_000 });
+  await expect(row(changes, "src/components/Widget.tsx")).toHaveAttribute("data-letter", "M");
+
+  // Stage: the new file moves to Staged and reads A.
+  await row(changes, "src/helper.ts").hover();
+  await row(changes, "src/helper.ts").locator('[data-testid="scm-stage"]').click();
+  await expect(row(staged, "src/helper.ts")).toHaveAttribute("data-letter", "A");
+  await expect.poll(() => execSync("git diff --cached --name-only", { cwd: ws }).toString().trim()).toBe(
+    "src/helper.ts",
+  );
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-staged") });
+
+  // Unstage: back under Changes, once the stage has answered.
+  const unstage = row(staged, "src/helper.ts").locator('[data-testid="scm-unstage"]');
+  await row(staged, "src/helper.ts").hover();
+  await expect(unstage).not.toHaveAttribute("aria-disabled", "true");
+  await unstage.click();
+  await expect(row(changes, "src/helper.ts")).toHaveAttribute("data-letter", "U");
+  await expect(staged).toHaveCount(0);
+
+  // Discard asks first; Cancel keeps the change, Discard drops it.
+  const widgetRow = row(changes, "src/components/Widget.tsx");
+  await widgetRow.hover();
+  await widgetRow.locator('[data-testid="scm-discard"]').click();
+  const dialog = window.getByRole("dialog");
+  await expect(dialog).toContainText("Discard changes?");
+  await window.screenshot({ path: shot(testInfo, "scm-discard-confirm") });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(widgetRow).toBeVisible();
+  await widgetRow.hover();
+  await widgetRow.locator('[data-testid="scm-discard"]').click();
+  await window.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+  await expect(widgetRow).toHaveCount(0);
+  expect(fs.readFileSync(path.join(ws, "src", "components", "Widget.tsx"), "utf8")).toBe(WIDGET);
+
+  // Branch: the view switches and lists against the default branch.
+  await drawer.locator('[data-testid="scm-mode"] [data-value="branch"]').click();
+  await expect(drawer.locator('[data-testid="scm"]')).toHaveAttribute("data-view", "branch");
+  await expect(
+    drawer.locator('[data-testid="scm-group-branch"], [data-testid="scm-empty"]'),
+  ).toBeVisible();
+  await window.screenshot({ path: shot(testInfo, "scm-branch") });
 });
 
 /** Seed `src/components/Widget.tsx` through the workspace's own shell; returns the workspace. */

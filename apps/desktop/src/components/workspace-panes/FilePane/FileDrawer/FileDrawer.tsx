@@ -19,23 +19,17 @@ import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
 import { expandedForFiles, visibleTreeRows } from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
-import {
-  changeBadge,
-  foldersWithChanges,
-  groupChangesByAuthor,
-  type FileChange,
-} from "../file-changes";
+import { changeBadge, foldersWithChanges, type FileChange } from "../file-changes";
 import type { WorkspaceChanges } from "../workspace-changes";
-import { AgentChip } from "../AgentChip";
 import { useFileDrawerLayout } from "./file-drawer-layout";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
-/** A finger's row: `FileDrawer.module.css`'s phone `.changeRow` matches it. */
+/** A finger's row: `SourceControl.module.css`'s phone `.row` matches it. */
 const PHONE_ROW_HEIGHT = 36;
 
-/** The workspace's tree, or the flat list of its changed files by agent. */
-export type DrawerMode = "files" | "changes";
+/** The workspace's tree, or Source Control. */
+export type DrawerMode = "files" | "scm";
 
 type FileDrawerProps = {
   workspace: FilesWorkspace;
@@ -50,14 +44,18 @@ type FileDrawerProps = {
   onClose: () => void;
   /** Its edge: resizes it, and collapses it into the strip. */
   resizeHandle?: ReactNode;
+  /** Source Control's head controls (its Local/Branch toggle). */
+  scmHead?: ReactNode;
+  /** Source Control's list, shown in place of the tree. */
+  scm?: ReactNode;
 };
 
 /**
  * The drawer beside the editor (over it, on a phone). Files: the workspace's tree, listed each time
  * it opens (one `files.list`), starting with only the folders on the way to
  * the open file and to changed files expanded; changed files carry their
- * badge and their folders a dot. Changed by agents: the changed files, flat,
- * under the agent that last wrote each.
+ * badge and their folders a dot. Source Control: whatever the pane renders
+ * for it (`SourceControl`).
  */
 export function FileDrawer({
   workspace,
@@ -68,6 +66,8 @@ export function FileDrawer({
   onPick,
   onClose,
   resizeHandle,
+  scmHead,
+  scm,
 }: FileDrawerProps) {
   const width = useFileDrawerLayout((s) => s.width);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -102,8 +102,9 @@ export function FileDrawer({
       }}
     >
       <div className={styles.head}>
-        <span>{mode === "changes" ? "Changed by agents" : "Files"}</span>
+        <span>{mode === "scm" ? "Source Control" : "Files"}</span>
         <span className={styles.headSpacer} />
+        {mode === "scm" && scmHead}
         {canCreate && (
           <Tooltip label="New file">
             <button
@@ -133,8 +134,8 @@ export function FileDrawer({
           }}
         />
       )}
-      {mode === "changes" ? (
-        <ChangesList changes={changes} openFile={openFile} onPick={onPick} />
+      {mode === "scm" ? (
+        scm
       ) : listing.data ? (
         <TreeList
           paths={listing.data.paths}
@@ -295,83 +296,6 @@ function ChangeBadge({ change }: { change: FileChange }) {
     </span>
   );
 }
-
-/**
- * Changed by agents: each agent's changed files under its chip, the latest
- * writer first, then the files no agent's hooks claimed. A deleted file is
- * listed but has nothing to open.
- */
-function ChangesList({
-  changes,
-  openFile,
-  onPick,
-}: {
-  changes: WorkspaceChanges | null;
-  openFile: string | null;
-  onPick: (path: string) => void;
-}) {
-  const groups = useMemo(
-    () => (changes ? groupChangesByAuthor(changes.files.values(), changes.authors) : []),
-    [changes],
-  );
-  if (!changes) {
-    return (
-      <div className={styles.note} data-testid="file-pane-drawer-status">
-        Loading…
-      </div>
-    );
-  }
-  if (groups.length === 0) {
-    return (
-      <div className={styles.note} data-testid="file-pane-changes-empty">
-        No changes
-      </div>
-    );
-  }
-  return (
-    <div className={styles.tree} data-testid="file-pane-changes">
-      {groups.map((group) => (
-        <div
-          key={group.author?.paneId ?? ""}
-          className={styles.group}
-          data-testid="file-pane-changes-group"
-        >
-          <div className={styles.groupHead}>
-            {group.author ? <AgentChip author={group.author} /> : <span className={styles.groupLabel}>Other changes</span>}
-          </div>
-          {group.files.map((change) => {
-            const slash = change.path.lastIndexOf("/");
-            const name = change.path.slice(slash + 1);
-            const folder = slash < 0 ? "" : change.path.slice(0, slash);
-            const deleted = change.status === "deleted";
-            const selected = change.path === openFile;
-            return (
-              <button
-                key={change.path}
-                type="button"
-                className={`${styles.fileRow} ${styles.changeRow} ${selected ? styles.fileRowSelected : ""} ${styles[`status_${change.status}`]}`}
-                title={deleted ? `${change.path} (deleted)` : change.path}
-                disabled={deleted}
-                aria-current={selected ? "true" : undefined}
-                data-testid="file-pane-change-row"
-                data-path={change.path}
-                data-change={change.status}
-                onClick={() => onPick(change.path)}
-              >
-                {createElement(fileIconFor(change.path), { size: 12, className: styles.fileIcon })}
-                <span className={styles.fileName}>{name}</span>
-                {folder && <span className={styles.folder}>{folder}</span>}
-                <ChangeBadge change={change} />
-              </button>
-            );
-          })}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-
 /** "src/app/" for "src/app/main.ts"; empty at the root or with nothing open. */
 function folderOf(path: string | null): string {
   if (!path) return "";

@@ -21,9 +21,9 @@ import { treeRowIndent } from "../../FileTree/indent";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
-import { toast } from "../../../../toast";
 import { openInEditor } from "../../../../lib/editor";
-import { ipcErrorMessage } from "../../../../lib/ipc-error";
+import { runGitFileAction } from "../../FilePane/SourceControl/git-actions";
+import { withStaged } from "../../FilePane/SourceControl/scm-entries";
 import styles from "./FileList.module.css";
 import { Collapse } from "../../../ui/Collapse/Collapse";
 
@@ -151,37 +151,17 @@ export function FileList(props: FileListProps) {
     [selectedFiles],
   );
 
-  const fileLabel = (count: number) =>
-    count === 1 ? "1 file" : `${count} files`;
-
   const handleStage = useCallback(
     async (filePath: string) => {
       if (!workspacePath || actionInProgress) return;
       const targetFiles = getActionFiles(filePath);
-      const toastId = `stage-${Date.now()}`;
-
-      // Optimistic update
-      onStagedFilesChange((prev) => {
-        const next = new Set(prev);
-        for (const f of targetFiles) next.add(f);
-        return next;
-      });
-
+      // Optimistic update, rolled back if git refuses
+      onStagedFilesChange((prev) => withStaged(prev, targetFiles, true));
       setActionInProgress(true);
-      try {
-        await window.electronAPI.git.stage(workspacePath, targetFiles);
-        toast.success(`Staged ${fileLabel(targetFiles.length)}`, { id: toastId });
-      } catch (err) {
-        // Revert optimistic update
-        onStagedFilesChange((prev) => {
-          const next = new Set(prev);
-          for (const f of targetFiles) next.delete(f);
-          return next;
-        });
-        toast.error("Failed to stage files", { id: toastId, detail: ipcErrorMessage(err) });
-      } finally {
-        setActionInProgress(false);
+      if (!(await runGitFileAction("stage", workspacePath, targetFiles))) {
+        onStagedFilesChange((prev) => withStaged(prev, targetFiles, false));
       }
+      setActionInProgress(false);
     },
     [
       workspacePath,
@@ -195,30 +175,13 @@ export function FileList(props: FileListProps) {
     async (filePath: string) => {
       if (!workspacePath || actionInProgress) return;
       const targetFiles = getActionFiles(filePath);
-      const toastId = `unstage-${Date.now()}`;
-
-      // Optimistic update
-      onStagedFilesChange((prev) => {
-        const next = new Set(prev);
-        for (const f of targetFiles) next.delete(f);
-        return next;
-      });
-
+      // Optimistic update, rolled back if git refuses
+      onStagedFilesChange((prev) => withStaged(prev, targetFiles, false));
       setActionInProgress(true);
-      try {
-        await window.electronAPI.git.unstage(workspacePath, targetFiles);
-        toast.success(`Unstaged ${fileLabel(targetFiles.length)}`, { id: toastId });
-      } catch (err) {
-        // Revert optimistic update
-        onStagedFilesChange((prev) => {
-          const next = new Set(prev);
-          for (const f of targetFiles) next.add(f);
-          return next;
-        });
-        toast.error("Failed to unstage files", { id: toastId, detail: ipcErrorMessage(err) });
-      } finally {
-        setActionInProgress(false);
+      if (!(await runGitFileAction("unstage", workspacePath, targetFiles))) {
+        onStagedFilesChange((prev) => withStaged(prev, targetFiles, true));
       }
+      setActionInProgress(false);
     },
     [
       workspacePath,
@@ -277,19 +240,10 @@ export function FileList(props: FileListProps) {
 
   const handleConfirmAction = useCallback(async () => {
     if (!confirmAction || !workspacePath) return;
-    const targetFiles = confirmAction.files;
-    const toastId = `discard-${Date.now()}`;
-
     setConfirmAction(null);
     setActionInProgress(true);
-    try {
-      await window.electronAPI.git.discard(workspacePath, targetFiles);
-      toast.success(`Discarded changes in ${fileLabel(targetFiles.length)}`, { id: toastId });
-    } catch (err) {
-      toast.error("Failed to discard changes", { id: toastId, detail: ipcErrorMessage(err) });
-    } finally {
-      setActionInProgress(false);
-    }
+    await runGitFileAction("discard", workspacePath, confirmAction.files);
+    setActionInProgress(false);
   }, [confirmAction, workspacePath]);
 
   const renderFile = (file: DiffFile, name: string, depth: number) => {

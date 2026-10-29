@@ -1,0 +1,236 @@
+.list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.note {
+  padding: 8px 10px;
+  color: var(--text-dim);
+}
+
+.group + .group {
+  margin-top: 2px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding-right: 6px;
+}
+
+.groupToggle {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  font-family: inherit;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.chevron {
+  flex: none;
+  color: var(--text-dim);
+}
+
+.groupLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.groupCount {
+  flex: none;
+  margin-left: 2px;
+  min-width: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  font-size: 9px;
+  line-height: 14px;
+  text-align: center;
+  background: var(--surface);
+  color: var(--text-dim);
+}
+
+/* One changed file: what it is on the left, actions and letter on the right.
+   Its name takes the letter's colour, as the tree's changed files do. */
+.row {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding-right: 6px;
+  color: var(--text-primary);
+}
+
+.row:hover,
+.groupHead:hover {
+  background: var(--hover);
+}
+
+.rowSelected,
+.rowSelected:hover {
+  background: var(--surface);
+}
+
+.letter_M,
+.letter_R {
+  --status: var(--yellow);
+}
+
+.letter_A,
+.letter_U {
+  --status: var(--green);
+}
+
+.letter_D {
+  --status: var(--red);
+}
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 0 0 22px;
+  font-size: 12px;
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.name {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--status, inherit);
+}
+
+.letter_D .name {
+  text-decoration: line-through;
+}
+
+.folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* Shown on hover or keyboard focus; always on a touch screen, which has no hover. */
+.actions {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: 1px;
+  margin-left: 4px;
+}
+
+.row:hover .actions,
+.row:focus-within .actions,
+.groupHead:hover .actions,
+.groupHead:focus-within .actions {
+  display: flex;
+}
+
+@media (hover: none) {
+  .actions {
+    display: flex;
+  }
+}
+
+.iconBtn {
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.iconBtn:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.iconBtnDanger:hover {
+  color: var(--red);
+}
+
+.iconBtn[aria-disabled="true"] {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.iconBtn[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+.letter {
+  flex: none;
+  width: 14px;
+  margin-left: 4px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--status);
+}
+
+/* A phone's rows are finger-sized, like the Files tree's (`PHONE_ROW_HEIGHT`
+   in `FileDrawer.tsx`), and keep their actions in view. */
+:global(.app[data-layout="phone"]) .row,
+:global(.app[data-layout="phone"]) .groupHead {
+  height: 36px;
+}
+
+:global(.app[data-layout="phone"]) .rowMain {
+  font-size: 13px;
+}
+
+:global(.app[data-layout="phone"]) .actions {
+  display: flex;
+}
+
+:global(.app[data-layout="phone"]) .iconBtn {
+  width: 28px;
+  height: 28px;
+}
+
+/* Only a React parent for the discard dialog's portal. */
+.dialogHost {
+  display: contents;
+}

@@ -1,13 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { parseDiff } from "../DiffPane/parser";
-import type { FileAuthor } from "../../../electron.d";
 import {
   changedLineRanges,
   fileChangesFromDiff,
   foldersWithChanges,
-  groupChangesByAuthor,
   stepEdit,
-  type FileChange,
 } from "./file-changes";
 
 const lines = (diff: string) => parseDiff(diff.replace(/\n$/, ""))[0].lines;
@@ -122,29 +119,6 @@ describe("foldersWithChanges", () => {
 
   it("is empty with nothing changed", () => {
     expect(foldersWithChanges([]).size).toBe(0);
-  });
-});
-
-describe("groupChangesByAuthor", () => {
-  const change = (path: string): FileChange => ({ path, status: "modified", ranges: [] });
-  const by = (paneId: string, at: number): FileAuthor => ({ paneId, agentKind: "claude", at });
-
-  it("groups by the agent's pane, latest writer first, the unclaimed last", () => {
-    const groups = groupChangesByAuthor(
-      [change("z.ts"), change("b.ts"), change("a.ts"), change("free.ts")],
-      { "z.ts": by("p1", 1), "a.ts": by("p1", 5), "b.ts": by("p2", 3) },
-    );
-    expect(groups.map((g) => [g.author?.paneId ?? null, g.files.map((f) => f.path)])).toEqual([
-      ["p1", ["a.ts", "z.ts"]],
-      ["p2", ["b.ts"]],
-      [null, ["free.ts"]],
-    ]);
-    expect(groups[0].author?.at).toBe(5);
-  });
-
-  it("has no Other changes group when every file is claimed", () => {
-    const groups = groupChangesByAuthor([change("a.ts")], { "a.ts": by("p1", 1) });
-    expect(groups).toHaveLength(1);
   });
 });
 

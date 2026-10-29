@@ -514,3 +514,111 @@ test("a file path printed in the terminal opens in a file pane at its line", asy
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "from-terminal") });
 });
+
+test("the file pane marks what changed: tree badges, gutter, edit jumps and the changes list", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-markers");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+
+  await runInTerminal(window, "pwd > \"$HOME/ws-path\"");
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+  const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.mkdirSync(path.dirname(widget), { recursive: true });
+  fs.writeFileSync(widget, WIDGET);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+
+  // An agent changes two separate lines of Widget.tsx and adds a file.
+  fs.writeFileSync(
+    widget,
+    WIDGET.replace("A counter, so", "A counter, edited so").replace("Clicked", "Pressed"),
+  );
+  fs.writeFileSync(path.join(ws, "src", "helper.ts"), "export const helper = 1;\n");
+  // Its PostToolUse hook names the file it wrote, as Claude's does.
+  await runInTerminal(
+    window,
+    `curl -sS -o /dev/null "http://127.0.0.1:$MANOR_HOOK_PORT/hook/event?paneId=$MANOR_PANE_ID&sessionId=e2e-edit&kind=claude&eventType=PostToolUse&filePath=$PWD/src/components/Widget.tsx" && touch "$HOME/hook-sent"`,
+  );
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "hook-sent"))).toBe(true);
+
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("Open File");
+  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await expect(drawer).toBeVisible();
+
+  // The tree badges the changed files and dots their folders, which start open.
+  const badge = (p: string) => treeRow(window, p).locator('[data-testid="file-pane-change-badge"]');
+  await expect(badge("src/components/Widget.tsx")).toHaveText("M", { timeout: 30_000 });
+  await expect(badge("src/helper.ts")).toHaveText("A");
+  await expect(treeRow(window, "src").locator('[data-testid="file-pane-dir-dot"]')).toBeVisible();
+  await expect(
+    treeRow(window, "src/components").locator('[data-testid="file-pane-dir-dot"]'),
+  ).toBeVisible();
+  await expect(pane(window).locator('[data-testid="file-pane-changes-count"]')).toHaveText("2");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "markers-tree") });
+
+  // The changed file: a bar on each changed line, a mark for each in the lane,
+  // and the header's jump control.
+  await treeRow(window, "src/components/Widget.tsx").click();
+  await expect(drawer).toBeHidden();
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Pressed {count} times");
+  await expect(editor.locator(".cm-line.cm-change-agent")).toHaveCount(2);
+  const marks = pane(window).locator('[data-testid="file-pane-mark"][data-kind="agent"]');
+  await expect(marks).toHaveCount(2);
+  const jump = header(window).locator('[data-testid="file-pane-edit-jump"]');
+  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("2 edits");
+  await expect(jump.locator('[data-testid="file-pane-agent-chip"]')).toBeVisible();
+
+  // ↓ goes to the first edit, then the next; ⌥↑ in the editor goes back.
+  await jump.locator('[data-testid="file-pane-edit-next"]').click();
+  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("1 of 2 edits");
+  await expect(activeLine(window)).toHaveText("3");
+  await jump.locator('[data-testid="file-pane-edit-next"]').click();
+  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("2 of 2 edits");
+  await expect(activeLine(window)).toHaveText("8");
+  await window.screenshot({ path: shot(testInfo, "markers-editor") });
+  await window.keyboard.press("Alt+ArrowUp");
+  await expect(activeLine(window)).toHaveText("3");
+  // A lane mark goes to its line.
+  await marks.nth(1).click();
+  await expect(activeLine(window)).toHaveText("8");
+
+  // Unsaved lines are yours (blue), and the header asks for a save instead.
+  await typeAtEnd(window, "// mine");
+  await expect(editor.locator(".cm-line.cm-change-mine")).toHaveCount(1);
+  await expect(jump).toBeHidden();
+  await expect(header(window).locator('[data-testid="file-pane-save-hint"]')).toBeVisible();
+  await window.keyboard.press("ControlOrMeta+z");
+  await expect(editor.locator(".cm-line.cm-change-mine")).toHaveCount(0);
+
+  // Changed by agents: the agent's file under its chip, the rest under Other changes.
+  await pane(window).locator('[data-testid="file-pane-changes-button"]').click();
+  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  const groups = drawer.locator('[data-testid="file-pane-changes-group"]');
+  await expect(groups).toHaveCount(2);
+  await expect(groups.nth(0).locator('[data-testid="file-pane-agent-chip"]')).toBeVisible();
+  await expect(
+    groups.nth(0).locator('[data-testid="file-pane-change-row"][data-path="src/components/Widget.tsx"]'),
+  ).toBeVisible();
+  await expect(groups.nth(1)).toContainText("Other changes");
+  await expect(
+    groups.nth(1).locator('[data-testid="file-pane-change-row"][data-path="src/helper.ts"]'),
+  ).toContainText("A");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "changed-list") });
+
+  // A new file is all green, with nothing to jump between.
+  await groups.nth(1).locator('[data-testid="file-pane-change-row"][data-path="src/helper.ts"]').click();
+  await expect(editor).toContainText("export const helper = 1;");
+  await expect(editor.locator(".cm-line.cm-change-added")).toHaveCount(1);
+  await expect(header(window).locator('[data-testid="file-pane-edit-jump"]')).toBeHidden();
+});

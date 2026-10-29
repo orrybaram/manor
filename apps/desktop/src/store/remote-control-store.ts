@@ -25,6 +25,8 @@ interface RemoteControlState {
   /** Disable remote control; the main process stops the relay with it. */
   turnOff: () => Promise<void>;
   resetRelayAddress: () => Promise<void>;
+  /** "Turn on when Manor opens"; leaves remote control as it is now. */
+  setStartOnLaunch: (on: boolean) => Promise<void>;
   revoke: (id: string) => Promise<void>;
   /**
    * Pair a device, turning remote control on first if it is off, so the link
@@ -45,6 +47,7 @@ const emptyStatus: RemoteControlStatus = {
   encryptionAvailable: true,
   relayViewers: 0,
   relayNotice: null,
+  startOnLaunch: false,
 };
 
 export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
@@ -99,6 +102,8 @@ export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
       runStatus(() => window.electronAPI.remoteControl.setEnabled(false)),
     resetRelayAddress: () =>
       runStatus(() => window.electronAPI.remoteControl.resetRelayAddress()),
+    setStartOnLaunch: (on) =>
+      runStatus(() => window.electronAPI.remoteControl.setStartOnLaunch(on)),
     revoke: (id) =>
       runStatus(() => window.electronAPI.remoteControl.revoke(id)),
     pair: (label) =>

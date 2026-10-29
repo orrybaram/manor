@@ -44,6 +44,12 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /**
+   * Turn remote control on, relay and all, every time Manor opens. Written
+   * only through `remoteControl.setStartOnLaunch`, which is local-only — see
+   * `isSharedPreferenceKey`.
+   */
+  remoteControlOnLaunch: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -67,6 +73,7 @@ const DEFAULTS: AppPreferences = {
   achievementTitle: null,
   revealedBadges: [],
   halloweenEffects: true,
+  remoteControlOnLaunch: false,
 };
 
 /**
@@ -82,6 +89,18 @@ export const PREFERENCE_KEYS = Object.keys(DEFAULTS) as Array<
 /** Type guard for `PREFERENCE_KEYS`, so a validated key narrows for `set`. */
 export function isPreferenceKey(key: string): key is keyof AppPreferences {
   return (PREFERENCE_KEYS as string[]).includes(key);
+}
+
+/**
+ * A preference the generic setters (`preferences.set`, `POST /preferences`)
+ * may write. Not `remoteControlOnLaunch`: a paired device or an agent that
+ * could set it would make this machine reachable again after the next
+ * restart, which only the user at this computer may decide.
+ */
+export function isSharedPreferenceKey(
+  key: string,
+): key is Exclude<keyof AppPreferences, "remoteControlOnLaunch"> {
+  return isPreferenceKey(key) && key !== "remoteControlOnLaunch";
 }
 
 export class PreferencesManager {

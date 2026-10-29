@@ -33,8 +33,9 @@ export function describe(status: RemoteControlStatus): StatusView {
     return {
       tone: "off",
       title: "Remote control is off",
-      detail:
-        "Turn on to check on your agents from your phone. Turns off again when Manor quits.",
+      detail: status.startOnLaunch
+        ? "Turn on to check on your agents from your phone. Turns on again next time Manor opens."
+        : "Turn on to check on your agents from your phone. Turns off again when Manor quits.",
       retry: null,
     };
   }

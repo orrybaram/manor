@@ -34,6 +34,7 @@ function status(over: Partial<RemoteControlStatus> = {}): RemoteControlStatus {
     encryptionAvailable: true,
     relayViewers: 0,
     relayNotice: null,
+    startOnLaunch: false,
     ...over,
   };
 }
@@ -47,6 +48,7 @@ describe("ThisMacRow", () => {
   const turnOn = vi.fn(() => Promise.resolve());
   const turnOff = vi.fn(() => Promise.resolve());
   const resetRelayAddress = vi.fn(() => Promise.resolve());
+  const setStartOnLaunch = vi.fn((_on: boolean) => Promise.resolve());
 
   const q = (id: string) => document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
   const click = (el: HTMLElement | null) =>
@@ -64,6 +66,7 @@ describe("ThisMacRow", () => {
       turnOn,
       turnOff,
       resetRelayAddress,
+      setStartOnLaunch,
     });
     await act(async () => {
       root.render(
@@ -85,6 +88,7 @@ describe("ThisMacRow", () => {
     turnOn.mockClear();
     turnOff.mockClear();
     resetRelayAddress.mockClear();
+    setStartOnLaunch.mockClear();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -133,6 +137,25 @@ describe("ThisMacRow", () => {
     click(turnOnButton ?? null);
     await flush();
     expect(turnOn).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps start on launch without turning remote control on now", async () => {
+    await render();
+    const toggle = q("remote-control-on-launch");
+    expect(toggle?.getAttribute("aria-checked")).toBe("false");
+    click(toggle);
+    await flush();
+    expect(setStartOnLaunch).toHaveBeenCalledWith(true);
+    expect(turnOn).not.toHaveBeenCalled();
+    expect(q("remote-relay-confirm")).toBeNull();
+  });
+
+  it("stops promising it turns off at quit once it starts on launch", async () => {
+    await render({ startOnLaunch: true });
+    const card = q("remote-relay-card")?.textContent ?? "";
+    expect(card).toContain("Turns on again next time Manor opens.");
+    expect(card).not.toContain("Turns off again when Manor quits.");
+    expect(q("remote-control-on-launch")?.getAttribute("aria-checked")).toBe("true");
   });
 
   it("turns off straight away", async () => {

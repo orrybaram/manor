@@ -367,9 +367,10 @@ export function initApp(devTitle: string | null): void {
     hostLinks.start();
 
     // Remote control. Constructed here so the status sink and the
-    // quit hook can see it; deliberately *not* started — remote control is off
-    // until the user turns it on, and even then nothing is reachable until they
-    // separately start the relay (there is no listener). The gate and
+    // quit hook can see it; deliberately *not* started here — remote control is
+    // off until the user turns it on (or asked for it on every launch, which
+    // `startIfAsked` below honours once the app is up), and even then nothing
+    // is reachable until the relay starts (there is no listener). The gate and
     // relay modules are not even loaded until then: `loadRuntime`
     // runs at most once, on the first enable.
     const remoteControl = new RemoteControlController({
@@ -378,6 +379,10 @@ export function initApp(devTitle: string | null): void {
       push: core.relayStores.push,
       appVersion: electronPlatform.appVersion,
       hostPushEndpoints: (hostId) => hostServerSync.pushEndpoints(hostId),
+      startOnLaunch: {
+        get: () => shared.preferencesManager.get("remoteControlOnLaunch"),
+        set: (on) => shared.preferencesManager.set("remoteControlOnLaunch", on),
+      },
     });
 
     // Its control routes run over `ipcDeps`, which holds this server
@@ -596,6 +601,14 @@ export function initApp(devTitle: string | null): void {
     // The dock badge follows preferences from here, and hooks reach the
     // Status reconciler (`ManorServer.start`).
     server.start();
+
+    // "Turn on when Manor opens": the one way remote control starts without a
+    // click this session (see `RemoteControlController`). Not awaited — a
+    // relay that is slow or down must not hold up launch; it says so in
+    // the status the settings panel shows.
+    remoteControl.startIfAsked().catch((err: unknown) => {
+      console.error("[remote-control] start on launch failed:", err);
+    });
 
     app.on("before-quit", () => {
       server.agentPipeline.stop();

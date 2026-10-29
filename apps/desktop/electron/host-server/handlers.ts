@@ -167,6 +167,7 @@ import {
   agentsGetUnseen,
   type AgentReadDeps,
 } from "../bridge/handlers/agents-read";
+import { sessionsList, sessionsTranscript } from "../bridge/handlers/sessions";
 import {
   remoteControlPair,
   remoteControlSubscribePush,
@@ -514,6 +515,11 @@ const METHODS = flatten({
     delete: method(agentsDelete, { mutating: true }),
     markSeen: method(agentsMarkSeen, { mutating: true }),
     markResumed: method(agentsMarkResumed, { mutating: true }),
+  },
+  // This host's agent stores, read-only.
+  sessions: {
+    list: method(sessionsList),
+    transcript: method(sessionsTranscript),
   },
   // A device works inside the projects on this host: makes and
   // removes workspaces and arranges them. Adding a project to the box, or

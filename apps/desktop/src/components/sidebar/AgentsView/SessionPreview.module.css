@@ -1,0 +1,242 @@
+/* ── Agents modal: preview of the highlighted row ── */
+
+.preview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text-selected);
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.project {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--project-color, var(--text-primary));
+}
+
+.projectDot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--project-color, var(--text-dim));
+}
+
+.projectDot[data-uncolored] {
+  background: transparent;
+  border: 1.5px solid var(--text-dim);
+}
+
+.kind {
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--hover);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.live {
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.outside {
+  padding: 0 5px;
+  border: 1px dashed var(--text-dim);
+  border-radius: 4px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 11px;
+  border: 1px solid var(--surface);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--surface);
+}
+
+.button kbd {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 10px;
+  opacity: 0.75;
+}
+
+.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text-selected));
+}
+
+.turns {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 4px;
+}
+
+.userTurn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  align-self: flex-end;
+  max-width: 85%;
+}
+
+.bubble {
+  padding: 7px 11px;
+  border-radius: 10px 10px 2px 10px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.assistantTurn {
+  max-width: 95%;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+/* The chat mirror's markdown is sized for a phone; the preview is denser. */
+.assistantTurn code,
+.assistantTurn table {
+  font-size: 11.5px;
+}
+
+.assistantTurn h1,
+.assistantTurn h2,
+.assistantTurn h3,
+.assistantTurn h4 {
+  font-size: 13px;
+}
+
+.toolTurn {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.gap {
+  align-self: center;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.note {
+  padding: 16px 0;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.bar {
+  height: 12px;
+  width: 80%;
+  border-radius: 4px;
+  background: var(--surface);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.barUser {
+  align-self: flex-end;
+  width: 45%;
+  height: 28px;
+  border-radius: 10px;
+}
+
+.barShort {
+  width: 55%;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar {
+    animation: none;
+  }
+}
+
+:global(:root[data-layout="phone"]) .button {
+  min-height: 44px;
+  font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .button kbd {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .bubble,
+:global(:root[data-layout="phone"]) .assistantTurn {
+  font-size: 14px;
+}

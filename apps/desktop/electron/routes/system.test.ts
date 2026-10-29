@@ -182,6 +182,18 @@ describe("POST /preferences", () => {
     expect(prefs!.set).not.toHaveBeenCalled();
   });
 
+  it("400s remoteControlOnLaunch, which only this computer may set", async () => {
+    const prefs = preferencesManager();
+    const res = await call(
+      route("POST", "/preferences"),
+      { preferencesManager: prefs },
+      { body: { key: "remoteControlOnLaunch", value: true } },
+    );
+
+    expect(res.status).toBe(400);
+    expect(prefs!.set).not.toHaveBeenCalled();
+  });
+
   it("writes a known key", async () => {
     const prefs = preferencesManager();
     const res = await call(

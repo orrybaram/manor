@@ -36,7 +36,7 @@ export const MAIN_WINDOW_KEYBINDINGS: ReadonlySet<string> = new Set<string>(
  * Commands whose only implementation reaches a namespace `src/bridge/unavailable.ts`
  * has no browser meaning for at all's "what can never mirror in a
  * browser" table, expressed as command ids instead of preload namespaces.
- * Derived from the table's `native` field; `availableCommands` (`commands.ts`)
+ * Derived from the table's `native` and `web` fields; `availableCommands` (`commands.ts`)
  * is where the web app actually applies it.
  */
 export const NATIVE_ONLY_COMMANDS: ReadonlySet<string> = new Set<string>(

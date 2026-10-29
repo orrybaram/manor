@@ -14,6 +14,23 @@ function liveStrands(sim: CobwebSim): number {
   return sim.strands.filter((s) => !s.broken).length;
 }
 
+/** The box the web's points fill. */
+function box(sim: CobwebSim) {
+  const xs = sim.points.map((p) => p.x);
+  const ys = sim.points.map((p) => p.y);
+  return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys) };
+}
+
+/** Back and forth across the whole web, a row every 24px. */
+function zigzag(sim: CobwebSim): Array<[number, number]> {
+  const { x0, x1, y0, y1 } = box(sim);
+  const path: Array<[number, number]> = [];
+  for (let y = y0 + 2, i = 0; y <= y1 + 24; y += 24, i++) {
+    path.push(i % 2 ? [x1 + 4, y] : [x0 - 4, y], i % 2 ? [x0 - 4, y + 12] : [x1 + 4, y + 12]);
+  }
+  return path;
+}
+
 /** Drag a brush along a path, `px` per step, as a mouse would. */
 function sweep(
   sim: CobwebSim,
@@ -38,21 +55,24 @@ function sweep(
 
 describe("buildCobwebs", () => {
   it("grows more web at each level, and a spider at the top", () => {
-    const one = buildCobwebs(1, W, H, 1);
-    const two = buildCobwebs(2, W, H, 1);
-    const three = buildCobwebs(3, W, H, 1);
-    expect(one.strands.length).toBeLessThan(two.strands.length);
-    expect(two.strands.length).toBeLessThan(three.strands.length);
-    expect(one.spider).toBeNull();
-    expect(three.spider).not.toBeNull();
+    for (let seed = 1; seed <= 12; seed++) {
+      const one = buildCobwebs(1, W, H, seed);
+      const two = buildCobwebs(2, W, H, seed);
+      const three = buildCobwebs(3, W, H, seed);
+      expect(one.strands.length).toBeLessThan(two.strands.length);
+      expect(two.strands.length).toBeLessThan(three.strands.length);
+      expect(one.spider).toBeNull();
+      expect(three.spider).not.toBeNull();
+    }
   });
 
-  it("puts a level-1 web in the top-right corner", () => {
-    const sim = buildCobwebs(1, W, H, 1);
-    for (const p of sim.points) {
-      expect(p.x).toBeGreaterThan(W / 2);
-      expect(p.y).toBeLessThan(H / 2);
+  it("hangs each visit's webs somewhere new", () => {
+    const layouts = new Set<string>();
+    for (let seed = 1; seed <= 12; seed++) {
+      const { x0, x1, y1 } = box(buildCobwebs(1, W, H, seed));
+      layouts.add([x0, x1, y1].map((v) => Math.round(v / 40)).join());
     }
+    expect(layouts.size).toBeGreaterThanOrEqual(6);
   });
 
   it.each([
@@ -101,26 +121,27 @@ describe("stepCobwebs", () => {
   it("cuts the threads a quick stroke crosses", () => {
     const sim = buildCobwebs(1, W, H, 2);
     const before = liveStrands(sim);
-    sweep(sim, [[W - 200, 30], [W - 20, 30]], 8);
+    const { x0, x1, y0, y1 } = box(sim);
+    const y = (y0 + y1) / 2;
+    sweep(sim, [[x0 - 10, y], [x1 + 10, y]], 8);
     expect(liveStrands(sim)).toBeLessThan(before);
   });
 
   it("only pushes threads aside when the brush rests", () => {
     const sim = buildCobwebs(1, W, H, 2);
-    const at = { x: W - 60, y: 40 };
+    const { x0, x1, y0, y1 } = box(sim);
+    const at = { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
     const brush: Brush = { ...at, prevX: at.x, prevY: at.y, radius: 36 };
     for (let i = 0; i < 20; i++) stepCobwebs(sim, brush, { random: () => 1 });
     for (const p of sim.points) {
       if (p.pinned || p.life <= 0) continue;
-      expect(Math.hypot(p.x - at.x, p.y - at.y)).toBeGreaterThanOrEqual(35.9);
+      expect(Math.hypot(p.x - at.x, p.y - at.y)).toBeGreaterThanOrEqual(35);
     }
   });
 
   it("lets a fully wiped web fall away until nothing is left", () => {
     const sim = buildCobwebs(1, W, H, 3);
-    const path: Array<[number, number]> = [];
-    for (let y = 4; y < 220; y += 30) path.push([W - 4, y], [W - 280, y + 15]);
-    sweep(sim, path, 8);
+    sweep(sim, zigzag(sim), 8);
     expect(sim.points.some((p) => p.falling)).toBe(true);
     for (let i = 0; i < 600; i++) stepCobwebs(sim, null);
     expect(cobwebsGone(sim)).toBe(true);

@@ -3,7 +3,7 @@ import type { HostServerView } from "../electron.d";
 import { liveValue } from "../bridge/resync";
 import { provideHostLookups } from "../bridge/host-lookups";
 import { hostName } from "../lib/hosts";
-import { useToastStore } from "./toast-store";
+import { toast } from "../toast";
 
 /** Mirrors `HostSpec` in `electron/backend/types.ts`. */
 export type HostSpec = { kind: "ssh"; target: string } | { kind: "recipe"; recipeId: string };
@@ -270,20 +270,14 @@ function showWaking(hostId: string, woken: Promise<void>): void {
   const find = () => useHostStore.getState().hosts.find((h) => h.hostId === hostId);
   const host = find();
   const name = host ? hostName(host) : hostId;
-  const toasts = useToastStore.getState();
-  toasts.addToast({ id, message: `Waking ${name}…`, status: "loading", persistent: true });
+  const waking = toast.progress(`Waking ${name}…`, { id, duration: "sticky" });
   void woken.then(() => {
     const now = find();
     if (!now || now.status === "connected" || now.status === "connecting") {
-      useToastStore.getState().removeToast(id);
+      waking.dismiss();
       return;
     }
-    useToastStore.getState().updateToast(id, {
-      message: `Couldn't wake ${name}`,
-      status: "error",
-      persistent: false,
-      ...(now.error ? { detail: now.error } : {}),
-    });
+    waking.fail(`Couldn't wake ${name}`, undefined, now.error ? { detail: now.error } : {});
   });
 }
 

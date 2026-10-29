@@ -2,7 +2,7 @@ import type { AgentInfo } from "../electron.d";
 import { useProjectStore } from "../store/project-store";
 import { useAppStore } from "../store/app-store";
 import { useAgentStore } from "../store/agent-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 import { hasPaneId } from "../lib/layout/pane-tree";
 import { workspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { ownerOf } from "../lib/workspace-directory";
@@ -76,5 +76,5 @@ export function navigateToAgent(agent: AgentInfo) {
 
   window.electronAPI?.agents.markSeen(agent.id);
   useAgentStore.getState().markAgentSeen(agent.id);
-  useToastStore.getState().removeToast(`agent-input-${agent.id}`);
+  toast.dismiss(`agent-input-${agent.id}`);
 }

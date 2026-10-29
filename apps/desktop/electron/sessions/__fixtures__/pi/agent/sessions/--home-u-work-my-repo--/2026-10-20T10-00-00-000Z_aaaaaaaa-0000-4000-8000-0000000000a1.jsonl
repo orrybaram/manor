@@ -1,0 +1,8 @@
+{"type":"session","version":3,"id":"aaaaaaaa-0000-4000-8000-0000000000a1","timestamp":"2026-10-20T10:00:00.000Z","cwd":"/home/u/work/my-repo"}
+{"type":"message","id":"m0","parentId":null,"timestamp":"2026-10-20T10:00:00.500Z","message":{"role":"system","content":"","sections":{"preamble":"You are an expert coding assistant."},"timestamp":1760954400500}}
+{"type":"model_change","id":"m1","parentId":"m0","timestamp":"2026-10-20T10:00:00.600Z","provider":"anthropic","modelId":"claude-sonnet-5"}
+{"type":"message","id":"m2","parentId":"m1","timestamp":"2026-10-20T10:00:01.000Z","message":{"role":"user","content":[{"type":"image","data":"AAAA","mimeType":"image/png"},{"type":"text","text":"Fix the flaky"},{"type":"text","text":"toast test"}],"timestamp":1760954401000}}
+{"type":"message","id":"m3","parentId":"m2","timestamp":"2026-10-20T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"On it."},{"type":"toolCall","id":"call_1","name":"bash","arguments":{"command":"pnpm test"}}],"api":"anthropic-messages","provider":"anthropic","model":"claude-opus-5","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"stop","timestamp":1760954402000}}
+{"type":"session_info","id":"m4","parentId":"m3","timestamp":"2026-10-20T10:00:03.000Z","name":"Toast"}
+{"type":"message","id":"m5","parentId":"m4","timestamp":"2026-10-20T10:00:04.000Z","message":{"role":"toolResult","toolCallId":"call_1","toolName":"bash","content":[{"type":"text","text":"ok"}],"isError":false,"timestamp":1760954404000}}
+{"type":"session_info","id":"m6","parentId":"m5","timestamp":"2026-10-20T10:00:05.000Z","name":"  Toast cleanup  "}

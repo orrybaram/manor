@@ -5,7 +5,7 @@ import { servers } from "../../bridge/server-set";
 import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import { useHostStore } from "../host-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 
 // One-click Copy to / Move to: the progress toast's
 // lifecycle, `needsInput` handing off to the fallback dialog's state, and a
@@ -86,13 +86,13 @@ function onPhone(): () => void {
   };
 }
 
-const toasts = () => useToastStore.getState().toasts;
+const toasts = () => toastStore.getState().toasts;
 
 describe("transferProject", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     progress = null;
-    useToastStore.setState({ toasts: [] } as never);
+    clearRecords();
     useHostStore.setState({
       hosts: [{ hostId: "box", spec: { kind: "ssh", target: "me@box" }, status: "connected" }],
     });
@@ -108,7 +108,12 @@ describe("transferProject", () => {
 
     const done = useProjectStore.getState().transferProject("app", "box", "copy");
     expect(toasts()).toMatchObject([
-      { id: "transfer-app", message: "Copying app to me@box…", status: "loading", persistent: true },
+      {
+        id: "transfer-app",
+        message: "Copying app to me@box…",
+        status: "loading",
+        duration: "sticky",
+      },
     ]);
     progress?.({ status: "progress", message: "Receiving objects: 50%" });
     expect(toasts()[0].detail).toBe("Receiving objects: 50%");
@@ -263,7 +268,7 @@ describe("transferProject", () => {
 // Last: the home server of a phone cannot be removed again, so it outlives the test.
 describe("transferProject on a phone", () => {
   beforeEach(() => {
-    useToastStore.setState({ toasts: [] } as never);
+    clearRecords();
   });
 
   it("names the desktop in the toast on a phone", async () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useProjectStore, type ProjectInfo } from "../project-store";
 import { useHostProfileStore } from "../host-profile-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 
 // "In a new pod": the toast lifecycle of `openInNewHost`, the
 // failure toast's Retry and "Delete the pod", and the Set up on fallback.
@@ -53,13 +53,13 @@ function project(id: string, hostId: string): ProjectInfo {
   };
 }
 
-const toasts = () => useToastStore.getState().toasts;
+const toasts = () => toastStore.getState().toasts;
 const REPO = "git@github.com:me/app.git";
 
 describe("openInNewHost", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useToastStore.setState({ toasts: [] } as never);
+    clearRecords();
     useHostProfileStore.setState({
       profiles: [{ id: "hp-1", name: "Work cluster", templateId: "kubernetes", values: {} }],
     });
@@ -79,7 +79,7 @@ describe("openInNewHost", () => {
 
     const done = useProjectStore.getState().openInNewHost({ profileId: "hp-1", repoUrl: REPO });
     expect(toasts()).toMatchObject([
-      { status: "loading", message: "Starting Work cluster pod…", persistent: true },
+      { status: "loading", message: "Starting Work cluster pod…", duration: "sticky" },
     ]);
 
     finish({ ok: true, project: project("app-pod", "pod-1"), hostId: "pod-1" });

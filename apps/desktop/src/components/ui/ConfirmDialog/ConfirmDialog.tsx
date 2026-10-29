@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Button } from "../Button/Button";
-import { addErrorToast, wasReported } from "../../../store/toast-store";
+import { toast, wasReported } from "../../../toast";
 import dialogStyles from "../../sidebar/dialogs.module.css";
 
 type ConfirmDialogProps = {
@@ -50,7 +50,12 @@ export function ConfirmDialog(props: ConfirmDialogProps) {
       .catch((err: unknown) => {
         // The action usually reports its own failure; anything it didn't
         // still reaches the user.
-        if (!wasReported(err)) addErrorToast("confirm-dialog", "Something went wrong", err);
+        if (!wasReported(err)) {
+          toast.error("Something went wrong", {
+            id: "confirm-dialog",
+            error: err,
+          });
+        }
       })
       .finally(() => setPending(false));
   };

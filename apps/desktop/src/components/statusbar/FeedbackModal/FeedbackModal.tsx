@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { EmojiInput, EmojiTextarea } from "../../ui/EmojiAutocomplete";
 import { Button } from "../../ui/Button/Button";
-import { useToastStore } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import { openExternal } from "../../../lib/open-external";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import styles from "./FeedbackModal.module.css";
@@ -45,7 +45,6 @@ export function FeedbackModal(props: FeedbackModalProps) {
   const [submitting, setSubmitting] = useState(false);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { addToast, updateToast } = useToastStore();
 
   const reset = useCallback(() => {
     setTitle("");
@@ -91,22 +90,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
     const labels = ["user feedback", ...(selectedTag ? [selectedTag] : [])];
     let body = description.trim() || "_No description provided._";
 
-    const toastId = "feedback-submit";
-    addToast({
-      id: toastId,
-      message: "Submitting feedback...",
-      status: "loading",
-    });
-
-    // Every failure ends the loading toast and frees the form;
-    // the modal stays open with what was typed, so the user can try again.
-    const fail = (message: string, err: unknown) => {
-      updateToast(toastId, {
-        message,
-        status: "error",
-        detail: ipcErrorMessage(err),
-      });
-    };
+    const sending = toast.progress("Submitting feedback...", { id: "feedback-submit" });
 
     try {
       // Upload screenshots if any. Uploading needs gh with push rights to the
@@ -142,9 +126,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
           labels,
         );
         if (result?.url) {
-          updateToast(toastId, {
-            message: "Feedback submitted!",
-            status: "success",
+          sending.succeed("Feedback submitted!", {
             detail: screenshotNote ?? undefined,
             action: {
               label: "View",
@@ -166,9 +148,7 @@ export function FeedbackModal(props: FeedbackModalProps) {
       const url = `https://github.com/${REPO}/issues/new?${params.toString()}`;
       openExternal(url);
 
-      updateToast(toastId, {
-        message: "Opened in browser",
-        status: "success",
+      sending.succeed("Opened in browser", {
         detail: screenshotNote
           ? `Complete the issue on GitHub. ${screenshotNote}`
           : "Complete the issue on GitHub",
@@ -176,7 +156,9 @@ export function FeedbackModal(props: FeedbackModalProps) {
       reset();
       onOpenChange(false);
     } catch (err) {
-      fail("Couldn't submit feedback", err);
+      // The failure ends the loading toast and frees the form; the modal
+      // stays open with what was typed, so the user can try again.
+      sending.fail("Couldn't submit feedback", err);
     } finally {
       setSubmitting(false);
     }
@@ -185,8 +167,6 @@ export function FeedbackModal(props: FeedbackModalProps) {
     description,
     selectedTag,
     screenshots,
-    addToast,
-    updateToast,
     reset,
     onOpenChange,
   ]);

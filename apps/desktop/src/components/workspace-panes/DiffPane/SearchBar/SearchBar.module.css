@@ -33,7 +33,7 @@
   font-family: var(--font-mono);
   background: var(--bg);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 4px;
   outline: none;
 }

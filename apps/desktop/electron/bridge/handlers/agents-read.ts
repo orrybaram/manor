@@ -20,6 +20,7 @@ import { LOCAL_HOST_ID } from "../../backend/types";
 import { assertString } from "../../ipc-validate";
 import type { AgentFileAuthors, FileAuthor } from "../../agent-file-authors";
 import { parseWorkspaceKey } from "../../../src/lib/workspace-key";
+import { matchesAgentQuery } from "../../../src/lib/agent-query";
 import type { HostRouting } from "../../server/host-routing";
 import type { HandlerCtx } from "../method";
 
@@ -27,6 +28,8 @@ import type { HandlerCtx } from "../method";
 export interface AgentQuery {
   projectId?: string;
   status?: string;
+  /** Words that must all appear in the name, project name or workspace path. */
+  query?: string;
   limit?: number;
   offset?: number;
 }
@@ -76,6 +79,10 @@ export function agentsGetAll(ctx: Ctx, opts?: AgentQuery): AgentInfo[] {
   let agents = [...ctx.deps.agentManager.getAllAgents(), ...remote];
   if (opts?.projectId !== undefined) agents = agents.filter((a) => a.projectId === opts.projectId);
   if (opts?.status !== undefined) agents = agents.filter((a) => a.status === opts.status);
+  if (opts?.query) {
+    const query = opts.query;
+    agents = agents.filter((a) => matchesAgentQuery(a, query));
+  }
   agents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   agents = agents.slice(opts?.offset ?? 0);
   return opts?.limit !== undefined ? agents.slice(0, opts.limit) : agents;

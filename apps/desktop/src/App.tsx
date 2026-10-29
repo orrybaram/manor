@@ -63,6 +63,7 @@ import { useShallow } from "zustand/react/shallow";
 /** No panes: one array, so a selector that finds none returns the same one. */
 const NO_PANES: readonly string[] = [];
 import { useProjectStore, type ProjectInfo } from "./store/project-store";
+import { useRemoteControlStore } from "./store/remote-control-store";
 import { ownerOf } from "./lib/workspace-directory";
 import { workspaceDisplayName } from "./lib/workspace-display-name";
 import { type WorkspaceKey } from "./lib/workspace-key";
@@ -104,6 +105,7 @@ import {
   navigateForward,
 } from "./hooks/useNavigationHistory";
 import { resumeAgent } from "./lib/agent-resume";
+import { runRowAction } from "./components/sidebar/AgentsView/session-actions";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath } from "./lib/home";
 import { isWebApp } from "./lib/platform";
@@ -116,6 +118,7 @@ import { FallbackScreen } from "./components/ui/ErrorBoundary/FallbackScreen";
 import { DetachedWindowPending } from "./components/DetachedWindowPending";
 import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
+import { wireToastSubjects } from "./store/toast-subjects";
 import "./App.css";
 
 function App() {
@@ -143,6 +146,9 @@ function App() {
 
   // A rejection nothing caught reaches the user as a toast.
   useMountEffect(() => installUnhandledRejectionToasts());
+
+  // A toast about something on screen retracts (`ToastOptions.about`).
+  useMountEffect(() => wireToastSubjects());
 
   // A reconnected browser re-reads what it missed, or launches again if its
   // boot could not read anything.
@@ -638,6 +644,7 @@ function App() {
         if (agent) resumeAgent(agent);
       },
       showGhosts: triggerGhosts,
+      toggleRemoteControl: () => void useRemoteControlStore.getState().toggle(),
     },
     // Rebuilt when the hello says this is a host server, which
     // drops the commands it cannot serve.
@@ -922,7 +929,7 @@ function App() {
             <AgentsModal
               open={agentsOpen}
               onClose={closeAgents}
-              onResumeAgent={resumeAgent}
+              onRowAction={runRowAction}
             />
             <AddProjectDialog
               open={addProjectDialogOpen}

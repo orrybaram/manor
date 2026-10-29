@@ -1,6 +1,6 @@
 import { memberDisplayName } from "../bridge/server-set";
 import { useHostStore } from "./host-store";
-import { addErrorToast, useToastStore } from "./toast-store";
+import { toast } from "../toast";
 
 /**
  * Same-origin projects on different hosts join on their own. Main
@@ -46,7 +46,7 @@ async function undoPairs(deps: AutoJoinDeps, pairs: readonly JoinedPair[]): Prom
     try {
       await window.electronAPI.projects.undoAutoJoin(joinedId, intoId);
     } catch (err) {
-      addErrorToast(`auto-join-undo-${joinedId}`, "Couldn't undo the join", err);
+      toast.error("Couldn't undo the join", { id: `auto-join-undo-${joinedId}`, error: err });
     }
   }
   await deps.reload();
@@ -70,31 +70,28 @@ export async function runAutoJoin(deps: AutoJoinDeps): Promise<void> {
   const before = pairs.map((p) => [describe(deps, p.joinedId), describe(deps, p.intoId)] as const);
   await deps.reload();
 
-  const { addToast, removeToast } = useToastStore.getState();
   const batch = ++batchCounter;
-  const toast = (id: string, message: string, undo: readonly JoinedPair[]) =>
-    addToast({
+  const notify = (id: string, message: string, undo: readonly JoinedPair[]) =>
+    toast.info(message, {
       id,
-      message,
-      status: "info",
       duration: TOAST_MS,
       action: {
         label: "Undo",
         onClick: () => {
-          removeToast(id);
+          toast.dismiss(id);
           void undoPairs(deps, undo);
         },
       },
     });
 
   if (pairs.length >= SUMMARY_FROM) {
-    toast(`auto-join-${batch}`, `Joined ${pairs.length} projects across hosts`, pairs);
+    notify(`auto-join-${batch}`, `Joined ${pairs.length} projects across hosts`, pairs);
     return;
   }
   pairs.forEach((pair, i) => {
     const joined = before[i][0] ?? describe(deps, pair.joinedId);
     const into = before[i][1] ?? describe(deps, pair.intoId);
-    toast(
+    notify(
       `auto-join-${batch}-${pair.joinedId}`,
       joined && into ? `Joined ${joined} with ${into}` : "Joined projects across hosts",
       [pair],

@@ -17,9 +17,9 @@
 
 import { useAppStore, OWN_CLAIM } from "../store/app-store";
 import { useRemotePaneStore } from "../store/remote-pane-store";
-import { addErrorToast } from "../store/toast-store";
 import { dirtyPaneIds, useOpenFileStore } from "../store/open-file-store";
 import { confirmUnsavedEdits, guardUnsavedEdits } from "../store/unsaved-guard-store";
+import { toast } from "../toast";
 import { allPaneIds } from "./layout/pane-tree";
 import {
   findPanelWithPane,
@@ -123,7 +123,7 @@ export async function detachTabToNewWindow(
   } catch (err) {
     // The tab never left this window, so there is nothing to put back.
     console.error("Failed to move tab to a new window", err);
-    addErrorToast(`detach-tab-${tabId}`, "Couldn't move tab to a new window", err);
+    toast.error("Couldn't move tab to a new window", { id: `detach-tab-${tabId}`, error: err });
   }
 }
 
@@ -158,12 +158,11 @@ export async function movePaneToNewWindow(
     // Once extracted, the pane is a tab of its own here and that tab stays:
     // the pane is not lost, only not where it was — the toast says so.
     console.error("Failed to move pane to a new window", err);
-    addErrorToast(
-      `detach-pane-${paneId}`,
+    toast.error(
       extracted
         ? "Couldn't move pane to a new window — it's in a tab of its own here"
         : "Couldn't move pane to a new window",
-      err,
+      { id: `detach-pane-${paneId}`, error: err },
     );
   }
 }

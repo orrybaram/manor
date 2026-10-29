@@ -31,11 +31,11 @@ describe("isHalloweenWeek", () => {
 });
 
 describe("cobwebLevel", () => {
-  it("grows at 5, 20 and 60 minutes unseen", () => {
-    expect(cobwebLevel(4.9 * MIN)).toBe(0);
-    expect(cobwebLevel(5 * MIN)).toBe(1);
-    expect(cobwebLevel(20 * MIN)).toBe(2);
-    expect(cobwebLevel(60 * MIN)).toBe(3);
+  it("grows at 2, 10 and 30 minutes unseen", () => {
+    expect(cobwebLevel(1.9 * MIN)).toBe(0);
+    expect(cobwebLevel(2 * MIN)).toBe(1);
+    expect(cobwebLevel(10 * MIN)).toBe(2);
+    expect(cobwebLevel(30 * MIN)).toBe(3);
     expect(cobwebLevel(600 * MIN)).toBe(3);
   });
 });

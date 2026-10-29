@@ -193,6 +193,7 @@ export type HostRefusedMethod = LocalOnly<
   | "remoteControl.revoke"
   | "remoteControl.startRelay"
   | "remoteControl.stopRelay"
+  | "remoteControl.setStartOnLaunch"
   | "remoteControl.resetRelayAddress"
   | "linear.connect"
   | "hosts.serverStatus"

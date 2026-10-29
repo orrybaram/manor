@@ -27,7 +27,7 @@ const TONE: Record<StatusView["tone"], HostTone | null> = {
  * This computer on the Hosts page: a host row like the remote
  * ones, holding what the old Remote control page's status card did — whether devices can
  * reach This Mac (through the relay, confirmed before it turns on), and
- * resetting its pairing keys.
+ * whether it comes back on by itself at launch, and resetting its pairing keys.
  *
  * `remoteControl.*` is `localOnly`: a browser sees the state
  * but can't touch the switch or the reset.
@@ -39,6 +39,7 @@ export function ThisMacRow() {
   const turnOn = useRemoteControlStore((s) => s.turnOn);
   const turnOff = useRemoteControlStore((s) => s.turnOff);
   const resetRelayAddress = useRemoteControlStore((s) => s.resetRelayAddress);
+  const setStartOnLaunch = useRemoteControlStore((s) => s.setStartOnLaunch);
 
   const [dialog, setDialog] = useState<"confirm" | "reset" | null>(null);
 
@@ -72,6 +73,7 @@ export function ThisMacRow() {
         <>
           <RelayConfirmDialog
             open={dialog === "confirm"}
+            startOnLaunch={status.startOnLaunch}
             onCancel={() => setDialog(null)}
             onConfirm={() => {
               setDialog(null);
@@ -115,6 +117,22 @@ export function ThisMacRow() {
             checked={isOn(status)}
             disabled={locked}
             onCheckedChange={(on) => (on ? setDialog("confirm") : void turnOff())}
+          />
+        </SettingRow>
+        <SettingRow
+          label="Turn on when Manor opens"
+          hint="Remote control turns on and starts the relay every time Manor opens."
+        >
+          <Switch
+            data-testid="remote-control-on-launch"
+            aria-label="Turn on remote control when Manor opens"
+            checked={status.startOnLaunch}
+            // Unlike the main switch, never stuck on: with the keychain gone
+            // it can still be turned off, just not on.
+            disabled={
+              isWebApp() || busy || (!status.encryptionAvailable && !status.startOnLaunch)
+            }
+            onCheckedChange={(on) => void setStartOnLaunch(on)}
           />
         </SettingRow>
         {status.relayNotice && (

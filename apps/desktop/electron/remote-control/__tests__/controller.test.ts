@@ -35,7 +35,9 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-function fakes(options: { gateLoad?: boolean } = {}) {
+function fakes(
+  options: { gateLoad?: boolean; startOnLaunch?: boolean; encryption?: boolean } = {},
+) {
   const order: string[] = [];
   const seenListeners: Array<() => void> = [];
   const gate = {
@@ -130,7 +132,7 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     }),
     revokeMany: vi.fn(async (ids: readonly string[]) => revokeIds(ids)),
     ready: true,
-    encryptionAvailable: () => true,
+    encryptionAvailable: () => options.encryption ?? true,
     list: () => [...paired],
     ids: () => paired.map((d) => d.id),
     idsInOtherRelayRooms: (roomId: string) =>
@@ -151,6 +153,13 @@ function fakes(options: { gateLoad?: boolean } = {}) {
   });
   const push = { notify: vi.fn(async () => 1) };
   const hostEndpoints = new Map<string, ReadonlySet<string>>();
+  const launchSetting = {
+    on: options.startOnLaunch ?? false,
+    get: () => launchSetting.on,
+    set: vi.fn((on: boolean) => {
+      launchSetting.on = on;
+    }),
+  };
 
   const controller = new RemoteControlController({
     loadRuntime,
@@ -158,8 +167,10 @@ function fakes(options: { gateLoad?: boolean } = {}) {
     push: push as unknown as PushManager,
     appVersion: "1.2.3",
     hostPushEndpoints: (hostId) => hostEndpoints.get(hostId) ?? new Set(),
+    startOnLaunch: launchSetting,
   });
   return {
+    launchSetting,
     controller,
     gate,
     deviceStore,
@@ -421,6 +432,7 @@ describe("RemoteControlController before the runtime loads", () => {
       relayAppUrl: null,
       relayViewers: 0,
       relayNotice: null,
+      startOnLaunch: false,
     });
     expect(f.loadRuntime).not.toHaveBeenCalled();
   });
@@ -547,5 +559,58 @@ describe("RemoteControlController racing the runtime load", () => {
     await Promise.all([enabling, disabling]);
     expect(f.controller.status().enabled).toBe(false);
     expect(f.gate.open).not.toHaveBeenCalled();
+  });
+});
+
+describe("RemoteControlController start on launch", () => {
+  it("does nothing at launch when the user did not ask", async () => {
+    const f = fakes();
+    await f.controller.startIfAsked();
+    expect(f.loadRuntime).not.toHaveBeenCalled();
+    expect(f.controller.status()).toMatchObject({
+      enabled: false,
+      startOnLaunch: false,
+      relay: { state: "stopped" },
+    });
+  });
+
+  it("enables and starts the relay at launch when asked", async () => {
+    const f = fakes({ startOnLaunch: true });
+    await f.controller.startIfAsked();
+    expect(f.gate.open).toHaveBeenCalledTimes(1);
+    expect(f.relay.start).toHaveBeenCalledTimes(1);
+    expect(f.controller.status()).toMatchObject({
+      enabled: true,
+      startOnLaunch: true,
+      relay: { state: "running" },
+    });
+  });
+
+  it("stays off at launch when device tokens cannot be stored safely", async () => {
+    const f = fakes({ startOnLaunch: true, encryption: false });
+    await f.controller.startIfAsked();
+    expect(f.loadRuntime).not.toHaveBeenCalled();
+    expect(f.controller.status().enabled).toBe(false);
+  });
+
+  it("starts nothing when shut down before launch gets to it", async () => {
+    const f = fakes({ startOnLaunch: true });
+    await f.controller.shutdown();
+    await f.controller.startIfAsked();
+    expect(f.relay.start).not.toHaveBeenCalled();
+    expect(f.controller.status().enabled).toBe(false);
+  });
+
+  it("keeps the setting and reports it without turning anything on", () => {
+    const f = fakes();
+    const listener = vi.fn();
+    f.controller.onChange(listener);
+    const status = f.controller.setStartOnLaunch(true);
+    expect(f.launchSetting.set).toHaveBeenCalledWith(true);
+    expect(status).toMatchObject({ startOnLaunch: true, enabled: false });
+    expect(listener).toHaveBeenCalledWith(
+      expect.objectContaining({ startOnLaunch: true }),
+    );
+    expect(f.loadRuntime).not.toHaveBeenCalled();
   });
 });

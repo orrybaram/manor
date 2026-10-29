@@ -358,6 +358,11 @@ const nativeApi = {
      */
     unsavedPanesElsewhere: (paneIds: string[]) =>
       invoke<{ paneId: string; path: string }[]>("window:unsavedPanesElsewhere", paneIds),
+    /** Whether main sees this window as focused (`document.hasFocus()` lies under a webview). */
+    isFocused: () => invoke<boolean>("window:isFocused"),
+    /** Main's `focus`/`blur` for this window, as they happen. */
+    onFocusChanged: (callback: (focused: boolean) => void) =>
+      onChannel("window:focus-changed", callback),
   },
 };
 

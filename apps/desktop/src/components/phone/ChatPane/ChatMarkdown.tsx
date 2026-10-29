@@ -38,6 +38,11 @@ type ChatMarkdownProps = {
   source: string;
   /** Fade in words as they appear (while `ChatTypewriter` types). */
   fadeWords?: boolean;
+  /**
+   * Show an image as its alt text and address instead of loading it, so
+   * merely looking at a transcript sends no request to a URL it names.
+   */
+  imagesAsText?: boolean;
 };
 
 /**
@@ -49,7 +54,7 @@ type ChatMarkdownProps = {
  * push must not re-parse every reply above it.
  */
 export const ChatMarkdown = memo(function ChatMarkdown(props: ChatMarkdownProps) {
-  const { source, fadeWords = false } = props;
+  const { source, fadeWords = false, imagesAsText = false } = props;
 
   return (
     <div className={styles.markdown}>
@@ -65,6 +70,13 @@ export const ChatMarkdown = memo(function ChatMarkdown(props: ChatMarkdownProps)
             ) : (
               <span>{children}</span>
             ),
+          ...(imagesAsText && {
+            img: ({ src, alt }) => (
+              <span className={styles.imageText}>
+                [{alt || "image"}]{typeof src === "string" && src ? ` ${src}` : ""}
+              </span>
+            ),
+          }),
         }}
       >
         {source}

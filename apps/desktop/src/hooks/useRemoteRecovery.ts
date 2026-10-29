@@ -4,7 +4,7 @@ import { whenDirectSettled } from "../bridge/server-set";
 import { useAppStore } from "../store/app-store";
 import { useHostStore } from "../store/host-store";
 import { remoteHostByPane, useRemotePaneStore } from "../store/remote-pane-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 
 /** This window's panes, as of now — computed once per event. */
 const thisWindowsPanes = () => windowPaneIds(useAppStore.getState().workspaceLayouts);
@@ -39,10 +39,8 @@ export function useRemoteRecovery() {
         reattach: (paneIds) =>
           useRemotePaneStore.getState().reattach(paneIds, "host-recovered"),
         notify: (message) =>
-          useToastStore.getState().addToast({
+          toast.success(message, {
             id: `host-restarted-${hostId}`,
-            message,
-            status: "success",
             // Lands as the user comes back to the laptop — give them time
             // to see it.
             duration: 10_000,
@@ -58,6 +56,15 @@ export function useRemoteRecovery() {
     // A waiting pane remounts once its host connects, and its mount creates
     // the session as on relaunch: a fresh shell in its cwd that
     // resumes the pane's agent, or the session itself if the host kept it.
+    const createWaitingPanes = (hostId: string, windowPanes = thisWindowsPanes()): void => {
+      const panes = useRemotePaneStore
+        .getState()
+        .takePanesAwaitingHost(hostId, (paneId) => windowPanes.has(paneId));
+      if (panes.length === 0) return;
+      void whenDirectSettled(hostId).then(() =>
+        useRemotePaneStore.getState().reattach(panes, "host-recovered"),
+      );
+    };
     const connected = new Set(
       useHostStore
         .getState()
@@ -73,21 +80,22 @@ export function useRemoteRecovery() {
         }
         if (connected.has(host.hostId)) continue;
         connected.add(host.hostId);
-        const windowPanes = (inThisWindow ??= thisWindowsPanes());
-        const remotePanes = useRemotePaneStore.getState();
-        const panes = remotePanes.takePanesAwaitingHost(host.hostId, (paneId) =>
-          windowPanes.has(paneId),
-        );
-        if (panes.length === 0) continue;
-        void whenDirectSettled(host.hostId).then(() =>
-          useRemotePaneStore.getState().reattach(panes, "host-recovered"),
-        );
+        createWaitingPanes(host.hostId, (inThisWindow ??= thisWindowsPanes()));
       }
     });
+    // An adopted host's panes are created through its host server, whose
+    // owner channel comes up after the host reads connected: a remount in
+    // between is refused and waits again, with no connect left to see.
+    const unsubscribeServers = window.electronAPI?.hosts?.onServerChanged?.(
+      ({ hostId, state }) => {
+        if (state === "connected") createWaitingPanes(hostId);
+      },
+    );
 
     return () => {
       unsubscribe?.();
       unsubscribeHosts();
+      unsubscribeServers?.();
     };
   });
 }

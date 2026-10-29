@@ -1,4 +1,5 @@
-import { getConnector, getConnectorForCommand } from "../../agent-connectors";
+import { getAllAgentKinds, getConnector, getConnectorForCommand } from "../../agent-connectors";
+import type { AgentKind } from "../../terminal-host/types";
 import { resolveAgentCommand } from "../../../src/lib/resolve-agent-command";
 import { parseWorkspaceKey, workspaceKey } from "../../../src/lib/workspace-key";
 import type { AgentInfo } from "../../agent-persistence";
@@ -73,31 +74,90 @@ export async function agentsBuildResumeCommand(
   // A remote host's agent too: resuming one is a command typed into a pane.
   const agent = findAgent(ctx.deps, agentId);
   if (!agent) return null;
-  const base = agent.agentCommand ?? (await fallbackAgentCommand(ctx, agent));
+  const base =
+    agent.agentCommand ??
+    (await kindCommandIn(ctx, agent.agentKind, agent.hostId, agent.workspacePath));
   return getConnector(agent.agentKind).getResumeCommand(base, agent.agentSessionId);
 }
 
 /**
- * The command to resume an Agent that recorded none — one started by typing
- * the CLI into a shell rather than from Manor. Its project's agent command
- * when that runs the same kind of agent, else the kind's default.
+ * The command that starts `kind` in a workspace, for a session that recorded
+ * none (an Agent started by typing the CLI into a shell, or a Session from
+ * outside Manor): the workspace project's agent command when that runs the
+ * same kind of agent, else the kind's default.
  */
-async function fallbackAgentCommand(
+async function kindCommandIn(
   ctx: HandlerCtx<ServerDeps>,
-  agent: AgentInfo,
+  kind: AgentKind,
+  hostId: string,
+  workspacePath: string | null,
 ): Promise<string> {
-  const connector = getConnector(agent.agentKind);
-  if (!agent.workspacePath) return connector.defaultCommand;
+  const connector = getConnector(kind);
+  if (!workspacePath) return connector.defaultCommand;
   try {
     const projectCommand = resolveAgentCommand({
-      key: workspaceKey(agent.hostId, agent.workspacePath),
+      key: workspaceKey(hostId, workspacePath),
       projects: await ctx.deps.projectManager.getProjects(),
     });
-    if (getConnectorForCommand(projectCommand).kind === agent.agentKind) return projectCommand;
+    if (getConnectorForCommand(projectCommand).kind === kind) return projectCommand;
   } catch {
     // No projects to ask: the kind's default still resumes the session.
   }
   return connector.defaultCommand;
+}
+
+/** A Session to resume or fork, and the workspace it will run in. */
+export interface SessionCommandRef {
+  hostId: string;
+  kind: AgentKind;
+  sessionId: string;
+  /** Its transcript on its host: what pi forks. */
+  path: string;
+  /** The workspace the command will run in, whose project names the agent command. */
+  workspacePath: string | null;
+}
+
+const AGENT_KINDS: ReadonlySet<string> = new Set(getAllAgentKinds());
+
+/**
+ * C0 and C1 control characters and DEL: typed into a shell, Ctrl-U or
+ * Ctrl-C in a line defeats any quoting around it.
+ */
+function hasControlChars(value: string): boolean {
+  return /[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
+/**
+ * The shell command that resumes or forks a **Session** in its kind's CLI
+ * (the Agents modal's Resume and Fork); null when the kind can't.
+ * Resuming keeps the CLI's session id, so the Agent the new pane reports is
+ * the Session's.
+ */
+export async function agentsBuildSessionCommand(
+  ctx: HandlerCtx<ServerDeps>,
+  ref: SessionCommandRef,
+  action: "resume" | "fork",
+): Promise<string | null> {
+  if (typeof ref !== "object" || ref === null) throw new Error("agents:buildSessionCommand: ref must be an object");
+  assertString(ref.hostId, "hostId");
+  assertString(ref.sessionId, "sessionId");
+  if (typeof ref.path !== "string") throw new Error("agents:buildSessionCommand: path must be a string");
+  if (ref.workspacePath !== null && typeof ref.workspacePath !== "string") {
+    throw new Error("agents:buildSessionCommand: workspacePath must be a string or null");
+  }
+  if (!AGENT_KINDS.has(ref.kind)) throw new Error("agents:buildSessionCommand: unknown kind");
+  if (action !== "resume" && action !== "fork") throw new Error("agents:buildSessionCommand: unknown action");
+  if ([ref.hostId, ref.sessionId, ref.path, ref.workspacePath ?? ""].some(hasControlChars)) {
+    throw new Error("agents:buildSessionCommand: refusing control characters");
+  }
+  const connector = getConnector(ref.kind);
+  // A project command that always continues would resume the wrong session.
+  const base = connector.withoutSessionArgs(
+    await kindCommandIn(ctx, ref.kind, ref.hostId, ref.workspacePath),
+  );
+  return action === "resume"
+    ? connector.getResumeCommand(base, ref.sessionId)
+    : connector.getForkCommand(base, ref.sessionId, ref.path);
 }
 
 /**
@@ -309,6 +369,7 @@ export const agents = {
   getPaneStatuses: method(agentsGetPaneStatuses, { route: LOCAL_ROUTE }),
   consumePruneNotice: method(agentsConsumePruneNotice, { route: LOCAL_ROUTE }),
   buildResumeCommand: method(agentsBuildResumeCommand, { route: LOCAL_ROUTE }),
+  buildSessionCommand: method(agentsBuildSessionCommand, { route: LOCAL_ROUTE }),
   // Called after every `pty.create` that has a `cwd` — without it, a pane
   // opened from a browser never gets the project context the sidebar reads.
   setPaneContext: method(agentsSetPaneContext, { mutating: true, route: byPane(0) }),

@@ -5,7 +5,7 @@ import {
   type ProjectInfo,
   type SetupProgressEvent,
 } from "../project-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import {
   fakeLayoutApi,
   fakeViewportApi,
@@ -92,7 +92,7 @@ describe("createWorktree setup script", () => {
       workspaceLayouts: {},
       activeWorkspacePath: null,
     });
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     progressListeners.clear();
     vi.clearAllMocks();
   });
@@ -147,10 +147,10 @@ describe("createWorktree setup script", () => {
       status: "done",
       workspacePath: "/worktrees/test-project/other",
     });
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
 
     serverReports({ step: "setup-script", status: "done", workspacePath: worktreePath });
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ message: "Workspace setup complete" }),
     ]);
     expect(progressListeners.size).toBe(0);
@@ -175,7 +175,7 @@ describe("createWorktree setup script", () => {
 
     await useProjectStore.getState().createWorktree("proj-1", "quick", { branch: "quick" });
 
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ message: "Workspace setup complete" }),
     ]);
   });
@@ -209,7 +209,7 @@ describe("createWorktree setup script", () => {
       .getState()
       .createWorktree("proj-1", "feat", { branch: "feat", agentCommand: "claude" });
 
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ id: `worktree-setup-${worktreePath}`, status: "loading" }),
     ]);
 
@@ -225,7 +225,7 @@ describe("createWorktree setup script", () => {
     expect(tabs.length).toBe(1);
 
     serverReports({ step: "setup-script", status: "done", workspacePath: worktreePath });
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ message: "Workspace setup complete" }),
     ]);
   });

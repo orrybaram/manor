@@ -1,5 +1,5 @@
 import { useHostStore, type HostStatusInfo } from "../store/host-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 import { hostName } from "./hosts";
 import { requestUi } from "../utils/ui-request";
 
@@ -56,10 +56,8 @@ export async function finishPods(pods: readonly ProjectPod[], destroy: boolean):
       try {
         await removeHost(pod.hostId, true);
       } catch {
-        useToastStore.getState().addToast({
+        toast.error(`Couldn't delete ${pod.name}'s pod`, {
           id: `delete-pod-${pod.hostId}`,
-          message: `Couldn't delete ${pod.name}'s pod`,
-          status: "error",
           action: {
             label: "Open Hosts settings",
             onClick: () => requestUi({ type: "open-hosts-settings", hostId: pod.hostId }),

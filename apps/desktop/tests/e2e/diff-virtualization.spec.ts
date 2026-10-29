@@ -411,10 +411,70 @@ async function scrollPaneTo(window: Page, top: number): Promise<void> {
   await window.waitForTimeout(300);
 }
 
+test("clicking a file in the list scrolls to the top of that file", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  test.setTimeout(180_000);
+  // Several big files ahead of the target: on the way past them their rows
+  // build and measure, and a smooth scroll used to stop a screen or so in.
+  await bootDiff(app, window, tempHome, (worktree, lines) => {
+    for (const name of ["b1", "b2", "b3", "b4"]) {
+      fs.writeFileSync(
+        path.join(worktree, `${name}.ts`),
+        lines(FAR_LINES, name).join("\n") + "\n",
+      );
+    }
+    git(worktree, "add b1.ts b2.ts b3.ts b4.ts");
+    fs.writeFileSync(
+      path.join(worktree, "zz.ts"),
+      lines(400, "zz").join("\n") + "\n",
+    );
+    git(worktree, "add zz.ts");
+  });
+
+  await window.locator('span[title="zz.ts"]').first().click();
+
+  const target = window.locator('[data-file-path="zz.ts"]');
+  await expect(target).toBeInViewport({ timeout: 10_000 });
+  // The file's top sits just under the pane's sticky header, and stays there.
+  await expect
+    .poll(
+      () =>
+        target.evaluate((el) => {
+          // The pane is the scroller that carries its header's height.
+          let pane = el.parentElement;
+          while (pane && !pane.style.getPropertyValue("--diff-header-offset"))
+            pane = pane.parentElement;
+          if (!pane) return Infinity;
+          const headerBottom =
+            pane.getBoundingClientRect().top +
+            parseFloat(pane.style.getPropertyValue("--diff-header-offset"));
+          return Math.abs(el.getBoundingClientRect().top - headerBottom);
+        }),
+      { timeout: 10_000 },
+    )
+    .toBeLessThan(2);
+  await window.waitForTimeout(500);
+  const firstRow = await target
+    .locator("[data-index]")
+    .first()
+    .getAttribute("data-index");
+  expect(firstRow).toBe("0");
+  await window.screenshot({
+    path: test.info().outputPath("scroll-to-file.png"),
+  });
+});
+
 async function bootDiff(
   app: Parameters<typeof importSeededProject>[0],
   window: Page,
   tempHome: string,
+  more?: (
+    worktree: string,
+    lines: (n: number, gen: string) => string[],
+  ) => void,
 ): Promise<void> {
   await importSeededProject(app, window, tempHome);
   await createWorkspace(window, "diff-virtual");
@@ -437,6 +497,7 @@ async function bootDiff(
   far[FAR_LINES - 1] = `export const last = "zqneedle";`;
   fs.writeFileSync(path.join(worktree, "far.ts"), far.join("\n") + "\n");
   git(worktree, "add far.ts");
+  more?.(worktree, lines);
 
   await window.keyboard.press("ControlOrMeta+Shift+g");
   await expect(

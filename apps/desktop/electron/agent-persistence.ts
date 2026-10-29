@@ -4,6 +4,7 @@ import crypto from "node:crypto";
 
 import { LOCAL_HOST_ID, type HostId } from "./backend/types";
 import { manorDataDir } from "./paths";
+import { matchesAgentQuery } from "../src/lib/agent-query";
 
 /**
  * Agent persistence model
@@ -278,6 +279,7 @@ export class AgentManager {
   getAllAgents(opts?: {
     projectId?: string;
     status?: string;
+    query?: string;
     limit?: number;
     offset?: number;
   }): AgentInfo[] {
@@ -288,6 +290,10 @@ export class AgentManager {
     }
     if (opts?.status !== undefined) {
       agents = agents.filter((t) => t.status === opts.status);
+    }
+    if (opts?.query) {
+      const query = opts.query;
+      agents = agents.filter((t) => matchesAgentQuery(t, query));
     }
 
     agents.sort(

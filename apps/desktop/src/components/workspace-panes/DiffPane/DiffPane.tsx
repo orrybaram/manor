@@ -53,7 +53,7 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { openInEditor } from "../../../lib/editor";
 import { openFileBeside } from "../../../lib/open-in-file-pane";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
-import { useToastStore } from "../../../store/toast-store";
+import { toast, type ProgressHandle } from "../../../toast";
 import { onUiRequest } from "../../../utils/ui-request";
 import { Collapse } from "../../ui/Collapse/Collapse";
 import { isWebApp } from "../../../lib/platform";
@@ -72,8 +72,17 @@ type DiffPaneProps = {
 /** Frames to wait for a search match's row to be built before giving up. */
 const MATCH_REVEAL_FRAMES = 30;
 
+/** Frames a file-list jump keeps re-aiming while the rows around it settle. */
+const FILE_JUMP_FRAMES = 60;
+
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
 const NO_STAGED_FILES: Set<string> = new Set();
+
+/**
+ * Each workspace's push toast, by push id (its path). Module-level so a
+ * DiffPane that remounts mid-push still drives the toast its push started.
+ */
+const pushToasts = new Map<string, ProgressHandle>();
 
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
@@ -128,6 +137,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       anchor: SelectionAnchor | null;
     }>({ text: "", anchor: null });
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const fileJump = useRef<number | null>(null);
 
     useLayoutEffect(() => {
       const container = containerRef.current;
@@ -185,16 +195,48 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       });
     }, []);
 
+    /**
+     * Bring a file's top up to just under the pane's header.
+     *
+     * Not a smooth `scrollIntoView`: rows build and measure as the pane
+     * passes them, every file above the target changes height mid-flight,
+     * and the virtualizer's own scroll corrections cancel the animation — on
+     * a large diff it stopped a screen or so from where it set out. So the
+     * pane jumps, then re-aims each frame while the rows near the file
+     * settle, until the file holds still under the header.
+     */
     const scrollToFile = useCallback(
       (path: string) => {
         revealFile(path);
-        requestAnimationFrame(() => {
-          fileRefs.current
-            .get(path)
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
+        if (fileJump.current !== null) cancelAnimationFrame(fileJump.current);
+        let frames = 0;
+        let still = 0;
+        const aim = () => {
+          fileJump.current = null;
+          const container = containerRef.current;
+          const file = fileRefs.current.get(path);
+          if (!container || !file) return;
+          const headerBottom =
+            container.getBoundingClientRect().top +
+            (headerEl?.offsetHeight ?? 0);
+          const drift = file.getBoundingClientRect().top - headerBottom;
+          const before = container.scrollTop;
+          if (Math.abs(drift) >= 1) container.scrollTop = before + drift;
+          // At rest once a frame neither needs nor can make a correction (a
+          // file near the end of the diff can never reach the top).
+          still = container.scrollTop === before ? still + 1 : 0;
+          if (still < 2 && frames++ < FILE_JUMP_FRAMES)
+            fileJump.current = requestAnimationFrame(aim);
+        };
+        fileJump.current = requestAnimationFrame(aim);
       },
-      [revealFile],
+      [revealFile, headerEl],
+    );
+    useEffect(
+      () => () => {
+        if (fileJump.current !== null) cancelAnimationFrame(fileJump.current);
+      },
+      [],
     );
 
     // A changed file, in a file pane beside this one: the one already in
@@ -492,7 +534,6 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       async (opts: { setUpstream?: boolean } = {}) => {
         if (!workspacePath) return;
         const pushId = workspacePath;
-        const { addToast, updateToast } = useToastStore.getState();
 
         // Reset cancel flag for this push attempt.
         cancelledRef.current = false;
@@ -502,11 +543,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         // the user has feedback even on the brief gap before the first
         // progress event arrives.
         const startedAt = Date.now();
-        addToast({
+        const pushToast = toast.progress("Pushing… 0s", {
           id: pushId,
-          status: "loading",
-          message: "Pushing… 0s",
-          persistent: true,
+          duration: "sticky",
           action: {
             label: "Cancel",
             onClick: () => {
@@ -515,15 +554,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             },
           },
         });
+        pushToasts.set(pushId, pushToast);
 
         // Tick the elapsed counter every 1s. Stored in a ref so the `done`
         // handler (and unmount) can clear it.
         if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
         elapsedTimerRef.current = setInterval(() => {
           const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-          useToastStore
-            .getState()
-            .updateToast(pushId, { message: `Pushing… ${elapsed}s` });
+          pushToast.update({ message: `Pushing… ${elapsed}s` });
         }, 1000);
 
         try {
@@ -539,12 +577,8 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             elapsedTimerRef.current = null;
           }
           setPushing(false);
-          updateToast(pushId, {
-            status: "error",
-            message: ipcErrorMessage(err),
-            persistent: true,
-            action: undefined,
-            detail: undefined,
+          pushToast.fail(ipcErrorMessage(err), undefined, {
+            duration: "sticky",
           });
         }
       },
@@ -562,12 +596,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       if (!workspacePath) return;
       const unsubscribe = window.electronAPI.git.push.onProgress((evt) => {
         if (evt.pushId !== workspacePath) return;
-        const { updateToast } = useToastStore.getState();
+        const pushToast = pushToasts.get(evt.pushId);
 
         if (evt.type === "line") {
           // Only the latest line is shown in `detail` while loading; the full
           // log is reconstructed in the `done` branch via `stderr`.
-          updateToast(evt.pushId, { detail: evt.line });
+          pushToast?.update({ detail: evt.line });
           return;
         }
 
@@ -580,39 +614,23 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
           // Success
           if (evt.exitCode === 0) {
-            updateToast(evt.pushId, {
-              status: "success",
-              message: "Pushed",
-              persistent: false,
-              action: undefined,
-              detail: undefined,
-              duration: 3000,
-            });
+            pushToast?.succeed("Pushed", { duration: 3000 });
             return;
           }
 
           // Cancelled — detected via the ref-tracked Cancel callback rather
           // than parsing exit codes (SIGTERM exit varies by platform).
           if (cancelledRef.current) {
-            updateToast(evt.pushId, {
-              status: "error",
-              message: "Push cancelled",
-              persistent: false,
-              action: undefined,
-              detail: undefined,
-              duration: 3000,
-            });
+            pushToast?.fail("Push cancelled", undefined, { duration: 3000 });
             return;
           }
 
           // Categorized failure
           const pushError: PushError = categorizePushError(evt.stderr);
           const stderrTrimmed = evt.stderr.trim();
-          updateToast(evt.pushId, {
-            status: "error",
-            message: pushError.message,
+          pushToast?.fail(pushError.message, undefined, {
             detail: stderrTrimmed.length > 0 ? stderrTrimmed : undefined,
-            persistent: true,
+            duration: "sticky",
             autoExpand: true,
             action:
               pushError.action?.kind === "set-upstream"

@@ -154,6 +154,19 @@ describe("server-side launches", () => {
     });
   });
 
+  it("names the session by the kind queued with its line, else by the line after a cd", async () => {
+    const queued = "pane-queued-kind";
+    store.pendingCommands.set(queued, "cd /repo/api && claude --resume x", "agent-startup", { agentKind: "codex" });
+    await store.apply(WS, { type: "new-tab", tab: createTab(undefined, queued) }, { kind: "window", id: "1" });
+    const cdLine = await openAgentTab("cd '/repo/my api' && codex resume t1");
+    await settle();
+
+    const kindOf = (paneId: string) =>
+      (creates.find((c) => c.paneId === paneId)?.opts as { env?: Record<string, string> }).env?.MANOR_AGENT_KIND;
+    expect(kindOf(queued)).toBe("codex");
+    expect(kindOf(cdLine)).toBe("codex");
+  });
+
   it("spawns a remote workspace's pane on its own host", async () => {
     const key = workspaceKey("box", WS);
     const paneId = "pane-remote";

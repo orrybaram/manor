@@ -1,14 +1,25 @@
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import type { AgentInfo } from "../electron.d";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
-import { useToastStore } from "../store/toast-store";
+import { useLaunchedSessions } from "../store/launched-sessions-store";
+import { toast } from "../toast";
 import { agentWorkspaceKey, navigateToAgent } from "../utils/agent-navigation";
 import { paneHasNoAgent, resumeAgentInPane } from "./agent-resume-in-pane";
 import { isHomePath } from "./home";
 import { hasPaneId } from "./layout/pane-tree";
-import { ownerOf } from "./workspace-directory";
 import { parseWorkspaceKey } from "./workspace-key";
+
+/**
+ * Focus the pane `agent` runs in. If that pane came back as a bare shell
+ * (the terminal session was lost), bring the agent back there rather than
+ * show it empty.
+ */
+export function goToAgentPane(agent: AgentInfo): void {
+  navigateToAgent(agent);
+  if (!agent.paneId) return;
+  const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
+  if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
+}
 
 /**
  * Bring `agent` back: focus its pane when it still has one, else open a tab
@@ -26,11 +37,7 @@ export function resumeAgent(agent: AgentInfo): void {
         panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
       );
       if (paneExists) {
-        navigateToAgent(agent);
-        // Its pane came back as a bare shell (the terminal session was
-        // lost): bring the agent back there rather than show it empty.
-        const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
-        if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
+        goToAgentPane(agent);
         return;
       }
     }
@@ -40,32 +47,46 @@ export function resumeAgent(agent: AgentInfo): void {
   // The Dashboard hosts no panes, so a Home agent has
   // nowhere to resume into.
   if (isHomePath(wsPath)) {
-    useToastStore.getState().addToast({
-      id: `resume-home-agent-${agent.id}`,
-      message: "Dashboard agents can't be resumed",
-      status: "info",
-    });
+    toast.info("Dashboard agents can't be resumed", { id: `resume-home-agent-${agent.id}` });
+    return;
+  }
+  void resumeInNewTab(agent, wsPath, agentKey);
+}
+
+/**
+ * Open a tab in the agent's workspace (else the active one) running its
+ * kind's resume command, quoted, as main builds it for any kind.
+ */
+async function resumeInNewTab(
+  agent: AgentInfo,
+  wsPath: string | null,
+  agentKey: ReturnType<typeof agentWorkspaceKey>,
+): Promise<void> {
+  const workspacePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
+  if (!workspacePath) {
+    useAppStore.getState().addTab();
+    return;
+  }
+  let command: string | null = null;
+  try {
+    command = await window.electronAPI.agents.buildResumeCommand(agent.id);
+  } catch {
+    command = null;
+  }
+  if (!command) {
+    toast.error("This agent's session can't be resumed", { id: `resume-agent-${agent.id}` });
     return;
   }
   const app = useAppStore.getState();
-  if (wsPath && agentKey) {
-    app.setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
-  }
-  const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
-  if (activePath) {
-    const agentProject = ownerOf(projects, agentKey);
-    const agentCommand =
-      agent.agentCommand ??
-      agentProject?.agentCommand ??
-      DEFAULT_AGENT_COMMAND;
-    // Don't consume prewarmed — resume needs a specific --resume command.
-    // The line is queued on the server.
-    useAppStore
-      .getState()
-      .addTerminalTab(`${agentCommand} --resume ${agent.agentSessionId}`, {
-        kind: "agent-startup",
-      });
-  } else {
-    app.addTab();
+  if (wsPath && agentKey) app.setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
+  // Don't consume prewarmed — resume needs a specific resume command.
+  // The line is queued on the server.
+  const opened = useAppStore.getState().addTerminalTab(command, {
+    kind: "agent-startup",
+    agentKind: agent.agentKind,
+  });
+  // Its pane until the pane's Agent reports in (see `useLaunchedSessions`).
+  if (opened) {
+    useLaunchedSessions.getState().remember(`${agent.agentKind}:${agent.agentSessionId}`, opened.paneId);
   }
 }

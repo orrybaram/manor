@@ -1,6 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import { forwardedUrl } from "../../lib/port-forward-open";
 import { usePreferencesStore } from "../../store/preferences-store";
+import { useRemoteControlStore } from "../../store/remote-control-store";
+import { isOn } from "../settings/remote-control-status";
 import Activity from "lucide-react/dist/esm/icons/activity";
 import ArrowLeft from "lucide-react/dist/esm/icons/arrow-left";
 import ArrowRight from "lucide-react/dist/esm/icons/arrow-right";
@@ -121,6 +123,7 @@ export function useCommands({
     const tabId = selectSelectedTabId(s, panelId);
     return !!panel && !!tabId && (panel.pinnedTabIds ?? []).includes(tabId);
   });
+  const remoteControlOn = useRemoteControlStore((s) => isOn(s.status));
   const panelCount = useAppStore((s) => {
     const layout = selectActiveLayout(s);
     return layout ? Object.keys(layout.panels).length : 0;
@@ -612,6 +615,13 @@ export function useCommands({
           keywords: ["bug", "report", "issue", "github", "help"],
           closeFirst: true,
         },
+        {
+          command: "toggle-remote-control",
+          // Says what running it does now, not "Toggle".
+          label: remoteControlOn ? "Turn Off Remote Control" : "Turn On Remote Control",
+          icon: <RadioTower size={14} />,
+          keywords: ["remote", "relay", "phone", "mobile", "devices", "toggle"],
+        },
         { command: "ghosts", icon: <span>👻</span>, closeFirst: true },
       ]),
     ];
@@ -796,5 +806,6 @@ export function useCommands({
     activeTabPinned,
     panelCount,
     isHostServer,
+    remoteControlOn,
   ]);
 }

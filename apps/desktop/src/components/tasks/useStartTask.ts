@@ -4,7 +4,7 @@ import type { NewWorkspaceHandler } from "../../lib/start-issue-work";
 import type { TaskRow } from "../../lib/tasks";
 import { trackerFor } from "../../lib/trackers";
 import { ipcErrorMessage } from "../../lib/ipc-error";
-import { useToastStore } from "../../store/toast-store";
+import { toast } from "../../toast";
 
 /**
  * Start work on a task: fetch its body, then open the New Workspace dialog
@@ -32,10 +32,8 @@ export function useStartTask(
             retry: false,
           })
           .catch((err: unknown) => {
-            useToastStore.getState().addToast({
+            toast.info("Couldn't load the task's description — starting with its title only", {
               id: `task-body-${row.key}`,
-              message: "Couldn't load the task's description — starting with its title only",
-              status: "info",
               detail: ipcErrorMessage(err),
             });
             return null;

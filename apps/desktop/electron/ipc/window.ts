@@ -1,4 +1,4 @@
-import { BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { randomUUID } from "node:crypto";
 import { createDetachedWindow, formatClaimArg } from "../window";
 import type { HostDeps } from "./types";
@@ -108,6 +108,23 @@ export function register(deps: HostDeps): void {
     if (!win) return { x: 0, y: 0, width: 0, height: 0 };
     return win.getBounds();
   });
+
+  /**
+   * Whether the calling window is focused, as main sees it — the renderer's
+   * own `document.hasFocus()` is false while a `<webview>` pane holds focus.
+   * The initial value; `window:focus-changed` carries every change after.
+   */
+  ipcMain.handle("window:isFocused", (event): boolean => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    return !!win && !win.isDestroyed() && win.isFocused();
+  });
+
+  const pushFocus = (win: BrowserWindow, focused: boolean) => {
+    if (win.isDestroyed() || win.webContents.isDestroyed()) return;
+    win.webContents.send("window:focus-changed", focused);
+  };
+  app.on("browser-window-focus", (_event, win) => pushFocus(win, true));
+  app.on("browser-window-blur", (_event, win) => pushFocus(win, false));
 
   ipcMain.handle("window:listWindows", (event): WindowInfo[] =>
     listWindows(deps.getRendererWindows(), event.sender.id),

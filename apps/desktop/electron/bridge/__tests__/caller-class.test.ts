@@ -426,6 +426,9 @@ describe("the bridge's LOCAL_ONLY", () => {
         "remoteControl.resetRelayAddress",
         "remoteControl.revoke",
         "remoteControl.stopRelay",
+        // Asking for remote control on every launch would bring a revoked
+        // device's way in back after the next restart.
+        "remoteControl.setStartOnLaunch",
         // The one method in the whole surface that takes a raw credential as
         // an argument. Everything else Linear does hands back the result of
         // using the stored key and crosses like any other read.

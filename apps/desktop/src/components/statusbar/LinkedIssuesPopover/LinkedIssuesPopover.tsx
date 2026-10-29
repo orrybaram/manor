@@ -13,7 +13,7 @@ import { TaskDetail } from "../../tasks/TaskDetail/TaskDetail";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { TRACKERS, type TaskTracker } from "../../../lib/trackers";
 import type { TaskDetail as TaskDetailData, TaskRef } from "../../../lib/tasks";
-import { addErrorToast } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import tasksStyles from "../../tasks/TasksView.module.css";
 import styles from "./LinkedIssuesPopover.module.css";
 
@@ -220,7 +220,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // Revert the optimistic removal — the link still exists on disk.
         revertRemoval(issueId);
-        addErrorToast(`unlink-issue-error-${issueId}`, "Failed to unlink task", err);
+        toast.error("Failed to unlink task", { id: `unlink-issue-error-${issueId}`, error: err });
       }
     },
     [refs, projectId, workspacePath, visibleIssues, onClose, revertRemoval],
@@ -241,7 +241,7 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // Revert the optimistic removal — the issue is still open.
         revertRemoval(issueId);
-        addErrorToast(`close-issue-error-${issueId}`, "Failed to close task", err);
+        toast.error("Failed to close task", { id: `close-issue-error-${issueId}`, error: err });
         return;
       }
       try {
@@ -249,11 +249,10 @@ export function LinkedIssuesPopover(props: LinkedIssuesPopoverProps) {
       } catch (err) {
         // The issue genuinely is closed now — do not revert the removal,
         // just surface that the workspace link is stale.
-        addErrorToast(
-          `unlink-after-close-error-${issueId}`,
-          "Task closed, but failed to unlink from workspace",
-          err,
-        );
+        toast.error("Task closed, but failed to unlink from workspace", {
+          id: `unlink-after-close-error-${issueId}`,
+          error: err,
+        });
       }
     },
     [refs, projectId, workspacePath, visibleIssues, onClose, revertRemoval],

@@ -12,7 +12,7 @@ import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Button } from "../ui/Button/Button";
 import { FallbackScreen } from "../ui/ErrorBoundary/FallbackScreen";
 import { killPortWithToast } from "../../lib/port-forward-open";
-import { addErrorToast } from "../../store/toast-store";
+import { toast } from "../../toast";
 import { ipcErrorMessage } from "../../lib/ipc-error";
 import styles from "./CommandPalette.module.css";
 import dialogStyles from "../sidebar/dialogs.module.css";
@@ -102,7 +102,7 @@ export function ProcessesView() {
       try {
         await action();
       } catch (err) {
-        addErrorToast(id, failure, err);
+        toast.error(failure, { id, error: err });
       }
       void fetchInfo();
     },
@@ -159,7 +159,7 @@ export function ProcessesView() {
         );
       }
     } catch (err) {
-      addErrorToast("cleanup-dead-sessions", "Couldn't clean up dead sessions", err);
+      toast.error("Couldn't clean up dead sessions", { id: "cleanup-dead-sessions", error: err });
     } finally {
       setCleaningUp(false);
     }

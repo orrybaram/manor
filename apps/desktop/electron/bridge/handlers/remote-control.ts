@@ -8,7 +8,7 @@
  *
  * A pairing link crosses this boundary exactly once, in the return value of
  * `remoteControlPair` or `remoteControlReissue`, and is never broadcast in a
- * status push. That return value is also why seven of the eleven below are
+ * status push. That return value is also why eight of the twelve below are
  * `localOnly`: a stolen device token that can pair more devices is a token
  * that survives its own revocation, which is a different class of loss from
  * "can remove a workspace" — the one accepted knowingly.
@@ -155,6 +155,18 @@ export function remoteControlStopRelay(
   return ctx.deps.remoteControl.stopRelay();
 }
 
+/**
+ * "Turn on when Manor opens". Local only: a device that could set it would
+ * make this machine reachable again after the next restart.
+ */
+export function remoteControlSetStartOnLaunch(
+  ctx: HandlerCtx<ServerDeps>,
+  on: boolean,
+): RemoteControlStatus {
+  assertBoolean(on, "remoteControl.setStartOnLaunch.on");
+  return ctx.deps.remoteControl.setStartOnLaunch(on);
+}
+
 /** New relay address; every paired device is revoked. */
 export function remoteControlResetRelayAddress(
   ctx: HandlerCtx<ServerDeps>,
@@ -240,7 +252,7 @@ export const remoteControl = {
   getStatus: method(remoteControlGetStatus),
   // A token that can pair more devices survives its own revocation, and one
   // that can turn remote control off locks the owner out of the machine they
-  // are trying to take back: the seven that change the exposure stay local.
+  // are trying to take back: the eight that change the exposure stay local.
   vapidPublicKey: method(remoteControlVapidPublicKey),
   subscribePush: method(remoteControlSubscribePush),
   // A device's own pairings on the hosts; why it is not local, in the doc.
@@ -251,6 +263,7 @@ export const remoteControl = {
   revoke: method(remoteControlRevoke, { localOnly: true }),
   startRelay: method(remoteControlStartRelay, { localOnly: true }),
   stopRelay: method(remoteControlStopRelay, { localOnly: true }),
+  setStartOnLaunch: method(remoteControlSetStartOnLaunch, { localOnly: true }),
   resetRelayAddress: method(remoteControlResetRelayAddress, {
     localOnly: true,
   }),

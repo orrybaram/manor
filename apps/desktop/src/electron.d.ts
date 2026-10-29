@@ -34,6 +34,8 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
+  remoteControlOnLaunch: boolean;
 }
 
 export type AgentLifecycleStatus =
@@ -513,6 +515,11 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
+/** A Session in an agent CLI's own store on a host: `sessions.list`'s rows. */
+export type { SessionSummary } from "../electron/sessions/types";
+/** `sessions.transcript`'s answer: a Session's last turns, for the Agents modal's preview. */
+export type { PreviewTurn, SessionPreview, SessionRef } from "../electron/sessions/preview";
+
 /** Phone access through a host's server. */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";
 export type { HostServerStatus } from "../electron/host-server/relay";
@@ -673,6 +680,8 @@ export interface RemoteControlStatus {
   relayViewers: number;
   /** A relay notice that is not a connection state (identity replaced). */
   relayNotice: string | null;
+  /** Turn remote control on, relay and all, every time Manor opens. */
+  startOnLaunch: boolean;
 }
 
 export interface RemotePairResult {

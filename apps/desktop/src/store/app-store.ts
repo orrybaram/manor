@@ -53,6 +53,7 @@ import { BridgeUnavailableError } from "../bridge/client";
 import { provideHostLookups } from "../bridge/host-lookups";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
+  AgentKind,
   LayoutChangedPayload,
   LayoutEntry,
   PaneAgentStatus,
@@ -297,6 +298,9 @@ export interface AppState {
       /** The agent's first message, delivered through a file on the pane's
        *  host rather than typed into `command`. */
       prompt?: string;
+      /** The agent kind `command` starts, when known: the session's
+       *  `MANOR_AGENT_KIND`, not one guessed from the workspace's project. */
+      agentKind?: AgentKind;
     },
   ) => { tabId: string; paneId: string } | null;
   /**
@@ -749,6 +753,55 @@ let visiblePaneIdsCache: {
   layout: WorkspaceLayout | undefined;
   viewport: WorkspaceViewport | undefined;
   claims: LayoutClaim[] | undefined;
+  ids: ReadonlySet<string>;
+} | null = null;
+
+/**
+ * Every pane on screen in any of this desktop's windows, as far as this
+ * renderer can tell: what it shows itself (`selectVisiblePaneIds`) plus the
+ * whole of every claimed tab, in any workspace — a detached window shows its
+ * claim and nothing else, and the primary hides claimed tabs from its own
+ * set because it does not render them.
+ *
+ * What this cannot see is the primary's selection from inside a detached
+ * window: viewports are per renderer and never broadcast. An agent converges
+ * anyway (the window that sees it marks it seen, and main tells the rest).
+ *
+ * A browser counts no claims: it is another device, and a tab popped out on
+ * the desk is not on its screen.
+ */
+export function selectOnScreenPaneIds(state: ViewportState): ReadonlySet<string> {
+  const visible = selectVisiblePaneIds(state);
+  const claims = rendererPlatform() === "web" ? undefined : state.claims;
+  const layouts = state.workspaceLayouts;
+  const cached = onScreenPaneIdsCache;
+  if (
+    cached &&
+    cached.visible === visible &&
+    cached.claims === claims &&
+    cached.layouts === layouts
+  ) {
+    return cached.ids;
+  }
+  let ids: ReadonlySet<string> = visible;
+  for (const [path, list] of Object.entries(claims ?? {})) {
+    const layout = layouts[path];
+    if (!layout || list.length === 0) continue;
+    for (const claim of list) {
+      const found = findPanelWithTab(layout, claim.tabId);
+      if (!found) continue;
+      if (ids === visible) ids = new Set(visible);
+      for (const id of allPaneIds(found.tab.rootNode)) (ids as Set<string>).add(id);
+    }
+  }
+  onScreenPaneIdsCache = { visible, claims, layouts, ids };
+  return ids;
+}
+
+let onScreenPaneIdsCache: {
+  visible: ReadonlySet<string>;
+  claims: Record<string, LayoutClaim[]> | undefined;
+  layouts: Record<string, WorkspaceLayout>;
   ids: ReadonlySet<string>;
 } | null = null;
 
@@ -1374,7 +1427,7 @@ export function sendPendingCommand(
   paneId: string,
   text: string,
   kind: "shell" | "agent-startup" = "shell",
-  opts?: { submit?: boolean; prompt?: string },
+  opts?: { submit?: boolean; prompt?: string; agentKind?: AgentKind },
 ): void {
   void window.electronAPI?.layout
     ?.setPendingCommand(paneId, text, kind, opts)
@@ -1808,6 +1861,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       submit?: boolean;
       kind?: "shell" | "agent-startup";
       prompt?: string;
+      agentKind?: AgentKind;
     },
   ) => {
     const path = activeLayoutKey(get());
@@ -1820,6 +1874,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     sendPendingCommand(tabPaneId, command, opts?.kind ?? "shell", {
       submit: opts?.submit ?? true,
       prompt: opts?.prompt,
+      ...(opts?.agentKind && { agentKind: opts.agentKind }),
     });
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
     return { tabId: tab.id, paneId: tabPaneId };

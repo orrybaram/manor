@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 import type { AgentInfo } from "../electron.d";
 import { useAgentStore } from "../store/agent-store";
-import { useAppStore } from "../store/app-store";
-import { allPaneIds } from "../lib/layout/pane-tree";
+import { useOpenPaneIds } from "./useOpenPaneIds";
 
 /**
  * The agents the sidebar's Agents list shows. Shared with the collapsed rail's
@@ -10,22 +9,7 @@ import { allPaneIds } from "../lib/layout/pane-tree";
  */
 export function useVisibleAgents(): (AgentInfo & { projectName: string })[] {
   const agents = useAgentStore((s) => s.agents);
-  const workspaceLayouts = useAppStore((s) => s.workspaceLayouts);
-
-  // Collect all active pane IDs across all workspace layouts
-  const activePaneIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const layout of Object.values(workspaceLayouts)) {
-      for (const panel of Object.values(layout.panels)) {
-        for (const tab of panel.tabs) {
-          for (const id of allPaneIds(tab.rootNode)) {
-            ids.add(id);
-          }
-        }
-      }
-    }
-    return ids;
-  }, [workspaceLayouts]);
+  const activePaneIds = useOpenPaneIds();
 
   // Show active agents only while they still own a pane; show completed/error/abandoned
   // only if their pane is still active. Orphaned active records (paneId null) are

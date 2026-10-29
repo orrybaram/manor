@@ -130,9 +130,12 @@ export function buildCobwebs(
     const hub = point(cx, cy, true);
     const count = 9 + Math.floor(r() * 4);
     const rings = 14;
+    // How far round the corner the web reaches, and how far it leans off the diagonal.
+    const sweep = 62 + r() * 22;
+    const start = 4 + r() * (86 - sweep);
     const spokes: number[][] = [];
     for (let s = 0; s < count; s++) {
-      const angle = ((7 + (s + r() * 0.7) * (76 / count)) * Math.PI) / 180;
+      const angle = ((start + (s + r() * 0.7) * (sweep / count)) * Math.PI) / 180;
       const length = size * (0.65 + r() * 0.45);
       const ex = cx + dx * Math.cos(angle) * length;
       const ey = cy + dy * Math.sin(angle) * length;
@@ -166,40 +169,161 @@ export function buildCobwebs(
       if (a !== b) chain(a, b, 2, 0.2, 1.05 + r() * 0.25);
     }
     // Droopers hang from the top webs only; from a bottom corner they would trail off the panel.
-    for (let i = 0; i < (dy === 1 ? 3 : 0); i++) {
-      hang(spokes[1 + Math.floor(r() * (count - 2))]![6 + Math.floor(r() * 7)]!, 3 + Math.floor(r() * 7), 0.28);
+    for (let i = 0, n = dy === 1 ? 2 + Math.floor(r() * 4) : 0; i < n; i++) {
+      hang(spokes[1 + Math.floor(r() * (count - 2))]![6 + Math.floor(r() * 7)]!, 4 + Math.floor(r() * 14), 0.28);
     }
     if (withSpider) spider = spokes[Math.floor(count / 2)]![5]!;
+  };
+  // A round orb web strung out in the open below the top edge: spokes all
+  // the way round, rings with gaps, held up by guy lines to the top edge and
+  // to a side wall when one is near. Its lower half hangs off the rest.
+  const orb = (ox: number, radius: number, withSpider = false) => {
+    const oy = radius + 12 + r() * 30;
+    const count = 12 + Math.floor(r() * 5);
+    const rings = 11;
+    const hub = point(ox, oy);
+    const spokes: number[][] = [];
+    const tilt = r() * Math.PI * 2;
+    for (let s = 0; s < count; s++) {
+      const angle = tilt + ((s + (r() - 0.5) * 0.4) / count) * Math.PI * 2;
+      const length = radius * (0.8 + r() * 0.3);
+      const ids = [hub];
+      for (let k = 1; k <= rings; k++) {
+        const t = k / rings;
+        const id = point(ox + Math.cos(angle) * length * t, oy + Math.sin(angle) * length * t);
+        strand(ids[ids.length - 1]!, id, 0.45);
+        ids.push(id);
+      }
+      const tip = points[ids[rings]!]!;
+      const up = Math.sin(angle) < -0.25;
+      const toWall = Math.cos(angle) < 0 ? tip.x : width - tip.x;
+      if (up) {
+        // Out along the spoke until it meets the top edge.
+        const x = tip.x + (Math.cos(angle) / -Math.sin(angle)) * tip.y;
+        chain(ids[rings]!, point(Math.min(width, Math.max(0, x)), 0, true), 3, 0.38, 1.02);
+      } else if (Math.abs(Math.cos(angle)) > 0.6 && toWall < radius * 1.2) {
+        chain(ids[rings]!, point(Math.cos(angle) < 0 ? 0 : width, tip.y, true), 3, 0.38, 1.02);
+      }
+      spokes.push(ids);
+    }
+    // Rings start clear of the hub, the way an orb weaver leaves a free zone.
+    for (let s = 0; s < count; s++) {
+      const next = spokes[(s + 1) % count]!;
+      for (let k = 3; k <= rings; k++) {
+        if (r() < 0.18) continue;
+        chain(spokes[s]![k]!, next[k]!, 1 + Math.floor(k / 4), 0.34, 1.01 + r() * 0.06);
+      }
+    }
+    for (let i = 0; i < 2 + Math.floor(r() * 3); i++) {
+      hang(spokes[Math.floor(r() * count)]![rings - Math.floor(r() * 3)]!, 3 + Math.floor(r() * 10), 0.26);
+    }
+    if (withSpider) spider = spokes[Math.floor(r() * count)]![2]!;
+  };
+  // An old, shapeless tangle wedged into a top corner: loose threads strung
+  // every which way between the two walls, sagging into a dusty hammock.
+  const tangle = (cx: number, dx: 1 | -1, size: number) => {
+    const held: number[] = [];
+    for (let i = 0; i < 7; i++) held.push(point(cx + dx * r() * size, 0, true));
+    for (let i = 0; i < 6; i++) held.push(point(cx, r() * size * 0.8, true));
+    for (let i = 0; i < 46; i++) {
+      // Thickest in the corner, thinning out toward the room.
+      const d = size * Math.pow(r(), 0.7) * 0.9;
+      const a = (r() * Math.PI) / 2;
+      const id = point(cx + dx * Math.cos(a) * d, Math.sin(a) * d);
+      const P = points[id]!;
+      const near = held
+        .map((j) => ({ j, d: Math.hypot(points[j]!.x - P.x, points[j]!.y - P.y) }))
+        .sort((p, q) => p.d - q.d);
+      // Tied to whatever is already up, so nothing starts out loose.
+      for (const { j } of near.slice(0, 2 + Math.floor(r() * 2))) {
+        chain(j, id, 2 + Math.floor(r() * 2), 0.22 + r() * 0.12, 1.05 + r() * 0.3);
+      }
+      held.push(id);
+    }
+    for (let i = 0; i < 3 + Math.floor(r() * 4); i++) {
+      hang(held[13 + Math.floor(r() * 46)]!, 3 + Math.floor(r() * 12), 0.24);
+    }
   };
   // A loose thread strung along the top edge, left to sag under its own weight.
   const sheet = (from: number, to: number) => {
     chain(point(from * width, 0, true), point(to * width, 0, true), 18, 0.24, 1.08 + r() * 0.12);
   };
-  const dangle = (at: number, length: number) => hang(point(at * width, 0, true), length, 0.3);
+  // A long thread across a top corner, from the side wall to the top edge,
+  // with strands drooping off it.
+  const bridge = (dx: 1 | -1) => {
+    const wall = dx === 1 ? 0 : width;
+    const a = point(wall, height * (0.12 + r() * 0.3), true);
+    const b = point(wall + dx * width * (0.12 + r() * 0.3), 0, true);
+    const first = points.length;
+    chain(a, b, 16, 0.26, 1.04 + r() * 0.08);
+    const mids = points.length - first;
+    for (let i = 0; i < 2 + Math.floor(r() * 3); i++) {
+      hang(first + Math.floor(r() * mids), 3 + Math.floor(r() * 12), 0.24);
+    }
+  };
+  // A single strand from the top edge; with a spider, it's the line she came down on.
+  const dangle = (at: number, length: number, withSpider = false) => {
+    const top = point(at * width, 0, true);
+    hang(top, length, 0.3);
+    if (withSpider) spider = points.length - 1;
+  };
+  /** A dangle's length in links: some way down the panel, never to the floor. */
+  const drop = (reach: number) => Math.max(3, Math.min(70, Math.floor((height * reach) / 6)));
 
+  // Each visit gets its own arrangement: which corners, which kinds of web,
+  // how big, and where the loose threads fall.
   const base = Math.min(width, height);
-  if (level === 1) {
-    corner(width, 0, -1, 1, base * 0.28);
-  } else if (level === 2) {
-    corner(width, 0, -1, 1, base * 0.41);
-    corner(0, 0, 1, 1, base * 0.26);
-    sheet(0.13, 0.45);
-    sheet(0.32, 0.69);
-    dangle(0.54, 7);
-  } else {
-    corner(width, 0, -1, 1, base * 0.56, true);
-    corner(0, 0, 1, 1, base * 0.43);
-    corner(width, height, -1, -1, base * 0.31);
-    corner(0, height, 1, -1, base * 0.2);
-    sheet(0.12, 0.41);
-    sheet(0.25, 0.62);
-    sheet(0.48, 0.83);
-    sheet(0.06, 0.29);
-    sheet(0.62, 0.94);
-    dangle(0.37, 10);
-    dangle(0.67, 14);
-    dangle(0.22, 6);
+  const big = ({ 1: 1, 2: 2, 3: 3 + Math.floor(r() * 2) } as const)[level];
+  const small = ({ 1: Math.floor(r() * 2), 2: 2 + Math.floor(r() * 3), 3: 5 + Math.floor(r() * 4) } as const)[level];
+  const grow = ({ 1: 0.38, 2: 0.5, 3: 0.64 } as const)[level];
+  const slots = ["tl", "tr", "top", "bl", "br"] as const;
+  type Slot = (typeof slots)[number];
+  const free = new Set<Slot>(["tl", "tr", "top"]);
+  // Bottom corners only gather web on a panel left a good while.
+  if (level >= 2) free.add("br");
+  if (level >= 3) free.add("bl");
+  // The top-right corner is the favourite: it draws three tickets to every other spot's one.
+  const pick = (items: readonly Slot[]): Slot => {
+    const tickets = items.flatMap((s) => (s === "tr" ? [s, s, s] : [s]));
+    return tickets[Math.floor(r() * tickets.length)]!;
+  };
+  // The biggest web, and the spider, go in the first slot filled.
+  const wantSpider = level === 3 || (level === 2 && r() < 0.5);
+  for (let i = 0; i < big && free.size; i++) {
+    // The first web always takes a top spot, where the eye looks first.
+    const open = slots.filter((s) => free.has(s) && (i > 0 || !s.startsWith("b")));
+    const slot = pick(open);
+    free.delete(slot);
+    const size = base * grow * (i === 0 ? 1 : 0.5 + r() * 0.4);
+    const withSpider = wantSpider && i === 0;
+    if (slot === "top") {
+      const radius = Math.min(size * 0.55, (width - 24) / 2, (height - 60) / 2.4);
+      if (radius >= 24) orb(width * (0.3 + r() * 0.4), radius, withSpider);
+      else dangle(0.3 + r() * 0.4, drop(0.3), withSpider);
+      continue;
+    }
+    const dx = slot.endsWith("l") ? 1 : -1;
+    const atTop = slot.startsWith("t");
+    if (atTop && r() < 0.3) {
+      tangle(dx === 1 ? 0 : width, dx, size * 0.8);
+      if (withSpider) dangle(dx === 1 ? 0.04 + r() * 0.1 : 0.86 + r() * 0.1, drop(0.2 + r() * 0.2), true);
+    } else {
+      corner(dx === 1 ? 0 : width, atTop ? 0 : height, dx, atTop ? 1 : -1, atTop ? size : size * 0.55, withSpider);
+    }
   }
+  for (let i = 0; i < small; i++) {
+    const kind = r();
+    if (kind < 0.35) {
+      const from = r() * 0.8;
+      sheet(from, Math.min(1, from + 0.15 + r() * 0.3));
+    } else if (kind < 0.55) {
+      bridge(r() < 0.5 ? 1 : -1);
+    } else {
+      // Long strands: some just a wisp, some most of the way down.
+      dangle(0.05 + r() * 0.9, drop(0.08 + Math.pow(r(), 1.5) * 0.55));
+    }
+  }
+  if (wantSpider && spider === null) dangle(0.2 + r() * 0.6, drop(0.25 + r() * 0.3), true);
 
   const sim: CobwebSim = { width, height, points, strands, spider, steps: 0, brushedAt: -Infinity };
   // Let it hang: sag and settle before anyone sees it. Then take the way it

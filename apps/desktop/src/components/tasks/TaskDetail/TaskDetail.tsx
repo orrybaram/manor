@@ -20,7 +20,7 @@ import {
   type TaskRow,
 } from "../../../lib/tasks";
 import { trackerFor } from "../../../lib/trackers";
-import { addErrorToast } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import { Button } from "../../ui/Button/Button";
 import { Link } from "../../ui/Link/Link";
 import { PriorityIcon } from "../PriorityIcon";
@@ -102,7 +102,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await startTask(row);
     } catch (err) {
-      addErrorToast(`start-task-error-${row.key}`, "Failed to start task", err);
+      toast.error("Failed to start task", { id: `start-task-error-${row.key}`, error: err });
       return;
     }
     onDone();
@@ -119,11 +119,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await tracker.unlink(taskRef, projectId, workspacePath);
     } catch (err) {
-      addErrorToast(
-        `unlink-issue-error-${taskRef.id}`,
-        "Failed to unlink task",
-        err,
-      );
+      toast.error("Failed to unlink task", { id: `unlink-issue-error-${taskRef.id}`, error: err });
       setBusy(false);
       return;
     }
@@ -138,11 +134,7 @@ export function TaskDetail(props: TaskDetailProps) {
     try {
       await tracker.close(taskRef);
     } catch (err) {
-      addErrorToast(
-        `close-issue-error-${taskRef.id}`,
-        "Failed to close task",
-        err,
-      );
+      toast.error("Failed to close task", { id: `close-issue-error-${taskRef.id}`, error: err });
       setBusy(false);
       return;
     }
@@ -152,11 +144,10 @@ export function TaskDetail(props: TaskDetailProps) {
     } catch (err) {
       // The task genuinely is closed now — surface the stale link without
       // undoing the close.
-      addErrorToast(
-        `unlink-after-close-error-${taskRef.id}`,
-        "Task closed, but failed to unlink",
-        err,
-      );
+      toast.error("Task closed, but failed to unlink", {
+        id: `unlink-after-close-error-${taskRef.id}`,
+        error: err,
+      });
     }
   };
 

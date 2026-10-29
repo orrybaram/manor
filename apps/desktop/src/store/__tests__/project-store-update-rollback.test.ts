@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useProjectStore } from "../project-store";
-import { useToastStore, wasReported } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
+import { wasReported } from "../../toast";
 
 const electronAPI = (window as unknown as { electronAPI: Record<string, unknown> })
   .electronAPI;
@@ -36,7 +37,7 @@ describe("updateProject rollback", () => {
   });
 
   it("explains the rollback with a toast, marking the error reported", async () => {
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     const err = new Error("write failed");
     electronAPI.projects = { update: vi.fn().mockRejectedValue(err) };
 
@@ -44,7 +45,7 @@ describe("updateProject rollback", () => {
       useProjectStore.getState().updateProject("p1", { name: "renamed" }),
     ).rejects.toBe(err);
 
-    const toast = useToastStore.getState().toasts.find((t) => t.id === "update-project-p1");
+    const toast = toastStore.getState().toasts.find((t) => t.id === "update-project-p1");
     expect(toast?.status).toBe("error");
     expect(toast?.message).toMatch(/undone/);
     expect(toast?.detail).toBe("write failed");

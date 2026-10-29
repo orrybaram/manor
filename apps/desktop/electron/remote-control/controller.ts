@@ -6,11 +6,13 @@
  *
  * Two policies live here rather than in the pieces:
  *
- *   - **Nothing starts itself.** Remote control is off at every launch and the
- *     enabled state is deliberately not persisted. A setting that silently
- *     makes the machine reachable again after an update is exactly the
- *     surprise this feature cannot afford, and re-ticking a box costs the
- *     user a second.
+ *   - **Nothing starts itself unless asked to.** Remote control is off at
+ *     every launch and the enabled state is deliberately not persisted. A
+ *     setting that silently makes the machine reachable again after an update
+ *     is exactly the surprise this feature cannot afford. The one way back on
+ *     is the user's own "Turn on when Manor opens" (`startOnLaunch`): a
+ *     standing instruction they set, from this computer only, and that the
+ *     settings panel shows beside the switch it flips.
  *   - **Disabling means disabled.** Turning remote control off stops the relay
  *     too, and closes every connection the gate let in.
  *
@@ -80,6 +82,8 @@ export interface RemoteControlStatus {
    * replaced, so paired devices were revoked. Null when there is nothing.
    */
   relayNotice: string | null;
+  /** Turn remote control on, relay and all, every time Manor opens. */
+  startOnLaunch: boolean;
 }
 
 /** The heavy half of remote control, loaded on first real use. */
@@ -106,6 +110,11 @@ export interface RemoteControlControllerOptions {
    * phones are not told twice. Empty for a host not cached.
    */
   hostPushEndpoints?: (hostId: string) => ReadonlySet<string>;
+  /**
+   * Where "Turn on when Manor opens" is kept. Absent: never set, and
+   * `setStartOnLaunch` refuses.
+   */
+  startOnLaunch?: { get(): boolean; set(on: boolean): void };
 }
 
 const UNREADABLE_DEVICES_NOTICE =
@@ -130,6 +139,7 @@ export class RemoteControlController {
   private readonly appVersion: string;
   private readonly hostPushEndpoints: (hostId: string) => ReadonlySet<string>;
   private readonly room: RelayRoom;
+  private readonly startOnLaunchSetting: RemoteControlControllerOptions["startOnLaunch"];
 
   /** Set once the runtime has loaded; everything sync reads this. */
   private runtime: RemoteControlRuntime | null = null;
@@ -152,7 +162,9 @@ export class RemoteControlController {
     push = null,
     appVersion = "0.0.0",
     hostPushEndpoints = () => EMPTY_SET,
+    startOnLaunch,
   }: RemoteControlControllerOptions) {
+    this.startOnLaunchSetting = startOnLaunch;
     this.deviceStore = devices;
     this.push = push;
     this.appVersion = appVersion;
@@ -251,7 +263,33 @@ export class RemoteControlController {
       devices: ready ? this.deviceStore.list() : [],
       encryptionAvailable: this.deviceStore.encryptionAvailable(),
       relayNotice: ready ? this.relayNotice : UNREADABLE_DEVICES_NOTICE,
+      startOnLaunch: this.startOnLaunchSetting?.get() ?? false,
     };
+  }
+
+  /** Keep, or drop, the standing instruction to turn on at launch. */
+  setStartOnLaunch(on: boolean): RemoteControlStatus {
+    if (!this.startOnLaunchSetting) {
+      throw new Error("Starting remote control on launch is not available.");
+    }
+    this.startOnLaunchSetting.set(on);
+    this.emit();
+    return this.status();
+  }
+
+  /**
+   * Launch: what the switch does — enable, then start the relay — when the
+   * user asked for it on every launch. Nothing when they did not, or when
+   * device tokens cannot be stored safely (the switch is locked then too).
+   * A relay that cannot start says so in the status, as it would from the
+   * switch.
+   */
+  async startIfAsked(): Promise<void> {
+    if (!this.startOnLaunchSetting?.get()) return;
+    if (!this.deviceStore.encryptionAvailable()) return;
+    const status = await this.setEnabled(true);
+    if (!status.enabled) return;
+    await this.startRelay();
   }
 
   async setEnabled(enabled: boolean): Promise<RemoteControlStatus> {

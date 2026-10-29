@@ -44,6 +44,12 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /**
+   * Turn remote control on, relay and all, every time Manor opens. Written
+   * only through `remoteControl.setStartOnLaunch`, which is local-only — see
+   * `isSharedPreferenceKey`.
+   */
+  remoteControlOnLaunch: boolean;
 }
 
 const DEFAULTS: AppPreferences = {
@@ -67,6 +73,7 @@ const DEFAULTS: AppPreferences = {
   achievementTitle: null,
   revealedBadges: [],
   halloweenEffects: true,
+  remoteControlOnLaunch: false,
 };
 
 /**
@@ -82,6 +89,18 @@ export const PREFERENCE_KEYS = Object.keys(DEFAULTS) as Array<
 /** Type guard for `PREFERENCE_KEYS`, so a validated key narrows for `set`. */
 export function isPreferenceKey(key: string): key is keyof AppPreferences {
   return (PREFERENCE_KEYS as string[]).includes(key);
+}
+
+/**
+ * A preference the generic setters (`preferences.set`, `POST /preferences`)
+ * may write. Not `remoteControlOnLaunch`: a paired device or an agent that
+ * could set it would make this machine reachable again after the next
+ * restart, which only the user at this computer may decide.
+ */
+export function isSharedPreferenceKey(
+  key: string,
+): key is Exclude<keyof AppPreferences, "remoteControlOnLaunch"> {
+  return isPreferenceKey(key) && key !== "remoteControlOnLaunch";
 }
 
 export class PreferencesManager {
@@ -143,14 +162,21 @@ export class PreferencesManager {
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer);
     }
-    this.saveTimer = setTimeout(() => {
+    this.saveTimer = setTimeout(() => this.flush(), 500);
+  }
+
+  /**
+   * Write now rather than after the debounce — for a setting whose lost
+   * write matters (`remoteControlOnLaunch`: switched off, then quit at once,
+   * must not come back on).
+   */
+  flush(): void {
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer);
       this.saveTimer = null;
-      fs.mkdirSync(this.dataDir, { recursive: true });
-      fs.writeFileSync(
-        this.prefsFilePath(),
-        JSON.stringify(this.prefs, null, 2),
-      );
-    }, 500);
+    }
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    fs.writeFileSync(this.prefsFilePath(), JSON.stringify(this.prefs, null, 2));
   }
 
   get<K extends keyof AppPreferences>(key: K): AppPreferences[K] {

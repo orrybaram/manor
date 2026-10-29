@@ -71,6 +71,7 @@ export interface MenuChrome {
   openProjectSettings: (projectId: string) => void;
   resumeAgent: (agentId: string) => void;
   showGhosts: () => void;
+  toggleRemoteControl: () => void;
 }
 
 /** Menu commands carry optional args (a workspace path, a folder id, …). */

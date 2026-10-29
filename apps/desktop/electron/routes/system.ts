@@ -32,7 +32,7 @@ import { localCtx } from "../bridge/method";
 import { checkForUpdates, quitAndInstall } from "../updater";
 import { listWindows } from "../ipc/window";
 import { themeSetSelected } from "../bridge/handlers/theme";
-import { isPreferenceKey } from "../preferences";
+import { isSharedPreferenceKey } from "../preferences";
 import type { Route } from "./types";
 
 /** Protocols `shell:openExternal` allows; anything else is a 400. */
@@ -181,7 +181,8 @@ export const systemRoutes: Route[] = [
       // Unlike the renderer — which only ever sends keys its settings UI knows
       // — an HTTP caller can send anything, and an unknown key would be written
       // to disk and read back by nothing. Reject it.
-      if (typeof key !== "string" || !isPreferenceKey(key)) {
+      // `remoteControlOnLaunch` reads as unknown: see `isSharedPreferenceKey`.
+      if (typeof key !== "string" || !isSharedPreferenceKey(key)) {
         json(400, { error: `Unknown preference key '${String(key)}'` });
         return;
       }

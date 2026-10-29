@@ -5,7 +5,7 @@ import {
   publishToRenderer,
 } from "../../renderer-broadcast";
 import type { DesktopDeps, ServerDeps } from "../../ipc/types";
-import type { AppPreferences } from "../../preferences";
+import { isSharedPreferenceKey, type AppPreferences } from "../../preferences";
 import { method, type HandlerCtx } from "../method";
 import {
   MAIN_WINDOW_KEYBINDINGS,
@@ -22,13 +22,19 @@ export function preferencesGetAll(ctx: HandlerCtx<ServerDeps>): AppPreferences {
   return ctx.deps.preferencesManager.getAll();
 }
 
-/** A `full` device may write preferences. */
+/**
+ * A `full` device may write preferences — all but `remoteControlOnLaunch`,
+ * which only `remoteControl.setStartOnLaunch` writes (`isSharedPreferenceKey`).
+ */
 export function preferencesSet<K extends keyof AppPreferences>(
   ctx: HandlerCtx<ServerDeps>,
   key: K,
   value: AppPreferences[K],
 ): void {
   assertString(key, "key");
+  if (!isSharedPreferenceKey(key)) {
+    throw new Error(`preferences.set cannot write '${key}'`);
+  }
   ctx.deps.preferencesManager.set(key, value);
 }
 

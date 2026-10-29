@@ -138,6 +138,7 @@ export interface CommandChrome {
   openProjectSettings(projectId: string): void;
   resumeAgent(agentId: string): void;
   showGhosts(): void;
+  toggleRemoteControl(): void;
 }
 
 /** Everything a primary-window command may touch. */
@@ -203,6 +204,12 @@ interface CommandMeta {
    * `native` command.
    */
   hostServer?: false;
+  /**
+   * `false` for a command whose every call the host refuses a browser —
+   * a local-only method in a namespace that is otherwise served there, so
+   * `native` cannot say it.
+   */
+  web?: false;
 }
 
 /**
@@ -939,6 +946,18 @@ export const COMMANDS: readonly CommandDef[] = [
     scope: "primary",
     run: (ctx) => ctx.chrome.openSettings("devices"),
   },
+  {
+    id: "toggle-remote-control",
+    label: "Toggle Remote Control",
+    category: "app",
+    defaultCombo: null,
+    scope: "primary",
+    // `remoteControl.setEnabled` and `startRelay` are local-only, and a host
+    // server has no desktop remote control to switch.
+    web: false,
+    hostServer: false,
+    run: (ctx) => ctx.chrome.toggleRemoteControl(),
+  },
 
   // ── Window ──────────────────────────────────────────────────────────────
   {
@@ -1024,8 +1043,9 @@ export function getCommand(id: string): CommandDef | undefined {
 
 /** Whether `commandId` does anything on the web app. */
 export function commandAvailableOnWeb(commandId: string): boolean {
-  const native = BY_ID.get(commandId)?.native;
-  return !native || !UNAVAILABLE_NAMESPACES.has(native);
+  const def = BY_ID.get(commandId);
+  if (def?.web === false) return false;
+  return !def?.native || !UNAVAILABLE_NAMESPACES.has(def.native);
 }
 
 /** Whether a host server can serve `commandId`. */

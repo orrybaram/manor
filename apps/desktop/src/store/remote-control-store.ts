@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { liveValue } from "../bridge/resync";
 import type { RemoteControlStatus, RemotePairResult } from "../electron.d";
+import { isOn } from "../components/settings/remote-control-status";
+import { useToastStore } from "./toast-store";
 
 /**
  * Live mirror of the main process's remote-control state.
@@ -24,7 +26,15 @@ interface RemoteControlState {
   turnOn: () => Promise<void>;
   /** Disable remote control; the main process stops the relay with it. */
   turnOff: () => Promise<void>;
+  /**
+   * The palette's quick switch: on if it reads as off, off if on, with no
+   * confirm either way, and a toast to say which — the palette has closed
+   * by the time it lands, so nothing else would.
+   */
+  toggle: () => Promise<void>;
   resetRelayAddress: () => Promise<void>;
+  /** "Turn on when Manor opens"; leaves remote control as it is now. */
+  setStartOnLaunch: (on: boolean) => Promise<void>;
   revoke: (id: string) => Promise<void>;
   /**
    * Pair a device, turning remote control on first if it is off, so the link
@@ -45,6 +55,7 @@ const emptyStatus: RemoteControlStatus = {
   encryptionAvailable: true,
   relayViewers: 0,
   relayNotice: null,
+  startOnLaunch: false,
 };
 
 export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
@@ -97,8 +108,55 @@ export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
     turnOn: () => runStatus(turnOn),
     turnOff: () =>
       runStatus(() => window.electronAPI.remoteControl.setEnabled(false)),
+    toggle: async () => {
+      const turningOn = !isOn(get().status);
+      // What the settings switch would refuse, or is still busy with, is
+      // said rather than silently skipped: the palette has already closed.
+      const refused = get().busy
+        ? "Remote control is still changing. Try again in a moment."
+        : turningOn && !get().status.encryptionAvailable
+          ? "This computer can't encrypt stored secrets, so remote control stays off."
+          : null;
+      if (!refused) {
+        await (turningOn
+          ? runStatus(turnOn)
+          : runStatus(() => window.electronAPI.remoteControl.setEnabled(false)));
+      }
+      const { error, status } = get();
+      // An enable overtaken by a quit or a disable comes back off with no
+      // error; it is still a failure to turn on.
+      const failed =
+        refused ??
+        error ??
+        (turningOn && !isOn(status)
+          ? status.relay.error ?? "Remote control didn't turn on."
+          : turningOn && status.relay.state === "failed"
+            ? status.relay.error ?? "The relay connection failed."
+            : null);
+      useToastStore.getState().addToast(
+        failed
+          ? {
+              id: "remote-control-toggle",
+              message: turningOn
+                ? "Couldn't turn on remote control"
+                : "Couldn't turn off remote control",
+              status: "error",
+              detail: failed,
+            }
+          : {
+              id: "remote-control-toggle",
+              message: turningOn ? "Remote control is on" : "Remote control is off",
+              status: "success",
+              detail: turningOn
+                ? "Paired devices can reach this computer through the relay."
+                : undefined,
+            },
+      );
+    },
     resetRelayAddress: () =>
       runStatus(() => window.electronAPI.remoteControl.resetRelayAddress()),
+    setStartOnLaunch: (on) =>
+      runStatus(() => window.electronAPI.remoteControl.setStartOnLaunch(on)),
     revoke: (id) =>
       runStatus(() => window.electronAPI.remoteControl.revoke(id)),
     pair: (label) =>

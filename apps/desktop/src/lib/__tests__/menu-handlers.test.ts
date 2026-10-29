@@ -39,6 +39,7 @@ function makeChrome(): MenuChrome {
     openProjectSettings: vi.fn(),
     resumeAgent: vi.fn(),
     showGhosts: vi.fn(),
+    toggleRemoteControl: vi.fn(),
   };
 }
 

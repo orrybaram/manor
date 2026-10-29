@@ -55,6 +55,7 @@ import {
   OWN_CLAIM,
 } from "./store/app-store";
 import { useProjectStore, type ProjectInfo } from "./store/project-store";
+import { useRemoteControlStore } from "./store/remote-control-store";
 import { ownerOf } from "./lib/workspace-directory";
 import { workspaceDisplayName } from "./lib/workspace-display-name";
 import { type WorkspaceKey } from "./lib/workspace-key";
@@ -610,6 +611,7 @@ function App() {
         if (agent) resumeAgent(agent);
       },
       showGhosts: triggerGhosts,
+      toggleRemoteControl: () => void useRemoteControlStore.getState().toggle(),
     },
     // Rebuilt when the hello says this is a host server, which
     // drops the commands it cannot serve.

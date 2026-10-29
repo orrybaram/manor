@@ -5,7 +5,7 @@ import {
   stepCobwebs,
   type Brush,
   type CobwebSim,
-} from "../cobweb-sim";
+} from "./index";
 
 const W = 1040;
 const H = 540;

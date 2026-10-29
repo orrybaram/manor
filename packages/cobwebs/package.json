@@ -1,0 +1,14 @@
+{
+  "name": "@manor/cobwebs",
+  "private": true,
+  "description": "The Halloween cobweb simulation: webs that grow in a panel's corners and break where the pointer sweeps through. Shared by the desktop app and the marketing site. Source-only TypeScript; consumers bundle it.",
+  "exports": "./index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "vitest": "^4.1.0"
+  }
+}

@@ -1,0 +1,12 @@
+/* Header: logo left, section links and Download right, on bile. */
+.top { background: var(--bile); color: var(--pitch); }
+.nav { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-block: 22px; position: relative; z-index: 5; }
+.nav ul { list-style: none; display: flex; gap: 22px; margin: 0; padding: 0; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; align-items: center; flex-wrap: wrap; }
+.nav .logo { display: flex; align-items: baseline; font-family: var(--f-logo); font-weight: 700; font-size: 44px; line-height: 1; letter-spacing: -.035em; text-decoration: none; color: var(--pitch); }
+.nav .logo svg { height: .74em; width: auto; margin-right: -.04em; transform: translateY(.04em); filter: drop-shadow(2px 2px 0 var(--wound)); }
+.nav .logo span { text-shadow: 2px 2px 0 var(--wound); }
+.nav .dl { text-decoration: none; background: var(--pitch); color: var(--bile); padding: 7px 12px; box-shadow: 4px 4px 0 var(--wound); }
+
+@media (max-width: 540px) {
+  .nav ul li:not(:last-child) { display: none; }
+}

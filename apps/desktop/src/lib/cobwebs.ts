@@ -1,3 +1,4 @@
+import type { CobwebLevel } from "@manor/cobwebs";
 import type { WorkspaceViewport } from "./layout/viewport";
 import type { WorkspaceLayout } from "./layout/workspace-layout";
 
@@ -9,7 +10,7 @@ import type { WorkspaceLayout } from "./layout/workspace-layout";
 /** Set to "1" in localStorage to see the effects on any day. */
 export const HALLOWEEN_OVERRIDE_KEY = "manor:halloween";
 
-export type CobwebLevel = 0 | 1 | 2 | 3;
+export type { CobwebLevel };
 
 /** Minutes unseen before a tab reaches each level. */
 const LEVEL_THRESHOLDS_MIN: readonly [number, number, number] = [2, 10, 30];

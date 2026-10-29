@@ -1,0 +1,14 @@
+# manor.sh: the marketing homepage, served as static assets by a Worker with no
+# script. `pnpm site:deploy` builds dist/ and uploads it. Custom domains make
+# Cloudflare create the DNS records and certificates on deploy; the manor.sh
+# zone is the one the relay (apps/relay, relay.manor.sh) already uses.
+name = "manor-site"
+compatibility_date = "2026-08-15"
+
+routes = [
+  { pattern = "manor.sh", custom_domain = true },
+  { pattern = "www.manor.sh", custom_domain = true }
+]
+
+[assets]
+directory = "./dist"

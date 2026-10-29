@@ -11,7 +11,7 @@
     "preview": "pnpm --filter manor preview",
     "package": "source .env && pnpm --filter manor package",
     "test": "pnpm test:unit && pnpm knip:ci",
-    "test:unit": "pnpm --filter manor --filter @manor/protocol test",
+    "test:unit": "pnpm --filter manor --filter @manor/protocol --filter @manor/cobwebs test",
     "knip": "knip",
     "knip:ci": "knip --include files,dependencies,unlisted,binaries",
     "knip:fix": "knip --fix",
@@ -36,7 +36,12 @@
     "relay:dev": "pnpm --filter manor-relay run dev",
     "relay:test": "pnpm --filter manor-relay run test",
     "relay:dev:upload": "pnpm --filter manor relay:dev:upload",
-    "relay:deploy": "pnpm --filter manor-relay run deploy"
+    "relay:deploy": "pnpm --filter manor-relay run deploy",
+    "site:deploy": "pnpm --filter manor-site run deploy",
+    "site:e2e": "pnpm --filter manor-site test:e2e",
+    "site:dev": "pnpm --filter manor-site dev",
+    "site:build": "pnpm --filter manor-site build",
+    "site:preview": "pnpm --filter manor-site preview"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

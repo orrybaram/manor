@@ -1,0 +1,26 @@
+/* Design tokens: every color and font the page uses. Change the look here first. */
+:root {
+  /* inks and grounds */
+  --bile: #FFE800;
+  --wound: #FF40B4;
+  --pitch: #0a0a00;
+  --bone: #fffdf2;
+  --ash: #d6d4cc;     /* light gray ground for chapter III */
+  --blood: #c4001a;
+  --misreg-blue: #0000FF;
+  --dim-bone: #d9d6c4;
+  --soot: #11110a;    /* "Don't wake the house." on the black footer */
+
+  /* Manor app (Catppuccin Mocha), only for the status dots that quote the product */
+  --app-bg: #1e1e2e; --app-mantle: #181825; --app-crust: #11111b; --app-surface: #313244; --app-border: #383850;
+  --app-fg: #cdd6f4; --app-dim: #7f849c; --app-blue: #89b4fa; --app-green: #a6e3a1; --app-red: #f38ba8; --app-peach: #fab387; --app-mauve: #cba6f7; --app-yellow: #f9e2af;
+
+  /* type */
+  --f-black: "Pirata One", "Old English Text MT", serif;
+  --f-logo: "UnifrakturCook", var(--f-black);
+  --f-shout: "Anton", "Impact", "Haettenschweiler", sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-fell: "IM Fell English", "Iowan Old Style", Georgia, serif;
+
+  color-scheme: light;
+}

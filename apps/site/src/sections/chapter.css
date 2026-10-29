@@ -1,0 +1,18 @@
+/* What every chapter shares: numbered rule, big blackletter heading, copy grid. */
+.ch { position: relative; z-index: 1; overflow: hidden; padding-block: clamp(64px, 9vw, 128px); }
+.ch-num { font-family: var(--f-black); font-size: 22px; display: flex; align-items: center; gap: 12px; }
+.ch-num::after { content: ""; flex: 1; height: 3px; background: currentColor; max-width: 160px; }
+.ch h2 { font-family: var(--f-black); font-size: clamp(64px, 10vw, 148px); line-height: .82; margin-top: 18px; }
+.ch .body { display: grid; gap: 18px; margin-top: 22px; font-size: 16px; }
+.ch-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(28px, 5vw, 72px); align-items: center; }
+/* chapters I and II stack: copy on top (heading left, body right), the shell full width below */
+.ch-1 .ch-grid, .ch-2 .ch-grid { grid-template-columns: minmax(0, 1fr); gap: clamp(40px, 5vw, 72px); align-items: start; }
+.ch-copy { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0 clamp(32px, 5vw, 72px); align-items: end; }
+.ch-copy .ch-num { grid-column: 1 / -1; }
+.ch-copy .body { margin-top: 0; }
+
+@media (max-width: 900px) {
+  .ch-grid { grid-template-columns: minmax(0, 1fr); }
+  .ch-copy { grid-template-columns: minmax(0, 1fr); }
+  .ch-copy .body { margin-top: 22px; }
+}

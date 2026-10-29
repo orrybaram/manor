@@ -1,0 +1,43 @@
+/* Page-wide rules: reset, layout wrap, links, the download button, status dots. */
+* { box-sizing: border-box; }
+html { background: var(--pitch); scroll-behavior: smooth; }
+body { margin: 0; background: var(--pitch); color: var(--bone); font-family: var(--f-mono); font-size: 15px; line-height: 1.6; overflow-x: hidden; }
+
+.wrap { max-width: 1240px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { margin: 0; font-weight: 400; text-wrap: balance; }
+p { margin: 0; max-width: 62ch; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--misreg-blue); outline-offset: 3px; }
+a.hl { text-decoration: none; background: linear-gradient(var(--wound), var(--wound)) 0 92% / 100% .42em no-repeat; transition: background-size .15s; }
+a.hl:hover, a.hl:focus-visible { background-size: 100% 1.1em; }
+.shout { font-family: var(--f-shout); text-transform: uppercase; letter-spacing: .01em; }
+.misreg { text-shadow: 4px 3px 0 var(--wound), -2px -2px 0 var(--misreg-blue); }
+
+/* engraving printed into a flat ground */
+.etch { display: block; filter: grayscale(1) contrast(1.55) brightness(1.08); mix-blend-mode: multiply; user-select: none; pointer-events: none; }
+
+/* download button */
+.btn { display: inline-block; background: var(--pitch); color: var(--bile); text-decoration: none; padding: 16px 26px 13px; font-family: var(--f-shout); text-transform: uppercase; font-size: clamp(26px, 2.6vw, 34px); line-height: 1; box-shadow: 7px 7px 0 var(--wound); transition: transform .12s, box-shadow .12s; }
+.btn:hover { transform: translate(-2px, -2px); box-shadow: 9px 9px 0 var(--wound); }
+.btn:active { transform: translate(5px, 5px); box-shadow: 2px 2px 0 var(--wound); }
+.btn small { display: block; font-family: var(--f-mono); font-size: 10.5px; letter-spacing: .16em; margin-top: 7px; color: var(--bone); }
+
+/* status dots (the chips in chapter I) */
+.sd { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.sd.work { border: 2px solid var(--app-blue); border-right-color: transparent; animation: spin .9s linear infinite; }
+.sd.think { border: 2px solid var(--app-mauve); border-right-color: transparent; animation: spin 1.4s linear infinite; }
+.sd.input { background: var(--app-peach); box-shadow: 0 0 0 3px rgba(250,179,135,.25); }
+.sd.resp { background: var(--app-green); }
+.sd.err { background: var(--app-red); }
+.sd.idle { background: transparent; border: 1px solid var(--app-dim); }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .sd.work, .sd.think { animation: none; }
+  .btn, a.hl { transition: none; }
+}
+
+/* grain: printed paper over everything */
+body::after { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 80; opacity: .13; mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }

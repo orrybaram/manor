@@ -6,7 +6,7 @@ import {
   cobwebsGone,
   stepCobwebs,
   type CobwebSim,
-} from "../../../lib/cobweb-sim";
+} from "@manor/cobwebs";
 import { tabLastReturn, useTabSightings } from "../../../store/tab-sightings";
 import { useAppStore } from "../../../store/app-store";
 import { useHalloweenEffects } from "../../../hooks/useHalloweenEffects";

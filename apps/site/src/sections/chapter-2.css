@@ -1,0 +1,12 @@
+/* Chapter II "A room per branch": bile ground, halftone behind, the shell zoomed to sidebar + working pane. */
+.ch-2 { background: var(--bile); color: var(--pitch); }
+.ch-2 .wrap { position: relative; z-index: 1; }
+.ch-2 .halftone { position: absolute; z-index: 0; inset: auto 30% -20% -10%; height: 60%; background-image: radial-gradient(circle, var(--wound) 0 36%, transparent 38%); background-size: 12px 12px; -webkit-mask-image: radial-gradient(ellipse at 70% 70%, #000 10%, transparent 65%); mask-image: radial-gradient(ellipse at 70% 70%, #000 10%, transparent 65%); pointer-events: none; }
+.ch-2 .crop { order: 2; }
+.crop { position: relative; transform: rotate(1.6deg); background: var(--bone); padding: 12px; box-shadow: 10px 10px 0 var(--pitch); }
+.crop .shell-rooms { border: 2px solid var(--pitch); }
+.crop .cap { font-family: var(--f-fell); font-style: italic; font-size: 15px; padding-top: 12px; color: var(--pitch); }
+.crop .cap b { font-family: var(--f-black); font-style: normal; font-weight: 400; font-size: 22px; }
+.list-x { display: grid; gap: 10px; margin: 6px 0 0; padding: 0; list-style: none; }
+.list-x li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 6px; }
+.list-x li::before { content: ""; width: 10px; height: 10px; background: var(--wound); margin-top: .55em; }

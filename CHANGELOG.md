@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.24.0] - 2026-10-29
+
+### Features
+
+- Automations: Agents can now start themselves on a schedule. An automation pairs a cron schedule and time zone with a project on a host, a prompt, an agent kind, and a new or reused workspace. Automations on a remote host run even while the desktop app is quit. Local ones run while Manor is open.
+- Automations: Settings → Automations lists each host's automations. Each automation's page lets you edit its schedule and target, edit its prompt and see its runs, and it has Run now, pause and delete. Missed times, overlapping runs and failures show in the run history with a reason.
+- Automations: You can list, create, edit, pause, resume, run and delete automations with the `manor` CLI and MCP tools, on this machine or on an adopted host.
+- Automations: A new-workspace run starts in the project's Automations folder and branches from origin's default branch, or from the local default branch if the repo has no origin. An automation can keep only its last N run workspaces (up to 20). It never removes one you renamed, moved, hid or opened a pane in, one whose agent is active or has an unread reply, or one with changes or unpushed commits that would be lost.
+- Automations: Runs that start or fail show in the notifications bell, which now merges every host's notifications, newest first. A run that fails to start sends a push notification, and tapping it opens the automation.
+- File pane: A new pane type for fixing what agents wrote, with a Files tree and an editor. Open a file with "Open File…" in the command palette, or right-click or Cmd/Ctrl-click a file path in terminal output. A path like `src/a.ts:12:3` jumps to that line.
+- File pane: Edit a file, save it with ⌘S, or make a new file. A file with no unsaved edits reloads by itself when it changes on disk. If it changes while you have unsaved edits, Manor asks what to do. Manor also asks before unsaved edits could be lost by moving, converting or closing the pane, closing a window, quitting or installing an update.
+- File pane: The Files tree, the gutter and the Changed by agents list mark what agents changed, and you can jump between edits. The file header names the agent that last wrote the open file.
+- File pane: The Files drawer sits beside the editor. Drag its edge to resize it, or drag it narrow to fold it into the strip. While the pane has focus, ⌘B shows or hides the drawer, ⌘⇧E goes to Files and ⌘⇧G goes to Changed by agents. You can move through the Files tree with the arrow keys, Home/End and Enter/Space.
+- File pane: Right-click a file in the Files tree to open it in your editor, reveal it, copy its path or relative path, rename it or delete it. Folders only have the open, reveal and copy items. Renaming the open file keeps it open in the pane under its new name.
+- ⌘P (Ctrl+P on Linux) opens **Go to File**, a fuzzy search of the active workspace's files. Your pick opens in a file pane. The command is also in the command palette and the File menu, and you can rebind it in Settings → Keybindings.
+- Source Control replaces the Diff pane. In the file pane it's the strip's second button, and it lists Staged changes and Changes as a folder tree, where you can stage, unstage or discard files. It can also show a branch's changes. Clicking a change opens that file's diff in the editor, where you can still edit and save, and Open file goes back to the plain file.
+- Source Control: Commit what's staged from the commit box, or push from Commit's menu.
+- Source Control: Select lines in a diff and click **+ Comment** to leave a review comment on them. Source Control lists the review's comments under the changes, with Send and Discard, and reviews go to agents on the workspace's host.
+- Everything that used to open a Diff pane now opens Source Control in a file pane. Saved Diff panes come back as Source Control panes, and the CLI and MCP tools still accept `diff`.
+- Phone: File panes open read-only and are sized for touch. In the Files tree, the phone offers only Copy Path and Copy Relative Path.
+
+### Fixes
+
+- You can split a panel into two again by dropping one of its tabs on the empty right half of its own tab bar. The drag tint and insertion line now end where the tabs do.
+- Opening a terminal on the phone no longer shrinks the desktop's terminal to phone width. The phone now always follows the desktop's grid.
+- Cmd+Shift+N (and Workspace → New Workspace…) opens the dialog on the host and folder you're in.
+- Moving a browser pane keeps it a browser pane. Before, it could turn into a terminal.
+- Diffs keep removed lines that start with `--`.
+- Phone: Working agents in the Agents drawer keep their place instead of reshuffling on every update.
+- Phone: When the desktop is quit, the phone still reloads projects from hosts it reaches directly. New workspaces on those hosts now show in the sidebar.
+
+### Improvements
+
+- The back and forward buttons now sit beside the notifications bell.
+- Cobwebs: The dust brush is much bigger, so a few swipes clear the dust off a panel.
+- The workspace context menu no longer has **Merge & Delete**. You can still open it from the command palette.
+
 ## [0.23.0] - 2026-10-28
 
 ### Features

@@ -394,35 +394,45 @@ export function filterModalRows(
   );
 }
 
-/** A project filter chip: the project, and the label it shows. */
+/**
+ * A project filter chip. Manor projects that share a name (the same repo on
+ * two hosts, say) share a chip, and every folder no project contains shares
+ * one "Other folders" chip, so one-off folders don't each get a chip.
+ */
 export interface ProjectChip {
-  project: ModalProject;
+  key: string;
   label: string;
+  /** The first such project's color token; null when uncolored or folders. */
+  color: string | null;
+}
+
+const FOLDERS_CHIP = "folders";
+
+/** The chip `project`'s rows are filed under. */
+export function chipKey(project: ModalProject): string {
+  return project.key.startsWith("folder:") ? FOLDERS_CHIP : `project:${project.name}`;
 }
 
 /**
- * One chip per project present in `rows`, the most recently active first.
- * `selected` stays a chip even when no row is left in it, so the filter
- * that's on can always be seen and turned off. A folder whose name another
- * chip also has is labelled with its parent too (`code/manor`).
+ * One chip per project name present in `rows`, the most recently active
+ * first, with "Other folders" last. `selected` stays a chip even when no row
+ * is left in it, so the filter that's on can always be seen and turned off.
  */
 export function projectChips(
   rows: readonly ModalRow[],
-  selected: ModalProject | null,
+  selected: ProjectChip | null,
 ): ProjectChip[] {
   // Rows come newest first, so first sight is latest activity.
-  const projects = new Map<string, ModalProject>();
-  for (const r of rows) if (!projects.has(r.project.key)) projects.set(r.project.key, r.project);
-  if (selected && !projects.has(selected.key)) projects.set(selected.key, selected);
-
-  const nameCount = new Map<string, number>();
-  for (const p of projects.values()) nameCount.set(p.name, (nameCount.get(p.name) ?? 0) + 1);
-  return [...projects.values()].map((project) => {
-    const segments = project.path ? pathSegments(project.path) : [];
-    const label =
-      (nameCount.get(project.name) ?? 0) > 1 && segments.length > 1
-        ? segments.slice(-2).join("/")
-        : project.name;
-    return { project, label };
-  });
+  const chips = new Map<string, ProjectChip>();
+  let folders = false;
+  for (const r of rows) {
+    const key = chipKey(r.project);
+    if (key === FOLDERS_CHIP) folders = true;
+    else if (!chips.has(key)) chips.set(key, { key, label: r.project.name, color: r.project.color });
+  }
+  if (folders || selected?.key === FOLDERS_CHIP) {
+    chips.set(FOLDERS_CHIP, { key: FOLDERS_CHIP, label: "Other folders", color: null });
+  }
+  if (selected && !chips.has(selected.key)) chips.set(selected.key, selected);
+  return [...chips.values()];
 }

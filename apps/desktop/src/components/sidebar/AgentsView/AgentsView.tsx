@@ -25,7 +25,9 @@ import {
   isRowOpen,
   listedAgents,
   mergeModalRows,
+  chipKey,
   projectChips,
+  type ProjectChip,
   sessionRows,
   sessionTitle,
   type AgentTab,
@@ -67,17 +69,16 @@ type ModalRowViewProps = {
   shouldPulse: boolean;
   /** Bumped to start renaming this row from the keyboard (F2); 0 for none. */
   renameToken: number;
-  onHighlight: (rowId: string) => void;
   /** An inline rename ended, committed or not. */
   onRenameDone: () => void;
-  /** A click: resume or go to the pane on a desk, open the preview on a phone. */
+  /** A click: show the row in the preview; a phone opens the preview. */
   onActivate: (row: ModalRow) => void;
   onRemoveAgent: (agentId: string) => void;
   onRenameAgent: (agentId: string, name: string) => void;
 };
 
 /** The attributes every row shares, Agent or outside-Manor Session. */
-function rowAttributes(row: ModalRow, highlighted: boolean, onHighlight: (rowId: string) => void) {
+function rowAttributes(row: ModalRow, highlighted: boolean) {
   return {
     role: "option",
     id: rowDomId(row.id),
@@ -87,11 +88,6 @@ function rowAttributes(row: ModalRow, highlighted: boolean, onHighlight: (rowId:
     "data-highlighted": highlighted || undefined,
     "data-colored": row.project.color ? "" : undefined,
     "data-testid": "agents-modal-row",
-    // Mouse movement, not enter: a list scrolled by the keyboard slides
-    // rows under a still pointer, and that must not steal the highlight.
-    onMouseMove: () => {
-      if (!highlighted) onHighlight(row.id);
-    },
   } as const;
 }
 
@@ -104,12 +100,12 @@ function RowTime({ row }: { row: ModalRow }) {
 }
 
 const ModalRowView = memo(function ModalRowView(props: ModalRowViewProps) {
-  const { row, highlighted, onHighlight } = props;
+  const { row, highlighted } = props;
   if (row.agent) return <AgentRowView {...props} agent={row.agent} />;
   const title = row.session ? sessionTitle(row.session) : "Session";
   return (
     <div
-      {...rowAttributes(row, highlighted, onHighlight)}
+      {...rowAttributes(row, highlighted)}
       data-outside=""
       onClick={() => props.onActivate(row)}
     >
@@ -140,7 +136,6 @@ function AgentRowView(props: ModalRowViewProps & { agent: AgentInfo }) {
     live,
     shouldPulse,
     renameToken,
-    onHighlight,
     onRenameDone,
     onActivate,
     onRemoveAgent,
@@ -177,7 +172,7 @@ function AgentRowView(props: ModalRowViewProps & { agent: AgentInfo }) {
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
-          {...rowAttributes(row, highlighted, onHighlight)}
+          {...rowAttributes(row, highlighted)}
           data-agent-id={agent.id}
           onClick={() => {
             if (!rename.editing) onActivate(row);
@@ -261,9 +256,9 @@ const MAX_SEARCH_ROWS = 300;
 /** How many rows the plain list draws at a time; scrolling to the end draws more. */
 const LIST_ROWS_STEP = 200;
 
-function emptyMessage(query: string, tab: AgentTab, project: ModalProject | null): string {
+function emptyMessage(query: string, tab: AgentTab, chip: ProjectChip | null): string {
   if (query.trim()) return `No sessions match “${query.trim()}”`;
-  if (project) return `Nothing in ${project.name} here.`;
+  if (chip) return `Nothing in ${chip.label} here.`;
   if (tab === "open") return "No open agents.";
   if (tab === "closed") return "No closed agents.";
   return "No agents found.";
@@ -302,7 +297,7 @@ export function AgentsModal(props: AgentsModalProps) {
   const shouldPulse = useAgentPulse();
   const [tab, setTab] = useState<AgentTab>("all");
   const [query, setQuery] = useState("");
-  const [projectFilter, setProjectFilter] = useState<ModalProject | null>(null);
+  const [projectFilter, setProjectFilter] = useState<ProjectChip | null>(null);
   const [listLimit, setListLimit] = useState(LIST_ROWS_STEP);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ id: string; token: number } | null>(null);
@@ -357,7 +352,7 @@ export function AgentsModal(props: AgentsModalProps) {
   );
   const chips = useMemo(() => projectChips(tabRows, projectFilter), [tabRows, projectFilter]);
   const allRows = useMemo(
-    () => (projectFilter ? tabRows.filter((r) => r.project.key === projectFilter.key) : tabRows),
+    () => (projectFilter ? tabRows.filter((r) => chipKey(r.project) === projectFilter.key) : tabRows),
     [tabRows, projectFilter],
   );
   const rows = allRows.slice(0, searching ? MAX_SEARCH_ROWS : listLimit);
@@ -390,9 +385,10 @@ export function AgentsModal(props: AgentsModalProps) {
     highlighted ? isRowOpen(highlighted, openPaneIds, launched) : false,
   );
 
-  /** ↵, a click and the preview's primary button: resume, or go to the pane. */
+  /** ↵ and the preview's primary button: resume, or go to the pane. */
   const runPrimary = useCallback((row: ModalRow) => act(row, "resume"), [act]);
 
+  /** ↵: resume or go to the pane on a desk, open the preview on a phone. */
   const activateRow = useCallback(
     (row: ModalRow) => {
       if (phone && phonePreview) {
@@ -405,6 +401,15 @@ export function AgentsModal(props: AgentsModalProps) {
       }
     },
     [phone, phonePreview, runPrimary],
+  );
+
+  /** A click shows the row in the preview, opening it on a phone. */
+  const clickRow = useCallback(
+    (row: ModalRow) => {
+      setHighlightedId(row.id);
+      if (phone) setPhonePreview(true);
+    },
+    [phone],
   );
 
   // Leaving a phone's preview returns to its row in the list.
@@ -589,8 +594,8 @@ export function AgentsModal(props: AgentsModalProps) {
     previewRef.current?.scrollTo({ top: 0 });
   }, [highlightedRowId]);
 
-  const pickProject = (project: ModalProject | null) => {
-    setProjectFilter(project);
+  const pickProject = (chip: ProjectChip | null) => {
+    setProjectFilter(chip);
     searchRef.current?.focus();
   };
 
@@ -696,24 +701,23 @@ export function AgentsModal(props: AgentsModalProps) {
               >
                 All projects
               </button>
-              {chips.map(({ project: p, label }) => (
+              {chips.map((chip) => (
                 <button
-                  key={p.key}
+                  key={chip.key}
                   type="button"
                   className={styles.chip}
-                  style={projectColorStyle(p.color)}
-                  aria-pressed={projectFilter?.key === p.key}
+                  style={projectColorStyle(chip.color)}
+                  aria-pressed={projectFilter?.key === chip.key}
                   data-testid="agents-modal-chip"
-                  data-project-key={p.key}
-                  title={p.path}
-                  onClick={() => pickProject(p)}
+                  data-project-key={chip.key}
+                  onClick={() => pickProject(chip)}
                 >
                   <span
                     className={styles.projectDot}
-                    data-uncolored={p.color ? undefined : ""}
+                    data-uncolored={chip.color ? undefined : ""}
                     aria-hidden
                   />
-                  {label}
+                  {chip.label}
                 </button>
               ))}
             </div>
@@ -755,9 +759,8 @@ export function AgentsModal(props: AgentsModalProps) {
                       live={isRowOpen(row, openPaneIds, launched)}
                       shouldPulse={row.agent ? shouldPulse(row.agent) : false}
                       renameToken={renameTarget?.id === row.id ? renameTarget.token : 0}
-                      onHighlight={setHighlightedId}
                       onRenameDone={focusSearch}
-                      onActivate={activateRow}
+                      onActivate={clickRow}
                       onRemoveAgent={handleRemove}
                       onRenameAgent={handleRename}
                     />
@@ -811,6 +814,7 @@ export function AgentsModal(props: AgentsModalProps) {
                     row={highlighted}
                     state={preview}
                     live={isRowOpen(highlighted, openPaneIds, launched)}
+                    actions={phone}
                     onPrimary={() => runPrimary(highlighted)}
                     onFork={() => act(highlighted, "fork")}
                     onRename={highlightedAgentId ? () => startRename(highlightedAgentId) : undefined}

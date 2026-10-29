@@ -42,19 +42,31 @@
 .header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px;
+  gap: 10px;
+  padding: 10px 12px 10px 16px;
   border-bottom: 1px solid var(--surface);
   flex-shrink: 0;
 }
 
-.title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.searchIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
   color: var(--text-selected);
+  padding: 4px 0;
+}
+
+.searchInput::placeholder {
+  color: var(--text-dim);
 }
 
 .closeButton {
@@ -66,7 +78,6 @@
   line-height: 1;
   padding: 2px 6px;
   border-radius: 4px;
-  margin-left: auto;
 }
 
 .closeButton:hover {
@@ -104,11 +115,15 @@
 .scrollArea {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 12px;
+  padding: 4px 8px 8px;
+  min-height: 120px;
 }
 
 .dateGroup {
-  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 4px;
 }
 
 .dateGroupHeader {
@@ -120,50 +135,54 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-dim);
-  margin-bottom: 4px;
+  padding-top: 8px;
 }
 
-.projectGroup {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin-bottom: 4px;
-}
-
-.projectGroupHeader {
-  padding: 2px 6px;
-  font-size: 10px;
-  color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
+/* The left edge carries the project's color; uncolored projects keep a
+   transparent edge so every row's content starts at the same x. */
 .agentRow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-radius: 4px;
+  gap: 10px;
+  min-height: 30px;
+  padding: 4px 8px 4px 9px;
+  border-left: 3px solid transparent;
+  border-radius: 0 6px 6px 0;
   cursor: pointer;
   font-size: 12px;
   color: var(--text-primary);
-  border: none;
   background: transparent;
   width: 100%;
   text-align: left;
   font-family: inherit;
 }
 
-.agentRow:hover {
+.agentRow[data-colored] {
+  border-left-color: var(--project-color);
+}
+
+.agentRow[data-highlighted] {
   background: var(--surface);
+}
+
+.dotSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
 }
 
 .agentName {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agentRow[data-highlighted] .agentName {
+  color: var(--text-selected);
 }
 
 .agentNameInput {
@@ -179,17 +198,21 @@
 }
 
 .agentProject {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 140px;
+  width: 88px;
+}
+
+.agentRow[data-colored] .agentProject {
+  color: var(--project-color);
 }
 
 .agentTime {
-  font-size: 10px;
+  font-size: 11px;
   color: var(--text-dim);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -209,14 +232,40 @@
 }
 
 .removeButton:hover {
-  background: var(--surface);
+  background: var(--hover);
   color: var(--text-selected);
 }
 
-.agentRow:hover .removeButton,
-.agentRow:focus-within .removeButton,
-.removeButton:focus-visible {
+.agentRow[data-highlighted] .removeButton {
   opacity: 1;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 16px;
+  border-top: 1px solid var(--surface);
+  font-size: 11px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.footer kbd {
+  display: inline-block;
+  min-width: 16px;
+  margin-right: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 10px;
+  text-align: center;
+}
+
+.footerEnd {
+  margin-left: auto;
 }
 
 .loadMore {
@@ -291,5 +340,19 @@
 
 :global(:root[data-layout="phone"]) .closeButton {
   min-width: 44px;
+  min-height: 44px;
+}
+
+/* No arrow keys to teach on a touch screen. */
+:global(:root[data-layout="phone"]) .footer {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .searchInput {
+  /* iOS zooms into a focused input under 16px. */
+  font-size: 16px;
+}
+
+:global(:root[data-layout="phone"]) .agentRow {
   min-height: 44px;
 }

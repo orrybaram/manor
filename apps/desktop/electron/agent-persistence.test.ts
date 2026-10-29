@@ -96,6 +96,27 @@ describe("AgentManager", () => {
     });
   });
 
+  describe("getAllAgents query", () => {
+    it("matches every word, ignoring case, across name, project and workspace", () => {
+      const toast = makeAgent({ name: "Fix toast stacking", projectName: "manor", workspacePath: "/code/manor" });
+      const relay = makeAgent({ name: "Reconnect backoff", projectName: "relay", workspacePath: "/code/relay" });
+      makeAgent({ name: null, projectName: "site", workspacePath: "/code/site" });
+
+      expect(manager.getAllAgents({ query: "TOAST" }).map((a) => a.id)).toEqual([toast.id]);
+      expect(manager.getAllAgents({ query: "relay backoff" }).map((a) => a.id)).toEqual([relay.id]);
+      expect(manager.getAllAgents({ query: "code/manor" }).map((a) => a.id)).toEqual([toast.id]);
+      expect(manager.getAllAgents({ query: "toast relay" })).toEqual([]);
+    });
+
+    it("pages after filtering, and an empty query matches everything", () => {
+      for (let i = 0; i < 5; i++) makeAgent({ name: `needle ${i}` });
+      makeAgent({ name: "hay" });
+
+      expect(manager.getAllAgents({ query: "needle", limit: 2, offset: 4 })).toHaveLength(1);
+      expect(manager.getAllAgents({ query: "  " })).toHaveLength(6);
+    });
+  });
+
   describe("pruneOlderThan", () => {
     function isoDaysAgo(days: number): string {
       return new Date(Date.now() - days * 86_400_000).toISOString();

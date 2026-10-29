@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, type Ref } from "react";
 import { ChevronDown, ChevronUp, Info, X } from "lucide-react";
 import { toast as toastApi, type ToastRecord } from "../../../toast";
 import styles from "./Toast.module.css";
 
 type ToastItemProps = {
   toast: ToastRecord;
+  /** The card's content box, which the deck measures to stack cards by height. */
+  measureRef?: Ref<HTMLDivElement>;
 };
 
 /** Returns true if the detail text is long enough that expanding reveals more. */
@@ -33,7 +35,7 @@ export function ToastItem(props: ToastItemProps) {
   }
 
   return (
-    <div className={`${styles.toast} ${toast.leaving ? styles.exiting : ""}`}>
+    <div ref={props.measureRef} className={styles.toast}>
       {toast.status === "loading" && <div className={styles.spinner} />}
       {toast.status === "success" && (
         <span className={`${styles.icon} ${styles.iconSuccess}`}>&#10003;</span>

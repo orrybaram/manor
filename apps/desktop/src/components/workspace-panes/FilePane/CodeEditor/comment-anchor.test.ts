@@ -7,6 +7,8 @@ import { EditorState, Text } from "@codemirror/state";
 import { unifiedMergeView } from "@codemirror/merge";
 import { parseDiff } from "../../../../lib/diff/parser";
 import type { DiffLine } from "../../../../lib/diff/types";
+import { reviewPrompt } from "../../../../lib/review-submit";
+import type { DraftComment } from "../../../../store/review-store";
 import {
   anchorFor,
   cardPos,
@@ -172,5 +174,31 @@ describe("snippetFor", () => {
 
   it("leaves out removed lines when the selection starts past them", () => {
     expect(snippetFor(state, line(2).from + 1, line(2).to)).toBe("2: +TWO");
+  });
+
+  it("gives the agent's prompt the lines and code of a comment made on a selection", () => {
+    // As the composer saves one: the selected lines' anchor, its span and label, and its snippet.
+    const from = line(1).from;
+    const to = line(2).to;
+    const anchor = anchorFor(state.doc, selectedLines(state.doc, from, to));
+    const span = spanOf(state.doc, anchor);
+    const draft: DraftComment = {
+      id: "c1",
+      createdAt: 0,
+      filePath: "src/numbers.txt",
+      ...span,
+      snippet: snippetFor(state, from, to),
+      startLabel: lineLabel(span),
+      body: "  Why capitals?  ",
+    };
+
+    const prompt = reviewPrompt([draft]).split("\n");
+    expect(prompt[0]).toMatch(/^I left a comment on the current diff\./);
+    expect(prompt.slice(1)).toEqual([
+      "[1] src/numbers.txt L1–L2 — Why capitals?",
+      "    Code: 1:  one",
+      "2: -two",
+      "2: +TWO",
+    ]);
   });
 });

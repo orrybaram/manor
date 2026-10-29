@@ -1,5 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
+import ArrowDown from "lucide-react/dist/esm/icons/arrow-down";
 import { useOpenFileStore } from "../../../store/open-file-store";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { AgentChip } from "./AgentChip";
+import { jumpToEdit, useFileEditNav } from "./file-edit-nav";
+import type { FilesWorkspace } from "./open-file-watches";
+import { useWorkspaceChanges } from "./workspace-changes";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { fileTitle } from "../../../lib/pane-title";
 import { formatCombo, getPlatform } from "../../../lib/keybindings";
@@ -65,6 +72,78 @@ export function FileSaveHint({ paneId }: { paneId: string }) {
   return (
     <span className={styles.hint} data-testid="file-pane-save-hint">
       {combo} to save
+    </span>
+  );
+}
+
+/**
+ * The header's edit jumps, while the open file has agent edits and no unsaved
+ * ones (then the header says "⌘S to save"): the agent's chip, "N of M edits"
+ * ("M edits" before the first jump), and ↑/↓, which ⌥↑/⌥↓ in the editor
+ * match.
+ */
+export function FileEditJump({
+  paneId,
+  workspacePath,
+  hostId,
+  filePath,
+}: {
+  paneId: string;
+  workspacePath: string | null;
+  hostId: string | null;
+  filePath: string | null;
+}) {
+  const dirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
+  const nav = useFileEditNav((s) => s.byPane[paneId]);
+  const workspace = useMemo<FilesWorkspace | null>(
+    () => (workspacePath && hostId ? { path: workspacePath, hostId } : null),
+    [workspacePath, hostId],
+  );
+  const changes = useWorkspaceChanges(workspace);
+  if (dirty || !nav || nav.count === 0) return null;
+  const author = filePath ? (changes?.authors[filePath] ?? null) : null;
+  const edits = nav.count === 1 ? "edit" : "edits";
+  return (
+    <span className={styles.jump} data-testid="file-pane-edit-jump">
+      {author && <AgentChip author={author} />}
+      <span className={styles.jumpLabel} data-testid="file-pane-edit-jump-label">
+        {nav.current !== null && (
+          <>
+            <b>{nav.current + 1}</b> of{" "}
+          </>
+        )}
+        {nav.count} {edits}
+      </span>
+      <Tooltip label="Previous edit (⌥↑)">
+        <button
+          type="button"
+          className={styles.jumpBtn}
+          aria-label="Previous edit"
+          data-testid="file-pane-edit-prev"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            jumpToEdit(paneId, -1);
+          }}
+        >
+          <ArrowUp size={12} />
+        </button>
+      </Tooltip>
+      <Tooltip label="Next edit (⌥↓)">
+        <button
+          type="button"
+          className={styles.jumpBtn}
+          aria-label="Next edit"
+          data-testid="file-pane-edit-next"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            jumpToEdit(paneId, 1);
+          }}
+        >
+          <ArrowDown size={12} />
+        </button>
+      </Tooltip>
     </span>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildFileTree } from "../FileTree/file-tree";
-import { expandedForOpenFile, visibleTreeRows } from "./drawer-tree";
+import { expandedForFiles, expandedForOpenFile, visibleTreeRows } from "./drawer-tree";
 
 const tree = buildFileTree(
   [
@@ -81,5 +81,16 @@ describe("visibleTreeRows", () => {
       kind: "file",
       path: "apps/desktop/src/App.tsx",
     });
+  });
+});
+
+describe("expandedForFiles", () => {
+  it("opens the folders on the way to the open file and to each changed file", () => {
+    const expanded = expandedForFiles(tree, "docs/guide.md", ["apps/relay/src/index.ts"]);
+    expect([...expanded].sort()).toEqual(["apps", "apps/relay/src", "docs"].sort());
+  });
+
+  it("opens nothing more for a changed file that is not in the tree", () => {
+    expect(expandedForFiles(tree, null, ["gone/away.ts"]).size).toBe(0);
   });
 });

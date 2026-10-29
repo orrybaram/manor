@@ -70,6 +70,11 @@ export class EditorFile {
     return { file: new EditorFile(format, toText(clean.text)), shown: shown.text };
   }
 
+  /** The clean copy, as the editor splits it: what your unsaved lines differ from. */
+  get cleanDoc(): Text {
+    return this.clean;
+  }
+
   /** `doc` differs from the clean copy. */
   isDirty(doc: Text): boolean {
     return !doc.eq(this.clean);

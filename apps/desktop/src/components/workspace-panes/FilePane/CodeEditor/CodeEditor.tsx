@@ -1,5 +1,5 @@
-import { useImperativeHandle, useRef, type Ref } from "react";
-import { Compartment, EditorState } from "@codemirror/state";
+import { useImperativeHandle, useRef, useState, type Ref } from "react";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -27,7 +27,29 @@ import { languageFor, loadLanguage } from "../file-languages";
 import { manorEditorTheme } from "../editor-theme";
 import { EditorFile } from "../file-text";
 import { pendingLines, type LineRequest } from "../pending-line";
+import { stepEdit } from "../file-changes";
+import { registerEditJumper, useFileEditNav } from "../file-edit-nav";
+import {
+  agentEdits,
+  changeMarks,
+  flashLine,
+  laneMarks,
+  setAgentMarks,
+  setCleanDoc,
+  type AgentMarks,
+  type LaneMark,
+} from "./change-marks";
 import styles from "./CodeEditor.module.css";
+
+/** How long a line jumped to stays lit. */
+const FLASH_MS = 1200;
+
+/** Where the open file's agent marks come from: `follow` hears each new set. */
+export type AgentMarksSource = {
+  follow(onChange: (marks: AgentMarks | null) => void): () => void;
+};
+
+type Lane = { marks: LaneMark[]; lines: number };
 
 export type CodeEditorRef = {
   /**
@@ -56,6 +78,8 @@ type CodeEditorProps = {
   onDirtyChange: (dirty: boolean) => void;
   /** Read once, on mount: the editor is going away, with this text. */
   onDispose: (content: string, dirty: boolean) => void;
+  /** Read once, on mount: the file's agent-changed lines, as the workspace diff has them. */
+  agentMarks?: AgentMarksSource;
   ref?: Ref<CodeEditorRef>;
 };
 
@@ -64,6 +88,11 @@ type CodeEditorProps = {
  * made once, on mount, and its language pack arrives when loaded. It says
  * when the text starts or stops differing from the clean copy; saving is the
  * pane's.
+ *
+ * Its gutter marks the lines an agent changed (orange, or green for a new
+ * file) and your unsaved ones (blue), and a lane on its right edge marks
+ * where they are in the whole file. ⌥↑/⌥↓, and the pane header's ↑/↓
+ * (`jumpToEdit`), move between the agent's edits.
  */
 export function CodeEditor({
   paneId,
@@ -73,9 +102,13 @@ export function CodeEditor({
   readOnly,
   onDirtyChange,
   onDispose,
+  agentMarks,
   ref,
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
+  const [lane, setLane] = useState<Lane>({ marks: [], lines: 1 });
+  /** Go to a lane mark's line, counting it as the edit it is; set on mount. */
+  const markClickedRef = useRef<((mark: LaneMark) => void) | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   // How a save writes the editor's text (its BOM, never part of the
   // document, and the file's line breaks, which the document normalizes),
@@ -103,7 +136,10 @@ export function CodeEditor({
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: clean },
           selection: { anchor: head },
+          effects: setCleanDoc.of(clean),
         });
+      } else {
+        view.dispatch({ effects: setCleanDoc.of(clean) });
       }
       settle(view);
     },
@@ -117,6 +153,7 @@ export function CodeEditor({
       const file = fileRef.current;
       if (!view || !file) return false;
       file.markClean(written);
+      view.dispatch({ effects: setCleanDoc.of(file.cleanDoc) });
       return settle(view);
     },
   }));
@@ -127,6 +164,45 @@ export function CodeEditor({
     const language = new Compartment();
     const { file, shown } = EditorFile.open(base, draft);
     fileRef.current = file;
+
+    // The agent edit last jumped to, for the header's "N of M".
+    let current: number | null = null;
+    let flashTimer: ReturnType<typeof setTimeout> | undefined;
+    let destroyed = false;
+    // Lane and header follow the marks; re-set only when they changed.
+    const publish = (view: EditorView) => {
+      const edits = agentEdits(view.state);
+      if (current !== null && current >= edits.length) current = null;
+      useFileEditNav
+        .getState()
+        .set(paneId, edits.length > 0 ? { count: edits.length, current } : null);
+      const marks = laneMarks(view.state);
+      const lines = view.state.doc.lines;
+      setLane((prev) =>
+        prev.lines === lines && sameMarks(prev.marks, marks) ? prev : { marks, lines },
+      );
+    };
+    const goTo = (view: EditorView, line: number) => {
+      const target = view.state.doc.line(Math.min(Math.max(line, 1), view.state.doc.lines));
+      view.dispatch({
+        selection: { anchor: target.from },
+        effects: [EditorView.scrollIntoView(target.from, { y: "center" }), flashLine.of(target.number)],
+      });
+      view.focus();
+      clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => {
+        if (!destroyed) view.dispatch({ effects: flashLine.of(null) });
+      }, FLASH_MS);
+    };
+    const jump = (view: EditorView, direction: 1 | -1): boolean => {
+      const edits = agentEdits(view.state);
+      const next = stepEdit(edits.length, current, direction);
+      if (next === null) return false;
+      current = next;
+      goTo(view, edits[next].from);
+      publish(view);
+      return true;
+    };
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -145,6 +221,14 @@ export function CodeEditor({
           bracketMatching(),
           highlightSelectionMatches(),
           search({ top: true }),
+          // ⌥↑/⌥↓ move between the agent's edits; with none, they move the line.
+          Prec.high(
+            keymap.of([
+              { key: "Alt-ArrowDown", run: (v) => jump(v, 1) },
+              { key: "Alt-ArrowUp", run: (v) => jump(v, -1) },
+            ]),
+          ),
+          changeMarks(file.cleanDoc),
           keymap.of([
             ...searchKeymap,
             ...foldKeymap,
@@ -154,6 +238,14 @@ export function CodeEditor({
           ]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged) settle(update.view);
+            if (
+              update.docChanged ||
+              update.transactions.some((tr) =>
+                tr.effects.some((e) => e.is(setAgentMarks) || e.is(setCleanDoc)),
+              )
+            ) {
+              publish(update.view);
+            }
           }),
           manorEditorTheme,
           language.of([]),
@@ -163,8 +255,22 @@ export function CodeEditor({
     viewRef.current = view;
     dirtyRef.current = isDirty(view);
     if (dirtyRef.current) onDirtyChange(true);
+    publish(view);
+    markClickedRef.current = (mark) => {
+      if (mark.kind === "agent") {
+        const index = agentEdits(view.state).findIndex((e) => e.from === mark.from);
+        if (index >= 0) current = index;
+      }
+      goTo(view, mark.from);
+      publish(view);
+    };
+    const stopJumps = registerEditJumper(paneId, (direction) => {
+      jump(view, direction);
+    });
+    const stopMarks = agentMarks?.follow((marks) => {
+      if (!destroyed) view.dispatch({ effects: setAgentMarks.of(marks) });
+    });
 
-    let destroyed = false;
     const lang = languageFor(path);
     if (lang) {
       loadLanguage(lang)
@@ -190,6 +296,11 @@ export function CodeEditor({
     });
     return () => {
       destroyed = true;
+      clearTimeout(flashTimer);
+      stopMarks?.();
+      stopJumps();
+      markClickedRef.current = null;
+      useFileEditNav.getState().set(paneId, null);
       stopFind();
       stopLines();
       onDispose(file.write(view.state.doc), dirtyRef.current);
@@ -198,7 +309,56 @@ export function CodeEditor({
     };
   });
 
-  return <div ref={hostRef} className={styles.editor} data-testid="file-pane-editor" />;
+  return (
+    <div className={styles.frame}>
+      <div ref={hostRef} className={styles.editor} data-testid="file-pane-editor" />
+      <MarkLane lane={lane} onPick={(mark) => markClickedRef.current?.(mark)} />
+    </div>
+  );
+}
+
+function sameMarks(a: readonly LaneMark[], b: readonly LaneMark[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((m, i) => m.from === b[i].from && m.to === b[i].to && m.kind === b[i].kind)
+  );
+}
+
+const MARK_TITLES: Record<LaneMark["kind"], string> = {
+  agent: "Changed",
+  added: "New file",
+  mine: "Unsaved",
+};
+
+/**
+ * The 10px lane on the editor's right edge: a mark for each run of changed
+ * lines, placed by its line in the whole file. Clicking one goes there.
+ */
+function MarkLane({ lane, onPick }: { lane: Lane; onPick: (mark: LaneMark) => void }) {
+  return (
+    <div className={styles.lane} data-testid="file-pane-mark-lane">
+      {lane.marks.map((mark) => (
+        <button
+          key={`${mark.kind}:${mark.from}`}
+          type="button"
+          tabIndex={-1}
+          className={`${styles.mark} ${styles[`mark_${mark.kind}`]}`}
+          style={{
+            top: `${((mark.from - 1) / lane.lines) * 100}%`,
+            height: `max(4px, ${((mark.to - mark.from + 1) / lane.lines) * 100}%)`,
+          }}
+          title={`${MARK_TITLES[mark.kind]}: line ${mark.from}`}
+          aria-label={`${MARK_TITLES[mark.kind]}: line ${mark.from}`}
+          data-testid="file-pane-mark"
+          data-kind={mark.kind}
+          data-line={mark.from}
+          // The editor keeps the keyboard.
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={() => onPick(mark)}
+        />
+      ))}
+    </div>
+  );
 }
 
 /** Put the cursor on `request`'s line (and column), centred, with the keyboard. */

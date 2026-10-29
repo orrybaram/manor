@@ -29,3 +29,10 @@
   text-overflow: ellipsis;
   min-width: 0;
 }
+
+.trailing {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}

@@ -46,3 +46,43 @@
   color: var(--text-dim);
   white-space: nowrap;
 }
+
+/* The edit jumps: agent chip, "N of M edits", ↑ ↓. */
+.jump {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 6px;
+  font-size: 11px;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.jumpLabel {
+  padding: 0 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.jumpLabel b {
+  font-weight: 600;
+  color: var(--yellow);
+}
+
+.jumpBtn {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.jumpBtn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}

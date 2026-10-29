@@ -137,3 +137,85 @@
   color: var(--red);
   line-height: 1.35;
 }
+
+/* A changed file: its name tinted, and its letter at the row's end. */
+.badge {
+  flex: none;
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--status);
+}
+
+.status_modified,
+.status_renamed {
+  --status: var(--yellow);
+}
+
+.status_added {
+  --status: var(--green);
+}
+
+.status_deleted {
+  --status: var(--red);
+}
+
+.status_modified .fileName,
+.status_renamed .fileName,
+.status_added .fileName,
+.status_deleted .fileName {
+  color: var(--status);
+}
+
+/* A folder holding changed files. */
+.dirDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--yellow);
+}
+
+/* Changed by agents: one group per agent. */
+.group + .group {
+  margin-top: 4px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 10px 3px;
+}
+
+.groupLabel {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.changeRow {
+  height: 22px;
+  padding-left: 14px;
+}
+
+.changeRow:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.changeRow:disabled:hover {
+  background: transparent;
+}
+
+.folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+  font-size: 11px;
+}

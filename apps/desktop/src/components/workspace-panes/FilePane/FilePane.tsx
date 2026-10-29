@@ -22,8 +22,12 @@ import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { fileTitle } from "../../../lib/pane-title";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { Button } from "../../ui/Button/Button";
-import type { CodeEditorRef } from "./CodeEditor/CodeEditor";
-import { FileDrawer } from "./FileDrawer/FileDrawer";
+import type { AgentMarksSource, CodeEditorRef } from "./CodeEditor/CodeEditor";
+import type { AgentMarks } from "./CodeEditor/change-marks";
+import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
+import { useAgentLabel } from "./agent-label";
+import type { FileChange } from "./file-changes";
+import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes";
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
 import {
@@ -49,11 +53,12 @@ type FilePaneProps = {
   hostId?: string;
 };
 
-type Drawer = "files" | null;
+type Drawer = DrawerMode | null;
 
 /**
  * A file pane: one file of its workspace, with a strip on its left edge whose
- * Files button opens the workspace's tree in a drawer over the editor. The
+ * Files button opens the workspace's tree in a drawer over the editor, and
+ * whose Changed by agents button opens the workspace's changed files. The
  * open file lives on the pane's leaf (`setPaneFilePath`), so it is the same
  * in every window and after a relaunch; its unsaved edits live in
  * `open-file-store`, so a remount keeps them. The phone (the web client)
@@ -71,6 +76,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       workspacePath ? { path: workspacePath, hostId: hostId ?? LOCAL_HOST_ID } : null,
     [workspacePath, hostId],
   );
+  const changes = useWorkspaceChanges(workspace);
+  const changeCount = changes?.files.size ?? 0;
 
   // A split rebuilds the pane, so its edits outlive the mount; a closed
   // pane's go, and so do those of a pane that is no longer a file pane.
@@ -110,12 +117,19 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
         <Tooltip label="Changed by agents">
           <button
             type="button"
-            className={styles.stripBtn}
-            aria-label="Changed by agents"
+            className={`${styles.stripBtn} ${drawer === "changes" ? styles.stripBtnOn : ""}`}
+            aria-label={`Changed by agents${changeCount > 0 ? ` (${changeCount})` : ""}`}
+            aria-pressed={drawer === "changes"}
             data-testid="file-pane-changes-button"
-            disabled
+            disabled={!workspace}
+            onClick={() => setDrawer((d) => (d === "changes" ? null : "changes"))}
           >
             <GitBranch size={14} />
+            {changeCount > 0 && (
+              <span className={styles.count} data-testid="file-pane-changes-count">
+                {changeCount > 99 ? "99+" : changeCount}
+              </span>
+            )}
           </button>
         </Tooltip>
       </div>
@@ -140,9 +154,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           </div>
         )}
       </div>
-      {drawer === "files" && workspace && (
+      {drawer && workspace && (
         <FileDrawer
+          key={drawer}
           workspace={workspace}
+          mode={drawer}
+          changes={changes}
           openFile={filePath}
           canCreate={!readOnly}
           onPick={pick}
@@ -176,11 +193,18 @@ function isSaveKey(e: React.KeyboardEvent): boolean {
 }
 
 /**
- * Who changed the open file on disk, for the conflict banner. Null until
- * #456 learns which agent wrote which file; the banner then says "An agent".
+ * Who changed the open file on disk, for the conflict banner: the agent whose
+ * hooks last wrote it. Null when none did; the banner then says "An agent".
  */
-function useFileAuthor(_workspace: FilesWorkspace, _path: string): string | null {
-  return null;
+function useFileAuthor(workspace: FilesWorkspace, path: string): string | null {
+  const changes = useWorkspaceChanges(workspace);
+  return useAgentLabel(changes?.authors[path] ?? null);
+}
+
+/** The gutter's marks for one file's change, or none for an unchanged or deleted file. */
+function agentMarksFor(change: FileChange | undefined): AgentMarks | null {
+  if (!change || change.status === "deleted") return null;
+  return { kind: change.status === "added" ? "added" : "changed", ranges: change.ranges };
 }
 
 type OpenFileActions = {
@@ -218,6 +242,13 @@ function OpenFile({
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
   const author = useFileAuthor(workspace, path);
   const editorRef = useRef<CodeEditorRef>(null);
+  // The editor follows the workspace diff for this file's gutter marks.
+  const [agentMarks] = useState<AgentMarksSource>(() => ({
+    follow: (onChange) =>
+      followWorkspaceChanges(workspace, (changes) =>
+        onChange(agentMarksFor(changes.files.get(path))),
+      ),
+  }));
   const actions = useRef<OpenFileActions | null>(null);
   const [comparison, setComparison] = useState<Comparison>(null);
 
@@ -503,6 +534,7 @@ function OpenFile({
             onDispose={(content, dirty) => {
               if (dirty) dispatch({ type: "stash-draft", draft: content });
             }}
+            agentMarks={agentMarks}
           />
         </Suspense>
         {state.comparing && (

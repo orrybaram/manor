@@ -40,7 +40,7 @@ import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { FilePane } from "./FilePane/FilePane";
-import { FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
+import { FileEditJump, FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
@@ -524,7 +524,17 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           <PaneHeaderTitle paneId={paneId} className={styles.paneStatusTitle} />
         )}
         <Row align="center" gap="2xs" className={styles.paneStatusActions}>
-          {contentType === "file" && <FileSaveHint paneId={paneId} />}
+          {contentType === "file" && (
+            <>
+              <FileSaveHint paneId={paneId} />
+              <FileEditJump
+                paneId={paneId}
+                workspacePath={workspace?.path ?? null}
+                hostId={workspace?.hostId ?? null}
+                filePath={filePath}
+              />
+            </>
+          )}
           {contentType === "diff" && (
             <Tooltip label="Search">
               <button

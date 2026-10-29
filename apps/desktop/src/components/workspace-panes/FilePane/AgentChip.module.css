@@ -1,0 +1,13 @@
+.chip {
+  flex: none;
+  max-width: 120px;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--surface);
+  color: var(--text-primary);
+}

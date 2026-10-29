@@ -9,14 +9,28 @@ import { treeRowIndent } from "../../FileTree/indent";
 import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
-import { expandedForOpenFile, visibleTreeRows } from "../drawer-tree";
+import { expandedForFiles, visibleTreeRows } from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
+import {
+  changeBadge,
+  foldersWithChanges,
+  groupChangesByAuthor,
+  type FileChange,
+} from "../file-changes";
+import type { WorkspaceChanges } from "../workspace-changes";
+import { AgentChip } from "../AgentChip";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
 
+/** The workspace's tree, or the flat list of its changed files by agent. */
+export type DrawerMode = "files" | "changes";
+
 type FileDrawerProps = {
   workspace: FilesWorkspace;
+  mode: DrawerMode;
+  /** The workspace's changed files and who wrote them; null until read. */
+  changes: WorkspaceChanges | null;
   /** The pane's open file, workspace-relative; its folders start open. */
   openFile: string | null;
   /** Offer "+" (new file). Not on the phone, which only reads. */
@@ -26,12 +40,16 @@ type FileDrawerProps = {
 };
 
 /**
- * The Files drawer: the workspace's tree, over the editor. It lists the
- * workspace each time it opens (one `files.list`), and starts with only the
- * folders on the way to the open file expanded.
+ * The drawer over the editor. Files: the workspace's tree, listed each time
+ * it opens (one `files.list`), starting with only the folders on the way to
+ * the open file and to changed files expanded; changed files carry their
+ * badge and their folders a dot. Changed by agents: the changed files, flat,
+ * under the agent that last wrote each.
  */
 export function FileDrawer({
   workspace,
+  mode,
+  changes,
   openFile,
   canCreate,
   onPick,
@@ -43,6 +61,7 @@ export function FileDrawer({
     queryKey,
     queryFn: () => window.electronAPI.files.list(workspace),
     staleTime: 0,
+    enabled: mode === "files",
   });
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
@@ -57,6 +76,7 @@ export function FileDrawer({
       ref={drawerRef}
       className={styles.drawer}
       data-testid="file-pane-drawer"
+      data-mode={mode}
       tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
@@ -66,7 +86,7 @@ export function FileDrawer({
       }}
     >
       <div className={styles.head}>
-        <span>Files</span>
+        <span>{mode === "changes" ? "Changed by agents" : "Files"}</span>
         <span className={styles.headSpacer} />
         {canCreate && (
           <Tooltip label="New file">
@@ -97,10 +117,13 @@ export function FileDrawer({
           }}
         />
       )}
-      {listing.data ? (
+      {mode === "changes" ? (
+        <ChangesList changes={changes} openFile={openFile} onPick={onPick} />
+      ) : listing.data ? (
         <TreeList
           paths={listing.data.paths}
           truncated={listing.data.truncated}
+          changes={changes?.files ?? null}
           openFile={openFile}
           onPick={onPick}
         />
@@ -116,21 +139,25 @@ export function FileDrawer({
 function TreeList({
   paths,
   truncated,
+  changes,
   openFile,
   onPick,
 }: {
   paths: string[];
   truncated: boolean;
+  changes: ReadonlyMap<string, FileChange> | null;
   openFile: string | null;
   onPick: (path: string) => void;
 }) {
   const tree = useMemo(() => buildFileTree(paths.map((path) => ({ path }))), [paths]);
-  // Null until the user toggles a folder: until then, the open file's folders.
+  // Null until the user toggles a folder: until then, the folders of the
+  // open file and of the changed files.
   const [toggled, setToggled] = useState<Set<string> | null>(null);
   const expanded = useMemo(
-    () => toggled ?? expandedForOpenFile(tree, openFile),
-    [toggled, tree, openFile],
+    () => toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []),
+    [toggled, tree, openFile, changes],
   );
+  const dotted = useMemo(() => foldersWithChanges(changes?.keys() ?? []), [changes]);
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Open on the open file, a few rows down from the top.
@@ -178,12 +205,22 @@ function TreeList({
                   depth={row.depth}
                   collapsed={!row.expanded}
                   onToggle={() => toggle(row.path)}
+                  trailing={
+                    dotted.has(row.path) ? (
+                      <span
+                        className={styles.dirDot}
+                        data-testid="file-pane-dir-dot"
+                        title="Holds changed files"
+                      />
+                    ) : undefined
+                  }
                 />
               ) : (
                 <FileRow
                   path={row.path}
                   name={row.name}
                   depth={row.depth}
+                  change={changes?.get(row.path) ?? null}
                   selected={row.path === openFile}
                   onPick={onPick}
                 />
@@ -203,27 +240,114 @@ function FileRow({
   path,
   name,
   depth,
+  change,
   selected,
   onPick,
 }: {
   path: string;
   name: string;
   depth: number;
+  change: FileChange | null;
   selected: boolean;
   onPick: (path: string) => void;
 }) {
   return (
     <button
       type="button"
-      className={`${styles.fileRow} ${selected ? styles.fileRowSelected : ""}`}
+      className={`${styles.fileRow} ${selected ? styles.fileRowSelected : ""} ${change ? styles[`status_${change.status}`] : ""}`}
       style={{ paddingLeft: treeRowIndent(depth) }}
       title={path}
       aria-current={selected ? "true" : undefined}
+      data-change={change?.status}
       onClick={() => onPick(path)}
     >
       {createElement(fileIconFor(path), { size: 12, className: styles.fileIcon })}
       <span className={styles.fileName}>{name}</span>
+      {change && <ChangeBadge change={change} />}
     </button>
+  );
+}
+
+function ChangeBadge({ change }: { change: FileChange }) {
+  return (
+    <span className={styles.badge} data-testid="file-pane-change-badge">
+      {changeBadge(change.status)}
+    </span>
+  );
+}
+
+/**
+ * Changed by agents: each agent's changed files under its chip, the latest
+ * writer first, then the files no agent's hooks claimed. A deleted file is
+ * listed but has nothing to open.
+ */
+function ChangesList({
+  changes,
+  openFile,
+  onPick,
+}: {
+  changes: WorkspaceChanges | null;
+  openFile: string | null;
+  onPick: (path: string) => void;
+}) {
+  const groups = useMemo(
+    () => (changes ? groupChangesByAuthor(changes.files.values(), changes.authors) : []),
+    [changes],
+  );
+  if (!changes) {
+    return (
+      <div className={styles.note} data-testid="file-pane-drawer-status">
+        Loading…
+      </div>
+    );
+  }
+  if (groups.length === 0) {
+    return (
+      <div className={styles.note} data-testid="file-pane-changes-empty">
+        No changes
+      </div>
+    );
+  }
+  return (
+    <div className={styles.tree} data-testid="file-pane-changes">
+      {groups.map((group) => (
+        <div
+          key={group.author?.paneId ?? ""}
+          className={styles.group}
+          data-testid="file-pane-changes-group"
+        >
+          <div className={styles.groupHead}>
+            {group.author ? <AgentChip author={group.author} /> : <span className={styles.groupLabel}>Other changes</span>}
+          </div>
+          {group.files.map((change) => {
+            const slash = change.path.lastIndexOf("/");
+            const name = change.path.slice(slash + 1);
+            const folder = slash < 0 ? "" : change.path.slice(0, slash);
+            const deleted = change.status === "deleted";
+            const selected = change.path === openFile;
+            return (
+              <button
+                key={change.path}
+                type="button"
+                className={`${styles.fileRow} ${styles.changeRow} ${selected ? styles.fileRowSelected : ""} ${styles[`status_${change.status}`]}`}
+                title={deleted ? `${change.path} (deleted)` : change.path}
+                disabled={deleted}
+                aria-current={selected ? "true" : undefined}
+                data-testid="file-pane-change-row"
+                data-path={change.path}
+                data-change={change.status}
+                onClick={() => onPick(change.path)}
+              >
+                {createElement(fileIconFor(change.path), { size: 12, className: styles.fileIcon })}
+                <span className={styles.fileName}>{name}</span>
+                {folder && <span className={styles.folder}>{folder}</span>}
+                <ChangeBadge change={change} />
+              </button>
+            );
+          })}
+        </div>
+      ))}
+    </div>
   );
 }
 

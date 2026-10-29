@@ -28,6 +28,22 @@ export function expandedForOpenFile<T extends FileTreeEntry>(
   }
 }
 
+/**
+ * The folders the drawer starts with open: those on the way to the open file
+ * and to each changed file.
+ */
+export function expandedForFiles<T extends FileTreeEntry>(
+  nodes: FileTreeNode<T>[],
+  openFile: string | null,
+  changed: Iterable<string>,
+): Set<string> {
+  const expanded = expandedForOpenFile(nodes, openFile);
+  for (const path of changed) {
+    for (const dir of expandedForOpenFile(nodes, path)) expanded.add(dir);
+  }
+  return expanded;
+}
+
 /** The rows a tree shows with `expanded` folders open, depth-first. */
 export function visibleTreeRows<T extends FileTreeEntry>(
   nodes: FileTreeNode<T>[],

@@ -22,6 +22,7 @@
 }
 
 .stripBtn {
+  position: relative;
   width: 26px;
   height: 26px;
   display: grid;
@@ -48,6 +49,23 @@
 .stripBtnOn:hover:not(:disabled) {
   background: var(--surface);
   color: var(--fg);
+}
+
+/* How many files the workspace has changed, on the Changed by agents button. */
+.count {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: 6px;
+  font-size: 9px;
+  line-height: 12px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--yellow);
+  color: var(--bg);
+  pointer-events: none;
 }
 
 .editorCol {

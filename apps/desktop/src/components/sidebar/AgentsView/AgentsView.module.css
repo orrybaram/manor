@@ -20,8 +20,9 @@
   inset: 0;
   margin: auto;
   z-index: 101;
-  width: 640px;
-  max-height: 75vh;
+  width: 880px;
+  max-width: 92vw;
+  height: min(75vh, 680px);
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
@@ -112,11 +113,42 @@
   font-weight: 500;
 }
 
-.scrollArea {
+/* The list on the left, the highlighted row's preview on the right. */
+.split {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+
+.scrollArea {
   overflow-y: auto;
   padding: 4px 8px 8px;
-  min-height: 120px;
+  min-height: 0;
+  border-right: 1px solid var(--surface);
+}
+
+.previewPane {
+  overflow-y: auto;
+  min-width: 0;
+  padding: 16px 20px;
+}
+
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  min-height: 44px;
+  margin: -8px 0 8px -8px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
 }
 
 .dateGroup {
@@ -153,11 +185,6 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
-}
-
-/* A Session found on disk: nothing to resume here yet. */
-.agentRow[data-outside] {
-  cursor: default;
 }
 
 .agentRow[data-highlighted] {
@@ -395,6 +422,29 @@
     opacity: 0;
     transform: scale(0.96);
   }
+}
+
+:global(:root[data-layout="phone"]) .modal {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+/* A phone has room for the list or a preview: tapping a row swaps them. */
+:global(:root[data-layout="phone"]) .split {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:global(:root[data-layout="phone"]) .scrollArea {
+  border-right: none;
+}
+
+.modal[data-phone-preview] .header,
+.modal[data-phone-preview] .chips,
+.modal[data-phone-preview] .scrollArea {
+  display: none;
 }
 
 :global(:root[data-layout="phone"]) .filterTab {

@@ -109,6 +109,9 @@ import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
 import "./App.css";
 
+/** The Agents modal's Session resume and fork, which do nothing yet. */
+function ignoreSessionAction(): void {}
+
 function App() {
   const applyProjectTheme = useThemeStore((s) => s.applyProjectTheme);
   const loadProjects = useProjectStore((s) => s.loadProjects);
@@ -891,6 +894,7 @@ function App() {
               open={agentsOpen}
               onClose={closeAgents}
               onResumeAgent={resumeAgent}
+              onSessionAction={ignoreSessionAction}
             />
             <AddProjectDialog
               open={addProjectDialogOpen}

@@ -317,7 +317,7 @@ test("the file pane asks before converting or closing over unsaved edits, and a 
 
   // Convert to › Terminal on the dirty pane: the confirm, and Cancel keeps it all.
   const dialog = window.locator('[data-testid="unsaved-edits-dialog"]');
-  await header(window).locator("[draggable]").first().click({ button: "right" });
+  await pane(window).locator('[data-testid="file-pane-breadcrumb"]').click({ button: "right" });
   await window.getByRole("menuitem", { name: "Convert to" }).hover();
   await window.getByRole("menuitem", { name: "Terminal" }).click();
   await expect(dialog).toBeVisible();

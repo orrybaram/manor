@@ -686,13 +686,15 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
             />
           </PaneContextMenu>
         ) : contentType === "file" ? (
-          // No pane menu over the editor: right-click there is the text's own
-          // (copy, look up). The header still has the pane's menu.
-          <FilePane
-            paneId={paneId}
-            workspacePath={workspacePath}
-            hostId={workspace?.hostId}
-          />
+          // The pane's menu, as over a diff: the leaf header has none of its
+          // own, so this is the only way to split, convert or move the pane.
+          <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
+            <FilePane
+              paneId={paneId}
+              workspacePath={workspacePath}
+              hostId={workspace?.hostId}
+            />
+          </PaneContextMenu>
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             {/* `<webview>` is Electron-only; the web app gets a

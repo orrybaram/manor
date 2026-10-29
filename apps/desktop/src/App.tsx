@@ -59,6 +59,7 @@ import { useRemoteControlStore } from "./store/remote-control-store";
 import { ownerOf } from "./lib/workspace-directory";
 import { workspaceDisplayName } from "./lib/workspace-display-name";
 import { type WorkspaceKey } from "./lib/workspace-key";
+import { newWorkspaceStartFromSelection } from "./lib/workspace-host-choices";
 import { appCommandHandlers } from "./lib/app-commands";
 import { handleRecordingCommand } from "./lib/webview-recorder";
 import {
@@ -209,6 +210,8 @@ function App() {
   const [preselectedProjectId, setPreselectedProjectId] = useState<
     string | null
   >(null);
+  const [preferredMemberId, setPreferredMemberId] = useState<string | null>(null);
+  const [initialFolderId, setInitialFolderId] = useState<string | null>(null);
   const [initialName, setInitialName] = useState("");
   const [initialBranch, setInitialBranch] = useState("");
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
@@ -217,6 +220,8 @@ function App() {
   const closeNewWorkspace = useCallback(() => {
     setNewWorkspaceOpen(false);
     setPreselectedProjectId(null);
+    setPreferredMemberId(null);
+    setInitialFolderId(null);
     setInitialName("");
     setInitialBranch("");
     setAgentPrompt(null);
@@ -599,7 +604,14 @@ function App() {
         setPaletteOpen((v) => !v);
       },
       openPaletteView: handleOpenPaletteView,
-      openNewWorkspace: () => setNewWorkspaceOpen(true),
+      // Cmd+Shift+N starts on the host and folder you're in.
+      openNewWorkspace: () => {
+        const { projects, selectedProjectIndex } = useProjectStore.getState();
+        const start = newWorkspaceStartFromSelection(projects[selectedProjectIndex]);
+        setPreferredMemberId(start.preferredMemberId);
+        setInitialFolderId(start.folderId);
+        setNewWorkspaceOpen(true);
+      },
       addProject: () => void handleAddProject(),
       openFeedback: handleOpenFeedback,
       openAgents: () => setAgentsOpen(true),
@@ -918,6 +930,8 @@ function App() {
               projects={projects}
               selectedProjectIndex={selectedProjectIndex}
               preselectedProjectId={preselectedProjectId}
+              preferredMemberId={preferredMemberId}
+              initialFolderId={initialFolderId}
               initialName={initialName}
               initialBranch={initialBranch}
               initialAgentPrompt={agentPrompt ?? undefined}

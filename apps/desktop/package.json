@@ -69,6 +69,7 @@
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
     "cmdk": "^1.1.1",
+    "croner": "^11.0.0",
     "electron-updater": "^6.8.11",
     "emojibase-data": "^18.0.0",
     "lucide-react": "^0.577.0",

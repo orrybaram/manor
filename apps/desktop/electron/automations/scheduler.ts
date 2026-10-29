@@ -43,8 +43,8 @@ export interface AutomationSchedulerDeps {
     automation: Automation,
     ctx: { trigger: AutomationRunTrigger; scheduledFor: string },
   ) => Promise<AutomationFireResult>;
-  /** Whether the agent is still thinking or working. */
-  isAgentBusy: (agentId: string) => boolean;
+  /** Whether a started run's agent is still thinking or working. */
+  isAgentBusy: (run: AutomationRun) => boolean;
   log?: (message: string) => void;
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (handle: unknown) => void;
@@ -152,7 +152,7 @@ export class AutomationScheduler {
 
     const trigger: AutomationRunTrigger = lateMs <= 2 * this.tickMs ? "schedule" : "catch-up";
     const previous = store.lastStartedRun(id);
-    if (previous?.agentId && this.deps.isAgentBusy(previous.agentId)) {
+    if (previous && this.deps.isAgentBusy(previous)) {
       store.appendRun({
         automationId: id,
         scheduledFor: latest,
@@ -161,7 +161,8 @@ export class AutomationScheduler {
         outcome: "skipped",
         reason: "still-working",
         detail: "The previous run is still working",
-        agentId: previous.agentId,
+        ...(previous.agentId ? { agentId: previous.agentId } : {}),
+        ...(previous.paneId ? { paneId: previous.paneId } : {}),
       });
       return;
     }

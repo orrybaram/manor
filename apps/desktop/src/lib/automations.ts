@@ -91,7 +91,15 @@ export interface AutomationRun {
   detail?: string;
   /** How many occurrences a `missed` run folds together. */
   missedCount?: number;
+  /**
+   * The Agent's id, when it is known. A started run usually has none: the
+   * Agent record is made by its first hook, after the run is recorded, so
+   * the run is linked to it through `paneId` (`runAgent` in
+   * `electron/automations/run-agent.ts`).
+   */
   agentId?: string;
+  /** The pane the run's agent was launched in. */
+  paneId?: string;
   workspacePath?: string;
 }
 

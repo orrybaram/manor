@@ -62,7 +62,7 @@ describe("AutomationScheduler", () => {
       store,
       now: () => nowMs,
       fire,
-      isAgentBusy: (id) => busy.has(id),
+      isAgentBusy: (run) => busy.has(run.agentId ?? ""),
     });
   });
 

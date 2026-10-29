@@ -53,6 +53,8 @@ import type { ChatMirror } from "../chat-mirror/mirror";
 import type { AppCommandResult } from "../renderer-bridge";
 import type { UnseenAgents } from "../agent-status/unseen-agents";
 import type { ServerNotifier } from "../notifications";
+import type { AutomationStore } from "../automations/automation-store";
+import type { AutomationScheduler } from "../automations/scheduler";
 
 /** A workspace as the renderer describes it for portless hostnames. */
 export interface WorkspaceMeta extends PortlessWorkspace {
@@ -140,6 +142,12 @@ export interface ServerDeps {
   workspaceOps: WorkspaceOps;
   /** Persistent Agent activity history. */
   agentActivityStore: AgentActivityStore;
+  /**
+   * This server's automations and the scheduler that fires them, for the
+   * projects on its own host. A run's live Agent status is
+   * `runAgent` (`../automations/run-agent.ts`).
+   */
+  automations: { store: AutomationStore; scheduler: AutomationScheduler };
   preferencesManager: PreferencesManager;
   keybindingsManager: KeybindingsManager;
   paneContextMap: Map<
@@ -225,6 +233,7 @@ export type SharedDeps = Pick<
   | "statsStore"
   | "workspaceOps"
   | "agentActivityStore"
+  | "automations"
   | "preferencesManager"
   | "keybindingsManager"
   | "paneContextMap"

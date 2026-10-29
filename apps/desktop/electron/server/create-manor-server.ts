@@ -90,6 +90,11 @@ import type { ConnectionListener } from "../terminal-host/reconnect-supervisor";
 import type { StreamEvent } from "../terminal-host/types";
 import { ThemeManager } from "../theme";
 import { createWorkspaceOps } from "../workspace-ops";
+import { AutomationStore } from "../automations/automation-store";
+import { AutomationScheduler } from "../automations/scheduler";
+import { createFireRun } from "../automations/fire-run";
+import { isRunAgentBusy } from "../automations/run-agent";
+import { startAgentInWorkspace } from "../routes/agents";
 import { pickPaneAgent } from "../../src/lib/pane-agent";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
 import type { LayoutClaim } from "../../src/lib/layout/visible-tabs";
@@ -161,6 +166,14 @@ export interface ManorServerOptions<D extends BridgeServerDeps> {
   };
   /** Driver clocks and log, for tests. */
   clocks?: Pick<AgentStatusDriverDeps, "monoClock" | "wallClock" | "log">;
+  /**
+   * Why this server may not fire automations now, or null when it may. A
+   * host server passes its ownership: before adoption it owns no projects,
+   * and each due run is recorded as failed with this reason.
+   */
+  automationsBlocked?: () => string | null;
+  /** The automation scheduler's clock and tick, for tests. */
+  automationClock?: { now?: () => number; tickMs?: number };
 }
 
 export interface ManorServer<D extends BridgeServerDeps> extends ManorCore {
@@ -172,7 +185,7 @@ export interface ManorServer<D extends BridgeServerDeps> extends ManorCore {
    * stays unread (and its file untouched). Never rejects.
    */
   initSecrets(): Promise<void>;
-  /** Relay hooks into the Status reconciler and start its tick. */
+  /** Relay hooks into the Status reconciler and start its tick, and the automation scheduler's. */
   start(): void;
   /**
    * The shared part of a shutdown: flush what is pending, let go of the
@@ -689,6 +702,24 @@ export function createManorServer<D extends BridgeServerDeps>(
     paneContextMap,
   });
 
+  // Automations: fired on this server for the projects on its own host
+  // (`../automations/fire-run.ts`). Started in `start()`, once hooks flow.
+  const automationStore = new AutomationStore(dataDir);
+  const automationScheduler = new AutomationScheduler({
+    store: automationStore,
+    now: opts.automationClock?.now ?? Date.now,
+    fire: createFireRun({
+      projectManager,
+      workspaceOps,
+      // Read at call time: `core.shared` is built below.
+      startAgent: (workspacePath, options) => startAgentInWorkspace(core.shared, workspacePath, options),
+      ...(opts.automationsBlocked ? { blocked: opts.automationsBlocked } : {}),
+    }),
+    isAgentBusy: (run) => isRunAgentBusy({ agentManager, agentStatus: agentStatusDriver }, run),
+    log: (message) => console.warn(`[automations] ${message}`),
+    ...(opts.automationClock?.tickMs !== undefined ? { tickMs: opts.automationClock.tickMs } : {}),
+  });
+
   /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
   async function resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void> {
     // An adopted host's server does its own.
@@ -845,6 +876,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       statsStore,
       workspaceOps,
       agentActivityStore,
+      automations: { store: automationStore, scheduler: automationScheduler },
       preferencesManager,
       keybindingsManager,
       paneContextMap,
@@ -921,9 +953,11 @@ export function createManorServer<D extends BridgeServerDeps>(
       // before this were queued and are replayed now. One tick, on the old
       // sweep cadence, carries every time-based rule.
       agentPipeline.start();
+      automationScheduler.start();
     },
 
     stop() {
+      automationScheduler.stop();
       agentPipeline.ingestion.stop();
       // The layout debounce is 300ms; a stop inside that window must not be
       // the one that loses the user's arrangement.
@@ -943,6 +977,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       void backendRegistry.disconnectAll();
       killAllActivePushes();
       statsStore.flushNow();
+      automationStore.flushNow();
       agentActivityStore.flush();
       agentActivityStore.dispose();
       worktreeWatcher.dispose();

@@ -74,7 +74,7 @@ import {
   type IdentityReset,
 } from "./instance";
 import { fileHookCursorStore } from "./hook-cursor";
-import { fileOwnershipState, type OwnershipState } from "./ownership";
+import { fileOwnershipState, PENDING_MESSAGE, type OwnershipState } from "./ownership";
 import { createSupervisorFactsCache } from "./supervisor";
 import {
   createHostRelay,
@@ -239,6 +239,8 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const server = createManorServer<HostServerDeps>(hostPlatform, {
     table: HOST_TABLE,
+    // Nothing fires before the desktop hands this host over.
+    automationsBlocked: () => (ownership.current() === "host" ? null : PENDING_MESSAGE),
     onAgentStatus: (agent, prevStatus, newStatus) => {
       relay.onAgentStatus(agent, prevStatus, newStatus);
       opts.onAgentStatus?.(agent, prevStatus, newStatus);

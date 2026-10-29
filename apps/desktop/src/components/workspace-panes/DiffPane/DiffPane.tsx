@@ -41,7 +41,7 @@ import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
 import { useDraftReview } from "./use-draft-review";
-import { fetchDiffSingleFlight, fetchStagedSingleFlight } from "./diff-fetch";
+import { fetchDiffSingleFlight, fetchStagedSingleFlight, localDiffKey } from "./diff-fetch";
 import { FingerprintedFetch } from "./FingerprintedFetch";
 import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
@@ -251,11 +251,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     // below re-fetch only then.
     const wsKey = workspacePath ? workspaceKey(hostId, workspacePath) : null;
 
-    // Each fetch is keyed by workspace + mode + branch. `settled` records the
-    // outcome of the last completed fetch together with the key it ran for, so
-    // `loading` and `error` derive during render instead of being reset every
-    // time the key changes.
-    const fetchKey = `${wsKey ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
+    // Each fetch is keyed by workspace + mode (+ branch, which only the
+    // branch diff reads). `settled` records the outcome of the last completed
+    // fetch together with the key it ran for, so `loading` and `error` derive
+    // during render instead of being reset every time the key changes.
+    const fetchKey =
+      diffMode === "local"
+        ? localDiffKey(wsKey ?? "")
+        : `${wsKey ?? ""}\u0000branch\u0000${defaultBranch}`;
     const [settled, setSettled] = useState<{
       key: string;
       error: string | null;

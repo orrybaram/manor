@@ -2,7 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { FileAuthor } from "../../../electron.d";
 import { watchDiffFingerprint } from "../../../lib/diff-fingerprints";
 import { workspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
-import { fetchDiffSingleFlight } from "../DiffPane/diff-fetch";
+import { fetchDiffSingleFlight, localDiffKey } from "../DiffPane/diff-fetch";
 import { fileChangesFromDiff, type FileChange } from "./file-changes";
 import type { FilesWorkspace } from "./open-file-watches";
 
@@ -10,7 +10,10 @@ import type { FilesWorkspace } from "./open-file-watches";
 export type WorkspaceChanges = {
   /** Changed files vs. HEAD (the diff pane's Local view), by workspace-relative path. */
   files: ReadonlyMap<string, FileChange>;
-  /** The agent that last wrote each file, where its hooks said. */
+  /**
+   * The agent that last wrote each file, where its hooks said and nothing
+   * has written the file since.
+   */
   authors: Readonly<Record<string, FileAuthor>>;
 };
 
@@ -66,8 +69,14 @@ function start(key: WorkspaceKey, path: string): Entry {
       unwatch();
     },
   };
+  // Runs answer out of order (a slow authors request); a run older than the
+  // one shown is dropped.
+  let started = 0;
+  let shown = 0;
   const run = () => {
-    const diff = fetchDiffSingleFlight(`files\u0000${key}`, () =>
+    const seq = ++started;
+    // The diff pane's own Local fetch: one `git diff` for both when they ask together.
+    const diff = fetchDiffSingleFlight(localDiffKey(key), () =>
       window.electronAPI.diffs.getLocalDiff(path),
     );
     // Attribution is a nicety: a server too old to answer leaves files unclaimed.
@@ -76,11 +85,13 @@ function start(key: WorkspaceKey, path: string): Entry {
       .catch(() => ({}) as Record<string, FileAuthor>);
     Promise.all([diff, authors]).then(
       ([raw, byPath]) => {
-        if (!live) return;
+        if (!live || seq < shown) return;
+        shown = seq;
         const authorsJson = JSON.stringify(byPath);
         if (entry.value && raw === entry.raw && authorsJson === entry.authorsJson) return;
         entry.raw = raw;
         entry.authorsJson = authorsJson;
+        // Diff paths are the repo root's; a workspace in a repo's subfolder is not handled.
         entry.value = { files: fileChangesFromDiff(raw), authors: byPath };
         for (const listener of entry.listeners) listener();
       },

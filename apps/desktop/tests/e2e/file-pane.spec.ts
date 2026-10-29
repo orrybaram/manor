@@ -430,6 +430,10 @@ test("the palette's Split with Source Control opens a file pane on its Source Co
   await expect(
     drawer.locator('[data-testid="scm-row"][data-path="src/components/Widget.tsx"]'),
   ).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  // Nothing open yet: the editor points at the changes, not the tree.
+  await expect(pane(window).locator('[data-testid="file-pane-empty"]')).toHaveText(
+    "Pick a change to see its diff",
+  );
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "split-scm") });
 });
@@ -646,13 +650,27 @@ test("Source Control stages, unstages and discards a workspace's changes", async
   await expect(widgetRow).toHaveCount(0);
   expect(fs.readFileSync(path.join(ws, "src", "components", "Widget.tsx"), "utf8")).toBe(WIDGET);
 
-  // Branch: the view switches and lists against the default branch.
+  // Branch: what the workspace's branch changed since it left the project's
+  // default branch (the fixture's `main`). Move `main` up to the baseline
+  // (it is checked out in the project's own folder, so by ref, not by
+  // checkout), then commit a change here that `main` doesn't have.
+  git(ws, "update-ref refs/heads/main HEAD");
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Tapped"));
+  git(ws, "commit -qam \"Tap, not click\"");
   await drawer.locator('[data-testid="scm-mode"] [data-value="branch"]').click();
   await expect(drawer.locator('[data-testid="scm"]')).toHaveAttribute("data-view", "branch");
-  await expect(
-    drawer.locator('[data-testid="scm-group-branch"], [data-testid="scm-empty"]'),
-  ).toBeVisible();
+  const branchGroup = drawer.locator('[data-testid="scm-group-branch"]');
+  const branchRow = row(branchGroup, "src/components/Widget.tsx");
+  await expect(branchRow).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
   await window.screenshot({ path: shot(testInfo, "scm-branch") });
+
+  // Its row shows the file's diff against `main`: the committed change, old line above new.
+  await branchRow.locator("button").first().click();
+  await expect(pane(window).locator('[data-testid="file-pane-diff-tag"]')).toHaveText("Diff vs main");
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor.locator(".cm-deletedChunk")).toContainText("Clicked {count} times");
+  await expect(editor.locator(".cm-changedLine")).toContainText("Tapped {count} times");
+  await window.screenshot({ path: shot(testInfo, "scm-branch-diff") });
 });
 
 test("a Source Control row shows its file's diff in the editor, which edits and saves", async ({

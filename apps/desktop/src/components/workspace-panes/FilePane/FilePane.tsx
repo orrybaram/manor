@@ -22,6 +22,10 @@ import styles from "./FilePane.module.css";
 const CodeEditor = lazy(() =>
   import("./CodeEditor/CodeEditor").then((m) => ({ default: m.CodeEditor })),
 );
+// The merge view loads only when Compare is pressed.
+const CompareView = lazy(() =>
+  import("./CompareView/CompareView").then((m) => ({ default: m.CompareView })),
+);
 
 type FilePaneProps = {
   paneId: string;
@@ -151,14 +155,27 @@ function isSaveKey(e: React.KeyboardEvent): boolean {
   return mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s";
 }
 
+/**
+ * Who changed the open file on disk, for the conflict banner. Null until
+ * #456 learns which agent wrote which file; the banner then says "An agent".
+ */
+function useFileAuthor(_workspace: FilesWorkspace, _path: string): string | null {
+  return null;
+}
+
 type OpenFileActions = {
   save: () => Promise<boolean>;
+  reloadTheirs: () => void;
+  compare: () => void;
 };
+
+/** Disk vs. your copy, as Compare found them; or why the disk could not be read. */
+type Comparison = { theirs: string; mine: string } | { message: string } | null;
 
 /**
  * One open file: read it, then watch it. A change on disk reloads it while it
- * is clean; unsaved edits stay. ⌘S saves through `files.write`, expecting the
- * hash it last read or wrote.
+ * is clean and raises the conflict banner while it has unsaved edits. ⌘S
+ * saves through `files.write`, expecting the hash it last read or wrote.
  * Mounted keyed by the file, so switching files is a fresh mount and closing
  * the pane unwatches it.
  */
@@ -177,8 +194,10 @@ function OpenFile({
   // Until this mount has opened `path`, the pane may still hold the last file.
   const state = stored?.path === path ? stored : null;
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
+  const author = useFileAuthor(workspace, path);
   const editorRef = useRef<CodeEditorRef>(null);
   const actions = useRef<OpenFileActions | null>(null);
+  const [comparison, setComparison] = useState<Comparison>(null);
 
   useMountEffect(() => {
     let live = true;
@@ -191,7 +210,7 @@ function OpenFile({
     };
     store().open(paneId, path);
 
-    // A clean reload: the editor shows the new clean copy.
+    // A clean reload, or Reload theirs: the editor shows the new clean copy.
     const stopFollowing = useOpenFileStore.subscribe((next, prev) => {
       const a = next.byPane[paneId];
       const b = prev.byPane[paneId];
@@ -202,7 +221,7 @@ function OpenFile({
 
     // Changes can come faster than reads answer; only the newest read counts.
     const reads = createLatestOnly();
-    const read = async (reason: "open" | "changed") => {
+    const read = async (reason: "open" | "changed" | "reload") => {
       const ticket = reads.begin();
       try {
         const result = await files.read(workspace, path);
@@ -230,6 +249,9 @@ function OpenFile({
         case "after-save":
           afterSave = { hash };
           return;
+        case "gone":
+          dispatch({ type: "gone" });
+          return;
         case "read":
           void read("changed");
       }
@@ -249,6 +271,8 @@ function OpenFile({
           const dirty = editorRef.current?.markClean(content) ?? false;
           dispatch({ type: "saved", content, hash: result.hash, dirty });
           saved = true;
+        } else if (result.reason === "changed-on-disk") {
+          dispatch({ type: "save-conflict", diskHash: result.diskHash ?? null });
         } else {
           dispatch({ type: "save-failed", message: result.message });
         }
@@ -262,7 +286,26 @@ function OpenFile({
       return saved;
     };
 
-    actions.current = { save };
+    actions.current = {
+      save,
+      reloadTheirs: () => void read("reload"),
+      compare: () => {
+        const mine = editorRef.current?.content() ?? "";
+        setComparison(null);
+        dispatch({ type: "compare", on: true });
+        files.read(workspace, path).then(
+          (result) => {
+            if (!live) return;
+            setComparison(
+              result.ok ? { theirs: result.content, mine } : { message: result.message },
+            );
+          },
+          (err) => {
+            if (live) setComparison({ message: ipcErrorMessage(err) });
+          },
+        );
+      },
+    };
 
     const stopListening = files.onChanged((event) => {
       if (
@@ -353,6 +396,63 @@ function OpenFile({
           </Button>
         </div>
       )}
+      {state.conflict?.kind === "changed" && (
+        <div className={styles.banner} data-testid="file-pane-conflict" role="alert">
+          <span className={styles.barMsg}>
+            <b className={styles.author}>{author ?? "An agent"}</b> changed this file on disk
+            while you were editing.
+          </span>
+          <Button
+            size="sm"
+            data-testid="file-pane-conflict-compare"
+            onClick={() => actions.current?.compare()}
+          >
+            Compare
+          </Button>
+          <Button
+            size="sm"
+            data-testid="file-pane-conflict-reload"
+            onClick={() => actions.current?.reloadTheirs()}
+          >
+            Reload theirs
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            data-testid="file-pane-conflict-keep"
+            onClick={() => dispatch({ type: "keep-mine" })}
+          >
+            Keep mine
+          </Button>
+        </div>
+      )}
+      {state.conflict?.kind === "gone" && (
+        <div className={styles.banner} data-testid="file-pane-conflict" role="alert">
+          <span className={styles.barMsg}>
+            This file was deleted or can't be opened anymore.
+          </span>
+          <Button
+            size="sm"
+            data-testid="file-pane-conflict-close"
+            onClick={() => {
+              dispatch({ type: "discard" });
+              useAppStore.getState().closePaneById(paneId);
+            }}
+          >
+            Close
+          </Button>
+          <Tooltip label="Saving writes your copy again">
+            <Button
+              size="sm"
+              variant="primary"
+              data-testid="file-pane-conflict-keep"
+              onClick={() => dispatch({ type: "keep-mine" })}
+            >
+              Keep mine
+            </Button>
+          </Tooltip>
+        </div>
+      )}
       {state.saveError !== null && (
         <div className={styles.saveError} data-testid="file-pane-save-error" role="alert">
           Couldn't save: {state.saveError}
@@ -374,6 +474,32 @@ function OpenFile({
             }}
           />
         </Suspense>
+        {state.comparing && (
+          <div className={styles.compare} data-testid="file-pane-compare">
+            <div className={styles.compareHead}>
+              <span>On disk</span>
+              <span className={styles.compareVs}>vs.</span>
+              <span>Yours</span>
+              <span className={styles.spacer} />
+              <Button
+                size="sm"
+                data-testid="file-pane-compare-back"
+                onClick={() => dispatch({ type: "compare", on: false })}
+              >
+                Back to editing
+              </Button>
+            </div>
+            {comparison === null ? (
+              <div className={styles.empty}>Loading…</div>
+            ) : "message" in comparison ? (
+              <div className={styles.empty}>{comparison.message}</div>
+            ) : (
+              <Suspense fallback={<div className={styles.empty} />}>
+                <CompareView path={path} theirs={comparison.theirs} mine={comparison.mine} />
+              </Suspense>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

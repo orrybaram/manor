@@ -153,7 +153,7 @@ async function typeAtEnd(window: Page, text: string): Promise<void> {
   await window.keyboard.type(text);
 }
 
-test("the file pane edits, saves, asks before swapping and creates files", async ({
+test("the file pane edits, saves, asks before swapping, creates files and settles conflicts", async ({
   app,
   window,
   tempHome,
@@ -181,6 +181,7 @@ test("the file pane edits, saves, asks before swapping and creates files", async
   await expect(editor).toContainText("Clicked {count} times");
 
   const dirtyDot = header(window).locator('[data-testid="file-pane-dirty"]');
+  const banner = pane(window).locator('[data-testid="file-pane-conflict"]');
 
   // Edit → the dirty dot and the save hint; ⌘S writes it and the dot goes.
   await expect(dirtyDot).toHaveCount(0);
@@ -190,6 +191,54 @@ test("the file pane edits, saves, asks before swapping and creates files", async
   await window.screenshot({ path: shot(testInfo, "edit-dirty") });
   await window.keyboard.press("ControlOrMeta+s");
   await expect.poll(onDisk).toContain("// first edit");
+  await expect(dirtyDot).toHaveCount(0);
+  // Its own save's echo is not a change: no banner, no reload flash.
+  await window.waitForTimeout(1_500);
+  await expect(banner).toHaveCount(0);
+
+  // Clean, then an agent writes: it reloads silently and says so.
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
+  await expect(editor).toContainText("Pressed {count} times", { timeout: 10_000 });
+  await expect(header(window).locator('[data-testid="file-pane-reloaded"]')).toBeVisible();
+  await window.screenshot({ path: shot(testInfo, "reloaded-from-disk") });
+
+  // Dirty, then an agent writes: the banner; Compare shows disk vs. yours.
+  await typeAtEnd(window, "// mine");
+  await expect(dirtyDot).toBeVisible();
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Tapped"));
+  await expect(banner).toBeVisible({ timeout: 10_000 });
+  await expect(banner).toContainText("An agent changed this file on disk while you were editing.");
+  await expect(editor).toContainText("// mine");
+  await window.screenshot({ path: shot(testInfo, "conflict-banner") });
+
+  await banner.locator('[data-testid="file-pane-conflict-compare"]').click();
+  const compare = pane(window).locator('[data-testid="file-pane-compare"]');
+  await expect(compare.locator('[data-testid="file-pane-compare-view"]')).toBeVisible();
+  await expect(compare).toContainText("Tapped");
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "compare") });
+  await compare.locator('[data-testid="file-pane-compare-back"]').click();
+  await expect(compare).toHaveCount(0);
+
+  // Keep mine: the banner goes, the edits stay, and ⌘S overwrites theirs.
+  await banner.locator('[data-testid="file-pane-conflict-keep"]').click();
+  await expect(banner).toHaveCount(0);
+  await expect(dirtyDot).toBeVisible();
+  await pane(window).locator('[data-testid="file-pane-editor"] .cm-content').click();
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect.poll(onDisk).toContain("// mine");
+  expect(onDisk()).not.toContain("Tapped");
+  await expect(dirtyDot).toHaveCount(0);
+
+  // Dirty, an agent writes, Reload theirs: the edits go, theirs shows.
+  await typeAtEnd(window, "// dropped");
+  await expect(dirtyDot).toBeVisible();
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Poked"));
+  await expect(banner).toBeVisible({ timeout: 10_000 });
+  await banner.locator('[data-testid="file-pane-conflict-reload"]').click();
+  await expect(banner).toHaveCount(0);
+  await expect(editor).toContainText("Poked {count} times");
+  await expect(editor).not.toContainText("// dropped");
   await expect(dirtyDot).toHaveCount(0);
 
   // Dirty, pick another file: the swap bar asks; Discard opens it.

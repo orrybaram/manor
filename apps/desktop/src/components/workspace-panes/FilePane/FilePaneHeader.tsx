@@ -1,9 +1,16 @@
+import { useState } from "react";
 import { useOpenFileStore } from "../../../store/open-file-store";
+import { useMountEffect } from "../../../hooks/useMountEffect";
 import { fileTitle } from "../../../lib/pane-title";
 import { formatCombo, getPlatform } from "../../../lib/keybindings";
 import styles from "./FilePaneHeader.module.css";
 
-/** A file pane's header title: the open file's name, and a dot while it has unsaved edits. */
+const FLASH_MS = 1500;
+
+/**
+ * A file pane's header title: the open file's name, a dot while it has unsaved
+ * edits, and a brief "Reloaded from disk" after a change on disk replaced it.
+ */
 export function FileHeaderTitle({
   paneId,
   filePath,
@@ -14,6 +21,9 @@ export function FileHeaderTitle({
   className?: string;
 }) {
   const dirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
+  const reloads = useOpenFileStore((s) => s.byPane[paneId]?.reloads ?? 0);
+  // Reloads before this header mounted are old news.
+  const [seen] = useState(reloads);
   return (
     <span className={styles.titleRow}>
       <span className={className} title={filePath ?? undefined}>
@@ -27,6 +37,21 @@ export function FileHeaderTitle({
           aria-label="Unsaved changes"
         />
       )}
+      {reloads > seen && <ReloadedFlash key={reloads} />}
+    </span>
+  );
+}
+
+function ReloadedFlash() {
+  const [shown, setShown] = useState(true);
+  useMountEffect(() => {
+    const timer = setTimeout(() => setShown(false), FLASH_MS);
+    return () => clearTimeout(timer);
+  });
+  if (!shown) return null;
+  return (
+    <span className={styles.flash} data-testid="file-pane-reloaded" role="status">
+      Reloaded from disk
     </span>
   );
 }

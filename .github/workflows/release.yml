@@ -174,6 +174,23 @@ jobs:
 
           security find-identity -v -p codesigning "$KEYCHAIN"
 
+      # electron-builder's dmg and zip publishers each look for the tag's
+      # release and create one when none exists, so starting from nothing
+      # they race and make two drafts: v0.23.0 and v0.24.0 each split their
+      # files across twins, and Publish un-drafted the one without the dmg.
+      # Making the draft here first gives them one release to find. Listed
+      # rather than fetched by tag, because a fetch by tag misses drafts.
+      - name: Create the draft release
+        run: |
+          EXISTING=$(gh api "repos/$GITHUB_REPOSITORY/releases" --paginate \
+            -q ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+          if [ -z "$EXISTING" ]; then
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "${GITHUB_REF_NAME#v}" --notes ""
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build and publish
         run: pnpm run build && node apps/desktop/scripts/build-host-tarball.mjs && pnpm --filter manor exec electron-builder --publish always
         env:

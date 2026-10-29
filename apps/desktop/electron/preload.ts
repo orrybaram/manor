@@ -346,6 +346,11 @@ const nativeApi = {
     listWindows: () =>
       invoke<{ id: number; bounds: WindowBounds }[]>("window:listWindows"),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
+    /**
+     * The files with unsaved edits in this window's file panes, so closing
+     * the window or quitting the app can ask before they are lost.
+     */
+    setUnsavedFiles: (files: string[]) => ipcRenderer.send("window:setUnsavedFiles", files),
   },
 };
 

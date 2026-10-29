@@ -43,6 +43,11 @@ import * as nativeIpc from "./ipc/native";
 import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
 import * as hostPipeIpc from "./ipc/host-pipe";
+import {
+  confirmCloseOverUnsaved,
+  confirmQuitOverUnsaved,
+  registerUnsavedFilesIpc,
+} from "./unsaved-files";
 import { appCommandResult } from "./renderer-bridge";
 import { createManorServer, type ManorCore } from "./server/create-manor-server";
 import type { Platform } from "./server/platform";
@@ -97,8 +102,17 @@ export function initApp(devTitle: string | null): void {
   // transport drops it when the `webContents` is destroyed), not here: the
   // connection is what holds them, and `BridgeServer.onDisconnect` below is
   // the one place that hears it go.
-  function trackRendererWindow(win: BrowserWindow): void {
+  function trackRendererWindow(win: BrowserWindow, onClose?: () => void): void {
     rendererWindows.add(win);
+    win.on("close", (event) => {
+      // Unsaved file edits in the window ask first. Not once a quit has
+      // begun: the quit asked already, for every window.
+      if (!shutdownRun && !confirmCloseOverUnsaved(win)) {
+        event.preventDefault();
+        return;
+      }
+      onClose?.();
+    });
     win.on("closed", () => {
       rendererWindows.delete(win);
     });
@@ -123,14 +137,11 @@ export function initApp(devTitle: string | null): void {
       });
     }
     mainWindow = win;
-    trackRendererWindow(win);
-
     // Backstop cleanup: child popup windows are parented to the main window so
     // Chromium closes them with it, but explicitly flush the tracking registry
-    // on close so no entries or listeners leak.
-    win.on("close", () => {
-      webviewIpc.closeAllChildWindows();
-    });
+    // on close so no entries or listeners leak. Only once the close is going
+    // ahead: an unsaved-edits Cancel keeps the window, and its popups.
+    trackRendererWindow(win, () => webviewIpc.closeAllChildWindows());
     win.on("closed", () => {
       if (mainWindow === win) mainWindow = null;
     });
@@ -453,6 +464,7 @@ export function initApp(devTitle: string | null): void {
   webviewIpc.register(ipcDeps);
   nativeIpc.register(ipcDeps);
   windowIpc.register(ipcDeps);
+  registerUnsavedFilesIpc();
   menuIpc.register(ipcDeps);
   // Each window's own streams to its hosts' servers: main
   // carries their frames between IPC and SSH, and reads none of them.
@@ -597,10 +609,6 @@ export function initApp(devTitle: string | null): void {
     // Status reconciler (`ManorServer.start`).
     server.start();
 
-    app.on("before-quit", () => {
-      server.agentPipeline.stop();
-    });
-
     // Reopen the PRIMARY window, not just "a" window: with a popout still open
     // the old zero-windows test never fired, so a user who closed the main
     // window could not get it back without quitting.
@@ -674,6 +682,9 @@ export function initApp(devTitle: string | null): void {
     event.preventDefault();
     // A second Cmd+Q while the first is still shutting down: already handled.
     if (shutdownRun) return;
+    // Unsaved file edits in any window ask first; Cancel keeps the app
+    // running, untouched.
+    if (!confirmQuitOverUnsaved(getRendererWindows())) return;
     console.log("[shutdown] quit requested");
     void runShutdown().then(() => {
       console.log("[shutdown] done; quitting");
@@ -692,7 +703,12 @@ export function initApp(devTitle: string | null): void {
   // `app.quit()` after our hold could lose the relaunch. So it shuts down
   // first, and its own quit then finds `shutDown` set and passes straight
   // through, untouched.
-  setBeforeInstallHook(runShutdown);
+  // Unsaved file edits ask first here too: false keeps the app, uninstalled.
+  setBeforeInstallHook(async () => {
+    if (!shutdownRun && !confirmQuitOverUnsaved(getRendererWindows())) return false;
+    await runShutdown();
+    return true;
+  });
 
   /**
    * Run one shutdown step. A step that throws is logged and the rest still
@@ -709,6 +725,7 @@ export function initApp(devTitle: string | null): void {
   }
 
   function performShutdown(): Promise<void> {
+    step("agent pipeline", () => server.agentPipeline.stop());
     step("webview server", () => webviewServer.stop());
     step("host server sync", () => hostServerSync.dispose());
     step("host links", () => hostLinks.dispose());

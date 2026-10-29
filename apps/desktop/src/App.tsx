@@ -91,6 +91,7 @@ import { onBridgeResync } from "./bridge/resync";
 import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { reportUnsavedFiles } from "./lib/report-unsaved-files";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
@@ -130,6 +131,8 @@ function App() {
 
   // Mirror main's persisted agent activity for Home's timeline and sparklines.
   useMountEffect(() => startAgentActivitySync());
+  // Closing the window or quitting asks about unsaved file edits.
+  useMountEffect(() => reportUnsavedFiles());
 
   // The host profiles "In a new pod" offers; kept current by
   // the store's own change subscription.

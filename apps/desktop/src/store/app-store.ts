@@ -736,6 +736,55 @@ let visiblePaneIdsCache: {
 } | null = null;
 
 /**
+ * Every pane on screen in any of this desktop's windows, as far as this
+ * renderer can tell: what it shows itself (`selectVisiblePaneIds`) plus the
+ * whole of every claimed tab, in any workspace — a detached window shows its
+ * claim and nothing else, and the primary hides claimed tabs from its own
+ * set because it does not render them.
+ *
+ * What this cannot see is the primary's selection from inside a detached
+ * window: viewports are per renderer and never broadcast. An agent converges
+ * anyway (the window that sees it marks it seen, and main tells the rest).
+ *
+ * A browser counts no claims: it is another device, and a tab popped out on
+ * the desk is not on its screen.
+ */
+export function selectOnScreenPaneIds(state: ViewportState): ReadonlySet<string> {
+  const visible = selectVisiblePaneIds(state);
+  const claims = rendererPlatform() === "web" ? undefined : state.claims;
+  const layouts = state.workspaceLayouts;
+  const cached = onScreenPaneIdsCache;
+  if (
+    cached &&
+    cached.visible === visible &&
+    cached.claims === claims &&
+    cached.layouts === layouts
+  ) {
+    return cached.ids;
+  }
+  let ids: ReadonlySet<string> = visible;
+  for (const [path, list] of Object.entries(claims ?? {})) {
+    const layout = layouts[path];
+    if (!layout || list.length === 0) continue;
+    for (const claim of list) {
+      const found = findPanelWithTab(layout, claim.tabId);
+      if (!found) continue;
+      if (ids === visible) ids = new Set(visible);
+      for (const id of allPaneIds(found.tab.rootNode)) (ids as Set<string>).add(id);
+    }
+  }
+  onScreenPaneIdsCache = { visible, claims, layouts, ids };
+  return ids;
+}
+
+let onScreenPaneIdsCache: {
+  visible: ReadonlySet<string>;
+  claims: Record<string, LayoutClaim[]> | undefined;
+  layouts: Record<string, WorkspaceLayout>;
+  ids: ReadonlySet<string>;
+} | null = null;
+
+/**
  * Derive the current navigable `Location` from layout state. This is the read
  * side of the navigation-history bridge: `app-store` remains the source of
  * truth for "where am I", and the history store only records what this returns.

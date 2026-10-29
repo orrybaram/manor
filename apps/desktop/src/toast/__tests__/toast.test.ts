@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { setToastStackHovered, toast, wasReported } from "..";
+import { setToastStackHovered, toast, wasReported, watchToastSubjects, type ToastSubject } from "..";
 import { toastStore } from "../toast-store";
 import { addErrorToast, useToastStore } from "../../store/toast-store";
 
@@ -271,6 +271,104 @@ describe("legacy shims", () => {
     useToastStore.setState({ toasts: [] });
     expect(toasts()).toEqual([]);
     vi.advanceTimersByTime(10_000);
+    expect(toasts()).toEqual([]);
+  });
+});
+
+describe("toast.progress after a close", () => {
+  it("succeed() on a toast the user closed does nothing; fail() still shows", () => {
+    const ok = toast.progress("Saving", { id: "ok" });
+    ok.dismiss();
+    ok.succeed("Saved");
+    expect(toasts()).toEqual([]);
+
+    const bad = toast.progress("Saving", { id: "bad" });
+    bad.dismiss();
+    bad.fail("Couldn't save", new Error("disk"));
+    expect(only()).toMatchObject({ id: "bad", status: "error", message: "Couldn't save" });
+  });
+});
+
+describe("subjects", () => {
+  // A stand-in for the app layer: a set of subjects on screen, and a nudge.
+  let onScreen = new Set<string>();
+  let changed: () => void = () => {};
+  const key = (s: ToastSubject) => JSON.stringify(s);
+  const look = (s: ToastSubject) => {
+    onScreen.add(key(s));
+    changed();
+  };
+  const lookAway = (s: ToastSubject) => {
+    onScreen.delete(key(s));
+    changed();
+  };
+  const present = () => toasts().filter((t) => !t.leaving);
+
+  beforeEach(() => {
+    onScreen = new Set();
+    watchToastSubjects({
+      isOnScreen: (s) => onScreen.has(key(s)),
+      subscribe: (cb) => {
+        changed = cb;
+        return () => {
+          changed = () => {};
+        };
+      },
+    });
+  });
+
+  afterEach(() => watchToastSubjects(null));
+
+  it("never shows a toast whose subject is already on screen", () => {
+    look({ pane: "p1" });
+    toast.info("Pane done", { about: { pane: "p1" } });
+    expect(toasts()).toEqual([]);
+  });
+
+  it("retracts a toast, with its exit, once its subject comes on screen", () => {
+    toast.info("Agent done", { id: "a", about: { agent: "a1" }, duration: "sticky" });
+    toast.info("Other", { id: "b", about: { agent: "a2" }, duration: "sticky" });
+    look({ agent: "a1" });
+    expect(present().map((t) => t.id)).toEqual(["b"]);
+    vi.advanceTimersByTime(200);
+    expect(toasts().map((t) => t.id)).toEqual(["b"]);
+  });
+
+  it("keeps a toast with no subject whatever is on screen", () => {
+    toast.info("Plain", { duration: "sticky" });
+    look({ workspace: "/ws" });
+    expect(present()).toHaveLength(1);
+  });
+
+  it("does not bring a retracted toast back when the subject leaves the screen", () => {
+    toast.info("x", { about: { pane: "p1" }, duration: "sticky" });
+    look({ pane: "p1" });
+    lookAway({ pane: "p1" });
+    vi.advanceTimersByTime(200);
+    expect(toasts()).toEqual([]);
+  });
+
+  it("takes the toast it would replace with it when the replacement's subject is on screen", () => {
+    toast.info("old", { id: "j" });
+    look({ pane: "p1" });
+    toast.info("new", { id: "j", about: { pane: "p1" } });
+    expect(toasts()).toEqual([]);
+  });
+
+  it("retracts on watch: toasts up before the app layer registered", () => {
+    watchToastSubjects(null);
+    toast.info("early", { about: { pane: "p1" }, duration: "sticky" });
+    onScreen.add(key({ pane: "p1" }));
+    watchToastSubjects({ isOnScreen: (s) => onScreen.has(key(s)), subscribe: () => () => {} });
+    expect(present()).toEqual([]);
+  });
+
+  it("a progress toast settled while its subject is on screen does not show", () => {
+    const p = toast.progress("Cloning", { about: { workspace: "/ws" } });
+    look({ workspace: "/ws" });
+    vi.advanceTimersByTime(200);
+    p.succeed("Cloned");
+    p.fail("Failed");
     expect(toasts()).toEqual([]);
   });
 });

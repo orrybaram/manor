@@ -16,6 +16,7 @@
 import { useStore } from "zustand";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import {
+  hasRecord,
   patchRecord,
   putRecord,
   removeRecord,
@@ -25,15 +26,23 @@ import {
   type ToastRecord,
   type ToastStatus,
   type ToastSubject,
+  type SubjectWatch,
 } from "./toast-store";
 
-export type { ToastAction, ToastRecord, ToastStatus, ToastSubject };
+export type { SubjectWatch, ToastAction, ToastRecord, ToastStatus, ToastSubject };
 export { AUTO_DISMISS_MS, EXIT_MS } from "./toast-store";
 
 /** The toasts on screen, oldest first — what `ToastContainer` renders. */
 export function useToasts(): ToastRecord[] {
   return useStore(toastStore, (s) => s.toasts);
 }
+
+/**
+ * Tell the toasts what is on screen, so a toast `about` a subject the user
+ * is already looking at never appears, and retracts once they get there.
+ * The app layer registers this once (`store/toast-subjects.ts`).
+ */
+export { watchSubjects as watchToastSubjects } from "./toast-store";
 
 /** The pointer entered (true) or left (false) the toast stack: holds every countdown. */
 export const setToastStackHovered = setStackHovered;
@@ -50,7 +59,10 @@ export interface ToastOptions {
   onClose?: () => void;
   /** Show `detail` expanded from the start. */
   autoExpand?: boolean;
-  /** What it is about. */
+  /**
+   * What it is about: while that is on screen (in any window) the toast
+   * never appears, and once it gets there the toast retracts.
+   */
   about?: ToastSubject;
 }
 
@@ -69,9 +81,16 @@ export interface ToastHandle {
 }
 
 export interface ProgressHandle extends ToastHandle {
-  /** Settle as a success: same slot, new toast, countdown starts now. */
+  /**
+   * Settle as a success: same slot, new toast, countdown starts now. A no-op
+   * once the toast is gone — the user closed it, or its subject came on
+   * screen: a success is not news worth bringing it back for.
+   */
   succeed(message: string, opts?: Omit<ToastOptions, "id">): void;
-  /** Settle as a failure; `error` becomes the detail and counts as reported. */
+  /**
+   * Settle as a failure; `error` becomes the detail and counts as reported.
+   * Shows even after the toast was closed: a failure is news.
+   */
   fail(message: string, error?: unknown, opts?: Omit<ToastOptions, "id">): void;
 }
 
@@ -144,7 +163,9 @@ export const toast = {
       putRecord(record(status, text, { about, ...settled }, shown.id));
     return {
       ...shown,
-      succeed: (text, settled) => settle("success", text, settled),
+      succeed: (text, settled) => {
+        if (hasRecord(shown.id)) settle("success", text, settled);
+      },
       fail: (text, error, settled) =>
         settle("error", text, errorOptions({ ...settled, error })),
     };

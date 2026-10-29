@@ -13,8 +13,21 @@ import { isWindowFocused, onWindowFocusChange } from "../lib/window-focus";
 
 export type ToastStatus = "loading" | "success" | "error" | "info";
 
-/** What a toast is about. Stored only, for now; #430 retracts on it. */
+/**
+ * What a toast is about. While its subject is on screen the toast has nothing
+ * to tell: it never appears, and one already up retracts when it gets there.
+ */
 export type ToastSubject = { agent: string } | { pane: string } | { workspace: string };
+
+/**
+ * How the toasts learn what is on screen. The app layer knows (layouts,
+ * claims, agents); this module only asks, so it imports none of it.
+ */
+export interface SubjectWatch {
+  isOnScreen(subject: ToastSubject): boolean;
+  /** Call `changed` whenever what is on screen may have changed; returns the unsubscribe. */
+  subscribe(changed: () => void): () => void;
+}
 
 export interface ToastAction {
   label: string;
@@ -61,6 +74,43 @@ const exits = new Map<string, ReturnType<typeof setTimeout>>();
 
 let stackHovered = false;
 let focusWired = false;
+
+let subjects: SubjectWatch | null = null;
+let unsubscribeSubjects: (() => void) | null = null;
+
+/** Whether `record`'s subject is on screen, so it has nothing to say. */
+function subjectOnScreen(record: Pick<ToastRecord, "about">): boolean {
+  return !!record.about && !!subjects && subjects.isOnScreen(record.about);
+}
+
+/** Every toast whose subject just came on screen goes, with its exit. */
+function retractOnScreen(): void {
+  for (const t of toastStore.getState().toasts) {
+    if (!t.leaving && subjectOnScreen(t)) retract(t.id);
+  }
+}
+
+function retract(id: string): void {
+  stopCountdown(id);
+  leave(id);
+}
+
+/**
+ * Hand the toasts their view of the screen (null takes it away). Toasts up
+ * now whose subject is already on screen retract at once.
+ */
+export function watchSubjects(watch: SubjectWatch | null): void {
+  unsubscribeSubjects?.();
+  unsubscribeSubjects = null;
+  subjects = watch;
+  if (!watch) return;
+  unsubscribeSubjects = watch.subscribe(() => {
+    // Most store changes are nowhere near a subject: skip them unless
+    // something up is about one.
+    if (toastStore.getState().toasts.some((t) => t.about)) retractOnScreen();
+  });
+  retractOnScreen();
+}
 
 function held(): boolean {
   return stackHovered || !isWindowFocused();
@@ -142,8 +192,21 @@ function leave(id: string): void {
   );
 }
 
-/** Show `record`, replacing any toast with its id (and restarting its countdown). */
+/** Whether a toast with `id` is up (leaving included). */
+export function hasRecord(id: string): boolean {
+  return toastStore.getState().toasts.some((t) => t.id === id);
+}
+
+/**
+ * Show `record`, replacing any toast with its id (and restarting its
+ * countdown) — unless its subject is on screen, when it never appears and
+ * takes the one it replaces with it.
+ */
 export function putRecord(record: ToastRecord): void {
+  if (subjectOnScreen(record)) {
+    removeRecord(record.id);
+    return;
+  }
   stopExit(record.id);
   const next: ToastRecord = { ...record };
   delete next.leaving;
@@ -176,6 +239,7 @@ export function patchRecord(id: string, patch: Partial<Omit<ToastRecord, "id">>)
     toasts: s.toasts.map((t) => (t.id === id ? next : t)),
   }));
   if (retimed) startCountdown(next);
+  if (!next.leaving && subjectOnScreen(next)) retract(id);
 }
 
 /** Remove a toast now — no exit animation, no countdown left behind. */

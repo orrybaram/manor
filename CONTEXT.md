@@ -195,6 +195,12 @@ _Avoid_: detach payload, hand-off, ownership, popup, popout
 a detached window is always `desk`.
 _Avoid_: mobile mode, responsive view, breakpoint
 
+**Toast**:
+A short in-app notice, bottom-right, that goes on its own. Its **subject** (an agent, a
+pane or a workspace) is what it is about: while the subject is on screen in any window
+the toast never appears, and one already up leaves when the subject gets there.
+_Avoid_: notification (the native banner and the bell's log), snackbar, alert
+
 ## Rules that span files
 
 - Hook signals decide an **Agent**'s turn statuses once its root session has sent one.

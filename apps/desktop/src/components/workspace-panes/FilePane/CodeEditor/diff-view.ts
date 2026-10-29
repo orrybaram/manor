@@ -1,5 +1,5 @@
-import { unifiedMergeView } from "@codemirror/merge";
-import type { Extension } from "@codemirror/state";
+import { uncollapseUnchanged, unifiedMergeView } from "@codemirror/merge";
+import type { EditorState, Extension, StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { readFileText, toText } from "../file-text";
 
@@ -63,4 +63,24 @@ export function unifiedDiff(base: string): Extension {
     }),
     diffTheme,
   ];
+}
+
+/**
+ * Effects that unfold the folded unchanged stretch `pos` is in, if any, so a
+ * jump to something inside one (a comment's card) shows it. The merge view
+ * doesn't export its folds; it does hand their decorations to the editor,
+ * and marks their widget's `type`, which is how they are told apart here.
+ */
+export function unfoldAt(state: EditorState, pos: number): StateEffect<number>[] {
+  const effects: StateEffect<number>[] = [];
+  for (const source of state.facet(EditorView.decorations)) {
+    if (typeof source === "function") continue;
+    source.between(pos, pos, (from, to, deco) => {
+      const widget = deco.spec.widget as { type?: string } | undefined;
+      if (from <= pos && pos <= to && widget?.type === "collapsed-unchanged-code") {
+        effects.push(uncollapseUnchanged.of(from));
+      }
+    });
+  }
+  return effects;
 }

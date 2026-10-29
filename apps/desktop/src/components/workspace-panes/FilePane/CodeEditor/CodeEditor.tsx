@@ -40,7 +40,7 @@ import {
   type AgentMarks,
   type LaneMark,
 } from "./change-marks";
-import { unifiedDiff } from "./diff-view";
+import { unfoldAt, unifiedDiff } from "./diff-view";
 import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
 import styles from "./CodeEditor.module.css";
 
@@ -328,6 +328,8 @@ export function CodeEditor({
             ? diff.reconfigure(diffView(base))
             : [diff.reconfigure(diffView(base)), marks.reconfigure([])],
         });
+        // A jump asked for while the plain editor showed lands now.
+        showPendingComment();
         return;
       }
       // Back to the plain editor: the marks start again from the clean copy,
@@ -355,13 +357,18 @@ export function CodeEditor({
     };
     showPendingLine();
     const stopLines = pendingLines.subscribe(paneId, showPendingLine);
-    // The review list's jump to a comment on this file: centre its card and light it.
+    // The review list's jump to a comment on this file: centre its card and
+    // light it, unfolding the unchanged stretch it is in. Only the diff shows
+    // cards, so the plain editor leaves the request for the diff to take.
     const showPendingComment = () => {
+      if (shownBase === null) return;
       const request = pendingComments.waiting(paneId);
       if (!request || request.path !== path) return;
+      pendingComments.take(paneId, path);
+      // Gone, or never on a line of this file: nothing to show, and nothing to keep asking.
       const pos = commentPosition(view.state, request.commentId);
       if (pos === null) return;
-      pendingComments.take(paneId, path);
+      view.dispatch({ effects: unfoldAt(view.state, pos) });
       view.dispatch({
         effects: [EditorView.scrollIntoView(pos, { y: "center" }), flashComment.of(request.commentId)],
       });

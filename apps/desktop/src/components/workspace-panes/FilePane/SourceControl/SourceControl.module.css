@@ -231,6 +231,74 @@
   height: 28px;
 }
 
+/* "Review comments (N)": under the lists, which scroll above it, so Send is
+   always in reach. Its own list scrolls past a handful of comments. */
+.review {
+  flex: none;
+  border-top: 1px solid var(--border);
+  padding: 4px 0 8px;
+}
+
+.reviewList {
+  max-height: 160px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* One line each: where it is in accent mono, then as much of it as fits. */
+.reviewItem {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 22px;
+  padding: 0 10px 0 22px;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 22px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.reviewItem:hover {
+  background: var(--hover);
+}
+
+.reviewWhere {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.reviewBody {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reviewActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px 0;
+}
+
+:global(.app[data-layout="phone"]) .reviewItem {
+  height: 32px;
+  line-height: 32px;
+  font-size: 13px;
+}
+
+:global(.app[data-layout="phone"]) .reviewList {
+  max-height: 128px;
+}
+
 /* Only a React parent for the discard dialog's portal. */
 .dialogHost {
   display: contents;

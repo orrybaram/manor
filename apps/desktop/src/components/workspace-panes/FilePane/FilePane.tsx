@@ -40,6 +40,10 @@ import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
 import { pendingLines } from "./pending-line";
+import { pendingComments } from "./pending-comment";
+import { ReviewSection } from "./SourceControl/ReviewSection";
+import { ReviewBar } from "../../review/ReviewSend/ReviewSend";
+import type { DraftComment } from "../../../store/review-store";
 import {
   diskChangeAction,
   sameWorkspace,
@@ -190,6 +194,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
 
   /** Open `path` shown as `shown` (its diff, or null for the plain file). */
   const open = (path: string, shown: DiffShown | null) => {
+    // Another open supersedes a comment jump still waiting on its diff.
+    pendingComments.clearLine(paneId);
     if (floating) setDrawer(null);
     // Unsaved edits ask first, in the swap bar, even for a deleted file's
     // diff, which takes the editor's place.
@@ -214,6 +220,23 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       deleted: change.status === "deleted",
       returnTo: filePath,
     });
+  // A review comment opens its file's diff, as its row would, and its card
+  // is lit once the diff shows. Its view is the one showing that file, else
+  // the drawer's, unless the file has no working changes to show it in.
+  const jumpToComment = (comment: DraftComment) => {
+    const path = comment.filePath;
+    const view: ScmView =
+      diff && !diff.deleted && diff.path === path
+        ? diff.view
+        : scmView === "local" && changes && !changes.files.has(path)
+          ? "branch"
+          : scmView;
+    open(path, { path, view, deleted: false, returnTo: filePath });
+    // A Diff pane comment has no line of the file: its file's diff is as near as it gets.
+    if (comment.startLine !== undefined) {
+      pendingComments.request(paneId, { path, commentId: comment.id });
+    }
+  };
   // A deleted file's diff closed: back to the file it was opened over.
   const closeDeleted = (returnTo: string | null | undefined) => {
     setDiff(null);
@@ -303,14 +326,17 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           resizeHandle={floating ? undefined : openHandle}
           scmHead={<ScmViewToggle value={scmView} onChange={setScmView} />}
           scm={
-            <SourceControl
-              workspace={workspace}
-              view={scmView}
-              changes={changes}
-              openFile={filePath}
-              onOpenChange={openChange}
-              onOpenFile={pickFile}
-            />
+            <>
+              <SourceControl
+                workspace={workspace}
+                view={scmView}
+                changes={changes}
+                openFile={filePath}
+                onOpenChange={openChange}
+                onOpenFile={pickFile}
+              />
+              <ReviewSection workspacePath={workspace.path} hostId={hostId} onJump={jumpToComment} />
+            </>
           }
         />
       )}
@@ -340,6 +366,16 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
         ) : (
           <div className={styles.empty} data-testid="file-pane-empty">
             Pick a file from the tree
+          </div>
+        )}
+        {workspace && diff && (diff.deleted || diff.path === filePath) && (
+          <div className={styles.reviewFloat}>
+            <ReviewBar
+              workspacePath={workspace.path}
+              hostId={hostId}
+              onJumpToComment={jumpToComment}
+              testIds={{ bar: "review-float-bar", list: "review-float-list", send: "review-float-send" }}
+            />
           </div>
         )}
       </div>

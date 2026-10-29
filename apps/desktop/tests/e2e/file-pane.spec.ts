@@ -962,6 +962,93 @@ test("selected lines in a file's diff take a review comment, shown as a card und
   await expect(editor.locator(".cm-gutterElement.cm-commentedLine")).toHaveCount(0);
 });
 
+test("Source Control lists the review's comments, each opening its card, and the diff floats Send", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  installLightTheme(tempHome);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-review-section");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Pressed"));
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const row = drawer.locator('[data-testid="scm-row"][data-path="src/components/Widget.tsx"]');
+  await expect(row).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  await row.locator("button").first().click();
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor.locator(".cm-changedLine")).toContainText("Pressed {count} times");
+
+  // No drafts: no section, no floating bar.
+  const section = drawer.locator('[data-testid="scm-review-section"]');
+  const floatBar = pane(window).locator('[data-testid="review-float-bar"]');
+  await expect(section).toHaveCount(0);
+  await expect(floatBar).toHaveCount(0);
+
+  // Comment on the changed line and the one above it.
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.press("Shift+ArrowUp");
+  await window.locator('[data-testid="diff-comment-chip"]').click();
+  const composer = editor.locator('[data-testid="diff-comment-composer"]');
+  await composer.locator("textarea").fill("Why the rename?");
+  await composer.locator('[data-testid="diff-comment-save"]').click();
+  const card = editor.locator('[data-testid="diff-comment-card"]');
+  await expect(card).toHaveCount(1);
+
+  // The section lists it, pinned under the changes; the diff floats the bar.
+  const item = section.locator('[data-testid="scm-review-item"]');
+  await expect(item).toHaveCount(1);
+  await expect(item).toContainText("Widget.tsx:7–8");
+  await expect(item).toContainText("Why the rename?");
+  await expect(section.locator('[data-testid="scm-review-send"]')).toContainText("Send to");
+  await expect(floatBar).toBeVisible();
+  await expect(floatBar).toContainText("1 comment");
+  await expect(floatBar.locator('[data-testid="review-float-send"]')).toBeVisible();
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "review-float") });
+
+  // The bar's count lists the comments too.
+  await floatBar.getByLabel("Jump to a comment").click();
+  const list = window.locator('[data-testid="review-float-list"]');
+  await expect(list).toContainText("Why the rename?");
+  await window.keyboard.press("Escape");
+  await expect(list).toHaveCount(0);
+
+  // From the plain file: the item opens the diff and shows its card.
+  await pane(window).locator('[data-testid="file-pane-open-plain"]').click();
+  await expect(card).toHaveCount(0);
+  await expect(floatBar).toHaveCount(0);
+  await expect(section).toBeVisible();
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "review-section") });
+  await item.click();
+  await expect(pane(window).locator('[data-testid="file-pane-diff-tag"]')).toContainText("Diff vs HEAD");
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Why the rename?");
+  await expect(floatBar).toBeVisible();
+
+  await useLightTheme(window);
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "review-section-light") });
+
+  // Discard asks once more, then the drafts, the section and the bar go.
+  const discard = section.locator('[data-testid="scm-review-discard"]');
+  await discard.click();
+  await expect(discard).toContainText("Discard 1 comment?");
+  await discard.click();
+  await expect(section).toHaveCount(0);
+  await expect(card).toHaveCount(0);
+  await expect(floatBar).toHaveCount(0);
+});
+
 test("Source Control commits what's staged with the message typed above it", async ({
   app,
   window,

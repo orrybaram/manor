@@ -1,8 +1,10 @@
-/*
- * Positioning belongs to `.bottomDock` in `DiffPane.module.css`, not here: the
- * bar and the back-to-top button share one sticky row, and a bar that pinned
- * itself would land on top of that button rather than beside it.
- */
+/* The review's send controls, shared by the floating bars and Source
+   Control's review section. */
+
+/* ── Floating bar ── */
+
+/* Positioning is its host's: the Diff pane docks it beside Back to top, the
+   file pane floats it over the editor's corner. */
 .bar {
   display: flex;
   align-items: center;
@@ -33,6 +35,14 @@
 .countCaret {
   opacity: 0.6;
 }
+
+/* Separated from the count so the destructive action does not sit right next
+   to the tally it would throw away. */
+.barDiscard {
+  margin-left: 12px;
+}
+
+/* ── Jump list ── */
 
 /* A comment can be anywhere in a very long diff, so the tally doubles as the
    way back to one: two lines per row, because where it is and what it says
@@ -84,10 +94,7 @@
 
 /* ── Split button ── */
 
-/* Separated from the count so the destructive action does not sit right next
-   to the tally it would throw away. */
 .discard {
-  margin-left: 12px;
   font-size: 10px;
 }
 

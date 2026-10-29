@@ -70,11 +70,27 @@
 }
 
 .editorCol {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* While a diff shows and the workspace has drafts: today's review bar, over
+   the editor's bottom-right corner, clear of the mark lane and scrollbar.
+   Only the bar takes clicks. */
+.reviewFloat {
+  position: absolute;
+  right: 24px;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 3;
+  pointer-events: none;
+}
+
+.reviewFloat > * {
+  pointer-events: auto;
 }
 
 .crumbs {

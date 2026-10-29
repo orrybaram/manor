@@ -42,7 +42,7 @@ import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChi
 import { useDraftReview } from "./use-draft-review";
 import { fetchDiffSingleFlight, fetchStagedSingleFlight, localDiffKey } from "./diff-fetch";
 import { FingerprintedFetch } from "./FingerprintedFetch";
-import { ReviewBar } from "./ReviewBar/ReviewBar";
+import { ReviewBar } from "../../review/ReviewSend/ReviewSend";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
 import type { SelectionAnchor } from "./review-anchor";
 import type { DiffMode } from "./types";
@@ -629,6 +629,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                 workspacePath={workspacePath}
                 hostId={hostId}
                 onJumpToComment={review.jumpToComment}
+                discard
               />
             </div>
           )}
@@ -658,6 +659,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                 workspacePath={workspacePath}
                 hostId={hostId}
                 onJumpToComment={review.jumpToComment}
+                discard
               />
             </div>
           )}
@@ -867,6 +869,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
               workspacePath={workspacePath}
               hostId={hostId}
               onJumpToComment={review.jumpToComment}
+              discard
             />
           )}
           {/* Always in the dock, only shown past the fold: inserting it

@@ -138,7 +138,14 @@ import {
   diffsStart,
   diffsStop,
 } from "../bridge/handlers/branches-diffs";
-import { filesCreate, filesList, filesRead, filesWrite } from "../bridge/handlers/files";
+import {
+  filesCreate,
+  filesList,
+  filesRead,
+  filesUnwatch,
+  filesWatch,
+  filesWrite,
+} from "../bridge/handlers/files";
 import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
@@ -601,6 +608,8 @@ const METHODS = flatten({
     read: method(filesRead),
     write: method(filesWrite, { mutating: true }),
     create: method(filesCreate, { mutating: true }),
+    watch: method(filesWatch),
+    unwatch: method(filesUnwatch),
   },
   chat: {
     getHistory: method(chatGetHistory),

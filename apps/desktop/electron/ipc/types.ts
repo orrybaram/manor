@@ -26,6 +26,7 @@ import type { PortScanner } from "../ports";
 import type { RemoteForwards, RemoteUrlResolver } from "../remote-forwards";
 import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
+import type { OpenFileWatcher } from "../open-file-watcher";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { JevClient } from "../jev";
@@ -105,6 +106,8 @@ export interface ServerDeps {
   paneHosts: Map<string, string>;
   branchWatcher: BranchWatcher;
   diffWatcher: DiffWatcher;
+  /** The files each connection has open in a file pane (`files.watch`). */
+  openFileWatcher: OpenFileWatcher;
   githubManager: GitHubManager;
   linearManager: LinearManager;
   jevClient: JevClient;
@@ -207,6 +210,7 @@ export type SharedDeps = Pick<
   | "portScanner"
   | "branchWatcher"
   | "diffWatcher"
+  | "openFileWatcher"
   | "githubManager"
   | "linearManager"
   | "agentHookServer"

@@ -4,12 +4,13 @@
  * filesystem through the server's backend. See `harness.ts`.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { OpenFileWatcher } from "../../open-file-watcher";
 import { contentHash } from "../../workspace-files";
-import { useHostServerHarness, withGit } from "./harness";
+import { eventually, useHostServerHarness, withGit } from "./harness";
 
 describe("host server: a workspace's files", () => {
   const h = useHostServerHarness();
@@ -42,5 +43,36 @@ describe("host server: a workspace's files", () => {
 
     expect(await readFile(path.join(h.tmp, "a.ts"), "utf-8")).toBe("two");
     expect(await readFile(path.join(h.tmp, "b.ts"), "utf-8")).toBe("");
+  });
+
+  it("sends files.changed to a caller watching a file, and forgets its files when it goes", async () => {
+    await withGit();
+    const unwatch = vi.spyOn(OpenFileWatcher.prototype, "unwatch");
+    await writeFile(path.join(h.tmp, "a.ts"), "one");
+    const ws = { path: h.tmp, hostId: "local" };
+
+    await h.serve();
+    const owner = await h.owner();
+    owner.subscribe("files", "changed");
+    await owner.invoke("files", "watch", ws, ["a.ts"]);
+
+    // Rewritten until the watcher, having taken the file's first checksum,
+    // sees one move.
+    const written = new Set<string>();
+    let frame: unknown;
+    for (let i = 0; !frame && i < 20; i++) {
+      const content = `two-${i}`;
+      written.add(contentHash(content));
+      await writeFile(path.join(h.tmp, "a.ts"), content);
+      await new Promise((r) => setTimeout(r, 400));
+      frame = owner.frames.find((f) => f.kind === "event" && f.ns === "files" && f.event === "changed");
+    }
+    const event = (frame as { args: [{ workspace: unknown; path: string; hash: string }] }).args[0];
+    expect(event).toMatchObject({ workspace: ws, path: "a.ts" });
+    expect(written.has(event.hash)).toBe(true);
+
+    expect(unwatch).not.toHaveBeenCalled();
+    owner.client.dispose();
+    await eventually(() => unwatch.mock.calls.length, (n) => n > 0, "the watch to end", 3_000);
   });
 });

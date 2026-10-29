@@ -73,6 +73,7 @@ import { ProjectManager } from "../persistence";
 import { PortScanner } from "../ports";
 import { BranchWatcher } from "../branch-watcher";
 import { DiffWatcher } from "../diff-watcher";
+import { OpenFileWatcher } from "../open-file-watcher";
 import { PreferencesManager } from "../preferences";
 import { WorktreeWatcher } from "../projects/worktree-watcher";
 import { RemoteAuditLog } from "../remote-control/audit";
@@ -428,6 +429,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       bridge.hasDeviceSubscriber("diffs", "fingerprintsChange"),
     publish: bus.publish,
   });
+  // The files open in file panes, on whichever host they live, for each
+  // connection that has them open: `files.changed` goes to that connection.
+  const openFileWatcher = new OpenFileWatcher(backendRegistry, { publishTo: bus.publishTo });
   // `gh` runs here, in the checkout, with this machine's own sign-in. A
   // remote project's calls are routed to its host's server (`byGhRepo`),
   // which composes the same manager.
@@ -816,6 +820,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       portScanner,
       branchWatcher,
       diffWatcher,
+      openFileWatcher,
       githubManager,
       linearManager,
       agentHookServer: agentPipeline.ingestion,
@@ -868,6 +873,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   const unwireWatchers = bridge.onDisconnect((connectionId) => {
     branchWatcher.stop(connectionId);
     diffWatcher.stop(connectionId);
+    openFileWatcher.unwatch(connectionId);
   });
 
   return {
@@ -916,6 +922,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       unwireWatchers();
       branchWatcher.dispose();
       diffWatcher.dispose();
+      openFileWatcher.dispose();
       bridge.dispose();
       chatMirror.dispose();
       // Takes down the ssh children; remote sessions keep running on their hosts.

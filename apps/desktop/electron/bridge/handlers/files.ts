@@ -12,11 +12,16 @@
  * it reads the same over IPC and the socket. A host that is away, or a
  * workspace folder that is gone, still throws.
  *
+ * `watch` and `unwatch` are the caller's own: what it has open, per
+ * workspace, polled by the server's `OpenFileWatcher`, which publishes
+ * `files.changed` to that caller alone. A connection that closes watches
+ * nothing (`createManorServer`).
+ *
  * `write` and `create` change what every other viewer of the host sees, and
  * what its agents work on, so they are `mutating`; the reads are not.
  */
 
-import { assertString } from "../../ipc-validate";
+import { assertString, assertStringArray } from "../../ipc-validate";
 import type { ServerDeps } from "../../ipc/types";
 import type { HostPath } from "../../per-host-poller";
 import {
@@ -31,6 +36,9 @@ import {
 import { method, type HandlerCtx } from "../method";
 
 export type FilesDeps = Pick<ServerDeps, "backendRegistry">;
+
+/** What `files.watch` and `files.unwatch` need. */
+export type FileWatchDeps = Pick<ServerDeps, "openFileWatcher">;
 
 /** A workspace as a file call names it: its path and its host. */
 export function assertWorkspace(value: unknown, name: string): asserts value is HostPath {
@@ -92,6 +100,27 @@ export function filesCreate(
   return createWorkspaceFile(backendFor(ctx, workspace), workspace.path, relPath);
 }
 
+/**
+ * The caller has `relPaths` of `workspace` open: they replace what it had
+ * open there, and `files.changed` comes to it when one changes on disk. An
+ * empty list stops watching that workspace; its other workspaces are left
+ * as they are.
+ */
+export function filesWatch(
+  ctx: HandlerCtx<FileWatchDeps>,
+  workspace: HostPath,
+  relPaths: string[],
+): void {
+  assertWorkspace(workspace, "workspace");
+  assertStringArray(relPaths, "relPaths");
+  ctx.deps.openFileWatcher.watch(ctx.caller.id, workspace, relPaths);
+}
+
+/** The caller has nothing open any more; its connection closing does the same. */
+export function filesUnwatch(ctx: HandlerCtx<FileWatchDeps>): void {
+  ctx.deps.openFileWatcher.unwatch(ctx.caller.id);
+}
+
 // Answered by the server the caller asked (home): the workspace's host is
 // reached through its backend, as the diff reads are.
 export const files = {
@@ -99,4 +128,7 @@ export const files = {
   read: method(filesRead),
   write: method(filesWrite, { mutating: true }),
   create: method(filesCreate, { mutating: true }),
+  // What a viewer does to its own view: not audited.
+  watch: method(filesWatch),
+  unwatch: method(filesUnwatch),
 };

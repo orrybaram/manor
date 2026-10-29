@@ -1,4 +1,10 @@
-import { useRef, useState, type CSSProperties, type RefCallback } from "react";
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefCallback,
+} from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import {
   setToastStackHovered,
@@ -204,6 +210,20 @@ export function ToastContainer() {
     hold({ focused: false });
     observerRef.current?.disconnect();
   });
+
+  // A focused card that a commit removes (its X pressed, a status change
+  // remounting it) takes focus with it, and React delivers no blur. Re-check
+  // after every change, and drop both holds once the deck empties, or the
+  // countdowns stay held for good.
+  useLayoutEffect(() => {
+    if (toasts.length === 0 && holdRef.current.hovered) stopHover();
+    if (!holdRef.current.focused) return;
+    if (containerRef.current?.contains(document.activeElement)) return;
+    setFocused(false);
+    hold({ focused: false });
+    // `stopHover` reads only refs and state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toasts]);
 
   // Keep each card's ref for as long as the card is up: a new one each
   // render would detach and reattach it, and every reattach measures.

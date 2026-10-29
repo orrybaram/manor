@@ -359,71 +359,25 @@ test("phone audit: every phone surface over the relay, throttled", async ({
     );
     report.data.tapFocusesTerminal = focused;
 
-    // ── Fit to screen: the phone takes the winsize, the desk takes it back ─
-    const fit = pane.getByTestId("terminal-follower");
-    await expect(fit).toBeVisible();
-    const deskCols = (await terminalGeometry(page))[0].cols;
-    report.time(
-      "tap → fit to screen",
-      await timed(
-        page,
-        () => fit.tap(),
-        () =>
-          !Array.from(document.querySelectorAll('[data-testid="terminal-follower"]')).some((b) =>
-            (b as HTMLElement).checkVisibility({ visibilityProperty: true }),
-          ),
-      ),
+    // ── The phone follows the desk, and never resizes it ──────────────
+    // A phone is mostly the chat; its terminal shows the desk's grid scaled
+    // down, and nothing on it offers to take that grid away from the desk.
+    const deskCols = await window.evaluate(
+      (id) => window.__manorTerminals!.get(id)!.term.cols,
+      paneId,
     );
-    await expect
-      .poll(async () => (await terminalGeometry(page))[0].cols)
-      .toBeLessThan(deskCols);
-    const fitted = (await terminalGeometry(page))[0];
-    report.data.fittedGrid = `${fitted.cols}×${fitted.rows} @ ${fitted.fontSize}px`;
-    // The desk follows the phone now…
-    const deskPane = window.locator('[data-testid="terminal-pane"]:visible', {
-      has: window.getByTestId("terminal-follower"),
-    });
-    await expect(deskPane).toHaveCount(1);
+    await expect(pane.getByTestId("terminal-follower")).toHaveCount(0);
+    expect(await terminalGeometry(page)).toEqual([
+      expect.objectContaining({ cols: deskCols }),
+    ]);
+    await expect(
+      window.locator('[data-testid="terminal-pane"]:visible', {
+        has: window.getByTestId("terminal-follower"),
+      }),
+    ).toHaveCount(0);
     await setCpuThrottle(cdp, false);
-    await report.screen(page, "fitted");
+    await report.screen(page, "following");
     await setCpuThrottle(cdp, true);
-    // With the grid filling the pane, the soft keyboard covers its bottom
-    // rows. It lifts the shell, without resizing the pane, until the
-    // cursor's row clears it.
-    await pane.tap();
-    const keyboardPx = 300;
-    const setKeyboard = (px: number) =>
-      page.evaluate((px) => (window as unknown as { __setKeyboard(px: number): void }).__setKeyboard(px), px);
-    const cursorBottom = () =>
-      page.evaluate((id) => {
-        const term = window.__manorTerminals!.get(id)!.term;
-        const rect = term.element!.querySelector(".xterm-screen")!.getBoundingClientRect();
-        const buf = term.buffer.active;
-        const row = buf.cursorY + buf.baseY - buf.viewportY;
-        return rect.top + ((row + 1) * rect.height) / term.rows;
-      }, paneId);
-    const rowsBefore = (await terminalGeometry(page))[0].rows;
-    // Push the prompt to the pane's last row, under where the keyboard goes.
-    await page.evaluate((id) => window.__manorTerminals!.get(id)!.term.input("clear; for i in $(seq 200); do echo; done\r", true), paneId);
-    await expect.poll(cursorBottom).toBeGreaterThan(PHONE.viewport.height - keyboardPx);
-    await setKeyboard(keyboardPx);
-    await expect
-      .poll(cursorBottom)
-      .toBeLessThanOrEqual(PHONE.viewport.height - keyboardPx + 1);
-    expect((await terminalGeometry(page))[0].rows).toBe(rowsBefore);
-    await setCpuThrottle(cdp, false);
-    await report.screen(page, "keyboard");
-    await setCpuThrottle(cdp, true);
-    await setKeyboard(0);
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--phone-keyboard-shift")))
-      .toBe("");
-
-    // …until someone types at the desk.
-    await deskPane.click();
-    await window.keyboard.type(" ");
-    await expect(fit).toBeVisible();
-    await window.keyboard.press("Backspace");
 
     // ── The network drops: back to a live terminal on its own ─────────
     {

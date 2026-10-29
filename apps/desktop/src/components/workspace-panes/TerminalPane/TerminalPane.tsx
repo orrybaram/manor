@@ -135,8 +135,9 @@ export function TerminalPane(props: TerminalPaneProps) {
               following it. Saying so is cheaper than leaving the user to
               discover that dragging the pane changes nothing. Unnamed on
               purpose: `pty.onWinsizeOwner` says whether this viewer owns it,
-              not who does. */}
-          {follower && (
+              not who does. A phone always follows and cannot claim
+              (`mayOwnWinsize`), so it is not told. */}
+          {follower && !phone && (
             <Button
               variant="secondary"
               size="sm"
@@ -151,7 +152,7 @@ export function TerminalPane(props: TerminalPaneProps) {
                 void window.electronAPI.pty.claimWinsize(paneId);
               }}
             >
-              {phone ? "Fit to screen" : "following"} · {follower.cols}×{follower.rows}
+              following · {follower.cols}×{follower.rows}
             </Button>
           )}
           {searchOpen && term && (

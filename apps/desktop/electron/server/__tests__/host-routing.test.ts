@@ -565,7 +565,7 @@ describe("HostRouting", () => {
   const PHONE: Caller = { id: "phone-1", callerClass: "device", deviceId: "d1" } as Caller;
 
   it("lets only the caller that owns a remote pane here size it on the host", async () => {
-    const { routing, ptyCalls, window, phone, owns } = await twoForwardedCallers();
+    const { routing, ptyCalls, window, phone } = await twoForwardedCallers();
     // The window outranks the phone: the phone follows the window's grid,
     // and its own never reaches box.
     expect(window).toMatchObject({ ok: true, winsizeOwner: true });
@@ -580,24 +580,14 @@ describe("HostRouting", () => {
     await routing.invoke("box", "pty", "resize", ["pane-box", 110, 32], WINDOW);
     expect(ptyCalls("resize")).toEqual([["pane-box", 110, 32]]);
 
-    // The phone claims it: it owns it now, and the window follows.
-    expect(await routing.invoke("box", "pty", "claimWinsize", ["pane-box"], PHONE)).toBe(true);
-    await routing.invoke("box", "pty", "resize", ["pane-box", 120, 40], WINDOW);
+    // The phone cannot claim it: the window keeps the grid.
+    expect(await routing.invoke("box", "pty", "claimWinsize", ["pane-box"], PHONE)).toBe(false);
     await routing.invoke("box", "pty", "resize", ["pane-box", 50, 20], PHONE);
+    await routing.invoke("box", "pty", "resize", ["pane-box", 120, 40], WINDOW);
     expect(ptyCalls("resize")).toEqual([
       ["pane-box", 110, 32],
-      ["pane-box", 50, 20],
+      ["pane-box", 120, 40],
     ]);
-    // Each caller is told its own answer, not the host's one for the desktop.
-    await eventually(
-      () => [owns(WINDOW.id), owns(PHONE.id)],
-      ([w, p]) => w === false && p === true,
-      "each caller's own winsizeOwner",
-    );
-
-    // Typing at the desk ends the phone's claim.
-    await routing.invoke("box", "pty", "write", ["pane-box", "x"], WINDOW);
-    expect([owns(WINDOW.id), owns(PHONE.id)]).toEqual([true, false]);
   });
 
   it("keeps box's viewer while another caller here views the pane, and detaches it once", async () => {

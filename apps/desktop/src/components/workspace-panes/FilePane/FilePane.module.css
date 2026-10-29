@@ -204,3 +204,14 @@
 .spacer {
   flex: 1;
 }
+
+/* A phone reads with a finger: the strip's buttons are 32px targets, and the
+   strip widens to hold them (the drawer sits beside it, `FileDrawer.module.css`). */
+:global(.app[data-layout="phone"]) .strip {
+  width: 42px;
+}
+
+:global(.app[data-layout="phone"]) .stripBtn {
+  width: 34px;
+  height: 34px;
+}

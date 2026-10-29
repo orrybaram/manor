@@ -9,6 +9,7 @@ import { treeRowIndent } from "../../FileTree/indent";
 import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
+import { useLayoutMode } from "../../../../hooks/useLayoutMode";
 import { expandedForFiles, visibleTreeRows } from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
 import {
@@ -22,6 +23,8 @@ import { AgentChip } from "../AgentChip";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
+/** A finger's row: `FileDrawer.module.css`'s phone `.changeRow` matches it. */
+const PHONE_ROW_HEIGHT = 36;
 
 /** The workspace's tree, or the flat list of its changed files by agent. */
 export type DrawerMode = "files" | "changes";
@@ -160,15 +163,16 @@ function TreeList({
   const dotted = useMemo(() => foldersWithChanges(changes?.keys() ?? []), [changes]);
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
   // Open on the open file, a few rows down from the top.
   const [initialOffset] = useState(() => {
     const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
-    return Math.max(0, (index - 3) * ROW_HEIGHT);
+    return Math.max(0, (index - 3) * rowHeight);
   });
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => ROW_HEIGHT,
+    estimateSize: () => rowHeight,
     overscan: 12,
     initialOffset,
   });
@@ -194,7 +198,7 @@ function TreeList({
             <div
               key={`${row.kind}:${row.path}`}
               className={styles.row}
-              style={{ transform: `translateY(${item.start}px)`, height: ROW_HEIGHT }}
+              style={{ transform: `translateY(${item.start}px)`, height: rowHeight }}
               data-testid="file-pane-tree-row"
               data-kind={row.kind}
               data-path={row.path}

@@ -219,3 +219,25 @@
   color: var(--text-dim);
   font-size: 11px;
 }
+
+/* On a phone the drawer sits beside the wider strip (`FilePane.module.css`),
+   takes most of a 390px screen, and its rows are finger-sized: the tree's
+   height is `PHONE_ROW_HEIGHT` in `FileDrawer.tsx`. A tap past it, on the
+   editor's sliver, closes it. */
+:global(.app[data-layout="phone"]) .drawer {
+  left: 42px;
+  width: min(320px, calc(100% - 90px));
+  font-size: 13px;
+}
+
+:global(.app[data-layout="phone"]) .fileRow {
+  font-size: 13px;
+}
+
+:global(.app[data-layout="phone"]) .changeRow {
+  height: 36px;
+}
+
+:global(.app[data-layout="phone"]) .row :global(button) {
+  font-size: 13px;
+}

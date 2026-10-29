@@ -559,6 +559,28 @@ async function resolveDefaultBranchRef(
   return null;
 }
 
+/**
+ * What an automation's new run workspace branches from: `origin`'s default
+ * branch when the repo has one, else the local default branch, else null
+ * (which leaves `createWorktree`'s own `origin/<default>`). A repo with no
+ * `origin` cannot branch from `origin/<default>` at all.
+ */
+export async function runBaseRef(ctx: ProjectContext, projectId: string): Promise<string | null> {
+  const project = ctx.find(projectId);
+  if (!project) return null;
+  const branch = project.defaultBranch || "main";
+  const git = gitOf(ctx, project)();
+  for (const ref of [`refs/remotes/origin/${branch}`, `refs/heads/${branch}`]) {
+    try {
+      await git.exec(project.path, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+      return ref;
+    } catch {
+      // Try the next one.
+    }
+  }
+  return null;
+}
+
 /** When the worktree folder was made: its birth time, else its `.git` file's last write. */
 async function worktreeBirth(worktreePath: string): Promise<number> {
   const dir = await stat(worktreePath);

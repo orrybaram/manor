@@ -39,7 +39,7 @@ import type { AutomationFireResult, AutomationSchedulerDeps } from "./scheduler"
 const DEFAULT_SETUP_TIMEOUT_MS = 10 * 60_000;
 
 export interface FireRunDeps {
-  projectManager: Pick<ProjectManager, "getProjects" | "createWorkspaceFolder">;
+  projectManager: Pick<ProjectManager, "getProjects" | "createWorkspaceFolder" | "runBaseRef">;
   workspaceOps: Pick<WorkspaceOps, "create">;
   /** `startAgentInWorkspace` over this server's deps. */
   startAgent: (
@@ -117,10 +117,14 @@ async function resolveWorkspace(
   try {
     const folderId = automationsFolderId(deps, project);
     const setupTimeoutMs = deps.setupTimeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS;
+    // Branched from `origin`'s default branch, or the local one when the repo
+    // has no `origin`, which `createWorktree`'s own default can't branch from.
+    const baseBranch = (await deps.projectManager.runBaseRef(project.id)) ?? undefined;
     const { workspacePath, setup } = await deps.workspaceOps.create({
       projectId: project.id,
       name,
       branch,
+      baseBranch,
       folderId,
       recordLastUsedHost: false,
       awaitSetup: { timeoutMs: setupTimeoutMs },

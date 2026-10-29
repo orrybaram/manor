@@ -61,7 +61,11 @@ const ctx = { trigger: "schedule" as const, scheduledFor: SCHEDULED };
 describe("createFireRun", () => {
   let projects: ProjectInfo[];
   let deps: {
-    projectManager: { getProjects: ReturnType<typeof vi.fn>; createWorkspaceFolder: ReturnType<typeof vi.fn> };
+    projectManager: {
+      getProjects: ReturnType<typeof vi.fn>;
+      createWorkspaceFolder: ReturnType<typeof vi.fn>;
+      runBaseRef: ReturnType<typeof vi.fn>;
+    };
     workspaceOps: { create: ReturnType<typeof vi.fn> };
     startAgent: ReturnType<typeof vi.fn>;
   };
@@ -73,6 +77,7 @@ describe("createFireRun", () => {
     deps = {
       projectManager: {
         getProjects: vi.fn(async () => projects),
+        runBaseRef: vi.fn(async () => null),
         // Adds the folder to the project, as the manager does.
         createWorkspaceFolder: vi.fn((projectId: string, name: string, parentId: string | null) => {
           const folder = { id: `folder-${++folders}`, name, parentId };
@@ -107,6 +112,14 @@ describe("createFireRun", () => {
     });
     expect(deps.workspaceOps.create).not.toHaveBeenCalled();
     expect(deps.startAgent).not.toHaveBeenCalled();
+  });
+
+  it("branches a new run workspace from the base the repo has, e.g. a local default branch with no origin", async () => {
+    deps.projectManager.runBaseRef.mockResolvedValue("refs/heads/main");
+    await fire(automation(), ctx);
+    expect(deps.workspaceOps.create).toHaveBeenCalledWith(
+      expect.objectContaining({ baseBranch: "refs/heads/main" }),
+    );
   });
 
   it("fails as project-missing when the project is gone", async () => {

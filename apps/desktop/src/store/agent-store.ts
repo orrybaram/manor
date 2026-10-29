@@ -40,7 +40,8 @@ export interface AgentStoreState {
    * search results to itself.
    */
   searchAgents: (query: string) => Promise<AgentInfo[]>;
-  removeAgent: (agentId: string) => Promise<void>;
+  /** Resolves true once main has deleted the agent. */
+  removeAgent: (agentId: string) => Promise<boolean>;
   /**
    * Give an agent a user-chosen name. A non-empty name is pinned so the
    * live-title sync in main leaves it alone; an empty name unpins and lets
@@ -257,6 +258,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
           agents: s.agents.filter((t) => t.id !== agentId),
         }));
       }
+      return success;
     },
 
     renameAgent: async (agentId: string, name: string) => {

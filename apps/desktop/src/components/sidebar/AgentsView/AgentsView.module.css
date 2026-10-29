@@ -230,6 +230,25 @@
   scrollbar-width: none;
 }
 
+/* Chips scrolled past an edge fade out there. */
+.chips[data-fade-end] {
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+}
+
+.chips[data-fade-start] {
+  mask-image: linear-gradient(to left, black calc(100% - 32px), transparent);
+}
+
+.chips[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 32px,
+    black calc(100% - 32px),
+    transparent
+  );
+}
+
 .chip {
   display: inline-flex;
   align-items: center;

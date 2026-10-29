@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef, memo } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import X from "lucide-react/dist/esm/icons/x";
@@ -19,9 +19,13 @@ import { useInlineRename } from "../../../hooks/useInlineRename";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { getDateBucket, type DateBucket } from "../../../utils/date-buckets";
 import {
-  agentsModalRows,
+  filterModalRows,
   isRowOpen,
+  listedAgents,
+  mergeModalRows,
   projectChips,
+  sessionRows,
+  sessionTitle,
   type AgentTab,
   type ModalProject,
   type ModalRow,
@@ -39,7 +43,7 @@ function ProjectDot({ project }: { project: ModalProject }) {
     <span
       className={styles.projectDot}
       data-uncolored={project.color ? undefined : ""}
-      title={project.name}
+      title={project.path ?? project.name}
       aria-label={project.name}
       role="img"
     />
@@ -92,15 +96,17 @@ function RowTime({ row }: { row: ModalRow }) {
 const ModalRowView = memo(function ModalRowView(props: ModalRowViewProps) {
   const { row, highlighted, onHighlight } = props;
   if (row.agent) return <AgentRowView {...props} agent={row.agent} />;
+  const title = row.session ? sessionTitle(row.session) : "Session";
   return (
     <div {...rowAttributes(row, highlighted, onHighlight)} data-outside="">
       <ProjectDot project={row.project} />
-      <span className={styles.agentName} title={row.session?.title} data-testid="agent-name">
-        {row.session?.title || "Session"}
+      <span className={styles.agentName} title={title} data-testid="agent-name">
+        {title}
       </span>
       <Tooltip label="Found on disk; not started in Manor">
         <span
           className={styles.outsideMark}
+          role="img"
           aria-label="Outside Manor"
           data-testid="agents-modal-outside"
         >
@@ -131,7 +137,9 @@ function AgentRowView(props: ModalRowViewProps & { agent: AgentInfo }) {
   const { status, reason } = display;
   // An Agent with no name of its own takes its Session's title.
   const title =
-    display.title === "Agent" && !agent.name ? row.session?.title || display.title : display.title;
+    display.title === "Agent" && !agent.name && row.session
+      ? sessionTitle(row.session)
+      : display.title;
   const rename = useInlineRename(
     title,
     (name) => onRenameAgent(agent.id, name),
@@ -240,7 +248,7 @@ const MAX_SEARCH_ROWS = 300;
 const LIST_ROWS_STEP = 200;
 
 function emptyMessage(query: string, tab: AgentTab, project: ModalProject | null): string {
-  if (query.trim()) return `No agents match “${query.trim()}”`;
+  if (query.trim()) return `No sessions match “${query.trim()}”`;
   if (project) return `Nothing in ${project.name} here.`;
   if (tab === "open") return "No open agents.";
   if (tab === "closed") return "No closed agents.";
@@ -296,20 +304,30 @@ export function AgentsModal(props: AgentsModalProps) {
     setListLimit(LIST_ROWS_STEP);
   }, [open]);
 
+  // Project matching over every Session runs only when the Sessions or the
+  // projects' paths, names or colors change, not on every Agent update.
+  const projectsKey = projects
+    .map((p) => [p.id, p.hostId, p.name, p.color, p.path, ...p.workspaces.map((w) => w.path)].join("\0"))
+    .join("\n");
+  const sessionBase = useMemo(() => sessionRows(disk.sessions, projects), [disk.sessions, projectsKey]);
+  const shownAgents = useMemo(
+    () => listedAgents(agents, search.agents, query),
+    [agents, search.agents, query],
+  );
+  // Rows whose Agent, Session and project are unchanged keep their object,
+  // so the memoized rows don't redraw on another Agent's update.
+  const previousRows = useRef<ReadonlyMap<string, ModalRow>>(new Map());
+  const mergedRows = useMemo(() => {
+    const merged = mergeModalRows(
+      { sessions: sessionBase, agents: shownAgents, knownAgents: disk.knownAgents },
+      previousRows.current,
+    );
+    previousRows.current = new Map(merged.map((r) => [r.id, r]));
+    return merged;
+  }, [sessionBase, shownAgents, disk.knownAgents]);
   const tabRows = useMemo(
-    () =>
-      agentsModalRows({
-        storeAgents: agents,
-        searchAgents: search.agents,
-        knownAgents: disk.knownAgents,
-        sessions: disk.sessions,
-        projects,
-        query,
-        tab,
-        openPaneIds,
-        liveTitles,
-      }),
-    [agents, search.agents, disk.knownAgents, disk.sessions, projects, query, tab, openPaneIds, liveTitles],
+    () => filterModalRows(mergedRows, { query, tab, openPaneIds, liveTitles }),
+    [mergedRows, query, tab, openPaneIds, liveTitles],
   );
   const chips = useMemo(() => projectChips(tabRows, projectFilter), [tabRows, projectFilter]);
   const allRows = useMemo(
@@ -343,9 +361,13 @@ export function AgentsModal(props: AgentsModalProps) {
   const { forget: forgetKnown, rename: renameKnown } = disk;
   const handleRemove = useCallback(
     (agentId: string) => {
-      void removeAgent(agentId);
-      forget(agentId);
-      forgetKnown(agentId);
+      void removeAgent(agentId)
+        .then((removed) => {
+          if (!removed) return;
+          forget(agentId);
+          forgetKnown(agentId);
+        })
+        .catch(() => {});
       focusSearch();
     },
     [removeAgent, forget, forgetKnown, focusSearch],
@@ -430,6 +452,25 @@ export function AgentsModal(props: AgentsModalProps) {
     else groups.push({ bucket, rows: [row] });
   }
 
+  // Fade whichever edge of the chip row has chips scrolled past it.
+  const chipsRef = useRef<HTMLDivElement | null>(null);
+  const [chipFade, setChipFade] = useState({ start: false, end: false });
+  const updateChipFade = useCallback(() => {
+    const el = chipsRef.current;
+    if (!el) return;
+    const start = el.scrollLeft > 1;
+    const end = el.scrollLeft + el.clientWidth < el.scrollWidth - 1;
+    setChipFade((f) => (f.start === start && f.end === end ? f : { start, end }));
+  }, []);
+  useLayoutEffect(updateChipFade, [chips, updateChipFade]);
+  useEffect(() => {
+    const el = chipsRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(updateChipFade);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, chips.length > 0, updateChipFade]);
+
   const pickProject = (project: ModalProject | null) => {
     setProjectFilter(project);
     searchRef.current?.focus();
@@ -493,7 +534,20 @@ export function AgentsModal(props: AgentsModalProps) {
           </div>
 
           {chips.length > 0 && (
-            <div className={styles.chips} role="group" aria-label="Project">
+            <div
+              ref={chipsRef}
+              className={styles.chips}
+              role="group"
+              aria-label="Project"
+              data-fade-start={chipFade.start || undefined}
+              data-fade-end={chipFade.end || undefined}
+              onScroll={updateChipFade}
+              onWheel={(e) => {
+                // A mouse wheel scrolls the one row of chips sideways.
+                const el = e.currentTarget;
+                if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY;
+              }}
+            >
               <button
                 type="button"
                 className={styles.chip}
@@ -503,7 +557,7 @@ export function AgentsModal(props: AgentsModalProps) {
               >
                 All projects
               </button>
-              {chips.map((p) => (
+              {chips.map(({ project: p, label }) => (
                 <button
                   key={p.key}
                   type="button"
@@ -512,6 +566,7 @@ export function AgentsModal(props: AgentsModalProps) {
                   aria-pressed={projectFilter?.key === p.key}
                   data-testid="agents-modal-chip"
                   data-project-key={p.key}
+                  title={p.path}
                   onClick={() => pickProject(p)}
                 >
                   <span
@@ -519,7 +574,7 @@ export function AgentsModal(props: AgentsModalProps) {
                     data-uncolored={p.color ? undefined : ""}
                     aria-hidden
                   />
-                  {p.name}
+                  {label}
                 </button>
               ))}
             </div>

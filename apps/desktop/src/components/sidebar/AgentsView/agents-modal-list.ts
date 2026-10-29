@@ -8,21 +8,26 @@ export type AgentTab = "all" | "open" | "closed";
 
 /**
  * The project a row is filed under: a Manor project, or, for a cwd no project
- * contains, a pseudo-project named after the folder (no color).
+ * contains, a pseudo-project for that folder (no color).
  */
 export interface ModalProject {
-  /** A Manor project's id; `folder:<name>` or `name:<name>` for a pseudo-project. */
+  /**
+   * A Manor project's id; `folder:<hostId>:<path>` for a folder no project
+   * contains; `name:<name>` for an Agent's project that no longer exists.
+   */
   key: string;
   name: string;
   /** The project's color token; null when uncolored or a pseudo-project. */
   color: string | null;
+  /** A folder pseudo-project's full path, for its tooltip and to tell same-named folders apart. */
+  path?: string;
 }
 
 /**
  * One line of the Agents modal: an **Agent**, a **Session**, or both when the
- * Session is the Agent's (same host, kind and CLI session id). The Agent wins
- * for live state and name; the Session fills in the title, first prompt,
- * branch and last activity. A Session with no Agent is "outside Manor".
+ * Session is the Agent's (same kind and CLI session id). The Agent wins for
+ * live state and name; the Session fills in the title, first prompt, branch
+ * and last activity. A Session with no Agent is "outside Manor".
  */
 export interface ModalRow {
   /** The Agent's id, else `session:<hostId>:<session id>`. */
@@ -42,23 +47,59 @@ type ProjectLike = Pick<ProjectInfo, "id" | "name" | "path" | "color" | "hostId"
   workspaces: ReadonlyArray<{ path: string }>;
 };
 
-function trimSeparators(path: string): string {
-  return path.replace(/[\\/]+$/, "");
+// ── Paths ──
+
+const WINDOWS_PATH = /^(?:[a-zA-Z]:(?:[\\/]|$)|\\\\)/;
+
+/**
+ * A path in the form paths are compared in: no trailing separator; a Windows
+ * path (drive letter or UNC) with forward slashes and lower-cased, since
+ * Windows paths ignore case. POSIX paths stay exact.
+ */
+function normalizePath(raw: string): string {
+  const path = raw.trim();
+  if (WINDOWS_PATH.test(path)) return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return path.replace(/\/+$/, "");
 }
 
 function isWithin(cwd: string, base: string): boolean {
-  return cwd === base || cwd.startsWith(`${base}/`) || cwd.startsWith(`${base}\\`);
+  return cwd === base || cwd.startsWith(`${base}/`);
 }
 
-function folderProject(cwd: string): ModalProject {
-  const name = cwd.split(/[\\/]/).filter(Boolean).pop();
-  return name
-    ? { key: `folder:${name}`, name, color: null }
-    : { key: "folder:", name: "No project", color: null };
+function pathSegments(path: string): string[] {
+  return path.split(WINDOWS_PATH.test(path) ? /[\\/]/ : "/").filter(Boolean);
 }
 
-function asModalProject(p: ProjectLike): ModalProject {
-  return { key: p.id, name: p.name, color: p.color };
+// ── Projects ──
+
+/**
+ * The store's projects, ready for matching cwds, with one `ModalProject` per
+ * project, folder and name, so rows built at different times share them.
+ */
+interface ProjectIndex {
+  byId: Map<string, ModalProject>;
+  /** Every project or workspace path, normalized, longest first, by host. */
+  bases: Map<string, Array<{ path: string; project: ModalProject }>>;
+  pseudo: Map<string, ModalProject>;
+  /** Agent-only rows' projects, per Agent object. */
+  byAgent: WeakMap<AgentInfo, ModalProject>;
+}
+
+function indexProjects(projects: readonly ProjectLike[]): ProjectIndex {
+  const byId = new Map<string, ModalProject>();
+  const bases = new Map<string, Array<{ path: string; project: ModalProject }>>();
+  for (const p of projects) {
+    const project: ModalProject = { key: p.id, name: p.name, color: p.color };
+    byId.set(p.id, project);
+    const list = bases.get(p.hostId) ?? [];
+    for (const raw of [p.path, ...p.workspaces.map((w) => w.path)]) {
+      const path = normalizePath(raw ?? "");
+      if (path) list.push({ path, project });
+    }
+    bases.set(p.hostId, list);
+  }
+  for (const list of bases.values()) list.sort((a, b) => b.path.length - a.path.length);
+  return { byId, bases, pseudo: new Map(), byAgent: new WeakMap() };
 }
 
 /**
@@ -66,116 +107,228 @@ function asModalProject(p: ProjectLike): ModalProject {
  * `cwd` or an ancestor of it; the longest such path wins, so a worktree
  * nested under another project's folder files under its own project.
  */
-function matchProject(
+function matchProject(index: ProjectIndex, hostId: string, cwd: string): ModalProject | null {
+  const path = normalizePath(cwd);
+  if (!path) return null;
+  for (const base of index.bases.get(hostId) ?? []) {
+    if (isWithin(path, base.path)) return base.project;
+  }
+  return null;
+}
+
+function pseudoProject(index: ProjectIndex, key: string, make: () => ModalProject): ModalProject {
+  let project = index.pseudo.get(key);
+  if (!project) {
+    project = make();
+    index.pseudo.set(key, project);
+  }
+  return project;
+}
+
+function folderProject(index: ProjectIndex, hostId: string, cwd: string): ModalProject {
+  const path = normalizePath(cwd);
+  return pseudoProject(index, `folder:${hostId}:${path}`, () => {
+    const name = pathSegments(cwd).pop();
+    return name
+      ? { key: `folder:${hostId}:${path}`, name, color: null, path: cwd.trim() }
+      : { key: `folder:${hostId}:`, name: "No project", color: null };
+  });
+}
+
+function agentOwnProject(index: ProjectIndex, agent: AgentInfo): ModalProject | null {
+  return agent.projectId ? index.byId.get(agent.projectId) ?? null : null;
+}
+
+function agentOnlyProject(index: ProjectIndex, agent: AgentInfo): ModalProject {
+  const cached = index.byAgent.get(agent);
+  if (cached) return cached;
+  const cwd = agent.workspacePath || agent.cwd || "";
+  const project =
+    agentOwnProject(index, agent) ??
+    matchProject(index, agent.hostId, cwd) ??
+    (agent.projectName
+      ? pseudoProject(index, `name:${agent.projectName}`, () => ({
+          key: `name:${agent.projectName}`,
+          name: agent.projectName as string,
+          color: null,
+        }))
+      : folderProject(index, agent.hostId, cwd));
+  index.byAgent.set(agent, project);
+  return project;
+}
+
+// ── Rows ──
+
+/**
+ * The Sessions as rows of their own, newest first, each filed under its
+ * project. Depends only on the Sessions and projects, so a status change to
+ * some Agent doesn't redo the project matching.
+ */
+export interface SessionRows {
+  rows: ModalRow[];
+  index: ProjectIndex;
+}
+
+function sessionKey(kind: string, sessionId: string): string {
+  return `${kind}\0${sessionId}`;
+}
+
+const byActivity = (a: ModalRow, b: ModalRow) =>
+  b.activityAt.localeCompare(a.activityAt) || a.id.localeCompare(b.id);
+
+export function sessionRows(
+  sessions: readonly SessionSummary[],
   projects: readonly ProjectLike[],
-  hostId: string,
-  rawCwd: string,
-): ProjectLike | null {
-  const cwd = trimSeparators(rawCwd);
-  if (!cwd) return null;
-  let best: ProjectLike | null = null;
-  let bestLength = -1;
-  for (const p of projects) {
-    if (p.hostId !== hostId) continue;
-    for (const raw of [p.path, ...p.workspaces.map((w) => w.path)]) {
-      const base = trimSeparators(raw ?? "");
-      if (base && base.length > bestLength && isWithin(cwd, base)) {
-        best = p;
-        bestLength = base.length;
-      }
-    }
+): SessionRows {
+  const index = indexProjects(projects);
+  const seen = new Set<string>();
+  const rows: ModalRow[] = [];
+  for (const session of sessions) {
+    const key = sessionKey(session.kind, session.sessionId);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rows.push({
+      id: `session:${session.hostId}:${session.id}`,
+      session,
+      project:
+        matchProject(index, session.hostId, session.cwd) ??
+        folderProject(index, session.hostId, session.cwd),
+      activityAt: session.updatedAt,
+    });
   }
-  return best;
+  return { rows: rows.sort(byActivity), index };
 }
 
-function rowProject(
-  projects: readonly ProjectLike[],
-  agent: AgentInfo | undefined,
-  session: SessionSummary | undefined,
-): ModalProject {
-  if (agent?.projectId) {
-    const own = projects.find((p) => p.id === agent.projectId);
-    if (own) return asModalProject(own);
-  }
-  const hostId = agent?.hostId ?? session?.hostId ?? "local";
-  const cwd = session?.cwd || agent?.workspacePath || agent?.cwd || "";
-  const match = matchProject(projects, hostId, cwd);
-  if (match) return asModalProject(match);
-  if (agent?.projectName) {
-    return { key: `name:${agent.projectName}`, name: agent.projectName, color: null };
-  }
-  return folderProject(cwd);
+/** The Agents a list shows: the store's, joined by main's search page while searching. */
+export function listedAgents(
+  storeAgents: readonly AgentInfo[],
+  searchAgents: readonly AgentInfo[],
+  query: string,
+): readonly AgentInfo[] {
+  if (!query.trim()) return storeAgents;
+  const ids = new Set(storeAgents.map((a) => a.id));
+  return [...storeAgents, ...searchAgents.filter((a) => !ids.has(a.id))];
 }
 
-function sessionKey(hostId: string, kind: string, sessionId: string): string {
-  return `${hostId}\0${kind}\0${sessionId}`;
-}
-
-const agentKey = (a: AgentInfo) => sessionKey(a.hostId, a.agentKind, a.agentSessionId);
-
-/** Whether a row is in the Open tab: it has an Agent whose pane is in a workspace now. */
-export function isRowOpen(row: ModalRow, openPaneIds: ReadonlySet<string>): boolean {
-  const paneId = row.agent?.paneId;
-  return !!paneId && openPaneIds.has(paneId);
+function sameRow(a: ModalRow, b: ModalRow): boolean {
+  return (
+    a.agent === b.agent &&
+    a.session === b.session &&
+    a.project === b.project &&
+    a.activityAt === b.activityAt
+  );
 }
 
 /**
  * Agents and Sessions as one list, newest activity first, one row per
- * (host, kind, session id). `agents` are the ones to list; `knownAgents` is
- * every Agent main knows, used only to recognise a Session as Manor's when
- * its Agent isn't among `agents` yet (an older page), so it isn't shown as
- * outside Manor. An entry of `agents` wins over its `knownAgents` copy.
+ * (agent kind, session id): an Agent and its Session match on those alone,
+ * since one host can be listed under two host ids. `agents` are the ones to
+ * list; `knownAgents` is every Agent main knows, used only to recognise a
+ * Session as Manor's when its Agent isn't among `agents` yet (an older page),
+ * so it isn't shown as outside Manor. An entry of `agents` wins over its
+ * `knownAgents` copy.
+ *
+ * A row whose Agent, Session and project are the objects `previous` had is
+ * that same row object, so memoized rows don't redraw.
  */
-export function mergeModalRows(input: {
-  agents: readonly AgentInfo[];
-  knownAgents: readonly AgentInfo[];
-  sessions: readonly SessionSummary[];
-  projects: readonly ProjectLike[];
-}): ModalRow[] {
-  const { agents, knownAgents, sessions, projects } = input;
+export function mergeModalRows(
+  input: {
+    sessions: SessionRows;
+    agents: readonly AgentInfo[];
+    knownAgents: readonly AgentInfo[];
+  },
+  previous?: ReadonlyMap<string, ModalRow>,
+): ModalRow[] {
+  const { sessions, agents, knownAgents } = input;
+  const { index } = sessions;
   const byKey = new Map<string, AgentInfo>();
-  for (const a of knownAgents) byKey.set(agentKey(a), a);
-  for (const a of agents) byKey.set(agentKey(a), a);
+  for (const a of knownAgents) byKey.set(sessionKey(a.agentKind, a.agentSessionId), a);
+  for (const a of agents) byKey.set(sessionKey(a.agentKind, a.agentSessionId), a);
 
-  const rows: ModalRow[] = [];
+  const reuse = (row: ModalRow): ModalRow => {
+    const old = previous?.get(row.id);
+    return old && sameRow(old, row) ? old : row;
+  };
+
   const used = new Set<string>();
-  for (const session of sessions) {
-    const agent = byKey.get(sessionKey(session.hostId, session.kind, session.sessionId));
-    if (agent && used.has(agent.id)) continue;
-    if (agent) used.add(agent.id);
-    rows.push({
-      id: agent ? agent.id : `session:${session.hostId}:${session.id}`,
-      agent,
-      session,
-      project: rowProject(projects, agent, session),
-      activityAt: session.updatedAt,
-    });
+  const fromSessions: ModalRow[] = [];
+  for (const base of sessions.rows) {
+    const session = base.session as SessionSummary;
+    const agent = byKey.get(sessionKey(session.kind, session.sessionId));
+    if (!agent) {
+      fromSessions.push(base);
+      continue;
+    }
+    if (used.has(agent.id)) continue;
+    used.add(agent.id);
+    fromSessions.push(
+      reuse({
+        id: agent.id,
+        agent,
+        session,
+        project: agentOwnProject(index, agent) ?? base.project,
+        activityAt: session.updatedAt,
+      }),
+    );
   }
+
+  const agentOnly: ModalRow[] = [];
   for (const agent of agents) {
     if (used.has(agent.id)) continue;
     used.add(agent.id);
-    rows.push({
-      id: agent.id,
-      agent,
-      project: rowProject(projects, agent, undefined),
-      activityAt: agent.createdAt,
-    });
+    agentOnly.push(
+      reuse({
+        id: agent.id,
+        agent,
+        project: agentOnlyProject(index, agent),
+        activityAt: agent.createdAt,
+      }),
+    );
   }
-  return rows.sort(
-    (a, b) => b.activityAt.localeCompare(a.activityAt) || a.id.localeCompare(b.id),
+  agentOnly.sort(byActivity);
+
+  // Both runs are newest first; interleave them.
+  const rows: ModalRow[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < fromSessions.length || j < agentOnly.length) {
+    const takeSession =
+      j >= agentOnly.length ||
+      (i < fromSessions.length && byActivity(fromSessions[i], agentOnly[j]) <= 0);
+    rows.push(takeSession ? fromSessions[i++] : agentOnly[j++]);
+  }
+  return rows;
+}
+
+/**
+ * The title a Session shows on its own: its title, else its first prompt,
+ * else its folder's name, else "Session".
+ */
+export function sessionTitle(session: SessionSummary): string {
+  return (
+    session.title.trim() ||
+    session.firstPrompt.trim() ||
+    pathSegments(session.cwd).pop() ||
+    "Session"
   );
 }
 
 /**
  * The title a row shows: the Agent's (pinned name, live title, synced name),
- * then the Session's own title.
+ * then the Session's.
  */
 export function modalRowTitle(row: ModalRow, liveTitle: string | null): string {
   if (row.agent) {
     const title = resolveAgentTitle(row.agent, liveTitle);
-    if (title !== "Agent" || row.agent.name) return title;
+    if (title !== "Agent" || row.agent.name || !row.session) return title;
   }
-  return row.session?.title || "Agent";
+  return row.session ? sessionTitle(row.session) : "Agent";
+}
+
+/** Whether a row is in the Open tab: it has an Agent whose pane is in a workspace now. */
+export function isRowOpen(row: ModalRow, openPaneIds: ReadonlySet<string>): boolean {
+  const paneId = row.agent?.paneId;
+  return !!paneId && openPaneIds.has(paneId);
 }
 
 function matchesRow(
@@ -201,58 +354,60 @@ function matchesRow(
 }
 
 /**
- * The rows the Agents modal lists for a query and tab, before the project
- * filter, newest first. With a query, main's search page joins the store's
- * agents (the store's copy of an agent wins, being live), and every row is
- * filtered here too: by the shown title, which only the window knows, by the
- * Session's title, first prompt and folder, and against a search page from
- * an older query.
+ * The rows for a query and tab, before the project filter. With a query,
+ * rows are matched here too: by the shown title, which only the window
+ * knows, by the Session's title, first prompt and folder, and against a
+ * search page from an older query.
  */
-export function agentsModalRows(input: {
-  storeAgents: readonly AgentInfo[];
-  searchAgents: readonly AgentInfo[];
-  knownAgents?: readonly AgentInfo[];
-  sessions?: readonly SessionSummary[];
-  projects?: readonly ProjectLike[];
-  query: string;
-  tab: AgentTab;
-  openPaneIds: ReadonlySet<string>;
-  liveTitles: Readonly<Record<string, string>>;
-}): ModalRow[] {
-  const { storeAgents, searchAgents, tab, openPaneIds, liveTitles } = input;
+export function filterModalRows(
+  rows: readonly ModalRow[],
+  input: {
+    query: string;
+    tab: AgentTab;
+    openPaneIds: ReadonlySet<string>;
+    liveTitles: Readonly<Record<string, string>>;
+  },
+): readonly ModalRow[] {
+  const { tab, openPaneIds, liveTitles } = input;
   const query = input.query.trim();
+  if (!query && tab === "all") return rows;
+  const wantOpen = tab === "open";
+  return rows.filter(
+    (r) =>
+      (tab === "all" || isRowOpen(r, openPaneIds) === wantOpen) &&
+      (!query || matchesRow(r, query, liveTitles)),
+  );
+}
 
-  const agents: AgentInfo[] = [...storeAgents];
-  if (query) {
-    const ids = new Set(agents.map((a) => a.id));
-    for (const a of searchAgents) if (!ids.has(a.id)) agents.push(a);
-  }
-  let rows = mergeModalRows({
-    agents,
-    knownAgents: input.knownAgents ?? [],
-    sessions: input.sessions ?? [],
-    projects: input.projects ?? [],
-  });
-  if (query) rows = rows.filter((r) => matchesRow(r, query, liveTitles));
-  if (tab !== "all") {
-    const wantOpen = tab === "open";
-    rows = rows.filter((r) => isRowOpen(r, openPaneIds) === wantOpen);
-  }
-  return rows;
+/** A project filter chip: the project, and the label it shows. */
+export interface ProjectChip {
+  project: ModalProject;
+  label: string;
 }
 
 /**
  * One chip per project present in `rows`, the most recently active first.
  * `selected` stays a chip even when no row is left in it, so the filter
- * that's on can always be seen and turned off.
+ * that's on can always be seen and turned off. A folder whose name another
+ * chip also has is labelled with its parent too (`code/manor`).
  */
 export function projectChips(
   rows: readonly ModalRow[],
   selected: ModalProject | null,
-): ModalProject[] {
+): ProjectChip[] {
   // Rows come newest first, so first sight is latest activity.
-  const chips = new Map<string, ModalProject>();
-  for (const r of rows) if (!chips.has(r.project.key)) chips.set(r.project.key, r.project);
-  if (selected && !chips.has(selected.key)) chips.set(selected.key, selected);
-  return [...chips.values()];
+  const projects = new Map<string, ModalProject>();
+  for (const r of rows) if (!projects.has(r.project.key)) projects.set(r.project.key, r.project);
+  if (selected && !projects.has(selected.key)) projects.set(selected.key, selected);
+
+  const nameCount = new Map<string, number>();
+  for (const p of projects.values()) nameCount.set(p.name, (nameCount.get(p.name) ?? 0) + 1);
+  return [...projects.values()].map((project) => {
+    const segments = project.path ? pathSegments(project.path) : [];
+    const label =
+      (nameCount.get(project.name) ?? 0) > 1 && segments.length > 1
+        ? segments.slice(-2).join("/")
+        : project.name;
+    return { project, label };
+  });
 }

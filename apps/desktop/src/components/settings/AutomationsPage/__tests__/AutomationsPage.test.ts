@@ -542,7 +542,7 @@ describe("AutomationsPage", () => {
     expect(q("automations-host-new")?.textContent).not.toContain("Can't reach");
   });
 
-  it("lists a custom schedule with its cron, and rows as buttons", async () => {
+  it("lists a custom schedule by its cron, and rows as buttons", async () => {
     api.list.mockImplementation((hostId: string) =>
       Promise.resolve(
         hostId === "box"
@@ -554,15 +554,14 @@ describe("AutomationsPage", () => {
     const row = q("automations-row-a1");
     expect(row?.tagName).toBe("BUTTON");
     expect(row?.getAttribute("role")).toBeNull();
-    expect(row?.textContent).toContain("Custom schedule");
-    expect(row?.textContent).toContain("0 */6 * * 1-5");
+    expect(row?.textContent).toContain("0 */6 * * 1-5 · manor · Claude");
     expect(document.querySelector('[role="row"]')).toBeNull();
   });
 
-  it("says Paused beside a paused automation's schedule, for the phone's stacked row", async () => {
+  it("says Paused in place of a paused automation's next run", async () => {
     await render();
     const row = q("automations-row-a4");
-    expect(row?.textContent).toContain("Fridays at 16:00 · Paused");
+    expect(row?.querySelector('[class*="pill"]')?.textContent).toBe("Paused");
   });
 
   it("opens on a given automation's page, or the list when its host has none", async () => {

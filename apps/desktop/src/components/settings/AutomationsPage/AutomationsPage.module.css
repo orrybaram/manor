@@ -36,30 +36,8 @@
   font-size: 13px;
 }
 
-.cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 130px) 100px minmax(0, 96px) 14px;
-  column-gap: 12px;
-  align-items: center;
-  padding: 0 8px;
-}
-
-.headRow {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-dim);
-  padding-top: 6px;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--surface);
-}
-
-.alignEnd {
-  text-align: right;
-  justify-self: end;
-}
-
 .groupTitle {
-  padding: 12px 8px 4px;
+  padding: 14px 4px 8px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -79,33 +57,74 @@
   padding: 6px 8px 10px;
   font-size: 12px;
   color: var(--text-dim);
-  border-bottom: 1px solid var(--surface);
 }
 
-/* Resets one by one rather than `all: unset`, which outranks `.cols` and
-   would undo the row's grid. */
+.cards {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 6px;
+}
+
+/* A card: badge, name over its line, next and last run, chevron. Resets
+   one by one rather than `all: unset`, which would undo the grid. */
 button.row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto 14px;
+  column-gap: 12px;
+  align-items: center;
   margin: 0;
-  border: none;
-  background: none;
   font: inherit;
   text-align: left;
   box-sizing: border-box;
   width: 100%;
   cursor: pointer;
-  padding-top: 9px;
-  padding-bottom: 9px;
-  border-bottom: 1px solid var(--surface);
+  padding: 12px;
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 25%, transparent);
   color: var(--text-primary);
 }
 
 button.row:hover {
   background: var(--hover);
+  border-color: var(--border);
 }
 
 button.row:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: 1px;
+}
+
+.badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.cellName {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cellWhen {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+}
+
+.pill {
+  font-size: 11.5px;
+  line-height: 1.5;
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 1px solid var(--control-border);
+  color: var(--text-primary);
+  white-space: nowrap;
 }
 
 .paused {
@@ -130,31 +149,10 @@ button.row:focus-visible {
   white-space: nowrap;
 }
 
-.cell {
-  min-width: 0;
-}
-
-.when {
-  display: block;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.next {
-  white-space: nowrap;
-}
-
 /* "(London time)": the schedule's zone, beside times read in it. */
 .zoneNote {
   color: var(--text-dim);
   font-size: 11px;
-}
-
-/* Shown only in the phone's stacked row. */
-.phoneOnly {
-  display: none;
 }
 
 .chevron {
@@ -598,33 +596,12 @@ input.menuCron {
   display: none;
 }
 
-:global(:root[data-layout="phone"]) .cols {
-  grid-template-columns: minmax(0, 1fr) auto;
-  row-gap: 4px;
-  padding: 0 4px;
-}
-
 :global(:root[data-layout="phone"]) button.row {
-  padding-top: 10px;
-  padding-bottom: 10px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 12px;
 }
 
-:global(:root[data-layout="phone"]) .cellName {
-  grid-column: 1;
-  grid-row: 1;
-}
-
-:global(:root[data-layout="phone"]) .cellLast {
-  grid-column: 2;
-  grid-row: 1;
-}
-
-:global(:root[data-layout="phone"]) .cellSchedule {
-  grid-column: 1 / -1;
-  grid-row: 2;
-}
-
-:global(:root[data-layout="phone"]) .cellNext,
+:global(:root[data-layout="phone"]) .badge,
 :global(:root[data-layout="phone"]) .chevron {
   display: none;
 }
@@ -648,10 +625,6 @@ input.menuCron {
 :global(:root[data-layout="phone"]) button.menuItem {
   min-height: 40px;
   font-size: 14px;
-}
-
-:global(:root[data-layout="phone"]) .phoneOnly {
-  display: inline;
 }
 
 :global(:root[data-layout="phone"]) .histRow,

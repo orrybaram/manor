@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { execFile, execFileSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ExecShellBackend } from "./backend/exec-shell";
@@ -9,6 +9,7 @@ import { createRemoteExec, type RemoteExecClient } from "./backend/remote-exec";
 import {
   contentHash,
   createWorkspaceFile,
+  HOST_SCRIPTS,
   isSafeRelPath,
   listWorkspaceFiles,
   MAX_FILE_BYTES,
@@ -97,6 +98,25 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
       });
     });
 
+    it("leaves out submodules and untracked nested repos, which are folders", async () => {
+      const sub = path.join(tmp, "sub");
+      await mkdir(sub);
+      git(sub, "init", "-q", "-b", "main");
+      await writeFile(path.join(sub, "x.ts"), "x\n");
+      git(sub, "add", ".");
+      git(sub, "-c", "user.email=t@t.t", "-c", "user.name=T", "commit", "-q", "-m", "sub");
+      git(ws, "init", "-q", "-b", "main");
+      await writeFile(path.join(ws, "a.ts"), "a\n");
+      git(ws, "-c", "protocol.file.allow=always", "submodule", "add", "-q", sub, "vendor/sub");
+      await mkdir(path.join(ws, "nested"));
+      git(path.join(ws, "nested"), "init", "-q", "-b", "main");
+      await writeFile(path.join(ws, "nested/y.ts"), "y\n");
+
+      const result = await listWorkspaceFiles(backend, ws);
+
+      expect(result).toEqual({ paths: [".gitmodules", "a.ts"], truncated: false, source: "git" });
+    });
+
     it("walks a folder outside git, skipping dot-folders and node_modules", async () => {
       await mkdir(path.join(ws, "a"), { recursive: true });
       await writeFile(path.join(ws, "a/one.txt"), "1");
@@ -144,6 +164,16 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
     it("refuses text that is not UTF-8, which saving would mangle", async () => {
       await writeFile(path.join(ws, "latin1.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9]));
       expect(await readWorkspaceFile(backend, ws, "latin1.txt")).toMatchObject({ ok: false, reason: "binary" });
+    });
+
+    it("reads UTF-8 text that holds U+FFFD itself, and keeps a BOM", async () => {
+      const text = "\uFEFFreplacement: \uFFFD\n";
+      await writeFile(path.join(ws, "fffd.txt"), text, "utf-8");
+      expect(await readWorkspaceFile(backend, ws, "fffd.txt")).toEqual({
+        ok: true,
+        content: text,
+        hash: contentHash(text),
+      });
     });
 
     it("answers not-found and not-a-file", async () => {
@@ -198,6 +228,47 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
       });
     });
 
+    describe("a symlinked folder whose name ends in a newline", () => {
+      // `a\n` -> ../outside: `$(dirname "ws/a\n/secret.txt")` used to drop the
+      // newline, check `ws/a` (missing, so `ws`) and then read through the link.
+      const rel = "a\n/secret.txt";
+
+      beforeEach(async () => {
+        await mkdir(path.join(tmp, "outside"));
+        await writeFile(path.join(tmp, "outside/secret.txt"), "secret");
+        await symlink(path.join(tmp, "outside"), path.join(ws, "a\n"));
+      });
+
+      it("refuses read, write and create", async () => {
+        expect(await readWorkspaceFile(backend, ws, rel)).toMatchObject({ ok: false, reason: "outside-workspace" });
+        expect(await writeWorkspaceFile(backend, ws, rel, "pwned")).toMatchObject({
+          ok: false,
+          reason: "outside-workspace",
+        });
+        expect(await createWorkspaceFile(backend, ws, "a\n/new.txt")).toMatchObject({
+          ok: false,
+          reason: "outside-workspace",
+        });
+        expect(await readFile(path.join(tmp, "outside/secret.txt"), "utf-8")).toBe("secret");
+        expect(await readdir(path.join(tmp, "outside"))).toEqual(["secret.txt"]);
+      });
+
+      it("is refused by the host-side check too, past the shape check", async () => {
+        const run = (script: string, args: string[]) =>
+          backend.shell.exec("sh", ["-c", script, "sh", ws, ...args]).then(
+            () => 0,
+            (err: { code?: unknown }) => err.code,
+          );
+        await writeFile(path.join(ws, "tmp.upload"), "pwned");
+        expect(await run(HOST_SCRIPTS.read, [rel, String(MAX_FILE_BYTES)])).toBe(HOST_SCRIPTS.outsideExit);
+        expect(await run(HOST_SCRIPTS.writePrepare, [rel, ""])).toBe(HOST_SCRIPTS.outsideExit);
+        expect(await run(HOST_SCRIPTS.writeCommit, [rel, "tmp.upload", ""])).toBe(HOST_SCRIPTS.outsideExit);
+        expect(await run(HOST_SCRIPTS.create, ["a\n/new.txt"])).toBe(HOST_SCRIPTS.outsideExit);
+        expect(await readFile(path.join(tmp, "outside/secret.txt"), "utf-8")).toBe("secret");
+        expect(await readdir(path.join(tmp, "outside"))).toEqual(["secret.txt"]);
+      });
+    });
+
     it("follows a symlink that stays inside", async () => {
       await writeFile(path.join(ws, "real.txt"), "inside");
       await symlink(path.join(ws, "real.txt"), path.join(ws, "alias.txt"));
@@ -231,6 +302,69 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
       expect(result).toMatchObject({ ok: false, reason: "changed-on-disk", diskHash: null });
     });
 
+    it("leaves no temp file behind, whichever way it ends", async () => {
+      await writeFile(path.join(ws, "a.ts"), "v1");
+      await writeWorkspaceFile(backend, ws, "a.ts", "v2", contentHash("v1"));
+      await writeWorkspaceFile(backend, ws, "a.ts", "v3", contentHash("stale"));
+      await writeWorkspaceFile(backend, ws, "b.ts", "new");
+      expect((await readdir(ws)).sort()).toEqual(["a.ts", "b.ts"]);
+    });
+
+    it("keeps the file's permission bits", async () => {
+      await writeFile(path.join(ws, "run.sh"), "#!/bin/sh\n");
+      await chmod(path.join(ws, "run.sh"), 0o750);
+      await writeWorkspaceFile(backend, ws, "run.sh", "#!/bin/sh\necho hi\n", contentHash("#!/bin/sh\n"));
+      expect((await stat(path.join(ws, "run.sh"))).mode & 0o777).toBe(0o750);
+    });
+
+    it("writes through a symlink that stays inside, leaving the link a link", async () => {
+      await writeFile(path.join(ws, "real.txt"), "v1");
+      await symlink(path.join(ws, "real.txt"), path.join(ws, "alias.txt"));
+      expect(await writeWorkspaceFile(backend, ws, "alias.txt", "v2", contentHash("v1"))).toMatchObject({ ok: true });
+      expect(await readFile(path.join(ws, "real.txt"), "utf-8")).toBe("v2");
+      expect((await readdir(ws)).sort()).toEqual(["alias.txt", "real.txt"]);
+    });
+
+    describe("a change on disk while the content uploads", () => {
+      /** `backend`, with `during` run on the host as the temp file lands. */
+      const racing = (during: () => Promise<void>): FilesBackend => ({
+        shell: {
+          exec: (cmd, args, opts) => backend.shell.exec(cmd, args, opts),
+          writeFile: async (p, data) => {
+            await backend.shell.writeFile(p, data);
+            await during();
+          },
+        },
+      });
+
+      it("is not overwritten: the hash is checked in the same host step as the replace", async () => {
+        await writeFile(path.join(ws, "a.ts"), "v1");
+        const result = await writeWorkspaceFile(
+          racing(() => writeFile(path.join(ws, "a.ts"), "theirs")),
+          ws,
+          "a.ts",
+          "mine",
+          contentHash("v1"),
+        );
+        expect(result).toMatchObject({ ok: false, reason: "changed-on-disk", diskHash: contentHash("theirs") });
+        expect(await readFile(path.join(ws, "a.ts"), "utf-8")).toBe("theirs");
+        expect(await readdir(ws)).toEqual(["a.ts"]);
+      });
+
+      it("answers a deletion as changed, with no hash, and does not bring the file back", async () => {
+        await writeFile(path.join(ws, "a.ts"), "v1");
+        const result = await writeWorkspaceFile(
+          racing(() => rm(path.join(ws, "a.ts"))),
+          ws,
+          "a.ts",
+          "mine",
+          contentHash("v1"),
+        );
+        expect(result).toMatchObject({ ok: false, reason: "changed-on-disk", diskHash: null });
+        expect(await readdir(ws)).toEqual([]);
+      });
+    });
+
     it("refuses to write over a folder", async () => {
       await mkdir(path.join(ws, "dir"));
       expect(await writeWorkspaceFile(backend, ws, "dir", "x")).toMatchObject({ ok: false, reason: "not-a-file" });
@@ -256,7 +390,7 @@ describe("isSafeRelPath", () => {
     expect(isSafeRelPath("a.ts")).toBe(true);
     expect(isSafeRelPath("src/.hidden/a.ts")).toBe(true);
     expect(isSafeRelPath("a..b")).toBe(true);
-    for (const bad of ["", "/a", "C:/a", "a/../b", "..", ".", "a/./b", "a\\b", "a\0b", "a/"]) {
+    for (const bad of ["", "/a", "C:/a", "a/../b", "..", ".", "a/./b", "a\\b", "a\0b", "a/", "a\n/b", "a\r", "a\tb", "a\x7fb", "a\x1bb"]) {
       expect(isSafeRelPath(bad)).toBe(false);
     }
   });

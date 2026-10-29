@@ -588,15 +588,15 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   const marks = pane(window).locator('[data-testid="file-pane-mark"][data-kind="agent"]');
   await expect(marks).toHaveCount(2);
   const jump = header(window).locator('[data-testid="file-pane-edit-jump"]');
-  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("2 edits");
+  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("2 changes");
   await expect(jump.locator('[data-testid="file-pane-agent-chip"]')).toBeVisible();
 
-  // ↓ goes to the first edit, then the next; ⌥↑ in the editor goes back.
+  // ↓ goes to the first change, then the next; ⌥↑ in the editor goes back.
   await jump.locator('[data-testid="file-pane-edit-next"]').click();
-  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("1 of 2 edits");
+  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("1 of 2 changes");
   await expect(activeLine(window)).toHaveText("3");
   await jump.locator('[data-testid="file-pane-edit-next"]').click();
-  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("2 of 2 edits");
+  await expect(jump.locator('[data-testid="file-pane-edit-jump-label"]')).toHaveText("2 of 2 changes");
   await expect(activeLine(window)).toHaveText("8");
   await window.screenshot({ path: shot(testInfo, "markers-editor") });
   await window.keyboard.press("Alt+ArrowUp");

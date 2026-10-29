@@ -77,10 +77,11 @@ export function FileSaveHint({ paneId }: { paneId: string }) {
 }
 
 /**
- * The header's edit jumps, while the open file has agent edits and no unsaved
- * ones (then the header says "⌘S to save"): the agent's chip, "N of M edits"
- * ("M edits" before the first jump), and ↑/↓, which ⌥↑/⌥↓ in the editor
- * match.
+ * The header's change jumps, while the open file has changes since the last
+ * commit and no unsaved edits (then the header says "⌘S to save"): the
+ * agent's chip when one wrote the file last, "N of M changes" ("M changes"
+ * before the first jump), and ↑/↓, which ⌥↑/⌥↓ in the editor match. The
+ * changes are the workspace diff's, so they include your own saved edits.
  */
 export function FileEditJump({
   paneId,
@@ -102,7 +103,7 @@ export function FileEditJump({
   const changes = useWorkspaceChanges(workspace);
   if (dirty || !nav || nav.count === 0) return null;
   const author = filePath ? (changes?.authors[filePath] ?? null) : null;
-  const edits = nav.count === 1 ? "edit" : "edits";
+  const noun = nav.count === 1 ? "change" : "changes";
   return (
     <span className={styles.jump} data-testid="file-pane-edit-jump">
       {author && <AgentChip author={author} />}
@@ -112,13 +113,13 @@ export function FileEditJump({
             <b>{nav.current + 1}</b> of{" "}
           </>
         )}
-        {nav.count} {edits}
+        {nav.count} {noun}
       </span>
-      <Tooltip label="Previous edit (⌥↑)">
+      <Tooltip label="Previous change (⌥↑)">
         <button
           type="button"
           className={styles.jumpBtn}
-          aria-label="Previous edit"
+          aria-label="Previous change"
           data-testid="file-pane-edit-prev"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {
@@ -129,11 +130,11 @@ export function FileEditJump({
           <ArrowUp size={12} />
         </button>
       </Tooltip>
-      <Tooltip label="Next edit (⌥↓)">
+      <Tooltip label="Next change (⌥↓)">
         <button
           type="button"
           className={styles.jumpBtn}
-          aria-label="Next edit"
+          aria-label="Next change"
           data-testid="file-pane-edit-next"
           onMouseDown={(e) => e.stopPropagation()}
           onClick={(e) => {

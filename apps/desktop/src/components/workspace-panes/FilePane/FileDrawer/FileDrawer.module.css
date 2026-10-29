@@ -145,6 +145,92 @@
   outline: none;
 }
 
+/* A file's row while it is being renamed: its icon, then its name to edit. */
+.renameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding-right: 8px;
+}
+
+.renameInput {
+  flex: 1;
+  min-width: 0;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  outline: none;
+}
+
+/* The row a context menu is open for; and, while the tree has the keyboard,
+   the row it is on. Inset, as the global ring would be clipped by the tree's
+   edges and drawn over its neighbours. */
+.rowMenuOpen > button,
+.tree:focus .rowCursor > button {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tree:focus-visible {
+  outline: none;
+}
+
+.contextMenu {
+  background: var(--surface);
+  border: 1px solid var(--text-dim);
+  border-radius: 8px;
+  padding: 4px;
+  min-width: 160px;
+  z-index: 100;
+}
+
+.contextMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  font-size: 12px;
+  border: none;
+  background: none;
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left;
+  outline: none;
+}
+
+.contextMenuItem[data-highlighted] {
+  background: var(--accent);
+  color: var(--text-selected);
+}
+
+.contextMenuItem[data-disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.contextMenuItemDanger {
+  color: var(--danger);
+}
+
+.contextMenuItemDanger[data-highlighted] {
+  background: var(--danger);
+  color: #fff;
+}
+
+.contextMenuSeparator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
 .newFileError {
   padding-top: 4px;
   color: var(--red);
@@ -211,4 +297,9 @@
 
 :global(.app[data-layout="phone"]) .row :global(button) {
   font-size: 13px;
+}
+
+/* Only a React parent for the tree menu's and Delete dialog's portals. */
+.dialogHost {
+  display: contents;
 }

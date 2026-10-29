@@ -1106,9 +1106,11 @@ test("the Files drawer sits beside the editor, resizes from its edge and collaps
   await openFileFromPalette(window);
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
   await expect(drawer).toBeVisible();
-  // Opened from the keyboard, it takes focus without a ring.
-  await expect(drawer).toBeFocused();
-  expect(await drawer.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+  // Opened from the keyboard, its tree takes focus without the clipped
+  // global ring: the row it is on is outlined inside instead.
+  const tree = pane(window).locator('[data-testid="file-pane-tree"]');
+  await expect(tree).toBeFocused();
+  expect(await tree.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
 
   await openFromTree(window, ["src", "components", "Widget.tsx"]);
   const editor = pane(window).locator('[data-testid="file-pane-editor"]');
@@ -1171,4 +1173,184 @@ test("the Files drawer sits beside the editor, resizes from its edge and collaps
   await expect(drawer).toBeVisible();
   await expect.poll(async () => Math.abs((await drawer.boundingBox())!.width - widened)).toBeLessThan(4);
   await expect(drawer).toHaveAttribute("data-mode", "files");
+});
+
+test("the Files tree's context menu copies paths, renames and deletes files", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-tree-menu");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  await runInTerminal(window, "pwd > \"$HOME/ws-path\"");
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+  const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+  fs.mkdirSync(path.join(ws, "src"), { recursive: true });
+  fs.writeFileSync(path.join(ws, "src", "widget.ts"), WIDGET);
+  fs.writeFileSync(path.join(ws, "notes.md"), "# notes\n");
+
+  await openFileFromPalette(window);
+  await openFromTree(window, ["src", "widget.ts"]);
+  const menu = window.locator('[data-testid="file-pane-tree-menu"]');
+
+  // A file's menu: the editor and Finder (a local workspace), its paths, and Rename and Delete.
+  await treeRow(window, "src/widget.ts").click({ button: "right" });
+  await expect(menu).toBeVisible();
+  for (const item of ["Open in Editor", /Reveal in Finder|Show in Folder/, "Copy Path", "Copy Relative Path", "Rename…", "Delete…"]) {
+    await expect(menu.getByRole("menuitem", { name: item })).toBeVisible();
+  }
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "tree-menu-file") });
+  await menu.locator('[data-testid="file-pane-tree-copy-relative-path"]').click();
+  await expect(menu).toHaveCount(0);
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe("src/widget.ts");
+
+  await treeRow(window, "src/widget.ts").click({ button: "right" });
+  await menu.locator('[data-testid="file-pane-tree-copy-path"]').click();
+  await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(`${ws}/src/widget.ts`);
+
+  // A folder's: no Rename or Delete.
+  await treeRow(window, "src").click({ button: "right" });
+  await expect(menu.getByRole("menuitem", { name: "Copy Path" })).toBeVisible();
+  await expect(menu.locator('[data-testid="file-pane-tree-rename"]')).toHaveCount(0);
+  await expect(menu.locator('[data-testid="file-pane-tree-delete"]')).toHaveCount(0);
+  await window.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+
+  // Rename the open file in its row: it moves on disk and the pane follows it.
+  await treeRow(window, "src/widget.ts").click({ button: "right" });
+  await menu.locator('[data-testid="file-pane-tree-rename"]').click();
+  const input = pane(window).locator('[data-testid="file-pane-rename-input"]');
+  await expect(input).toBeFocused();
+  // The name without its extension is selected: typing replaces only that.
+  await window.keyboard.type("gadget");
+  await expect(input).toHaveValue("gadget.ts");
+  await window.screenshot({ path: shot(testInfo, "tree-rename") });
+  await window.keyboard.press("Enter");
+  await expect(treeRow(window, "src/gadget.ts")).toBeVisible();
+  await expect(treeRow(window, "src/widget.ts")).toHaveCount(0);
+  expect(fs.existsSync(path.join(ws, "src", "widget.ts"))).toBe(false);
+  expect(fs.readFileSync(path.join(ws, "src", "gadget.ts"), "utf8")).toBe(WIDGET);
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("gadget.ts");
+  await expect(pane(window).locator('[data-testid="file-pane-editor"]')).toContainText("Clicked {count} times");
+
+  // Renaming onto a file that exists is refused, and Escape leaves the name as it was.
+  await treeRow(window, "notes.md").click({ button: "right" });
+  await menu.locator('[data-testid="file-pane-tree-rename"]').click();
+  await input.fill("src/gadget.ts");
+  await window.keyboard.press("Enter");
+  await expect(window.getByText("src/gadget.ts already exists")).toBeVisible();
+  await window.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+  await expect(pane(window).locator('[data-testid="file-pane-drawer"]')).toBeVisible();
+  expect(fs.readFileSync(path.join(ws, "notes.md"), "utf8")).toBe("# notes\n");
+
+  // Delete asks first, then removes the file from disk and the tree.
+  await treeRow(window, "notes.md").click({ button: "right" });
+  await menu.locator('[data-testid="file-pane-tree-delete"]').click();
+  const dialog = window.getByRole("dialog");
+  await expect(dialog).toContainText("Delete notes.md?");
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "tree-delete-confirm") });
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(treeRow(window, "notes.md")).toHaveCount(0);
+  expect(fs.existsSync(path.join(ws, "notes.md"))).toBe(false);
+});
+
+test("the file pane's drawer survives a move, and the keyboard drives it and its tree", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-file-keys");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  fs.writeFileSync(path.join(ws, "src", "components", "Zed.tsx"), "export const zed = 1;\n");
+
+  await openFileFromPalette(window);
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Clicked {count} times");
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const tree = pane(window).locator('[data-testid="file-pane-tree"]');
+  const cursorRow = tree.locator('[data-testid="file-pane-tree-row"][class*="rowCursor"]');
+
+  // The clicked row is the keyboard's, outlined inside the row.
+  await expect(tree).toBeFocused();
+  await expect(cursorRow).toHaveAttribute("data-path", "src/components/Widget.tsx");
+  expect(
+    await cursorRow.locator("button").evaluate((el) => getComputedStyle(el).boxShadow),
+  ).not.toBe("none");
+  await window.screenshot({ path: shot(testInfo, "tree-cursor") });
+
+  // ↓ moves to the next file, Enter opens it, Space opens the one above.
+  await window.keyboard.press("ArrowDown");
+  await expect(cursorRow).toHaveAttribute("data-path", "src/components/Zed.tsx");
+  await window.keyboard.press("Enter");
+  await expect(editor).toContainText("export const zed");
+  await expect(tree).toBeFocused();
+  await window.keyboard.press("ArrowUp");
+  await window.keyboard.press(" ");
+  await expect(editor).toContainText("Clicked {count} times");
+
+  // ← steps out to the folder, then closes it; → opens it again.
+  await window.keyboard.press("ArrowLeft");
+  await expect(cursorRow).toHaveAttribute("data-kind", "dir");
+  await window.keyboard.press("ArrowLeft");
+  await expect(treeRow(window, "src/components/Widget.tsx")).toHaveCount(0);
+  await window.keyboard.press("ArrowRight");
+  await expect(treeRow(window, "src/components/Widget.tsx")).toBeVisible();
+
+  // ⌘B / Ctrl+B hides the drawer and hands the keyboard to the editor; again, shows it.
+  await window.keyboard.press("ControlOrMeta+b");
+  await expect(drawer).toBeHidden();
+  await expect(editor.locator(".cm-content")).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+b");
+  await expect(drawer).toHaveAttribute("data-mode", "files");
+  await expect(tree).toBeFocused();
+
+  // ⌘⇧G goes to Source Control, ⌘⇧E back to Files, and ⌘⇧E again to the editor.
+  await window.keyboard.press("ControlOrMeta+Shift+g");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  await window.keyboard.press("ControlOrMeta+Shift+e");
+  await expect(drawer).toHaveAttribute("data-mode", "files");
+  await expect(tree).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+Shift+e");
+  await expect(editor.locator(".cm-content")).toBeFocused();
+  await expect(drawer).toBeVisible();
+  // Escape from the tree closes the drawer onto the editor.
+  await window.keyboard.press("ControlOrMeta+Shift+e");
+  await expect(tree).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(editor.locator(".cm-content")).toBeFocused();
+
+  // On Source Control, then moved (a split rebuilds the pane): it comes
+  // back on Source Control.
+  await window.keyboard.press("ControlOrMeta+Shift+g");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  const split = async () => {
+    await pane(window).locator('[data-testid="file-pane-breadcrumb"]').click({ button: "right" });
+    await window.getByRole("menuitem", { name: "Split with" }).hover();
+    await window.getByRole("menuitem", { name: "Terminal", exact: true }).click();
+  };
+  await split();
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  // Closed, then moved again: it stays closed, and ⌘B opens the view it had.
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await expect(drawer).toBeHidden();
+  await split();
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(3);
+  await window.waitForTimeout(300);
+  await expect(drawer).toBeHidden();
+  await editor.locator(".cm-content").click();
+  await window.keyboard.press("ControlOrMeta+b");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  await window.screenshot({ path: shot(testInfo, "after-move") });
 });

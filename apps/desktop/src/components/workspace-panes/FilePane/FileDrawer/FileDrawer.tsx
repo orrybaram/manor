@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { buildFileTree } from "../../FileTree/file-tree";
@@ -15,18 +16,24 @@ import { fileIconFor } from "../../FileTree/file-icon";
 import { treeRowIndent } from "../../FileTree/indent";
 import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
+import { ConfirmDialog } from "../../../ui/ConfirmDialog/ConfirmDialog";
+import { toast } from "../../../../toast";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
-import { expandedForFiles, visibleTreeRows } from "../drawer-tree";
+import { cursorIndex, expandedForFiles, treeKey, visibleTreeRows } from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
 import { changeBadge, foldersWithChanges, type FileChange } from "../file-changes";
 import type { WorkspaceChanges } from "../workspace-changes";
 import { useFileDrawerLayout } from "./file-drawer-layout";
+import { TreeRowMenu, type MenuTarget } from "./TreeRowMenu";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
 /** A finger's row: `SourceControl.module.css`'s phone `.row` matches it. */
 const PHONE_ROW_HEIGHT = 36;
+
+/** A Source Control row's main button, which opens its diff. */
+const SCM_ROW = '[data-testid="scm-row"] > button:first-child';
 
 /** The workspace's tree, or Source Control. */
 export type DrawerMode = "files" | "scm";
@@ -38,9 +45,15 @@ type FileDrawerProps = {
   changes: WorkspaceChanges | null;
   /** The pane's open file, workspace-relative; its folders start open. */
   openFile: string | null;
-  /** Offer "+" (new file). Not on the phone, which only reads. */
-  canCreate: boolean;
+  /** Offer "+" (new file), Rename and Delete. Not on the phone, which only reads. */
+  canWrite: boolean;
+  /** Take the keyboard on mounting: it was just opened, not remounted open. */
+  autoFocus: boolean;
+  /** The open file has unsaved edits: it can't be renamed from under them. */
+  openFileDirty: boolean;
   onPick: (path: string) => void;
+  /** A file was renamed from the tree; the pane follows its open file. */
+  onRenamed: (from: string, to: string) => void;
   onClose: () => void;
   /** Its edge: resizes it, and collapses it into the strip. */
   resizeHandle?: ReactNode;
@@ -62,8 +75,11 @@ export function FileDrawer({
   mode,
   changes,
   openFile,
-  canCreate,
+  canWrite,
+  autoFocus,
+  openFileDirty,
   onPick,
+  onRenamed,
   onClose,
   resizeHandle,
   scmHead,
@@ -81,9 +97,16 @@ export function FileDrawer({
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  // Escape reaches the drawer wherever focus was: it takes the keyboard.
+  // Opened, it takes the keyboard: the tree's arrows, if it is listed
+  // already, and Escape wherever focus was.
   useMountEffect(() => {
-    drawerRef.current?.focus({ preventScroll: true });
+    if (!autoFocus) return;
+    const drawer = drawerRef.current;
+    const target =
+      drawer?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
+      drawer?.querySelector<HTMLElement>(`${SCM_ROW}[aria-current]`) ??
+      drawer;
+    target?.focus({ preventScroll: true });
   });
 
   return (
@@ -95,17 +118,28 @@ export function FileDrawer({
       style={{ "--drawer-width": `${width}px` } as CSSProperties}
       tabIndex={-1}
       onKeyDown={(e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+          return;
+        }
+        // Source Control's rows take the arrows; its commit message keeps its own.
+        if (
+          mode === "scm" &&
+          (e.key === "ArrowDown" || e.key === "ArrowUp") &&
+          !isTextEntry(e.target)
+        ) {
+          e.preventDefault();
+          stepChangeRow(e.currentTarget, e.key === "ArrowDown" ? 1 : -1);
+        }
       }}
     >
       <div className={styles.head}>
         <span>{mode === "scm" ? "Source Control" : "Files"}</span>
         <span className={styles.headSpacer} />
         {mode === "scm" && scmHead}
-        {canCreate && (
+        {canWrite && mode === "files" && (
           <Tooltip label="New file">
             <button
               type="button"
@@ -138,6 +172,14 @@ export function FileDrawer({
         scm
       ) : listing.data ? (
         <TreeList
+          workspace={workspace}
+          canWrite={canWrite}
+          openFileDirty={openFileDirty}
+          onRenamed={(from, to) => {
+            void queryClient.invalidateQueries({ queryKey });
+            onRenamed(from, to);
+          }}
+          onDeleted={() => void queryClient.invalidateQueries({ queryKey })}
           paths={listing.data.paths}
           truncated={listing.data.truncated}
           changes={changes?.files ?? null}
@@ -155,19 +197,32 @@ export function FileDrawer({
 }
 
 function TreeList({
+  workspace,
+  canWrite,
+  openFileDirty,
+  onRenamed,
+  onDeleted,
   paths,
   truncated,
   changes,
   openFile,
   onPick,
 }: {
+  workspace: FilesWorkspace;
+  canWrite: boolean;
+  openFileDirty: boolean;
+  onRenamed: (from: string, to: string) => void;
+  onDeleted: () => void;
   paths: string[];
   truncated: boolean;
   changes: ReadonlyMap<string, FileChange> | null;
   openFile: string | null;
   onPick: (path: string) => void;
 }) {
-  const tree = useMemo(() => buildFileTree(paths.map((path) => ({ path }))), [paths]);
+  const tree = useMemo(
+    () => buildFileTree(paths.map((path) => ({ path }))),
+    [paths],
+  );
   // Null until the user toggles a folder: until then, the folders of the
   // open file and of the changed files.
   const [toggled, setToggled] = useState<Set<string> | null>(null);
@@ -175,8 +230,14 @@ function TreeList({
     () => toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []),
     [toggled, tree, openFile, changes],
   );
-  const dotted = useMemo(() => foldersWithChanges(changes?.keys() ?? []), [changes]);
+  const dotted = useMemo(
+    () => foldersWithChanges(changes?.keys() ?? []),
+    [changes],
+  );
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
+  // The row the keyboard is on: the open file's, until it moves.
+  const [cursor, setCursor] = useState<string | null>(openFile);
+  const cursorAt = cursorIndex(rows, cursor);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
   const virtualizer = useVirtualizer({
@@ -192,68 +253,208 @@ function TreeList({
   useMountEffect(() => {
     const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
     if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
+    // Listed after the drawer opened and took the keyboard: the arrows are ours.
+    const tree = scrollRef.current;
+    if (tree?.parentElement?.contains(document.activeElement)) {
+      tree.focus({ preventScroll: true });
+    }
   });
 
-  const toggle = (path: string) =>
+  // The row right-clicked, while its menu is open; the file being renamed in
+  // its row; the file waiting on Delete's confirmation.
+  const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  // Rename picked from the menu: its input mounts once the menu has closed,
+  // or the menu's focus handling takes the focus back from it.
+  const pendingRename = useRef<string | null>(null);
+
+  const deleteFile = async (path: string) => {
+    try {
+      const result = await window.electronAPI.files.delete(workspace, path);
+      if (!result.ok)
+        toast.error("Couldn't delete the file", { detail: result.message });
+      else onDeleted();
+    } catch (err) {
+      toast.error("Couldn't delete the file", { error: err });
+    }
+    setDeleting(null);
+  };
+
+  const pick = (path: string) => {
+    setCursor(path);
+    onPick(path);
+  };
+
+  const toggle = (path: string) => {
+    setCursor(path);
     setToggled((prev) => {
       const next = new Set(prev ?? expanded);
       if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    // The rename input's keys are its own.
+    if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
+    const action = treeKey(rows, cursorAt, e.key);
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const row = rows[action.index];
+    if (action.kind === "toggle") toggle(row.path);
+    else if (action.kind === "open") pick(row.path);
+    else setCursor(row.path);
+    virtualizer.scrollToIndex(action.index);
+  };
 
   if (rows.length === 0) {
     return <div className={styles.note}>No files</div>;
   }
 
   return (
-    <div ref={scrollRef} className={styles.tree} data-testid="file-pane-tree">
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-        {virtualizer.getVirtualItems().map((item) => {
-          const row = rows[item.index];
-          return (
-            <div
-              key={`${row.kind}:${row.path}`}
-              className={styles.row}
-              style={{ transform: `translateY(${item.start}px)`, height: rowHeight }}
-              data-testid="file-pane-tree-row"
-              data-kind={row.kind}
-              data-path={row.path}
-            >
-              {row.kind === "dir" ? (
-                <DirRow
-                  name={row.name}
-                  depth={row.depth}
-                  collapsed={!row.expanded}
-                  onToggle={() => toggle(row.path)}
-                  trailing={
-                    dotted.has(row.path) ? (
-                      <span
-                        className={styles.dirDot}
-                        data-testid="file-pane-dir-dot"
-                        title="Holds changed files"
-                      />
-                    ) : undefined
-                  }
-                />
-              ) : (
-                <FileRow
-                  path={row.path}
-                  name={row.name}
-                  depth={row.depth}
-                  change={changes?.get(row.path) ?? null}
-                  selected={row.path === openFile}
-                  onPick={onPick}
-                />
-              )}
+    <ContextMenu.Root onOpenChange={(open) => !open && setMenuTarget(null)}>
+      <ContextMenu.Trigger asChild>
+        <div
+          ref={scrollRef}
+          className={styles.tree}
+          data-testid="file-pane-tree"
+          aria-label="Files"
+          // The tree, not its rows, holds the keyboard: a clicked row hands
+          // focus back, so the arrows go on from the row clicked.
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onFocus={(e) => {
+            if (e.target instanceof HTMLButtonElement) e.currentTarget.focus({ preventScroll: true });
+          }}
+          onContextMenu={(e) => {
+            const row = (e.target as HTMLElement).closest<HTMLElement>(
+              "[data-path]",
+            );
+            const kind = row?.dataset.kind;
+            // Nothing to offer off a row, or on the row being renamed (its input's own menu).
+            if (
+              !row ||
+              (kind !== "file" && kind !== "dir") ||
+              row.dataset.path === renaming
+            ) {
+              e.preventDefault();
+              return;
+            }
+            setMenuTarget({ kind, path: row.dataset.path! });
+          }}
+        >
+          <div
+            style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const row = rows[item.index];
+              return (
+                <div
+                  key={`${row.kind}:${row.path}`}
+                  className={`${styles.row} ${menuTarget?.path === row.path ? styles.rowMenuOpen : ""} ${item.index === cursorAt ? styles.rowCursor : ""}`}
+                  style={{
+                    transform: `translateY(${item.start}px)`,
+                    height: rowHeight,
+                  }}
+                  data-testid="file-pane-tree-row"
+                  data-kind={row.kind}
+                  data-path={row.path}
+                >
+                  {row.kind === "dir" ? (
+                    <DirRow
+                      name={row.name}
+                      depth={row.depth}
+                      collapsed={!row.expanded}
+                      onToggle={() => toggle(row.path)}
+                      tabIndex={-1}
+                      trailing={
+                        dotted.has(row.path) ? (
+                          <span
+                            className={styles.dirDot}
+                            data-testid="file-pane-dir-dot"
+                            title="Holds changed files"
+                          />
+                        ) : undefined
+                      }
+                    />
+                  ) : row.path === renaming ? (
+                    <RenameInput
+                      workspace={workspace}
+                      path={row.path}
+                      name={row.name}
+                      depth={row.depth}
+                      onRenamed={(to) => {
+                        setRenaming(null);
+                        onRenamed(row.path, to);
+                      }}
+                      onCancel={() => setRenaming(null)}
+                    />
+                  ) : (
+                    <FileRow
+                      path={row.path}
+                      name={row.name}
+                      depth={row.depth}
+                      change={changes?.get(row.path) ?? null}
+                      selected={row.path === openFile}
+                      onPick={pick}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {truncated && (
+            <div className={styles.note}>
+              Showing the first {paths.length.toLocaleString()} files
             </div>
-          );
-        })}
+          )}
+        </div>
+      </ContextMenu.Trigger>
+      {/* Escape closes only the menu or the dialog: React bubbles it, through
+          the portal, to the drawer, which would close on it too. */}
+      <div
+        className={styles.dialogHost}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") e.stopPropagation();
+        }}
+      >
+        <ContextMenu.Portal>
+          {menuTarget && (
+            <TreeRowMenu
+              workspace={workspace}
+              target={menuTarget}
+              canWrite={canWrite}
+              renameBlocked={
+                menuTarget.path === openFile && openFileDirty
+                  ? "Save or discard your edits first"
+                  : null
+              }
+              onRename={(path) => {
+                pendingRename.current = path;
+              }}
+              onDelete={setDeleting}
+              onClosed={() => {
+                if (pendingRename.current === null) return;
+                setRenaming(pendingRename.current);
+                pendingRename.current = null;
+              }}
+            />
+          )}
+        </ContextMenu.Portal>
+        <ConfirmDialog
+          open={deleting !== null}
+          title={`Delete ${deleting?.slice(deleting.lastIndexOf("/") + 1) ?? ""}?`}
+          description={`${deleting ?? ""} is deleted from the workspace. This can't be undone.`}
+          confirmLabel="Delete"
+          confirmVariant="danger"
+          onConfirm={() => (deleting ? deleteFile(deleting) : undefined)}
+          onCancel={() => setDeleting(null)}
+        />
       </div>
-      {truncated && (
-        <div className={styles.note}>Showing the first {paths.length.toLocaleString()} files</div>
-      )}
-    </div>
+    </ContextMenu.Root>
   );
 }
 
@@ -280,9 +481,13 @@ function FileRow({
       title={path}
       aria-current={selected ? "true" : undefined}
       data-change={change?.status}
+      tabIndex={-1}
       onClick={() => onPick(path)}
     >
-      {createElement(fileIconFor(path), { size: 12, className: styles.fileIcon })}
+      {createElement(fileIconFor(path), {
+        size: 12,
+        className: styles.fileIcon,
+      })}
       <span className={styles.fileName}>{name}</span>
       {change && <ChangeBadge change={change} />}
     </button>
@@ -296,6 +501,97 @@ function ChangeBadge({ change }: { change: FileChange }) {
     </span>
   );
 }
+
+/**
+ * A file's row turned into its name, editable: Enter moves it with
+ * `files.rename` (a name with `/` in it moves it into that folder, relative to
+ * its own), Escape or leaving the row lets it go.
+ */
+function RenameInput({
+  workspace,
+  path,
+  name,
+  depth,
+  onRenamed,
+  onCancel,
+}: {
+  workspace: FilesWorkspace;
+  path: string;
+  name: string;
+  depth: number;
+  onRenamed: (to: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(name);
+  const [busy, setBusy] = useState(false);
+
+  const rename = async () => {
+    const next = value.trim();
+    if (busy) return;
+    if (!next || next === name) {
+      onCancel();
+      return;
+    }
+    if (next.endsWith("/")) return;
+    const to = folderOf(path) + next;
+    setBusy(true);
+    try {
+      const result = await window.electronAPI.files.rename(workspace, path, to);
+      if (result.ok) {
+        onRenamed(to);
+        return;
+      }
+      toast.error("Couldn't rename the file", { detail: result.message });
+    } catch (err) {
+      toast.error("Couldn't rename the file", { error: err });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div
+      className={styles.renameRow}
+      style={{ paddingLeft: treeRowIndent(depth) }}
+    >
+      {createElement(fileIconFor(path), {
+        size: 12,
+        className: styles.fileIcon,
+      })}
+      <input
+        className={styles.renameInput}
+        data-testid="file-pane-rename-input"
+        aria-label={`Rename ${name}`}
+        value={value}
+        spellCheck={false}
+        autoFocus
+        // Read-only, not disabled, while it tries: a disabled input drops the
+        // keyboard, and a refused name is fixed or Escaped from right here.
+        readOnly={busy}
+        onFocus={(e) => {
+          // The name without its extension, as Finder and VS Code select it.
+          const dot = name.lastIndexOf(".");
+          e.currentTarget.setSelectionRange(0, dot > 0 ? dot : name.length);
+        }}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          if (!busy) onCancel();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void rename();
+          } else if (e.key === "Escape") {
+            // The drawer would close on it; here it only drops the rename.
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
 /** "src/app/" for "src/app/main.ts"; empty at the root or with nothing open. */
 function folderOf(path: string | null): string {
   if (!path) return "";
@@ -372,10 +668,35 @@ function NewFileInput({
         }}
       />
       {error !== null && (
-        <div className={styles.newFileError} data-testid="file-pane-new-file-error" role="alert">
+        <div
+          className={styles.newFileError}
+          data-testid="file-pane-new-file-error"
+          role="alert"
+        >
           {error}
         </div>
       )}
     </div>
+  );
+}
+
+/** Move focus `step` rows through Source Control's rows. */
+function stepChangeRow(drawer: HTMLElement, step: 1 | -1): void {
+  const rows = [...drawer.querySelectorAll<HTMLButtonElement>(SCM_ROW)];
+  if (rows.length === 0) return;
+  const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    at < 0
+      ? (rows.find((row) => row.hasAttribute("aria-current")) ?? rows[0])
+      : rows[Math.min(Math.max(at + step, 0), rows.length - 1)];
+  next.focus();
+}
+
+function isTextEntry(target: EventTarget): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable)
   );
 }

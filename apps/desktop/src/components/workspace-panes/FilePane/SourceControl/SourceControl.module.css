@@ -118,6 +118,13 @@
   user-select: none;
 }
 
+/* The row the arrows are on: inset, as the global ring would be clipped by
+   the list's edges and drawn over its neighbours. */
+.rowMain:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
 .fileIcon {
   flex-shrink: 0;
   color: var(--text-dim);

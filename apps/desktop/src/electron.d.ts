@@ -466,6 +466,7 @@ export type {
   FileFailure,
   FileFailureReason,
   FileListResult,
+  FileMoveResult,
   FileReadResult,
   FileWriteResult,
 } from "../electron/workspace-files";

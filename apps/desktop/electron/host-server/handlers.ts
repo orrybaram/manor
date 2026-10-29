@@ -140,6 +140,8 @@ import {
 } from "../bridge/handlers/branches-diffs";
 import {
   filesCreate,
+  filesDelete,
+  filesRename,
   filesList,
   filesRead,
   filesUnwatch,
@@ -610,13 +612,16 @@ const METHODS = flatten({
     stop: method(diffsStop),
   },
   // This box's workspaces' files, for a file pane: a phone reading
-  // one with the lid closed, or a desktop window's own bridge. Saving and
-  // creating change what this host's agents work on, so they are audited.
+  // one with the lid closed, or a desktop window's own bridge. Saving,
+  // creating, renaming and deleting change what this host's agents work on,
+  // so they are audited.
   files: {
     list: method(filesList),
     read: method(filesRead),
     write: method(filesWrite, { mutating: true }),
     create: method(filesCreate, { mutating: true }),
+    rename: method(filesRename, { mutating: true }),
+    delete: method(filesDelete, { mutating: true }),
     watch: method(filesWatch),
     unwatch: method(filesUnwatch),
   },

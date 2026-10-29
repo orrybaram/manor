@@ -12,6 +12,7 @@ import { terminalOptions } from "../terminal/config";
 import { whenTerminalCanOpen, type RenderAddons } from "../terminal/addons";
 import { claimWebgl, type WebglClaim } from "../terminal/webgl-contexts";
 import { createFileLinkProvider } from "../terminal/file-link-provider";
+import { createLinkHoverTracker } from "../terminal/link-hover";
 import { selectFocusedPaneOfActiveTab, useAppStore } from "../store/app-store";
 import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey } from "../lib/workspace-key";
 import { ownerOf } from "../lib/workspace-directory";
@@ -72,6 +73,8 @@ export function useTerminalLifecycle(
     null,
   );
   const termRef = useRef<Terminal | null>(null);
+  /** The link under the pointer, for the context menu's link items. */
+  const [linkHover] = useState(createLinkHoverTracker);
   /**
    * Set the follower grid, keeping the same object back when it has not
    * moved — the identity `useFollowerFit` re-runs its effect on. The one
@@ -250,6 +253,8 @@ export function useTerminalLifecycle(
             activate: (_event, text) => {
               openExternal(text);
             },
+            hover: linkHover.hover,
+            leave: linkHover.leave,
           },
         }),
       );
@@ -350,9 +355,12 @@ export function useTerminalLifecycle(
       }
       try {
         t.loadAddon(
-          new WebLinksAddon((_event, url) => {
-            openExternal(url);
-          }),
+          new WebLinksAddon(
+            (_event, url) => {
+              openExternal(url);
+            },
+            { hover: linkHover.hover, leave: linkHover.leave },
+          ),
         );
       } catch {
         // ignored
@@ -649,6 +657,8 @@ export function useTerminalLifecycle(
           detach();
         }
         t.dispose();
+        // Disposing says no `leave` for a link under the pointer.
+        linkHover.clear();
         // After the terminal, which takes the addon down without building a
         // DOM renderer it would never draw with; this frees the context.
         webglRef.current?.dispose();
@@ -714,5 +724,5 @@ export function useTerminalLifecycle(
     }
   }, [paneId, cwd, workspaceKey, applyWinsize]);
 
-  return { term, fitAddon, ptyError, write, reset, follower };
+  return { term, fitAddon, ptyError, write, reset, follower, hoveredLink: linkHover.current };
 }

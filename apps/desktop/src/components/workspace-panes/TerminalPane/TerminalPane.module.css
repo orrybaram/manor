@@ -304,6 +304,14 @@
   outline: none;
 }
 
+/* A shortcut that does the same as the item, at the item's far end. */
+.contextMenuHint {
+  margin-left: auto;
+  padding-left: 16px;
+  font-size: 11px;
+  opacity: 0.6;
+}
+
 .contextMenuItemDanger {
   color: var(--danger);
 }

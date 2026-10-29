@@ -8,7 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "deploy": "pnpm build && wrangler deploy",
+    "deploy": "SITE_VERSION_STRICT=1 pnpm build && wrangler deploy",
     "test:e2e": "playwright test"
   },
   "dependencies": {

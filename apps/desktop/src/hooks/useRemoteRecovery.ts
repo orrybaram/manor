@@ -4,7 +4,7 @@ import { whenDirectSettled } from "../bridge/server-set";
 import { useAppStore } from "../store/app-store";
 import { useHostStore } from "../store/host-store";
 import { remoteHostByPane, useRemotePaneStore } from "../store/remote-pane-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 
 /** This window's panes, as of now — computed once per event. */
 const thisWindowsPanes = () => windowPaneIds(useAppStore.getState().workspaceLayouts);
@@ -39,10 +39,8 @@ export function useRemoteRecovery() {
         reattach: (paneIds) =>
           useRemotePaneStore.getState().reattach(paneIds, "host-recovered"),
         notify: (message) =>
-          useToastStore.getState().addToast({
+          toast.success(message, {
             id: `host-restarted-${hostId}`,
-            message,
-            status: "success",
             // Lands as the user comes back to the laptop — give them time
             // to see it.
             duration: 10_000,

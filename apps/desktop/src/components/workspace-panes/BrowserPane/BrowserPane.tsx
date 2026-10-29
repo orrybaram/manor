@@ -1,7 +1,7 @@
 import { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { useAppStore } from "../../../store/app-store";
-import { useToastStore } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
 import type { PickedElementResult } from "../../../electron.d";
@@ -450,11 +450,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
           fireNavStateChange({ pickerActive: false });
           setPickedElement(paneId, result);
           window.electronAPI.clipboard.writeText(formatPickedElement(result));
-          useToastStore.getState().addToast({
-            id: "picker-copied",
-            message: "Element copied to clipboard",
-            status: "success",
-          });
+          toast.success("Element copied to clipboard", { id: "picker-copied" });
         },
       );
 

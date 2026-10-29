@@ -15,7 +15,7 @@ import { LOCAL_HOST_ID, hostName } from "./hosts";
 import { paneRemoteHost, useRemotePaneStore } from "../store/remote-pane-store";
 import { serverHostName } from "../bridge/server-set";
 import { useHostStore } from "../store/host-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 import { ipcErrorMessage } from "./ipc-error";
 import { PASTED_IMAGE_CHUNK_BYTES } from "./pasted-image";
 import { uploadPastedImage } from "./paste-image-upload";
@@ -70,10 +70,8 @@ export async function pasteClipboardImage(
     case "error": {
       const hostId = paneRemoteHost(useRemotePaneStore.getState(), paneId);
       const host = hostId ? hostLabel(hostId) : "the remote host";
-      useToastStore.getState().addToast({
+      toast.error(`Couldn't paste image to ${host}`, {
         id: `paste-clipboard-image-${paneId}`,
-        message: `Couldn't paste image to ${host}`,
-        status: "error",
         detail: result.message,
       });
       return;
@@ -94,25 +92,15 @@ export async function pasteImageFile(
   const hostId = paneRemoteHost(useRemotePaneStore.getState(), paneId);
   const host = hostId ? hostLabel(hostId) : "the host";
   const toastId = `paste-image-${paneId}`;
-  const toasts = useToastStore.getState();
   if (blob.size > PASTED_IMAGE_CHUNK_BYTES) {
-    toasts.addToast({
-      id: toastId,
-      message: `Uploading image to ${host}…`,
-      status: "loading",
-    });
+    toast.progress(`Uploading image to ${host}…`, { id: toastId });
   }
   try {
     const path = await uploadPastedImage(paneId, blob);
-    useToastStore.getState().removeToast(toastId);
+    toast.dismiss(toastId);
     // Trailing space, as in `pasteClipboardImage`.
     term.paste(path + " ");
   } catch (err) {
-    useToastStore.getState().addToast({
-      id: toastId,
-      message: `Couldn't paste image to ${host}`,
-      status: "error",
-      detail: ipcErrorMessage(err),
-    });
+    toast.error(`Couldn't paste image to ${host}`, { id: toastId, detail: ipcErrorMessage(err) });
   }
 }

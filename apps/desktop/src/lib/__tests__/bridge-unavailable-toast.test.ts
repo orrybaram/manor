@@ -3,7 +3,7 @@ import {
   showBridgeUnavailableToastOnce,
   handleBridgeUnavailable,
 } from "../bridge-unavailable-toast";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import { BridgeUnavailableError } from "../../bridge/client";
 
 /**
@@ -14,7 +14,7 @@ import { BridgeUnavailableError } from "../../bridge/client";
  */
 describe("showBridgeUnavailableToastOnce", () => {
   beforeEach(() => {
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
   });
 
   it("shows one toast per id and suppresses repeats", () => {
@@ -22,7 +22,7 @@ describe("showBridgeUnavailableToastOnce", () => {
     showBridgeUnavailableToastOnce("test-once-a", "first message");
     showBridgeUnavailableToastOnce("test-once-a", "first message");
 
-    const toasts = useToastStore.getState().toasts;
+    const toasts = toastStore.getState().toasts;
     expect(toasts).toHaveLength(1);
     expect(toasts[0].message).toBe("first message");
   });
@@ -30,13 +30,13 @@ describe("showBridgeUnavailableToastOnce", () => {
   it("shows a separate toast for a different id", () => {
     showBridgeUnavailableToastOnce("test-once-b1", "one");
     showBridgeUnavailableToastOnce("test-once-b2", "two");
-    expect(useToastStore.getState().toasts).toHaveLength(2);
+    expect(toastStore.getState().toasts).toHaveLength(2);
   });
 });
 
 describe("handleBridgeUnavailable", () => {
   beforeEach(() => {
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
   });
 
   it("shows the toast once for a BridgeUnavailableError", () => {
@@ -46,12 +46,12 @@ describe("handleBridgeUnavailable", () => {
     );
     handler(err);
     handler(err);
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(toastStore.getState().toasts).toHaveLength(1);
   });
 
   it("rethrows anything else instead of swallowing it", () => {
     const handler = handleBridgeUnavailable("test-catch-b", "message");
     expect(() => handler(new Error("disk full"))).toThrow("disk full");
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(toastStore.getState().toasts).toHaveLength(0);
   });
 });

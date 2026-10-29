@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { addErrorToast } from "../../store/toast-store";
+import { toast } from "../../toast";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import Sunrise from "lucide-react/dist/esm/icons/sunrise";
 import { useHostStore } from "../../store/host-store";
@@ -120,7 +120,7 @@ export function HostRetryButton(props: HostRetryButtonProps) {
       variant="primary"
       onClick={() =>
         void retryConnect(hostId).catch((err: unknown) =>
-          addErrorToast(`host-retry-${hostId}`, "Couldn't reconnect", err),
+          toast.error("Couldn't reconnect", { id: `host-retry-${hostId}`, error: err }),
         )
       }
     >

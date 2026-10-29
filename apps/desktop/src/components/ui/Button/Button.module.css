@@ -38,11 +38,13 @@
 .secondary {
   background: transparent;
   color: var(--text-primary);
-  border: 1px solid var(--surface);
+  border: 1px solid var(--control-border);
 }
 
 .secondary:hover:not(:disabled) {
-  background: var(--surface);
+  /* A tint of the foreground, so the hover shows on a dialog's surface too. */
+  background: color-mix(in srgb, var(--text-selected) 8%, transparent);
+  color: var(--text-selected);
 }
 
 .danger {

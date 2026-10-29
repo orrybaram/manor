@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TaskDetail as TaskDetailData, TaskRef, TaskRow } from "../../../lib/tasks";
 import { trackerFor } from "../../../lib/trackers";
 import { useAppStore } from "../../../store/app-store";
-import { useToastStore } from "../../../store/toast-store";
+import { clearRecords, toastStore } from "../../../toast/toast-store";
 import { makeProject } from "../../../test-utils/fixtures";
 import { createTestRoot, type TestRoot } from "../../../test-utils/react-root";
 import { TooltipProvider } from "../../ui/Tooltip/Tooltip";
@@ -96,7 +96,7 @@ describe("TaskDetail", () => {
   beforeEach(() => {
     queryClient = new QueryClient();
     useAppStore.setState({ activeWorkspacePath: "/repo/p1" });
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     root = createTestRoot();
   });
 
@@ -187,7 +187,7 @@ describe("TaskDetail", () => {
 
     expect(close).toHaveBeenCalledWith(ref);
     expect(onDone).toHaveBeenCalled();
-    expect(useToastStore.getState().toasts.map((t) => t.message)).toEqual([
+    expect(toastStore.getState().toasts.map((t) => t.message)).toEqual([
       "Task closed, but failed to unlink",
     ]);
   });

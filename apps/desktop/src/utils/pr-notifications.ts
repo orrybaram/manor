@@ -1,6 +1,6 @@
 import type { PrComment, PrInfo } from "../lib/pr-info";
 import type { AppPreferences } from "../electron.d";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 import { openExternal } from "../lib/open-external";
 
 export type PrNotifyEventKind =
@@ -155,14 +155,10 @@ async function notifyPrEvent(
   });
   if (shown) return;
 
-  useToastStore.getState().addToast({
+  const failed = event.kind === "checks-failed" || event.kind === "changes-requested";
+  (failed ? toast.error : toast.success)(event.title, {
     id: `pr-${event.kind}-${url}`,
-    message: event.title,
     detail: event.body,
-    status:
-      event.kind === "checks-failed" || event.kind === "changes-requested"
-        ? "error"
-        : "success",
     action: {
       label: "View PR",
       onClick: () => openExternal(url),

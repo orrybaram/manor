@@ -14,7 +14,7 @@ import {
 } from "../store/project-store";
 import { usePreferencesStore } from "../store/preferences-store";
 import { useKeybindingsStore } from "../store/keybindings-store";
-import { useToastStore } from "../store/toast-store";
+import { toast } from "../toast";
 import { getBrowserPaneRef } from "./browser-pane-registry";
 import type { BrowserPaneRef } from "../components/workspace-panes/BrowserPane/BrowserPane";
 import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
@@ -176,11 +176,7 @@ export function activeSurface(): {
 
 function copyToClipboard(text: string, label: string): void {
   void navigator.clipboard.writeText(text);
-  useToastStore.getState().addToast({
-    id: `${label}-${Date.now()}`,
-    message: `Copied "${text}"`,
-    status: "success",
-  });
+  toast.success(`Copied "${text}"`, { id: `${label}-${Date.now()}` });
 }
 
 /**

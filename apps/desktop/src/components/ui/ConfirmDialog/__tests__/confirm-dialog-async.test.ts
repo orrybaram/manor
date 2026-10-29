@@ -3,14 +3,15 @@ import { act, createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestRoot, type TestRoot } from "../../../../test-utils/react-root";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { addErrorToast, useToastStore } from "../../../../store/toast-store";
+import { clearRecords, toastStore } from "../../../../toast/toast-store";
+import { toast } from "../../../../toast";
 
 /** An async confirm waits, and a failure keeps the dialog open. */
 describe("ConfirmDialog with an async onConfirm", () => {
   let root: TestRoot;
 
   beforeEach(() => {
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     root = createTestRoot();
   });
 
@@ -56,18 +57,18 @@ describe("ConfirmDialog with an async onConfirm", () => {
 
     expect(button("Remove").disabled).toBe(false);
     expect(onCancel).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts[0]?.detail).toBe("locked");
+    expect(toastStore.getState().toasts[0]?.detail).toBe("locked");
   });
 
   it("does not toast an error the action already reported", async () => {
     const err = new Error("locked");
     render(async () => {
-      addErrorToast("remove", "Couldn't remove", err);
+      toast.error("Couldn't remove", { id: "remove", error: err });
       throw err;
     });
 
     await act(async () => button("Remove").click());
 
-    expect(useToastStore.getState().toasts.map((t) => t.id)).toEqual(["remove"]);
+    expect(toastStore.getState().toasts.map((t) => t.id)).toEqual(["remove"]);
   });
 });

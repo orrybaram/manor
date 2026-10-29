@@ -196,7 +196,7 @@
   max-width: 360px;
   height: 24px;
   padding-right: 2px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 999px;
   font-size: 11.5px;
   color: var(--text-primary);

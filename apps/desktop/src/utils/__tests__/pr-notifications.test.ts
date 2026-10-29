@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { diffPrEvents, deliverPrNotifications } from "../pr-notifications";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import type { PrInfo } from "../../store/project-store";
 import type { PrComment } from "../../lib/pr-info";
 import type { AppPreferences } from "../../electron.d";
@@ -158,7 +158,7 @@ describe("deliverPrNotifications", () => {
 
   beforeEach(() => {
     show.mockReset();
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     const win = globalThis.window as unknown as Record<string, unknown>;
     const api = win.electronAPI as Record<string, unknown>;
     api.notifications = { ...(api.notifications as object), show };
@@ -184,7 +184,7 @@ describe("deliverPrNotifications", () => {
       body: "Add feature",
       url: "https://github.com/o/r/pull/123",
     });
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
   });
 
   it("sends the comment along and deep-links to it instead of the PR", async () => {
@@ -222,7 +222,7 @@ describe("deliverPrNotifications", () => {
     );
     await flush();
 
-    const toasts = useToastStore.getState().toasts;
+    const toasts = toastStore.getState().toasts;
     expect(toasts).toHaveLength(1);
     expect(toasts[0].message).toBe("PR #123 — new comment");
     expect(toasts[0].status).toBe("success");
@@ -245,7 +245,7 @@ describe("deliverPrNotifications", () => {
     await flush();
 
     expect(show).toHaveBeenCalledTimes(1);
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(toastStore.getState().toasts).toHaveLength(1);
     vi.unstubAllGlobals();
   });
 
@@ -260,7 +260,7 @@ describe("deliverPrNotifications", () => {
     await flush();
 
     expect(show).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
   });
 });
 
@@ -286,7 +286,7 @@ describe("deliverPrNotifications — comment author filters", () => {
   beforeEach(() => {
     show.mockReset();
     show.mockResolvedValue(true);
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     const win = globalThis.window as unknown as Record<string, unknown>;
     const api = win.electronAPI as Record<string, unknown>;
     api.notifications = { ...(api.notifications as object), show };
@@ -315,7 +315,7 @@ describe("deliverPrNotifications — comment author filters", () => {
     await flush();
 
     expect(show).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
   });
 
   it("delivers a bot comment once bot comments are on", async () => {
@@ -348,7 +348,7 @@ describe("deliverPrNotifications — comment author filters", () => {
     await flush();
 
     expect(show).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
   });
 
   it("still delivers a human comment", async () => {

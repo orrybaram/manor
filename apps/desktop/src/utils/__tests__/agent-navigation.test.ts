@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { navigateToAgent } from "../agent-navigation";
 import { useProjectStore } from "../../store/project-store";
 import { useAppStore } from "../../store/app-store";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
+import { toast } from "../../toast";
 import { useAgentStore } from "../../store/agent-store";
 import type { AgentInfo } from "../../electron.d";
 import type { ProjectInfo } from "../../store/project-store";
@@ -129,7 +130,7 @@ describe("navigateToAgent toast cleanup", () => {
       activeWorkspacePath: WS_PATH,
       workspaceLayouts: { [WS_PATH]: makeLayout() },
     });
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     useAgentStore.setState({
       agents: [],
       unseenRespondedAgentIds: new Set(),
@@ -139,70 +140,50 @@ describe("navigateToAgent toast cleanup", () => {
 
   it("removes the agent-input toast when navigating to the agent", () => {
     const toastId = `agent-input-${TASK_ID}`;
-    useToastStore.getState().addToast({
-      id: toastId,
-      message: "Agent needs input",
-      status: "loading",
-      persistent: true,
-    });
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    toast.progress("Agent needs input", { id: toastId, duration: "sticky" });
+    expect(toastStore.getState().toasts).toHaveLength(1);
 
     navigateToAgent(makeAgent());
 
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(toastStore.getState().toasts).toHaveLength(0);
   });
 
   it("is a no-op when no toast exists for the agent", () => {
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(toastStore.getState().toasts).toHaveLength(0);
 
     navigateToAgent(makeAgent());
 
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(toastStore.getState().toasts).toHaveLength(0);
   });
 
   it("does not remove toasts belonging to other agents", () => {
     const otherToastId = `agent-input-other-agent`;
-    useToastStore.getState().addToast({
-      id: otherToastId,
-      message: "Agent needs input",
-      status: "loading",
-      persistent: true,
-    });
+    toast.progress("Agent needs input", { id: otherToastId, duration: "sticky" });
 
     navigateToAgent(makeAgent());
 
-    expect(useToastStore.getState().toasts).toHaveLength(1);
-    expect(useToastStore.getState().toasts[0].id).toBe(otherToastId);
+    expect(toastStore.getState().toasts).toHaveLength(1);
+    expect(toastStore.getState().toasts[0].id).toBe(otherToastId);
   });
 
   it("does not remove toast when project is not found (early return)", () => {
     useProjectStore.setState({ projects: [] });
     const toastId = `agent-input-${TASK_ID}`;
-    useToastStore.getState().addToast({
-      id: toastId,
-      message: "Agent needs input",
-      status: "loading",
-      persistent: true,
-    });
+    toast.progress("Agent needs input", { id: toastId, duration: "sticky" });
 
     navigateToAgent(makeAgent());
 
-    // navigateToAgent returns early without reaching removeToast
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    // navigateToAgent returns early without reaching toast.dismiss
+    expect(toastStore.getState().toasts).toHaveLength(1);
   });
 
   it("does not remove toast when workspace is not found (early return)", () => {
     const toastId = `agent-input-${TASK_ID}`;
-    useToastStore.getState().addToast({
-      id: toastId,
-      message: "Agent needs input",
-      status: "loading",
-      persistent: true,
-    });
+    toast.progress("Agent needs input", { id: toastId, duration: "sticky" });
 
     navigateToAgent(makeAgent({ workspacePath: "/nonexistent/path" }));
 
-    expect(useToastStore.getState().toasts).toHaveLength(1);
+    expect(toastStore.getState().toasts).toHaveLength(1);
   });
 });
 

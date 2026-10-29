@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { removeWorktreeWithToast } from "../workspace-actions";
 import { useProjectStore } from "../project-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "../project-store";
 
 const electronAPI = (window as unknown as { electronAPI: Record<string, unknown> })
@@ -22,7 +22,7 @@ const project = {
 describe("removeWorktreeWithToast", () => {
   beforeEach(() => {
     useProjectStore.setState({ projects: [project] } as never);
-    useToastStore.setState({ toasts: [] } as never);
+    clearRecords();
   });
 
   afterEach(() => {
@@ -53,7 +53,7 @@ describe("removeWorktreeWithToast", () => {
     );
 
     await expect(removeWorktreeWithToast(project, ws)).resolves.toBe(false);
-    const [toast] = useToastStore.getState().toasts.slice(-1);
+    const [toast] = toastStore.getState().toasts.slice(-1);
     expect(toast?.status).toBe("error");
     expect(toast?.detail).toBe(
       "Failed to remove worktree: cannot remove a locked working tree",

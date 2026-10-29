@@ -1,5 +1,5 @@
 import { useCallback, useState, useMemo } from "react";
-import { addErrorToast } from "../../store/toast-store";
+import { toast } from "../../toast";
 import Check from "lucide-react/dist/esm/icons/check";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import Plus from "lucide-react/dist/esm/icons/plus";
@@ -63,7 +63,7 @@ function ProjectThemeSelector(props: ProjectThemeSelectorProps) {
       setAllColors(colors);
     }, (err: unknown) => {
       // Not an empty list: say the themes couldn't be read.
-      addErrorToast("project-theme-list", "Couldn't load themes", err);
+      toast.error("Couldn't load themes", { id: "project-theme-list", error: err });
     });
   });
 

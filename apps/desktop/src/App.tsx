@@ -107,6 +107,7 @@ import { FallbackScreen } from "./components/ui/ErrorBoundary/FallbackScreen";
 import { DetachedWindowPending } from "./components/DetachedWindowPending";
 import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
+import { wireToastSubjects } from "./store/toast-subjects";
 import "./App.css";
 
 function App() {
@@ -132,6 +133,9 @@ function App() {
 
   // A rejection nothing caught reaches the user as a toast.
   useMountEffect(() => installUnhandledRejectionToasts());
+
+  // A toast about something on screen retracts (`ToastOptions.about`).
+  useMountEffect(() => wireToastSubjects());
 
   // A reconnected browser re-reads what it missed, or launches again if its
   // boot could not read anything.

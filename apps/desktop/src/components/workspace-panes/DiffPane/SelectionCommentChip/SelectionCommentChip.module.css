@@ -20,7 +20,7 @@
    of its own to stay legible. */
 .button {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   color: var(--text-selected);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }

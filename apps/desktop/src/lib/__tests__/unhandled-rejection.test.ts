@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { installUnhandledRejectionToasts } from "../unhandled-rejection";
-import { addErrorToast, useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
+import { toast } from "../../toast";
 
 type Handler = (event: PromiseRejectionEvent) => void;
 
@@ -15,7 +16,7 @@ describe("installUnhandledRejectionToasts", () => {
   beforeEach(() => {
     vi.stubGlobal("window", { ...window, addEventListener: add, removeEventListener: remove });
     vi.spyOn(console, "error").mockImplementation(() => {});
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     uninstall = installUnhandledRejectionToasts();
   });
 
@@ -35,25 +36,25 @@ describe("installUnhandledRejectionToasts", () => {
     const event = reject(
       new Error("Error invoking remote method 'x:y': HostError: host is away"),
     );
-    const toasts = useToastStore.getState().toasts;
+    const toasts = toastStore.getState().toasts;
     expect(toasts).toHaveLength(1);
     expect(toasts[0].message).toBe("Something went wrong");
     expect(toasts[0].detail).toBe("host is away");
     expect(event.preventDefault).toHaveBeenCalled();
   });
 
-  it("does not toast an error addErrorToast already showed", () => {
+  it("does not toast an error toast.error already showed", () => {
     const err = new Error("save failed");
-    addErrorToast("save", "Couldn't save", err);
+    toast.error("Couldn't save", { id: "save", error: err });
     reject(err);
-    expect(useToastStore.getState().toasts.map((t) => t.id)).toEqual(["save"]);
+    expect(toastStore.getState().toasts.map((t) => t.id)).toEqual(["save"]);
   });
 
   it("ignores a cancelled request", () => {
     const abort = new Error("aborted");
     abort.name = "AbortError";
     const event = reject(abort);
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(toastStore.getState().toasts).toHaveLength(0);
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
 

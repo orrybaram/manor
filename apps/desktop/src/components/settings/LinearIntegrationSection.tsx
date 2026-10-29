@@ -2,7 +2,7 @@ import { useState } from "react";
 import LinkIcon from "lucide-react/dist/esm/icons/link";
 import Unlink from "lucide-react/dist/esm/icons/unlink";
 import { useProjectStore } from "../../store/project-store";
-import { useToastStore } from "../../store/toast-store";
+import { toast } from "../../toast";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import { autoMatchLinearTeams } from "../../lib/linear-auto-match";
 import { Button } from "../ui/Button/Button";
@@ -22,7 +22,6 @@ export function LinearIntegrationSection() {
   const [error, setError] = useState<string | null>(null);
   const [matchCount, setMatchCount] = useState<number | null>(null);
   const loadProjects = useProjectStore((s) => s.loadProjects);
-  const addToast = useToastStore((s) => s.addToast);
 
   useMountEffect(() => {
     const refresh = () =>
@@ -57,14 +56,10 @@ export function LinearIntegrationSection() {
       const count = await autoMatchLinearTeams(useProjectStore.getState().projects);
       setMatchCount(count);
       loadProjects();
-      addToast({
+      toast.success("Linear connected", {
         id: "linear-connected",
-        message: "Linear connected",
         detail:
-          count > 0
-            ? `Auto-matched ${count} project${count !== 1 ? "s" : ""}`
-            : undefined,
-        status: "success",
+          count > 0 ? `Auto-matched ${count} project${count !== 1 ? "s" : ""}` : undefined,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to connect");

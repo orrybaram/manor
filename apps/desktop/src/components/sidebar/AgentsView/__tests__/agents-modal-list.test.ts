@@ -6,6 +6,7 @@ import {
   mergeModalRows,
   modalRowTitle,
   projectChips,
+  rowPaneId,
   sessionRows,
   type AgentTab,
   type ModalRow,
@@ -333,5 +334,17 @@ describe("projectChips", () => {
       ],
     });
     expect(projectChips(rows, null).map((c) => c.label)).toEqual(["manor", "old/manor", "solo"]);
+  });
+});
+
+describe("rowPaneId", () => {
+  const open = new Set(["pane-a", "pane-l"]);
+  it("is the Agent's open pane, else the pane Manor launched the session into", () => {
+    const s = session({ sessionId: "s1", kind: "opencode" });
+    const base = { id: "r", project: { key: "", name: "", color: null }, activityAt: "" };
+    expect(rowPaneId({ ...base, agent: agent({ id: "a", paneId: "pane-a" }) }, open)).toBe("pane-a");
+    expect(rowPaneId({ ...base, session: s }, open, { "opencode:s1": "pane-l" })).toBe("pane-l");
+    expect(rowPaneId({ ...base, session: s }, open, { "opencode:s1": "pane-gone" })).toBeNull();
+    expect(rowPaneId({ ...base, session: s }, open)).toBeNull();
   });
 });

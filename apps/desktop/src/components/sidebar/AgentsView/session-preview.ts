@@ -1,5 +1,5 @@
 import type { SessionPreview, SessionRef } from "../../../electron.d";
-import type { ModalRow } from "./agents-modal-list";
+import { sessionIdentity, type ModalRow } from "./agents-modal-list";
 
 /**
  * Which transcript a row previews: its Session's, else its Agent's own
@@ -27,10 +27,7 @@ export function previewRef(row: ModalRow): SessionRef | null {
  * don't touch it.
  */
 export function previewIdentity(row: ModalRow): string {
-  const { session, agent } = row;
-  if (session) return `${session.kind}:${session.sessionId}`;
-  if (agent?.agentSessionId) return `${agent.agentKind}:${agent.agentSessionId}`;
-  return row.id;
+  return sessionIdentity(row) ?? row.id;
 }
 
 /** A map that keeps only its `max` most recently used entries. */

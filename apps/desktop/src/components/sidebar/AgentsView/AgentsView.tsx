@@ -33,6 +33,7 @@ import {
 } from "./agents-modal-list";
 import { useAgentSearch } from "./useAgentSearch";
 import { useModalSessions } from "./useModalSessions";
+import { useLaunchedSessions } from "../../../store/launched-sessions-store";
 import { useSessionPreview } from "./useSessionPreview";
 import { FORK_KEYS, SessionPreview } from "./SessionPreview";
 import type { RowAction } from "./session-actions";
@@ -271,10 +272,10 @@ type AgentsModalProps = {
   open: boolean;
   onClose: () => void;
   /**
-   * Resume (go to the pane when `live`) or fork a row's session; the modal
-   * closes first.
+   * Resume (go to its pane when it's in one) or fork a row's session; the
+   * modal closes first.
    */
-  onRowAction: (row: ModalRow, action: RowAction, live: boolean) => void;
+  onRowAction: (row: ModalRow, action: RowAction) => void;
 };
 
 export function AgentsModal(props: AgentsModalProps) {
@@ -310,6 +311,7 @@ export function AgentsModal(props: AgentsModalProps) {
   const search = useAgentSearch(open ? query : "");
   const disk = useModalSessions(open);
   const openPaneIds = useOpenPaneIds(open);
+  const launched = useLaunchedSessions((s) => s.panes);
   const liveTitles = useCleanPaneTitles(open && searching);
   const projects = useProjectStore((s) => s.projects);
 
@@ -345,8 +347,8 @@ export function AgentsModal(props: AgentsModalProps) {
     return merged;
   }, [sessionBase, shownAgents, disk.knownAgents]);
   const tabRows = useMemo(
-    () => filterModalRows(mergedRows, { query, tab, openPaneIds, liveTitles }),
-    [mergedRows, query, tab, openPaneIds, liveTitles],
+    () => filterModalRows(mergedRows, { query, tab, openPaneIds, liveTitles, launched }),
+    [mergedRows, query, tab, openPaneIds, liveTitles, launched],
   );
   const chips = useMemo(() => projectChips(tabRows, projectFilter), [tabRows, projectFilter]);
   const allRows = useMemo(
@@ -369,9 +371,9 @@ export function AgentsModal(props: AgentsModalProps) {
   const act = useCallback(
     (row: ModalRow, action: RowAction) => {
       onClose();
-      onRowAction(row, action, isRowOpen(row, openPaneIds));
+      onRowAction(row, action);
     },
-    [onClose, onRowAction, openPaneIds],
+    [onClose, onRowAction],
   );
 
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
@@ -380,7 +382,7 @@ export function AgentsModal(props: AgentsModalProps) {
   const preview = useSessionPreview(
     highlighted,
     open && (!phone || phonePreview),
-    highlighted ? isRowOpen(highlighted, openPaneIds) : false,
+    highlighted ? isRowOpen(highlighted, openPaneIds, launched) : false,
   );
 
   /** ↵, a click and the preview's primary button: resume, or go to the pane. */
@@ -724,7 +726,7 @@ export function AgentsModal(props: AgentsModalProps) {
                       key={row.id}
                       row={row}
                       highlighted={row.id === highlighted?.id}
-                      live={isRowOpen(row, openPaneIds)}
+                      live={isRowOpen(row, openPaneIds, launched)}
                       shouldPulse={row.agent ? shouldPulse(row.agent) : false}
                       renameToken={renameTarget?.id === row.id ? renameTarget.token : 0}
                       onHighlight={setHighlightedId}
@@ -782,7 +784,7 @@ export function AgentsModal(props: AgentsModalProps) {
                   <SessionPreview
                     row={highlighted}
                     state={preview}
-                    live={isRowOpen(highlighted, openPaneIds)}
+                    live={isRowOpen(highlighted, openPaneIds, launched)}
                     onPrimary={() => runPrimary(highlighted)}
                     onFork={() => act(highlighted, "fork")}
                     onRename={highlightedAgentId ? () => startRename(highlightedAgentId) : undefined}

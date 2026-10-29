@@ -1,13 +1,12 @@
-import { DEFAULT_AGENT_COMMAND } from "../agent-defaults";
 import type { AgentInfo } from "../electron.d";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
 import { useToastStore } from "../store/toast-store";
+import { useLaunchedSessions } from "../store/launched-sessions-store";
 import { agentWorkspaceKey, navigateToAgent } from "../utils/agent-navigation";
 import { paneHasNoAgent, resumeAgentInPane } from "./agent-resume-in-pane";
 import { isHomePath } from "./home";
 import { hasPaneId } from "./layout/pane-tree";
-import { ownerOf } from "./workspace-directory";
 import { parseWorkspaceKey } from "./workspace-key";
 
 /**
@@ -55,25 +54,47 @@ export function resumeAgent(agent: AgentInfo): void {
     });
     return;
   }
-  const app = useAppStore.getState();
-  if (wsPath && agentKey) {
-    app.setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
+  void resumeInNewTab(agent, wsPath, agentKey);
+}
+
+/**
+ * Open a tab in the agent's workspace (else the active one) running its
+ * kind's resume command, quoted, as main builds it for any kind.
+ */
+async function resumeInNewTab(
+  agent: AgentInfo,
+  wsPath: string | null,
+  agentKey: ReturnType<typeof agentWorkspaceKey>,
+): Promise<void> {
+  const workspacePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
+  if (!workspacePath) {
+    useAppStore.getState().addTab();
+    return;
   }
-  const activePath = wsPath ?? useAppStore.getState().activeWorkspacePath;
-  if (activePath) {
-    const agentProject = ownerOf(projects, agentKey);
-    const agentCommand =
-      agent.agentCommand ??
-      agentProject?.agentCommand ??
-      DEFAULT_AGENT_COMMAND;
-    // Don't consume prewarmed — resume needs a specific --resume command.
-    // The line is queued on the server.
-    useAppStore
-      .getState()
-      .addTerminalTab(`${agentCommand} --resume ${agent.agentSessionId}`, {
-        kind: "agent-startup",
-      });
-  } else {
-    app.addTab();
+  let command: string | null = null;
+  try {
+    command = await window.electronAPI.agents.buildResumeCommand(agent.id);
+  } catch {
+    command = null;
+  }
+  if (!command) {
+    useToastStore.getState().addToast({
+      id: `resume-agent-${agent.id}`,
+      message: "This agent's session can't be resumed",
+      status: "error",
+    });
+    return;
+  }
+  const app = useAppStore.getState();
+  if (wsPath && agentKey) app.setActiveWorkspace(wsPath, parseWorkspaceKey(agentKey).hostId);
+  // Don't consume prewarmed — resume needs a specific resume command.
+  // The line is queued on the server.
+  const opened = useAppStore.getState().addTerminalTab(command, {
+    kind: "agent-startup",
+    agentKind: agent.agentKind,
+  });
+  // Its pane until the pane's Agent reports in (see `useLaunchedSessions`).
+  if (opened) {
+    useLaunchedSessions.getState().remember(`${agent.agentKind}:${agent.agentSessionId}`, opened.paneId);
   }
 }

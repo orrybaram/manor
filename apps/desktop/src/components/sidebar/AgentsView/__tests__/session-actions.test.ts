@@ -12,7 +12,15 @@ vi.mock("../../../../lib/agent-resume", () => ({
 import { useAppStore } from "../../../../store/app-store";
 import { useProjectStore } from "../../../../store/project-store";
 import { useToastStore } from "../../../../store/toast-store";
-import { inFolder, placeLaunch, planRowAction, runRowAction, sessionLaunchOf } from "../session-actions";
+import { useLaunchedSessions } from "../../../../store/launched-sessions-store";
+import {
+  hasControlChars,
+  inFolder,
+  placeLaunch,
+  planRowAction,
+  runRowAction,
+  sessionLaunchOf,
+} from "../session-actions";
 
 const project = { key: "p", name: "p", color: null };
 const row = (over: Partial<ModalRow>): ModalRow => ({ id: "r", project, activityAt: "", ...over });
@@ -40,15 +48,23 @@ const session = {
 
 describe("planRowAction", () => {
   it("goes to the pane of an Agent whose pane is open", () => {
-    expect(planRowAction(row({ agent }), "resume", true)).toEqual({ type: "go-to-pane", agent });
+    expect(planRowAction(row({ agent }), "resume", "pane-1")).toEqual({ type: "go-to-pane", agent });
+  });
+
+  it("goes to the pane Manor launched a session into, before or without its Agent", () => {
+    expect(planRowAction(row({ session }), "resume", "pane-9")).toEqual({ type: "go-to-launched", paneId: "pane-9" });
+    expect(planRowAction(row({ agent, session }), "resume", "pane-9")).toEqual({
+      type: "go-to-launched",
+      paneId: "pane-9",
+    });
   });
 
   it("resumes an Agent whose pane is closed its own way", () => {
-    expect(planRowAction(row({ agent, session }), "resume", false)).toEqual({ type: "resume-agent", agent });
+    expect(planRowAction(row({ agent, session }), "resume", null)).toEqual({ type: "resume-agent", agent });
   });
 
   it("launches a Session from outside Manor, on its host", () => {
-    expect(planRowAction(row({ session }), "resume", false)).toEqual({
+    expect(planRowAction(row({ session }), "resume", null)).toEqual({
       type: "launch",
       action: "resume",
       launch: { hostId: "box", kind: "codex", sessionId: "t1", path: session.path, cwd: "/srv/app/api" },
@@ -56,13 +72,13 @@ describe("planRowAction", () => {
   });
 
   it("forks any row with a session, live or not", () => {
-    const plan = planRowAction(row({ agent }), "fork", true);
+    const plan = planRowAction(row({ agent }), "fork", "pane-1");
     expect(plan).toMatchObject({ type: "launch", action: "fork", launch: { sessionId: "s-agent", kind: "claude" } });
   });
 
   it("does nothing for a row with no session id", () => {
     expect(sessionLaunchOf(row({ agent: { ...agent, agentSessionId: "" } }))).toBeNull();
-    expect(planRowAction(row({ agent: { ...agent, agentSessionId: "" } }), "fork", false)).toEqual({ type: "none" });
+    expect(planRowAction(row({ agent: { ...agent, agentSessionId: "" } }), "fork", null)).toEqual({ type: "none" });
   });
 });
 
@@ -109,6 +125,17 @@ describe("inFolder", () => {
     expect(inFolder("claude --resume s", "/home/me/my repo")).toBe("cd '/home/me/my repo' && claude --resume s");
     expect(inFolder("claude --resume s", null)).toBe("claude --resume s");
   });
+
+  it("refuses a folder with control characters", () => {
+    expect(() => inFolder("claude", "/tmp/x\u0015rm -rf ~")).toThrow();
+  });
+});
+
+describe("hasControlChars", () => {
+  it("catches C0, DEL and C1, and passes ordinary paths", () => {
+    for (const bad of ["a\u0003b", "a\u007fb", "a\u009bb", "line\nbreak"]) expect(hasControlChars(bad)).toBe(true);
+    expect(hasControlChars("/home/me/my repo/ünïcode-✓")).toBe(false);
+  });
 });
 
 describe("runRowAction", () => {
@@ -122,34 +149,55 @@ describe("runRowAction", () => {
       ...((window as unknown as { electronAPI?: Record<string, unknown> }).electronAPI ?? {}),
       agents: { buildSessionCommand },
     };
-    useAppStore.setState({ setActiveWorkspace, addTerminalTab, activeWorkspacePath: null });
+    addTerminalTab.mockReturnValue({ tabId: "t-new", paneId: "pane-new" });
+    useAppStore.setState({ setActiveWorkspace, addTerminalTab, activeWorkspacePath: null, workspaceLayouts: {} });
+    useLaunchedSessions.setState({ panes: {} });
     useProjectStore.setState({
       projects: [{ hostId: "local", workspaces: [{ path: "/repo" }] }] as never,
     });
   });
 
   it("routes live and closed Agents to their own paths", () => {
-    runRowAction(row({ agent }), "resume", true);
-    expect(goToAgentPane).toHaveBeenCalledWith(agent);
-    runRowAction(row({ agent }), "resume", false);
+    runRowAction(row({ agent }), "resume");
     expect(resumeAgent).toHaveBeenCalledWith(agent);
+    useAppStore.setState({
+      workspaceLayouts: {
+        "local:/repo": { panels: { p: { tabs: [{ id: "t", rootNode: { type: "leaf", paneId: "pane-1" } }] } } },
+      } as never,
+    });
+    runRowAction(row({ agent }), "resume");
+    expect(goToAgentPane).toHaveBeenCalledWith(agent);
   });
 
   it("resumes an outside Session in a new tab of its workspace", async () => {
     buildSessionCommand.mockResolvedValue("claude --resume s1");
-    runRowAction(row({ session: { ...session, hostId: "local", kind: "claude", sessionId: "s1", cwd: "/repo/pkg" } }), "resume", false);
+    runRowAction(row({ session: { ...session, hostId: "local", kind: "codex", sessionId: "s1", cwd: "/repo/pkg" } }), "resume");
     await vi.waitFor(() => expect(addTerminalTab).toHaveBeenCalled());
     expect(buildSessionCommand).toHaveBeenCalledWith(
-      expect.objectContaining({ hostId: "local", kind: "claude", sessionId: "s1", workspacePath: "/repo" }),
+      expect.objectContaining({ hostId: "local", kind: "codex", sessionId: "s1", workspacePath: "/repo" }),
       "resume",
     );
     expect(setActiveWorkspace).toHaveBeenCalledWith("/repo", "local");
-    expect(addTerminalTab).toHaveBeenCalledWith("cd /repo/pkg && claude --resume s1", { kind: "agent-startup" });
+    expect(addTerminalTab).toHaveBeenCalledWith("cd /repo/pkg && claude --resume s1", {
+      kind: "agent-startup",
+      agentKind: "codex",
+    });
+    expect(useLaunchedSessions.getState().panes).toEqual({ "codex:s1": "pane-new" });
+  });
+
+  it("refuses to type a session whose id or folder has control characters", async () => {
+    const addToast = vi.spyOn(useToastStore.getState(), "addToast");
+    runRowAction(row({ session: { ...session, hostId: "local", cwd: "/repo/\u0015x" } }), "resume");
+    await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({
+      message: "This session's folder or id has characters Manor won't type.",
+    })));
+    expect(buildSessionCommand).not.toHaveBeenCalled();
+    expect(addTerminalTab).not.toHaveBeenCalled();
   });
 
   it("says so when the session's host isn't connected", () => {
     const addToast = vi.spyOn(useToastStore.getState(), "addToast");
-    runRowAction(row({ session }), "resume", false);
+    runRowAction(row({ session }), "resume");
     return vi.waitFor(() => expect(addToast).toHaveBeenCalled()).then(() => {
       expect(buildSessionCommand).not.toHaveBeenCalled();
       expect(addTerminalTab).not.toHaveBeenCalled();

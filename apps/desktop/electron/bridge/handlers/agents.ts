@@ -119,6 +119,14 @@ export interface SessionCommandRef {
 const AGENT_KINDS: ReadonlySet<string> = new Set(getAllAgentKinds());
 
 /**
+ * C0 and C1 control characters and DEL: typed into a shell, Ctrl-U or
+ * Ctrl-C in a line defeats any quoting around it.
+ */
+function hasControlChars(value: string): boolean {
+  return /[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+
+/**
  * The shell command that resumes or forks a **Session** in its kind's CLI
  * (the Agents modal's Resume and Fork); null when the kind can't.
  * Resuming keeps the CLI's session id, so the Agent the new pane reports is
@@ -138,8 +146,14 @@ export async function agentsBuildSessionCommand(
   }
   if (!AGENT_KINDS.has(ref.kind)) throw new Error("agents:buildSessionCommand: unknown kind");
   if (action !== "resume" && action !== "fork") throw new Error("agents:buildSessionCommand: unknown action");
-  const base = await kindCommandIn(ctx, ref.kind, ref.hostId, ref.workspacePath);
+  if ([ref.hostId, ref.sessionId, ref.path, ref.workspacePath ?? ""].some(hasControlChars)) {
+    throw new Error("agents:buildSessionCommand: refusing control characters");
+  }
   const connector = getConnector(ref.kind);
+  // A project command that always continues would resume the wrong session.
+  const base = connector.withoutSessionArgs(
+    await kindCommandIn(ctx, ref.kind, ref.hostId, ref.workspacePath),
+  );
   return action === "resume"
     ? connector.getResumeCommand(base, ref.sessionId)
     : connector.getForkCommand(base, ref.sessionId, ref.path);

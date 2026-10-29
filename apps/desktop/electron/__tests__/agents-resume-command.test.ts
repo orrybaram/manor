@@ -92,6 +92,24 @@ describe("agents.buildSessionCommand", () => {
     expect(command).toBe("pi --fork /home/me/.pi/agent/sessions/a.jsonl");
   });
 
+  it("drops a project command's own continue before naming the chosen session", async () => {
+    const command = await agentsBuildSessionCommand(
+      ctx(base, [project("claude -c --model sonnet")]),
+      { ...ref, kind: "claude", sessionId: "s1" },
+      "resume",
+    );
+    expect(command).toBe("claude --model sonnet --resume s1");
+  });
+
+  it("refuses ids and paths with control characters", async () => {
+    await expect(
+      agentsBuildSessionCommand(ctx(base), { ...ref, sessionId: "x\u0015rm -rf ~" }, "resume"),
+    ).rejects.toThrow();
+    await expect(
+      agentsBuildSessionCommand(ctx(base), { ...ref, kind: "pi", path: "/a\u0003.jsonl" }, "fork"),
+    ).rejects.toThrow();
+  });
+
   it("refuses an unknown kind or action", async () => {
     await expect(
       agentsBuildSessionCommand(ctx(base), { ...ref, kind: "vim" as never }, "resume"),

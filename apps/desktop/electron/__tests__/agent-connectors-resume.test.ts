@@ -6,6 +6,7 @@ import {
   PiConnector,
   OpencodeConnector,
   getConnector,
+  getConnectorForCommand,
 } from "../agent-connectors";
 
 // ── ClaudeConnector ────────────────────────────────────────────────────────────
@@ -210,8 +211,10 @@ describe("getForkCommand", () => {
     );
   });
 
-  it("codex forks with its subcommand, dropping top-level flags", () => {
-    expect(new CodexConnector().getForkCommand("codex --yolo", "abc-123", "/t.jsonl")).toBe("codex fork abc-123");
+  it("codex forks with its subcommand, keeping the user's flags", () => {
+    expect(new CodexConnector().getForkCommand("codex --yolo", "abc-123", "/t.jsonl")).toBe(
+      "codex --yolo fork abc-123",
+    );
   });
 
   it("opencode forks with --session <id> --fork", () => {
@@ -236,5 +239,28 @@ describe("getForkCommand", () => {
       "claude --resume 'x; rm -rf ~' --fork-session",
     );
     expect(new CodexConnector().getResumeCommand("codex", "$(id)")).toBe("codex resume '$(id)'");
+  });
+});
+
+describe("withoutSessionArgs", () => {
+  it("drops whatever picks a session, keeping the rest", () => {
+    expect(new ClaudeConnector().withoutSessionArgs("claude -c --model opus")).toBe("claude --model opus");
+    expect(new ClaudeConnector().withoutSessionArgs("claude --resume abc --dangerously-skip-permissions")).toBe(
+      "claude --dangerously-skip-permissions",
+    );
+    expect(new ClaudeConnector().withoutSessionArgs("claude -r --verbose")).toBe("claude --verbose");
+    expect(new OpencodeConnector().withoutSessionArgs("opencode -s ses_1 --model x")).toBe("opencode --model x");
+    expect(new OpencodeConnector().withoutSessionArgs("opencode --session=ses_1 -c")).toBe("opencode");
+    expect(new PiConnector().withoutSessionArgs("pi --session /a.jsonl --thinking high")).toBe("pi --thinking high");
+    expect(new CodexConnector().withoutSessionArgs("codex --yolo resume --last")).toBe("codex --yolo");
+    expect(new CodexConnector().withoutSessionArgs("codex --yolo")).toBe("codex --yolo");
+  });
+});
+
+describe("getConnectorForCommand", () => {
+  it("names the agent after a leading cd", () => {
+    expect(getConnectorForCommand("cd '/repo/my api' && codex resume t1").kind).toBe("codex");
+    expect(getConnectorForCommand("cd /a && cd \"/b c\" && pi --session x").kind).toBe("pi");
+    expect(getConnectorForCommand("opencode --session x").kind).toBe("opencode");
   });
 });

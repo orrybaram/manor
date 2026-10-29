@@ -309,10 +309,40 @@ export function modalRowTitle(row: ModalRow, liveTitle: string | null): string {
   return row.session ? sessionTitle(row.session) : "Agent";
 }
 
-/** Whether a row is in the Open tab: it has an Agent whose pane is in a workspace now. */
-export function isRowOpen(row: ModalRow, openPaneIds: ReadonlySet<string>): boolean {
-  const paneId = row.agent?.paneId;
-  return !!paneId && openPaneIds.has(paneId);
+/** The `kind:sessionId` a row's conversation goes by; null with no session id. */
+export function sessionIdentity(row: ModalRow): string | null {
+  const { session, agent } = row;
+  if (session) return `${session.kind}:${session.sessionId}`;
+  if (agent?.agentSessionId) return `${agent.agentKind}:${agent.agentSessionId}`;
+  return null;
+}
+
+/** Panes Manor launched a session's resume into, by `sessionIdentity`. */
+export type LaunchedPanes = Readonly<Record<string, string>>;
+
+/**
+ * The open pane a row's session runs in: its Agent's, else one Manor
+ * launched its resume into (`LaunchedPanes`); null when neither is open.
+ */
+export function rowPaneId(
+  row: ModalRow,
+  openPaneIds: ReadonlySet<string>,
+  launched: LaunchedPanes = {},
+): string | null {
+  const own = row.agent?.paneId;
+  if (own && openPaneIds.has(own)) return own;
+  const identity = sessionIdentity(row);
+  const launchedPane = identity ? launched[identity] : undefined;
+  return launchedPane && openPaneIds.has(launchedPane) ? launchedPane : null;
+}
+
+/** Whether a row is in the Open tab: its session is in a pane in a workspace now. */
+export function isRowOpen(
+  row: ModalRow,
+  openPaneIds: ReadonlySet<string>,
+  launched?: LaunchedPanes,
+): boolean {
+  return rowPaneId(row, openPaneIds, launched) !== null;
 }
 
 function matchesRow(
@@ -350,15 +380,16 @@ export function filterModalRows(
     tab: AgentTab;
     openPaneIds: ReadonlySet<string>;
     liveTitles: Readonly<Record<string, string>>;
+    launched?: LaunchedPanes;
   },
 ): readonly ModalRow[] {
-  const { tab, openPaneIds, liveTitles } = input;
+  const { tab, openPaneIds, liveTitles, launched } = input;
   const query = input.query.trim();
   if (!query && tab === "all") return rows;
   const wantOpen = tab === "open";
   return rows.filter(
     (r) =>
-      (tab === "all" || isRowOpen(r, openPaneIds) === wantOpen) &&
+      (tab === "all" || isRowOpen(r, openPaneIds, launched) === wantOpen) &&
       (!query || matchesRow(r, query, liveTitles)),
   );
 }

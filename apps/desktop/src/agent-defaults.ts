@@ -1,6 +1,7 @@
 import { useProjectStore } from "./store/project-store";
 import type { WorkspaceKey } from "./lib/workspace-key";
 import { resolveAgentCommand } from "./lib/resolve-agent-command";
+import { commandAfterCd } from "./lib/command-after-cd";
 
 /**
  * Default agent command used when no project-specific command is configured.
@@ -23,7 +24,7 @@ const AGENT_KIND_TOKENS: Array<{ kind: string; tokens: string[] }> = [
  * Falls back to "claude" for unrecognised commands.
  */
 export function getAgentKindForCommand(command: string): string {
-  const firstToken = (command.split(" ")[0] ?? "").toLowerCase();
+  const firstToken = (commandAfterCd(command).split(" ")[0] ?? "").toLowerCase();
   for (const { kind, tokens } of AGENT_KIND_TOKENS) {
     if (tokens.some((t) => firstToken.includes(t))) {
       return kind;

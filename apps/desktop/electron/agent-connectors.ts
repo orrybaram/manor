@@ -12,6 +12,7 @@ import type { AgentKind } from "./terminal-host/types";
 import { errorMessage } from "./lib/errors";
 import { writeFileAtomic } from "./lib/fs-atomic";
 import { shellQuote } from "./terminal-host/ssh-config";
+import { commandAfterCd } from "../src/lib/command-after-cd";
 
 // ── Interface ──
 
@@ -34,6 +35,13 @@ export interface AgentConnector {
    * its host, for an agent that forks by file. Null when the agent can't.
    */
   getForkCommand(baseCommand: string, sessionId: string, sessionPath: string): string | null;
+
+  /**
+   * `baseCommand` without any argument that picks a session (`-c`,
+   * `--resume <id>`, …), so a chosen session's id can be added to it: a
+   * project command that always continues would resume the wrong one.
+   */
+  withoutSessionArgs(baseCommand: string): string;
 
   /**
    * Build a command to start a new session with an initial prompt.
@@ -67,6 +75,25 @@ export interface AgentConnector {
 function hasResumeToken(command: string, tokens: string[]): boolean {
   const args = command.split(/\s+/);
   return tokens.some((tok) => args.includes(tok));
+}
+
+/**
+ * `command` without the flags in `bare` and, with the word after them when
+ * it isn't another flag, those in `valued` (also as `--flag=value`).
+ */
+function dropArgs(command: string, valued: string[], bare: string[]): string {
+  const args = command.trim().split(/\s+/);
+  const kept: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (bare.includes(arg) || valued.some((v) => arg.startsWith(`${v}=`))) continue;
+    if (valued.includes(arg)) {
+      if (args[i + 1] !== undefined && !args[i + 1].startsWith("-")) i++;
+      continue;
+    }
+    kept.push(arg);
+  }
+  return kept.join(" ");
 }
 
 /**
@@ -164,6 +191,10 @@ export class ClaudeConnector implements AgentConnector {
   getForkCommand(baseCommand: string, sessionId: string, _sessionPath: string): string | null {
     if (!sessionId) return null;
     return `${baseCommand} --resume ${shellQuote(sessionId)} --fork-session`;
+  }
+
+  withoutSessionArgs(baseCommand: string): string {
+    return dropArgs(baseCommand, ["--resume", "-r", "--session-id"], ["--continue", "-c", "--fork-session"]);
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -305,9 +336,15 @@ export class CodexConnector implements AgentConnector {
 
   getForkCommand(baseCommand: string, sessionId: string, _sessionPath: string): string | null {
     if (!sessionId) return null;
-    // A subcommand, like resume: top-level flags don't carry over.
-    const binary = baseCommand.split(" ")[0] || "codex";
-    return `${binary} fork ${shellQuote(sessionId)}`;
+    // The user's top-level flags come before the subcommand.
+    return `${baseCommand.trim() || "codex"} fork ${shellQuote(sessionId)}`;
+  }
+
+  withoutSessionArgs(baseCommand: string): string {
+    // `resume` and `fork` are subcommands: everything from one on goes.
+    const args = baseCommand.trim().split(/\s+/);
+    const at = args.findIndex((a, i) => i > 0 && (a === "resume" || a === "fork"));
+    return (at < 0 ? args : args.slice(0, at)).join(" ");
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -469,6 +506,10 @@ export class PiConnector implements AgentConnector {
     // pi forks a session file.
     if (!sessionPath) return null;
     return `${baseCommand} --fork ${shellQuote(sessionPath)}`;
+  }
+
+  withoutSessionArgs(baseCommand: string): string {
+    return dropArgs(baseCommand, ["--session", "--fork"], ["--continue", "-c"]);
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -639,6 +680,10 @@ export class OpencodeConnector implements AgentConnector {
     return `${baseCommand} --session ${shellQuote(sessionId)} --fork`;
   }
 
+  withoutSessionArgs(baseCommand: string): string {
+    return dropArgs(baseCommand, ["--session", "-s"], ["--continue", "-c", "--fork"]);
+  }
+
   getPromptCommand(baseCommand: string, prompt: string): string {
     const escaped = prompt
       .replace(/\\/g, "\\\\")
@@ -707,7 +752,7 @@ export function getAllAgentKinds(): AgentKind[] {
  */
 export function getConnectorForCommand(command: string): AgentConnector {
   ensureDefaults();
-  const firstToken = command.split(" ")[0]?.toLowerCase() ?? "";
+  const firstToken = commandAfterCd(command).split(" ")[0]?.toLowerCase() ?? "";
   for (const connector of connectors.values()) {
     if (firstToken.includes(connector.kind)) {
       return connector;

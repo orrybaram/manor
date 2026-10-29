@@ -50,6 +50,12 @@ export interface PendingCommand {
    */
   prompt?: string;
   /**
+   * The agent kind the line starts, when its producer knows it (the Agents
+   * modal resuming a Session): the session's `MANOR_AGENT_KIND`, rather
+   * than one guessed from the line or the workspace's project.
+   */
+  agentKind?: string;
+  /**
    * Taken once already and never delivered: its remote host dropped before
    * the shell was ready. The next `pty.create` for the pane
    * types it even on a reattach, since the session it was meant for may have
@@ -63,6 +69,8 @@ export interface PendingCommandOptions {
   submit?: boolean;
   /** An agent launch's prompt, delivered through a file. */
   prompt?: string;
+  /** The agent kind the line starts (`PendingCommand.agentKind`). */
+  agentKind?: string;
 }
 
 export class PendingCommands {
@@ -83,6 +91,7 @@ export class PendingCommands {
   ): void {
     const entry: PendingCommand = { text, kind, submit: opts?.submit ?? true };
     if (opts?.prompt !== undefined) entry.prompt = opts.prompt;
+    if (opts?.agentKind !== undefined) entry.agentKind = opts.agentKind;
     this.byPane.set(paneId, entry);
   }
 

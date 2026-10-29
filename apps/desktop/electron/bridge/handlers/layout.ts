@@ -10,7 +10,9 @@ import type {
   PendingCommandKind,
   PendingCommandOptions,
 } from "../../layout/pending-commands";
+import { getAllAgentKinds } from "../../agent-connectors";
 import { assertString } from "../../ipc-validate";
+import type { AgentKind } from "../../terminal-host/types";
 import type { LayoutTarget } from "../../layout/layout-store";
 import { projectWorkspaceCheck } from "../../layout/workspace-move-check";
 import {
@@ -184,6 +186,9 @@ export function layoutSetPendingCommand(
   }
   if (opts?.prompt !== undefined && typeof opts.prompt !== "string") {
     throw new Error("prompt must be a string");
+  }
+  if (opts?.agentKind !== undefined && !getAllAgentKinds().includes(opts.agentKind as AgentKind)) {
+    throw new Error(`Unknown agent kind: ${String(opts.agentKind)}`);
   }
   ctx.deps.layoutStore.pendingCommands.set(paneId, text, kind, opts ?? undefined);
 }

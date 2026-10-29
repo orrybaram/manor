@@ -52,6 +52,7 @@ import { BridgeUnavailableError } from "../bridge/client";
 import { provideHostLookups } from "../bridge/host-lookups";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import type {
+  AgentKind,
   LayoutChangedPayload,
   LayoutEntry,
   PaneAgentStatus,
@@ -294,6 +295,9 @@ export interface AppState {
       /** The agent's first message, delivered through a file on the pane's
        *  host rather than typed into `command`. */
       prompt?: string;
+      /** The agent kind `command` starts, when known: the session's
+       *  `MANOR_AGENT_KIND`, not one guessed from the workspace's project. */
+      agentKind?: AgentKind;
     },
   ) => { tabId: string; paneId: string } | null;
   /**
@@ -1299,7 +1303,7 @@ export function sendPendingCommand(
   paneId: string,
   text: string,
   kind: "shell" | "agent-startup" = "shell",
-  opts?: { submit?: boolean; prompt?: string },
+  opts?: { submit?: boolean; prompt?: string; agentKind?: AgentKind },
 ): void {
   void window.electronAPI?.layout
     ?.setPendingCommand(paneId, text, kind, opts)
@@ -1725,6 +1729,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       submit?: boolean;
       kind?: "shell" | "agent-startup";
       prompt?: string;
+      agentKind?: AgentKind;
     },
   ) => {
     const path = activeLayoutKey(get());
@@ -1737,6 +1742,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     sendPendingCommand(tabPaneId, command, opts?.kind ?? "shell", {
       submit: opts?.submit ?? true,
       prompt: opts?.prompt,
+      ...(opts?.agentKind && { agentKind: opts.agentKind }),
     });
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
     return { tabId: tab.id, paneId: tabPaneId };

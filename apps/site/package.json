@@ -9,6 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@manor/cobwebs": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^25.5.0",
     "typescript": "~5.9.3",

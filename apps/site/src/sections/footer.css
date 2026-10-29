@@ -13,3 +13,8 @@
   .foot .inner { justify-items: start; text-align: left; }
   .foot .legal, .foot .foot-row { justify-content: flex-start; }
 }
+
+/* The footer waits underneath: pinned to the bottom of the viewport behind the
+   chapters, so the east wing slides up off it like a lid. Only when it fits on screen. */
+@media (min-height: 720px) { .foot { position: sticky; bottom: 0; z-index: 0; } }
+.foot .webs { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 3; pointer-events: none; }

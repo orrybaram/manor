@@ -38,7 +38,7 @@
 
 .cols {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 170px) 100px minmax(0, 130px) 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 130px) 100px minmax(0, 96px) 14px;
   column-gap: 12px;
   align-items: center;
   padding: 0 8px;
@@ -82,11 +82,15 @@
   border-bottom: 1px solid var(--surface);
 }
 
+/* Resets one by one rather than `all: unset`, which outranks `.cols` and
+   would undo the row's grid. */
 button.row {
-  all: unset;
+  margin: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
   box-sizing: border-box;
-  /* `all: unset` outranks `.cols`, so the row's grid is set again here. */
-  display: grid;
   width: 100%;
   cursor: pointer;
   padding-top: 9px;

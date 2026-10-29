@@ -138,14 +138,16 @@ function Row(props: { automation: AutomationView; projectName: string; onOpen: (
           )}
         </span>
       </span>
-      <span className={`${styles.cell} ${styles.cellNext} ${styles.next}`}>
+      {/* In the schedule's own zone, which the Schedule cell already names;
+          the note is only a tooltip here, for want of room. */}
+      <span
+        className={`${styles.cell} ${styles.cellNext} ${styles.next}`}
+        title={a.enabled && next && note ? note : undefined}
+      >
         {!a.enabled ? (
           <span className={styles.never}>Paused</span>
         ) : next ? (
-          <>
-            {relativeWhen(next, new Date(), tz)}
-            {note && <span className={styles.zoneNote}> {note}</span>}
-          </>
+          relativeWhen(next, new Date(), tz)
         ) : (
           <span className={styles.never}>—</span>
         )}

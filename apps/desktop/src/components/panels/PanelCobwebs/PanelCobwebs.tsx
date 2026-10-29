@@ -17,6 +17,8 @@ import styles from "./PanelCobwebs.module.css";
 const BRUSH_RADIUS = 36;
 /** The dust film wipes off a little wider than the threads do. */
 const DUST_BRUSH_RADIUS = BRUSH_RADIUS * 1.8;
+/** Threads are drawn a little see-through, so the panel shows through the silk. */
+const STRAND_OPACITY = 0.7;
 /** Frames with nothing moving before the loop sleeps until the mouse returns. */
 const SLEEP_AFTER_FRAMES = 90;
 
@@ -182,7 +184,7 @@ function runCobwebs(tabId: string, canvas: HTMLCanvasElement, host: HTMLElement)
       ctx.lineWidth = width * px;
       buckets.forEach((list, k) => {
         if (!list) return;
-        ctx.globalAlpha = (k / 10) * strength;
+        ctx.globalAlpha = (k / 10) * strength * STRAND_OPACITY;
         ctx.beginPath();
         for (let i = 0; i < list.length; i += 2) {
           ctx.moveTo(list[i]!.x, list[i]!.y);

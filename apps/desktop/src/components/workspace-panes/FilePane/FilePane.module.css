@@ -10,6 +10,7 @@
 
 /* The 34px icon strip on the pane's left edge. */
 .strip {
+  position: relative;
   width: 34px;
   flex: none;
   display: flex;

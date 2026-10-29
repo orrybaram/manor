@@ -1,4 +1,11 @@
-import { createElement, useMemo, useRef, useState } from "react";
+import {
+  createElement,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -20,6 +27,7 @@ import {
 } from "../file-changes";
 import type { WorkspaceChanges } from "../workspace-changes";
 import { AgentChip } from "../AgentChip";
+import { useFileDrawerLayout } from "./file-drawer-layout";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
@@ -40,10 +48,12 @@ type FileDrawerProps = {
   canCreate: boolean;
   onPick: (path: string) => void;
   onClose: () => void;
+  /** Its edge: resizes it, and collapses it into the strip. */
+  resizeHandle?: ReactNode;
 };
 
 /**
- * The drawer over the editor. Files: the workspace's tree, listed each time
+ * The drawer beside the editor (over it, on a phone). Files: the workspace's tree, listed each time
  * it opens (one `files.list`), starting with only the folders on the way to
  * the open file and to changed files expanded; changed files carry their
  * badge and their folders a dot. Changed by agents: the changed files, flat,
@@ -57,7 +67,9 @@ export function FileDrawer({
   canCreate,
   onPick,
   onClose,
+  resizeHandle,
 }: FileDrawerProps) {
+  const width = useFileDrawerLayout((s) => s.width);
   const drawerRef = useRef<HTMLDivElement>(null);
   const queryKey = ["files.list", workspace.hostId, workspace.path];
   const listing = useQuery({
@@ -80,6 +92,7 @@ export function FileDrawer({
       className={styles.drawer}
       data-testid="file-pane-drawer"
       data-mode={mode}
+      style={{ "--drawer-width": `${width}px` } as CSSProperties}
       tabIndex={-1}
       onKeyDown={(e) => {
         if (e.key !== "Escape") return;
@@ -135,6 +148,7 @@ export function FileDrawer({
           {listing.isError ? ipcErrorMessage(listing.error) : "Loading…"}
         </div>
       )}
+      {resizeHandle}
     </div>
   );
 }
@@ -164,17 +178,19 @@ function TreeList({
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
-  // Open on the open file, a few rows down from the top.
-  const [initialOffset] = useState(() => {
-    const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
-    return Math.max(0, (index - 3) * rowHeight);
-  });
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => rowHeight,
     overscan: 12,
-    initialOffset,
+  });
+  // Open on the open file, a few rows down from the top. Scrolled to once
+  // mounted rather than passed as `initialOffset`: an offset past the end of
+  // a short tree has the browser clamp the scroll while the virtualizer keeps
+  // the offset, and it leaves the rows above blank, the list floating mid-way.
+  useMountEffect(() => {
+    const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
+    if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
   });
 
   const toggle = (path: string) =>

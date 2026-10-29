@@ -149,7 +149,6 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
   await expect(editor).toContainText("Pressed {count} times");
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "editor-light") });
-  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   await expect(drawer).toBeVisible();
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "drawer-light") });
@@ -285,7 +284,6 @@ test("the file pane edits, saves, asks before swapping, creates files and settle
   await expect(editor).toContainText("// saved on swap");
 
   // "+" makes a new file, prefilled with the open file's folder, and opens it.
-  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
   await drawer.locator('[data-testid="file-pane-new-file"]').click();
   const input = drawer.locator('[data-testid="file-pane-new-file-input"]');
@@ -303,7 +301,7 @@ test("the file pane edits, saves, asks before swapping, creates files and settle
   await input.fill("src/made/new-file.ts");
   await window.screenshot({ path: shot(testInfo, "new-file-input") });
   await input.press("Enter");
-  await expect(drawer).toBeHidden();
+  await expect(input).toHaveCount(0);
   await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("new-file.ts");
   await expect.poll(() => fs.existsSync(path.join(ws, "src", "made", "new-file.ts"))).toBe(true);
   await typeAtEnd(window, "export const made = true;");
@@ -538,18 +536,16 @@ test("Open File in the diff pane opens the changed file in a file pane beside it
   );
   await expect(editor).toContainText("export const other = 2;");
 
-  // A reused pane with its Files drawer open shows the file, not the tree.
+  // A reused pane with its Files drawer open shows the file beside the tree.
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
   await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   await expect(drawer).toBeVisible();
   await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(drawer).toBeHidden();
   await expect(editor).toContainText("Pressed {count} times");
-  // The same file again only moves the cursor, and still closes the drawer.
-  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   await expect(drawer).toBeVisible();
+  // The same file again only moves the cursor, and the tree stays.
   await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(drawer).toBeHidden();
+  await expect(drawer).toBeVisible();
 
   // The file list's own menu opens a file in the file pane too.
   await listRow("src/other.ts").click({ button: "right" });
@@ -657,7 +653,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   // The changed file: a bar on each changed line, a mark for each in the lane,
   // and the header's jump control.
   await treeRow(window, "src/components/Widget.tsx").click();
-  await expect(drawer).toBeHidden();
+  await expect(drawer).toBeVisible();
   const editor = pane(window).locator('[data-testid="file-pane-editor"]');
   await expect(editor).toContainText("Pressed {count} times");
   await expect(editor.locator(".cm-line.cm-change-agent")).toHaveCount(2);
@@ -820,4 +816,90 @@ test("the file pane works in the left half of a split, and its drawer beside a r
     .toBe(true);
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "sidebar-rail-drawer") });
+});
+
+test("the Files drawer sits beside the editor, resizes from its edge and collapses into the strip", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-file-drawer");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  // Rows enough above Widget.tsx that reopening the tree aims past the
+  // overscan, few enough that the tree still fits without scrolling.
+  for (let i = 0; i < 20; i++) {
+    fs.writeFileSync(path.join(ws, "src", "components", `aa-${String(i).padStart(2, "0")}.ts`), `export const a${i} = ${i};\n`);
+  }
+
+  await openFileFromPalette(window);
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await expect(drawer).toBeVisible();
+  // Opened from the keyboard, it takes focus without a ring.
+  await expect(drawer).toBeFocused();
+  expect(await drawer.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Clicked {count} times");
+
+  // The editor gives way to the drawer instead of sliding under it.
+  const editorCol = pane(window).locator('[data-testid="file-pane-breadcrumb"]');
+  const besideDrawer = async () => {
+    const drawerBox = (await drawer.boundingBox())!;
+    const editorBox = (await editorCol.boundingBox())!;
+    return editorBox.x >= drawerBox.x + drawerBox.width - 1;
+  };
+  await expect.poll(besideDrawer).toBe(true);
+
+  // Shut and opened again on a short tree: its rows start at the top.
+  const filesButton = pane(window).locator('[data-testid="file-pane-files-button"]');
+  await filesButton.click();
+  await expect(drawer).toBeHidden();
+  await filesButton.click();
+  await expect(drawer).toBeVisible();
+  await expect(treeRow(window, "src/components/Widget.tsx")).toBeVisible();
+  // The topmost row drawn sits under the header, not part-way down.
+  await expect
+    .poll(() =>
+      drawer.evaluate((el) => {
+        const rows = [...el.querySelectorAll('[data-testid="file-pane-tree-row"]')];
+        const top = Math.min(...rows.map((r) => r.getBoundingClientRect().top));
+        return top - el.getBoundingClientRect().top;
+      }),
+    )
+    .toBeLessThan(40);
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "drawer-docked") });
+
+  // Dragging its edge widens it, and the editor moves over.
+  const handle = pane(window).locator('[data-testid="file-pane-drawer-resize"]');
+  const startWidth = (await drawer.boundingBox())!.width;
+  const drag = async (dx: number) => {
+    const box = (await handle.boundingBox())!;
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    await window.mouse.move(x, y);
+    await window.mouse.down();
+    await window.mouse.move(x + dx / 2, y, { steps: 4 });
+    await window.mouse.move(x + dx, y, { steps: 4 });
+    await window.mouse.up();
+  };
+  await drag(100);
+  await expect.poll(async () => (await drawer.boundingBox())!.width).toBeGreaterThan(startWidth + 90);
+  await expect.poll(besideDrawer).toBe(true);
+  const widened = (await drawer.boundingBox())!.width;
+  await window.screenshot({ path: shot(testInfo, "drawer-widened") });
+
+  // Dragged back into the strip, it collapses; dragged out, it opens at the
+  // width it had.
+  await drag(-widened);
+  await expect(drawer).toBeHidden();
+  await expect(filesButton).toHaveAttribute("aria-pressed", "false");
+  await drag(widened);
+  await expect(drawer).toBeVisible();
+  await expect.poll(async () => Math.abs((await drawer.boundingBox())!.width - widened)).toBeLessThan(4);
+  await expect(drawer).toHaveAttribute("data-mode", "files");
 });

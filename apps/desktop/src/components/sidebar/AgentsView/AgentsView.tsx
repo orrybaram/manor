@@ -6,6 +6,7 @@ import Search from "lucide-react/dist/esm/icons/search";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import HardDrive from "lucide-react/dist/esm/icons/hard-drive";
 import ChevronLeft from "lucide-react/dist/esm/icons/chevron-left";
+import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import type { AgentInfo } from "../../../electron.d";
 import { useAgentStore } from "../../../store/agent-store";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
@@ -34,6 +35,8 @@ import {
 import { useAgentSearch } from "./useAgentSearch";
 import { useModalSessions } from "./useModalSessions";
 import { useLaunchedSessions } from "../../../store/launched-sessions-store";
+import { useHostStore } from "../../../store/host-store";
+import { hostNotices } from "./host-notices";
 import { useSessionPreview } from "./useSessionPreview";
 import { FORK_KEYS, SessionPreview } from "./SessionPreview";
 import type { RowAction } from "./session-actions";
@@ -312,6 +315,8 @@ export function AgentsModal(props: AgentsModalProps) {
   const disk = useModalSessions(open);
   const openPaneIds = useOpenPaneIds(open);
   const launched = useLaunchedSessions((s) => s.panes);
+  const hosts = useHostStore((s) => s.hosts);
+  const notices = useMemo(() => hostNotices(hosts), [hosts]);
   const liveTitles = useCleanPaneTitles(open && searching);
   const projects = useProjectStore((s) => s.projects);
 
@@ -645,6 +650,21 @@ export function AgentsModal(props: AgentsModalProps) {
                 </button>
               ))}
             </div>
+            <button
+              type="button"
+              className={styles.closeButton}
+              aria-label="Refresh sessions"
+              aria-busy={disk.loading || undefined}
+              data-testid="agents-modal-refresh"
+              data-loading={disk.loading || undefined}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                disk.refresh();
+                searchRef.current?.focus();
+              }}
+            >
+              <RefreshCw size={14} className={styles.refreshIcon} />
+            </button>
             <Dialog.Close asChild>
               <button className={styles.closeButton} aria-label="Close">
                 <X size={16} />
@@ -708,6 +728,12 @@ export function AgentsModal(props: AgentsModalProps) {
               aria-controls={!phone || showPhonePreview ? "agents-modal-preview" : undefined}
               aria-label="Agents"
             >
+              {notices.map((n) => (
+                <div key={n.hostId} className={styles.hostNotice} data-testid="agents-modal-host-notice">
+                  {n.message}
+                </div>
+              ))}
+
               {loading && !loaded && (
                 <div className={styles.loading}>Loading agents...</div>
               )}

@@ -265,6 +265,15 @@ export class HostProxy {
           this.opts.bus.publish("agents", "status", update as unknown as PaneAgentStatusUpdate);
         }
       }),
+      // The host's automations are its server's alone: the desktop keeps no
+      // copy, and tells its renderers which host to re-read.
+      client.subscribe("automations", "changed", undefined, (info) => {
+        if (this.disposed || !isPlainObject(info) || typeof info.automationId !== "string") return;
+        this.opts.bus.publish("automations", "changed", {
+          hostId: this.hostId,
+          automationId: info.automationId,
+        });
+      }),
       ...PROGRESS_EVENTS.map((event) =>
         client.subscribe("projects", event, undefined, (...args) => {
           if (!this.disposed) this.opts.onProgress?.(event, args);

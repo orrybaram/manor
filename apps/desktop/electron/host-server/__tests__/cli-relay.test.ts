@@ -233,6 +233,13 @@ describe("the CLI relay's rules", () => {
     ["DELETE", "/projects/p1/workspaces/issues"],
     ["GET", "/agents"],
     ["POST", "/agents"],
+    ["GET", "/automations"],
+    ["POST", "/automations"],
+    ["GET", "/automations/a1"],
+    ["GET", "/automations/a1/runs"],
+    ["POST", "/automations/a1/update"],
+    ["POST", "/automations/a1/run"],
+    ["DELETE", "/automations/a1"],
     ["GET", "//projects/p1/"],
   ])("allows %s %s", (method, p) => {
     expect(isRemoteAllowed(method, p)).toBe(true);
@@ -250,6 +257,7 @@ describe("the CLI relay's rules", () => {
     ["GET", "/processes"],
     ["GET", "/projects/p1/issues/ENG-1/extra"],
     ["PUT", "/agents"],
+    ["POST", "/automations/a1/delete"],
   ])("refuses %s %s", (method, p) => {
     expect(isRemoteAllowed(method, p)).toBe(false);
   });

@@ -17,6 +17,7 @@
 import { dispatch } from "./router";
 import type { RouteDeps, Json, ReadBody, Route } from "./types";
 import { agentRoutes } from "./agents";
+import { automationRoutes } from "./automations";
 import { contextRoutes } from "./context";
 import { paneRoutes } from "./panes";
 import { folderRoutes } from "./folders";
@@ -41,6 +42,7 @@ export const routes: readonly Route[] = [
   ...issueRoutes,
   ...gitRoutes,
   ...integrationRoutes,
+  ...automationRoutes,
   ...systemRoutes,
   ...webviewRoutes,
 ];

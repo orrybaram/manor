@@ -35,6 +35,7 @@ import type {
 } from "../../src/electron";
 import type { HostStatusInfo } from "../../src/store/host-store";
 import type { WorkspaceKey } from "../../src/lib/workspace-key";
+import type { AutomationsChanged } from "../../src/lib/automation-views";
 import type {
   LayoutBroadcast,
   LayoutPaneTitlePayload,
@@ -175,6 +176,12 @@ export interface BridgeEvents {
   };
   /** The full summary, after a burst of recording settles. */
   stats: { changed: [summary: StatsSummary] };
+  /**
+   * One of a server's automations changed: created, edited, removed, or a
+   * run recorded. Re-read that host's (`automations.list` / `get`). A run's
+   * status follows its Agent, which `agents.status` reports.
+   */
+  automations: { changed: [info: AutomationsChanged] };
   remoteControl: { status: [status: RemoteControlStatus] };
   /** A payload carrying `requestId` expects an `appCommands.result` reply. */
   appCommands: { command: [command: AppCommand] };
@@ -274,6 +281,7 @@ export const SUBSCRIPTIONS = {
   "notifications.onChanged": "notifications.changed",
   "notifications.onNavigate": "notifications.navigate",
   "stats.onChanged": "stats.changed",
+  "automations.onChanged": "automations.changed",
   "remoteControl.onStatus": "remoteControl.status",
   "appCommands.onCommand": "appCommands.command",
 } as const satisfies Record<string, EventName>;

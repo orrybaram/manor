@@ -11,7 +11,8 @@
  * (`../routes/server-routes.ts`), over its own deps.
  *
  * What a CLI here may call is still `REMOTE_CONTROL_ALLOWLIST`: projects,
- * workspaces, folders, issues, agents (list, launch) and `/context`. A route
+ * workspaces, folders, issues, agents (list, launch), automations and
+ * `/context`. A route
  * that needs a window — panes, tabs, webviews, the browser, the system
  * routes — answers that it needs Manor desktop. To the host every caller is
  * local, and every project is its own.
@@ -85,6 +86,14 @@ export const REMOTE_CONTROL_ALLOWLIST: readonly RemoteControlRoute[] = [
   // Agents
   route("GET", "/agents"),
   route("POST", "/agents"),
+  // Automations — all of routes/automations.ts: this host's own, which it
+  // fires with the lid closed
+  route("GET", "/automations"),
+  route("POST", "/automations"),
+  route("GET", `/automations/${ID}`),
+  route("GET", `/automations/${ID}/runs`),
+  route("POST", `/automations/${ID}/(update|run)`),
+  route("DELETE", `/automations/${ID}`),
 ];
 
 /**

@@ -719,6 +719,11 @@ export function createManorServer<D extends BridgeServerDeps>(
     log: (message) => console.warn(`[automations] ${message}`),
     ...(opts.automationClock?.tickMs !== undefined ? { tickMs: opts.automationClock.tickMs } : {}),
   });
+  // Every change, a run recorded included, tells this server's renderers to
+  // re-read; the desktop republishes a host server's (`HostProxy`).
+  automationStore.onChange(({ automationId }) =>
+    bus.publish("automations", "changed", { hostId: LOCAL_HOST_ID, automationId }),
+  );
 
   /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
   async function resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void> {

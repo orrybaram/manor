@@ -146,6 +146,8 @@ const LONG_CALLS = new Set([
   "projects.quickMergeWorktree",
   "projects.convertMainToWorktree",
   "projects.listRemoteBranches",
+  // Makes a workspace (a worktree, its setup) before the agent starts.
+  "automations.runNow",
 ]);
 const LONG_CALL_TIMEOUT_MS = 10 * 60_000;
 

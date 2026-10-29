@@ -206,6 +206,16 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "agents.reconcileStale": "home",
   "agents.getFileAuthors": byWorkspaceKey(0),
 
+  // Each server keeps and fires its own host's automations; the renderer
+  // asks each host it shows.
+  "automations.list": byHost(0),
+  "automations.get": byHost(0),
+  "automations.create": byHost(0),
+  "automations.update": byHost(0),
+  "automations.setEnabled": byHost(0),
+  "automations.remove": byHost(0),
+  "automations.runNow": byHost(0),
+
   // Each server scans its own host's agent stores.
   "sessions.list": "merge",
   // A Session's transcript is read on the host whose store holds it.

@@ -11,6 +11,7 @@ import { panesModule } from "./tools-panes";
 import { sessionsModule } from "./tools-sessions";
 import { gitModule } from "./tools-git";
 import { systemModule } from "./tools-system";
+import { automationsModule } from "./tools-automations";
 
 export const modules = [
   webviewModule,
@@ -20,6 +21,7 @@ export const modules = [
   sessionsModule,
   gitModule,
   systemModule,
+  automationsModule,
 ];
 
 export const moduleLabels = [
@@ -30,4 +32,5 @@ export const moduleLabels = [
   "sessions",
   "git",
   "system",
+  "automations",
 ] as const;

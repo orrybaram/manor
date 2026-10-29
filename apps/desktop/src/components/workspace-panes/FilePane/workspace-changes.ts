@@ -10,6 +10,8 @@ import type { FilesWorkspace } from "./open-file-watches";
 export type WorkspaceChanges = {
   /** Changed files vs. HEAD (the diff pane's Local view), by workspace-relative path. */
   files: ReadonlyMap<string, FileChange>;
+  /** The raw diff `files` was read from, for a file's own diff in the editor. */
+  raw: string | null;
   /**
    * The agent that last wrote each file, where its hooks said and nothing
    * has written the file since.
@@ -92,7 +94,7 @@ function start(key: WorkspaceKey, path: string): Entry {
         entry.raw = raw;
         entry.authorsJson = authorsJson;
         // Diff paths are the repo root's; a workspace in a repo's subfolder is not handled.
-        entry.value = { files: fileChangesFromDiff(raw), authors: byPath };
+        entry.value = { files: fileChangesFromDiff(raw), raw, authors: byPath };
         for (const listener of entry.listeners) listener();
       },
       () => {

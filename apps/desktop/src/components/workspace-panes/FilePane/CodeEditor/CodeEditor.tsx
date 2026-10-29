@@ -1,4 +1,4 @@
-import { useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
@@ -39,6 +39,7 @@ import {
   type AgentMarks,
   type LaneMark,
 } from "./change-marks";
+import { unifiedDiff } from "./diff-view";
 import styles from "./CodeEditor.module.css";
 
 /** How long a line jumped to stays lit. */
@@ -80,6 +81,12 @@ type CodeEditorProps = {
   onDispose: (content: string, dirty: boolean) => void;
   /** Read once, on mount: the file's changed lines, as the workspace diff has them. */
   agentMarks?: AgentMarksSource;
+  /**
+   * Show the text as a unified diff against this (the diff's old side, as
+   * the file is written on disk); null for the plain editor. Switching keeps
+   * the editor, its edits and its undo history.
+   */
+  diffBase?: string | null;
   ref?: Ref<CodeEditorRef>;
 };
 
@@ -94,6 +101,9 @@ type CodeEditorProps = {
  * right edge marks where they are in the whole file. ⌥↑/⌥↓, and the pane
  * header's ↑/↓ (`jumpToEdit`), move between the changes while nothing is
  * unsaved.
+ *
+ * With a `diffBase` it shows the file as a diff against it instead, still
+ * editable, and the change marks step aside: the diff marks every change.
  */
 export function CodeEditor({
   paneId,
@@ -104,6 +114,7 @@ export function CodeEditor({
   onDirtyChange,
   onDispose,
   agentMarks,
+  diffBase = null,
   ref,
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -116,6 +127,8 @@ export function CodeEditor({
   // and the clean copy it is dirty against.
   const fileRef = useRef<EditorFile | null>(null);
   const dirtyRef = useRef(false);
+  /** Switch between the plain editor and the diff; set on mount. */
+  const showDiffRef = useRef<((base: string | null) => void) | null>(null);
 
   const isDirty = (view: EditorView) => fileRef.current?.isDirty(view.state.doc) ?? false;
   const settle = (view: EditorView) => {
@@ -159,10 +172,21 @@ export function CodeEditor({
     },
   }));
 
+  // The diff's old side is CodeMirror's to hold, so a new one is handed over
+  // as it arrives; before the view exists, the mount below reads the prop.
+  useLayoutEffect(() => {
+    showDiffRef.current?.(diffBase);
+  }, [diffBase]);
+
   useMountEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const language = new Compartment();
+    const diff = new Compartment();
+    const marks = new Compartment();
+    let shownBase = diffBase;
+    // The last marks the diff sent, to put back when the diff view leaves.
+    let lastMarks: AgentMarks | null = null;
     const { file, shown } = EditorFile.open(base, draft);
     fileRef.current = file;
 
@@ -232,7 +256,8 @@ export function CodeEditor({
               { key: "Alt-ArrowUp", run: (v) => jump(v, -1) },
             ]),
           ),
-          changeMarks(file.cleanDoc),
+          marks.of(shownBase === null ? changeMarks(file.cleanDoc) : []),
+          diff.of(shownBase === null ? [] : unifiedDiff(shownBase)),
           keymap.of([
             ...searchKeymap,
             ...foldKeymap,
@@ -244,6 +269,7 @@ export function CodeEditor({
             if (update.docChanged) settle(update.view);
             if (
               update.docChanged ||
+              update.transactions.some((tr) => tr.reconfigured) ||
               update.transactions.some((tr) =>
                 tr.effects.some((e) => e.is(setAgentMarks) || e.is(setCleanDoc)),
               )
@@ -271,9 +297,30 @@ export function CodeEditor({
     const stopJumps = registerEditJumper(paneId, (direction) => {
       jump(view, direction);
     });
-    const stopMarks = agentMarks?.follow((marks) => {
-      if (!destroyed) view.dispatch({ effects: setAgentMarks.of(marks) });
+    const stopMarks = agentMarks?.follow((next) => {
+      lastMarks = next;
+      if (!destroyed) view.dispatch({ effects: setAgentMarks.of(next) });
     });
+    showDiffRef.current = (base) => {
+      if (destroyed || base === shownBase) return;
+      const wasDiff = shownBase !== null;
+      shownBase = base;
+      if (base !== null) {
+        // A new old side for the same file keeps the marks off; only the diff is rebuilt.
+        view.dispatch({
+          effects: wasDiff
+            ? diff.reconfigure(unifiedDiff(base))
+            : [diff.reconfigure(unifiedDiff(base)), marks.reconfigure([])],
+        });
+        return;
+      }
+      // Back to the plain editor: the marks start again from the clean copy,
+      // then take the diff's lines (a field sees effects only once it exists).
+      view.dispatch({
+        effects: [diff.reconfigure([]), marks.reconfigure(changeMarks(file.cleanDoc))],
+      });
+      view.dispatch({ effects: setAgentMarks.of(lastMarks) });
+    };
 
     const lang = languageFor(path);
     if (lang) {
@@ -302,6 +349,7 @@ export function CodeEditor({
       destroyed = true;
       clearTimeout(flashTimer);
       stopMarks?.();
+      showDiffRef.current = null;
       stopJumps();
       markClickedRef.current = null;
       useFileEditNav.getState().set(paneId, null);

@@ -91,6 +91,52 @@
   overflow: hidden;
 }
 
+.crumbPath {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+/* A shown diff's "Diff vs HEAD", at the breadcrumb's right end. */
+.diffTag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.diffNote {
+  flex: none;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* A stale diff is usually fresh again a moment later: only a lasting one shows. */
+.diffNoteLate {
+  animation: noteIn 0.2s ease-out 0.8s both;
+}
+
+@keyframes noteIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.openPlain {
+  flex: none;
+  margin-left: 8px;
+}
+
 .crumbPart {
   display: inline-flex;
   align-items: center;

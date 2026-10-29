@@ -33,7 +33,7 @@ export function writeFileText(format: FileFormat, doc: Text): string {
 }
 
 /** `text` split into lines as the editor splits it, whatever its breaks. */
-function toText(text: string): Text {
+export function toText(text: string): Text {
   return Text.of(text.split(/\r\n?|\n/));
 }
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useMemo, useRef, useState, type ReactNode } from "react";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import {
@@ -14,7 +14,9 @@ import {
   registerOpenFileEditor,
   saveOpenFile,
 } from "../../../store/open-file-store";
-import { LOCAL_HOST_ID } from "../../../lib/workspace-key";
+import { useProjectStore } from "../../../store/project-store";
+import { ownerOf } from "../../../lib/workspace-directory";
+import { LOCAL_HOST_ID, workspaceKey } from "../../../lib/workspace-key";
 import { getPlatform } from "../../../lib/keybindings";
 import { isWebApp } from "../../../lib/platform";
 import { useMountEffect } from "../../../hooks/useMountEffect";
@@ -29,6 +31,9 @@ import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
 import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
 import { useAgentLabel } from "./agent-label";
 import type { FileChange } from "./file-changes";
+import { fetchDiffSingleFlight } from "../DiffPane/diff-fetch";
+import { FingerprintedFetch } from "../DiffPane/FingerprintedFetch";
+import { baseFromDiff, fileDiffIn, followDiffBase, type HeldBase } from "./diff-base";
 import { SourceControl, ScmViewToggle } from "./SourceControl/SourceControl";
 import type { ScmView } from "./SourceControl/scm-entries";
 import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes";
@@ -47,6 +52,10 @@ import styles from "./FilePane.module.css";
 const CodeEditor = lazy(() =>
   import("./CodeEditor/CodeEditor").then((m) => ({ default: m.CodeEditor })),
 );
+// A deleted file's diff: its own small read-only view.
+const DeletedFileView = lazy(() =>
+  import("./CodeEditor/DeletedFileView").then((m) => ({ default: m.DeletedFileView })),
+);
 // The merge view loads only when Compare is pressed.
 const CompareView = lazy(() =>
   import("./CompareView/CompareView").then((m) => ({ default: m.CompareView })),
@@ -59,6 +68,23 @@ type FilePaneProps = {
 };
 
 type Drawer = DrawerMode | null;
+
+/**
+ * A change's diff the editor is showing: which file, and against HEAD
+ * (Local) or the project's default branch (Branch). A deleted file has no
+ * working copy to open, so its diff shows in place of the open file.
+ */
+type DiffShown = { path: string; view: ScmView; deleted: boolean };
+
+/** The raw diff a shown diff is read from, and what it is against. */
+type DiffSource = {
+  view: ScmView;
+  /** "HEAD", or the default branch's name. */
+  against: string;
+  /** Undefined until first read. */
+  raw: string | null | undefined;
+  error: string | null;
+};
 
 /**
  * A file pane: one file of its workspace, with a strip on its left edge whose
@@ -82,6 +108,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
   // Local or Branch: kept while the drawer closes and opens, not on the leaf.
   const [scmView, setScmView] = useState<ScmView>("local");
+  // A Source Control row shows its file's diff; local state, as the drawer is.
+  const [diff, setDiff] = useState<DiffShown | null>(null);
   const floating = useLayoutMode() === "phone";
   const floatingRef = useRef(floating);
   floatingRef.current = floating;
@@ -93,10 +121,21 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   if (shownFor.filePath !== filePath || shownFor.pendingOpen !== pendingOpen) {
     setShownFor({ filePath, pendingOpen });
     if (floating && (filePath !== shownFor.filePath || pendingOpen)) setDrawer(null);
+    // Another file opened (or the one the diff waited on was not): the diff
+    // was for its own file only. One waiting on the swap bar stays.
+    if (
+      diff &&
+      diff.path !== filePath &&
+      (filePath !== shownFor.filePath || (!diff.deleted && diff.path !== pendingOpen))
+    ) {
+      setDiff(null);
+    }
   }
-  // The same file sent again only moves the cursor; it still wants the editor.
+  // The same file sent again only moves the cursor; it still wants the
+  // editor, and a terminal link or ⌘P means the plain file.
   useMountEffect(() =>
     pendingLines.subscribe(paneId, () => {
+      setDiff(null);
       if (floatingRef.current) setDrawer(null);
     }),
   );
@@ -107,6 +146,30 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   );
   const changes = useWorkspaceChanges(workspace);
   const changeCount = changes?.files.size ?? 0;
+
+  // Branch diffs are fetched as Source Control fetches its Branch list, under
+  // the same key, so the two share one `git diff`; Local's is the one above.
+  const wsKey = workspace ? workspaceKey(workspace.hostId, workspace.path) : null;
+  const defaultBranch =
+    useProjectStore((s) => (wsKey ? ownerOf(s.projects, wsKey)?.defaultBranch : undefined)) ??
+    "main";
+  const branchKey = wsKey ? `${wsKey}\u0000branch\u0000${defaultBranch}` : null;
+  const [branchResult, setBranchResult] = useState<{
+    key: string;
+    raw: string | null;
+    error: string | null;
+  } | null>(null);
+  const branch = branchResult && branchResult.key === branchKey ? branchResult : null;
+  const diffSource: DiffSource | null = !diff
+    ? null
+    : diff.view === "local"
+      ? { view: "local", against: "HEAD", raw: changes ? changes.raw : undefined, error: null }
+      : {
+          view: "branch",
+          against: defaultBranch,
+          raw: branch ? branch.raw : undefined,
+          error: branch?.error ?? null,
+        };
 
   // A split rebuilds the pane, so its edits outlive the mount; a closed
   // pane's go, and so do those of a pane that is no longer a file pane.
@@ -128,6 +191,22 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     setPaneFilePath(paneId, path);
   };
 
+  // The tree opens the plain file.
+  const pickFile = (path: string) => {
+    setDiff(null);
+    pick(path);
+  };
+  // A Source Control row opens its file's diff; the unsaved-edits guard still asks first.
+  const openChange = (change: FileChange, view: ScmView) => {
+    if (change.status === "deleted") {
+      if (floating) setDrawer(null);
+      setDiff({ path: change.path, view, deleted: true });
+      return;
+    }
+    setDiff({ path: change.path, view, deleted: false });
+    pick(change.path);
+  };
+
   // Dragged out of the strip, the drawer opens on the tree.
   const openDrawer = () => setDrawer((d) => d ?? "files");
   const collapseDrawer = () => setDrawer(null);
@@ -140,6 +219,31 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
 
   return (
     <div className={styles.filePane} data-testid="file-pane">
+      {diff?.view === "branch" && workspace && wsKey && branchKey && (
+        <FingerprintedFetch
+          key={branchKey}
+          wsKey={wsKey}
+          fetch={() =>
+            fetchDiffSingleFlight(branchKey, () =>
+              window.electronAPI.diffs.getFullDiff(workspace.path, defaultBranch),
+            )
+          }
+          onResult={(raw) =>
+            setBranchResult((prev) =>
+              prev?.key === branchKey && prev.raw === raw && prev.error === null
+                ? prev
+                : { key: branchKey, raw, error: null },
+            )
+          }
+          onError={(err) =>
+            setBranchResult({
+              key: branchKey,
+              raw: null,
+              error: err instanceof Error ? err.message : "Failed to load diff",
+            })
+          }
+        />
+      )}
       <div className={styles.strip}>
         <Tooltip label="Files">
           <button
@@ -181,7 +285,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           changes={changes}
           openFile={filePath}
           canCreate={!readOnly && drawer === "files"}
-          onPick={pick}
+          onPick={pickFile}
           onClose={() => setDrawer(null)}
           resizeHandle={floating ? undefined : openHandle}
           scmHead={<ScmViewToggle value={scmView} onChange={setScmView} />}
@@ -191,11 +295,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
               view={scmView}
               changes={changes}
               openFile={filePath}
-              // For now a change opens as its file; a deleted one has none.
-              onOpenChange={(change) => {
-                if (change.status !== "deleted") pick(change.path);
-              }}
-              onOpenFile={pick}
+              onOpenChange={openChange}
+              onOpenFile={pickFile}
             />
           }
         />
@@ -207,13 +308,17 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           if (floating && drawer) setDrawer(null);
         }}
       >
-        {filePath && workspace ? (
+        {diff?.deleted && diffSource ? (
+          <DeletedDiff path={diff.path} source={diffSource} />
+        ) : filePath && workspace ? (
           <OpenFile
             key={`${workspace.hostId}\0${workspace.path}\0${filePath}`}
             paneId={paneId}
             workspace={workspace}
             path={filePath}
             readOnly={readOnly}
+            diff={diff && diff.path === filePath ? diffSource : null}
+            onOpenPlain={() => setDiff(null)}
           />
         ) : (
           <div className={styles.empty} data-testid="file-pane-empty">
@@ -225,18 +330,84 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   );
 }
 
-function Breadcrumb({ path }: { path: string }) {
+/** The open file's path; `children` sit at the row's right end (the diff's tag and controls). */
+function Breadcrumb({ path, children }: { path: string; children?: ReactNode }) {
   const parts = path.split("/");
   return (
-    <div className={styles.crumbs} data-testid="file-pane-breadcrumb" title={path}>
-      {parts.map((part, i) => (
-        <span key={i} className={styles.crumbPart}>
-          {i > 0 && <span className={styles.crumbSep}>/</span>}
-          <span className={i === parts.length - 1 ? styles.crumbLast : styles.crumb}>
-            {part}
+    <div className={styles.crumbs}>
+      <div className={styles.crumbPath} data-testid="file-pane-breadcrumb" title={path}>
+        {parts.map((part, i) => (
+          <span key={i} className={styles.crumbPart}>
+            {i > 0 && <span className={styles.crumbSep}>/</span>}
+            <span className={i === parts.length - 1 ? styles.crumbLast : styles.crumb}>
+              {part}
+            </span>
           </span>
+        ))}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** "Diff vs HEAD" (or the branch), and a note when the diff can't be shown as it stands. */
+function DiffTag({ source, note }: { source: DiffSource; note: DiffNote | null }) {
+  return (
+    <>
+      <span className={styles.diffTag} data-testid="file-pane-diff-tag">
+        Diff vs {source.against}
+      </span>
+      {note && (
+        <span
+          className={`${styles.diffNote} ${note.kind === "stale" ? styles.diffNoteLate : ""}`}
+          data-testid={note.kind === "stale" ? "file-pane-diff-stale" : "file-pane-diff-note"}
+          role="status"
+        >
+          {note.text}
         </span>
-      ))}
+      )}
+    </>
+  );
+}
+
+type DiffNote = { kind: "stale" | "info"; text: string };
+
+/** Why a shown diff has no lines to show as it stands, or null when it does. */
+function diffNote(
+  source: DiffSource,
+  binary: boolean,
+  stale: boolean,
+): DiffNote | null {
+  if (source.error !== null) return { kind: "info", text: `Couldn't read the diff: ${source.error}` };
+  if (binary) return { kind: "info", text: "Binary file: no lines to compare" };
+  if (stale) return { kind: "stale", text: "Diff is out of date, refreshing…" };
+  return null;
+}
+
+/** A deleted file's diff: its old side, all removed, read-only. */
+function DeletedDiff({ path, source }: { path: string; source: DiffSource }) {
+  const raw = source.raw;
+  const fileDiff = useMemo(() => (raw === undefined ? undefined : fileDiffIn(raw, path)), [raw, path]);
+  const base = fileDiff?.deleted ? baseFromDiff("", fileDiff) : null;
+  const note = diffNote(source, fileDiff?.binary ?? false, false);
+  return (
+    <div className={styles.openFile}>
+      <Breadcrumb path={path}>
+        <DiffTag source={source} note={note} />
+      </Breadcrumb>
+      <div className={styles.editorStack}>
+        {fileDiff === undefined ? (
+          <div className={styles.empty} />
+        ) : base === null || fileDiff?.binary ? (
+          <div className={styles.empty} data-testid="file-pane-diff-empty">
+            {fileDiff?.binary ? "Binary file deleted" : "No longer deleted"}
+          </div>
+        ) : (
+          <Suspense fallback={<div className={styles.empty} />}>
+            <DeletedFileView path={path} base={base} />
+          </Suspense>
+        )}
+      </div>
     </div>
   );
 }
@@ -284,11 +455,17 @@ function OpenFile({
   workspace,
   path,
   readOnly,
+  diff,
+  onOpenPlain,
 }: {
   paneId: string;
   workspace: FilesWorkspace;
   path: string;
   readOnly: boolean;
+  /** Show the file as its diff, read from this; null for the plain file. */
+  diff: DiffSource | null;
+  /** The diff's Open file: the plain editor, same file. */
+  onOpenPlain: () => void;
 }) {
   const stored = useOpenFileStore((s) => s.byPane[paneId]);
   // Until this mount has opened `path`, the pane may still hold the last file.
@@ -306,6 +483,34 @@ function OpenFile({
   }));
   const actions = useRef<OpenFileActions | null>(null);
   const [comparison, setComparison] = useState<Comparison>(null);
+
+  // The diff's old side, rebuilt only when the diff or the file on disk
+  // changes, never per keystroke: the editor diffs your typing itself.
+  const diffRaw = diff?.raw;
+  const fileDiff = useMemo(
+    () => (diffRaw === undefined ? undefined : fileDiffIn(diffRaw, path)),
+    [diffRaw, path],
+  );
+  const [held, setHeld] = useState<(HeldBase & { view: ScmView }) | null>(null);
+  let shownBase = held;
+  const working = state && state.status === "ready" ? state.base : null;
+  if (
+    diff &&
+    working !== null &&
+    (held?.view !== diff.view || held.diff !== fileDiff || held.working !== working)
+  ) {
+    shownBase = {
+      ...followDiffBase(held?.view === diff.view ? held : null, fileDiff, working),
+      view: diff.view,
+    };
+    setHeld(shownBase);
+  }
+  const binary = fileDiff?.binary ?? false;
+  const diffBase = diff && !binary && shownBase?.view === diff.view ? shownBase.base : null;
+  // A conflict's banner already says the disk moved; the diff waits quietly under it.
+  const note = diff
+    ? diffNote(diff, binary, (shownBase?.stale ?? false) && !state?.conflict)
+    : null;
 
   useMountEffect(() => {
     let live = true;
@@ -575,7 +780,21 @@ function OpenFile({
           Couldn't save: {state.saveError}
         </div>
       )}
-      <Breadcrumb path={path} />
+      <Breadcrumb path={path}>
+        {diff && (
+          <>
+            <DiffTag source={diff} note={note} />
+            <Button
+              size="sm"
+              className={styles.openPlain}
+              data-testid="file-pane-open-plain"
+              onClick={onOpenPlain}
+            >
+              Open file
+            </Button>
+          </>
+        )}
+      </Breadcrumb>
       <div className={styles.editorStack}>
         <Suspense fallback={<div className={styles.empty} />}>
           <CodeEditor
@@ -590,6 +809,7 @@ function OpenFile({
               if (dirty) dispatch({ type: "stash-draft", draft: content });
             }}
             agentMarks={agentMarks}
+            diffBase={diffBase}
           />
         </Suspense>
         {state.comparing && (

@@ -102,6 +102,13 @@ describe("baseFromDiff", () => {
   });
 });
 
+describe("baseFromDiff on a CRLF file git diffs through eol conversion", () => {
+  it("reads LF hunks against CRLF lines, and rebuilds the old side in CRLF", () => {
+    const diff = fileDiffIn(gitDiff("a\nb\nc\n", "a\nB\nc\n"), "b");
+    expect(baseFromDiff("a\r\nB\r\nc\r\n", diff)).toBe("a\r\nb\r\nc\r\n");
+  });
+});
+
 describe("followDiffBase", () => {
   const diff = fileDiffIn(gitDiff("a\nb\n", "a\nB\n"), "b") as FileDiff;
 
@@ -114,6 +121,16 @@ describe("followDiffBase", () => {
     expect(first).toMatchObject({ base: "a\nb\n", stale: false });
     const saved = followDiffBase(first, diff, "a\nB!\n");
     expect(saved).toMatchObject({ base: "a\nb\n", stale: false });
+  });
+
+  it("keeps the base when a save edits a line outside every hunk", () => {
+    const before = lines(60).join("\n") + "\n";
+    const after = before.replace("line 50\n", "line fifty\n");
+    const far = fileDiffIn(gitDiff(before, after), "b") as FileDiff;
+    const first = followDiffBase(null, far, after);
+    expect(first.base).toBe(before);
+    const saved = followDiffBase(first, far, after.replace("line 5\n", "line five\n"));
+    expect(saved).toMatchObject({ base: before, stale: false });
   });
 
   it("says stale when a new diff doesn't fit, keeping the last base", () => {

@@ -107,6 +107,10 @@ export function baseFromDiff(working: string, diff: FileDiff | null): string | n
   if (!diff || diff.hunks.length === 0) return diff?.added ? "" : working;
   if (diff.added) return "";
   const { lines: now, eol: nowEol } = splitLines(working);
+  // Git diffs a CRLF file through its eol conversion, so the hunks may lack
+  // the `\r` the file on disk has: read them in the file's own line ending.
+  const crlf = now.length > 0 && now[0].endsWith("\r");
+  const asFile = (text: string) => (crlf && !text.endsWith("\r") ? `${text}\r` : text);
   const out: string[] = [];
   let pos = 0;
   let last: Hunk | null = null;
@@ -116,7 +120,9 @@ export function baseFromDiff(working: string, diff: FileDiff | null): string | n
     if (at < pos || at > now.length) return null;
     for (; pos < at; pos++) out.push(now[pos]);
     if (out.length !== (hunk.oldCount === 0 ? hunk.oldStart : hunk.oldStart - 1)) return null;
-    for (const { op, text } of hunk.lines) {
+    for (const line of hunk.lines) {
+      const { op } = line;
+      const text = asFile(line.text);
       if (op !== "-") {
         if (now[pos] !== text) return null;
         pos++;
@@ -160,10 +166,12 @@ export function followDiffBase(
   working: string,
 ): HeldBase {
   if (diff === undefined) return { diff, working, base: prev?.base ?? null, stale: false };
-  const base = baseFromDiff(working, diff);
-  if (base !== null) return { diff, working, base, stale: false };
+  // The same diff has the same old side, whatever the working copy did since:
+  // rebuilding it from a saved edit outside the hunks would fold that edit in.
   if (prev && prev.diff === diff && prev.base !== null && !prev.stale) {
     return { diff, working, base: prev.base, stale: false };
   }
+  const base = baseFromDiff(working, diff);
+  if (base !== null) return { diff, working, base, stale: false };
   return { diff, working, base: prev?.base ?? null, stale: true };
 }

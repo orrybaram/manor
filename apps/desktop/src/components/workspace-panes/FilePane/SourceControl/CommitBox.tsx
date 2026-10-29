@@ -28,6 +28,10 @@ type CommitBoxProps = {
   stagedCount: number;
   /** Why git can't be reached from here (the web app), or null. */
   disabledReason: string | null;
+  /** A stage, unstage or discard is running: git holds the index. */
+  busy: boolean;
+  /** Tells the list a commit holds the index, so its git buttons wait. */
+  onCommittingChange: (committing: boolean) => void;
 };
 
 /**
@@ -39,6 +43,8 @@ export function CommitBox({
   workspacePath,
   stagedCount,
   disabledReason,
+  busy,
+  onCommittingChange,
 }: CommitBoxProps) {
   const [message, setMessageState] = useState(() => messages.get(wsKey) ?? "");
   const [flags, setFlags] = useState<ReadonlySet<CommitFlag>>(() => new Set());
@@ -58,12 +64,16 @@ export function CommitBox({
 
   const commit = async (thenPush: boolean) => {
     setMenuOpen(false);
-    if (blocker || committing) return;
+    if (blocker || committing || busy) return;
     setCommitting(true);
-    const ok = await runCommit(workspacePath, message, flags);
+    onCommittingChange(true);
+    const sent = message;
+    const ok = await runCommit(workspacePath, sent, flags);
     setCommitting(false);
+    onCommittingChange(false);
     if (!ok) return;
-    setMessage("");
+    // Text typed while the commit ran is the next message: keep it.
+    if ((messages.get(wsKey) ?? "") === sent) setMessage("");
     setFlags(new Set());
     if (thenPush) void startPush(workspacePath);
   };
@@ -85,7 +95,7 @@ export function CommitBox({
       size="sm"
       className={styles.commit}
       // aria-disabled keeps the reason's tooltip reachable on hover.
-      aria-disabled={blocker || committing ? true : undefined}
+      aria-disabled={blocker || committing || busy ? true : undefined}
       data-testid="scm-commit"
       onClick={() => void commit(false)}
     >

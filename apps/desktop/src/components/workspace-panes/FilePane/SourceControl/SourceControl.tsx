@@ -120,6 +120,7 @@ export function SourceControl({
   const branch = branchResult?.key === branchKey ? branchResult : null;
 
   const [busy, setBusy] = useState(false);
+  const [committing, setCommitting] = useState(false);
   const [discarding, setDiscarding] = useState<{
     path: string;
     /** Untracked: discarding deletes the file outright. */
@@ -138,7 +139,7 @@ export function SourceControl({
     }));
 
   const act = async (action: GitFileAction, files: string[]) => {
-    if (webApp || busy || files.length === 0) return;
+    if (webApp || busy || committing || files.length === 0) return;
     // Stage and unstage move the rows at once; a refusal moves them back.
     if (action !== "discard") updateStaged(files, action === "stage");
     setBusy(true);
@@ -191,7 +192,7 @@ export function SourceControl({
     (action: RowAction, entry: ScmEntry) => onRowRef.current(action, entry),
     [],
   );
-  const locked = webApp || busy;
+  const locked = webApp || busy || committing;
 
   const gitButton = (
     label: string,
@@ -249,9 +250,7 @@ export function SourceControl({
           </button>
           {actions && <span className={styles.actions}>{actions}</span>}
         </div>
-        <Collapse open={open}>
-          {rows(entries, id as RowGroup)}
-        </Collapse>
+        <Collapse open={open}>{rows(entries, id as RowGroup)}</Collapse>
       </div>
     );
   };
@@ -359,10 +358,14 @@ export function SourceControl({
       )}
       {view === "local" && (
         <CommitBox
+          // A workspace's draft and options never carry into another's.
+          key={wsKey}
           wsKey={wsKey}
           workspacePath={workspace.path}
           stagedCount={local?.staged.length ?? 0}
           disabledReason={webApp ? NO_GIT_FROM_BROWSER : null}
+          busy={busy}
+          onCommittingChange={setCommitting}
         />
       )}
       {body}
@@ -414,7 +417,10 @@ type RowAction = "open" | "openFile" | GitFileAction;
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 
-function sameFiles(had: ReadonlySet<string>, files: readonly string[]): boolean {
+function sameFiles(
+  had: ReadonlySet<string>,
+  files: readonly string[],
+): boolean {
   return had.size === files.length && files.every((f) => had.has(f));
 }
 

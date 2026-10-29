@@ -1,13 +1,15 @@
-import { useState, useCallback, useEffect, useMemo, useRef, memo, type CSSProperties } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef, memo } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import X from "lucide-react/dist/esm/icons/x";
 import Search from "lucide-react/dist/esm/icons/search";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
+import HardDrive from "lucide-react/dist/esm/icons/hard-drive";
 import type { AgentInfo } from "../../../electron.d";
 import { useAgentStore } from "../../../store/agent-store";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { AgentDot } from "../../ui/AgentDot/AgentDot";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { useAgentDisplay, useCleanPaneTitles } from "../../../hooks/useAgentDisplay";
 import { useOpenPaneIds } from "../../../hooks/useOpenPaneIds";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
@@ -16,22 +18,43 @@ import { useAgentPulse } from "../../../hooks/useAgentPulse";
 import { useInlineRename } from "../../../hooks/useInlineRename";
 import { relativeShortThenDate } from "../../../utils/relative-time";
 import { getDateBucket, type DateBucket } from "../../../utils/date-buckets";
-import { agentsModalRows, type AgentTab } from "./agents-modal-list";
+import {
+  agentsModalRows,
+  isRowOpen,
+  projectChips,
+  type AgentTab,
+  type ModalProject,
+  type ModalRow,
+} from "./agents-modal-list";
 import { useAgentSearch } from "./useAgentSearch";
+import { useModalSessions } from "./useModalSessions";
 import styles from "./AgentsView.module.css";
 import menuStyles from "../ProjectItem.module.css";
 
 // ── Components ──
 
-type AgentViewRowProps = {
-  agent: AgentInfo;
+/** A row's project as a dot: its color, or a hollow ring when it has none. */
+function ProjectDot({ project }: { project: ModalProject }) {
+  return (
+    <span
+      className={styles.projectDot}
+      data-uncolored={project.color ? undefined : ""}
+      title={project.name}
+      aria-label={project.name}
+      role="img"
+    />
+  );
+}
+
+type ModalRowViewProps = {
+  row: ModalRow;
   highlighted: boolean;
-  /** The agent's project color, as `projectColorStyle` gives it. */
-  colorStyle: CSSProperties | undefined;
+  /** The row's Agent has a pane in a workspace now: show its live status. */
+  live: boolean;
   shouldPulse: boolean;
   /** Bumped to start renaming this row from the keyboard (F2); 0 for none. */
   renameToken: number;
-  onHighlight: (agentId: string) => void;
+  onHighlight: (rowId: string) => void;
   /** An inline rename ended, committed or not. */
   onRenameDone: () => void;
   onResumeAgent: (agent: AgentInfo) => void;
@@ -39,11 +62,62 @@ type AgentViewRowProps = {
   onRenameAgent: (agentId: string, name: string) => void;
 };
 
-const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
+/** The attributes every row shares, Agent or outside-Manor Session. */
+function rowAttributes(row: ModalRow, highlighted: boolean, onHighlight: (rowId: string) => void) {
+  return {
+    role: "option",
+    id: rowDomId(row.id),
+    "aria-selected": highlighted,
+    className: styles.agentRow,
+    style: projectColorStyle(row.project.color),
+    "data-highlighted": highlighted || undefined,
+    "data-colored": row.project.color ? "" : undefined,
+    "data-testid": "agents-modal-row",
+    // Mouse movement, not enter: a list scrolled by the keyboard slides
+    // rows under a still pointer, and that must not steal the highlight.
+    onMouseMove: () => {
+      if (!highlighted) onHighlight(row.id);
+    },
+  } as const;
+}
+
+function RowTime({ row }: { row: ModalRow }) {
+  return (
+    <span className={styles.agentTime}>
+      {relativeShortThenDate(new Date(row.activityAt).getTime())}
+    </span>
+  );
+}
+
+const ModalRowView = memo(function ModalRowView(props: ModalRowViewProps) {
+  const { row, highlighted, onHighlight } = props;
+  if (row.agent) return <AgentRowView {...props} agent={row.agent} />;
+  return (
+    <div {...rowAttributes(row, highlighted, onHighlight)} data-outside="">
+      <ProjectDot project={row.project} />
+      <span className={styles.agentName} title={row.session?.title} data-testid="agent-name">
+        {row.session?.title || "Session"}
+      </span>
+      <Tooltip label="Found on disk; not started in Manor">
+        <span
+          className={styles.outsideMark}
+          aria-label="Outside Manor"
+          data-testid="agents-modal-outside"
+        >
+          <HardDrive size={11} />
+        </span>
+      </Tooltip>
+      <RowTime row={row} />
+    </div>
+  );
+});
+
+function AgentRowView(props: ModalRowViewProps & { agent: AgentInfo }) {
   const {
+    row,
     agent,
     highlighted,
-    colorStyle,
+    live,
     shouldPulse,
     renameToken,
     onHighlight,
@@ -53,7 +127,11 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
     onRenameAgent,
   } = props;
 
-  const { title, status, reason } = useAgentDisplay(agent);
+  const display = useAgentDisplay(agent);
+  const { status, reason } = display;
+  // An Agent with no name of its own takes its Session's title.
+  const title =
+    display.title === "Agent" && !agent.name ? row.session?.title || display.title : display.title;
   const rename = useInlineRename(
     title,
     (name) => onRenameAgent(agent.id, name),
@@ -77,20 +155,8 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
     <ContextMenu.Root>
       <ContextMenu.Trigger asChild>
         <div
-          role="option"
-          id={rowDomId(agent.id)}
-          aria-selected={highlighted}
-          className={styles.agentRow}
-          style={colorStyle}
-          data-highlighted={highlighted || undefined}
-          data-colored={colorStyle ? "" : undefined}
-          data-testid="agents-modal-row"
+          {...rowAttributes(row, highlighted, onHighlight)}
           data-agent-id={agent.id}
-          // Mouse movement, not enter: a list scrolled by the keyboard slides
-          // rows under a still pointer, and that must not steal the highlight.
-          onMouseMove={() => {
-            if (!highlighted) onHighlight(agent.id);
-          }}
           onClick={() => {
             if (!rename.editing) onResumeAgent(agent);
           }}
@@ -99,18 +165,7 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
             rename.start();
           }}
         >
-          {/* A fixed slot, so rows with and without a status line up. */}
-          <span className={styles.dotSlot}>
-            <AgentDot
-              status={status}
-              size="sidebar"
-              pulse={shouldPulse}
-              reason={reason}
-            />
-          </span>
-          <span className={styles.agentProject} title={agent.projectName ?? undefined}>
-            {agent.projectName || "No project"}
-          </span>
+          <ProjectDot project={row.project} />
           {rename.editing ? (
             <>
               <input
@@ -124,9 +179,12 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
           ) : (
             <span className={styles.agentName} title={title} data-testid="agent-name">{title}</span>
           )}
-          <span className={styles.agentTime}>
-            {relativeShortThenDate(new Date(agent.updatedAt).getTime())}
-          </span>
+          {live && (
+            <span className={styles.dotSlot}>
+              <AgentDot status={status} size="sidebar" pulse={shouldPulse} reason={reason} />
+            </span>
+          )}
+          <RowTime row={row} />
           <span
             role="button"
             aria-label="Remove agent"
@@ -162,11 +220,11 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
-});
+}
 
 /** A row's DOM id, for the search box's `aria-activedescendant`. */
-function rowDomId(agentId: string): string {
-  return `agents-modal-row-${agentId}`;
+function rowDomId(rowId: string): string {
+  return `agents-modal-row-${rowId}`;
 }
 
 const TABS: { id: AgentTab; label: string }[] = [
@@ -178,8 +236,12 @@ const TABS: { id: AgentTab; label: string }[] = [
 /** How many search matches the list draws; typing more narrows the rest. */
 const MAX_SEARCH_ROWS = 300;
 
-function emptyMessage(query: string, tab: AgentTab): string {
+/** How many rows the plain list draws at a time; scrolling to the end draws more. */
+const LIST_ROWS_STEP = 200;
+
+function emptyMessage(query: string, tab: AgentTab, project: ModalProject | null): string {
   if (query.trim()) return `No agents match “${query.trim()}”`;
+  if (project) return `Nothing in ${project.name} here.`;
   if (tab === "open") return "No open agents.";
   if (tab === "closed") return "No closed agents.";
   return "No agents found.";
@@ -211,6 +273,8 @@ export function AgentsModal(props: AgentsModalProps) {
   const shouldPulse = useAgentPulse();
   const [tab, setTab] = useState<AgentTab>("all");
   const [query, setQuery] = useState("");
+  const [projectFilter, setProjectFilter] = useState<ModalProject | null>(null);
+  const [listLimit, setListLimit] = useState(LIST_ROWS_STEP);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [renameTarget, setRenameTarget] = useState<{ id: string; token: number } | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
@@ -219,43 +283,49 @@ export function AgentsModal(props: AgentsModalProps) {
 
   const searching = query.trim() !== "";
   const search = useAgentSearch(open ? query : "");
+  const disk = useModalSessions(open);
   const openPaneIds = useOpenPaneIds(open);
   const liveTitles = useCleanPaneTitles(open && searching);
   const projects = useProjectStore((s) => s.projects);
 
-  // Each opening starts from an empty search.
+  // Each opening starts from an empty search over every project.
   useEffect(() => {
-    if (open) setQuery("");
+    if (!open) return;
+    setQuery("");
+    setProjectFilter(null);
+    setListLimit(LIST_ROWS_STEP);
   }, [open]);
 
-  const allRows = useMemo(
+  const tabRows = useMemo(
     () =>
       agentsModalRows({
         storeAgents: agents,
         searchAgents: search.agents,
+        knownAgents: disk.knownAgents,
+        sessions: disk.sessions,
+        projects,
         query,
         tab,
         openPaneIds,
         liveTitles,
       }),
-    [agents, search.agents, query, tab, openPaneIds, liveTitles],
+    [agents, search.agents, disk.knownAgents, disk.sessions, projects, query, tab, openPaneIds, liveTitles],
   );
-  const rows = searching ? allRows.slice(0, MAX_SEARCH_ROWS) : allRows;
+  const chips = useMemo(() => projectChips(tabRows, projectFilter), [tabRows, projectFilter]);
+  const allRows = useMemo(
+    () => (projectFilter ? tabRows.filter((r) => r.project.key === projectFilter.key) : tabRows),
+    [tabRows, projectFilter],
+  );
+  const rows = allRows.slice(0, searching ? MAX_SEARCH_ROWS : listLimit);
 
-  const colorStyles = useMemo(() => {
-    const byId = new Map<string, CSSProperties | undefined>();
-    for (const p of projects) byId.set(p.id, projectColorStyle(p.color));
-    return byId;
-  }, [projects]);
-
-  // The highlight follows its agent; when that agent leaves the list (a new
-  // search, another tab) it falls back to the first row.
+  // The highlight follows its row; when that row leaves the list (a new
+  // search, another tab or project) it falls back to the first row.
   const highlighted =
-    rows.find((a) => a.id === highlightedId) ?? rows[0] ?? null;
+    rows.find((r) => r.id === highlightedId) ?? rows[0] ?? null;
 
-  const scrollToRow = useCallback((agentId: string) => {
+  const scrollToRow = useCallback((rowId: string) => {
     document
-      .getElementById(rowDomId(agentId))
+      .getElementById(rowDomId(rowId))
       ?.scrollIntoView({ block: "nearest" });
   }, []);
 
@@ -270,18 +340,31 @@ export function AgentsModal(props: AgentsModalProps) {
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
 
   const { forget } = search;
+  const { forget: forgetKnown, rename: renameKnown } = disk;
   const handleRemove = useCallback(
     (agentId: string) => {
       void removeAgent(agentId);
       forget(agentId);
+      forgetKnown(agentId);
       focusSearch();
     },
-    [removeAgent, forget, focusSearch],
+    [removeAgent, forget, forgetKnown, focusSearch],
   );
 
+  const handleRename = useCallback(
+    (agentId: string, name: string) => {
+      void renameAgent(agentId, name);
+      renameKnown(agentId, name);
+    },
+    [renameAgent, renameKnown],
+  );
+
+  // Rename, remove and resume act on Agents; a Session from outside Manor
+  // has none of them here.
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
     const index = highlighted ? rows.indexOf(highlighted) : -1;
+    const agent = highlighted?.agent;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const next = rows[e.key === "ArrowDown" ? index + 1 : index - 1];
@@ -290,13 +373,13 @@ export function AgentsModal(props: AgentsModalProps) {
       scrollToRow(next.id);
     } else if (e.key === "Enter" && highlighted) {
       e.preventDefault();
-      handleResume(highlighted);
+      if (agent) handleResume(agent);
     } else if (e.key === "F2" && highlighted) {
       e.preventDefault();
-      setRenameTarget((t) => ({ id: highlighted.id, token: (t?.token ?? 0) + 1 }));
+      if (agent) setRenameTarget((t) => ({ id: agent.id, token: (t?.token ?? 0) + 1 }));
     } else if (e.key === "Backspace" && (e.metaKey || e.ctrlKey) && highlighted) {
       e.preventDefault();
-      handleRemove(highlighted.id);
+      if (agent) handleRemove(agent.id);
     }
   };
 
@@ -307,12 +390,17 @@ export function AgentsModal(props: AgentsModalProps) {
     [onClose],
   );
 
-  // A search asks main for every match at once; only the plain list pages.
-  const listHasMore = !searching && hasMore;
-  const loadMoreRef = useRef(() => loadMoreAgents(agents.length));
-  loadMoreRef.current = () => loadMoreAgents(agents.length);
+  // A search asks main for every match at once and caps what it draws; the
+  // plain list draws a window of rows and pages Agents in from main.
+  const rowsHidden = !searching && allRows.length > rows.length;
+  const listHasMore = !searching && (hasMore || rowsHidden);
+  const loadMoreRef = useRef(() => {});
+  loadMoreRef.current = () => {
+    if (rowsHidden) setListLimit((n) => n + LIST_ROWS_STEP);
+    else void loadMoreAgents(agents.length);
+  };
 
-  // When the bottom sentinel scrolls into view, request the next page.
+  // When the bottom sentinel scrolls into view, draw or request more.
   // The store coalesces overlapping calls and stops once nothing is left,
   // so the observer firing more than once is safe. Rebuilt after every page,
   // even one that adds no row to this tab, so a sentinel still in view asks
@@ -334,13 +422,18 @@ export function AgentsModal(props: AgentsModalProps) {
   }, [open, listHasMore, agents.length, rows.length]);
 
   // Rows arrive newest first, so each date bucket is one contiguous run.
-  const groups: { bucket: DateBucket; agents: AgentInfo[] }[] = [];
-  for (const agent of rows) {
-    const bucket = getDateBucket(agent.createdAt);
+  const groups: { bucket: DateBucket; rows: ModalRow[] }[] = [];
+  for (const row of rows) {
+    const bucket = getDateBucket(row.activityAt);
     const last = groups[groups.length - 1];
-    if (last?.bucket === bucket) last.agents.push(agent);
-    else groups.push({ bucket, agents: [agent] });
+    if (last?.bucket === bucket) last.rows.push(row);
+    else groups.push({ bucket, rows: [row] });
   }
+
+  const pickProject = (project: ModalProject | null) => {
+    setProjectFilter(project);
+    searchRef.current?.focus();
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={handleOpenChange}>
@@ -399,6 +492,39 @@ export function AgentsModal(props: AgentsModalProps) {
             </Dialog.Close>
           </div>
 
+          {chips.length > 0 && (
+            <div className={styles.chips} role="group" aria-label="Project">
+              <button
+                type="button"
+                className={styles.chip}
+                aria-pressed={!projectFilter}
+                data-testid="agents-modal-chip"
+                onClick={() => pickProject(null)}
+              >
+                All projects
+              </button>
+              {chips.map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  className={styles.chip}
+                  style={projectColorStyle(p.color)}
+                  aria-pressed={projectFilter?.key === p.key}
+                  data-testid="agents-modal-chip"
+                  data-project-key={p.key}
+                  onClick={() => pickProject(p)}
+                >
+                  <span
+                    className={styles.projectDot}
+                    data-uncolored={p.color ? undefined : ""}
+                    aria-hidden
+                  />
+                  {p.name}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div
             ref={listRef}
             className={styles.scrollArea}
@@ -412,32 +538,32 @@ export function AgentsModal(props: AgentsModalProps) {
 
             {loaded && rows.length === 0 && (
               <div className={styles.empty} data-testid="agents-modal-empty">
-                {emptyMessage(query, tab)}
+                {emptyMessage(query, tab, projectFilter)}
               </div>
             )}
 
-            {groups.map(({ bucket, agents: bucketAgents }) => (
+            {groups.map(({ bucket, rows: bucketRows }) => (
               <div key={bucket} className={styles.dateGroup} role="group" aria-label={bucket}>
                 <div className={styles.dateGroupHeader}>{bucket}</div>
-                {bucketAgents.map((agent) => (
-                  <AgentViewRow
-                    key={agent.id}
-                    agent={agent}
-                    highlighted={agent.id === highlighted?.id}
-                    colorStyle={agent.projectId ? colorStyles.get(agent.projectId) : undefined}
-                    shouldPulse={shouldPulse(agent)}
-                    renameToken={renameTarget?.id === agent.id ? renameTarget.token : 0}
+                {bucketRows.map((row) => (
+                  <ModalRowView
+                    key={row.id}
+                    row={row}
+                    highlighted={row.id === highlighted?.id}
+                    live={isRowOpen(row, openPaneIds)}
+                    shouldPulse={row.agent ? shouldPulse(row.agent) : false}
+                    renameToken={renameTarget?.id === row.id ? renameTarget.token : 0}
                     onHighlight={setHighlightedId}
                     onRenameDone={focusSearch}
                     onResumeAgent={handleResume}
                     onRemoveAgent={handleRemove}
-                    onRenameAgent={renameAgent}
+                    onRenameAgent={handleRename}
                   />
                 ))}
               </div>
             ))}
 
-            {allRows.length > rows.length && (
+            {searching && allRows.length > rows.length && (
               <div className={styles.loadMore}>
                 Showing the first {MAX_SEARCH_ROWS} matches. Keep typing to narrow them.
               </div>

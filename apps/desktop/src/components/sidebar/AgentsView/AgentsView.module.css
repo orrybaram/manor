@@ -138,16 +138,14 @@
   padding-top: 8px;
 }
 
-/* The left edge carries the project's color; uncolored projects keep a
-   transparent edge so every row's content starts at the same x. */
+/* One line: project dot, title, live status (in a pane only), age. */
 .agentRow {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 30px;
-  padding: 4px 8px 4px 9px;
-  border-left: 3px solid transparent;
-  border-radius: 0 6px 6px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   color: var(--text-primary);
@@ -157,8 +155,9 @@
   font-family: inherit;
 }
 
-.agentRow[data-colored] {
-  border-left-color: var(--project-color);
+/* A Session found on disk: nothing to resume here yet. */
+.agentRow[data-outside] {
+  cursor: default;
 }
 
 .agentRow[data-highlighted] {
@@ -197,18 +196,64 @@
   z-index: 102;
 }
 
-.agentProject {
-  font-size: 11px;
-  color: var(--text-dim);
+/* A project's color as a dot; a hollow ring for an uncolored project or a
+   folder that isn't one. */
+.projectDot {
+  display: inline-block;
   flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 88px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--project-color, var(--text-dim));
 }
 
-.agentRow[data-colored] .agentProject {
-  color: var(--project-color);
+.projectDot[data-uncolored] {
+  background: transparent;
+  border: 1.5px solid var(--text-dim);
+}
+
+.outsideMark {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--surface);
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--surface);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  background: var(--surface);
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text-selected);
+  border-color: transparent;
 }
 
 .agentTime {
@@ -334,6 +379,11 @@
 }
 
 :global(:root[data-layout="phone"]) .filterTab {
+  min-height: 36px;
+  font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .chip {
   min-height: 36px;
   font-size: 14px;
 }

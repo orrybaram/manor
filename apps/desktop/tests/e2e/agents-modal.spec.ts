@@ -195,7 +195,7 @@ test("Agents modal: search, arrow keys, Open/Closed, project colors", async ({ w
   await expect(rowNamed(window, "Fix toast stacking on phone")).toBeVisible({ timeout: 10_000 });
   await expect(rowNamed(window, ANCIENT)).toHaveCount(0);
 
-  // Colored projects tint their rows; the uncolored one stays neutral.
+  // Colored projects color their rows' project dot; the uncolored one gets a hollow ring.
   const colored = (name: string) => rowNamed(window, name).evaluate((el) => el.hasAttribute("data-colored"));
   expect(await colored("Fix toast stacking on phone")).toBe(true);
   expect(await colored("Relay: reconnect backoff jitter")).toBe(true);

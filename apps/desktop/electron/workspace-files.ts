@@ -1,5 +1,6 @@
 /**
- * A workspace's files, for the file pane: list, read, write and create.
+ * A workspace's files, for the file pane: list, read, write, create, rename
+ * and delete.
  *
  * Everything runs through the host's `ShellBackend`, never `fs`, so a remote
  * host's workspace is read and written on its own machine exactly as a local
@@ -60,7 +61,7 @@ export type FileFailureReason =
   | "binary"
   /** `write` with an `expectedHash` the file on disk no longer has, or that is gone. */
   | "changed-on-disk"
-  /** `create` of a path that already exists. */
+  /** `create`, or `rename` onto, a path that already exists. */
   | "exists";
 
 /** A refusal, with a message the UI can show as it is. */
@@ -89,6 +90,9 @@ export interface FileListResult {
 export type FileReadResult = { ok: true; content: string; hash: string } | FileFailure;
 
 export type FileWriteResult = { ok: true; hash: string } | FileFailure;
+
+/** What `files.rename` and `files.delete` answer. */
+export type FileMoveResult = { ok: true } | FileFailure;
 
 /** The hash `read`, `write` and `files.changed` all use. */
 export function contentHash(content: string): string {
@@ -206,12 +210,53 @@ mkdir -p -- "$dir" || exit 1
 ( set -C; : > "$f" ) 2>/dev/null || exit ${EXIT.exists}
 `;
 
+/**
+ * Contain `$2`, which must be a file (or a symlink, which is moved or deleted
+ * itself, not what it points at), and keep it as `src`.
+ */
+const CONTAIN_SOURCE = `${CONTAIN}
+[ -e "$f" ] || [ -L "$f" ] || exit ${EXIT.notFound}
+if [ -d "$f" ] && [ ! -L "$f" ]; then exit ${EXIT.notAFile}; fi
+src=$f
+`;
+
+/**
+ * Contain both `$2` and `$3`, refuse a target that exists (unless it is the
+ * source under another case, on a case-insensitive disk), make the target's
+ * folders, and move. `mv -n` never replaces a target that appears meanwhile:
+ * a source still there after it means one did.
+ */
+const RENAME_SCRIPT = `${CONTAIN_SOURCE}
+set -- "$1" "$3"
+${CONTAIN}
+same=
+if [ -e "$f" ] || [ -L "$f" ]; then
+  [ "$src" -ef "$f" ] || exit ${EXIT.exists}
+  same=1
+fi
+dir=$(dirname -- "$f"; echo x); dir=\${dir%??}
+mkdir -p -- "$dir" || exit 1
+d=$(cd -P -- "$dir" 2>/dev/null && pwd -P && echo x) || exit ${EXIT.outside}
+d=\${d%??}
+case "$d/" in "$root"/*) ;; *) exit ${EXIT.outside} ;; esac
+if [ -n "$same" ]; then mv -f -- "$src" "$f" || exit 1; exit 0; fi
+mv -n -- "$src" "$f" || exit 1
+if [ -e "$src" ] || [ -L "$src" ]; then exit ${EXIT.exists}; fi
+`;
+
+/** Contain, then remove the file. */
+const DELETE_SCRIPT = `${CONTAIN_SOURCE}
+rm -f -- "$src" || exit 1
+`;
+
 /** The host-side scripts, for tests that run them past the shape check. */
 export const HOST_SCRIPTS = {
   read: READ_SCRIPT,
   writePrepare: WRITE_PREPARE_SCRIPT,
   writeCommit: WRITE_COMMIT_SCRIPT,
   create: CREATE_SCRIPT,
+  rename: RENAME_SCRIPT,
+  delete: DELETE_SCRIPT,
   /** The exit code for a path that leaves the workspace. */
   outsideExit: EXIT.outside,
 } as const;
@@ -378,6 +423,44 @@ export async function createWorkspaceFile(
     return refusal(err, relPath);
   }
   return { ok: true, hash: contentHash("") };
+}
+
+/**
+ * Move a file of `workspace` to another path in it, making its folders;
+ * `exists` if anything is at `toRelPath` already. Only files (and symlinks)
+ * move, not folders.
+ */
+export async function renameWorkspaceFile(
+  backend: FilesBackend,
+  workspace: string,
+  fromRelPath: string,
+  toRelPath: string,
+): Promise<FileMoveResult> {
+  const refused = shapeRefusal(fromRelPath) ?? shapeRefusal(toRelPath);
+  if (refused) return refused;
+  try {
+    await sh(backend, RENAME_SCRIPT, [workspace, fromRelPath, toRelPath]);
+  } catch (err) {
+    const failed = refusal(err, fromRelPath);
+    return failed.reason === "exists" ? failure("exists", `${toRelPath} already exists`) : failed;
+  }
+  return { ok: true };
+}
+
+/** Delete a file of `workspace` for good: there is no trash on a remote host. Not a folder. */
+export async function deleteWorkspaceFile(
+  backend: FilesBackend,
+  workspace: string,
+  relPath: string,
+): Promise<FileMoveResult> {
+  const refused = shapeRefusal(relPath);
+  if (refused) return refused;
+  try {
+    await sh(backend, DELETE_SCRIPT, [workspace, relPath]);
+  } catch (err) {
+    return refusal(err, relPath);
+  }
+  return { ok: true };
 }
 
 /** `\0`-separated output as entries; a cut-off last one is dropped. */

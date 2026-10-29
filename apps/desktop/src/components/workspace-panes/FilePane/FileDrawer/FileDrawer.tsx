@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import * as ContextMenu from "@radix-ui/react-context-menu";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { buildFileTree } from "../../FileTree/file-tree";
@@ -15,6 +16,8 @@ import { fileIconFor } from "../../FileTree/file-icon";
 import { treeRowIndent } from "../../FileTree/indent";
 import { ipcErrorMessage } from "../../../../lib/ipc-error";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
+import { ConfirmDialog } from "../../../ui/ConfirmDialog/ConfirmDialog";
+import { toast } from "../../../../toast";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
 import { expandedForFiles, visibleTreeRows } from "../drawer-tree";
@@ -28,6 +31,7 @@ import {
 import type { WorkspaceChanges } from "../workspace-changes";
 import { AgentChip } from "../AgentChip";
 import { useFileDrawerLayout } from "./file-drawer-layout";
+import { TreeRowMenu, type MenuTarget } from "./TreeRowMenu";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
@@ -44,9 +48,13 @@ type FileDrawerProps = {
   changes: WorkspaceChanges | null;
   /** The pane's open file, workspace-relative; its folders start open. */
   openFile: string | null;
-  /** Offer "+" (new file). Not on the phone, which only reads. */
-  canCreate: boolean;
+  /** Offer "+" (new file), Rename and Delete. Not on the phone, which only reads. */
+  canWrite: boolean;
+  /** The open file has unsaved edits: it can't be renamed from under them. */
+  openFileDirty: boolean;
   onPick: (path: string) => void;
+  /** A file was renamed from the tree; the pane follows its open file. */
+  onRenamed: (from: string, to: string) => void;
   onClose: () => void;
   /** Its edge: resizes it, and collapses it into the strip. */
   resizeHandle?: ReactNode;
@@ -64,8 +72,10 @@ export function FileDrawer({
   mode,
   changes,
   openFile,
-  canCreate,
+  canWrite,
+  openFileDirty,
   onPick,
+  onRenamed,
   onClose,
   resizeHandle,
 }: FileDrawerProps) {
@@ -104,7 +114,7 @@ export function FileDrawer({
       <div className={styles.head}>
         <span>{mode === "changes" ? "Changed by agents" : "Files"}</span>
         <span className={styles.headSpacer} />
-        {canCreate && (
+        {canWrite && (
           <Tooltip label="New file">
             <button
               type="button"
@@ -137,6 +147,14 @@ export function FileDrawer({
         <ChangesList changes={changes} openFile={openFile} onPick={onPick} />
       ) : listing.data ? (
         <TreeList
+          workspace={workspace}
+          canWrite={canWrite}
+          openFileDirty={openFileDirty}
+          onRenamed={(from, to) => {
+            void queryClient.invalidateQueries({ queryKey });
+            onRenamed(from, to);
+          }}
+          onDeleted={() => void queryClient.invalidateQueries({ queryKey })}
           paths={listing.data.paths}
           truncated={listing.data.truncated}
           changes={changes?.files ?? null}
@@ -154,19 +172,32 @@ export function FileDrawer({
 }
 
 function TreeList({
+  workspace,
+  canWrite,
+  openFileDirty,
+  onRenamed,
+  onDeleted,
   paths,
   truncated,
   changes,
   openFile,
   onPick,
 }: {
+  workspace: FilesWorkspace;
+  canWrite: boolean;
+  openFileDirty: boolean;
+  onRenamed: (from: string, to: string) => void;
+  onDeleted: () => void;
   paths: string[];
   truncated: boolean;
   changes: ReadonlyMap<string, FileChange> | null;
   openFile: string | null;
   onPick: (path: string) => void;
 }) {
-  const tree = useMemo(() => buildFileTree(paths.map((path) => ({ path }))), [paths]);
+  const tree = useMemo(
+    () => buildFileTree(paths.map((path) => ({ path }))),
+    [paths],
+  );
   // Null until the user toggles a folder: until then, the folders of the
   // open file and of the changed files.
   const [toggled, setToggled] = useState<Set<string> | null>(null);
@@ -174,7 +205,10 @@ function TreeList({
     () => toggled ?? expandedForFiles(tree, openFile, changes?.keys() ?? []),
     [toggled, tree, openFile, changes],
   );
-  const dotted = useMemo(() => foldersWithChanges(changes?.keys() ?? []), [changes]);
+  const dotted = useMemo(
+    () => foldersWithChanges(changes?.keys() ?? []),
+    [changes],
+  );
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
@@ -193,6 +227,27 @@ function TreeList({
     if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
   });
 
+  // The row right-clicked, while its menu is open; the file being renamed in
+  // its row; the file waiting on Delete's confirmation.
+  const [menuTarget, setMenuTarget] = useState<MenuTarget | null>(null);
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  // Rename picked from the menu: its input mounts once the menu has closed,
+  // or the menu's focus handling takes the focus back from it.
+  const pendingRename = useRef<string | null>(null);
+
+  const deleteFile = async (path: string) => {
+    try {
+      const result = await window.electronAPI.files.delete(workspace, path);
+      if (!result.ok)
+        toast.error("Couldn't delete the file", { detail: result.message });
+      else onDeleted();
+    } catch (err) {
+      toast.error("Couldn't delete the file", { error: err });
+    }
+    setDeleting(null);
+  };
+
   const toggle = (path: string) =>
     setToggled((prev) => {
       const next = new Set(prev ?? expanded);
@@ -206,53 +261,128 @@ function TreeList({
   }
 
   return (
-    <div ref={scrollRef} className={styles.tree} data-testid="file-pane-tree">
-      <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
-        {virtualizer.getVirtualItems().map((item) => {
-          const row = rows[item.index];
-          return (
-            <div
-              key={`${row.kind}:${row.path}`}
-              className={styles.row}
-              style={{ transform: `translateY(${item.start}px)`, height: rowHeight }}
-              data-testid="file-pane-tree-row"
-              data-kind={row.kind}
-              data-path={row.path}
-            >
-              {row.kind === "dir" ? (
-                <DirRow
-                  name={row.name}
-                  depth={row.depth}
-                  collapsed={!row.expanded}
-                  onToggle={() => toggle(row.path)}
-                  trailing={
-                    dotted.has(row.path) ? (
-                      <span
-                        className={styles.dirDot}
-                        data-testid="file-pane-dir-dot"
-                        title="Holds changed files"
-                      />
-                    ) : undefined
-                  }
-                />
-              ) : (
-                <FileRow
-                  path={row.path}
-                  name={row.name}
-                  depth={row.depth}
-                  change={changes?.get(row.path) ?? null}
-                  selected={row.path === openFile}
-                  onPick={onPick}
-                />
-              )}
+    <ContextMenu.Root onOpenChange={(open) => !open && setMenuTarget(null)}>
+      <ContextMenu.Trigger asChild>
+        <div
+          ref={scrollRef}
+          className={styles.tree}
+          data-testid="file-pane-tree"
+          onContextMenu={(e) => {
+            const row = (e.target as HTMLElement).closest<HTMLElement>(
+              "[data-path]",
+            );
+            const kind = row?.dataset.kind;
+            // Nothing to offer off a row, or on the row being renamed (its input's own menu).
+            if (
+              !row ||
+              (kind !== "file" && kind !== "dir") ||
+              row.dataset.path === renaming
+            ) {
+              e.preventDefault();
+              return;
+            }
+            setMenuTarget({ kind, path: row.dataset.path! });
+          }}
+        >
+          <div
+            style={{ height: virtualizer.getTotalSize(), position: "relative" }}
+          >
+            {virtualizer.getVirtualItems().map((item) => {
+              const row = rows[item.index];
+              return (
+                <div
+                  key={`${row.kind}:${row.path}`}
+                  className={`${styles.row} ${menuTarget?.path === row.path ? styles.rowMenuOpen : ""}`}
+                  style={{
+                    transform: `translateY(${item.start}px)`,
+                    height: rowHeight,
+                  }}
+                  data-testid="file-pane-tree-row"
+                  data-kind={row.kind}
+                  data-path={row.path}
+                >
+                  {row.kind === "dir" ? (
+                    <DirRow
+                      name={row.name}
+                      depth={row.depth}
+                      collapsed={!row.expanded}
+                      onToggle={() => toggle(row.path)}
+                      trailing={
+                        dotted.has(row.path) ? (
+                          <span
+                            className={styles.dirDot}
+                            data-testid="file-pane-dir-dot"
+                            title="Holds changed files"
+                          />
+                        ) : undefined
+                      }
+                    />
+                  ) : row.path === renaming ? (
+                    <RenameInput
+                      workspace={workspace}
+                      path={row.path}
+                      name={row.name}
+                      depth={row.depth}
+                      onRenamed={(to) => {
+                        setRenaming(null);
+                        onRenamed(row.path, to);
+                      }}
+                      onCancel={() => setRenaming(null)}
+                    />
+                  ) : (
+                    <FileRow
+                      path={row.path}
+                      name={row.name}
+                      depth={row.depth}
+                      change={changes?.get(row.path) ?? null}
+                      selected={row.path === openFile}
+                      onPick={onPick}
+                    />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {truncated && (
+            <div className={styles.note}>
+              Showing the first {paths.length.toLocaleString()} files
             </div>
-          );
-        })}
-      </div>
-      {truncated && (
-        <div className={styles.note}>Showing the first {paths.length.toLocaleString()} files</div>
-      )}
-    </div>
+          )}
+        </div>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        {menuTarget && (
+          <TreeRowMenu
+            workspace={workspace}
+            target={menuTarget}
+            canWrite={canWrite}
+            renameBlocked={
+              menuTarget.path === openFile && openFileDirty
+                ? "Save or discard your edits first"
+                : null
+            }
+            onRename={(path) => {
+              pendingRename.current = path;
+            }}
+            onDelete={setDeleting}
+            onClosed={() => {
+              if (pendingRename.current === null) return;
+              setRenaming(pendingRename.current);
+              pendingRename.current = null;
+            }}
+          />
+        )}
+      </ContextMenu.Portal>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={`Delete ${deleting?.slice(deleting.lastIndexOf("/") + 1) ?? ""}?`}
+        description={`${deleting ?? ""} is deleted from the workspace. This can't be undone.`}
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={() => (deleting ? deleteFile(deleting) : undefined)}
+        onCancel={() => setDeleting(null)}
+      />
+    </ContextMenu.Root>
   );
 }
 
@@ -281,7 +411,10 @@ function FileRow({
       data-change={change?.status}
       onClick={() => onPick(path)}
     >
-      {createElement(fileIconFor(path), { size: 12, className: styles.fileIcon })}
+      {createElement(fileIconFor(path), {
+        size: 12,
+        className: styles.fileIcon,
+      })}
       <span className={styles.fileName}>{name}</span>
       {change && <ChangeBadge change={change} />}
     </button>
@@ -311,7 +444,10 @@ function ChangesList({
   onPick: (path: string) => void;
 }) {
   const groups = useMemo(
-    () => (changes ? groupChangesByAuthor(changes.files.values(), changes.authors) : []),
+    () =>
+      changes
+        ? groupChangesByAuthor(changes.files.values(), changes.authors)
+        : [],
     [changes],
   );
   if (!changes) {
@@ -337,7 +473,11 @@ function ChangesList({
           data-testid="file-pane-changes-group"
         >
           <div className={styles.groupHead}>
-            {group.author ? <AgentChip author={group.author} /> : <span className={styles.groupLabel}>Other changes</span>}
+            {group.author ? (
+              <AgentChip author={group.author} />
+            ) : (
+              <span className={styles.groupLabel}>Other changes</span>
+            )}
           </div>
           {group.files.map((change) => {
             const slash = change.path.lastIndexOf("/");
@@ -358,7 +498,10 @@ function ChangesList({
                 data-change={change.status}
                 onClick={() => onPick(change.path)}
               >
-                {createElement(fileIconFor(change.path), { size: 12, className: styles.fileIcon })}
+                {createElement(fileIconFor(change.path), {
+                  size: 12,
+                  className: styles.fileIcon,
+                })}
                 <span className={styles.fileName}>{name}</span>
                 {folder && <span className={styles.folder}>{folder}</span>}
                 <ChangeBadge change={change} />
@@ -371,6 +514,93 @@ function ChangesList({
   );
 }
 
+/**
+ * A file's row turned into its name, editable: Enter moves it with
+ * `files.rename` (a name with `/` in it moves it into that folder, relative to
+ * its own), Escape or leaving the row lets it go.
+ */
+function RenameInput({
+  workspace,
+  path,
+  name,
+  depth,
+  onRenamed,
+  onCancel,
+}: {
+  workspace: FilesWorkspace;
+  path: string;
+  name: string;
+  depth: number;
+  onRenamed: (to: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(name);
+  const [busy, setBusy] = useState(false);
+
+  const rename = async () => {
+    const next = value.trim();
+    if (busy) return;
+    if (!next || next === name) {
+      onCancel();
+      return;
+    }
+    if (next.endsWith("/")) return;
+    const to = folderOf(path) + next;
+    setBusy(true);
+    try {
+      const result = await window.electronAPI.files.rename(workspace, path, to);
+      if (result.ok) {
+        onRenamed(to);
+        return;
+      }
+      toast.error("Couldn't rename the file", { detail: result.message });
+    } catch (err) {
+      toast.error("Couldn't rename the file", { error: err });
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div
+      className={styles.renameRow}
+      style={{ paddingLeft: treeRowIndent(depth) }}
+    >
+      {createElement(fileIconFor(path), {
+        size: 12,
+        className: styles.fileIcon,
+      })}
+      <input
+        className={styles.renameInput}
+        data-testid="file-pane-rename-input"
+        aria-label={`Rename ${name}`}
+        value={value}
+        spellCheck={false}
+        autoFocus
+        disabled={busy}
+        onFocus={(e) => {
+          // The name without its extension, as Finder and VS Code select it.
+          const dot = name.lastIndexOf(".");
+          e.currentTarget.setSelectionRange(0, dot > 0 ? dot : name.length);
+        }}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={() => {
+          if (!busy) onCancel();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            void rename();
+          } else if (e.key === "Escape") {
+            // The drawer would close on it; here it only drops the rename.
+            e.preventDefault();
+            e.stopPropagation();
+            onCancel();
+          }
+        }}
+      />
+    </div>
+  );
+}
 
 /** "src/app/" for "src/app/main.ts"; empty at the root or with nothing open. */
 function folderOf(path: string | null): string {
@@ -448,7 +678,11 @@ function NewFileInput({
         }}
       />
       {error !== null && (
-        <div className={styles.newFileError} data-testid="file-pane-new-file-error" role="alert">
+        <div
+          className={styles.newFileError}
+          data-testid="file-pane-new-file-error"
+          role="alert"
+        >
           {error}
         </div>
       )}

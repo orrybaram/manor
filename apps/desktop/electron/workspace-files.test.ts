@@ -9,11 +9,13 @@ import { createRemoteExec, type RemoteExecClient } from "./backend/remote-exec";
 import {
   contentHash,
   createWorkspaceFile,
+  deleteWorkspaceFile,
   HOST_SCRIPTS,
   isSafeRelPath,
   listWorkspaceFiles,
   MAX_FILE_BYTES,
   readWorkspaceFile,
+  renameWorkspaceFile,
   writeWorkspaceFile,
   type FilesBackend,
 } from "./workspace-files";
@@ -381,6 +383,65 @@ describe.each(backends)("workspace files on a %s host", (_name, makeBackend) => 
       await writeFile(path.join(ws, "a.ts"), "keep");
       expect(await createWorkspaceFile(backend, ws, "a.ts")).toMatchObject({ ok: false, reason: "exists" });
       expect(await readFile(path.join(ws, "a.ts"), "utf-8")).toBe("keep");
+    });
+  });
+
+  describe("rename", () => {
+    it("moves a file, making the target's folders", async () => {
+      await writeFile(path.join(ws, "a.ts"), "x");
+      expect(await renameWorkspaceFile(backend, ws, "a.ts", "b/c/d.ts")).toEqual({ ok: true });
+      expect(await readdir(ws)).toEqual(["b"]);
+      expect(await readFile(path.join(ws, "b/c/d.ts"), "utf-8")).toBe("x");
+    });
+
+    it("refuses a target that exists, leaving both as they were", async () => {
+      await writeFile(path.join(ws, "a.ts"), "a");
+      await writeFile(path.join(ws, "b.ts"), "b");
+      expect(await renameWorkspaceFile(backend, ws, "a.ts", "b.ts")).toMatchObject({
+        ok: false,
+        reason: "exists",
+        message: "b.ts already exists",
+      });
+      expect(await readFile(path.join(ws, "a.ts"), "utf-8")).toBe("a");
+      expect(await readFile(path.join(ws, "b.ts"), "utf-8")).toBe("b");
+    });
+
+    it("refuses a missing source, a folder, and a target outside", async () => {
+      await mkdir(path.join(ws, "dir"));
+      await writeFile(path.join(ws, "a.ts"), "a");
+      expect(await renameWorkspaceFile(backend, ws, "nope.ts", "b.ts")).toMatchObject({ reason: "not-found" });
+      expect(await renameWorkspaceFile(backend, ws, "dir", "dir2")).toMatchObject({ reason: "not-a-file" });
+      expect(await renameWorkspaceFile(backend, ws, "a.ts", "../a.ts")).toMatchObject({ reason: "outside-workspace" });
+      await symlink(tmp, path.join(ws, "up"));
+      expect(await renameWorkspaceFile(backend, ws, "a.ts", "up/a.ts")).toMatchObject({ reason: "outside-workspace" });
+      expect(await readFile(path.join(ws, "a.ts"), "utf-8")).toBe("a");
+    });
+  });
+
+  describe("delete", () => {
+    it("deletes a file", async () => {
+      await mkdir(path.join(ws, "a"));
+      await writeFile(path.join(ws, "a/b.ts"), "x");
+      expect(await deleteWorkspaceFile(backend, ws, "a/b.ts")).toEqual({ ok: true });
+      expect(await readdir(path.join(ws, "a"))).toEqual([]);
+    });
+
+    it("deletes a symlink, not what it points at", async () => {
+      await writeFile(path.join(ws, "real.ts"), "x");
+      await symlink(path.join(ws, "real.ts"), path.join(ws, "link.ts"));
+      expect(await deleteWorkspaceFile(backend, ws, "link.ts")).toEqual({ ok: true });
+      expect(await readdir(ws)).toEqual(["real.ts"]);
+    });
+
+    it("refuses a missing file, a folder, and a path outside", async () => {
+      await mkdir(path.join(ws, "dir"));
+      expect(await deleteWorkspaceFile(backend, ws, "nope.ts")).toMatchObject({ reason: "not-found" });
+      expect(await deleteWorkspaceFile(backend, ws, "dir")).toMatchObject({ reason: "not-a-file" });
+      expect(await deleteWorkspaceFile(backend, ws, "../x")).toMatchObject({ reason: "outside-workspace" });
+      await writeFile(path.join(tmp, "outside.ts"), "keep");
+      await symlink(tmp, path.join(ws, "up"));
+      expect(await deleteWorkspaceFile(backend, ws, "up/outside.ts")).toMatchObject({ reason: "outside-workspace" });
+      expect(await readFile(path.join(tmp, "outside.ts"), "utf-8")).toBe("keep");
     });
   });
 });

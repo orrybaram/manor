@@ -7,7 +7,15 @@ import { localExec } from "../../../backend/exec";
 import { contentHash } from "../../../workspace-files";
 import { DESKTOP_TABLE } from "../../handlers";
 import { localCtx } from "../../method";
-import { filesCreate, filesList, filesRead, filesWrite, type FilesDeps } from "../files";
+import {
+  filesCreate,
+  filesDelete,
+  filesList,
+  filesRead,
+  filesRename,
+  filesWrite,
+  type FilesDeps,
+} from "../files";
 
 let tmp: string;
 
@@ -37,6 +45,8 @@ describe("files handlers", () => {
     expect(await filesRead(ctx, ws, "a.ts")).toMatchObject({ ok: true, content: "hi" });
     expect(await filesWrite(ctx, ws, "a.ts", "bye", contentHash("hi"))).toMatchObject({ ok: true });
     expect(await filesCreate(ctx, ws, "b.ts")).toMatchObject({ ok: true });
+    expect(await filesRename(ctx, ws, "b.ts", "c.ts")).toMatchObject({ ok: true });
+    expect(await filesDelete(ctx, ws, "c.ts")).toMatchObject({ ok: true });
 
     expect(get.mock.calls.every(([hostId]) => hostId === "box")).toBe(true);
     expect(await readFile(path.join(tmp, "a.ts"), "utf-8")).toBe("bye");
@@ -65,6 +75,8 @@ describe("files handlers", () => {
   it("mark the writes mutating and the reads not", () => {
     expect(DESKTOP_TABLE.mutating.has("files.write")).toBe(true);
     expect(DESKTOP_TABLE.mutating.has("files.create")).toBe(true);
+    expect(DESKTOP_TABLE.mutating.has("files.rename")).toBe(true);
+    expect(DESKTOP_TABLE.mutating.has("files.delete")).toBe(true);
     expect(DESKTOP_TABLE.mutating.has("files.list")).toBe(false);
     expect(DESKTOP_TABLE.mutating.has("files.read")).toBe(false);
   });

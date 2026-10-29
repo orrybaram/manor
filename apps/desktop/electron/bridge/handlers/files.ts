@@ -17,7 +17,7 @@
  * `files.changed` to that caller alone. A connection that closes watches
  * nothing (`createManorServer`).
  *
- * `write` and `create` change what every other viewer of the host sees, and
+ * `write`, `create`, `rename` and `delete` change what every other viewer of the host sees, and
  * what its agents work on, so they are `mutating`; the reads are not.
  */
 
@@ -26,10 +26,13 @@ import type { ServerDeps } from "../../ipc/types";
 import type { HostPath } from "../../per-host-poller";
 import {
   createWorkspaceFile,
+  deleteWorkspaceFile,
   listWorkspaceFiles,
   readWorkspaceFile,
+  renameWorkspaceFile,
   writeWorkspaceFile,
   type FileListResult,
+  type FileMoveResult,
   type FileReadResult,
   type FileWriteResult,
 } from "../../workspace-files";
@@ -100,6 +103,28 @@ export function filesCreate(
   return createWorkspaceFile(backendFor(ctx, workspace), workspace.path, relPath);
 }
 
+export function filesRename(
+  ctx: HandlerCtx<FilesDeps>,
+  workspace: HostPath,
+  fromRelPath: string,
+  toRelPath: string,
+): Promise<FileMoveResult> {
+  assertWorkspace(workspace, "workspace");
+  assertString(fromRelPath, "fromRelPath");
+  assertString(toRelPath, "toRelPath");
+  return renameWorkspaceFile(backendFor(ctx, workspace), workspace.path, fromRelPath, toRelPath);
+}
+
+export function filesDelete(
+  ctx: HandlerCtx<FilesDeps>,
+  workspace: HostPath,
+  relPath: string,
+): Promise<FileMoveResult> {
+  assertWorkspace(workspace, "workspace");
+  assertString(relPath, "relPath");
+  return deleteWorkspaceFile(backendFor(ctx, workspace), workspace.path, relPath);
+}
+
 /**
  * The caller has `relPaths` of `workspace` open: they replace what it had
  * open there, and `files.changed` comes to it when one changes on disk. An
@@ -128,6 +153,8 @@ export const files = {
   read: method(filesRead),
   write: method(filesWrite, { mutating: true }),
   create: method(filesCreate, { mutating: true }),
+  rename: method(filesRename, { mutating: true }),
+  delete: method(filesDelete, { mutating: true }),
   // What a viewer does to its own view: not audited.
   watch: method(filesWatch),
   unwatch: method(filesUnwatch),

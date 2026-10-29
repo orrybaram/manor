@@ -101,6 +101,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     [workspacePath, hostId],
   );
   const changes = useWorkspaceChanges(workspace);
+  const openFileDirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
   const changeCount = changes?.files.size ?? 0;
 
   // A split rebuilds the pane, so its edits outlive the mount; a closed
@@ -175,8 +176,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           mode={drawer}
           changes={changes}
           openFile={filePath}
-          canCreate={!readOnly}
+          canWrite={!readOnly}
+          openFileDirty={openFileDirty}
           onPick={pick}
+          onRenamed={(from, to) => {
+            if (from === filePath) setPaneFilePath(paneId, to);
+          }}
           onClose={() => setDrawer(null)}
           resizeHandle={floating ? undefined : openHandle}
         />

@@ -168,8 +168,10 @@ export interface ManorServerOptions<D extends BridgeServerDeps> {
   clocks?: Pick<AgentStatusDriverDeps, "monoClock" | "wallClock" | "log">;
   /**
    * Why this server may not fire automations now, or null when it may. A
-   * host server passes its ownership: before adoption it owns no projects,
-   * and each due run is recorded as failed with this reason.
+   * host server passes its ownership and its daemon: before adoption it owns
+   * no projects, and before the daemon's first connect it can start no
+   * session. While blocked, due occurrences wait (nothing is recorded) and
+   * Run now refuses with this reason.
    */
   automationsBlocked?: () => string | null;
   /** The automation scheduler's clock and tick, for tests. */
@@ -190,9 +192,12 @@ export interface ManorServer<D extends BridgeServerDeps> extends ManorCore {
   /**
    * The shared part of a shutdown: flush what is pending, let go of the
    * bridge, the chat mirror and every remote host. The caller stops its own
-   * listeners before and flushes its own stores after.
+   * listeners before and flushes its own stores after. Its work is done
+   * when it returns; the promise is for automation fires still in flight,
+   * settled (their runs on disk) or given up on after a few seconds. Never
+   * rejects.
    */
-  stop(): void;
+  stop(): Promise<void>;
 }
 
 export function createManorServer<D extends BridgeServerDeps>(
@@ -713,8 +718,8 @@ export function createManorServer<D extends BridgeServerDeps>(
       workspaceOps,
       // Read at call time: `core.shared` is built below.
       startAgent: (workspacePath, options) => startAgentInWorkspace(core.shared, workspacePath, options),
-      ...(opts.automationsBlocked ? { blocked: opts.automationsBlocked } : {}),
     }),
+    ...(opts.automationsBlocked ? { blocked: opts.automationsBlocked } : {}),
     isAgentBusy: (run) => isRunAgentBusy({ agentManager, agentStatus: agentStatusDriver }, run),
     log: (message) => console.warn(`[automations] ${message}`),
     ...(opts.automationClock?.tickMs !== undefined ? { tickMs: opts.automationClock.tickMs } : {}),
@@ -962,7 +967,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     },
 
     stop() {
-      automationScheduler.stop();
+      const automationFires = automationScheduler.stop();
       agentPipeline.ingestion.stop();
       // The layout debounce is 300ms; a stop inside that window must not be
       // the one that loses the user's arrangement.
@@ -982,10 +987,28 @@ export function createManorServer<D extends BridgeServerDeps>(
       void backendRegistry.disconnectAll();
       killAllActivePushes();
       statsStore.flushNow();
-      automationStore.flushNow();
+      // A fire still in flight records its run after this: written at once,
+      // with no debounce left to run.
+      automationStore.writeThrough();
       agentActivityStore.flush();
       agentActivityStore.dispose();
       worktreeWatcher.dispose();
+      return settledWithin(automationFires, AUTOMATION_STOP_TIMEOUT_MS);
     },
   };
+}
+
+/** How long a shutdown waits for automation fires still in flight. */
+const AUTOMATION_STOP_TIMEOUT_MS = 5_000;
+
+/** `promise` settled, or `ms` passed: whichever is first. Never rejects. */
+function settledWithin(promise: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise.then(() => undefined, () => undefined), timeout]).finally(() =>
+    clearTimeout(timer),
+  );
 }

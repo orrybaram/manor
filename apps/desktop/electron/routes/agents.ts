@@ -263,7 +263,17 @@ const AGENT_ORIGIN: LayoutOrigin = { kind: "route", id: "agents" };
 export async function startAgentInWorkspace(
   deps: ServerRouteDeps,
   workspacePath: string,
-  options: { prompt?: string; agentCommand?: string; hostId?: string } = {},
+  options: {
+    prompt?: string;
+    agentCommand?: string;
+    hostId?: string;
+    /**
+     * The pane's project and workspace, registered before the pane starts —
+     * what a renderer registers once it mounts the pane. For a launch nobody
+     * may look at (an automation's run), so its Agent still gets a project.
+     */
+    paneContext?: RoutePaneContext;
+  } = {},
 ): Promise<StartAgentResult> {
   // A workspace on an adopted host is in its server's layout, which spawns
   // the agent there.
@@ -291,6 +301,7 @@ export async function startAgentInWorkspace(
   // this.
   const prompt = options.prompt?.trim() ? options.prompt : undefined;
   store.pendingCommands.set(paneId, base, "agent-startup", { prompt });
+  if (options.paneContext) deps.paneContextMap.set(paneId, options.paneContext);
 
   const result = await store.apply(
     key,
@@ -299,10 +310,14 @@ export async function startAgentInWorkspace(
   );
   if ("error" in result) {
     store.pendingCommands.clear(paneId);
+    if (options.paneContext) deps.paneContextMap.delete(paneId);
     return { ok: false, status: 400, error: result.error };
   }
   return { ok: true, data: { tabId: tab.id, paneId, workspacePath } };
 }
+
+/** What `paneContextMap` holds per pane. */
+type RoutePaneContext = Parameters<ServerRouteDeps["paneContextMap"]["set"]>[1];
 
 /** `startAgentInWorkspace` for a workspace on an adopted host: its own `POST /agents`. */
 async function startAgentOnHost(

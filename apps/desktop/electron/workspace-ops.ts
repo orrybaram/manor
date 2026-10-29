@@ -38,13 +38,14 @@ export interface WorkspaceOpsDeps {
   /**
    * Run a new workspace's setup script (`ServerLaunches.runSetupScript`),
    * telling `origin` how it goes. Resolves once its tab exists; never
-   * rejects.
+   * rejects. `onEnd`, when given, hears once how the script ended.
    */
   runSetupScript: (
     workspacePath: string,
     script: string,
     hostId: HostId,
     origin: string | null,
+    onEnd?: (end: SetupScriptEnd) => void,
   ) => Promise<void>;
   /**
    * Tell `origin` how a worktree removal is going: `projects.removeWorktreeProgress`
@@ -53,6 +54,15 @@ export interface WorkspaceOpsDeps {
    */
   publishRemoveProgress?: (origin: string | null, step: string) => void;
 }
+
+/**
+ * How a setup script ended: its shell exited (null code: it was killed), it
+ * never started, or it was still running when the wait gave up.
+ */
+export type SetupScriptEnd =
+  | { status: "exited"; exitCode: number | null }
+  | { status: "failed"; error: string }
+  | { status: "timed-out" };
 
 export interface CreateWorkspaceRequest {
   projectId: string;
@@ -68,6 +78,17 @@ export interface CreateWorkspaceRequest {
    * broadcasts it.
    */
   origin?: string | null;
+  /**
+   * False for a workspace the user didn't make by hand (an automation's
+   * run): the group's last-used host — the New Workspace dialog's default —
+   * stays as it was. True when omitted.
+   */
+  recordLastUsedHost?: boolean;
+  /**
+   * Wait for the setup script to end, up to `timeoutMs`, and say how in the
+   * result's `setup`. Omitted, create resolves once the script's tab exists.
+   */
+  awaitSetup?: { timeoutMs: number };
 }
 
 export interface WorkspaceOps {
@@ -77,9 +98,12 @@ export interface WorkspaceOps {
    * not found); `workspacePath` is the created workspace's path, or null if
    * it could not be found in `project`.
    */
-  create(
-    req: CreateWorkspaceRequest,
-  ): Promise<{ project: ProjectInfo | null; workspacePath: string | null }>;
+  create(req: CreateWorkspaceRequest): Promise<{
+    project: ProjectInfo | null;
+    workspacePath: string | null;
+    /** How the setup script ended: only with `awaitSetup`, when one ran. */
+    setup?: SetupScriptEnd;
+  }>;
   /**
    * Create one workspace per issue in `project`. Takes the project itself,
    * not its id: the manager's results do not carry it, and the last-used
@@ -125,6 +149,15 @@ function recordLastUsedHost(
   }
 }
 
+/** `ended`, or `timed-out` once `timeoutMs` passes first. */
+function within(ended: Promise<SetupScriptEnd>, timeoutMs: number): Promise<SetupScriptEnd> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<SetupScriptEnd>((resolve) => {
+    timer = setTimeout(() => resolve({ status: "timed-out" }), timeoutMs);
+  });
+  return Promise.race([ended, timedOut]).finally(() => clearTimeout(timer));
+}
+
 export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
   const { projectManager: pm, statsStore } = deps;
 
@@ -140,7 +173,7 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       });
       if (project) {
         statsStore.record("worktreesCreated");
-        recordLastUsedHost(pm, project);
+        if (req.recordLastUsedHost !== false) recordLastUsedHost(pm, project);
       }
       deps.notifyProjectsChanged();
 
@@ -154,12 +187,20 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       const workspacePath = created?.path ?? null;
 
       if (project?.worktreeStartScript && workspacePath) {
-        await deps.runSetupScript(
+        const args = [
           workspacePath,
           project.worktreeStartScript,
           project.hostId,
           req.origin ?? null,
-        );
+        ] as const;
+        if (req.awaitSetup) {
+          let onEnd!: (end: SetupScriptEnd) => void;
+          const ended = new Promise<SetupScriptEnd>((resolve) => (onEnd = resolve));
+          await deps.runSetupScript(...args, onEnd);
+          const setup = await within(ended, req.awaitSetup.timeoutMs);
+          return { project, workspacePath, setup };
+        }
+        await deps.runSetupScript(...args);
       }
       return { project, workspacePath };
     },

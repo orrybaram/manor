@@ -44,6 +44,7 @@ import type { LayoutOrigin } from "../../src/lib/layout/protocol";
 import { parseWorkspaceKey, workspaceKey } from "../../src/lib/workspace-key";
 import type { PtyCreateResult, PtyFailure } from "../../src/electron.d";
 import type { SetupProgressEvent } from "../../src/store/project-store";
+import type { SetupScriptEnd } from "../workspace-ops";
 
 /** What spawning a pane reads: the backends, the layout and its queue. */
 export type SpawnPaneDeps = Pick<
@@ -366,12 +367,15 @@ export interface ServerLaunches extends PaneLauncher {
    * Run a new workspace's setup script in a tab of its own: the tab's pane
    * queues `script; exit` and starts on the server at once. Resolves once
    * the tab exists. Never rejects: a script that cannot start is logged.
+   * `onEnd`, when given, hears once how it ended: its shell's exit, or
+   * that it could not start.
    */
   runSetupScript(
     workspacePath: string,
     script: string,
     hostId: HostId,
     origin: string | null,
+    onEnd?: (end: SetupScriptEnd) => void,
   ): Promise<void>;
   /**
    * A session's shell exited: a setup script's tab closes with it, and a
@@ -384,7 +388,12 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
   /** Setup scripts still running, by pane: whom to tell when each ends. */
   const setups = new Map<
     string,
-    { key: string; workspacePath: string; origin: string | null }
+    {
+      key: string;
+      workspacePath: string;
+      origin: string | null;
+      onEnd?: (end: SetupScriptEnd) => void;
+    }
   >();
 
   /**
@@ -420,7 +429,7 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
       });
     },
 
-    async runSetupScript(workspacePath, script, hostId, origin) {
+    async runSetupScript(workspacePath, script, hostId, origin, onEnd) {
       const { layoutStore } = deps.spawnDeps();
       const key = workspaceKey(hostId, workspacePath);
       const paneId = newPaneId();
@@ -428,7 +437,7 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
       // Queued before the tab exists, for `pendingCommands`' ordering: the
       // apply is what launches it.
       layoutStore.pendingCommands.set(paneId, `${script}; exit`, "setup-script");
-      setups.set(paneId, { key, workspacePath, origin });
+      setups.set(paneId, { key, workspacePath, origin, ...(onEnd ? { onEnd } : {}) });
       deps.publishSetupProgress(origin, {
         step: "setup-script",
         status: "in-progress",
@@ -446,6 +455,7 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
         layoutStore.pendingCommands.clear(paneId);
         setups.delete(paneId);
         console.error(`[setup] could not run the setup script in ${workspacePath}:`, err);
+        onEnd?.({ status: "failed", error: errorMessage(err) });
         deps.publishSetupProgress(origin, {
           step: "setup-script",
           status: "error",
@@ -459,6 +469,7 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
       const setup = setups.get(paneId);
       if (!setup) return;
       setups.delete(paneId);
+      setup.onEnd?.({ status: "exited", exitCode: exitCode ?? null });
       // `script; exit` ends the shell with the script's own status. A shell
       // that was killed (no code) is not a failed script.
       deps.publishSetupProgress(

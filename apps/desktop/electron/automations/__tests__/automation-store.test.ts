@@ -221,6 +221,21 @@ describe("AutomationStore", () => {
     }
   });
 
+  it("writes every change at once after writeThrough, so a run recorded during shutdown is kept", () => {
+    const a = store.create(input(), NOW);
+    store.writeThrough();
+    store.appendRun({
+      automationId: a.id,
+      scheduledFor: new Date(NOW).toISOString(),
+      firedAt: new Date(NOW).toISOString(),
+      trigger: "schedule",
+      outcome: "started",
+      paneId: "pane-1",
+    });
+    // No flush and no timer: it is on disk already.
+    expect(new AutomationStore(tmpDir).runs(a.id).map((r) => r.paneId)).toEqual(["pane-1"]);
+  });
+
   it("tells listeners about every change", () => {
     const changes: AutomationStoreChange[] = [];
     const off = store.onChange((c) => changes.push(c));

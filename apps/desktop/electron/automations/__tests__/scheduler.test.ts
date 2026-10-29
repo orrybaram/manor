@@ -386,6 +386,66 @@ describe("AutomationScheduler", () => {
     expect(clear).toHaveBeenCalledWith("handle");
   });
 
+  it("while blocked, decides nothing and writes nothing; once unblocked the usual rules apply", async () => {
+    let blocked: string | null = "This host is being set up";
+    const log = vi.fn();
+    const gated = new AutomationScheduler({
+      store,
+      now: () => nowMs,
+      fire,
+      isAgentBusy: () => false,
+      blocked: () => blocked,
+      log,
+    });
+    const a = create({ schedule: { cron: "* * * * *", timezone: "UTC" } });
+    const before = { ...store.get(a.id)! };
+    for (let i = 1; i <= 60; i++) {
+      nowMs = Date.parse("2026-10-29T08:00:05.000Z") + i * MINUTE;
+      await gated.tick();
+    }
+    expect(fire).not.toHaveBeenCalled();
+    expect(store.runs(a.id)).toEqual([]);
+    expect(store.get(a.id)).toEqual(before);
+    expect(new AutomationStore(tmpDir).get(a.id)).toBeNull(); // nothing flushed either
+    expect(log).toHaveBeenCalledTimes(1);
+    await expect(gated.runNow(a.id)).rejects.toThrow("This host is being set up");
+    expect(fire).not.toHaveBeenCalled();
+
+    blocked = null;
+    await gated.tick();
+    expect(fire).toHaveBeenCalledTimes(1);
+    expect(store.runs(a.id).map((r) => [r.outcome, r.reason ?? null, r.missedCount ?? null])).toEqual([
+      ["started", null, null],
+      ["skipped", "missed", 59],
+    ]);
+  });
+
+  it("stop resolves once the fires in flight, Run now's included, have recorded their runs", async () => {
+    const a = create();
+    const releases: Array<() => void> = [];
+    fire.mockImplementation(
+      () =>
+        new Promise<AutomationFireResult>((resolve) => {
+          releases.push(() => resolve({ outcome: "started", agentId: `agent-${releases.length}` }));
+        }),
+    );
+    nowMs = Date.parse("2026-10-29T09:00:05.000Z");
+    void scheduler.tick();
+    void scheduler.runNow(a.id);
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+
+    let stopped = false;
+    const stopping = scheduler.stop().then(() => (stopped = true));
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+    releases[0]();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(stopped).toBe(false);
+    releases[1]();
+    await stopping;
+    expect(store.runs(a.id).filter((r) => r.outcome === "started")).toHaveLength(2);
+  });
+
   it("reads the cron in the automation's timezone, across DST", async () => {
     // Weekdays at 09:00 New York: 13:00 UTC in summer time (EDT), 14:00 in winter (EST).
     const schedule = { cron: "0 9 * * 1-5", timezone: "America/New_York" };

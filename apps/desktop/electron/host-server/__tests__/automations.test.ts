@@ -1,7 +1,8 @@
 /**
  * Automations on a host server: one due when the server starts fires there,
  * with no owner connected — a workspace in the project's Automations folder
- * and an agent session in it — and nothing fires before adoption.
+ * and an agent session in it — and nothing fires, or is used up, before
+ * adoption or before the daemon is first reached.
  * See `harness.ts`.
  */
 
@@ -9,7 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-import { eventually, useHostServerHarness, withGit, withoutGit } from "./harness";
+import { eventually, HarnessTransport, useHostServerHarness, withGit, withoutGit } from "./harness";
 import type { ProjectInfo } from "../../projects/types";
 import type { Automation, AutomationRun } from "../../../src/lib/automations";
 
@@ -113,16 +114,54 @@ describe("automations on a host server", () => {
     expect(folders.map((f) => f.name)).toEqual(["Automations"]);
   }, 30_000);
 
-  it("fires nothing before the host is adopted", async () => {
+  it("fires nothing before the host is adopted, and leaves the occurrence for after", async () => {
     withoutGit();
-    writeDueAutomation(h.paths.dataDir, "project-1");
+    const automation = writeDueAutomation(h.paths.dataDir, "project-1");
+    await h.serve();
+    // A few ticks' worth: nothing recorded, the occurrence not used up.
+    await new Promise((r) => setTimeout(r, 300));
+    await h.stop();
+    expect(readRuns(h.paths.dataDir)).toEqual([]);
+    const saved = JSON.parse(fs.readFileSync(path.join(h.paths.dataDir, "automations.json"), "utf-8")) as {
+      automations: Automation[];
+    };
+    expect(saved.automations[0].lastScheduledFor).toBe(automation.lastScheduledFor);
+    expect(h.daemon.getHost().listSessions().map((s) => s.sessionId)).toEqual(["pane-1"]);
+
+    // Adopted, it is still due and is judged as usual (the project isn't here).
+    h.adopt();
     await h.serve();
     const [run] = await eventually(
       () => firedRuns(h.paths.dataDir),
       (runs) => runs.length > 0,
       "the run on disk",
     );
-    expect(run).toMatchObject({ outcome: "failed", reason: "error", detail: "This host is being set up" });
-    expect(h.daemon.getHost().listSessions().map((s) => s.sessionId)).toEqual(["pane-1"]);
+    expect(run).toMatchObject({ outcome: "failed", reason: "project-missing", trigger: "schedule" });
+  });
+
+  it("fires nothing until the daemon is first reached and caught up", async () => {
+    withoutGit();
+    h.adopt();
+    writeDueAutomation(h.paths.dataDir, "project-1");
+    let reach!: () => void;
+    const reached = new Promise<void>((r) => (reach = r));
+    const gated = new (class extends HarnessTransport {
+      override async connectControl() {
+        await reached;
+        return super.connectControl();
+      }
+    })(h.daemon);
+    const serving = h.serve({ transport: gated });
+    await new Promise((r) => setTimeout(r, 300));
+    expect(readRuns(h.paths.dataDir)).toEqual([]);
+
+    reach();
+    await serving;
+    const [run] = await eventually(
+      () => firedRuns(h.paths.dataDir),
+      (runs) => runs.length > 0,
+      "the run on disk",
+    );
+    expect(run).toMatchObject({ outcome: "failed", reason: "project-missing", trigger: "schedule" });
   });
 });

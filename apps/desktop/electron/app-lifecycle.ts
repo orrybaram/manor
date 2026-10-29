@@ -771,12 +771,14 @@ export function initApp(devTitle: string | null): void {
     // stop then disposes the surface they attached to.
     step("ws bridge", () => wsBridge?.dispose());
     step("ipc bridge", () => ipcBridge.dispose());
-    step("server", () => server.stop());
+    // Resolves once automation fires in flight have recorded their runs (or
+    // a few seconds passed); the rest of the shutdown doesn't wait on it.
+    const serverDown = step("server", () => server.stop()) ?? Promise.resolve();
     step("portless", () => portlessManager.stop());
     step("prewarm", () => prewarmManager.dispose().catch(() => {}));
     // Background `docker pull` / `docker build` a template fix started.
     step("template jobs", () => stopTemplateJobs());
     // Last: the relay is down by now, so nothing new joins the queues.
-    return flushSealedStores(remoteControlDown);
+    return Promise.all([flushSealedStores(remoteControlDown), serverDown]).then(() => undefined);
   }
 }

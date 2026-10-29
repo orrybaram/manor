@@ -64,7 +64,6 @@ describe("createFireRun", () => {
     projectManager: { getProjects: ReturnType<typeof vi.fn>; createWorkspaceFolder: ReturnType<typeof vi.fn> };
     workspaceOps: { create: ReturnType<typeof vi.fn> };
     startAgent: ReturnType<typeof vi.fn>;
-    blocked?: () => string | null;
   };
   let fire: ReturnType<typeof createFireRun>;
 
@@ -115,17 +114,6 @@ describe("createFireRun", () => {
     expect(await fire(automation(), ctx)).toMatchObject({ outcome: "failed", reason: "project-missing" });
   });
 
-  it("fires nothing while the server is blocked", async () => {
-    deps.blocked = () => "This host is being set up";
-    fire = createFireRun(deps as unknown as FireRunDeps);
-    expect(await fire(automation(), ctx)).toEqual({
-      outcome: "failed",
-      reason: "error",
-      detail: "This host is being set up",
-    });
-    expect(deps.projectManager.getProjects).not.toHaveBeenCalled();
-  });
-
   it("makes a workspace in the Automations folder, named in the automation's timezone", async () => {
     const result = await fire(automation(), ctx);
     expect(deps.projectManager.createWorkspaceFolder).toHaveBeenCalledWith("project-1", "Automations", null);
@@ -134,6 +122,9 @@ describe("createFireRun", () => {
       name: "Nightly triage · Oct 29 09:00",
       branch: "auto/nightly-triage-20261029-0900",
       folderId: "folder-1",
+      // A run isn't the user picking a host, and its agent waits for setup.
+      recordLastUsedHost: false,
+      awaitSetup: { timeoutMs: 10 * 60_000 },
     });
     expect(result).toEqual({
       outcome: "started",
@@ -207,6 +198,13 @@ describe("createFireRun", () => {
     expect(deps.startAgent).toHaveBeenCalledWith("/worktrees/inbox", {
       prompt: "Triage new issues",
       agentCommand: "claude --dangerously-skip-permissions",
+      // Seeded for the pane, so its Agent has a project with no renderer.
+      paneContext: {
+        projectId: "project-1",
+        projectName: "manor",
+        workspacePath: "/worktrees/inbox",
+        agentCommand: "claude --dangerously-skip-permissions",
+      },
     });
     expect(result).toEqual({ outcome: "started", workspacePath: "/worktrees/inbox", paneId: "pane-1" });
   });
@@ -224,19 +222,57 @@ describe("createFireRun", () => {
   it("uses the project's agent command when it starts the same kind", async () => {
     projects = [project({ agentCommand: "claude --model opus" })];
     await fire(automation(), ctx);
-    expect(deps.startAgent).toHaveBeenCalledWith(expect.any(String), {
-      prompt: "Triage new issues",
-      agentCommand: "claude --model opus",
-    });
+    expect(deps.startAgent).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ prompt: "Triage new issues", agentCommand: "claude --model opus" }),
+    );
   });
 
   it("uses the kind's default command when the project's starts another kind", async () => {
     projects = [project({ agentCommand: "claude --model opus" })];
     await fire(automation({ agentKind: "codex" }), ctx);
-    expect(deps.startAgent).toHaveBeenCalledWith(expect.any(String), {
-      prompt: "Triage new issues",
-      agentCommand: "codex --yolo",
-    });
+    expect(deps.startAgent).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ prompt: "Triage new issues", agentCommand: "codex --yolo" }),
+    );
+  });
+
+  it("starts the agent only after the setup script exits cleanly", async () => {
+    const created = deps.workspaceOps.create.getMockImplementation() as (req: unknown) => Promise<object>;
+    deps.workspaceOps.create.mockImplementationOnce(async (req) => ({
+      ...(await created(req)),
+      setup: { status: "exited", exitCode: 0 },
+    }));
+    expect(await fire(automation(), ctx)).toMatchObject({ outcome: "started" });
+    expect(deps.startAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails as workspace-failed, starting no agent, when the setup script fails", async () => {
+    const created = deps.workspaceOps.create.getMockImplementation() as (req: unknown) => Promise<object>;
+    const path = "/worktrees/auto/nightly-triage-20261029-0900";
+    for (const [setup, detail] of [
+      [{ status: "exited", exitCode: 1 }, "Setup script exited with code 1"],
+      [{ status: "failed", error: "no layout" }, "Setup script could not start: no layout"],
+      [{ status: "timed-out" }, "Setup script was still running after 10 minutes"],
+    ] as const) {
+      projects = [project()];
+      deps.workspaceOps.create.mockImplementationOnce(async (req) => ({ ...(await created(req)), setup }));
+      expect(await fire(automation(), ctx)).toEqual({
+        outcome: "failed",
+        reason: "workspace-failed",
+        detail,
+        workspacePath: path,
+      });
+    }
+    expect(deps.startAgent).not.toHaveBeenCalled();
+  });
+
+  it("waits for setup as long as setupTimeoutMs says", async () => {
+    fire = createFireRun({ ...(deps as unknown as FireRunDeps), setupTimeoutMs: 1_000 });
+    await fire(automation(), ctx);
+    expect(deps.workspaceOps.create).toHaveBeenCalledWith(
+      expect.objectContaining({ awaitSetup: { timeoutMs: 1_000 } }),
+    );
   });
 
   it("records a failed start with its error and the workspace it was for", async () => {

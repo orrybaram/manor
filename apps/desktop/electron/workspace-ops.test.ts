@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { createWorkspaceOps } from "./workspace-ops";
+import { createWorkspaceOps, type SetupScriptEnd } from "./workspace-ops";
 import type {
   ProjectInfo,
   ProjectGroupInfo,
@@ -22,7 +22,13 @@ function makeDeps() {
     statsStore: { record: vi.fn() },
     notifyProjectsChanged: vi.fn(),
     runSetupScript: vi.fn<
-      (path: string, script: string, hostId: string, origin: string | null) => Promise<void>
+      (
+        path: string,
+        script: string,
+        hostId: string,
+        origin: string | null,
+        onEnd?: (end: SetupScriptEnd) => void,
+      ) => Promise<void>
     >(async () => {}),
   };
 }
@@ -164,6 +170,43 @@ describe("create", () => {
     deps.projectManager.createWorktree.mockResolvedValue(project({ workspaces: [created] }));
     await ops.create({ projectId: "p1", name: "Feature" });
     expect(deps.projectManager.setGroupLastUsedHost).not.toHaveBeenCalled();
+  });
+
+  it("records no last-used host when asked not to (an automation's run)", async () => {
+    deps.projectManager.createWorktree.mockResolvedValue(project({ group: GROUP, workspaces: [created] }));
+    await ops.create({ projectId: "p1", name: "Feature", recordLastUsedHost: false });
+    expect(deps.projectManager.setGroupLastUsedHost).not.toHaveBeenCalled();
+    expect(deps.statsStore.record).toHaveBeenCalledWith("worktreesCreated");
+  });
+
+  it("with awaitSetup, answers once the setup script exits, with its code", async () => {
+    deps.projectManager.createWorktree.mockResolvedValue(
+      project({ worktreeStartScript: "pnpm i", workspaces: [created] }),
+    );
+    let end!: (e: SetupScriptEnd) => void;
+    deps.runSetupScript.mockImplementation(async (_p, _s, _h, _o, onEnd) => {
+      end = onEnd!;
+    });
+    let answered = false;
+    const done = ops
+      .create({ projectId: "p1", name: "Feature", awaitSetup: { timeoutMs: 60_000 } })
+      .then((r) => {
+        answered = true;
+        return r;
+      });
+    await vi.waitFor(() => expect(end).toBeDefined());
+    await new Promise((r) => setTimeout(r, 0));
+    expect(answered).toBe(false);
+    end({ status: "exited", exitCode: 2 });
+    expect((await done).setup).toEqual({ status: "exited", exitCode: 2 });
+  });
+
+  it("with awaitSetup, gives up waiting after its timeout", async () => {
+    deps.projectManager.createWorktree.mockResolvedValue(
+      project({ worktreeStartScript: "pnpm i", workspaces: [created] }),
+    );
+    const result = await ops.create({ projectId: "p1", name: "Feature", awaitSetup: { timeoutMs: 5 } });
+    expect(result.setup).toEqual({ status: "timed-out" });
   });
 
   it("logs, rather than throws, when the last-used host write fails", async () => {

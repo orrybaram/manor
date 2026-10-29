@@ -93,6 +93,17 @@ describe("isRunAgentBusy", () => {
     expect(isRunAgentBusy(deps([done], { "pane-1": "working" }), run())).toBe(false);
   });
 
+  it("is not busy once its Agent is retired, though its last status was working", () => {
+    const retired = agent({ status: "completed", paneId: null, lastAgentStatus: "working" });
+    expect(isRunAgentBusy(deps([retired]), run({ agentId: "agent-1" }))).toBe(false);
+    expect(isRunAgentBusy(deps([retired], { "pane-1": "working" }), run({ agentId: "agent-1" }))).toBe(false);
+  });
+
+  it("is not busy when its active Agent's pane has no live state (the daemon died, or a restart)", () => {
+    const stale = agent({ status: "active", lastAgentStatus: "working" });
+    expect(isRunAgentBusy(deps([stale]), run())).toBe(false);
+  });
+
   it("is not busy for a run with no pane", () => {
     expect(isRunAgentBusy(deps([]), run({ paneId: undefined }))).toBe(false);
   });

@@ -54,6 +54,8 @@ export class AutomationStore {
   /** automationId → runs, newest first. */
   private runsById = new Map<string, AutomationRun[]>();
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Set by `writeThrough()`: every change is written at once. */
+  private writesThrough = false;
   private listeners = new Set<(change: AutomationStoreChange) => void>();
   private log: (message: string) => void;
 
@@ -136,6 +138,14 @@ export class AutomationStore {
   }
 
   private saveState(): void {
+    if (this.writesThrough) {
+      try {
+        this.flushNow();
+      } catch (err) {
+        this.log(`saving automations failed: ${errorMessage(err)}`);
+      }
+      return;
+    }
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer);
     }
@@ -159,6 +169,16 @@ export class AutomationStore {
       this.saveTimer = null;
     }
     this.writeStateSync();
+  }
+
+  /**
+   * From now on every change is written synchronously, not debounced. For a
+   * shutdown: a fire still in flight after the last flush records its run
+   * with no timer left to save it.
+   */
+  writeThrough(): void {
+    this.writesThrough = true;
+    this.flushNow();
   }
 
   /** Subscribes to every change; returns the unsubscribe. */

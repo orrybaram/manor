@@ -30,6 +30,15 @@ import { nextRunAfter, occurrencesBetween } from "./cron";
  * others. A `lastScheduledFor` in the future (the clock went back) is pulled
  * back to now rather than stalling the automation until the clock catches up.
  *
+ * While `blocked()` names a reason (a host server not yet adopted, or whose
+ * daemon has not connected), a tick decides nothing and writes nothing: the
+ * occurrences wait, and once unblocked the usual on-time, grace and missed
+ * rules apply to them.
+ *
+ * `stop()` ends the ticks and resolves once the fires still in flight
+ * (Run now's included) have recorded their runs, so a shutdown can wait for
+ * them before its last save.
+ *
  * Firing itself (workspace, agent) is the injected `fire`; the clock and the
  * timer are injected too, so tests drive it with a fake clock.
  */
@@ -49,6 +58,11 @@ export interface AutomationSchedulerDeps {
   ) => Promise<AutomationFireResult>;
   /** Whether a started run's agent is still thinking or working. */
   isAgentBusy: (run: AutomationRun) => boolean;
+  /**
+   * Why nothing may fire now, or null when it may. While blocked, ticks
+   * leave every automation as it is and Run now throws with this reason.
+   */
+  blocked?: () => string | null;
   log?: (message: string) => void;
   setInterval?: (fn: () => void, ms: number) => unknown;
   clearInterval?: (handle: unknown) => void;
@@ -64,6 +78,10 @@ export class AutomationScheduler {
   private timer: unknown = null;
   /** automationId → how many of its fires are still running. */
   private firing = new Map<string, number>();
+  /** Every fire still running, for `stop()` to wait on. */
+  private inFlight = new Set<Promise<unknown>>();
+  /** The last blocked reason logged, so a long block logs once. */
+  private loggedBlock: string | null = null;
 
   constructor(deps: AutomationSchedulerDeps) {
     this.deps = deps;
@@ -78,12 +96,18 @@ export class AutomationScheduler {
     this.timer = setIntervalFn(() => void this.tick(), this.tickMs);
   }
 
-  stop(): void {
-    if (this.timer === null) return;
-    const clearIntervalFn =
-      this.deps.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
-    clearIntervalFn(this.timer);
-    this.timer = null;
+  /**
+   * Ends the ticks. Resolves once every fire in flight now has settled and
+   * recorded its run; never rejects.
+   */
+  stop(): Promise<void> {
+    if (this.timer !== null) {
+      const clearIntervalFn =
+        this.deps.clearInterval ?? ((handle) => clearInterval(handle as ReturnType<typeof setInterval>));
+      clearIntervalFn(this.timer);
+      this.timer = null;
+    }
+    return Promise.allSettled([...this.inFlight]).then(() => undefined);
   }
 
   /**
@@ -91,6 +115,15 @@ export class AutomationScheduler {
    * concurrently. Resolves once this tick's fires have settled.
    */
   async tick(): Promise<void> {
+    // Checked before anything is decided: a blocked tick must not consume
+    // occurrences or write a run.
+    const blocked = this.deps.blocked?.() ?? null;
+    if (blocked) {
+      if (this.loggedBlock !== blocked) this.deps.log?.(`not firing: ${blocked}`);
+      this.loggedBlock = blocked;
+      return;
+    }
+    this.loggedBlock = null;
     const now = this.deps.now();
     const fires: Array<() => Promise<unknown>> = [];
     for (const automation of this.deps.store.list()) {
@@ -193,11 +226,14 @@ export class AutomationScheduler {
   /**
    * Fires now as `manual`, whether or not the automation is enabled or its
    * previous run is still working. Leaves `lastScheduledFor` alone, so the
-   * schedule carries on as before. Throws for an unknown id.
+   * schedule carries on as before. Throws for an unknown id, and with the
+   * reason while the scheduler is blocked.
    */
   async runNow(id: string): Promise<AutomationRun> {
     const automation = this.deps.store.get(id);
     if (!automation) throw new Error(`No automation ${id}`);
+    const blocked = this.deps.blocked?.() ?? null;
+    if (blocked) throw new Error(blocked);
     const iso = new Date(this.deps.now()).toISOString();
     return this.fireAndRecord(automation, "manual", iso, iso);
   }
@@ -212,7 +248,19 @@ export class AutomationScheduler {
     this.deps.store.setScheduled(id, automation.lastScheduledFor, nextRunAt);
   }
 
-  private async fireAndRecord(
+  private fireAndRecord(
+    automation: Automation,
+    trigger: AutomationRunTrigger,
+    scheduledFor: string,
+    firedAt: string,
+  ): Promise<AutomationRun> {
+    const fired = this.fireAndRecordNow(automation, trigger, scheduledFor, firedAt);
+    this.inFlight.add(fired);
+    void fired.finally(() => this.inFlight.delete(fired)).catch(() => {});
+    return fired;
+  }
+
+  private async fireAndRecordNow(
     automation: Automation,
     trigger: AutomationRunTrigger,
     scheduledFor: string,

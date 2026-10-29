@@ -38,10 +38,20 @@ export function runAgent(deps: RunAgentDeps, run: Pick<AutomationRun, "agentId" 
   return { agent, status: asStatus(agent.lastAgentStatus) };
 }
 
-/** The overlap rule: a run's agent is busy while it is thinking or working. Needs input is not busy. */
+/**
+ * The overlap rule: a run's agent is busy while its pane says it is thinking
+ * or working. Needs input is not busy. Only the live pane state counts: an
+ * Agent that is no longer active (retired, completed) is never busy, whatever
+ * its last status was, and neither is an active one whose pane has no live
+ * state (its daemon died, or the server restarted) — otherwise a status
+ * frozen at "working" would skip every later occurrence.
+ */
 export function isRunAgentBusy(deps: RunAgentDeps, run: AutomationRun): boolean {
-  const { status } = runAgent(deps, run);
-  return status === "thinking" || status === "working";
+  const agent = findAgent(deps, run);
+  if (agent && agent.status !== "active") return false;
+  const paneId = agent ? agent.paneId : run.paneId;
+  const live = paneId ? (deps.agentStatus.getPaneState(paneId)?.status ?? null) : null;
+  return live === "thinking" || live === "working";
 }
 
 function findAgent(deps: RunAgentDeps, run: Pick<AutomationRun, "agentId" | "paneId" | "firedAt">): AgentInfo | null {

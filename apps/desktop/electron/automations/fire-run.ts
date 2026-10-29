@@ -1,7 +1,7 @@
 import { getConnector, getConnectorForCommand } from "../agent-connectors";
 import type { ProjectInfo, ProjectManager } from "../persistence";
 import type { StartAgentResult } from "../routes/agents";
-import type { WorkspaceOps } from "../workspace-ops";
+import type { SetupScriptEnd, WorkspaceOps } from "../workspace-ops";
 import type { Automation } from "../../src/lib/automations";
 import { LOCAL_HOST_ID } from "../../src/lib/workspace-key";
 import { branchesEqual, toDirSlug } from "../../src/utils/branch-name";
@@ -21,10 +21,18 @@ import type { AutomationFireResult, AutomationSchedulerDeps } from "./scheduler"
  * one the automation reuses), the agent command for its kind, and an agent
  * tab started in it (`startAgentInWorkspace`). Each step that fails returns
  * a failed run with its reason, never a throw the scheduler has to guess at.
+ *
+ * A run is not the user making a workspace: it leaves the New Workspace
+ * dialog's default host alone, and waits for the project's setup script to
+ * finish before the agent starts (a manual create starts it alongside).
+ * Whether this server may fire at all is the scheduler's `blocked`.
  */
 
 /** The sidebar folder a project's run workspaces go in. */
 const AUTOMATIONS_FOLDER = "Automations";
+
+/** How long a run waits for a new workspace's setup script. */
+const DEFAULT_SETUP_TIMEOUT_MS = 10 * 60_000;
 
 export interface FireRunDeps {
   projectManager: Pick<ProjectManager, "getProjects" | "createWorkspaceFolder">;
@@ -32,20 +40,19 @@ export interface FireRunDeps {
   /** `startAgentInWorkspace` over this server's deps. */
   startAgent: (
     workspacePath: string,
-    options: { prompt: string; agentCommand: string },
+    options: {
+      prompt: string;
+      agentCommand: string;
+      /** Registered for the agent's pane before it starts: nobody may mount it. */
+      paneContext: { projectId: string; projectName: string; workspacePath: string; agentCommand: string };
+    },
   ) => Promise<StartAgentResult>;
-  /**
-   * Why this server may not fire now, or null when it may: a host server not
-   * yet adopted by its desktop owns no projects to fire for.
-   */
-  blocked?: () => string | null;
+  /** How long to wait for a new workspace's setup script; 10 minutes by default. */
+  setupTimeoutMs?: number;
 }
 
 export function createFireRun(deps: FireRunDeps): AutomationSchedulerDeps["fire"] {
   return async (automation, { scheduledFor }) => {
-    const blocked = deps.blocked?.();
-    if (blocked) return { outcome: "failed", reason: "error", detail: blocked };
-
     const project = (await deps.projectManager.getProjects()).find(
       (p) => p.id === automation.projectId && p.hostId === LOCAL_HOST_ID,
     );
@@ -61,7 +68,11 @@ export function createFireRun(deps: FireRunDeps): AutomationSchedulerDeps["fire"
     if ("failed" in workspace) return workspace.failed;
 
     const agentCommand = agentCommandFor(automation, project);
-    const started = await deps.startAgent(workspace.path, { prompt: automation.prompt, agentCommand });
+    const started = await deps.startAgent(workspace.path, {
+      prompt: automation.prompt,
+      agentCommand,
+      paneContext: { projectId: project.id, projectName: project.name, workspacePath: workspace.path, agentCommand },
+    });
     if (!started.ok) {
       return { outcome: "failed", reason: "error", detail: started.error, workspacePath: workspace.path };
     }
@@ -92,13 +103,22 @@ async function resolveWorkspace(
   const { name, branch } = runWorkspaceNames(automation, project, scheduledFor);
   try {
     const folderId = automationsFolderId(deps, project);
-    const { workspacePath } = await deps.workspaceOps.create({
+    const setupTimeoutMs = deps.setupTimeoutMs ?? DEFAULT_SETUP_TIMEOUT_MS;
+    const { workspacePath, setup } = await deps.workspaceOps.create({
       projectId: project.id,
       name,
       branch,
       folderId,
+      recordLastUsedHost: false,
+      awaitSetup: { timeoutMs: setupTimeoutMs },
     });
-    if (workspacePath) return { path: workspacePath };
+    if (workspacePath) {
+      const setupFailed = setup ? setupFailure(setup, setupTimeoutMs) : null;
+      if (setupFailed) {
+        return { failed: { outcome: "failed", reason: "workspace-failed", detail: setupFailed, workspacePath } };
+      }
+      return { path: workspacePath };
+    }
     return {
       failed: { outcome: "failed", reason: "workspace-failed", detail: `Could not create the workspace ${name}` },
     };
@@ -111,6 +131,26 @@ async function resolveWorkspace(
       },
     };
   }
+}
+
+/** Why the setup script failed the run, or null when it finished cleanly (or was killed). */
+function setupFailure(setup: SetupScriptEnd, timeoutMs: number): string | null {
+  switch (setup.status) {
+    case "exited":
+      return setup.exitCode ? `Setup script exited with code ${setup.exitCode}` : null;
+    case "failed":
+      return `Setup script could not start: ${setup.error}`;
+    case "timed-out":
+      return `Setup script was still running after ${formatDuration(timeoutMs)}`;
+  }
+}
+
+function formatDuration(ms: number): string {
+  if (ms >= 60_000 && ms % 60_000 === 0) {
+    const minutes = ms / 60_000;
+    return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+  }
+  return `${Math.round(ms / 1000)}s`;
 }
 
 /** The project's top-level "Automations" folder, made on its first run. */

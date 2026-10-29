@@ -1,0 +1,8 @@
+{"timestamp":"2026-10-20T09:15:00.120Z","type":"session_meta","payload":{"id":"aaaaaaaa-0000-4000-8000-00000000000a","timestamp":"2026-10-20T09:15:00.100Z","cwd":"/home/u/work/my-repo","originator":"codex_cli_rs","cli_version":"0.130.0","source":"cli","model_provider":"openai","base_instructions":{"text":"You are Codex."},"git":{"commit_hash":"abc123","branch":"fix/toast","repository_url":"git@github.com:u/my-repo.git"}}}
+{"timestamp":"2026-10-20T09:15:00.200Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /home/u/work/my-repo\n\nUse pnpm."}]}}
+{"timestamp":"2026-10-20T09:15:00.210Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/home/u/work/my-repo</cwd>\n</environment_context>"}]}}
+{"timestamp":"2026-10-20T09:15:00.300Z","type":"turn_context","payload":{"cwd":"/home/u/work/my-repo","model":"gpt-5.4-codex","approval_policy":"on-request"}}
+{"timestamp":"2026-10-20T09:15:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Fix the flaky toast test"}]}}
+{"timestamp":"2026-10-20T09:15:01.001Z","type":"event_msg","payload":{"type":"user_message","message":"Fix the flaky toast test","images":[]}}
+{"timestamp":"2026-10-20T09:15:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Looking at it."}]}}
+{"timestamp":"2026-10-20T09:20:00.000Z","type":"turn_context","payload":{"cwd":"/home/u/work/my-repo","model":"gpt-5.5-codex","approval_policy":"on-request"}}

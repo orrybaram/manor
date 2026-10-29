@@ -1,0 +1,2 @@
+{"timestamp":"2026-10-21T10:00:00.000Z","type":"session_meta","payload":{"id":"bbbbbbbb-0000-4000-8000-00000000000b","forked_from_id":"aaaaaaaa-0000-4000-8000-00000000000a","timestamp":"2026-10-21T10:00:00.000Z","cwd":"/home/u/work/my-repo","source":"cli","git":{"branch":"main"}}}
+{"timestamp":"2026-10-21T10:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Write the scanner\n\nwith tests"}]}}

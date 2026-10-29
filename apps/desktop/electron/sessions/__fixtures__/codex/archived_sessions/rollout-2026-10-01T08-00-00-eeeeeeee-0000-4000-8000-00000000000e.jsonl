@@ -1,0 +1,2 @@
+{"timestamp":"2026-10-01T08:00:00.000Z","type":"session_meta","payload":{"id":"eeeeeeee-0000-4000-8000-00000000000e","timestamp":"2026-10-01T08:00:00.000Z","cwd":"/home/u/old","source":"vscode"}}
+{"timestamp":"2026-10-01T08:00:01.000Z","type":"event_msg","payload":{"type":"user_message","message":"Why does the dropdown clip?"}}

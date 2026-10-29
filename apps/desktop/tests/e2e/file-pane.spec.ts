@@ -976,7 +976,7 @@ test("Source Control commits what's staged with the message typed above it", asy
   await message.fill("Add the helper");
   await expect(commit).toHaveAttribute("aria-disabled", "true");
 
-  await changes.locator("button[aria-expanded]").hover();
+  await changes.locator("button[aria-expanded]").first().hover();
   await changes.locator('[data-testid="scm-stage-all"]').click();
   await expect(staged.locator('[data-testid="scm-row"]')).toHaveCount(1);
   await expect(commit).not.toHaveAttribute("aria-disabled", "true");

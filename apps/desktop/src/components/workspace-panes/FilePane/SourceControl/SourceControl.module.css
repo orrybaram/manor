@@ -143,15 +143,12 @@
   text-decoration: line-through;
 }
 
-.folder {
-  /* Gives way long before the name does. */
-  flex: 0 1000 auto;
+.dirName {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-dim);
-  font-size: 11px;
+  color: var(--text-primary);
 }
 
 /* Shown on hover or keyboard focus; always on a touch screen, which has no hover. */

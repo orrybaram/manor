@@ -17,10 +17,12 @@ import dialogStyles from "../sidebar/dialogs.module.css";
  */
 export function RelayConfirmDialog(props: {
   open: boolean;
+  /** Whether it comes back on at launch, which changes the last sentence. */
+  startOnLaunch?: boolean;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
-  const { open, onCancel, onConfirm } = props;
+  const { open, startOnLaunch = false, onCancel, onConfirm } = props;
   return (
     <Dialog.Root
       open={open}
@@ -41,7 +43,10 @@ export function RelayConfirmDialog(props: {
             Paired devices get full control through the Manor relay: your
             sessions and their scrollback (often API keys and source code),
             terminals and workspaces. Traffic is end-to-end encrypted, so the
-            relay can&apos;t read it. Turns off when Manor quits.
+            relay can&apos;t read it.{" "}
+            {startOnLaunch
+              ? "Turns on again each time Manor opens."
+              : "Turns off when Manor quits."}
           </Dialog.Description>
           <div className={dialogStyles.confirmActions}>
             <Button variant="secondary" onClick={onCancel}>

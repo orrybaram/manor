@@ -1,4 +1,4 @@
-import { addErrorToast } from "../store/toast-store";
+import { toast } from "../toast";
 import { useHostStore } from "../store/host-store";
 import { hostLabel } from "./hosts";
 
@@ -19,11 +19,11 @@ export async function forwardedUrl(url: string, hostId: string): Promise<string 
     } catch {
       // not a URL; name it as given
     }
-    addErrorToast(
-      `port-forward-${hostId}-${where}`,
-      `Couldn't forward ${where} from ${hostLabel(hostId, useHostStore.getState().hosts)}`,
-      err,
-    );
+    const host = hostLabel(hostId, useHostStore.getState().hosts);
+    toast.error(`Couldn't forward ${where} from ${host}`, {
+      id: `port-forward-${hostId}-${where}`,
+      error: err,
+    });
     return null;
   }
 }
@@ -33,6 +33,9 @@ export async function killPortWithToast(pid: number, port: number): Promise<void
   try {
     await window.electronAPI.ports.killPort(pid);
   } catch (err) {
-    addErrorToast(`kill-port-${pid}`, `Couldn't stop the process on port ${port}`, err);
+    toast.error(`Couldn't stop the process on port ${port}`, {
+      id: `kill-port-${pid}`,
+      error: err,
+    });
   }
 }

@@ -7,9 +7,8 @@ import {
 import { find } from "../lib/workspace-directory";
 import type { WorkspaceMoveResult } from "../lib/layout/protocol";
 import { useProjectStore } from "./project-store";
-import { addErrorToast, useToastStore } from "./toast-store";
+import { toast } from "../toast";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
-import { ipcErrorMessage } from "../lib/ipc-error";
 
 /**
  * Remove a worktree: immediately switch away (if active), clean up tabs,
@@ -24,7 +23,6 @@ export function removeWorktreeWithToast(
 ): Promise<boolean> {
   const appStore = useAppStore.getState();
   const projectStore = useProjectStore.getState();
-  const toastStore = useToastStore.getState();
 
   const key = workspaceKey(project.hostId, ws.path);
   const wasActive = selectActiveWorkspaceKey(appStore) === key;
@@ -47,37 +45,23 @@ export function removeWorktreeWithToast(
   appStore.removeWorkspaceLayout(key);
 
   // Show toast and run async teardown
-  const toastId = `toast-${crypto.randomUUID()}`;
-  toastStore.addToast({
-    id: toastId,
-    message: `Removing "${wsName}"…`,
-    status: "loading",
-    detail: "Starting…",
-  });
+  const removing = toast.progress(`Removing "${wsName}"…`, { detail: "Starting…" });
 
   // Listen for progress updates from the main process
   const unsubProgress = window.electronAPI.projects.onRemoveWorktreeProgress(
     (step) => {
-      toastStore.updateToast(toastId, { detail: step });
+      removing.update({ detail: step });
     },
   );
 
   return projectStore
     .removeWorktree(project.id, ws.path, deleteBranch)
     .then(() => {
-      toastStore.updateToast(toastId, {
-        message: `Removed "${wsName}"`,
-        status: "success",
-        detail: undefined,
-      });
+      removing.succeed(`Removed "${wsName}"`);
       return true;
     })
     .catch((err: unknown) => {
-      toastStore.updateToast(toastId, {
-        message: `Failed to remove "${wsName}"`,
-        status: "error",
-        detail: ipcErrorMessage(err),
-      });
+      removing.fail(`Failed to remove "${wsName}"`, err);
       return false;
     })
     .finally(() => {
@@ -143,7 +127,6 @@ export function quickMergeWorktreeWithToast(
 ): void {
   const appStore = useAppStore.getState();
   const projectStore = useProjectStore.getState();
-  const toastStore = useToastStore.getState();
 
   const key = workspaceKey(project.hostId, ws.path);
   const wasActive = selectActiveWorkspaceKey(appStore) === key;
@@ -165,27 +148,15 @@ export function quickMergeWorktreeWithToast(
   appStore.removeWorkspaceLayout(key);
 
   // Show toast and run async merge
-  const toastId = `toast-${crypto.randomUUID()}`;
-  toastStore.addToast({
-    id: toastId,
-    message: `Merging "${wsName}" into ${project.defaultBranch}...`,
-    status: "loading",
-  });
+  const merging = toast.progress(`Merging "${wsName}" into ${project.defaultBranch}...`);
 
   projectStore
     .quickMergeWorktree(project.id, ws.path)
     .then(() => {
-      toastStore.updateToast(toastId, {
-        message: `Merged "${wsName}" into ${project.defaultBranch}`,
-        status: "success",
-      });
+      merging.succeed(`Merged "${wsName}" into ${project.defaultBranch}`);
     })
-    .catch((err) => {
-      toastStore.updateToast(toastId, {
-        message: `Failed to merge "${wsName}"`,
-        status: "error",
-        detail: String(err),
-      });
+    .catch((err: unknown) => {
+      merging.fail(`Failed to merge "${wsName}"`, err, { detail: String(err) });
     });
 }
 
@@ -260,11 +231,14 @@ export async function moveToWorkspaceAndFollow(
   try {
     result = await window.electronAPI.layout.moveToWorkspace(from, target, to);
   } catch (err) {
-    addErrorToast("move-to-workspace", "Couldn't move to that workspace", err);
+    toast.error("Couldn't move to that workspace", { id: "move-to-workspace", error: err });
     return;
   }
   if ("error" in result) {
-    addErrorToast("move-to-workspace", "Couldn't move to that workspace", result.error);
+    toast.error("Couldn't move to that workspace", {
+      id: "move-to-workspace",
+      error: result.error,
+    });
     return;
   }
   const key = result.workspacePath as WorkspaceKey;

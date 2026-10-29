@@ -32,6 +32,7 @@ const defaultPreferences: AppPreferences = {
   achievementTitle: null,
   revealedBadges: [],
   halloweenEffects: true,
+  remoteControlOnLaunch: false,
 };
 
 export const usePreferencesStore = create<PreferencesState>((set) => {

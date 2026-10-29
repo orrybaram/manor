@@ -1,8 +1,8 @@
 import type { AgentInfo } from "../electron.d";
 import { useAppStore } from "../store/app-store";
 import { useProjectStore } from "../store/project-store";
-import { useToastStore } from "../store/toast-store";
 import { useLaunchedSessions } from "../store/launched-sessions-store";
+import { toast } from "../toast";
 import { agentWorkspaceKey, navigateToAgent } from "../utils/agent-navigation";
 import { paneHasNoAgent, resumeAgentInPane } from "./agent-resume-in-pane";
 import { isHomePath } from "./home";
@@ -47,11 +47,7 @@ export function resumeAgent(agent: AgentInfo): void {
   // The Dashboard hosts no panes, so a Home agent has
   // nowhere to resume into.
   if (isHomePath(wsPath)) {
-    useToastStore.getState().addToast({
-      id: `resume-home-agent-${agent.id}`,
-      message: "Dashboard agents can't be resumed",
-      status: "info",
-    });
+    toast.info("Dashboard agents can't be resumed", { id: `resume-home-agent-${agent.id}` });
     return;
   }
   void resumeInNewTab(agent, wsPath, agentKey);
@@ -78,11 +74,7 @@ async function resumeInNewTab(
     command = null;
   }
   if (!command) {
-    useToastStore.getState().addToast({
-      id: `resume-agent-${agent.id}`,
-      message: "This agent's session can't be resumed",
-      status: "error",
-    });
+    toast.error("This agent's session can't be resumed", { id: `resume-agent-${agent.id}` });
     return;
   }
   const app = useAppStore.getState();

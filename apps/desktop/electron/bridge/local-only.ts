@@ -32,6 +32,7 @@ export const LOCAL_ONLY_METHODS = [
   "remoteControl.revoke",
   "remoteControl.startRelay",
   "remoteControl.stopRelay",
+  "remoteControl.setStartOnLaunch",
   "remoteControl.resetRelayAddress",
   "linear.connect",
   "hosts.serverStatus",

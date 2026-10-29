@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { AgentInfo } from "../../electron.d";
 import type { DraftComment } from "../../store/review-store";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import { reviewPrompt, submitReview } from "../review-submit";
 import { startAgentWithPrompt } from "../agent-prompt-launch";
 import { navigateToAgent } from "../../utils/agent-navigation";
@@ -71,7 +71,7 @@ function makeAgent(overrides: Partial<AgentInfo> = {}): AgentInfo {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useToastStore.setState({ toasts: [] });
+  clearRecords();
 });
 
 // ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ describe("submitReview", () => {
       },
     );
 
-    const toast = useToastStore.getState().toasts[0];
+    const toast = toastStore.getState().toasts[0];
     expect(toast.message).toBe("Sent 2 comments to refactor the store");
     expect(toast.status).toBe("success");
   });
@@ -181,7 +181,7 @@ describe("submitReview", () => {
     });
 
     expect(write).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts[0].status).toBe("error");
+    expect(toastStore.getState().toasts[0].status).toBe("error");
   });
 
   it("starts a new agent without touching any pty", () => {
@@ -193,7 +193,7 @@ describe("submitReview", () => {
       vi.mocked(startAgentWithPrompt).mock.calls[0];
     expect(workspacePath).toBe(WS_PATH);
     expect(prompt).toContain("I left a comment on the current diff.");
-    expect(useToastStore.getState().toasts[0].message).toBe(
+    expect(toastStore.getState().toasts[0].message).toBe(
       "Sent 1 comment to a new agent",
     );
   });
@@ -203,6 +203,6 @@ describe("submitReview", () => {
 
     expect(write).not.toHaveBeenCalled();
     expect(startAgentWithPrompt).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toHaveLength(0);
+    expect(toastStore.getState().toasts).toHaveLength(0);
   });
 });

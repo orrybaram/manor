@@ -4,7 +4,7 @@ import X from "lucide-react/dist/esm/icons/x";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useHostStore } from "../../../store/host-store";
 import { useHostProfileStore, openProfileEditor } from "../../../store/host-profile-store";
-import { addErrorToast } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import { disambiguateHostLabels, isOtherProjectsPod, newHostTargets } from "../../../lib/transfer-targets";
 import { LOCAL_HOST_ID, isRemoteHost, remoteHostOptions } from "../../../lib/hosts";
 import type { GitHubRepo } from "../../../electron.d.ts";
@@ -261,7 +261,7 @@ export function AddProjectDialog(props: AddProjectDialogProps) {
     try {
       await onAddLocal();
     } catch (err) {
-      addErrorToast("add-local-project", "Failed to add project", err);
+      toast.error("Failed to add project", { id: "add-local-project", error: err });
     } finally {
       setAddingLocal(false);
     }

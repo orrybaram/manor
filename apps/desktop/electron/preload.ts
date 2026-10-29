@@ -346,6 +346,11 @@ const nativeApi = {
     listWindows: () =>
       invoke<{ id: number; bounds: WindowBounds }[]>("window:listWindows"),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
+    /** Whether main sees this window as focused (`document.hasFocus()` lies under a webview). */
+    isFocused: () => invoke<boolean>("window:isFocused"),
+    /** Main's `focus`/`blur` for this window, as they happen. */
+    onFocusChanged: (callback: (focused: boolean) => void) =>
+      onChannel("window:focus-changed", callback),
   },
 };
 

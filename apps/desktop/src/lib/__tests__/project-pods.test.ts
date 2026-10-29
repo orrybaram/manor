@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { deletePodsLabel, finishPods, podsOf } from "../project-pods";
 import { useHostStore, type HostStatusInfo } from "../../store/host-store";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 
 const electronAPI = (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI;
 const originalHosts = electronAPI.hosts;
@@ -63,7 +63,7 @@ describe("finishPods", () => {
     remove.mockReset().mockResolvedValue(undefined);
     stop.mockReset().mockResolvedValue(undefined);
     electronAPI.hosts = { remove, stop, onStatusChanged: vi.fn(() => vi.fn()) };
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
   });
 
   afterEach(() => {
@@ -79,7 +79,7 @@ describe("finishPods", () => {
   it("checked, destroy fails: toasts with a way to Hosts settings", async () => {
     remove.mockRejectedValue(new Error("nope"));
     await finishPods(pods, true);
-    const toast = useToastStore.getState().toasts[0];
+    const toast = toastStore.getState().toasts[0];
     expect(toast?.message).toBe("Couldn't delete app-pod's pod");
     expect(toast?.action?.label).toBe("Open Hosts settings");
   });

@@ -55,6 +55,7 @@ import {
   OWN_CLAIM,
 } from "./store/app-store";
 import { useProjectStore, type ProjectInfo } from "./store/project-store";
+import { useRemoteControlStore } from "./store/remote-control-store";
 import { ownerOf } from "./lib/workspace-directory";
 import { workspaceDisplayName } from "./lib/workspace-display-name";
 import { type WorkspaceKey } from "./lib/workspace-key";
@@ -108,6 +109,7 @@ import { FallbackScreen } from "./components/ui/ErrorBoundary/FallbackScreen";
 import { DetachedWindowPending } from "./components/DetachedWindowPending";
 import { Button } from "./components/ui/Button/Button";
 import { installUnhandledRejectionToasts } from "./lib/unhandled-rejection";
+import { wireToastSubjects } from "./store/toast-subjects";
 import "./App.css";
 
 function App() {
@@ -133,6 +135,9 @@ function App() {
 
   // A rejection nothing caught reaches the user as a toast.
   useMountEffect(() => installUnhandledRejectionToasts());
+
+  // A toast about something on screen retracts (`ToastOptions.about`).
+  useMountEffect(() => wireToastSubjects());
 
   // A reconnected browser re-reads what it missed, or launches again if its
   // boot could not read anything.
@@ -607,6 +612,7 @@ function App() {
         if (agent) resumeAgent(agent);
       },
       showGhosts: triggerGhosts,
+      toggleRemoteControl: () => void useRemoteControlStore.getState().toggle(),
     },
     // Rebuilt when the hello says this is a host server, which
     // drops the commands it cannot serve.

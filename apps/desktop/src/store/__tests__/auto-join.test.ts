@@ -5,7 +5,7 @@ import { servers } from "../../bridge/server-set";
 import { base64urlEncode } from "@manor/protocol/relay-crypto";
 import { runAutoJoin, startAutoJoin, type AutoJoinDeps } from "../auto-join";
 import { useHostStore } from "../host-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 
 // Main joins same-origin projects; the store shows one toast per
 // pair (a summary from three), each with an Undo that reverts via main.
@@ -47,11 +47,11 @@ function onPhone(): () => void {
 
 const reload = vi.fn(async () => {});
 const deps: AutoJoinDeps = { getProjects: () => PROJECTS, reload };
-const toasts = () => useToastStore.getState().toasts;
+const toasts = () => toastStore.getState().toasts;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useToastStore.setState({ toasts: [] } as never);
+  clearRecords();
   useHostStore.setState({
     hosts: [{ hostId: "box", spec: { kind: "ssh", target: "me@box" }, status: "connected" }],
   } as never);

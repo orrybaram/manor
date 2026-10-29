@@ -51,7 +51,7 @@ import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { openInEditor } from "../../../lib/editor";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
-import { useToastStore } from "../../../store/toast-store";
+import { toast, type ProgressHandle } from "../../../toast";
 import { onUiRequest } from "../../../utils/ui-request";
 import { Collapse } from "../../ui/Collapse/Collapse";
 import { isWebApp } from "../../../lib/platform";
@@ -72,6 +72,12 @@ const MATCH_REVEAL_FRAMES = 30;
 
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
 const NO_STAGED_FILES: Set<string> = new Set();
+
+/**
+ * Each workspace's push toast, by push id (its path). Module-level so a
+ * DiffPane that remounts mid-push still drives the toast its push started.
+ */
+const pushToasts = new Map<string, ProgressHandle>();
 
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
@@ -477,7 +483,6 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       async (opts: { setUpstream?: boolean } = {}) => {
         if (!workspacePath) return;
         const pushId = workspacePath;
-        const { addToast, updateToast } = useToastStore.getState();
 
         // Reset cancel flag for this push attempt.
         cancelledRef.current = false;
@@ -487,11 +492,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         // the user has feedback even on the brief gap before the first
         // progress event arrives.
         const startedAt = Date.now();
-        addToast({
+        const pushToast = toast.progress("Pushing… 0s", {
           id: pushId,
-          status: "loading",
-          message: "Pushing… 0s",
-          persistent: true,
+          duration: "sticky",
           action: {
             label: "Cancel",
             onClick: () => {
@@ -500,15 +503,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             },
           },
         });
+        pushToasts.set(pushId, pushToast);
 
         // Tick the elapsed counter every 1s. Stored in a ref so the `done`
         // handler (and unmount) can clear it.
         if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
         elapsedTimerRef.current = setInterval(() => {
           const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-          useToastStore
-            .getState()
-            .updateToast(pushId, { message: `Pushing… ${elapsed}s` });
+          pushToast.update({ message: `Pushing… ${elapsed}s` });
         }, 1000);
 
         try {
@@ -524,13 +526,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             elapsedTimerRef.current = null;
           }
           setPushing(false);
-          updateToast(pushId, {
-            status: "error",
-            message: ipcErrorMessage(err),
-            persistent: true,
-            action: undefined,
-            detail: undefined,
-          });
+          pushToast.fail(ipcErrorMessage(err), undefined, { duration: "sticky" });
         }
       },
       [workspacePath],
@@ -547,12 +543,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       if (!workspacePath) return;
       const unsubscribe = window.electronAPI.git.push.onProgress((evt) => {
         if (evt.pushId !== workspacePath) return;
-        const { updateToast } = useToastStore.getState();
+        const pushToast = pushToasts.get(evt.pushId);
 
         if (evt.type === "line") {
           // Only the latest line is shown in `detail` while loading; the full
           // log is reconstructed in the `done` branch via `stderr`.
-          updateToast(evt.pushId, { detail: evt.line });
+          pushToast?.update({ detail: evt.line });
           return;
         }
 
@@ -565,39 +561,23 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
 
           // Success
           if (evt.exitCode === 0) {
-            updateToast(evt.pushId, {
-              status: "success",
-              message: "Pushed",
-              persistent: false,
-              action: undefined,
-              detail: undefined,
-              duration: 3000,
-            });
+            pushToast?.succeed("Pushed", { duration: 3000 });
             return;
           }
 
           // Cancelled — detected via the ref-tracked Cancel callback rather
           // than parsing exit codes (SIGTERM exit varies by platform).
           if (cancelledRef.current) {
-            updateToast(evt.pushId, {
-              status: "error",
-              message: "Push cancelled",
-              persistent: false,
-              action: undefined,
-              detail: undefined,
-              duration: 3000,
-            });
+            pushToast?.fail("Push cancelled", undefined, { duration: 3000 });
             return;
           }
 
           // Categorized failure
           const pushError: PushError = categorizePushError(evt.stderr);
           const stderrTrimmed = evt.stderr.trim();
-          updateToast(evt.pushId, {
-            status: "error",
-            message: pushError.message,
+          pushToast?.fail(pushError.message, undefined, {
             detail: stderrTrimmed.length > 0 ? stderrTrimmed : undefined,
-            persistent: true,
+            duration: "sticky",
             autoExpand: true,
             action:
               pushError.action?.kind === "set-upstream"

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { Terminal } from "@xterm/xterm";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 import { useHostStore } from "../../store/host-store";
-import { useToastStore } from "../../store/toast-store";
+import { clearRecords, toastStore, type ToastRecord } from "../../toast/toast-store";
 import {
   isRemotePane,
   pasteClipboardImage,
@@ -40,7 +40,7 @@ beforeEach(() => {
   serverHostName.mockReturnValue(null);
   useRemotePaneStore.setState({ panes: {} });
   useHostStore.setState({ hosts: [] });
-  useToastStore.setState({ toasts: [] });
+  clearRecords();
 });
 
 // ---------------------------------------------------------------------------
@@ -137,7 +137,7 @@ describe("pasteClipboardImage", () => {
     await pasteClipboardImage(term, PANE_ID, fallback);
 
     expect(fallback).not.toHaveBeenCalled();
-    const toast = useToastStore.getState().toasts[0];
+    const toast = toastStore.getState().toasts[0];
     expect(toast.status).toBe("error");
     expect(toast.message).toBe("Couldn't paste image to box.example.com");
     expect(toast.detail).toBe("host unavailable");
@@ -152,7 +152,7 @@ describe("pasteClipboardImage", () => {
 
     await pasteClipboardImage(makeTerm(), PANE_ID, vi.fn());
 
-    expect(useToastStore.getState().toasts[0].message).toBe(
+    expect(toastStore.getState().toasts[0].message).toBe(
       "Couldn't paste image to box",
     );
   });
@@ -178,13 +178,13 @@ describe("pasteImageFile", () => {
 
     expect(uploadPastedImage).toHaveBeenCalledWith(PANE_ID, blob);
     expect(term.paste).toHaveBeenCalledWith(PATH + " ");
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
   });
 
   it("shows no loading toast for an image within one chunk", async () => {
     let toastsDuringUpload: unknown[] = [];
     uploadPastedImage.mockImplementation(async () => {
-      toastsDuringUpload = useToastStore.getState().toasts;
+      toastsDuringUpload = toastStore.getState().toasts;
       return PATH;
     });
 
@@ -195,11 +195,9 @@ describe("pasteImageFile", () => {
 
   it("shows a loading toast above one chunk and removes it on success", async () => {
     useRemotePaneStore.getState().setPaneHost(PANE_ID, "box");
-    let toastsDuringUpload: ReturnType<
-      typeof useToastStore.getState
-    >["toasts"] = [];
+    let toastsDuringUpload: ToastRecord[] = [];
     uploadPastedImage.mockImplementation(async () => {
-      toastsDuringUpload = useToastStore.getState().toasts;
+      toastsDuringUpload = toastStore.getState().toasts;
       return PATH;
     });
 
@@ -215,7 +213,7 @@ describe("pasteImageFile", () => {
       message: "Uploading image to box…",
       status: "loading",
     });
-    expect(useToastStore.getState().toasts).toEqual([]);
+    expect(toastStore.getState().toasts).toEqual([]);
   });
 
   it("toasts an error naming the host, with the failure as detail", async () => {
@@ -235,7 +233,7 @@ describe("pasteImageFile", () => {
     await pasteImageFile(term, PANE_ID, image(PASTED_IMAGE_CHUNK_BYTES + 1));
 
     expect(term.paste).not.toHaveBeenCalled();
-    const toasts = useToastStore.getState().toasts;
+    const toasts = toastStore.getState().toasts;
     expect(toasts).toHaveLength(1);
     expect(toasts[0]).toMatchObject({
       id: `paste-image-${PANE_ID}`,
@@ -252,7 +250,7 @@ describe("pasteImageFile", () => {
 
     await pasteImageFile(makeTerm(), PANE_ID, image(10));
 
-    expect(useToastStore.getState().toasts[0].message).toBe(
+    expect(toastStore.getState().toasts[0].message).toBe(
       "Couldn't paste image to Mac",
     );
   });
@@ -262,7 +260,7 @@ describe("pasteImageFile", () => {
 
     await pasteImageFile(makeTerm(), PANE_ID, image(10));
 
-    expect(useToastStore.getState().toasts[0].message).toBe(
+    expect(toastStore.getState().toasts[0].message).toBe(
       "Couldn't paste image to the host",
     );
   });

@@ -56,6 +56,7 @@ export function applyCssVars(theme: Theme) {
   root.style.setProperty("--surface", adjustBrightness(theme.background, 0.08));
   root.style.setProperty("--hover", adjustBrightness(theme.background, 0.05));
   root.style.setProperty("--border", adjustBrightness(theme.background, 0.1));
+  root.style.setProperty("--control-border", withAlpha(theme.foreground, 0.25));
   root.style.setProperty("--text-primary", withAlpha(theme.foreground, 0.7));
   root.style.setProperty("--text-selected", theme.foreground);
   root.style.setProperty("--text-dim", withAlpha(theme.foreground, 0.4));

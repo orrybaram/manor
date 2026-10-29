@@ -3,7 +3,7 @@ import type { ProjectInfo } from "../../../store/project-store";
 import { useAppStore } from "../../../store/app-store";
 import { useHostStore } from "../../../store/host-store";
 import { useProjectStore } from "../../../store/project-store";
-import { useToastStore } from "../../../store/toast-store";
+import { toast } from "../../../toast";
 import { goToAgentPane, resumeAgent } from "../../../lib/agent-resume";
 import { isHomePath } from "../../../lib/home";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
@@ -150,8 +150,8 @@ const UNSAFE_MESSAGE = "This session's folder or id has characters Manor won't t
 /** Host states a command can be sent to: up, coming up, or asleep (a write wakes it). */
 const REACHABLE = new Set(["connected", "connecting", "reconnecting", "sleeping"]);
 
-function toast(id: string, message: string): void {
-  useToastStore.getState().addToast({ id, message, status: "error" });
+function refuse(id: string, message: string): void {
+  toast.error(message, { id });
 }
 
 /**
@@ -165,14 +165,14 @@ async function launchSession(launch: SessionLaunch, action: RowAction): Promise<
   const app = useAppStore.getState();
 
   if ([launch.sessionId, launch.path, launch.cwd].some(hasControlChars)) {
-    toast(`session-${action}-unsafe-${launch.sessionId}`, UNSAFE_MESSAGE);
+    refuse(`session-${action}-unsafe-${launch.sessionId}`, UNSAFE_MESSAGE);
     return;
   }
 
   if (launch.hostId !== "local") {
     const status = useHostStore.getState().hosts.find((h) => h.hostId === launch.hostId)?.status;
     if (!status || !REACHABLE.has(status)) {
-      toast(`session-${action}-host-${launch.sessionId}`, "That session's host isn't connected.");
+      refuse(`session-${action}-host-${launch.sessionId}`, "That session's host isn't connected.");
       return;
     }
   }
@@ -182,7 +182,7 @@ async function launchSession(launch: SessionLaunch, action: RowAction): Promise<
     : null;
   const place = placeLaunch(projects, active, launch);
   if (!place) {
-    toast(`session-${action}-place-${launch.sessionId}`, "No workspace on that session's host to open it in.");
+    refuse(`session-${action}-place-${launch.sessionId}`, "No workspace on that session's host to open it in.");
     return;
   }
 
@@ -202,7 +202,7 @@ async function launchSession(launch: SessionLaunch, action: RowAction): Promise<
     command = null;
   }
   if (!command) {
-    toast(
+    refuse(
       `session-${action}-command-${launch.sessionId}`,
       action === "fork" ? `Can't fork this ${launch.kind} session.` : `Can't resume this ${launch.kind} session.`,
     );

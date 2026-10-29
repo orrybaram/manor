@@ -34,6 +34,8 @@ export interface AppPreferences {
   revealedBadges: string[];
   /** Dusty tabs and cobwebbed panels during Halloween week. */
   halloweenEffects: boolean;
+  /** Read-only here: set through `remoteControl.setStartOnLaunch`. */
+  remoteControlOnLaunch: boolean;
 }
 
 export type AgentLifecycleStatus =
@@ -670,6 +672,8 @@ export interface RemoteControlStatus {
   relayViewers: number;
   /** A relay notice that is not a connection state (identity replaced). */
   relayNotice: string | null;
+  /** Turn remote control on, relay and all, every time Manor opens. */
+  startOnLaunch: boolean;
 }
 
 export interface RemotePairResult {

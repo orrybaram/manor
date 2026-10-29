@@ -1,5 +1,5 @@
 import { useState, useRef, useMemo, useCallback } from "react";
-import { addErrorToast } from "../../store/toast-store";
+import { toast } from "../../toast";
 import { useMountEffect } from "../../hooks/useMountEffect";
 import Check from "lucide-react/dist/esm/icons/check";
 import { useThemeStore, type Theme } from "../../store/theme-store";
@@ -55,7 +55,7 @@ export function ThemeSection() {
       });
     }, (err: unknown) => {
       // Not an empty list: say the themes couldn't be read.
-      addErrorToast("theme-list", "Couldn't load themes", err);
+      toast.error("Couldn't load themes", { id: "theme-list", error: err });
     });
   });
 

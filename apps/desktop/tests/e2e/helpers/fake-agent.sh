@@ -101,6 +101,16 @@ while IFS= read -r -n 1 char; do
       hook Stop
       continue
     fi
+    # "ask" asks for permission mid-turn, the way a real agent does before a
+    # tool call: the turn stays open, so the prompt raises requires_input. A
+    # prompt after a Stop is a late hook for a turn that already responded,
+    # and the Status reconciler drops it (H1) — so after "hush", this is the
+    # way back to requires_input.
+    if [ "$line" = "ask" ]; then
+      line=""
+      hook Notification permission_prompt
+      continue
+    fi
     # "exit" ends the session cleanly, the way a real agent CLI would when the
     # user quits it: SessionEnd fires and the process exits, rather than a test
     # having to kill the pty and go through the daemon's liveness fallback.

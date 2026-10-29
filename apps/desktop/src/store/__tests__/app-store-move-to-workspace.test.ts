@@ -13,7 +13,7 @@ import {
   type Tab,
 } from "../app-store";
 import { useProjectStore, type ProjectInfo } from "../project-store";
-import { useToastStore } from "../toast-store";
+import { clearRecords, toastStore } from "../../toast/toast-store";
 import { moveToWorkspaceAndFollow } from "../workspace-actions";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { layoutServer, resetFakeLayoutServer, settled } from "./fake-layout-server";
@@ -94,7 +94,7 @@ describe("moveToWorkspaceAndFollow", () => {
       selectWorkspace: vi.fn(),
     };
     useProjectStore.setState({ projects: [project()], selectedProjectIndex: 0 });
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
   });
 
   it("switches to the target and focuses the moved pane", async () => {
@@ -111,7 +111,7 @@ describe("moveToWorkspaceAndFollow", () => {
     await moveToWorkspaceAndFollow(FROM as WorkspaceKey, { paneId: "pane-nope" }, TO as WorkspaceKey);
 
     expect(selectActiveWorkspaceKey(useAppStore.getState())).toBe(FROM);
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ status: "error", detail: "Unknown paneId: pane-nope" }),
     ]);
   });

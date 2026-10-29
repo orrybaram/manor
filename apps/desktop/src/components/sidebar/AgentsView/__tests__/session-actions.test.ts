@@ -11,7 +11,7 @@ vi.mock("../../../../lib/agent-resume", () => ({
 
 import { useAppStore } from "../../../../store/app-store";
 import { useProjectStore } from "../../../../store/project-store";
-import { useToastStore } from "../../../../store/toast-store";
+import { clearRecords, toastStore } from "../../../../toast/toast-store";
 import { useLaunchedSessions } from "../../../../store/launched-sessions-store";
 import {
   hasControlChars,
@@ -145,6 +145,7 @@ describe("runRowAction", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    clearRecords();
     (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI = {
       ...((window as unknown as { electronAPI?: Record<string, unknown> }).electronAPI ?? {}),
       agents: { buildSessionCommand },
@@ -186,19 +187,20 @@ describe("runRowAction", () => {
   });
 
   it("refuses to type a session whose id or folder has control characters", async () => {
-    const addToast = vi.spyOn(useToastStore.getState(), "addToast");
     runRowAction(row({ session: { ...session, hostId: "local", cwd: "/repo/\u0015x" } }), "resume");
-    await vi.waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.objectContaining({
+    await vi.waitFor(() => expect(toastStore.getState().toasts).toContainEqual(expect.objectContaining({
       message: "This session's folder or id has characters Manor won't type.",
+      status: "error",
     })));
     expect(buildSessionCommand).not.toHaveBeenCalled();
     expect(addTerminalTab).not.toHaveBeenCalled();
   });
 
   it("says so when the session's host isn't connected", () => {
-    const addToast = vi.spyOn(useToastStore.getState(), "addToast");
     runRowAction(row({ session }), "resume");
-    return vi.waitFor(() => expect(addToast).toHaveBeenCalled()).then(() => {
+    return vi.waitFor(() => expect(toastStore.getState().toasts).toContainEqual(expect.objectContaining({
+      message: "That session's host isn't connected.",
+    }))).then(() => {
       expect(buildSessionCommand).not.toHaveBeenCalled();
       expect(addTerminalTab).not.toHaveBeenCalled();
     });

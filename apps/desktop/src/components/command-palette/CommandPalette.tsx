@@ -10,7 +10,7 @@ import { useAppStore, selectActiveWorkspaceKey } from "../../store/app-store";
 import { workspaceKey } from "../../lib/workspace-key";
 import { useRestoreFocus } from "../../hooks/useRestoreFocus";
 import { useProjectStore } from "../../store/project-store";
-import { addErrorToast } from "../../store/toast-store";
+import { toast } from "../../toast";
 import { projectColorStyle } from "../../hooks/useProjectHeaderRow";
 import type { LinkedTask, TaskRef, TaskRow } from "../../lib/tasks";
 import {
@@ -288,11 +288,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         try {
           await startTask(task);
         } catch (err) {
-          addErrorToast(
-            `start-task-error-${task.key}`,
-            "Failed to start task",
-            err,
-          );
+          toast.error("Failed to start task", { id: `start-task-error-${task.key}`, error: err });
           return;
         }
       }

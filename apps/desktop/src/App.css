@@ -48,6 +48,9 @@
   --surface: #313244;
   --hover: #2a2a3c;
   --border: #383850;
+  /* Outlines on controls (buttons, chips, inputs): visible on any surface.
+     Panel, pane and divider borders keep --border. */
+  --control-border: #cdd6f440;
   --text-primary: #cdd6f4b3;
   --text-selected: #cdd6f4;
   --text-dim: #cdd6f466;

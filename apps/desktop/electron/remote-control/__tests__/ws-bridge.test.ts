@@ -509,6 +509,22 @@ describe("WsBridgeServer", () => {
       });
     });
 
+    /**
+     * A device that could ask for remote control on every launch would make
+     * this machine reachable again after the next restart.
+     */
+    it("keeps start on launch out of a device's reach", async () => {
+      const client = await greet(FULL_TOKEN);
+      const viaRemote = await invoke(client, "sol1", "remoteControl", "setStartOnLaunch", [true]);
+      expect(viaRemote).toMatchObject({ ok: false, code: "unavailable:web" });
+      const viaPrefs = await invoke(client, "sol2", "preferences", "set", [
+        "remoteControlOnLaunch",
+        true,
+      ]);
+      expect(viaPrefs).toMatchObject({ ok: false });
+      expect(preferencesSet).toEqual([]);
+    });
+
     /** `keybindings.set`/`reset`/`resetAll` stay off — that page is read-only on web. */
     it("keeps keybindings.set off the table", async () => {
       const client = await greet(FULL_TOKEN);

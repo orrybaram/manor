@@ -39,6 +39,8 @@ import {
   type OpenFileEvent,
   type OpenFileState,
 } from "./open-file-state";
+import { useFileDrawerState, type DrawerState } from "./drawer-state";
+import { filePaneKey, filePaneKeyLabel, type FilePaneKey } from "./file-pane-keys";
 import styles from "./FilePane.module.css";
 
 // CodeMirror is its own chunk: nothing loads it until a file pane opens a file.
@@ -75,8 +77,43 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
   // Read-only is the web client's, whatever the window's width.
   const readOnly = isWebApp();
-  // A pane with nothing open starts on its tree.
-  const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
+  // A pane with nothing open starts on its tree; one moved or rebuilt comes
+  // back with its drawer as it was.
+  const [drawerState, setDrawerState] = useState<DrawerState>(
+    () => useFileDrawerState.getState().byPane[paneId] ?? { open: !filePath, mode: "files" },
+  );
+  const drawerNow = useRef(drawerState);
+  drawerNow.current = drawerState;
+  const drawer: Drawer = drawerState.open ? drawerState.mode : null;
+  // The drawer takes the keyboard when it is opened, or opens with a new
+  // pane; not when a moved pane remounts with it open, which must not pull
+  // focus from another pane.
+  const [drawerOpened, setDrawerOpened] = useState(
+    () => !(paneId in useFileDrawerState.getState().byPane),
+  );
+  const setDrawer = (next: Drawer) => {
+    const state: DrawerState = next
+      ? { open: true, mode: next }
+      : { ...drawerNow.current, open: false };
+    drawerNow.current = state;
+    setDrawerState(state);
+    useFileDrawerState.getState().set(paneId, state);
+    if (next) setDrawerOpened(true);
+  };
+  const rootRef = useRef<HTMLDivElement>(null);
+  const focusEditor = () =>
+    rootRef.current?.querySelector<HTMLElement>(".cm-content")?.focus({ preventScroll: true });
+  const focusDrawer = () => {
+    const root = rootRef.current;
+    const target =
+      root?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
+      root?.querySelector<HTMLElement>('[data-testid="file-pane-drawer"]');
+    target?.focus({ preventScroll: true });
+  };
+  const drawerHasFocus = () =>
+    !!rootRef.current
+      ?.querySelector('[data-testid="file-pane-drawer"]')
+      ?.contains(document.activeElement);
   const floating = useLayoutMode() === "phone";
   const floatingRef = useRef(floating);
   floatingRef.current = floating;
@@ -104,14 +141,43 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const openFileDirty = useOpenFileStore((s) => s.byPane[paneId]?.dirty ?? false);
   const changeCount = changes?.files.size ?? 0;
 
-  // A split rebuilds the pane, so its edits outlive the mount; a closed
-  // pane's go, and so do those of a pane that is no longer a file pane.
-  useMountEffect(() => () => {
-    const app = useAppStore.getState();
-    if (!selectHasPane(app, paneId) || selectPaneContentType(app, paneId) !== "file") {
-      useOpenFileStore.getState().drop(paneId);
-    }
+  // A split rebuilds the pane, so its edits and its drawer outlive the
+  // mount; a closed pane's go, and so do those of a pane that is no longer a
+  // file pane.
+  useMountEffect(() => {
+    // Remembered from the first mount on, so a remount knows it is one.
+    useFileDrawerState.getState().set(paneId, drawerNow.current);
+    return () => {
+      const app = useAppStore.getState();
+      if (!selectHasPane(app, paneId) || selectPaneContentType(app, paneId) !== "file") {
+        useOpenFileStore.getState().drop(paneId);
+        useFileDrawerState.getState().drop(paneId);
+      }
+    };
   });
+
+  const mac = getPlatform() === "mac";
+  const runKey = (key: FilePaneKey) => {
+    if (key === "toggle-drawer") {
+      if (!drawer) {
+        setDrawer(drawerState.mode);
+        return;
+      }
+      const hadFocus = drawerHasFocus();
+      setDrawer(null);
+      if (hadFocus) focusEditor();
+      return;
+    }
+    const mode = key;
+    if (mode === "changes" && !workspace) return;
+    if (drawer !== mode) {
+      setDrawer(mode);
+      return;
+    }
+    // Already showing: the key moves between it and the editor.
+    if (drawerHasFocus()) focusEditor();
+    else focusDrawer();
+  };
 
   const pick = (path: string) => {
     if (floating) setDrawer(null);
@@ -124,8 +190,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     setPaneFilePath(paneId, path);
   };
 
-  // Dragged out of the strip, the drawer opens on the tree.
-  const openDrawer = () => setDrawer((d) => d ?? "files");
+  // Dragged out of the strip, the drawer opens on the view it last showed.
+  const openDrawer = () => setDrawer(drawer ?? drawerState.mode);
   const collapseDrawer = () => setDrawer(null);
   const openHandle = (
     <FileDrawerResizeHandle open onOpen={openDrawer} onCollapse={collapseDrawer} />
@@ -135,21 +201,33 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   );
 
   return (
-    <div className={styles.filePane} data-testid="file-pane">
+    <div
+      ref={rootRef}
+      className={styles.filePane}
+      data-testid="file-pane"
+      onKeyDown={(e) => {
+        const key = filePaneKey(e, mac);
+        if (!key) return;
+        // Ahead of the app's own binding for the same keys.
+        e.preventDefault();
+        e.stopPropagation();
+        runKey(key);
+      }}
+    >
       <div className={styles.strip}>
-        <Tooltip label="Files">
+        <Tooltip label={`Files (${filePaneKeyLabel("files", mac)})`}>
           <button
             type="button"
             className={`${styles.stripBtn} ${drawer === "files" ? styles.stripBtnOn : ""}`}
             aria-label="Files"
             aria-pressed={drawer === "files"}
             data-testid="file-pane-files-button"
-            onClick={() => setDrawer((d) => (d === "files" ? null : "files"))}
+            onClick={() => setDrawer(drawer === "files" ? null : "files")}
           >
             <Folder size={14} />
           </button>
         </Tooltip>
-        <Tooltip label="Changed by agents">
+        <Tooltip label={`Changed by agents (${filePaneKeyLabel("changes", mac)})`}>
           <button
             type="button"
             className={`${styles.stripBtn} ${drawer === "changes" ? styles.stripBtnOn : ""}`}
@@ -157,7 +235,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             aria-pressed={drawer === "changes"}
             data-testid="file-pane-changes-button"
             disabled={!workspace}
-            onClick={() => setDrawer((d) => (d === "changes" ? null : "changes"))}
+            onClick={() => setDrawer(drawer === "changes" ? null : "changes")}
           >
             <GitBranch size={14} />
             {changeCount > 0 && (
@@ -177,12 +255,16 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           changes={changes}
           openFile={filePath}
           canWrite={!readOnly}
+          autoFocus={drawerOpened}
           openFileDirty={openFileDirty}
           onPick={pick}
           onRenamed={(from, to) => {
             if (from === filePath) setPaneFilePath(paneId, to);
           }}
-          onClose={() => setDrawer(null)}
+          onClose={() => {
+            setDrawer(null);
+            focusEditor();
+          }}
           resizeHandle={floating ? undefined : openHandle}
         />
       )}

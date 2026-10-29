@@ -169,9 +169,18 @@
   outline: none;
 }
 
-/* The row a context menu is open for. */
-.rowMenuOpen > button {
+/* The row a context menu is open for; and, while the tree has the keyboard,
+   the row it is on. Inset, as the global ring would be clipped by the tree's
+   edges and drawn over its neighbours. */
+.rowMenuOpen > button,
+.tree:focus .rowCursor > button,
+.changeRow:focus {
   box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tree:focus-visible,
+.changeRow:focus-visible {
+  outline: none;
 }
 
 .contextMenu {

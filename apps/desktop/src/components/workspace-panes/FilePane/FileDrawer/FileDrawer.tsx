@@ -20,7 +20,7 @@ import { ConfirmDialog } from "../../../ui/ConfirmDialog/ConfirmDialog";
 import { toast } from "../../../../toast";
 import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
-import { expandedForFiles, visibleTreeRows } from "../drawer-tree";
+import { cursorIndex, expandedForFiles, treeKey, visibleTreeRows } from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
 import {
   changeBadge,
@@ -50,6 +50,8 @@ type FileDrawerProps = {
   openFile: string | null;
   /** Offer "+" (new file), Rename and Delete. Not on the phone, which only reads. */
   canWrite: boolean;
+  /** Take the keyboard on mounting: it was just opened, not remounted open. */
+  autoFocus: boolean;
   /** The open file has unsaved edits: it can't be renamed from under them. */
   openFileDirty: boolean;
   onPick: (path: string) => void;
@@ -73,6 +75,7 @@ export function FileDrawer({
   changes,
   openFile,
   canWrite,
+  autoFocus,
   openFileDirty,
   onPick,
   onRenamed,
@@ -91,9 +94,16 @@ export function FileDrawer({
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
 
-  // Escape reaches the drawer wherever focus was: it takes the keyboard.
+  // Opened, it takes the keyboard: the tree's arrows, if it is listed
+  // already, and Escape wherever focus was.
   useMountEffect(() => {
-    drawerRef.current?.focus({ preventScroll: true });
+    if (!autoFocus) return;
+    const drawer = drawerRef.current;
+    const target =
+      drawer?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
+      drawer?.querySelector<HTMLElement>('[data-testid="file-pane-change-row"][aria-current]') ??
+      drawer;
+    target?.focus({ preventScroll: true });
   });
 
   return (
@@ -105,10 +115,16 @@ export function FileDrawer({
       style={{ "--drawer-width": `${width}px` } as CSSProperties}
       tabIndex={-1}
       onKeyDown={(e) => {
-        if (e.key !== "Escape") return;
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose();
+          return;
+        }
+        if (mode === "changes" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          stepChangeRow(e.currentTarget, e.key === "ArrowDown" ? 1 : -1);
+        }
       }}
     >
       <div className={styles.head}>
@@ -210,6 +226,9 @@ function TreeList({
     [changes],
   );
   const rows = useMemo(() => visibleTreeRows(tree, expanded), [tree, expanded]);
+  // The row the keyboard is on: the open file's, until it moves.
+  const [cursor, setCursor] = useState<string | null>(openFile);
+  const cursorAt = cursorIndex(rows, cursor);
   const scrollRef = useRef<HTMLDivElement>(null);
   const rowHeight = useLayoutMode() === "phone" ? PHONE_ROW_HEIGHT : ROW_HEIGHT;
   const virtualizer = useVirtualizer({
@@ -225,6 +244,11 @@ function TreeList({
   useMountEffect(() => {
     const index = openFile ? rows.findIndex((r) => r.path === openFile) : -1;
     if (index > 3) virtualizer.scrollToIndex(index - 3, { align: "start" });
+    // Listed after the drawer opened and took the keyboard: the arrows are ours.
+    const tree = scrollRef.current;
+    if (tree?.parentElement?.contains(document.activeElement)) {
+      tree.focus({ preventScroll: true });
+    }
   });
 
   // The row right-clicked, while its menu is open; the file being renamed in
@@ -248,13 +272,34 @@ function TreeList({
     setDeleting(null);
   };
 
-  const toggle = (path: string) =>
+  const pick = (path: string) => {
+    setCursor(path);
+    onPick(path);
+  };
+
+  const toggle = (path: string) => {
+    setCursor(path);
     setToggled((prev) => {
       const next = new Set(prev ?? expanded);
       if (next.has(path)) next.delete(path);
       else next.add(path);
       return next;
     });
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    // The rename input's keys are its own.
+    if (e.target !== e.currentTarget || e.metaKey || e.ctrlKey || e.altKey) return;
+    const action = treeKey(rows, cursorAt, e.key);
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const row = rows[action.index];
+    if (action.kind === "toggle") toggle(row.path);
+    else if (action.kind === "open") pick(row.path);
+    else setCursor(row.path);
+    virtualizer.scrollToIndex(action.index);
+  };
 
   if (rows.length === 0) {
     return <div className={styles.note}>No files</div>;
@@ -267,6 +312,14 @@ function TreeList({
           ref={scrollRef}
           className={styles.tree}
           data-testid="file-pane-tree"
+          aria-label="Files"
+          // The tree, not its rows, holds the keyboard: a clicked row hands
+          // focus back, so the arrows go on from the row clicked.
+          tabIndex={0}
+          onKeyDown={onKeyDown}
+          onFocus={(e) => {
+            if (e.target instanceof HTMLButtonElement) e.currentTarget.focus({ preventScroll: true });
+          }}
           onContextMenu={(e) => {
             const row = (e.target as HTMLElement).closest<HTMLElement>(
               "[data-path]",
@@ -292,7 +345,7 @@ function TreeList({
               return (
                 <div
                   key={`${row.kind}:${row.path}`}
-                  className={`${styles.row} ${menuTarget?.path === row.path ? styles.rowMenuOpen : ""}`}
+                  className={`${styles.row} ${menuTarget?.path === row.path ? styles.rowMenuOpen : ""} ${item.index === cursorAt ? styles.rowCursor : ""}`}
                   style={{
                     transform: `translateY(${item.start}px)`,
                     height: rowHeight,
@@ -307,6 +360,7 @@ function TreeList({
                       depth={row.depth}
                       collapsed={!row.expanded}
                       onToggle={() => toggle(row.path)}
+                      tabIndex={-1}
                       trailing={
                         dotted.has(row.path) ? (
                           <span
@@ -336,7 +390,7 @@ function TreeList({
                       depth={row.depth}
                       change={changes?.get(row.path) ?? null}
                       selected={row.path === openFile}
-                      onPick={onPick}
+                      onPick={pick}
                     />
                   )}
                 </div>
@@ -409,6 +463,7 @@ function FileRow({
       title={path}
       aria-current={selected ? "true" : undefined}
       data-change={change?.status}
+      tabIndex={-1}
       onClick={() => onPick(path)}
     >
       {createElement(fileIconFor(path), {
@@ -576,7 +631,9 @@ function RenameInput({
         value={value}
         spellCheck={false}
         autoFocus
-        disabled={busy}
+        // Read-only, not disabled, while it tries: a disabled input drops the
+        // keyboard, and a refused name is fixed or Escaped from right here.
+        readOnly={busy}
         onFocus={(e) => {
           // The name without its extension, as Finder and VS Code select it.
           const dot = name.lastIndexOf(".");
@@ -688,4 +745,20 @@ function NewFileInput({
       )}
     </div>
   );
+}
+
+/** Move focus `step` rows through Changed by agents' openable rows. */
+function stepChangeRow(drawer: HTMLElement, step: 1 | -1): void {
+  const rows = [
+    ...drawer.querySelectorAll<HTMLButtonElement>(
+      '[data-testid="file-pane-change-row"]:not(:disabled)',
+    ),
+  ];
+  if (rows.length === 0) return;
+  const at = rows.indexOf(document.activeElement as HTMLButtonElement);
+  const next =
+    at < 0
+      ? (rows.find((row) => row.hasAttribute("aria-current")) ?? rows[0])
+      : rows[Math.min(Math.max(at + step, 0), rows.length - 1)];
+  next.focus();
 }

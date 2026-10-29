@@ -837,9 +837,11 @@ test("the Files drawer sits beside the editor, resizes from its edge and collaps
   await openFileFromPalette(window);
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
   await expect(drawer).toBeVisible();
-  // Opened from the keyboard, it takes focus without a ring.
-  await expect(drawer).toBeFocused();
-  expect(await drawer.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
+  // Opened from the keyboard, its tree takes focus without the clipped
+  // global ring: the row it is on is outlined inside instead.
+  const tree = pane(window).locator('[data-testid="file-pane-tree"]');
+  await expect(tree).toBeFocused();
+  expect(await tree.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
 
   await openFromTree(window, ["src", "components", "Widget.tsx"]);
   const editor = pane(window).locator('[data-testid="file-pane-editor"]');
@@ -987,4 +989,99 @@ test("the Files tree's context menu copies paths, renames and deletes files", as
   await expect(dialog).toHaveCount(0);
   await expect(treeRow(window, "notes.md")).toHaveCount(0);
   expect(fs.existsSync(path.join(ws, "notes.md"))).toBe(false);
+});
+
+test("the file pane's drawer survives a move, and the keyboard drives it and its tree", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-file-keys");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  fs.writeFileSync(path.join(ws, "src", "components", "Zed.tsx"), "export const zed = 1;\n");
+
+  await openFileFromPalette(window);
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Clicked {count} times");
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const tree = pane(window).locator('[data-testid="file-pane-tree"]');
+  const cursorRow = tree.locator('[data-testid="file-pane-tree-row"][class*="rowCursor"]');
+
+  // The clicked row is the keyboard's, outlined inside the row.
+  await expect(tree).toBeFocused();
+  await expect(cursorRow).toHaveAttribute("data-path", "src/components/Widget.tsx");
+  expect(
+    await cursorRow.locator("button").evaluate((el) => getComputedStyle(el).boxShadow),
+  ).not.toBe("none");
+  await window.screenshot({ path: shot(testInfo, "tree-cursor") });
+
+  // ↓ moves to the next file, Enter opens it, Space opens the one above.
+  await window.keyboard.press("ArrowDown");
+  await expect(cursorRow).toHaveAttribute("data-path", "src/components/Zed.tsx");
+  await window.keyboard.press("Enter");
+  await expect(editor).toContainText("export const zed");
+  await expect(tree).toBeFocused();
+  await window.keyboard.press("ArrowUp");
+  await window.keyboard.press(" ");
+  await expect(editor).toContainText("Clicked {count} times");
+
+  // ← steps out to the folder, then closes it; → opens it again.
+  await window.keyboard.press("ArrowLeft");
+  await expect(cursorRow).toHaveAttribute("data-kind", "dir");
+  await window.keyboard.press("ArrowLeft");
+  await expect(treeRow(window, "src/components/Widget.tsx")).toHaveCount(0);
+  await window.keyboard.press("ArrowRight");
+  await expect(treeRow(window, "src/components/Widget.tsx")).toBeVisible();
+
+  // ⌘B / Ctrl+B hides the drawer and hands the keyboard to the editor; again, shows it.
+  await window.keyboard.press("ControlOrMeta+b");
+  await expect(drawer).toBeHidden();
+  await expect(editor.locator(".cm-content")).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+b");
+  await expect(drawer).toHaveAttribute("data-mode", "files");
+  await expect(tree).toBeFocused();
+
+  // ⌘⇧G goes to Changed by agents, ⌘⇧E back to Files, and ⌘⇧E again to the editor.
+  await window.keyboard.press("ControlOrMeta+Shift+g");
+  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  await window.keyboard.press("ControlOrMeta+Shift+e");
+  await expect(drawer).toHaveAttribute("data-mode", "files");
+  await expect(tree).toBeFocused();
+  await window.keyboard.press("ControlOrMeta+Shift+e");
+  await expect(editor.locator(".cm-content")).toBeFocused();
+  await expect(drawer).toBeVisible();
+  // Escape from the tree closes the drawer onto the editor.
+  await window.keyboard.press("ControlOrMeta+Shift+e");
+  await expect(tree).toBeFocused();
+  await window.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(editor.locator(".cm-content")).toBeFocused();
+
+  // On Changed by agents, then moved (a split rebuilds the pane): it comes
+  // back on Changed by agents.
+  await window.keyboard.press("ControlOrMeta+Shift+g");
+  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  const split = async () => {
+    await pane(window).locator('[data-testid="file-pane-breadcrumb"]').click({ button: "right" });
+    await window.getByRole("menuitem", { name: "Split with" }).hover();
+    await window.getByRole("menuitem", { name: "Terminal", exact: true }).click();
+  };
+  await split();
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  // Closed, then moved again: it stays closed, and ⌘B opens the view it had.
+  await pane(window).locator('[data-testid="file-pane-changes-button"]').click();
+  await expect(drawer).toBeHidden();
+  await split();
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(3);
+  await window.waitForTimeout(300);
+  await expect(drawer).toBeHidden();
+  await editor.locator(".cm-content").click();
+  await window.keyboard.press("ControlOrMeta+b");
+  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  await window.screenshot({ path: shot(testInfo, "after-move") });
 });

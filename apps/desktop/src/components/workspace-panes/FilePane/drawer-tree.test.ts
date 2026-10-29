@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { buildFileTree } from "../FileTree/file-tree";
-import { expandedForFiles, expandedForOpenFile, visibleTreeRows } from "./drawer-tree";
+import {
+  cursorIndex,
+  expandedForFiles,
+  expandedForOpenFile,
+  treeKey,
+  visibleTreeRows,
+} from "./drawer-tree";
 
 const tree = buildFileTree(
   [
@@ -92,5 +98,72 @@ describe("expandedForFiles", () => {
 
   it("opens nothing more for a changed file that is not in the tree", () => {
     expect(expandedForFiles(tree, null, ["gone/away.ts"]).size).toBe(0);
+  });
+});
+
+describe("treeKey", () => {
+  // apps/ (open), apps/desktop/ (closed), apps/relay/ (open), index.ts, docs/, README.md
+  const rows = visibleTreeRows(tree, new Set(["apps", "apps/relay", "apps/relay/src"]));
+  const at = (path: string) => rows.findIndex((r) => r.path === path);
+
+  it("moves with the arrows, stopping at either end", () => {
+    expect(treeKey(rows, 0, "ArrowDown")).toEqual({ kind: "move", index: 1 });
+    expect(treeKey(rows, 0, "ArrowUp")).toEqual({ kind: "move", index: 0 });
+    expect(treeKey(rows, rows.length - 1, "ArrowDown")).toEqual({
+      kind: "move",
+      index: rows.length - 1,
+    });
+    expect(treeKey(rows, 3, "Home")).toEqual({ kind: "move", index: 0 });
+    expect(treeKey(rows, 0, "End")).toEqual({ kind: "move", index: rows.length - 1 });
+  });
+
+  it("opens a closed folder with →, then steps into it", () => {
+    expect(treeKey(rows, at("apps/desktop"), "ArrowRight")).toEqual({
+      kind: "toggle",
+      index: at("apps/desktop"),
+    });
+    expect(treeKey(rows, at("apps"), "ArrowRight")).toEqual({
+      kind: "move",
+      index: at("apps") + 1,
+    });
+  });
+
+  it("closes an open folder with ←, else steps out to its folder", () => {
+    expect(treeKey(rows, at("apps"), "ArrowLeft")).toEqual({ kind: "toggle", index: at("apps") });
+    expect(treeKey(rows, at("apps/relay/src/index.ts"), "ArrowLeft")).toEqual({
+      kind: "move",
+      index: at("apps/relay/src"),
+    });
+    expect(treeKey(rows, at("README.md"), "ArrowLeft")).toBeNull();
+  });
+
+  it("opens a file, and opens or closes a folder, with Enter or Space", () => {
+    expect(treeKey(rows, at("README.md"), "Enter")).toEqual({
+      kind: "open",
+      index: at("README.md"),
+    });
+    expect(treeKey(rows, at("docs"), " ")).toEqual({ kind: "toggle", index: at("docs") });
+  });
+
+  it("leaves other keys alone", () => {
+    expect(treeKey(rows, 0, "a")).toBeNull();
+  });
+});
+
+describe("cursorIndex", () => {
+  const rows = visibleTreeRows(tree, new Set(["apps"]));
+
+  it("finds the cursor's row", () => {
+    expect(cursorIndex(rows, "README.md")).toBe(rows.findIndex((r) => r.path === "README.md"));
+  });
+
+  it("falls back to the folder a hidden cursor is in", () => {
+    expect(cursorIndex(rows, "apps/relay/src/index.ts")).toBe(
+      rows.findIndex((r) => r.kind === "dir" && r.path.startsWith("apps/relay")),
+    );
+  });
+
+  it("starts on the first row with no cursor", () => {
+    expect(cursorIndex(rows, null)).toBe(0);
   });
 });

@@ -185,6 +185,20 @@ export function TabBar(props: TabBarProps) {
     [tabs, pinnedTabIds, draggedId],
   );
 
+  // Whether a tab drop at `clientX` makes a new panel beside this one: the
+  // bar's right half, and for a tab of this panel only past its tabs (over
+  // them it reorders or merges) and only when it isn't the panel's last tab.
+  const wantsSplit = useCallback(
+    (clientX: number, isOwnTab: boolean): boolean => {
+      const bar = barRef.current?.getBoundingClientRect();
+      if (!bar || clientX <= bar.left + bar.width / 2) return false;
+      if (!isOwnTab) return true;
+      const tabsRight = tabsRef.current?.getBoundingClientRect().right ?? Infinity;
+      return tabs.length > 1 && clientX > tabsRight;
+    },
+    [tabs.length],
+  );
+
   const clearDragIndicators = useCallback(() => {
     setDropIndex(null);
     setMergeTargetTabId(null);
@@ -346,26 +360,23 @@ export function TabBar(props: TabBarProps) {
       e.dataTransfer.dropEffect = "move";
 
       const isOwnTab = tabs.some((t) => t.id === draggedId);
-      if (isOwnTab) {
+      if (wantsSplit(e.clientX, isOwnTab)) {
+        setSplitDropHint(true);
+        setDropIndex(null);
+        setMergeTargetTabId(null);
+      } else if (isOwnTab) {
         const { insertion, merge } = computeIndicator(e.clientX);
         setDropIndex(merge === null ? insertion : null);
         setMergeTargetTabId(merge);
         setSplitDropHint(false);
       } else {
-        // From another panel: right half → split, left half → move into panel.
-        const bar = barRef.current;
-        setSplitDropHint(
-          bar
-            ? e.clientX >
-                bar.getBoundingClientRect().left +
-                  bar.getBoundingClientRect().width / 2
-            : false,
-        );
+        // From another panel, left half: move into this panel.
+        setSplitDropHint(false);
         setDropIndex(null);
         setMergeTargetTabId(null);
       }
     },
-    [draggedId, tabs, computeIndicator],
+    [draggedId, tabs, computeIndicator, wantsSplit],
   );
 
   const handleBarDragLeave = useCallback((e: React.DragEvent) => {
@@ -395,7 +406,9 @@ export function TabBar(props: TabBarProps) {
       const st = useAppStore.getState();
       const isOwnTab = tabs.some((t) => t.id === draggedId);
 
-      if (mergeTargetTabId && mergeTargetTabId !== draggedId) {
+      if (panelId && wantsSplit(e.clientX, isOwnTab)) {
+        st.splitPanelWithTab(draggedId, panelId, "horizontal");
+      } else if (mergeTargetTabId && mergeTargetTabId !== draggedId) {
         st.mergeTabIntoTab(draggedId, mergeTargetTabId);
       } else if (isOwnTab) {
         // Reorder within this panel to the insertion index.
@@ -412,15 +425,7 @@ export function TabBar(props: TabBarProps) {
           }
         }
       } else if (panelId) {
-        // From another panel: right half splits, left half moves.
-        const bar = barRef.current;
-        const rightHalf = bar
-          ? e.clientX >
-            bar.getBoundingClientRect().left +
-              bar.getBoundingClientRect().width / 2
-          : false;
-        if (rightHalf) st.splitPanelWithTab(draggedId, panelId, "horizontal");
-        else st.moveTabToPanel(draggedId, panelId);
+        st.moveTabToPanel(draggedId, panelId);
       }
       clearDragIndicators();
       // Clear the shared drag state here, not only in dragend: a move/merge/split
@@ -437,6 +442,7 @@ export function TabBar(props: TabBarProps) {
       panelId,
       pinnedTabIds,
       computeIndicator,
+      wantsSplit,
       clearDragIndicators,
       endDrag,
       extractPaneToTab,
@@ -552,11 +558,16 @@ export function TabBar(props: TabBarProps) {
           data-focus-region="tabbar"
           role="tablist"
           aria-orientation="horizontal"
-          className={`${styles.tabBar} ${isTopLeft ? styles.tabBarTopLeft : ""} ${isDragActive ? styles.tabBarDropTarget : ""} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+          className={`${styles.tabBar} ${isTopLeft ? styles.tabBarTopLeft : ""}`}
           onDragOver={handleBarDragOver}
           onDragLeave={handleBarDragLeave}
           onDrop={handleBarDrop}
         >
+          {isDragActive && (
+            <div
+              className={`${styles.tabBarDropHighlight} ${splitDropHint ? styles.tabBarSplitHint : ""}`}
+            />
+          )}
           <div ref={tabsRef} className={styles.tabs}>
             {tabs.map((tab, idx) => {
               const isPinned = pinnedTabIds.includes(tab.id);

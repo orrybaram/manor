@@ -85,10 +85,6 @@
   background: var(--yellow);
 }
 
-.mark_added {
-  background: var(--green);
-  opacity: 0.6;
-}
 
 .mark_mine {
   background: var(--blue);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { EditorState, Text, type TransactionSpec } from "@codemirror/state";
-import { agentEdits, changeMarks, laneMarks, setAgentMarks, setCleanDoc } from "./change-marks";
+import { addedLines, agentEdits, changeMarks, laneMarks, setAgentMarks, setCleanDoc } from "./change-marks";
 
 const doc = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n");
 
@@ -73,11 +73,12 @@ describe("change marks", () => {
     expect(laneMarks(ed.state)).toEqual([]);
   });
 
-  it("marks the whole of a new file, with no edits to jump between", () => {
+  it("marks the whole of a new file in the gutter, with no edits to jump between and no lane", () => {
     const ed = editor(doc(5));
     ed.apply({ effects: setAgentMarks.of({ kind: "added", ranges: [{ from: 1, to: 5 }] }) });
     expect(agentEdits(ed.state)).toEqual([]);
-    expect(laneMarks(ed.state)).toEqual([{ from: 1, to: 5, kind: "added" }]);
+    expect(addedLines(ed.state)).toEqual([{ from: 1, to: 5 }]);
+    expect(laneMarks(ed.state)).toEqual([]);
   });
 
   it("clears the agent's marks when the file is no longer changed", () => {
@@ -146,8 +147,6 @@ describe("change marks", () => {
   it("marks a new file's lines on disk, not the ones you added since", () => {
     const ed = editor(doc(3), `${doc(3)}\nmine`);
     ed.apply({ effects: setAgentMarks.of({ kind: "added", ranges: [{ from: 1, to: 3 }] }) });
-    expect(laneMarks(ed.state).filter((m) => m.kind === "added")).toEqual([
-      { from: 1, to: 3, kind: "added" },
-    ]);
+    expect(addedLines(ed.state)).toEqual([{ from: 1, to: 3 }]);
   });
 });

@@ -330,7 +330,6 @@ function sameMarks(a: readonly LaneMark[], b: readonly LaneMark[]): boolean {
 
 const MARK_TITLES: Record<LaneMark["kind"], string> = {
   agent: "Changed",
-  added: "New file",
   mine: "Unsaved",
 };
 

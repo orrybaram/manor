@@ -27,7 +27,7 @@ export const setCleanDoc = StateEffect.define<Text>();
 export const flashLine = StateEffect.define<number | null>();
 
 /** A run of marked lines the mark lane draws. */
-export type LaneMark = { from: number; to: number; kind: "agent" | "added" | "mine" };
+export type LaneMark = { from: number; to: number; kind: "agent" | "mine" };
 
 const agentLine = Decoration.line({ class: "cm-change-agent" });
 const addedLine = Decoration.line({ class: "cm-change-added" });
@@ -248,13 +248,21 @@ export function agentEdits(state: EditorState): LineRange[] {
   return runs(agent.lines);
 }
 
-/** What the mark lane draws: changed runs, a new file's lines, and your unsaved runs. */
+/** A new file's lines as it is now, where your edits have moved them. */
+export function addedLines(state: EditorState): LineRange[] {
+  const agent = state.field(agentField, false);
+  if (agent?.marks?.kind !== "added") return [];
+  return runs(agent.lines);
+}
+
+/** What the mark lane draws: changed runs and your unsaved runs. */
 export function laneMarks(state: EditorState): LaneMark[] {
   const marks: LaneMark[] = [];
   const agent = state.field(agentField, false);
-  if (agent?.marks) {
-    const kind = agent.marks.kind === "added" ? "added" : "agent";
-    for (const run of runs(agent.lines)) marks.push({ ...run, kind });
+  // A new file is new from top to bottom: the gutter says so, and a lane mark
+  // the height of the file would only cover the scrollbar.
+  if (agent?.marks && agent.marks.kind !== "added") {
+    for (const run of runs(agent.lines)) marks.push({ ...run, kind: "agent" });
   }
   const mine = state.field(mineField, false);
   for (const run of runs(decoLines(state, mine?.deco ?? Decoration.none))) {

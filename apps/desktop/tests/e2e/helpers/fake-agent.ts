@@ -33,6 +33,13 @@ export const FAKE_AGENT_HUSH = "hush";
 export const FAKE_AGENT_SLOW_HUSH = "slow-hush";
 
 /**
+ * Send this and the agent asks for permission mid-turn, parking in
+ * `requires_input` with no Stop before it — the way back there once a turn
+ * has responded (a permission prompt after a Stop is dropped as late).
+ */
+export const FAKE_AGENT_ASK = "ask";
+
+/**
  * Send this and the agent ends its session cleanly: a SessionEnd hook fires
  * and the process exits, the way a real agent CLI does when the user quits
  * it.

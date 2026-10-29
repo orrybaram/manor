@@ -1,8 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Page, TestInfo } from "@playwright/test";
-import type { ViteDevServer } from "vite";
 import { expect, importSeededProject, test } from "./fixtures";
+import {
+  focusWindow,
+  serveRendererFromSource,
+} from "./helpers/renderer-dev-server";
 
 /**
  * The toast deck, in the real app. Toasts are raised straight through the
@@ -11,38 +14,7 @@ import { expect, importSeededProject, test } from "./fixtures";
  * uses — nothing extra ships in production for the test to reach.
  */
 
-const appRoot = path.join(__dirname, "../..");
-const PORT = 5287;
-const DEV_URL = `http://localhost:${PORT}/`;
-
-let server: ViteDevServer | undefined;
-
-test.beforeAll(async () => {
-  const { createServer } = await import("vite");
-  const pkg = JSON.parse(
-    fs.readFileSync(path.join(appRoot, "package.json"), "utf8"),
-  ) as {
-    version: string;
-  };
-  // No React plugin: its Fast Refresh preamble is an inline script, which
-  // the page's CSP refuses. esbuild's automatic JSX runtime is enough.
-  server = await createServer({
-    configFile: false,
-    root: appRoot,
-    logLevel: "warn",
-    clearScreen: false,
-    server: { port: PORT, strictPort: true, hmr: false },
-    define: { __APP_VERSION__: JSON.stringify(pkg.version) },
-    esbuild: { jsx: "automatic" },
-  });
-  await server.listen();
-});
-
-test.afterAll(async () => {
-  await server?.close();
-});
-
-test.use({ appLaunch: { env: { VITE_DEV_SERVER_URL: DEV_URL } } });
+serveRendererFromSource();
 
 /** Where evidence screenshots land: `MANOR_E2E_SHOTS`, or the test's output dir. */
 function shot(testInfo: TestInfo, name: string): string {
@@ -312,4 +284,57 @@ test("toasts stack into a deck that fans out on hover, outlined controls in dark
   await walkTheDeck(window, testInfo, "dark");
   await useLightTheme(window);
   await walkTheDeck(window, testInfo, "light");
+});
+
+test("pressing the focused card's X lets go of the deck: it folds and timers run", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await importSeededProject(app, window, tempHome);
+  // Countdowns hold while the window is unfocused, which would pass for the
+  // focus hold this is about.
+  await focusWindow(app, window);
+  await window.mouse.move(40, 200);
+
+  const deck = window.getByTestId("toast-deck");
+  const cards = deck.getByTestId("toast");
+  await window.evaluate(async () => {
+    const { toast } = (await import(
+      /* @vite-ignore */ "/src/toast/index.ts"
+    )) as typeof import("../../src/toast");
+    toast.info("Sticky toast", { id: "e2e-sticky", duration: "sticky" });
+  });
+  const sticky = cards.filter({ hasText: "Sticky toast" });
+  const dismiss = sticky.getByRole("button", { name: "Dismiss" });
+  await expect(dismiss).toBeVisible();
+
+  // Tab there, the way a keyboard user would.
+  for (let i = 0; i < 80; i++) {
+    if (await dismiss.evaluate((el) => el === document.activeElement)) break;
+    await window.keyboard.press("Tab");
+  }
+  await expect(dismiss).toBeFocused();
+  await expect(deck).toHaveAttribute("data-fanned", "true");
+
+  // A timed toast raised under the focus hold does not count down...
+  await window.evaluate(async () => {
+    const { toast } = (await import(
+      /* @vite-ignore */ "/src/toast/index.ts"
+    )) as typeof import("../../src/toast");
+    toast.info("Timed toast", { id: "e2e-timed", duration: 1_500 });
+  });
+  const timed = cards.filter({ hasText: "Timed toast" });
+  await expect(timed).toHaveCount(1);
+  await window.waitForTimeout(2_500);
+  await expect(timed).toHaveCount(1);
+  await expect(dismiss).toBeFocused();
+  await corner(window, testInfo, "deck-focus-held", 260);
+
+  // ...until the focused card goes, taking focus with it: the hold goes too.
+  await window.keyboard.press("Enter");
+  await expect(sticky).toHaveCount(0);
+  await expect(deck).toHaveAttribute("data-fanned", "false");
+  await expect(timed).toHaveCount(0, { timeout: 5_000 });
 });

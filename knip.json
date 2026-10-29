@@ -77,10 +77,12 @@
     },
     "apps/site": {
       "entry": [
-        "index.html"
+        "index.html",
+        "tests/*.spec.ts"
       ],
       "project": [
-        "src/**/*.ts"
+        "src/**/*.ts",
+        "tests/**/*.ts"
       ]
     }
   },

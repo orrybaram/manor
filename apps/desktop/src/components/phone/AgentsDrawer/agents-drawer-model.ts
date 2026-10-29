@@ -49,6 +49,8 @@ const NO_UNSEEN: ReadonlySet<string> = new Set();
 /**
  * Where a grouped row sorts and what it says: live work first, then errors,
  * then the rest. A null `label` means the row shows its age instead.
+ * Live rows order by start time, not recency: a working agent bumps
+ * `updatedAt` constantly, so recency would shuffle them as they run.
  */
 export function rowState(status: AgentStatus | undefined): {
   rank: number;
@@ -57,6 +59,10 @@ export function rowState(status: AgentStatus | undefined): {
   if (status === "thinking" || status === "working") return { rank: 0, label: status };
   if (status === "error") return { rank: 1, label: status };
   return { rank: 2, label: null };
+}
+
+function byCreatedDesc(a: AgentInfo, b: AgentInfo): number {
+  return Date.parse(b.createdAt) - Date.parse(a.createdAt) || a.id.localeCompare(b.id);
 }
 
 /** The agent's workspace name, else the last segment of its path. */
@@ -141,7 +147,11 @@ export function buildAgentsDrawerModel({
     color,
     rows: bucket.agents
       .map((agent) => ({ agent, state: rowState(statusOf(agent)) }))
-      .sort((x, y) => x.state.rank - y.state.rank || byUpdatedDesc(x.agent, y.agent))
+      .sort(
+        (x, y) =>
+          x.state.rank - y.state.rank ||
+          (x.state.rank === 0 ? byCreatedDesc(x.agent, y.agent) : byUpdatedDesc(x.agent, y.agent)),
+      )
       .map(({ agent, state }) => ({
         agent,
         trailing: state.label ?? relativeShortIso(agent.updatedAt),

@@ -14,6 +14,7 @@ function agent(id: string, over: Partial<A> = {}): A {
     hostId: "local",
     workspacePath: "/one/main",
     cwd: "/one/main",
+    createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...over,
   } as A;
@@ -141,7 +142,10 @@ describe("buildAgentsDrawerModel", () => {
         agent("idleNew", { updatedAt: "2026-01-09T00:00:00.000Z" }),
         agent("err", { updatedAt: "2026-01-02T00:00:00.000Z" }),
         agent("workOld", { updatedAt: "2026-01-01T00:00:00.000Z" }),
-        agent("thinkNew", { updatedAt: "2026-01-05T00:00:00.000Z" }),
+        agent("thinkNew", {
+          createdAt: "2026-01-05T00:00:00.000Z",
+          updatedAt: "2026-01-05T00:00:00.000Z",
+        }),
         agent("resp", { updatedAt: "2026-01-08T00:00:00.000Z" }),
       ],
       {
@@ -158,6 +162,28 @@ describe("buildAgentsDrawerModel", () => {
     expect(rows[2].error).toBe(true);
     expect(rows[3].trailing).toMatch(/ago$/);
     expect(rows[3].error).toBe(false);
+  });
+
+  it("keeps live rows in start order however often they update", () => {
+    const statuses: Record<string, AgentStatus> = { older: "working", newer: "thinking" };
+    const older = { createdAt: "2026-01-01T00:00:00.000Z" };
+    const newer = { createdAt: "2026-01-02T00:00:00.000Z" };
+    const before = build(
+      [
+        agent("older", { ...older, updatedAt: "2026-01-03T00:00:00.000Z" }),
+        agent("newer", { ...newer, updatedAt: "2026-01-02T00:00:00.000Z" }),
+      ],
+      statuses,
+    );
+    const after = build(
+      [
+        agent("older", { ...older, updatedAt: "2026-01-03T00:00:00.000Z" }),
+        agent("newer", { ...newer, updatedAt: "2026-01-04T00:00:00.000Z" }),
+      ],
+      statuses,
+    );
+    expect(ids(before.groups[0].rows)).toEqual(["newer", "older"]);
+    expect(ids(after.groups[0].rows)).toEqual(["newer", "older"]);
   });
 
   it("drops groups with no remaining agents", () => {

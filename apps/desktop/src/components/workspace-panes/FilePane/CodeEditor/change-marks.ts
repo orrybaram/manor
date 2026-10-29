@@ -50,8 +50,13 @@ function* linesIn(doc: Text, ranges: readonly LineRange[]): Iterable<number> {
   }
 }
 
+/** Every line of a new file, less the empty one after its final newline. */
 function allLines(doc: Text): LineRange[] {
-  return [{ from: 1, to: doc.lines }];
+  return [{ from: 1, to: lastContentLine(doc) }];
+}
+
+function lastContentLine(doc: Text): number {
+  return doc.lines > 1 && doc.line(doc.lines).length === 0 ? doc.lines - 1 : doc.lines;
 }
 
 const agentField = StateField.define<AgentState>({
@@ -175,7 +180,7 @@ export function laneMarks(state: EditorState): LaneMark[] {
   const marks: LaneMark[] = [];
   const agent = state.field(agentField, false);
   if (agent?.kind === "added") {
-    marks.push({ from: 1, to: state.doc.lines, kind: "added" });
+    marks.push({ from: 1, to: lastContentLine(state.doc), kind: "added" });
   } else {
     for (const run of agentEdits(state)) marks.push({ ...run, kind: "agent" });
   }

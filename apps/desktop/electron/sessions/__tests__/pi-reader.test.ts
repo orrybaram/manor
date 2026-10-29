@@ -11,6 +11,7 @@ const FIXTURES = join(__dirname, "../__fixtures__/pi");
 const A = "aaaaaaaa-0000-4000-8000-0000000000a1";
 const B = "bbbbbbbb-0000-4000-8000-0000000000b2";
 const C = "cccccccc-0000-4000-8000-0000000000c3";
+const D = "dddddddd-0000-4000-8000-0000000000d4";
 
 const REPO = "--home-u-work-my-repo--";
 const A_FILE = `2026-10-20T10-00-00-000Z_${A}.jsonl`;
@@ -88,6 +89,7 @@ describe("the pi reader", () => {
     await utimes(path, when, when);
     const sessions = byId(await createPiReader().list(env));
     expect(sessions[A]).toMatchObject({
+      id: `pi:${A}`,
       hostId: "local",
       kind: "pi",
       createdAt: "2026-10-20T10:00:00.000Z",
@@ -99,6 +101,23 @@ describe("the pi reader", () => {
       path,
     });
     expect(sessions[B].model).toBe("gpt-5.5");
+  });
+
+  it("keeps a first prompt over 64 KB, and the name after a last line over 64 KB", async () => {
+    const path = join(dir, "pi/agent/sessions", REPO, `2026-10-22T08-00-00-000Z_${D}.jsonl`);
+    const line = (record: Record<string, unknown>) => `${JSON.stringify(record)}\n`;
+    const message = (role: string, text: string) => line({ type: "message", message: { role, content: text } });
+    await writeFile(
+      path,
+      line({ type: "session", version: 3, id: D, timestamp: "2026-10-22T08:00:00.000Z", cwd: "/w" }) +
+        message("user", `long ${"p".repeat(100 * 1024)}`) +
+        Array.from({ length: 600 }, (_, i) => message("assistant", `reply ${i} ${"x".repeat(200)}`)).join("") +
+        line({ type: "session_info", name: "Big one" }) +
+        message("assistant", "y".repeat(100 * 1024)),
+    );
+    const c = byId(await createPiReader().list(env))[D];
+    expect(c.firstPrompt.startsWith("long ppp")).toBe(true);
+    expect(c.title).toBe("Big one");
   });
 
   it("reads a custom session dir, where pi writes files flat", async () => {

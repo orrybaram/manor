@@ -26,6 +26,7 @@ import { basename, join } from "node:path";
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import { readJsonlWindows } from "./jsonl-window";
+import { bareSummary, sessionRecordId } from "./summary";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
 /** `path` with a leading `~` made the host's home, as pi does. */
@@ -136,6 +137,7 @@ export function summarizePiSession(
 
   const updatedAt = new Date(mtimeMs).toISOString();
   return {
+    id: sessionRecordId("pi", sessionId),
     hostId: LOCAL_HOST_ID,
     kind: "pi",
     sessionId,
@@ -212,10 +214,13 @@ export function createPiReader(): SessionReader {
           if (cached.summary) out.push(cached.summary);
           continue;
         }
-        let summary: SessionSummary | null = null;
+        let summary: SessionSummary | null;
         try {
-          const { head, tail } = await readJsonlWindows(path, info.size);
+          const { head, tail, capped } = await readJsonlWindows(path, info.size);
           summary = summarizePiSession(path, info.mtimeMs, head, tail);
+          // A header too long to read is no sign the file is not a Session.
+          const id = capped && !summary && head.length === 0 ? piSessionIdFromPath(path) : null;
+          if (id) summary = bareSummary("pi", id, path, info.mtimeMs);
         } catch {
           // Unreadable now; the next scan tries again.
           continue;

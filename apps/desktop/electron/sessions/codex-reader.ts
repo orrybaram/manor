@@ -25,22 +25,15 @@
  * table_info`, never assumed.
  */
 
-import {
-  copyFile,
-  mkdtemp,
-  open,
-  readdir,
-  readFile,
-  rm,
-  stat,
-} from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 import * as zlib from "node:zlib";
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import { readJsonlWindows } from "./jsonl-window";
+import { readSqliteStore, type SqliteModule } from "./sqlite-store";
+import { bareSummary, sessionRecordId } from "./summary";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
 /** Codex's home on the host `env` describes. */
@@ -167,8 +160,6 @@ export function parseSessionIndex(text: string): Map<string, string> {
 // ---------------------------------------------------------------------------
 // The SQLite index
 
-type SqliteModule = typeof import("node:sqlite");
-
 /**
  * `node:sqlite`, when this Node has it unflagged with read-only opens
  * (22.13+; Electron 44's Node 24 does). Through `getBuiltinModule`, so an
@@ -244,6 +235,7 @@ export function summarizeCodexThread(
   if (!updatedAt || !createdAt) return null;
   const parent = str(pick(row, columns, "parent"));
   return {
+    id: sessionRecordId("codex", sessionId),
     hostId: LOCAL_HOST_ID,
     kind: "codex",
     sessionId,
@@ -274,40 +266,19 @@ function readThreads(
 }
 
 /**
- * `threads` from the database at `path`, opened read-only. When that open
- * or read fails (a lock, or a WAL that needs a writable `-shm`), a copy of
- * the database and its WAL in a temp dir is read instead. Null when the
- * table isn't there or neither read works.
+ * `threads` from the database at `path`, read without writing beside it
+ * (`./sqlite-store.ts`). Null when the table isn't there or no read works.
  */
 async function queryThreads(
   sqlite: SqliteModule,
   path: string,
 ): Promise<{ rows: Rec[]; columns: Set<string> } | null> {
   try {
-    const db = new sqlite.DatabaseSync(path, { readOnly: true });
-    try {
-      return readThreads(db);
-    } finally {
-      db.close();
-    }
-  } catch {
-    // Try a copy.
-  }
-  const dir = await mkdtemp(join(tmpdir(), "manor-codex-state-"));
-  try {
-    const copy = join(dir, basename(path));
-    await copyFile(path, copy);
-    await copyFile(`${path}-wal`, `${copy}-wal`).catch(() => undefined);
-    const db = new sqlite.DatabaseSync(copy);
-    try {
-      return readThreads(db);
-    } finally {
-      db.close();
-    }
+    return await readSqliteStore(sqlite, path, readThreads, {
+      tempPrefix: "manor-codex-state-",
+    });
   } catch {
     return null;
-  } finally {
-    await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -421,6 +392,7 @@ export function summarizeCodexRollout(
   const name = names.get(sessionId) ?? null;
   const updatedAt = new Date(mtimeMs).toISOString();
   return {
+    id: sessionRecordId("codex", sessionId),
     hostId: LOCAL_HOST_ID,
     kind: "codex",
     sessionId,
@@ -436,6 +408,12 @@ export function summarizeCodexRollout(
     parentSessionId:
       parentSessionId && parentSessionId !== sessionId ? parentSessionId : null,
   };
+}
+
+/** Whether a rollout's `session_meta` says a sub-agent ran it. */
+function subagentRollout(head: readonly unknown[]): boolean {
+  const meta = head.find((r) => isRec(r) && r.type === "session_meta");
+  return isRec(meta) && isRec(meta.payload) && isSubagentSource(meta.payload.source);
 }
 
 /**
@@ -617,7 +595,7 @@ export function createCodexReader(): SessionReader {
               names,
             );
           } else {
-            const { head, tail } = await readJsonlWindows(
+            const { head, tail, capped } = await readJsonlWindows(
               path,
               info.size,
               ROLLOUT_WINDOW_BYTES,
@@ -629,6 +607,12 @@ export function createCodexReader(): SessionReader {
               tail,
               names,
             );
+            // A line too long to read is no sign no one spoke; a sub-agent's thread stays unlisted.
+            const id =
+              capped && !summary && !subagentRollout(head)
+                ? ROLLOUT_NAME.exec(basename(path))?.[2]
+                : null;
+            if (id) summary = bareSummary("codex", id, path, info.mtimeMs);
           }
         } catch {
           continue; // Unreadable now; the next scan tries again.

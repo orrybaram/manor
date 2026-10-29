@@ -29,6 +29,7 @@ import { basename, join } from "node:path";
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import { readJsonlWindows } from "./jsonl-window";
+import { bareSummary, sessionRecordId } from "./summary";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
 /** Where Claude keeps its transcripts on the host `env` describes. */
@@ -136,18 +137,15 @@ function modelOf(record: Rec): string | null {
   return model === "<synthetic>" ? null : model;
 }
 
-/** The Session a fork was copied from, when a record names it. */
+/**
+ * The Session a fork was copied from, when a record names it in
+ * `forkedFrom`. A record's own `sessionId` is no sign: `--resume` in older
+ * releases copied the history under the old id too, and that is no fork.
+ */
 function forkedFrom(record: Rec, sessionId: string): string | null {
-  if (isRec(record.forkedFrom)) {
-    const parent = str(record.forkedFrom.sessionId);
-    if (parent && parent !== sessionId) return parent;
-  }
-  // A fork's copied history may keep the original's id.
-  if (record.type === "user" || record.type === "assistant") {
-    const id = str(record.sessionId);
-    if (id && id !== sessionId) return id;
-  }
-  return null;
+  if (!isRec(record.forkedFrom)) return null;
+  const parent = str(record.forkedFrom.sessionId);
+  return parent && parent !== sessionId ? parent : null;
 }
 
 /** One transcript's summary, from its head and tail; null when it holds no conversation. */
@@ -212,6 +210,7 @@ export function summarizeClaudeTranscript(
   const updatedAt = new Date(mtimeMs).toISOString();
   const title = userName ?? agentTitle ?? firstPrompt ?? lastPrompt ?? "";
   return {
+    id: sessionRecordId("claude", sessionId),
     hostId: LOCAL_HOST_ID,
     kind: "claude",
     sessionId,
@@ -275,10 +274,12 @@ export function createClaudeReader(): SessionReader {
             if (cached.summary) out.push(cached.summary);
             continue;
           }
-          let summary: SessionSummary | null = null;
+          let summary: SessionSummary | null;
           try {
-            const { head, tail } = await readJsonlWindows(path, info.size);
+            const { head, tail, capped } = await readJsonlWindows(path, info.size);
             summary = summarizeClaudeTranscript(path, info.mtimeMs, head, tail);
+            // A line too long to read is no sign the transcript is empty.
+            if (!summary && capped) summary = bareSummary("claude", basename(path, ".jsonl"), path, info.mtimeMs);
           } catch {
             // Unreadable now; the next scan tries again.
             continue;

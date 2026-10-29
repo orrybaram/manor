@@ -11,6 +11,12 @@ import type { HostId } from "../backend/types";
 import type { AgentKind } from "../terminal-host/types";
 
 export interface SessionSummary {
+  /**
+   * `<kind>:<sessionId>`, the same on every host that reports it: the
+   * renderer's merge keeps one record per id, so a host listed under two
+   * host ids still shows each Session once.
+   */
+  id: string;
   /** The host whose store holds it: `local` on the server that read it, stamped on the way out. */
   hostId: HostId;
   kind: AgentKind;

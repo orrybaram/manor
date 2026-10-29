@@ -13,6 +13,7 @@ import { sessionsList, type SessionsDeps } from "../sessions";
 
 function session(sessionId: string, updatedAt: string, hostId = "local"): SessionSummary {
   return {
+    id: `claude:${sessionId}`,
     hostId,
     kind: "claude",
     sessionId,

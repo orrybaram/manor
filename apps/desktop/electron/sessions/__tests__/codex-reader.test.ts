@@ -2,6 +2,7 @@ import {
   appendFile,
   cp,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   unlink,
@@ -98,6 +99,7 @@ describe("the Codex reader, from rollouts", () => {
     );
     const a = byId(await createCodexReader().list(env))[A];
     expect(a).toMatchObject({
+      id: `codex:${A}`,
       sessionId: A,
       // The newest name in session_index.jsonl.
       title: "Toast cleanup",
@@ -264,6 +266,7 @@ describe.skipIf(!sqlite)("the Codex reader, from the SQLite index", () => {
     expect(list.map((s) => s.sessionId).sort()).toEqual([A, "t1", "t2"].sort());
     const sessions = byId(list);
     expect(sessions.t1).toEqual({
+      id: "codex:t1",
       hostId: "local",
       kind: "codex",
       sessionId: "t1",
@@ -305,6 +308,7 @@ describe.skipIf(!sqlite)("the Codex reader, from the SQLite index", () => {
     );
     const [only] = await createCodexReader().list(env);
     expect(only).toMatchObject({
+      id: "codex:old",
       sessionId: "old",
       title: "Old thread",
       cwd: "",
@@ -326,6 +330,27 @@ describe.skipIf(!sqlite)("the Codex reader, from the SQLite index", () => {
     await writeFile(join(home, "state_5.sqlite"), "not a database");
     const list = await createCodexReader().list(env);
     expect(list.map((s) => s.sessionId).sort()).toEqual([A, B, E]);
+  });
+
+  it("writes nothing beside the database, whether or not Codex has it open", async () => {
+    const path = join(home, "state_5.sqlite");
+    makeDb(path, THREAD_COLUMNS, [
+      { id: "t1", created_at: 1792000000, updated_at: 1792000100, title: "One" },
+    ]);
+    // Closed: no -wal or -shm, and reading makes none.
+    const closed = await readdir(home);
+    expect(closed.filter((name) => name.startsWith("state_5.sqlite"))).toEqual(["state_5.sqlite"]);
+    expect((await createCodexReader().list(env)).map((s) => s.sessionId)).toEqual(["t1"]);
+    expect(await readdir(home)).toEqual(closed);
+
+    // Open: Codex's own -wal and -shm, and nothing new.
+    const codex = new sqlite!.DatabaseSync(path);
+    codex.prepare("INSERT INTO threads (id, created_at, updated_at, title) VALUES (?, ?, ?, ?)").run("t2", 1792000000, 1792000200, "Two");
+    const open = await readdir(home);
+    expect(open).toContain("state_5.sqlite-wal");
+    expect((await createCodexReader().list(env)).map((s) => s.sessionId).sort()).toEqual(["t1", "t2"]);
+    expect(await readdir(home)).toEqual(open);
+    codex.close();
   });
 
   it("sees new rows on a rescan, and never writes to the database", async () => {

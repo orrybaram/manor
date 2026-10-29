@@ -20,18 +20,17 @@
  *
  * The database is opened read-only through Node's built-in `node:sqlite`
  * (unflagged from Node 22.13; Electron's Node has it). Where Node lacks it,
- * opencode's Sessions are not listed. If opencode holds a lock the read
- * cannot wait out, the database and its WAL are copied to a temp directory
- * and the copy is read; the store itself is never written.
+ * opencode's Sessions are not listed. Opening it never writes beside it,
+ * not even the `-wal`/`-shm` SQLite would make (`./sqlite-store.ts`).
  */
 
-import { copyFile, mkdtemp, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { stat } from "node:fs/promises";
 import { isAbsolute, join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import { LOCAL_HOST_ID } from "../backend/types";
-import { errorMessage } from "../lib/errors";
+import { readSqliteStore, type SqliteModule } from "./sqlite-store";
+import { sessionRecordId } from "./summary";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
 /** opencode's database on the host `env` describes; null when it is in memory. */
@@ -91,8 +90,6 @@ function modelId(value: unknown): string | null {
   if (!isRec(model)) return null;
   return str(model.id) ?? str(model.modelID);
 }
-
-type SqliteModule = typeof import("node:sqlite");
 
 /** `node:sqlite`, or null where this Node lacks it (or keeps it behind a flag). */
 function loadSqlite(): SqliteModule | null {
@@ -305,6 +302,7 @@ function summarize(
   const updatedAt = row.updatedAt ?? row.createdAt ?? new Date(0).toISOString();
   const named = row.title && !isPlaceholderTitle(row.title) ? row.title : null;
   return {
+    id: sessionRecordId("opencode", row.id),
     hostId: LOCAL_HOST_ID,
     kind: "opencode",
     sessionId: row.id,
@@ -362,36 +360,12 @@ async function readSessions(
   return out;
 }
 
-/** Read `path` read-only; when opencode's lock won't let go, read a copy of it and its WAL instead. */
-async function readDatabase(
-  sqlite: SqliteModule,
-  path: string,
-): Promise<SessionSummary[]> {
-  try {
-    const db = new sqlite.DatabaseSync(path, { readOnly: true, timeout: 1000 });
-    try {
-      return await readSessions(db, path);
-    } finally {
-      db.close();
-    }
-  } catch (err) {
-    if (!/locked|busy/i.test(errorMessage(err))) throw err;
-  }
-  const dir = await mkdtemp(join(tmpdir(), "manor-opencode-"));
-  try {
-    const copy = join(dir, "opencode.db");
-    await copyFile(path, copy);
-    // Without its WAL the copy would miss what opencode wrote since the last checkpoint.
-    await copyFile(`${path}-wal`, `${copy}-wal`).catch(() => {});
-    const db = new sqlite.DatabaseSync(copy);
-    try {
-      return await readSessions(db, path);
-    } finally {
-      db.close();
-    }
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+/** opencode's Sessions in the database at `path`, read without writing beside it. */
+function readDatabase(sqlite: SqliteModule, path: string): Promise<SessionSummary[]> {
+  return readSqliteStore(sqlite, path, (db) => readSessions(db, path), {
+    timeout: 1000,
+    tempPrefix: "manor-opencode-",
+  });
 }
 
 /** A file's size and mtime, or "-" when it is absent. */

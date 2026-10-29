@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -12,6 +12,7 @@ const FIXTURES = join(__dirname, "../__fixtures__/claude");
 const A = "aaaaaaaa-0000-4000-8000-000000000001";
 const B = "bbbbbbbb-0000-4000-8000-000000000002";
 const C = "cccccccc-0000-4000-8000-000000000003";
+const D = "dddddddd-0000-4000-8000-000000000004";
 
 let dir: string;
 let env: SessionEnv;
@@ -74,6 +75,7 @@ describe("the Claude reader", () => {
     await utimes(path, when, when);
     const a = byId(await createClaudeReader().list(env))[A];
     expect(a).toMatchObject({
+      id: `claude:${A}`,
       hostId: "local",
       kind: "claude",
       createdAt: "2026-10-20T10:00:00.000Z",
@@ -138,9 +140,73 @@ describe("summarizeClaudeTranscript", () => {
     expect(summary?.firstPrompt).toBe("/feature fix the modal");
   });
 
-  it("names a fork's parent when its copied records keep the original's id", () => {
-    const records = [user("hello", { sessionId: B })];
-    expect(summarizeClaudeTranscript(`/p/${A}.jsonl`, 0, records, records)?.parentSessionId).toBe(B);
+  it("names a fork's parent only from its forkedFrom field", () => {
+    const forked = [user("hello", { sessionId: A, forkedFrom: { sessionId: B } })];
+    expect(summarizeClaudeTranscript(`/p/${A}.jsonl`, 0, forked, forked)?.parentSessionId).toBe(B);
+    // An older `--resume` copied the history under the old id: no fork.
+    const resumed = [user("hello", { sessionId: B })];
+    expect(summarizeClaudeTranscript(`/p/${A}.jsonl`, 0, resumed, resumed)?.parentSessionId).toBeNull();
+  });
+
+  it("gives each Session the record id kind:sessionId", () => {
+    const records = [user("hello")];
+    expect(summarizeClaudeTranscript(`/p/${A}.jsonl`, 0, records, records)?.id).toBe(`claude:${A}`);
+  });
+});
+
+describe("the Claude reader, with lines longer than a window", () => {
+  const project = () => join(dir, "config/projects/-home-u-big");
+  const line = (record: Record<string, unknown>) => `${JSON.stringify(record)}\n`;
+  const filler = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      line({ type: "assistant", cwd: "/w/old", message: { role: "assistant", model: "m", content: `reply ${i} ${"x".repeat(200)}` } }),
+    ).join("");
+
+  it("keeps the latest title and cwd before a last line over 64 KB", async () => {
+    await mkdir(project(), { recursive: true });
+    const path = join(project(), `${D}.jsonl`);
+    await writeFile(
+      path,
+      line({ type: "user", cwd: "/w/old", timestamp: "2026-10-28T10:00:00.000Z", message: { role: "user", content: "start" } }) +
+        filler(1000) +
+        line({ type: "ai-title", aiTitle: "Big tail" }) +
+        line({ type: "assistant", cwd: "/w/new", message: { role: "assistant", model: "m2", content: "y".repeat(100 * 1024) } }),
+    );
+    const a = byId(await createClaudeReader().list(env))[D];
+    expect(a).toMatchObject({ title: "Big tail", cwd: "/w/new", model: "m2", firstPrompt: "start" });
+  });
+
+  it("keeps a first prompt over 64 KB", async () => {
+    await mkdir(project(), { recursive: true });
+    const path = join(project(), `${D}.jsonl`);
+    const prompt = `fix it ${"z".repeat(100 * 1024)}`;
+    await writeFile(
+      path,
+      line({ type: "file-history-snapshot", messageId: "m" }) +
+        line({ type: "user", cwd: "/w", timestamp: "2026-10-28T10:00:00.000Z", message: { role: "user", content: prompt } }) +
+        filler(1000),
+    );
+    const a = byId(await createClaudeReader().list(env))[D];
+    expect(a.firstPrompt.startsWith("fix it zzz")).toBe(true);
+    expect(a.title.startsWith("fix it zzz")).toBe(true);
+  });
+
+  it("still lists a transcript whose only lines are past the cap, as a bare row", async () => {
+    await mkdir(project(), { recursive: true });
+    const path = join(project(), `${D}.jsonl`);
+    // Each line longer than the 4 MB cap.
+    const huge = line({ type: "user", cwd: "/w", message: { role: "user", content: "q".repeat(4.5 * 1024 * 1024) } });
+    await writeFile(path, huge + huge);
+    const { size, mtimeMs } = await stat(path);
+    expect(await readJsonlWindows(path, size)).toEqual({ head: [], tail: [], capped: true });
+    const a = byId(await createClaudeReader().list(env))[D];
+    expect(a).toMatchObject({
+      id: `claude:${D}`,
+      title: "",
+      cwd: "",
+      updatedAt: new Date(mtimeMs).toISOString(),
+      path,
+    });
   });
 });
 

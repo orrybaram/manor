@@ -381,6 +381,18 @@ describe("merged reads", () => {
     expect(box.invokes).toHaveLength(1);
   });
 
+  it("keep one Session per kind and id when a host is reported under two host ids", async () => {
+    const row = (sessionId: string, hostId: string) => ({ id: `claude:${sessionId}`, kind: "claude", sessionId, hostId });
+    // The desktop lists the box under an alias as well as its own id.
+    const home = fakeServer({
+      "sessions.list": () => [row("s0", "local"), row("s1", "box"), row("s1", "box-alias")],
+    });
+    const box = fakeServer({ "sessions.list": () => [row("s1", "local"), row("s2", "local")] });
+    const api = createRouter(desktopWithHost(home, box), fakeResolver({}));
+    const list = (await api.sessions.list()) as Array<{ id: string }>;
+    expect(list.map((s) => s.id).sort()).toEqual(["claude:s0", "claude:s1", "claude:s2"]);
+  });
+
   it("answer from the others, and the failed server's last answer, when one fails", async () => {
     let fail = false;
     const home = fakeServer({ "agents.getActive": () => [{ id: "a0", hostId: "local" }] });

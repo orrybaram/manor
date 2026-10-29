@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
@@ -232,6 +232,7 @@ describe("the opencode reader", () => {
     expect(list.map((s) => s.sessionId).sort()).toEqual(["ses_a", "ses_b"]);
     const sessions = byId(list);
     expect(sessions.ses_a).toEqual({
+      id: "opencode:ses_a",
       hostId: "local",
       kind: "opencode",
       sessionId: "ses_a",
@@ -305,6 +306,7 @@ describe("the opencode reader", () => {
       updatedAt: new Date(T0 + 120_000).toISOString(),
     });
     expect(sessions.ses_fork).toMatchObject({
+      id: "opencode:ses_fork",
       title: "Try it another way",
       model: "claude-opus-4",
       parentSessionId: "ses_both",
@@ -354,6 +356,28 @@ describe("the opencode reader", () => {
     expect(await reader.list(env)).toBe(first);
     const after = await stat(dbPath);
     expect([after.size, after.mtimeMs]).toEqual([before.size, before.mtimeMs]);
+  });
+
+  it("writes nothing beside the database, whether or not opencode has it open", async () => {
+    const dbDir = join(dir, "data", "opencode");
+    const db = open();
+    v2Schema(db);
+    v2Session(db, { id: "ses_1", title: "One", dir: "/r", at: T0 });
+    db.close();
+    // Closed: no -wal or -shm, and reading makes none.
+    const closed = await readdir(dbDir);
+    expect(closed).toEqual(["opencode.db"]);
+    expect((await createOpencodeReader().list(env)).map((s) => s.sessionId)).toEqual(["ses_1"]);
+    expect(await readdir(dbDir)).toEqual(closed);
+
+    // Open: opencode's own -wal and -shm, and nothing new.
+    const running = open();
+    v2Session(running, { id: "ses_2", title: "Two", dir: "/r", at: T0 });
+    const opened = await readdir(dbDir);
+    expect(opened).toContain("opencode.db-wal");
+    expect((await createOpencodeReader().list(env)).map((s) => s.sessionId).sort()).toEqual(["ses_1", "ses_2"]);
+    expect(await readdir(dbDir)).toEqual(opened);
+    running.close();
   });
 
   it("lists nothing, rather than failing, on a Node without node:sqlite", async () => {

@@ -248,7 +248,10 @@
 /* One line each: where it is in accent mono, then as much of it as fits. */
 .reviewItem {
   display: flex;
-  align-items: baseline;
+  /* Centred, not on a baseline: the mono and sans line boxes, baseline-
+     aligned, overhang the row and the list scrolls by a pixel. */
+  align-items: center;
+  overflow: hidden;
   gap: 6px;
   width: 100%;
   min-width: 0;

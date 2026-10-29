@@ -17,7 +17,8 @@
  * - `project`: a project id — the host the project lives on.
  * - `workspaceKey`: a workspace key (`<hostId>:<path>`, or a bare local path).
  * - `pane`: a pane id — the host whose layout holds the pane.
- * - `ghRepo`: a `GhRepo` (`{ path, hostId }`) — its `hostId`.
+ * - `ghRepo`: a `GhRepo` (`{ path, hostId }`) — its `hostId`; any such
+ *   record, like a Session's ref, routes the same way.
  * - `host`: a host id, or null/absent for the desktop's own.
  * - `agent`: an agent id — the host whose server holds the agent.
  *
@@ -205,6 +206,8 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
 
   // Each server scans its own host's agent stores.
   "sessions.list": "merge",
+  // A Session's transcript is read on the host whose store holds it.
+  "sessions.transcript": byGhRepo(0),
 
   "github.getPrsForBranches": byGhRepo(0),
   "github.listRepos": "home",
@@ -287,6 +290,8 @@ const NEVER_WAKES: ReadonlySet<string> = new Set([
   "pty.close",
   "agents.markSeen",
   "agents.setPaneContext",
+  // A preview of a Session: a read, which must not start a box.
+  "sessions.transcript",
 ]);
 
 /**

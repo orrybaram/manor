@@ -29,7 +29,7 @@ import { isAbsolute, join, resolve } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
 
 import { LOCAL_HOST_ID } from "../backend/types";
-import { readSqliteStore, type SqliteModule } from "./sqlite-store";
+import { loadSqlite, readSqliteStore, type SqliteModule } from "./sqlite-store";
 import { sessionRecordId } from "./summary";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
@@ -89,19 +89,6 @@ function modelId(value: unknown): string | null {
   if (typeof model === "string") return str(model);
   if (!isRec(model)) return null;
   return str(model.id) ?? str(model.modelID);
-}
-
-/** `node:sqlite`, or null where this Node lacks it (or keeps it behind a flag). */
-function loadSqlite(): SqliteModule | null {
-  try {
-    // Not a static import: the module must load on a Node without it.
-    return (
-      (process.getBuiltinModule?.("node:sqlite") as SqliteModule | undefined) ??
-      null
-    );
-  } catch {
-    return null;
-  }
 }
 
 /** Each table's columns, from `sqlite_master` and `PRAGMA table_info`. */

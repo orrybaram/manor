@@ -9,7 +9,8 @@ import { HostRouting } from "../../../server/host-routing";
 import type { SessionSummary } from "../../../sessions/types";
 import { HOST_TABLE } from "../../../host-server/handlers";
 import type { HandlerCtx } from "../../method";
-import { sessionsList, type SessionsDeps } from "../sessions";
+import { ROUTES } from "../../routes";
+import { sessions, sessionsList, sessionsTranscript, type SessionsDeps } from "../sessions";
 
 function session(sessionId: string, updatedAt: string, hostId = "local"): SessionSummary {
   return {
@@ -101,5 +102,23 @@ describe("sessions.list", () => {
 
   it("is on the host server's table, so the desktop can ask a host for it", () => {
     expect("sessions.list" in HOST_TABLE.handlers).toBe(true);
+  });
+});
+
+describe("sessions.transcript", () => {
+  const ref = { hostId: "box", kind: "claude", sessionId: "s", path: "/home/u/.claude/projects/p/s.jsonl" };
+
+  it("is routed by its ref's hostId to the host whose store holds it", () => {
+    const rule = sessions.transcript.rules.route;
+    expect(rule).toEqual(ROUTES["sessions.transcript"]);
+    const box = proxy("box", async () => []);
+    expect(routing([box]).target(rule, [ref])).toBe("box");
+    expect("sessions.transcript" in HOST_TABLE.handlers).toBe(true);
+  });
+
+  it("refuses a path outside this host's store", async () => {
+    const at = ctx({ sessionEnv: () => ({ home: "/nowhere", env: {} }) });
+    await expect(sessionsTranscript(at, { ...ref, path: "/etc/passwd" })).rejects.toThrow(/no such transcript|store/);
+    await expect(sessionsTranscript(at, { ...ref, kind: "vim" })).rejects.toThrow(/kind/);
   });
 });

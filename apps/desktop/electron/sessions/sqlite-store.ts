@@ -23,6 +23,17 @@ import type { DatabaseSync } from "node:sqlite";
 
 export type SqliteModule = typeof import("node:sqlite");
 
+/** `node:sqlite`, or null where this Node lacks it (or keeps it behind a flag). */
+export function loadSqlite(): SqliteModule | null {
+  try {
+    // Not a static import: the module must load on a Node without it.
+    const mod = process.getBuiltinModule?.("node:sqlite") as SqliteModule | undefined;
+    return mod && typeof mod.DatabaseSync === "function" ? mod : null;
+  } catch {
+    return null;
+  }
+}
+
 async function exists(path: string): Promise<boolean> {
   try {
     await access(path);

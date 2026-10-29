@@ -33,7 +33,7 @@ import * as zlib from "node:zlib";
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import { readJsonlWindows } from "./jsonl-window";
-import { readSqliteStore, type SqliteModule } from "./sqlite-store";
+import { loadSqlite, readSqliteStore, type SqliteModule } from "./sqlite-store";
 import { bareSummary, sessionRecordId } from "./summary";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
@@ -81,10 +81,15 @@ function asTitle(text: string): string {
   return capped(text.replace(/\s+/g, " ").trim(), TITLE_MAX);
 }
 
+/** Whether a user-role message's text is Codex's injected context (AGENTS.md, environment), not the user's. */
+export function isCodexInjected(text: string): boolean {
+  const trimmed = text.trimStart();
+  return NOT_A_PROMPT.some((prefix) => trimmed.startsWith(prefix));
+}
+
 function asPrompt(text: string | null): string | null {
   const trimmed = text?.trim();
-  if (!trimmed || NOT_A_PROMPT.some((prefix) => trimmed.startsWith(prefix)))
-    return null;
+  if (!trimmed || isCodexInjected(trimmed)) return null;
   return capped(trimmed, FIRST_PROMPT_MAX);
 }
 
@@ -167,22 +172,6 @@ export function parseSessionIndex(text: string): Map<string, string> {
 
 // ---------------------------------------------------------------------------
 // The SQLite index
-
-/**
- * `node:sqlite`, when this Node has it unflagged with read-only opens
- * (22.13+; Electron 44's Node 24 does). Through `getBuiltinModule`, so an
- * older Node, or a bundler that doesn't know the module, just gets null.
- */
-function loadSqlite(): SqliteModule | null {
-  try {
-    const mod = process.getBuiltinModule?.("node:sqlite") as
-      | SqliteModule
-      | undefined;
-    return mod && typeof mod.DatabaseSync === "function" ? mod : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The `threads` columns, by the names a summary needs, in order of preference. */
 const COLUMNS = {

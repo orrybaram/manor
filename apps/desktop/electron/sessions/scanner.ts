@@ -29,7 +29,7 @@ function defaultSessionReaders(): SessionReader[] {
 }
 
 /** This process's home and environment. */
-function processEnv(): SessionEnv {
+export function processEnv(): SessionEnv {
   return { home: homedir(), env: process.env };
 }
 

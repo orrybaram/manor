@@ -7,18 +7,25 @@
  * own host's stores (`../../sessions/scanner.ts`); **on the desktop the
  * answer is merged** with every adopted remote host's, asked of that host's
  * server, each Session carrying its host's id.
+ *
+ * A Session's transcript (`sessions.transcript`) is read on the Session's
+ * own host: the desktop routes the call by its `hostId` to that host's
+ * server, which reads its own store (`../../sessions/preview.ts`).
  */
 
 import type { HostRouting } from "../../server/host-routing";
-import { createSessionScanner, type SessionScanner } from "../../sessions/scanner";
-import type { SessionSummary } from "../../sessions/types";
-import { LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import { assertSessionRef, readSessionPreview, type SessionPreview } from "../../sessions/preview";
+import { createSessionScanner, processEnv, type SessionScanner } from "../../sessions/scanner";
+import type { SessionEnv, SessionSummary } from "../../sessions/types";
+import { LOCAL_ROUTE, byGhRepo, method, type HandlerCtx } from "../method";
 
 export interface SessionsDeps {
   /** This host's scanner; the process's own when absent. */
   sessionScanner?: SessionScanner;
   /** Adopted remote hosts' Sessions, on the desktop. */
   hostRouting?: Pick<HostRouting, "sessions">;
+  /** Where this host's stores are; the process's home and environment when absent. */
+  sessionEnv?: () => SessionEnv;
 }
 
 let processScanner: SessionScanner | null = null;
@@ -41,9 +48,22 @@ export async function sessionsList(ctx: HandlerCtx<SessionsDeps>): Promise<Sessi
 }
 
 /**
+ * The last turns of the Session `ref` names (`{ hostId, kind, sessionId,
+ * path }`, a `SessionSummary`'s own fields), from this host's store. On
+ * the desktop a remote host's Session never reaches here: its call is
+ * routed to that host's server. Refuses a path outside the kind's store.
+ */
+export async function sessionsTranscript(ctx: HandlerCtx<SessionsDeps>, ref: unknown): Promise<SessionPreview> {
+  const env = (ctx.deps.sessionEnv ?? processEnv)();
+  return readSessionPreview(assertSessionRef(ref), env);
+}
+
+/**
  * The desktop's table. A merged read: answered here whatever host it
  * touches, and by the renderer's router from every server it holds.
  */
 export const sessions = {
   list: method(sessionsList, { route: LOCAL_ROUTE }),
+  // A `{ hostId, path }` record, as a `GhRepo` is: routed by its `hostId`.
+  transcript: method(sessionsTranscript, { route: byGhRepo(0) }),
 };

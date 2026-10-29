@@ -507,6 +507,8 @@ export type {
 
 /** A Session in an agent CLI's own store on a host: `sessions.list`'s rows. */
 export type { SessionSummary } from "../electron/sessions/types";
+/** `sessions.transcript`'s answer: a Session's last turns, for the Agents modal's preview. */
+export type { PreviewTurn, SessionPreview, SessionRef } from "../electron/sessions/preview";
 
 /** Phone access through a host's server. */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";

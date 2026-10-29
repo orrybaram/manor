@@ -68,6 +68,11 @@ async function settingsSessionDir(at: SessionEnv): Promise<string | null> {
   }
 }
 
+/** Where pi keeps its sessions on the host `env` describes, its `settings.json` read. */
+export async function piSessionsRoot(at: SessionEnv): Promise<string> {
+  return piSessionsDir(at, await settingsSessionDir(at));
+}
+
 /**
  * The session id in a session file's name (`<timestamp>_<id>.jsonl`): the
  * timestamp has `:` and `.` replaced by `-`, so it holds no `_`.
@@ -230,7 +235,7 @@ export function createPiReader(): SessionReader {
     async list(env) {
       const seen = new Set<string>();
       const out: SessionSummary[] = [];
-      for (const path of await sessionFiles(piSessionsDir(env, await settingsSessionDir(env)))) {
+      for (const path of await sessionFiles(await piSessionsRoot(env))) {
         let info;
         try {
           info = await stat(path);

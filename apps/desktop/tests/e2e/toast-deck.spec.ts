@@ -137,7 +137,7 @@ async function raiseToasts(window: Page): Promise<void> {
       action: { label: "Restart now", onClick: () => {} },
       secondaryAction: { label: "Later", onClick: () => {} },
     });
-    toast.progress("Agent needs input", {
+    toast.attention("Agent needs input", {
       id: "e2e-attention",
       detail: "fix-login-redirect · claude",
       duration: "sticky",

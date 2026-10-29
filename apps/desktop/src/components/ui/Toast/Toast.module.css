@@ -81,6 +81,11 @@
   color: var(--danger);
 }
 
+.iconAttention {
+  color: var(--yellow);
+  font-size: 11px;
+}
+
 .iconInfo {
   display: flex;
   color: var(--text-primary);

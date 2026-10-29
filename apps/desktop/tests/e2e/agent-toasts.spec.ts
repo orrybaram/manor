@@ -61,7 +61,7 @@ async function watchAttention(window: Page, agentId: string): Promise<void> {
     )) as typeof import("../../src/store/agent-store");
     const log = { raised: [] as string[], unseenResponded: false };
     (window as unknown as { __attention: typeof log }).__attention = log;
-    for (const kind of ["success", "progress"] as const) {
+    for (const kind of ["success", "attention"] as const) {
       const original = toast[kind];
       toast[kind] = ((message: string, opts?: { id?: string }) => {
         if (opts?.id?.startsWith("agent-")) log.raised.push(`${opts.id}: ${message}`);

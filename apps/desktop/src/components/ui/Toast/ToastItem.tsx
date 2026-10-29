@@ -43,6 +43,11 @@ export function ToastItem(props: ToastItemProps) {
       {toast.status === "error" && (
         <span className={`${styles.icon} ${styles.iconError}`}>&#10007;</span>
       )}
+      {toast.status === "attention" && (
+        <span className={`${styles.icon} ${styles.iconAttention}`} aria-hidden>
+          &#9679;
+        </span>
+      )}
       {toast.status === "info" && (
         <span className={`${styles.icon} ${styles.iconInfo}`}>
           <Info size={14} aria-hidden />

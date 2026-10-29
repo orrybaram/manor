@@ -143,7 +143,7 @@ describe("agent attention toasts", () => {
     const agent = working("a1", "off-screen");
     receive({ ...agent, lastAgentStatus: "requires_input" }, NEEDS_INPUT);
     expect(toastStore.getState().toasts).toMatchObject([
-      { id: "agent-input-a1", message: "Agent needs input", duration: "sticky" },
+      { id: "agent-input-a1", message: "Agent needs input", status: "attention", duration: "sticky" },
     ]);
     vi.advanceTimersByTime(60_000);
     expect(shown()).toEqual(["Agent needs input"]);

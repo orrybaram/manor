@@ -155,6 +155,10 @@ export const toast = {
   error: (message: string, opts?: ToastErrorOptions): ToastHandle =>
     show("error", message, errorOptions(opts)),
 
+  /** Something waiting on the user. Sticky unless given a duration. */
+  attention: (message: string, opts?: ToastOptions): ToastHandle =>
+    show("attention", message, { duration: "sticky", ...opts }),
+
   /** A spinner with no countdown until it settles with `succeed` or `fail`. */
   progress: (message: string, opts?: ToastOptions): ProgressHandle => {
     const shown = show("loading", message, opts);

@@ -111,6 +111,15 @@ describe("toast", () => {
   });
 });
 
+describe("toast.attention", () => {
+  it("waits on the user until dismissed, unless given a duration", () => {
+    toast.attention("Agent needs input", { id: "a" });
+    toast.attention("Look", { id: "b", duration: 1000 });
+    vi.advanceTimersByTime(60_000);
+    expect(only()).toMatchObject({ id: "a", status: "attention", duration: "sticky" });
+  });
+});
+
 describe("toast.progress", () => {
   it("spins with no countdown, then counts down from when it succeeds", () => {
     const p = toast.progress("Cloning…", { about: { workspace: "/w" } });

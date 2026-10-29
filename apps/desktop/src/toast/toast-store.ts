@@ -11,7 +11,8 @@
 import { createStore } from "zustand/vanilla";
 import { isWindowFocused, onWindowFocusChange } from "../lib/window-focus";
 
-export type ToastStatus = "loading" | "success" | "error" | "info";
+/** `attention`: something is waiting on the user (an agent needing input). */
+export type ToastStatus = "loading" | "success" | "error" | "info" | "attention";
 
 /**
  * What a toast is about. While its subject is on screen the toast has nothing

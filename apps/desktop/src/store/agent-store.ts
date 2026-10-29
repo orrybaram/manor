@@ -149,7 +149,7 @@ function raiseAttention(kind: Attention, agent: AgentInfo): void {
       },
     },
   };
-  if (kind === "input") toast.progress("Agent needs input", { ...opts, duration: "sticky" });
+  if (kind === "input") toast.attention("Agent needs input", opts);
   else toast.success("Agent responded", { ...opts, duration: 10_000 });
 }
 

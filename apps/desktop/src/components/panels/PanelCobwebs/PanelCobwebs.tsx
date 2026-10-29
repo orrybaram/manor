@@ -16,7 +16,7 @@ import styles from "./PanelCobwebs.module.css";
 /** The brush's reach around the pointer, in CSS px. */
 const BRUSH_RADIUS = 36;
 /** The dust film wipes off like a cloth, not a fingertip: a few swipes clear a panel. */
-const DUST_BRUSH_RADIUS = 160;
+const DUST_BRUSH_RADIUS = 250;
 /** Threads are drawn a little see-through, so the panel shows through the silk. */
 const STRAND_OPACITY = 0.7;
 /** Frames with nothing moving before the loop sleeps until the mouse returns. */

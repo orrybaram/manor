@@ -1,8 +1,21 @@
+import { execSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import type { Page, TestInfo } from "@playwright/test";
-import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
-import { activePaneId, awaitShellReady, runInTerminal } from "./helpers/terminal";
+import {
+  bootWorkspaceWithTerminal,
+  createWorkspace,
+  expect,
+  importSeededProject,
+  test,
+} from "./fixtures";
+import {
+  activePaneId,
+  awaitShellReady,
+  paneText,
+  rightClickText,
+  runInTerminal,
+} from "./helpers/terminal";
 
 /**
  * The file pane (#449): opened from the palette, it lists the workspace's
@@ -359,4 +372,145 @@ test("the file pane asks before converting or closing over unsaved edits, and a 
   await window.keyboard.press("ControlOrMeta+s");
   await expect.poll(onDisk).toContain("// unsaved// narrow");
   await window.screenshot({ path: shot(testInfo, "narrow-window-editable") });
+});
+
+async function waitForWorktree(tempHome: string): Promise<string> {
+  const root = path.join(tempHome, ".manor", "worktrees");
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (fs.existsSync(root)) {
+      for (const project of fs.readdirSync(root)) {
+        for (const ws of fs.readdirSync(path.join(root, project))) {
+          const dir = path.join(root, project, ws);
+          if (fs.existsSync(path.join(dir, ".git"))) return dir;
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  throw new Error(`no worktree under ${root}`);
+}
+
+function git(cwd: string, args: string): void {
+  execSync(`git ${args}`, {
+    cwd,
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: "e2e",
+      GIT_AUTHOR_EMAIL: "e2e@example.com",
+      GIT_COMMITTER_NAME: "e2e",
+      GIT_COMMITTER_EMAIL: "e2e@example.com",
+    },
+  });
+}
+
+/** The line the editor's cursor is on, by its gutter. */
+const activeLine = (window: Page) =>
+  pane(window).locator(".cm-lineNumbers .cm-activeLineGutter");
+
+test("Open File in the diff pane opens the changed file in a file pane beside it", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await importSeededProject(app, window, tempHome);
+  await createWorkspace(window, "ws-from-diff");
+  const ws = await waitForWorktree(tempHome);
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.mkdirSync(path.dirname(widget), { recursive: true });
+  fs.writeFileSync(widget, WIDGET);
+  fs.writeFileSync(path.join(ws, "src", "other.ts"), OTHER);
+  fs.writeFileSync(path.join(ws, "src", "doomed.ts"), "export const doomed = 1;\n");
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
+  fs.writeFileSync(path.join(ws, "src", "other.ts"), "export const other = 2;\n");
+  fs.rmSync(path.join(ws, "src", "doomed.ts"));
+
+  await window.keyboard.press("ControlOrMeta+Shift+g");
+  const widgetFile = window.locator('[data-file-path="src/components/Widget.tsx"]');
+  await expect(widgetFile).toBeVisible({ timeout: 60_000 });
+
+  // A deleted file has nothing to open.
+  await expect(
+    window.locator('[data-file-path="src/doomed.ts"] [data-testid="diff-file-open"]'),
+  ).toHaveCount(0);
+
+  // Open File on the header: a file pane splits off to the right, on that file.
+  await widgetFile.locator('[data-testid="diff-file-open"]').click();
+  await expect(pane(window)).toBeVisible();
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
+    "Widget.tsx",
+  );
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Pressed {count} times");
+  const diffBox = (await window.locator('[data-file-path="src/other.ts"]').boundingBox())!;
+  const fileBox = (await pane(window).boundingBox())!;
+  expect(fileBox.x).toBeGreaterThan(diffBox.x);
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "from-diff") });
+
+  // With unsaved edits, opening another file from the diff asks first, in the
+  // same pane, instead of splitting again or dropping them.
+  await typeAtEnd(window, "// unsaved");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toBeVisible();
+  await window.locator('[data-file-path="src/other.ts"]').click({ button: "right" });
+  await window.locator('[data-testid="diff-file-menu-open"]').click();
+  const swap = pane(window).locator('[data-testid="file-pane-swap-bar"]');
+  await expect(swap).toBeVisible();
+  await expect(swap).toContainText("Unsaved changes to Widget.tsx.");
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await window.screenshot({ path: shot(testInfo, "from-diff-swap-confirm") });
+  await swap.locator('[data-testid="file-pane-swap-discard"]').click();
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
+    "other.ts",
+  );
+  await expect(editor).toContainText("export const other = 2;");
+});
+
+test("a file path printed in the terminal opens in a file pane at its line", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-from-terminal");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+
+  await runInTerminal(window, "pwd > \"$HOME/ws-path\"");
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+  const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.mkdirSync(path.dirname(widget), { recursive: true });
+  fs.writeFileSync(widget, WIDGET);
+
+  const printed = "src/components/Widget.tsx:8";
+  await runInTerminal(window, `echo ${printed}`);
+  await expect.poll(() => paneText(window, termId)).toMatch(/^src\/components\/Widget\.tsx:8/m);
+
+  // The first hover lists the workspace; until that answers there is no link.
+  const openItem = window.locator('[data-testid="terminal-link-open-file-pane"]');
+  await expect(async () => {
+    await rightClickText(window, termId, printed);
+    if (!(await openItem.isVisible())) {
+      await window.keyboard.press("Escape");
+      throw new Error("no file link yet");
+    }
+  }).toPass({ timeout: 15_000 });
+  await expect(window.locator('[data-testid="terminal-link-open-file-tab"]')).toBeVisible();
+  await window.screenshot({ path: shot(testInfo, "terminal-file-link-menu") });
+
+  await openItem.click();
+  await expect(pane(window)).toBeVisible();
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await expect(window.locator(`[data-pane-id="${termId}"] [data-testid="terminal-pane"]`)).toBeVisible();
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
+    "Widget.tsx",
+  );
+  await expect(activeLine(window)).toHaveText("8");
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "from-terminal") });
 });

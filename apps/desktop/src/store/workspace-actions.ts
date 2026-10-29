@@ -1,4 +1,4 @@
-import { selectActiveWorkspaceKey, useAppStore } from "./app-store";
+import { filePanesAmong, selectActiveWorkspaceKey, useAppStore } from "./app-store";
 import {
   parseWorkspaceKey,
   workspaceKey,
@@ -12,10 +12,13 @@ import type { ProjectInfo, WorkspaceInfo } from "./project-store";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { allPaneIds } from "../lib/layout/pane-tree";
 import { findPanelWithTab } from "../lib/layout/workspace-layout";
-import { dirtyPaneIds, useOpenFileStore } from "./open-file-store";
-import { confirmUnsavedEdits, type UnsavedGuardVerb } from "./unsaved-guard-store";
+import {
+  closesWithoutAsking,
+  settleClosingPanes,
+  type UnsavedGuardVerb,
+} from "./unsaved-guard-store";
 
-/** Every pane of the workspace `key`'s layout in this window. */
+/** Every pane of the workspace `key`'s layout, whichever window shows it. */
 function panesOfWorkspace(key: WorkspaceKey): string[] {
   const layout = useAppStore.getState().workspaceLayouts[key];
   if (!layout) return [];
@@ -25,20 +28,21 @@ function panesOfWorkspace(key: WorkspaceKey): string[] {
 }
 
 /**
- * Run `go` once none of `paneIds` has unsaved edits: synchronously when they
- * have none, else after the unsaved-edits confirm. Resolves to `go`'s answer,
- * or `cancelled` on Cancel.
+ * Run `go` once none of the panes `panesNow()` names has unsaved edits, here
+ * or in another window: synchronously when nothing needs asking, else after
+ * the unsaved-edits confirm (`settleClosingPanes`). Resolves to `go`'s
+ * answer, or `cancelled` on Cancel or when another window holds edits.
  */
 function afterUnsavedEdits<T>(
-  paneIds: readonly string[],
+  panesNow: () => string[],
   verb: UnsavedGuardVerb,
   go: () => T | Promise<T>,
   cancelled: T,
 ): Promise<T> {
-  if (dirtyPaneIds(useOpenFileStore.getState(), paneIds).length === 0) {
-    return Promise.resolve(go());
-  }
-  return confirmUnsavedEdits(paneIds, verb).then((ok) => (ok ? go() : cancelled));
+  if (closesWithoutAsking(panesNow(), filePanesAmong)) return Promise.resolve(go());
+  return settleClosingPanes(panesNow, verb, filePanesAmong).then((ok) =>
+    ok ? go() : cancelled,
+  );
 }
 
 /**
@@ -54,7 +58,7 @@ export function removeWorktreeWithToast(
   deleteBranch?: boolean,
 ): Promise<boolean> {
   return afterUnsavedEdits(
-    panesOfWorkspace(workspaceKey(project.hostId, ws.path)),
+    () => panesOfWorkspace(workspaceKey(project.hostId, ws.path)),
     "remove",
     () => removeWorktreeNow(project, ws, deleteBranch),
     false,
@@ -186,7 +190,7 @@ export function quickMergeWorktreeWithToast(
   ws: WorkspaceInfo,
 ): void {
   void afterUnsavedEdits(
-    panesOfWorkspace(workspaceKey(project.hostId, ws.path)),
+    () => panesOfWorkspace(workspaceKey(project.hostId, ws.path)),
     "merge",
     () => quickMergeNow(project, ws),
     undefined,
@@ -311,7 +315,12 @@ export async function moveToWorkspaceAndFollow(
 ): Promise<void> {
   // The move takes the panes out of this layout and into another, and their
   // unsaved edits would not follow: save or discard them first.
-  const ok = await afterUnsavedEdits(panesOfMoveTarget(from, target), "move", () => true, false);
+  const ok = await afterUnsavedEdits(
+    () => panesOfMoveTarget(from, target),
+    "move",
+    () => true,
+    false,
+  );
   if (!ok) return;
   let result: WorkspaceMoveResult;
   try {

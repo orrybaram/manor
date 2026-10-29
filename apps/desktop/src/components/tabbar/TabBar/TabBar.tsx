@@ -20,7 +20,7 @@ import { parseWorkspaceKey, type WorkspaceKey } from "../../../lib/workspace-key
 import { topLeftPanelId } from "../../../lib/layout/panel-tree";
 import { allPaneIds } from "../../../lib/layout/pane-tree";
 import { usePaneDrag } from "../../workspace-panes/PaneDragContext";
-import { detachTabToNewWindow, hasOwnClaim } from "../../../lib/detach";
+import { detachTabToNewWindow, hasOwnClaim, returnToPrimaryWindow } from "../../../lib/detach";
 import { beginPointerTracking, hasPointerLeftDocument } from "../../../lib/detach-drag";
 import { paneTitle } from "../../../lib/pane-title";
 import { useAgentStore } from "../../../store/agent-store";
@@ -513,11 +513,12 @@ export function TabBar(props: TabBarProps) {
       };
       // Released over another manor window. From a detached window that means
       // "put it back": closing releases the claim and the tab is already in
-      // the primary, with its panes and sessions untouched.
+      // the primary, with its panes and sessions untouched. Its unsaved file
+      // edits ask first; Cancel leaves the tab where it was.
       // There is nothing to hand over, so from the primary it is a no-op —
       // the tab it would "move" is the one that window is already showing.
       if (target) {
-        if (hasOwnClaim()) window.electronAPI.window.closeSelf();
+        if (hasOwnClaim()) returnToPrimaryWindow();
         return;
       }
       void detachTabToNewWindow(tabId, spawnBounds);

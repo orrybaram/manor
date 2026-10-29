@@ -39,6 +39,8 @@ export const useOpenFileStore = create<OpenFileStore>((set, get) => ({
       return next === prev ? s : { byPane: { ...s.byPane, [paneId]: next } };
     }),
   drop: (paneId) => {
+    // Its window is closing over them, and they wait on Save or Discard.
+    if (heldForClose.has(paneId)) return;
     changesDuringSave.delete(paneId);
     set((s) => {
       if (!(paneId in s.byPane)) return s;
@@ -95,6 +97,10 @@ export type OpenFileEditor = {
 };
 
 const editors = new Map<string, OpenFileEditor>();
+/** Saves under way, by pane: `saveWhenSettled` waits on one before its own. */
+const savesInFlight = new Map<string, Promise<boolean>>();
+/** Panes whose unsaved edits outlive the pane, until this window closes. */
+const heldForClose = new Set<string>();
 /** A change reported mid-save waits here until the save says what it wrote. */
 const changesDuringSave = new Map<string, { hash: string | null }>();
 
@@ -126,7 +132,48 @@ function editorFor(paneId: string, state: OpenFileState): OpenFileEditor | null 
  * meanwhile (a split rebuilds it), so the next mount resumes with the hash
  * that is on disk now. Resolves to whether the file is now saved.
  */
-export async function saveOpenFile(paneId: string): Promise<boolean> {
+export function saveOpenFile(paneId: string): Promise<boolean> {
+  if (savesInFlight.has(paneId)) return Promise.resolve(false);
+  const saving = writeOpenFile(paneId);
+  savesInFlight.set(paneId, saving);
+  void saving.finally(() => {
+    if (savesInFlight.get(paneId) === saving) savesInFlight.delete(paneId);
+  });
+  return saving;
+}
+
+/**
+ * Save the pane's open file for a confirm's Save: a save already under way
+ * (⌘S) is waited on rather than refused, and the file is saved again if it
+ * is still dirty after it. Resolves to whether the file has no unsaved
+ * edits left.
+ */
+export async function saveWhenSettled(paneId: string): Promise<boolean> {
+  const inFlight = savesInFlight.get(paneId);
+  if (inFlight) await inFlight;
+  if (!useOpenFileStore.getState().byPane[paneId]?.dirty) return true;
+  await saveOpenFile(paneId);
+  return !useOpenFileStore.getState().byPane[paneId]?.dirty;
+}
+
+/**
+ * This window is closing over `paneIds`' unsaved edits, and asks about them
+ * first, though their panes may go meanwhile (the tab closed elsewhere): take
+ * what their editors show into the store, and keep it there when the panes
+ * unmount, so Save still has it to write.
+ */
+export function holdOpenFilesForClose(paneIds: readonly string[]): void {
+  const files = useOpenFileStore.getState();
+  for (const paneId of paneIds) {
+    const state = files.byPane[paneId];
+    if (!state?.dirty) continue;
+    heldForClose.add(paneId);
+    const content = editorFor(paneId, state)?.content();
+    if (content != null) files.dispatch(paneId, { type: "stash-draft", draft: content });
+  }
+}
+
+async function writeOpenFile(paneId: string): Promise<boolean> {
   const store = useOpenFileStore.getState;
   const started = store().byPane[paneId];
   if (!started || started.status !== "ready" || started.saving) return false;

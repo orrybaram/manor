@@ -49,6 +49,7 @@ import {
   hasOwnClaim,
   movePaneToNewWindow,
   panesInOwnClaim,
+  returnToPrimaryWindow,
 } from "../../lib/detach";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
@@ -371,12 +372,11 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
 
     // Released over another manor window. There is nothing to hand over any
     // more: from a detached window the gesture means "put it
-    // back", which is this window closing, and from the primary the pane is
+    // back", which is this window closing (its unsaved file edits ask first,
+    // and Cancel leaves the pane here), and from the primary the pane is
     // already where it was dropped.
     if (target) {
-      if (hasOwnClaim() && panesInOwnClaim() === 1) {
-        window.electronAPI.window.closeSelf();
-      }
+      if (hasOwnClaim() && panesInOwnClaim() === 1) returnToPrimaryWindow();
       return;
     }
     void movePaneToNewWindow(paneId, spawnBoundsFor(sx, sy, grab));

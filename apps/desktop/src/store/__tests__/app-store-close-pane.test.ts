@@ -170,7 +170,7 @@ function makeThreeTabLayout(): WorkspaceLayout {
 describe("closing several tabs, or a panel, over unsaved edits asks first", () => {
   beforeEach(() => {
     useOpenFileStore.setState({ byPane: {} });
-    useUnsavedGuardStore.setState({ request: null, saving: false });
+    useUnsavedGuardStore.setState({ request: null, saving: false, elsewhere: null });
   });
 
   function editPane(paneId: string, path: string) {
@@ -193,6 +193,7 @@ describe("closing several tabs, or a panel, over unsaved edits asks first", () =
     });
 
     await answerUnsavedGuard("discard");
+    await Promise.resolve();
     expect(useUnsavedGuardStore.getState().request).toBeNull();
     expect(useOpenFileStore.getState().byPane["pane-2"].dirty).toBe(false);
     expect(sentCommands).toEqual([
@@ -228,5 +229,55 @@ describe("closing several tabs, or a panel, over unsaved edits asks first", () =
     useAppStore.getState().closePanel("panel-1");
     expect(sentCommands).toEqual([]);
     expect(useUnsavedGuardStore.getState().request?.paneIds).toEqual(["pane-2"]);
+  });
+});
+
+describe("closing several tabs over another window's unsaved edits", () => {
+  let unsavedPanesElsewhere: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    useOpenFileStore.setState({ byPane: {} });
+    useUnsavedGuardStore.setState({ request: null, saving: false, elsewhere: null });
+    unsavedPanesElsewhere = vi.fn(async () => []);
+    const base = (window as unknown as { electronAPI: Record<string, unknown> }).electronAPI;
+    vi.stubGlobal("window", {
+      ...window,
+      electronAPI: { ...base, window: { unsavedPanesElsewhere } },
+    });
+  });
+
+  /** Three tabs, tab-3's pane a file pane (shown, say, in a detached window). */
+  function layoutWithFilePane(): WorkspaceLayout {
+    const layout = makeThreeTabLayout();
+    const tab3 = layout.panels["panel-1"].tabs[2];
+    tab3.rootNode = { type: "leaf", paneId: "pane-3", contentType: "file" };
+    return layout;
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("asks main about the file panes it would close, and stops at the notice when another window holds edits", async () => {
+    setupStore(layoutWithFilePane());
+    unsavedPanesElsewhere.mockResolvedValue([{ paneId: "pane-3", path: "src/c.ts" }]);
+
+    useAppStore.getState().closeOtherTabs("tab-1");
+    await flush();
+    expect(unsavedPanesElsewhere).toHaveBeenCalledWith(["pane-3"]);
+    expect(sentCommands).toEqual([]);
+    expect(useUnsavedGuardStore.getState()).toMatchObject({
+      request: null,
+      elsewhere: { verb: "close", files: ["src/c.ts"] },
+    });
+  });
+
+  it("closes once main says no other window holds edits to them", async () => {
+    setupStore(layoutWithFilePane());
+
+    useAppStore.getState().closeTabsToRight("tab-1");
+    await flush();
+    expect(sentCommands).toEqual([
+      { workspacePath: WS_PATH, command: { type: "close-tabs-to-right", tabId: "tab-1" } },
+    ]);
+    expect(useUnsavedGuardStore.getState().elsewhere).toBeNull();
   });
 });

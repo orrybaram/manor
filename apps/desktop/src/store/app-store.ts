@@ -76,7 +76,7 @@ import { bootAndResync } from "../bridge/resync";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { useRemotePaneStore } from "./remote-pane-store";
 import { hasUnsavedEdits } from "./open-file-store";
-import { guardUnsavedEdits } from "./unsaved-guard-store";
+import { closeOverLostTab, guardClosingPanes } from "./unsaved-guard-store";
 import {
   type SnapshotResult,
   adoptLayout,
@@ -1286,11 +1286,24 @@ function refuseLayoutWrite(err: unknown): boolean {
  * unsaved edits: with some, the unsaved-edits confirm asks first.
  */
 function sendClosingCommand(workspacePath: string, command: LayoutCommand): void {
-  const layout = useAppStore.getState().workspaceLayouts[workspacePath];
-  const closing = layout
-    ? applyLayoutCommand({ layout, closedStack: [] }, command).killPanes
-    : [];
-  guardUnsavedEdits(closing, "close", () => sendLayoutCommand(workspacePath, command));
+  // Dry-run again after every wait: what closes is what the layout says
+  // when the command goes, not when it was asked for.
+  const closing = () => {
+    const layout = useAppStore.getState().workspaceLayouts[workspacePath];
+    return layout ? applyLayoutCommand({ layout, closedStack: [] }, command).killPanes : [];
+  };
+  guardClosingPanes(closing, "close", filePanesAmong, () =>
+    sendLayoutCommand(workspacePath, command),
+  );
+}
+
+/**
+ * Those of `paneIds` that are file panes, in whichever window shows them:
+ * the ones that may hold unsaved edits, here or in another window.
+ */
+export function filePanesAmong(paneIds: readonly string[]): string[] {
+  const state = useAppStore.getState();
+  return paneIds.filter((paneId) => selectPaneContentType(state, paneId) === "file");
 }
 
 const ACTIVE_AGENT_STATUSES = ["thinking", "working", "requires_input"];
@@ -1387,9 +1400,7 @@ function afterReplicaChange(
       state.workspaceLayouts[workspacePath],
     );
   }
-  if (OWN_CLAIM && removed.includes(OWN_CLAIM.workspacePath)) {
-    window.electronAPI?.window?.closeSelf?.();
-  }
+  if (OWN_CLAIM && removed.includes(OWN_CLAIM.workspacePath)) closeLostWindow();
 }
 
 /**
@@ -1509,7 +1520,17 @@ function checkOwnClaim(
   }
   const tabGone = !findPanelWithTab(layout, OWN_CLAIM.tabId);
   if (!sawOwnClaim && !tabGone) return;
-  window.electronAPI?.window?.closeSelf?.();
+  closeLostWindow();
+}
+
+/**
+ * Close this window, which lost its tab. Unsaved file edits in it ask Save
+ * or Discard first, in the window, once (`closeOverLostTab`): the native
+ * close prompt would offer a Cancel that keeps a window with nothing to
+ * show, and every later replica change would ask again.
+ */
+function closeLostWindow(): void {
+  closeOverLostTab(() => window.electronAPI?.window?.closeSelf?.());
 }
 
 /**

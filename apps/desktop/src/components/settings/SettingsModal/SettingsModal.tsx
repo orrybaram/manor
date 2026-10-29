@@ -11,6 +11,7 @@ import Bell from "lucide-react/dist/esm/icons/bell";
 import Link from "lucide-react/dist/esm/icons/link";
 import Smartphone from "lucide-react/dist/esm/icons/smartphone";
 import Server from "lucide-react/dist/esm/icons/server";
+import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
 import { useRestoreFocus } from "../../../hooks/useRestoreFocus";
 import { GeneralSettingsPage } from "../GeneralSettingsPage";
@@ -20,6 +21,7 @@ import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
+import { AutomationsPage } from "../AutomationsPage/AutomationsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
@@ -414,6 +416,16 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
 
                   <button
+                    data-testid="settings-nav-automations"
+                    className={`${styles.navItem} ${page.type === "automations" ? styles.navItemActive : ""}`}
+                    aria-current={page.type === "automations" ? "page" : undefined}
+                    onClick={() => setPage({ type: "automations" })}
+                  >
+                    <CalendarClock size={14} />
+                    <span>Automations</span>
+                  </button>
+
+                  <button
                     className={styles.navGroupHeader}
                     onClick={() => setProjectsExpanded((v) => !v)}
                   >
@@ -462,6 +474,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   {page.type === "integrations" && <IntegrationsPage />}
                   {page.type === "hosts" && <HostsPage />}
                   {page.type === "devices" && <DevicesPage />}
+                  {page.type === "automations" && <AutomationsPage onClose={onClose} />}
                   {page.type === "group" && currentGroup && currentGroupMembers.length > 0 && (
                     <ProjectSettingsPage
                       key={currentGroup.id}

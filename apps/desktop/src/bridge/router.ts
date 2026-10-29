@@ -41,7 +41,7 @@
  * server's own ids (`toServerArgs`) and its answer stamped (`stampResult`).
  *
  * **Subscriptions.** A listener of a merged or split namespace (`layout`,
- * `projects`, `agents`, `branches`, `diffs`) is opened on every server,
+ * `projects`, `agents`, `branches`, `diffs`), and `automations`, is opened on every server,
  * replayed on one that joins later, and its events are stamped and
  * deduplicated like a merged answer. A pane's
  * `chat.*` and `pty.*` are opened only on the pane's source, keyed by server
@@ -174,11 +174,14 @@ const WOKEN_SOURCE_WAIT_MS = 10_000;
  * The namespaces with a merged read, or a watch split across the servers:
  * their listeners fan out.
  */
-const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
-  Object.entries(ROUTES)
+const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set([
+  ...Object.entries(ROUTES)
     .filter(([, route]) => route === "merge" || route === "split")
     .map(([key]) => key.slice(0, key.lastIndexOf("."))),
-);
+  // Routed by host, but each server announces its own host's changes: a
+  // phone paired with several hears each of them.
+  "automations",
+]);
 
 /**
  * The events whose payload is a `Record<WorkspaceKey, …>` of everything one
@@ -1238,6 +1241,14 @@ export function createRouter(
       const agent = stampRecords(entry, first);
       if (!kept(agent, entry)) return null;
       return agent === first ? args : [agent, ...rest];
+    }
+    if (event.ns === "automations" && event.event === "changed" && isPlainObject(first)) {
+      // Named by its server's id for the host (`local` from the host's own
+      // server); kept only from the server answering for that host now, so a
+      // desktop's copy of an adopted host's event and the host's own are one.
+      const info = stampRecords(entry, first) as Record<string, unknown>;
+      if (typeof info.hostId === "string" && !answersFor(entry, info.hostId)) return null;
+      return info === first ? args : [info, ...rest];
     }
     if (event.ns === "agents" && event.event === "status" && isPlainObject(first)) {
       const paneId = first.paneId;

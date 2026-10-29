@@ -501,6 +501,24 @@ describe("subscriptions", () => {
     ]);
   });
 
+  it("hear every server's automation changes, each host once", () => {
+    const home = fakeServer();
+    const box = fakeServer();
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, fakeResolver({}));
+    const changed = vi.fn();
+    api.automations.onChanged(changed);
+    expect(box.live("automations.changed")).toBe(1);
+    box.emit("automations.changed", undefined, { hostId: "local", automationId: "b1" });
+    // The desktop's copy of the box's change: the box itself is its source.
+    home.emit("automations.changed", undefined, { hostId: "box", automationId: "b1" });
+    home.emit("automations.changed", undefined, { hostId: "local", automationId: "a1" });
+    expect(changed.mock.calls).toEqual([
+      [{ hostId: "box", automationId: "b1" }],
+      [{ hostId: "local", automationId: "a1" }],
+    ]);
+  });
+
   it("keep a machine-level listener on the home server", () => {
     const home = fakeServer();
     const box = fakeServer();

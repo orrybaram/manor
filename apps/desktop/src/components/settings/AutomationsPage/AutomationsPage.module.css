@@ -1,0 +1,625 @@
+/* Settings → Automations: the list grouped by host, and one automation's page. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.header > div:first-child {
+  margin-bottom: 0;
+}
+
+.description {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+  margin-top: -14px;
+}
+
+.buttonIcon {
+  margin-right: 2px;
+}
+
+/* ── The list ── */
+
+.table {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+
+.cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 170px) 100px minmax(0, 130px) 14px;
+  column-gap: 12px;
+  align-items: center;
+  padding: 0 8px;
+}
+
+.headRow {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--surface);
+}
+
+.alignEnd {
+  text-align: right;
+  justify-self: end;
+}
+
+.groupTitle {
+  padding: 12px 8px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: color-mix(in srgb, var(--text-selected) 60%, transparent);
+}
+
+.groupNote {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.groupLine {
+  padding: 6px 8px 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--surface);
+}
+
+button.row {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  padding-top: 9px;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--surface);
+  color: var(--text-primary);
+}
+
+button.row:hover {
+  background: var(--hover);
+}
+
+button.row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.paused {
+  opacity: 0.55;
+}
+
+.name {
+  color: var(--text-selected);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sub {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell {
+  min-width: 0;
+}
+
+.when {
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.next {
+  white-space: nowrap;
+}
+
+.chevron {
+  color: var(--text-dim);
+  display: flex;
+}
+
+/* ── Run status: a dot and its label ── */
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.ok .dot { background: var(--green); }
+.ok { color: var(--text-primary); }
+.input .dot { background: var(--yellow); }
+.input { color: var(--yellow); }
+.work .dot {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.work { color: var(--accent); }
+.skip .dot {
+  background: transparent;
+  border: 1.5px solid var(--text-dim);
+}
+.skip { color: var(--text-dim); }
+.fail .dot { background: var(--red); }
+.fail { color: var(--red); }
+
+.never {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+/* ── One automation ── */
+
+.detail {
+  display: grid;
+  gap: 18px;
+}
+
+.detailTop {
+  display: grid;
+  gap: 6px;
+}
+
+button.back {
+  justify-self: start;
+  padding-left: 0;
+  color: var(--accent);
+}
+
+button.back:hover:not(:disabled) {
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.titleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+input.nameInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-selected);
+  background: transparent;
+  border-color: transparent;
+  padding: 2px 4px;
+  margin-left: -4px;
+  height: auto;
+}
+
+input.nameInput:hover,
+input.nameInput:focus {
+  border-color: var(--control-border);
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.switchLabel {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.warn {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.warn svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.error {
+  font-size: 12px;
+  color: var(--red);
+}
+
+.card {
+  background: var(--bg);
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.card > div:first-child {
+  margin-bottom: 0;
+}
+
+.sentence {
+  line-height: 2;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+button.chip,
+.chipStatic {
+  all: unset;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--control-border);
+  border-radius: 5px;
+  padding: 0 7px;
+  color: var(--text-selected);
+  background: color-mix(in srgb, var(--text-selected) 4%, transparent);
+  line-height: 1.7;
+  font-size: 12.5px;
+  vertical-align: baseline;
+}
+
+button.chip {
+  cursor: pointer;
+}
+
+button.chip:hover,
+button.chip[data-state="open"] {
+  border-color: var(--accent);
+}
+
+button.chip[data-state="open"] {
+  color: var(--accent);
+}
+
+button.chip:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.chipCaret {
+  color: var(--text-dim);
+}
+
+/* A chip that can't change: the host of an automation already made. */
+.chipStatic {
+  border-style: dashed;
+  background: transparent;
+}
+
+.note {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11.5px;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field > div:first-child {
+  margin-bottom: 0;
+}
+
+textarea.prompt {
+  min-height: 76px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.placeholder {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 12px;
+  border: 1px dashed var(--surface);
+  border-radius: 6px;
+  text-align: center;
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.strip .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: none;
+}
+
+.hist {
+  display: grid;
+}
+
+.histRow {
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--surface);
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.histRow:last-child {
+  border-bottom: 0;
+}
+
+button.histRow {
+  all: unset;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 7.5em minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--surface);
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+button.histRow:hover .histWhat {
+  color: var(--text-selected);
+  text-decoration: underline;
+}
+
+button.histRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.histTime {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.histWhat {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.footerButtons {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+button.deleteButton {
+  color: var(--red);
+}
+
+button.deleteButton:hover:not(:disabled) {
+  color: var(--red);
+}
+
+/* ── Chip menus (portaled, above the settings modal) ── */
+
+.menu {
+  z-index: 200;
+  background: var(--dim);
+  border: 1px solid var(--surface);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  padding: 6px;
+  display: grid;
+  gap: 1px;
+  min-width: 180px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: min(360px, var(--radix-popover-content-available-height, 360px));
+  overflow-y: auto;
+  font-size: 12.5px;
+}
+
+.menuList {
+  display: grid;
+  gap: 1px;
+}
+
+button.menuItem {
+  justify-content: flex-start;
+  padding: 5px 8px;
+  height: auto;
+  font-size: 12.5px;
+  border-radius: 4px;
+  color: var(--text-primary);
+  text-align: left;
+  white-space: normal;
+}
+
+button.menuItem[aria-checked="true"] {
+  background: var(--surface);
+  color: var(--text-selected);
+}
+
+button.menuItem:disabled {
+  opacity: 0.6;
+}
+
+.menuItemHint {
+  margin-left: auto;
+  padding-left: 12px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.menuDivider {
+  height: 1px;
+  background: var(--surface);
+  margin: 4px 2px;
+}
+
+.menuField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.menuField input,
+.menuField select {
+  font-size: 12px;
+}
+
+input.menuNumber {
+  width: 64px;
+}
+
+input.menuTime {
+  width: 104px;
+}
+
+input.menuCron {
+  width: 100%;
+}
+
+.menuCronField {
+  display: grid;
+  gap: 4px;
+  padding: 4px 8px;
+}
+
+.menuHint {
+  padding: 4px 8px 2px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.menuError {
+  color: var(--red);
+  font-size: 11px;
+}
+
+/* ── Phone ──
+   The list's rows stack: name and status on top, the schedule below. Chips
+   and menu rows grow to a thumb's size. A portal, so keyed off `:root`. */
+:global(:root[data-layout="phone"]) .headRow {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .cols {
+  grid-template-columns: minmax(0, 1fr) auto;
+  row-gap: 4px;
+  padding: 0 4px;
+}
+
+:global(:root[data-layout="phone"]) button.row {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+:global(:root[data-layout="phone"]) .cellName {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+:global(:root[data-layout="phone"]) .cellLast {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+:global(:root[data-layout="phone"]) .cellSchedule {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+:global(:root[data-layout="phone"]) .cellNext,
+:global(:root[data-layout="phone"]) .chevron {
+  display: none;
+}
+
+:global(:root[data-layout="phone"]) .sentence {
+  line-height: 2.4;
+}
+
+:global(:root[data-layout="phone"]) button.chip,
+:global(:root[data-layout="phone"]) .chipStatic {
+  line-height: 2;
+  font-size: 13.5px;
+  padding: 0 9px;
+}
+
+:global(:root[data-layout="phone"]) .menuList {
+  display: grid;
+  gap: 1px;
+}
+
+button.menuItem {
+  min-height: 40px;
+  font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .histRow,
+:global(:root[data-layout="phone"]) button.histRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+:global(:root[data-layout="phone"]) .histTime {
+  grid-column: 1 / -1;
+}

@@ -161,6 +161,7 @@ import {
   agentsGet,
   agentsGetActive,
   agentsGetAll,
+  agentsGetFileAuthors,
   agentsGetPaneStatuses,
   agentsGetRecent,
   agentsGetUnseen,
@@ -504,6 +505,8 @@ const METHODS = flatten({
     getRecent: method(agentsGetRecent),
     getUnseen: method(agentsGetUnseen),
     getPaneStatuses: method(agentsGetPaneStatuses),
+    // Which of this host's agents wrote each file of a workspace.
+    getFileAuthors: method(agentsGetFileAuthors),
     // A renderer's word on a pane's project overrides the server's own.
     setPaneContext: method(agentsSetPaneContext, { mutating: true }),
     // The desktop forwards its writes by agent id for the host's agents here.

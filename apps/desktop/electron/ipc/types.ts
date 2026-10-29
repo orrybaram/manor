@@ -27,6 +27,7 @@ import type { RemoteForwards, RemoteUrlResolver } from "../remote-forwards";
 import type { BranchWatcher } from "../branch-watcher";
 import type { DiffWatcher } from "../diff-watcher";
 import type { OpenFileWatcher } from "../open-file-watcher";
+import type { AgentFileAuthors } from "../agent-file-authors";
 import type { GitHubManager } from "../github";
 import type { LinearManager } from "../linear";
 import type { JevClient } from "../jev";
@@ -108,6 +109,8 @@ export interface ServerDeps {
   diffWatcher: DiffWatcher;
   /** The files each connection has open in a file pane (`files.watch`). */
   openFileWatcher: OpenFileWatcher;
+  /** Which Agent last wrote each file, from its hooks (`agents.getFileAuthors`). */
+  agentFileAuthors: AgentFileAuthors;
   githubManager: GitHubManager;
   linearManager: LinearManager;
   jevClient: JevClient;
@@ -211,6 +214,7 @@ export type SharedDeps = Pick<
   | "branchWatcher"
   | "diffWatcher"
   | "openFileWatcher"
+  | "agentFileAuthors"
   | "githubManager"
   | "linearManager"
   | "agentHookServer"

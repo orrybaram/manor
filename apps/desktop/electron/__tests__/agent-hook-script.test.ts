@@ -31,9 +31,11 @@ const agentHook = require("../scripts/agent-hook.js") as {
       toolUseId?: string | null;
       agentId?: string | null;
       notificationKind?: string | null;
+      filePath?: string | null;
     },
   ) => string | null;
   extractNotificationKind: (payload: unknown) => string | null;
+  extractWrittenFile: (payload: unknown) => string | null;
 };
 
 type FakeStderr = { write: (chunk: string) => boolean; lines: string[] };
@@ -969,5 +971,45 @@ describe("agent-hook.js — SessionStart manor CLI hint", () => {
     const parsed = JSON.parse(stdout.lines[0]!.trimEnd());
     expect(parsed.hookSpecificOutput.hookEventName).toBe("SessionStart");
     expect(stderr.lines.join("")).toContain("request failed");
+  });
+});
+
+describe("agent-hook.js — the file a PostToolUse wrote", () => {
+  const post = (tool_name: string, tool_input: unknown) => ({
+    hook_event_name: "PostToolUse",
+    tool_name,
+    tool_input,
+  });
+
+  it("names the file of an Edit, Write or MultiEdit, and a notebook's", () => {
+    expect(agentHook.extractWrittenFile(post("Edit", { file_path: "/w/a.ts" }))).toBe("/w/a.ts");
+    expect(agentHook.extractWrittenFile(post("Write", { file_path: "/w/b.ts" }))).toBe("/w/b.ts");
+    expect(agentHook.extractWrittenFile(post("MultiEdit", { file_path: "/w/c.ts" }))).toBe("/w/c.ts");
+    expect(
+      agentHook.extractWrittenFile(post("NotebookEdit", { notebook_path: "/w/n.ipynb" })),
+    ).toBe("/w/n.ipynb");
+  });
+
+  it("names nothing for a read, another event, or a payload without a path", () => {
+    expect(agentHook.extractWrittenFile(post("Read", { file_path: "/w/a.ts" }))).toBeNull();
+    expect(
+      agentHook.extractWrittenFile({
+        hook_event_name: "PreToolUse",
+        tool_name: "Edit",
+        tool_input: { file_path: "/w/a.ts" },
+      }),
+    ).toBeNull();
+    expect(agentHook.extractWrittenFile(post("Edit", {}))).toBeNull();
+    expect(agentHook.extractWrittenFile(post("Edit", null))).toBeNull();
+    expect(agentHook.extractWrittenFile(null)).toBeNull();
+  });
+
+  it("puts it on the URL as filePath, only when there is one", () => {
+    const withFile = new URL(
+      agentHook.buildUrl(1234, { paneId: "p", eventType: "PostToolUse", filePath: "/w/a b.ts" })!,
+    );
+    expect(withFile.searchParams.get("filePath")).toBe("/w/a b.ts");
+    const without = new URL(agentHook.buildUrl(1234, { paneId: "p", eventType: "PostToolUse" })!);
+    expect(without.searchParams.has("filePath")).toBe(false);
   });
 });

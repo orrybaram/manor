@@ -202,6 +202,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "agents.markSeen": byAgent(0),
   "agents.markResumed": byAgent(0),
   "agents.reconcileStale": "home",
+  "agents.getFileAuthors": byWorkspaceKey(0),
 
   "github.getPrsForBranches": byGhRepo(0),
   "github.listRepos": "home",

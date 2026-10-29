@@ -467,6 +467,7 @@ export type {
   FileReadResult,
   FileWriteResult,
 } from "../electron/workspace-files";
+export type { FileAuthor } from "../electron/agent-file-authors";
 
 /** What `terminal.pasteClipboardImage` resolves to. */
 export type PasteClipboardImageResult =

@@ -18,6 +18,8 @@ import type { UnseenAgents } from "../../agent-status/unseen-agents";
 import type { HostStatus } from "../../backend/host-connection";
 import { LOCAL_HOST_ID } from "../../backend/types";
 import { assertString } from "../../ipc-validate";
+import type { AgentFileAuthors, FileAuthor } from "../../agent-file-authors";
+import { parseWorkspaceKey } from "../../../src/lib/workspace-key";
 import type { HostRouting } from "../../server/host-routing";
 import type { HandlerCtx } from "../method";
 
@@ -127,6 +129,22 @@ export function agentsGetPaneStatuses(ctx: Ctx): PaneStatusUpdate[] {
   const local = ctx.deps.agentStatus.getAllPaneStatuses();
   const remote = ctx.deps.hostRouting?.paneStatuses() ?? [];
   return remote.length === 0 ? local : [...local, ...remote];
+}
+
+/** What `agents.getFileAuthors` reads. */
+export type FileAuthorDeps = { agentFileAuthors: Pick<AgentFileAuthors, "inWorkspace"> };
+
+/**
+ * Which agent last wrote each of a workspace's files, by workspace-relative
+ * path, as this server's hooks said. Routed by the workspace key, so a remote
+ * host's server answers for the agents it runs.
+ */
+export function agentsGetFileAuthors(
+  ctx: HandlerCtx<FileAuthorDeps>,
+  workspaceKey: string,
+): Record<string, FileAuthor> {
+  assertString(workspaceKey, "workspaceKey");
+  return ctx.deps.agentFileAuthors.inWorkspace(parseWorkspaceKey(workspaceKey).path);
 }
 
 /** Whether the host an agent's terminal runs on is connected (local always is). */

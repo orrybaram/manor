@@ -1,0 +1,92 @@
+/* Overlays the editor beside the 34px strip; the editor never reflows. */
+.drawer {
+  position: absolute;
+  left: 34px;
+  top: 0;
+  bottom: 0;
+  width: min(240px, calc(100% - 70px));
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 24px rgb(0 0 0 / 0.2);
+  font-size: 12px;
+  outline: none;
+}
+
+.head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 8px;
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  display: flex;
+}
+
+.row > button {
+  height: 100%;
+}
+
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  padding: 0 12px;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+}
+
+.fileRow:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.fileRowSelected,
+.fileRowSelected:hover {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.fileIcon {
+  flex-shrink: 0;
+  color: var(--text-dim);
+}
+
+.fileName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.note {
+  padding: 8px 10px;
+  color: var(--text-dim);
+}

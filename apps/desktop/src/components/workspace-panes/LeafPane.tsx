@@ -18,6 +18,7 @@ import {
   selectFocusedPaneOfActiveTab,
   selectPaneContentType,
   usePaneContentType,
+  usePaneFilePath,
   usePaneUrl,
 } from "../../store/app-store";
 import { hasPaneId } from "../../lib/layout/pane-tree";
@@ -38,6 +39,7 @@ import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./Br
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
+import { FilePane } from "./FilePane/FilePane";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
@@ -53,7 +55,7 @@ import { registerBrowserPane, unregisterBrowserPane } from "../../lib/browser-pa
 import { isRemoteHost } from "../../lib/hosts";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../lib/workspace-key";
 import { useMountEffect } from "../../hooks/useMountEffect";
-import { paneHeaderTitle } from "../../lib/pane-title";
+import { fileTitle, paneHeaderTitle } from "../../lib/pane-title";
 import { PaneHeaderTitle } from "./PaneHeaderTitle";
 import { useRemotePaneStore } from "../../store/remote-pane-store";
 import { useWorkspaceProjectId } from "../../hooks/useWorkspaceProjectId";
@@ -99,6 +101,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const contentType = usePaneContentType(paneId);
   const paneUrl = usePaneUrl(paneId);
+  const filePath = usePaneFilePath(paneId);
   // A browser pane of a remote workspace reaches that host's dev servers
   // through port forwards. Null for this machine.
   const remoteHostId =
@@ -400,6 +403,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       >
         {contentType === "diff" ? (
           <span className={styles.paneStatusTitle}>Diff</span>
+        ) : contentType === "file" ? (
+          <span className={styles.paneStatusTitle} title={filePath ?? undefined}>
+            {fileTitle(filePath)}
+          </span>
         ) : contentType === "browser" ? (
           <div className={styles.paneNavControls}>
             <Tooltip label="Back">
@@ -664,7 +671,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
+      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" && contentType !== "file" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <DiffPane
@@ -674,6 +681,14 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
               hostId={workspace?.hostId}
             />
           </PaneContextMenu>
+        ) : contentType === "file" ? (
+          // No pane menu over the editor: right-click there is the text's own
+          // (copy, look up). The header still has the pane's menu.
+          <FilePane
+            paneId={paneId}
+            workspacePath={workspacePath}
+            hostId={workspace?.hostId}
+          />
         ) : contentType === "browser" ? (
           <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             {/* `<webview>` is Electron-only; the web app gets a

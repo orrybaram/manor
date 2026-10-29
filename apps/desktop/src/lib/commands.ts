@@ -44,6 +44,7 @@ export type CommandPaneKind = "terminal" | "browser" | "diff" | "agent";
 export interface AppCommandActions {
   addTab(): void;
   addBrowserTab(url: string): void;
+  addFileTab(): void;
   splitPane(direction: SplitDirection): void;
   requestClosePane(): void;
   reopenClosedPane(): void;
@@ -861,6 +862,14 @@ export const COMMANDS: readonly CommandDef[] = [
   },
 
   // ── Pane ────────────────────────────────────────────────────────────────
+  {
+    // A new tab, as New Browser Window is; the pane opens on its file tree.
+    id: "open-file",
+    label: "Open File…",
+    category: "workspace",
+    scope: "any",
+    run: unlessHome((ctx) => ctx.app().addFileTab()),
+  },
   {
     id: "split-with",
     label: "Split With",

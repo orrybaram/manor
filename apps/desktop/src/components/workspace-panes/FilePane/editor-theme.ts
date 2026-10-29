@@ -1,0 +1,116 @@
+import { EditorView } from "@codemirror/view";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
+
+/**
+ * The editor's look, all from manor's CSS variables: the chrome from the
+ * surface tokens and the syntax from the terminal theme's ANSI colours, the
+ * same token-to-colour mapping the diff pane gives refractor
+ * (`DiffPane/DiffLines/DiffLines.module.css`). The variables change with the
+ * terminal theme and light/dark, so the editor follows without being told.
+ */
+const chrome = EditorView.theme({
+  "&": {
+    height: "100%",
+    color: "var(--fg)",
+    backgroundColor: "var(--bg)",
+    fontSize: "12px",
+  },
+  "&.cm-focused": { outline: "none" },
+  ".cm-scroller": {
+    fontFamily: "var(--font-mono)",
+    lineHeight: "17px",
+  },
+  ".cm-content": { padding: "6px 0", caretColor: "var(--fg)" },
+  ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--fg)" },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground, ::selection":
+    { backgroundColor: "color-mix(in srgb, var(--accent) 28%, transparent)" },
+  ".cm-activeLine": { backgroundColor: "transparent" },
+  ".cm-gutters": {
+    backgroundColor: "var(--bg)",
+    color: "var(--text-dim)",
+    border: "none",
+  },
+  ".cm-lineNumbers .cm-gutterElement": {
+    minWidth: "38px",
+    padding: "0 8px 0 4px",
+    fontVariantNumeric: "tabular-nums",
+  },
+  ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--text-primary)" },
+  ".cm-foldGutter .cm-gutterElement": { color: "var(--text-dim)", cursor: "pointer" },
+  ".cm-foldPlaceholder": {
+    backgroundColor: "var(--surface)",
+    border: "none",
+    color: "var(--text-primary)",
+  },
+  ".cm-searchMatch": {
+    backgroundColor: "color-mix(in srgb, var(--yellow) 30%, transparent)",
+  },
+  ".cm-searchMatch.cm-searchMatch-selected": {
+    backgroundColor: "color-mix(in srgb, var(--accent) 40%, transparent)",
+  },
+  ".cm-selectionMatch": { backgroundColor: "var(--hover)" },
+  ".cm-matchingBracket, .cm-nonmatchingBracket": {
+    backgroundColor: "var(--surface)",
+    outline: "none",
+  },
+  ".cm-panels": {
+    backgroundColor: "var(--dim)",
+    color: "var(--fg)",
+  },
+  ".cm-panels.cm-panels-top": { borderBottom: "1px solid var(--border)" },
+  ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--border)" },
+  ".cm-panel.cm-search": { fontFamily: "inherit", fontSize: "12px" },
+  ".cm-panel.cm-search input, .cm-panel.cm-search button": { fontSize: "12px" },
+  ".cm-textfield": {
+    backgroundColor: "var(--bg)",
+    color: "var(--fg)",
+    border: "1px solid var(--border)",
+    borderRadius: "4px",
+  },
+  ".cm-button": {
+    backgroundImage: "none",
+    backgroundColor: "var(--surface)",
+    color: "var(--fg)",
+    border: "1px solid var(--border)",
+    borderRadius: "4px",
+  },
+  ".cm-tooltip": {
+    backgroundColor: "var(--surface)",
+    color: "var(--fg)",
+    border: "1px solid var(--border)",
+  },
+});
+
+const syntax = HighlightStyle.define([
+  { tag: [t.comment, t.meta], color: "var(--text-dim)", fontStyle: "italic" },
+  {
+    tag: [t.keyword, t.tagName, t.bool, t.null, t.atom, t.modifier, t.controlKeyword],
+    color: "var(--magenta)",
+  },
+  { tag: [t.string, t.special(t.string), t.attributeValue, t.character], color: "var(--green)" },
+  { tag: [t.number, t.regexp, t.escape, t.special(t.variableName)], color: "var(--yellow)" },
+  {
+    tag: [
+      t.function(t.variableName),
+      t.function(t.propertyName),
+      t.className,
+      t.typeName,
+      t.definition(t.typeName),
+    ],
+    color: "var(--blue)",
+  },
+  {
+    tag: [t.standard(t.variableName), t.propertyName, t.attributeName, t.labelName],
+    color: "var(--cyan)",
+  },
+  { tag: [t.operator, t.punctuation, t.separator, t.bracket, t.url], color: "var(--text-dim)" },
+  { tag: t.heading, color: "var(--blue)", fontWeight: "bold" },
+  { tag: t.strong, fontWeight: "bold" },
+  { tag: t.emphasis, fontStyle: "italic" },
+  { tag: t.link, color: "var(--cyan)", textDecoration: "underline" },
+  { tag: t.invalid, color: "var(--red)" },
+]);
+
+/** The file pane's editor theme: chrome and syntax, from manor's tokens. */
+export const manorEditorTheme = [chrome, syntaxHighlighting(syntax)];

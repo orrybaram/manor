@@ -22,6 +22,7 @@ import {
   type WorkspaceLayout,
   layoutPaneIds,
 } from "../lib/layout/workspace-layout";
+import { layoutWithoutDiffPanes } from "../lib/layout/retired-diff-pane";
 import type {
   LayoutEntry,
   PaneAgentStatus,
@@ -159,7 +160,9 @@ export function adoptLayout(
   adoption: Adoption,
   opts: AdoptOptions,
 ): { patch: Partial<AppState>; gone: string[] } | null {
-  const { workspacePath, version, layout, claims } = adoption;
+  const { workspacePath, version, claims } = adoption;
+  // A host server on an older bundle still sends the Diff pane's leaves.
+  const layout = layoutWithoutDiffPanes(adoption.layout);
   const held = state.layoutVersions[workspacePath] ?? 0;
   const previous = state.workspaceLayouts[workspacePath];
   if (version < held) return null;

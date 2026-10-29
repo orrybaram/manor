@@ -6,11 +6,15 @@ export type PaneNode =
   | {
       type: "leaf";
       paneId: string;
-      contentType?: "terminal" | "browser" | "diff" | "file";
+      contentType?: "terminal" | "browser" | "file";
       url?: string;
       /** A file pane's open file, relative to its workspace, `/`-separated.
        *  Absent while the pane has no file open. */
       filePath?: string;
+      /** A file pane made to show the workspace's changes: with no file open
+       *  it starts on Source Control rather than its tree. Opening a file
+       *  drops it. */
+      startsOn?: "scm";
     }
   | {
       type: "split";
@@ -115,9 +119,10 @@ export function insertSplitAt(
   direction: SplitDirection,
   newPaneId: string,
   position: "first" | "second",
-  contentType?: "terminal" | "browser" | "diff" | "file",
+  contentType?: "terminal" | "browser" | "file",
   url?: string,
   filePath?: string,
+  startsOn?: "scm",
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === targetPaneId) {
@@ -128,6 +133,7 @@ export function insertSplitAt(
         ...(contentType && { contentType }),
         ...(url && { url }),
         ...(filePath && { filePath }),
+        ...(startsOn && { startsOn }),
       };
       return {
         type: "split",
@@ -150,6 +156,7 @@ export function insertSplitAt(
       contentType,
       url,
       filePath,
+      startsOn,
     ),
     second: insertSplitAt(
       node.second,
@@ -160,6 +167,7 @@ export function insertSplitAt(
       contentType,
       url,
       filePath,
+      startsOn,
     ),
   };
 }
@@ -195,6 +203,7 @@ export function movePane(
     source?.contentType,
     source?.url,
     source?.filePath,
+    source?.startsOn,
   );
 }
 
@@ -342,11 +351,11 @@ export function nextPaneId(
 export function updateLeafContentType(
   node: PaneNode,
   paneId: string,
-  contentType: "terminal" | "browser" | "diff" | "file" | undefined,
+  contentType: "terminal" | "browser" | "file" | undefined,
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === paneId) {
-      const { contentType: _, url: __, filePath: ___, ...rest } = node;
+      const { contentType: _, url: __, filePath: ___, startsOn: ____, ...rest } = node;
       return contentType ? { ...rest, contentType } : rest;
     }
     return node;
@@ -394,6 +403,21 @@ export function updateLeafFilePath(
   }
   const first = updateLeafFilePath(node.first, paneId, filePath);
   const second = updateLeafFilePath(node.second, paneId, filePath);
+  if (first === node.first && second === node.second) return node;
+  return { ...node, first, second };
+}
+
+/** Mark a file pane's leaf to start on Source Control (`startsOn`). */
+export function updateLeafStartsOn(
+  node: PaneNode,
+  paneId: string,
+  startsOn: "scm",
+): PaneNode {
+  if (node.type === "leaf") {
+    return node.paneId === paneId ? { ...node, startsOn } : node;
+  }
+  const first = updateLeafStartsOn(node.first, paneId, startsOn);
+  const second = updateLeafStartsOn(node.second, paneId, startsOn);
   if (first === node.first && second === node.second) return node;
   return { ...node, first, second };
 }

@@ -2,10 +2,11 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
-import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Bot from "lucide-react/dist/esm/icons/bot";
 import { selectActiveWorkspaceKey, useAppStore } from "../../store/app-store";
 import { getAgentCommand } from "../../agent-defaults";
+import { splitPaneWith } from "../../lib/pane-actions";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
 type SplitWithSubmenuProps = {
@@ -14,8 +15,6 @@ type SplitWithSubmenuProps = {
 };
 
 export function SplitWithSubmenu({ paneId, containerRef }: SplitWithSubmenuProps) {
-  const splitPaneAt = useAppStore((s) => s.splitPaneAt);
-
   const getDir = () => {
     const el = containerRef.current;
     return el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
@@ -31,37 +30,30 @@ export function SplitWithSubmenu({ paneId, containerRef }: SplitWithSubmenuProps
         <ContextMenu.SubContent className={styles.contextMenu}>
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() => splitPaneAt(paneId, getDir(), "second")}
+            onSelect={() => splitPaneWith(paneId, getDir())}
           >
             <SquareTerminal size={14} />
             Terminal
           </ContextMenu.Item>
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() =>
-              splitPaneAt(paneId, getDir(), "second", { contentType: "browser" })
-            }
+            onSelect={() => splitPaneWith(paneId, getDir(), "browser")}
           >
             <Globe size={14} />
             Browser
           </ContextMenu.Item>
           <ContextMenu.Item
             className={styles.contextMenuItem}
-            onSelect={() =>
-              splitPaneAt(paneId, getDir(), "second", { contentType: "diff" })
-            }
+            onSelect={() => splitPaneWith(paneId, getDir(), "scm")}
           >
-            <GitCompareArrows size={14} />
-            Diff
+            <GitBranch size={14} />
+            Source Control
           </ContextMenu.Item>
           <ContextMenu.Item
             className={styles.contextMenuItem}
             onSelect={() => {
               const command = getAgentCommand(selectActiveWorkspaceKey(useAppStore.getState()));
-              splitPaneAt(paneId, getDir(), "second", {
-                contentType: "agent",
-                paneCommand: command,
-              });
+              splitPaneWith(paneId, getDir(), "agent", command);
             }}
           >
             <Bot size={14} />

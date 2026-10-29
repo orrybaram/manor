@@ -50,7 +50,7 @@ const { filePaneInTabOf, openFileBeside, openFileInNewTab } = await import(
   "../open-in-file-pane"
 );
 
-const leaf = (paneId: string, contentType?: "file" | "diff"): PaneNode => ({
+const leaf = (paneId: string, contentType?: "file"): PaneNode => ({
   type: "leaf",
   paneId,
   ...(contentType ? { contentType } : {}),
@@ -95,14 +95,14 @@ function dirtyPane(paneId: string, path: string) {
 describe("filePaneInTabOf", () => {
   it("finds the file pane sharing the tab, not one in another tab", () => {
     const layouts = {
-      "/repo": layoutWith(split(leaf("diff", "diff"), leaf("file", "file")), leaf("other", "file")),
+      "/repo": layoutWith(split(leaf("term"), leaf("file", "file")), leaf("other", "file")),
     };
-    expect(filePaneInTabOf(layouts, "diff")).toBe("file");
+    expect(filePaneInTabOf(layouts, "term")).toBe("file");
   });
 
   it("is null when the tab has no other file pane", () => {
-    const layouts = { "/repo": layoutWith(leaf("diff", "diff"), leaf("other", "file")) };
-    expect(filePaneInTabOf(layouts, "diff")).toBeNull();
+    const layouts = { "/repo": layoutWith(leaf("term"), leaf("other", "file")) };
+    expect(filePaneInTabOf(layouts, "term")).toBeNull();
     expect(filePaneInTabOf(layouts, "other")).toBeNull();
   });
 });
@@ -123,18 +123,18 @@ describe("openFileBeside", () => {
   });
 
   it("swaps the file in the tab's clean file pane", () => {
-    app.workspaceLayouts = { "/repo": layoutWith(split(leaf("diff", "diff"), leaf("file", "file"))) };
+    app.workspaceLayouts = { "/repo": layoutWith(split(leaf("term"), leaf("file", "file"))) };
     app.filePaths.file = "src/old.ts";
-    openFileBeside("diff", "src/a.ts");
+    openFileBeside("term", "src/a.ts");
     expect(app.splitPaneAt).not.toHaveBeenCalled();
     expect(app.setPaneFilePath).toHaveBeenCalledWith("file", "src/a.ts");
     expect(app.focusPane).toHaveBeenCalledWith("file");
   });
 
   it("asks in the swap bar, rather than swapping, over unsaved edits", () => {
-    app.workspaceLayouts = { "/repo": layoutWith(split(leaf("diff", "diff"), leaf("file", "file"))) };
+    app.workspaceLayouts = { "/repo": layoutWith(split(leaf("term"), leaf("file", "file"))) };
     dirtyPane("file", "src/old.ts");
-    openFileBeside("diff", "src/a.ts");
+    openFileBeside("term", "src/a.ts");
     expect(app.setPaneFilePath).not.toHaveBeenCalled();
     expect(files.dispatch).toHaveBeenCalledWith("file", { type: "ask-before-open", path: "src/a.ts" });
   });

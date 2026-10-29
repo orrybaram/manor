@@ -46,7 +46,7 @@ function makeProject(
 /** `contentType` is the leaf's own, where the menu reads it. */
 function makeAppState(
   overrides: Partial<MenuAppState> = {},
-  contentType: "terminal" | "browser" | "diff" | null = "diff",
+  contentType: "terminal" | "browser" | "file" | null = "file",
 ): MenuAppState {
   return {
     activeWorkspacePath: MAIN,
@@ -211,7 +211,7 @@ describe("deriveMenuContext", () => {
       [],
       PREFS,
     );
-    expect(context.focusedPane).toEqual({ id: "pane-1", contentType: "diff" });
+    expect(context.focusedPane).toEqual({ id: "pane-1", contentType: "file" });
   });
 
   it("reports a terminal pane with a detected agent as an agent pane", () => {

@@ -5,8 +5,8 @@ import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { EditorState, Text } from "@codemirror/state";
 import { unifiedMergeView } from "@codemirror/merge";
-import { parseDiff } from "../../DiffPane/parser";
-import type { DiffLine } from "../../DiffPane/types";
+import { parseDiff } from "../../../../lib/diff/parser";
+import type { DiffLine } from "../../../../lib/diff/types";
 import {
   anchorFor,
   cardPos,

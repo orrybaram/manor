@@ -11,8 +11,8 @@ import { activePaneId, scrollback } from "./helpers/terminal";
  * The sidebar PR surface, end to end: badge readiness and CI colour, the
  * popover's queued row, HTML comment bodies, bodiless comments dropped, the
  * send-to-agent action, hover-to-read notifications, folder placement from
- * the New Workspace dialog, the diff tree's count size, and a folder
- * scrolling its members into view when expanded.
+ * the New Workspace dialog, and a folder scrolling its members into view
+ * when expanded.
  *
  * A fake `gh` on PATH answers the PR poll with three canned PRs so the badge,
  * popover and comment list render real data through the real fetcher; nothing
@@ -279,7 +279,7 @@ async function createWorkspaceInFolder(
   await expect(dialog).not.toBeVisible({ timeout: 20_000 });
 }
 
-test("sidebar PR badge, popover, notifications, folders and diff tree", async ({ app, window, tempHome }) => {
+test("sidebar PR badge, popover, notifications and folders", async ({ app, window, tempHome }) => {
   test.setTimeout(180_000);
   const strip = new Filmstrip("sidebar-tweaks");
   const log: string[] = [];
@@ -399,30 +399,7 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
   await strip.shot(window, "notifications-after-3s-hover");
   await window.keyboard.press("Escape");
 
-  // ── 6. Diff file tree: smaller counts ────────────────────────────────────
-  const uiFixItem = items.filter({ hasText: "ui-fix" });
-  await uiFixItem.click();
-  // The worktree's path comes from git itself rather than a guess at Manor's
-  // layout: the branch is the one thing the test named.
-  const projectPath = path.join(tempHome, "test-project");
-  const worktrees = execSync("git worktree list --porcelain", { cwd: projectPath }).toString();
-  const uiFixPath = worktrees
-    .split("\n\n")
-    .find((block) => block.includes("branch refs/heads/ui-fix"))
-    ?.match(/^worktree (.+)$/m)?.[1];
-  expect(uiFixPath, "ui-fix worktree path").toBeTruthy();
-  fs.writeFileSync(path.join(uiFixPath!, "src-a.ts"), "export const a = 1;\nexport const b = 2;\n");
-  fs.writeFileSync(path.join(uiFixPath!, "README.md"), "# ui-fix\n\nchanged\n");
-  fs.writeFileSync(path.join(uiFixPath!, ".gitkeep"), "changed\n");
-  await window.keyboard.press("ControlOrMeta+Shift+g");
-  const rowStats = window.locator('[class*="rowStats"]').first();
-  await expect(rowStats).toBeVisible({ timeout: 20_000 });
-  const fontSize = await rowStats.evaluate((el) => getComputedStyle(el).fontSize);
-  log.push(`diff file-tree rowStats font-size: ${fontSize} (was 11px)`);
-  expect(fontSize).toBe("9px");
-  await strip.shot(window, "diff-file-tree-counts");
-
-  // ── 7. Folder expand scrolls members into view ───────────────────────────
+  // ── 6. Folder expand scrolls members into view ───────────────────────────
   await app.evaluate(({ BrowserWindow }) => {
     const win = BrowserWindow.getAllWindows()[0];
     win.setSize(1100, 420);

@@ -260,12 +260,12 @@ const WorkspaceItem = React.forwardRef<
                 (ws.diffStats.added > 0 || ws.diffStats.removed > 0) && (
                   // A real button nested inside the row: the row's
                   // own key handler only acts when `e.target ===
-                  // e.currentTarget`, so Enter/Space here open the diff
+                  // e.currentTarget`, so Enter/Space here open Source Control
                   // instead of the workspace.
                   <Button
                     variant="ghost"
                     className={`${styles.diffStats} ${styles.diffStatsClickable}`}
-                    aria-label="Open diff"
+                    aria-label="Open Source Control"
                     {...celebrationProps}
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {

@@ -81,7 +81,7 @@ export function useDiffWatcher() {
       latestDiffsRef.current = diffs;
       applyDiffs(diffs);
     });
-    // Open diff panes re-fetch their diff only when this changes.
+    // Open file panes re-fetch their changes only when this changes.
     const unsubscribeFingerprints =
       window.electronAPI.diffs.onFingerprintsChange(setDiffFingerprints);
     return () => {

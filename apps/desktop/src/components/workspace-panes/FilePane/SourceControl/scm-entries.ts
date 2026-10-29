@@ -25,7 +25,7 @@ export function scmLetter(
 
 /**
  * The Local view's two groups. A file is Staged when `git diff --cached`
- * names it, as the diff pane decides it: a partly staged file is Staged,
+ * names it: a partly staged file is Staged,
  * and unstaging it unstages all of it. Each group is by path.
  *
  * A staged file the working diff doesn't list (staged, then reverted or

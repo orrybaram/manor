@@ -8,7 +8,6 @@ import { defineConfig } from "@playwright/test";
  * single perf spec.)
  */
 const PERF_SPECS = [
-  "**/diff-drag-perf.spec.ts",
   "**/resize-lockup.spec.ts",
   "**/overload-perf.spec.ts",
 ];

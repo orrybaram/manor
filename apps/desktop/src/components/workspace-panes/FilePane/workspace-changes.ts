@@ -2,13 +2,13 @@ import { useCallback, useSyncExternalStore } from "react";
 import type { FileAuthor } from "../../../electron.d";
 import { watchDiffFingerprint } from "../../../lib/diff-fingerprints";
 import { workspaceKey, type WorkspaceKey } from "../../../lib/workspace-key";
-import { fetchDiffSingleFlight, localDiffKey } from "../DiffPane/diff-fetch";
+import { fetchDiffSingleFlight, localDiffKey } from "../../../lib/diff/diff-fetch";
 import { fileChangesFromDiff, type FileChange } from "./file-changes";
 import type { FilesWorkspace } from "./open-file-watches";
 
 /** A workspace's changes as the file pane shows them. */
 export type WorkspaceChanges = {
-  /** Changed files vs. HEAD (the diff pane's Local view), by workspace-relative path. */
+  /** Changed files vs. HEAD (Source Control's Local view), by workspace-relative path. */
   files: ReadonlyMap<string, FileChange>;
   /** The raw diff `files` was read from, for a file's own diff in the editor. */
   raw: string | null;
@@ -34,8 +34,8 @@ const entries = new Map<WorkspaceKey, Entry>();
 /**
  * Follow `workspace`'s changes: fetched when the first file pane on it
  * subscribes, then again only when the diff watcher's fingerprint for it
- * moves (`watchDiffFingerprint`), as an open diff pane does. No timer and no
- * git of its own: the diff is the diff pane's local fetch. Every file pane
+ * moves (`watchDiffFingerprint`). No timer and no git of its own: the diff
+ * is Source Control's Local fetch. Every file pane
  * of a workspace shares one entry; the last to leave stops it.
  */
 function subscribe(workspace: FilesWorkspace, listener: () => void): () => void {
@@ -77,7 +77,7 @@ function start(key: WorkspaceKey, path: string): Entry {
   let shown = 0;
   const run = () => {
     const seq = ++started;
-    // The diff pane's own Local fetch: one `git diff` for both when they ask together.
+    // Source Control's Local fetch: one `git diff` for both when they ask together.
     const diff = fetchDiffSingleFlight(localDiffKey(key), () =>
       window.electronAPI.diffs.getLocalDiff(path),
     );

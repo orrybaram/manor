@@ -39,7 +39,7 @@ function leafTab(id: string, paneId: string, title = "Terminal"): Tab {
   return { id, title, rootNode: { type: "leaf", paneId } };
 }
 
-/** A v2 file with one workspace, one panel, one split tab and a diff pane. */
+/** A v2 file with one workspace, one panel, one split tab and a file pane. */
 function v2File(): PersistedLayoutV2 {
   return {
     version: 2,
@@ -62,8 +62,8 @@ function v2File(): PersistedLayoutV2 {
                   first: { type: "leaf", paneId: "pane-1" },
                   second: {
                     type: "leaf",
-                    paneId: "pane-diff",
-                    contentType: "diff",
+                    paneId: "pane-file",
+                    contentType: "file",
                   },
                 },
                 focusedPaneId: "pane-1",
@@ -584,7 +584,7 @@ describe("LayoutStore", () => {
       expect(abandonForPanes).toHaveBeenCalledTimes(1);
       expect(abandonForPanes).toHaveBeenCalledWith([
         { paneId: "pane-1", title: "claude ⠋" },
-        { paneId: "pane-diff", title: null },
+        { paneId: "pane-file", title: null },
       ]);
     });
 
@@ -613,10 +613,10 @@ describe("LayoutStore", () => {
       expect(store.pendingCommands.take("pane-1")).toBeNull();
     });
 
-    it("never kills a closed diff pane", async () => {
+    it("never kills a closed file pane", async () => {
       await store.apply(
         WS,
-        { type: "close-pane", paneId: "pane-diff" },
+        { type: "close-pane", paneId: "pane-file" },
         { kind: "window", id: "1" },
       );
 
@@ -624,7 +624,7 @@ describe("LayoutStore", () => {
 
       expect(kill).not.toHaveBeenCalled();
       expect(store.get(WS)!.version).toBe(1);
-      expect(store.get(WS)!.paneSessions["pane-diff"]).toBeUndefined();
+      expect(store.get(WS)!.paneSessions["pane-file"]).toBeUndefined();
     });
 
     it("reopens a closed browser pane with its url, and says what came back", async () => {
@@ -727,12 +727,12 @@ describe("LayoutStore", () => {
     });
 
     it("opens a session entry for a pane that has none", () => {
-      // The diff pane has no daemon session and no `paneSessions` row yet.
-      store.setPaneTitle("pane-diff", "Diff");
+      // The file pane has no daemon session and no `paneSessions` row yet.
+      store.setPaneTitle("pane-file", "Files");
 
-      expect(store.get(WS)!.paneSessions["pane-diff"]).toMatchObject({
-        daemonSessionId: "pane-diff",
-        lastTitle: "Diff",
+      expect(store.get(WS)!.paneSessions["pane-file"]).toMatchObject({
+        daemonSessionId: "pane-file",
+        lastTitle: "Files",
       });
     });
 
@@ -962,13 +962,13 @@ describe("LayoutStore", () => {
         {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
-          focusedPaneIds: { "tab-1": "pane-diff" },
+          focusedPaneIds: { "tab-1": "pane-file" },
         },
       );
       store.flush();
 
       expect(readFile().workspaces[0].defaultViewport.focusedPaneIds).toEqual({
-        "tab-1": "pane-diff",
+        "tab-1": "pane-file",
       });
     });
 
@@ -984,11 +984,11 @@ describe("LayoutStore", () => {
         {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
-          focusedPaneIds: { "tab-1": "pane-diff" },
+          focusedPaneIds: { "tab-1": "pane-file" },
         },
       );
       expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
-        "tab-1": "pane-diff",
+        "tab-1": "pane-file",
       });
 
       report("primary");
@@ -1003,7 +1003,7 @@ describe("LayoutStore", () => {
         {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
-          focusedPaneIds: { "tab-1": "pane-diff" },
+          focusedPaneIds: { "tab-1": "pane-file" },
         },
       );
       expect(store.primaryViewport(WS)?.focusedPaneIds).toEqual({
@@ -1021,14 +1021,14 @@ describe("LayoutStore", () => {
         {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
-          focusedPaneIds: { "tab-1": "pane-diff" },
+          focusedPaneIds: { "tab-1": "pane-file" },
         },
       );
       store.flush();
 
       expect(store.claimsFor(WS)).toEqual([]);
       const stored = readFile().workspaces[0].defaultViewport;
-      expect(stored.focusedPaneIds).toEqual({ "tab-1": "pane-diff" });
+      expect(stored.focusedPaneIds).toEqual({ "tab-1": "pane-file" });
     });
 
     it("stands in for the primary only when a window reported it", () => {
@@ -1041,7 +1041,7 @@ describe("LayoutStore", () => {
         {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
-          focusedPaneIds: { "tab-1": "pane-diff" },
+          focusedPaneIds: { "tab-1": "pane-file" },
         },
       );
       expect(store.primaryViewport(WS)).toBeNull();
@@ -1102,7 +1102,7 @@ describe("LayoutStore", () => {
         {
           activePanelId: "panel-1",
           selectedTabIds: { "panel-1": "tab-1" },
-          focusedPaneIds: { "tab-1": "pane-diff" },
+          focusedPaneIds: { "tab-1": "pane-file" },
         },
       );
 
@@ -1316,7 +1316,7 @@ describe("LayoutStore", () => {
       expect(kill).toHaveBeenCalledWith("pane-1");
       expect(abandonForPanes).toHaveBeenCalledWith([
         { paneId: "pane-1", title: null },
-        { paneId: "pane-diff", title: null },
+        { paneId: "pane-file", title: null },
       ]);
       expect(store.pendingCommands.take("pane-1")).toBeNull();
       vi.advanceTimersByTime(REOPEN_GRACE_MS);
@@ -1442,7 +1442,7 @@ describe("LayoutStore", () => {
     });
 
     it("finds the workspace holding a pane, nested in a split or not", () => {
-      const found = store.locate({ paneId: "pane-diff" });
+      const found = store.locate({ paneId: "pane-file" });
 
       expect(found?.workspacePath).toBe(WS);
       expect(found?.entry).toEqual(store.get(WS));

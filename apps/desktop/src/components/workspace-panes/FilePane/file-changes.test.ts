@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDiff } from "../DiffPane/parser";
+import { parseDiff } from "../../../lib/diff/parser";
 import {
   changedLineRanges,
   fileChangesFromDiff,

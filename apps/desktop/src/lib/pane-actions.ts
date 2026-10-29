@@ -16,8 +16,11 @@ import {
 } from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
 import { guardUnsavedEdits } from "../store/unsaved-guard-store";
+import { requestSourceControl } from "./source-control-request";
 
-export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
+/** What a pane can be split with or converted to. `scm` is a file pane on
+ *  Source Control; `agent`, a terminal running the agent command. */
+export type PaneContentType = "terminal" | "browser" | "scm" | "agent";
 
 /** The focused pane of the active workspace's selected tab, if any. */
 export function getFocusedPaneId(): string | null {
@@ -40,10 +43,24 @@ export function splitFocusedPaneWith(
   );
   const direction =
     el && el.offsetWidth >= el.offsetHeight ? "horizontal" : "vertical";
-  useAppStore.getState().splitPaneAt(focusedPaneId, direction, "second", {
-    contentType,
-    paneCommand,
-  });
+  splitPaneWith(focusedPaneId, direction, contentType, paneCommand);
+}
+
+/** Split `paneId`, giving the new half `contentType`'s content. */
+export function splitPaneWith(
+  paneId: string,
+  direction: "horizontal" | "vertical",
+  contentType?: PaneContentType,
+  paneCommand?: string,
+): void {
+  useAppStore.getState().splitPaneAt(
+    paneId,
+    direction,
+    "second",
+    contentType === "scm"
+      ? { contentType: "file", startsOn: "scm" }
+      : { contentType, paneCommand },
+  );
 }
 
 /**
@@ -57,14 +74,29 @@ export function splitFocusedPaneWith(
  */
 export function convertFocusedPaneTo(contentType: PaneContentType): void {
   const focusedPaneId = getFocusedPaneId();
-  if (!focusedPaneId) return;
-  // A file pane's unsaved edits ask first: converting drops them.
-  guardUnsavedEdits([focusedPaneId], "convert", () => convertPaneTo(focusedPaneId, contentType));
+  if (focusedPaneId) convertPaneTo(focusedPaneId, contentType);
 }
 
-function convertPaneTo(focusedPaneId: string, contentType: PaneContentType): void {
+/**
+ * Turn `paneId` into another content type (see `convertFocusedPaneTo`). A
+ * file pane asked for Source Control only opens it: it is already one.
+ */
+export function convertPaneTo(paneId: string, contentType: PaneContentType): void {
+  if (contentType === "scm" && selectPaneContentType(useAppStore.getState(), paneId) === "file") {
+    requestSourceControl(paneId);
+    return;
+  }
+  // A file pane's unsaved edits ask first: converting drops them.
+  guardUnsavedEdits([paneId], "convert", () => convertNow(paneId, contentType));
+}
+
+function convertNow(focusedPaneId: string, contentType: PaneContentType): void {
   const state = useAppStore.getState();
 
+  if (contentType === "scm") {
+    state.setPaneContentType(focusedPaneId, "file", { startsOn: "scm" });
+    return;
+  }
   if (contentType !== "agent") {
     state.setPaneContentType(focusedPaneId, contentType);
     return;

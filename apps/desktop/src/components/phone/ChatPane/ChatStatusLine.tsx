@@ -15,7 +15,7 @@ import styles from "./ChatPane.module.css";
 /**
  * The line under the chat's input: the active workspace's open pull request
  * (number, opening a drawer), its CI (linking to GitHub), and the diff stat
- * (opening the diff pane) as chips, so "2 failing" is in view while you ask
+ * (opening Source Control) as chips, so "2 failing" is in view while you ask
  * Claude to fix it. The session's context size sits on the right. Renders
  * nothing when none of them has anything to show.
  *
@@ -95,7 +95,7 @@ export function ChatStatusLine(props: ChatStatusLineProps) {
           variant="ghost"
           className={styles.statusChip}
           aria-label={`${diff.additions} additions, ${diff.deletions} deletions`}
-          onClick={() => useAppStore.getState().openOrFocusDiff()}
+          onClick={() => useAppStore.getState().openSourceControl()}
         >
           <AnimatedCount
             className={styles.statusAdditions}

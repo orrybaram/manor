@@ -3,7 +3,7 @@ import * as Popover from "@radix-ui/react-popover";
 import EllipsisVertical from "lucide-react/dist/esm/icons/ellipsis-vertical";
 import MessageSquare from "lucide-react/dist/esm/icons/message-square";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
-import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import RefreshCw from "lucide-react/dist/esm/icons/refresh-cw";
 import { refreshState } from "../../bridge/resync";
 import { Button } from "../ui/Button/Button";
@@ -30,19 +30,19 @@ import styles from "./Phone.module.css";
 type MenuTargets = {
   /** The focused pane, when it can be read as a chat — the same rule
    *  `LeafPane` uses to offer one: a Claude agent with a local
-   *  transcript, and not a diff or browser pane. */
+   *  transcript, and not a file or browser pane. */
   chatPaneId: string | null;
   /** That pane's transcript, null while its chat is still starting. */
   chatTranscript: string | null;
-  /** The active workspace's diff can be opened: a project workspace (not
-   *  Home), and the diff is not already what the phone is looking at. */
-  canOpenDiff: boolean;
+  /** The active workspace's Source Control can be opened: a project
+   *  workspace, not Home. */
+  canOpenSourceControl: boolean;
 };
 
 const NO_TARGETS: MenuTargets = {
   chatPaneId: null,
   chatTranscript: null,
-  canOpenDiff: false,
+  canOpenSourceControl: false,
 };
 
 /**
@@ -72,7 +72,7 @@ function useMenuTargets(): MenuTargets {
   return {
     chatPaneId: chatTranscript !== null || chatStarting ? paneId : null,
     chatTranscript,
-    canOpenDiff: !isHomePath(path) && contentType !== "diff",
+    canOpenSourceControl: !isHomePath(path),
   };
 }
 
@@ -134,15 +134,15 @@ function ViewItem(props: ViewItemProps) {
 
 /**
  * The phone top bar's overflow menu: the focused pane's Chat | Terminal
- * switch and the workspace's diff — each only when it applies — and always
+ * switch and the workspace's Source Control — each only when it applies — and always
  * Refresh. Renaming lives on a tab's long-press menu (`PhoneTabMenu`).
  * Radix `Popover` closes it on Escape and an outside tap; every item closes
  * it too.
  */
 export function PhoneOverflowMenu() {
   const [open, setOpen] = useState(false);
-  const { chatPaneId, chatTranscript, canOpenDiff } = useMenuTargets();
-  // An item hands focus to whatever it opens (the diff, the chat); focus
+  const { chatPaneId, chatTranscript, canOpenSourceControl } = useMenuTargets();
+  // An item hands focus to whatever it opens (Source Control, the chat); focus
   // going back to the trigger would take it away again. Escape and an
   // outside tap still return it.
   const chose = useRef(false);
@@ -185,19 +185,19 @@ export function PhoneOverflowMenu() {
             {chatPaneId !== null && (
               <ViewItem paneId={chatPaneId} transcript={chatTranscript} onDone={close} />
             )}
-            {canOpenDiff && (
+            {canOpenSourceControl && (
               <Button
                 variant="ghost"
                 role="menuitem"
                 className={`${styles.phoneMenuItem} ${styles.overflowItem}`}
-                data-testid="phone-overflow-diff"
+                data-testid="phone-overflow-scm"
                 onClick={() => {
                   close();
-                  useAppStore.getState().openOrFocusDiff();
+                  useAppStore.getState().openSourceControl();
                 }}
               >
-                <GitCompareArrows size={16} />
-                Diff
+                <GitBranch size={16} />
+                Source Control
               </Button>
             )}
             <Button

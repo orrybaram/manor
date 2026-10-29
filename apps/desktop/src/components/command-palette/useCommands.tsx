@@ -21,7 +21,6 @@ import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
 import GitMerge from "lucide-react/dist/esm/icons/git-merge";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
-import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import Keyboard from "lucide-react/dist/esm/icons/keyboard";
 import LayoutDashboard from "lucide-react/dist/esm/icons/layout-dashboard";
@@ -308,11 +307,11 @@ export function useCommands({
       },
       {
         command: "split-with",
-        id: "split-with-diff",
-        label: "Split with Diff",
-        args: { contentType: "diff" },
-        icon: <GitCompareArrows size={14} />,
-        keywords: ["split", "diff", "pane", "git", "changes"],
+        id: "split-with-scm",
+        label: "Split with Source Control",
+        args: { contentType: "scm" },
+        icon: <GitBranch size={14} />,
+        keywords: ["split", "source control", "scm", "diff", "pane", "git", "changes"],
       },
       {
         command: "split-with",
@@ -340,11 +339,11 @@ export function useCommands({
       },
       {
         command: "convert-to",
-        id: "convert-to-diff",
-        label: "Convert to Diff",
-        args: { contentType: "diff" },
-        icon: <GitCompareArrows size={14} />,
-        keywords: ["convert", "diff", "pane", "git", "changes"],
+        id: "convert-to-scm",
+        label: "Convert to Source Control",
+        args: { contentType: "scm" },
+        icon: <GitBranch size={14} />,
+        keywords: ["convert", "source control", "scm", "diff", "pane", "git", "changes"],
       },
       {
         command: "convert-to",
@@ -382,7 +381,7 @@ export function useCommands({
       { command: "copy-branch", keywords: ["git", "branch", "clipboard"] },
       {
         command: "open-diff",
-        keywords: ["git", "changes", "diff", "staged"],
+        keywords: ["git", "changes", "diff", "staged", "source control", "scm", "commit"],
       },
     ]);
 

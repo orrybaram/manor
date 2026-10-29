@@ -45,10 +45,10 @@ export function GeneralSettingsPage() {
         </SettingRow>
       </Stack>
       <Stack gap="xs">
-        <SectionTitle id="general-diff">Diff</SectionTitle>
+        <SectionTitle id="general-diff">Source Control</SectionTitle>
         <SettingRow
-          label="Open diff in new panel"
-          hint="When enabled, the diff view opens in a new side-by-side panel instead of a tab in the current panel."
+          label="Open Source Control in new panel"
+          hint="When enabled, Open Source Control opens a file pane in a new side-by-side panel instead of a tab in the current panel."
         >
           <Switch
             checked={preferences.diffOpensInNewPanel}

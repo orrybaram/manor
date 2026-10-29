@@ -18,6 +18,9 @@
  * and runs on every load. A file the key migration has not reached yet keeps
  * `version: 2` — with its viewport already split out — so the key migration
  * still finds it next launch.
+ *
+ * The Diff pane's retirement needs no version either: a `diff` leaf becomes a
+ * file pane on Source Control on every load (`layoutWithoutDiffPanes`).
  */
 
 import * as fs from "node:fs";
@@ -31,6 +34,7 @@ import {
   type WorkspaceKeyOwner,
 } from "../../src/lib/workspace-key";
 import { isHomePath } from "../../src/lib/home-path";
+import { layoutWithoutDiffPanes } from "../../src/lib/layout/retired-diff-pane";
 // One layout model, shared with the renderer. These are types
 // only, so nothing from src/ lands in the terminal-host bundle — the same
 // precedent as app-menu.ts importing src/lib/menu-commands.
@@ -366,7 +370,8 @@ export class LayoutPersistence {
   /**
    * Load the layout from disk. Returns null if the file doesn't exist.
    *
-   * Every workspace comes back with its viewport out of the tree, whatever the file's version: the split is idempotent and needs
+   * Every workspace comes back with its viewport out of the tree and no
+   * `diff` leaf, whatever the file's version: both are idempotent and need
    * nothing. The key migration needs the projects, so it is
    * `migrateWorkspaceKeys`; until it has run the layout says `version: 2`.
    * A file this changes — a new version, or a viewport split out — is
@@ -386,19 +391,25 @@ export class LayoutPersistence {
         lastActiveWorkspacePath?: string | null;
       };
       const version = keyVersionOf(source);
+      let diffPanesRetired = false;
       const layout: PersistedLayout = {
         ...source,
         // A keyed file is brought to the current version here; a bare-path
         // one waits for its key migration.
         version: version === 2 ? 2 : LAYOUT_VERSION,
-        workspaces: (source.workspaces ?? []).map(migrateWorkspaceViewport),
+        workspaces: (source.workspaces ?? []).map((ws) => {
+          const migrated = migrateWorkspaceViewport(ws);
+          const retired = layoutWithoutDiffPanes(migrated);
+          if (retired !== migrated) diffPanesRetired = true;
+          return retired;
+        }),
       };
-      // Written back whenever the read changed it: a new version, or a
-      // workspace whose viewport was still in its tree.
+      // Written back whenever the read changed it: a new version, a
+      // workspace whose viewport was still in its tree, or a diff pane.
       const migrated = (source.workspaces ?? []).some(
         (ws) => (ws as Partial<PersistedWorkspace>).defaultViewport === undefined,
       );
-      if (layout.version !== data.version || migrated) {
+      if (layout.version !== data.version || migrated || diffPanesRetired) {
         this.save(layout);
       } else {
         this.current = layout;

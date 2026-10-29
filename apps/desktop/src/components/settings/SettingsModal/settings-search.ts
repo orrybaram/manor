@@ -56,8 +56,8 @@ const PAGE_SECTIONS: {
       },
       {
         id: "general-diff",
-        label: "Diff",
-        keywords: ["diff", "panel", "side by side", "changes"],
+        label: "Source Control",
+        keywords: ["source control", "scm", "git", "diff", "panel", "side by side", "changes"],
       },
       {
         id: "general-stats",

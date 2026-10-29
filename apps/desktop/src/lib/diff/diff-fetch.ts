@@ -1,5 +1,5 @@
 /**
- * Single-flight fetching, shared by every diff pane.
+ * Single-flight fetching, shared by every file pane and its Source Control.
  *
  * Only one fetch per key (workspace + mode + base) runs at a time. A request
  * made while one is in flight queues exactly one more, which starts once the
@@ -47,14 +47,14 @@ export function createSingleFlight<T>(): (key: string, run: () => Promise<T>) =>
 
 /**
  * The key of a workspace's local diff (vs. HEAD), which has no base branch:
- * every diff pane in Local mode and the file pane's change marks share it.
+ * Source Control's Local view and the file pane's change marks share it.
  */
 export function localDiffKey(wsKey: string): string {
   return `${wsKey}\u0000local`;
 }
 
-/** The diff fetches of every open diff pane, and the file pane's change marks. */
+/** The diff fetches of every open Source Control, and the file pane's change marks. */
 export const fetchDiffSingleFlight = createSingleFlight<string | null>();
 
-/** The staged-file fetches of every open diff pane. */
+/** The staged-file fetches of every open Source Control. */
 export const fetchStagedSingleFlight = createSingleFlight<string[]>();

@@ -32,15 +32,10 @@ const BROWSER = {
   contentType: "browser",
   url: "https://saved.example",
 } as const;
-const DIFF = { type: "leaf", paneId: "a", contentType: "diff" } as const;
 
 const PINNED = [{ paneId: "a", name: "Reviewer", namePinned: true }];
 
 describe("paneTitle", () => {
-  it("names a diff pane Diff, whatever else it carries", () => {
-    expect(paneTitle("a", state(DIFF, { paneTitle: { a: "x" } }), PINNED)).toBe("Diff");
-  });
-
   it("prefers a pinned agent name for a terminal", () => {
     expect(paneTitle("a", state(TERMINAL, { paneTitle: { a: "zsh" } }), PINNED)).toBe(
       "Reviewer",

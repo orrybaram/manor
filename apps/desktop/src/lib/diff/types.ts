@@ -13,5 +13,3 @@ export interface DiffFile {
   /** The change deletes the file: there is nothing on disk to open. */
   deleted?: boolean;
 }
-
-export type DiffMode = "local" | "branch";

@@ -2,46 +2,21 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import SquareTerminal from "lucide-react/dist/esm/icons/square-terminal";
 import Globe from "lucide-react/dist/esm/icons/globe";
-import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import GitBranch from "lucide-react/dist/esm/icons/git-branch";
 import Bot from "lucide-react/dist/esm/icons/bot";
-import {
-  selectActiveWorkspaceKey,
-  sendPendingCommand,
-  useAppStore,
-  usePaneContentType,
-} from "../../store/app-store";
-import { getAgentCommand } from "../../agent-defaults";
-import { guardUnsavedEdits } from "../../store/unsaved-guard-store";
+import { usePaneContentType } from "../../store/app-store";
+import { convertPaneTo } from "../../lib/pane-actions";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
 const PANE_TYPES = [
   { type: "terminal" as const, label: "Terminal", icon: SquareTerminal },
   { type: "browser" as const, label: "Browser", icon: Globe },
-  { type: "diff" as const, label: "Diff", icon: GitCompareArrows },
+  { type: "scm" as const, label: "Source Control", icon: GitBranch },
   { type: "agent" as const, label: "Agent", icon: Bot },
 ];
 
 export function ConvertToSubmenu({ paneId }: { paneId: string }) {
   const currentType = usePaneContentType(paneId);
-  const setPaneContentType = useAppStore((s) => s.setPaneContentType);
-
-  const convert = (type: (typeof PANE_TYPES)[number]["type"]) => {
-    if (type === "agent") {
-      const command = getAgentCommand(selectActiveWorkspaceKey(useAppStore.getState()));
-      if (currentType === "terminal") {
-        // Terminal already mounted — write directly
-        window.electronAPI.pty.write(paneId, command + "\n");
-      } else {
-        // Switching from browser/diff — the terminal mounts
-        // fresh, and the server types the command into it once
-        // its shell is ready.
-        sendPendingCommand(paneId, command, "agent-startup");
-        setPaneContentType(paneId, "terminal");
-      }
-    } else {
-      setPaneContentType(paneId, type);
-    }
-  };
 
   return (
     <ContextMenu.Sub>
@@ -55,8 +30,8 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
             <ContextMenu.Item
               key={type}
               className={styles.contextMenuItem}
-              // A file pane's unsaved edits ask first: converting drops them.
-              onSelect={() => guardUnsavedEdits([paneId], "convert", () => convert(type))}
+              // A file pane's unsaved edits ask first (`convertPaneTo`).
+              onSelect={() => convertPaneTo(paneId, type)}
             >
               <Icon size={14} />
               {label}

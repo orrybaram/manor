@@ -2,7 +2,7 @@
  * DiffWatcher's cost per tick (issue #302): the merge-base is reused while
  * HEAD and the ref stay put, a host's workspaces are diffed a few at a time,
  * the shortstat runs only when a workspace's fingerprint moves, and that
- * fingerprint — what an open diff pane re-fetches on — is sent only when it
+ * fingerprint — what an open file pane re-fetches on — is sent only when it
  * changes, including for edits the shortstat cannot see. Untracked files are
  * sized, never read, and nothing runs while the window is hidden.
  */

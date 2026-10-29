@@ -6,6 +6,7 @@ import {
   usePaneFilePath,
   selectHasPane,
   selectPaneContentType,
+  selectPaneStartsOn,
 } from "../../../store/app-store";
 import {
   useOpenFileStore,
@@ -31,8 +32,8 @@ import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
 import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
 import { useAgentLabel } from "./agent-label";
 import type { FileChange } from "./file-changes";
-import { fetchDiffSingleFlight } from "../DiffPane/diff-fetch";
-import { FingerprintedFetch } from "../DiffPane/FingerprintedFetch";
+import { fetchDiffSingleFlight } from "../../../lib/diff/diff-fetch";
+import { FingerprintedFetch } from "./FingerprintedFetch";
 import { baseFromDiff, fileDiffIn, followDiffBase, type HeldBase } from "./diff-base";
 import { SourceControl, ScmViewToggle } from "./SourceControl/SourceControl";
 import type { ScmView } from "./SourceControl/scm-entries";
@@ -40,6 +41,10 @@ import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
 import { pendingLines } from "./pending-line";
+import {
+  onSourceControlRequest,
+  takeSourceControlRequest,
+} from "../../../lib/source-control-request";
 import { pendingComments } from "./pending-comment";
 import { ReviewSection } from "./SourceControl/ReviewSection";
 import { ReviewBar } from "../../review/ReviewSend/ReviewSend";
@@ -114,8 +119,13 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
   // Read-only is the web client's, whatever the window's width.
   const readOnly = isWebApp();
-  // A pane with nothing open starts on its tree.
-  const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
+  // A pane asked for Source Control starts on it, as does one made for it
+  // with nothing open yet; any other with nothing open starts on its tree.
+  const [drawer, setDrawer] = useState<Drawer>(() => {
+    if (takeSourceControlRequest(paneId)) return "scm";
+    if (filePath) return null;
+    return selectPaneStartsOn(useAppStore.getState(), paneId) ?? "files";
+  });
   // Local or Branch: kept while the drawer closes and opens, not on the leaf.
   const [scmView, setScmView] = useState<ScmView>("local");
   // A Source Control row shows its file's diff; local state, as the drawer is.
@@ -127,7 +137,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const floating = useLayoutMode() === "phone";
   const floatingRef = useRef(floating);
   floatingRef.current = floating;
-  // A file sent here from elsewhere (the diff pane, a terminal link), or the
+  // A file sent here from elsewhere (go to file, a terminal link), or the
   // swap bar asking about one, puts the editor back in view: only a floating
   // drawer hides it.
   const pendingOpen = useOpenFileStore((s) => s.byPane[paneId]?.pendingOpen ?? null);
@@ -142,6 +152,12 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
       setNext(null);
     }
   }
+  // Asked again while mounted (Open Source Control over this pane).
+  useMountEffect(() =>
+    onSourceControlRequest(paneId, () => {
+      if (takeSourceControlRequest(paneId)) setDrawer("scm");
+    }),
+  );
   // The same file sent again only moves the cursor; it still wants the
   // editor, and a terminal link or ⌘P means the plain file.
   useMountEffect(() =>

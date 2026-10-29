@@ -201,7 +201,7 @@ describe("buildMenuTemplate", () => {
         "New Agent",
         "New Tab",
         "New Browser",
-        "Open Diff",
+        "Open Source Control",
         "Reveal in Finder",
         "Reopen Closed Pane",
       ]) {
@@ -336,11 +336,25 @@ describe("buildMenuTemplate", () => {
       expect(convert.map((c) => c.label)).toEqual([
         "Terminal",
         "Browser",
-        "Diff",
+        "Source Control",
         "Agent",
       ]);
       expect(item(convert, "Terminal")?.checked).toBe(true);
       expect(item(convert, "Browser")?.checked).toBe(false);
+    });
+
+    it("radio-checks Source Control on a file pane", () => {
+      const convert = submenu(
+        item(
+          menu(
+            build({ context: makeContext({ focusedPane: { id: "p", contentType: "file" } }) }),
+            "Pane",
+          ),
+          "Convert To",
+        ),
+      );
+      expect(item(convert, "Source Control")?.checked).toBe(true);
+      expect(item(convert, "Terminal")?.checked).toBe(false);
     });
 
     it("disables Convert To and Move Pane to New Window with no focused pane", () => {

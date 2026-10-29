@@ -59,10 +59,9 @@ describe("Home holds no tabs", () => {
     ["addTab", () => useAppStore.getState().addTab()],
     ["addTerminalTab", () => useAppStore.getState().addTerminalTab("echo hi")],
     ["addBrowserTab", () => useAppStore.getState().addBrowserTab("https://example.com")],
-    ["addDiffTab", () => useAppStore.getState().addDiffTab()],
     ["duplicateTab", () => useAppStore.getState().duplicateTab("home-tab")],
-    ["openOrFocusDiff", () => useAppStore.getState().openOrFocusDiff()],
-    ["openDiffInNewPanel", () => useAppStore.getState().openDiffInNewPanel()],
+    ["openSourceControl", () => useAppStore.getState().openSourceControl()],
+    ["openSourceControlInNewPanel", () => useAppStore.getState().openSourceControlInNewPanel()],
     ["splitPane", () => useAppStore.getState().splitPane("horizontal")],
     [
       "splitPaneAt",

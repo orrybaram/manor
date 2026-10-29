@@ -21,7 +21,7 @@ export interface AppPreferences {
   notificationSound: string | false;
   defaultEditor: string;
   editorIsTerminal: boolean;
-  /** Open a diff in a panel of its own rather than a tab of the current one. */
+  /** Open Source Control in a panel of its own rather than a tab of the current one. */
   diffOpensInNewPanel: boolean;
   /**
    * Number of days to retain non-active agents. Agents with `status !== "active"`

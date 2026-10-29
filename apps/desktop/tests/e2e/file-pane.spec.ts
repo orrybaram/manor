@@ -4,9 +4,7 @@ import path from "path";
 import type { Page, TestInfo } from "@playwright/test";
 import {
   bootWorkspaceWithTerminal,
-  createWorkspace,
   expect,
-  importSeededProject,
   test,
 } from "./fixtures";
 import {
@@ -384,22 +382,6 @@ test("the file pane asks before converting or closing over unsaved edits, and a 
   await window.screenshot({ path: shot(testInfo, "narrow-window-editable") });
 });
 
-async function waitForWorktree(tempHome: string): Promise<string> {
-  const root = path.join(tempHome, ".manor", "worktrees");
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (fs.existsSync(root)) {
-      for (const project of fs.readdirSync(root)) {
-        for (const ws of fs.readdirSync(path.join(root, project))) {
-          const dir = path.join(root, project, ws);
-          if (fs.existsSync(path.join(dir, ".git"))) return dir;
-        }
-      }
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`no worktree under ${root}`);
-}
-
 function git(cwd: string, args: string): void {
   execSync(`git ${args}`, {
     cwd,
@@ -418,143 +400,38 @@ function git(cwd: string, args: string): void {
 const activeLine = (window: Page) =>
   pane(window).locator(".cm-lineNumbers .cm-activeLineGutter");
 
-test("Open File in the diff pane opens the changed file in a file pane beside it", async ({
+test("the palette's Split with Source Control opens a file pane on its Source Control", async ({
   app,
   window,
   tempHome,
 }, testInfo) => {
   test.setTimeout(180_000);
-  await importSeededProject(app, window, tempHome);
-  await createWorkspace(window, "ws-from-diff");
-  const ws = await waitForWorktree(tempHome);
-  const widget = path.join(ws, "src", "components", "Widget.tsx");
-  fs.mkdirSync(path.dirname(widget), { recursive: true });
-  fs.writeFileSync(widget, WIDGET);
-  fs.writeFileSync(path.join(ws, "src", "other.ts"), OTHER);
-  fs.writeFileSync(path.join(ws, "src", "doomed.ts"), "export const doomed = 1;\n");
-  // Two long files, one before Widget.tsx and one after it, so the list's
-  // jump to Widget.tsx has somewhere to scroll and room to land at the top.
-  const lines = (name: string, n: number) =>
-    Array.from({ length: 60 }, (_, i) => `export const ${name}${i} = ${i + n};`).join("\n") + "\n";
-  fs.writeFileSync(path.join(ws, "src", "components", "Big.tsx"), lines("big", 0));
-  fs.writeFileSync(path.join(ws, "src", "long.ts"), lines("long", 0));
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-split-scm");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
   git(ws, "add -A");
   git(ws, 'commit -qm "baseline"');
-  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
-  fs.writeFileSync(path.join(ws, "src", "other.ts"), "export const other = 2;\n");
-  fs.rmSync(path.join(ws, "src", "doomed.ts"));
-  fs.writeFileSync(path.join(ws, "src", "components", "Big.tsx"), lines("big", 1));
-  fs.writeFileSync(path.join(ws, "src", "long.ts"), lines("long", 1));
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Pressed"));
 
-  await window.keyboard.press("ControlOrMeta+Shift+g");
-  const widgetFile = window.locator('[data-file-path="src/components/Widget.tsx"]');
-  await expect(widgetFile).toBeVisible({ timeout: 60_000 });
+  // The Diff pane's old words still find it, under its new name.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("split diff");
+  const item = window.locator("[cmdk-item]", { hasText: "Split with Source Control" });
+  await expect(item).toBeVisible();
+  await expect(window.locator("[cmdk-item]", { hasText: "Split with Diff" })).toHaveCount(0);
+  await window.screenshot({ path: shot(testInfo, "palette-scm") });
+  await item.first().click();
 
-  // The diff's file list, which shares its tree with the file pane: a row per
-  // folder and per file.
-  const list = window.locator('[data-testid="diff-file-list"]');
-  const listDir = (p: string) => list.locator(`[data-testid="diff-file-list-dir"][data-path="${p}"]`);
-  const listRow = (p: string) => list.locator(`[data-testid="diff-file-list-row"][data-path="${p}"]`);
-  await expect(listDir("src")).toBeVisible();
-  await expect(listDir("src/components")).toBeVisible();
-  for (const p of [
-    "src/components/Big.tsx",
-    "src/components/Widget.tsx",
-    "src/doomed.ts",
-    "src/long.ts",
-    "src/other.ts",
-  ]) {
-    await expect(listRow(p)).toBeVisible();
-  }
-  const diffPane = window.locator('[data-testid="workspace-pane"]:visible', { has: list });
-  await window.waitForTimeout(500);
-  await diffPane.screenshot({ path: shot(testInfo, "diff-file-list") });
-
-  // A folder collapses and expands.
-  await listDir("src/components").locator("button").first().click();
-  await expect(listDir("src/components")).toHaveAttribute("data-collapsed", "true");
-  await expect(listRow("src/components/Widget.tsx")).toHaveCount(0);
-  await expect(listRow("src/other.ts")).toBeVisible();
-  await listDir("src/components").locator("button").first().click();
-  await expect(listDir("src/components")).toHaveAttribute("data-collapsed", "false");
-  await expect(listRow("src/components/Widget.tsx")).toBeVisible();
-
-  // A file's name in the list scrolls the diff to that file, under the header.
-  const widgetGap = () =>
-    window.evaluate(() => {
-      const file = document.querySelector('[data-file-path="src/components/Widget.tsx"]')!;
-      let scroller = file.parentElement;
-      while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) {
-        scroller = scroller.parentElement;
-      }
-      if (!scroller) throw new Error("no scrolling ancestor");
-      return file.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    });
-  expect(await widgetGap()).toBeGreaterThan(500);
-  await listRow("src/components/Widget.tsx").locator('[title="src/components/Widget.tsx"]').click();
-  await expect
-    .poll(async () => {
-      const gap = await widgetGap();
-      return gap >= -2 && gap < 250;
-    }, { timeout: 10_000 })
-    .toBe(true);
-
-  // A deleted file has nothing to open.
-  await expect(
-    window.locator('[data-file-path="src/doomed.ts"] [data-testid="diff-file-open"]'),
-  ).toHaveCount(0);
-
-  // Open File on the header: a file pane splits off to the right, on that file.
-  await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(pane(window)).toBeVisible();
+  // Beside the terminal, a file pane with nothing open, on Source Control.
   await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
-  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
-    "Widget.tsx",
-  );
-  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
-  await expect(editor).toContainText("Pressed {count} times");
-  const diffBox = (await window.locator('[data-file-path="src/other.ts"]').boundingBox())!;
-  const fileBox = (await pane(window).boundingBox())!;
-  expect(fileBox.x).toBeGreaterThan(diffBox.x);
-  await window.waitForTimeout(500);
-  await window.screenshot({ path: shot(testInfo, "from-diff") });
-
-  // With unsaved edits, opening another file from the diff asks first, in the
-  // same pane, instead of splitting again or dropping them.
-  await typeAtEnd(window, "// unsaved");
-  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toBeVisible();
-  await window.locator('[data-file-path="src/other.ts"]').click({ button: "right" });
-  await window.locator('[data-testid="diff-file-menu-open"]').click();
-  const swap = pane(window).locator('[data-testid="file-pane-swap-bar"]');
-  await expect(swap).toBeVisible();
-  await expect(swap).toContainText("Unsaved changes to Widget.tsx.");
-  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
-  await window.screenshot({ path: shot(testInfo, "from-diff-swap-confirm") });
-  await swap.locator('[data-testid="file-pane-swap-discard"]').click();
-  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
-    "other.ts",
-  );
-  await expect(editor).toContainText("export const other = 2;");
-
-  // A reused pane with its Files drawer open shows the file beside the tree.
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
-  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
-  await expect(drawer).toBeVisible();
-  await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(editor).toContainText("Pressed {count} times");
-  await expect(drawer).toBeVisible();
-  // The same file again only moves the cursor, and the tree stays.
-  await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(drawer).toBeVisible();
-
-  // The file list's own menu opens a file in the file pane too.
-  await listRow("src/other.ts").click({ button: "right" });
-  await window.locator('[data-testid="diff-file-list-open"]').click();
-  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
-    "other.ts",
-  );
-  await expect(editor).toContainText("export const other = 2;");
-  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  await expect(
+    drawer.locator('[data-testid="scm-row"][data-path="src/components/Widget.tsx"]'),
+  ).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "split-scm") });
 });
 
 test("a file path printed in the terminal opens in a file pane at its line", async ({

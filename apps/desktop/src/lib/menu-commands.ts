@@ -96,7 +96,7 @@ export interface MenuContext {
   agents: { id: string; name: string; workspaceLabel: string | null }[];
   focusedPane: {
     id: string;
-    contentType: "terminal" | "browser" | "diff" | "file" | "agent";
+    contentType: "terminal" | "browser" | "file" | "agent";
   } | null;
   activeTab: { id: string; pinned: boolean } | null;
   panelCount: number;

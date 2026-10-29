@@ -26,8 +26,8 @@ import { fileIconFor } from "../../FileTree/file-icon";
 import {
   fetchDiffSingleFlight,
   fetchStagedSingleFlight,
-} from "../../DiffPane/diff-fetch";
-import { FingerprintedFetch } from "../../DiffPane/FingerprintedFetch";
+} from "../../../../lib/diff/diff-fetch";
+import { FingerprintedFetch } from "../FingerprintedFetch";
 import { AgentChip } from "../AgentChip";
 import { fileChangesFromDiff, type FileChange } from "../file-changes";
 import type { FilesWorkspace } from "../open-file-watches";
@@ -88,7 +88,7 @@ type SourceControlProps = {
  * Source Control, the file pane drawer's second mode. Local: a commit box,
  * then the working changes in Staged and Changes, with stage, unstage and discard per file
  * and per group. Branch: everything changed since the project's default
- * branch, to read only. Both are fetched as the diff pane fetches them
+ * branch, to read only. Both are fetched as the file pane fetches its own
  * (single-flight, again only when the workspace's diff fingerprint moves),
  * through the bridge, so a workspace on a remote host works the same.
  */
@@ -331,7 +331,7 @@ export function SourceControl({
         <FingerprintedFetch
           key={branchKey}
           wsKey={wsKey}
-          // The diff pane's Branch fetch, under the same key: one `git diff` for both.
+          // The file pane's Branch fetch, under the same key: one `git diff` for both.
           fetch={() =>
             fetchDiffSingleFlight(branchKey, () =>
               window.electronAPI.diffs.getFullDiff(

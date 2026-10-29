@@ -255,8 +255,8 @@ describe("moveTabToNextPanel", () => {
       splitPane: vi.fn(),
       splitPanel: vi.fn(),
       reopenClosedPane: vi.fn(),
-      openOrFocusDiff: vi.fn(),
-      openDiffInNewPanel: vi.fn(),
+      openSourceControl: vi.fn(),
+      openSourceControlInNewPanel: vi.fn(),
     };
     const original = useAppStore.getState();
     const originals = Object.fromEntries(

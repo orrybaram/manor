@@ -68,7 +68,7 @@ export function fileTitle(filePath: string | null): string {
 }
 
 /**
- * The title a tab shows for its focused pane: "Diff" for a diff, the open
+ * The title a tab shows for its focused pane: the open
  * file's name for a file pane, the pinned
  * agent name, a browser page's title or URL, the cleaned terminal title (just
  * the last path segment of a default shell title), else the cwd's last segment.
@@ -79,7 +79,6 @@ export function tabTitle(
   pinnedName: string | null,
 ): string {
   const contentType = selectPaneContentType(state, paneId);
-  if (contentType === "diff") return "Diff";
   if (contentType === "file") return fileTitle(selectPaneFilePath(state, paneId));
   // A user-pinned agent name (rename in the Agents list) labels the tab too,
   // so the sidebar and tab bar never disagree about what a pane is called.

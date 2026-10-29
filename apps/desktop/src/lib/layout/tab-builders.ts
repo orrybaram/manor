@@ -1,6 +1,6 @@
 /**
  * The tabs a sender builds for a `new-tab` or `duplicate-tab` command, and
- * the lookup that decides whether a diff tab is needed at all.
+ * the lookup that decides whether a Source Control tab is needed at all.
  *
  * Both senders use these: the desktop store (`src/store/app-store.ts`) and
  * the structural routes (`electron/routes/panes-structural.ts`). Every id is
@@ -27,12 +27,12 @@ export function createBrowserTab(url: string): Tab {
   };
 }
 
-/** A fresh single-pane diff tab. */
-export function createDiffTab(): Tab {
+/** A fresh single-pane file tab with nothing open, on Source Control. */
+export function createSourceControlTab(): Tab {
   return {
     id: newTabId(),
-    title: "Diff",
-    rootNode: { type: "leaf", paneId: newPaneId(), contentType: "diff" },
+    title: "Files",
+    rootNode: { type: "leaf", paneId: newPaneId(), contentType: "file", startsOn: "scm" },
   };
 }
 
@@ -67,14 +67,14 @@ export function cloneTabWithFreshIds(tab: Tab): {
 }
 
 /**
- * The workspace's diff pane, wherever it is — any pane of any tab, not only
- * a tab's root. There is at most one.
+ * The workspace's first file pane made for Source Control that has not opened
+ * a file yet, wherever it is — any pane of any tab, not only a tab's root.
  */
-export function findDiffPane(
+export function findSourceControlPane(
   layout: WorkspaceLayout,
 ): { paneId: string; tabId: string } | null {
   for (const { tab, leaf } of layoutLeaves(layout)) {
-    if (leaf.contentType === "diff") {
+    if (leaf.contentType === "file" && leaf.startsOn === "scm") {
       return { paneId: leaf.paneId, tabId: tab.id };
     }
   }

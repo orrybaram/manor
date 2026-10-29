@@ -31,10 +31,11 @@ import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
 import {
   cloneTabWithFreshIds,
   createBrowserTab,
-  createDiffTab,
   createFileTab,
-  findDiffPane as findDiffPaneIn,
+  createSourceControlTab,
+  findSourceControlPane,
 } from "../lib/layout/tab-builders";
+import { requestSourceControl } from "../lib/source-control-request";
 import {
   type WorkspaceViewport,
   EMPTY_VIEWPORT,
@@ -317,7 +318,6 @@ export interface AppState {
     url: string,
     opts?: { background?: boolean },
   ) => { tabId: string; paneId: string } | null;
-  addDiffTab: () => void;
   /**
    * Open a file pane as a new tab of the active panel, on `filePath`
    * (workspace-relative) or with no file open, which shows its tree; or of
@@ -331,10 +331,16 @@ export interface AppState {
   /** Returns the id of the tab it minted, or null when there is nothing to
    *  duplicate. The duplicate's panes are fresh ids, not the source's. */
   duplicateTab: (tabId: string) => string | null;
-  /** Returns the id of the tab the diff is in, or null when there is no
-   *  active workspace to open it in. */
-  openOrFocusDiff: () => string | null;
-  openDiffInNewPanel: () => void;
+  /**
+   * Show the active workspace's changes: the focused file pane opens its
+   * Source Control; else the workspace's Source Control pane is focused; else
+   * a new tab holds one. Returns the tab it is in, or null when there is no
+   * active workspace to open it in.
+   */
+  openSourceControl: () => string | null;
+  /** `openSourceControl`, but a new Source Control pane opens in a panel of
+   *  its own beside the active one. */
+  openSourceControlInNewPanel: () => void;
   closeTab: (tabId: string) => void;
   /** Close every other (unpinned) tab in the same panel as `tabId`. */
   closeOtherTabs: (tabId: string) => void;
@@ -358,11 +364,13 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "file" | "agent";
+      contentType?: "terminal" | "browser" | "file" | "agent";
       paneCommand?: string;
       url?: string;
       /** A file pane's open file, workspace-relative. */
       filePath?: string;
+      /** A file pane that starts on Source Control. */
+      startsOn?: "scm";
     },
   ) => string | null;
   movePaneToTarget: (
@@ -412,7 +420,12 @@ export interface AppState {
   setPaneTitleFromStream: (paneId: string, title: string | null) => void;
 
   // Pane content type
-  setPaneContentType: (paneId: string, contentType: PaneContentType) => void;
+  /** `startsOn` marks a file pane made to show Source Control. */
+  setPaneContentType: (
+    paneId: string,
+    contentType: PaneContentType,
+    opts?: { startsOn?: "scm" },
+  ) => void;
   /** The file a file pane shows, workspace-relative; kept on its leaf. */
   setPaneFilePath: (paneId: string, filePath: string) => void;
 
@@ -1036,6 +1049,14 @@ export function selectPaneFilePath(
   return paneLeaf(state, paneId)?.filePath ?? null;
 }
 
+/** The drawer a file pane made for it starts on with nothing open (`PaneNode.startsOn`). */
+export function selectPaneStartsOn(
+  state: Pick<AppState, "workspaceLayouts">,
+  paneId: string,
+): "scm" | null {
+  return paneLeaf(state, paneId)?.startsOn ?? null;
+}
+
 export function usePaneFilePath(paneId: string): string | null {
   return useAppStore((s) => selectPaneFilePath(s, paneId));
 }
@@ -1213,12 +1234,22 @@ function stepTab(state: AppState, step: 1 | -1): Partial<AppState> {
   return selectTabLocally(state, ctx.path, tabs[nextIdx].tabId);
 }
 
-/** The active workspace's diff pane, wherever it is — there is at most one. */
-function findDiffPane(
+/**
+ * Where Open Source Control shows the active workspace's changes without a
+ * new pane: the focused pane, when it is a file pane, else the workspace's
+ * Source Control pane.
+ */
+function sourceControlPaneOf(
   state: AppState,
 ): { paneId: string; tabId: string } | null {
-  const ctx = getActiveLayoutContext(state);
-  return ctx ? findDiffPaneIn(ctx.layout) : null;
+  const ctx = getActivePanelContext(state);
+  if (!ctx) return null;
+  const tabId = selectSelectedTabId(state, ctx.panel.id, ctx.path);
+  const focused = selectFocusedPaneId(state, tabId, ctx.path);
+  if (tabId && focused && selectPaneContentType(state, focused) === "file") {
+    return { paneId: focused, tabId };
+  }
+  return findSourceControlPane(ctx.layout);
 }
 
 /**
@@ -1912,14 +1943,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     return { tabId: tab.id, paneId };
   },
 
-  addDiffTab: () => {
-    const path = activeLayoutKey(get());
-    if (!path) return;
-    const tab = createDiffTab();
-    leaveTasksView();
-    sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
-  },
-
   addFileTab: (filePath, at) => {
     const path = at?.workspaceKey ?? activeLayoutKey(get());
     if (!path) return null;
@@ -1944,20 +1967,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     return newTab.id;
   },
 
-  openOrFocusDiff: () => {
+  openSourceControl: () => {
     const state = get();
     const path = activeLayoutKey(state);
     if (!path) return null;
-    const existing = findDiffPane(state);
+    const existing = sourceControlPaneOf(state);
     // Already open somewhere — this is a viewport move, not a layout change.
     if (existing) {
+      requestSourceControl(existing.paneId);
       set({
         ...WORKSPACE_SURFACE,
         ...focusPaneLocally(state, path, existing.paneId),
       });
       return existing.tabId;
     }
-    const tab = createDiffTab();
+    const tab = createSourceControlTab();
     leaveTasksView();
     sendLayoutCommand(path, {
       type: "new-tab",
@@ -1967,12 +1991,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     return tab.id;
   },
 
-  openDiffInNewPanel: () => {
+  openSourceControlInNewPanel: () => {
     const state = get();
     const path = activeLayoutKey(state);
     if (!path) return;
-    const existing = findDiffPane(state);
+    const existing = sourceControlPaneOf(state);
     if (existing) {
+      requestSourceControl(existing.paneId);
       set({
         ...WORKSPACE_SURFACE,
         ...focusPaneLocally(state, path, existing.paneId),
@@ -1981,10 +2006,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     const ctx = getActivePanelContext(state);
     if (!ctx) return;
-    const tab = createDiffTab();
+    const tab = createSourceControlTab();
     leaveTasksView();
     // Not `new-tab` + `split-panel`: that would move the panel's selected tab
-    // into the new panel. The diff opens *beside* what is already there.
+    // into the new panel. Source Control opens *beside* what is already there.
     sendLayoutCommand(path, {
       type: "split-panel-with-new-tab",
       tab,
@@ -2078,11 +2103,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "file" | "agent";
+      contentType?: "terminal" | "browser" | "file" | "agent";
       paneCommand?: string;
       url?: string;
       /** A file pane's open file, workspace-relative. */
       filePath?: string;
+      /** A file pane that starts on Source Control. */
+      startsOn?: "scm";
     },
   ) => {
     const state = get();
@@ -2092,7 +2119,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // silent no-op, and `splitPaneAt` answers with the id it minted.
     if (!ctx || !findPanelWithPane(ctx.layout, targetPaneId)) return null;
     const newPane = newPaneId();
-    const { contentType, paneCommand, url, filePath } = opts ?? {};
+    const { contentType, paneCommand, url, filePath, startsOn } = opts ?? {};
     // "agent" panes are terminals that auto-run a command -- don't persist as
     // a content type.
     const treeContentType = contentType === "agent" ? undefined : contentType;
@@ -2113,6 +2140,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       contentType: treeContentType,
       url,
       filePath,
+      startsOn,
     });
     return newPane;
   },
@@ -2377,7 +2405,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   // The leaf is where the type lives; the pane re-renders as the new one
   // when the broadcast brings it back.
-  setPaneContentType: (paneId: string, contentType: PaneContentType) => {
+  setPaneContentType: (paneId, contentType, opts) => {
     const state = get();
     if (selectPaneContentType(state, paneId) === contentType) return;
     const path = workspaceOfPane(state, paneId);
@@ -2386,6 +2414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       type: "set-pane-content-type",
       paneId,
       contentType,
+      ...(opts?.startsOn && { startsOn: opts.startsOn }),
     });
   },
 

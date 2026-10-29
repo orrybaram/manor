@@ -1,7 +1,7 @@
-import { parseDiff } from "../DiffPane/parser";
-import type { DiffLine } from "../DiffPane/types";
+import { parseDiff } from "../../../lib/diff/parser";
+import type { DiffLine } from "../../../lib/diff/types";
 
-/** How a file differs from the base the diff pane shows by default (HEAD). */
+/** How a file differs from the base Source Control shows by default (HEAD). */
 export type ChangeStatus = "added" | "modified" | "renamed" | "deleted";
 
 /** Lines `from` to `to` of the file as it is now, 1-based and inclusive. */

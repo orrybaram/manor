@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Manor · run coding agents side by side</title>
+    <meta name="description" content="Run any coding agent side by side in terminal panes, each in its own worktree. Manor shows you which one needs you, on your Mac or on any machine you can SSH into." />
+    <meta name="theme-color" content="#FFE800" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=UnifrakturCook:wght@700&family=IM+Fell+English:ital@0;1&family=JetBrains+Mono:wght@400;700;800&family=Pirata+One&display=swap" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+<!-- ============ NAV ============ -->
+<header class="top">
+  <div class="wrap">
+    <nav class="nav" aria-label="Main">
+      <a class="logo" href="#top" aria-label="Manor home"><svg class="wm-m" viewBox="0 0 794 694" aria-hidden="true"><path d="M793.87 589.732L717.576 693.863H713.452C639.22 693.863 602.104 642.657 602.104 540.244V393.842H543.337V581.484L555.709 570.143L580.453 597.98L455.702 693.863C424.772 658.809 393.498 641.282 361.881 641.282C353.633 641.282 344.354 642.657 334.044 645.406C324.421 647.468 313.424 650.561 301.052 654.685C301.052 652.623 301.396 649.874 302.083 646.437C303.458 643 305.176 639.564 307.238 636.127H306.207C322.016 607.259 340.917 585.264 362.912 570.143V393.842H305.176V574.267C305.176 585.264 300.365 600.386 290.742 619.631C265.998 667.057 231.288 690.77 186.611 690.77C179.738 690.77 167.366 688.021 149.495 682.522C135.061 677.711 123.376 675.305 114.441 675.305V673.243C86.9477 664.308 69.4207 659.84 61.86 659.84C36.4287 659.84 15.8087 670.837 -3.35276e-06 692.832C-3.35276e-06 653.654 9.96633 622.037 29.899 597.98C50.519 573.236 78.6997 560.864 114.441 560.864C124.064 560.864 134.717 562.239 146.402 564.988C158.774 567.737 172.177 571.861 186.611 577.36C190.048 578.735 191.766 579.766 191.766 580.453C192.453 580.453 194.515 581.14 197.952 582.515C204.138 586.639 211.355 588.701 219.603 588.701V580.453C225.102 585.952 228.538 588.701 229.913 588.701C236.786 588.701 244.347 585.264 252.595 578.391C261.53 570.83 265.998 563.27 265.998 555.709V120.627L244.347 132.999L243.316 134.03L240.223 136.092V137.123C238.161 139.185 237.13 141.247 237.13 143.309C235.068 145.371 234.037 148.12 234.037 151.557V450.547C234.037 455.358 233.35 460.513 231.975 466.012C230.6 471.511 228.195 477.697 224.758 484.57C219.259 494.193 212.042 503.128 203.107 511.376C194.172 519.624 184.205 526.841 173.208 533.027C162.898 539.213 151.557 544.368 139.185 548.492C127.5 551.929 116.159 553.647 105.162 553.647H98.976V552.616H89.697L100.007 542.306H101.038C112.035 531.309 117.534 520.999 117.534 511.376V397.966L115.472 395.904C116.159 395.904 113.754 394.529 108.255 391.78H107.224L105.162 390.749H102.069L101.038 389.718C88.666 391.093 82.48 397.279 82.48 408.276C83.1673 409.651 83.511 411.713 83.511 414.462L85.573 416.524L87.635 426.834H82.48L81.449 427.865H78.356C61.1727 427.865 46.7387 419.961 35.054 404.152C26.1187 391.093 21.651 375.628 21.651 357.757C21.651 331.638 33.6793 311.362 57.736 296.928C68.046 290.742 74.9193 287.649 78.356 287.649L117.534 285.587V185.58C117.534 162.898 132.655 143.309 162.898 126.813L410.338 1.03098C440.581 51.8936 472.542 78.356 506.221 80.418V6.18604H543.337V78.356H545.399C570.143 78.356 605.541 52.2373 651.592 -8.10623e-06C678.398 30.2427 703.829 51.55 727.886 63.922H730.979C735.79 63.922 740.258 62.891 744.382 60.829H747.475L748.506 59.798C751.255 59.798 755.723 57.736 761.909 53.612V71.139L760.878 73.201V78.356L759.847 79.387C759.16 89.0097 754.692 99.3197 746.444 110.317C738.196 120.627 729.261 127.844 719.638 131.968V542.306C719.638 551.929 723.075 560.864 729.948 569.112C736.821 576.673 745.069 581.484 754.692 583.546L765.002 569.112L793.87 589.732ZM501.066 562.926C501.753 562.926 502.097 563.27 502.097 563.957C502.784 563.957 503.815 563.957 505.19 563.957V134.03C496.942 137.467 489.038 139.185 481.477 139.185C480.102 139.872 478.04 140.216 475.291 140.216H474.26V554.678C477.697 555.365 481.133 556.396 484.57 557.771C488.007 558.458 491.443 559.489 494.88 560.864C495.567 561.551 497.286 561.895 500.035 561.895L501.066 562.926ZM321.672 104.131C320.297 103.444 318.923 102.756 317.548 102.069C316.861 100.694 315.83 99.3197 314.455 97.945L305.176 100.007V284.556H362.912V126.813C361.537 125.438 360.506 124.751 359.819 124.751C359.132 124.751 358.444 124.407 357.757 123.72C355.008 123.033 352.602 122.345 350.54 121.658C349.165 120.971 347.791 120.283 346.416 119.596H347.447C344.01 119.596 336.106 114.441 323.734 104.131V105.162L321.672 104.131ZM544.368 116.503L543.337 117.534V284.556H602.104V134.03C582.859 130.593 567.394 122.002 555.709 108.255C551.585 113.754 547.805 116.503 544.368 116.503Z" fill="currentColor"/></svg><span aria-hidden="true">anor</span></a>
+      <ul>
+        <li><a class="hl" href="#stuck">Status</a></li>
+        <li><a class="hl" href="#rooms">Worktrees</a></li>
+        <li><a class="hl" href="#wing">Remote hosts</a></li>
+        <li><a class="dl" href="#ticket">Download</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main>
+<!-- ============ HERO ============ -->
+<section class="hero" id="top">
+  <img class="etch knight" src="./src/assets/knight.avif" alt="" width="960" height="1245" decoding="async">
+  <div class="wrap">
+    <h1 class="tagline"><span class="l1">They say coding is <span class="hit">dead</span>,</span> <span class="l2">doesn't mean we can't still have some fun.</span></h1>
+    <div class="lede">
+      <p>Run any coding agent side by side in terminal panes, each in its own worktree. Manor shows you which one needs you, on your Mac or on any machine you can SSH into.</p>
+      <div class="cta" id="ticket">
+        <a class="btn" href="https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg">Download for Mac<small>v%MANOR_VERSION% · macOS</small></a>
+      </div>
+    </div>
+
+    <div class="shot-zone">
+      <div class="frame-wrap">
+        <span class="plate"><b>Pl. I</b>The Manor, four agents awake</span>
+        <div class="frame">
+          <div class="mapp-view" data-shell="hero"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH. I · STATUS ============ -->
+<section class="ch ch-1" id="stuck">
+  <img class="ch1-bg" src="./src/assets/melencolia.avif" alt="" width="960" height="1240" loading="lazy" decoding="async">
+  <div class="wrap ch-grid">
+    <div class="ch-copy">
+      <div class="ch-num">Chapter I</div>
+      <h2>Know who's stuck</h2>
+      <div class="body">
+        <p>Every pane carries one live status. Glance at the sidebar and you know which agent is grinding, which one finished, and which one has been waiting on a yes for ten minutes.</p>
+        <div class="statuses" aria-label="Agent statuses">
+          <span class="chip"><span class="sd think"></span>thinking</span>
+          <span class="chip"><span class="sd work"></span>working</span>
+          <span class="chip hot"><span class="sd input"></span>requires input</span>
+          <span class="chip"><span class="sd resp"></span>responded</span>
+          <span class="chip"><span class="sd err"></span>error</span>
+          <span class="chip"><span class="sd idle"></span>idle</span>
+        </div>
+        <p class="aside">The ones that need you get a notification and a ring. The rest stay out of your way.</p>
+      </div>
+    </div>
+    <figure class="ch1-fig">
+      <div class="mapp-view shell-ask" data-shell="ask"></div>
+      <figcaption><b>Pl. II</b>Codex, waiting on your yes.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ============ CH. II · WORKTREES ============ -->
+<section class="ch ch-2" id="rooms">
+  <div class="halftone" aria-hidden="true"></div>
+  <div class="wrap ch-grid">
+    <div class="crop">
+      <div class="mapp-view shell-rooms" data-shell="rooms"></div>
+      <div class="cap"><b>Pl. III</b> Five rooms, five branches, no collisions.</div>
+    </div>
+    <div class="ch-copy">
+      <div class="ch-num">Chapter II</div>
+      <h2>A room per branch</h2>
+      <div class="body">
+        <p>Each workspace is its own git worktree, so four agents can rewrite four features without stepping on each other's files.</p>
+        <ul class="list-x">
+          <li>Open the diff, comment on a line, send it back to the agent.</li>
+          <li>Move a pane to another workspace when the work wanders.</li>
+          <li>Close the laptop. Sessions resume where they left off.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ CH. III · REMOTE HOSTS ============ -->
+<section class="ch ch-3" id="wing">
+  <div class="wrap">
+    <div class="ch-num">Chapter III</div>
+    <h2>The east wing</h2>
+    <div class="body"><p>Your laptop is one room. Remote hosts are the rest of the house. Agents keep running when you leave, and the same panes open from any desk or your phone.</p></div>
+    <div class="plan" role="list" aria-label="Floor plan of the hosts Manor reaches">
+      <div class="room" role="listitem"><div class="lbl"><span>Room 1</span><span>local</span></div><h3>This Mac</h3><p>Panes, worktrees and the daemon that keeps terminals alive across restarts.</p><span class="door" aria-hidden="true"></span></div>
+      <div class="room" role="listitem"><div class="lbl"><span>Room 2</span><span>relay</span></div><h3>Your phone</h3><p>Pair it once. Read the chat, answer a prompt, never resize the desk.</p><span class="door" aria-hidden="true"></span></div>
+      <div class="room" role="listitem"><div class="lbl"><span>Room 3</span><span>ssh</span></div><h3>The big box</h3><p>A host server on any machine you can SSH into. Projects, workspaces and agents live there.</p><span class="door" aria-hidden="true"></span></div>
+      <div class="room" role="listitem"><div class="lbl"><span>Room 4</span><span>pod</span></div><h3>A pod</h3><p>A host made for one project. It sleeps when idle and wakes when you open it.</p><span class="zz" aria-hidden="true">zzz</span><span class="door" aria-hidden="true"></span></div>
+    </div>
+    <div class="plan-key">Every room is a host · doors are SSH or the relay · nothing leaves your machines but the pipe</div>
+  </div>
+</section>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="foot">
+  <canvas class="webs" aria-hidden="true"></canvas>
+  <div class="wrap inner">
+    <div class="foot-row">
+      <p class="big misreg">Don't wake the house.</p>
+      <a class="btn" href="https://github.com/orrybaram/manor/releases/latest/download/Manor-arm64.dmg">Download for Mac<small>v%MANOR_VERSION% · macOS</small></a>
+    </div>
+    <p class="colophon"><b>Frontispiece</b> Albrecht Dürer, <i>Knight, Death and Devil</i>, 1513. National Gallery of Art, CC0. · <b>Chapter I</b> Albrecht Dürer, <i>Melencolia I</i>, 1514. The Met, CC0. · Set in Pirata One, UnifrakturCook, Anton, JetBrains Mono and IM Fell English.</p>
+    <div class="legal"><a class="hl" href="https://github.com/orrybaram/manor" target="_blank" rel="noopener">GitHub</a><a class="hl" href="https://github.com/orrybaram/manor/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a><span>© 2026 Manor</span></div>
+  </div>
+</footer>
+
+<!-- ============ ⌘K TERMINAL ============ -->
+<div class="term" id="term" hidden role="dialog" aria-modal="true" aria-labelledby="term-title">
+  <div class="win">
+    <div class="tb"><span id="term-title">manor — the cellar</span><button type="button" id="close-term" aria-label="Close terminal">esc</button></div>
+    <div class="out" id="term-out" aria-live="polite"></div>
+    <form id="term-form" autocomplete="off"><label for="term-in">$</label><input id="term-in" spellcheck="false" aria-label="Command"></form>
+  </div>
+</div>
+  </body>
+</html>

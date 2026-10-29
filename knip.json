@@ -74,6 +74,14 @@
       "project": [
         "**/*.ts"
       ]
+    },
+    "apps/site": {
+      "entry": [
+        "index.html"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
     }
   },
   "ignoreBinaries": [

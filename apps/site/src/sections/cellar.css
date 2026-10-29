@@ -1,0 +1,12 @@
+/* The cellar: a hidden ⌘K / Ctrl+K terminal. */
+.term[hidden] { display: none; }
+.term { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: rgba(10,10,0,.72); padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+.term .win { width: min(760px, 100%); background: var(--pitch); border: 4px solid var(--bile); box-shadow: 12px 12px 0 var(--wound); transform: rotate(-.6deg); display: grid; grid-template-rows: auto minmax(0, 1fr) auto; max-height: min(560px, 90vh); }
+.term .tb { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--bile); color: var(--pitch); font-weight: 800; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; }
+.term .tb button { background: var(--pitch); color: var(--bile); border: 0; font: inherit; padding: 2px 8px; cursor: pointer; }
+.term .out { padding: 14px 16px; overflow-y: auto; font-size: 13.5px; line-height: 1.55; white-space: pre-wrap; color: var(--bone); min-height: 240px; }
+.term .out .y { color: var(--bile); } .term .out .p { color: var(--wound); } .term .out .r { color: var(--blood); }
+.term .out .bl { font-family: var(--f-black); font-size: 44px; line-height: 1; color: var(--bile); display: block; }
+.term form { display: flex; gap: 8px; padding: 10px 16px 14px; border-top: 2px dashed #3a3a2a; align-items: center; }
+.term form label { color: var(--wound); font-weight: 800; }
+.term input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--bile); font: inherit; font-size: 14px; outline: none; caret-color: var(--wound); }

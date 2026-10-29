@@ -1,0 +1,20 @@
+/* Chapter III "The east wing": ash ground, a four-room floor plan of hosts.
+   Its shadow falls on the footer revealed beneath it. */
+.ch-3 { background: var(--ash); color: var(--pitch); box-shadow: 0 24px 48px rgba(10, 10, 0, .55); }
+.plan { margin-top: 40px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 4px solid var(--pitch); background: var(--pitch); gap: 4px; }
+.room { background: var(--ash); padding: 18px 16px 20px; display: grid; gap: 10px; align-content: start; min-height: 220px; position: relative; }
+.room:nth-child(2) { background: var(--bile); }
+.room .lbl { font-weight: 800; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; display: flex; justify-content: space-between; gap: 8px; }
+.room h3 { font-family: var(--f-black); font-size: clamp(36px, 3.6vw, 52px); line-height: .9; }
+.room p { font-size: 13.5px; }
+.room .door { position: absolute; bottom: -4px; left: 22px; width: 46px; height: 4px; background: inherit; }
+.room .zz { font-family: var(--f-shout); font-size: 22px; transform: rotate(-8deg); position: absolute; right: 14px; top: 46px; opacity: .85; }
+.plan-key { margin-top: 14px; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+
+@media (max-width: 900px) {
+  .plan { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 540px) {
+  .plan { grid-template-columns: minmax(0, 1fr); }
+  .room { min-height: 0; }
+}

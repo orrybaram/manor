@@ -1,0 +1,17 @@
+{
+  "name": "manor-site",
+  "private": true,
+  "type": "module",
+  "description": "The Manor marketing homepage (manor.sh): Vite + vanilla TypeScript, static output.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.3.5"
+  }
+}

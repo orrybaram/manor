@@ -1,0 +1,16 @@
+/* Chapter I "Know who's stuck": pitch ground sliding over the bottom of the hero shot,
+   faint Melencolia behind, status chips, the shell zoomed to Codex's question. */
+.ch-1 { background: var(--pitch); color: var(--bone); position: relative; z-index: 2; border-top: 4px solid var(--wound); box-shadow: 0 -18px 30px rgba(10,10,0,.35); }
+.ch-1 .wrap { position: relative; z-index: 1; }
+.ch-1 .ch-num { color: var(--wound); }
+.ch-1 h2 { color: var(--bile); }
+.ch-1 .aside { font-size: 14px; color: var(--dim-bone); }
+.ch1-bg { position: absolute; top: -4%; left: -5%; width: 110%; height: 108%; max-width: none; object-fit: cover; object-position: 50% 38%; filter: grayscale(1) invert(1) contrast(1.05) brightness(.9); mix-blend-mode: screen; opacity: .08; pointer-events: none; user-select: none; }
+.ch1-fig { position: relative; margin: 0; }
+.ch1-fig .shell-ask { position: relative; z-index: 2; border: 3px solid var(--pitch); box-shadow: 12px 12px 0 var(--wound); transform: rotate(-.8deg); }
+.ch1-fig figcaption { font-family: var(--f-fell); font-style: italic; font-size: 15px; color: var(--bile); padding-top: 22px; display: flex; gap: 8px; align-items: baseline; }
+.ch1-fig figcaption b { font-family: var(--f-black); font-style: normal; font-weight: 400; font-size: 22px; }
+
+.statuses { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 8px; border: 2px solid var(--bone); padding: 5px 11px 5px 9px; font-size: 12.5px; font-weight: 800; text-transform: lowercase; }
+.chip.hot { background: var(--wound); border-color: var(--wound); color: var(--pitch); transform: rotate(-3deg); }

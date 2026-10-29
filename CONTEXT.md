@@ -11,6 +11,13 @@ in terminal panes across local and remote hosts.
 One coding-agent session running in a terminal pane, persisted in `agents.json`.
 _Avoid_: task (older name, still in some code), session (that is the hook-level id)
 
+**Session**:
+One conversation in an agent CLI's own store on a host (Claude's `~/.claude/projects`,
+Codex's `$CODEX_HOME`, opencode's database, pi's sessions directory), whether or not
+Manor launched it. An **Agent** is a **Session** Manor launched or resumed in a pane;
+the two share the CLI's session id. Manor reads these stores and never writes them.
+_Avoid_: conversation, thread, chat (each CLI's own word), history entry
+
 **Agent kind**:
 Which agent CLI an **Agent** is: `claude`, `codex`, `pi` or `opencode`.
 _Avoid_: harness, agent type

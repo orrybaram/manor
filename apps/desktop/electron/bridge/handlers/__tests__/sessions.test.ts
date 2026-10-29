@@ -1,0 +1,133 @@
+import { describe, expect, it, vi } from "vitest";
+
+import type { HostProxy } from "../../../backend/host-proxy";
+import { HostServerUnavailableError } from "../../../backend/host-server-client";
+import { PendingCommands } from "../../../layout/pending-commands";
+import { PtyAttachments } from "../../../pty-attachments";
+import { createBroadcastBus } from "../../../renderer-broadcast";
+import { HostRouting } from "../../../server/host-routing";
+import type { SessionSummary } from "../../../sessions/types";
+import { HOST_TABLE } from "../../../host-server/handlers";
+import type { HandlerCtx } from "../../method";
+import { ROUTES } from "../../routes";
+import { sessions, sessionsList, sessionsTranscript, type SessionsDeps } from "../sessions";
+
+function session(sessionId: string, updatedAt: string, hostId = "local"): SessionSummary {
+  return {
+    id: `claude:${sessionId}`,
+    hostId,
+    kind: "claude",
+    sessionId,
+    title: sessionId,
+    firstPrompt: sessionId,
+    cwd: "/w",
+    gitBranch: null,
+    createdAt: updatedAt,
+    updatedAt,
+    messageCount: null,
+    model: null,
+    path: `/w/${sessionId}.jsonl`,
+    parentSessionId: null,
+  };
+}
+
+/** A proxy whose host server answers `sessions.list` with `answer`. */
+function proxy(hostId: string, answer: () => Promise<unknown>): HostProxy {
+  return {
+    hostId,
+    label: hostId,
+    invoke: vi.fn(async (ns: string, method: string) => {
+      if (ns !== "sessions" || method !== "list") throw new Error(`unexpected ${ns}.${method}`);
+      return answer();
+    }),
+  } as unknown as HostProxy;
+}
+
+function routing(proxies: HostProxy[]): HostRouting {
+  return new HostRouting({
+    registry: {
+      hostProxy: (hostId) => proxies.find((p) => p.hostId === hostId),
+      remoteHostIds: () => proxies.map((p) => p.hostId),
+      sessions: { ownerOf: () => undefined },
+    },
+    isAdopted: () => true,
+    hasLocalProject: () => false,
+    pendingCommands: new PendingCommands(),
+    decorateProject: (result) => result,
+    bus: createBroadcastBus(),
+    handOver: async () => {},
+    attachments: new PtyAttachments(),
+  });
+}
+
+function ctx(deps: SessionsDeps): HandlerCtx<SessionsDeps> {
+  return { deps, caller: { id: "1", callerClass: "local" } };
+}
+
+describe("sessions.list", () => {
+  const local = { list: async () => [session("mine", "2026-10-27T10:00:00.000Z")] };
+
+  it("answers with this host's Sessions alone when no host is adopted", async () => {
+    expect(await sessionsList(ctx({ sessionScanner: local }))).toEqual([
+      session("mine", "2026-10-27T10:00:00.000Z"),
+    ]);
+  });
+
+  it("merges every adopted host's Sessions, each with its host's id, newest first", async () => {
+    // The host server knows itself as `local`; the proxy's answer names it.
+    const box = proxy("box", async () => [session("theirs", "2026-10-28T09:00:00.000Z")]);
+    const list = await sessionsList(ctx({ sessionScanner: local, hostRouting: routing([box]) }));
+    expect(list.map((s) => [s.hostId, s.sessionId])).toEqual([
+      ["box", "theirs"],
+      ["local", "mine"],
+    ]);
+  });
+
+  it("gives no Sessions for a host that is away or too old to list them", async () => {
+    const box = proxy("box", async () => [session("theirs", "2026-10-26T09:00:00.000Z")]);
+    const old = proxy("old", async () => {
+      throw new Error('unknown method "sessions.list"');
+    });
+    const away = proxy("away", async () => {
+      throw new HostServerUnavailableError("away", "idle", "away is offline");
+    });
+    const list = await sessionsList(
+      ctx({ sessionScanner: local, hostRouting: routing([old, box, away]) }),
+    );
+    expect(list.map((s) => [s.hostId, s.sessionId])).toEqual([
+      ["local", "mine"],
+      ["box", "theirs"],
+    ]);
+  });
+
+  it("is on the host server's table, so the desktop can ask a host for it", () => {
+    expect("sessions.list" in HOST_TABLE.handlers).toBe(true);
+  });
+});
+
+describe("sessions.transcript", () => {
+  const ref = { hostId: "box", kind: "claude", sessionId: "s", path: "/home/u/.claude/projects/p/s.jsonl" };
+
+  it("is routed by its ref's hostId to the host whose store holds it", () => {
+    const rule = sessions.transcript.rules.route;
+    expect(rule).toEqual(ROUTES["sessions.transcript"]);
+    const box = proxy("box", async () => []);
+    expect(routing([box]).target(rule, [ref])).toBe("box");
+    expect("sessions.transcript" in HOST_TABLE.handlers).toBe(true);
+  });
+
+  it("refuses a path outside this host's store", async () => {
+    const at = ctx({ sessionEnv: () => ({ home: "/nowhere", env: {} }) });
+    const own = { ...ref, hostId: "local" };
+    await expect(sessionsTranscript(at, { ...own, path: "/etc/passwd" })).rejects.toThrow(/no such transcript|store/);
+    await expect(sessionsTranscript(at, { ...own, kind: "vim" })).rejects.toThrow(/kind/);
+  });
+
+  it("refuses a host it can't reach, rather than reading its own store", async () => {
+    // An unknown host routes nowhere, so the call lands here with its id intact.
+    const box = proxy("box", async () => []);
+    expect(routing([box]).target(sessions.transcript.rules.route, [{ ...ref, hostId: "ghost" }])).toBeNull();
+    const at = ctx({ sessionEnv: () => ({ home: "/home/u", env: {} }) });
+    await expect(sessionsTranscript(at, { ...ref, hostId: "ghost" })).rejects.toThrow(/ghost is not connected/);
+  });
+});

@@ -20,8 +20,9 @@
   inset: 0;
   margin: auto;
   z-index: 101;
-  width: 640px;
-  max-height: 75vh;
+  width: 880px;
+  max-width: 92vw;
+  height: min(75vh, 680px);
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
@@ -85,6 +86,30 @@
   color: var(--text-selected);
 }
 
+.closeButton[data-loading] .refreshIcon {
+  animation: spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .closeButton[data-loading] .refreshIcon {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* A host whose Sessions the list can't show. */
+.hostNotice {
+  padding: 6px 6px 2px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
 .filterTabs {
   display: flex;
   gap: 2px;
@@ -112,11 +137,51 @@
   font-weight: 500;
 }
 
-.scrollArea {
+/* The list on the left, the highlighted row's preview on the right. */
+.split {
   flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+}
+
+.scrollArea {
   overflow-y: auto;
   padding: 4px 8px 8px;
-  min-height: 120px;
+  min-height: 0;
+  border-right: 1px solid var(--surface);
+}
+
+.previewPane {
+  overflow-y: auto;
+  min-width: 0;
+  padding: 16px 20px;
+}
+
+/* A phone's preview keeps Back in reach however far it scrolls. */
+.previewHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -16px 8px;
+  padding: 4px 8px;
+  background: var(--dim);
+  border-bottom: 1px solid var(--surface);
+}
+
+.backButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+  cursor: pointer;
 }
 
 .dateGroup {
@@ -138,16 +203,14 @@
   padding-top: 8px;
 }
 
-/* The left edge carries the project's color; uncolored projects keep a
-   transparent edge so every row's content starts at the same x. */
+/* One line: project dot, title, live status (in a pane only), age. */
 .agentRow {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 30px;
-  padding: 4px 8px 4px 9px;
-  border-left: 3px solid transparent;
-  border-radius: 0 6px 6px 0;
+  padding: 4px 8px;
+  border-radius: 6px;
   cursor: pointer;
   font-size: 12px;
   color: var(--text-primary);
@@ -155,10 +218,6 @@
   width: 100%;
   text-align: left;
   font-family: inherit;
-}
-
-.agentRow[data-colored] {
-  border-left-color: var(--project-color);
 }
 
 .agentRow[data-highlighted] {
@@ -197,18 +256,83 @@
   z-index: 102;
 }
 
-.agentProject {
-  font-size: 11px;
-  color: var(--text-dim);
+/* A project's color as a dot; a hollow ring for an uncolored project or a
+   folder that isn't one. */
+.projectDot {
+  display: inline-block;
   flex-shrink: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  width: 88px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--project-color, var(--text-dim));
 }
 
-.agentRow[data-colored] .agentProject {
-  color: var(--project-color);
+.projectDot[data-uncolored] {
+  background: transparent;
+  border: 1.5px solid var(--text-dim);
+}
+
+.outsideMark {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--text-dim);
+  opacity: 0.7;
+}
+
+.chips {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--surface);
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: none;
+}
+
+/* Chips scrolled past an edge fade out there. */
+.chips[data-fade-end] {
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+}
+
+.chips[data-fade-start] {
+  mask-image: linear-gradient(to left, black calc(100% - 32px), transparent);
+}
+
+.chips[data-fade-start][data-fade-end] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 32px,
+    black calc(100% - 32px),
+    transparent
+  );
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-family: inherit;
+  font-size: 11.5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--surface);
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  background: var(--surface);
+}
+
+.chip[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text-selected);
+  border-color: transparent;
 }
 
 .agentTime {
@@ -333,7 +457,39 @@
   }
 }
 
+:global(:root[data-layout="phone"]) .modal {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  border: none;
+  border-radius: 0;
+}
+
+/* A phone has room for the list or a preview: tapping a row swaps them. */
+:global(:root[data-layout="phone"]) .split {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+:global(:root[data-layout="phone"]) .scrollArea {
+  border-right: none;
+}
+
+:global(:root[data-layout="phone"]) .previewPane {
+  padding: 0 16px 16px;
+}
+
+.modal[data-phone-preview] .header,
+.modal[data-phone-preview] .chips,
+.modal[data-phone-preview] .scrollArea {
+  display: none;
+}
+
 :global(:root[data-layout="phone"]) .filterTab {
+  min-height: 36px;
+  font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .chip {
   min-height: 36px;
   font-size: 14px;
 }

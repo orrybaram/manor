@@ -5,7 +5,7 @@
 
 import { describe, it, expect, vi } from "vitest";
 
-import { agentsBuildResumeCommand } from "../bridge/handlers/agents";
+import { agentsBuildResumeCommand, agentsBuildSessionCommand } from "../bridge/handlers/agents";
 import { localCtx } from "../bridge/method";
 import type { HostDeps } from "../routes/types";
 
@@ -57,5 +57,63 @@ describe("agents.buildResumeCommand", () => {
 
   it("returns null for an unknown Agent", async () => {
     expect(await agentsBuildResumeCommand(ctx(base), "nope")).toBeNull();
+  });
+});
+
+describe("agents.buildSessionCommand", () => {
+  const ref = {
+    hostId: "local",
+    kind: "codex" as const,
+    sessionId: "019a-thread",
+    path: "/home/me/.codex/sessions/r.jsonl",
+    workspacePath: "/repo/wt",
+  };
+
+  it("resumes with the workspace project's command when it runs the same kind", async () => {
+    const command = await agentsBuildSessionCommand(ctx(base, [project("codex --model o3")]), ref, "resume");
+    expect(command).toBe("codex resume 019a-thread");
+  });
+
+  it("forks with the kind's default when the project runs another kind", async () => {
+    const command = await agentsBuildSessionCommand(
+      ctx(base, [project("codex --yolo")]),
+      { ...ref, kind: "claude", sessionId: "s1" },
+      "fork",
+    );
+    expect(command).toMatch(/^claude .*--resume s1 --fork-session$/);
+  });
+
+  it("forks pi by its session file", async () => {
+    const command = await agentsBuildSessionCommand(
+      ctx(base),
+      { ...ref, kind: "pi", path: "/home/me/.pi/agent/sessions/a.jsonl", workspacePath: null },
+      "fork",
+    );
+    expect(command).toBe("pi --fork /home/me/.pi/agent/sessions/a.jsonl");
+  });
+
+  it("drops a project command's own continue before naming the chosen session", async () => {
+    const command = await agentsBuildSessionCommand(
+      ctx(base, [project("claude -c --model sonnet")]),
+      { ...ref, kind: "claude", sessionId: "s1" },
+      "resume",
+    );
+    expect(command).toBe("claude --model sonnet --resume s1");
+  });
+
+  it("refuses ids and paths with control characters", async () => {
+    await expect(
+      agentsBuildSessionCommand(ctx(base), { ...ref, sessionId: "x\u0015rm -rf ~" }, "resume"),
+    ).rejects.toThrow();
+    await expect(
+      agentsBuildSessionCommand(ctx(base), { ...ref, kind: "pi", path: "/a\u0003.jsonl" }, "fork"),
+    ).rejects.toThrow();
+  });
+
+  it("refuses an unknown kind or action", async () => {
+    await expect(
+      agentsBuildSessionCommand(ctx(base), { ...ref, kind: "vim" as never }, "resume"),
+    ).rejects.toThrow();
+    await expect(agentsBuildSessionCommand(ctx(base), ref, "delete" as never)).rejects.toThrow();
   });
 });

@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"cccccccc-0000-4000-8000-0000000000c3","timestamp":"2026-10-22T12:00:00.000Z","cwd":"/home/u/work-my/repo-fix"}
+{"type":"message","id":"p1","parentId":null,"timestamp":"2026-10-22T12:00:01.000Z","message":{"role":"user","content":"Why does the  dropdown\nclip?","timestamp":1761134401000}}
+{"type":"session_info","id":"p2","parentId":"p1","timestamp":"2026-10-22T12:00:02.000Z","name":"Dropdown"}
+{"type":"session_info","id":"p3","parentId":"p2","timestamp":"2026-10-22T12:00:03.000Z","name":""}

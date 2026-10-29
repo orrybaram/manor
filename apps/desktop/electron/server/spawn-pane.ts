@@ -167,9 +167,12 @@ export async function spawnPane(
   paneId: string,
   opts: SpawnPaneOptions,
 ): Promise<PtyCreateResult> {
-  const { cols, rows, agentKind } = opts;
+  const { cols, rows } = opts;
   const resolvedCwd = validatePtyArgs(paneId, opts.cwd, cols, rows);
   const hostId = requestedHost(opts);
+  // A line queued with its agent kind names the session's kind: the
+  // caller's guess comes from the workspace's project, which may run another.
+  const agentKind = deps.layoutStore.pendingCommands.peek(paneId)?.agentKind ?? opts.agentKind;
   const env: Record<string, string> | undefined = agentKind
     ? { MANOR_AGENT_KIND: agentKind }
     : undefined;
@@ -391,6 +394,7 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
   function agentKindFor(paneId: string, hostId: string, workspacePath: string): string {
     const spawn = deps.spawnDeps();
     const pending = spawn.layoutStore.pendingCommands.peek(paneId);
+    if (pending?.agentKind) return pending.agentKind;
     const command =
       pending?.kind === "agent-startup"
         ? pending.text

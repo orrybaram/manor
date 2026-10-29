@@ -43,6 +43,7 @@
  */
 
 import type { AgentInfo } from "../agent-persistence";
+import type { SessionSummary } from "../sessions/types";
 import {
   HOST_PTY_EVENTS,
   type HostProgressEvent,
@@ -791,6 +792,26 @@ export class HostRouting implements BridgeForward {
   /** Every adopted host's agents, in the desktop's form. */
   agents(): AgentInfo[] {
     return this.proxies().flatMap((proxy) => proxy.agents());
+  }
+
+  /**
+   * Every adopted host's Sessions, asked of each host's server now: a scan
+   * of its agent stores is not mirrored. A host that is away, or too old to
+   * have `sessions.list`, gives none.
+   */
+  async sessions(): Promise<SessionSummary[]> {
+    const lists = await Promise.all(
+      this.proxies().map(async (proxy) => {
+        try {
+          const result = await proxy.invoke("sessions", "list", []);
+          if (!Array.isArray(result)) return [];
+          return (result as SessionSummary[]).map((session) => ({ ...session, hostId: proxy.hostId }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+    return lists.flat();
   }
 
   /** Every adopted host's panes' last Agent statuses. */

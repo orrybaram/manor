@@ -19,7 +19,7 @@ import { ROUTES, wakesHost } from "../routes";
 import { HOST_TABLE } from "../../host-server/handlers";
 
 /** The namespaces that read or write a host's projects, layout or agents. */
-const ROUTED_NAMESPACES = ["projects", "layout", "agents", "github", "chat", "linear", "pasteImage"];
+const ROUTED_NAMESPACES = ["projects", "layout", "agents", "sessions", "github", "chat", "linear", "pasteImage"];
 
 const methods = SERVER_METHODS as unknown as Record<string, Method>;
 

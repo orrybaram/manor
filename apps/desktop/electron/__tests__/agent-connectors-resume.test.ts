@@ -6,6 +6,7 @@ import {
   PiConnector,
   OpencodeConnector,
   getConnector,
+  getConnectorForCommand,
 } from "../agent-connectors";
 
 // ── ClaudeConnector ────────────────────────────────────────────────────────────
@@ -198,5 +199,68 @@ describe("getConnector registry", () => {
     const connector = getConnector("pi");
     expect(connector.kind).toBe("pi");
     expect(connector).toBeInstanceOf(PiConnector);
+  });
+});
+
+// ── Fork ───────────────────────────────────────────────────────────────────────
+
+describe("getForkCommand", () => {
+  it("claude resumes the session into a new one with --fork-session", () => {
+    expect(new ClaudeConnector().getForkCommand("claude --dangerously-skip-permissions", "abc-123", "/t.jsonl")).toBe(
+      "claude --dangerously-skip-permissions --resume abc-123 --fork-session",
+    );
+  });
+
+  it("codex forks with its subcommand, keeping the user's flags", () => {
+    expect(new CodexConnector().getForkCommand("codex --yolo", "abc-123", "/t.jsonl")).toBe(
+      "codex --yolo fork abc-123",
+    );
+  });
+
+  it("opencode forks with --session <id> --fork", () => {
+    expect(new OpencodeConnector().getForkCommand("opencode", "ses_1", "")).toBe("opencode --session ses_1 --fork");
+  });
+
+  it("pi forks the session file", () => {
+    expect(new PiConnector().getForkCommand("pi", "abc", "/home/me/.pi/agent/sessions/x/a b.jsonl")).toBe(
+      "pi --fork '/home/me/.pi/agent/sessions/x/a b.jsonl'",
+    );
+    expect(new PiConnector().getForkCommand("pi", "abc", "")).toBeNull();
+  });
+
+  it("has nothing to fork without a session id", () => {
+    for (const kind of ["claude", "codex", "opencode"] as const) {
+      expect(getConnector(kind).getForkCommand(getConnector(kind).defaultCommand, "", "/t")).toBeNull();
+    }
+  });
+
+  it("quotes an id the shell would read as more than a word", () => {
+    expect(new ClaudeConnector().getForkCommand("claude", "x; rm -rf ~", "")).toBe(
+      "claude --resume 'x; rm -rf ~' --fork-session",
+    );
+    expect(new CodexConnector().getResumeCommand("codex", "$(id)")).toBe("codex resume '$(id)'");
+  });
+});
+
+describe("withoutSessionArgs", () => {
+  it("drops whatever picks a session, keeping the rest", () => {
+    expect(new ClaudeConnector().withoutSessionArgs("claude -c --model opus")).toBe("claude --model opus");
+    expect(new ClaudeConnector().withoutSessionArgs("claude --resume abc --dangerously-skip-permissions")).toBe(
+      "claude --dangerously-skip-permissions",
+    );
+    expect(new ClaudeConnector().withoutSessionArgs("claude -r --verbose")).toBe("claude --verbose");
+    expect(new OpencodeConnector().withoutSessionArgs("opencode -s ses_1 --model x")).toBe("opencode --model x");
+    expect(new OpencodeConnector().withoutSessionArgs("opencode --session=ses_1 -c")).toBe("opencode");
+    expect(new PiConnector().withoutSessionArgs("pi --session /a.jsonl --thinking high")).toBe("pi --thinking high");
+    expect(new CodexConnector().withoutSessionArgs("codex --yolo resume --last")).toBe("codex --yolo");
+    expect(new CodexConnector().withoutSessionArgs("codex --yolo")).toBe("codex --yolo");
+  });
+});
+
+describe("getConnectorForCommand", () => {
+  it("names the agent after a leading cd", () => {
+    expect(getConnectorForCommand("cd '/repo/my api' && codex resume t1").kind).toBe("codex");
+    expect(getConnectorForCommand("cd /a && cd \"/b c\" && pi --session x").kind).toBe("pi");
+    expect(getConnectorForCommand("opencode --session x").kind).toBe("opencode");
   });
 });

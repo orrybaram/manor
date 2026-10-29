@@ -96,6 +96,7 @@ import {
   navigateForward,
 } from "./hooks/useNavigationHistory";
 import { resumeAgent } from "./lib/agent-resume";
+import { runRowAction } from "./components/sidebar/AgentsView/session-actions";
 import { DEFAULT_AGENT_COMMAND, getAgentKindForCommand } from "./agent-defaults";
 import { isHomePath } from "./lib/home";
 import { isWebApp } from "./lib/platform";
@@ -896,7 +897,7 @@ function App() {
             <AgentsModal
               open={agentsOpen}
               onClose={closeAgents}
-              onResumeAgent={resumeAgent}
+              onRowAction={runRowAction}
             />
             <AddProjectDialog
               open={addProjectDialogOpen}

@@ -468,6 +468,19 @@ test("Open File in the diff pane opens the changed file in a file pane beside it
     "other.ts",
   );
   await expect(editor).toContainText("export const other = 2;");
+
+  // A reused pane with its Files drawer open shows the file, not the tree.
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
+  await expect(drawer).toBeVisible();
+  await widgetFile.locator('[data-testid="diff-file-open"]').click();
+  await expect(drawer).toBeHidden();
+  await expect(editor).toContainText("Pressed {count} times");
+  // The same file again only moves the cursor, and still closes the drawer.
+  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
+  await expect(drawer).toBeVisible();
+  await widgetFile.locator('[data-testid="diff-file-open"]').click();
+  await expect(drawer).toBeHidden();
 });
 
 test("a file path printed in the terminal opens in a file pane at its line", async ({

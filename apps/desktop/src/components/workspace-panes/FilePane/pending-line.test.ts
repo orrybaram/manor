@@ -38,4 +38,14 @@ describe("createPendingLines", () => {
     lines.request("p1", { path: "a.ts", line: 5 });
     expect(lines.waiting("p1")).not.toBe(first);
   });
+
+  it("nudges a pane's listeners without leaving a line to take", () => {
+    const lines = createPendingLines();
+    const heard = vi.fn();
+    lines.subscribe("p1", heard);
+    lines.nudge("p1");
+    lines.nudge("p2");
+    expect(heard).toHaveBeenCalledTimes(1);
+    expect(lines.take("p1", "a.ts")).toBeNull();
+  });
 });

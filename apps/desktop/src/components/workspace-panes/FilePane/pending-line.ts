@@ -47,7 +47,11 @@ export function createPendingLines() {
     clearLine(paneId: string): void {
       byPane.delete(paneId);
     },
-    /** Called on each request for `paneId`, for an editor that is already open. */
+    /** Tell `paneId` a file was sent to it, with or without a line to show. */
+    nudge(paneId: string): void {
+      for (const listener of listeners.get(paneId) ?? []) listener();
+    },
+    /** Called on each request or nudge for `paneId`, for an editor that is already open. */
     subscribe(paneId: string, listener: () => void): () => void {
       let set = listeners.get(paneId);
       if (!set) {

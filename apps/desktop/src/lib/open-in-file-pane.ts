@@ -101,6 +101,7 @@ function requestLine(paneId: string, path: string, at: At): void {
 function showFileInPane(paneId: string, path: string, at: At): void {
   const app = useAppStore.getState();
   app.focusPane(paneId);
+  pendingLines.nudge(paneId);
   if (selectPaneFilePath(app, paneId) === path) {
     requestLine(paneId, path, at);
     return;

@@ -30,6 +30,7 @@ import type { FileChange } from "./file-changes";
 import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes";
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
+import { pendingLines } from "./pending-line";
 import {
   diskChangeAction,
   sameWorkspace,
@@ -71,6 +72,16 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const readOnly = isWebApp();
   // A pane with nothing open starts on its tree.
   const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
+  // A file sent here from elsewhere (the diff pane, a terminal link), or the
+  // swap bar asking about one, puts the editor back in view.
+  const pendingOpen = useOpenFileStore((s) => s.byPane[paneId]?.pendingOpen ?? null);
+  const [shownFor, setShownFor] = useState({ filePath, pendingOpen });
+  if (shownFor.filePath !== filePath || shownFor.pendingOpen !== pendingOpen) {
+    setShownFor({ filePath, pendingOpen });
+    if (filePath !== shownFor.filePath || pendingOpen) setDrawer(null);
+  }
+  // The same file sent again only moves the cursor; it still wants the editor.
+  useMountEffect(() => pendingLines.subscribe(paneId, () => setDrawer(null)));
   const workspace = useMemo<FilesWorkspace | null>(
     () =>
       workspacePath ? { path: workspacePath, hostId: hostId ?? LOCAL_HOST_ID } : null,

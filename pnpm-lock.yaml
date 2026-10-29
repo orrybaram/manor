@@ -222,6 +222,9 @@ importers:
       '@electron/rebuild':
         specifier: ^4.2.1
         version: 4.2.1
+      '@manor/cobwebs':
+        specifier: workspace:*
+        version: link:../../packages/cobwebs
       '@manor/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -297,6 +300,15 @@ importers:
       wrangler:
         specifier: ^4.124.0
         version: 4.146.0(@cloudflare/workers-types@5.20261001.1)(@types/node@25.5.0)
+
+  packages/cobwebs:
+    devDependencies:
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.0(@types/node@25.5.0)(happy-dom@20.14.3)(jsdom@30.0.1(@noble/hashes@2.4.0))(vite@8.3.5(@types/node@25.5.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0))
 
   packages/protocol:
     dependencies:
@@ -9449,11 +9461,11 @@ snapshots:
       magic-string: 0.30.21
       obug: 2.1.1
       pathe: 2.0.3
-      picomatch: 4.0.3
+      picomatch: 4.0.7
       std-env: 4.0.0
       tinybench: 2.9.0
       tinyexec: 1.0.4
-      tinyglobby: 0.2.15
+      tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
       vite: 8.3.5(@types/node@25.5.0)(esbuild@0.28.1)(jiti@2.7.0)(yaml@2.9.0)
       why-is-node-running: 2.3.0

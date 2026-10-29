@@ -66,6 +66,14 @@
       "project": [
         "**/*.ts"
       ]
+    },
+    "packages/cobwebs": {
+      "entry": [
+        "**/*.test.ts"
+      ],
+      "project": [
+        "**/*.ts"
+      ]
     }
   },
   "ignoreBinaries": [

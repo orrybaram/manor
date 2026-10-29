@@ -90,6 +90,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
     "@electron/rebuild": "^4.2.1",
+    "@manor/cobwebs": "workspace:*",
     "@manor/protocol": "workspace:*",
     "@playwright/test": "^1.59.1",
     "@types/node": "^25.5.0",

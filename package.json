@@ -11,7 +11,7 @@
     "preview": "pnpm --filter manor preview",
     "package": "source .env && pnpm --filter manor package",
     "test": "pnpm test:unit && pnpm knip:ci",
-    "test:unit": "pnpm --filter manor --filter @manor/protocol test",
+    "test:unit": "pnpm --filter manor --filter @manor/protocol --filter @manor/cobwebs test",
     "knip": "knip",
     "knip:ci": "knip --include files,dependencies,unlisted,binaries",
     "knip:fix": "knip --fix",

@@ -1,4 +1,5 @@
-import type { CobwebLevel } from "./cobwebs";
+/** How heavy a web to grow: 1 light, 2 medium, 3 heavy (0 is none). */
+export type CobwebLevel = 0 | 1 | 2 | 3;
 
 /**
  * Cobwebs as strands: points under gravity (verlet) joined by threads that

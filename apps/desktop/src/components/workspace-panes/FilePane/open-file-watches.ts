@@ -1,3 +1,5 @@
+import { onBridgeResync } from "../../../bridge/resync";
+
 /** A workspace as the files API names it. */
 export type FilesWorkspace = { path: string; hostId: string };
 
@@ -32,15 +34,33 @@ export function createOpenFileWatches(watch: Watch) {
         if (entry.byPane.get(paneId) === relPath) return;
         entry.byPane.set(paneId, relPath);
       }
-      const paths = [...new Set(entry.byPane.values())].sort();
+      const paths = union(entry.byPane);
       if (paths.length === 0) byWorkspace.delete(key);
-      void Promise.resolve(watch(workspace, paths)).catch(() => {
-        // A host that is away watches nothing; the next open file asks again.
-      });
+      send(workspace, paths);
+    },
+    /**
+     * Send every workspace's union again: a server drops a connection's
+     * watches when it closes, so one that came back holds none of them.
+     */
+    resend(): void {
+      for (const { workspace, byPane } of byWorkspace.values()) send(workspace, union(byPane));
     },
   };
+
+  function send(workspace: FilesWorkspace, paths: string[]): void {
+    void Promise.resolve(watch(workspace, paths)).catch(() => {
+      // A host that is away watches nothing; the next open file or resync asks again.
+    });
+  }
+}
+
+function union(byPane: Map<string, string>): string[] {
+  return [...new Set(byPane.values())].sort();
 }
 
 export const openFileWatches = createOpenFileWatches((workspace, relPaths) =>
   window.electronAPI.files.watch(workspace, relPaths),
 );
+
+// A stream that came back (the phone's relay, say) holds none of the watches.
+onBridgeResync(() => openFileWatches.resend());

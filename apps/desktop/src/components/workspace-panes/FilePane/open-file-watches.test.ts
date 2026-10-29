@@ -38,3 +38,36 @@ describe("openFileWatches", () => {
     expect(watch).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("openFileWatches.resend", () => {
+  it("sends every workspace's union again, and nothing for one closed", () => {
+    const watch = vi.fn();
+    const watches = createOpenFileWatches(watch);
+    const remote = { path: "/repo", hostId: "box" };
+    watches.set(ws, "pane-a", "src/a.ts");
+    watches.set(ws, "pane-b", "src/b.ts");
+    watches.set(remote, "pane-c", "c.ts");
+    watches.set(remote, "pane-c", null);
+    watch.mockClear();
+
+    watches.resend();
+    expect(watch.mock.calls).toEqual([[ws, ["src/a.ts", "src/b.ts"]]]);
+  });
+
+  it("is what the module-wide watches do on a bridge resync", async () => {
+    vi.resetModules();
+    const watch = vi.fn(() => Promise.resolve());
+    vi.stubGlobal("window", { electronAPI: { files: { watch } } });
+    try {
+      const { openFileWatches } = await import("./open-file-watches");
+      const { emitBridgeResync } = await import("../../../bridge/resync");
+      openFileWatches.set(ws, "pane-a", "a.ts");
+      watch.mockClear();
+
+      await emitBridgeResync("DeskRoom");
+      expect(watch).toHaveBeenCalledWith(ws, ["a.ts"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

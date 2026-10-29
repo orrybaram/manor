@@ -74,7 +74,7 @@
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--dim);
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   color: var(--text-dim);
   font-size: 10px;
   line-height: 1.6;
@@ -230,7 +230,7 @@
 .searchBarInput {
   width: 160px;
   height: 20px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--control-border);
   border-radius: 3px;
   background: var(--surface);
   font-size: 12px;

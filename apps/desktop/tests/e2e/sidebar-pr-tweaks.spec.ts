@@ -271,10 +271,9 @@ async function createWorkspaceInFolder(
   const dialog = window.locator('[data-testid="new-workspace-dialog"]');
   await expect(dialog).toBeVisible({ timeout: 5_000 });
   await window.locator('[data-testid="new-workspace-name-input"]').fill(name);
-  if (folderLabel) {
-    await window.locator('[data-testid="new-workspace-folder-select"]').click();
-    await window.getByRole("option", { name: folderLabel }).click();
-  }
+  // The dialog starts in the selected workspace's folder, so "none" is picked too.
+  await window.locator('[data-testid="new-workspace-folder-select"]').click();
+  await window.getByRole("option", { name: folderLabel ?? "No folder" }).click();
   if (shotName) await strip.shot(window, shotName);
   await window.locator('[data-testid="new-workspace-submit"]').click();
   await expect(dialog).not.toBeVisible({ timeout: 20_000 });
@@ -291,6 +290,12 @@ test("sidebar PR badge, popover, notifications, folders and diff tree", async ({
 
   // ── 1. New workspace dialog: folder select ───────────────────────────────
   await createWorkspaceInFolder(window, "api-auth", "Backend", strip, "new-workspace-folder-select");
+  // api-auth is now selected, so the shortcut starts in its folder.
+  await window.keyboard.press("ControlOrMeta+Shift+n");
+  await expect(window.locator('[data-testid="new-workspace-folder-select"]')).toHaveText(/Backend/);
+  await strip.shot(window, "new-workspace-starts-in-current-folder");
+  await window.keyboard.press("Escape");
+  await expect(window.locator('[data-testid="new-workspace-dialog"]')).not.toBeVisible();
   await createWorkspaceInFolder(window, "ui-fix", "Frontend", strip);
   await createWorkspaceInFolder(window, "hotfix", null, strip);
 

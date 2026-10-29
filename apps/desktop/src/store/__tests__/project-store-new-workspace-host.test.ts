@@ -9,7 +9,12 @@ import {
   projectSelectOptions,
   reseedBaseBranch,
 } from "../../lib/new-workspace";
-import { memberAfterClone, startingMemberId, workspaceHostChoices } from "../../lib/workspace-host-choices";
+import {
+  memberAfterClone,
+  newWorkspaceStartFromSelection,
+  startingMemberId,
+  workspaceHostChoices,
+} from "../../lib/workspace-host-choices";
 
 // The New Workspace dialog for a linked group: which
 // member a workspace is created in, the remembered last-used host, a
@@ -181,6 +186,18 @@ describe("New Workspace host picker", () => {
     seed("box");
 
     expect(startingMember("local-app", "local-app")).toBe("local-app");
+  });
+
+  it("from the shortcut, starts on the selected member's host and its workspace's folder", () => {
+    seed("box");
+    const local = { ...member("local-app"), selectedWorkspaceIndex: 1 };
+    local.workspaces = [local.workspaces[0], { ...local.workspaces[0], folderId: "f1" }];
+
+    const start = newWorkspaceStartFromSelection(local);
+
+    expect(start).toEqual({ preferredMemberId: "local-app", folderId: "f1" });
+    expect(startingMember("local-app", start.preferredMemberId!)).toBe("local-app");
+    expect(newWorkspaceStartFromSelection(undefined)).toEqual({ preferredMemberId: null, folderId: null });
   });
 
   it("shows a disconnected host disabled, with the reason, and starts elsewhere", () => {

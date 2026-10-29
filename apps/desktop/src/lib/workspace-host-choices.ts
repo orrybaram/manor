@@ -114,3 +114,24 @@ export function memberAfterClone(
 ): string | null {
   return groupId && cloned.group?.id === groupId ? cloned.id : null;
 }
+
+/**
+ * Where the New Workspace dialog starts when opened from the shortcut or
+ * menu rather than a sidebar row: on the selected project's own host, filed
+ * under the folder its selected workspace sits in.
+ */
+export function newWorkspaceStartFromSelection(
+  project:
+    | {
+        id: string;
+        selectedWorkspaceIndex: number;
+        workspaces: readonly { folderId?: string | null }[];
+      }
+    | undefined,
+): { preferredMemberId: string | null; folderId: string | null } {
+  if (!project) return { preferredMemberId: null, folderId: null };
+  return {
+    preferredMemberId: project.id,
+    folderId: project.workspaces[project.selectedWorkspaceIndex]?.folderId ?? null,
+  };
+}

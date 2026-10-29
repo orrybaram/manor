@@ -16,6 +16,9 @@ const OUT = path.join(__dirname, "artifacts", "agents-sessions");
 const CLAUDE_ID = "7f3c2a10-1111-4a5b-9c8d-000000000001";
 const CODEX_ID = "019a0c55-2222-7c3d-8e9f-000000000002";
 const PI_ID = "a1b2c3d4-3333-4e5f-8a9b-000000000003";
+const DOTFILES_ID = "5d0e1f22-4444-4a1b-9c2d-000000000004";
+
+type Sqlite = typeof import("node:sqlite");
 
 function project(id: string, name: string, projectPath: string, color: string | null) {
   return {
@@ -38,8 +41,14 @@ function seed(tempHome: string) {
   const manor = path.join(tempHome, "test-project");
   const relay = path.join(tempHome, "relay");
   fs.mkdirSync(relay, { recursive: true });
+  const dotfiles = path.join(tempHome, "dotfiles");
+  fs.mkdirSync(dotfiles, { recursive: true });
   const projects = {
-    projects: [project("proj-manor", "manor", manor, "blue"), project("proj-relay", "relay", relay, "magenta")],
+    projects: [
+      project("proj-manor", "manor", manor, "blue"),
+      project("proj-relay", "relay", relay, "magenta"),
+      project("proj-dotfiles", "dotfiles", dotfiles, null),
+    ],
     selectedProjectIndex: 0,
   };
   for (const dir of [
@@ -63,6 +72,34 @@ function seed(tempHome: string) {
       message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Fixed: the deck now sits above `--status-bar-height`. Tests pass." }] } },
     { type: "ai-title", sessionId: CLAUDE_ID, aiTitle: "Toasts above the phone bottom bar" },
   ], 27);
+
+  // Claude, in a project with no color.
+  jsonl(path.join(tempHome, ".claude", "projects", dotfiles.replace(/[^a-zA-Z0-9]/g, "-"), `${DOTFILES_ID}.jsonl`), [
+    { type: "user", sessionId: DOTFILES_ID, cwd: dotfiles, timestamp: iso(400), uuid: "u1", parentUuid: null,
+      message: { role: "user", content: "update the lazy.nvim lockfile" } },
+    { type: "assistant", sessionId: DOTFILES_ID, cwd: dotfiles, timestamp: iso(399), uuid: "a1", parentUuid: "u1",
+      message: { role: "assistant", model: "claude-opus-5-5", content: [{ type: "text", text: "Updated 23 plugins." }] } },
+    { type: "ai-title", sessionId: DOTFILES_ID, aiTitle: "Bump nvim plugins" },
+  ], 399);
+
+  // opencode (schema v2), in the relay project.
+  const sqlite = process.getBuiltinModule("node:sqlite") as Sqlite;
+  const ocDir = path.join(tempHome, ".local", "share", "opencode");
+  fs.mkdirSync(ocDir, { recursive: true });
+  const oc = new sqlite.DatabaseSync(path.join(ocDir, "opencode.db"));
+  oc.exec(`
+    CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, parent_id TEXT, fork_session_id TEXT,
+      slug TEXT NOT NULL, directory TEXT NOT NULL, title TEXT, version TEXT NOT NULL, agent TEXT, model TEXT,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, time_archived INTEGER);
+    CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, type TEXT NOT NULL, seq INTEGER NOT NULL,
+      time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL, data TEXT NOT NULL);`);
+  const ocAt = Date.now() - 600 * 60_000;
+  oc.prepare("INSERT INTO session_v2 (id, project_id, slug, directory, title, version, model, time_created, time_updated) VALUES ('ses_oc1', 'p', 's', ?, 'Rate-limit pairing codes', '2.0.0', ?, ?, ?)")
+    .run(relay, JSON.stringify({ id: "gpt-5", providerID: "openai" }), ocAt, ocAt + 60_000);
+  const ocMsg = oc.prepare("INSERT INTO session_message VALUES (?, 'ses_oc1', ?, ?, ?, ?, ?)");
+  ocMsg.run("m1", "user", 1, ocAt, ocAt, JSON.stringify({ text: "pairing codes can be brute forced, rate limit them" }));
+  ocMsg.run("m2", "assistant", 2, ocAt, ocAt, JSON.stringify({ content: [{ type: "text", text: "Five attempts per code per minute, then a lockout." }] }));
+  oc.close();
 
   // Codex, in the relay project.
   jsonl(path.join(tempHome, ".codex", "sessions", "2026", "10", "27", `rollout-2026-10-27T09-00-00-${CODEX_ID}.jsonl`), [
@@ -137,6 +174,8 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await expect(rowNamed(window, "Toasts above the phone bottom bar")).toBeVisible({ timeout: 20_000 });
   await expect(rowNamed(window, "add jitter to the relay reconnect backoff")).toBeVisible();
   await expect(rowNamed(window, "Zsh prompt timing")).toBeVisible();
+  await expect(rowNamed(window, "Rate-limit pairing codes")).toBeVisible();
+  await expect(rowNamed(window, "Bump nvim plugins")).toBeVisible();
 
   // Started in a plain terminal: marked as outside Manor.
   await expect(rowNamed(window, "Toasts above the phone bottom bar").getByTestId("agents-modal-outside")).toBeVisible();
@@ -146,6 +185,8 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await expect(chips.filter({ hasText: "manor" })).toBeVisible();
   await expect(chips.filter({ hasText: "relay" })).toBeVisible();
   await expect(chips.filter({ hasText: "scratch" })).toBeVisible();
+  // A project with no color still gets its chip, with a hollow dot.
+  await expect(chips.filter({ hasText: "dotfiles" })).toBeVisible();
 
   // The highlighted Session previews its conversation.
   const preview = window.getByTestId("agents-modal-preview");
@@ -159,9 +200,12 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await expect(window.getByTestId("agents-modal-turns")).toContainText("Added full jitter", { timeout: 10_000 });
   await shot(window, "dark-preview-codex");
 
-  // A project chip narrows the list.
+  // A project chip narrows the list: relay has the Codex and opencode Sessions.
   await chips.filter({ hasText: "relay" }).click();
-  await expect(rows(window)).toHaveCount(1);
+  await expect(rows(window)).toHaveCount(2);
+  await window.keyboard.press("ArrowDown");
+  await expect(window.getByTestId("agents-modal-turns")).toContainText("Five attempts per code", { timeout: 10_000 });
+  await expect(window.getByTestId("agents-modal-preview")).toContainText("opencode");
   await shot(window, "dark-chip-relay");
   await chips.filter({ hasText: "All projects" }).click();
 
@@ -183,15 +227,36 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await shot(window, "light-preview-codex");
   await window.keyboard.press("ArrowUp");
 
-  // Enter resumes the outside-Manor Claude session in a new pane of the
-  // manor workspace, with Claude's own resume command.
+  // ⌘/Ctrl+↵ forks the Claude session into a new pane with Claude's fork flag.
+  await expect(window.getByTestId("agents-modal-turns")).toContainText("Tests pass.", { timeout: 10_000 });
+  await window.keyboard.press("ControlOrMeta+Enter");
+  await expect(modal(window)).toBeHidden({ timeout: 5_000 });
+  await expect(window.locator('[data-testid="terminal-pane"]:visible').first()).toBeVisible({ timeout: 30_000 });
+  const forkPane = await activePaneId(window);
+  await expect.poll(() => paneText(window, forkPane), { timeout: 20_000 }).toContain(`--resume ${CLAUDE_ID} --fork-session`);
+  await window.screenshot({ path: path.join(OUT, "light-forked-pane.png") });
+
+  // ↵ resumes it in a new pane of the manor workspace, with Claude's resume command.
+  await openModal(window);
   await expect(window.getByTestId("agents-modal-turns")).toContainText("Tests pass.", { timeout: 10_000 });
   await window.keyboard.press("Enter");
   await expect(modal(window)).toBeHidden({ timeout: 5_000 });
-  await expect(window.locator('[data-testid="terminal-pane"]:visible').first()).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await activePaneId(window)) !== forkPane, { timeout: 30_000 }).toBe(true);
   const paneId = await activePaneId(window);
   await expect.poll(() => paneText(window, paneId), { timeout: 20_000 }).toContain(`--resume ${CLAUDE_ID}`);
   await window.screenshot({ path: path.join(OUT, "light-resumed-pane.png") });
+
+  // Now it's in a pane: the row offers Go to pane, and ↵ goes there instead
+  // of opening another tab.
+  const tabsBefore = await window.locator('[data-testid="tab"]').count();
+  await window.locator('[data-testid="tab"]').first().click();
+  await openModal(window);
+  await expect(window.getByTestId("agents-modal-primary")).toContainText("Go to pane", { timeout: 10_000 });
+  await shot(window, "light-go-to-pane");
+  await window.keyboard.press("Enter");
+  await expect(modal(window)).toBeHidden({ timeout: 5_000 });
+  await expect.poll(() => activePaneId(window), { timeout: 10_000 }).toBe(paneId);
+  await expect(window.locator('[data-testid="tab"]')).toHaveCount(tabsBefore);
 });
 
 test("Agents modal: phone-width preview and back", async ({ app, window }) => {

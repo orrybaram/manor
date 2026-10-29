@@ -25,6 +25,11 @@ type SessionPreviewProps = {
   state: PreviewState;
   /** The row's Agent has a pane in a workspace now. */
   live: boolean;
+  /**
+   * Show Resume, Fork and Rename buttons. Only a phone needs them; a desk
+   * has ↵, ⌘↵ and F2, which the footer lists.
+   */
+  actions: boolean;
   onPrimary: () => void;
   onFork: () => void;
   /** Absent for a Session with no Agent: there is nothing to rename. */
@@ -35,11 +40,11 @@ type SessionPreviewProps = {
 const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 
 /**
- * The highlighted row: its title, facts and actions, then its conversation
- * (the opening prompt and the last turns).
+ * The highlighted row: its title, facts and, on a phone, actions; then its
+ * conversation (the opening prompt and the last turns).
  */
 export function SessionPreview(props: SessionPreviewProps) {
-  const { row, state, live, onPrimary, onFork, onRename } = props;
+  const { row, state, live, actions, onPrimary, onFork, onRename } = props;
   const { agent, session, project } = row;
   const liveTitle = useAppStore((s) =>
     agent?.paneId ? cleanLiveTitle(s.paneTitle[agent.paneId] ?? null) : null,
@@ -71,31 +76,33 @@ export function SessionPreview(props: SessionPreviewProps) {
           </span>
         )}
       </div>
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={`${styles.button} ${styles.primary}`}
-          data-testid="agents-modal-primary"
-          onMouseDown={keepFocus}
-          onClick={onPrimary}
-        >
-          {live ? "Go to pane" : "Resume"} <kbd aria-hidden>↵</kbd>
-        </button>
-        <button
-          type="button"
-          className={styles.button}
-          data-testid="agents-modal-fork"
-          onMouseDown={keepFocus}
-          onClick={onFork}
-        >
-          Fork <kbd aria-hidden>{FORK_KEYS}</kbd>
-        </button>
-        {onRename && (
-          <button type="button" className={styles.button} onMouseDown={keepFocus} onClick={onRename}>
-            Rename <kbd aria-hidden>F2</kbd>
+      {actions && (
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={`${styles.button} ${styles.primary}`}
+            data-testid="agents-modal-primary"
+            onMouseDown={keepFocus}
+            onClick={onPrimary}
+          >
+            {live ? "Go to pane" : "Resume"} <kbd aria-hidden>↵</kbd>
           </button>
-        )}
-      </div>
+          <button
+            type="button"
+            className={styles.button}
+            data-testid="agents-modal-fork"
+            onMouseDown={keepFocus}
+            onClick={onFork}
+          >
+            Fork <kbd aria-hidden>{FORK_KEYS}</kbd>
+          </button>
+          {onRename && (
+            <button type="button" className={styles.button} onMouseDown={keepFocus} onClick={onRename}>
+              Rename <kbd aria-hidden>F2</kbd>
+            </button>
+          )}
+        </div>
+      )}
       <Conversation state={state} />
     </div>
   );

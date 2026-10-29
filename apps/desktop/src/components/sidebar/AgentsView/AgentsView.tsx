@@ -814,6 +814,7 @@ export function AgentsModal(props: AgentsModalProps) {
                     row={highlighted}
                     state={preview}
                     live={isRowOpen(highlighted, openPaneIds, launched)}
+                    actions={phone}
                     onPrimary={() => runPrimary(highlighted)}
                     onFork={() => act(highlighted, "fork")}
                     onRename={highlightedAgentId ? () => startRename(highlightedAgentId) : undefined}

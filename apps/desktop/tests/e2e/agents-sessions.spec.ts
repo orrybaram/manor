@@ -255,12 +255,14 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await expect.poll(() => paneText(window, paneId), { timeout: 20_000 }).toContain(`--resume ${CLAUDE_ID}`);
   await window.screenshot({ path: path.join(OUT, "light-resumed-pane.png") });
 
-  // Now it's in a pane: the row offers Go to pane, and ↵ goes there instead
-  // of opening another tab.
+  // Now it's in a pane: the preview says so, and ↵ goes there instead of
+  // opening another tab.
   const tabsBefore = await window.locator('[data-testid="tab"]').count();
   await window.locator('[data-testid="tab"]').first().click();
   await openModal(window);
-  await expect(window.getByTestId("agents-modal-primary")).toContainText("Go to pane", { timeout: 10_000 });
+  await expect(window.getByTestId("agents-modal-preview")).toContainText("in a pane", { timeout: 10_000 });
+  // A desk resumes and forks from the keys; the buttons are a phone's.
+  await expect(window.getByTestId("agents-modal-primary")).toHaveCount(0);
   await shot(window, "light-go-to-pane");
   await window.keyboard.press("Enter");
   await expect(modal(window)).toBeHidden({ timeout: 5_000 });
@@ -281,6 +283,8 @@ test("Agents modal: phone-width preview and back", async ({ app, window }) => {
   await rowNamed(window, "Toasts above the phone bottom bar").click();
   await expect(window.getByTestId("agents-modal-turns")).toContainText("Tests pass.", { timeout: 10_000 });
   await expect(window.getByTestId("agents-modal-back")).toBeVisible();
+  await expect(window.getByTestId("agents-modal-primary")).toContainText("Resume");
+  await expect(window.getByTestId("agents-modal-fork")).toBeVisible();
   await window.waitForTimeout(400);
   await window.screenshot({ path: path.join(OUT, "phone-preview.png"), animations: "disabled" });
   await window.getByTestId("agents-modal-back").click();

@@ -1,8 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildFileTree, flattenFileTree } from "./file-tree";
-import type { DiffFile } from "./types";
 
-const f = (path: string): DiffFile => ({ path, lines: [], added: 0, removed: 0 });
+const f = (path: string) => ({ path });
 
 describe("buildFileTree", () => {
   it("nests files under directories, dirs and files sorted together", () => {
@@ -57,5 +56,15 @@ describe("buildFileTree", () => {
       "src/z.ts",
       "top.ts",
     ]);
+  });
+
+  it("file nodes carry the caller's entry, extra fields and all", () => {
+    const entry = { path: "src/a.ts", added: 3 };
+    const [dir] = buildFileTree([entry]);
+    if (dir.kind !== "dir") throw new Error("expected dir");
+    const [file] = dir.children;
+    if (file.kind !== "file") throw new Error("expected file");
+    expect(file.entry).toBe(entry);
+    expect(flattenFileTree([dir])[0].added).toBe(3);
   });
 });

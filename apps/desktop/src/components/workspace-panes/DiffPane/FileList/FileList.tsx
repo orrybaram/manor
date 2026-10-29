@@ -3,7 +3,6 @@ import { useMountEffect } from "../../../../hooks/useMountEffect";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import * as Dialog from "@radix-ui/react-dialog";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
-import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import Circle from "lucide-react/dist/esm/icons/circle";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
 import Plus from "lucide-react/dist/esm/icons/plus";
@@ -14,8 +13,10 @@ import {
   buildFileTree,
   flattenFileTree,
   type FileTreeNode,
-} from "../file-tree";
-import { fileIconFor } from "../file-icon";
+} from "../../FileTree/file-tree";
+import { fileIconFor } from "../../FileTree/file-icon";
+import { DirRow } from "../../FileTree/DirRow/DirRow";
+import { treeRowIndent } from "../../FileTree/indent";
 import { Button } from "../../../ui/Button/Button";
 import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
@@ -339,7 +340,7 @@ export function FileList(props: FileListProps) {
             ]
               .filter(Boolean)
               .join(" ")}
-            style={{ paddingLeft: 12 + depth * 16 }}
+            style={{ paddingLeft: treeRowIndent(depth) }}
             onClick={(e) => handleRowClick(e, file, index)}
             onContextMenu={() => handleContextMenu(file)}
           >
@@ -468,25 +469,21 @@ export function FileList(props: FileListProps) {
     );
   };
 
-  const renderNodes = (nodes: FileTreeNode[], depth: number): React.ReactNode =>
+  const renderNodes = (
+    nodes: FileTreeNode<DiffFile>[],
+    depth: number,
+  ): React.ReactNode =>
     nodes.map((node) => {
-      if (node.kind === "file") return renderFile(node.file, node.name, depth);
+      if (node.kind === "file") return renderFile(node.entry, node.name, depth);
       const isCollapsed = collapsedDirs.has(node.path);
       return (
         <div key={`dir:${node.path}`}>
-          <button
-            type="button"
-            className={styles.dirRow}
-            style={{ paddingLeft: 12 + depth * 16 }}
-            onClick={() => toggleDir(node.path)}
-          >
-            {isCollapsed ? (
-              <ChevronRight size={12} className={styles.dirChevron} />
-            ) : (
-              <ChevronDown size={12} className={styles.dirChevron} />
-            )}
-            <span className={styles.dirName}>{node.name}</span>
-          </button>
+          <DirRow
+            name={node.name}
+            depth={depth}
+            collapsed={isCollapsed}
+            onToggle={() => toggleDir(node.path)}
+          />
           <Collapse open={!isCollapsed}>
             {renderNodes(node.children, depth + 1)}
           </Collapse>

@@ -24,6 +24,7 @@ import { AgentChip } from "../AgentChip";
 import { fileChangesFromDiff, type FileChange } from "../file-changes";
 import type { FilesWorkspace } from "../open-file-watches";
 import type { WorkspaceChanges } from "../workspace-changes";
+import { CommitBox } from "./CommitBox";
 import { runGitFileAction, type GitFileAction } from "./git-actions";
 import {
   branchEntries,
@@ -76,8 +77,8 @@ type SourceControlProps = {
 };
 
 /**
- * Source Control, the file pane drawer's second mode. Local: the working
- * changes in Staged and Changes, with stage, unstage and discard per file
+ * Source Control, the file pane drawer's second mode. Local: a commit box,
+ * then the working changes in Staged and Changes, with stage, unstage and discard per file
  * and per group. Branch: everything changed since the project's default
  * branch, to read only. Both are fetched as the diff pane fetches them
  * (single-flight, again only when the workspace's diff fingerprint moves),
@@ -362,6 +363,14 @@ export function SourceControl({
               error: err instanceof Error ? err.message : "Failed to load diff",
             })
           }
+        />
+      )}
+      {view === "local" && (
+        <CommitBox
+          wsKey={wsKey}
+          workspacePath={workspace.path}
+          stagedCount={local?.staged.length ?? 0}
+          disabledReason={webApp ? NO_GIT_FROM_BROWSER : null}
         />
       )}
       {body}

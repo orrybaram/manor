@@ -20,7 +20,6 @@ import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
 import { useProjectStore } from "../../../store/project-store";
 import { ownerOf } from "../../../lib/workspace-directory";
 import { workspaceKey } from "../../../lib/workspace-key";
-import { ipcErrorMessage } from "../../../lib/ipc-error";
 
 import { Stack, Row } from "../../ui/Layout/Layout";
 import { parseDiff } from "./parser";
@@ -52,8 +51,7 @@ import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { openInEditor } from "../../../lib/editor";
 import { openFileBeside } from "../../../lib/open-in-file-pane";
-import { categorizePushError, type PushError } from "../../../lib/push-error";
-import { toast, type ProgressHandle } from "../../../toast";
+import { startPush, usePushing } from "../FilePane/SourceControl/push";
 import { onUiRequest } from "../../../utils/ui-request";
 import { Collapse } from "../../ui/Collapse/Collapse";
 import { isWebApp } from "../../../lib/platform";
@@ -78,12 +76,6 @@ const FILE_JUMP_FRAMES = 60;
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
 const NO_STAGED_FILES: Set<string> = new Set();
 
-/**
- * Each workspace's push toast, by push id (its path). Module-level so a
- * DiffPane that remounts mid-push still drives the toast its push started.
- */
-const pushToasts = new Map<string, ProgressHandle>();
-
 export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
   function DiffPane(props: DiffPaneProps, ref) {
     const { paneId, workspacePath, hostId } = props;
@@ -101,7 +93,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     const [searchQuery, setSearchQuery] = useState("");
     const [currentMatch, setCurrentMatch] = useState(0);
     const [commitOpen, setCommitOpen] = useState(false);
-    const [pushing, setPushing] = useState(false);
+    const pushing = usePushing(workspacePath);
     const containerRef = useRef<HTMLDivElement | null>(null);
     // The same element as `containerRef`, as state: the files' rows
     // virtualize against it, so they re-render once it exists.
@@ -115,13 +107,6 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     // opening it moves every file without resizing the stack.
     const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null);
     const lineHandles = useRef(new Map<string, DiffLinesHandle>());
-    // Cancel detection: set to true when the user clicks the toast's Cancel
-    // action so the `done` handler can distinguish a SIGTERM-induced exit from
-    // a real error. Reset at the start of every push.
-    const cancelledRef = useRef(false);
-    // Holds the elapsed-counter setInterval handle so we can clear it from the
-    // `done` handler (and on unmount).
-    const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null);
     /**
      * Snapshotted when the context menu opens, because by the time an item is
@@ -530,139 +515,12 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       setSearchQuery("");
     }, []);
 
-    const runPush = useCallback(
-      async (opts: { setUpstream?: boolean } = {}) => {
-        if (!workspacePath) return;
-        const pushId = workspacePath;
-
-        // Reset cancel flag for this push attempt.
-        cancelledRef.current = false;
-        setPushing(true);
-
-        // Show the loading toast immediately — before awaiting `start` — so
-        // the user has feedback even on the brief gap before the first
-        // progress event arrives.
-        const startedAt = Date.now();
-        const pushToast = toast.progress("Pushing… 0s", {
-          id: pushId,
-          duration: "sticky",
-          action: {
-            label: "Cancel",
-            onClick: () => {
-              cancelledRef.current = true;
-              void window.electronAPI.git.push.cancel(pushId);
-            },
-          },
-        });
-        pushToasts.set(pushId, pushToast);
-
-        // Tick the elapsed counter every 1s. Stored in a ref so the `done`
-        // handler (and unmount) can clear it.
-        if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
-        elapsedTimerRef.current = setInterval(() => {
-          const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-          pushToast.update({ message: `Pushing… ${elapsed}s` });
-        }, 1000);
-
-        try {
-          await window.electronAPI.git.push.start({
-            wsPath: workspacePath,
-            setUpstream: opts.setUpstream,
-          });
-        } catch (err) {
-          // start() rejected (e.g. "already in progress"). Surface as an
-          // error toast and clean up the interval — no `done` event will fire.
-          if (elapsedTimerRef.current) {
-            clearInterval(elapsedTimerRef.current);
-            elapsedTimerRef.current = null;
-          }
-          setPushing(false);
-          pushToast.fail(ipcErrorMessage(err), undefined, {
-            duration: "sticky",
-          });
-        }
-      },
-      [workspacePath],
-    );
-
     const handlePush = useCallback(() => {
-      void runPush();
-    }, [runPush]);
-
-    // Subscribe to push progress events for this workspace and drive toast
-    // lifecycle from them. The handler filters by pushId === workspacePath so
-    // each DiffPane only reacts to its own push.
-    useEffect(() => {
-      if (!workspacePath) return;
-      const unsubscribe = window.electronAPI.git.push.onProgress((evt) => {
-        if (evt.pushId !== workspacePath) return;
-        const pushToast = pushToasts.get(evt.pushId);
-
-        if (evt.type === "line") {
-          // Only the latest line is shown in `detail` while loading; the full
-          // log is reconstructed in the `done` branch via `stderr`.
-          pushToast?.update({ detail: evt.line });
-          return;
-        }
-
-        if (evt.type === "done") {
-          if (elapsedTimerRef.current) {
-            clearInterval(elapsedTimerRef.current);
-            elapsedTimerRef.current = null;
-          }
-          setPushing(false);
-
-          // Success
-          if (evt.exitCode === 0) {
-            pushToast?.succeed("Pushed", { duration: 3000 });
-            return;
-          }
-
-          // Cancelled — detected via the ref-tracked Cancel callback rather
-          // than parsing exit codes (SIGTERM exit varies by platform).
-          if (cancelledRef.current) {
-            pushToast?.fail("Push cancelled", undefined, { duration: 3000 });
-            return;
-          }
-
-          // Categorized failure
-          const pushError: PushError = categorizePushError(evt.stderr);
-          const stderrTrimmed = evt.stderr.trim();
-          pushToast?.fail(pushError.message, undefined, {
-            detail: stderrTrimmed.length > 0 ? stderrTrimmed : undefined,
-            duration: "sticky",
-            autoExpand: true,
-            action:
-              pushError.action?.kind === "set-upstream"
-                ? {
-                    label: pushError.action.label,
-                    onClick: () => {
-                      void runPush({ setUpstream: true });
-                    },
-                  }
-                : undefined,
-            // NOTE: pull-and-retry has no IPC `pull` method available yet, so
-            // we omit the action button.
-          });
-        }
-      });
-      return () => {
-        unsubscribe();
-      };
-    }, [workspacePath, runPush]);
-
-    // Clear any pending elapsed-counter interval on unmount so we don't leak.
-    useEffect(() => {
-      return () => {
-        if (elapsedTimerRef.current) {
-          clearInterval(elapsedTimerRef.current);
-          elapsedTimerRef.current = null;
-        }
-      };
-    }, []);
+      if (workspacePath) void startPush(workspacePath);
+    }, [workspacePath]);
 
     // `git.*` is not on the slice-1 bridge table, so Push and Commit
-    // would only ever round-trip to a `BridgeUnavailableError` (`runPush`
+    // would only ever round-trip to a `BridgeUnavailableError` (`startPush`
     // still catches that as a fallback). Disabling with a reason said up
     // front beats the same refusal arriving as a toast after every click.
     const webApp = isWebApp();

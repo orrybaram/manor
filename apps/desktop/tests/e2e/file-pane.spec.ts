@@ -776,6 +776,57 @@ test("Source Control stages, unstages and discards a workspace's changes", async
   await window.screenshot({ path: shot(testInfo, "scm-branch") });
 });
 
+test("Source Control commits what's staged with the message typed above it", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm-commit");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  // The app's own `git commit` needs an identity; the temp home has none.
+  git(ws, "config user.name e2e");
+  git(ws, "config user.email e2e@example.com");
+  fs.writeFileSync(path.join(ws, "src", "helper.ts"), "export const helper = 1;\n");
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const changes = drawer.locator('[data-testid="scm-group-changes"]');
+  const staged = drawer.locator('[data-testid="scm-group-staged"]');
+  const commit = drawer.locator('[data-testid="scm-commit"]');
+  const message = drawer.locator('[data-testid="scm-commit-message"]');
+  await expect(changes.locator('[data-testid="scm-row"][data-path="src/helper.ts"]')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Nothing staged yet: Commit waits, however much is typed.
+  await message.fill("Add the helper");
+  await expect(commit).toHaveAttribute("aria-disabled", "true");
+
+  await changes.locator("button[aria-expanded]").hover();
+  await changes.locator('[data-testid="scm-stage-all"]').click();
+  await expect(staged.locator('[data-testid="scm-row"]')).toHaveCount(1);
+  await expect(commit).not.toHaveAttribute("aria-disabled", "true");
+  await window.screenshot({ path: shot(testInfo, "scm-commit-ready") });
+
+  // ⌘/Ctrl+Enter commits; the list empties and the message clears.
+  await message.press("ControlOrMeta+Enter");
+  await expect(drawer.locator('[data-testid="scm-empty"]')).toBeVisible({ timeout: 30_000 });
+  await expect(message).toHaveValue("");
+  expect(execSync("git log -1 --format=%s", { cwd: ws }).toString().trim()).toBe("Add the helper");
+
+  // Push and Commit & Push wait in Commit's menu; with nothing staged only Push is live.
+  await drawer.locator('[data-testid="scm-commit-menu"]').click();
+  await expect(window.locator('[data-testid="scm-push"]')).toBeEnabled();
+  await expect(window.locator('[data-testid="scm-commit-push"]')).toBeDisabled();
+  await window.screenshot({ path: shot(testInfo, "scm-commit-menu") });
+});
+
 /** Seed `src/components/Widget.tsx` through the workspace's own shell; returns the workspace. */
 async function seedWidget(window: Page, tempHome: string): Promise<string> {
   await runInTerminal(window, "pwd > \"$HOME/ws-path\"");

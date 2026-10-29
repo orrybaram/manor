@@ -1,0 +1,119 @@
+.box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+}
+
+/* One line to start, growing with what's typed up to a few, then scrolling. */
+.message {
+  width: 100%;
+  min-height: 28px;
+  max-height: 120px;
+  field-sizing: content;
+  resize: none;
+  padding: 5px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-selected);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  outline: none;
+}
+
+.message:focus {
+  border-color: var(--accent);
+}
+
+.message::placeholder {
+  color: var(--text-dim);
+}
+
+.message[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Commit and its menu caret read as one full-width control. */
+.split {
+  display: flex;
+  align-items: stretch;
+}
+
+.commit {
+  flex: 1;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.caret {
+  flex: none;
+  padding-left: 6px;
+  padding-right: 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid var(--bg);
+}
+
+/* aria-disabled rather than disabled, so the reason's tooltip shows on hover. */
+.commit[aria-disabled="true"],
+.caret[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid color-mix(in srgb, var(--bg) 40%, transparent);
+  border-top-color: var(--bg);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 200px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--dim);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+/* Lines the options' labels up whether or not they're checked. */
+.checkSlot {
+  display: inline-flex;
+  width: 12px;
+  flex-shrink: 0;
+}
+
+.separator {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}

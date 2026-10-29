@@ -9,4 +9,5 @@ import "./sections/chapter-1";
 import "./sections/chapter-2";
 import "./sections/chapter-3.css";
 import "./sections/footer";
-import "./sections/cellar.css";
+import "./sections/cellar";
+import "./styles/motion.css";

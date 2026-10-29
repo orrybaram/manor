@@ -1,5 +1,5 @@
 import { useImperativeHandle, useRef, type Ref } from "react";
-import { Compartment, EditorState, type Text } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -25,7 +25,7 @@ import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
 import { manorEditorTheme } from "../editor-theme";
-import { readFileText, writeFileText, type FileFormat } from "../file-text";
+import { EditorFile } from "../file-text";
 import styles from "./CodeEditor.module.css";
 
 export type CodeEditorRef = {
@@ -76,22 +76,13 @@ export function CodeEditor({
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  // The clean copy, split as the editor splits it, and how it was written.
-  const cleanRef = useRef<{ text: Text; format: FileFormat } | null>(null);
-  // How a save writes the editor's text: its BOM (never part of the
-  // document) and its line breaks (the document's are normalized).
-  const formatRef = useRef<FileFormat>({ bom: false, crlf: false });
+  // How a save writes the editor's text (its BOM, never part of the
+  // document, and the file's line breaks, which the document normalizes),
+  // and the clean copy it is dirty against.
+  const fileRef = useRef<EditorFile | null>(null);
   const dirtyRef = useRef(false);
 
-  const isDirty = (view: EditorView) => {
-    const clean = cleanRef.current;
-    if (!clean) return false;
-    return (
-      formatRef.current.bom !== clean.format.bom ||
-      formatRef.current.crlf !== clean.format.crlf ||
-      !view.state.doc.eq(clean.text)
-    );
-  };
+  const isDirty = (view: EditorView) => fileRef.current?.isDirty(view.state.doc) ?? false;
   const settle = (view: EditorView) => {
     const dirty = isDirty(view);
     if (dirty === dirtyRef.current) return dirty;
@@ -103,11 +94,9 @@ export function CodeEditor({
   useImperativeHandle(ref, () => ({
     replaceContent(content: string) {
       const view = viewRef.current;
-      if (!view) return;
-      const { format, text } = readFileText(content);
-      const clean = view.state.toText(text);
-      cleanRef.current = { text: clean, format };
-      formatRef.current = format;
+      const file = fileRef.current;
+      if (!view || !file) return;
+      const { text: clean } = file.replace(content);
       if (!view.state.doc.eq(clean)) {
         const head = Math.min(view.state.selection.main.head, clean.length);
         view.dispatch({
@@ -119,13 +108,14 @@ export function CodeEditor({
     },
     content() {
       const view = viewRef.current;
-      return view ? writeFileText(formatRef.current, view.state.doc) : "";
+      const file = fileRef.current;
+      return view && file ? file.write(view.state.doc) : "";
     },
     markClean(written: string) {
       const view = viewRef.current;
-      if (!view) return false;
-      const { format, text } = readFileText(written);
-      cleanRef.current = { text: view.state.toText(text), format };
+      const file = fileRef.current;
+      if (!view || !file) return false;
+      file.markClean(written);
       return settle(view);
     },
   }));
@@ -134,18 +124,12 @@ export function CodeEditor({
     const host = hostRef.current;
     if (!host) return;
     const language = new Compartment();
-    const clean = readFileText(base);
-    const shown = draft !== null ? readFileText(draft) : clean;
-    // A draft carries the breaks the file was loaded with, unless it has
-    // none to tell (one line): then the file's own.
-    formatRef.current = {
-      bom: shown.format.bom,
-      crlf: draft !== null && /[\r\n]/.test(shown.text) ? shown.format.crlf : clean.format.crlf,
-    };
+    const { file, shown } = EditorFile.open(base, draft);
+    fileRef.current = file;
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: shown.text,
+        doc: shown,
         extensions: [
           EditorState.readOnly.of(readOnly),
           // Not editable on the phone, so a tap never opens the keyboard.
@@ -176,7 +160,6 @@ export function CodeEditor({
       }),
     });
     viewRef.current = view;
-    cleanRef.current = { text: view.state.toText(clean.text), format: clean.format };
     dirtyRef.current = isDirty(view);
     if (dirtyRef.current) onDirtyChange(true);
 
@@ -200,7 +183,7 @@ export function CodeEditor({
     return () => {
       destroyed = true;
       stopFind();
-      onDispose(writeFileText(formatRef.current, view.state.doc), dirtyRef.current);
+      onDispose(file.write(view.state.doc), dirtyRef.current);
       viewRef.current = null;
       view.destroy();
     };

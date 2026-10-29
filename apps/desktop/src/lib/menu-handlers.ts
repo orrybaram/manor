@@ -63,6 +63,7 @@ import type { PaletteView } from "../components/command-palette/types";
 export interface MenuChrome {
   openSettings: (page?: SettingsPageId) => void;
   togglePalette: () => void;
+  openGoToFile: () => void;
   openPaletteView: (view: PaletteView) => void;
   openNewWorkspace: () => void;
   addProject: () => void;

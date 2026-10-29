@@ -39,6 +39,7 @@ import {
 } from "./hooks/useSidebarModeTransition";
 
 const CommandPalette = lazy(() => import("./components/command-palette/CommandPalette").then(m => ({ default: m.CommandPalette })));
+const GoToFile = lazy(() => import("./components/go-to-file/GoToFile").then(m => ({ default: m.GoToFile })));
 const SettingsModal = lazy(() => import("./components/settings/SettingsModal/SettingsModal").then(m => ({ default: m.SettingsModal })));
 type SettingsPageId = import("./components/settings/SettingsModal/SettingsModal").SettingsPageId;
 const NewWorkspaceDialog = lazy(() => import("./components/sidebar/NewWorkspaceDialog/NewWorkspaceDialog").then(m => ({ default: m.NewWorkspaceDialog })));
@@ -166,6 +167,7 @@ function App() {
   useAgentContextRepair();
 
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [goToFileOpen, setGoToFileOpen] = useState(false);
   const [paletteOrigin, setPaletteOrigin] = useState<PaletteOrigin>("shortcut");
   const [paletteInitialView, setPaletteInitialView] = useState<PaletteView | undefined>();
   const closePalette = useCallback(() => {
@@ -635,6 +637,7 @@ function App() {
         setPaletteOrigin("shortcut");
         setPaletteOpen((v) => !v);
       },
+      openGoToFile: () => setGoToFileOpen((v) => !v),
       openPaletteView: handleOpenPaletteView,
       // Cmd+Shift+N starts on the host and folder you're in.
       openNewWorkspace: () => {
@@ -930,6 +933,7 @@ function App() {
               onNewAgent={handleNewAgent}
               onRunCommand={runCommand}
             />
+            <GoToFile open={goToFileOpen} onClose={() => setGoToFileOpen(false)} />
             <SettingsModal
               open={settingsOpen}
               onClose={closeSettings}

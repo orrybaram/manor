@@ -282,6 +282,12 @@ export function useCommands({
         icon: <FileCode size={14} />,
         keywords: ["file", "open", "editor", "code", "tree", "browse"],
       },
+      {
+        command: "go-to-file",
+        icon: <FileCode size={14} />,
+        keywords: ["file", "go", "quick", "open", "find", "search"],
+        closeFirst: true,
+      },
       { command: "split-h", icon: <Columns2 size={14} /> },
       { command: "split-v", icon: <Rows2 size={14} /> },
       {

@@ -1,10 +1,15 @@
 /**
  * Opening a workspace file in a file pane from somewhere else: a changed
- * file's header in the diff pane, or a path printed in a terminal.
+ * file's header in the diff pane, a path printed in a terminal, or Go to File.
  */
 
 import { hasUnsavedEdits, useOpenFileStore } from "../store/open-file-store";
-import { selectPaneFilePath, useAppStore } from "../store/app-store";
+import {
+  selectFocusedPaneOfActiveTab,
+  selectPaneContentType,
+  selectPaneFilePath,
+  useAppStore,
+} from "../store/app-store";
 import { pendingLines } from "../components/workspace-panes/FilePane/pending-line";
 import type { PaneNode, SplitDirection } from "./layout/pane-tree";
 import type { WorkspaceLayout } from "./layout/workspace-layout";
@@ -151,4 +156,25 @@ export function openFileInNewTab(sourcePaneId: string, path: string, at: At = {}
     place ? { workspaceKey: place.workspaceKey, panelId: place.panelId } : undefined,
   );
   if (opened) requestLine(opened.paneId, path, at);
+}
+
+/**
+ * Open `path` (relative to the active workspace) from Go to File: in the
+ * focused pane when it is a file pane, else in a file pane of the active tab,
+ * else in a new tab's.
+ */
+export function openFileInActiveWorkspace(path: string): void {
+  const app = useAppStore.getState();
+  const focused = selectFocusedPaneOfActiveTab(app);
+  if (focused) {
+    const target =
+      selectPaneContentType(app, focused) === "file"
+        ? focused
+        : filePaneInTabOf(app.workspaceLayouts, focused);
+    if (target) {
+      showFileInPane(target, path, {});
+      return;
+    }
+  }
+  app.addFileTab(path);
 }

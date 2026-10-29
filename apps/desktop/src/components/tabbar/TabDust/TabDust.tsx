@@ -1,5 +1,6 @@
 import { useId } from "react";
 import { cobwebLevel } from "../../../lib/cobwebs";
+import { useLayerShown } from "../../../lib/layer-shown-context";
 import { tabUnseenFor, useTabSightings } from "../../../store/tab-sightings";
 import {
   useHalloweenEffects,
@@ -69,7 +70,11 @@ export function TabDust(props: TabDustProps) {
   useTabSightings(enabled);
   // `useId` ids hold colons, which `url(#…)` would need escaped.
   const id = useId().replace(/:/g, "");
-  if (!enabled) return null;
+  // A hidden workspace's tabs stay mounted under `visibility: hidden`, but
+  // Chromium still paints what the speck filters generate: off, it would
+  // show through the tab bar of whichever workspace is on screen.
+  const shown = useLayerShown();
+  if (!enabled || !shown) return null;
 
   const level = isActive ? 0 : cobwebLevel(tabUnseenFor(tabId, now));
   return (

@@ -169,6 +169,41 @@ describe("LayoutPersistence", () => {
       expect(loadedTab.paneSessions["p2"].daemonSessionId).toBe("ds2");
     });
 
+    it("roundtrips a file pane with its open file", () => {
+      const fileLeaf: PaneNode = {
+        type: "leaf",
+        paneId: "p2",
+        contentType: "file",
+        filePath: "src/lib/thing.ts",
+      };
+      const tab: PersistedTab = {
+        id: "tab-file",
+        title: "thing.ts",
+        rootNode: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.5,
+          first: { type: "leaf", paneId: "p1" },
+          second: fileLeaf,
+        },
+        paneSessions: {
+          p1: { daemonSessionId: "ds1", lastCwd: "/tmp", lastTitle: null },
+        },
+      };
+      persistence.save({
+        version: LAYOUT_VERSION,
+        workspaces: [makeV2Workspace("/project/main", [tab], tab.id)],
+      });
+
+      const loaded = persistence.load();
+      const [panel] = Object.values(loaded!.workspaces[0].panels);
+      const root = panel.tabs[0].rootNode;
+      if (root.type !== "split") throw new Error("expected split");
+      expect(root.second).toEqual(fileLeaf);
+      // A file pane has no session to keep.
+      expect([...persistence.getActiveSessionIds()]).toEqual(["ds1"]);
+    });
+
     it("roundtrips multiple workspaces", () => {
       const layout: PersistedLayout = {
         version: LAYOUT_VERSION,

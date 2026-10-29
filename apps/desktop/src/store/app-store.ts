@@ -32,6 +32,7 @@ import {
   cloneTabWithFreshIds,
   createBrowserTab,
   createDiffTab,
+  createFileTab,
   findDiffPane as findDiffPaneIn,
 } from "../lib/layout/tab-builders";
 import {
@@ -311,6 +312,12 @@ export interface AppState {
     opts?: { background?: boolean },
   ) => { tabId: string; paneId: string } | null;
   addDiffTab: () => void;
+  /**
+   * Open a file pane as a new tab of the active panel, on `filePath`
+   * (workspace-relative) or with no file open, which shows its tree.
+   * Returns the ids it minted, or null with no active workspace.
+   */
+  addFileTab: (filePath?: string) => { tabId: string; paneId: string } | null;
   /** Returns the id of the tab it minted, or null when there is nothing to
    *  duplicate. The duplicate's panes are fresh ids, not the source's. */
   duplicateTab: (tabId: string) => string | null;
@@ -341,9 +348,11 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "agent";
+      contentType?: "terminal" | "browser" | "diff" | "file" | "agent";
       paneCommand?: string;
       url?: string;
+      /** A file pane's open file, workspace-relative. */
+      filePath?: string;
     },
   ) => string | null;
   movePaneToTarget: (
@@ -394,6 +403,8 @@ export interface AppState {
 
   // Pane content type
   setPaneContentType: (paneId: string, contentType: PaneContentType) => void;
+  /** The file a file pane shows, workspace-relative; kept on its leaf. */
+  setPaneFilePath: (paneId: string, filePath: string) => void;
 
   // Browser favicon
   setPaneFavicon: (paneId: string, favicon: string | null) => void;
@@ -948,6 +959,18 @@ export function selectPaneUrl(
   paneId: string,
 ): string | null {
   return state.paneLiveUrl[paneId] ?? paneLeaf(state, paneId)?.url ?? null;
+}
+
+/** The file a file pane has open, workspace-relative; null for none. */
+export function selectPaneFilePath(
+  state: Pick<AppState, "workspaceLayouts">,
+  paneId: string,
+): string | null {
+  return paneLeaf(state, paneId)?.filePath ?? null;
+}
+
+export function usePaneFilePath(paneId: string): string | null {
+  return useAppStore((s) => selectPaneFilePath(s, paneId));
 }
 
 export function usePaneContentType(paneId: string): PaneContentType {
@@ -1782,6 +1805,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
   },
 
+  addFileTab: (filePath?: string) => {
+    const path = activeLayoutKey(get());
+    if (!path) return null;
+    const tab = createFileTab(filePath);
+    leaveTasksView();
+    sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
+    return { tabId: tab.id, paneId: firstPaneOfTab(tab) };
+  },
+
   duplicateTab: (tabId: string) => {
     const state = get();
     const path = activeLayoutKey(state);
@@ -1929,9 +1961,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "agent";
+      contentType?: "terminal" | "browser" | "diff" | "file" | "agent";
       paneCommand?: string;
       url?: string;
+      /** A file pane's open file, workspace-relative. */
+      filePath?: string;
     },
   ) => {
     const state = get();
@@ -1941,7 +1975,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // silent no-op, and `splitPaneAt` answers with the id it minted.
     if (!ctx || !findPanelWithPane(ctx.layout, targetPaneId)) return null;
     const newPane = newPaneId();
-    const { contentType, paneCommand, url } = opts ?? {};
+    const { contentType, paneCommand, url, filePath } = opts ?? {};
     // "agent" panes are terminals that auto-run a command -- don't persist as
     // a content type.
     const treeContentType = contentType === "agent" ? undefined : contentType;
@@ -1961,6 +1995,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       newPaneId: newPane,
       contentType: treeContentType,
       url,
+      filePath,
     });
     return newPane;
   },
@@ -2240,6 +2275,23 @@ export const useAppStore = create<AppState>((set, get) => ({
       type: "set-pane-content-type",
       paneId,
       contentType,
+    });
+  },
+
+  // The open file is structure, like a browser's url: it is what brings the
+  // pane back on the same file after a relaunch, and every renderer of the
+  // workspace shows it.
+  setPaneFilePath: (paneId: string, filePath: string) => {
+    const state = get();
+    if (selectPaneContentType(state, paneId) !== "file") return;
+    if (selectPaneFilePath(state, paneId) === filePath) return;
+    const path = workspaceOfPane(state, paneId);
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "set-pane-content-type",
+      paneId,
+      contentType: "file",
+      filePath,
     });
   },
 

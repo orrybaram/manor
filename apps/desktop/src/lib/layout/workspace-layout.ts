@@ -17,7 +17,7 @@ import type { PanelNode } from "./panel-tree";
 
 /** What a pane renders. `agent` is a terminal that auto-runs a command and is
  *  deliberately never persisted, so it is not part of this union. */
-export type PaneContentType = "terminal" | "browser" | "diff";
+export type PaneContentType = "terminal" | "browser" | "diff" | "file";
 
 export interface Tab {
   id: string;

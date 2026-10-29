@@ -37,6 +37,23 @@ export function createDiffTab(): Tab {
 }
 
 /**
+ * A fresh single-pane file tab, open on `filePath` (workspace-relative) or on
+ * nothing yet. Titled from the file's name, as the pane header is.
+ */
+export function createFileTab(filePath?: string): Tab {
+  return {
+    id: newTabId(),
+    title: filePath ? filePath.slice(filePath.lastIndexOf("/") + 1) : "Files",
+    rootNode: {
+      type: "leaf",
+      paneId: newPaneId(),
+      contentType: "file",
+      ...(filePath && { filePath }),
+    },
+  };
+}
+
+/**
  * A copy of `tab` for `duplicate-tab`. Every pane gets a fresh id: a
  * duplicated tab is a second set of sessions, not a second view of the first.
  * `idMap` is old → new paneId.

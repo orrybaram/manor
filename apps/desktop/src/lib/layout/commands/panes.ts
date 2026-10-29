@@ -7,6 +7,7 @@ import {
   insertSubtreeAt,
   movePane as movePaneInTree,
   updateLeafContentType,
+  updateLeafFilePath,
   updateLeafUrl,
   updateRatio,
 } from "../pane-tree";
@@ -53,6 +54,7 @@ export function splitPaneAt(
     command.position,
     command.contentType,
     command.url,
+    command.filePath,
   );
   return result(withTabRoot(state.layout, found.tab.id, rootNode), state.closedStack, {
     focusPane: { tabId: found.tab.id, paneId: command.newPaneId },
@@ -283,6 +285,9 @@ export function setPaneContentType(
   let rootNode = updateLeafContentType(tab.rootNode, command.paneId, treeType);
   if (command.url !== undefined) {
     rootNode = updateLeafUrl(rootNode, command.paneId, command.url);
+  }
+  if (command.filePath !== undefined) {
+    rootNode = updateLeafFilePath(rootNode, command.paneId, command.filePath);
   }
   if (rootNode === tab.rootNode) return unchanged(state);
   return result(withTabRoot(state.layout, tab.id, rootNode), state.closedStack);

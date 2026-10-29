@@ -22,8 +22,10 @@ import { focusedPaneOf, selectedTabOf, type WorkspaceViewport } from "./viewport
 /** Serializable snapshot of a single pane. */
 export interface PaneSnapshot {
   paneId: string;
-  contentType: "terminal" | "browser" | "diff";
+  contentType: "terminal" | "browser" | "diff" | "file";
   url?: string;
+  /** A file pane's open file, workspace-relative. */
+  filePath?: string;
 }
 
 /** Serializable snapshot of a tab. */
@@ -45,7 +47,7 @@ export interface LayoutSnapshot {
 }
 
 /** A tab's panes, depth-first left-to-right, straight from the tree's own
- *  leaf fields — contentType and url are structure. */
+ *  leaf fields — contentType, url and filePath are structure. */
 function paneSnapshots(node: PaneNode): PaneSnapshot[] {
   if (node.type === "leaf") {
     const contentType = node.contentType ?? "terminal";
@@ -55,6 +57,9 @@ function paneSnapshots(node: PaneNode): PaneSnapshot[] {
         contentType,
         ...(contentType === "browser" && node.url !== undefined && {
           url: node.url,
+        }),
+        ...(contentType === "file" && node.filePath !== undefined && {
+          filePath: node.filePath,
         }),
       },
     ];

@@ -63,6 +63,8 @@ export type LayoutCommand =
       newPaneId: string;
       contentType?: PaneContentType;
       url?: string;
+      /** A file pane's open file, workspace-relative. */
+      filePath?: string;
     }
   | {
       type: "move-pane";
@@ -101,6 +103,8 @@ export type LayoutCommand =
       paneId: string;
       contentType: PaneContentType;
       url?: string;
+      /** A file pane's open file, workspace-relative. */
+      filePath?: string;
     }
   | {
       type: "split-panel";

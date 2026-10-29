@@ -6,8 +6,11 @@ export type PaneNode =
   | {
       type: "leaf";
       paneId: string;
-      contentType?: "terminal" | "browser" | "diff";
+      contentType?: "terminal" | "browser" | "diff" | "file";
       url?: string;
+      /** A file pane's open file, relative to its workspace, `/`-separated.
+       *  Absent while the pane has no file open. */
+      filePath?: string;
     }
   | {
       type: "split";
@@ -112,8 +115,9 @@ export function insertSplitAt(
   direction: SplitDirection,
   newPaneId: string,
   position: "first" | "second",
-  contentType?: "terminal" | "browser" | "diff",
+  contentType?: "terminal" | "browser" | "diff" | "file",
   url?: string,
+  filePath?: string,
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === targetPaneId) {
@@ -123,6 +127,7 @@ export function insertSplitAt(
         paneId: newPaneId,
         ...(contentType && { contentType }),
         ...(url && { url }),
+        ...(filePath && { filePath }),
       };
       return {
         type: "split",
@@ -144,6 +149,7 @@ export function insertSplitAt(
       position,
       contentType,
       url,
+      filePath,
     ),
     second: insertSplitAt(
       node.second,
@@ -153,6 +159,7 @@ export function insertSplitAt(
       position,
       contentType,
       url,
+      filePath,
     ),
   };
 }
@@ -322,11 +329,11 @@ export function nextPaneId(
 export function updateLeafContentType(
   node: PaneNode,
   paneId: string,
-  contentType: "terminal" | "browser" | "diff" | undefined,
+  contentType: "terminal" | "browser" | "diff" | "file" | undefined,
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === paneId) {
-      const { contentType: _, url: __, ...rest } = node;
+      const { contentType: _, url: __, filePath: ___, ...rest } = node;
       return contentType ? { ...rest, contentType } : rest;
     }
     return node;
@@ -359,6 +366,21 @@ export function updateLeafUrl(
   }
   const first = updateLeafUrl(node.first, paneId, url);
   const second = updateLeafUrl(node.second, paneId, url);
+  if (first === node.first && second === node.second) return node;
+  return { ...node, first, second };
+}
+
+/** Update a file pane's open file, leaving the rest of the tree by reference. */
+export function updateLeafFilePath(
+  node: PaneNode,
+  paneId: string,
+  filePath: string,
+): PaneNode {
+  if (node.type === "leaf") {
+    return node.paneId === paneId ? { ...node, filePath } : node;
+  }
+  const first = updateLeafFilePath(node.first, paneId, filePath);
+  const second = updateLeafFilePath(node.second, paneId, filePath);
   if (first === node.first && second === node.second) return node;
   return { ...node, first, second };
 }

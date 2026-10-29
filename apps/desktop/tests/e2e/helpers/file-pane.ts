@@ -35,7 +35,10 @@ export async function openFileFromPalette(window: Page): Promise<void> {
  * any folder on the path that is shown gets a click.
  */
 export async function revealInTree(window: Page, segments: string[]): Promise<void> {
-  if (!(await drawer(window).isVisible())) {
+  if (
+    !(await drawer(window).isVisible()) ||
+    (await drawer(window).getAttribute("data-mode")) !== "files"
+  ) {
     await pane(window).locator('[data-testid="file-pane-files-button"]').click();
   }
   await expect(drawer(window)).toBeVisible();
@@ -49,11 +52,11 @@ export async function revealInTree(window: Page, segments: string[]): Promise<vo
   await expect(treeRow(window, file)).toBeVisible();
 }
 
-/** Pick the file at `segments` in the Files drawer; the drawer closes. */
+/** Pick the file at `segments` in the Files drawer, which stays open beside it. */
 export async function openFromTree(window: Page, segments: string[]): Promise<void> {
   await revealInTree(window, segments);
   await treeRow(window, segments.join("/")).click();
-  await expect(drawer(window)).toBeHidden();
+  await expect(drawer(window)).toBeVisible();
 }
 
 /** Click into the editor and type at the end of the file. */

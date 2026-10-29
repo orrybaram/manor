@@ -18,6 +18,7 @@ import { LOCAL_HOST_ID } from "../../../lib/workspace-key";
 import { getPlatform } from "../../../lib/keybindings";
 import { isWebApp } from "../../../lib/platform";
 import { useMountEffect } from "../../../hooks/useMountEffect";
+import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { fileTitle } from "../../../lib/pane-title";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -25,6 +26,7 @@ import { Button } from "../../ui/Button/Button";
 import type { AgentMarksSource, CodeEditorRef } from "./CodeEditor/CodeEditor";
 import type { AgentMarks } from "./CodeEditor/change-marks";
 import { FileDrawer, type DrawerMode } from "./FileDrawer/FileDrawer";
+import { FileDrawerResizeHandle } from "./FileDrawer/FileDrawerResizeHandle";
 import { useAgentLabel } from "./agent-label";
 import type { FileChange } from "./file-changes";
 import { followWorkspaceChanges, useWorkspaceChanges } from "./workspace-changes";
@@ -58,8 +60,11 @@ type Drawer = DrawerMode | null;
 
 /**
  * A file pane: one file of its workspace, with a strip on its left edge whose
- * Files button opens the workspace's tree in a drawer over the editor, and
+ * Files button opens the workspace's tree in a drawer beside the editor, and
  * whose Changed by agents button opens the workspace's changed files. The
+ * drawer resizes and collapses from its edge, as the app sidebar does; on a
+ * phone it floats over the editor instead, and closes once it has done its
+ * job. The
  * open file lives on the pane's leaf (`setPaneFilePath`), so it is the same
  * in every window and after a relaunch; its unsaved edits live in
  * `open-file-store`, so a remount keeps them. The phone (the web client)
@@ -72,16 +77,24 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const readOnly = isWebApp();
   // A pane with nothing open starts on its tree.
   const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
+  const floating = useLayoutMode() === "phone";
+  const floatingRef = useRef(floating);
+  floatingRef.current = floating;
   // A file sent here from elsewhere (the diff pane, a terminal link), or the
-  // swap bar asking about one, puts the editor back in view.
+  // swap bar asking about one, puts the editor back in view: only a floating
+  // drawer hides it.
   const pendingOpen = useOpenFileStore((s) => s.byPane[paneId]?.pendingOpen ?? null);
   const [shownFor, setShownFor] = useState({ filePath, pendingOpen });
   if (shownFor.filePath !== filePath || shownFor.pendingOpen !== pendingOpen) {
     setShownFor({ filePath, pendingOpen });
-    if (filePath !== shownFor.filePath || pendingOpen) setDrawer(null);
+    if (floating && (filePath !== shownFor.filePath || pendingOpen)) setDrawer(null);
   }
   // The same file sent again only moves the cursor; it still wants the editor.
-  useMountEffect(() => pendingLines.subscribe(paneId, () => setDrawer(null)));
+  useMountEffect(() =>
+    pendingLines.subscribe(paneId, () => {
+      if (floatingRef.current) setDrawer(null);
+    }),
+  );
   const workspace = useMemo<FilesWorkspace | null>(
     () =>
       workspacePath ? { path: workspacePath, hostId: hostId ?? LOCAL_HOST_ID } : null,
@@ -100,7 +113,7 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   });
 
   const pick = (path: string) => {
-    setDrawer(null);
+    if (floating) setDrawer(null);
     if (path === filePath) return;
     // Unsaved edits ask first, in the swap bar.
     if (hasUnsavedEdits(paneId)) {
@@ -109,6 +122,16 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     }
     setPaneFilePath(paneId, path);
   };
+
+  // Dragged out of the strip, the drawer opens on the tree.
+  const openDrawer = () => setDrawer((d) => d ?? "files");
+  const collapseDrawer = () => setDrawer(null);
+  const openHandle = (
+    <FileDrawerResizeHandle open onOpen={openDrawer} onCollapse={collapseDrawer} />
+  );
+  const collapsedHandle = (
+    <FileDrawerResizeHandle open={false} onOpen={openDrawer} onCollapse={collapseDrawer} />
+  );
 
   return (
     <div className={styles.filePane} data-testid="file-pane">
@@ -143,12 +166,26 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
             )}
           </button>
         </Tooltip>
+        {!floating && !drawer && workspace && collapsedHandle}
       </div>
+      {drawer && workspace && (
+        <FileDrawer
+          key={drawer}
+          workspace={workspace}
+          mode={drawer}
+          changes={changes}
+          openFile={filePath}
+          canCreate={!readOnly}
+          onPick={pick}
+          onClose={() => setDrawer(null)}
+          resizeHandle={floating ? undefined : openHandle}
+        />
+      )}
       <div
         className={styles.editorCol}
-        // The drawer floats over the editor; reaching past it closes it.
+        // A floating drawer covers the editor; reaching past it closes it.
         onMouseDown={() => {
-          if (drawer) setDrawer(null);
+          if (floating && drawer) setDrawer(null);
         }}
       >
         {filePath && workspace ? (
@@ -165,18 +202,6 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
           </div>
         )}
       </div>
-      {drawer && workspace && (
-        <FileDrawer
-          key={drawer}
-          workspace={workspace}
-          mode={drawer}
-          changes={changes}
-          openFile={filePath}
-          canCreate={!readOnly}
-          onPick={pick}
-          onClose={() => setDrawer(null)}
-        />
-      )}
     </div>
   );
 }

@@ -4,10 +4,9 @@ import { tags as t } from "@lezer/highlight";
 
 /**
  * The editor's look, all from manor's CSS variables: the chrome from the
- * surface tokens and the syntax from the terminal theme's ANSI colours, the
- * same token-to-colour mapping the diff pane gives refractor
- * (`DiffPane/DiffLines/DiffLines.module.css`). The variables change with the
- * terminal theme and light/dark, so the editor follows without being told.
+ * surface tokens and the syntax from the terminal theme's ANSI colours. The
+ * variables change with the terminal theme and light/dark, so the editor
+ * follows without being told.
  */
 const chrome = EditorView.theme({
   "&": {

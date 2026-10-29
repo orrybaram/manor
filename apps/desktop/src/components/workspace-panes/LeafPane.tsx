@@ -38,7 +38,6 @@ import { ShownLayer } from "../../lib/layer-shown";
 import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./BrowserPane/BrowserPane";
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
-import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
 import { FilePane } from "./FilePane/FilePane";
 import { FileEditJump, FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
 import { PaneDropZone } from "./PaneDropZone";
@@ -149,7 +148,6 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const browserRef = useRef<BrowserPaneRef>(null);
-  const diffRef = useRef<DiffPaneRef>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const [navState, setNavState] = useState<BrowserPaneNavState | null>(null);
   const [urlFocused, setUrlFocused] = useState(false);
@@ -402,9 +400,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
         onDrag={handleStatusBarDrag}
         onDragEnd={handleStatusBarDragEnd}
       >
-        {contentType === "diff" ? (
-          <span className={styles.paneStatusTitle}>Diff</span>
-        ) : contentType === "file" ? (
+        {contentType === "file" ? (
           <FileHeaderTitle
             paneId={paneId}
             filePath={filePath}
@@ -534,17 +530,6 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
                 filePath={filePath}
               />
             </>
-          )}
-          {contentType === "diff" && (
-            <Tooltip label="Search">
-              <button
-                className={styles.paneStatusBtn}
-                onClick={(e) => { e.stopPropagation(); diffRef.current?.toggleSearch(); }}
-                title="Search in diff"
-              >
-                <Search size={12} />
-              </button>
-            </Tooltip>
           )}
           <button
             className={styles.paneStatusBtn}
@@ -685,19 +670,10 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" && contentType !== "file" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
-        {contentType === "diff" ? (
-          <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
-            <DiffPane
-              ref={diffRef}
-              paneId={paneId}
-              workspacePath={workspacePath}
-              hostId={workspace?.hostId}
-            />
-          </PaneContextMenu>
-        ) : contentType === "file" ? (
-          // The pane's menu, as over a diff: the leaf header has none of its
-          // own, so this is the only way to split, convert or move the pane.
+      <div className={`${styles.leafTerminal} ${contentType !== "browser" && contentType !== "file" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
+        {contentType === "file" ? (
+          // The pane's menu: the leaf header has none of its own, so this is
+          // the only way to split, convert or move the pane.
           <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <FilePane
               paneId={paneId}

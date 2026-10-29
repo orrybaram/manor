@@ -4,6 +4,8 @@
  * throw, which the route answers as a 400 before the store is touched.
  */
 
+/** `diff` makes a file pane on Source Control: the retired Diff pane's name,
+ *  kept so scripts still work. */
 export const SPLIT_CONTENT_TYPES = ["terminal", "browser", "diff", "agent"] as const;
 
 export const TAB_CONTENT_TYPES = ["terminal", "browser"] as const;

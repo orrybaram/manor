@@ -52,7 +52,7 @@
   color: var(--fg);
 }
 
-/* How many files the workspace has changed, on the Changed by agents button. */
+/* How many files the workspace has changed, on the Source Control button. */
 .count {
   position: absolute;
   top: -2px;
@@ -70,11 +70,27 @@
 }
 
 .editorCol {
+  position: relative;
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+/* While a diff shows and the workspace has drafts: today's review bar, over
+   the editor's bottom-right corner, clear of the mark lane and scrollbar.
+   Only the bar takes clicks. */
+.reviewFloat {
+  position: absolute;
+  right: 24px;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 3;
+  pointer-events: none;
+}
+
+.reviewFloat > * {
+  pointer-events: auto;
 }
 
 .crumbs {
@@ -89,6 +105,52 @@
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
   overflow: hidden;
+}
+
+.crumbPath {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+}
+
+/* A shown diff's "Diff vs HEAD", at the breadcrumb's right end. */
+.diffTag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--text-primary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.diffNote {
+  flex: none;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* A stale diff is usually fresh again a moment later: only a lasting one shows. */
+.diffNoteLate {
+  animation: noteIn 0.2s ease-out 0.8s both;
+}
+
+@keyframes noteIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.openPlain {
+  flex: none;
+  margin-left: 8px;
 }
 
 .crumbPart {

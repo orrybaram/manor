@@ -20,8 +20,8 @@ import { createTab, newPaneId, newTabId } from "../../src/lib/layout/ids";
 import {
   cloneTabWithFreshIds,
   createBrowserTab,
-  createDiffTab,
-  findDiffPane,
+  createSourceControlTab,
+  findSourceControlPane,
 } from "../../src/lib/layout/tab-builders";
 import {
   findPanelWithPane,
@@ -214,6 +214,19 @@ export const structuralRoutes: Route[] = [
         }
         if (!entry || !findPanelWithPane(entry.layout, target)) {
           throw new Error(`Unknown paneId: ${target}`);
+        }
+        // `diff` is the retired Diff pane's name, kept so scripts still
+        // work: a file pane on Source Control.
+        if (p.contentType === "diff") {
+          return {
+            type: "split-pane-at",
+            paneId: target,
+            direction: p.direction,
+            position: p.position,
+            newPaneId: newPaneId(),
+            contentType: "file",
+            startsOn: "scm",
+          };
         }
         return {
           type: "split-pane-at",
@@ -415,13 +428,14 @@ export const structuralRoutes: Route[] = [
     method: "POST",
     path: "/tabs/diff",
     handler: structural({
-      // A workspace has at most one diff pane, anywhere in any tab: an
-      // existing one is named back rather than opened twice.
+      // A file pane on Source Control, named after the Diff pane it
+      // replaced. One still waiting on Source Control, anywhere in any tab,
+      // is named back rather than opened twice.
       answer: (_, { entry }) => {
-        const existing = entry && findDiffPane(entry.layout);
+        const existing = entry && findSourceControlPane(entry.layout);
         return existing ? { tabId: existing.tabId } : undefined;
       },
-      command: () => ({ type: "new-tab", tab: createDiffTab() }),
+      command: () => ({ type: "new-tab", tab: createSourceControlTab() }),
       respond: ({ command }) => ({ tabId: command.tab.id }),
     }),
   },

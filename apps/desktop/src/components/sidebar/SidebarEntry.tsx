@@ -57,7 +57,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
   const collapsedProjectIds = useProjectStore((s) => s.collapsedProjectIds);
   const toggleProjectCollapsed = useProjectStore((s) => s.toggleProjectCollapsed);
   const setProjectExpanded = useProjectStore((s) => s.setProjectExpanded);
-  const openOrFocusDiff = useAppStore((s) => s.openOrFocusDiff);
+  const openSourceControl = useAppStore((s) => s.openSourceControl);
   // While the Tasks view is shown no project is the current row,
   // same as on Home.
   const homeActive = useAppStore(
@@ -121,7 +121,7 @@ export function SidebarEntry(props: SidebarEntryProps) {
         dragDisabled={dragDisabled}
         onOpenDiff={(wsIdx) => {
           selectWorkspace(project.id, wsIdx);
-          openOrFocusDiff();
+          openSourceControl();
         }}
       />
     );

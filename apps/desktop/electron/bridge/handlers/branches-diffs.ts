@@ -4,7 +4,7 @@
  *
  * **`git.commit` and `git.push` are the reason `mutating` has the wording it
  * does.** They are the clearest case of "moves state the other viewers of
- * this host will see": a commit rewrites what every sidebar badge, diff pane
+ * this host will see": a commit rewrites what every sidebar badge, Source Control
  * and PR check on this machine is looking at, and a push does it on the
  * remote as well. Both leave an audit line when a device makes them and none
  * when the user at the machine does.
@@ -223,7 +223,7 @@ export const diffs = {
 
 // Nothing here merely reads, and nothing is local-only: committing from a
 // phone is the whole point of the bridge. Staging moves the index every
-// other viewer's diff pane reads; `discard` and `stash` take work away.
+// other viewer's Source Control reads; `discard` and `stash` take work away.
 export const git = {
   stage: method(gitStage, { mutating: true }),
   unstage: method(gitUnstage, { mutating: true }),

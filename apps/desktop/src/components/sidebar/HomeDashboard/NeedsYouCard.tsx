@@ -130,14 +130,14 @@ function cardActions(
         size="sm"
         className={secondaryClass}
         onClick={() => {
-          // Same order as the sidebar's "Open diff": select, then open
-          // (or focus) the diff in the now-active workspace.
+          // Same order as the sidebar's "Open Source Control": select, then
+          // open (or focus) it in the now-active workspace.
           if (onOpenWorkspace(card.project, workspace)) {
-            useAppStore.getState().openOrFocusDiff();
+            useAppStore.getState().openSourceControl();
           }
         }}
       >
-        Open diff
+        Source Control
       </Button>
     ) : null;
     return { primary: focus("Review"), secondary: openDiff };

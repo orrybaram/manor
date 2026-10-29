@@ -451,6 +451,27 @@ describe("split-pane-at", () => {
     ]);
   });
 
+  it("writes a file pane's start on Source Control onto the new leaf", () => {
+    const { layout } = applyLayoutCommand(stateOf(onePanel()), {
+      type: "split-pane-at",
+      paneId: "pane-1",
+      direction: "horizontal",
+      position: "second",
+      newPaneId: "pane-new",
+      contentType: "file",
+      startsOn: "scm",
+    });
+
+    const root = tabOf(layout, "panel-1", "tab-1").rootNode;
+    if (root.type !== "split") throw new Error("expected a split");
+    expect(root.second).toEqual({
+      type: "leaf",
+      paneId: "pane-new",
+      contentType: "file",
+      startsOn: "scm",
+    });
+  });
+
   it("writes contentType and url onto the new leaf", () => {
     const { layout } = applyLayoutCommand(stateOf(onePanel()), {
       type: "split-pane-at",
@@ -954,11 +975,51 @@ describe("set-pane-content-type", () => {
     const { layout } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "set-pane-content-type",
       paneId: "pane-2",
-      contentType: "diff",
+      contentType: "file",
     });
 
     expect(tabOf(layout, "panel-2", "tab-2").rootNode).toMatchObject({
-      contentType: "diff",
+      contentType: "file",
+    });
+  });
+
+  it("marks a file pane to start on Source Control, and keeps the mark while it stays a file pane", () => {
+    const { layout } = applyLayoutCommand(stateOf(twoPanels()), {
+      type: "set-pane-content-type",
+      paneId: "pane-2",
+      contentType: "file",
+      startsOn: "scm",
+    });
+    expect(tabOf(layout, "panel-2", "tab-2").rootNode).toEqual({
+      type: "leaf",
+      paneId: "pane-2",
+      contentType: "file",
+      startsOn: "scm",
+    });
+
+    const opened = applyLayoutCommand(stateOf(layout), {
+      type: "set-pane-content-type",
+      paneId: "pane-2",
+      contentType: "file",
+      filePath: "src/a.ts",
+    });
+    expect(tabOf(opened.layout, "panel-2", "tab-2").rootNode).toEqual({
+      type: "leaf",
+      paneId: "pane-2",
+      contentType: "file",
+      filePath: "src/a.ts",
+      startsOn: "scm",
+    });
+
+    const retyped = applyLayoutCommand(stateOf(opened.layout), {
+      type: "set-pane-content-type",
+      paneId: "pane-2",
+      contentType: "browser",
+    });
+    expect(tabOf(retyped.layout, "panel-2", "tab-2").rootNode).toEqual({
+      type: "leaf",
+      paneId: "pane-2",
+      contentType: "browser",
     });
   });
 });
@@ -1326,7 +1387,7 @@ describe("an id that is not in the tree", () => {
     },
     { type: "extract-pane-to-tab", paneId: "pane-nope", newTabId: "tab-new" },
     { type: "close-pane", paneId: "pane-nope" },
-    { type: "set-pane-content-type", paneId: "pane-nope", contentType: "diff" },
+    { type: "set-pane-content-type", paneId: "pane-nope", contentType: "file" },
     {
       type: "split-panel",
       panelId: "panel-nope",

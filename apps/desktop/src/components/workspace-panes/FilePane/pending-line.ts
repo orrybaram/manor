@@ -17,7 +17,12 @@ export type LineRequest = {
 };
 
 export function createPendingLines() {
-  const byPane = new Map<string, LineRequest>();
+  return createPendingRequests<LineRequest>();
+}
+
+/** A request per pane that waits for its file to open; lines and comments share it. */
+export function createPendingRequests<T extends { path: string }>() {
+  const byPane = new Map<string, T>();
   const listeners = new Map<string, Set<() => void>>();
 
   return {
@@ -26,21 +31,21 @@ export function createPendingLines() {
      * if it has). Replaces the pane's earlier request; returns this one, to
      * tell it apart from a later one in `waiting`.
      */
-    request(paneId: string, request: LineRequest): LineRequest {
+    request(paneId: string, request: T): T {
       const stored = { ...request };
       byPane.set(paneId, stored);
       for (const listener of listeners.get(paneId) ?? []) listener();
       return stored;
     },
     /** The line waiting for `path` in `paneId`, taken: it is answered once. */
-    take(paneId: string, path: string): LineRequest | null {
+    take(paneId: string, path: string): T | null {
       const pending = byPane.get(paneId);
       if (!pending || pending.path !== path) return null;
       byPane.delete(paneId);
       return { ...pending };
     },
     /** The request waiting in `paneId`, untaken, as `request` returned it. */
-    waiting(paneId: string): LineRequest | null {
+    waiting(paneId: string): T | null {
       return byPane.get(paneId) ?? null;
     },
     /** Drop `paneId`'s request: the open it waited for isn't happening. */

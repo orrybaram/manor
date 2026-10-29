@@ -103,10 +103,9 @@ export function spawnBoundsFor(
   };
 }
 
-// Lucide `globe` / `git-compare-arrows` / `file-code`, inlined for the drag image (a raw DOM
+// Lucide `globe` / `file-code`, inlined for the drag image (a raw DOM
 // element, so it can't use the React icon components the tab/pane renders).
 const GLOBE_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg>`;
-const DIFF_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="3"/><path d="M12 6h5a2 2 0 0 1 2 2v7"/><path d="m15 9-3-3 3-3"/><circle cx="19" cy="18" r="3"/><path d="M12 18H7a2 2 0 0 1-2-2V9"/><path d="m9 15 3 3-3 3"/></svg>`;
 const FILE_SVG = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M10 12.5 8 15l2 2.5"/><path d="m14 12.5 2 2.5-2 2.5"/></svg>`;
 
 /**
@@ -127,8 +126,6 @@ export function buildDragImage(
     iconHtml = favicon
       ? `<img src="${favicon.replace(/"/g, "&quot;")}" width="12" height="12" />`
       : GLOBE_SVG;
-  } else if (contentType === "diff") {
-    iconHtml = DIFF_SVG;
   } else if (contentType === "file") {
     iconHtml = FILE_SVG;
   }

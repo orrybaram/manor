@@ -22,24 +22,21 @@ import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { useLayoutMode } from "../../../../hooks/useLayoutMode";
 import { cursorIndex, expandedForFiles, treeKey, visibleTreeRows } from "../drawer-tree";
 import type { FilesWorkspace } from "../open-file-watches";
-import {
-  changeBadge,
-  foldersWithChanges,
-  groupChangesByAuthor,
-  type FileChange,
-} from "../file-changes";
+import { changeBadge, foldersWithChanges, type FileChange } from "../file-changes";
 import type { WorkspaceChanges } from "../workspace-changes";
-import { AgentChip } from "../AgentChip";
 import { useFileDrawerLayout } from "./file-drawer-layout";
 import { TreeRowMenu, type MenuTarget } from "./TreeRowMenu";
 import styles from "./FileDrawer.module.css";
 
 const ROW_HEIGHT = 22;
-/** A finger's row: `FileDrawer.module.css`'s phone `.changeRow` matches it. */
+/** A finger's row: `SourceControl.module.css`'s phone `.row` matches it. */
 const PHONE_ROW_HEIGHT = 36;
 
-/** The workspace's tree, or the flat list of its changed files by agent. */
-export type DrawerMode = "files" | "changes";
+/** A Source Control row's main button, which opens its diff. */
+const SCM_ROW = '[data-testid="scm-row"] > button:first-child';
+
+/** The workspace's tree, or Source Control. */
+export type DrawerMode = "files" | "scm";
 
 type FileDrawerProps = {
   workspace: FilesWorkspace;
@@ -60,14 +57,18 @@ type FileDrawerProps = {
   onClose: () => void;
   /** Its edge: resizes it, and collapses it into the strip. */
   resizeHandle?: ReactNode;
+  /** Source Control's head controls (its Local/Branch toggle). */
+  scmHead?: ReactNode;
+  /** Source Control's list, shown in place of the tree. */
+  scm?: ReactNode;
 };
 
 /**
  * The drawer beside the editor (over it, on a phone). Files: the workspace's tree, listed each time
  * it opens (one `files.list`), starting with only the folders on the way to
  * the open file and to changed files expanded; changed files carry their
- * badge and their folders a dot. Changed by agents: the changed files, flat,
- * under the agent that last wrote each.
+ * badge and their folders a dot. Source Control: whatever the pane renders
+ * for it (`SourceControl`).
  */
 export function FileDrawer({
   workspace,
@@ -81,6 +82,8 @@ export function FileDrawer({
   onRenamed,
   onClose,
   resizeHandle,
+  scmHead,
+  scm,
 }: FileDrawerProps) {
   const width = useFileDrawerLayout((s) => s.width);
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -101,7 +104,7 @@ export function FileDrawer({
     const drawer = drawerRef.current;
     const target =
       drawer?.querySelector<HTMLElement>('[data-testid="file-pane-tree"]') ??
-      drawer?.querySelector<HTMLElement>('[data-testid="file-pane-change-row"][aria-current]') ??
+      drawer?.querySelector<HTMLElement>(`${SCM_ROW}[aria-current]`) ??
       drawer;
     target?.focus({ preventScroll: true });
   });
@@ -121,16 +124,22 @@ export function FileDrawer({
           onClose();
           return;
         }
-        if (mode === "changes" && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+        // Source Control's rows take the arrows; its commit message keeps its own.
+        if (
+          mode === "scm" &&
+          (e.key === "ArrowDown" || e.key === "ArrowUp") &&
+          !isTextEntry(e.target)
+        ) {
           e.preventDefault();
           stepChangeRow(e.currentTarget, e.key === "ArrowDown" ? 1 : -1);
         }
       }}
     >
       <div className={styles.head}>
-        <span>{mode === "changes" ? "Changed by agents" : "Files"}</span>
+        <span>{mode === "scm" ? "Source Control" : "Files"}</span>
         <span className={styles.headSpacer} />
-        {canWrite && (
+        {mode === "scm" && scmHead}
+        {canWrite && mode === "files" && (
           <Tooltip label="New file">
             <button
               type="button"
@@ -159,8 +168,8 @@ export function FileDrawer({
           }}
         />
       )}
-      {mode === "changes" ? (
-        <ChangesList changes={changes} openFile={openFile} onPick={onPick} />
+      {mode === "scm" ? (
+        scm
       ) : listing.data ? (
         <TreeList
           workspace={workspace}
@@ -404,38 +413,47 @@ function TreeList({
           )}
         </div>
       </ContextMenu.Trigger>
-      <ContextMenu.Portal>
-        {menuTarget && (
-          <TreeRowMenu
-            workspace={workspace}
-            target={menuTarget}
-            canWrite={canWrite}
-            renameBlocked={
-              menuTarget.path === openFile && openFileDirty
-                ? "Save or discard your edits first"
-                : null
-            }
-            onRename={(path) => {
-              pendingRename.current = path;
-            }}
-            onDelete={setDeleting}
-            onClosed={() => {
-              if (pendingRename.current === null) return;
-              setRenaming(pendingRename.current);
-              pendingRename.current = null;
-            }}
-          />
-        )}
-      </ContextMenu.Portal>
-      <ConfirmDialog
-        open={deleting !== null}
-        title={`Delete ${deleting?.slice(deleting.lastIndexOf("/") + 1) ?? ""}?`}
-        description={`${deleting ?? ""} is deleted from the workspace. This can't be undone.`}
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={() => (deleting ? deleteFile(deleting) : undefined)}
-        onCancel={() => setDeleting(null)}
-      />
+      {/* Escape closes only the menu or the dialog: React bubbles it, through
+          the portal, to the drawer, which would close on it too. */}
+      <div
+        className={styles.dialogHost}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") e.stopPropagation();
+        }}
+      >
+        <ContextMenu.Portal>
+          {menuTarget && (
+            <TreeRowMenu
+              workspace={workspace}
+              target={menuTarget}
+              canWrite={canWrite}
+              renameBlocked={
+                menuTarget.path === openFile && openFileDirty
+                  ? "Save or discard your edits first"
+                  : null
+              }
+              onRename={(path) => {
+                pendingRename.current = path;
+              }}
+              onDelete={setDeleting}
+              onClosed={() => {
+                if (pendingRename.current === null) return;
+                setRenaming(pendingRename.current);
+                pendingRename.current = null;
+              }}
+            />
+          )}
+        </ContextMenu.Portal>
+        <ConfirmDialog
+          open={deleting !== null}
+          title={`Delete ${deleting?.slice(deleting.lastIndexOf("/") + 1) ?? ""}?`}
+          description={`${deleting ?? ""} is deleted from the workspace. This can't be undone.`}
+          confirmLabel="Delete"
+          confirmVariant="danger"
+          onConfirm={() => (deleting ? deleteFile(deleting) : undefined)}
+          onCancel={() => setDeleting(null)}
+        />
+      </div>
     </ContextMenu.Root>
   );
 }
@@ -481,91 +499,6 @@ function ChangeBadge({ change }: { change: FileChange }) {
     <span className={styles.badge} data-testid="file-pane-change-badge">
       {changeBadge(change.status)}
     </span>
-  );
-}
-
-/**
- * Changed by agents: each agent's changed files under its chip, the latest
- * writer first, then the files no agent's hooks claimed. A deleted file is
- * listed but has nothing to open.
- */
-function ChangesList({
-  changes,
-  openFile,
-  onPick,
-}: {
-  changes: WorkspaceChanges | null;
-  openFile: string | null;
-  onPick: (path: string) => void;
-}) {
-  const groups = useMemo(
-    () =>
-      changes
-        ? groupChangesByAuthor(changes.files.values(), changes.authors)
-        : [],
-    [changes],
-  );
-  if (!changes) {
-    return (
-      <div className={styles.note} data-testid="file-pane-drawer-status">
-        Loading…
-      </div>
-    );
-  }
-  if (groups.length === 0) {
-    return (
-      <div className={styles.note} data-testid="file-pane-changes-empty">
-        No changes
-      </div>
-    );
-  }
-  return (
-    <div className={styles.tree} data-testid="file-pane-changes">
-      {groups.map((group) => (
-        <div
-          key={group.author?.paneId ?? ""}
-          className={styles.group}
-          data-testid="file-pane-changes-group"
-        >
-          <div className={styles.groupHead}>
-            {group.author ? (
-              <AgentChip author={group.author} />
-            ) : (
-              <span className={styles.groupLabel}>Other changes</span>
-            )}
-          </div>
-          {group.files.map((change) => {
-            const slash = change.path.lastIndexOf("/");
-            const name = change.path.slice(slash + 1);
-            const folder = slash < 0 ? "" : change.path.slice(0, slash);
-            const deleted = change.status === "deleted";
-            const selected = change.path === openFile;
-            return (
-              <button
-                key={change.path}
-                type="button"
-                className={`${styles.fileRow} ${styles.changeRow} ${selected ? styles.fileRowSelected : ""} ${styles[`status_${change.status}`]}`}
-                title={deleted ? `${change.path} (deleted)` : change.path}
-                disabled={deleted}
-                aria-current={selected ? "true" : undefined}
-                data-testid="file-pane-change-row"
-                data-path={change.path}
-                data-change={change.status}
-                onClick={() => onPick(change.path)}
-              >
-                {createElement(fileIconFor(change.path), {
-                  size: 12,
-                  className: styles.fileIcon,
-                })}
-                <span className={styles.fileName}>{name}</span>
-                {folder && <span className={styles.folder}>{folder}</span>}
-                <ChangeBadge change={change} />
-              </button>
-            );
-          })}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -747,13 +680,9 @@ function NewFileInput({
   );
 }
 
-/** Move focus `step` rows through Changed by agents' openable rows. */
+/** Move focus `step` rows through Source Control's rows. */
 function stepChangeRow(drawer: HTMLElement, step: 1 | -1): void {
-  const rows = [
-    ...drawer.querySelectorAll<HTMLButtonElement>(
-      '[data-testid="file-pane-change-row"]:not(:disabled)',
-    ),
-  ];
+  const rows = [...drawer.querySelectorAll<HTMLButtonElement>(SCM_ROW)];
   if (rows.length === 0) return;
   const at = rows.indexOf(document.activeElement as HTMLButtonElement);
   const next =
@@ -761,4 +690,13 @@ function stepChangeRow(drawer: HTMLElement, step: 1 | -1): void {
       ? (rows.find((row) => row.hasAttribute("aria-current")) ?? rows[0])
       : rows[Math.min(Math.max(at + step, 0), rows.length - 1)];
   next.focus();
+}
+
+function isTextEntry(target: EventTarget): boolean {
+  return (
+    target instanceof HTMLElement &&
+    (target instanceof HTMLInputElement ||
+      target instanceof HTMLTextAreaElement ||
+      target.isContentEditable)
+  );
 }

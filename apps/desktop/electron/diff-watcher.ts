@@ -74,7 +74,7 @@ interface DiffScan {
    * A hash of HEAD, the ref's commit, `git status` (staged and unstaged
    * changes, untracked files), the content of each changed tracked file and
    * the size of each untracked one, per workspace. It changes whenever the
-   * workspace's diff or staged files may have, so an open diff pane
+   * workspace's diff or staged files may have, so an open file pane
    * re-fetches only then (sent as `diff-fingerprints-changed`).
    */
   fingerprints: Record<WorkspaceKey, string>;

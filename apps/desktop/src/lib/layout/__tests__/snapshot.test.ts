@@ -8,7 +8,7 @@ const WS_PATH = "/test/workspace";
 
 function leaf(
   paneId: string,
-  extra?: { contentType?: "terminal" | "browser" | "diff"; url?: string },
+  extra?: { contentType?: "terminal" | "browser" | "file"; url?: string },
 ): PaneNode {
   return { type: "leaf", paneId, ...extra };
 }

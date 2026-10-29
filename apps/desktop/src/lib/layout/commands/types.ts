@@ -65,6 +65,8 @@ export type LayoutCommand =
       url?: string;
       /** A file pane's open file, workspace-relative. */
       filePath?: string;
+      /** A file pane that starts on Source Control (`PaneNode.startsOn`). */
+      startsOn?: "scm";
     }
   | {
       type: "move-pane";
@@ -105,6 +107,8 @@ export type LayoutCommand =
       url?: string;
       /** A file pane's open file, workspace-relative. */
       filePath?: string;
+      /** A file pane that starts on Source Control (`PaneNode.startsOn`). */
+      startsOn?: "scm";
     }
   | {
       type: "split-panel";
@@ -145,7 +149,7 @@ export type LayoutCommand =
        *
        * Deliberately not `new-tab` + `split-panel`: `split-panel` *moves* the
        * source panel's selected tab into the new panel, which is not what
-       * "open the diff beside this" means.
+       * "open Source Control beside this" means.
        */
       type: "split-panel-with-new-tab";
       tab: Tab;

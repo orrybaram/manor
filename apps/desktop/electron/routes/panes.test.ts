@@ -126,6 +126,24 @@ describe("panes/tabs routes", () => {
       expect(tab.rootNode.type).toBe("split");
     });
 
+    it("still takes the retired diff as a file pane on Source Control", async () => {
+      const { paneId } = await seedTab(WS);
+      const res = await call(route, deps, {
+        body: { paneId, direction: "horizontal", contentType: "diff", workspacePath: WS },
+      });
+      expect(res.status).toBe(200);
+
+      const entry = store.get(WS)!;
+      const root = entry.layout.panels[Object.keys(entry.layout.panels)[0]].tabs[0].rootNode;
+      if (root.type !== "split") throw new Error("expected a split");
+      expect(root.second).toEqual({
+        type: "leaf",
+        paneId: res.body.paneId,
+        contentType: "file",
+        startsOn: "scm",
+      });
+    });
+
     it("resolves the workspace from the named paneId when workspacePath is omitted", async () => {
       const { paneId } = await seedTab(WS);
       const res = await call(route, deps, {
@@ -401,7 +419,7 @@ describe("panes/tabs routes", () => {
   describe("POST /tabs/diff", () => {
     const route = findRoute(paneRoutes, "POST", "/tabs/diff");
 
-    it("creates a diff tab, then returns the same one on a second call", async () => {
+    it("creates a file tab on Source Control, then returns the same one on a second call", async () => {
       await seedTab(WS);
       const first = await call(route, deps, { body: { workspacePath: WS } });
       expect(first.status).toBe(200);
@@ -411,7 +429,7 @@ describe("panes/tabs routes", () => {
       expect(second.body.tabId).toBe(first.body.tabId);
     });
 
-    it("finds a diff pane split into another tab, not only a tab's root", async () => {
+    it("finds a Source Control pane split into another tab, not only a tab's root", async () => {
       const { tabId, paneId } = await seedTab(WS);
       await store.apply(
         WS,
@@ -420,8 +438,9 @@ describe("panes/tabs routes", () => {
           paneId,
           direction: "horizontal",
           position: "second",
-          newPaneId: "pane-diff",
-          contentType: "diff",
+          newPaneId: "pane-scm",
+          contentType: "file",
+          startsOn: "scm",
         },
         { kind: "route", id: "test" },
       );

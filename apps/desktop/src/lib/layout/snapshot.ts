@@ -22,7 +22,7 @@ import { focusedPaneOf, selectedTabOf, type WorkspaceViewport } from "./viewport
 /** Serializable snapshot of a single pane. */
 export interface PaneSnapshot {
   paneId: string;
-  contentType: "terminal" | "browser" | "diff" | "file";
+  contentType: "terminal" | "browser" | "file";
   url?: string;
   /** A file pane's open file, workspace-relative. */
   filePath?: string;

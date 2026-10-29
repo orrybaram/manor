@@ -4,9 +4,7 @@ import path from "path";
 import type { Page, TestInfo } from "@playwright/test";
 import {
   bootWorkspaceWithTerminal,
-  createWorkspace,
   expect,
-  importSeededProject,
   test,
 } from "./fixtures";
 import {
@@ -384,22 +382,6 @@ test("the file pane asks before converting or closing over unsaved edits, and a 
   await window.screenshot({ path: shot(testInfo, "narrow-window-editable") });
 });
 
-async function waitForWorktree(tempHome: string): Promise<string> {
-  const root = path.join(tempHome, ".manor", "worktrees");
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (fs.existsSync(root)) {
-      for (const project of fs.readdirSync(root)) {
-        for (const ws of fs.readdirSync(path.join(root, project))) {
-          const dir = path.join(root, project, ws);
-          if (fs.existsSync(path.join(dir, ".git"))) return dir;
-        }
-      }
-    }
-    await new Promise((r) => setTimeout(r, 200));
-  }
-  throw new Error(`no worktree under ${root}`);
-}
-
 function git(cwd: string, args: string): void {
   execSync(`git ${args}`, {
     cwd,
@@ -418,143 +400,42 @@ function git(cwd: string, args: string): void {
 const activeLine = (window: Page) =>
   pane(window).locator(".cm-lineNumbers .cm-activeLineGutter");
 
-test("Open File in the diff pane opens the changed file in a file pane beside it", async ({
+test("the palette's Split with Source Control opens a file pane on its Source Control", async ({
   app,
   window,
   tempHome,
 }, testInfo) => {
   test.setTimeout(180_000);
-  await importSeededProject(app, window, tempHome);
-  await createWorkspace(window, "ws-from-diff");
-  const ws = await waitForWorktree(tempHome);
-  const widget = path.join(ws, "src", "components", "Widget.tsx");
-  fs.mkdirSync(path.dirname(widget), { recursive: true });
-  fs.writeFileSync(widget, WIDGET);
-  fs.writeFileSync(path.join(ws, "src", "other.ts"), OTHER);
-  fs.writeFileSync(path.join(ws, "src", "doomed.ts"), "export const doomed = 1;\n");
-  // Two long files, one before Widget.tsx and one after it, so the list's
-  // jump to Widget.tsx has somewhere to scroll and room to land at the top.
-  const lines = (name: string, n: number) =>
-    Array.from({ length: 60 }, (_, i) => `export const ${name}${i} = ${i + n};`).join("\n") + "\n";
-  fs.writeFileSync(path.join(ws, "src", "components", "Big.tsx"), lines("big", 0));
-  fs.writeFileSync(path.join(ws, "src", "long.ts"), lines("long", 0));
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-split-scm");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
   git(ws, "add -A");
   git(ws, 'commit -qm "baseline"');
-  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
-  fs.writeFileSync(path.join(ws, "src", "other.ts"), "export const other = 2;\n");
-  fs.rmSync(path.join(ws, "src", "doomed.ts"));
-  fs.writeFileSync(path.join(ws, "src", "components", "Big.tsx"), lines("big", 1));
-  fs.writeFileSync(path.join(ws, "src", "long.ts"), lines("long", 1));
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Pressed"));
 
-  await window.keyboard.press("ControlOrMeta+Shift+g");
-  const widgetFile = window.locator('[data-file-path="src/components/Widget.tsx"]');
-  await expect(widgetFile).toBeVisible({ timeout: 60_000 });
+  // The Diff pane's old words still find it, under its new name.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("split diff");
+  const item = window.locator("[cmdk-item]", { hasText: "Split with Source Control" });
+  await expect(item).toBeVisible();
+  await expect(window.locator("[cmdk-item]", { hasText: "Split with Diff" })).toHaveCount(0);
+  await window.screenshot({ path: shot(testInfo, "palette-scm") });
+  await item.first().click();
 
-  // The diff's file list, which shares its tree with the file pane: a row per
-  // folder and per file.
-  const list = window.locator('[data-testid="diff-file-list"]');
-  const listDir = (p: string) => list.locator(`[data-testid="diff-file-list-dir"][data-path="${p}"]`);
-  const listRow = (p: string) => list.locator(`[data-testid="diff-file-list-row"][data-path="${p}"]`);
-  await expect(listDir("src")).toBeVisible();
-  await expect(listDir("src/components")).toBeVisible();
-  for (const p of [
-    "src/components/Big.tsx",
-    "src/components/Widget.tsx",
-    "src/doomed.ts",
-    "src/long.ts",
-    "src/other.ts",
-  ]) {
-    await expect(listRow(p)).toBeVisible();
-  }
-  const diffPane = window.locator('[data-testid="workspace-pane"]:visible', { has: list });
-  await window.waitForTimeout(500);
-  await diffPane.screenshot({ path: shot(testInfo, "diff-file-list") });
-
-  // A folder collapses and expands.
-  await listDir("src/components").locator("button").first().click();
-  await expect(listDir("src/components")).toHaveAttribute("data-collapsed", "true");
-  await expect(listRow("src/components/Widget.tsx")).toHaveCount(0);
-  await expect(listRow("src/other.ts")).toBeVisible();
-  await listDir("src/components").locator("button").first().click();
-  await expect(listDir("src/components")).toHaveAttribute("data-collapsed", "false");
-  await expect(listRow("src/components/Widget.tsx")).toBeVisible();
-
-  // A file's name in the list scrolls the diff to that file, under the header.
-  const widgetGap = () =>
-    window.evaluate(() => {
-      const file = document.querySelector('[data-file-path="src/components/Widget.tsx"]')!;
-      let scroller = file.parentElement;
-      while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) {
-        scroller = scroller.parentElement;
-      }
-      if (!scroller) throw new Error("no scrolling ancestor");
-      return file.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
-    });
-  expect(await widgetGap()).toBeGreaterThan(500);
-  await listRow("src/components/Widget.tsx").locator('[title="src/components/Widget.tsx"]').click();
-  await expect
-    .poll(async () => {
-      const gap = await widgetGap();
-      return gap >= -2 && gap < 250;
-    }, { timeout: 10_000 })
-    .toBe(true);
-
-  // A deleted file has nothing to open.
-  await expect(
-    window.locator('[data-file-path="src/doomed.ts"] [data-testid="diff-file-open"]'),
-  ).toHaveCount(0);
-
-  // Open File on the header: a file pane splits off to the right, on that file.
-  await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(pane(window)).toBeVisible();
+  // Beside the terminal, a file pane with nothing open, on Source Control.
   await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
-  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
-    "Widget.tsx",
-  );
-  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
-  await expect(editor).toContainText("Pressed {count} times");
-  const diffBox = (await window.locator('[data-file-path="src/other.ts"]').boundingBox())!;
-  const fileBox = (await pane(window).boundingBox())!;
-  expect(fileBox.x).toBeGreaterThan(diffBox.x);
-  await window.waitForTimeout(500);
-  await window.screenshot({ path: shot(testInfo, "from-diff") });
-
-  // With unsaved edits, opening another file from the diff asks first, in the
-  // same pane, instead of splitting again or dropping them.
-  await typeAtEnd(window, "// unsaved");
-  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toBeVisible();
-  await window.locator('[data-file-path="src/other.ts"]').click({ button: "right" });
-  await window.locator('[data-testid="diff-file-menu-open"]').click();
-  const swap = pane(window).locator('[data-testid="file-pane-swap-bar"]');
-  await expect(swap).toBeVisible();
-  await expect(swap).toContainText("Unsaved changes to Widget.tsx.");
-  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
-  await window.screenshot({ path: shot(testInfo, "from-diff-swap-confirm") });
-  await swap.locator('[data-testid="file-pane-swap-discard"]').click();
-  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
-    "other.ts",
-  );
-  await expect(editor).toContainText("export const other = 2;");
-
-  // A reused pane with its Files drawer open shows the file beside the tree.
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
-  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
-  await expect(drawer).toBeVisible();
-  await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(editor).toContainText("Pressed {count} times");
-  await expect(drawer).toBeVisible();
-  // The same file again only moves the cursor, and the tree stays.
-  await widgetFile.locator('[data-testid="diff-file-open"]').click();
-  await expect(drawer).toBeVisible();
-
-  // The file list's own menu opens a file in the file pane too.
-  await listRow("src/other.ts").click({ button: "right" });
-  await window.locator('[data-testid="diff-file-list-open"]').click();
-  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
-    "other.ts",
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  await expect(
+    drawer.locator('[data-testid="scm-row"][data-path="src/components/Widget.tsx"]'),
+  ).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  // Nothing open yet: the editor points at the changes, not the tree.
+  await expect(pane(window).locator('[data-testid="file-pane-empty"]')).toHaveText(
+    "Pick a change to see its diff",
   );
-  await expect(editor).toContainText("export const other = 2;");
-  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "split-scm") });
 });
 
 test("a file path printed in the terminal opens in a file pane at its line", async ({
@@ -646,7 +527,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await expect(
     treeRow(window, "src/components").locator('[data-testid="file-pane-dir-dot"]'),
   ).toBeVisible();
-  await expect(pane(window).locator('[data-testid="file-pane-changes-count"]')).toHaveText("2");
+  await expect(pane(window).locator('[data-testid="file-pane-scm-count"]')).toHaveText("2");
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "markers-tree") });
 
@@ -685,27 +566,433 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(editor.locator(".cm-line.cm-change-mine")).toHaveCount(0);
 
-  // Changed by agents: the agent's file under its chip, the rest under Other changes.
-  await pane(window).locator('[data-testid="file-pane-changes-button"]').click();
-  await expect(drawer).toHaveAttribute("data-mode", "changes");
-  const groups = drawer.locator('[data-testid="file-pane-changes-group"]');
-  await expect(groups).toHaveCount(2);
-  await expect(groups.nth(0).locator('[data-testid="file-pane-agent-chip"]')).toBeVisible();
+  // Source Control: both files under Changes (nothing staged yet), the
+  // agent's with its chip, the new file untracked.
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  const changesGroup = drawer.locator('[data-testid="scm-group-changes"]');
+  await expect(changesGroup.locator('[data-testid="scm-row"]')).toHaveCount(2);
+  await expect(drawer.locator('[data-testid="scm-group-staged"]')).toHaveCount(0);
+  const scmRow = (p: string) => changesGroup.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(scmRow("src/components/Widget.tsx")).toHaveAttribute("data-letter", "M");
   await expect(
-    groups.nth(0).locator('[data-testid="file-pane-change-row"][data-path="src/components/Widget.tsx"]'),
+    scmRow("src/components/Widget.tsx").locator('[data-testid="file-pane-agent-chip"]'),
   ).toBeVisible();
-  await expect(groups.nth(1)).toContainText("Other changes");
-  await expect(
-    groups.nth(1).locator('[data-testid="file-pane-change-row"][data-path="src/helper.ts"]'),
-  ).toContainText("A");
+  await expect(scmRow("src/helper.ts")).toHaveAttribute("data-letter", "U");
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "changed-list") });
 
-  // A new file is all green, with nothing to jump between.
-  await groups.nth(1).locator('[data-testid="file-pane-change-row"][data-path="src/helper.ts"]').click();
+  // A new file is all green, with nothing to jump between (opened as the
+  // plain file: a row's own click shows its diff).
+  await scmRow("src/helper.ts").hover();
+  await scmRow("src/helper.ts").locator('[data-testid="scm-open"]').click();
   await expect(editor).toContainText("export const helper = 1;");
   await expect(editor.locator(".cm-line.cm-change-added")).toHaveCount(1);
   await expect(header(window).locator('[data-testid="file-pane-edit-jump"]')).toBeHidden();
+});
+
+test("Source Control stages, unstages and discards a workspace's changes", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Pressed"));
+  fs.writeFileSync(path.join(ws, "src", "helper.ts"), "export const helper = 1;\n");
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
+  const staged = drawer.locator('[data-testid="scm-group-staged"]');
+  const changes = drawer.locator('[data-testid="scm-group-changes"]');
+  const row = (group: typeof drawer, p: string) =>
+    group.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(row(changes, "src/helper.ts")).toHaveAttribute("data-letter", "U", { timeout: 30_000 });
+  await expect(row(changes, "src/components/Widget.tsx")).toHaveAttribute("data-letter", "M");
+
+  // Stage: the new file moves to Staged and reads A.
+  await row(changes, "src/helper.ts").hover();
+  await row(changes, "src/helper.ts").locator('[data-testid="scm-stage"]').click();
+  await expect(row(staged, "src/helper.ts")).toHaveAttribute("data-letter", "A");
+  await expect.poll(() => execSync("git diff --cached --name-only", { cwd: ws }).toString().trim()).toBe(
+    "src/helper.ts",
+  );
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "scm-staged") });
+
+  // Unstage: back under Changes, once the stage has answered.
+  const unstage = row(staged, "src/helper.ts").locator('[data-testid="scm-unstage"]');
+  await row(staged, "src/helper.ts").hover();
+  await expect(unstage).not.toHaveAttribute("aria-disabled", "true");
+  await unstage.click();
+  await expect(row(changes, "src/helper.ts")).toHaveAttribute("data-letter", "U");
+  await expect(staged).toHaveCount(0);
+
+  // Discard asks first; Cancel keeps the change, Discard drops it.
+  const widgetRow = row(changes, "src/components/Widget.tsx");
+  await widgetRow.hover();
+  await widgetRow.locator('[data-testid="scm-discard"]').click();
+  const dialog = window.getByRole("dialog");
+  await expect(dialog).toContainText("Discard changes?");
+  await window.screenshot({ path: shot(testInfo, "scm-discard-confirm") });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(widgetRow).toBeVisible();
+  await widgetRow.hover();
+  await widgetRow.locator('[data-testid="scm-discard"]').click();
+  await window.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+  await expect(widgetRow).toHaveCount(0);
+  expect(fs.readFileSync(path.join(ws, "src", "components", "Widget.tsx"), "utf8")).toBe(WIDGET);
+
+  // Branch: what the workspace's branch changed since it left the project's
+  // default branch (the fixture's `main`). Move `main` up to the baseline
+  // (it is checked out in the project's own folder, so by ref, not by
+  // checkout), then commit a change here that `main` doesn't have.
+  git(ws, "update-ref refs/heads/main HEAD");
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Tapped"));
+  git(ws, "commit -qam \"Tap, not click\"");
+  await drawer.locator('[data-testid="scm-mode"] [data-value="branch"]').click();
+  await expect(drawer.locator('[data-testid="scm"]')).toHaveAttribute("data-view", "branch");
+  const branchGroup = drawer.locator('[data-testid="scm-group-branch"]');
+  const branchRow = row(branchGroup, "src/components/Widget.tsx");
+  await expect(branchRow).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  await window.screenshot({ path: shot(testInfo, "scm-branch") });
+
+  // Its row shows the file's diff against `main`: the committed change, old line above new.
+  await branchRow.locator("button").first().click();
+  await expect(pane(window).locator('[data-testid="file-pane-diff-tag"]')).toHaveText("Diff vs main");
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor.locator(".cm-deletedChunk")).toContainText("Clicked {count} times");
+  await expect(editor.locator(".cm-changedLine")).toContainText("Tapped {count} times");
+  await window.screenshot({ path: shot(testInfo, "scm-branch-diff") });
+});
+
+test("a Source Control row shows its file's diff in the editor, which edits and saves", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  installLightTheme(tempHome);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm-diff");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.writeFileSync(path.join(ws, "src", "doomed.ts"), "export const doomed = 1;\n");
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
+  fs.rmSync(path.join(ws, "src", "doomed.ts"));
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const row = (p: string) => drawer.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(row("src/components/Widget.tsx")).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+
+  // The row's click: the file's diff vs HEAD, the old line struck above the new.
+  await row("src/components/Widget.tsx").locator("button").first().click();
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  const tag = pane(window).locator('[data-testid="file-pane-diff-tag"]');
+  await expect(tag).toHaveText("Diff vs HEAD");
+  await expect(editor.locator(".cm-deletedChunk")).toContainText("Clicked {count} times");
+  await expect(editor.locator(".cm-changedLine")).toContainText("Pressed {count} times");
+  await expect(editor.locator(".cm-collapsedLines").first()).toContainText("unchanged lines");
+  await expect(pane(window).locator('[data-testid="file-pane-diff-stale"]')).toHaveCount(0);
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "diff-dark") });
+
+  // The working side edits and saves like the plain editor.
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.type(" // from the diff");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toBeVisible();
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect.poll(() => fs.readFileSync(widget, "utf8")).toContain("Pressed {count} times // from the diff");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toHaveCount(0);
+  // Saved, the diff still stands against HEAD.
+  await expect(editor.locator(".cm-deletedChunk")).toContainText("Clicked {count} times");
+  await expect(editor.locator(".cm-changedLine")).toContainText("// from the diff");
+  await expect(pane(window).locator('[data-testid="file-pane-diff-stale"]')).toHaveCount(0);
+
+  // Unsaved edits ask before another row's diff, deleted or not, and Cancel
+  // leaves this file's diff as it was.
+  const swapBar = pane(window).locator('[data-testid="file-pane-swap-bar"]');
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.type("!");
+  await drawer.locator('[data-testid="scm-row"][data-path="src/doomed.ts"] button').first().click();
+  await expect(swapBar).toBeVisible();
+  await expect(pane(window).locator('[data-testid="file-pane-deleted-diff"]')).toHaveCount(0);
+  await pane(window).locator('[data-testid="file-pane-swap-cancel"]').click();
+  await expect(swapBar).toHaveCount(0);
+  await expect(tag).toHaveText("Diff vs HEAD");
+  await expect(editor.locator(".cm-deletedChunk")).toContainText("Clicked {count} times");
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.press("Backspace");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toHaveCount(0);
+
+  // Open file: the plain editor, same file, with its change marks back.
+  await pane(window).locator('[data-testid="file-pane-open-plain"]').click();
+  await expect(tag).toHaveCount(0);
+  await expect(editor.locator(".cm-deletedChunk")).toHaveCount(0);
+  await expect(editor).toContainText("Pressed {count} times // from the diff");
+  await expect(editor.locator(".cm-line.cm-change-agent").first()).toBeVisible({ timeout: 10_000 });
+
+  // A deleted file: its old content, all removed, read-only.
+  await drawer.locator('[data-testid="scm-row"][data-path="src/doomed.ts"] button').first().click();
+  const deleted = pane(window).locator('[data-testid="file-pane-deleted-diff"]');
+  await expect(deleted.locator(".cm-deletedChunk")).toContainText("export const doomed = 1;");
+  await expect(tag).toHaveText("Diff vs HEAD");
+  await window.screenshot({ path: shot(testInfo, "diff-deleted") });
+
+  // Close diff goes back to the file it was opened over.
+  await pane(window).locator('[data-testid="file-pane-close-diff"]').click();
+  await expect(deleted).toHaveCount(0);
+  await expect(editor).toContainText("Pressed {count} times // from the diff");
+  await drawer.locator('[data-testid="scm-row"][data-path="src/doomed.ts"] button').first().click();
+  await expect(deleted.locator(".cm-deletedChunk")).toContainText("export const doomed = 1;");
+
+  // Picking from the tree shows the plain file again.
+  await pane(window).locator('[data-testid="file-pane-files-button"]').click();
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  await expect(deleted).toHaveCount(0);
+  await expect(tag).toHaveCount(0);
+  await expect(editor).toContainText("Pressed {count} times // from the diff");
+
+  // Light theme.
+  await useLightTheme(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  await row("src/components/Widget.tsx").locator("button").first().click();
+  await expect(editor.locator(".cm-deletedChunk")).toBeVisible();
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "diff-light") });
+});
+
+test("selected lines in a file's diff take a review comment, shown as a card under them", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  installLightTheme(tempHome);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-diff-comments");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  const other = path.join(ws, "src", "other.ts");
+  fs.writeFileSync(other, "export const other = 1;\n");
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
+  fs.writeFileSync(other, "export const other = 2;\n");
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const row = (p: string) => drawer.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(row("src/components/Widget.tsx")).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  await row("src/components/Widget.tsx").locator("button").first().click();
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor.locator(".cm-changedLine")).toContainText("Pressed {count} times");
+
+  // Select the <button> line and the changed one under it: the chip offers a comment.
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.press("Shift+ArrowUp");
+  const chip = window.locator('[data-testid="diff-comment-chip"]');
+  await expect(chip).toBeVisible();
+  await window.screenshot({ path: shot(testInfo, "comment-chip") });
+
+  // The composer opens under the lines; Save adds the card there.
+  await chip.click();
+  const composer = editor.locator('[data-testid="diff-comment-composer"]');
+  await expect(composer).toContainText("L7–L8");
+  await composer.locator("textarea").fill("Why the rename?");
+  await window.screenshot({ path: shot(testInfo, "comment-composer") });
+  await composer.locator('[data-testid="diff-comment-save"]').click();
+  const card = editor.locator('[data-testid="diff-comment-card"]');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("You · L7–L8");
+  await expect(card).toContainText("Why the rename?");
+  await expect(composer).toHaveCount(0);
+  await expect(editor.locator(".cm-gutterElement.cm-commentedLine")).not.toHaveCount(0);
+  await window.screenshot({ path: shot(testInfo, "comment-card") });
+
+  // Edit it in place.
+  await card.hover();
+  await card.locator('[data-testid="diff-comment-edit"]').click();
+  await expect(composer.locator("textarea")).toHaveValue("Why the rename?");
+  await composer.locator("textarea").fill("Why the rename? Keep Clicked.");
+  await window.keyboard.press("ControlOrMeta+Enter");
+  await expect(card).toContainText("Keep Clicked.");
+
+  // Another file's diff and back: the card is still under its lines.
+  await row("src/other.ts").locator("button").first().click();
+  await expect(editor.locator(".cm-changedLine")).toContainText("other = 2");
+  await expect(card).toHaveCount(0);
+  await row("src/components/Widget.tsx").locator("button").first().click();
+  await expect(card).toContainText("You · L7–L8");
+  await expect(card).toContainText("Keep Clicked.");
+
+  // A line typed above moves it down with its lines.
+  await editor.locator(".cm-line").first().click();
+  await window.keyboard.press("Home");
+  await window.keyboard.type("// top\n");
+  await expect(card).toContainText("You · L8–L9");
+
+  // Delete it.
+  await card.hover();
+  await card.locator('[data-testid="diff-comment-delete"]').click();
+  await expect(card).toHaveCount(0);
+  await expect(editor.locator(".cm-gutterElement.cm-commentedLine")).toHaveCount(0);
+});
+
+test("Source Control lists the review's comments, each opening its card, and the diff floats Send", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  installLightTheme(tempHome);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-review-section");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET.replace("Clicked", "Pressed"));
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const row = drawer.locator('[data-testid="scm-row"][data-path="src/components/Widget.tsx"]');
+  await expect(row).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  await row.locator("button").first().click();
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor.locator(".cm-changedLine")).toContainText("Pressed {count} times");
+
+  // No drafts: no section, no floating bar.
+  const section = drawer.locator('[data-testid="scm-review-section"]');
+  const floatBar = pane(window).locator('[data-testid="review-float-bar"]');
+  await expect(section).toHaveCount(0);
+  await expect(floatBar).toHaveCount(0);
+
+  // Comment on the changed line and the one above it.
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.press("Shift+ArrowUp");
+  await window.locator('[data-testid="diff-comment-chip"]').click();
+  const composer = editor.locator('[data-testid="diff-comment-composer"]');
+  await composer.locator("textarea").fill("Why the rename?");
+  await composer.locator('[data-testid="diff-comment-save"]').click();
+  const card = editor.locator('[data-testid="diff-comment-card"]');
+  await expect(card).toHaveCount(1);
+
+  // The section lists it, pinned under the changes; the diff floats the bar.
+  const item = section.locator('[data-testid="scm-review-item"]');
+  await expect(item).toHaveCount(1);
+  await expect(item).toContainText("Widget.tsx:7–8");
+  await expect(item).toContainText("Why the rename?");
+  await expect(section.locator('[data-testid="scm-review-send"]')).toContainText("Send to");
+  await expect(floatBar).toBeVisible();
+  await expect(floatBar).toContainText("1 comment");
+  await expect(floatBar.locator('[data-testid="review-float-send"]')).toBeVisible();
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "review-float") });
+
+  // The bar's count lists the comments too.
+  await floatBar.getByLabel("Jump to a comment").click();
+  const list = window.locator('[data-testid="review-float-list"]');
+  await expect(list).toContainText("Why the rename?");
+  await window.keyboard.press("Escape");
+  await expect(list).toHaveCount(0);
+
+  // From the plain file: the item opens the diff and shows its card.
+  await pane(window).locator('[data-testid="file-pane-open-plain"]').click();
+  await expect(card).toHaveCount(0);
+  await expect(floatBar).toHaveCount(0);
+  await expect(section).toBeVisible();
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "review-section") });
+  await item.click();
+  await expect(pane(window).locator('[data-testid="file-pane-diff-tag"]')).toContainText("Diff vs HEAD");
+  await expect(card).toBeVisible();
+  await expect(card).toContainText("Why the rename?");
+  await expect(floatBar).toBeVisible();
+
+  await useLightTheme(window);
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "review-section-light") });
+
+  // Discard asks once more, then the drafts, the section and the bar go.
+  const discard = section.locator('[data-testid="scm-review-discard"]');
+  await discard.click();
+  await expect(discard).toContainText("Discard 1 comment?");
+  await discard.click();
+  await expect(section).toHaveCount(0);
+  await expect(card).toHaveCount(0);
+  await expect(floatBar).toHaveCount(0);
+});
+
+test("Source Control commits what's staged with the message typed above it", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-scm-commit");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  // The app's own `git commit` needs an identity; the temp home has none.
+  git(ws, "config user.name e2e");
+  git(ws, "config user.email e2e@example.com");
+  fs.writeFileSync(path.join(ws, "src", "helper.ts"), "export const helper = 1;\n");
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const changes = drawer.locator('[data-testid="scm-group-changes"]');
+  const staged = drawer.locator('[data-testid="scm-group-staged"]');
+  const commit = drawer.locator('[data-testid="scm-commit"]');
+  const message = drawer.locator('[data-testid="scm-commit-message"]');
+  await expect(changes.locator('[data-testid="scm-row"][data-path="src/helper.ts"]')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  // Nothing staged yet: Commit waits, however much is typed.
+  await message.fill("Add the helper");
+  await expect(commit).toHaveAttribute("aria-disabled", "true");
+
+  await changes.locator("button[aria-expanded]").hover();
+  await changes.locator('[data-testid="scm-stage-all"]').click();
+  await expect(staged.locator('[data-testid="scm-row"]')).toHaveCount(1);
+  await expect(commit).not.toHaveAttribute("aria-disabled", "true");
+  await window.screenshot({ path: shot(testInfo, "scm-commit-ready") });
+
+  // ⌘/Ctrl+Enter commits; the list empties and the message clears.
+  await message.press("ControlOrMeta+Enter");
+  await expect(drawer.locator('[data-testid="scm-empty"]')).toBeVisible({ timeout: 30_000 });
+  await expect(message).toHaveValue("");
+  expect(execSync("git log -1 --format=%s", { cwd: ws }).toString().trim()).toBe("Add the helper");
+
+  // Push and Commit & Push wait in Commit's menu; with nothing staged only Push is live.
+  await drawer.locator('[data-testid="scm-commit-menu"]').click();
+  await expect(window.locator('[data-testid="scm-push"]')).toBeEnabled();
+  await expect(window.locator('[data-testid="scm-commit-push"]')).toBeDisabled();
+  await window.screenshot({ path: shot(testInfo, "scm-commit-menu") });
 });
 
 /** Seed `src/components/Widget.tsx` through the workspace's own shell; returns the workspace. */
@@ -1045,9 +1332,9 @@ test("the file pane's drawer survives a move, and the keyboard drives it and its
   await expect(drawer).toHaveAttribute("data-mode", "files");
   await expect(tree).toBeFocused();
 
-  // ⌘⇧G goes to Changed by agents, ⌘⇧E back to Files, and ⌘⇧E again to the editor.
+  // ⌘⇧G goes to Source Control, ⌘⇧E back to Files, and ⌘⇧E again to the editor.
   await window.keyboard.press("ControlOrMeta+Shift+g");
-  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
   await window.keyboard.press("ControlOrMeta+Shift+e");
   await expect(drawer).toHaveAttribute("data-mode", "files");
   await expect(tree).toBeFocused();
@@ -1061,10 +1348,10 @@ test("the file pane's drawer survives a move, and the keyboard drives it and its
   await expect(drawer).toBeHidden();
   await expect(editor.locator(".cm-content")).toBeFocused();
 
-  // On Changed by agents, then moved (a split rebuilds the pane): it comes
-  // back on Changed by agents.
+  // On Source Control, then moved (a split rebuilds the pane): it comes
+  // back on Source Control.
   await window.keyboard.press("ControlOrMeta+Shift+g");
-  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
   const split = async () => {
     await pane(window).locator('[data-testid="file-pane-breadcrumb"]').click({ button: "right" });
     await window.getByRole("menuitem", { name: "Split with" }).hover();
@@ -1072,9 +1359,9 @@ test("the file pane's drawer survives a move, and the keyboard drives it and its
   };
   await split();
   await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
-  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
   // Closed, then moved again: it stays closed, and ⌘B opens the view it had.
-  await pane(window).locator('[data-testid="file-pane-changes-button"]').click();
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
   await expect(drawer).toBeHidden();
   await split();
   await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(3);
@@ -1082,6 +1369,6 @@ test("the file pane's drawer survives a move, and the keyboard drives it and its
   await expect(drawer).toBeHidden();
   await editor.locator(".cm-content").click();
   await window.keyboard.press("ControlOrMeta+b");
-  await expect(drawer).toHaveAttribute("data-mode", "changes");
+  await expect(drawer).toHaveAttribute("data-mode", "scm");
   await window.screenshot({ path: shot(testInfo, "after-move") });
 });

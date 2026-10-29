@@ -109,6 +109,27 @@ describe("reviewPrompt", () => {
     expect(prompt).toContain("Code: 4: export interface HarnessAdapter {");
   });
 
+  it("reads a comment left on the editor's diff the same way", () => {
+    // Anchored by working-copy lines, not Diff pane rows; the agent can't tell.
+    const comment: DraftComment = {
+      id: "cm",
+      filePath: "src/store/app-store.ts",
+      startLine: 120,
+      endLine: 121,
+      snippet: "119: -let x = 1\n120: +const x = 1\n121:  export { x }",
+      startLabel: "L120–L121",
+      body: "This should be a constant.",
+      createdAt: 0,
+    };
+
+    expect(reviewPrompt([comment]).split("\n").slice(1)).toEqual([
+      "[1] src/store/app-store.ts L120–L121 — This should be a constant.",
+      "    Code: 119: -let x = 1",
+      "120: +const x = 1",
+      "121:  export { x }",
+    ]);
+  });
+
   /**
    * A comment on a diff is as often a question as a request. An imperative
    * preamble ("address these comments") sends the agent off editing code that

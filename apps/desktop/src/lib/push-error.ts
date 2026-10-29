@@ -1,6 +1,6 @@
 // Shared push-error categorizer.
 //
-// IMPORTANT: This module is consumed by both the renderer (DiffPane) and the
+// IMPORTANT: This module is consumed by both the renderer (Source Control's push) and the
 // electron backend (IPC layer). Keep it dependency-free (no electron, no node
 // builtins) so it remains importable from both sides. The electron side
 // imports it via the relative path `../../src/lib/push-error`.

@@ -459,7 +459,7 @@ describe("LayoutPersistence", () => {
               {
                 id: "tab-3",
                 title: "Diff",
-                rootNode: { type: "leaf", paneId: "pane-4", contentType: "diff" },
+                rootNode: { type: "leaf", paneId: "pane-4", contentType: "file" },
                 focusedPaneId: "pane-4",
                 paneSessions: {},
               },
@@ -607,6 +607,76 @@ describe("LayoutPersistence", () => {
 
       expect(persistence.load()!.version).toBe(2);
       expect(persistence.needsWorkspaceKeyMigration()).toBe(true);
+    });
+  });
+
+  describe("retired diff panes", () => {
+    /** A tab with a terminal and a Diff pane beside it, as a file before #495 saved it. */
+    function diffTab(): PersistedTab {
+      return {
+        id: "tab-diff",
+        title: "Diff",
+        rootNode: {
+          type: "split",
+          direction: "horizontal",
+          ratio: 0.4,
+          first: { type: "leaf", paneId: "p1" },
+          second: { type: "leaf", paneId: "p-diff", contentType: "diff" } as unknown as PaneNode,
+        },
+        paneSessions: {
+          p1: { daemonSessionId: "ds1", lastCwd: "/tmp", lastTitle: null },
+        },
+      };
+    }
+
+    function writeWith(tab: PersistedTab): void {
+      fs.writeFileSync(
+        layoutFile,
+        JSON.stringify({
+          version: LAYOUT_VERSION,
+          workspaces: [makeV2Workspace("/project/main", [tab], tab.id)],
+        }),
+      );
+    }
+
+    function rootOf(layout: PersistedLayout | null): PaneNode {
+      return Object.values(layout!.workspaces[0].panels)[0].tabs[0].rootNode;
+    }
+
+    it("reads a diff leaf as an empty file pane that starts on Source Control", () => {
+      writeWith(diffTab());
+
+      const root = rootOf(persistence.load());
+      if (root.type !== "split") throw new Error("expected split");
+      expect(root.second).toEqual({
+        type: "leaf",
+        paneId: "p-diff",
+        contentType: "file",
+        startsOn: "scm",
+      });
+      // The rest of the tab is as it was.
+      expect(root.first).toEqual({ type: "leaf", paneId: "p1" });
+      expect(root.ratio).toBe(0.4);
+      expect([...persistence.getActiveSessionIds()]).toEqual(["ds1"]);
+    });
+
+    it("writes the migrated file back, and a second load changes nothing", () => {
+      writeWith(diffTab());
+      const first = persistence.load();
+      const written = fs.readFileSync(layoutFile, "utf-8");
+      expect(written).not.toContain('"diff"');
+
+      const second = new LayoutPersistence(layoutFile).load();
+      expect(second).toEqual(first);
+      expect(fs.readFileSync(layoutFile, "utf-8")).toBe(written);
+    });
+
+    it("leaves a file with no diff pane unwritten", () => {
+      writeWith(makeLeafTab("p1", "ds1"));
+      const before = fs.readFileSync(layoutFile, "utf-8");
+
+      persistence.load();
+      expect(fs.readFileSync(layoutFile, "utf-8")).toBe(before);
     });
   });
 

@@ -291,15 +291,12 @@ Once focus is in the sidebar or the tab bar:
 | `Cmd+L`               | Focus URL bar       |
 | `Escape` (double-tap) | Return focus to app |
 
-### Diff Pane
+### Source Control (file pane)
 
-| Shortcut    | Action                           |
-| ----------- | -------------------------------- |
-| `Cmd+F`     | Open search                      |
-| `Enter`     | Next search result               |
-| `Escape`    | Close search                     |
-| `Cmd+Enter` | Submit commit                    |
-| `Cmd+Enter` | Start a comment on the selection |
+| Shortcut      | Action                          |
+| ------------- | ------------------------------- |
+| `Cmd+Shift+G` | Open Source Control             |
+| `Cmd+Enter`   | Commit what's staged            |
 
 ## Inspirations
 

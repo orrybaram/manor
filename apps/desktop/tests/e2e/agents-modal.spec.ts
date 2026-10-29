@@ -145,7 +145,7 @@ async function shot(w: Page, name: string) {
 /**
  * Catppuccin Latte, the light half of the default palette. Selected by name;
  * a throwaway profile may not have the theme list loaded, so its colours are
- * applied directly if selecting it changed nothing (as in diff-virtualization).
+ * applied directly if selecting it changed nothing.
  */
 async function useLightTheme(w: Page) {
   await w.evaluate(() => window.electronAPI.theme.setSelected("Catppuccin Latte")).catch(() => {});

@@ -2,16 +2,16 @@ import { formatCombo, type KeyCombo } from "../../../lib/keybindings";
 
 /**
  * What a key does anywhere in a focused file pane, as in VS Code: ⌘B shows or
- * hides the drawer, ⌘⇧E goes to Files and ⌘⇧G to Changed by agents. They
- * beat the app's own ⌘⇧E (focus the sidebar) and ⌘⇧G (open the diff) only
- * while the pane has focus.
+ * hides the drawer, ⌘⇧E goes to Files and ⌘⇧G to Source Control. They beat
+ * the app's own ⌘⇧E (focus the sidebar) and ⌘⇧G (Open Source Control, which
+ * would come to this pane anyway) only while the pane has focus.
  */
-export type FilePaneKey = "toggle-drawer" | "files" | "changes";
+export type FilePaneKey = "toggle-drawer" | "files" | "scm";
 
 const KEYS: Record<FilePaneKey, { key: string; shift: boolean }> = {
   "toggle-drawer": { key: "b", shift: false },
   files: { key: "e", shift: true },
-  changes: { key: "g", shift: true },
+  scm: { key: "g", shift: true },
 };
 
 /** ⌘ on macOS, Ctrl elsewhere. */

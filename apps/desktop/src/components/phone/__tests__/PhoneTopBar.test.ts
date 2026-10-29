@@ -132,7 +132,7 @@ describe("PhoneTopBar — overflow menu's view item", () => {
   const WS_PATH = "/repo/chat-ws";
   const PANE = "pane-chat";
 
-  function seedPane(contentType?: "diff" | "browser"): void {
+  function seedPane(contentType?: "file" | "browser"): void {
     useAppStore.setState({
       activeWorkspacePath: WS_PATH,
       activeWorkspaceHostId: "local",
@@ -232,12 +232,12 @@ describe("PhoneTopBar — overflow menu's view item", () => {
     expect(byTestId("phone-overflow-view")?.textContent).toBe("Show terminal");
   });
 
-  it("is not offered for a diff or browser pane", () => {
+  it("is not offered for a file or browser pane", () => {
     seedAgent({});
-    for (const kind of ["diff", "browser"] as const) {
+    for (const kind of ["file", "browser"] as const) {
       seedPane(kind);
       renderBar();
-      // A diff pane may leave nothing else to offer, and so no menu at all.
+      // A pane may leave nothing else to offer, and so no menu at all.
       if (byTestId("phone-overflow-button")) openMenu();
       expect(byTestId("phone-overflow-view")).toBeNull();
       if (byTestId("phone-overflow-menu")) click("phone-overflow-button");
@@ -288,10 +288,10 @@ describe("PhoneTopBar — overflow menu's view item", () => {
   });
 });
 
-describe("PhoneTopBar — overflow menu's diff item", () => {
+describe("PhoneTopBar — overflow menu's Source Control item", () => {
   const PANE = "pane-1";
 
-  function seedLayout(contentType?: "diff"): void {
+  function seedLayout(contentType?: "file"): void {
     useAppStore.setState({
       activeWorkspacePath: WS,
       activeWorkspaceHostId: "local",
@@ -331,25 +331,17 @@ describe("PhoneTopBar — overflow menu's diff item", () => {
     useAgentStore.setState({ agents: [] });
   });
 
-  it("opens the workspace's diff and closes the menu", () => {
-    const openOrFocusDiff = vi.fn(() => null);
+  it("opens the workspace's Source Control and closes the menu", () => {
+    const openSourceControl = vi.fn(() => null);
     seedProjects({ name: "ws" });
     seedLayout();
-    useAppStore.setState({ openOrFocusDiff });
+    useAppStore.setState({ openSourceControl });
     renderBar();
 
     openMenu();
-    click("phone-overflow-diff");
-    expect(openOrFocusDiff).toHaveBeenCalledTimes(1);
+    click("phone-overflow-scm");
+    expect(openSourceControl).toHaveBeenCalledTimes(1);
     expect(byTestId("phone-overflow-menu")).toBeNull();
-  });
-
-  it("does not offer the diff while the diff is what the phone shows", () => {
-    seedProjects({ name: "ws" });
-    seedLayout("diff");
-    renderBar();
-    openMenu();
-    expect(byTestId("phone-overflow-diff")).toBeNull();
   });
 
   it("still renders on Home, for Refresh", () => {

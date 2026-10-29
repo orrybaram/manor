@@ -1,4 +1,4 @@
-import { useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useImperativeHandle, useLayoutEffect, useRef, useState, type Ref } from "react";
 import { Compartment, EditorState, Prec } from "@codemirror/state";
 import {
   EditorView,
@@ -27,6 +27,7 @@ import { languageFor, loadLanguage } from "../file-languages";
 import { manorEditorTheme } from "../editor-theme";
 import { EditorFile } from "../file-text";
 import { pendingLines, type LineRequest } from "../pending-line";
+import { pendingComments } from "../pending-comment";
 import { stepEdit } from "../file-changes";
 import { registerEditJumper, useFileEditNav } from "../file-edit-nav";
 import {
@@ -39,10 +40,19 @@ import {
   type AgentMarks,
   type LaneMark,
 } from "./change-marks";
+import { unfoldAt, unifiedDiff } from "./diff-view";
+import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
 import styles from "./CodeEditor.module.css";
+
+// ⇧⌘G is the app's Open Source Control, so it is not the editor's Find Previous (⇧F3 still is).
+const editorSearchKeymap = searchKeymap.map((binding) =>
+  binding.key === "Mod-g" ? { ...binding, shift: undefined } : binding,
+);
 
 /** How long a line jumped to stays lit. */
 const FLASH_MS = 1200;
+/** How long a comment card jumped to stays lit: its outline's fade. */
+const COMMENT_FLASH_MS = 1400;
 
 /** Where the open file's change marks come from: `follow` hears each new set. */
 export type AgentMarksSource = {
@@ -80,6 +90,17 @@ type CodeEditorProps = {
   onDispose: (content: string, dirty: boolean) => void;
   /** Read once, on mount: the file's changed lines, as the workspace diff has them. */
   agentMarks?: AgentMarksSource;
+  /**
+   * Show the text as a unified diff against this (the diff's old side, as
+   * the file is written on disk); null for the plain editor. Switching keeps
+   * the editor, its edits and its undo history.
+   */
+  diffBase?: string | null;
+  /**
+   * The review store's workspace (its path): the diff view shows this file's
+   * draft comments from it, and takes new ones on selected lines.
+   */
+  reviewWorkspace?: string;
   ref?: Ref<CodeEditorRef>;
 };
 
@@ -94,6 +115,11 @@ type CodeEditorProps = {
  * right edge marks where they are in the whole file. ⌥↑/⌥↓, and the pane
  * header's ↑/↓ (`jumpToEdit`), move between the changes while nothing is
  * unsaved.
+ *
+ * With a `diffBase` it shows the file as a diff against it instead, still
+ * editable, and the change marks step aside: the diff marks every change.
+ * There, selected lines take a review comment (with a `reviewWorkspace`),
+ * and the file's comments show as cards under their lines.
  */
 export function CodeEditor({
   paneId,
@@ -104,6 +130,8 @@ export function CodeEditor({
   onDirtyChange,
   onDispose,
   agentMarks,
+  diffBase = null,
+  reviewWorkspace,
   ref,
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -116,6 +144,8 @@ export function CodeEditor({
   // and the clean copy it is dirty against.
   const fileRef = useRef<EditorFile | null>(null);
   const dirtyRef = useRef(false);
+  /** Switch between the plain editor and the diff; set on mount. */
+  const showDiffRef = useRef<((base: string | null) => void) | null>(null);
 
   const isDirty = (view: EditorView) => fileRef.current?.isDirty(view.state.doc) ?? false;
   const settle = (view: EditorView) => {
@@ -159,16 +189,30 @@ export function CodeEditor({
     },
   }));
 
+  // The diff's old side is CodeMirror's to hold, so a new one is handed over
+  // as it arrives; before the view exists, the mount below reads the prop.
+  useLayoutEffect(() => {
+    showDiffRef.current?.(diffBase);
+  }, [diffBase]);
+
   useMountEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     const language = new Compartment();
+    const diff = new Compartment();
+    const marks = new Compartment();
+    let shownBase = diffBase;
+    // The last marks the diff sent, to put back when the diff view leaves.
+    let lastMarks: AgentMarks | null = null;
     const { file, shown } = EditorFile.open(base, draft);
+    const comments = reviewWorkspace !== undefined;
+    const diffView = (base: string) => (comments ? [unifiedDiff(base), diffComments()] : unifiedDiff(base));
     fileRef.current = file;
 
     // The change last jumped to, for the header's "N of M".
     let current: number | null = null;
     let flashTimer: ReturnType<typeof setTimeout> | undefined;
+    let commentFlashTimer: ReturnType<typeof setTimeout> | undefined;
     let destroyed = false;
     // Lane and header follow the marks; re-set only when they changed.
     const publish = (view: EditorView) => {
@@ -232,9 +276,11 @@ export function CodeEditor({
               { key: "Alt-ArrowUp", run: (v) => jump(v, -1) },
             ]),
           ),
-          changeMarks(file.cleanDoc),
+          marks.of(shownBase === null ? changeMarks(file.cleanDoc) : []),
+          diff.of(shownBase === null ? [] : diffView(shownBase)),
+          reviewWorkspace === undefined ? [] : reviewComments({ workspacePath: reviewWorkspace, path }),
           keymap.of([
-            ...searchKeymap,
+            ...editorSearchKeymap,
             ...foldKeymap,
             ...historyKeymap,
             ...defaultKeymap,
@@ -244,6 +290,7 @@ export function CodeEditor({
             if (update.docChanged) settle(update.view);
             if (
               update.docChanged ||
+              update.transactions.some((tr) => tr.reconfigured) ||
               update.transactions.some((tr) =>
                 tr.effects.some((e) => e.is(setAgentMarks) || e.is(setCleanDoc)),
               )
@@ -271,9 +318,32 @@ export function CodeEditor({
     const stopJumps = registerEditJumper(paneId, (direction) => {
       jump(view, direction);
     });
-    const stopMarks = agentMarks?.follow((marks) => {
-      if (!destroyed) view.dispatch({ effects: setAgentMarks.of(marks) });
+    const stopMarks = agentMarks?.follow((next) => {
+      lastMarks = next;
+      if (!destroyed) view.dispatch({ effects: setAgentMarks.of(next) });
     });
+    showDiffRef.current = (base) => {
+      if (destroyed || base === shownBase) return;
+      const wasDiff = shownBase !== null;
+      shownBase = base;
+      if (base !== null) {
+        // A new old side for the same file keeps the marks off; only the diff is rebuilt.
+        view.dispatch({
+          effects: wasDiff
+            ? diff.reconfigure(diffView(base))
+            : [diff.reconfigure(diffView(base)), marks.reconfigure([])],
+        });
+        // A jump asked for while the plain editor showed lands now.
+        showPendingComment();
+        return;
+      }
+      // Back to the plain editor: the marks start again from the clean copy,
+      // then take the diff's lines (a field sees effects only once it exists).
+      view.dispatch({
+        effects: [diff.reconfigure([]), marks.reconfigure(changeMarks(file.cleanDoc))],
+      });
+      view.dispatch({ effects: setAgentMarks.of(lastMarks) });
+    };
 
     const lang = languageFor(path);
     if (lang) {
@@ -292,6 +362,28 @@ export function CodeEditor({
     };
     showPendingLine();
     const stopLines = pendingLines.subscribe(paneId, showPendingLine);
+    // The review list's jump to a comment on this file: centre its card and
+    // light it, unfolding the unchanged stretch it is in. Only the diff shows
+    // cards, so the plain editor leaves the request for the diff to take.
+    const showPendingComment = () => {
+      if (shownBase === null) return;
+      const request = pendingComments.waiting(paneId);
+      if (!request || request.path !== path) return;
+      pendingComments.take(paneId, path);
+      // Gone, or never on a line of this file: nothing to show, and nothing to keep asking.
+      const pos = commentPosition(view.state, request.commentId);
+      if (pos === null) return;
+      view.dispatch({ effects: unfoldAt(view.state, pos) });
+      view.dispatch({
+        effects: [EditorView.scrollIntoView(pos, { y: "center" }), flashComment.of(request.commentId)],
+      });
+      clearTimeout(commentFlashTimer);
+      commentFlashTimer = setTimeout(() => {
+        if (!destroyed) view.dispatch({ effects: flashComment.of(null) });
+      }, COMMENT_FLASH_MS);
+    };
+    showPendingComment();
+    const stopComments = pendingComments.subscribe(paneId, showPendingComment);
     // Edit › Find… (⌘F from the menu) names the focused pane.
     const stopFind = onUiRequest((request) => {
       if (request.type === "pane-search" && request.paneId === paneId) {
@@ -301,7 +393,10 @@ export function CodeEditor({
     return () => {
       destroyed = true;
       clearTimeout(flashTimer);
+      clearTimeout(commentFlashTimer);
+      stopComments();
       stopMarks?.();
+      showDiffRef.current = null;
       stopJumps();
       markClickedRef.current = null;
       useFileEditNav.getState().set(paneId, null);

@@ -1,6 +1,6 @@
 /**
- * Opening a workspace file in a file pane from somewhere else: a changed
- * file's header in the diff pane, a path printed in a terminal, or Go to File.
+ * Opening a workspace file in a file pane from somewhere else: a path
+ * printed in a terminal, or Go to File.
  */
 
 import { hasUnsavedEdits, useOpenFileStore } from "../store/open-file-store";

@@ -26,10 +26,10 @@ describe("pickPaneAgent", () => {
 describe("selectPaneChatAgent", () => {
   const active = { ...base, status: "active" };
 
-  it("follows the pane's agent unless the pane is a diff or a browser", () => {
+  it("follows the pane's agent unless the pane is a file or a browser pane", () => {
     expect(selectPaneChatAgent([active], "p", "terminal")).toBe(active);
     expect(selectPaneChatAgent([active], "p", undefined)).toBe(active);
-    expect(selectPaneChatAgent([active], "p", "diff")).toBeNull();
+    expect(selectPaneChatAgent([active], "p", "file")).toBeNull();
     expect(selectPaneChatAgent([active], "p", "browser")).toBeNull();
   });
 

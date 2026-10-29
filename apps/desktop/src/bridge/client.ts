@@ -273,8 +273,8 @@ export function createBridge(transport: BridgeTransport): ElectronAPI {
    *
    * `git.push` is both — `git.push.start(...)` and `git.push.onProgress(cb)`
    * are the only two-level path in `preload.ts`, and a member that were only
-   * a function would make `DiffPane` throw a `TypeError` on mount rather than
-   * render the refusal it is being handed. Nesting costs one proxy and keeps
+   * a function would make Source Control's push throw a `TypeError` rather
+   * than show the refusal it is being handed. Nesting costs one proxy and keeps
    * the rule uniform: the namespace of `git.push.start` is `git.push`, which
    * is what the handler table would key it under if it ever serves it.
    */

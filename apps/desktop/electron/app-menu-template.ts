@@ -49,11 +49,16 @@ const SEPARATOR: MenuItemConstructorOptions = { type: "separator" };
 
 type PaneContentType = NonNullable<MenuContext["focusedPane"]>["contentType"];
 
-const PANE_CONTENT_TYPES: { contentType: PaneContentType; label: string }[] = [
-  { contentType: "terminal", label: "Terminal" },
-  { contentType: "browser", label: "Browser" },
-  { contentType: "diff", label: "Diff" },
-  { contentType: "agent", label: "Agent" },
+/**
+ * What Split With and Convert To offer: `scm` is a file pane on Source
+ * Control, so a focused file pane shows as it. Commands take the kind
+ * (`CommandPaneKind`), not the leaf's content type.
+ */
+const PANE_KINDS: { kind: "terminal" | "browser" | "scm" | "agent"; label: string; shownAs: PaneContentType }[] = [
+  { kind: "terminal", label: "Terminal", shownAs: "terminal" },
+  { kind: "browser", label: "Browser", shownAs: "browser" },
+  { kind: "scm", label: "Source Control", shownAs: "file" },
+  { kind: "agent", label: "Agent", shownAs: "agent" },
 ];
 
 export function buildMenuTemplate(
@@ -137,7 +142,7 @@ export function buildMenuTemplate(
       cmd("add-project", "Add Project…"),
       SEPARATOR,
       cmd("go-to-file", "Go to File…", { enabled: canCreateTabs }),
-      cmd("open-diff", "Open Diff", { enabled: canCreateTabs }),
+      cmd("open-diff", "Open Source Control", { enabled: canCreateTabs }),
       cmd(
         "open-in-editor",
         editorName ? `Open in ${editorName}` : "Open in Editor",
@@ -311,18 +316,18 @@ export function buildMenuTemplate(
       {
         label: "Split With",
         enabled: hasSurface,
-        submenu: PANE_CONTENT_TYPES.map(({ contentType, label }) =>
-          cmd("split-with", label, { args: { contentType } }),
+        submenu: PANE_KINDS.map(({ kind, label }) =>
+          cmd("split-with", label, { args: { contentType: kind } }),
         ),
       },
       {
         label: "Convert To",
         enabled: hasSurface && !!focusedPane,
-        submenu: PANE_CONTENT_TYPES.map(({ contentType, label }) =>
+        submenu: PANE_KINDS.map(({ kind, label, shownAs }) =>
           cmd("convert-to", label, {
-            args: { contentType },
+            args: { contentType: kind },
             type: "radio",
-            checked: focusedPane?.contentType === contentType,
+            checked: focusedPane?.contentType === shownAs,
           }),
         ),
       },

@@ -84,7 +84,8 @@ const tools: ToolDef[] = [
         contentType: {
           type: "string",
           enum: ["terminal", "browser", "diff", "agent"],
-          description: "Content type for the new pane. Defaults to 'terminal'.",
+          description:
+            "Content type for the new pane. Defaults to 'terminal'. 'diff' opens a file pane on its Source Control drawer: the workspace's changes, to stage, commit and review.",
         },
         url: {
           type: "string",
@@ -275,7 +276,7 @@ const tools: ToolDef[] = [
   {
     name: "open_diff",
     description:
-      "Open the active workspace's diff tab, or focus it if one is already open. Returns the diff tab's id.",
+      "Open the active workspace's changes: a tab holding a file pane on its Source Control drawer, or the one already waiting there. Returns the tab's id.",
     inputSchema: { type: "object" as const, properties: {} },
   },
   {
@@ -575,7 +576,7 @@ const handlers: ToolModule["handlers"] = {
 
   async open_diff(_args, http) {
     const result = (await http.post("/tabs/diff")) as { tabId: string };
-    return text(`Opened diff tab ${result.tabId}.`);
+    return text(`Opened Source Control in tab ${result.tabId}.`);
   },
 
   async set_pane_title(args, http) {

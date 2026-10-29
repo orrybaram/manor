@@ -37,8 +37,9 @@ import { HOME_PATH, isHomePath } from "./home-path";
 
 type SplitDirection = "horizontal" | "vertical";
 
-/** Pane content a command can split with or convert to. */
-export type CommandPaneKind = "terminal" | "browser" | "diff" | "agent";
+/** Pane content a command can split with or convert to. `scm` is a file
+ *  pane on Source Control. */
+export type CommandPaneKind = "terminal" | "browser" | "scm" | "agent";
 
 /** The slice of `useAppStore.getState()` the table calls. */
 export interface AppCommandActions {
@@ -58,8 +59,8 @@ export interface AppCommandActions {
   focusPrevPanel(): void;
   closePanel(panelId: string): void;
   selectTabByGlobalIndex(index: number): void;
-  openDiffInNewPanel(): void;
-  openOrFocusDiff(): void;
+  openSourceControlInNewPanel(): void;
+  openSourceControl(): void;
   setActiveWorkspace(path: string): void;
   togglePinTab(tabId: string): void;
 }
@@ -275,6 +276,11 @@ function unlessOverviewShown<C extends SharedCommandContext>(
 function stringArg(args: CommandArgs, key: string): string | null {
   const value = args?.[key];
   return typeof value === "string" ? value : null;
+}
+
+/** The `contentType` a split or convert names, as a pane kind. */
+function paneKindArg(args: CommandArgs): CommandPaneKind | null {
+  return stringArg(args, "contentType") as CommandPaneKind | null;
 }
 
 /** URLs opened by the Help menu. */
@@ -606,13 +612,13 @@ export const COMMANDS: readonly CommandDef[] = [
   },
   {
     id: "open-diff",
-    label: "Open Diff",
+    label: "Open Source Control",
     category: "workspace",
     defaultCombo: metaCombo("g", true), // Cmd+Shift+G
     scope: "any",
     run: unlessHome((ctx) => {
-      if (ctx.diffOpensInNewPanel()) ctx.app().openDiffInNewPanel();
-      else ctx.app().openOrFocusDiff();
+      if (ctx.diffOpensInNewPanel()) ctx.app().openSourceControlInNewPanel();
+      else ctx.app().openSourceControl();
     }),
   },
   {
@@ -893,8 +899,7 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "terminal",
     scope: "primary",
     run: (ctx, args) => {
-      const kind = (stringArg(args, "contentType") ??
-        "terminal") as CommandPaneKind;
+      const kind = paneKindArg(args) ?? "terminal";
       const paneCommand =
         kind === "agent" ? ctx.agentCommand() : undefined;
       // A plain terminal is the default content — leave it unset.
@@ -910,8 +915,8 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "terminal",
     scope: "primary",
     run: (ctx, args) => {
-      const kind = stringArg(args, "contentType");
-      if (kind) ctx.convertFocusedPaneTo(kind as CommandPaneKind);
+      const kind = paneKindArg(args);
+      if (kind) ctx.convertFocusedPaneTo(kind);
     },
   },
   {

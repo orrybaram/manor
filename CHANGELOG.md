@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.23.0] - 2026-10-28
+
+### Features
+
+- Agents: The Agents modal now lists every agent session on every host, including Claude Code, Codex, opencode and pi conversations, next to Manor's agents. It previews the highlighted conversation, and from there you can resume it, go to its pane or fork it. It also shows host notices and has a refresh button.
+- Agents: The Agents modal opens with its search box focused, searches agents on every host, and moves the highlight with the arrow keys. F2 and ⌘⌫ act on the highlighted row, and each row shows its project's color.
+- Agents: The Agents modal's project chips now show one chip per project name, covering every host, plus one chip for other folders. Clicking a row previews it instead of resuming it. The footer's key hints are now buttons you can click.
+- Move a running pane or a whole tab to another workspace of the same project on the same host. Drag it onto a workspace in the sidebar, right-click and choose **Move to Workspace…**, or run `manor move-pane-to-workspace` or `manor move-tab-to-workspace`. Nothing restarts, and the window follows what moved.
+- Right-click a link in a terminal to open it in Manor's browser, as a new tab or as a split beside the terminal. Cmd/Ctrl-click still opens your default browser.
+- Remote control: A new "Turn on when Manor opens" setting sits under This Mac's remote-control switch. The command palette also has a "Turn On/Off Remote Control" command. A toast says whether it worked, and if not, why.
+- Toasts now stack into a deck that fans out when you hover over it or focus it with the keyboard. A toast's countdown pauses while you hover over it and while Manor is unfocused. A toast about something already on screen doesn't appear, and it goes away once that thing comes on screen.
+- "Agent needs input" now shows as an attention toast.
+- During Halloween week (Oct 25 to Nov 1), tabs you leave alone gather dust. When you come back to a tab, its panel is covered in cobwebs that you sweep away with the mouse. Each visit grows its own webs. You can turn this off under Settings, Appearance, Seasonal.
+- Phone: When Claude Code lands an edit, the chat shows it as a diff card.
+- A remote host running a Node version older than 22 now warns you that it gets no security fixes.
+
+### Fixes
+
+- Flooding a terminal no longer closes every pane. Before, two panes running `yes` crashed the terminal host within seconds and closed every pane in every workspace.
+- Reopening Manor while agents are running on an adopted remote host brings their tabs back. Before, those tabs stayed blank.
+- In the diff pane, clicking a file in the list scrolls all the way to it, even on large diffs.
+- Scrolling a big diff past the point where the back-to-top button appears no longer freezes it.
+- Phone: The chat's "Thinking" status no longer gets stuck after a turn has ended.
+- Phone: The chat shows queued prompts, interrupts and `!` commands the way Claude Code writes them. A queued prompt with a pasted image keeps its text.
+- Phone: Confirm dialogs fit the screen, so their buttons (such as **Close** on "Close Pane") can be reached.
+- Manor no longer shows a native agent banner while any of its windows is focused. Before, it only checked the main window.
+
+### Improvements
+
+- The diff pane now builds only the rows near the screen, so very large diffs no longer run the machine out of memory. Huge and generated files start collapsed and show a faded preview. A file keeps the expanded or collapsed state you chose while an agent keeps editing it.
+- While a remote host is connecting or reconnecting, its panes show a small pill over their last screen instead of the full banner. The full banner still shows when the host needs you.
+- Phone: Long chats stay fast. Only the newest 150 items load at first, and an update redraws only the entries that changed.
+- Manor now runs on Electron 44 (Chromium 152).
+- Pages in a browser pane now always run sandboxed, with no access to Node.
+
 ## [0.22.13] - 2026-10-25
 
 ### Features

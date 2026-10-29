@@ -827,6 +827,24 @@ test("a Source Control row shows its file's diff in the editor, which edits and 
   await expect(editor.locator(".cm-changedLine")).toContainText("// from the diff");
   await expect(pane(window).locator('[data-testid="file-pane-diff-stale"]')).toHaveCount(0);
 
+  // Unsaved edits ask before another row's diff, deleted or not, and Cancel
+  // leaves this file's diff as it was.
+  const swapBar = pane(window).locator('[data-testid="file-pane-swap-bar"]');
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.type("!");
+  await drawer.locator('[data-testid="scm-row"][data-path="src/doomed.ts"] button').first().click();
+  await expect(swapBar).toBeVisible();
+  await expect(pane(window).locator('[data-testid="file-pane-deleted-diff"]')).toHaveCount(0);
+  await pane(window).locator('[data-testid="file-pane-swap-cancel"]').click();
+  await expect(swapBar).toHaveCount(0);
+  await expect(tag).toHaveText("Diff vs HEAD");
+  await expect(editor.locator(".cm-deletedChunk")).toContainText("Clicked {count} times");
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.press("Backspace");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toHaveCount(0);
+
   // Open file: the plain editor, same file, with its change marks back.
   await pane(window).locator('[data-testid="file-pane-open-plain"]').click();
   await expect(tag).toHaveCount(0);
@@ -840,6 +858,13 @@ test("a Source Control row shows its file's diff in the editor, which edits and 
   await expect(deleted.locator(".cm-deletedChunk")).toContainText("export const doomed = 1;");
   await expect(tag).toHaveText("Diff vs HEAD");
   await window.screenshot({ path: shot(testInfo, "diff-deleted") });
+
+  // Close diff goes back to the file it was opened over.
+  await pane(window).locator('[data-testid="file-pane-close-diff"]').click();
+  await expect(deleted).toHaveCount(0);
+  await expect(editor).toContainText("Pressed {count} times // from the diff");
+  await drawer.locator('[data-testid="scm-row"][data-path="src/doomed.ts"] button').first().click();
+  await expect(deleted.locator(".cm-deletedChunk")).toContainText("export const doomed = 1;");
 
   // Picking from the tree shows the plain file again.
   await pane(window).locator('[data-testid="file-pane-files-button"]').click();

@@ -6,14 +6,17 @@ import { readFileText, toText } from "../file-text";
 /**
  * The unified diff's colours, from manor's tokens so light and dark follow:
  * removed lines red and struck through, added lines green with a bar in the
- * gutter, and each folded stretch a clickable "⋯ N unchanged lines".
+ * gutter, and each folded stretch a clickable "⋯ N unchanged lines". The
+ * merge view's own theme marks its editor `.cm-merge-b` and keys its (faint)
+ * added-line colours on it, so ours do too, to outrank them. Green reads
+ * weaker than red at the same mix, hence its larger share.
  */
 const diffTheme = EditorView.theme({
-  ".cm-changedLine": {
-    backgroundColor: "color-mix(in srgb, var(--green) 12%, transparent)",
+  "&.cm-merge-b .cm-changedLine": {
+    backgroundColor: "color-mix(in srgb, var(--green) 18%, transparent)",
   },
-  ".cm-changedText": {
-    background: "color-mix(in srgb, var(--green) 28%, transparent)",
+  "&.cm-merge-b .cm-changedText": {
+    background: "color-mix(in srgb, var(--green) 36%, transparent)",
   },
   ".cm-deletedChunk": {
     paddingLeft: "0",
@@ -28,8 +31,8 @@ const diffTheme = EditorView.theme({
     background: "color-mix(in srgb, var(--red) 30%, transparent)",
   },
   ".cm-changeGutter": { width: "3px", paddingLeft: "0" },
-  ".cm-changedLineGutter": { background: "var(--green)" },
-  ".cm-deletedLineGutter": { background: "var(--red)" },
+  "&.cm-merge-b .cm-changedLineGutter": { background: "var(--green)" },
+  "&.cm-merge-b .cm-deletedLineGutter": { background: "var(--red)" },
   ".cm-collapsedLines": {
     padding: "3px 10px",
     backgroundColor: "var(--surface)",

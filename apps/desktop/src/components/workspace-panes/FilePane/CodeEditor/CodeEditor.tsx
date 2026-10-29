@@ -44,7 +44,7 @@ import styles from "./CodeEditor.module.css";
 /** How long a line jumped to stays lit. */
 const FLASH_MS = 1200;
 
-/** Where the open file's agent marks come from: `follow` hears each new set. */
+/** Where the open file's change marks come from: `follow` hears each new set. */
 export type AgentMarksSource = {
   follow(onChange: (marks: AgentMarks | null) => void): () => void;
 };
@@ -78,7 +78,7 @@ type CodeEditorProps = {
   onDirtyChange: (dirty: boolean) => void;
   /** Read once, on mount: the editor is going away, with this text. */
   onDispose: (content: string, dirty: boolean) => void;
-  /** Read once, on mount: the file's agent-changed lines, as the workspace diff has them. */
+  /** Read once, on mount: the file's changed lines, as the workspace diff has them. */
   agentMarks?: AgentMarksSource;
   ref?: Ref<CodeEditorRef>;
 };
@@ -89,10 +89,11 @@ type CodeEditorProps = {
  * when the text starts or stops differing from the clean copy; saving is the
  * pane's.
  *
- * Its gutter marks the lines an agent changed (orange, or green for a new
- * file) and your unsaved ones (blue), and a lane on its right edge marks
- * where they are in the whole file. ⌥↑/⌥↓, and the pane header's ↑/↓
- * (`jumpToEdit`), move between the agent's edits.
+ * Its gutter marks the file's changes since the last commit (orange, or
+ * green for a new file) and your unsaved lines (blue), and a lane on its
+ * right edge marks where they are in the whole file. ⌥↑/⌥↓, and the pane
+ * header's ↑/↓ (`jumpToEdit`), move between the changes while nothing is
+ * unsaved.
  */
 export function CodeEditor({
   paneId,
@@ -165,7 +166,7 @@ export function CodeEditor({
     const { file, shown } = EditorFile.open(base, draft);
     fileRef.current = file;
 
-    // The agent edit last jumped to, for the header's "N of M".
+    // The change last jumped to, for the header's "N of M".
     let current: number | null = null;
     let flashTimer: ReturnType<typeof setTimeout> | undefined;
     let destroyed = false;
@@ -195,6 +196,9 @@ export function CodeEditor({
       }, FLASH_MS);
     };
     const jump = (view: EditorView, direction: 1 | -1): boolean => {
+      // Only while the header shows the jumps: with unsaved edits it says
+      // "⌘S to save" instead, and ⌥↑/⌥↓ move the line.
+      if (dirtyRef.current) return false;
       const edits = agentEdits(view.state);
       const next = stepEdit(edits.length, current, direction);
       if (next === null) return false;
@@ -221,7 +225,7 @@ export function CodeEditor({
           bracketMatching(),
           highlightSelectionMatches(),
           search({ top: true }),
-          // ⌥↑/⌥↓ move between the agent's edits; with none, they move the line.
+          // ⌥↑/⌥↓ move between the changes; with none, or unsaved edits, they move the line.
           Prec.high(
             keymap.of([
               { key: "Alt-ArrowDown", run: (v) => jump(v, 1) },

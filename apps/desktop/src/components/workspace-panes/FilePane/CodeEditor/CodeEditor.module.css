@@ -63,6 +63,8 @@
   width: 10px;
   border-left: 1px solid var(--border);
   background: var(--bg);
+  /* A mark's 4px minimum on the last line would stick out below the editor. */
+  overflow: hidden;
 }
 
 .mark {

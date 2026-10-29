@@ -1,8 +1,10 @@
 import { Chunk } from "@codemirror/merge";
 import {
+  ChangeSet,
   RangeSetBuilder,
   StateEffect,
   StateField,
+  type ChangeDesc,
   type EditorState,
   type Extension,
   type Text,
@@ -11,12 +13,13 @@ import { Decoration, EditorView, type DecorationSet } from "@codemirror/view";
 import type { LineRange } from "../file-changes";
 
 /**
- * The open file's lines an agent changed (`changed`, from the workspace diff)
- * or, for a new file, all of them (`added`).
+ * The open file's changed lines (`changed`, from the workspace diff against
+ * HEAD) or, for a new file, all of them (`added`). Line numbers are the file's
+ * on disk, which the editor's clean copy holds.
  */
 export type AgentMarks = { kind: "changed" | "added"; ranges: readonly LineRange[] };
 
-/** The workspace diff was read again: these are the file's agent marks now. */
+/** The workspace diff was read again: these are the file's marks now. */
 export const setAgentMarks = StateEffect.define<AgentMarks | null>();
 /** The clean copy changed (a save, a reload): unsaved lines are measured against it. */
 export const setCleanDoc = StateEffect.define<Text>();
@@ -31,8 +34,6 @@ const addedLine = Decoration.line({ class: "cm-change-added" });
 const mineLine = Decoration.line({ class: "cm-change-mine" });
 const flashDeco = Decoration.line({ class: "cm-change-flash" });
 
-type AgentState = { kind: AgentMarks["kind"] | null; deco: DecorationSet };
-
 function lineDecos(doc: Text, lines: Iterable<number>, deco: Decoration): DecorationSet {
   const builder = new RangeSetBuilder<Decoration>();
   for (const n of lines) builder.add(doc.line(n).from, doc.line(n).from, deco);
@@ -40,47 +41,58 @@ function lineDecos(doc: Text, lines: Iterable<number>, deco: Decoration): Decora
 }
 
 /** Each line number in `ranges` that `doc` has, in order, once. */
-function* linesIn(doc: Text, ranges: readonly LineRange[]): Iterable<number> {
+function linesIn(doc: Text, ranges: readonly LineRange[]): number[] {
+  const out: number[] = [];
   let last = 0;
   for (const { from, to } of ranges) {
     for (let n = Math.max(from, last + 1); n <= Math.min(to, doc.lines); n++) {
-      yield n;
+      out.push(n);
       last = n;
     }
   }
-}
-
-/** Every line of a new file, less the empty one after its final newline. */
-function allLines(doc: Text): LineRange[] {
-  return [{ from: 1, to: lastContentLine(doc) }];
+  return out;
 }
 
 function lastContentLine(doc: Text): number {
   return doc.lines > 1 && doc.line(doc.lines).length === 0 ? doc.lines - 1 : doc.lines;
 }
 
-const agentField = StateField.define<AgentState>({
-  create: () => ({ kind: null, deco: Decoration.none }),
-  update(value, tr) {
-    let next = tr.docChanged ? { kind: value.kind, deco: value.deco.map(tr.changes) } : value;
-    for (const effect of tr.effects) {
-      if (!effect.is(setAgentMarks)) continue;
-      const marks = effect.value;
-      const doc = tr.state.doc;
-      next = !marks
-        ? { kind: null, deco: Decoration.none }
-        : {
-            kind: marks.kind,
-            deco:
-              marks.kind === "added"
-                ? lineDecos(doc, linesIn(doc, allLines(doc)), addedLine)
-                : lineDecos(doc, linesIn(doc, marks.ranges), agentLine),
-          };
+/** Whether two sets of marks mark the same lines the same way. */
+function sameAgentMarks(a: AgentMarks | null, b: AgentMarks | null): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.kind !== b.kind || a.ranges.length !== b.ranges.length) return false;
+  return a.ranges.every((r, i) => r.from === b.ranges[i].from && r.to === b.ranges[i].to);
+}
+
+/**
+ * Where `lines` of `from` are in the text `changes` made of it: each line
+ * follows its own start, so text inserted before a line (a new line typed
+ * above it) pushes it down. A deleted line lands on what follows it.
+ */
+function mapLines(from: Text, to: Text, changes: ChangeDesc, lines: readonly number[]): number[] {
+  const out: number[] = [];
+  for (const n of lines) {
+    if (n > from.lines) break;
+    const m = to.lineAt(changes.mapPos(from.line(n).from, 1)).number;
+    if (m > (out[out.length - 1] ?? 0)) out.push(m);
+  }
+  return out;
+}
+
+/** The changes that turn `clean` into `doc`, from the chunks of their diff. */
+function changesFromChunks(clean: Text, doc: Text, chunks: readonly Chunk[]): ChangeSet {
+  const specs: { from: number; to: number; insert: string }[] = [];
+  for (const chunk of chunks) {
+    for (const change of chunk.changes) {
+      specs.push({
+        from: chunk.fromA + change.fromA,
+        to: chunk.fromA + change.toA,
+        insert: doc.sliceString(chunk.fromB + change.fromB, chunk.fromB + change.toB),
+      });
     }
-    return next;
-  },
-  provide: (field) => EditorView.decorations.from(field, (v) => v.deco),
-});
+  }
+  return ChangeSet.of(specs, clean.length);
+}
 
 type MineState = { clean: Text; chunks: readonly Chunk[]; deco: DecorationSet };
 
@@ -119,6 +131,67 @@ const mineField = StateField.define<MineState>({
   provide: (field) => EditorView.decorations.from(field, (v) => v.deco),
 });
 
+type AgentState = {
+  /** The last marks the diff sent, kept to place again after a reload. */
+  marks: AgentMarks | null;
+  /** The marked lines of the doc as it is now, in order. */
+  lines: readonly number[];
+  deco: DecorationSet;
+};
+
+const noAgentMarks: AgentState = { marks: null, lines: [], deco: Decoration.none };
+
+function agentState(marks: AgentMarks | null, doc: Text, lines: readonly number[]): AgentState {
+  if (!marks) return noAgentMarks;
+  return {
+    marks,
+    lines,
+    deco: lineDecos(doc, lines, marks.kind === "added" ? addedLine : agentLine),
+  };
+}
+
+/**
+ * Place `marks`, whose line numbers are the clean copy's, on the doc: read
+ * against the clean copy, then carried through your unsaved edits to where
+ * those lines are now.
+ */
+function placeMarks(marks: AgentMarks | null, mine: MineState, doc: Text): AgentState {
+  if (!marks) return noAgentMarks;
+  const clean = mine.clean;
+  const onClean =
+    marks.kind === "added"
+      ? linesIn(clean, [{ from: 1, to: lastContentLine(clean) }])
+      : linesIn(clean, marks.ranges);
+  const lines =
+    mine.chunks.length === 0
+      ? onClean
+      : mapLines(clean, doc, changesFromChunks(clean, doc, mine.chunks), onClean);
+  return agentState(marks, doc, lines);
+}
+
+const agentField = StateField.define<AgentState>({
+  create: () => noAgentMarks,
+  update(value, tr) {
+    let marks = value.marks;
+    let place = false;
+    for (const effect of tr.effects) {
+      // The same marks again (the diff was read for another file) change nothing.
+      if (effect.is(setAgentMarks) && !sameAgentMarks(effect.value, marks)) {
+        marks = effect.value;
+        place = true;
+      }
+      // The doc was replaced by a new clean copy (Reload theirs, a clean
+      // reload): the old lines went with it, so the marks go on afresh.
+      if (effect.is(setCleanDoc) && tr.docChanged) place = true;
+    }
+    if (place) return placeMarks(marks, tr.state.field(mineField), tr.state.doc);
+    if (!tr.docChanged || !value.marks) return value;
+    const lines = mapLines(tr.startState.doc, tr.state.doc, tr.changes, value.lines);
+    return agentState(value.marks, tr.state.doc, lines);
+  },
+  provide: (field) => EditorView.decorations.from(field, (v) => v.deco),
+});
+
 const flashField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(deco, tr) {
@@ -137,12 +210,13 @@ const flashField = StateField.define<DecorationSet>({
 });
 
 /**
- * The gutter bars: agent-changed lines, every line of a new file, and your
- * own unsaved lines (measured against `clean`), as line classes the editor
- * theme draws as a 3px bar at each line's left edge.
+ * The gutter bars: changed lines, every line of a new file, and your own
+ * unsaved lines (measured against `clean`), as line classes the editor theme
+ * draws as a 3px bar at each line's left edge.
  */
 export function changeMarks(clean: Text): Extension {
-  return [agentField, mineField.init((state) => buildMine(clean, state.doc)), flashField];
+  // The changed lines are placed through your unsaved ones, so those come first.
+  return [mineField.init((state) => buildMine(clean, state.doc)), agentField, flashField];
 }
 
 /** The line numbers each decoration in `deco` sits on, in order. */
@@ -154,7 +228,7 @@ function decoLines(state: EditorState, deco: DecorationSet): number[] {
   return lines;
 }
 
-function runs(lines: number[]): LineRange[] {
+function runs(lines: readonly number[]): LineRange[] {
   const out: LineRange[] = [];
   for (const n of lines) {
     const last = out[out.length - 1];
@@ -165,24 +239,22 @@ function runs(lines: number[]): LineRange[] {
 }
 
 /**
- * The agent's edits in the file as it is now: each run of agent-changed
- * lines, where the edits have moved them. None for a new file, whose every
- * line is the agent's.
+ * The file's changes as it is now: each run of changed lines, where your
+ * edits have moved them. None for a new file, whose every line is new.
  */
 export function agentEdits(state: EditorState): LineRange[] {
   const agent = state.field(agentField, false);
-  if (!agent || agent.kind !== "changed") return [];
-  return runs(decoLines(state, agent.deco));
+  if (agent?.marks?.kind !== "changed") return [];
+  return runs(agent.lines);
 }
 
-/** What the mark lane draws: agent runs, a new file's whole length, and your unsaved runs. */
+/** What the mark lane draws: changed runs, a new file's lines, and your unsaved runs. */
 export function laneMarks(state: EditorState): LaneMark[] {
   const marks: LaneMark[] = [];
   const agent = state.field(agentField, false);
-  if (agent?.kind === "added") {
-    marks.push({ from: 1, to: lastContentLine(state.doc), kind: "added" });
-  } else {
-    for (const run of agentEdits(state)) marks.push({ ...run, kind: "agent" });
+  if (agent?.marks) {
+    const kind = agent.marks.kind === "added" ? "added" : "agent";
+    for (const run of runs(agent.lines)) marks.push({ ...run, kind });
   }
   const mine = state.field(mineField, false);
   for (const run of runs(decoLines(state, mine?.deco ?? Decoration.none))) {

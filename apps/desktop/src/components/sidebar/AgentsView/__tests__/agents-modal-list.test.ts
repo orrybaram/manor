@@ -5,6 +5,7 @@ import {
   listedAgents,
   mergeModalRows,
   modalRowTitle,
+  chipKey,
   projectChips,
   rowPaneId,
   sessionRows,
@@ -306,34 +307,37 @@ describe("modalRowTitle", () => {
 });
 
 describe("projectChips", () => {
-  it("lists each project once, latest activity first, and keeps the selected one", () => {
+  it("lists each project once, latest activity first, folders last, and keeps the selected one", () => {
     const rows = merge({
       projects: [project("manor", "/m", { color: "green" })],
       sessions: [
+        session({ sessionId: "b", cwd: "/tmp/scratch", updatedAt: "2026-10-04T00:00:00Z" }),
         session({ sessionId: "a", cwd: "/m/x", updatedAt: "2026-10-03T00:00:00Z" }),
-        session({ sessionId: "b", cwd: "/tmp/scratch", updatedAt: "2026-10-02T00:00:00Z" }),
+        session({ sessionId: "d", cwd: "/tmp/spike-1", updatedAt: "2026-10-02T00:00:00Z" }),
         session({ sessionId: "c", cwd: "/m", updatedAt: "2026-10-01T00:00:00Z" }),
       ],
     });
-    expect(projectChips(rows, null).map((c) => c.project.key)).toEqual(["manor", "folder:local:/tmp/scratch"]);
-    const gone = { key: "folder:local:/old", name: "old", color: null };
-    expect(projectChips(rows, gone).map((c) => c.project.key)).toEqual([
-      "manor",
-      "folder:local:/tmp/scratch",
-      "folder:local:/old",
+    expect(projectChips(rows, null)).toEqual([
+      { key: "project:manor", label: "manor", color: "green" },
+      { key: "folders", label: "Other folders", color: null },
     ]);
+    const gone = { key: "project:old", label: "old", color: null };
+    expect(projectChips(rows, gone).map((c) => c.key)).toEqual(["project:manor", "folders", "project:old"]);
   });
 
-  it("labels a folder with its parent when another chip has its name", () => {
+  it("gives same-named projects on different hosts one chip", () => {
     const rows = merge({
-      projects: [project("manor", "/m")],
+      projects: [
+        { ...project("mac", "/Users/me/manor"), name: "manor" },
+        { ...project("wsl", "/home/me/manor", { hostId: "wsl" }), name: "manor" },
+      ],
       sessions: [
-        session({ sessionId: "a", cwd: "/m", updatedAt: "2026-10-03T00:00:00Z" }),
-        session({ sessionId: "b", cwd: "/old/manor", updatedAt: "2026-10-02T00:00:00Z" }),
-        session({ sessionId: "c", cwd: "/tmp/solo", updatedAt: "2026-10-01T00:00:00Z" }),
+        session({ sessionId: "a", cwd: "/Users/me/manor", updatedAt: "2026-10-03T00:00:00Z" }),
+        session({ sessionId: "b", hostId: "wsl", cwd: "/home/me/manor", updatedAt: "2026-10-02T00:00:00Z" }),
       ],
     });
-    expect(projectChips(rows, null).map((c) => c.label)).toEqual(["manor", "old/manor", "solo"]);
+    expect(projectChips(rows, null).map((c) => c.key)).toEqual(["project:manor"]);
+    expect(rows.filter((r) => chipKey(r.project) === "project:manor")).toHaveLength(2);
   });
 });
 

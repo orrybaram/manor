@@ -6,6 +6,7 @@ import {
   nextOccurrences,
   presetFromCron,
   timezoneLabel,
+  timezoneOptions,
   type SchedulePreset,
 } from "../cron-describe";
 
@@ -72,5 +73,14 @@ describe("cronProblem and nextOccurrences", () => {
       "2026-11-02T09:00:00.000Z",
       "2026-11-03T09:00:00.000Z",
     ]);
+  });
+});
+
+describe("timezoneOptions", () => {
+  it("puts the schedule's zone and the viewer's first, once each", () => {
+    const zones = timezoneOptions("Asia/Tokyo", "Europe/London");
+    expect(zones.slice(0, 3)).toEqual(["Asia/Tokyo", "Europe/London", "UTC"]);
+    expect(zones.filter((z) => z === "Europe/London")).toHaveLength(1);
+    expect(zones).toContain("America/New_York");
   });
 });

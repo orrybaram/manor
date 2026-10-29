@@ -1,8 +1,8 @@
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import type { AutomationView } from "../../../lib/automation-views";
-import { describeCron, timezoneLabel } from "../../../lib/cron-describe";
+import { CUSTOM_SCHEDULE, describeCron, timezoneLabel } from "../../../lib/cron-describe";
 import { useProjectStore } from "../../../store/project-store";
-import { AGENT_KIND_LABEL, lastRunText, relativeWhen } from "./automation-text";
+import { AGENT_KIND_LABEL, lastRunText, relativeWhen, zoneNote } from "./automation-text";
 import { RunStatus } from "./RunHistory";
 import type { AutomationHost, HostListState } from "./useAutomations";
 import styles from "./AutomationsPage.module.css";
@@ -20,6 +20,11 @@ function hostLine(host: AutomationHost, state: HostListState | undefined): strin
       return `${host.name} is asleep. Its automations show when it's back.`;
     case "unreachable":
       return `Can't reach ${host.name}`;
+    case "unsupported":
+      return `${host.name} has no Manor host server yet, so it can't run automations`;
+    case "loading":
+      // Connecting: asked once it is up.
+      return "Loading…";
     default:
       return null;
   }
@@ -28,7 +33,8 @@ function hostLine(host: AutomationHost, state: HostListState | undefined): strin
 /**
  * The automations of every host, a group per host in the Hosts page's
  * order: name, schedule, next and last run. A host with none is left out;
- * one that can't be read says so. A row opens the automation's page.
+ * one that can't be read says so. A row is a button that opens the
+ * automation's page; the header only labels the columns for sight.
  */
 export function AutomationList(props: AutomationListProps) {
   const { hosts, lists, onOpen } = props;
@@ -54,15 +60,13 @@ export function AutomationList(props: AutomationListProps) {
   }
 
   return (
-    <div className={styles.table} role="table" aria-label="Automations">
-      <div className={`${styles.cols} ${styles.headRow}`} role="row">
-        <span role="columnheader">Name</span>
-        <span role="columnheader">Schedule</span>
-        <span role="columnheader">Next</span>
-        <span role="columnheader" className={styles.alignEnd}>
-          Last run
-        </span>
-        <span aria-hidden />
+    <div className={styles.table} data-testid="automations-list">
+      <div className={`${styles.cols} ${styles.headRow}`} aria-hidden>
+        <span>Name</span>
+        <span>Schedule</span>
+        <span>Next</span>
+        <span className={styles.alignEnd}>Last run</span>
+        <span />
       </div>
       {count === 0 && (
         <div className={styles.groupLine}>
@@ -71,8 +75,13 @@ export function AutomationList(props: AutomationListProps) {
         </div>
       )}
       {groups.map(({ host, automations, line }) => (
-        <div key={host.hostId} role="rowgroup" data-testid={`automations-host-${host.hostId}`}>
-          <div className={styles.groupTitle}>
+        <div
+          key={host.hostId}
+          role="group"
+          aria-labelledby={`automations-host-title-${host.hostId}`}
+          data-testid={`automations-host-${host.hostId}`}
+        >
+          <div className={styles.groupTitle} id={`automations-host-title-${host.hostId}`}>
             {host.name}
             {host.local && <span className={styles.groupNote}> · runs only while Manor is open</span>}
           </div>
@@ -95,37 +104,53 @@ function Row(props: { automation: AutomationView; projectName: string; onOpen: (
   const { automation: a, projectName, onOpen } = props;
   const last = lastRunText(a);
   const next = a.nextRunAt ?? a.nextRuns[0] ?? null;
+  const tz = a.schedule.timezone;
+  const description = describeCron(a.schedule.cron);
+  const note = zoneNote(tz);
 
+  // Spans throughout: a button holds only phrasing content.
   return (
     <button
       type="button"
-      role="row"
       className={`${styles.row} ${styles.cols} ${a.enabled ? "" : styles.paused}`}
       data-testid={`automations-row-${a.id}`}
       onClick={onOpen}
     >
-      <span role="cell" className={`${styles.cell} ${styles.cellName}`}>
-        <div className={styles.name}>{a.name}</div>
-        <div className={styles.sub}>
+      <span className={`${styles.cell} ${styles.cellName}`}>
+        <span className={styles.name}>{a.name}</span>
+        <span className={styles.sub}>
           {projectName} · {AGENT_KIND_LABEL[a.agentKind]}
-        </div>
+        </span>
       </span>
-      <span role="cell" className={`${styles.cell} ${styles.cellSchedule}`}>
-        <div className={styles.when}>
-          {describeCron(a.schedule.cron)}
-        </div>
-        <div className={styles.sub}>{timezoneLabel(a.schedule.timezone)}</div>
+      <span className={`${styles.cell} ${styles.cellSchedule}`}>
+        <span className={styles.when}>
+          {description}
+          {/* The Next column is hidden on a phone: say Paused here. */}
+          {!a.enabled && <span className={styles.phoneOnly}> · Paused</span>}
+        </span>
+        <span className={styles.sub}>
+          {description === CUSTOM_SCHEDULE ? (
+            <>
+              <span className={styles.mono}>{a.schedule.cron}</span> · {timezoneLabel(tz)}
+            </>
+          ) : (
+            timezoneLabel(tz)
+          )}
+        </span>
       </span>
-      <span role="cell" className={`${styles.cell} ${styles.cellNext} ${styles.next}`}>
+      <span className={`${styles.cell} ${styles.cellNext} ${styles.next}`}>
         {!a.enabled ? (
           <span className={styles.never}>Paused</span>
         ) : next ? (
-          relativeWhen(next)
+          <>
+            {relativeWhen(next, new Date(), tz)}
+            {note && <span className={styles.zoneNote}> {note}</span>}
+          </>
         ) : (
           <span className={styles.never}>—</span>
         )}
       </span>
-      <span role="cell" className={`${styles.cell} ${styles.cellLast} ${styles.alignEnd}`}>
+      <span className={`${styles.cell} ${styles.cellLast} ${styles.alignEnd}`}>
         {last ? <RunStatus status={last} /> : <span className={styles.never}>Never run</span>}
       </span>
       <span className={styles.chevron} aria-hidden>

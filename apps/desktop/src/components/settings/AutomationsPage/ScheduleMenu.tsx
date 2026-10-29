@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Input, Select } from "../../ui/Input";
 import {
   clockTime,
@@ -7,11 +7,14 @@ import {
   describeCron,
   nextOccurrences,
   presetFromCron,
+  timezoneLabel,
+  timezoneOptions,
   WEEKDAY_NAMES,
   type SchedulePreset,
   type SchedulePresetKind,
 } from "../../../lib/cron-describe";
-import { relativeWhen } from "./automation-text";
+import { relativeWhen, zoneNote } from "./automation-text";
+import { parseMinute } from "./draft";
 import { ChipMenu, MenuDivider, MenuItem } from "./ChipMenu";
 import styles from "./AutomationsPage.module.css";
 
@@ -45,36 +48,54 @@ function switchTo(kind: Exclude<SchedulePresetKind, "custom">, from: SchedulePre
 type ScheduleMenuProps = {
   cron: string;
   timezone: string;
-  onChange: (cron: string) => void;
+  onChange: (cron: string, timezone: string) => void;
 };
 
 /**
- * The schedule chip: the four presets, the time they run at, and a custom
- * cron, with the next three runs of whatever is picked.
+ * The schedule chip: the four presets, the time they run at, a custom
+ * cron and the zone it is read in, with the next three runs of whatever is
+ * picked. A typed cron or minute is kept when the menu is closed with
+ * Escape or a click outside, as when its field loses focus.
  */
 export function ScheduleMenu(props: ScheduleMenuProps) {
   const { cron, timezone, onChange } = props;
+  // What the open menu's typed fields would save; run as it is dismissed.
+  const pendingRef = useRef<(() => void) | null>(null);
   return (
-    <ChipMenu kind="schedule" label={describeCron(cron)} title="Schedule">
-      {() => <ScheduleOptions cron={cron} timezone={timezone} onChange={onChange} />}
+    <ChipMenu
+      kind="schedule"
+      label={describeCron(cron)}
+      title="Schedule"
+      onDismiss={() => pendingRef.current?.()}
+    >
+      {() => <ScheduleOptions cron={cron} timezone={timezone} onChange={onChange} pendingRef={pendingRef} />}
     </ChipMenu>
   );
 }
 
-function ScheduleOptions(props: ScheduleMenuProps) {
-  const { cron, timezone, onChange } = props;
+function ScheduleOptions(
+  props: ScheduleMenuProps & { pendingRef: { current: (() => void) | null } },
+) {
+  const { cron, timezone, onChange, pendingRef } = props;
   const preset = presetFromCron(cron);
   const [customOpen, setCustomOpen] = useState(preset.kind === "custom");
   const [customText, setCustomText] = useState(cron);
+  const [minuteText, setMinuteText] = useState(preset.kind === "hourly" ? String(preset.minute) : "0");
   const customProblem = customOpen ? cronProblem(customText, timezone) : null;
+  const minuteProblem =
+    !customOpen && preset.kind === "hourly" && parseMinute(minuteText) === null
+      ? "A minute from 0 to 59"
+      : null;
   const preview = customOpen ? customText : cron;
   const next = customProblem ? [] : nextOccurrences(preview, timezone, 3);
+  const note = zoneNote(timezone);
 
   const pick = (p: SchedulePreset) => {
     setCustomOpen(false);
     const nextCron = cronFromPreset(p);
     setCustomText(nextCron);
-    onChange(nextCron);
+    if (p.kind === "hourly") setMinuteText(String(p.minute));
+    onChange(nextCron, timezone);
   };
 
   const setTime = (value: string) => {
@@ -86,8 +107,16 @@ function ScheduleOptions(props: ScheduleMenuProps) {
   const applyCustom = () => {
     if (cronProblem(customText, timezone)) return;
     const trimmed = customText.trim().replace(/\s+/g, " ");
-    if (trimmed !== cron) onChange(trimmed);
+    if (trimmed !== cron) onChange(trimmed, timezone);
   };
+
+  const applyMinute = () => {
+    const minute = parseMinute(minuteText);
+    if (minute === null || preset.kind !== "hourly" || minute === preset.minute) return;
+    pick({ kind: "hourly", minute });
+  };
+
+  pendingRef.current = customOpen ? applyCustom : preset.kind === "hourly" ? applyMinute : null;
 
   return (
     <>
@@ -102,23 +131,26 @@ function ScheduleOptions(props: ScheduleMenuProps) {
         </MenuItem>
       ))}
       {!customOpen && preset.kind === "hourly" && (
-        <label className={styles.menuField}>
-          At minute
-          <Input
-            type="number"
-            min={0}
-            max={59}
-            className={styles.menuNumber}
-            value={preset.minute}
-            data-testid="automation-schedule-minute"
-            onChange={(e) => {
-              const minute = Number(e.target.value);
-              if (Number.isInteger(minute) && minute >= 0 && minute <= 59) {
-                pick({ kind: "hourly", minute });
-              }
-            }}
-          />
-        </label>
+        <div className={styles.menuStack}>
+          <label className={styles.menuField}>
+            At minute
+            <Input
+              type="number"
+              min={0}
+              max={59}
+              className={styles.menuNumber}
+              value={minuteText}
+              aria-invalid={minuteProblem !== null}
+              data-testid="automation-schedule-minute"
+              onChange={(e) => setMinuteText(e.target.value)}
+              onBlur={applyMinute}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyMinute();
+              }}
+            />
+          </label>
+          {minuteProblem && <span className={styles.menuError}>{minuteProblem}</span>}
+        </div>
       )}
       {!customOpen && preset.kind !== "hourly" && preset.kind !== "custom" && (
         <label className={styles.menuField}>
@@ -175,8 +207,35 @@ function ScheduleOptions(props: ScheduleMenuProps) {
           {customProblem && <span className={styles.menuError}>{customProblem}</span>}
         </div>
       )}
+      <MenuDivider />
+      <label className={styles.menuField}>
+        Time zone
+        <Select
+          value={timezone}
+          className={styles.menuZone}
+          data-testid="automation-schedule-timezone"
+          onChange={(e) => {
+            if (e.target.value === timezone) return;
+            // A typed cron that holds goes with the zone; one that doesn't stays unsaved.
+            const nextCron =
+              customOpen && !cronProblem(customText, e.target.value)
+                ? customText.trim().replace(/\s+/g, " ")
+                : cron;
+            onChange(nextCron, e.target.value);
+          }}
+        >
+          {timezoneOptions(timezone).map((zone) => (
+            <option key={zone} value={zone}>
+              {zone === "UTC" ? "UTC" : `${timezoneLabel(zone)} · ${zone}`}
+            </option>
+          ))}
+        </Select>
+      </label>
       {next.length > 0 && (
-        <div className={styles.menuHint}>Next: {next.map((d) => relativeWhen(d.toISOString())).join(" · ")}</div>
+        <div className={styles.menuHint} data-testid="automation-schedule-next">
+          Next: {next.map((d) => relativeWhen(d.toISOString(), new Date(), timezone)).join(" · ")}
+          {note && ` ${note}`}
+        </div>
       )}
     </>
   );

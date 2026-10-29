@@ -79,6 +79,9 @@ export function cronFromPreset(preset: SchedulePreset): string {
   }
 }
 
+/** What `describeCron` calls a pattern it has no words for. */
+export const CUSTOM_SCHEDULE = "Custom schedule";
+
 /** "Weekdays at 09:00", "Every hour at :15", "Every 15 minutes", "Custom schedule". */
 export function describeCron(cron: string): string {
   const preset = presetFromCron(cron);
@@ -99,7 +102,7 @@ export function describeCron(cron: string): string {
         if (n > 1 && n < 60) return `Every ${n} minutes`;
       }
       if (preset.cron === "* * * * *") return "Every minute";
-      return "Custom schedule";
+      return CUSTOM_SCHEDULE;
     }
   }
 }
@@ -120,6 +123,22 @@ export function localTimezone(): string {
   } catch {
     return "UTC";
   }
+}
+
+/**
+ * The zones a schedule can be in, for its picker: the schedule's own and the
+ * viewer's first, then every zone this runtime knows, A to Z.
+ */
+export function timezoneOptions(current: string, local: string = localTimezone()): string[] {
+  let all: string[];
+  try {
+    const intl = Intl as unknown as { supportedValuesOf?: (key: string) => string[] };
+    all = intl.supportedValuesOf?.("timeZone") ?? [];
+  } catch {
+    all = [];
+  }
+  const first = [current, local, "UTC"].filter((z, i, list) => z && list.indexOf(z) === i);
+  return [...first, ...all.filter((z) => !first.includes(z))];
 }
 
 /**

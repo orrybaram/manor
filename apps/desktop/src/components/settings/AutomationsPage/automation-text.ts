@@ -1,13 +1,14 @@
 /**
  * The Automations page's words: when a run was or will be, what a run did,
  * and its status, from the views main answers with. Pure, so the page and
- * its tests read the same lines. Times are the viewer's own clock.
+ * its tests read the same lines. A run's past times are the viewer's own
+ * clock; upcoming ones can be read in the schedule's zone (`timeZone`).
  */
 
 import type { AgentStatus } from "../../../electron.d";
 import type { AutomationAgentKind, AutomationWorkspace } from "../../../lib/automations";
 import type { AutomationRunView, AutomationView } from "../../../lib/automation-views";
-import { clockTime } from "../../../lib/cron-describe";
+import { clockTime, localTimezone, timezoneLabel } from "../../../lib/cron-describe";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -21,36 +22,110 @@ export const AGENT_KIND_LABEL: Record<AutomationAgentKind, string> = {
 
 export const AGENT_KINDS = Object.keys(AGENT_KIND_LABEL) as AutomationAgentKind[];
 
-function startOfDay(d: Date): number {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+/** A moment's calendar fields, in `timeZone` or the viewer's own zone. */
+interface Fields {
+  /** Days since the epoch of its calendar date, for counting days between. */
+  dayNumber: number;
+  weekday: number;
+  date: number;
+  month: number;
+  hour: number;
+  minute: number;
 }
 
-function time(d: Date): string {
-  return clockTime(d.getHours(), d.getMinutes());
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function fieldsOf(d: Date, timeZone?: string): Fields {
+  if (!timeZone) {
+    return {
+      dayNumber: Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000),
+      weekday: d.getDay(),
+      date: d.getDate(),
+      month: d.getMonth(),
+      hour: d.getHours(),
+      minute: d.getMinutes(),
+    };
+  }
+  let format = formatters.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", {
+      timeZone,
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+      hourCycle: "h23",
+    });
+    formatters.set(timeZone, format);
+  }
+  const part = (type: string) =>
+    Number(format.formatToParts(d).find((p) => p.type === type)?.value ?? 0);
+  const year = part("year");
+  const month = part("month") - 1;
+  const date = part("day");
+  const utc = Date.UTC(year, month, date);
+  return {
+    dayNumber: Math.round(utc / 86_400_000),
+    weekday: new Date(utc).getUTCDay(),
+    date,
+    month,
+    hour: part("hour") % 24,
+    minute: part("minute"),
+  };
 }
 
-/** "Today 14:15", "Tomorrow 09:00", "Thu 09:00", "3 Nov 09:00". */
-export function relativeWhen(iso: string, now: Date = new Date()): string {
+function time(f: Fields): string {
+  return clockTime(f.hour, f.minute);
+}
+
+/**
+ * "Today 14:15", "Tomorrow 09:00", "Thu 09:00", "3 Nov 09:00": in
+ * `timeZone` when given (today being that zone's), else the viewer's own.
+ */
+export function relativeWhen(iso: string, now: Date = new Date(), timeZone?: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  const days = Math.round((startOfDay(d) - startOfDay(now)) / 86_400_000);
-  if (days === 0) return `Today ${time(d)}`;
-  if (days === 1) return `Tomorrow ${time(d)}`;
-  if (days === -1) return `Yesterday ${time(d)}`;
-  if (days > 1 && days < 7) return `${DAYS[d.getDay()]} ${time(d)}`;
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${time(d)}`;
+  const f = fieldsOf(d, timeZone);
+  const days = f.dayNumber - fieldsOf(now, timeZone).dayNumber;
+  if (days === 0) return `Today ${time(f)}`;
+  if (days === 1) return `Tomorrow ${time(f)}`;
+  if (days === -1) return `Yesterday ${time(f)}`;
+  if (days > 1 && days < 7) return `${DAYS[f.weekday]} ${time(f)}`;
+  return `${f.date} ${MONTHS[f.month]} ${time(f)}`;
 }
 
-/** "Thu 30 Oct 09:00". */
-export function dayAndTime(date: Date): string {
-  return `${DAYS[date.getDay()]} ${date.getDate()} ${MONTHS[date.getMonth()]} ${time(date)}`;
+/** "Thu 30 Oct 09:00", in `timeZone` when given. */
+export function dayAndTime(date: Date, timeZone?: string): string {
+  const f = fieldsOf(date, timeZone);
+  return `${DAYS[f.weekday]} ${f.date} ${MONTHS[f.month]} ${time(f)}`;
+}
+
+/**
+ * "(London time)" beside a schedule's times when its zone isn't the
+ * viewer's; null when it is.
+ */
+export function zoneNote(timeZone: string, viewer: string = localTimezone()): string | null {
+  if (sameZone(timeZone, viewer)) return null;
+  return `(${timezoneLabel(timeZone)} time)`;
+}
+
+function sameZone(a: string, b: string): boolean {
+  if (a === b) return true;
+  try {
+    const zone = (tz: string) => new Intl.DateTimeFormat("en-US", { timeZone: tz }).resolvedOptions().timeZone;
+    return zone(a) === zone(b);
+  } catch {
+    return false;
+  }
 }
 
 /** "29 Oct 09:00": a history row's time. */
 export function historyTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${time(d)}`;
+  const f = fieldsOf(d);
+  return `${f.date} ${MONTHS[f.month]} ${time(f)}`;
 }
 
 /** How a run's dot and label are coloured. */

@@ -79,7 +79,7 @@ export function errorText(err: unknown): string {
   return message.replace(/^Error invoking remote method '[^']*': (Error: )?/, "");
 }
 
-/** How long a burst of agent status changes settles before lists are re-read. */
+/** How long a burst of a run's agent status changes settles before it is re-read. */
 const STATUS_SETTLE_MS = 800;
 
 function shouldAsk(host: AutomationHost): boolean {
@@ -88,16 +88,45 @@ function shouldAsk(host: AutomationHost): boolean {
 
 function settled(host: AutomationHost): HostListState | null {
   if (shouldAsk(host)) return null;
-  return host.status === "sleeping" ? { kind: "asleep" } : { kind: "unreachable" };
+  if (host.status === "sleeping") return { kind: "asleep" };
+  // Asked once it is up: the host store's change re-reads it.
+  if (host.status === "connecting" || host.status === "reconnecting") return { kind: "loading" };
+  return { kind: "unreachable" };
+}
+
+/** A trailing debounce: `run` once `ms` pass without another `poke`. */
+function debounced(ms: number, run: () => void): { poke: () => void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return {
+    poke: () => {
+      cancel();
+      timer = setTimeout(() => {
+        timer = null;
+        run();
+      }, ms);
+    },
+    cancel,
+  };
 }
 
 /**
  * Each host's automations, kept current: re-read when a host's store
  * changes (`automations.onChanged`), when a host comes up, and — since a
- * run's status is its Agent's — a beat after agent statuses change.
+ * run's status is its Agent's — a beat after the agent of a listed last run
+ * changes status. `paused` (another view covers the list) stops that last.
  */
-export function useAutomationLists(): Record<string, HostListState> {
+export function useAutomationLists(opts: { paused?: boolean } = {}): Record<string, HostListState> {
   const [lists, setLists] = useState<Record<string, HostListState>>({});
+  const paused = opts.paused ?? false;
+  const view = useRef({ lists, paused });
+  const reloadAll = useRef<() => void>(() => {});
+  // Back from under another view: the runs' statuses it skipped are re-read.
+  if (view.current.paused && !paused) queueMicrotask(() => reloadAll.current());
+  view.current = { lists, paused };
 
   useMountEffect(() => {
     let live = true;
@@ -134,6 +163,9 @@ export function useAutomationLists(): Record<string, HostListState> {
       }
     };
     loadAll();
+    reloadAll.current = () => {
+      if (live) loadAll();
+    };
 
     // A host that comes up, goes to sleep, or joins is read again.
     const offHosts = useHostStore.subscribe(() => {
@@ -152,19 +184,24 @@ export function useAutomationLists(): Record<string, HostListState> {
       else loadAll();
     });
 
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const offStatus = window.electronAPI.agents.onStatus(() => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
-        if (!live) return;
-        for (const host of currentHosts()) if (shouldAsk(host)) load(host);
-      }, STATUS_SETTLE_MS);
+    // Only the hosts listing a last run in the pane whose agent changed.
+    const stale = new Set<string>();
+    const reread = debounced(STATUS_SETTLE_MS, () => {
+      if (!live) return;
+      for (const host of currentHosts()) if (stale.has(host.hostId) && shouldAsk(host)) load(host);
+      stale.clear();
+    });
+    const offStatus = window.electronAPI.agents.onStatus((update) => {
+      if (view.current.paused) return;
+      const hostIds = hostsShowingPane(view.current.lists, update.paneId);
+      if (hostIds.length === 0) return;
+      for (const hostId of hostIds) stale.add(hostId);
+      reread.poke();
     });
 
     return () => {
       live = false;
-      if (timer) clearTimeout(timer);
+      reread.cancel();
       offHosts();
       offChanged();
       offStatus();
@@ -174,13 +211,25 @@ export function useAutomationLists(): Record<string, HostListState> {
   return lists;
 }
 
+/** The hosts whose list shows a last run in `paneId`. */
+function hostsShowingPane(lists: Record<string, HostListState>, paneId: string): string[] {
+  return Object.entries(lists).flatMap(([hostId, state]) =>
+    state.kind === "ready" && state.automations.some((a) => a.lastRun?.paneId === paneId)
+      ? [hostId]
+      : [],
+  );
+}
+
 /**
  * One automation with its runs, kept current the same way. `null` while
  * loading; `missing` once the host says it has no such automation.
+ * `onMissing`, when given, is called instead when the first read finds it
+ * missing or fails (a stale link to it).
  */
 export function useAutomationDetail(
   hostId: string,
   id: string,
+  onMissing?: () => void,
 ): {
   detail: AutomationDetail | null | "missing";
   setDetail: (detail: AutomationDetail) => void;
@@ -188,18 +237,28 @@ export function useAutomationDetail(
 } {
   const [detail, setDetail] = useState<AutomationDetail | null | "missing">(null);
   const reloadRef = useRef<() => void>(() => {});
+  const shown = useRef<AutomationDetail | null | "missing">(null);
+  shown.current = detail;
+  const missingRef = useRef(onMissing);
+  missingRef.current = onMissing;
 
   useMountEffect(() => {
     let live = true;
     let ticket = 0;
+    let first = true;
     const load = () => {
       const mine = ++ticket;
+      const isFirst = first;
+      first = false;
       window.electronAPI.automations.get(hostId, id).then(
         (next) => {
-          if (live && mine === ticket) setDetail(next ?? "missing");
+          if (!live || mine !== ticket) return;
+          if (!next && isFirst && missingRef.current) missingRef.current();
+          else setDetail(next ?? "missing");
         },
         () => {
           // Away for a moment: keep what is shown.
+          if (live && isFirst && missingRef.current) missingRef.current();
         },
       );
     };
@@ -208,17 +267,17 @@ export function useAutomationDetail(
     const offChanged = window.electronAPI.automations.onChanged((info) => {
       if (info.automationId === id) load();
     });
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    const offStatus = window.electronAPI.agents.onStatus(() => {
-      if (timer) return;
-      timer = setTimeout(() => {
-        timer = null;
-        if (live) load();
-      }, STATUS_SETTLE_MS);
+    // Only a status change of one of its runs' agents.
+    const reread = debounced(STATUS_SETTLE_MS, () => {
+      if (live) load();
+    });
+    const offStatus = window.electronAPI.agents.onStatus((update) => {
+      const now = shown.current;
+      if (now && now !== "missing" && now.runs.some((r) => r.paneId === update.paneId)) reread.poke();
     });
     return () => {
       live = false;
-      if (timer) clearTimeout(timer);
+      reread.cancel();
       offChanged();
       offStatus();
     };

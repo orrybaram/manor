@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AutomationRunView } from "../../../../lib/automation-views";
-import { relativeWhen, runStatusText, runWhatText, scheduleNote } from "../automation-text";
+import {
+  dayAndTime,
+  relativeWhen,
+  runStatusText,
+  runWhatText,
+  scheduleNote,
+  zoneNote,
+} from "../automation-text";
 
 function run(over: Partial<AutomationRunView>): AutomationRunView {
   return {
@@ -70,5 +77,22 @@ describe("scheduleNote", () => {
     expect(scheduleNote(false, "box-1", 720)).toBe(
       "If box-1 is asleep at that time, it runs once when it wakes (within 12 h).",
     );
+  });
+});
+
+describe("times in a schedule's zone", () => {
+  const now = new Date("2026-10-29T12:00:00.000Z");
+
+  it("reads a time, and today, in the zone given", () => {
+    // 23:30 in London on the 29th is 10:30 on the 30th in Sydney.
+    expect(relativeWhen("2026-10-29T23:30:00.000Z", now, "Europe/London")).toBe("Today 23:30");
+    expect(relativeWhen("2026-10-29T23:30:00.000Z", now, "Australia/Sydney")).toBe("Tomorrow 10:30");
+    expect(dayAndTime(new Date("2026-10-30T13:00:00.000Z"), "America/New_York")).toBe("Fri 30 Oct 09:00");
+  });
+
+  it("labels a zone only when it isn't the viewer's", () => {
+    expect(zoneNote("Europe/London", "Europe/London")).toBeNull();
+    expect(zoneNote("Europe/London", "America/New_York")).toBe("(London time)");
+    expect(zoneNote("Etc/UTC", "UTC")).toBeNull();
   });
 });

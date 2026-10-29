@@ -106,6 +106,7 @@ button.row:focus-visible {
 }
 
 .name {
+  display: block;
   color: var(--text-selected);
   font-weight: 500;
   overflow: hidden;
@@ -114,6 +115,7 @@ button.row:focus-visible {
 }
 
 .sub {
+  display: block;
   font-size: 11.5px;
   color: var(--text-dim);
   overflow: hidden;
@@ -126,6 +128,7 @@ button.row:focus-visible {
 }
 
 .when {
+  display: block;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -134,6 +137,17 @@ button.row:focus-visible {
 
 .next {
   white-space: nowrap;
+}
+
+/* "(London time)": the schedule's zone, beside times read in it. */
+.zoneNote {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+/* Shown only in the phone's stacked row. */
+.phoneOnly {
+  display: none;
 }
 
 .chevron {
@@ -531,12 +545,26 @@ input.menuNumber {
   width: 64px;
 }
 
+select.menuZone {
+  min-width: 0;
+  max-width: 220px;
+}
+
 input.menuTime {
   width: 104px;
 }
 
 input.menuCron {
   width: 100%;
+}
+
+/* A typed field with its problem under it. */
+.menuStack {
+  display: grid;
+}
+
+.menuStack > .menuError {
+  padding: 0 8px 4px;
 }
 
 .menuCronField {
@@ -610,9 +638,13 @@ input.menuCron {
   gap: 1px;
 }
 
-button.menuItem {
+:global(:root[data-layout="phone"]) button.menuItem {
   min-height: 40px;
   font-size: 14px;
+}
+
+:global(:root[data-layout="phone"]) .phoneOnly {
+  display: inline;
 }
 
 :global(:root[data-layout="phone"]) .histRow,

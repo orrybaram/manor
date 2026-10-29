@@ -14,6 +14,8 @@ type ChipMenuProps = {
   title: string;
   /** The menu's rows; `close` shuts it after a pick. */
   children: (close: () => void) => ReactNode;
+  /** Called as Escape or an outside click closes the menu, before it unmounts. */
+  onDismiss?: () => void;
 };
 
 /** Up / Down / Home / End move between a menu's rows. */
@@ -46,11 +48,17 @@ function onMenuKeyDown(e: KeyboardEvent<HTMLElement>): void {
  * outside tap or click.
  */
 export function ChipMenu(props: ChipMenuProps) {
-  const { kind, label, title, children } = props;
+  const { kind, label, title, children, onDismiss } = props;
   const [open, setOpen] = useState(false);
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onDismiss?.();
+        setOpen(next);
+      }}
+    >
       <Popover.Trigger asChild>
         <button
           type="button"

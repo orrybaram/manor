@@ -3,13 +3,14 @@ import Play from "lucide-react/dist/esm/icons/play";
 import TriangleAlert from "lucide-react/dist/esm/icons/triangle-alert";
 import {
   DEFAULT_MISSED_GRACE_MINUTES,
+  MAX_KEEP_LAST,
   validateAutomationInput,
   type AutomationAgentKind,
   type AutomationInput,
   type AutomationWorkspace,
 } from "../../../lib/automations";
 import type { AutomationDetail, AutomationView } from "../../../lib/automation-views";
-import { localTimezone, nextOccurrences, timezoneLabel } from "../../../lib/cron-describe";
+import { nextOccurrences, timezoneLabel } from "../../../lib/cron-describe";
 import { useMountEffect } from "../../../hooks/useMountEffect";
 import { workspaceKey } from "../../../lib/workspace-key";
 import { useProjectStore, type ProjectInfo } from "../../../store/project-store";
@@ -25,39 +26,25 @@ import {
   isProjectMissing,
   scheduleNote,
   workspaceChipText,
+  zoneNote,
 } from "./automation-text";
 import { ChipMenu, MenuDivider, MenuItem, StaticChip } from "./ChipMenu";
 import { RunHistory } from "./RunHistory";
 import { ScheduleMenu } from "./ScheduleMenu";
+import {
+  draftOf,
+  inputOf,
+  KEEP_ALL,
+  parseKeepLast,
+  projectsOn,
+  storedWorkspace,
+  type Draft,
+} from "./draft";
 import { errorText, useAutomationDetail, type AutomationHost } from "./useAutomations";
 import styles from "./AutomationsPage.module.css";
 
 /** How long typing in the name or prompt settles before it is saved. */
 const TYPING_SAVE_MS = 600;
-
-/** What the page edits: an automation's input, and the host it is on. */
-interface Draft extends AutomationInput {
-  enabled: boolean;
-  hostId: string;
-}
-
-function draftOf(detail: AutomationDetail, hostId: string): Draft {
-  return {
-    hostId,
-    name: detail.name,
-    enabled: detail.enabled,
-    schedule: detail.schedule,
-    projectId: detail.projectId,
-    prompt: detail.prompt,
-    agentKind: detail.agentKind,
-    workspace: detail.workspace,
-    missedGraceMinutes: detail.missedGraceMinutes,
-  };
-}
-
-function projectsOn(projects: readonly ProjectInfo[], hostId: string): ProjectInfo[] {
-  return projects.filter((p) => p.hostId === hostId);
-}
 
 /** A workspace's key, as automations name it; its bare path if it has none. */
 function keyOf(hostId: string, path: string): string {
@@ -82,21 +69,6 @@ function workspaceNamer(projects: readonly ProjectInfo[]) {
   };
 }
 
-/** The defaults a new automation starts from: "Weekdays at 09:00", here, paused. */
-export function newDraft(host: AutomationHost, projects: readonly ProjectInfo[]): Draft {
-  return {
-    hostId: host.hostId,
-    name: "New automation",
-    enabled: false,
-    schedule: { cron: "0 9 * * 1-5", timezone: localTimezone() },
-    projectId: projectsOn(projects, host.hostId)[0]?.id ?? "",
-    prompt: "",
-    agentKind: "claude",
-    workspace: { mode: "new" },
-    missedGraceMinutes: DEFAULT_MISSED_GRACE_MINUTES,
-  };
-}
-
 type Shared = {
   hosts: AutomationHost[];
   onBack: () => void;
@@ -104,9 +76,16 @@ type Shared = {
 };
 
 /** One automation's page, read from its host and kept current. */
-export function ExistingAutomation(props: Shared & { hostId: string; id: string }) {
-  const { hostId, id, hosts, onBack } = props;
-  const { detail, setDetail, reload } = useAutomationDetail(hostId, id);
+export function ExistingAutomation(
+  props: Shared & {
+    hostId: string;
+    id: string;
+    /** Called instead of showing "deleted" when it can't be read: a link to it is stale. */
+    onMissing?: () => void;
+  },
+) {
+  const { hostId, id, hosts, onBack, onMissing } = props;
+  const { detail, setDetail, reload } = useAutomationDetail(hostId, id, onMissing);
   const host = hosts.find((h) => h.hostId === hostId);
 
   if (detail === null || detail === "missing" || !host) {
@@ -124,7 +103,6 @@ export function ExistingAutomation(props: Shared & { hostId: string; id: string 
       {...props}
       host={host}
       detail={detail}
-      initial={draftOf(detail, hostId)}
       onSaved={(view) => setDetail({ ...detail, ...view })}
       onReload={reload}
     />
@@ -136,7 +114,16 @@ export function NewAutomation(
   props: Shared & { initial: Draft; onCreated: (hostId: string, id: string) => void },
 ) {
   const host = props.hosts.find((h) => h.hostId === props.initial.hostId) ?? props.hosts[0];
-  return <AutomationForm {...props} host={host} detail={null} onSaved={() => {}} onReload={() => {}} />;
+  return (
+    <AutomationForm
+      {...props}
+      hostId={props.initial.hostId}
+      host={host}
+      detail={null}
+      onSaved={() => {}}
+      onReload={() => {}}
+    />
+  );
 }
 
 function BackLink(props: { onBack: () => void }) {
@@ -155,9 +142,11 @@ function BackLink(props: { onBack: () => void }) {
 
 type FormProps = Shared & {
   host: AutomationHost;
+  hostId: string;
   /** Null while it is new. */
   detail: AutomationDetail | null;
-  initial: Draft;
+  /** A new automation's draft; an existing one's is its detail's. */
+  initial?: Draft;
   onSaved: (view: AutomationView) => void;
   onReload: () => void;
   onCreated?: (hostId: string, id: string) => void;
@@ -167,25 +156,44 @@ function AutomationForm(props: FormProps) {
   const { hosts, onBack, onOpenAgent, detail, initial, onSaved, onReload, onCreated } = props;
   const isNew = detail === null;
   const projects = useProjectStore((s) => s.projects);
-  const [draft, setDraft] = useState<Draft>(initial);
+  const [draft, setDraft] = useState<Draft>(() => initial ?? draftOf(detail!, props.hostId));
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<"run" | "create" | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** A project was picked here: a failed run's "project missing" is answered. */
+  const [projectPicked, setProjectPicked] = useState(false);
   const pending = useRef<Partial<AutomationInput>>({});
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Saves sent and not yet answered. */
+  const inFlight = useRef(0);
   const top = useRef<HTMLDivElement>(null);
+  /** The newest draft, for a save that runs after this render (the unmount flush). */
+  const latest = useRef(draft);
+  latest.current = draft;
+
+  const editing = (): boolean => {
+    if (timer.current || inFlight.current > 0 || Object.keys(pending.current).length > 0) return true;
+    const focused = document.activeElement;
+    return (
+      !!focused &&
+      !!top.current?.contains(focused) &&
+      (focused.tagName === "INPUT" || focused.tagName === "TEXTAREA")
+    );
+  };
+
+  // A change made elsewhere (a phone, the CLI) is shown, unless it would
+  // overwrite what is being edited here: an unsaved change, a save on its
+  // way, or a field with focus.
+  const [syncedAt, setSyncedAt] = useState(detail?.updatedAt ?? null);
+  if (detail && detail.updatedAt !== syncedAt && !editing()) {
+    setSyncedAt(detail.updatedAt);
+    setDraft(draftOf(detail, draft.hostId));
+  }
 
   const host = hosts.find((h) => h.hostId === draft.hostId) ?? props.host;
   const hostProjects = projectsOn(projects, draft.hostId);
   const project = projects.find((p) => p.id === draft.projectId && p.hostId === draft.hostId);
   const nameWorkspace = workspaceNamer(hostProjects);
-
-  useMountEffect(() => {
-    top.current?.scrollIntoView?.({ block: "start" });
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
-  });
 
   /** Sends what has changed since the last save, if the whole still holds. */
   const flush = (next: Draft) => {
@@ -194,18 +202,36 @@ function AutomationForm(props: FormProps) {
     const patch = pending.current;
     pending.current = {};
     if (isNew || !detail || Object.keys(patch).length === 0) return;
-    const problem = validateAutomationInput(next);
+    // A cleared Keep last is sent as `keepLast: null`; the whole is checked as stored.
+    const problem = validateAutomationInput(inputOf(next));
     if (problem) {
       setError(problem);
       pending.current = patch;
       return;
     }
     setError(null);
-    window.electronAPI.automations.update(draft.hostId, detail.id, patch).then(
-      (view) => onSaved(view),
-      (err: unknown) => setError(errorText(err)),
+    inFlight.current += 1;
+    window.electronAPI.automations.update(next.hostId, detail.id, patch).then(
+      (view) => {
+        inFlight.current -= 1;
+        onSaved(view);
+      },
+      (err: unknown) => {
+        inFlight.current -= 1;
+        setError(errorText(err));
+      },
     );
   };
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+
+  useMountEffect(() => {
+    top.current?.scrollIntoView?.({ block: "start" });
+    return () => {
+      // Closing Settings mid-typing still saves what was typed.
+      if (timer.current) flushRef.current(latest.current);
+    };
+  });
 
   /** Changes the draft, and saves it: now, or once typing settles. */
   const change = (patch: Partial<AutomationInput>, opts: { typing?: boolean } = {}) => {
@@ -227,9 +253,14 @@ function AutomationForm(props: FormProps) {
   const setEnabled = (enabled: boolean) => {
     setDraft((d) => ({ ...d, enabled }));
     if (isNew || !detail) return;
+    inFlight.current += 1;
     window.electronAPI.automations.setEnabled(draft.hostId, detail.id, enabled).then(
-      (view) => onSaved(view),
+      (view) => {
+        inFlight.current -= 1;
+        onSaved(view);
+      },
       (err: unknown) => {
+        inFlight.current -= 1;
         setDraft((d) => ({ ...d, enabled: !enabled }));
         setError(errorText(err));
       },
@@ -250,7 +281,8 @@ function AutomationForm(props: FormProps) {
   };
 
   const create = () => {
-    const { hostId, ...input } = draft;
+    const hostId = draft.hostId;
+    const input = inputOf(draft);
     const problem = validateAutomationInput(input);
     if (problem) {
       setError(problem);
@@ -272,7 +304,14 @@ function AutomationForm(props: FormProps) {
 
   const remove = async () => {
     if (!detail) return;
-    await window.electronAPI.automations.remove(draft.hostId, detail.id);
+    try {
+      await window.electronAPI.automations.remove(draft.hostId, detail.id);
+    } catch (err) {
+      // E.g. a device on a host server, which may not delete.
+      setDeleting(false);
+      setError(errorText(err));
+      return;
+    }
     setDeleting(false);
     onBack();
   };
@@ -283,7 +322,10 @@ function AutomationForm(props: FormProps) {
     ? nextOccurrences(draft.schedule.cron, draft.schedule.timezone, 3)
     : [];
   const projectLabel = project?.name ?? (draft.projectId ? "missing project" : "no project");
-  const missing = detail ? isProjectMissing(detail) : false;
+  // The last run found no project: said until another is picked, or while
+  // the one named isn't set up on the host.
+  const missing = detail ? isProjectMissing(detail) && (!project || !projectPicked) : false;
+  const note = zoneNote(draft.schedule.timezone);
 
   return (
     <div className={styles.detail} data-testid="automation-detail" ref={top}>
@@ -340,7 +382,7 @@ function AutomationForm(props: FormProps) {
           <ScheduleMenu
             cron={draft.schedule.cron}
             timezone={draft.schedule.timezone}
-            onChange={(cron) => change({ schedule: { ...draft.schedule, cron } })}
+            onChange={(cron, timezone) => change({ schedule: { cron, timezone } })}
           />{" "}
           {timezoneLabel(draft.schedule.timezone)} time, start{" "}
           <ChipMenu kind="agent" label={AGENT_KIND_LABEL[draft.agentKind]} title="Agent">
@@ -374,6 +416,7 @@ function AutomationForm(props: FormProps) {
                     onSelect={() => {
                       close();
                       if (p.id === draft.projectId) return;
+                      setProjectPicked(true);
                       // A reused workspace is the old project's.
                       change({
                         projectId: p.id,
@@ -432,7 +475,9 @@ function AutomationForm(props: FormProps) {
         </div>
         <div className={`${styles.note} ${styles.mono}`} data-testid="automation-next-runs">
           {draft.schedule.cron} ·{" "}
-          {next.length > 0 ? `next ${next.map(dayAndTime).join(" · ")}` : "— paused"}
+          {next.length > 0
+            ? `next ${next.map((d) => dayAndTime(d, draft.schedule.timezone)).join(" · ")}${note ? ` ${note}` : ""}`
+            : "— paused"}
         </div>
         <div className={styles.note}>
           {scheduleNote(
@@ -534,17 +579,17 @@ type WorkspaceOptionsProps = {
 /** "New workspace" (keeping the last N, optionally), or reuse one of the project's. */
 function WorkspaceOptions(props: WorkspaceOptionsProps) {
   const { workspace, project, onChange } = props;
-  const keepLast = workspace.mode === "new" ? workspace.keepLast : undefined;
+  const stored = storedWorkspace(workspace);
+  const keepLast = stored.mode === "new" ? stored.keepLast : undefined;
   const [keepText, setKeepText] = useState(keepLast ? String(keepLast) : "");
+  const keepProblem =
+    parseKeepLast(keepText) === null ? `Keep 1 to ${MAX_KEEP_LAST}, or leave it empty for all` : null;
   const workspaces = (project?.workspaces ?? []).filter((w) => !w.hidden);
 
   const applyKeep = () => {
-    const n = Number(keepText);
-    const next = keepText.trim() === "" ? undefined : Number.isInteger(n) && n > 0 ? n : null;
+    const next = parseKeepLast(keepText);
     if (next === null || next === keepLast) return;
-    // The host merges a workspace patch: `keepLast: null` is how one is dropped.
-    const cleared = { mode: "new", keepLast: null } as unknown as AutomationWorkspace;
-    onChange(next === undefined ? cleared : { mode: "new", keepLast: next }, false);
+    onChange(next === undefined ? KEEP_ALL : { mode: "new", keepLast: next }, false);
   };
 
   return (
@@ -559,22 +604,27 @@ function WorkspaceOptions(props: WorkspaceOptionsProps) {
         New workspace each run
       </MenuItem>
       {workspace.mode === "new" && (
-        <label className={styles.menuField}>
-          Keep last
-          <Input
-            type="number"
-            min={1}
-            className={styles.menuNumber}
-            value={keepText}
-            placeholder="all"
-            data-testid="automation-workspace-keep"
-            onChange={(e) => setKeepText(e.target.value)}
-            onBlur={applyKeep}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") applyKeep();
-            }}
-          />
-        </label>
+        <div className={styles.menuStack}>
+          <label className={styles.menuField}>
+            Keep last
+            <Input
+              type="number"
+              min={1}
+              max={MAX_KEEP_LAST}
+              aria-invalid={keepProblem !== null}
+              className={styles.menuNumber}
+              value={keepText}
+              placeholder="all"
+              data-testid="automation-workspace-keep"
+              onChange={(e) => setKeepText(e.target.value)}
+              onBlur={applyKeep}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") applyKeep();
+              }}
+            />
+          </label>
+          {keepProblem && <span className={styles.menuError}>{keepProblem}</span>}
+        </div>
       )}
       {workspaces.length > 0 && <MenuDivider />}
       {workspaces.map((ws) => {

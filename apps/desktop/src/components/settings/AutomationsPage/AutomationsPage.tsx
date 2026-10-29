@@ -7,19 +7,38 @@ import { toast } from "../../../toast";
 import { Button } from "../../ui/Button/Button";
 import { SectionTitle } from "../SectionTitle";
 import { AutomationList } from "./AutomationList";
-import { ExistingAutomation, NewAutomation, newDraft } from "./AutomationEditor";
+import { ExistingAutomation, NewAutomation } from "./AutomationEditor";
+import { newDraft } from "./draft";
 import { useAutomationHosts, useAutomationLists } from "./useAutomations";
 import styles from "./AutomationsPage.module.css";
 
 type View =
   | { kind: "list" }
-  | { kind: "detail"; hostId: string; id: string }
+  /** `linked`: opened from outside the page, so a stale one falls back to the list. */
+  | { kind: "detail"; hostId: string; id: string; linked?: boolean }
   | { kind: "new" };
+
+/** An automation to open the page on, e.g. from a bell row. */
+export interface AutomationTarget {
+  hostId: string;
+  automationId: string;
+}
 
 type AutomationsPageProps = {
   /** Closes Settings: opening a run's agent leaves for its pane. */
   onClose?: () => void;
+  /**
+   * Opens this automation's page, when it is set and each time a new one is
+   * passed; the list when that host has no such automation.
+   */
+  target?: AutomationTarget | null;
 };
+
+function viewOf(target: AutomationTarget | null | undefined): View {
+  return target
+    ? { kind: "detail", hostId: target.hostId, id: target.automationId, linked: true }
+    : { kind: "list" };
+}
 
 /**
  * Settings → Automations: every host's automations in one list, and each
@@ -28,10 +47,16 @@ type AutomationsPageProps = {
  * empty.
  */
 export function AutomationsPage(props: AutomationsPageProps) {
-  const { onClose } = props;
-  const [view, setView] = useState<View>({ kind: "list" });
+  const { onClose, target } = props;
+  const [view, setView] = useState<View>(() => viewOf(target));
+  const [shownTarget, setShownTarget] = useState(target);
+  if (target !== shownTarget) {
+    setShownTarget(target);
+    if (target) setView(viewOf(target));
+  }
   const hosts = useAutomationHosts();
-  const lists = useAutomationLists();
+  // Under an automation's page the list waits: it re-reads on its own changes only.
+  const lists = useAutomationLists({ paused: view.kind !== "list" });
   const projects = useProjectStore((s) => s.projects);
 
   // Only a host whose server keeps automations can take a new one.
@@ -56,6 +81,7 @@ export function AutomationsPage(props: AutomationsPageProps) {
         id={view.id}
         hosts={hosts}
         onBack={() => setView({ kind: "list" })}
+        onMissing={view.linked ? () => setView({ kind: "list" }) : undefined}
         onOpenAgent={(id) => void openAgent(id)}
       />
     );

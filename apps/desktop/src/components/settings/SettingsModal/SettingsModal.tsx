@@ -21,7 +21,7 @@ import { NotificationsPage } from "../NotificationsPage";
 import { IntegrationsPage } from "../IntegrationsPage";
 import { DevicesPage } from "../DevicesPage";
 import { HostsPage } from "../HostsPage/HostsPage";
-import { AutomationsPage } from "../AutomationsPage/AutomationsPage";
+import { AutomationsPage, type AutomationTarget } from "../AutomationsPage/AutomationsPage";
 import { ProjectSettingsPage } from "../ProjectSettingsPage";
 import { Button } from "../../ui/Button/Button";
 import { Input } from "../../ui/Input";
@@ -68,10 +68,12 @@ type SettingsModalProps = {
   initialPage?: SettingsPageId | null;
   /** A section to scroll to on open, e.g. `"project-host"`. */
   initialSection?: string | null;
+  /** An automation to open Automations on; a new one while open goes there too. */
+  initialAutomation?: AutomationTarget | null;
 };
 
 export function SettingsModal(props: SettingsModalProps) {
-  const { open, onClose, initialProjectId, initialPage, initialSection } = props;
+  const { open, onClose, initialProjectId, initialPage, initialSection, initialAutomation } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
 
@@ -107,6 +109,12 @@ export function SettingsModal(props: SettingsModalProps) {
     setPendingJump(jumpId ? { id: jumpId, nonce: 0 } : null);
   }
   prevOpenRef.current = open;
+
+  const [shownAutomation, setShownAutomation] = useState(initialAutomation);
+  if (initialAutomation !== shownAutomation) {
+    setShownAutomation(initialAutomation);
+    if (open && initialAutomation) setPage({ type: "automations" });
+  }
 
   // A project set up on several hosts is listed once, where its first
   // host's copy would be.
@@ -474,7 +482,7 @@ export function SettingsModal(props: SettingsModalProps) {
                   {page.type === "integrations" && <IntegrationsPage />}
                   {page.type === "hosts" && <HostsPage />}
                   {page.type === "devices" && <DevicesPage />}
-                  {page.type === "automations" && <AutomationsPage onClose={onClose} />}
+                  {page.type === "automations" && <AutomationsPage onClose={onClose} target={initialAutomation} />}
                   {page.type === "group" && currentGroup && currentGroupMembers.length > 0 && (
                     <ProjectSettingsPage
                       key={currentGroup.id}

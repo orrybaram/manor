@@ -810,6 +810,7 @@ function OpenFile({
             }}
             agentMarks={agentMarks}
             diffBase={diffBase}
+            reviewWorkspace={workspace.path}
           />
         </Suspense>
         {state.comparing && (

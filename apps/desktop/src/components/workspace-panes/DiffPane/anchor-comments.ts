@@ -16,7 +16,8 @@ export type AnchoredComments = {
  * changes underneath a review, so anything pointing past the end of the
  * file is dropped here: a card must never be rendered against a row that does
  * not exist. The draft itself survives in the store and is still submitted —
- * it carries its own snippet.
+ * it carries its own snippet. A comment left on the editor's diff has no
+ * index at all, and is the editor's to show.
  */
 export function anchorComments(
   comments: DraftComment[],
@@ -27,13 +28,13 @@ export function anchorComments(
 
   for (const comment of comments) {
     const end = comment.endIndex;
-    if (!Number.isInteger(end) || end < 0 || end >= lineCount) continue;
+    if (end === undefined || !Number.isInteger(end) || end < 0 || end >= lineCount) continue;
 
     const existing = byEnd.get(end);
     if (existing) existing.push(comment);
     else byEnd.set(end, [comment]);
 
-    const start = Math.max(0, Math.min(comment.startIndex, end));
+    const start = Math.max(0, Math.min(comment.startIndex ?? end, end));
     for (let i = start; i <= end; i++) spanned.add(i);
   }
 

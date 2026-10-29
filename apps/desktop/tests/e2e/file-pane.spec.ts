@@ -857,6 +857,86 @@ test("a Source Control row shows its file's diff in the editor, which edits and 
   await window.screenshot({ path: shot(testInfo, "diff-light") });
 });
 
+test("selected lines in a file's diff take a review comment, shown as a card under them", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  installLightTheme(tempHome);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-diff-comments");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  const other = path.join(ws, "src", "other.ts");
+  fs.writeFileSync(other, "export const other = 1;\n");
+  git(ws, "add -A");
+  git(ws, 'commit -qm "baseline"');
+  fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
+  fs.writeFileSync(other, "export const other = 2;\n");
+
+  await openFileFromPalette(window);
+  await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  const row = (p: string) => drawer.locator(`[data-testid="scm-row"][data-path="${p}"]`);
+  await expect(row("src/components/Widget.tsx")).toHaveAttribute("data-letter", "M", { timeout: 30_000 });
+  await row("src/components/Widget.tsx").locator("button").first().click();
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor.locator(".cm-changedLine")).toContainText("Pressed {count} times");
+
+  // Select the <button> line and the changed one under it: the chip offers a comment.
+  await editor.locator(".cm-changedLine").first().click();
+  await window.keyboard.press("End");
+  await window.keyboard.press("Shift+ArrowUp");
+  const chip = window.locator('[data-testid="diff-comment-chip"]');
+  await expect(chip).toBeVisible();
+  await window.screenshot({ path: shot(testInfo, "comment-chip") });
+
+  // The composer opens under the lines; Save adds the card there.
+  await chip.click();
+  const composer = editor.locator('[data-testid="diff-comment-composer"]');
+  await expect(composer).toContainText("L7–L8");
+  await composer.locator("textarea").fill("Why the rename?");
+  await window.screenshot({ path: shot(testInfo, "comment-composer") });
+  await composer.locator('[data-testid="diff-comment-save"]').click();
+  const card = editor.locator('[data-testid="diff-comment-card"]');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText("You · L7–L8");
+  await expect(card).toContainText("Why the rename?");
+  await expect(composer).toHaveCount(0);
+  await expect(editor.locator(".cm-gutterElement.cm-commentedLine")).not.toHaveCount(0);
+  await window.screenshot({ path: shot(testInfo, "comment-card") });
+
+  // Edit it in place.
+  await card.hover();
+  await card.locator('[data-testid="diff-comment-edit"]').click();
+  await expect(composer.locator("textarea")).toHaveValue("Why the rename?");
+  await composer.locator("textarea").fill("Why the rename? Keep Clicked.");
+  await window.keyboard.press("ControlOrMeta+Enter");
+  await expect(card).toContainText("Keep Clicked.");
+
+  // Another file's diff and back: the card is still under its lines.
+  await row("src/other.ts").locator("button").first().click();
+  await expect(editor.locator(".cm-changedLine")).toContainText("other = 2");
+  await expect(card).toHaveCount(0);
+  await row("src/components/Widget.tsx").locator("button").first().click();
+  await expect(card).toContainText("You · L7–L8");
+  await expect(card).toContainText("Keep Clicked.");
+
+  // A line typed above moves it down with its lines.
+  await editor.locator(".cm-line").first().click();
+  await window.keyboard.press("Home");
+  await window.keyboard.type("// top\n");
+  await expect(card).toContainText("You · L8–L9");
+
+  // Delete it.
+  await card.hover();
+  await card.locator('[data-testid="diff-comment-delete"]').click();
+  await expect(card).toHaveCount(0);
+  await expect(editor.locator(".cm-gutterElement.cm-commentedLine")).toHaveCount(0);
+});
+
 test("Source Control commits what's staged with the message typed above it", async ({
   app,
   window,

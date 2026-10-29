@@ -9,7 +9,7 @@ import {
 import {
   CommentComposer,
   DiffCommentCard,
-} from "./DiffCommentCard/DiffCommentCard";
+} from "../../review/DiffCommentCard/DiffCommentCard";
 import { anchorComments } from "./anchor-comments";
 import type { SelectionAnchor } from "./review-anchor";
 import type { DiffFile } from "./types";
@@ -238,7 +238,7 @@ export function useDraftReview(opts: DraftReviewOptions): DraftReview {
         }
         if (!scrolledToRow) {
           const rows = lineHandles.current?.get(comment.filePath);
-          if (rows) {
+          if (rows && comment.endIndex !== undefined) {
             rows.scrollToRow(comment.endIndex);
             scrolledToRow = true;
           }

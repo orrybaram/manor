@@ -3,9 +3,19 @@ import { create } from "zustand";
 export interface DraftComment {
   id: string;
   filePath: string;
-  /** Inclusive index range into DiffFile.lines. The inline anchor. */
-  startIndex: number;
-  endIndex: number;
+  /**
+   * A Diff pane comment's anchor: an inclusive index range into
+   * DiffFile.lines. Absent on one left on the editor's diff.
+   */
+  startIndex?: number;
+  endIndex?: number;
+  /**
+   * An editor diff comment's anchor: the working copy's lines it covers,
+   * 1-based and inclusive, as of the last time the editor had the file open
+   * (it follows edits while open). Absent on a Diff pane comment.
+   */
+  startLine?: number;
+  endLine?: number;
   /** Snapshot taken at creation, so the prompt survives anchor drift. */
   snippet: string;
   /** e.g. "L12" / "L12-L18", for the card header. */
@@ -22,6 +32,12 @@ interface ReviewStoreState {
     draft: Omit<DraftComment, "id" | "createdAt">,
   ): string;
   updateDraft(workspacePath: string, id: string, body: string): void;
+  /** An editor diff comment's lines moved, with the edits around them. */
+  moveDraft(
+    workspacePath: string,
+    id: string,
+    lines: { startLine: number; endLine: number; startLabel: string },
+  ): void;
   removeDraft(workspacePath: string, id: string): void;
   clearWorkspace(workspacePath: string): void;
 }
@@ -58,6 +74,18 @@ export const useReviewStore = create<ReviewStoreState>((set) => ({
           [workspacePath]: existing.map((d) =>
             d.id === id ? { ...d, body } : d,
           ),
+        },
+      };
+    }),
+
+  moveDraft: (workspacePath, id, lines) =>
+    set((s) => {
+      const existing = s.drafts[workspacePath];
+      if (!existing) return s;
+      return {
+        drafts: {
+          ...s.drafts,
+          [workspacePath]: existing.map((d) => (d.id === id ? { ...d, ...lines } : d)),
         },
       };
     }),

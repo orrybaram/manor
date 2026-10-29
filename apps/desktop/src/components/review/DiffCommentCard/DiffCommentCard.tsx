@@ -1,10 +1,10 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import Pencil from "lucide-react/dist/esm/icons/pencil";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
-import type { DraftComment } from "../../../../store/review-store";
-import { Button } from "../../../ui/Button/Button";
-import { Tooltip } from "../../../ui/Tooltip/Tooltip";
-import { useEmojiAutocomplete } from "../../../ui/EmojiAutocomplete/useEmojiAutocomplete";
+import type { DraftComment } from "../../../store/review-store";
+import { Button } from "../../ui/Button/Button";
+import { Tooltip } from "../../ui/Tooltip/Tooltip";
+import { useEmojiAutocomplete } from "../../ui/EmojiAutocomplete/useEmojiAutocomplete";
 import styles from "./DiffCommentCard.module.css";
 
 type DiffCommentCardProps = {
@@ -32,9 +32,10 @@ export function DiffCommentCard(props: DiffCommentCardProps) {
     <div
       className={`${styles.card}${flash ? ` ${styles.flash}` : ""}`}
       data-comment-id={comment.id}
+      data-testid="diff-comment-card"
     >
       <div className={styles.header}>
-        <span className={styles.anchor}>{comment.startLabel}</span>
+        <span className={styles.anchor}>You · {comment.startLabel}</span>
         <span className={styles.actions}>
           <Tooltip label="Edit comment" side="top">
             <Button
@@ -42,6 +43,7 @@ export function DiffCommentCard(props: DiffCommentCardProps) {
               size="sm"
               className={styles.action}
               aria-label="Edit comment"
+              data-testid="diff-comment-edit"
               onClick={onEdit}
             >
               <Pencil size={12} />
@@ -53,6 +55,7 @@ export function DiffCommentCard(props: DiffCommentCardProps) {
               size="sm"
               className={styles.action}
               aria-label="Delete comment"
+              data-testid="diff-comment-delete"
               onClick={onDelete}
             >
               <Trash2 size={12} />
@@ -114,7 +117,7 @@ export function CommentComposer(props: {
   };
 
   return (
-    <div className={styles.card}>
+    <div className={styles.card} data-testid="diff-comment-composer">
       <div className={styles.header}>
         <span className={styles.anchor}>{startLabel}</span>
       </div>
@@ -152,7 +155,13 @@ export function CommentComposer(props: {
         <Button variant="ghost" size="sm" onClick={onCancel}>
           Cancel
         </Button>
-        <Button variant="primary" size="sm" disabled={!canSave} onClick={save}>
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={!canSave}
+          data-testid="diff-comment-save"
+          onClick={save}
+        >
           Add comment
         </Button>
       </div>

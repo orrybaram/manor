@@ -5,6 +5,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Circle from "lucide-react/dist/esm/icons/circle";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Minus from "lucide-react/dist/esm/icons/minus";
 import Trash2 from "lucide-react/dist/esm/icons/trash-2";
@@ -29,6 +30,8 @@ import { Collapse } from "../../../ui/Collapse/Collapse";
 type FileListProps = {
   files: DiffFile[];
   onSelectFile: (path: string) => void;
+  /** Open a changed file in a file pane; absent when the pane can't. */
+  onOpenFile?: (path: string) => void;
   animationState: Map<string, "new" | "updated">;
   diffMode: DiffMode;
   workspacePath?: string;
@@ -47,6 +50,7 @@ export function FileList(props: FileListProps) {
   const {
     files,
     onSelectFile,
+    onOpenFile,
     animationState,
     diffMode,
     workspacePath,
@@ -414,6 +418,16 @@ export function FileList(props: FileListProps) {
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
           <ContextMenu.Content className={styles.contextMenu}>
+            {onOpenFile && !file.deleted && (
+              <ContextMenu.Item
+                className={styles.contextMenuItem}
+                data-testid="diff-file-list-open"
+                onSelect={() => onOpenFile(file.path)}
+              >
+                <FileCode size={14} />
+                Open File
+              </ContextMenu.Item>
+            )}
             <ContextMenu.Item
               className={styles.contextMenuItem}
               onSelect={handleOpenInEditor}

@@ -6,6 +6,8 @@ export function parseDiff(raw: string): DiffFile[] {
   let current: DiffFile | null = null;
   let oldNum = 0;
   let newNum = 0;
+  /** Past the file's header (`deleted file mode`, `---`, `+++`) into its hunks. */
+  let inHunks = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -14,11 +16,16 @@ export function parseDiff(raw: string): DiffFile[] {
       const match = line.match(/^diff --git a\/.+ b\/(.+)$/);
       current = { path: match?.[1] ?? "unknown", lines: [], added: 0, removed: 0 };
       files.push(current);
+      inHunks = false;
       continue;
     }
 
     if (!current) continue;
 
+    if (!inHunks && (line.startsWith("deleted file mode") || line === "+++ /dev/null")) {
+      current.deleted = true;
+      continue;
+    }
     if (line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++")) continue;
     if (line.startsWith("Binary files")) {
       current.lines.push({ type: "context", content: line });
@@ -27,6 +34,7 @@ export function parseDiff(raw: string): DiffFile[] {
 
     const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/);
     if (hunkMatch) {
+      inHunks = true;
       oldNum = parseInt(hunkMatch[1], 10);
       newNum = parseInt(hunkMatch[2], 10);
       current.lines.push({ type: "hunk", content: `@@ -${hunkMatch[1]} +${hunkMatch[2]} @@${hunkMatch[3]}` });

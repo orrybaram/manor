@@ -26,6 +26,7 @@ import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
 import { manorEditorTheme } from "../editor-theme";
 import { EditorFile } from "../file-text";
+import { pendingLines, type LineRequest } from "../pending-line";
 import styles from "./CodeEditor.module.css";
 
 export type CodeEditorRef = {
@@ -174,6 +175,13 @@ export function CodeEditor({
           // No pack is plain text, which the editor already shows.
         });
     }
+    // A terminal link's `:line:col`, asked for before or after this opened.
+    const showPendingLine = () => {
+      const request = pendingLines.take(paneId, path);
+      if (request) showLine(view, request);
+    };
+    showPendingLine();
+    const stopLines = pendingLines.subscribe(paneId, showPendingLine);
     // Edit › Find… (⌘F from the menu) names the focused pane.
     const stopFind = onUiRequest((request) => {
       if (request.type === "pane-search" && request.paneId === paneId) {
@@ -183,6 +191,7 @@ export function CodeEditor({
     return () => {
       destroyed = true;
       stopFind();
+      stopLines();
       onDispose(file.write(view.state.doc), dirtyRef.current);
       viewRef.current = null;
       view.destroy();
@@ -190,4 +199,16 @@ export function CodeEditor({
   });
 
   return <div ref={hostRef} className={styles.editor} data-testid="file-pane-editor" />;
+}
+
+/** Put the cursor on `request`'s line (and column), centred, with the keyboard. */
+function showLine(view: EditorView, { line, col }: LineRequest): void {
+  const doc = view.state.doc;
+  const target = doc.line(Math.min(Math.max(line, 1), doc.lines));
+  const pos = target.from + Math.min(Math.max((col ?? 1) - 1, 0), target.length);
+  view.dispatch({
+    selection: { anchor: pos },
+    effects: EditorView.scrollIntoView(pos, { y: "center" }),
+  });
+  view.focus();
 }

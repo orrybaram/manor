@@ -13,6 +13,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
@@ -50,6 +51,7 @@ import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { openInEditor } from "../../../lib/editor";
+import { openFileBeside } from "../../../lib/open-in-file-pane";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
 import { useToastStore } from "../../../store/toast-store";
 import { onUiRequest } from "../../../utils/ui-request";
@@ -193,6 +195,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
         });
       },
       [revealFile],
+    );
+
+    // A changed file, in a file pane beside this one: the one already in
+    // this tab, or a new split to the right. Needs the pane and its workspace.
+    const openFile = useMemo(
+      () =>
+        paneId && workspacePath
+          ? (path: string) => openFileBeside(paneId, path, "horizontal")
+          : undefined,
+      [paneId, workspacePath],
     );
 
     const openSearch = useCallback(() => {
@@ -808,6 +820,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <FileList
               files={files}
               onSelectFile={scrollToFile}
+              onOpenFile={openFile}
               animationState={animationState}
               diffMode={diffMode}
               workspacePath={workspacePath}
@@ -866,6 +879,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                           collapsed={collapsed.has(file.path)}
                           animated={animationState.get(file.path) === "updated"}
                           onToggle={() => toggleFile(file.path)}
+                          onOpenFile={
+                            openFile && !file.deleted
+                              ? () => openFile(file.path)
+                              : undefined
+                          }
                         />
                         {collapsed.has(file.path) &&
                           autoCollapseReason(file) && (
@@ -929,6 +947,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                             <ContextMenu.Separator
                               className={styles.contextMenuSeparator}
                             />
+                            {openFile && !file.deleted && (
+                              <ContextMenu.Item
+                                className={styles.contextMenuItem}
+                                data-testid="diff-file-menu-open"
+                                onSelect={() => openFile(file.path)}
+                              >
+                                <FileCode size={14} />
+                                Open File
+                              </ContextMenu.Item>
+                            )}
                             <ContextMenu.Item
                               className={styles.contextMenuItem}
                               onSelect={() => {

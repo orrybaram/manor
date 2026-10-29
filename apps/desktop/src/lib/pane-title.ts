@@ -35,14 +35,17 @@ function cwdName(cwd: string): string {
 }
 
 /**
- * The title a pane's header shows: its live terminal title, cleaned, minus the
- * "user@host:" prefix of default shell titles, else the last segment of its
- * cwd, else "Terminal".
+ * The title a pane's header shows: a file pane's open file name; else its live
+ * terminal title, cleaned, minus the "user@host:" prefix of default shell
+ * titles, else the last segment of its cwd, else "Terminal".
  */
 export function paneHeaderTitle(
-  state: Pick<AppState, "paneTitle" | "paneCwd">,
+  state: Pick<AppState, "paneTitle" | "paneCwd" | "workspaceLayouts">,
   paneId: string,
 ): string {
+  if (selectPaneContentType(state, paneId) === "file") {
+    return fileTitle(selectPaneFilePath(state, paneId));
+  }
   const title = terminalTitle(state.paneTitle[paneId]);
   if (title) return shellTitlePath(title) ?? title;
   const cwd = state.paneCwd[paneId];

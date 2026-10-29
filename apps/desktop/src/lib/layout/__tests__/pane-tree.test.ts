@@ -239,6 +239,44 @@ describe("movePane", () => {
     }
   });
 
+  it("keeps a file leaf and a browser leaf as they are when siblings change direction", () => {
+    const file: PaneNode = { type: "leaf", paneId: "a", contentType: "file", filePath: "src/a.ts" };
+    const browser: PaneNode = { type: "leaf", paneId: "b", contentType: "browser", url: "http://localhost:3000" };
+    const tree: PaneNode = { type: "split", direction: "horizontal", ratio: 0.5, first: file, second: browser };
+    const result = movePane(tree, "a", "b", "vertical", "second");
+    expect(result).toEqual({ type: "split", direction: "vertical", ratio: 0.5, first: browser, second: file });
+  });
+
+  it("keeps a moved file leaf's content when it is not a sibling of the target", () => {
+    const tree: PaneNode = {
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: {
+        type: "split",
+        direction: "vertical",
+        ratio: 0.5,
+        first: { type: "leaf", paneId: "a", contentType: "file", filePath: "src/a.ts" },
+        second: { type: "leaf", paneId: "b" },
+      },
+      second: { type: "leaf", paneId: "c", contentType: "browser", url: "http://x.test" },
+    };
+    const result = movePane(tree, "a", "c", "horizontal", "second");
+    expect(result).toEqual({
+      type: "split",
+      direction: "horizontal",
+      ratio: 0.5,
+      first: { type: "leaf", paneId: "b" },
+      second: {
+        type: "split",
+        direction: "horizontal",
+        ratio: 0.5,
+        first: { type: "leaf", paneId: "c", contentType: "browser", url: "http://x.test" },
+        second: { type: "leaf", paneId: "a", contentType: "file", filePath: "src/a.ts" },
+      },
+    });
+  });
+
   it("falls back to remove+insert for non-sibling panes", () => {
     const tree: PaneNode = {
       type: "split",

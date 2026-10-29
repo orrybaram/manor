@@ -9,6 +9,7 @@ import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import type { CodeEditorRef } from "./CodeEditor/CodeEditor";
 import { FileDrawer } from "./FileDrawer/FileDrawer";
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
+import { createLatestOnly } from "./latest-only";
 import styles from "./FilePane.module.css";
 
 // CodeMirror is its own chunk: nothing loads it until a file pane opens a file.
@@ -151,11 +152,14 @@ function OpenFile({
   useMountEffect(() => {
     let live = true;
     const files = window.electronAPI.files;
+    // Changes can come faster than reads answer; only the newest read counts.
+    const reads = createLatestOnly();
 
     const load = async () => {
+      const ticket = reads.begin();
       try {
         const result = await files.read(workspace, path);
-        if (!live) return;
+        if (!live || !reads.isLatest(ticket)) return;
         if (!result.ok) {
           hashRef.current = null;
           setState({ status: "failed", message: result.message });
@@ -166,7 +170,7 @@ function OpenFile({
         if (editorRef.current) editorRef.current.replaceContent(result.content);
         else setState({ status: "ready", content: result.content });
       } catch (err) {
-        if (live) setState({ status: "failed", message: ipcErrorMessage(err) });
+        if (live && reads.isLatest(ticket)) setState({ status: "failed", message: ipcErrorMessage(err) });
       }
     };
 

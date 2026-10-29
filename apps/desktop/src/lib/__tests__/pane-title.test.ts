@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { paneTitle, type PaneTitleState } from "../pane-title";
+import { paneHeaderTitle, paneTitle, type PaneTitleState } from "../pane-title";
 import type { PaneNode } from "../layout/pane-tree";
 import type { WorkspaceLayout } from "../layout/workspace-layout";
 
@@ -76,5 +76,17 @@ describe("paneTitle", () => {
       "proj",
     );
     expect(paneTitle("a", state(TERMINAL), [])).toBe("Terminal");
+  });
+});
+
+describe("paneHeaderTitle", () => {
+  it("names a file pane by its open file, not its terminal fields", () => {
+    const file = { type: "leaf", paneId: "a", contentType: "file", filePath: "src/app.ts" } as const;
+    expect(paneHeaderTitle(state(file, { paneCwd: { a: "/ws" } }), "a")).toBe("app.ts");
+    expect(paneHeaderTitle(state({ type: "leaf", paneId: "a", contentType: "file" }), "a")).toBe("Files");
+  });
+
+  it("names a terminal by its cwd", () => {
+    expect(paneHeaderTitle(state(TERMINAL, { paneCwd: { a: "/repo/app" } }), "a")).toBe("app");
   });
 });

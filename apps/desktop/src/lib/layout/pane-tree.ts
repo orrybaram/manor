@@ -182,15 +182,27 @@ export function movePane(
   );
   if (swapped) return swapped;
 
+  const source = findLeaf(node, sourcePaneId);
   const afterRemove = removePane(node, sourcePaneId);
   if (!afterRemove) return null;
+  // The moved pane keeps what it is: its content type, url and open file.
   return insertSplitAt(
     afterRemove,
     targetPaneId,
     direction,
     sourcePaneId,
     position,
+    source?.contentType,
+    source?.url,
+    source?.filePath,
   );
+}
+
+type LeafNode = Extract<PaneNode, { type: "leaf" }>;
+
+function findLeaf(node: PaneNode, paneId: string): LeafNode | null {
+  if (node.type === "leaf") return node.paneId === paneId ? node : null;
+  return findLeaf(node.first, paneId) ?? findLeaf(node.second, paneId);
 }
 
 /**
@@ -219,9 +231,10 @@ function swapSiblings(
         // Same direction: always swap positions
         return { ...node, first: node.second, second: node.first };
       }
-      // Different direction: respect position for the new orientation
-      const sourceLeaf: PaneNode = { type: "leaf", paneId: sourcePaneId };
-      const targetLeaf: PaneNode = { type: "leaf", paneId: targetPaneId };
+      // Different direction: respect position for the new orientation. The
+      // leaves move as they are, so each keeps its content type, url and file.
+      const sourceLeaf = firstId === sourcePaneId ? node.first : node.second;
+      const targetLeaf = firstId === sourcePaneId ? node.second : node.first;
       return {
         ...node,
         direction,

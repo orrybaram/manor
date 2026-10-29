@@ -71,6 +71,7 @@
  * when a second one joins.
  */
 
+import type { EventName, WireEventArgs } from "../../electron/bridge/events";
 import { keyFor } from "../../electron/bridge/host-rewrite";
 import { byPane, declinesWake, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
@@ -186,6 +187,16 @@ const KEYED_EVENTS: ReadonlySet<string> = new Set([
   "diffs.changed",
   "diffs.fingerprintsChange",
 ]);
+
+/**
+ * The events that name their host one level down rather than at the top: the
+ * field of the payload holding a `{ hostId }`, stamped as a top-level
+ * `hostId` is. Without it a phone, which names every host by its room, would
+ * hear `files.changed` for host `local` and match none of its panes.
+ */
+const NESTED_HOST_FIELD: { readonly [W in EventName]?: keyof WireEventArgs<W>[0] & string } = {
+  "files.changed": "workspace",
+};
 
 /**
  * The namespaces whose listeners are keyed by pane (`electron/bridge/events.ts`)
@@ -534,6 +545,23 @@ export function createRouter(
       if (host !== group.lastUsedHostId) out = { ...out, group: { ...group, lastUsedHostId: host } };
     }
     return out;
+  }
+
+  /** An event's payload `value` (its argument `at`) with its hosts stamped. */
+  function stampEventArg(
+    entry: ServerEntry,
+    event: { ns: string; event: string } | null,
+    value: unknown,
+    at: number,
+  ): unknown {
+    if (native(entry)) return value;
+    const stamped = stampRecords(entry, value);
+    const field =
+      event && at === 0 ? NESTED_HOST_FIELD[`${event.ns}.${event.event}` as EventName] : undefined;
+    if (!field || !isPlainObject(stamped)) return stamped;
+    const inner = stamped[field];
+    const next = stampRecord(entry, inner);
+    return next === inner ? stamped : { ...stamped, [field]: next };
   }
 
   function stampResult(
@@ -1358,7 +1386,7 @@ export function createRouter(
         event.event === "taskEntry" ? (parseChatTaskKey(first)?.paneId ?? first) : first;
       return subscribePane(ns, name, paneId, args);
     }
-    return callHome(ns, name, args);
+    return callHome(ns, name, args, event);
   }
 
   // ── the set changing ──
@@ -1441,13 +1469,22 @@ export function createRouter(
    * so the arguments go out as home knows them and the answer — or each
    * event, for a listener — comes back stamped.
    */
-  function callHome(ns: string, name: string, args: unknown[]): unknown {
+  function callHome(
+    ns: string,
+    name: string,
+    args: unknown[],
+    event: { ns: string; event: string } | null = null,
+  ): unknown {
     const home = set.home();
     if (native(home)) return call(home, ns, name, args);
     const out = toServerArgs(home, onlyKnownHosts(home, args)).map((arg) =>
       typeof arg === "function"
-        ? (...event: unknown[]) =>
-            (arg as Fn)(...event.map((value) => stampRecords(set.get(home.id) ?? home, value)))
+        ? (...payload: unknown[]) =>
+            (arg as Fn)(
+              ...payload.map((value, at) =>
+                stampEventArg(set.get(home.id) ?? home, event, value, at),
+              ),
+            )
         : arg,
     );
     const result = call(home, ns, name, out);

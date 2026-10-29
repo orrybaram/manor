@@ -886,6 +886,35 @@ describe("on the phone, every server named by its room", () => {
     expect(seen).toHaveBeenCalledWith([{ hostId: BOX, status: "reconnecting" }]);
   });
 
+  it("watches an open file in home's ids, and stamps the workspace each change names", async () => {
+    const desk = fakeServer({ "files.watch": () => undefined });
+    const api = createRouter(phone(desk), fakeResolver({}));
+
+    await api.files.watch({ path: "/a", hostId: DESK }, ["src/a.ts"]);
+    await api.files.watch({ path: "/b", hostId: BOX }, ["b.ts"]);
+    expect(desk.invokes.map((i) => i.args)).toEqual([
+      [{ path: "/a", hostId: "local" }, ["src/a.ts"]],
+      [{ path: "/b", hostId: "h1" }, ["b.ts"]],
+    ]);
+
+    const seen = vi.fn();
+    api.files.onChanged(seen);
+    desk.emit("files.changed", undefined, {
+      workspace: { path: "/a", hostId: "local" },
+      path: "src/a.ts",
+      hash: "h1",
+    });
+    desk.emit("files.changed", undefined, {
+      workspace: { path: "/b", hostId: "h1" },
+      path: "b.ts",
+      hash: null,
+    });
+    expect(seen.mock.calls).toEqual([
+      [{ workspace: { path: "/a", hostId: DESK }, path: "src/a.ts", hash: "h1" }],
+      [{ workspace: { path: "/b", hostId: BOX }, path: "b.ts", hash: null }],
+    ]);
+  });
+
   it("keeps an answer that comes back after its server's hello", async () => {
     let answer: (value: unknown) => void = () => {};
     const desk = fakeServer({

@@ -5,8 +5,9 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
-import { pruneRunWorkspaces, type RunWorkspaceRetentionDeps } from "../retention";
+import { createRunWorkspacePruner, pruneRunWorkspaces, type RunWorkspaceRetentionDeps } from "../retention";
 import type { AgentInfo } from "../../agent-persistence";
+import type { LayoutEntry } from "../../../src/lib/layout/protocol";
 import type { ProjectInfo, WorkspaceInfo } from "../../projects/types";
 import type { Automation, AutomationRun } from "../../../src/lib/automations";
 
@@ -55,6 +56,9 @@ describe("pruneRunWorkspaces", () => {
   let runs: AutomationRun[];
   let agents: Partial<AgentInfo>[];
   let risks: Map<string, string>;
+  /** workspace path → the pane ids its layout holds. */
+  let layouts: Map<string, string[]>;
+  let unseenResponded: Set<string>;
   let log: ReturnType<typeof vi.fn<(message: string) => void>>;
   let remove: ReturnType<typeof vi.fn<(projectId: string, worktreePath: string) => Promise<void>>>;
   let deps: RunWorkspaceRetentionDeps;
@@ -75,6 +79,8 @@ describe("pruneRunWorkspaces", () => {
     seed(5);
     agents = [];
     risks = new Map();
+    layouts = new Map();
+    unseenResponded = new Set();
     log = vi.fn<(message: string) => void>();
     remove = vi.fn(async (_projectId: string, _worktreePath: string) => {});
     deps = {
@@ -86,7 +92,20 @@ describe("pruneRunWorkspaces", () => {
         worktreeRemovalRisk: async (_projectId: string, p: string) => risks.get(p) ?? null,
       },
       workspaceOps: { remove },
-      agentManager: { getAllAgents: () => agents as AgentInfo[] },
+      agentManager: {
+        getAllAgents: () => agents as AgentInfo[],
+        getAgentById: (id: string) => (agents.find((a) => a.id === id) as AgentInfo | undefined) ?? null,
+      },
+      agentStatus: { getPaneState: () => undefined },
+      layout: {
+        get: (key: string) => {
+          const panes = layouts.get(key);
+          if (!panes) return null;
+          const tabs = panes.map((paneId) => ({ id: `tab-${paneId}`, rootNode: { type: "leaf", paneId } }));
+          return { layout: { panels: { p: { id: "p", tabs } } } } as unknown as LayoutEntry;
+        },
+      },
+      unseen: { responded: unseenResponded, requiresInput: new Set() },
       log,
     };
   });
@@ -178,5 +197,74 @@ describe("pruneRunWorkspaces", () => {
     };
     await expect(pruneRunWorkspaces(deps, automation(1), "/wt/5")).resolves.toBeUndefined();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("store gone"));
+  });
+
+  it("keeps a workspace the user opened a pane in, but not one holding only the run's own", async () => {
+    layouts.set("/wt/1", ["pane-1", "pane-user"]);
+    layouts.set("/wt/2", ["pane-2"]);
+    await pruneRunWorkspaces(deps, automation(1), "/wt/5");
+    expect(removed()).toEqual(["/wt/2", "/wt/3", "/wt/4"]);
+    expect(log.mock.calls[0]![0]).toContain("Nightly 1 (a pane was opened in it)");
+  });
+
+  it("keeps a workspace whose run's agent, found by its pane, is active", async () => {
+    agents = [{ id: "a1", status: "active", paneId: "pane-1", createdAt: "2026-10-01T09:00:05.000Z" }];
+    await pruneRunWorkspaces(deps, automation(1), "/wt/5");
+    expect(removed()).toEqual(["/wt/2", "/wt/3", "/wt/4"]);
+  });
+
+  it("keeps a workspace whose run's agent has a reply nobody has read", async () => {
+    agents = [{ id: "a2", status: "completed", paneId: "pane-2", createdAt: "2026-10-02T09:00:05.000Z" }];
+    unseenResponded.add("a2");
+    await pruneRunWorkspaces(deps, automation(1), "/wt/5");
+    expect(removed()).toEqual(["/wt/1", "/wt/3", "/wt/4"]);
+    expect(log.mock.calls[0]![0]).toContain("Nightly 2 (its agent's reply is unread)");
+  });
+
+  it("matches an active agent's workspace however its path is written", async () => {
+    agents = [
+      { id: "a1", status: "active", workspacePath: "/wt/1/" },
+      { id: "a3", status: "active", workspacePath: "box:/wt/3" },
+    ];
+    runs[1] = run(4, { workspacePath: "/wt/4/" });
+    await pruneRunWorkspaces(deps, automation(1), "/wt/5/");
+    expect(removed()).toEqual(["/wt/2", "/wt/4"]);
+  });
+
+  it("tells the risk check when the run fired", async () => {
+    const risk = vi.fn(async () => null);
+    deps.projectManager.worktreeRemovalRisk = risk;
+    await pruneRunWorkspaces(deps, automation(1), "/wt/5");
+    expect(risk).toHaveBeenCalledWith("project-1", "/wt/1", { createdAt: Date.parse("2026-10-01T09:00:00.000Z") });
+  });
+
+  it("asks again just before each removal", async () => {
+    // Newest first: 2 is clean when weighed, and opened by its turn.
+    remove.mockImplementation(async (_id, p) => {
+      if (p === "/wt/4") layouts.set("/wt/2", ["pane-user"]);
+    });
+    await pruneRunWorkspaces(deps, automation(1), "/wt/5");
+    expect(removed()).toEqual(["/wt/1", "/wt/3", "/wt/4"]);
+  });
+
+  it("runs one automation's prunes one at a time", async () => {
+    const prune = createRunWorkspacePruner(deps);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    remove.mockImplementation(async (_id, p) => {
+      if (p === "/wt/4") await gate;
+      // What a removal does: the workspace leaves the project.
+      workspaces = workspaces.filter((w) => w.path !== p);
+    });
+    const first = prune(automation(1), "/wt/5");
+    const second = prune(automation(1), "/wt/5");
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledTimes(1));
+    // The second waits for the first: nothing is weighed twice at once.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(remove).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all([first, second]);
+    // The second found nothing left to remove.
+    expect(remove.mock.calls.map((c) => c[1])).toEqual(["/wt/4", "/wt/3", "/wt/2", "/wt/1"]);
   });
 });

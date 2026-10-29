@@ -94,7 +94,7 @@ import { createWorkspaceOps } from "../workspace-ops";
 import { AutomationStore } from "../automations/automation-store";
 import { AutomationScheduler } from "../automations/scheduler";
 import { createFireRun } from "../automations/fire-run";
-import { pruneRunWorkspaces } from "../automations/retention";
+import { createRunWorkspacePruner } from "../automations/retention";
 import { automationOfAgent, isRunAgentBusy } from "../automations/run-agent";
 import { runNotification } from "../automations/notify";
 import type { Automation, AutomationRun } from "../../src/lib/automations";
@@ -755,18 +755,16 @@ export function createManorServer<D extends BridgeServerDeps>(
       workspaceOps,
       // Read at call time: `core.shared` is built below.
       startAgent: (workspacePath, options) => startAgentInWorkspace(core.shared, workspacePath, options),
-      pruneRunWorkspaces: (automation, currentPath) =>
-        pruneRunWorkspaces(
-          {
-            runs: (id) => automationStore.runs(id),
-            projectManager,
-            workspaceOps,
-            agentManager,
-            log: (message) => console.warn(`[automations] ${message}`),
-          },
-          automation,
-          currentPath,
-        ),
+      pruneRunWorkspaces: createRunWorkspacePruner({
+        runs: (id) => automationStore.runs(id),
+        projectManager,
+        workspaceOps,
+        agentManager,
+        agentStatus: agentStatusDriver,
+        layout: layoutStore,
+        unseen,
+        log: (message) => console.warn(`[automations] ${message}`),
+      }),
     }),
     ...(opts.automationsBlocked ? { blocked: opts.automationsBlocked } : {}),
     isAgentBusy: (run) => isRunAgentBusy({ agentManager, agentStatus: agentStatusDriver }, run),

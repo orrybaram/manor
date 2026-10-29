@@ -30,7 +30,9 @@ import type { AutomationFireResult, AutomationSchedulerDeps } from "./scheduler"
  *
  * Once a new-workspace run has started, `pruneRunWorkspaces` trims the
  * automation's older run workspaces to its keep last N (`./retention.ts`),
- * in the background: the run is recorded without waiting for it.
+ * in the background: the run is recorded without waiting for it. The
+ * caller's `pruneRunWorkspaces` runs one automation's prunes one at a time
+ * (`createRunWorkspacePruner`).
  */
 
 /** How long a run waits for a new workspace's setup script. */

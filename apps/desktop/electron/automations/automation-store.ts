@@ -43,6 +43,15 @@ interface PersistedRuns {
  */
 const MAX_RUNS_PER_AUTOMATION = 50;
 
+/**
+ * Started runs that made a workspace (`workspaceName`) kept beyond the ring,
+ * newest first: keep last N only sees the workspaces of runs the store
+ * holds, so a run of skips or failures must not push a run workspace out of
+ * its reach. With N capped at `MAX_KEEP_LAST` (20), fifty runs plus these
+ * forty always cover the workspaces N could still remove.
+ */
+const MAX_EXTRA_WORKSPACE_RUNS = 40;
+
 export type AutomationStoreChange =
   | { type: "automation"; automationId: string }
   | { type: "removed"; automationId: string }
@@ -324,14 +333,23 @@ export class AutomationStore {
 
 /**
  * Trims a newest-first list to `MAX_RUNS_PER_AUTOMATION`, keeping the newest
- * started run in the last slot when it would otherwise fall off.
+ * started run in the last slot when it would otherwise fall off, and up to
+ * `MAX_EXTRA_WORKSPACE_RUNS` older started runs that made a workspace
+ * after it. Everything else past the ring — skips, failures, and started
+ * runs with no workspace of their own — goes, oldest first.
  */
 function trimRuns(list: AutomationRun[]): void {
   if (list.length <= MAX_RUNS_PER_AUTOMATION) return;
   const startedIndex = list.findIndex((r) => r.outcome === "started");
   const started = startedIndex >= MAX_RUNS_PER_AUTOMATION ? list[startedIndex] : null;
-  list.splice(started ? MAX_RUNS_PER_AUTOMATION - 1 : MAX_RUNS_PER_AUTOMATION);
-  if (started) list.push(started);
+  const ring = started ? MAX_RUNS_PER_AUTOMATION - 1 : MAX_RUNS_PER_AUTOMATION;
+  const extra = list
+    .slice(ring)
+    .filter((r) => r !== started && r.outcome === "started" && r.workspaceName)
+    .slice(0, MAX_EXTRA_WORKSPACE_RUNS);
+  const keep = new Set([...list.slice(0, ring), ...extra, ...(started ? [started] : [])]);
+  const kept = list.filter((r) => keep.has(r));
+  list.splice(0, list.length, ...kept);
 }
 
 /** Writes beside the file and renames over it, so a reader never sees half. */

@@ -165,6 +165,40 @@ describe("AutomationStore", () => {
     expect(reloaded.lastStartedRun(a.id)?.agentId).toBe("agent-busy");
   });
 
+  it("keeps older runs that made a workspace past the ring, up to forty", () => {
+    const a = store.create(input(), NOW);
+    const base = { automationId: a.id, trigger: "schedule" } as const;
+    for (let i = 0; i < 45; i++) {
+      store.appendRun({
+        ...base,
+        scheduledFor: new Date(NOW + i).toISOString(),
+        firedAt: new Date(NOW + i).toISOString(),
+        outcome: "started",
+        workspacePath: `/wt/${i}`,
+        workspaceName: `run ${i}`,
+      });
+    }
+    for (let i = 45; i < 100; i++) {
+      store.appendRun({
+        ...base,
+        scheduledFor: new Date(NOW + i).toISOString(),
+        firedAt: new Date(NOW + i).toISOString(),
+        outcome: i % 2 ? "failed" : "skipped",
+        reason: i % 2 ? "error" : "still-working",
+      });
+    }
+    const runs = store.runs(a.id);
+    // 49 newest skips and failures, the newest started run, then 40 more.
+    expect(runs).toHaveLength(90);
+    const tracked = runs.filter((r) => r.workspaceName).map((r) => r.workspacePath);
+    expect(tracked).toHaveLength(41);
+    expect(tracked[0]).toBe("/wt/44");
+    expect(tracked[40]).toBe("/wt/4");
+
+    store.flushNow();
+    expect(new AutomationStore(tmpDir).runs(a.id).map((r) => r.id)).toEqual(runs.map((r) => r.id));
+  });
+
   it("remove drops the automation and its runs, on disk too", () => {
     const a = store.create(input(), NOW);
     store.appendRun({
@@ -264,5 +298,9 @@ describe("validateAutomationInput", () => {
       /workspace/,
     );
     expect(validateAutomationInput(input({ workspace: { mode: "new", keepLast: 0 } }))).toMatch(/Keep last/);
+    expect(validateAutomationInput(input({ workspace: { mode: "new", keepLast: 20 } }))).toBeNull();
+    expect(validateAutomationInput(input({ workspace: { mode: "new", keepLast: 21 } }))).toBe(
+      "Keep at most 20 run workspaces",
+    );
   });
 });

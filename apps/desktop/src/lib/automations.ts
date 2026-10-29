@@ -113,6 +113,13 @@ export interface AutomationRun {
 export const DEFAULT_MISSED_GRACE_MINUTES = 720;
 
 /**
+ * The most run workspaces keep last N keeps. The store tracks only so many
+ * runs (`automation-store.ts`), and a workspace whose run it no longer holds
+ * is never removed, so N stays well inside that.
+ */
+export const MAX_KEEP_LAST = 20;
+
+/**
  * Checks what can be checked without a cron parser. The cron is only
  * checked for 5 fields here; main parses it properly (`isValidCron`).
  * Returns the first problem, or null.
@@ -132,6 +139,9 @@ export function validateAutomationInput(input: AutomationInput): string | null {
   if (workspace?.mode === "new") {
     if (workspace.keepLast !== undefined && !(Number.isInteger(workspace.keepLast) && workspace.keepLast > 0)) {
       return "Keep last must be a whole number above 0";
+    }
+    if (workspace.keepLast !== undefined && workspace.keepLast > MAX_KEEP_LAST) {
+      return `Keep at most ${MAX_KEEP_LAST} run workspaces`;
     }
   } else if (workspace?.mode === "reuse") {
     if (typeof workspace.workspacePath !== "string" || workspace.workspacePath === "") {

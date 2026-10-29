@@ -1328,8 +1328,12 @@ export class ProjectManager {
     return worktrees.canQuickMerge(this.ctx, projectId, worktreePath);
   }
 
-  worktreeRemovalRisk(projectId: string, worktreePath: string): Promise<string | null> {
-    return worktrees.worktreeRemovalRisk(this.ctx, projectId, worktreePath);
+  worktreeRemovalRisk(
+    projectId: string,
+    worktreePath: string,
+    opts?: { createdAt?: number },
+  ): Promise<string | null> {
+    return worktrees.worktreeRemovalRisk(this.ctx, projectId, worktreePath, opts);
   }
 
   quickMergeWorktree(projectId: string, worktreePath: string): Promise<void> {

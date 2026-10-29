@@ -12,10 +12,19 @@ import {
 import {
   activePaneId,
   awaitShellReady,
+  modifierClickText,
   paneText,
   rightClickText,
   runInTerminal,
 } from "./helpers/terminal";
+import {
+  header,
+  openFileFromPalette,
+  openFromTree,
+  pane,
+  treeRow,
+  typeAtEnd,
+} from "./helpers/file-pane";
 
 /**
  * The file pane (#449): opened from the palette, it lists the workspace's
@@ -69,28 +78,6 @@ export function Widget({ start = 0 }: { start?: number }) {
 }
 `;
 
-const pane = (window: Page) => window.locator('[data-testid="file-pane"]:visible');
-const treeRow = (window: Page, p: string) =>
-  pane(window).locator(`[data-testid="file-pane-tree-row"][data-path="${p}"]`);
-
-async function openFromTree(window: Page, segments: string[]): Promise<void> {
-  if (!(await pane(window).locator('[data-testid="file-pane-drawer"]').isVisible())) {
-    await pane(window).locator('[data-testid="file-pane-files-button"]').click();
-  }
-  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
-  await expect(drawer).toBeVisible();
-  // Folders may be collapsed (or compacted into "a/b"); click any folder on the path that's shown.
-  const file = segments.join("/");
-  for (let i = 1; i < segments.length; i++) {
-    const dir = drawer.locator(
-      `[data-testid="file-pane-tree-row"][data-kind="dir"][data-path="${segments.slice(0, i).join("/")}"]`,
-    );
-    if ((await dir.count()) && !(await treeRow(window, file).count())) await dir.first().click();
-  }
-  await treeRow(window, file).click();
-  await expect(drawer).toBeHidden();
-}
-
 test("the file pane lists the workspace, opens a file and follows it on disk", async ({
   app,
   window,
@@ -108,24 +95,31 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
   const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
   fs.mkdirSync(path.join(ws, "src", "components"), { recursive: true });
   fs.writeFileSync(path.join(ws, "src", "components", "Widget.tsx"), WIDGET);
-  fs.writeFileSync(path.join(ws, ".gitignore"), "node_modules/\n");
+  // dist/ proves .gitignore is read: the walk outside git skips
+  // node_modules on its own, but not dist.
+  fs.writeFileSync(path.join(ws, ".gitignore"), "node_modules/\ndist/\n");
   fs.mkdirSync(path.join(ws, "node_modules", "left-pad"), { recursive: true });
   fs.writeFileSync(path.join(ws, "node_modules", "left-pad", "index.js"), "module.exports = 1;\n");
+  fs.mkdirSync(path.join(ws, "dist"), { recursive: true });
+  fs.writeFileSync(path.join(ws, "dist", "out.js"), "console.log(1);\n");
   fs.writeFileSync(path.join(ws, "big.log"), "x".repeat(3 * 1024 * 1024));
+  // Bytes with a NUL in them: a binary file.
+  fs.writeFileSync(path.join(ws, "blob.bin"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02]));
 
   // Open File… from the palette: a file pane with the Files drawer showing.
-  await window.keyboard.press("ControlOrMeta+k");
-  await window.locator("[cmdk-input]").fill("Open File");
-  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
-  await expect(pane(window)).toBeVisible();
+  await openFileFromPalette(window);
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
   await expect(drawer).toBeVisible();
   await expect(drawer.locator('[data-testid="file-pane-tree-row"]').first()).toBeVisible();
   await window.waitForTimeout(500);
   await window.screenshot({ path: shot(testInfo, "drawer-dark") });
 
-  // .gitignore applies: nothing under node_modules is listed.
+  // .gitignore applies: nothing under node_modules or dist is listed, though
+  // the files beside them are.
+  await expect(treeRow(window, "big.log")).toBeVisible();
+  await expect(treeRow(window, ".gitignore")).toBeVisible();
   await expect(drawer.locator('[data-testid="file-pane-tree-row"][data-path^="node_modules"]')).toHaveCount(0);
+  await expect(drawer.locator('[data-testid="file-pane-tree-row"][data-path^="dist"]')).toHaveCount(0);
 
   await openFromTree(window, ["src", "components", "Widget.tsx"]);
   const editor = pane(window).locator('[data-testid="file-pane-editor"]');
@@ -143,6 +137,13 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
   await expect(pane(window).locator('[data-testid="file-pane-error"]')).toBeVisible();
   await window.screenshot({ path: shot(testInfo, "too-large-dark") });
 
+  // A binary file (a NUL in its first bytes) is refused too, saying why.
+  await openFromTree(window, ["blob.bin"]);
+  await expect(pane(window).locator('[data-testid="file-pane-error"]')).toContainText(
+    "blob.bin is a binary file",
+  );
+  await expect(pane(window).locator('[data-testid="file-pane-editor"]')).toHaveCount(0);
+
   await useLightTheme(window);
   await openFromTree(window, ["src", "components", "Widget.tsx"]);
   await expect(editor).toContainText("Pressed {count} times");
@@ -155,16 +156,6 @@ test("the file pane lists the workspace, opens a file and follows it on disk", a
 });
 
 const OTHER = `export const other = 1;\n`;
-
-/** The file pane's header (the leaf's own bar, outside the pane body). */
-const header = (window: Page) =>
-  window.locator('[data-testid="workspace-pane"]:visible', { has: pane(window) });
-
-async function typeAtEnd(window: Page, text: string): Promise<void> {
-  await pane(window).locator('[data-testid="file-pane-editor"] .cm-content').click();
-  await window.keyboard.press("ControlOrMeta+End");
-  await window.keyboard.type(text);
-}
 
 test("the file pane edits, saves, asks before swapping, creates files and settles conflicts", async ({
   app,
@@ -185,10 +176,7 @@ test("the file pane edits, saves, asks before swapping, creates files and settle
   fs.writeFileSync(path.join(ws, "src", "other.ts"), OTHER);
   const onDisk = () => fs.readFileSync(widget, "utf8");
 
-  await window.keyboard.press("ControlOrMeta+k");
-  await window.locator("[cmdk-input]").fill("Open File");
-  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
-  await expect(pane(window)).toBeVisible();
+  await openFileFromPalette(window);
   await openFromTree(window, ["src", "components", "Widget.tsx"]);
   const editor = pane(window).locator('[data-testid="file-pane-editor"]');
   await expect(editor).toContainText("Clicked {count} times");
@@ -263,11 +251,38 @@ test("the file pane edits, saves, asks before swapping, creates files and settle
   await expect(swap).toContainText("Unsaved changes to Widget.tsx.");
   await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("Widget.tsx");
   await window.screenshot({ path: shot(testInfo, "swap-confirm") });
+  // Cancel: the bar goes, and the pane stays on Widget.tsx, still dirty.
+  await swap.locator('[data-testid="file-pane-swap-cancel"]').click();
+  await expect(swap).toBeHidden();
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("Widget.tsx");
+  await expect(editor).toContainText("// unsaved");
+  await expect(dirtyDot).toBeVisible();
+  expect(onDisk()).not.toContain("// unsaved");
+  // Ask again, and Discard opens the other file.
+  await openFromTree(window, ["src", "other.ts"]);
+  await expect(swap).toBeVisible();
   await swap.locator('[data-testid="file-pane-swap-discard"]').click();
   await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("other.ts");
   await expect(editor).toContainText("export const other = 1;");
   await expect(dirtyDot).toHaveCount(0);
   expect(onDisk()).not.toContain("// unsaved");
+
+  // Save and open: the edits reach the disk first, then the other file opens.
+  const otherOnDisk = () => fs.readFileSync(path.join(ws, "src", "other.ts"), "utf8");
+  await typeAtEnd(window, "// saved on swap");
+  await expect(dirtyDot).toBeVisible();
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  await expect(swap).toBeVisible();
+  await expect(swap).toContainText("Unsaved changes to other.ts.");
+  await swap.locator('[data-testid="file-pane-swap-save"]').click();
+  await expect.poll(otherOnDisk).toContain("// saved on swap");
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText("Widget.tsx");
+  await expect(editor).toContainText("Poked {count} times");
+  await expect(swap).toBeHidden();
+  await expect(dirtyDot).toHaveCount(0);
+  // Back on other.ts (clean, so no bar) for the new-file steps below.
+  await openFromTree(window, ["src", "other.ts"]);
+  await expect(editor).toContainText("// saved on swap");
 
   // "+" makes a new file, prefilled with the open file's folder, and opens it.
   await pane(window).locator('[data-testid="file-pane-files-button"]').click();
@@ -317,10 +332,7 @@ test("the file pane asks before converting or closing over unsaved edits, and a 
   const onDisk = () => fs.readFileSync(widget, "utf8");
 
   // Open File… makes a tab of its own, beside the terminal's.
-  await window.keyboard.press("ControlOrMeta+k");
-  await window.locator("[cmdk-input]").fill("Open File");
-  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
-  await expect(pane(window)).toBeVisible();
+  await openFileFromPalette(window);
   await openFromTree(window, ["src", "components", "Widget.tsx"]);
   const editor = pane(window).locator('[data-testid="file-pane-editor"]');
   await expect(editor).toContainText("Clicked {count} times");
@@ -422,15 +434,72 @@ test("Open File in the diff pane opens the changed file in a file pane beside it
   fs.writeFileSync(widget, WIDGET);
   fs.writeFileSync(path.join(ws, "src", "other.ts"), OTHER);
   fs.writeFileSync(path.join(ws, "src", "doomed.ts"), "export const doomed = 1;\n");
+  // Two long files, one before Widget.tsx and one after it, so the list's
+  // jump to Widget.tsx has somewhere to scroll and room to land at the top.
+  const lines = (name: string, n: number) =>
+    Array.from({ length: 60 }, (_, i) => `export const ${name}${i} = ${i + n};`).join("\n") + "\n";
+  fs.writeFileSync(path.join(ws, "src", "components", "Big.tsx"), lines("big", 0));
+  fs.writeFileSync(path.join(ws, "src", "long.ts"), lines("long", 0));
   git(ws, "add -A");
   git(ws, 'commit -qm "baseline"');
   fs.writeFileSync(widget, WIDGET.replace("Clicked", "Pressed"));
   fs.writeFileSync(path.join(ws, "src", "other.ts"), "export const other = 2;\n");
   fs.rmSync(path.join(ws, "src", "doomed.ts"));
+  fs.writeFileSync(path.join(ws, "src", "components", "Big.tsx"), lines("big", 1));
+  fs.writeFileSync(path.join(ws, "src", "long.ts"), lines("long", 1));
 
   await window.keyboard.press("ControlOrMeta+Shift+g");
   const widgetFile = window.locator('[data-file-path="src/components/Widget.tsx"]');
   await expect(widgetFile).toBeVisible({ timeout: 60_000 });
+
+  // The diff's file list, which shares its tree with the file pane: a row per
+  // folder and per file.
+  const list = window.locator('[data-testid="diff-file-list"]');
+  const listDir = (p: string) => list.locator(`[data-testid="diff-file-list-dir"][data-path="${p}"]`);
+  const listRow = (p: string) => list.locator(`[data-testid="diff-file-list-row"][data-path="${p}"]`);
+  await expect(listDir("src")).toBeVisible();
+  await expect(listDir("src/components")).toBeVisible();
+  for (const p of [
+    "src/components/Big.tsx",
+    "src/components/Widget.tsx",
+    "src/doomed.ts",
+    "src/long.ts",
+    "src/other.ts",
+  ]) {
+    await expect(listRow(p)).toBeVisible();
+  }
+  const diffPane = window.locator('[data-testid="workspace-pane"]:visible', { has: list });
+  await window.waitForTimeout(500);
+  await diffPane.screenshot({ path: shot(testInfo, "diff-file-list") });
+
+  // A folder collapses and expands.
+  await listDir("src/components").locator("button").first().click();
+  await expect(listDir("src/components")).toHaveAttribute("data-collapsed", "true");
+  await expect(listRow("src/components/Widget.tsx")).toHaveCount(0);
+  await expect(listRow("src/other.ts")).toBeVisible();
+  await listDir("src/components").locator("button").first().click();
+  await expect(listDir("src/components")).toHaveAttribute("data-collapsed", "false");
+  await expect(listRow("src/components/Widget.tsx")).toBeVisible();
+
+  // A file's name in the list scrolls the diff to that file, under the header.
+  const widgetGap = () =>
+    window.evaluate(() => {
+      const file = document.querySelector('[data-file-path="src/components/Widget.tsx"]')!;
+      let scroller = file.parentElement;
+      while (scroller && !(scroller.scrollHeight > scroller.clientHeight && /auto|scroll/.test(getComputedStyle(scroller).overflowY))) {
+        scroller = scroller.parentElement;
+      }
+      if (!scroller) throw new Error("no scrolling ancestor");
+      return file.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+    });
+  expect(await widgetGap()).toBeGreaterThan(500);
+  await listRow("src/components/Widget.tsx").locator('[title="src/components/Widget.tsx"]').click();
+  await expect
+    .poll(async () => {
+      const gap = await widgetGap();
+      return gap >= -2 && gap < 250;
+    }, { timeout: 10_000 })
+    .toBe(true);
 
   // A deleted file has nothing to open.
   await expect(
@@ -481,6 +550,15 @@ test("Open File in the diff pane opens the changed file in a file pane beside it
   await expect(drawer).toBeVisible();
   await widgetFile.locator('[data-testid="diff-file-open"]').click();
   await expect(drawer).toBeHidden();
+
+  // The file list's own menu opens a file in the file pane too.
+  await listRow("src/other.ts").click({ button: "right" });
+  await window.locator('[data-testid="diff-file-list-open"]').click();
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
+    "other.ts",
+  );
+  await expect(editor).toContainText("export const other = 2;");
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
 });
 
 test("a file path printed in the terminal opens in a file pane at its line", async ({
@@ -560,9 +638,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   );
   await expect.poll(() => fs.existsSync(path.join(tempHome, "hook-sent"))).toBe(true);
 
-  await window.keyboard.press("ControlOrMeta+k");
-  await window.locator("[cmdk-input]").fill("Open File");
-  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
+  await openFileFromPalette(window);
   const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
   await expect(drawer).toBeVisible();
 
@@ -634,4 +710,114 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await expect(editor).toContainText("export const helper = 1;");
   await expect(editor.locator(".cm-line.cm-change-added")).toHaveCount(1);
   await expect(header(window).locator('[data-testid="file-pane-edit-jump"]')).toBeHidden();
+});
+
+/** Seed `src/components/Widget.tsx` through the workspace's own shell; returns the workspace. */
+async function seedWidget(window: Page, tempHome: string): Promise<string> {
+  await runInTerminal(window, "pwd > \"$HOME/ws-path\"");
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+  const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.mkdirSync(path.dirname(widget), { recursive: true });
+  fs.writeFileSync(widget, WIDGET);
+  return ws;
+}
+
+test("Cmd/Ctrl-clicking a file path in the terminal opens it in a file pane", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-cmd-click");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  await seedWidget(window, tempHome);
+
+  const printed = "src/components/Widget.tsx:5";
+  await runInTerminal(window, `echo ${printed}`);
+  await expect.poll(() => paneText(window, termId)).toMatch(/^src\/components\/Widget\.tsx:5/m);
+
+  // The first hover lists the workspace; until that answers the click is a
+  // plain one, so click again until a file pane opens.
+  await expect(async () => {
+    if ((await pane(window).count()) === 0) await modifierClickText(window, termId, printed);
+    await expect(pane(window)).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
+
+  // Straight into the file pane, not the link menu.
+  await expect(window.locator('[role="menu"]')).toHaveCount(0);
+  await expect(window.locator('[data-testid="workspace-pane"]:visible')).toHaveCount(2);
+  await expect(pane(window).locator('[data-testid="file-pane-breadcrumb"]')).toContainText(
+    "Widget.tsx",
+  );
+  await expect(activeLine(window)).toHaveText("5");
+});
+
+test("the file pane works in the left half of a split, and its drawer beside a rail sidebar", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-file-left");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+  const ws = await seedWidget(window, tempHome);
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+
+  await openFileFromPalette(window);
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Clicked {count} times");
+
+  // Split with › Terminal from the file pane's menu: the new pane takes the
+  // right half, leaving the file pane on the left.
+  await pane(window).locator('[data-testid="file-pane-breadcrumb"]').click({ button: "right" });
+  await window.getByRole("menuitem", { name: "Split with" }).hover();
+  await window.getByRole("menuitem", { name: "Terminal", exact: true }).click();
+  const panes = window.locator('[data-testid="workspace-pane"]:visible');
+  await expect(panes).toHaveCount(2);
+  const other = panes.filter({ hasNot: pane(window) });
+  await expect(other.locator('[data-testid="terminal-pane"]')).toBeVisible();
+  const fileBox = (await pane(window).boundingBox())!;
+  const otherBox = (await other.boundingBox())!;
+  expect(fileBox.x + fileBox.width).toBeLessThanOrEqual(otherBox.x + 1);
+
+  // It still edits and saves from there.
+  await typeAtEnd(window, "// left");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toBeVisible();
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect.poll(() => fs.readFileSync(widget, "utf8")).toContain("// left");
+  await expect(header(window).locator('[data-testid="file-pane-dirty"]')).toHaveCount(0);
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "left-half") });
+
+  // The sidebar collapsed to its rail, and the Files drawer open: the drawer
+  // stays inside the pane, clear of the rail.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("Collapse Sidebar");
+  await window.locator("[cmdk-item]", { hasText: "Collapse Sidebar" }).first().click();
+  const rail = window.locator('[data-testid="sidebar-rail"]');
+  await expect(rail).toBeVisible();
+  const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+  if (!(await drawer.isVisible())) {
+    await pane(window).locator('[data-testid="file-pane-files-button"]').click();
+  }
+  await expect(drawer).toBeVisible();
+  await expect(treeRow(window, "src/components/Widget.tsx")).toBeVisible();
+  await expect
+    .poll(async () => {
+      const railBox = (await rail.boundingBox())!;
+      const drawerBox = (await drawer.boundingBox())!;
+      const paneBox = (await pane(window).boundingBox())!;
+      return (
+        drawerBox.x >= railBox.x + railBox.width &&
+        drawerBox.x >= paneBox.x &&
+        drawerBox.x + drawerBox.width <= paneBox.x + paneBox.width + 1
+      );
+    })
+    .toBe(true);
+  await window.waitForTimeout(500);
+  await window.screenshot({ path: shot(testInfo, "sidebar-rail-drawer") });
 });

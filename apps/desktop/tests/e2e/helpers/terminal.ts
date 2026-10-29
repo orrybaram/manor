@@ -138,11 +138,11 @@ export async function pasteImageIntoPane(
 }
 
 /**
- * Move the pointer onto the last place `text` is printed in the pane, then
- * right-click there. The last, because the command that printed it echoed
+ * Move the pointer onto the last place `text` is printed in the pane and
+ * return where it is. The last, because the command that printed it echoed
  * it first.
  */
-export async function rightClickText(window: Page, paneId: string, text: string): Promise<void> {
+async function hoverText(window: Page, paneId: string, text: string): Promise<{ x: number; y: number }> {
   const pos = await window.evaluate(
     ({ id, needle }) => {
       const term = window.__manorTerminals!.get(id)!.term;
@@ -167,6 +167,23 @@ export async function rightClickText(window: Page, paneId: string, text: string)
   await window.mouse.move(pos.x - 8, pos.y);
   await window.mouse.move(pos.x, pos.y);
   await window.waitForTimeout(300);
+  return pos;
+}
+
+/** Right-click the last place `text` is printed in the pane (see `hoverText`). */
+export async function rightClickText(window: Page, paneId: string, text: string): Promise<void> {
+  const pos = await hoverText(window, paneId, text);
   await window.mouse.click(pos.x, pos.y, { button: "right" });
   await expect(window.locator('[role="menu"]')).toBeVisible();
+}
+
+/** Cmd/Ctrl+click the last place `text` is printed in the pane: a link's activation. */
+export async function modifierClickText(window: Page, paneId: string, text: string): Promise<void> {
+  const pos = await hoverText(window, paneId, text);
+  await window.keyboard.down("ControlOrMeta");
+  try {
+    await window.mouse.click(pos.x, pos.y);
+  } finally {
+    await window.keyboard.up("ControlOrMeta");
+  }
 }

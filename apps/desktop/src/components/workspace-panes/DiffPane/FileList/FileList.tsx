@@ -345,6 +345,8 @@ export function FileList(props: FileListProps) {
               .filter(Boolean)
               .join(" ")}
             style={{ paddingLeft: treeRowIndent(depth) }}
+            data-testid="diff-file-list-row"
+            data-path={file.path}
             onClick={(e) => handleRowClick(e, file, index)}
             onContextMenu={() => handleContextMenu(file)}
           >
@@ -491,7 +493,12 @@ export function FileList(props: FileListProps) {
       if (node.kind === "file") return renderFile(node.entry, node.name, depth);
       const isCollapsed = collapsedDirs.has(node.path);
       return (
-        <div key={`dir:${node.path}`}>
+        <div
+          key={`dir:${node.path}`}
+          data-testid="diff-file-list-dir"
+          data-path={node.path}
+          data-collapsed={isCollapsed}
+        >
           <DirRow
             name={node.name}
             depth={depth}
@@ -507,7 +514,7 @@ export function FileList(props: FileListProps) {
 
   return (
     <>
-      <div className={styles.fileList}>
+      <div className={styles.fileList} data-testid="diff-file-list">
         <button
           className={styles.fileListHeader}
           onClick={() => setCollapsed((c) => !c)}

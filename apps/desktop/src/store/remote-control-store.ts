@@ -109,15 +109,30 @@ export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
     turnOff: () =>
       runStatus(() => window.electronAPI.remoteControl.setEnabled(false)),
     toggle: async () => {
-      if (get().busy) return;
       const turningOn = !isOn(get().status);
-      await (turningOn
-        ? runStatus(turnOn)
-        : runStatus(() => window.electronAPI.remoteControl.setEnabled(false)));
+      // What the settings switch would refuse, or is still busy with, is
+      // said rather than silently skipped: the palette has already closed.
+      const refused = get().busy
+        ? "Remote control is still changing. Try again in a moment."
+        : turningOn && !get().status.encryptionAvailable
+          ? "This computer can't encrypt stored secrets, so remote control stays off."
+          : null;
+      if (!refused) {
+        await (turningOn
+          ? runStatus(turnOn)
+          : runStatus(() => window.electronAPI.remoteControl.setEnabled(false)));
+      }
       const { error, status } = get();
-      const failed = error ?? (turningOn && status.relay.state === "failed"
-        ? status.relay.error ?? "The relay connection failed."
-        : null);
+      // An enable overtaken by a quit or a disable comes back off with no
+      // error; it is still a failure to turn on.
+      const failed =
+        refused ??
+        error ??
+        (turningOn && !isOn(status)
+          ? status.relay.error ?? "Remote control didn't turn on."
+          : turningOn && status.relay.state === "failed"
+            ? status.relay.error ?? "The relay connection failed."
+            : null);
       useToastStore.getState().addToast(
         failed
           ? {

@@ -76,4 +76,31 @@ describe("remote-control toggle", () => {
       }),
     ]);
   });
+
+  it("refuses to turn on without encryption, as the settings switch does", async () => {
+    useRemoteControlStore.setState({ status: status({ encryptionAvailable: false }) });
+    await useRemoteControlStore.getState().toggle();
+    expect(remoteControlApi.setEnabled).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ message: "Couldn't turn on remote control", status: "error" }),
+    ]);
+  });
+
+  it("does not claim success for an enable that came back off", async () => {
+    useRemoteControlStore.setState({ status: status() });
+    remoteControlApi.setEnabled.mockResolvedValueOnce(status({ enabled: false }));
+    await useRemoteControlStore.getState().toggle();
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ status: "error" }),
+    ]);
+  });
+
+  it("says so when pressed while a change is in flight", async () => {
+    useRemoteControlStore.setState({ status: status(), busy: true });
+    await useRemoteControlStore.getState().toggle();
+    expect(remoteControlApi.setEnabled).not.toHaveBeenCalled();
+    expect(useToastStore.getState().toasts).toEqual([
+      expect.objectContaining({ status: "error" }),
+    ]);
+  });
 });

@@ -70,6 +70,9 @@ type DiffPaneProps = {
 /** Frames to wait for a search match's row to be built before giving up. */
 const MATCH_REVEAL_FRAMES = 30;
 
+/** Frames a file-list jump keeps re-aiming while the rows around it settle. */
+const FILE_JUMP_FRAMES = 60;
+
 /** Shared empty set so a workspace with no staged files keeps a stable identity. */
 const NO_STAGED_FILES: Set<string> = new Set();
 
@@ -132,6 +135,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       anchor: SelectionAnchor | null;
     }>({ text: "", anchor: null });
     const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+    const fileJump = useRef<number | null>(null);
 
     useLayoutEffect(() => {
       const container = containerRef.current;
@@ -189,16 +193,48 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       });
     }, []);
 
+    /**
+     * Bring a file's top up to just under the pane's header.
+     *
+     * Not a smooth `scrollIntoView`: rows build and measure as the pane
+     * passes them, every file above the target changes height mid-flight,
+     * and the virtualizer's own scroll corrections cancel the animation — on
+     * a large diff it stopped a screen or so from where it set out. So the
+     * pane jumps, then re-aims each frame while the rows near the file
+     * settle, until the file holds still under the header.
+     */
     const scrollToFile = useCallback(
       (path: string) => {
         revealFile(path);
-        requestAnimationFrame(() => {
-          fileRefs.current
-            .get(path)
-            ?.scrollIntoView({ behavior: "smooth", block: "start" });
-        });
+        if (fileJump.current !== null) cancelAnimationFrame(fileJump.current);
+        let frames = 0;
+        let still = 0;
+        const aim = () => {
+          fileJump.current = null;
+          const container = containerRef.current;
+          const file = fileRefs.current.get(path);
+          if (!container || !file) return;
+          const headerBottom =
+            container.getBoundingClientRect().top +
+            (headerEl?.offsetHeight ?? 0);
+          const drift = file.getBoundingClientRect().top - headerBottom;
+          const before = container.scrollTop;
+          if (Math.abs(drift) >= 1) container.scrollTop = before + drift;
+          // At rest once a frame neither needs nor can make a correction (a
+          // file near the end of the diff can never reach the top).
+          still = container.scrollTop === before ? still + 1 : 0;
+          if (still < 2 && frames++ < FILE_JUMP_FRAMES)
+            fileJump.current = requestAnimationFrame(aim);
+        };
+        fileJump.current = requestAnimationFrame(aim);
       },
-      [revealFile],
+      [revealFile, headerEl],
+    );
+    useEffect(
+      () => () => {
+        if (fileJump.current !== null) cancelAnimationFrame(fileJump.current);
+      },
+      [],
     );
 
     const openSearch = useCallback(() => {
@@ -526,7 +562,9 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             elapsedTimerRef.current = null;
           }
           setPushing(false);
-          pushToast.fail(ipcErrorMessage(err), undefined, { duration: "sticky" });
+          pushToast.fail(ipcErrorMessage(err), undefined, {
+            duration: "sticky",
+          });
         }
       },
       [workspacePath],

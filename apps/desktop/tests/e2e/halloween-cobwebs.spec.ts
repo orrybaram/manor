@@ -155,9 +155,9 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await visit(window, 0, 0);
   expect(Number(await cobwebs(window).getAttribute("data-strands"))).toBeLessThan(strandsAtFirst * 0.05);
 
-  // Light theme, 40 min on: the other tabs have been away 61, 46 and 40 min.
+  // Light theme, 15 min on: the other tabs have been away 36, 21 and 15 min.
   await useLightTheme(window);
-  await window.clock.fastForward(40 * MIN);
+  await window.clock.fastForward(15 * MIN);
   await expect(dustOf(window, 1)).toHaveAttribute("data-tab-dust", "3");
   await expect(dustOf(window, 2)).toHaveAttribute("data-tab-dust", "2");
   await window.waitForTimeout(800);
@@ -177,7 +177,7 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await window.keyboard.press("ControlOrMeta+Shift+b");
   await expect(window.locator("webview:visible")).toHaveCount(1, { timeout: 10_000 });
   const browserIndex = (await tabs(window).count()) - 1;
-  await visit(window, 0, 10);
+  await visit(window, 0, 5);
   await expect(dustOf(window, browserIndex)).toHaveAttribute("data-tab-dust", "1");
   await visit(window, browserIndex, 0);
   await expect(window.locator("webview:visible")).toHaveCount(1);
@@ -219,7 +219,7 @@ test("a dusty tab in another workspace leaves no dust on the one on screen", asy
   await fakeClock(window, new Date(2026, 9, 31, 10, 0));
   await window.keyboard.press("ControlOrMeta+t");
   await expect(tabs(window)).toHaveCount(2);
-  await visit(window, 0, 30);
+  await visit(window, 0, 15);
   await expect(dustOf(window, 1)).toHaveAttribute("data-tab-dust", "2");
 
   await createWorkspace(window, "ws-clean");

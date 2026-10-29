@@ -12,7 +12,7 @@ export const HALLOWEEN_OVERRIDE_KEY = "manor:halloween";
 export type CobwebLevel = 0 | 1 | 2 | 3;
 
 /** Minutes unseen before a tab reaches each level. */
-const LEVEL_THRESHOLDS_MIN: readonly [number, number, number] = [5, 20, 60];
+const LEVEL_THRESHOLDS_MIN: readonly [number, number, number] = [2, 10, 30];
 
 /** Oct 25 through Nov 1, by the local date. */
 export function isHalloweenWeek(now: Date): boolean {

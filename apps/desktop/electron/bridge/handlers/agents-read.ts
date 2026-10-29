@@ -11,7 +11,7 @@
  * and every adopted remote host's, from its server.
  */
 
-import { agentHostId, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
+import { agentHostId, matchesAgentQuery, type AgentInfo, type PaneHostLookup } from "../../agent-persistence";
 import type { AgentStatusDriver } from "../../agent-status/driver";
 import type { PaneStatusUpdate } from "../../agent-status/effects";
 import type { UnseenAgents } from "../../agent-status/unseen-agents";
@@ -25,6 +25,8 @@ import type { HandlerCtx } from "../method";
 export interface AgentQuery {
   projectId?: string;
   status?: string;
+  /** Words that must all appear in the name, project name or workspace path. */
+  query?: string;
   limit?: number;
   offset?: number;
 }
@@ -74,6 +76,10 @@ export function agentsGetAll(ctx: Ctx, opts?: AgentQuery): AgentInfo[] {
   let agents = [...ctx.deps.agentManager.getAllAgents(), ...remote];
   if (opts?.projectId !== undefined) agents = agents.filter((a) => a.projectId === opts.projectId);
   if (opts?.status !== undefined) agents = agents.filter((a) => a.status === opts.status);
+  if (opts?.query) {
+    const query = opts.query;
+    agents = agents.filter((a) => matchesAgentQuery(a, query));
+  }
   agents.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   agents = agents.slice(opts?.offset ?? 0);
   return opts?.limit !== undefined ? agents.slice(0, opts.limit) : agents;

@@ -99,6 +99,25 @@ interface PersistedState {
   agents: AgentInfo[];
 }
 
+/**
+ * Whether an agent matches a search: every whitespace-separated word appears,
+ * ignoring case, in its name, project name or workspace path.
+ */
+export function matchesAgentQuery(
+  agent: Pick<AgentInfo, "name" | "projectName" | "workspacePath">,
+  query: string,
+): boolean {
+  const haystack = [agent.name, agent.projectName, agent.workspacePath]
+    .filter(Boolean)
+    .join("\n")
+    .toLowerCase();
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((word) => haystack.includes(word));
+}
+
 export class AgentManager {
   private dataDir: string;
   private agents: Map<string, AgentInfo>;
@@ -278,6 +297,7 @@ export class AgentManager {
   getAllAgents(opts?: {
     projectId?: string;
     status?: string;
+    query?: string;
     limit?: number;
     offset?: number;
   }): AgentInfo[] {
@@ -288,6 +308,10 @@ export class AgentManager {
     }
     if (opts?.status !== undefined) {
       agents = agents.filter((t) => t.status === opts.status);
+    }
+    if (opts?.query) {
+      const query = opts.query;
+      agents = agents.filter((t) => matchesAgentQuery(t, query));
     }
 
     agents.sort(

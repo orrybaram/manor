@@ -200,3 +200,41 @@ describe("getConnector registry", () => {
     expect(connector).toBeInstanceOf(PiConnector);
   });
 });
+
+// ── Fork ───────────────────────────────────────────────────────────────────────
+
+describe("getForkCommand", () => {
+  it("claude resumes the session into a new one with --fork-session", () => {
+    expect(new ClaudeConnector().getForkCommand("claude --dangerously-skip-permissions", "abc-123", "/t.jsonl")).toBe(
+      "claude --dangerously-skip-permissions --resume abc-123 --fork-session",
+    );
+  });
+
+  it("codex forks with its subcommand, dropping top-level flags", () => {
+    expect(new CodexConnector().getForkCommand("codex --yolo", "abc-123", "/t.jsonl")).toBe("codex fork abc-123");
+  });
+
+  it("opencode forks with --session <id> --fork", () => {
+    expect(new OpencodeConnector().getForkCommand("opencode", "ses_1", "")).toBe("opencode --session ses_1 --fork");
+  });
+
+  it("pi forks the session file", () => {
+    expect(new PiConnector().getForkCommand("pi", "abc", "/home/me/.pi/agent/sessions/x/a b.jsonl")).toBe(
+      "pi --fork '/home/me/.pi/agent/sessions/x/a b.jsonl'",
+    );
+    expect(new PiConnector().getForkCommand("pi", "abc", "")).toBeNull();
+  });
+
+  it("has nothing to fork without a session id", () => {
+    for (const kind of ["claude", "codex", "opencode"] as const) {
+      expect(getConnector(kind).getForkCommand(getConnector(kind).defaultCommand, "", "/t")).toBeNull();
+    }
+  });
+
+  it("quotes an id the shell would read as more than a word", () => {
+    expect(new ClaudeConnector().getForkCommand("claude", "x; rm -rf ~", "")).toBe(
+      "claude --resume 'x; rm -rf ~' --fork-session",
+    );
+    expect(new CodexConnector().getResumeCommand("codex", "$(id)")).toBe("codex resume '$(id)'");
+  });
+});

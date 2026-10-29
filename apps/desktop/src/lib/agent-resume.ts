@@ -11,6 +11,18 @@ import { ownerOf } from "./workspace-directory";
 import { parseWorkspaceKey } from "./workspace-key";
 
 /**
+ * Focus the pane `agent` runs in. If that pane came back as a bare shell
+ * (the terminal session was lost), bring the agent back there rather than
+ * show it empty.
+ */
+export function goToAgentPane(agent: AgentInfo): void {
+  navigateToAgent(agent);
+  if (!agent.paneId) return;
+  const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
+  if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
+}
+
+/**
  * Bring `agent` back: focus its pane when it still has one, else open a tab
  * in its workspace running its `--resume` command.
  */
@@ -26,11 +38,7 @@ export function resumeAgent(agent: AgentInfo): void {
         panel.tabs.some((tab) => hasPaneId(tab.rootNode, agent.paneId!)),
       );
       if (paneExists) {
-        navigateToAgent(agent);
-        // Its pane came back as a bare shell (the terminal session was
-        // lost): bring the agent back there rather than show it empty.
-        const paneStatus = useAppStore.getState().paneAgentStatus[agent.paneId];
-        if (paneHasNoAgent(paneStatus)) void resumeAgentInPane(agent);
+        goToAgentPane(agent);
         return;
       }
     }

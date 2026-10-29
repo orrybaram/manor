@@ -11,6 +11,7 @@ import * as path from "node:path";
 import type { AgentKind } from "./terminal-host/types";
 import { errorMessage } from "./lib/errors";
 import { writeFileAtomic } from "./lib/fs-atomic";
+import { shellQuote } from "./terminal-host/ssh-config";
 
 // ── Interface ──
 
@@ -26,6 +27,13 @@ export interface AgentConnector {
    * Returns null if the agent doesn't support session resume.
    */
   getResumeCommand(baseCommand: string, sessionId: string): string | null;
+
+  /**
+   * Build a command that starts a new session branched from an existing one
+   * (the Agents modal's Fork). `sessionPath` is the session's transcript on
+   * its host, for an agent that forks by file. Null when the agent can't.
+   */
+  getForkCommand(baseCommand: string, sessionId: string, sessionPath: string): string | null;
 
   /**
    * Build a command to start a new session with an initial prompt.
@@ -150,7 +158,12 @@ export class ClaudeConnector implements AgentConnector {
     if (hasResumeToken(baseCommand, ["--resume", "-r", "--continue", "-c"])) {
       return baseCommand;
     }
-    return `${baseCommand} --resume ${sessionId}`;
+    return `${baseCommand} --resume ${shellQuote(sessionId)}`;
+  }
+
+  getForkCommand(baseCommand: string, sessionId: string, _sessionPath: string): string | null {
+    if (!sessionId) return null;
+    return `${baseCommand} --resume ${shellQuote(sessionId)} --fork-session`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -287,7 +300,14 @@ export class CodexConnector implements AgentConnector {
     // Codex resume is a subcommand; top-level flags like --yolo are intentionally
     // dropped as they do not compose cleanly after the resume subcommand.
     const binary = baseCommand.split(" ")[0] ?? "codex";
-    return `${binary} resume ${sessionId}`;
+    return `${binary} resume ${shellQuote(sessionId)}`;
+  }
+
+  getForkCommand(baseCommand: string, sessionId: string, _sessionPath: string): string | null {
+    if (!sessionId) return null;
+    // A subcommand, like resume: top-level flags don't carry over.
+    const binary = baseCommand.split(" ")[0] || "codex";
+    return `${binary} fork ${shellQuote(sessionId)}`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -442,7 +462,13 @@ export class PiConnector implements AgentConnector {
     if (hasResumeToken(baseCommand, ["--session"])) {
       return baseCommand;
     }
-    return `${baseCommand} --session ${sessionId}`;
+    return `${baseCommand} --session ${shellQuote(sessionId)}`;
+  }
+
+  getForkCommand(baseCommand: string, _sessionId: string, sessionPath: string): string | null {
+    // pi forks a session file.
+    if (!sessionPath) return null;
+    return `${baseCommand} --fork ${shellQuote(sessionPath)}`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {
@@ -605,7 +631,12 @@ export class OpencodeConnector implements AgentConnector {
     if (hasResumeToken(baseCommand, ["--session", "-s", "--continue", "-c"])) {
       return baseCommand;
     }
-    return `${baseCommand} --session ${sessionId}`;
+    return `${baseCommand} --session ${shellQuote(sessionId)}`;
+  }
+
+  getForkCommand(baseCommand: string, sessionId: string, _sessionPath: string): string | null {
+    if (!sessionId) return null;
+    return `${baseCommand} --session ${shellQuote(sessionId)} --fork`;
   }
 
   getPromptCommand(baseCommand: string, prompt: string): string {

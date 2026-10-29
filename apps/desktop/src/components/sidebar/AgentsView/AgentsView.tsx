@@ -34,7 +34,8 @@ import {
 import { useAgentSearch } from "./useAgentSearch";
 import { useModalSessions } from "./useModalSessions";
 import { useSessionPreview } from "./useSessionPreview";
-import { FORK_KEYS, SessionPreview, type SessionAction } from "./SessionPreview";
+import { FORK_KEYS, SessionPreview } from "./SessionPreview";
+import type { RowAction } from "./session-actions";
 import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import styles from "./AgentsView.module.css";
 import menuStyles from "../ProjectItem.module.css";
@@ -269,13 +270,15 @@ function emptyMessage(query: string, tab: AgentTab, project: ModalProject | null
 type AgentsModalProps = {
   open: boolean;
   onClose: () => void;
-  onResumeAgent: (agent: AgentInfo) => void;
-  /** Resume or fork a Session from its row or preview. */
-  onSessionAction: (row: ModalRow, action: SessionAction) => void;
+  /**
+   * Resume (go to the pane when `live`) or fork a row's session; the modal
+   * closes first.
+   */
+  onRowAction: (row: ModalRow, action: RowAction, live: boolean) => void;
 };
 
 export function AgentsModal(props: AgentsModalProps) {
-  const { open, onClose, onResumeAgent, onSessionAction } = props;
+  const { open, onClose, onRowAction } = props;
   const phone = useLayoutMode() === "phone";
   // On a phone the preview replaces the list until its back button.
   const [phonePreview, setPhonePreview] = useState(false);
@@ -362,12 +365,12 @@ export function AgentsModal(props: AgentsModalProps) {
       ?.scrollIntoView({ block: "nearest" });
   }, []);
 
-  const handleResume = useCallback(
-    (agent: AgentInfo) => {
+  const act = useCallback(
+    (row: ModalRow, action: RowAction) => {
       onClose();
-      onResumeAgent(agent);
+      onRowAction(row, action, isRowOpen(row, openPaneIds));
     },
-    [onClose, onResumeAgent],
+    [onClose, onRowAction, openPaneIds],
   );
 
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
@@ -375,14 +378,8 @@ export function AgentsModal(props: AgentsModalProps) {
   // A phone shows a preview only once a row is tapped.
   const preview = useSessionPreview(highlighted, open && (!phone || phonePreview));
 
-  /** ↵ and the preview's primary button: an Agent resumes or goes to its pane. */
-  const runPrimary = useCallback(
-    (row: ModalRow) => {
-      if (row.agent) handleResume(row.agent);
-      else onSessionAction(row, "resume");
-    },
-    [handleResume, onSessionAction],
-  );
+  /** ↵, a click and the preview's primary button: resume, or go to the pane. */
+  const runPrimary = useCallback((row: ModalRow) => act(row, "resume"), [act]);
 
   const activateRow = useCallback(
     (row: ModalRow) => {
@@ -426,8 +423,7 @@ export function AgentsModal(props: AgentsModalProps) {
   );
 
   // Rename and remove act on Agents; a Session from outside Manor has
-  // neither. Fork, and resuming a Session with no Agent, go to
-  // `onSessionAction`.
+  // neither.
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
     const index = highlighted ? rows.indexOf(highlighted) : -1;
@@ -440,7 +436,7 @@ export function AgentsModal(props: AgentsModalProps) {
       scrollToRow(next.id);
     } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && highlighted) {
       e.preventDefault();
-      onSessionAction(highlighted, "fork");
+      act(highlighted, "fork");
     } else if (e.key === "Enter" && highlighted) {
       e.preventDefault();
       activateRow(highlighted);
@@ -715,7 +711,7 @@ export function AgentsModal(props: AgentsModalProps) {
                     state={preview}
                     live={isRowOpen(highlighted, openPaneIds)}
                     onPrimary={() => runPrimary(highlighted)}
-                    onFork={() => onSessionAction(highlighted, "fork")}
+                    onFork={() => act(highlighted, "fork")}
                     onRename={highlightedAgentId ? () => startRename(highlightedAgentId) : undefined}
                   />
                 )}

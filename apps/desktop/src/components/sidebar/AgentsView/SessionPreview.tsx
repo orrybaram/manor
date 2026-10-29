@@ -9,9 +9,6 @@ import { modalRowTitle, type ModalRow } from "./agents-modal-list";
 import type { PreviewState } from "./session-preview";
 import styles from "./SessionPreview.module.css";
 
-/** What a Session row's Resume and Fork ask for. */
-export type SessionAction = "resume" | "fork";
-
 /** ⌘↵ on a Mac, Ctrl+↵ elsewhere. */
 export const FORK_KEYS = getPlatform() === "mac" ? "⌘↵" : "Ctrl+↵";
 

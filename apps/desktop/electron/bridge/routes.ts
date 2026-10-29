@@ -197,6 +197,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "agents.getPaneStatuses": "merge",
   "agents.consumePruneNotice": "home",
   "agents.buildResumeCommand": "home",
+  "agents.buildSessionCommand": "home",
   "agents.setPaneContext": byPane(0),
   "agents.update": byAgent(0),
   "agents.delete": byAgent(0),

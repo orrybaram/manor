@@ -2,6 +2,7 @@ import type { AgentInfo, SessionSummary } from "../../../electron.d";
 import type { ProjectInfo } from "../../../store/project-store";
 import { matchesQueryWords } from "../../../lib/agent-query";
 import { resolveAgentTitle } from "../../../hooks/useAgentDisplay";
+import { isWindowsPath, isWithin, normalizePath } from "../../../lib/path-within";
 
 /** The modal's tabs. Open: the agent's pane is in a workspace right now. */
 export type AgentTab = "all" | "open" | "closed";
@@ -49,25 +50,8 @@ type ProjectLike = Pick<ProjectInfo, "id" | "name" | "path" | "color" | "hostId"
 
 // ── Paths ──
 
-const WINDOWS_PATH = /^(?:[a-zA-Z]:(?:[\\/]|$)|\\\\)/;
-
-/**
- * A path in the form paths are compared in: no trailing separator; a Windows
- * path (drive letter or UNC) with forward slashes and lower-cased, since
- * Windows paths ignore case. POSIX paths stay exact.
- */
-function normalizePath(raw: string): string {
-  const path = raw.trim();
-  if (WINDOWS_PATH.test(path)) return path.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
-  return path.replace(/\/+$/, "");
-}
-
-function isWithin(cwd: string, base: string): boolean {
-  return cwd === base || cwd.startsWith(`${base}/`);
-}
-
 function pathSegments(path: string): string[] {
-  return path.split(WINDOWS_PATH.test(path) ? /[\\/]/ : "/").filter(Boolean);
+  return path.split(isWindowsPath(path) ? /[\\/]/ : "/").filter(Boolean);
 }
 
 // ── Projects ──

@@ -2,6 +2,7 @@ import { useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "reac
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Globe from "lucide-react/dist/esm/icons/globe";
 import GitCompareArrows from "lucide-react/dist/esm/icons/git-compare-arrows";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
 import Volume2 from "lucide-react/dist/esm/icons/volume-2";
 import VolumeX from "lucide-react/dist/esm/icons/volume-x";
 import X from "lucide-react/dist/esm/icons/x";
@@ -225,6 +226,7 @@ export function TabButton(props: TabButtonProps) {
   const foreignHostId = tabBadgeHostId(tabHostId, workspaceHostId);
   const isBrowser = contentType === "browser";
   const isDiff = contentType === "diff";
+  const isFile = contentType === "file";
   // Set when the context menu was opened via `openMenu` (keyboard), so
   // `onCloseAutoFocus` knows to return focus to the tab; a mouse-opened menu
   // keeps Radix's own default (don't steal focus after a click).
@@ -271,6 +273,7 @@ export function TabButton(props: TabButtonProps) {
           <TabDust tabId={tabId} isActive={isActive} />
           <TabAgentDot tabId={tabId} />
           {isDiff && <GitCompareArrows size={12} className={styles.tabIcon} />}
+          {isFile && <FileCode size={12} className={styles.tabIcon} />}
           {isBrowser && (favicon && !faviconError ? (
             <img
               src={favicon}

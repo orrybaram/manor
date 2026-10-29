@@ -1,0 +1,18 @@
+.compare {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.compare :global(.cm-mergeView) {
+  min-height: 100%;
+}
+
+.compare :global(.cm-mergeViewEditor) {
+  border-left: 1px solid var(--border);
+}
+
+.compare :global(.cm-mergeViewEditor:first-child) {
+  border-left: none;
+}

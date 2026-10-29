@@ -8,12 +8,13 @@ import { assertString } from "../../ipc-validate";
 import { killCounters } from "../../stats-signals";
 import { cleanAgentTitle } from "../../title-utils";
 import type { AgentService, EndedPane } from "../../layout/layout-store";
-import { byAgent, byPane, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
+import { byAgent, byPane, byWorkspaceKey, LOCAL_ROUTE, method, type HandlerCtx } from "../method";
 import type { ServerDeps, SharedDeps } from "../../ipc/types";
 import {
   agentsGet,
   agentsGetActive,
   agentsGetAll,
+  agentsGetFileAuthors,
   agentsGetPaneStatuses,
   agentsGetRecent,
   agentsGetUnseen,
@@ -384,4 +385,7 @@ export const agents = {
   // tab: a line per page load is noise that buries the lines that matter,
   // and what it ends was already dead.
   reconcileStale: method(agentsReconcileStale, { route: LOCAL_ROUTE }),
+  // Which agent wrote each file of a workspace, for the file pane: the
+  // server whose hooks heard it answers.
+  getFileAuthors: method(agentsGetFileAuthors, { route: byWorkspaceKey(0) }),
 };

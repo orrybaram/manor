@@ -204,6 +204,7 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "agents.markSeen": byAgent(0),
   "agents.markResumed": byAgent(0),
   "agents.reconcileStale": "home",
+  "agents.getFileAuthors": byWorkspaceKey(0),
 
   // Each server scans its own host's agent stores.
   "sessions.list": "merge",

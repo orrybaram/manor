@@ -48,6 +48,7 @@ import type { Theme } from "../../src/store/theme-store";
 import type { AppCommand } from "../renderer-bridge";
 import type { ChatPush } from "../chat-mirror/transcript";
 import type { PushProgressEvent } from "./handlers/branches-diffs";
+import type { FileChangedEvent } from "../open-file-watcher";
 
 /**
  * `ns` → `event` → the arguments the event is published with, which are the
@@ -128,6 +129,11 @@ export interface BridgeEvents {
     fingerprintsChange: [fingerprints: Record<WorkspaceKey, string>];
   };
   "git.push": { progress: [event: PushProgressEvent] };
+  /**
+   * A file a file pane has open changed on disk (`files.watch`). Addressed
+   * to each connection that has it open, never broadcast.
+   */
+  files: { changed: [event: FileChangedEvent] };
   /**
    * The second argument is main's authoritative unseen flags for the agent at
    * the moment it was sent; the renderer treats them as the source of truth.
@@ -257,6 +263,7 @@ export const SUBSCRIPTIONS = {
   "diffs.onChange": "diffs.changed",
   "diffs.onFingerprintsChange": "diffs.fingerprintsChange",
   "git.push.onProgress": "git.push.progress",
+  "files.onChanged": "files.changed",
   "agents.onUpdate": "agents.updated",
   "agents.onStatus": "agents.status",
   "agents.onRemoved": "agents.removed",

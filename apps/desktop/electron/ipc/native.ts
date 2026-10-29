@@ -63,7 +63,7 @@ export function register(deps: HostDeps): void {
 
   // ── Updater ──
   ipcMain.handle("updater:checkForUpdates", () => checkForUpdates());
-  ipcMain.handle("updater:quitAndInstall", () => quitAndInstall());
+  ipcMain.handle("updater:quitAndInstall", () => quitAndInstall({ interactive: true }));
 
   // ── Shell ──
   ipcMain.handle("shell:openExternal", async (_event, url: string) => {

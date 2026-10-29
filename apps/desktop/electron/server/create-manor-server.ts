@@ -73,6 +73,8 @@ import { ProjectManager } from "../persistence";
 import { PortScanner } from "../ports";
 import { BranchWatcher } from "../branch-watcher";
 import { DiffWatcher } from "../diff-watcher";
+import { OpenFileWatcher } from "../open-file-watcher";
+import { AgentFileAuthors } from "../agent-file-authors";
 import { PreferencesManager } from "../preferences";
 import { WorktreeWatcher } from "../projects/worktree-watcher";
 import { RemoteAuditLog } from "../remote-control/audit";
@@ -428,6 +430,12 @@ export function createManorServer<D extends BridgeServerDeps>(
       bridge.hasDeviceSubscriber("diffs", "fingerprintsChange"),
     publish: bus.publish,
   });
+  // The files open in file panes, on whichever host they live, for each
+  // connection that has them open: `files.changed` goes to that connection.
+  const openFileWatcher = new OpenFileWatcher(backendRegistry, { publishTo: bus.publishTo });
+  // Which agent last wrote each file, as its PostToolUse hooks say: a file
+  // pane names it beside a changed file.
+  const agentFileAuthors = new AgentFileAuthors();
   // `gh` runs here, in the checkout, with this machine's own sign-in. A
   // remote project's calls are routed to its host's server (`byGhRepo`),
   // which composes the same manager.
@@ -613,7 +621,16 @@ export function createManorServer<D extends BridgeServerDeps>(
     // captured any new transcript path: the hooks are when a transcript
     // grows, and a remote one has no file watch. Hooks reach
     // here only after `agentPipeline.start()`, once `chatMirror` exists.
-    onHook: (event) => chatMirror.poke(event.paneId),
+    onHook: (event) => {
+      chatMirror.poke(event.paneId);
+      if (event.type === "PostToolUse" && event.filePath) {
+        agentFileAuthors.record(event.filePath, {
+          paneId: event.paneId,
+          agentKind: event.agentKind,
+          at: Date.now(),
+        });
+      }
+    },
     publishPaneStatus: (update) => {
       // One event, every renderer — windows and browsers alike — once per
       // signal: `agents.onStatus`.
@@ -816,6 +833,8 @@ export function createManorServer<D extends BridgeServerDeps>(
       portScanner,
       branchWatcher,
       diffWatcher,
+      openFileWatcher,
+      agentFileAuthors,
       githubManager,
       linearManager,
       agentHookServer: agentPipeline.ingestion,
@@ -868,6 +887,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   const unwireWatchers = bridge.onDisconnect((connectionId) => {
     branchWatcher.stop(connectionId);
     diffWatcher.stop(connectionId);
+    openFileWatcher.unwatch(connectionId);
   });
 
   return {
@@ -916,6 +936,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       unwireWatchers();
       branchWatcher.dispose();
       diffWatcher.dispose();
+      openFileWatcher.dispose();
       bridge.dispose();
       chatMirror.dispose();
       // Takes down the ssh children; remote sessions keep running on their hosts.

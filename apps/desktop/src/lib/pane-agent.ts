@@ -26,10 +26,12 @@ export function pickPaneAgent<A extends PaneAgentLike>(
   return newest?.status === "error" ? newest : null;
 }
 
-/** Whether a pane showing `contentType` can be read as a chat at all: a diff
- *  or browser pane never is. */
+/** Whether a pane showing `contentType` can be read as a chat at all: a diff,
+ *  browser or file pane never is. */
 export function paneCanChat(contentType: string | null | undefined): boolean {
-  return contentType !== "diff" && contentType !== "browser";
+  return (
+    contentType !== "diff" && contentType !== "browser" && contentType !== "file"
+  );
 }
 
 /**

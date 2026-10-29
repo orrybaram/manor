@@ -15,6 +15,7 @@ import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import Columns2 from "lucide-react/dist/esm/icons/columns-2";
 import Copy from "lucide-react/dist/esm/icons/copy";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
 import EyeOff from "lucide-react/dist/esm/icons/eye-off";
 import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import FolderPlus from "lucide-react/dist/esm/icons/folder-plus";
@@ -276,6 +277,11 @@ export function useCommands({
       },
       { command: "next-pane" },
       { command: "prev-pane" },
+      {
+        command: "open-file",
+        icon: <FileCode size={14} />,
+        keywords: ["file", "open", "editor", "code", "tree", "browse"],
+      },
       { command: "split-h", icon: <Columns2 size={14} /> },
       { command: "split-v", icon: <Rows2 size={14} /> },
       {

@@ -174,6 +174,31 @@ const REMOTE_SESSION_START_HINT = {
   },
 };
 
+/** The tools whose PostToolUse names a file the agent wrote. */
+const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+
+/**
+ * The file a PostToolUse wrote, for Edit, Write, MultiEdit and NotebookEdit:
+ * `tool_input.file_path` (`notebook_path` for a notebook). Null for any other
+ * event or tool, so Manor can tell which agent changed which file.
+ *
+ * @param {unknown} payload - Parsed JSON payload from the hook.
+ * @returns {string|null}
+ */
+function extractWrittenFile(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  const p = /** @type {Record<string,unknown>} */ (payload);
+  if (p.hook_event_name !== "PostToolUse") return null;
+  if (typeof p.tool_name !== "string" || !WRITE_TOOLS.has(p.tool_name)) return null;
+  const input = p.tool_input;
+  if (!input || typeof input !== "object") return null;
+  const i = /** @type {Record<string,unknown>} */ (input);
+  for (const key of ["file_path", "notebook_path"]) {
+    if (typeof i[key] === "string" && i[key]) return i[key];
+  }
+  return null;
+}
+
 /**
  * Build the URL with whichever fields are present.
  * Returns null if required fields (paneId, eventType) are missing.
@@ -191,6 +216,7 @@ function buildUrl(port, params) {
   if (params.agentId) url.searchParams.set("agentId", params.agentId);
   if (params.notificationKind)
     url.searchParams.set("notificationKind", params.notificationKind);
+  if (params.filePath) url.searchParams.set("filePath", params.filePath);
   return url.toString();
 }
 
@@ -274,6 +300,7 @@ async function main(opts) {
     // decide whether to flip status (only permission-style notifications should).
     const notificationKind =
       eventType === "Notification" ? extractNotificationKind(payload) : null;
+    const filePath = extractWrittenFile(payload);
 
     const url = buildUrl(target.port, {
       paneId,
@@ -284,6 +311,7 @@ async function main(opts) {
       toolUseId,
       agentId,
       notificationKind,
+      filePath,
     });
     if (!url) return;
 
@@ -316,6 +344,7 @@ module.exports = {
   resolveHookTarget,
   buildUrl,
   extractNotificationKind,
+  extractWrittenFile,
   getSessionStartHint,
 };
 

@@ -335,7 +335,7 @@ const tools: ToolDef[] = [
   {
     name: "quit_and_install",
     description:
-      "Destructive: quits Manor immediately to install a downloaded update. Every terminal pane goes with it — check with the user first.",
+      "Destructive: quits Manor immediately to install a downloaded update. Every terminal pane goes with it — check with the user first. Refused while a file has unsaved edits on the desktop.",
     inputSchema: { type: "object" as const, properties: {} },
   },
 

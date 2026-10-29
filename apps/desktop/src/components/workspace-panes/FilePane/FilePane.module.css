@@ -1,0 +1,217 @@
+.filePane {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* The 34px icon strip on the pane's left edge. */
+.strip {
+  width: 34px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 6px;
+  border-right: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg) 96%, var(--fg));
+}
+
+.stripBtn {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  padding: 0;
+}
+
+.stripBtn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--fg);
+}
+
+.stripBtn:disabled {
+  color: var(--text-dim);
+  cursor: default;
+}
+
+.stripBtnOn,
+.stripBtnOn:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--fg);
+}
+
+/* How many files the workspace has changed, on the Changed by agents button. */
+.count {
+  position: absolute;
+  top: -2px;
+  right: -3px;
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: 6px;
+  font-size: 9px;
+  line-height: 12px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--yellow);
+  color: var(--bg);
+  pointer-events: none;
+}
+
+.editorCol {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.crumbs {
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.crumbPart {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.crumbSep {
+  padding: 0 1px;
+}
+
+.crumb {
+  padding: 1px 4px;
+  color: var(--text-primary);
+}
+
+.crumbLast {
+  padding: 1px 4px;
+  color: var(--fg);
+}
+
+.empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.openFile {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The swap-confirm bar and the conflict banner, above the breadcrumb. */
+.confirm,
+.banner,
+.saveError {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.confirm {
+  background: var(--surface);
+}
+
+.banner {
+  background: color-mix(in srgb, var(--yellow) 12%, var(--bg));
+}
+
+.saveError {
+  color: var(--red);
+  background: color-mix(in srgb, var(--red) 8%, var(--bg));
+}
+
+.barMsg {
+  flex: 1;
+  min-width: 180px;
+  color: var(--fg);
+}
+
+.barMsg b {
+  font-weight: 600;
+}
+
+.author {
+  color: var(--yellow);
+}
+
+/* The editor, with Compare laid over it so the edits and undo history stay. */
+.editorStack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.compare {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.compareHead {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+}
+
+.compareVs {
+  color: var(--text-dim);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* A phone reads with a finger: the strip's buttons are 32px targets, and the
+   strip widens to hold them (the drawer sits beside it, `FileDrawer.module.css`). */
+:global(.app[data-layout="phone"]) .strip {
+  width: 42px;
+}
+
+:global(.app[data-layout="phone"]) .stripBtn {
+  width: 34px;
+  height: 34px;
+}

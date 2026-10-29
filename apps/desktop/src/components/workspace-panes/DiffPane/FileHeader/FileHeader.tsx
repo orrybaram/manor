@@ -1,6 +1,8 @@
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
 import type { DiffFile } from "../types";
 import { AnimatedCount } from "../../../ui/AnimatedCount/AnimatedCount";
+import { Tooltip } from "../../../ui/Tooltip/Tooltip";
 import styles from "./FileHeader.module.css";
 
 type FileHeaderProps = {
@@ -8,10 +10,12 @@ type FileHeaderProps = {
   collapsed: boolean;
   animated?: boolean;
   onToggle: () => void;
+  /** Open the file in a file pane; absent when there is none to open (a deletion). */
+  onOpenFile?: () => void;
 };
 
 export function FileHeader(props: FileHeaderProps) {
-  const { file, collapsed, animated, onToggle } = props;
+  const { file, collapsed, animated, onToggle, onOpenFile } = props;
   const lastSlash = file.path.lastIndexOf("/");
   const name = lastSlash === -1 ? file.path : file.path.slice(lastSlash + 1);
   const dir = lastSlash === -1 ? "" : file.path.slice(0, lastSlash + 1);
@@ -32,6 +36,22 @@ export function FileHeader(props: FileHeaderProps) {
         {file.added > 0 && <AnimatedCount value={file.added} prefix="+" className={styles.statAdded} />}
         {file.removed > 0 && <AnimatedCount value={file.removed} prefix="-" className={styles.statRemoved} />}
       </span>
+      {onOpenFile && (
+        <Tooltip label="Open File">
+          <button
+            type="button"
+            className={styles.openFile}
+            aria-label="Open File"
+            data-testid="diff-file-open"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenFile();
+            }}
+          >
+            <FileCode size={13} />
+          </button>
+        </Tooltip>
+      )}
     </div>
   );
 }

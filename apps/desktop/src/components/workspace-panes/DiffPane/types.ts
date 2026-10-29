@@ -10,6 +10,8 @@ export interface DiffFile {
   lines: DiffLine[];
   added: number;
   removed: number;
+  /** The change deletes the file: there is nothing on disk to open. */
+  deleted?: boolean;
 }
 
 export type DiffMode = "local" | "branch";

@@ -32,7 +32,15 @@ export type AgentHookEvent =
   | (EventBase & { type: "SessionEnd"; status: "idle" })
   | (EventBase & { type: "UserPromptSubmit"; status: "thinking" })
   | (EventBase & { type: "PreToolUse"; status: "working" })
-  | (EventBase & { type: "PostToolUse"; status: "thinking" })
+  | (EventBase & {
+      type: "PostToolUse";
+      status: "thinking";
+      /**
+       * The absolute path an Edit, Write, MultiEdit or NotebookEdit wrote;
+       * absent for any other tool, and from a hook script that predates it.
+       */
+      filePath?: string;
+    })
   | (EventBase & { type: "PostToolUseFailure"; status: "thinking" })
   | (EventBase & { type: "Stop"; status: "responded" })
   | (EventBase & { type: "StopFailure"; status: "error" })
@@ -82,6 +90,7 @@ export function parseAgentHookEvent(
   const toolUseId = params.get("toolUseId");
   const agentId = params.get("agentId");
   const notificationKind = params.get("notificationKind");
+  const filePath = params.get("filePath");
 
   if (!paneId || !rawType) {
     return {
@@ -133,7 +142,15 @@ export function parseAgentHookEvent(
     case "PreToolUse":
       return { ok: true, event: { ...base, type: "PreToolUse", status: "working" } };
     case "PostToolUse":
-      return { ok: true, event: { ...base, type: "PostToolUse", status: "thinking" } };
+      return {
+        ok: true,
+        event: {
+          ...base,
+          type: "PostToolUse",
+          status: "thinking",
+          ...(filePath ? { filePath } : {}),
+        },
+      };
     case "PostToolUseFailure":
       return { ok: true, event: { ...base, type: "PostToolUseFailure", status: "thinking" } };
     case "Stop":

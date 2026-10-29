@@ -93,7 +93,7 @@ function workspaceLabel(ws: { name: string | null; branch: string }): string {
 function focusedContentType(
   app: MenuAppState,
   paneId: string,
-): "terminal" | "browser" | "diff" | "agent" {
+): "terminal" | "browser" | "diff" | "file" | "agent" {
   const stored = selectPaneContentType(app, paneId);
   if (stored !== "terminal") return stored;
   return app.paneAgentStatus[paneId]?.kind ? "agent" : "terminal";

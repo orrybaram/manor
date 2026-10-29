@@ -26,6 +26,8 @@ describe("createSingleFlight", () => {
     });
 
     const first = request("ws", run);
+    // A later task: the fetch in flight may have missed what this asks about.
+    await Promise.resolve();
     const second = request("ws", run);
     const third = request("ws", run);
     expect(run).toHaveBeenCalledTimes(1);
@@ -42,10 +44,21 @@ describe("createSingleFlight", () => {
     expect(peak).toBe(1);
   });
 
+  it("joins a fetch launched in the same task instead of queueing another", async () => {
+    const request = createSingleFlight<string>();
+    const run = vi.fn(async () => "diff");
+    const first = request("ws", run);
+    const second = request("ws", run);
+    expect(second).toBe(first);
+    await expect(second).resolves.toBe("diff");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
   it("runs the queued fetch after a failed one", async () => {
     const request = createSingleFlight<string>();
     const failing = deferred<string>();
     const first = request("ws", () => failing.promise);
+    await Promise.resolve();
     const second = request("ws", async () => "retry");
     failing.reject(new Error("boom"));
     await expect(first).rejects.toThrow("boom");

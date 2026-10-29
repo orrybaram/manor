@@ -126,6 +126,10 @@ const SERVED_HERE = {
   "window.setPosition": () => undefined,
   /** Closes a detached window; the web app is never detached. */
   "window.closeSelf": () => undefined,
+  /** A tab has no close to guard; the web app never edits a file. */
+  "window.setUnsavedFiles": () => undefined,
+  /** There is one window here, so no other holds edits. */
+  "window.unsavedPanesElsewhere": () => Promise.resolve([]),
   /** Forwards a command to the primary window; there is one window here. */
   "keybindings.runInMainWindow": () => undefined,
 

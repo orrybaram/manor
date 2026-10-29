@@ -15,6 +15,8 @@ import {
 import { useProjectStore, type ProjectInfo } from "../project-store";
 import { clearRecords, toastStore } from "../../toast/toast-store";
 import { moveToWorkspaceAndFollow } from "../workspace-actions";
+import { useOpenFileStore } from "../open-file-store";
+import { answerUnsavedGuard, useUnsavedGuardStore } from "../unsaved-guard-store";
 import type { WorkspaceKey } from "../../lib/workspace-key";
 import { layoutServer, resetFakeLayoutServer, settled } from "./fake-layout-server";
 
@@ -105,6 +107,45 @@ describe("moveToWorkspaceAndFollow", () => {
     const tabId = state.viewports[TO].selectedTabIds[state.viewports[TO].activePanelId!];
     expect(selectFocusedPaneId(state, tabId!)).toBe("pane-2");
     expect(useProjectStore.getState().projects[0].selectedWorkspaceIndex).toBe(1);
+  });
+
+  describe("over a file pane's unsaved edits", () => {
+    beforeEach(() => {
+      useOpenFileStore.setState({ byPane: {} });
+      useUnsavedGuardStore.setState({ request: null, saving: false });
+      const files = useOpenFileStore.getState();
+      files.open("pane-2", { hostId: "local", path: FROM }, "src/a.ts");
+      files.dispatch("pane-2", { type: "read", content: "a", hash: "h", reason: "open" });
+      files.dispatch("pane-2", { type: "edited", dirty: true });
+    });
+
+    it("asks first, and Cancel moves nothing", async () => {
+      const moving = moveToWorkspaceAndFollow(
+        FROM as WorkspaceKey,
+        { tabId: "tab-2" },
+        TO as WorkspaceKey,
+      );
+      await Promise.resolve();
+      expect(useUnsavedGuardStore.getState().request).toMatchObject({
+        verb: "move",
+        paneIds: ["pane-2"],
+      });
+      await answerUnsavedGuard("cancel");
+      await moving;
+      expect(selectActiveWorkspaceKey(useAppStore.getState())).toBe(FROM);
+      expect(useOpenFileStore.getState().byPane["pane-2"].dirty).toBe(true);
+    });
+
+    it("Discard and move moves it", async () => {
+      const moving = moveToWorkspaceAndFollow(
+        FROM as WorkspaceKey,
+        { paneId: "pane-2" },
+        TO as WorkspaceKey,
+      );
+      await answerUnsavedGuard("discard");
+      await moving;
+      expect(selectActiveWorkspaceKey(useAppStore.getState())).toBe(TO);
+    });
   });
 
   it("toasts a refusal and stays put", async () => {

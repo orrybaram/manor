@@ -54,6 +54,15 @@ describe("parseAgentHookEvent — eventType → status mapping", () => {
     expect(without.event.transcriptPath).toBeNull();
   });
 
+  it("carries the file a PostToolUse wrote, and none when absent", () => {
+    const wrote = build("PostToolUse", { filePath: "/w/src/a.ts" });
+    if (!wrote.ok || wrote.event.type !== "PostToolUse") throw new Error("expected PostToolUse");
+    expect(wrote.event.filePath).toBe("/w/src/a.ts");
+    const read = build("PostToolUse");
+    if (!read.ok) throw new Error("expected ok");
+    expect(read.event).not.toHaveProperty("filePath");
+  });
+
   it("maps UserPromptSubmit to thinking", () => {
     expect(statusFor("UserPromptSubmit")).toBe("thinking");
   });

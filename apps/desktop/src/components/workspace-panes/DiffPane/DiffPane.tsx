@@ -13,6 +13,7 @@ import * as ContextMenu from "@radix-ui/react-context-menu";
 import ArrowUp from "lucide-react/dist/esm/icons/arrow-up";
 import Clipboard from "lucide-react/dist/esm/icons/clipboard";
 import ExternalLink from "lucide-react/dist/esm/icons/external-link";
+import FileCode from "lucide-react/dist/esm/icons/file-code";
 import GitCommitVertical from "lucide-react/dist/esm/icons/git-commit-vertical";
 import CloudUpload from "lucide-react/dist/esm/icons/cloud-upload";
 import MessageSquarePlus from "lucide-react/dist/esm/icons/message-square-plus";
@@ -40,7 +41,7 @@ import { CommitModal } from "./CommitModal/CommitModal";
 import { EmptyState } from "./EmptyState/EmptyState";
 import { SelectionCommentChip } from "./SelectionCommentChip/SelectionCommentChip";
 import { useDraftReview } from "./use-draft-review";
-import { fetchDiffSingleFlight, fetchStagedSingleFlight } from "./diff-fetch";
+import { fetchDiffSingleFlight, fetchStagedSingleFlight, localDiffKey } from "./diff-fetch";
 import { FingerprintedFetch } from "./FingerprintedFetch";
 import { ReviewBar } from "./ReviewBar/ReviewBar";
 import { selectionSnippet, selectionToAnchor } from "./review-anchor";
@@ -50,6 +51,7 @@ import styles from "./DiffPane.module.css";
 import { Button } from "../../ui/Button/Button";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
 import { openInEditor } from "../../../lib/editor";
+import { openFileBeside } from "../../../lib/open-in-file-pane";
 import { categorizePushError, type PushError } from "../../../lib/push-error";
 import { toast, type ProgressHandle } from "../../../toast";
 import { onUiRequest } from "../../../utils/ui-request";
@@ -237,6 +239,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
       [],
     );
 
+    // A changed file, in a file pane beside this one: the one already in
+    // this tab, or a new split to the right. Needs the pane and its workspace.
+    const openFile = useMemo(
+      () =>
+        paneId && workspacePath
+          ? (path: string) => openFileBeside(paneId, path, "horizontal")
+          : undefined,
+      [paneId, workspacePath],
+    );
+
     const openSearch = useCallback(() => {
       setSearchOpen(true);
     }, []);
@@ -281,11 +293,14 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
     // below re-fetch only then.
     const wsKey = workspacePath ? workspaceKey(hostId, workspacePath) : null;
 
-    // Each fetch is keyed by workspace + mode + branch. `settled` records the
-    // outcome of the last completed fetch together with the key it ran for, so
-    // `loading` and `error` derive during render instead of being reset every
-    // time the key changes.
-    const fetchKey = `${wsKey ?? ""}\u0000${diffMode}\u0000${defaultBranch}`;
+    // Each fetch is keyed by workspace + mode (+ branch, which only the
+    // branch diff reads). `settled` records the outcome of the last completed
+    // fetch together with the key it ran for, so `loading` and `error` derive
+    // during render instead of being reset every time the key changes.
+    const fetchKey =
+      diffMode === "local"
+        ? localDiffKey(wsKey ?? "")
+        : `${wsKey ?? ""}\u0000branch\u0000${defaultBranch}`;
     const [settled, setSettled] = useState<{
       key: string;
       error: string | null;
@@ -826,6 +841,7 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
             <FileList
               files={files}
               onSelectFile={scrollToFile}
+              onOpenFile={openFile}
               animationState={animationState}
               diffMode={diffMode}
               workspacePath={workspacePath}
@@ -884,6 +900,11 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                           collapsed={collapsed.has(file.path)}
                           animated={animationState.get(file.path) === "updated"}
                           onToggle={() => toggleFile(file.path)}
+                          onOpenFile={
+                            openFile && !file.deleted
+                              ? () => openFile(file.path)
+                              : undefined
+                          }
                         />
                         {collapsed.has(file.path) &&
                           autoCollapseReason(file) && (
@@ -947,6 +968,16 @@ export const DiffPane = forwardRef<DiffPaneRef, DiffPaneProps>(
                             <ContextMenu.Separator
                               className={styles.contextMenuSeparator}
                             />
+                            {openFile && !file.deleted && (
+                              <ContextMenu.Item
+                                className={styles.contextMenuItem}
+                                data-testid="diff-file-menu-open"
+                                onSelect={() => openFile(file.path)}
+                              >
+                                <FileCode size={14} />
+                                Open File
+                              </ContextMenu.Item>
+                            )}
                             <ContextMenu.Item
                               className={styles.contextMenuItem}
                               onSelect={() => {

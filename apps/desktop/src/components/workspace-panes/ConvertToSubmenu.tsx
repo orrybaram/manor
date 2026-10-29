@@ -11,6 +11,7 @@ import {
   usePaneContentType,
 } from "../../store/app-store";
 import { getAgentCommand } from "../../agent-defaults";
+import { guardUnsavedEdits } from "../../store/unsaved-guard-store";
 import styles from "./PaneLayout/PaneLayout.module.css";
 
 const PANE_TYPES = [
@@ -24,6 +25,24 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
   const currentType = usePaneContentType(paneId);
   const setPaneContentType = useAppStore((s) => s.setPaneContentType);
 
+  const convert = (type: (typeof PANE_TYPES)[number]["type"]) => {
+    if (type === "agent") {
+      const command = getAgentCommand(selectActiveWorkspaceKey(useAppStore.getState()));
+      if (currentType === "terminal") {
+        // Terminal already mounted — write directly
+        window.electronAPI.pty.write(paneId, command + "\n");
+      } else {
+        // Switching from browser/diff — the terminal mounts
+        // fresh, and the server types the command into it once
+        // its shell is ready.
+        sendPendingCommand(paneId, command, "agent-startup");
+        setPaneContentType(paneId, "terminal");
+      }
+    } else {
+      setPaneContentType(paneId, type);
+    }
+  };
+
   return (
     <ContextMenu.Sub>
       <ContextMenu.SubTrigger className={styles.contextMenuItem}>
@@ -36,23 +55,8 @@ export function ConvertToSubmenu({ paneId }: { paneId: string }) {
             <ContextMenu.Item
               key={type}
               className={styles.contextMenuItem}
-              onSelect={() => {
-                if (type === "agent") {
-                  const command = getAgentCommand(selectActiveWorkspaceKey(useAppStore.getState()));
-                  if (currentType === "terminal") {
-                    // Terminal already mounted — write directly
-                    window.electronAPI.pty.write(paneId, command + "\n");
-                  } else {
-                    // Switching from browser/diff — the terminal mounts
-                    // fresh, and the server types the command into it once
-                    // its shell is ready.
-                    sendPendingCommand(paneId, command, "agent-startup");
-                    setPaneContentType(paneId, "terminal");
-                  }
-                } else {
-                  setPaneContentType(paneId, type);
-                }
-              }}
+              // A file pane's unsaved edits ask first: converting drops them.
+              onSelect={() => guardUnsavedEdits([paneId], "convert", () => convert(type))}
             >
               <Icon size={14} />
               {label}

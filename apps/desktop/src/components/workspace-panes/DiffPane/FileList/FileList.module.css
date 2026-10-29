@@ -37,38 +37,6 @@
   padding: 4px 0;
 }
 
-.dirRow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  padding: 3px 12px;
-  font-size: 12px;
-  font-family: inherit;
-  color: var(--text);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  user-select: none;
-}
-
-.dirRow:hover {
-  background: var(--hover);
-}
-
-.dirChevron {
-  flex-shrink: 0;
-  color: var(--text-dim);
-}
-
-.dirName {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
 .fileListItem {
   position: relative;
   display: flex;

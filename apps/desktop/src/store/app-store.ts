@@ -26,12 +26,13 @@ import {
   layoutLeaves,
   layoutPaneIds,
 } from "../lib/layout/workspace-layout";
-import type { LayoutCommand } from "../lib/layout/commands";
+import { applyLayoutCommand, type LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
 import {
   cloneTabWithFreshIds,
   createBrowserTab,
   createDiffTab,
+  createFileTab,
   findDiffPane as findDiffPaneIn,
 } from "../lib/layout/tab-builders";
 import {
@@ -75,6 +76,8 @@ import { useProjectStore } from "./project-store";
 import { bootAndResync } from "../bridge/resync";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { useRemotePaneStore } from "./remote-pane-store";
+import { hasUnsavedEdits } from "./open-file-store";
+import { closeOverLostTab, guardClosingPanes } from "./unsaved-guard-store";
 import {
   type SnapshotResult,
   adoptLayout,
@@ -315,6 +318,16 @@ export interface AppState {
     opts?: { background?: boolean },
   ) => { tabId: string; paneId: string } | null;
   addDiffTab: () => void;
+  /**
+   * Open a file pane as a new tab of the active panel, on `filePath`
+   * (workspace-relative) or with no file open, which shows its tree; or of
+   * the panel `at` names, in its workspace, whichever is active. Returns the
+   * ids it minted, or null with no workspace.
+   */
+  addFileTab: (
+    filePath?: string,
+    at?: { workspaceKey: WorkspaceKey; panelId: string },
+  ) => { tabId: string; paneId: string } | null;
   /** Returns the id of the tab it minted, or null when there is nothing to
    *  duplicate. The duplicate's panes are fresh ids, not the source's. */
   duplicateTab: (tabId: string) => string | null;
@@ -345,9 +358,11 @@ export interface AppState {
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "agent";
+      contentType?: "terminal" | "browser" | "diff" | "file" | "agent";
       paneCommand?: string;
       url?: string;
+      /** A file pane's open file, workspace-relative. */
+      filePath?: string;
     },
   ) => string | null;
   movePaneToTarget: (
@@ -398,6 +413,8 @@ export interface AppState {
 
   // Pane content type
   setPaneContentType: (paneId: string, contentType: PaneContentType) => void;
+  /** The file a file pane shows, workspace-relative; kept on its leaf. */
+  setPaneFilePath: (paneId: string, filePath: string) => void;
 
   // Browser favicon
   setPaneFavicon: (paneId: string, favicon: string | null) => void;
@@ -1003,6 +1020,26 @@ export function selectPaneUrl(
   return state.paneLiveUrl[paneId] ?? paneLeaf(state, paneId)?.url ?? null;
 }
 
+/** Whether any workspace's layout still has `paneId`. */
+export function selectHasPane(
+  state: Pick<AppState, "workspaceLayouts">,
+  paneId: string,
+): boolean {
+  return paneLeaf(state, paneId) !== null;
+}
+
+/** The file a file pane has open, workspace-relative; null for none. */
+export function selectPaneFilePath(
+  state: Pick<AppState, "workspaceLayouts">,
+  paneId: string,
+): string | null {
+  return paneLeaf(state, paneId)?.filePath ?? null;
+}
+
+export function usePaneFilePath(paneId: string): string | null {
+  return useAppStore((s) => selectPaneFilePath(s, paneId));
+}
+
 export function usePaneContentType(paneId: string): PaneContentType {
   return useAppStore((s) => selectPaneContentType(s, paneId));
 }
@@ -1301,6 +1338,44 @@ function refuseLayoutWrite(err: unknown): boolean {
  * version that did not move past the one held when the command went out is
  * how that is told.
  */
+/**
+ * Send a command that closes panes, once the file panes among them have no
+ * unsaved edits: with some, the unsaved-edits confirm asks first.
+ */
+function sendClosingCommand(workspacePath: string, command: LayoutCommand): void {
+  // Dry-run again after every wait: what closes is what the layout says
+  // when the command goes, not when it was asked for.
+  const closing = () => {
+    const layout = useAppStore.getState().workspaceLayouts[workspacePath];
+    return layout ? applyLayoutCommand({ layout, closedStack: [] }, command).killPanes : [];
+  };
+  guardClosingPanes(closing, "close", filePanesAmong, () =>
+    sendLayoutCommand(workspacePath, command),
+  );
+}
+
+/**
+ * Those of `paneIds` that are file panes, in whichever window shows them:
+ * the ones that may hold unsaved edits, here or in another window.
+ */
+export function filePanesAmong(paneIds: readonly string[]): string[] {
+  const state = useAppStore.getState();
+  return paneIds.filter((paneId) => selectPaneContentType(state, paneId) === "file");
+}
+
+const ACTIVE_AGENT_STATUSES = ["thinking", "working", "requires_input"];
+
+/** Whether an agent is working, thinking or waiting on you in any of `paneIds`. */
+export function selectAgentRunningIn(
+  state: Pick<AppState, "paneAgentStatus">,
+  paneIds: readonly string[],
+): boolean {
+  return paneIds.some((paneId) => {
+    const agent = state.paneAgentStatus[paneId];
+    return agent !== undefined && ACTIVE_AGENT_STATUSES.includes(agent.status);
+  });
+}
+
 function sendLayoutCommand(
   workspacePath: string,
   command: LayoutCommand,
@@ -1382,9 +1457,7 @@ function afterReplicaChange(
       state.workspaceLayouts[workspacePath],
     );
   }
-  if (OWN_CLAIM && removed.includes(OWN_CLAIM.workspacePath)) {
-    window.electronAPI?.window?.closeSelf?.();
-  }
+  if (OWN_CLAIM && removed.includes(OWN_CLAIM.workspacePath)) closeLostWindow();
 }
 
 /**
@@ -1504,7 +1577,17 @@ function checkOwnClaim(
   }
   const tabGone = !findPanelWithTab(layout, OWN_CLAIM.tabId);
   if (!sawOwnClaim && !tabGone) return;
-  window.electronAPI?.window?.closeSelf?.();
+  closeLostWindow();
+}
+
+/**
+ * Close this window, which lost its tab. Unsaved file edits in it ask Save
+ * or Discard first, in the window, once (`closeOverLostTab`): the native
+ * close prompt would offer a Cancel that keeps a window with nothing to
+ * show, and every later replica change would ask again.
+ */
+function closeLostWindow(): void {
+  closeOverLostTab(() => window.electronAPI?.window?.closeSelf?.());
 }
 
 /**
@@ -1837,6 +1920,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
   },
 
+  addFileTab: (filePath, at) => {
+    const path = at?.workspaceKey ?? activeLayoutKey(get());
+    if (!path) return null;
+    const tab = createFileTab(filePath);
+    leaveTasksView();
+    const panel = at ? { panelId: at.panelId } : activePanelOf(get());
+    sendLayoutCommand(path, { type: "new-tab", tab, ...panel });
+    return { tabId: tab.id, paneId: firstPaneOfTab(tab) };
+  },
+
   duplicateTab: (tabId: string) => {
     const state = get();
     const path = activeLayoutKey(state);
@@ -1910,14 +2003,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (path) sendLayoutCommand(path, { type: "close-tab", tabId });
   },
 
+  // Unsaved edits in any of the tabs going ask first.
   closeOtherTabs: (tabId: string) => {
     const path = activeLayoutKey(get());
-    if (path) sendLayoutCommand(path, { type: "close-other-tabs", tabId });
+    if (path) sendClosingCommand(path, { type: "close-other-tabs", tabId });
   },
 
   closeTabsToRight: (tabId: string) => {
     const path = activeLayoutKey(get());
-    if (path) sendLayoutCommand(path, { type: "close-tabs-to-right", tabId });
+    if (path) sendClosingCommand(path, { type: "close-tabs-to-right", tabId });
   },
 
   // ── Viewport ──
@@ -1984,9 +2078,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     direction: SplitDirection,
     position: "first" | "second",
     opts?: {
-      contentType?: "terminal" | "browser" | "diff" | "agent";
+      contentType?: "terminal" | "browser" | "diff" | "file" | "agent";
       paneCommand?: string;
       url?: string;
+      /** A file pane's open file, workspace-relative. */
+      filePath?: string;
     },
   ) => {
     const state = get();
@@ -1996,7 +2092,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // silent no-op, and `splitPaneAt` answers with the id it minted.
     if (!ctx || !findPanelWithPane(ctx.layout, targetPaneId)) return null;
     const newPane = newPaneId();
-    const { contentType, paneCommand, url } = opts ?? {};
+    const { contentType, paneCommand, url, filePath } = opts ?? {};
     // "agent" panes are terminals that auto-run a command -- don't persist as
     // a content type.
     const treeContentType = contentType === "agent" ? undefined : contentType;
@@ -2016,6 +2112,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       newPaneId: newPane,
       contentType: treeContentType,
       url,
+      filePath,
     });
     return newPane;
   },
@@ -2127,13 +2224,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!tab) return;
 
 
-    const activeStatuses = ["thinking", "working", "requires_input"];
-    const hasActiveAgent = allPaneIds(tab.rootNode).some((pid) => {
-      const agentState = state.paneAgentStatus[pid];
-      return agentState && activeStatuses.includes(agentState.status);
-    });
-
-    if (hasActiveAgent) {
+    // A running agent, or a file pane's unsaved edits, ask first.
+    const paneIds = allPaneIds(tab.rootNode);
+    if (selectAgentRunningIn(state, paneIds) || paneIds.some(hasUnsavedEdits)) {
       set({ pendingCloseConfirmTabId: tabId });
     } else {
       get().closeTab(tabId);
@@ -2146,10 +2239,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   requestClosePaneById: (paneId: string) => {
-    const state = get();
-    const agentState = state.paneAgentStatus[paneId];
-    const activeStatuses = ["thinking", "working", "requires_input"];
-    if (agentState && activeStatuses.includes(agentState.status)) {
+    // A running agent, or a file pane's unsaved edits, ask first.
+    if (selectAgentRunningIn(get(), [paneId]) || hasUnsavedEdits(paneId)) {
       set({ pendingCloseConfirmPaneId: paneId });
     } else {
       get().closePaneById(paneId);
@@ -2298,6 +2389,23 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  // The open file is structure, like a browser's url: it is what brings the
+  // pane back on the same file after a relaunch, and every renderer of the
+  // workspace shows it.
+  setPaneFilePath: (paneId: string, filePath: string) => {
+    const state = get();
+    if (selectPaneContentType(state, paneId) !== "file") return;
+    if (selectPaneFilePath(state, paneId) === filePath) return;
+    const path = workspaceOfPane(state, paneId);
+    if (!path) return;
+    sendLayoutCommand(path, {
+      type: "set-pane-content-type",
+      paneId,
+      contentType: "file",
+      filePath,
+    });
+  },
+
   setWebviewFocused: (paneId: string, focused: boolean) =>
     set((state) => {
       if (focused) return { webviewFocusedPaneId: paneId };
@@ -2391,7 +2499,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   closePanel: (panelId: string) => {
     const path = activeLayoutKey(get());
     if (!path) return;
-    sendLayoutCommand(path, { type: "close-panel", panelId });
+    sendClosingCommand(path, { type: "close-panel", panelId });
   },
 
   // Runs on every click inside a panel (LeafPanel onClick): an already-active

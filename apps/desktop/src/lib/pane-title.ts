@@ -2,6 +2,7 @@ import { shellTitlePath, stripTitleMarkers } from "../utils/agent-title";
 import type { AgentInfo } from "../electron.d";
 import {
   selectPaneContentType,
+  selectPaneFilePath,
   selectPaneUrl,
   type AppState,
 } from "../store/app-store";
@@ -34,14 +35,17 @@ function cwdName(cwd: string): string {
 }
 
 /**
- * The title a pane's header shows: its live terminal title, cleaned, minus the
- * "user@host:" prefix of default shell titles, else the last segment of its
- * cwd, else "Terminal".
+ * The title a pane's header shows: a file pane's open file name; else its live
+ * terminal title, cleaned, minus the "user@host:" prefix of default shell
+ * titles, else the last segment of its cwd, else "Terminal".
  */
 export function paneHeaderTitle(
-  state: Pick<AppState, "paneTitle" | "paneCwd">,
+  state: Pick<AppState, "paneTitle" | "paneCwd" | "workspaceLayouts">,
   paneId: string,
 ): string {
+  if (selectPaneContentType(state, paneId) === "file") {
+    return fileTitle(selectPaneFilePath(state, paneId));
+  }
   const title = terminalTitle(state.paneTitle[paneId]);
   if (title) return shellTitlePath(title) ?? title;
   const cwd = state.paneCwd[paneId];
@@ -57,8 +61,15 @@ export function pinnedAgentName(
   return agent?.name ?? null;
 }
 
+/** A file pane's title: its open file's name, or "Files" with none open. */
+export function fileTitle(filePath: string | null): string {
+  if (!filePath) return "Files";
+  return filePath.slice(filePath.lastIndexOf("/") + 1) || filePath;
+}
+
 /**
- * The title a tab shows for its focused pane: "Diff" for a diff, the pinned
+ * The title a tab shows for its focused pane: "Diff" for a diff, the open
+ * file's name for a file pane, the pinned
  * agent name, a browser page's title or URL, the cleaned terminal title (just
  * the last path segment of a default shell title), else the cwd's last segment.
  */
@@ -69,6 +80,7 @@ export function tabTitle(
 ): string {
   const contentType = selectPaneContentType(state, paneId);
   if (contentType === "diff") return "Diff";
+  if (contentType === "file") return fileTitle(selectPaneFilePath(state, paneId));
   // A user-pinned agent name (rename in the Agents list) labels the tab too,
   // so the sidebar and tab bar never disagree about what a pane is called.
   if (pinnedName && contentType !== "browser") return pinnedName;

@@ -27,6 +27,9 @@ import { TasksView } from "./components/tasks/TasksView";
 import { Onboarding } from "./components/onboarding/Onboarding";
 import { ManorLogo } from "./components/ui/ManorLogo";
 import { CloseAgentPaneDialog } from "./components/CloseAgentPaneDialog";
+import { UnsavedEditsDialog } from "./components/unsaved-edits/UnsavedEditsDialog";
+import { useOpenFileStore, unsavedFilesIn } from "./store/open-file-store";
+import { allPaneIds } from "./lib/layout/pane-tree";
 import { ToastContainer } from "./components/ui/Toast/Toast";
 import { UnlockToast } from "./components/achievements/UnlockToast";
 import { TooltipProvider } from "./components/ui/Tooltip/Tooltip";
@@ -52,8 +55,13 @@ import {
   useAppStore,
   selectActiveWorkspace,
   selectActiveWorkspaceKey,
+  selectAgentRunningIn,
   OWN_CLAIM,
 } from "./store/app-store";
+import { useShallow } from "zustand/react/shallow";
+
+/** No panes: one array, so a selector that finds none returns the same one. */
+const NO_PANES: readonly string[] = [];
 import { useProjectStore, type ProjectInfo } from "./store/project-store";
 import { useRemoteControlStore } from "./store/remote-control-store";
 import { ownerOf } from "./lib/workspace-directory";
@@ -85,6 +93,7 @@ import { onBridgeResync } from "./bridge/resync";
 import { launch, resyncAfterReconnect, retryLoadProjects } from "./lib/launch";
 import { useAgentStore } from "./store/agent-store";
 import { useMountEffect } from "./hooks/useMountEffect";
+import { reportUnsavedFiles } from "./lib/report-unsaved-files";
 import { startAgentActivitySync } from "./store/agent-activity-store";
 import { useMenuContextSync } from "./hooks/useMenuContextSync";
 import { useUpdaterToasts } from "./hooks/useUpdaterToasts";
@@ -126,6 +135,8 @@ function App() {
 
   // Mirror main's persisted agent activity for Home's timeline and sparklines.
   useMountEffect(() => startAgentActivitySync());
+  // Closing the window or quitting asks about unsaved file edits.
+  useMountEffect(() => reportUnsavedFiles());
 
   // The host profiles "In a new pod" offers; kept current by
   // the store's own change subscription.
@@ -416,6 +427,27 @@ function App() {
   const closePaneById = useAppStore((s) => s.closePaneById);
   const pendingCloseConfirmTabId = useAppStore((s) => s.pendingCloseConfirmTabId);
   const setPendingCloseConfirmTabId = useAppStore((s) => s.setPendingCloseConfirmTabId);
+  // What the close confirms are about: whether an agent is running in the
+  // panes closing, and every file with unsaved edits among them.
+  const closingPaneIds = useMemo(
+    () => (pendingCloseConfirmPaneId ? [pendingCloseConfirmPaneId] : []),
+    [pendingCloseConfirmPaneId],
+  );
+  const closingTabPaneIds = useAppStore(
+    useShallow((s) => {
+      if (!pendingCloseConfirmTabId) return NO_PANES;
+      const tab = selectActiveWorkspace(s)?.tabs.find((t) => t.id === pendingCloseConfirmTabId);
+      return tab ? allPaneIds(tab.rootNode) : NO_PANES;
+    }),
+  );
+  const agentInClosingPane = useAppStore((s) => selectAgentRunningIn(s, closingPaneIds));
+  const agentInClosingTab = useAppStore((s) => selectAgentRunningIn(s, closingTabPaneIds));
+  const unsavedInClosingPane = useOpenFileStore(
+    useShallow((s) => unsavedFilesIn(s, closingPaneIds)),
+  );
+  const unsavedInClosingTab = useOpenFileStore(
+    useShallow((s) => unsavedFilesIn(s, closingTabPaneIds)),
+  );
   const projects = useProjectStore((s) => s.projects);
   const selectedProjectIndex = useProjectStore((s) => s.selectedProjectIndex);
   const createWorktree = useProjectStore((s) => s.createWorktree);
@@ -969,6 +1001,8 @@ function App() {
       {content}
       <CloseAgentPaneDialog
         open={pendingCloseConfirmPaneId !== null}
+        agentRunning={agentInClosingPane}
+        unsavedFiles={unsavedInClosingPane}
         onOpenChange={(open) => {
           if (!open) setPendingCloseConfirmPaneId(null);
         }}
@@ -981,6 +1015,8 @@ function App() {
       />
       <CloseAgentPaneDialog
         open={pendingCloseConfirmTabId !== null}
+        agentRunning={agentInClosingTab}
+        unsavedFiles={unsavedInClosingTab}
         onOpenChange={(open) => {
           if (!open) setPendingCloseConfirmTabId(null);
         }}
@@ -991,6 +1027,7 @@ function App() {
           }
         }}
       />
+      <UnsavedEditsDialog />
       {/* No toasts in phone mode. */}
       {layoutMode !== "phone" && (
         <>

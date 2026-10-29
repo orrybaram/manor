@@ -138,6 +138,14 @@ import {
   diffsStart,
   diffsStop,
 } from "../bridge/handlers/branches-diffs";
+import {
+  filesCreate,
+  filesList,
+  filesRead,
+  filesUnwatch,
+  filesWatch,
+  filesWrite,
+} from "../bridge/handlers/files";
 import { BridgeUnavailableRefusal, UNAVAILABLE_HOST_CODE } from "../bridge/types";
 import type { AppPreferences } from "../preferences";
 import type { ProjectInfo } from "../projects/types";
@@ -153,6 +161,7 @@ import {
   agentsGet,
   agentsGetActive,
   agentsGetAll,
+  agentsGetFileAuthors,
   agentsGetPaneStatuses,
   agentsGetRecent,
   agentsGetUnseen,
@@ -497,6 +506,8 @@ const METHODS = flatten({
     getRecent: method(agentsGetRecent),
     getUnseen: method(agentsGetUnseen),
     getPaneStatuses: method(agentsGetPaneStatuses),
+    // Which of this host's agents wrote each file of a workspace.
+    getFileAuthors: method(agentsGetFileAuthors),
     // A renderer's word on a pane's project overrides the server's own.
     setPaneContext: method(agentsSetPaneContext, { mutating: true }),
     // The desktop forwards its writes by agent id for the host's agents here.
@@ -597,6 +608,17 @@ const METHODS = flatten({
   diffs: {
     start: method(diffsStart),
     stop: method(diffsStop),
+  },
+  // This box's workspaces' files, for a file pane: a phone reading
+  // one with the lid closed, or a desktop window's own bridge. Saving and
+  // creating change what this host's agents work on, so they are audited.
+  files: {
+    list: method(filesList),
+    read: method(filesRead),
+    write: method(filesWrite, { mutating: true }),
+    create: method(filesCreate, { mutating: true }),
+    watch: method(filesWatch),
+    unwatch: method(filesUnwatch),
   },
   chat: {
     getHistory: method(chatGetHistory),

@@ -18,6 +18,7 @@ import {
   selectFocusedPaneOfActiveTab,
   selectPaneContentType,
   usePaneContentType,
+  usePaneFilePath,
   usePaneUrl,
 } from "../../store/app-store";
 import { hasPaneId } from "../../lib/layout/pane-tree";
@@ -38,6 +39,8 @@ import { BrowserPane, type BrowserPaneRef, type BrowserPaneNavState } from "./Br
 import { RecordingIndicator } from "./BrowserPane/RecordingIndicator";
 import { BrowserPaneUnavailable } from "./BrowserPane/BrowserPaneUnavailable";
 import { DiffPane, type DiffPaneRef } from "./DiffPane/DiffPane";
+import { FilePane } from "./FilePane/FilePane";
+import { FileEditJump, FileHeaderTitle, FileSaveHint } from "./FilePane/FilePaneHeader";
 import { PaneDropZone } from "./PaneDropZone";
 import { ConvertToSubmenu } from "./ConvertToSubmenu";
 import { SplitWithSubmenu } from "./SplitWithSubmenu";
@@ -46,6 +49,7 @@ import {
   hasOwnClaim,
   movePaneToNewWindow,
   panesInOwnClaim,
+  returnToPrimaryWindow,
 } from "../../lib/detach";
 import { Tooltip } from "../ui/Tooltip/Tooltip";
 import { Row } from "../ui/Layout/Layout";
@@ -99,6 +103,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
   const paneCwd = useAppStore((s) => s.paneCwd[paneId]);
   const contentType = usePaneContentType(paneId);
   const paneUrl = usePaneUrl(paneId);
+  const filePath = usePaneFilePath(paneId);
   // A browser pane of a remote workspace reaches that host's dev servers
   // through port forwards. Null for this machine.
   const remoteHostId =
@@ -367,12 +372,11 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
 
     // Released over another manor window. There is nothing to hand over any
     // more: from a detached window the gesture means "put it
-    // back", which is this window closing, and from the primary the pane is
+    // back", which is this window closing (its unsaved file edits ask first,
+    // and Cancel leaves the pane here), and from the primary the pane is
     // already where it was dropped.
     if (target) {
-      if (hasOwnClaim() && panesInOwnClaim() === 1) {
-        window.electronAPI.window.closeSelf();
-      }
+      if (hasOwnClaim() && panesInOwnClaim() === 1) returnToPrimaryWindow();
       return;
     }
     void movePaneToNewWindow(paneId, spawnBoundsFor(sx, sy, grab));
@@ -400,6 +404,12 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       >
         {contentType === "diff" ? (
           <span className={styles.paneStatusTitle}>Diff</span>
+        ) : contentType === "file" ? (
+          <FileHeaderTitle
+            paneId={paneId}
+            filePath={filePath}
+            className={styles.paneStatusTitle}
+          />
         ) : contentType === "browser" ? (
           <div className={styles.paneNavControls}>
             <Tooltip label="Back">
@@ -514,6 +524,17 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           <PaneHeaderTitle paneId={paneId} className={styles.paneStatusTitle} />
         )}
         <Row align="center" gap="2xs" className={styles.paneStatusActions}>
+          {contentType === "file" && (
+            <>
+              <FileSaveHint paneId={paneId} />
+              <FileEditJump
+                paneId={paneId}
+                workspacePath={workspace?.path ?? null}
+                hostId={workspace?.hostId ?? null}
+                filePath={filePath}
+              />
+            </>
+          )}
           {contentType === "diff" && (
             <Tooltip label="Search">
               <button
@@ -664,11 +685,21 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
           ))}
         </div>
       )}
-      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
+      <div className={`${styles.leafTerminal} ${contentType !== "diff" && contentType !== "browser" && contentType !== "file" ? styles.leafTerminalInset : ""} ${navState?.webviewFocused ? browserStyles.webviewFocused : ""} ${showChat ? chatViewStyles.terminalHidden : ""} ${showKeyBar ? chatViewStyles.withKeyBar : ""}`}>
         {contentType === "diff" ? (
           <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
             <DiffPane
               ref={diffRef}
+              paneId={paneId}
+              workspacePath={workspacePath}
+              hostId={workspace?.hostId}
+            />
+          </PaneContextMenu>
+        ) : contentType === "file" ? (
+          // The pane's menu, as over a diff: the leaf header has none of its
+          // own, so this is the only way to split, convert or move the pane.
+          <PaneContextMenu paneId={paneId} workspaceKey={workspaceKey} containerRef={containerRef} onClose={() => requestClosePaneById(paneId)}>
+            <FilePane
               paneId={paneId}
               workspacePath={workspacePath}
               hostId={workspace?.hostId}

@@ -18,6 +18,7 @@ import { agentActivity } from "./handlers/agent-activity";
 import { appCommands } from "./handlers/app-commands";
 import { branches, diffs, git, gitPush } from "./handlers/branches-diffs";
 import { chat } from "./handlers/chat";
+import { files } from "./handlers/files";
 import { github, linear } from "./handlers/integrations";
 import { jev } from "./handlers/jev";
 import { hosts } from "./handlers/hosts";
@@ -63,6 +64,7 @@ export const SERVER_METHODS = flatten({
   processes: serverProcesses,
   branches,
   diffs,
+  files,
   git,
   "git.push": gitPush,
   github,

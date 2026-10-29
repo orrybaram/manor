@@ -70,6 +70,34 @@
   flex-shrink: 0;
 }
 
+/* Open File: an icon button after the counts, quiet until the header is hovered. */
+.openFile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
+.fileHeader:hover .openFile,
+.openFile:focus-visible {
+  opacity: 1;
+}
+
+.openFile:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
 .statAdded {
   color: var(--green);
 }

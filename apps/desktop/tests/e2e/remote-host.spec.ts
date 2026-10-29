@@ -8,6 +8,14 @@ import {
   FAKE_CHAT_QUESTION,
   FAKE_CHAT_REPLY,
 } from "./helpers/fake-agent";
+import {
+  openFileFromPalette,
+  openFromTree,
+  pane,
+  revealInTree,
+  treeRow,
+  typeAtEnd,
+} from "./helpers/file-pane";
 import { readSession } from "./helpers/local-api";
 import { agentNotifications } from "./helpers/notifications";
 import { openWebApp } from "./helpers/phone";
@@ -47,6 +55,9 @@ import { activePaneId, runInTerminal } from "./helpers/terminal";
  *   the pane comes back with a fresh shell and the agent's resume command.
  * - ports: a dev server in a remote pane shows up in the port list, and
  *   opening it resolves to a local forward that serves it.
+ * - file pane: the workspace on the box lists without what its .gitignore
+ *   hides, a file opens and saves back to the box, and a write on the box
+ *   shows up in the editor.
  *
  * Bootstrap, session lifecycle, journal replay and snapshot resync at the
  * bridge level are in electron/terminal-host/__tests__/remote-ssh.e2e.test.ts.
@@ -245,6 +256,59 @@ test.describe("remote host", () => {
     const res = await request.get(resolved);
     expect(res.ok()).toBe(true);
     expect(await res.text()).toBe(body);
+  });
+
+  test("file pane: lists, opens, saves and follows a file on the box", async ({
+    window,
+    request,
+    tempHome,
+  }) => {
+    await openRemoteProject(window, request, tempHome);
+
+    // Where the pane's workspace is on the box, as its own shell says.
+    onRemote('rm -f "$HOME/.manor-e2e/ws-path"');
+    await runInTerminal(window, 'mkdir -p "$HOME/.manor-e2e" && pwd > "$HOME/.manor-e2e/ws-path"');
+    const ws = await pollFor(
+      "the remote workspace's path",
+      () => onRemote('cat "$HOME/.manor-e2e/ws-path" 2>/dev/null; true').stdout.trim() || null,
+      STEP,
+    );
+    const file = `${ws}/src/a.ts`;
+    const onBox = () => onRemote(`cat "${file}"`).stdout;
+
+    // A source file, and two folders its .gitignore hides.
+    onRemote(
+      `cd "${ws}" && mkdir -p src node_modules/left-pad dist && ` +
+        "printf 'node_modules/\\ndist/\\n' > .gitignore && " +
+        "printf 'export const a = 1;\\n' > src/a.ts && " +
+        "printf 'module.exports = 1;\\n' > node_modules/left-pad/index.js && " +
+        "printf 'console.log(1);\\n' > dist/out.js",
+    );
+
+    await openFileFromPalette(window);
+    const drawer = pane(window).locator('[data-testid="file-pane-drawer"]');
+    await expect(drawer).toBeVisible();
+    await revealInTree(window, ["src", "a.ts"]);
+    await expect(treeRow(window, ".gitignore")).toBeVisible();
+    await expect(
+      drawer.locator('[data-testid="file-pane-tree-row"][data-path^="node_modules"]'),
+    ).toHaveCount(0);
+    await expect(drawer.locator('[data-testid="file-pane-tree-row"][data-path^="dist"]')).toHaveCount(0);
+
+    await openFromTree(window, ["src", "a.ts"]);
+    const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+    await expect(editor).toContainText("export const a = 1;", { timeout: STEP });
+
+    // ⌘S writes it back to the box.
+    await typeAtEnd(window, "// from the desk");
+    await window.keyboard.press("ControlOrMeta+s");
+    await expect.poll(onBox, { timeout: STEP }).toContain("// from the desk");
+
+    // A write on the box reaches the open file: the watch runs over the
+    // remote backend too.
+    onRemote(`printf 'export const a = 2;\\n' > "${file}"`);
+    await expect(editor).toContainText("export const a = 2;", { timeout: STEP });
+    await expect(editor).not.toContainText("// from the desk");
   });
 
   // The phone chat for an agent on a remote host. The agent runs on

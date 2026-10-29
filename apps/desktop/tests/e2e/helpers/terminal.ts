@@ -136,3 +136,54 @@ export async function pasteImageIntoPane(
     { id: paneId, b64: base64, mime: type },
   );
 }
+
+/**
+ * Move the pointer onto the last place `text` is printed in the pane and
+ * return where it is. The last, because the command that printed it echoed
+ * it first.
+ */
+async function hoverText(window: Page, paneId: string, text: string): Promise<{ x: number; y: number }> {
+  const pos = await window.evaluate(
+    ({ id, needle }) => {
+      const term = window.__manorTerminals!.get(id)!.term;
+      const buf = term.buffer.active;
+      for (let y = buf.length - 1; y >= 0; y--) {
+        const line = buf.getLine(y)?.translateToString(true) ?? "";
+        const x = line.lastIndexOf(needle);
+        if (x < 0) continue;
+        const screen = term.element!.querySelector(".xterm-screen")!.getBoundingClientRect();
+        const cellW = screen.width / term.cols;
+        const cellH = screen.height / term.rows;
+        return {
+          x: screen.left + (x + 2.5) * cellW,
+          y: screen.top + (y - buf.viewportY + 0.5) * cellH,
+        };
+      }
+      throw new Error(`"${needle}" is not in the pane`);
+    },
+    { id: paneId, needle: text },
+  );
+  // Two moves: xterm finds links on mousemove, so arrive rather than appear.
+  await window.mouse.move(pos.x - 8, pos.y);
+  await window.mouse.move(pos.x, pos.y);
+  await window.waitForTimeout(300);
+  return pos;
+}
+
+/** Right-click the last place `text` is printed in the pane (see `hoverText`). */
+export async function rightClickText(window: Page, paneId: string, text: string): Promise<void> {
+  const pos = await hoverText(window, paneId, text);
+  await window.mouse.click(pos.x, pos.y, { button: "right" });
+  await expect(window.locator('[role="menu"]')).toBeVisible();
+}
+
+/** Cmd/Ctrl+click the last place `text` is printed in the pane: a link's activation. */
+export async function modifierClickText(window: Page, paneId: string, text: string): Promise<void> {
+  const pos = await hoverText(window, paneId, text);
+  await window.keyboard.down("ControlOrMeta");
+  try {
+    await window.mouse.click(pos.x, pos.y);
+  } finally {
+    await window.keyboard.up("ControlOrMeta");
+  }
+}

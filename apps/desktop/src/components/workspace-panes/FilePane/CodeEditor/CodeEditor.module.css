@@ -1,0 +1,91 @@
+/* The editor, and the mark lane on its right edge. */
+.frame {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+}
+
+.editor {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor > :global(.cm-editor) {
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+ * The gutter bars, a 3px bar at each line's left edge: lines an agent
+ * changed, every line of a new file, and your unsaved lines, which win.
+ */
+.editor :global(.cm-line.cm-change-agent) {
+  box-shadow: inset 3px 0 0 var(--yellow);
+}
+
+.editor :global(.cm-line.cm-change-added) {
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.editor :global(.cm-line.cm-change-mine) {
+  box-shadow: inset 3px 0 0 var(--blue);
+  background-color: color-mix(in srgb, var(--blue) 10%, transparent);
+}
+
+/* A line jumped to lights up, then fades. */
+.editor :global(.cm-line.cm-change-flash) {
+  animation: flash 1.2s ease-out;
+}
+
+@keyframes flash {
+  0% {
+    background-color: color-mix(in srgb, var(--yellow) 35%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor :global(.cm-line.cm-change-flash) {
+    animation: none;
+    background-color: color-mix(in srgb, var(--yellow) 20%, transparent);
+  }
+}
+
+.lane {
+  position: relative;
+  flex: none;
+  width: 10px;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+  /* A mark's 4px minimum on the last line would stick out below the editor. */
+  overflow: hidden;
+}
+
+.mark {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 1px;
+  cursor: pointer;
+}
+
+.mark:hover {
+  filter: brightness(1.25);
+}
+
+.mark_agent {
+  background: var(--yellow);
+}
+
+
+.mark_mine {
+  background: var(--blue);
+}

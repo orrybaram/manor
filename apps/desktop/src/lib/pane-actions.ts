@@ -15,6 +15,7 @@ import {
   sendPendingCommand,
 } from "../store/app-store";
 import { getAgentCommand } from "../agent-defaults";
+import { guardUnsavedEdits } from "../store/unsaved-guard-store";
 
 export type PaneContentType = "terminal" | "browser" | "diff" | "agent";
 
@@ -57,6 +58,11 @@ export function splitFocusedPaneWith(
 export function convertFocusedPaneTo(contentType: PaneContentType): void {
   const focusedPaneId = getFocusedPaneId();
   if (!focusedPaneId) return;
+  // A file pane's unsaved edits ask first: converting drops them.
+  guardUnsavedEdits([focusedPaneId], "convert", () => convertPaneTo(focusedPaneId, contentType));
+}
+
+function convertPaneTo(focusedPaneId: string, contentType: PaneContentType): void {
   const state = useAppStore.getState();
 
   if (contentType !== "agent") {

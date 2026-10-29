@@ -18,6 +18,7 @@ import { parseWorkspaceKey, workspaceKey as makeWorkspaceKey, type WorkspaceKey 
 import { ownerOf } from "../lib/workspace-directory";
 import { configureHelperTextarea } from "../terminal/helper-textarea";
 import { openExternal } from "../lib/open-external";
+import { openFileBeside, splitDirectionBeside } from "../lib/open-in-file-pane";
 import { isWebApp } from "../lib/platform";
 import { handleBridgeUnavailable } from "../lib/bridge-unavailable-toast";
 import { useProjectStore } from "../store/project-store";
@@ -373,12 +374,22 @@ export function useTerminalLifecycle(
       // frame into the scrollback.
       fit.fit();
 
-      // File path links (Cmd/Ctrl+click to open in editor). Not in the
-      // browser: each hover resolves its paths through `shell`, which the
-      // web app does not have, and the editor they open is on the desk.
+      // File path links: a workspace file opens in a file pane (Cmd/Ctrl+click,
+      // or the context menu); any other file Cmd/Ctrl+clicks into the editor.
+      // Not in the browser: the phone's file pane is read-only, and the
+      // editor fallback resolves paths through `shell`, which it does not have.
       if (!isWebApp()) {
         t.registerLinkProvider(
-          createFileLinkProvider(t, paneId, cwd ?? ""),
+          createFileLinkProvider({
+            terminal: t,
+            paneId,
+            fallbackCwd: cwd ?? "",
+            workspace: workspaceKey ? parseWorkspaceKey(workspaceKey) : null,
+            hover: linkHover.hoverFile,
+            leave: linkHover.leave,
+            open: (link) =>
+              openFileBeside(paneId, link.path, splitDirectionBeside(container), link),
+          }),
         );
       }
 

@@ -1,97 +1,109 @@
 import type { Terminal, ILinkProvider, ILink } from "@xterm/xterm";
 import { openInEditor } from "../lib/editor";
 import { useAppStore } from "../store/app-store";
+import type { FilesWorkspace } from "../components/workspace-panes/FilePane/open-file-watches";
+import { matchFilePaths, workspaceCandidates, type FilePathMatch } from "./file-path-links";
+import { workspaceFileIndex } from "./workspace-file-index";
+import type { TerminalFileLink } from "./link-hover";
+
+type FileLinkOptions = {
+  terminal: Terminal;
+  paneId: string;
+  /** The cwd the pane was mounted with, until the shell reports its own. */
+  fallbackCwd: string;
+  /** The terminal's workspace, whose files are links; null when it has none. */
+  workspace: FilesWorkspace | null;
+  /** A workspace file under the pointer, for the context menu. */
+  hover: (link: TerminalFileLink) => void;
+  leave: () => void;
+  /** ⌘/Ctrl-click on a workspace file. */
+  open: (link: TerminalFileLink) => void;
+};
+
+/** An extension: what the editor fallback (outside the workspace) needs. */
+const HAS_EXTENSION = /\.\w+$/;
 
 /**
- * Matches file paths in terminal output, including optional :line:col suffixes.
+ * Links for the file paths printed in a terminal.
  *
- * Captures:
- *   [1] the file path
- *   [2] optional line number
- *   [3] optional column number
- *
- * Supported patterns:
- *   /absolute/path/file.ts
- *   ./relative/file.tsx:42
- *   ../parent/file.js:10:5
- *   src/components/App.tsx:100:15
+ * A path that is a file of the terminal's workspace, by the workspace's own
+ * listing (`workspaceFileIndex`, one `files.list` kept per workspace), is a
+ * file pane link: ⌘/Ctrl-click opens it beside the terminal, and right-click
+ * offers it in the context menu. Relative paths resolve against the shell's
+ * cwd, then the workspace root. Any other path that exists on this machine
+ * still ⌘/Ctrl-clicks into the external editor, as before.
  */
-const FILE_PATH_RE =
-  /((?:\.{0,2}\/)?[\w@.+-][\w@.+\-/]*\.\w+)(?::(\d+)(?::(\d+))?)?/g;
-
-export function createFileLinkProvider(
-  terminal: Terminal,
-  paneId: string,
-  fallbackCwd: string,
-): ILinkProvider {
+export function createFileLinkProvider(opts: FileLinkOptions): ILinkProvider {
+  const { terminal, paneId, fallbackCwd, workspace } = opts;
   return {
     provideLinks(bufferLineNumber: number, callback) {
       const line = getLineText(terminal, bufferLineNumber);
-      if (!line) {
+      const matches = line ? matchFilePaths(line) : [];
+      if (matches.length === 0) {
         callback(undefined);
         return;
       }
 
-      const cwd =
-        useAppStore.getState().paneCwd[paneId] || fallbackCwd;
+      const cwd = useAppStore.getState().paneCwd[paneId] || fallbackCwd;
+      const range = (m: FilePathMatch) => ({
+        start: { x: m.start + 1, y: bufferLineNumber },
+        end: { x: m.end, y: bufferLineNumber },
+      });
 
-      const candidates: Array<{
-        path: string;
-        startX: number;
-        endX: number;
-        fullMatch: string;
-      }> = [];
+      const inWorkspace = async (m: FilePathMatch): Promise<ILink | null> => {
+        if (!workspace) return null;
+        const path = await workspaceFileIndex.find(
+          workspace,
+          workspaceCandidates(m.path, cwd, workspace.path),
+        );
+        if (path === null) return null;
+        const target: TerminalFileLink = {
+          kind: "file",
+          path,
+          ...(m.line ? { line: m.line } : {}),
+          ...(m.col ? { col: m.col } : {}),
+        };
+        return {
+          range: range(m),
+          text: line.slice(m.start, m.end),
+          decorations: { pointerCursor: true, underline: true },
+          hover: () => opts.hover(target),
+          leave: () => opts.leave(),
+          // xterm activates links on any plain click, so without a modifier
+          // check, clicking into the terminal to focus it would open a pane.
+          activate: (event) => {
+            if (!event.metaKey && !event.ctrlKey) return;
+            opts.open(target);
+          },
+        };
+      };
 
-      FILE_PATH_RE.lastIndex = 0;
-      let match: RegExpExecArray | null;
-      while ((match = FILE_PATH_RE.exec(line)) !== null) {
-        const filePath = match[1];
-        // Skip things that are clearly not file paths
-        if (filePath.startsWith("http") || filePath.startsWith("//")) continue;
+      const onThisMachine = async (m: FilePathMatch): Promise<ILink | null> => {
+        if (!HAS_EXTENSION.test(m.path)) return null;
+        const resolved = await window.electronAPI.shell.resolveFilePath(m.path, cwd);
+        if (!resolved) return null;
+        return {
+          range: range(m),
+          text: line.slice(m.start, m.end),
+          decorations: { pointerCursor: true, underline: true },
+          activate: (event) => {
+            if (!event.metaKey && !event.ctrlKey) return;
+            openInEditor(resolved);
+          },
+        };
+      };
 
-        candidates.push({
-          path: filePath,
-          startX: match.index + 1, // 1-based
-          endX: match.index + match[0].length, // 1-based, inclusive
-          fullMatch: match[0],
-        });
-      }
-
-      if (candidates.length === 0) {
-        callback(undefined);
-        return;
-      }
-
-      // Validate all candidates concurrently
-      Promise.all(
-        candidates.map(async (c) => {
-          const resolved = await window.electronAPI.shell.resolveFilePath(
-            c.path,
-            cwd,
-          );
-          return resolved ? { ...c, resolved } : null;
+      void Promise.all(
+        matches.map(async (m) => {
+          try {
+            return (await inWorkspace(m)) ?? (await onThisMachine(m));
+          } catch {
+            return null;
+          }
         }),
-      ).then((results) => {
-        const links: ILink[] = [];
-        for (const r of results) {
-          if (!r) continue;
-          links.push({
-            range: {
-              start: { x: r.startX, y: bufferLineNumber },
-              end: { x: r.endX, y: bufferLineNumber },
-            },
-            text: r.fullMatch,
-            decorations: { pointerCursor: true, underline: true },
-            // xterm activates links on any plain click, so without a modifier
-            // check, clicking into the terminal to focus it would launch the
-            // editor whenever the click landed on a path.
-            activate: (event) => {
-              if (!event.metaKey && !event.ctrlKey) return;
-              openInEditor(r.resolved);
-            },
-          });
-        }
-        callback(links.length > 0 ? links : undefined);
+      ).then((links) => {
+        const found = links.filter((l): l is ILink => l !== null);
+        callback(found.length > 0 ? found : undefined);
       });
     },
   };

@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 
 import { errorMessage } from "../lib/errors";
 import { createClaudeReader } from "./claude-reader";
+import { createPiReader } from "./pi-reader";
 import type { SessionEnv, SessionReader, SessionSummary } from "./types";
 
 export interface SessionScanner {
@@ -22,7 +23,7 @@ export interface SessionScanner {
 
 /** One reader per agent kind this host can list. */
 function defaultSessionReaders(): SessionReader[] {
-  return [createClaudeReader()];
+  return [createClaudeReader(), createPiReader()];
 }
 
 /** This process's home and environment. */

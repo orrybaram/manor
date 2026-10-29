@@ -264,7 +264,12 @@ export class Notifier extends HeadlessNotifier implements ServerNotifier {
       return;
     }
 
-    this.presentNotification(this.opts.getMainWindow(), {
+    // Any focused manor window toasts this itself, a detached one included,
+    // so only a banner when none is focused.
+    const focused = this.opts
+      .getRendererWindows()
+      .find((win) => !win.isDestroyed() && win.isFocused());
+    this.presentNotification(focused ?? this.opts.getMainWindow(), {
       title,
       body: [agent.name || "Agent", agent.projectName].filter(Boolean).join(" — "),
       record: { kind, target: { type: "agent", agentId: agent.id } },

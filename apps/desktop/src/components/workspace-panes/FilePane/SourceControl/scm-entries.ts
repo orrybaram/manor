@@ -27,19 +27,34 @@ export function scmLetter(
  * The Local view's two groups. A file is Staged when `git diff --cached`
  * names it, as the diff pane decides it: a partly staged file is Staged,
  * and unstaging it unstages all of it. Each group is by path.
+ *
+ * A staged file the working diff doesn't list (staged, then reverted or
+ * deleted on disk) still shows in Staged, so it can be unstaged. All that is
+ * known of it is its path, so it reads M.
  */
 export function localGroups(
   changes: Iterable<FileChange>,
   staged: ReadonlySet<string>,
 ): { staged: ScmEntry[]; changes: ScmEntry[] } {
   const out = { staged: [] as ScmEntry[], changes: [] as ScmEntry[] };
-  for (const change of sortedByPath(changes)) {
+  const listed = new Set<string>();
+  for (const change of changes) {
+    listed.add(change.path);
     const isStaged = staged.has(change.path);
     (isStaged ? out.staged : out.changes).push({
       change,
       letter: scmLetter(change, isStaged, "local"),
     });
   }
+  for (const path of staged) {
+    if (listed.has(path)) continue;
+    out.staged.push({
+      change: { path, status: "modified", ranges: [] },
+      letter: "M",
+    });
+  }
+  out.staged.sort(byPath);
+  out.changes.sort(byPath);
   return out;
 }
 
@@ -67,4 +82,8 @@ export function withStaged(
 
 function sortedByPath(changes: Iterable<FileChange>): FileChange[] {
   return [...changes].sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function byPath(a: ScmEntry, b: ScmEntry): number {
+  return a.change.path.localeCompare(b.change.path);
 }

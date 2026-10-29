@@ -1,4 +1,12 @@
-import { createElement, useMemo, useState, type ReactNode } from "react";
+import {
+  createElement,
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import FileCode from "lucide-react/dist/esm/icons/file-code";
@@ -100,7 +108,7 @@ export function SourceControl({
   // Each result is tagged with what it was fetched for, so a stale one reads as absent.
   const [stagedResult, setStagedResult] = useState<{
     key: string;
-    files: Set<string>;
+    files: ReadonlySet<string>;
   } | null>(null);
   const staged = stagedResult?.key === wsKey ? stagedResult.files : NO_STAGED;
   const branchKey = `${wsKey}\u0000branch\u0000${defaultBranch}`;
@@ -112,7 +120,11 @@ export function SourceControl({
   const branch = branchResult?.key === branchKey ? branchResult : null;
 
   const [busy, setBusy] = useState(false);
-  const [discarding, setDiscarding] = useState<string[] | null>(null);
+  const [discarding, setDiscarding] = useState<{
+    path: string;
+    /** Untracked: discarding deletes the file outright. */
+    untracked: boolean;
+  } | null>(null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(() => new Set());
 
   const updateStaged = (files: string[], on: boolean) =>
@@ -155,86 +167,61 @@ export function SourceControl({
   );
   const authors = changes?.authors ?? {};
 
+  // Rows get one callback that never changes, reading this render's state
+  // through a ref, so a memoized row re-renders only when what it shows does.
+  const onRowRef = useRef<(action: RowAction, entry: ScmEntry) => void>(
+    () => {},
+  );
+  onRowRef.current = (action, rowEntry) => {
+    const path = rowEntry.change.path;
+    // A memoized row may hold an older copy of its entry (same path and
+    // letter, older ranges): act on this render's.
+    const listed =
+      view === "local"
+        ? [...(local?.staged ?? []), ...(local?.changes ?? [])]
+        : onBranch;
+    const entry = listed.find((e) => e.change.path === path) ?? rowEntry;
+    if (action === "open") onOpenChange(entry.change, view);
+    else if (action === "openFile") onOpenFile(path);
+    else if (action === "discard")
+      setDiscarding({ path, untracked: entry.letter === "U" });
+    else void act(action, [path]);
+  };
+  const onRow = useCallback(
+    (action: RowAction, entry: ScmEntry) => onRowRef.current(action, entry),
+    [],
+  );
+  const locked = webApp || busy;
+
   const gitButton = (
     label: string,
     testId: string,
     icon: ReactNode,
     onClick: () => void,
-    destructive = false,
   ) => (
-    <Tooltip label={webApp ? NO_GIT_FROM_BROWSER : label}>
-      <button
-        type="button"
-        className={`${styles.iconBtn} ${destructive ? styles.iconBtnDanger : ""}`}
-        aria-label={label}
-        // aria-disabled keeps the reason's tooltip reachable on hover.
-        aria-disabled={webApp || busy ? true : undefined}
-        data-testid={testId}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (!webApp && !busy) onClick();
-        }}
-      >
-        {icon}
-      </button>
-    </Tooltip>
+    <GitButton
+      label={label}
+      testId={testId}
+      icon={icon}
+      webApp={webApp}
+      locked={locked}
+      onClick={onClick}
+    />
   );
 
-  const rows = (entries: ScmEntry[], group: "staged" | "changes" | "branch") =>
-    entries.map((entry) => {
-      const path = entry.change.path;
-      return (
-        <ScmRow
-          key={path}
-          entry={entry}
-          author={authors[path] ?? null}
-          selected={path === openFile}
-          onOpen={() => onOpenChange(entry.change, view)}
-          actions={
-            <>
-              {entry.change.status !== "deleted" && (
-                <Tooltip label="Open file">
-                  <button
-                    type="button"
-                    className={styles.iconBtn}
-                    aria-label="Open file"
-                    data-testid="scm-open"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenFile(path);
-                    }}
-                  >
-                    <FileCode size={13} />
-                  </button>
-                </Tooltip>
-              )}
-              {group === "changes" &&
-                gitButton(
-                  "Discard changes",
-                  "scm-discard",
-                  <Undo2 size={13} />,
-                  () => setDiscarding([path]),
-                  true,
-                )}
-              {group === "changes" &&
-                gitButton(
-                  "Stage",
-                  "scm-stage",
-                  <Plus size={13} />,
-                  () => void act("stage", [path]),
-                )}
-              {group === "staged" &&
-                gitButton(
-                  "Unstage",
-                  "scm-unstage",
-                  <Minus size={13} />,
-                  () => void act("unstage", [path]),
-                )}
-            </>
-          }
-        />
-      );
-    });
+  const rows = (entries: ScmEntry[], group: RowGroup) =>
+    entries.map((entry) => (
+      <ScmRow
+        key={entry.change.path}
+        entry={entry}
+        group={group}
+        author={authors[entry.change.path] ?? null}
+        selected={entry.change.path === openFile}
+        webApp={webApp}
+        locked={locked}
+        onRow={onRow}
+      />
+    ));
 
   const group = (
     id: string,
@@ -263,7 +250,7 @@ export function SourceControl({
           {actions && <span className={styles.actions}>{actions}</span>}
         </div>
         <Collapse open={open}>
-          {rows(entries, id as "staged" | "changes" | "branch")}
+          {rows(entries, id as RowGroup)}
         </Collapse>
       </div>
     );
@@ -332,8 +319,13 @@ export function SourceControl({
               window.electronAPI.diffs.getStagedFiles(workspace.path),
             )
           }
+          // A re-fetch that finds the same files keeps the set, and so every row.
           onResult={(files) =>
-            setStagedResult({ key: wsKey, files: new Set(files) })
+            setStagedResult((prev) =>
+              prev?.key === wsKey && sameFiles(prev.files, files)
+                ? prev
+                : { key: wsKey, files: new Set(files) },
+            )
           }
         />
       ) : (
@@ -384,19 +376,24 @@ export function SourceControl({
       >
         <ConfirmDialog
           open={discarding !== null}
-          title="Discard changes?"
-          description={
-            discarding?.length === 1
-              ? `Your changes to ${discarding[0]} will be lost. This can't be undone.`
-              : `Your changes to ${discarding?.length ?? 0} files will be lost. This can't be undone.`
+          // An untracked file has nothing to go back to: discarding it is `git clean`.
+          title={
+            discarding?.untracked
+              ? `Delete ${basename(discarding.path)}?`
+              : "Discard changes?"
           }
-          confirmLabel="Discard"
+          description={
+            discarding?.untracked
+              ? `${basename(discarding.path)} is new and not tracked by git; discarding deletes it. This can't be undone.`
+              : `Your changes to ${discarding?.path ?? ""} will be lost. This can't be undone.`
+          }
+          confirmLabel={discarding?.untracked ? "Delete" : "Discard"}
           confirmVariant="danger"
           onCancel={() => setDiscarding(null)}
           onConfirm={() => {
-            const files = discarding ?? [];
+            const path = discarding?.path;
             setDiscarding(null);
-            void act("discard", files);
+            if (path) void act("discard", [path]);
           }}
         />
       </div>
@@ -412,24 +409,113 @@ function Note({ children, testId }: { children: ReactNode; testId?: string }) {
   );
 }
 
-/** One changed file: icon, name, folder, its writer's chip, then actions and letter. */
-function ScmRow({
-  entry,
-  author,
-  selected,
-  onOpen,
-  actions,
+type RowGroup = "staged" | "changes" | "branch";
+type RowAction = "open" | "openFile" | GitFileAction;
+
+const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+
+function sameFiles(had: ReadonlySet<string>, files: readonly string[]): boolean {
+  return had.size === files.length && files.every((f) => had.has(f));
+}
+
+/** A git action's icon button: disabled, with the reason, in the web app or while one runs. */
+function GitButton({
+  label,
+  testId,
+  icon,
+  webApp,
+  locked,
+  destructive = false,
+  onClick,
 }: {
+  label: string;
+  testId: string;
+  icon: ReactNode;
+  webApp: boolean;
+  locked: boolean;
+  destructive?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <Tooltip label={webApp ? NO_GIT_FROM_BROWSER : label}>
+      <button
+        type="button"
+        className={`${styles.iconBtn} ${destructive ? styles.iconBtnDanger : ""}`}
+        aria-label={label}
+        // aria-disabled keeps the reason's tooltip reachable on hover.
+        aria-disabled={locked ? true : undefined}
+        data-testid={testId}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (!locked) onClick();
+        }}
+      >
+        {icon}
+      </button>
+    </Tooltip>
+  );
+}
+
+type ScmRowProps = {
   entry: ScmEntry;
+  group: RowGroup;
   author: FileAuthor | null;
   selected: boolean;
-  onOpen: () => void;
-  actions: ReactNode;
-}) {
+  webApp: boolean;
+  /** A git action is running, or git can't be reached: its buttons wait. */
+  locked: boolean;
+  onRow: (action: RowAction, entry: ScmEntry) => void;
+};
+
+/**
+ * Entries are rebuilt whenever the list is, so a row compares what it
+ * shows rather than the objects it was given.
+ */
+function sameRow(a: ScmRowProps, b: ScmRowProps): boolean {
+  return (
+    a.entry.change.path === b.entry.change.path &&
+    a.entry.change.status === b.entry.change.status &&
+    a.entry.letter === b.entry.letter &&
+    a.group === b.group &&
+    a.author?.paneId === b.author?.paneId &&
+    a.author?.agentKind === b.author?.agentKind &&
+    a.selected === b.selected &&
+    a.webApp === b.webApp &&
+    a.locked === b.locked &&
+    a.onRow === b.onRow
+  );
+}
+
+/** One changed file: icon, name, folder, its writer's chip, then actions and letter. */
+const ScmRow = memo(function ScmRow({
+  entry,
+  group,
+  author,
+  selected,
+  webApp,
+  locked,
+  onRow,
+}: ScmRowProps) {
   const { change, letter } = entry;
   const slash = change.path.lastIndexOf("/");
   const name = change.path.slice(slash + 1);
   const folder = slash < 0 ? "" : change.path.slice(0, slash);
+  const gitButton = (
+    action: GitFileAction,
+    label: string,
+    testId: string,
+    icon: ReactNode,
+  ) => (
+    <GitButton
+      label={label}
+      testId={testId}
+      icon={icon}
+      webApp={webApp}
+      locked={locked}
+      destructive={action === "discard"}
+      onClick={() => onRow(action, entry)}
+    />
+  );
   return (
     <div
       className={`${styles.row} ${selected ? styles.rowSelected : ""} ${styles[`letter_${letter}`]}`}
@@ -444,7 +530,7 @@ function ScmRow({
           change.status === "deleted" ? `${change.path} (deleted)` : change.path
         }
         aria-current={selected ? "true" : undefined}
-        onClick={onOpen}
+        onClick={() => onRow("open", entry)}
       >
         {createElement(fileIconFor(change.path), {
           size: 12,
@@ -454,10 +540,38 @@ function ScmRow({
         {folder && <span className={styles.folder}>{folder}</span>}
         {author && <AgentChip author={author} />}
       </button>
-      <span className={styles.actions}>{actions}</span>
+      <span className={styles.actions}>
+        {change.status !== "deleted" && (
+          <Tooltip label="Open file">
+            <button
+              type="button"
+              className={styles.iconBtn}
+              aria-label="Open file"
+              data-testid="scm-open"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRow("openFile", entry);
+              }}
+            >
+              <FileCode size={13} />
+            </button>
+          </Tooltip>
+        )}
+        {group === "changes" &&
+          gitButton(
+            "discard",
+            letter === "U" ? "Delete file" : "Discard changes",
+            "scm-discard",
+            <Undo2 size={13} />,
+          )}
+        {group === "changes" &&
+          gitButton("stage", "Stage", "scm-stage", <Plus size={13} />)}
+        {group === "staged" &&
+          gitButton("unstage", "Unstage", "scm-unstage", <Minus size={13} />)}
+      </span>
       <span className={styles.letter} data-testid="scm-letter">
         {letter}
       </span>
     </div>
   );
-}
+}, sameRow);

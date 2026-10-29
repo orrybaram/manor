@@ -54,10 +54,16 @@ describe("localGroups", () => {
     ]);
   });
 
-  it("ignores a staged path the diff no longer lists", () => {
-    const groups = localGroups([change("a.ts")], new Set(["gone.ts"]));
-    expect(groups.staged).toEqual([]);
-    expect(groups.changes).toHaveLength(1);
+  it("keeps a staged path the working diff no longer lists, as M, so it can be unstaged", () => {
+    const groups = localGroups(
+      [change("a.ts"), change("c.ts")],
+      new Set(["c.ts", "b.ts"]),
+    );
+    expect(groups.staged.map((e) => [e.change.path, e.letter])).toEqual([
+      ["b.ts", "M"],
+      ["c.ts", "M"],
+    ]);
+    expect(groups.changes.map((e) => e.change.path)).toEqual(["a.ts"]);
   });
 });
 

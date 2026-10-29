@@ -1,5 +1,13 @@
 import { useState, type Ref } from "react";
-import { ChevronDown, ChevronUp, Info, X } from "lucide-react";
+import {
+  BellRing,
+  ChevronDown,
+  ChevronUp,
+  CircleCheck,
+  CircleX,
+  Info,
+  X,
+} from "lucide-react";
 import { toast as toastApi, type ToastRecord } from "../../../toast";
 import styles from "./Toast.module.css";
 
@@ -38,14 +46,18 @@ export function ToastItem(props: ToastItemProps) {
     <div ref={props.measureRef} className={styles.toast}>
       {toast.status === "loading" && <div className={styles.spinner} />}
       {toast.status === "success" && (
-        <span className={`${styles.icon} ${styles.iconSuccess}`}>&#10003;</span>
+        <span className={`${styles.icon} ${styles.iconSuccess}`}>
+          <CircleCheck size={14} aria-hidden />
+        </span>
       )}
       {toast.status === "error" && (
-        <span className={`${styles.icon} ${styles.iconError}`}>&#10007;</span>
+        <span className={`${styles.icon} ${styles.iconError}`}>
+          <CircleX size={14} aria-hidden />
+        </span>
       )}
       {toast.status === "attention" && (
-        <span className={`${styles.icon} ${styles.iconAttention}`} aria-hidden>
-          &#9679;
+        <span className={`${styles.icon} ${styles.iconAttention}`}>
+          <BellRing size={14} aria-hidden />
         </span>
       )}
       {toast.status === "info" && (

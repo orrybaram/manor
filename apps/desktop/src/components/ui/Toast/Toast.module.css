@@ -69,8 +69,7 @@
 
 .icon {
   flex-shrink: 0;
-  font-size: 14px;
-  line-height: 1;
+  display: flex;
 }
 
 .iconSuccess {
@@ -83,11 +82,9 @@
 
 .iconAttention {
   color: var(--yellow);
-  font-size: 11px;
 }
 
 .iconInfo {
-  display: flex;
   color: var(--text-primary);
 }
 

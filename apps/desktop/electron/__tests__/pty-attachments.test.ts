@@ -322,12 +322,24 @@ describe("pty attachments", () => {
   describe("an explicit claim", () => {
     beforeEach(() => resetAttachments());
 
-    it("lets a phone take a pane the desk owns, and tells subscribers", () => {
+    it("lets a window take a pane another window owns, and tells subscribers", () => {
+      attach("pane-a", windowA);
+      attach("pane-a", windowB);
+      expect(ownerOf("pane-a")).toEqual(windowB);
+      expect(changedBy(() => expect(claim("pane-a", windowA)).toBe(true))).toEqual(["pane-a"]);
+      expect(ownerOf("pane-a")).toEqual(windowA);
+    });
+
+    it("is refused to a device, so a phone never resizes the desk's terminal", () => {
       attach("pane-a", windowA);
       attach("pane-a", deviceA);
+      expect(changedBy(() => expect(claim("pane-a", deviceA)).toBe(false))).toEqual([]);
       expect(ownerOf("pane-a")).toEqual(windowA);
-      expect(changedBy(() => expect(claim("pane-a", deviceA)).toBe(true))).toEqual(["pane-a"]);
-      expect(ownerOf("pane-a")).toEqual(deviceA);
+      resetAttachments();
+      attach("pane-a", ownerChannel);
+      attach("pane-a", deviceA);
+      expect(claim("pane-a", deviceA)).toBe(false);
+      expect(ownerOf("pane-a")).toEqual(ownerChannel);
     });
 
     it("is refused to a viewer that does not hold the pane", () => {
@@ -336,51 +348,51 @@ describe("pty attachments", () => {
       expect(ownerOf("pane-a")).toEqual(windowA);
     });
 
-    it("ends when the desk types, but not when the phone does", () => {
+    it("ends when the desk types, but not when the claimant does", () => {
       attach("pane-a", windowA);
-      attach("pane-a", deviceA);
-      claim("pane-a", deviceA);
-      reclaimOnInput("pane-a", deviceA);
-      expect(ownerOf("pane-a")).toEqual(deviceA);
+      attach("pane-a", ownerChannel);
+      claim("pane-a", ownerChannel);
+      reclaimOnInput("pane-a", ownerChannel);
+      expect(ownerOf("pane-a")).toEqual(ownerChannel);
       expect(changedBy(() => reclaimOnInput("pane-a", windowA))).toEqual(["pane-a"]);
       expect(ownerOf("pane-a")).toEqual(windowA);
     });
 
     it("ends when the claimant lets go or drops", () => {
       attach("pane-a", windowA);
-      attach("pane-a", deviceA);
-      claim("pane-a", deviceA);
-      release("pane-a", deviceA);
+      attach("pane-a", ownerChannel);
+      claim("pane-a", ownerChannel);
+      release("pane-a", ownerChannel);
       expect(ownerOf("pane-a")).toEqual(windowA);
-      attach("pane-a", deviceA);
-      claim("pane-a", deviceA);
-      releaseViewer(deviceA.connectionId);
+      attach("pane-a", ownerChannel);
+      claim("pane-a", ownerChannel);
+      releaseViewer(ownerChannel.connectionId);
       expect(ownerOf("pane-a")).toEqual(windowA);
       // A fresh attach of the same viewer is not still claiming.
-      attach("pane-a", deviceA);
+      attach("pane-a", ownerChannel);
       expect(ownerOf("pane-a")).toEqual(windowA);
     });
 
     it("gives way to a new arrival, decided by the default rules", () => {
       attach("pane-a", windowA);
-      attach("pane-a", deviceA);
-      claim("pane-a", deviceA);
       attach("pane-a", windowB);
+      claim("pane-a", windowA);
+      attach("pane-a", deviceA);
       expect(ownerOf("pane-a")).toEqual(windowB);
     });
 
     it("moves to whoever claimed last", () => {
       attach("pane-a", windowA);
-      attach("pane-a", deviceA);
-      attach("pane-a", deviceB);
-      claim("pane-a", deviceA);
-      claim("pane-a", deviceB);
-      expect(ownerOf("pane-a")).toEqual(deviceB);
+      attach("pane-a", windowB);
+      attach("pane-a", ownerChannel);
+      claim("pane-a", ownerChannel);
+      claim("pane-a", windowA);
+      expect(ownerOf("pane-a")).toEqual(windowA);
     });
   });
 
   describe("the owner channel", () => {
-    it("ranks with a device, not a window on this machine", () => {
+    it("ranks below a window on this machine and above a device", () => {
       attach("pane-a", windowA);
       expect(wouldOwn("pane-a", ownerChannel)).toBe(false);
       attach("pane-a", ownerChannel);
@@ -391,8 +403,9 @@ describe("pty attachments", () => {
       expect(wouldOwn("pane-a", ownerChannel)).toBe(true);
       attach("pane-a", ownerChannel);
       expect(ownerOf("pane-a")).toEqual(ownerChannel);
+      expect(wouldOwn("pane-a", deviceB)).toBe(false);
       attach("pane-a", deviceB);
-      expect(ownerOf("pane-a")).toEqual(deviceB);
+      expect(ownerOf("pane-a")).toEqual(ownerChannel);
     });
   });
 
@@ -424,11 +437,11 @@ describe("pty attachments", () => {
       expect(ownerOf("pane-b")).toEqual(deviceB);
     });
 
-    it("takes the winsize back from a device's claim by typing, as a desk window does", () => {
+    it("takes the winsize back from another claim by typing, as a desk window does", () => {
       attach("pane-a", deskViewer);
-      attach("pane-a", deviceA);
-      expect(claim("pane-a", deviceA)).toBe(true);
-      expect(ownerOf("pane-a")).toEqual(deviceA);
+      attach("pane-a", ownerChannel);
+      expect(claim("pane-a", ownerChannel)).toBe(true);
+      expect(ownerOf("pane-a")).toEqual(ownerChannel);
       reclaimOnInput("pane-a", deskViewer);
       expect(ownerOf("pane-a")).toEqual(deskViewer);
     });
@@ -463,15 +476,15 @@ describe("pty attachments", () => {
     });
 
     it("beats a claim, and a claim made during it is refused", () => {
-      attach("pane-a", deviceA);
-      attach("pane-a", deviceB);
-      claim("pane-a", deviceA);
+      attach("pane-a", windowA);
+      attach("pane-a", windowB);
+      claim("pane-a", windowA);
       setForeign("pane-a", true);
-      expect(claim("pane-a", deviceB)).toBe(false);
+      expect(claim("pane-a", windowB)).toBe(false);
       expect(ownerOf("pane-a")?.connectionId).toBe(FOREIGN_CONNECTION_ID);
       // The earlier claim survives the hold.
       setForeign("pane-a", false);
-      expect(ownerOf("pane-a")).toEqual(deviceA);
+      expect(ownerOf("pane-a")).toEqual(windowA);
     });
 
     it("is forgotten by resetAttachments", () => {
@@ -494,11 +507,11 @@ describe("pty attachments", () => {
     });
 
     it("leaves a standing claim standing", () => {
-      attach("pane-a", deviceA);
-      attach("pane-a", deviceB);
-      claim("pane-a", deviceA);
-      attach("pane-a", windowA, returning);
-      expect(ownerOf("pane-a")).toEqual(deviceA);
+      attach("pane-a", windowA);
+      attach("pane-a", windowB);
+      claim("pane-a", windowA);
+      attach("pane-a", ownerChannel, returning);
+      expect(ownerOf("pane-a")).toEqual(windowA);
     });
 
     it("still lets a window outrank a device", () => {

@@ -198,7 +198,7 @@ describe("host pty.create winsize", () => {
     expect(await reattach(device)).toEqual({ ok: false, reason: "exited" });
   });
 
-  it("ranks the owner channel with a device, not as a local viewer", async () => {
+  it("ranks the owner channel above a device, not as a local viewer", async () => {
     sessions = [session("pane-1", 0)];
     await create(device);
     sessions = [session("pane-1", 1)];
@@ -207,9 +207,10 @@ describe("host pty.create winsize", () => {
       connectionId: "desktop",
       callerClass: "owner",
     });
-    // A `local` arrival would have outranked it; a device among equals does.
+    // A device arriving later follows it: a phone never takes the grid from
+    // the desktop.
     const third = await create({ ...device, id: "phone-2" } as Caller);
-    expect(third).toMatchObject({ winsizeOwner: true });
+    expect(third).toMatchObject({ winsizeOwner: false });
   });
 
   it("ranks a desktop viewer stream above a device, and does not count it as foreign", async () => {

@@ -17,6 +17,12 @@
  *    keyboard, and a phone looking at the same pane follows. On a host
  *    server, a desktop window's own viewer stream (`viewer: "desktop"`) is
  *    that desk, and ranks the same.
+ *    A device ranks below every other viewer, too — the owner channel
+ *    included — and never claims: a phone mostly shows the chat, and every
+ *    way it used to take the winsize from a desktop (arriving last beside
+ *    the owner channel, or "fit to this screen") left the desk's terminal
+ *    phone-narrow with no way back from the desk. A device alone on a pane
+ *    still owns it, and the desk takes it back by attaching.
  * 2. Among viewers of the same class, the most recently attached wins. This
  *    is a repair: before it, two desktop windows on one pane both
  *    believed they owned the winsize and took turns resizing the session to
@@ -25,9 +31,7 @@
  *    `onAttachmentChange`. A viewer never has to ask.
  *
  * Rules 1 and 2 are the default; a **claim** overrides them. A viewer that
- * holds a pane can ask for its winsize outright (`claim`): a phone whose
- * follower grid is a desk-wide 6px blur taps "fit to this screen" and the
- * session is resized to the phone. The claim lasts until the claimant lets
+ * holds a pane can ask for its winsize outright (`claim`). The claim lasts until the claimant lets
  * the pane go, another viewer claims, a new viewer attaches (an arrival is
  * still rule 1 and 2's to decide), or someone types into the pane at the desk
  * (`reclaimOnInput`) — the person at the keyboard gets their grid back
@@ -90,14 +94,14 @@ export interface Viewer {
 
 /**
  * How a caller class ranks for the winsize: higher wins, and among equals the
- * most recent attach. Only a window on this machine outranks; the owner
- * channel is another client of the daemon, not the person at its desk, so it
- * ranks with a paired device.
+ * most recent attach. A window on this machine outranks the owner channel,
+ * which is another client of the daemon, not the person at its desk; and a
+ * paired device ranks below both (rule 1).
  */
 const RANK: Record<CallerClass, number> = {
   local: 1,
   owner: 0,
-  device: 0,
+  device: -1,
 };
 
 /** The rank of a desk window, which a desktop viewer stream shares. */
@@ -324,11 +328,12 @@ export class PtyAttachments {
 
   /**
    * A viewer that holds this pane takes its winsize. Returns whether it took
-   * it: a viewer that does not hold the pane cannot, and nobody can while it is
-   * held elsewhere.
+   * it: a viewer that does not hold the pane cannot, a device never can, and
+   * nobody can while it is held elsewhere.
    */
   claim(paneId: string, viewer: Viewer): boolean {
     if (this.foreign.has(paneId)) return false;
+    if (rankOf(viewer) === RANK.device) return false;
     const viewers = this.holders.get(paneId);
     if (!viewers?.some((v) => sameViewer(v, viewer))) return false;
     this.changingOwner(paneId, () => {

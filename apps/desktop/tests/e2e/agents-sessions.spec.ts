@@ -202,11 +202,13 @@ test("Agents modal: phone-width preview and back", async ({ app, window }) => {
   await window.waitForTimeout(600);
   await openModal(window);
   await expect(rowNamed(window, "Toasts above the phone bottom bar")).toBeVisible({ timeout: 20_000 });
-  await window.screenshot({ path: path.join(OUT, "phone-list.png") });
+  await window.waitForTimeout(600);
+  await window.screenshot({ path: path.join(OUT, "phone-list.png"), animations: "disabled" });
   await rowNamed(window, "Toasts above the phone bottom bar").click();
   await expect(window.getByTestId("agents-modal-turns")).toContainText("Tests pass.", { timeout: 10_000 });
   await expect(window.getByTestId("agents-modal-back")).toBeVisible();
-  await window.screenshot({ path: path.join(OUT, "phone-preview.png") });
+  await window.waitForTimeout(400);
+  await window.screenshot({ path: path.join(OUT, "phone-preview.png"), animations: "disabled" });
   await window.getByTestId("agents-modal-back").click();
   await expect(rowNamed(window, "Toasts above the phone bottom bar")).toBeVisible();
   await expect(window.getByTestId("agents-modal-turns")).toHaveCount(0);

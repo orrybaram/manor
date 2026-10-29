@@ -77,6 +77,9 @@ type ModalRowViewProps = {
   onRenameAgent: (agentId: string, name: string) => void;
 };
 
+// Footer buttons keep focus in the search box, so the keys keep working.
+const keepFocus = (e: React.MouseEvent) => e.preventDefault();
+
 /** The attributes every row shares, Agent or outside-Manor Session. */
 function rowAttributes(row: ModalRow, highlighted: boolean) {
   return {
@@ -450,16 +453,20 @@ export function AgentsModal(props: AgentsModalProps) {
 
   // Rename and remove act on Agents; a Session from outside Manor has
   // neither.
+  const moveHighlight = (step: 1 | -1) => {
+    const index = highlighted ? rows.indexOf(highlighted) : -1;
+    const next = rows[index + step];
+    if (!next) return;
+    setHighlightedId(next.id);
+    scrollToRow(next.id);
+  };
+
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.nativeEvent.isComposing) return;
-    const index = highlighted ? rows.indexOf(highlighted) : -1;
     const agent = highlighted?.agent;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      const next = rows[e.key === "ArrowDown" ? index + 1 : index - 1];
-      if (!next) return;
-      setHighlightedId(next.id);
-      scrollToRow(next.id);
+      moveHighlight(e.key === "ArrowDown" ? 1 : -1);
     } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && highlighted) {
       e.preventDefault();
       act(highlighted, "fork");
@@ -824,12 +831,61 @@ export function AgentsModal(props: AgentsModalProps) {
             )}
           </div>
 
-          <div className={styles.footer} aria-hidden="true">
-            <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
-            <span><kbd>↵</kbd> resume or go to pane</span>
-            <span><kbd>{FORK_KEYS}</kbd> fork</span>
-            <span><kbd>F2</kbd> rename</span>
-            <span className={styles.footerEnd}><kbd>esc</kbd> close</span>
+          {/* Each hint does what its key does; the search box keeps focus. */}
+          <div className={styles.footer} data-testid="agents-modal-footer" onMouseDown={keepFocus}>
+            <span className={styles.footerItem}>
+              <button
+                type="button"
+                className={styles.footerHint}
+                aria-label="Move up"
+                onClick={() => moveHighlight(-1)}
+              >
+                <kbd className={styles.kbd}>↑</kbd>
+              </button>
+              <button
+                type="button"
+                className={styles.footerHint}
+                aria-label="Move down"
+                onClick={() => moveHighlight(1)}
+              >
+                <kbd className={styles.kbd}>↓</kbd>
+              </button>
+              Move
+            </span>
+            <button
+              type="button"
+              className={styles.footerHint}
+              disabled={!highlighted}
+              data-testid="agents-modal-footer-primary"
+              onClick={() => highlighted && activateRow(highlighted)}
+            >
+              <kbd className={styles.kbd}>↵</kbd>
+              {highlighted && isRowOpen(highlighted, openPaneIds, launched) ? "Go to pane" : "Resume"}
+            </button>
+            <button
+              type="button"
+              className={styles.footerHint}
+              disabled={!highlighted}
+              data-testid="agents-modal-footer-fork"
+              onClick={() => highlighted && act(highlighted, "fork")}
+            >
+              <kbd className={styles.kbd}>{FORK_KEYS}</kbd> Fork
+            </button>
+            <button
+              type="button"
+              className={styles.footerHint}
+              disabled={!highlightedAgentId}
+              onClick={() => highlightedAgentId && startRename(highlightedAgentId)}
+            >
+              <kbd className={styles.kbd}>F2</kbd> Rename
+            </button>
+            <button
+              type="button"
+              className={`${styles.footerHint} ${styles.footerEnd}`}
+              onClick={onClose}
+            >
+              <kbd className={styles.kbd}>esc</kbd> Close
+            </button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

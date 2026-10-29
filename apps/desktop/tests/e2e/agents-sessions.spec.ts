@@ -207,7 +207,13 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await rows(window).nth(1).hover();
   await window.waitForTimeout(500);
   await expect(window.getByTestId("agents-modal-turns")).toContainText("Tests pass.");
-  await window.keyboard.press("ArrowDown");
+  // The footer's hints are buttons that do what their keys do.
+  await window.getByRole("button", { name: "Move down" }).click();
+  await expect(window.getByTestId("agents-modal-turns")).toContainText("Added full jitter", { timeout: 10_000 });
+  await expect(window.getByTestId("agents-modal-search")).toBeFocused();
+  await window.getByTestId("agents-modal-footer").hover();
+  await window.getByTestId("agents-modal-footer-fork").hover();
+  await shot(window, "dark-footer-hover");
 
   // A project chip narrows the list: relay has the Codex and opencode Sessions.
   await chips.filter({ hasText: "relay" }).click();
@@ -261,10 +267,11 @@ test("Agents modal: Sessions from disk, one list, preview", async ({ window }) =
   await window.locator('[data-testid="tab"]').first().click();
   await openModal(window);
   await expect(window.getByTestId("agents-modal-preview")).toContainText("in a pane", { timeout: 10_000 });
-  // A desk resumes and forks from the keys; the buttons are a phone's.
+  // A desk resumes and forks from the footer; the preview's buttons are a phone's.
   await expect(window.getByTestId("agents-modal-primary")).toHaveCount(0);
+  await expect(window.getByTestId("agents-modal-footer-primary")).toContainText("Go to pane");
   await shot(window, "light-go-to-pane");
-  await window.keyboard.press("Enter");
+  await window.getByTestId("agents-modal-footer-primary").click();
   await expect(modal(window)).toBeHidden({ timeout: 5_000 });
   await expect.poll(() => activePaneId(window), { timeout: 10_000 }).toBe(paneId);
   await expect(window.locator('[data-testid="tab"]')).toHaveCount(tabsBefore);

@@ -31,6 +31,7 @@ import { processes } from "./handlers/processes";
 import { projects } from "./handlers/projects";
 import { pty } from "./handlers/pty";
 import { remoteControl } from "./handlers/remote-control";
+import { sessions } from "./handlers/sessions";
 import { stats } from "./handlers/stats";
 import { theme } from "./handlers/theme";
 import { viewport } from "./handlers/viewport";
@@ -54,6 +55,7 @@ export const SERVER_METHODS = flatten({
   keybindings: serverKeybindings,
   remoteControl,
   agents,
+  sessions,
   notifications,
   agentActivity,
   stats,

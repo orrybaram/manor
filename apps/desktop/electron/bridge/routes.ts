@@ -203,6 +203,9 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "agents.markResumed": byAgent(0),
   "agents.reconcileStale": "home",
 
+  // Each server scans its own host's agent stores.
+  "sessions.list": "merge",
+
   "github.getPrsForBranches": byGhRepo(0),
   "github.listRepos": "home",
   "github.checkStatus": byHost(0),

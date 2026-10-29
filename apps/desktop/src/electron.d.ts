@@ -505,6 +505,9 @@ export type {
   TransferResult,
 } from "../electron/projects/types";
 
+/** A Session in an agent CLI's own store on a host: `sessions.list`'s rows. */
+export type { SessionSummary } from "../electron/sessions/types";
+
 /** Phone access through a host's server. */
 export type { HostServerView } from "../electron/bridge/handlers/hosts";
 export type { HostServerStatus } from "../electron/host-server/relay";

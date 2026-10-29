@@ -1,0 +1,1 @@
+{"parentUuid":null,"isSidechain":true,"type":"user","message":{"role":"user","content":"subagent task"},"uuid":"u-2026-10-20T10:00:10.000Z","timestamp":"2026-10-20T10:00:10.000Z","userType":"external","entrypoint":"cli","cwd":"/home/u/work/my-repo","sessionId":"aaaaaaaa-0000-4000-8000-000000000001","version":"2.1.312","gitBranch":"main"}

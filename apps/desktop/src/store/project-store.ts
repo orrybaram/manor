@@ -708,10 +708,6 @@ interface ProjectState {
     worktreePath: string,
     deleteBranch?: boolean,
   ) => Promise<void>;
-  canQuickMerge: (
-    projectId: string,
-    worktreePath: string,
-  ) => Promise<{ canMerge: boolean; reason?: string }>;
   quickMergeWorktree: (
     projectId: string,
     worktreePath: string,
@@ -1502,10 +1498,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     // Refresh projects to get updated worktree list
     const projects = await window.electronAPI.projects.getAll();
     set((s) => ({ projects: reconcile(projects, s.projects) }));
-  },
-
-  canQuickMerge: async (projectId: string, worktreePath: string) => {
-    return window.electronAPI.projects.canQuickMerge(projectId, worktreePath);
   },
 
   quickMergeWorktree: async (projectId: string, worktreePath: string) => {

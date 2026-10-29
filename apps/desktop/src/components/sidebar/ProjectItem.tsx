@@ -7,7 +7,6 @@ import React, {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ipcErrorMessage } from "../../lib/ipc-error";
 import * as ContextMenu from "@radix-ui/react-context-menu";
 import Check from "lucide-react/dist/esm/icons/check";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
@@ -511,10 +510,6 @@ export function ProjectItem(props: ProjectItemProps) {
   // bulk delete from another section of this group may be removing them.
   const deletingKeys = useDeletingWorkspacesStore((s) => s.keys);
 
-  const [mergeState, setMergeState] = useState<{
-    canMerge: boolean;
-    reason?: string;
-  } | null>(null);
   const editRef = useRef<HTMLInputElement>(null);
   // Paths of workspace rows whose context menu was opened via the keyboard
   // (`openMenu`), so `onCloseAutoFocus` knows to return focus to the row; a
@@ -907,29 +902,8 @@ export function ProjectItem(props: ProjectItemProps) {
       <ContextMenu.Root
         key={ws.path}
         onOpenChange={(open) => {
-          if (!open) {
-            setMergeState(null);
-            return;
-          }
-          if (!selectedPaths.has(ws.path)) {
+          if (open && !selectedPaths.has(ws.path)) {
             useSidebarSelectionStore.getState().clear();
-          }
-          if (!ws.isMain && !isBulkSelected) {
-            setMergeState(null);
-            useProjectStore
-              .getState()
-              .canQuickMerge(project.id, ws.path)
-              .then(setMergeState)
-              .catch((err: unknown) =>
-                // The cause, not just that it failed; reopening the menu
-                // checks again.
-                setMergeState({
-                  canMerge: false,
-                  reason: `Couldn't check merge eligibility: ${ipcErrorMessage(err)}. Reopen this menu to retry.`,
-                }),
-              );
-          } else {
-            setMergeState(null);
           }
         }}
       >
@@ -1148,20 +1122,6 @@ export function ProjectItem(props: ProjectItemProps) {
                 >
                   Hide Workspace
                 </ContextMenu.Item>
-                {ws.pr?.state?.toLowerCase() !== "merged" && (
-                  <ContextMenu.Item
-                    className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
-                    disabled={mergeState === null || !mergeState.canMerge}
-                    onSelect={() => setConfirmMergeWorktree(ws)}
-                  >
-                    Merge & Delete
-                    {mergeState && !mergeState.canMerge && mergeState.reason && (
-                      <span className={styles.contextMenuItemHint}>
-                        {mergeState.reason}
-                      </span>
-                    )}
-                  </ContextMenu.Item>
-                )}
                 <ContextMenu.Item
                   className={`${styles.contextMenuItem} ${styles.contextMenuItemDanger}`}
                   onSelect={() => {

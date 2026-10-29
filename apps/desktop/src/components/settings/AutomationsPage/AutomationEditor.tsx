@@ -322,9 +322,12 @@ function AutomationForm(props: FormProps) {
     ? nextOccurrences(draft.schedule.cron, draft.schedule.timezone, 3)
     : [];
   const projectLabel = project?.name ?? (draft.projectId ? "missing project" : "no project");
-  // The last run found no project: said until another is picked, or while
-  // the one named isn't set up on the host.
-  const missing = detail ? isProjectMissing(detail) && (!project || !projectPicked) : false;
+  // Said while the project named isn't set up on the host, whether or not a
+  // run has found that yet, and after a run found no project until another
+  // is picked.
+  const missing = detail
+    ? (!project && !!draft.projectId) || (isProjectMissing(detail) && !projectPicked)
+    : false;
   const note = zoneNote(draft.schedule.timezone);
 
   return (

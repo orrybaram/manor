@@ -85,6 +85,9 @@
 button.row {
   all: unset;
   box-sizing: border-box;
+  /* `all: unset` outranks `.cols`, so the row's grid is set again here. */
+  display: grid;
+  width: 100%;
   cursor: pointer;
   padding-top: 9px;
   padding-bottom: 9px;

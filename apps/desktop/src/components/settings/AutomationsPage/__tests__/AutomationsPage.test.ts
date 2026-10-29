@@ -467,6 +467,11 @@ describe("AutomationsPage", () => {
     expect(q("automation-project-missing")).toBeNull();
   });
 
+  it("says the project is missing before any run has found that", async () => {
+    await openA1({ projectId: "p-gone", lastRun: null });
+    expect(q("automation-project-missing")).not.toBeNull();
+  });
+
   it("re-reads a list only for its own run's agent, once a burst settles, and not under a page", async () => {
     api.list.mockImplementation((hostId: string) =>
       Promise.resolve(

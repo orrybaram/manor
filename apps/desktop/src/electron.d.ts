@@ -460,6 +460,13 @@ export type PtyAttachResult = PtyWinsize & (
 );
 
 export type { PushProgressEvent } from "../electron/bridge/handlers/branches-diffs";
+export type {
+  FileFailure,
+  FileFailureReason,
+  FileListResult,
+  FileReadResult,
+  FileWriteResult,
+} from "../electron/workspace-files";
 
 /** What `terminal.pasteClipboardImage` resolves to. */
 export type PasteClipboardImageResult =

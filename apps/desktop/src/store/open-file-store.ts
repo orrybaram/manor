@@ -69,11 +69,13 @@ export function unsavedFilesIn(
   return dirtyPaneIds(state, paneIds).map((paneId) => state.byPane[paneId].path);
 }
 
-/** Every file with unsaved edits in this renderer, workspace-relative. */
-export function allUnsavedFiles(state: Pick<OpenFileStore, "byPane">): string[] {
-  return Object.values(state.byPane)
-    .filter((file) => file.dirty)
-    .map((file) => file.path);
+/** Every file pane with unsaved edits in this renderer, and its workspace-relative file. */
+export function allUnsavedPanes(
+  state: Pick<OpenFileStore, "byPane">,
+): { paneId: string; path: string }[] {
+  return Object.entries(state.byPane)
+    .filter(([, file]) => file.dirty)
+    .map(([paneId, file]) => ({ paneId, path: file.path }));
 }
 
 /**

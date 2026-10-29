@@ -347,10 +347,17 @@ const nativeApi = {
       invoke<{ id: number; bounds: WindowBounds }[]>("window:listWindows"),
     closeSelf: () => ipcRenderer.send("window:closeSelf"),
     /**
-     * The files with unsaved edits in this window's file panes, so closing
-     * the window or quitting the app can ask before they are lost.
+     * The file panes with unsaved edits in this window, and their files, so
+     * closing the window or quitting the app can ask before they are lost.
      */
-    setUnsavedFiles: (files: string[]) => ipcRenderer.send("window:setUnsavedFiles", files),
+    setUnsavedFiles: (files: { paneId: string; path: string }[]) =>
+      ipcRenderer.send("window:setUnsavedFiles", files),
+    /**
+     * Those of `paneIds` with unsaved edits in another window: closing them
+     * from here would lose edits this window cannot see.
+     */
+    unsavedPanesElsewhere: (paneIds: string[]) =>
+      invoke<{ paneId: string; path: string }[]>("window:unsavedPanesElsewhere", paneIds),
   },
 };
 

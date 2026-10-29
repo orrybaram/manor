@@ -1,4 +1,4 @@
-import { allUnsavedFiles, useOpenFileStore } from "../store/open-file-store";
+import { allUnsavedPanes, useOpenFileStore } from "../store/open-file-store";
 import { isWebApp } from "./platform";
 
 /**
@@ -11,8 +11,8 @@ export function reportUnsavedFiles(): () => void {
   if (isWebApp()) return () => {};
   let last: string | null = null;
   const send = () => {
-    const files = allUnsavedFiles(useOpenFileStore.getState());
-    const key = files.join("\0");
+    const files = allUnsavedPanes(useOpenFileStore.getState());
+    const key = files.map((f) => `${f.paneId}\0${f.path}`).join("\n");
     if (key === last) return;
     last = key;
     window.electronAPI.window.setUnsavedFiles(files);

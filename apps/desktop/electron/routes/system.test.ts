@@ -37,7 +37,18 @@ vi.mock("../process-control", () => ({
   restartPortless: vi.fn(async () => {}),
 }));
 
+vi.mock("../updater", () => ({
+  checkForUpdates: vi.fn(),
+  quitAndInstall: vi.fn(),
+}));
+
+vi.mock("../unsaved-files", () => ({
+  unattendedQuitRefusal: vi.fn(() => null),
+}));
+
 import { listProcesses, killAllProcesses } from "../process-control";
+import { quitAndInstall } from "../updater";
+import { unattendedQuitRefusal } from "../unsaved-files";
 import { systemRoutes } from "./system";
 import type { HostDeps, Route } from "./types";
 
@@ -230,5 +241,23 @@ describe("POST /processes/kill-all", () => {
     }
     expect(record).toHaveBeenCalledWith("agentsKilled");
     expect(record).toHaveBeenCalledWith("agentsKilledMidThought");
+  });
+});
+
+describe("POST /updater/quit-and-install", () => {
+  it("quits to install, as nobody at the desk, once it has answered", async () => {
+    const reply = await call(route("POST", "/updater/quit-and-install"), {});
+    expect(reply).toEqual({ status: 200, body: { ok: true } });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(quitAndInstall).toHaveBeenCalledWith({ interactive: false });
+  });
+
+  it("refuses, saying why, while a file has unsaved edits on the desktop", async () => {
+    const why = "1 file has unsaved changes on the desktop. Save or discard them there first.";
+    vi.mocked(unattendedQuitRefusal).mockReturnValueOnce(why);
+    const reply = await call(route("POST", "/updater/quit-and-install"), {});
+    expect(reply).toEqual({ status: 409, body: { error: why } });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(quitAndInstall).not.toHaveBeenCalled();
   });
 });

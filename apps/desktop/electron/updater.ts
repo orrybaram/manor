@@ -120,21 +120,30 @@ export function checkForUpdates(): void {
   void runUpdater((updater) => updater.checkForUpdates());
 }
 
-let beforeInstall: (() => Promise<boolean>) | null = null;
+/**
+ * Who asked for an install: `interactive` when the user at the desk did (the
+ * update toast); not when it came over HTTP (MCP, the phone), with nobody
+ * at the desk to answer a prompt.
+ */
+export type InstallRequest = { interactive: boolean };
+
+let beforeInstall: ((request: InstallRequest) => Promise<boolean>) | null = null;
 
 /**
  * Work to finish before an install quits the app (the shell's shutdown, which
  * holds the first `before-quit`). Run first so the install's own quit is not
  * held and cannot lose its relaunch. Resolving false (unsaved edits, and the
- * user chose Cancel) installs nothing.
+ * user chose Cancel, or nobody was there to ask) installs nothing.
  */
-export function setBeforeInstallHook(hook: () => Promise<boolean>): void {
+export function setBeforeInstallHook(
+  hook: (request: InstallRequest) => Promise<boolean>,
+): void {
   beforeInstall = hook;
 }
 
-export function quitAndInstall(): void {
+export function quitAndInstall(request: InstallRequest): void {
   void runUpdater(async (updater) => {
-    if ((await beforeInstall?.()) === false) return;
+    if ((await beforeInstall?.(request)) === false) return;
     updater.quitAndInstall();
   });
 }

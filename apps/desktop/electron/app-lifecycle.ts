@@ -44,9 +44,11 @@ import * as windowIpc from "./ipc/window";
 import * as menuIpc from "./ipc/menu";
 import * as hostPipeIpc from "./ipc/host-pipe";
 import {
-  confirmCloseOverUnsaved,
   confirmQuitOverUnsaved,
+  holdCloseForUnsaved,
+  holdQuitForUnsaved,
   registerUnsavedFilesIpc,
+  unattendedQuitRefusal,
 } from "./unsaved-files";
 import { appCommandResult } from "./renderer-bridge";
 import { createManorServer, type ManorCore } from "./server/create-manor-server";
@@ -105,12 +107,11 @@ export function initApp(devTitle: string | null): void {
   function trackRendererWindow(win: BrowserWindow, onClose?: () => void): void {
     rendererWindows.add(win);
     win.on("close", (event) => {
-      // Unsaved file edits in the window ask first. Not once a quit has
-      // begun: the quit asked already, for every window.
-      if (!shutdownRun && !confirmCloseOverUnsaved(win)) {
-        event.preventDefault();
-        return;
-      }
+      // Unsaved file edits in the window ask first, without blocking main:
+      // hold this close, and close again on Close Anyway (which forgets the
+      // window's files, so the retry passes). Not once a quit has begun: the
+      // quit asked already, for every window.
+      if (!shutdownRun && holdCloseForUnsaved(win, event)) return;
       onClose?.();
     });
     win.on("closed", () => {
@@ -682,9 +683,11 @@ export function initApp(devTitle: string | null): void {
     event.preventDefault();
     // A second Cmd+Q while the first is still shutting down: already handled.
     if (shutdownRun) return;
-    // Unsaved file edits in any window ask first; Cancel keeps the app
-    // running, untouched.
-    if (!confirmQuitOverUnsaved(getRendererWindows())) return;
+    // Unsaved file edits in any window ask first, without blocking main.
+    // Quit Anyway forgets them and quits again, which then passes; Cancel
+    // (or a quit while the box is already up) keeps the app running,
+    // untouched. Nothing is torn down and no backstop runs while it asks.
+    if (holdQuitForUnsaved(getRendererWindows(), () => app.quit())) return;
     console.log("[shutdown] quit requested");
     void runShutdown().then(() => {
       console.log("[shutdown] done; quitting");
@@ -704,8 +707,20 @@ export function initApp(devTitle: string | null): void {
   // first, and its own quit then finds `shutDown` set and passes straight
   // through, untouched.
   // Unsaved file edits ask first here too: false keeps the app, uninstalled.
-  setBeforeInstallHook(async () => {
-    if (!shutdownRun && !confirmQuitOverUnsaved(getRendererWindows())) return false;
+  // An install nobody at the desk asked for (HTTP: MCP, the phone) has
+  // nobody to ask, so it is refused outright.
+  setBeforeInstallHook(async ({ interactive }) => {
+    if (!shutdownRun) {
+      if (!interactive) {
+        const refusal = unattendedQuitRefusal();
+        if (refusal) {
+          console.warn(`[updater] install refused: ${refusal}`);
+          return false;
+        }
+      } else if (!(await confirmQuitOverUnsaved(getRendererWindows()))) {
+        return false;
+      }
+    }
     await runShutdown();
     return true;
   });

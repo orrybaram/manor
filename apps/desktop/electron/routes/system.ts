@@ -30,6 +30,7 @@ import {
 } from "../bridge/handlers/notifications";
 import { localCtx } from "../bridge/method";
 import { checkForUpdates, quitAndInstall } from "../updater";
+import { unattendedQuitRefusal } from "../unsaved-files";
 import { listWindows } from "../ipc/window";
 import { themeSetSelected } from "../bridge/handlers/theme";
 import { isPreferenceKey } from "../preferences";
@@ -359,10 +360,18 @@ export const systemRoutes: Route[] = [
     method: "POST",
     path: "/updater/quit-and-install",
     async handler({ json }) {
+      // Nobody at the desk asked for this, so nobody can answer the
+      // unsaved-edits prompt: refuse, and say why, rather than lose them or
+      // wait on a box nobody sees.
+      const refusal = unattendedQuitRefusal();
+      if (refusal) {
+        json(409, { error: refusal });
+        return;
+      }
       // Respond before quitting: `quitAndInstall` tears the process down, and
       // a caller that never got a reply cannot tell success from a crash.
       json(200, { ok: true });
-      setImmediate(() => quitAndInstall());
+      setImmediate(() => quitAndInstall({ interactive: false }));
     },
   },
 ];

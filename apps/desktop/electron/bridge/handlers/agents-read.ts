@@ -136,13 +136,14 @@ export type FileAuthorDeps = { agentFileAuthors: Pick<AgentFileAuthors, "inWorks
 
 /**
  * Which agent last wrote each of a workspace's files, by workspace-relative
- * path, as this server's hooks said. Routed by the workspace key, so a remote
- * host's server answers for the agents it runs.
+ * path, as this server's hooks said and its disk still agrees. Routed by the
+ * workspace key, so a remote host's server answers for the agents it runs
+ * and the files it holds.
  */
 export function agentsGetFileAuthors(
   ctx: HandlerCtx<FileAuthorDeps>,
   workspaceKey: string,
-): Record<string, FileAuthor> {
+): Promise<Record<string, FileAuthor>> {
   assertString(workspaceKey, "workspaceKey");
   return ctx.deps.agentFileAuthors.inWorkspace(parseWorkspaceKey(workspaceKey).path);
 }

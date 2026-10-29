@@ -12,7 +12,10 @@ function run(state: OpenFileState, ...events: OpenFileEvent[]): OpenFileState {
   return events.reduce(openFileReducer, state);
 }
 
-const opened = run(initialOpenFile("src/a.ts"), {
+const WS = { hostId: "local", path: "/repo" };
+const OTHER_WS = { hostId: "local", path: "/repo-feature" };
+
+const opened = run(initialOpenFile(WS, "src/a.ts"), {
   type: "read",
   content: "one",
   hash: "h1",
@@ -134,12 +137,45 @@ describe("openFileReducer", () => {
     expect(next).toMatchObject({ saving: false, saveError: "Disk full", dirty: true });
   });
 
-  it("a dirty file that can no longer be read is gone; a clean one shows why", () => {
-    expect(run(dirty, { type: "read-failed", message: "Binary" }).conflict).toEqual({ kind: "gone" });
+  it("a dirty file that is not found is gone; a clean one shows why it can't be read", () => {
+    expect(
+      run(dirty, { type: "read-failed", message: "No such file", reason: "not-found" }).conflict,
+    ).toEqual({ kind: "gone" });
     expect(run(opened, { type: "read-failed", message: "Binary" })).toMatchObject({
       status: "failed",
       message: "Binary",
     });
+  });
+
+  it("any other failed re-read under your edits is a retryable error, not gone", () => {
+    const keptMine = run(
+      dirty,
+      { type: "read", content: "theirs", hash: "h2", reason: "changed" },
+      { type: "keep-mine" },
+    );
+    for (const failure of [
+      { type: "read-failed", message: "Host unreachable" } as const,
+      { type: "read-failed", message: "Binary", reason: "binary" } as const,
+    ]) {
+      const next = run(keptMine, failure);
+      expect(next).toMatchObject({
+        conflict: null,
+        dirty: true,
+        readError: failure.message,
+        // A save still refuses to overwrite anything but what it expects.
+        expectedHash: "h2",
+      });
+      // Retry reads it back: the error goes, the edits stay.
+      expect(
+        run(next, { type: "read", content: "theirs", hash: "h2", reason: "changed" }),
+      ).toMatchObject({ readError: null, dirty: true, conflict: null });
+    }
+  });
+
+  it("Discard moves the clean copy's version, so the editor drops the edits too", () => {
+    const next = run(dirty, { type: "stash-draft", draft: "x" }, { type: "discard" });
+    expect(next).toMatchObject({ dirty: false, draft: null, baseVersion: dirty.baseVersion + 1 });
+    expect(run(opened, { type: "discard" })).toBe(opened);
   });
 
   it("asks before opening another file only while dirty", () => {
@@ -175,14 +211,24 @@ describe("diskChangeAction", () => {
 describe("resumeOpenFile", () => {
   it("keeps unsaved edits to the same file across a remount", () => {
     const stashed = run(dirty, { type: "stash-draft", draft: "one!" });
-    const resumed = resumeOpenFile(stashed, "src/a.ts");
+    const resumed = resumeOpenFile(stashed, WS, "src/a.ts");
     expect(resumed).toMatchObject({ dirty: true, draft: "one!", expectedHash: "h1" });
   });
 
   it("starts fresh for another file or a clean one, carrying the flash count", () => {
     const reloaded = run(opened, { type: "read", content: "two", hash: "h2", reason: "changed" });
-    expect(resumeOpenFile(reloaded, "src/a.ts")).toEqual(initialOpenFile("src/a.ts", 1));
+    expect(resumeOpenFile(reloaded, WS, "src/a.ts")).toEqual(
+      initialOpenFile(WS, "src/a.ts", 1),
+    );
     const stashed = run(dirty, { type: "stash-draft", draft: "x" });
-    expect(resumeOpenFile(stashed, "src/b.ts").status).toBe("loading");
+    expect(resumeOpenFile(stashed, WS, "src/b.ts").status).toBe("loading");
+  });
+
+  it("never resumes a draft against the same path in another workspace", () => {
+    const stashed = run(dirty, { type: "stash-draft", draft: "x" });
+    const resumed = resumeOpenFile(stashed, OTHER_WS, "src/a.ts");
+    expect(resumed).toMatchObject({ status: "loading", dirty: false, draft: null });
+    expect(resumed.workspace).toEqual(OTHER_WS);
+    expect(resumeOpenFile(stashed, { ...WS, hostId: "box" }, "src/a.ts").dirty).toBe(false);
   });
 });

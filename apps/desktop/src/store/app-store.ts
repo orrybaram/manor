@@ -26,7 +26,7 @@ import {
   layoutLeaves,
   layoutPaneIds,
 } from "../lib/layout/workspace-layout";
-import type { LayoutCommand } from "../lib/layout/commands";
+import { applyLayoutCommand, type LayoutCommand } from "../lib/layout/commands";
 import { createTab, newPaneId, newPanelId, newTabId } from "../lib/layout/ids";
 import {
   cloneTabWithFreshIds,
@@ -76,6 +76,7 @@ import { bootAndResync } from "../bridge/resync";
 import { ipcErrorMessage } from "../lib/ipc-error";
 import { useRemotePaneStore } from "./remote-pane-store";
 import { hasUnsavedEdits } from "./open-file-store";
+import { guardUnsavedEdits } from "./unsaved-guard-store";
 import {
   type SnapshotResult,
   adoptLayout,
@@ -1280,6 +1281,31 @@ function refuseLayoutWrite(err: unknown): boolean {
  * version that did not move past the one held when the command went out is
  * how that is told.
  */
+/**
+ * Send a command that closes panes, once the file panes among them have no
+ * unsaved edits: with some, the unsaved-edits confirm asks first.
+ */
+function sendClosingCommand(workspacePath: string, command: LayoutCommand): void {
+  const layout = useAppStore.getState().workspaceLayouts[workspacePath];
+  const closing = layout
+    ? applyLayoutCommand({ layout, closedStack: [] }, command).killPanes
+    : [];
+  guardUnsavedEdits(closing, "close", () => sendLayoutCommand(workspacePath, command));
+}
+
+const ACTIVE_AGENT_STATUSES = ["thinking", "working", "requires_input"];
+
+/** Whether an agent is working, thinking or waiting on you in any of `paneIds`. */
+export function selectAgentRunningIn(
+  state: Pick<AppState, "paneAgentStatus">,
+  paneIds: readonly string[],
+): boolean {
+  return paneIds.some((paneId) => {
+    const agent = state.paneAgentStatus[paneId];
+    return agent !== undefined && ACTIVE_AGENT_STATUSES.includes(agent.status);
+  });
+}
+
 function sendLayoutCommand(
   workspacePath: string,
   command: LayoutCommand,
@@ -1896,14 +1922,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (path) sendLayoutCommand(path, { type: "close-tab", tabId });
   },
 
+  // Unsaved edits in any of the tabs going ask first.
   closeOtherTabs: (tabId: string) => {
     const path = activeLayoutKey(get());
-    if (path) sendLayoutCommand(path, { type: "close-other-tabs", tabId });
+    if (path) sendClosingCommand(path, { type: "close-other-tabs", tabId });
   },
 
   closeTabsToRight: (tabId: string) => {
     const path = activeLayoutKey(get());
-    if (path) sendLayoutCommand(path, { type: "close-tabs-to-right", tabId });
+    if (path) sendClosingCommand(path, { type: "close-tabs-to-right", tabId });
   },
 
   // ── Viewport ──
@@ -2116,17 +2143,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!tab) return;
 
 
-    const activeStatuses = ["thinking", "working", "requires_input"];
     // A running agent, or a file pane's unsaved edits, ask first.
-    const needsConfirm = allPaneIds(tab.rootNode).some((pid) => {
-      const agentState = state.paneAgentStatus[pid];
-      return (
-        (agentState && activeStatuses.includes(agentState.status)) ||
-        hasUnsavedEdits(pid)
-      );
-    });
-
-    if (needsConfirm) {
+    const paneIds = allPaneIds(tab.rootNode);
+    if (selectAgentRunningIn(state, paneIds) || paneIds.some(hasUnsavedEdits)) {
       set({ pendingCloseConfirmTabId: tabId });
     } else {
       get().closeTab(tabId);
@@ -2139,14 +2158,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   requestClosePaneById: (paneId: string) => {
-    const state = get();
-    const agentState = state.paneAgentStatus[paneId];
-    const activeStatuses = ["thinking", "working", "requires_input"];
     // A running agent, or a file pane's unsaved edits, ask first.
-    if (
-      (agentState && activeStatuses.includes(agentState.status)) ||
-      hasUnsavedEdits(paneId)
-    ) {
+    if (selectAgentRunningIn(get(), [paneId]) || hasUnsavedEdits(paneId)) {
       set({ pendingCloseConfirmPaneId: paneId });
     } else {
       get().closePaneById(paneId);
@@ -2405,7 +2418,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   closePanel: (panelId: string) => {
     const path = activeLayoutKey(get());
     if (!path) return;
-    sendLayoutCommand(path, { type: "close-panel", panelId });
+    sendClosingCommand(path, { type: "close-panel", panelId });
   },
 
   // Runs on every click inside a panel (LeafPanel onClick): an already-active

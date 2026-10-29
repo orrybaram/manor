@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { useAppStore } from "../app-store";
 import { useOpenFileStore } from "../open-file-store";
+import { answerUnsavedGuard, useUnsavedGuardStore } from "../unsaved-guard-store";
 import type { WorkspaceLayout, Tab, Panel } from "../app-store";
 import {
   resetFakeLayoutServer,
@@ -121,11 +122,12 @@ describe("closePaneById leaves the agent to the server", () => {
 describe("closing a file pane with unsaved edits asks first", () => {
   beforeEach(() => {
     useOpenFileStore.setState({ byPane: {} });
+    useUnsavedGuardStore.setState({ request: null, saving: false });
   });
 
   function editPane(paneId: string) {
     const files = useOpenFileStore.getState();
-    files.open(paneId, "src/a.ts");
+    files.open(paneId, { hostId: "local", path: WS_PATH }, "src/a.ts");
     files.dispatch(paneId, { type: "read", content: "a", hash: "h", reason: "open" });
     files.dispatch(paneId, { type: "edited", dirty: true });
   }
@@ -151,5 +153,80 @@ describe("closing a file pane with unsaved edits asks first", () => {
     useAppStore.getState().requestCloseTab("tab-1");
     expect(useAppStore.getState().pendingCloseConfirmTabId).toBe("tab-1");
     expect(sentCommands).toEqual([]);
+  });
+});
+
+/** Three tabs in one panel: tab-1 (pane-1), tab-2 (pane-2), tab-3 (pane-3). */
+function makeThreeTabLayout(): WorkspaceLayout {
+  const tab = (n: number): Tab => ({
+    id: `tab-${n}`,
+    title: "Terminal",
+    rootNode: { type: "leaf", paneId: `pane-${n}` },
+  });
+  const panel: Panel = { id: "panel-1", tabs: [tab(1), tab(2), tab(3)], pinnedTabIds: [] };
+  return { panelTree: { type: "leaf", panelId: "panel-1" }, panels: { "panel-1": panel } };
+}
+
+describe("closing several tabs, or a panel, over unsaved edits asks first", () => {
+  beforeEach(() => {
+    useOpenFileStore.setState({ byPane: {} });
+    useUnsavedGuardStore.setState({ request: null, saving: false });
+  });
+
+  function editPane(paneId: string, path: string) {
+    const files = useOpenFileStore.getState();
+    files.open(paneId, { hostId: "local", path: WS_PATH }, path);
+    files.dispatch(paneId, { type: "read", content: "a", hash: "h", reason: "open" });
+    files.dispatch(paneId, { type: "edited", dirty: true });
+  }
+
+  it("Close Other Tabs waits on the confirm, naming the tabs' files, and Discard goes ahead", async () => {
+    setupStore(makeThreeTabLayout());
+    editPane("pane-2", "src/b.ts");
+    editPane("pane-3", "src/c.ts");
+
+    useAppStore.getState().closeOtherTabs("tab-1");
+    expect(sentCommands).toEqual([]);
+    expect(useUnsavedGuardStore.getState().request).toMatchObject({
+      verb: "close",
+      paneIds: ["pane-2", "pane-3"],
+    });
+
+    await answerUnsavedGuard("discard");
+    expect(useUnsavedGuardStore.getState().request).toBeNull();
+    expect(useOpenFileStore.getState().byPane["pane-2"].dirty).toBe(false);
+    expect(sentCommands).toEqual([
+      { workspacePath: WS_PATH, command: { type: "close-other-tabs", tabId: "tab-1" } },
+    ]);
+  });
+
+  it("Cancel closes nothing and keeps the edits", async () => {
+    setupStore(makeThreeTabLayout());
+    editPane("pane-3", "src/c.ts");
+
+    useAppStore.getState().closeTabsToRight("tab-2");
+    await answerUnsavedGuard("cancel");
+    expect(sentCommands).toEqual([]);
+    expect(useOpenFileStore.getState().byPane["pane-3"].dirty).toBe(true);
+  });
+
+  it("asks only about the tabs that are closing", () => {
+    setupStore(makeThreeTabLayout());
+    editPane("pane-1", "src/a.ts");
+
+    useAppStore.getState().closeTabsToRight("tab-1");
+    expect(useUnsavedGuardStore.getState().request).toBeNull();
+    expect(sentCommands).toEqual([
+      { workspacePath: WS_PATH, command: { type: "close-tabs-to-right", tabId: "tab-1" } },
+    ]);
+  });
+
+  it("Close Panel asks about every tab in it", () => {
+    setupStore(makeThreeTabLayout());
+    editPane("pane-2", "src/b.ts");
+
+    useAppStore.getState().closePanel("panel-1");
+    expect(sentCommands).toEqual([]);
+    expect(useUnsavedGuardStore.getState().request?.paneIds).toEqual(["pane-2"]);
   });
 });

@@ -1,12 +1,23 @@
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import Folder from "lucide-react/dist/esm/icons/folder";
 import GitBranch from "lucide-react/dist/esm/icons/git-branch";
-import { useAppStore, usePaneFilePath, selectHasPane } from "../../../store/app-store";
-import { useOpenFileStore, hasUnsavedEdits } from "../../../store/open-file-store";
+import {
+  useAppStore,
+  usePaneFilePath,
+  selectHasPane,
+  selectPaneContentType,
+} from "../../../store/app-store";
+import {
+  useOpenFileStore,
+  hasUnsavedEdits,
+  noteDiskChangeDuringSave,
+  registerOpenFileEditor,
+  saveOpenFile,
+} from "../../../store/open-file-store";
 import { LOCAL_HOST_ID } from "../../../lib/workspace-key";
 import { getPlatform } from "../../../lib/keybindings";
+import { isWebApp } from "../../../lib/platform";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import { useLayoutMode } from "../../../hooks/useLayoutMode";
 import { ipcErrorMessage } from "../../../lib/ipc-error";
 import { fileTitle } from "../../../lib/pane-title";
 import { Tooltip } from "../../ui/Tooltip/Tooltip";
@@ -15,7 +26,12 @@ import type { CodeEditorRef } from "./CodeEditor/CodeEditor";
 import { FileDrawer } from "./FileDrawer/FileDrawer";
 import { openFileWatches, type FilesWorkspace } from "./open-file-watches";
 import { createLatestOnly } from "./latest-only";
-import { diskChangeAction, type OpenFileEvent, type OpenFileState } from "./open-file-state";
+import {
+  diskChangeAction,
+  sameWorkspace,
+  type OpenFileEvent,
+  type OpenFileState,
+} from "./open-file-state";
 import styles from "./FilePane.module.css";
 
 // CodeMirror is its own chunk: nothing loads it until a file pane opens a file.
@@ -40,12 +56,14 @@ type Drawer = "files" | null;
  * Files button opens the workspace's tree in a drawer over the editor. The
  * open file lives on the pane's leaf (`setPaneFilePath`), so it is the same
  * in every window and after a relaunch; its unsaved edits live in
- * `open-file-store`, so a remount keeps them. The phone shows it read-only.
+ * `open-file-store`, so a remount keeps them. The phone (the web client)
+ * shows it read-only; a narrow desktop window still edits.
  */
 export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
   const filePath = usePaneFilePath(paneId);
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
-  const readOnly = useLayoutMode() === "phone";
+  // Read-only is the web client's, whatever the window's width.
+  const readOnly = isWebApp();
   // A pane with nothing open starts on its tree.
   const [drawer, setDrawer] = useState<Drawer>(() => (filePath ? null : "files"));
   const workspace = useMemo<FilesWorkspace | null>(
@@ -54,9 +72,11 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     [workspacePath, hostId],
   );
 
-  // A split rebuilds the pane, so its edits outlive the mount; a closed pane's go.
+  // A split rebuilds the pane, so its edits outlive the mount; a closed
+  // pane's go, and so do those of a pane that is no longer a file pane.
   useMountEffect(() => () => {
-    if (!selectHasPane(useAppStore.getState(), paneId)) {
+    const app = useAppStore.getState();
+    if (!selectHasPane(app, paneId) || selectPaneContentType(app, paneId) !== "file") {
       useOpenFileStore.getState().drop(paneId);
     }
   });
@@ -166,6 +186,7 @@ function useFileAuthor(_workspace: FilesWorkspace, _path: string): string | null
 type OpenFileActions = {
   save: () => Promise<boolean>;
   reloadTheirs: () => void;
+  retryRead: () => void;
   compare: () => void;
 };
 
@@ -192,7 +213,8 @@ function OpenFile({
 }) {
   const stored = useOpenFileStore((s) => s.byPane[paneId]);
   // Until this mount has opened `path`, the pane may still hold the last file.
-  const state = stored?.path === path ? stored : null;
+  const state =
+    stored?.path === path && sameWorkspace(stored.workspace, workspace) ? stored : null;
   const setPaneFilePath = useAppStore((s) => s.setPaneFilePath);
   const author = useFileAuthor(workspace, path);
   const editorRef = useRef<CodeEditorRef>(null);
@@ -206,15 +228,21 @@ function OpenFile({
     const dispatch = (event: OpenFileEvent) => store().dispatch(paneId, event);
     const current = (): OpenFileState | null => {
       const s = store().byPane[paneId];
-      return s?.path === path ? s : null;
+      return s?.path === path && sameWorkspace(s.workspace, workspace) ? s : null;
     };
-    store().open(paneId, path);
+    store().open(paneId, workspace, path);
 
-    // A clean reload, or Reload theirs: the editor shows the new clean copy.
+    // A clean reload, Reload theirs or Discard: the editor shows the clean
+    // copy at once, so it never holds edits the store has dropped.
     const stopFollowing = useOpenFileStore.subscribe((next, prev) => {
       const a = next.byPane[paneId];
       const b = prev.byPane[paneId];
-      if (a?.path === path && b && a.baseVersion !== b.baseVersion) {
+      if (
+        a?.path === path &&
+        sameWorkspace(a.workspace, workspace) &&
+        b &&
+        a.baseVersion !== b.baseVersion
+      ) {
         editorRef.current?.replaceContent(a.base);
       }
     });
@@ -229,7 +257,7 @@ function OpenFile({
         if (result.ok) {
           dispatch({ type: "read", content: result.content, hash: result.hash, reason });
         } else {
-          dispatch({ type: "read-failed", message: result.message });
+          dispatch({ type: "read-failed", message: result.message, reason: result.reason });
         }
       } catch (err) {
         if (live && reads.isLatest(ticket)) {
@@ -238,8 +266,6 @@ function OpenFile({
       }
     };
 
-    // A change reported mid-save waits until the save says what it wrote.
-    let afterSave: { hash: string | null } | null = null;
     const onDiskChange = (hash: string | null) => {
       const s = current();
       if (!s) return;
@@ -247,7 +273,8 @@ function OpenFile({
         case "ignore":
           return;
         case "after-save":
-          afterSave = { hash };
+          // The save, wherever it was started, judges it once it answers.
+          noteDiskChangeDuringSave(paneId, hash);
           return;
         case "gone":
           dispatch({ type: "gone" });
@@ -257,38 +284,27 @@ function OpenFile({
       }
     };
 
+    // The store does the write, so its answer lands even if this mount is
+    // gone by then; this mount only lends it the editor.
+    const stopEditor = registerOpenFileEditor(paneId, {
+      workspace,
+      path,
+      content: () => editorRef.current?.content() ?? null,
+      markClean: (written) => editorRef.current?.markClean(written) ?? false,
+      diskChanged: (hash) => {
+        if (live) onDiskChange(hash);
+      },
+    });
+
     const save = async (): Promise<boolean> => {
-      const editor = editorRef.current;
-      const s = current();
-      if (readOnly || !editor || !s || s.status !== "ready" || s.saving) return false;
-      const content = editor.content();
-      dispatch({ type: "save-started" });
-      let saved = false;
-      try {
-        const result = await files.write(workspace, path, content, s.expectedHash ?? undefined);
-        if (!live) return false;
-        if (result.ok) {
-          const dirty = editorRef.current?.markClean(content) ?? false;
-          dispatch({ type: "saved", content, hash: result.hash, dirty });
-          saved = true;
-        } else if (result.reason === "changed-on-disk") {
-          dispatch({ type: "save-conflict", diskHash: result.diskHash ?? null });
-        } else {
-          dispatch({ type: "save-failed", message: result.message });
-        }
-      } catch (err) {
-        if (!live) return false;
-        dispatch({ type: "save-failed", message: ipcErrorMessage(err) });
-      }
-      const pending = afterSave;
-      afterSave = null;
-      if (pending) onDiskChange(pending.hash);
-      return saved;
+      if (readOnly || !editorRef.current) return false;
+      return saveOpenFile(paneId);
     };
 
     actions.current = {
       save,
       reloadTheirs: () => void read("reload"),
+      retryRead: () => void read("changed"),
       compare: () => {
         const mine = editorRef.current?.content() ?? "";
         setComparison(null);
@@ -325,6 +341,7 @@ function OpenFile({
     return () => {
       live = false;
       actions.current = null;
+      stopEditor();
       stopListening();
       stopFollowing();
       openFileWatches.set(workspace, paneId, null);
@@ -451,6 +468,20 @@ function OpenFile({
               Keep mine
             </Button>
           </Tooltip>
+        </div>
+      )}
+      {state.readError !== null && (
+        <div className={styles.banner} data-testid="file-pane-read-error" role="alert">
+          <span className={styles.barMsg}>
+            Couldn't re-read the file: {state.readError.replace(/\.$/, "")}.
+          </span>
+          <Button
+            size="sm"
+            data-testid="file-pane-read-retry"
+            onClick={() => actions.current?.retryRead()}
+          >
+            Retry
+          </Button>
         </div>
       )}
       {state.saveError !== null && (

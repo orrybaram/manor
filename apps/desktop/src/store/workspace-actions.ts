@@ -10,14 +10,58 @@ import { useProjectStore } from "./project-store";
 import { addErrorToast, useToastStore } from "./toast-store";
 import type { ProjectInfo, WorkspaceInfo } from "./project-store";
 import { ipcErrorMessage } from "../lib/ipc-error";
+import { allPaneIds } from "../lib/layout/pane-tree";
+import { findPanelWithTab } from "../lib/layout/workspace-layout";
+import { dirtyPaneIds, useOpenFileStore } from "./open-file-store";
+import { confirmUnsavedEdits, type UnsavedGuardVerb } from "./unsaved-guard-store";
+
+/** Every pane of the workspace `key`'s layout in this window. */
+function panesOfWorkspace(key: WorkspaceKey): string[] {
+  const layout = useAppStore.getState().workspaceLayouts[key];
+  if (!layout) return [];
+  return Object.values(layout.panels).flatMap((panel) =>
+    panel.tabs.flatMap((tab) => allPaneIds(tab.rootNode)),
+  );
+}
+
+/**
+ * Run `go` once none of `paneIds` has unsaved edits: synchronously when they
+ * have none, else after the unsaved-edits confirm. Resolves to `go`'s answer,
+ * or `cancelled` on Cancel.
+ */
+function afterUnsavedEdits<T>(
+  paneIds: readonly string[],
+  verb: UnsavedGuardVerb,
+  go: () => T | Promise<T>,
+  cancelled: T,
+): Promise<T> {
+  if (dirtyPaneIds(useOpenFileStore.getState(), paneIds).length === 0) {
+    return Promise.resolve(go());
+  }
+  return confirmUnsavedEdits(paneIds, verb).then((ok) => (ok ? go() : cancelled));
+}
 
 /**
  * Remove a worktree: immediately switch away (if active), clean up tabs,
  * show a progress toast, and tear down in the background. Resolves to
  * whether the worktree was removed — git refuses a locked one, say — so a
- * caller showing the row as deleting can put it back.
+ * caller showing the row as deleting can put it back. Unsaved edits in its
+ * file panes ask first; Cancel resolves false.
  */
 export function removeWorktreeWithToast(
+  project: ProjectInfo,
+  ws: WorkspaceInfo,
+  deleteBranch?: boolean,
+): Promise<boolean> {
+  return afterUnsavedEdits(
+    panesOfWorkspace(workspaceKey(project.hostId, ws.path)),
+    "remove",
+    () => removeWorktreeNow(project, ws, deleteBranch),
+    false,
+  );
+}
+
+function removeWorktreeNow(
   project: ProjectInfo,
   ws: WorkspaceInfo,
   deleteBranch?: boolean,
@@ -135,12 +179,21 @@ export async function removeWorktreesWithToast(
 /**
  * Quick-merge a worktree into the default branch: immediately switch away
  * (if active), clean up tabs, show a progress toast, and merge in the
- * background.
+ * background. Unsaved edits in its file panes ask first.
  */
 export function quickMergeWorktreeWithToast(
   project: ProjectInfo,
   ws: WorkspaceInfo,
 ): void {
+  void afterUnsavedEdits(
+    panesOfWorkspace(workspaceKey(project.hostId, ws.path)),
+    "merge",
+    () => quickMergeNow(project, ws),
+    undefined,
+  );
+}
+
+function quickMergeNow(project: ProjectInfo, ws: WorkspaceInfo): void {
   const appStore = useAppStore.getState();
   const projectStore = useProjectStore.getState();
   const toastStore = useToastStore.getState();
@@ -256,6 +309,10 @@ export async function moveToWorkspaceAndFollow(
   target: { paneId: string } | { tabId: string },
   to: WorkspaceKey,
 ): Promise<void> {
+  // The move takes the panes out of this layout and into another, and their
+  // unsaved edits would not follow: save or discard them first.
+  const ok = await afterUnsavedEdits(panesOfMoveTarget(from, target), "move", () => true, false);
+  if (!ok) return;
   let result: WorkspaceMoveResult;
   try {
     result = await window.electronAPI.layout.moveToWorkspace(from, target, to);
@@ -281,4 +338,15 @@ export async function moveToWorkspaceAndFollow(
     tabId: result.tabId,
     paneId: result.paneId,
   });
+}
+
+/** The panes a move of `target` out of `from` takes along. */
+function panesOfMoveTarget(
+  from: WorkspaceKey,
+  target: { paneId: string } | { tabId: string },
+): string[] {
+  if ("paneId" in target) return [target.paneId];
+  const layout = useAppStore.getState().workspaceLayouts[from];
+  const found = layout ? findPanelWithTab(layout, target.tabId) : null;
+  return found ? allPaneIds(found.tab.rootNode) : [];
 }

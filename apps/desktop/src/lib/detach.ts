@@ -18,6 +18,8 @@
 import { useAppStore, OWN_CLAIM } from "../store/app-store";
 import { useRemotePaneStore } from "../store/remote-pane-store";
 import { addErrorToast } from "../store/toast-store";
+import { dirtyPaneIds, useOpenFileStore } from "../store/open-file-store";
+import { confirmUnsavedEdits, guardUnsavedEdits } from "../store/unsaved-guard-store";
 import { allPaneIds } from "./layout/pane-tree";
 import {
   findPanelWithPane,
@@ -89,11 +91,17 @@ export function hasOwnClaim(): boolean {
  * size of the one tab it shows.
  */
 export function panesInOwnClaim(): number {
-  if (!OWN_CLAIM) return 0;
-  const layout = useAppStore.getState().workspaceLayouts[OWN_CLAIM.workspacePath];
-  if (!layout) return 0;
-  const found = findPanelWithTab(layout, OWN_CLAIM.tabId);
-  return found ? allPaneIds(found.tab.rootNode).length : 0;
+  return panesOfOwnClaim().length;
+}
+
+/**
+ * Whether `paneIds` may leave this window: their file panes' unsaved edits
+ * live in this window's memory only, so with any, the unsaved-edits confirm
+ * has them saved or discarded first. True at once when there are none.
+ */
+async function readyToLeave(paneIds: readonly string[]): Promise<boolean> {
+  if (dirtyPaneIds(useOpenFileStore.getState(), paneIds).length === 0) return true;
+  return confirmUnsavedEdits(paneIds, "move");
 }
 
 /**
@@ -109,6 +117,7 @@ export async function detachTabToNewWindow(
     if (!workspacePath) return;
     const layout = useAppStore.getState().workspaceLayouts[workspacePath];
     const found = layout ? findPanelWithTab(layout, tabId) : null;
+    if (found && !(await readyToLeave(allPaneIds(found.tab.rootNode)))) return;
     await openClaimWindow(workspacePath, tabId, spawnBounds);
     if (found) forgetPanes(allPaneIds(found.tab.rootNode));
   } catch (err) {
@@ -139,6 +148,7 @@ export async function movePaneToNewWindow(
     // the server has not made yet is kept, not dropped.
     const workspacePath = workspaceOfPane(paneId);
     if (!workspacePath) return;
+    if (!(await readyToLeave([paneId]))) return;
     const tabId = useAppStore.getState().extractPaneToTab(paneId);
     if (!tabId) return;
     extracted = true;
@@ -166,5 +176,14 @@ export async function movePaneToNewWindow(
  * tab again — same panes, same sessions, nothing re-attached.
  */
 export function returnToPrimaryWindow(): void {
-  window.electronAPI.window.closeSelf();
+  // This window's unsaved edits die with it: save or discard them first.
+  guardUnsavedEdits(panesOfOwnClaim(), "move", () => window.electronAPI.window.closeSelf());
+}
+
+/** Every pane of the tab this window claims. */
+function panesOfOwnClaim(): string[] {
+  if (!OWN_CLAIM) return [];
+  const layout = useAppStore.getState().workspaceLayouts[OWN_CLAIM.workspacePath];
+  const found = layout ? findPanelWithTab(layout, OWN_CLAIM.tabId) : null;
+  return found ? allPaneIds(found.tab.rootNode) : [];
 }

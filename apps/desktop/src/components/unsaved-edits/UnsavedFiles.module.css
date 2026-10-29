@@ -1,0 +1,13 @@
+.list {
+  margin: 6px 0 0;
+  padding: 0 0 0 18px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.file {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-selected);
+  overflow-wrap: anywhere;
+}

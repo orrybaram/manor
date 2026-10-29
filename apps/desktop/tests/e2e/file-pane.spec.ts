@@ -284,3 +284,79 @@ test("the file pane edits, saves, asks before swapping, creates files and settle
     .poll(() => fs.readFileSync(path.join(ws, "src", "made", "new-file.ts"), "utf8"))
     .toBe("export const made = true;");
 });
+
+test("the file pane asks before converting or closing over unsaved edits, and a narrow window still edits", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-file-guard");
+  const termId = await activePaneId(window);
+  await awaitShellReady(window, tempHome, termId);
+
+  await runInTerminal(window, "pwd > \"$HOME/ws-path\"");
+  await expect.poll(() => fs.existsSync(path.join(tempHome, "ws-path"))).toBe(true);
+  const ws = fs.readFileSync(path.join(tempHome, "ws-path"), "utf8").trim();
+  const widget = path.join(ws, "src", "components", "Widget.tsx");
+  fs.mkdirSync(path.dirname(widget), { recursive: true });
+  fs.writeFileSync(widget, WIDGET);
+  const onDisk = () => fs.readFileSync(widget, "utf8");
+
+  // Open File… makes a tab of its own, beside the terminal's.
+  await window.keyboard.press("ControlOrMeta+k");
+  await window.locator("[cmdk-input]").fill("Open File");
+  await window.locator("[cmdk-item]", { hasText: "Open File" }).first().click();
+  await expect(pane(window)).toBeVisible();
+  await openFromTree(window, ["src", "components", "Widget.tsx"]);
+  const editor = pane(window).locator('[data-testid="file-pane-editor"]');
+  await expect(editor).toContainText("Clicked {count} times");
+  const dirtyDot = header(window).locator('[data-testid="file-pane-dirty"]');
+  await typeAtEnd(window, "// unsaved");
+  await expect(dirtyDot).toBeVisible();
+
+  // Convert to › Terminal on the dirty pane: the confirm, and Cancel keeps it all.
+  const dialog = window.locator('[data-testid="unsaved-edits-dialog"]');
+  await header(window).locator("[draggable]").first().click({ button: "right" });
+  await window.getByRole("menuitem", { name: "Convert to" }).hover();
+  await window.getByRole("menuitem", { name: "Terminal" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Unsaved changes to Widget.tsx");
+  await expect(dialog.locator('[data-testid="unsaved-edits-save"]')).toHaveText("Save and convert");
+  await expect(dialog.locator('[data-testid="unsaved-edits-discard"]')).toHaveText(
+    "Discard and convert",
+  );
+  await window.waitForTimeout(300);
+  await window.screenshot({ path: shot(testInfo, "convert-confirm") });
+  await dialog.locator('[data-testid="unsaved-edits-cancel"]').click();
+  await expect(dialog).toHaveCount(0);
+  await expect(pane(window)).toBeVisible();
+  await expect(editor).toContainText("// unsaved");
+  await expect(dirtyDot).toBeVisible();
+
+  // Close Other Tabs from the terminal's tab would close the file's: the
+  // confirm again, and Cancel closes nothing.
+  const tabs = window.locator('[data-testid="tab"]:visible');
+  await expect(tabs).toHaveCount(2);
+  await tabs.first().click({ button: "right" });
+  await window.getByRole("menuitem", { name: "Close Other Tabs" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Unsaved changes to Widget.tsx");
+  await expect(dialog.locator('[data-testid="unsaved-edits-discard"]')).toHaveText(
+    "Discard and close",
+  );
+  await window.screenshot({ path: shot(testInfo, "close-other-tabs-confirm") });
+  await dialog.locator('[data-testid="unsaved-edits-cancel"]').click();
+  await expect(tabs).toHaveCount(2);
+  expect(onDisk()).not.toContain("// unsaved");
+
+  // A narrow desktop window is no phone: the file pane still edits and saves.
+  await tabs.nth(1).click();
+  await window.setViewportSize({ width: 700, height: 800 });
+  await expect(pane(window)).toBeVisible();
+  await expect(editor.locator(".cm-content")).toHaveAttribute("contenteditable", "true");
+  await typeAtEnd(window, "// narrow");
+  await window.keyboard.press("ControlOrMeta+s");
+  await expect.poll(onDisk).toContain("// unsaved// narrow");
+  await window.screenshot({ path: shot(testInfo, "narrow-window-editable") });
+});

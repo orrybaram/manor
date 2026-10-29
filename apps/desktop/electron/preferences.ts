@@ -162,14 +162,21 @@ export class PreferencesManager {
     if (this.saveTimer !== null) {
       clearTimeout(this.saveTimer);
     }
-    this.saveTimer = setTimeout(() => {
+    this.saveTimer = setTimeout(() => this.flush(), 500);
+  }
+
+  /**
+   * Write now rather than after the debounce — for a setting whose lost
+   * write matters (`remoteControlOnLaunch`: switched off, then quit at once,
+   * must not come back on).
+   */
+  flush(): void {
+    if (this.saveTimer !== null) {
+      clearTimeout(this.saveTimer);
       this.saveTimer = null;
-      fs.mkdirSync(this.dataDir, { recursive: true });
-      fs.writeFileSync(
-        this.prefsFilePath(),
-        JSON.stringify(this.prefs, null, 2),
-      );
-    }, 500);
+    }
+    fs.mkdirSync(this.dataDir, { recursive: true });
+    fs.writeFileSync(this.prefsFilePath(), JSON.stringify(this.prefs, null, 2));
   }
 
   get<K extends keyof AppPreferences>(key: K): AppPreferences[K] {

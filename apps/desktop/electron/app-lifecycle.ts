@@ -381,7 +381,12 @@ export function initApp(devTitle: string | null): void {
       hostPushEndpoints: (hostId) => hostServerSync.pushEndpoints(hostId),
       startOnLaunch: {
         get: () => shared.preferencesManager.get("remoteControlOnLaunch"),
-        set: (on) => shared.preferencesManager.set("remoteControlOnLaunch", on),
+        // Written through at once: an "off" lost to a quick quit would bring
+        // remote control back at the next launch.
+        set: (on) => {
+          shared.preferencesManager.set("remoteControlOnLaunch", on);
+          shared.preferencesManager.flush();
+        },
       },
     });
 

@@ -127,7 +127,11 @@ export function ThisMacRow() {
             data-testid="remote-control-on-launch"
             aria-label="Turn on remote control when Manor opens"
             checked={status.startOnLaunch}
-            disabled={locked}
+            // Unlike the main switch, never stuck on: with the keychain gone
+            // it can still be turned off, just not on.
+            disabled={
+              isWebApp() || busy || (!status.encryptionAvailable && !status.startOnLaunch)
+            }
             onCheckedChange={(on) => void setStartOnLaunch(on)}
           />
         </SettingRow>

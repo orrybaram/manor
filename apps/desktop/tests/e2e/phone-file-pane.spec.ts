@@ -28,7 +28,6 @@ function shot(testInfo: TestInfo, name: string): string {
   return testInfo.outputPath(`${name}.png`);
 }
 
-const NO_GIT = "Git isn't available from the browser yet";
 
 const pane = (page: Page) => page.locator('[data-testid="file-pane"]:visible');
 
@@ -153,20 +152,15 @@ relayTest("a phone shows a file pane read-only, follows the file on disk, and op
     expect(editorBox!.x).toBeLessThan(scmBox!.x + scmBox!.width);
     expect(editorBox!.x + editorBox!.width).toBeGreaterThan(scmBox!.x + scmBox!.width);
 
-    // Git's buttons are there but off, and say why.
+    // Git's buttons are there but off. (Their "why" is a hover tooltip, which
+    // a touch screen never raises.)
     await expect(scmRow.locator('[data-testid="scm-stage"]')).toHaveAttribute("aria-disabled", "true");
     await expect(scmRow.locator('[data-testid="scm-discard"]')).toHaveAttribute("aria-disabled", "true");
     const commit = drawer.locator('[data-testid="scm-commit"]');
     await expect(commit).toHaveAttribute("aria-disabled", "true");
     await expect(drawer.locator('[data-testid="scm-commit-message"]')).toHaveAttribute("readonly", "");
     await expect(drawer.locator('[data-testid="scm-commit-menu"]')).toHaveAttribute("aria-disabled", "true");
-    await commit.hover();
-    await expect(page.getByRole("tooltip")).toContainText(NO_GIT);
-    await page.waitForTimeout(300);
     await page.screenshot({ path: shot(testInfo, "phone-scm") });
-    // The tooltip hangs over the rows; let it go before tapping one.
-    await page.mouse.move(380, 830);
-    await expect(page.getByRole("tooltip")).toHaveCount(0);
 
     // 6. A row shows its diff, read-only; the floating drawer gets out of the way.
     await scmRow.locator("button").first().tap();

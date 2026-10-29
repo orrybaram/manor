@@ -80,6 +80,16 @@
   overflow-wrap: anywhere;
 }
 
+/* An image named in a transcript, as text: nothing is fetched. */
+.imageText {
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.markdown img {
+  max-width: 100%;
+}
+
 .markdown > :first-child {
   margin-top: 0;
 }

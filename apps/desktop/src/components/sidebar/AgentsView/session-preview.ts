@@ -21,9 +21,16 @@ export function previewRef(row: ModalRow): SessionRef | null {
   return null;
 }
 
-/** A row's preview cache key: a newer transcript is a different preview. */
-export function previewKey(row: ModalRow): string {
-  return `${row.id}@${row.session?.updatedAt ?? row.agent?.updatedAt ?? ""}`;
+/**
+ * Which conversation a row shows, the same before and after its Session
+ * joins it: an Agent and its Session share `kind:sessionId`. Status changes
+ * don't touch it.
+ */
+export function previewIdentity(row: ModalRow): string {
+  const { session, agent } = row;
+  if (session) return `${session.kind}:${session.sessionId}`;
+  if (agent?.agentSessionId) return `${agent.agentKind}:${agent.agentSessionId}`;
+  return row.id;
 }
 
 /** A map that keeps only its `max` most recently used entries. */
@@ -104,6 +111,8 @@ export function createPreviewLoader(
           });
       }, debounceMs);
     },
+    // Drops a pending ask and any answer still on its way; the loader
+    // stays usable.
     dispose() {
       latest++;
       cancel();

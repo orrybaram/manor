@@ -318,6 +318,7 @@ export function AgentsModal(props: AgentsModalProps) {
     if (!open) return;
     setQuery("");
     setProjectFilter(null);
+    setHighlightedId(null);
     setPhonePreview(false);
     setListLimit(LIST_ROWS_STEP);
   }, [open]);
@@ -376,22 +377,35 @@ export function AgentsModal(props: AgentsModalProps) {
   const focusSearch = useCallback(() => searchRef.current?.focus(), []);
 
   // A phone shows a preview only once a row is tapped.
-  const preview = useSessionPreview(highlighted, open && (!phone || phonePreview));
+  const preview = useSessionPreview(
+    highlighted,
+    open && (!phone || phonePreview),
+    highlighted ? isRowOpen(highlighted, openPaneIds) : false,
+  );
 
   /** ↵, a click and the preview's primary button: resume, or go to the pane. */
   const runPrimary = useCallback((row: ModalRow) => act(row, "resume"), [act]);
 
   const activateRow = useCallback(
     (row: ModalRow) => {
-      if (phone) {
+      if (phone && phonePreview) {
+        runPrimary(row);
+      } else if (phone) {
         setHighlightedId(row.id);
         setPhonePreview(true);
       } else {
         runPrimary(row);
       }
     },
-    [phone, runPrimary],
+    [phone, phonePreview, runPrimary],
   );
+
+  // Leaving a phone's preview returns to its row in the list.
+  const backToList = useRef(false);
+  const goBack = useCallback(() => {
+    backToList.current = true;
+    setPhonePreview(false);
+  }, []);
 
   const startRename = useCallback((agentId: string) => {
     setPhonePreview(false);
@@ -424,7 +438,7 @@ export function AgentsModal(props: AgentsModalProps) {
 
   // Rename and remove act on Agents; a Session from outside Manor has
   // neither.
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
     if (e.nativeEvent.isComposing) return;
     const index = highlighted ? rows.indexOf(highlighted) : -1;
     const agent = highlighted?.agent;
@@ -517,6 +531,49 @@ export function AgentsModal(props: AgentsModalProps) {
 
   const showPhonePreview = phone && phonePreview && highlighted !== null;
 
+  // The row a phone's preview shows left the list: back to the list, rather
+  // than showing another row's conversation under the reader's thumb.
+  const previewRowGone = phonePreview && !rows.some((r) => r.id === highlightedId);
+  useEffect(() => {
+    if (previewRowGone) goBack();
+  }, [previewRowGone, goBack]);
+
+  // Into a phone's preview, focus goes to Back; out of it, to the search
+  // box (not on a touch screen, where that would raise the keyboard), with
+  // the list scrolled to the row.
+  const backRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (showPhonePreview) {
+      backRef.current?.focus();
+    } else if (backToList.current) {
+      backToList.current = false;
+      if (highlightedId) scrollToRow(highlightedId);
+      if (!window.matchMedia?.("(pointer: coarse)").matches) searchRef.current?.focus();
+    }
+  }, [showPhonePreview, highlightedId, scrollToRow]);
+
+  // A click in the list or preview leaves the keys with the search box,
+  // unless it was in the rename input or selected some text.
+  const keepSearchFocus = (e: React.MouseEvent) => {
+    if (phone) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("input, textarea, select, [contenteditable='true']")) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement && active !== searchRef.current) return;
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) return;
+    searchRef.current?.focus({ preventScroll: true });
+  };
+
+  // In a phone's preview the keys work from wherever focus is (Back, by
+  // default); a focused button still takes its own Enter and Space.
+  const handlePreviewKeyDown = (e: React.KeyboardEvent<HTMLElement>) => {
+    if (!showPhonePreview) return;
+    const onControl = (e.target as HTMLElement).closest("button, a");
+    if (onControl && (e.key === "Enter" || e.key === " ") && !e.metaKey && !e.ctrlKey) return;
+    handleSearchKeyDown(e);
+  };
+
   // A newly highlighted row's preview starts at its top.
   const previewRef = useRef<HTMLDivElement | null>(null);
   const highlightedRowId = highlighted?.id;
@@ -539,6 +596,11 @@ export function AgentsModal(props: AgentsModalProps) {
           data-testid="agents-modal"
           data-phone-preview={showPhonePreview || undefined}
           aria-describedby={undefined}
+          onEscapeKeyDown={(e) => {
+            if (!showPhonePreview) return;
+            e.preventDefault();
+            goBack();
+          }}
           onOpenAutoFocus={(e) => {
             e.preventDefault();
             searchRef.current?.focus();
@@ -552,8 +614,8 @@ export function AgentsModal(props: AgentsModalProps) {
               ref={searchRef}
               className={styles.searchInput}
               data-testid="agents-modal-search"
-              placeholder="Search agents…"
-              aria-label="Search agents"
+              placeholder="Search sessions…"
+              aria-label="Search sessions"
               role="combobox"
               aria-expanded
               aria-controls="agents-modal-list"
@@ -635,12 +697,13 @@ export function AgentsModal(props: AgentsModalProps) {
             </div>
           )}
 
-          <div className={styles.split}>
+          <div className={styles.split} onMouseUp={keepSearchFocus}>
             <div
               ref={listRef}
               className={styles.scrollArea}
               id="agents-modal-list"
               role="listbox"
+              aria-controls={!phone || showPhonePreview ? "agents-modal-preview" : undefined}
               aria-label="Agents"
             >
               {loading && !loaded && (
@@ -693,17 +756,27 @@ export function AgentsModal(props: AgentsModalProps) {
             </div>
 
             {(!phone || showPhonePreview) && (
-              <div ref={previewRef} className={styles.previewPane}>
+              <div
+                ref={previewRef}
+                className={styles.previewPane}
+                id="agents-modal-preview"
+                role="region"
+                aria-label="Preview"
+                onKeyDown={handlePreviewKeyDown}
+              >
                 {phone && (
-                  <button
-                    type="button"
-                    className={styles.backButton}
-                    data-testid="agents-modal-back"
-                    onClick={() => setPhonePreview(false)}
-                  >
-                    <ChevronLeft size={18} aria-hidden />
-                    Back
-                  </button>
+                  <div className={styles.previewHeader}>
+                    <button
+                      ref={backRef}
+                      type="button"
+                      className={styles.backButton}
+                      data-testid="agents-modal-back"
+                      onClick={goBack}
+                    >
+                      <ChevronLeft size={18} aria-hidden />
+                      Back
+                    </button>
+                  </div>
                 )}
                 {highlighted && (
                   <SessionPreview

@@ -1,4 +1,4 @@
-import type { PreviewTurn } from "../../../electron.d";
+import type { AgentKind, PreviewTurn } from "../../../electron.d";
 import { useAppStore } from "../../../store/app-store";
 import { cleanLiveTitle } from "../../../hooks/useAgentDisplay";
 import { projectColorStyle } from "../../../hooks/useProjectHeaderRow";
@@ -8,6 +8,14 @@ import { ChatMarkdown } from "../../phone/ChatPane/ChatMarkdown";
 import { modalRowTitle, type ModalRow } from "./agents-modal-list";
 import type { PreviewState } from "./session-preview";
 import styles from "./SessionPreview.module.css";
+
+/** How each Agent kind is named. */
+const KIND_LABELS: Record<AgentKind, string> = {
+  claude: "Claude",
+  codex: "Codex",
+  opencode: "opencode",
+  pi: "pi",
+};
 
 /** ⌘↵ on a Mac, Ctrl+↵ elsewhere. */
 export const FORK_KEYS = getPlatform() === "mac" ? "⌘↵" : "Ctrl+↵";
@@ -41,15 +49,19 @@ export function SessionPreview(props: SessionPreviewProps) {
   const messages = session?.messageCount;
 
   return (
-    <div className={styles.preview} data-testid="agents-modal-preview">
-      <h2 className={styles.title}>{title}</h2>
+    <div
+      className={styles.preview}
+      data-testid="agents-modal-preview"
+      aria-busy={state.status === "loading" || undefined}
+    >
+      <h3 className={styles.title}>{title}</h3>
       <div className={styles.meta}>
         <span className={styles.project} style={projectColorStyle(project.color)} title={project.path}>
           <span className={styles.projectDot} data-uncolored={project.color ? undefined : ""} />
           {project.name}
         </span>
         {session?.gitBranch && <span>{session.gitBranch}</span>}
-        {kind && <span className={styles.kind}>{kind}</span>}
+        {kind && <span className={styles.kind}>{KIND_LABELS[kind] ?? kind}</span>}
         {messages != null && <span>{messages === 1 ? "1 message" : `${messages} messages`}</span>}
         <span>{relativeShortThenDate(new Date(row.activityAt).getTime())}</span>
         {live && <span className={styles.live}>● in a pane</span>}
@@ -67,7 +79,7 @@ export function SessionPreview(props: SessionPreviewProps) {
           onMouseDown={keepFocus}
           onClick={onPrimary}
         >
-          {live ? "Go to pane" : "Resume"} <kbd>↵</kbd>
+          {live ? "Go to pane" : "Resume"} <kbd aria-hidden>↵</kbd>
         </button>
         <button
           type="button"
@@ -76,11 +88,11 @@ export function SessionPreview(props: SessionPreviewProps) {
           onMouseDown={keepFocus}
           onClick={onFork}
         >
-          Fork <kbd>{FORK_KEYS}</kbd>
+          Fork <kbd aria-hidden>{FORK_KEYS}</kbd>
         </button>
         {onRename && (
           <button type="button" className={styles.button} onMouseDown={keepFocus} onClick={onRename}>
-            Rename <kbd>F2</kbd>
+            Rename <kbd aria-hidden>F2</kbd>
           </button>
         )}
       </div>
@@ -92,7 +104,12 @@ export function SessionPreview(props: SessionPreviewProps) {
 function Conversation({ state }: { state: PreviewState }) {
   if (state.status === "loading") {
     return (
-      <div className={styles.skeleton} aria-label="Loading conversation" data-testid="agents-modal-preview-loading">
+      <div
+        className={styles.skeleton}
+        role="status"
+        aria-label="Loading conversation"
+        data-testid="agents-modal-preview-loading"
+      >
         <span className={`${styles.bar} ${styles.barUser}`} />
         <span className={styles.bar} />
         <span className={`${styles.bar} ${styles.barShort}`} />
@@ -104,13 +121,19 @@ function Conversation({ state }: { state: PreviewState }) {
   }
   if (state.status === "none") return <div className={styles.note}>No transcript yet.</div>;
 
-  const { turns, truncated } = state.preview;
-  if (turns.length === 0) return <div className={styles.note}>No messages yet.</div>;
+  const { turns, truncated, partial } = state.preview;
+  const partialNote = partial && (
+    <div className={styles.gap} data-testid="agents-modal-preview-partial">
+      Showing turns from before the end — this transcript is too large to read fully
+    </div>
+  );
+  if (turns.length === 0) return partialNote || <div className={styles.note}>No messages yet.</div>;
   // The opening prompt comes from before the window the rest came from, so
   // the gap sits after it.
   const gapAfter = turns[0].role === "user" && turns[0].first ? 1 : 0;
   return (
     <div className={styles.turns} data-testid="agents-modal-turns">
+      {partialNote}
       {turns.map((turn, i) => (
         <PreviewTurnView key={i} turn={turn} gapBefore={truncated && i === gapAfter} />
       ))}
@@ -132,7 +155,7 @@ function PreviewTurnView({ turn, gapBefore }: { turn: PreviewTurn; gapBefore: bo
       </div>
     ) : turn.role === "assistant" ? (
       <div className={styles.assistantTurn}>
-        <ChatMarkdown source={turn.text} />
+        <ChatMarkdown source={turn.text} imagesAsText />
       </div>
     ) : (
       <div className={styles.toolTurn} title={`${turn.name} ${turn.summary}`}>

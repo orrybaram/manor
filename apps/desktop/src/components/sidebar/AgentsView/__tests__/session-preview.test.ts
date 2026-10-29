@@ -4,7 +4,7 @@ import type { ModalRow } from "../agents-modal-list";
 import {
   createLru,
   createPreviewLoader,
-  previewKey,
+  previewIdentity,
   previewRef,
   type PreviewState,
 } from "../session-preview";
@@ -56,10 +56,12 @@ describe("previewRef", () => {
   });
 });
 
-describe("previewKey", () => {
-  it("changes when the transcript has moved on", () => {
-    expect(previewKey(row({ session }))).not.toBe(
-      previewKey(row({ session: { ...session, updatedAt: "2026-10-09T00:00:00Z" } })),
+describe("previewIdentity", () => {
+  it("is the same for an Agent before and after its Session joins, and ignores status changes", () => {
+    const own = { ...agent, agentKind: "codex", agentSessionId: "s1" } as AgentInfo;
+    expect(previewIdentity(row({ agent: own }))).toBe(previewIdentity(row({ agent: own, session })));
+    expect(previewIdentity(row({ agent: { ...own, updatedAt: "2026-10-09T00:00:00Z" } }))).toBe(
+      previewIdentity(row({ agent: own })),
     );
   });
 });

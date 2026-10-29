@@ -134,13 +134,22 @@
   padding: 16px 20px;
 }
 
+/* A phone's preview keeps Back in reach however far it scrolls. */
+.previewHeader {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 -16px 8px;
+  padding: 4px 8px;
+  background: var(--dim);
+  border-bottom: 1px solid var(--surface);
+}
+
 .backButton {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  align-self: flex-start;
   min-height: 44px;
-  margin: -8px 0 8px -8px;
   padding: 0 8px;
   border: none;
   border-radius: 6px;
@@ -439,6 +448,10 @@
 
 :global(:root[data-layout="phone"]) .scrollArea {
   border-right: none;
+}
+
+:global(:root[data-layout="phone"]) .previewPane {
+  padding: 0 16px 16px;
 }
 
 .modal[data-phone-preview] .header,

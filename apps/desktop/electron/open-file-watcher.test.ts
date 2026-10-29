@@ -1,11 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { ExecShellBackend } from "./backend/exec-shell";
 import { localExec } from "./backend/exec";
 import { OpenFileWatcher, type FileChangedEvent } from "./open-file-watcher";
-import { contentHash } from "./workspace-files";
+import { contentHash, HOST_SCRIPTS, type FilesBackend } from "./workspace-files";
 
 const INTERVAL_MS = 40;
 
@@ -13,6 +13,8 @@ let tmp: string;
 let watcher: OpenFileWatcher;
 let events: Array<{ to: string | null; event: FileChangedEvent }>;
 let hostsAsked: string[];
+/** How many of the next file reads fail, as a host that hiccups would. */
+let failingReads: number;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -37,7 +39,18 @@ beforeEach(async () => {
   tmp = await realpath(await mkdtemp(path.join(os.tmpdir(), "manor-open-files-")));
   events = [];
   hostsAsked = [];
-  const shell = new ExecShellBackend(localExec);
+  failingReads = 0;
+  const local = new ExecShellBackend(localExec);
+  const shell: FilesBackend["shell"] = {
+    exec: (cmd, args, opts) => {
+      if (args[1] === HOST_SCRIPTS.read && failingReads > 0) {
+        failingReads--;
+        return Promise.reject(new Error("the host timed out"));
+      }
+      return local.exec(cmd, args, opts);
+    },
+    writeFile: (p, data) => local.writeFile(p, data),
+  };
   watcher = new OpenFileWatcher(
     {
       get: (hostId) => {
@@ -152,5 +165,23 @@ describe("OpenFileWatcher", () => {
     await settle();
 
     expect(events).toHaveLength(1);
+  });
+
+  it("retries a changed file whose read failed, rather than losing the change", async () => {
+    await writeFile(path.join(tmp, "a.ts"), "one");
+    watcher.watch("w", { path: tmp, hostId: "local" }, ["a.ts"]);
+    await settle();
+    failingReads = 1;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await writeFile(path.join(tmp, "a.ts"), "two");
+
+    try {
+      await eventually(() => expect(events.map((e) => e.event.hash)).toEqual([contentHash("two")]));
+      expect(failingReads).toBe(0);
+      expect(quiet).toHaveBeenCalledWith(expect.stringMatching(/could not read a changed file/), expect.anything());
+    } finally {
+      quiet.mockRestore();
+    }
   });
 });

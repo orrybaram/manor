@@ -178,11 +178,17 @@ export class OpenFileWatcher {
     for (const [key, stamp] of Object.entries(merged)) {
       const before = this.stamps.get(key);
       this.stamps.set(key, stamp);
-      if (before !== undefined && before !== stamp) void this.report(key, stamp);
+      if (before !== undefined && before !== stamp) void this.report(key, before, stamp);
     }
   }
 
-  private async report(key: string, stamp: Stamp): Promise<void> {
+  /**
+   * Read the file whose checksum moved from `before` to `stamp` and tell its
+   * watchers its hash. A read that fails (the host hiccuped, timed out) puts
+   * `before` back and has every host scanned afresh, so the next tick sees
+   * the move again and retries rather than losing it.
+   */
+  private async report(key: string, before: Stamp, stamp: Stamp): Promise<void> {
     const watchers = this.watchers().get(key);
     if (!watchers) return;
     const { workspace, relPath } = watchers[0].watched;
@@ -192,7 +198,14 @@ export class OpenFileWatcher {
         const read = await readWorkspaceFile(this.hosts.get(workspace.hostId), workspace.path, relPath);
         hash = read.ok ? read.hash : null;
       } catch (err) {
-        console.error("[OpenFileWatcher] could not read a changed file:", err);
+        console.error("[OpenFileWatcher] could not read a changed file; retrying:", err);
+        // Unless a later scan has already moved it on (its own report retries).
+        if (this.stamps.get(key) === stamp) {
+          this.stamps.set(key, before);
+          // The poller publishes only a result that differs from the last:
+          // without this, an unchanged next scan would never reach `compare`.
+          this.poller.reset({ reemit: true });
+        }
         return;
       }
     }

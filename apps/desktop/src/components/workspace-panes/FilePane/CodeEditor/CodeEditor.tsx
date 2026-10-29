@@ -25,7 +25,7 @@ import { useMountEffect } from "../../../../hooks/useMountEffect";
 import { onUiRequest } from "../../../../utils/ui-request";
 import { languageFor, loadLanguage } from "../file-languages";
 import { manorEditorTheme } from "../editor-theme";
-import { joinBom, lineSeparatorOf, splitBom } from "../file-text";
+import { readFileText, writeFileText, type FileFormat } from "../file-text";
 import styles from "./CodeEditor.module.css";
 
 export type CodeEditorRef = {
@@ -76,17 +76,21 @@ export function CodeEditor({
 }: CodeEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
-  // The clean copy, split as the editor splits it, and whether it had a BOM.
-  const cleanRef = useRef<{ text: Text; bom: boolean } | null>(null);
-  // The BOM the editor's text carries; it is never part of the document.
-  const bomRef = useRef(false);
+  // The clean copy, split as the editor splits it, and how it was written.
+  const cleanRef = useRef<{ text: Text; format: FileFormat } | null>(null);
+  // How a save writes the editor's text: its BOM (never part of the
+  // document) and its line breaks (the document's are normalized).
+  const formatRef = useRef<FileFormat>({ bom: false, crlf: false });
   const dirtyRef = useRef(false);
-  const separator = useRef(new Compartment());
 
   const isDirty = (view: EditorView) => {
     const clean = cleanRef.current;
     if (!clean) return false;
-    return bomRef.current !== clean.bom || !view.state.doc.eq(clean.text);
+    return (
+      formatRef.current.bom !== clean.format.bom ||
+      formatRef.current.crlf !== clean.format.crlf ||
+      !view.state.doc.eq(clean.text)
+    );
   };
   const settle = (view: EditorView) => {
     const dirty = isDirty(view);
@@ -100,13 +104,10 @@ export function CodeEditor({
     replaceContent(content: string) {
       const view = viewRef.current;
       if (!view) return;
-      const { bom, text } = splitBom(content);
-      view.dispatch({
-        effects: separator.current.reconfigure(separatorExtension(text)),
-      });
+      const { format, text } = readFileText(content);
       const clean = view.state.toText(text);
-      cleanRef.current = { text: clean, bom };
-      bomRef.current = bom;
+      cleanRef.current = { text: clean, format };
+      formatRef.current = format;
       if (!view.state.doc.eq(clean)) {
         const head = Math.min(view.state.selection.main.head, clean.length);
         view.dispatch({
@@ -118,13 +119,13 @@ export function CodeEditor({
     },
     content() {
       const view = viewRef.current;
-      return view ? joinBom(bomRef.current, view.state.sliceDoc()) : "";
+      return view ? writeFileText(formatRef.current, view.state.doc) : "";
     },
     markClean(written: string) {
       const view = viewRef.current;
       if (!view) return false;
-      const { bom, text } = splitBom(written);
-      cleanRef.current = { text: view.state.toText(text), bom };
+      const { format, text } = readFileText(written);
+      cleanRef.current = { text: view.state.toText(text), format };
       return settle(view);
     },
   }));
@@ -133,15 +134,19 @@ export function CodeEditor({
     const host = hostRef.current;
     if (!host) return;
     const language = new Compartment();
-    const clean = splitBom(base);
-    const shown = draft !== null ? splitBom(draft) : clean;
-    bomRef.current = shown.bom;
+    const clean = readFileText(base);
+    const shown = draft !== null ? readFileText(draft) : clean;
+    // A draft carries the breaks the file was loaded with, unless it has
+    // none to tell (one line): then the file's own.
+    formatRef.current = {
+      bom: shown.format.bom,
+      crlf: draft !== null && /[\r\n]/.test(shown.text) ? shown.format.crlf : clean.format.crlf,
+    };
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
         doc: shown.text,
         extensions: [
-          separator.current.of(separatorExtension(shown.text)),
           EditorState.readOnly.of(readOnly),
           // Not editable on the phone, so a tap never opens the keyboard.
           EditorView.editable.of(!readOnly),
@@ -171,7 +176,7 @@ export function CodeEditor({
       }),
     });
     viewRef.current = view;
-    cleanRef.current = { text: view.state.toText(clean.text), bom: clean.bom };
+    cleanRef.current = { text: view.state.toText(clean.text), format: clean.format };
     dirtyRef.current = isDirty(view);
     if (dirtyRef.current) onDirtyChange(true);
 
@@ -195,20 +200,11 @@ export function CodeEditor({
     return () => {
       destroyed = true;
       stopFind();
-      onDispose(joinBom(bomRef.current, view.state.sliceDoc()), dirtyRef.current);
+      onDispose(writeFileText(formatRef.current, view.state.doc), dirtyRef.current);
       viewRef.current = null;
       view.destroy();
     };
   });
 
   return <div ref={hostRef} className={styles.editor} data-testid="file-pane-editor" />;
-}
-
-/**
- * A CRLF file keeps its CRLFs: the editor splits and joins lines on them
- * alone. Anything else uses CodeMirror's default (split on any, join on LF).
- */
-function separatorExtension(text: string) {
-  const sep = lineSeparatorOf(text);
-  return sep ? EditorState.lineSeparator.of(sep) : [];
 }

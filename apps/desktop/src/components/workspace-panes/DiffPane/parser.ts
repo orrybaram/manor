@@ -26,7 +26,11 @@ export function parseDiff(raw: string): DiffFile[] {
       current.deleted = true;
       continue;
     }
-    if (line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++")) continue;
+    // Header lines only come before the file's first hunk: inside one, `---`
+    // is a removed line that starts with `--` (a SQL comment), not a header.
+    if (!inHunks && (line.startsWith("index ") || line.startsWith("---") || line.startsWith("+++"))) {
+      continue;
+    }
     if (line.startsWith("Binary files")) {
       current.lines.push({ type: "context", content: line });
       continue;

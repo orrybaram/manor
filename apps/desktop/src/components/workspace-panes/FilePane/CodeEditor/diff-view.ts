@@ -5,30 +5,28 @@ import { readFileText, toText } from "../file-text";
 
 /**
  * The unified diff's colours, from manor's tokens so light and dark follow:
- * removed lines red and struck through, added lines green with a bar in the
- * gutter, and each folded stretch a clickable "⋯ N unchanged lines". The
+ * removed lines red, added lines green, each with a bar in the gutter, and each folded stretch a clickable "⋯ N unchanged lines". The
  * merge view's own theme marks its editor `.cm-merge-b` and keys its (faint)
  * added-line colours on it, so ours do too, to outrank them. Green reads
  * weaker than red at the same mix, hence its larger share.
  */
 const diffTheme = EditorView.theme({
   "&.cm-merge-b .cm-changedLine": {
-    backgroundColor: "color-mix(in srgb, var(--green) 18%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--green) 12%, transparent)",
   },
   "&.cm-merge-b .cm-changedText": {
-    background: "color-mix(in srgb, var(--green) 36%, transparent)",
+    background: "color-mix(in srgb, var(--green) 26%, transparent)",
   },
   ".cm-deletedChunk": {
     paddingLeft: "0",
-    backgroundColor: "color-mix(in srgb, var(--red) 12%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--red) 8%, transparent)",
   },
-  ".cm-deletedChunk .cm-deletedLine": {
-    paddingLeft: "6px",
-    textDecoration: "line-through",
-    textDecorationColor: "color-mix(in srgb, var(--red) 60%, transparent)",
+  ".cm-deletedChunk .cm-deletedLine": { paddingLeft: "10px" },
+  ".cm-deletedChunk .cm-deletedLine, .cm-deletedChunk del": {
+    textDecoration: "none",
   },
   ".cm-deletedChunk .cm-deletedText": {
-    background: "color-mix(in srgb, var(--red) 30%, transparent)",
+    background: "color-mix(in srgb, var(--red) 22%, transparent)",
   },
   ".cm-changeGutter": { width: "3px", paddingLeft: "0" },
   "&.cm-merge-b .cm-changedLineGutter": { background: "var(--green)" },

@@ -36,7 +36,13 @@ const chrome = EditorView.theme({
     fontVariantNumeric: "tabular-nums",
   },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--text-primary)" },
-  ".cm-foldGutter .cm-gutterElement": { color: "var(--text-dim)", cursor: "pointer" },
+  ".cm-foldGutter .cm-gutterElement": {
+    padding: "0 6px 0 2px",
+    color: "var(--text-dim)",
+    cursor: "pointer",
+  },
+  // Room between the gutter (and a line's change bar) and the text.
+  ".cm-line": { paddingLeft: "10px" },
   ".cm-foldPlaceholder": {
     backgroundColor: "var(--surface)",
     border: "none",

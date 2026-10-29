@@ -4,7 +4,9 @@ import {
   branchEntries,
   localGroups,
   scmLetter,
+  scmTree,
   withStaged,
+  type ScmNode,
 } from "./scm-entries";
 
 const change = (
@@ -86,5 +88,42 @@ describe("withStaged", () => {
     ]);
     expect([...withStaged(before, ["a.ts"], false)]).toEqual([]);
     expect([...before]).toEqual(["a.ts"]);
+  });
+});
+
+describe("scmTree", () => {
+  const shape = (nodes: ScmNode[]): unknown[] =>
+    nodes.map((n) =>
+      n.kind === "dir" ? { [n.name]: shape(n.children) } : n.entry.change.path,
+    );
+
+  it("nests files under folders, folders first, and folds single-folder chains", () => {
+    const entries = branchEntries([
+      change("README.md"),
+      change("apps/desktop/electron/b.ts"),
+      change("apps/desktop/electron/a.ts"),
+      change("apps/desktop/electron/__tests__/a.test.ts"),
+      change("apps/web/x.ts"),
+    ]);
+    expect(shape(scmTree(entries))).toEqual([
+      {
+        apps: [
+          {
+            "desktop/electron": [
+              { __tests__: ["apps/desktop/electron/__tests__/a.test.ts"] },
+              "apps/desktop/electron/a.ts",
+              "apps/desktop/electron/b.ts",
+            ],
+          },
+          { web: ["apps/web/x.ts"] },
+        ],
+      },
+      "README.md",
+    ]);
+  });
+
+  it("gives a folded folder its full path", () => {
+    const [dir] = scmTree(branchEntries([change("a/b/c/d.ts")]));
+    expect(dir).toMatchObject({ kind: "dir", path: "a/b/c", name: "a/b/c" });
   });
 });

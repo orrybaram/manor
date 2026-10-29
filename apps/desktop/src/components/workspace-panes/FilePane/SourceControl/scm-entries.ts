@@ -87,3 +87,56 @@ function sortedByPath(changes: Iterable<FileChange>): FileChange[] {
 function byPath(a: ScmEntry, b: ScmEntry): number {
   return a.change.path.localeCompare(b.change.path);
 }
+
+/** A folder or a file in Source Control's tree. */
+export type ScmNode =
+  | { kind: "dir"; path: string; name: string; children: ScmNode[] }
+  | { kind: "file"; entry: ScmEntry };
+
+/**
+ * `entries` as a folder tree, as VS Code's tree view shows it: folders
+ * before files, each by name, and a folder whose only child is a folder
+ * folds into it (`apps/desktop/electron`), so deep paths don't stair-step.
+ */
+export function scmTree(entries: readonly ScmEntry[]): ScmNode[] {
+  type Dir = { dirs: Map<string, Dir>; files: ScmEntry[] };
+  const root: Dir = { dirs: new Map(), files: [] };
+  for (const entry of entries) {
+    const parts = entry.change.path.split("/");
+    let dir = root;
+    for (const part of parts.slice(0, -1)) {
+      let next = dir.dirs.get(part);
+      if (!next) {
+        next = { dirs: new Map(), files: [] };
+        dir.dirs.set(part, next);
+      }
+      dir = next;
+    }
+    dir.files.push(entry);
+  }
+  const build = (dir: Dir, prefix: string): ScmNode[] => {
+    const dirs = [...dir.dirs.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, child]): ScmNode => {
+        let path = prefix + name;
+        let label = name;
+        while (child.files.length === 0 && child.dirs.size === 1) {
+          const [only, inner] = [...child.dirs.entries()][0];
+          path += `/${only}`;
+          label += `/${only}`;
+          child = inner;
+        }
+        return {
+          kind: "dir",
+          path,
+          name: label,
+          children: build(child, `${path}/`),
+        };
+      });
+    const files = [...dir.files]
+      .sort(byPath)
+      .map((entry): ScmNode => ({ kind: "file", entry }));
+    return [...dirs, ...files];
+  };
+  return build(root, "");
+}

@@ -10,6 +10,8 @@ import {
 import ChevronDown from "lucide-react/dist/esm/icons/chevron-down";
 import ChevronRight from "lucide-react/dist/esm/icons/chevron-right";
 import FileCode from "lucide-react/dist/esm/icons/file-code";
+import Folder from "lucide-react/dist/esm/icons/folder";
+import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import Minus from "lucide-react/dist/esm/icons/minus";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Undo2 from "lucide-react/dist/esm/icons/undo-2";
@@ -37,8 +39,10 @@ import { runGitFileAction, type GitFileAction } from "./git-actions";
 import {
   branchEntries,
   localGroups,
+  scmTree,
   withStaged,
   type ScmEntry,
+  type ScmNode,
   type ScmView,
 } from "./scm-entries";
 import styles from "./SourceControl.module.css";
@@ -210,19 +214,39 @@ export function SourceControl({
     />
   );
 
-  const rows = (entries: ScmEntry[], group: RowGroup) =>
-    entries.map((entry) => (
-      <ScmRow
-        key={entry.change.path}
-        entry={entry}
-        group={group}
-        author={authors[entry.change.path] ?? null}
-        selected={entry.change.path === openFile}
-        webApp={webApp}
-        locked={locked}
-        onRow={onRow}
-      />
-    ));
+  // A group's files as a folder tree; a folder's open state is kept per group.
+  const rows = (nodes: ScmNode[], group: RowGroup, depth = 0): ReactNode[] =>
+    nodes.flatMap((node) => {
+      if (node.kind === "file") {
+        const { entry } = node;
+        return [
+          <ScmRow
+            key={entry.change.path}
+            entry={entry}
+            group={group}
+            depth={depth}
+            author={authors[entry.change.path] ?? null}
+            selected={entry.change.path === openFile}
+            webApp={webApp}
+            locked={locked}
+            onRow={onRow}
+          />,
+        ];
+      }
+      const id = `${group}\u0000${node.path}`;
+      const open = !closed.has(id);
+      return [
+        <ScmDirRow
+          key={`dir\u0000${node.path}`}
+          name={node.name}
+          path={node.path}
+          depth={depth}
+          open={open}
+          onToggle={() => toggleGroup(id)}
+        />,
+        ...(open ? rows(node.children, group, depth + 1) : []),
+      ];
+    });
 
   const group = (
     id: string,
@@ -250,7 +274,9 @@ export function SourceControl({
           </button>
           {actions && <span className={styles.actions}>{actions}</span>}
         </div>
-        <Collapse open={open}>{rows(entries, id as RowGroup)}</Collapse>
+        <Collapse open={open}>
+          {rows(scmTree(entries), id as RowGroup)}
+        </Collapse>
       </div>
     );
   };
@@ -413,6 +439,44 @@ function Note({ children, testId }: { children: ReactNode; testId?: string }) {
 }
 
 type RowGroup = "staged" | "changes" | "branch";
+
+/** Left padding for a tree row `depth` folders deep; a file's icon sits where a folder's chevron would. */
+const rowIndent = (depth: number, file: boolean) =>
+  6 + depth * 12 + (file ? 16 : 0);
+
+/** A folder in the tree: click to fold or unfold what's under it. */
+function ScmDirRow({
+  name,
+  path,
+  depth,
+  open,
+  onToggle,
+}: {
+  name: string;
+  path: string;
+  depth: number;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const Chevron = open ? ChevronDown : ChevronRight;
+  const Icon = open ? FolderOpen : Folder;
+  return (
+    <div className={styles.row} data-testid="scm-dir" data-path={path}>
+      <button
+        type="button"
+        className={styles.rowMain}
+        style={{ paddingLeft: rowIndent(depth, false), gap: 4 }}
+        title={path}
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <Chevron size={12} className={styles.chevron} />
+        <Icon size={12} className={styles.fileIcon} />
+        <span className={styles.dirName}>{name}</span>
+      </button>
+    </div>
+  );
+}
 type RowAction = "open" | "openFile" | GitFileAction;
 
 const basename = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -465,6 +529,8 @@ function GitButton({
 type ScmRowProps = {
   entry: ScmEntry;
   group: RowGroup;
+  /** How many folders deep it sits in the tree. */
+  depth: number;
   author: FileAuthor | null;
   selected: boolean;
   webApp: boolean;
@@ -483,6 +549,7 @@ function sameRow(a: ScmRowProps, b: ScmRowProps): boolean {
     a.entry.change.status === b.entry.change.status &&
     a.entry.letter === b.entry.letter &&
     a.group === b.group &&
+    a.depth === b.depth &&
     a.author?.paneId === b.author?.paneId &&
     a.author?.agentKind === b.author?.agentKind &&
     a.selected === b.selected &&
@@ -492,10 +559,11 @@ function sameRow(a: ScmRowProps, b: ScmRowProps): boolean {
   );
 }
 
-/** One changed file: icon, name, folder, its writer's chip, then actions and letter. */
+/** One changed file: icon, name, its writer's chip, then actions and letter. */
 const ScmRow = memo(function ScmRow({
   entry,
   group,
+  depth,
   author,
   selected,
   webApp,
@@ -503,9 +571,7 @@ const ScmRow = memo(function ScmRow({
   onRow,
 }: ScmRowProps) {
   const { change, letter } = entry;
-  const slash = change.path.lastIndexOf("/");
-  const name = change.path.slice(slash + 1);
-  const folder = slash < 0 ? "" : change.path.slice(0, slash);
+  const name = basename(change.path);
   const gitButton = (
     action: GitFileAction,
     label: string,
@@ -532,6 +598,7 @@ const ScmRow = memo(function ScmRow({
       <button
         type="button"
         className={styles.rowMain}
+        style={{ paddingLeft: rowIndent(depth, true) }}
         title={
           change.status === "deleted" ? `${change.path} (deleted)` : change.path
         }
@@ -543,7 +610,6 @@ const ScmRow = memo(function ScmRow({
           className: styles.fileIcon,
         })}
         <span className={styles.name}>{name}</span>
-        {folder && <span className={styles.folder}>{folder}</span>}
         {author && <AgentChip author={author} />}
       </button>
       <span className={styles.actions}>

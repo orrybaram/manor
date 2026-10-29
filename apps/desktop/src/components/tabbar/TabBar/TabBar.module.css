@@ -12,6 +12,10 @@
      (12px above the title row's bottom), level with the traffic lights and
      the WindowLead's buttons. */
   --tab-bottom-padding: calc(var(--tab-overlap) - 5px);
+  /* The panel body's top margin (`.terminal-container`): tabs show this far
+     below the bar before the body's top edge cuts them off. */
+  --tab-body-gap: 8px;
+  position: relative;
   display: flex;
   align-items: flex-end;
   width: 100%;
@@ -36,16 +40,22 @@
   transition: padding-left var(--sidebar-mode-transition) ease;
 }
 
-.tabBarDropTarget {
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-deep));
+/* Tints the bar while a tab or pane drag is live. Drawn over the tabs and
+   down to the body's top edge, so it covers what shows of each tab rather
+   than stopping at the bar's own bottom. */
+.tabBarDropHighlight {
+  position: absolute;
+  inset: 0 0 calc(-1 * var(--tab-body-gap));
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+  z-index: 2;
 }
 
+/* Its right half, where a dropped tab opens a new panel beside this one. */
 .tabBarSplitHint {
-  background: linear-gradient(
-    to right,
-    var(--bg-deep) 50%,
-    color-mix(in srgb, var(--accent) 20%, var(--bg-deep)) 50%
-  );
+  left: 50%;
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 
 .tabs {
@@ -69,7 +79,8 @@
 .tabInsertionBar {
   position: absolute;
   top: 3px;
-  bottom: 3px;
+  /* Ends above the body's top edge, which the tabs hang past. */
+  bottom: calc(var(--tab-overlap) - var(--tab-body-gap) + 3px);
   width: 2px;
   border-radius: 1px;
   background: var(--accent);

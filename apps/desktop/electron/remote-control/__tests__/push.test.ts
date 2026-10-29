@@ -465,12 +465,31 @@ describe("automation pushes", () => {
   it("pushes only a run that failed to start", () => {
     const notify = vi.fn().mockResolvedValue(1);
     const automation = { id: "auto-1", name: "Triage" };
-    pushAutomationRun({ notify }, automation, { outcome: "started" });
-    pushAutomationRun({ notify }, automation, { outcome: "skipped", detail: "missed" });
+    pushAutomationRun({ notify }, automation, { outcome: "started" }, null);
+    pushAutomationRun({ notify }, automation, { outcome: "skipped", detail: "missed" }, null);
     expect(notify).not.toHaveBeenCalled();
-    pushAutomationRun({ notify }, automation, { outcome: "failed", detail: "no project" });
+    pushAutomationRun({ notify }, automation, { outcome: "failed", detail: "no project" }, null);
     expect(notify).toHaveBeenCalledWith(
       { automationId: "auto-1", title: "Triage failed to start", body: "no project" },
+      undefined,
+    );
+  });
+
+  it("names the host keeping the automation by the pushing server's room", () => {
+    const notify = vi.fn().mockResolvedValue(1);
+    pushAutomationRun(
+      { notify },
+      { id: "auto-1", name: "Triage" },
+      { outcome: "failed", detail: "no project" },
+      "room-box",
+    );
+    expect(notify).toHaveBeenCalledWith(
+      {
+        automationId: "auto-1",
+        hostId: "room-box",
+        title: "Triage failed to start",
+        body: "no project",
+      },
       undefined,
     );
   });

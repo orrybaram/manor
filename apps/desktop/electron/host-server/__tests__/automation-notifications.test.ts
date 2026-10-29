@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
-import { eventually, useHostServerHarness, withoutGit } from "./harness";
+import { eventually, parsePairingUrl, useHostServerHarness, withoutGit } from "./harness";
 import type { NotificationRecord } from "../../notification-store";
 import type { PairResult } from "../../remote-control/relay-room";
 import type { Automation } from "../../../src/lib/automations";
@@ -71,13 +71,15 @@ describe("a host server's notification log", () => {
       target: { type: "automation", automationId: "auto-1" },
     });
 
-    // The push names the automation and says why.
+    // The push names the automation and says why, and names the host by the
+    // room the phone knows it as, for a tap to open the automation.
     await eventually(() => h.pushes.length > 0, Boolean, "a push");
     expect(h.pushes).toEqual([
       {
         endpoint: "https://push.example/endpoint-1",
         payload: {
           automationId: "auto-1",
+          hostId: parsePairingUrl(paired.pairingUrl).roomId,
           title: "Morning triage failed to start",
           body: "The project isn't set up on this host",
         },

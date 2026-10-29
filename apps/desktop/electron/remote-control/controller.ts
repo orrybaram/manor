@@ -262,7 +262,16 @@ export class RemoteControlController {
     { notify }: { notify: boolean },
   ): void {
     if (!this.push || !notify) return;
-    pushAutomationRun(this.push, automation, run);
+    pushAutomationRun(this.push, automation, run, this.roomId());
+  }
+
+  /** This machine's relay room, once the runtime has read it; else null. */
+  private roomId(): string | null {
+    try {
+      return this.runtime?.relayIdentity?.describe().roomId ?? null;
+    } catch {
+      return null;
+    }
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {

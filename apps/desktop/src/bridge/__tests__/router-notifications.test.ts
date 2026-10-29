@@ -134,6 +134,53 @@ describe("the bell across servers", () => {
     ]);
   });
 
+  it("tells the listener again when a server leaves the set", async () => {
+    const home = fakeServer({
+      "notifications.getAll": () => [record("d1", "2026-10-29T08:00:00.000Z")],
+    });
+    const box = fakeServer({
+      "notifications.getAll": () => [record("b1", "2026-10-29T09:00:00.000Z")],
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, resolver);
+    const changed = vi.fn();
+    api.notifications.onChanged(changed);
+    await api.notifications.getAll();
+
+    set.remove("box");
+    expect(changed).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "d1", hostId: "local" }),
+    ]);
+  });
+
+  it("tells the listener the desktop's copy when the host's own server goes away", async () => {
+    const home = fakeServer({
+      "notifications.getAll": () => [
+        record("b1", "2026-10-29T09:00:00.000Z", { hostId: "box", read: true }),
+        record("d1", "2026-10-29T08:00:00.000Z"),
+      ],
+    });
+    const box = fakeServer({
+      "notifications.getAll": () => [record("b1", "2026-10-29T09:00:00.000Z")],
+    });
+    const set = desktopWithHost(home, box);
+    const api = createRouter(set, resolver);
+    const changed = vi.fn();
+    api.notifications.onChanged(changed);
+    const first = await api.notifications.getAll();
+    expect(first.find((n) => n.id === "b1")?.read).toBe(false);
+
+    set.setReachability("box", "unreachable");
+    expect(changed).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "b1", hostId: "box", read: true }),
+      expect.objectContaining({ id: "d1", hostId: "local" }),
+    ]);
+    // Nothing moved again: not told twice.
+    const calls = changed.mock.calls.length;
+    set.setReachability("box", "unreachable");
+    expect(changed).toHaveBeenCalledTimes(calls);
+  });
+
   it("marks a record read on the server of the host that keeps it", async () => {
     const home = fakeServer({ "notifications.markRead": () => false });
     const box = fakeServer({ "notifications.markRead": () => true });

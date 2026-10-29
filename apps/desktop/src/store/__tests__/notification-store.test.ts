@@ -181,6 +181,31 @@ describe("useNotificationStore", () => {
     await useNotificationStore.getState().clear();
     expect(notificationsApi.clear.mock.calls).toEqual([[null], ["box"]]);
   });
+
+  it("marks and clears every other host when one is away, and never throws", async () => {
+    onChangedCallback?.([
+      makeRecord({ id: "b1", kind: "automation-ran", hostId: "box" }),
+      makeRecord({ id: "d1", hostId: "local" }),
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const away = (hostId: string | null) =>
+      hostId === "box" ? Promise.reject(new Error("wsl-box is offline")) : Promise.resolve(undefined);
+    notificationsApi.markAllRead.mockImplementation(away);
+    notificationsApi.clear.mockImplementation(away);
+    notificationsApi.markRead.mockRejectedValueOnce(new Error("wsl-box is offline"));
+    try {
+      await expect(useNotificationStore.getState().markAllRead()).resolves.toBeUndefined();
+      expect(notificationsApi.markAllRead.mock.calls).toEqual([[null], ["box"]]);
+      await expect(useNotificationStore.getState().clear()).resolves.toBeUndefined();
+      expect(notificationsApi.clear.mock.calls).toEqual([[null], ["box"]]);
+      await expect(useNotificationStore.getState().markRead("b1")).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(3);
+    } finally {
+      notificationsApi.markAllRead.mockReset().mockResolvedValue(undefined);
+      notificationsApi.clear.mockReset().mockResolvedValue(undefined);
+      warn.mockRestore();
+    }
+  });
 });
 
 describe("navigateToNotification", () => {

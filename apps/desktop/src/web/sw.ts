@@ -9,12 +9,11 @@
  * The payload carries a label and a project name, never scrollback.
  */
 
+import { pushClickMessage, type PushClickData } from "./push-click";
+
 declare const self: ServiceWorkerGlobalScope;
 
-interface PushPayload {
-  /** Absent on a push about no agent: an automation's run that failed to start. */
-  agentId?: string;
-  automationId?: string;
+interface PushPayload extends PushClickData {
   title: string;
   body: string;
 }
@@ -43,15 +42,20 @@ self.addEventListener("push", (event) => {
         ? `manor-${payload.agentId}`
         : `manor-automation-${payload.automationId ?? "unknown"}`,
       renotify: true,
-      data: { agentId: payload.agentId },
+      data: {
+        agentId: payload.agentId,
+        automationId: payload.automationId,
+        hostId: payload.hostId,
+      } satisfies PushClickData,
     } as NotificationOptions),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const agentId = (event.notification.data as { agentId?: string } | null)
-    ?.agentId;
+  // An agent's push opens its agent; a run that failed to start, its
+  // automation.
+  const message = pushClickMessage(event.notification.data);
 
   event.waitUntil(
     (async () => {
@@ -61,7 +65,7 @@ self.addEventListener("notificationclick", (event) => {
       });
       for (const client of clients) {
         if ("focus" in client) {
-          if (agentId) client.postMessage({ type: "open-agent", agentId });
+          if (message) client.postMessage(message);
           await client.focus();
           return;
         }

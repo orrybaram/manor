@@ -56,6 +56,20 @@ function hostsOf(records: NotificationRecord[]): (string | null)[] {
   return [...hosts];
 }
 
+/** `op` on every host at once, each failure logged and let go. */
+async function eachHost(
+  hosts: (string | null)[],
+  name: string,
+  op: (hostId: string | null) => Promise<unknown> | undefined,
+): Promise<void> {
+  const results = await Promise.allSettled(hosts.map((hostId) => op(hostId)));
+  results.forEach((result, i) => {
+    if (result.status === "rejected") {
+      console.warn(`[notifications] ${name} on ${hosts[i] ?? LOCAL_HOST_ID} failed:`, result.reason);
+    }
+  });
+}
+
 export const useNotificationStore = create<NotificationState>((set, get) => {
   const api = window.electronAPI?.notifications;
 
@@ -131,17 +145,26 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
 
     markRead: async (id: string, hostId?: string | null) => {
       const host = hostId ?? get().notifications.find((n) => n.id === id)?.hostId ?? null;
-      await window.electronAPI?.notifications.markRead(id, host);
+      try {
+        await window.electronAPI?.notifications.markRead(id, host);
+      } catch (err) {
+        console.warn(`[notifications] markRead on ${host ?? LOCAL_HOST_ID} failed:`, err);
+      }
     },
 
+    // Each host on its own: one away (its server refuses while it is)
+    // keeps its rows unread, never the others', and nothing throws to the
+    // popover.
     markAllRead: async () => {
       const hosts = hostsOf(get().notifications.filter((n) => !n.read));
-      await Promise.all(hosts.map((hostId) => window.electronAPI?.notifications.markAllRead(hostId)));
+      await eachHost(hosts, "markAllRead", (hostId) =>
+        window.electronAPI?.notifications.markAllRead(hostId),
+      );
     },
 
     clear: async () => {
       const hosts = hostsOf(get().notifications);
-      await Promise.all(hosts.map((hostId) => window.electronAPI?.notifications.clear(hostId)));
+      await eachHost(hosts, "clear", (hostId) => window.electronAPI?.notifications.clear(hostId));
     },
   };
 });

@@ -405,7 +405,7 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
     // The same opt-in as an agent's push: a phone is told what needs it.
     onAutomationRun(automation, run) {
       if (!ready || !deps.notifyOnRequiresInput()) return;
-      pushAutomationRun(push, automation, run);
+      pushAutomationRun(push, automation, run, roomIdOrNull());
     },
 
     relayStatus() {

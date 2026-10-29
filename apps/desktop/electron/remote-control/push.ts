@@ -45,6 +45,12 @@ export interface PushPayload {
   agentId?: string;
   /** The automation it is about, when it is about one. */
   automationId?: string;
+  /**
+   * With `automationId`: the host keeping it, as a phone knows it — the
+   * pushing server's relay room, the id a phone's page gives that server's
+   * own host. Absent when the server has no room.
+   */
+  hostId?: string;
   title: string;
   body: string;
 }
@@ -341,9 +347,11 @@ export function pushPayloadFor(status: PushableStatus, agent: PushAgent): PushPa
 export function automationFailedPayload(
   automation: { id: string; name: string },
   run: { detail?: string },
+  roomId?: string | null,
 ): PushPayload {
   return {
     automationId: automation.id,
+    ...(roomId ? { hostId: roomId } : {}),
     title: `${automation.name} failed to start`,
     body: run.detail ?? "The run could not start its agent",
   };
@@ -358,10 +366,12 @@ export function pushAutomationRun(
   push: Pick<PushManager, "notify">,
   automation: { id: string; name: string },
   run: { outcome: string; detail?: string },
+  /** The pushing server's relay room, which names its host to a phone. */
+  roomId: string | null,
   opts?: PushNotifyOptions,
 ): void {
   if (run.outcome !== "failed") return;
-  void push.notify(automationFailedPayload(automation, run), opts);
+  void push.notify(automationFailedPayload(automation, run, roomId), opts);
 }
 
 /**

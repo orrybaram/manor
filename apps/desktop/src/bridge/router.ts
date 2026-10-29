@@ -928,7 +928,11 @@ export function createRouter(
         for (const { entry, value } of answers) {
           if (Array.isArray(value)) notificationLogs.set(entry.id, value);
         }
-        return mergedNotifications();
+        {
+          const list = mergedNotifications();
+          toldNotifications = JSON.stringify(list);
+          return list;
+        }
       case "agents.getPaneStatuses":
         return answers.flatMap(({ entry, value }) =>
           (Array.isArray(value) ? value : []).filter((update: unknown) => {
@@ -981,6 +985,31 @@ export function createRouter(
    * answering for its host now, so a desktop's copy of an adopted host's
    * records and the host's own are one.
    */
+  /**
+   * The bell's listeners, told the merge again when the set changed under it
+   * without any server's log changing: a departed server's log gone, or a
+   * host's records now kept from another server. Only when it differs from
+   * what they last heard. Alone with the desktop, its own events reach them
+   * as they are: told once, the desktop's last log, when the others leave.
+   */
+  let toldNotifications: string | null = null;
+  function retellNotifications(): void {
+    const alone = passThrough();
+    if (alone && toldNotifications === null) return;
+    const subs = [...fanSubs].filter(
+      (sub) => sub.event.ns === "notifications" && sub.event.event === "changed",
+    );
+    if (subs.length === 0 || notificationLogs.size === 0) return;
+    const list = mergedNotifications();
+    const json = JSON.stringify(list);
+    if (json === toldNotifications) return;
+    // Alone, nothing keeps the logs current: they start again when a second
+    // server joins.
+    toldNotifications = alone ? null : json;
+    if (alone) notificationLogs.clear();
+    for (const sub of subs) sub.listener(list);
+  }
+
   function mergedNotifications(): unknown[] {
     const answers: Answer[] = [];
     for (const entry of set.list()) {
@@ -1275,7 +1304,9 @@ export function createRouter(
     }
     if (event.ns === "notifications" && event.event === "changed" && Array.isArray(first)) {
       notificationLogs.set(entry.id, stampRecords(entry, first) as unknown[]);
-      return [mergedNotifications(), ...rest];
+      const list = mergedNotifications();
+      toldNotifications = JSON.stringify(list);
+      return [list, ...rest];
     }
     if (event.ns === "agents" && event.event === "updated") {
       const agent = stampRecords(entry, first);
@@ -1479,6 +1510,7 @@ export function createRouter(
     rebindPanes();
     // Whose workspaces are whose may have moved: a server away or back.
     for (const ns of splits.keys()) void resplit(ns);
+    retellNotifications();
   });
 
   // A server whose stream came back has let go of what it watched for this

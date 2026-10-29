@@ -4,15 +4,15 @@ export interface DraftComment {
   id: string;
   filePath: string;
   /**
-   * A Diff pane comment's anchor: an inclusive index range into
-   * DiffFile.lines. Absent on one left on the editor's diff.
+   * The anchor of a comment saved from the retired Diff pane: an inclusive
+   * index range into its DiffFile.lines. Absent on one left on the editor's diff.
    */
   startIndex?: number;
   endIndex?: number;
   /**
    * An editor diff comment's anchor: the working copy's lines it covers,
    * 1-based and inclusive, as of the last time the editor had the file open
-   * (it follows edits while open). Absent on a Diff pane comment.
+   * (it follows edits while open). Absent on one saved from the Diff pane.
    */
   startLine?: number;
   endLine?: number;
@@ -45,7 +45,7 @@ interface ReviewStoreState {
 /**
  * Stable empty identity for a workspace with no review in progress, so
  * `drafts[ws] ?? NO_DRAFTS` does not force a re-render every time a caller
- * reads an absent key. Mirrors `NO_STAGED_FILES` in `DiffPane.tsx`.
+ * reads an absent key. Mirrors `NO_STAGED` in `SourceControl.tsx`.
  */
 export const NO_DRAFTS: DraftComment[] = [];
 

@@ -250,7 +250,8 @@ export function FilePane({ paneId, workspacePath, hostId }: FilePaneProps) {
     // A file deleted since shows its old side, which has no cards to light.
     const deleted = changes?.files.get(path)?.status === "deleted";
     open(path, { path, view, deleted, returnTo: filePath });
-    // A Diff pane comment has no line of the file: its file's diff is as near as it gets.
+    // A comment saved from the retired Diff pane has no line of the file: its
+    // file's diff is as near as it gets.
     if (comment.startLine !== undefined && !deleted) {
       pendingComments.request(paneId, { path, commentId: comment.id });
     }

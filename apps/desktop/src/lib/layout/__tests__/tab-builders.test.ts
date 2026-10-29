@@ -77,7 +77,16 @@ describe("findSourceControlPane", () => {
     });
   });
 
-  it("answers null when no pane is one, a file pane with a file open included", () => {
+  it("still finds it once a file is open there", () => {
+    const opened: Tab = {
+      id: "t",
+      title: "a.ts",
+      rootNode: { type: "leaf", paneId: "p", contentType: "file", filePath: "a.ts", startsOn: "scm" },
+    };
+    expect(findSourceControlPane(layoutOf(opened))).toEqual({ paneId: "p", tabId: "t" });
+  });
+
+  it("answers null when no pane is one, a plain file pane with a file open included", () => {
     const tab: Tab = { id: "t", title: "T", rootNode: { type: "leaf", paneId: "p" } };
     const file: Tab = {
       id: "f",

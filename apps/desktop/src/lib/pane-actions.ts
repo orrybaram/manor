@@ -53,7 +53,7 @@ export function splitPaneWith(
   contentType?: PaneContentType,
   paneCommand?: string,
 ): void {
-  useAppStore.getState().splitPaneAt(
+  const newPane = useAppStore.getState().splitPaneAt(
     paneId,
     direction,
     "second",
@@ -61,6 +61,8 @@ export function splitPaneWith(
       ? { contentType: "file", startsOn: "scm" }
       : { contentType, paneCommand },
   );
+  // Asked here too: a host on an older bundle drops `startsOn`.
+  if (contentType === "scm" && newPane) requestSourceControl(newPane);
 }
 
 /**
@@ -95,6 +97,8 @@ function convertNow(focusedPaneId: string, contentType: PaneContentType): void {
 
   if (contentType === "scm") {
     state.setPaneContentType(focusedPaneId, "file", { startsOn: "scm" });
+    // Asked here too: a host on an older bundle drops `startsOn`.
+    requestSourceControl(focusedPaneId);
     return;
   }
   if (contentType !== "agent") {

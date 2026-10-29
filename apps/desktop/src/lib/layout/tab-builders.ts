@@ -67,8 +67,8 @@ export function cloneTabWithFreshIds(tab: Tab): {
 }
 
 /**
- * The workspace's first file pane made for Source Control that has not opened
- * a file yet, wherever it is — any pane of any tab, not only a tab's root.
+ * The workspace's first file pane made for Source Control, a file open in it
+ * or not, wherever it is — any pane of any tab, not only a tab's root.
  */
 export function findSourceControlPane(
   layout: WorkspaceLayout,

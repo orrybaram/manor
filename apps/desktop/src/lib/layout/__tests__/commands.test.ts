@@ -983,7 +983,7 @@ describe("set-pane-content-type", () => {
     });
   });
 
-  it("marks a file pane to start on Source Control, and opening a file drops the mark", () => {
+  it("marks a file pane to start on Source Control, and keeps the mark while it stays a file pane", () => {
     const { layout } = applyLayoutCommand(stateOf(twoPanels()), {
       type: "set-pane-content-type",
       paneId: "pane-2",
@@ -1008,6 +1008,18 @@ describe("set-pane-content-type", () => {
       paneId: "pane-2",
       contentType: "file",
       filePath: "src/a.ts",
+      startsOn: "scm",
+    });
+
+    const retyped = applyLayoutCommand(stateOf(opened.layout), {
+      type: "set-pane-content-type",
+      paneId: "pane-2",
+      contentType: "browser",
+    });
+    expect(tabOf(retyped.layout, "panel-2", "tab-2").rootNode).toEqual({
+      type: "leaf",
+      paneId: "pane-2",
+      contentType: "browser",
     });
   });
 });

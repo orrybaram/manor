@@ -347,7 +347,11 @@ export function nextPaneId(
   return ids[(idx + 1) % ids.length];
 }
 
-/** Update the contentType of a leaf node. */
+/**
+ * Update the contentType of a leaf node. Its url and file go; a file pane
+ * that stays one keeps `startsOn`, so Open Source Control still finds the
+ * pane made for it once a file is open there.
+ */
 export function updateLeafContentType(
   node: PaneNode,
   paneId: string,
@@ -355,7 +359,8 @@ export function updateLeafContentType(
 ): PaneNode {
   if (node.type === "leaf") {
     if (node.paneId === paneId) {
-      const { contentType: _, url: __, filePath: ___, startsOn: ____, ...rest } = node;
+      const { contentType: _, url: __, filePath: ___, startsOn, ...rest } = node;
+      if (contentType === "file" && startsOn) return { ...rest, contentType, startsOn };
       return contentType ? { ...rest, contentType } : rest;
     }
     return node;

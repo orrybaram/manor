@@ -9,6 +9,8 @@ import {
 import { emptyViewport, reconcileViewport } from "../../lib/layout/viewport";
 import { buildLayoutSnapshot } from "../../lib/layout/snapshot";
 import { tabTitle } from "../../lib/pane-title";
+import { takeSourceControlRequest } from "../../lib/source-control-request";
+import { convertPaneTo, splitPaneWith } from "../../lib/pane-actions";
 import type { Panel, WorkspaceLayout } from "../app-store";
 import { resetFakeLayoutServer, seedLayout, settled } from "./fake-layout-server";
 
@@ -115,6 +117,43 @@ describe("file panes", () => {
     useAppStore.getState().setPaneContentType(paneId, "terminal");
     await settled();
     expect(selectPaneFilePath(useAppStore.getState(), paneId)).toBeNull();
+  });
+
+  it("Open Source Control comes back to its pane once a file is open there, on Source Control", async () => {
+    const tabId = useAppStore.getState().openSourceControl();
+    await settled();
+    const rootNode = activePanel().tabs.find((t) => t.id === tabId)!.rootNode;
+    const paneId = rootNode.type === "leaf" ? rootNode.paneId : "";
+    useAppStore.getState().setPaneFilePath(paneId, "a.ts");
+    await settled();
+    useAppStore.getState().selectTab("tab-1");
+    takeSourceControlRequest(paneId);
+
+    expect(useAppStore.getState().openSourceControl()).toBe(tabId);
+    await settled();
+
+    expect(activePanel().tabs).toHaveLength(2);
+    const state = useAppStore.getState();
+    expect(selectSelectedTabId(state, selectActivePanelId(state))).toBe(tabId);
+    expect(selectPaneFilePath(state, paneId)).toBe("a.ts");
+    expect(takeSourceControlRequest(paneId)).toBe(true);
+  });
+
+  // A host on an older bundle drops `startsOn`; the request opens the drawer anyway.
+  it("Split with › Source Control asks the new pane for Source Control", async () => {
+    splitPaneWith("pane-1", "horizontal", "scm");
+    await settled();
+    const rootNode = activePanel().tabs[0].rootNode;
+    const paneId = rootNode.type === "split" && rootNode.second.type === "leaf" ? rootNode.second.paneId : "";
+    expect(selectPaneContentType(useAppStore.getState(), paneId)).toBe("file");
+    expect(takeSourceControlRequest(paneId)).toBe(true);
+  });
+
+  it("Convert to › Source Control asks the converted pane for Source Control", async () => {
+    convertPaneTo("pane-1", "scm");
+    await settled();
+    expect(selectPaneContentType(useAppStore.getState(), "pane-1")).toBe("file");
+    expect(takeSourceControlRequest("pane-1")).toBe(true);
   });
 
   it("the layout snapshot lists a file pane's file", async () => {

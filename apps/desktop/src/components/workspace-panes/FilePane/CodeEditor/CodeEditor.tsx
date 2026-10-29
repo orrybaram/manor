@@ -44,6 +44,11 @@ import { unfoldAt, unifiedDiff } from "./diff-view";
 import { commentPosition, diffComments, flashComment, reviewComments } from "./diff-comments";
 import styles from "./CodeEditor.module.css";
 
+// ⇧⌘G is the app's Open Source Control, so it is not the editor's Find Previous (⇧F3 still is).
+const editorSearchKeymap = searchKeymap.map((binding) =>
+  binding.key === "Mod-g" ? { ...binding, shift: undefined } : binding,
+);
+
 /** How long a line jumped to stays lit. */
 const FLASH_MS = 1200;
 /** How long a comment card jumped to stays lit: its outline's fade. */
@@ -275,7 +280,7 @@ export function CodeEditor({
           diff.of(shownBase === null ? [] : diffView(shownBase)),
           reviewWorkspace === undefined ? [] : reviewComments({ workspacePath: reviewWorkspace, path }),
           keymap.of([
-            ...searchKeymap,
+            ...editorSearchKeymap,
             ...foldKeymap,
             ...historyKeymap,
             ...defaultKeymap,

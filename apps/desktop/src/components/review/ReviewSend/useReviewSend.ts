@@ -103,7 +103,7 @@ export function commentFile(comment: DraftComment): string {
 
 /**
  * Where a comment sits, as `name.ts:12` (or `:12–18` for a range). A comment
- * left in the Diff pane has no line of the file, only its diff label.
+ * saved from the retired Diff pane has no line of the file, only its diff label.
  */
 export function commentWhere(comment: DraftComment): string {
   const file = commentFile(comment);

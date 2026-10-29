@@ -11,7 +11,7 @@ export type LineSpan = { startLine: number; endLine: number };
  */
 export type Anchor = { from: number; to: number };
 
-/** e.g. "L12" / "L12–L18" (en dash), as the Diff pane labels a range. */
+/** e.g. "L12" / "L12–L18" (en dash), as a comment card labels a range. */
 export function lineLabel({ startLine, endLine }: LineSpan): string {
   return startLine === endLine ? `L${startLine}` : `L${startLine}–L${endLine}`;
 }
@@ -95,7 +95,7 @@ function chunkLines(doc: Text, from: number, to: number): [number, number] | nul
 
 /**
  * The text a comment on `from`..`to` quotes to the agent, row for row as the
- * Diff pane's snippet reads (`DiffLines`' row source): `"<num>: <prefix><content>"`,
+ * retired Diff pane's snippet read: `"<num>: <prefix><content>"`,
  * the prefix `+` for an added line, a space for an unchanged one, both
  * numbered in the working copy, and `-` for a removed one, numbered in the
  * old side. Removed lines the selection takes in (the diff shows them above

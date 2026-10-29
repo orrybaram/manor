@@ -165,6 +165,14 @@
   background: var(--surface);
 }
 
+.dotSlot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+}
+
 .agentName {
   flex: 1;
   min-width: 0;
@@ -338,6 +346,11 @@
 /* No arrow keys to teach on a touch screen. */
 :global(:root[data-layout="phone"]) .footer {
   display: none;
+}
+
+:global(:root[data-layout="phone"]) .searchInput {
+  /* iOS zooms into a focused input under 16px. */
+  font-size: 16px;
 }
 
 :global(:root[data-layout="phone"]) .agentRow {

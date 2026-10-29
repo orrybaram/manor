@@ -5,7 +5,7 @@ import { resolveAgentTitle } from "../../../hooks/useAgentDisplay";
 /** The modal's tabs. Open: the agent's pane is in a workspace right now. */
 export type AgentTab = "all" | "open" | "closed";
 
-export function isAgentOpen(agent: AgentInfo, openPaneIds: ReadonlySet<string>): boolean {
+function isAgentOpen(agent: AgentInfo, openPaneIds: ReadonlySet<string>): boolean {
   return agent.paneId !== null && openPaneIds.has(agent.paneId);
 }
 

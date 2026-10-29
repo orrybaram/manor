@@ -35,14 +35,11 @@ export interface AgentStoreState {
   }) => Promise<void>;
   loadMoreAgents: (offset: number) => Promise<void>;
   /**
-   * One page of every agent ever recorded whose name, project or workspace
-   * path holds each word of `query`. Leaves the store untouched: the
-   * Agents modal keeps search results to itself.
+   * Every agent ever recorded whose name, project or workspace path holds
+   * each word of `query`. Leaves the store untouched: the Agents modal keeps
+   * search results to itself.
    */
-  searchAgents: (
-    query: string,
-    offset: number,
-  ) => Promise<{ agents: AgentInfo[]; hasMore: boolean }>;
+  searchAgents: (query: string) => Promise<AgentInfo[]>;
   removeAgent: (agentId: string) => Promise<void>;
   /**
    * Give an agent a user-chosen name. A non-empty name is pinned so the
@@ -251,14 +248,7 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       }
     },
 
-    searchAgents: async (query, offset) => {
-      const agents = await window.electronAPI.agents.getAll({
-        query,
-        offset,
-        limit: TASK_PAGE_SIZE,
-      });
-      return { agents, hasMore: agents.length === TASK_PAGE_SIZE };
-    },
+    searchAgents: (query) => window.electronAPI.agents.getAll({ query }),
 
     removeAgent: async (agentId: string) => {
       const success = await window.electronAPI.agents.delete(agentId);

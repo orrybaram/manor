@@ -29,7 +29,11 @@ type AgentViewRowProps = {
   /** The agent's project color, as `projectColorStyle` gives it. */
   colorStyle: CSSProperties | undefined;
   shouldPulse: boolean;
+  /** Bumped to start renaming this row from the keyboard (F2); 0 for none. */
+  renameToken: number;
   onHighlight: (agentId: string) => void;
+  /** An inline rename ended, committed or not. */
+  onRenameDone: () => void;
   onResumeAgent: (agent: AgentInfo) => void;
   onRemoveAgent: (agentId: string) => void;
   onRenameAgent: (agentId: string, name: string) => void;
@@ -41,7 +45,9 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
     highlighted,
     colorStyle,
     shouldPulse,
+    renameToken,
     onHighlight,
+    onRenameDone,
     onResumeAgent,
     onRemoveAgent,
     onRenameAgent,
@@ -53,6 +59,19 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
     (name) => onRenameAgent(agent.id, name),
     { emoji: true },
   );
+
+  // `rename.start` is a new function each render; only a new token starts.
+  const startRename = useRef(rename.start);
+  startRename.current = rename.start;
+  useEffect(() => {
+    if (renameToken) startRename.current();
+  }, [renameToken]);
+
+  const wasEditing = useRef(false);
+  useEffect(() => {
+    if (wasEditing.current && !rename.editing) onRenameDone();
+    wasEditing.current = rename.editing;
+  }, [rename.editing, onRenameDone]);
 
   return (
     <ContextMenu.Root>
@@ -80,12 +99,15 @@ const AgentViewRow = memo(function AgentViewRow(props: AgentViewRowProps) {
             rename.start();
           }}
         >
-          <AgentDot
-            status={status}
-            size="sidebar"
-            pulse={shouldPulse}
-            reason={reason}
-          />
+          {/* A fixed slot, so rows with and without a status line up. */}
+          <span className={styles.dotSlot}>
+            <AgentDot
+              status={status}
+              size="sidebar"
+              pulse={shouldPulse}
+              reason={reason}
+            />
+          </span>
           <span className={styles.agentProject} title={agent.projectName ?? undefined}>
             {agent.projectName || "No project"}
           </span>
@@ -153,6 +175,9 @@ const TABS: { id: AgentTab; label: string }[] = [
   { id: "closed", label: "Closed" },
 ];
 
+/** How many search matches the list draws; typing more narrows the rest. */
+const MAX_SEARCH_ROWS = 300;
+
 function emptyMessage(query: string, tab: AgentTab): string {
   if (query.trim()) return `No agents match “${query.trim()}”`;
   if (tab === "open") return "No open agents.";
@@ -187,6 +212,7 @@ export function AgentsModal(props: AgentsModalProps) {
   const [tab, setTab] = useState<AgentTab>("all");
   const [query, setQuery] = useState("");
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; token: number } | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -202,7 +228,7 @@ export function AgentsModal(props: AgentsModalProps) {
     if (open) setQuery("");
   }, [open]);
 
-  const rows = useMemo(
+  const allRows = useMemo(
     () =>
       agentsModalRows({
         storeAgents: agents,
@@ -214,6 +240,7 @@ export function AgentsModal(props: AgentsModalProps) {
       }),
     [agents, search.agents, query, tab, openPaneIds, liveTitles],
   );
+  const rows = searching ? allRows.slice(0, MAX_SEARCH_ROWS) : allRows;
 
   const colorStyles = useMemo(() => {
     const byId = new Map<string, CSSProperties | undefined>();
@@ -240,6 +267,18 @@ export function AgentsModal(props: AgentsModalProps) {
     [onClose, onResumeAgent],
   );
 
+  const focusSearch = useCallback(() => searchRef.current?.focus(), []);
+
+  const { forget } = search;
+  const handleRemove = useCallback(
+    (agentId: string) => {
+      void removeAgent(agentId);
+      forget(agentId);
+      focusSearch();
+    },
+    [removeAgent, forget, focusSearch],
+  );
+
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.nativeEvent.isComposing) return;
     const index = highlighted ? rows.indexOf(highlighted) : -1;
@@ -252,6 +291,12 @@ export function AgentsModal(props: AgentsModalProps) {
     } else if (e.key === "Enter" && highlighted) {
       e.preventDefault();
       handleResume(highlighted);
+    } else if (e.key === "F2" && highlighted) {
+      e.preventDefault();
+      setRenameTarget((t) => ({ id: highlighted.id, token: (t?.token ?? 0) + 1 }));
+    } else if (e.key === "Backspace" && (e.metaKey || e.ctrlKey) && highlighted) {
+      e.preventDefault();
+      handleRemove(highlighted.id);
     }
   };
 
@@ -262,16 +307,16 @@ export function AgentsModal(props: AgentsModalProps) {
     [onClose],
   );
 
-  const listHasMore = searching ? search.hasMore : hasMore;
-  const loadMore = searching
-    ? search.loadMore
-    : () => loadMoreAgents(agents.length);
-  const loadMoreRef = useRef(loadMore);
-  loadMoreRef.current = loadMore;
+  // A search asks main for every match at once; only the plain list pages.
+  const listHasMore = !searching && hasMore;
+  const loadMoreRef = useRef(() => loadMoreAgents(agents.length));
+  loadMoreRef.current = () => loadMoreAgents(agents.length);
 
   // When the bottom sentinel scrolls into view, request the next page.
-  // Both loaders coalesce overlapping calls and stop once nothing is left,
-  // so the observer firing more than once is safe.
+  // The store coalesces overlapping calls and stops once nothing is left,
+  // so the observer firing more than once is safe. Rebuilt after every page,
+  // even one that adds no row to this tab, so a sentinel still in view asks
+  // again.
   useEffect(() => {
     if (!open) return;
     if (!listHasMore) return;
@@ -286,7 +331,7 @@ export function AgentsModal(props: AgentsModalProps) {
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [open, listHasMore, rows.length]);
+  }, [open, listHasMore, agents.length, rows.length]);
 
   // Rows arrive newest first, so each date bucket is one contiguous run.
   const groups: { bucket: DateBucket; agents: AgentInfo[] }[] = [];
@@ -381,14 +426,22 @@ export function AgentsModal(props: AgentsModalProps) {
                     highlighted={agent.id === highlighted?.id}
                     colorStyle={agent.projectId ? colorStyles.get(agent.projectId) : undefined}
                     shouldPulse={shouldPulse(agent)}
+                    renameToken={renameTarget?.id === agent.id ? renameTarget.token : 0}
                     onHighlight={setHighlightedId}
+                    onRenameDone={focusSearch}
                     onResumeAgent={handleResume}
-                    onRemoveAgent={removeAgent}
+                    onRemoveAgent={handleRemove}
                     onRenameAgent={renameAgent}
                   />
                 ))}
               </div>
             ))}
+
+            {allRows.length > rows.length && (
+              <div className={styles.loadMore}>
+                Showing the first {MAX_SEARCH_ROWS} matches. Keep typing to narrow them.
+              </div>
+            )}
 
             {listHasMore && (
               <div
@@ -405,6 +458,7 @@ export function AgentsModal(props: AgentsModalProps) {
           <div className={styles.footer} aria-hidden="true">
             <span><kbd>↑</kbd><kbd>↓</kbd> move</span>
             <span><kbd>↵</kbd> resume</span>
+            <span><kbd>F2</kbd> rename</span>
             <span className={styles.footerEnd}><kbd>esc</kbd> close</span>
           </div>
         </Dialog.Content>

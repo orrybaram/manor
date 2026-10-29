@@ -33,12 +33,12 @@ const remoteControlApi = {
 };
 
 const { useRemoteControlStore } = await import("../remote-control-store");
-const { useToastStore } = await import("../toast-store");
+const { clearRecords, toastStore } = await import("../../toast/toast-store");
 
 describe("remote-control toggle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useToastStore.setState({ toasts: [] });
+    clearRecords();
     useRemoteControlStore.setState({ busy: false, error: null });
   });
 
@@ -47,7 +47,7 @@ describe("remote-control toggle", () => {
     await useRemoteControlStore.getState().toggle();
     expect(remoteControlApi.setEnabled).toHaveBeenCalledWith(true);
     expect(remoteControlApi.startRelay).toHaveBeenCalledTimes(1);
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ message: "Remote control is on", status: "success" }),
     ]);
   });
@@ -57,7 +57,7 @@ describe("remote-control toggle", () => {
     await useRemoteControlStore.getState().toggle();
     expect(remoteControlApi.setEnabled).toHaveBeenCalledWith(false);
     expect(remoteControlApi.startRelay).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ message: "Remote control is off", status: "success" }),
     ]);
   });
@@ -68,7 +68,7 @@ describe("remote-control toggle", () => {
       status({ enabled: true, relay: { state: "failed", url: null, error: "refused" } }),
     );
     await useRemoteControlStore.getState().toggle();
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({
         message: "Couldn't turn on remote control",
         status: "error",
@@ -81,7 +81,7 @@ describe("remote-control toggle", () => {
     useRemoteControlStore.setState({ status: status({ encryptionAvailable: false }) });
     await useRemoteControlStore.getState().toggle();
     expect(remoteControlApi.setEnabled).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ message: "Couldn't turn on remote control", status: "error" }),
     ]);
   });
@@ -90,7 +90,7 @@ describe("remote-control toggle", () => {
     useRemoteControlStore.setState({ status: status() });
     remoteControlApi.setEnabled.mockResolvedValueOnce(status({ enabled: false }));
     await useRemoteControlStore.getState().toggle();
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ status: "error" }),
     ]);
   });
@@ -99,7 +99,7 @@ describe("remote-control toggle", () => {
     useRemoteControlStore.setState({ status: status(), busy: true });
     await useRemoteControlStore.getState().toggle();
     expect(remoteControlApi.setEnabled).not.toHaveBeenCalled();
-    expect(useToastStore.getState().toasts).toEqual([
+    expect(toastStore.getState().toasts).toEqual([
       expect.objectContaining({ status: "error" }),
     ]);
   });

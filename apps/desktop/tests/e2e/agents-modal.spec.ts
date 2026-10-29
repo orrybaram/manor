@@ -237,7 +237,7 @@ test("Agents modal: search, arrow keys, Open/Closed, project colors", async ({ w
   await shot(window, "dark-search");
 
   await search(window).fill("zzz no such agent");
-  await expect(window.getByTestId("agents-modal-empty")).toHaveText("No agents match “zzz no such agent”");
+  await expect(window.getByTestId("agents-modal-empty")).toHaveText("No sessions match “zzz no such agent”");
   await shot(window, "dark-empty");
 
   // F2 renames the highlighted search match; focus comes back to the search

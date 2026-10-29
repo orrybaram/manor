@@ -58,7 +58,9 @@ export function withLocalRelay({ otherVersions = [] }: LocalRelayOptions = {}) {
           fs.rmSync(scratch, { recursive: true, force: true });
         }
       },
-      { scope: "worker", timeout: 240_000 },
+      // A couple of seconds a file, one at a time; Vite 8's finer lazy
+      // chunks put the build near 90 files.
+      { scope: "worker", timeout: 480_000 },
     ],
 
     relay: [

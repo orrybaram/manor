@@ -49,14 +49,14 @@ export async function readSqliteStore<T>(
   sqlite: SqliteModule,
   path: string,
   read: (db: DatabaseSync) => T | Promise<T>,
-  opts: { timeout?: number; tempPrefix: string },
+  opts: { tempPrefix: string },
 ): Promise<T> {
   const [wal, shm] = await Promise.all([exists(`${path}-wal`), exists(`${path}-shm`)]);
   if (wal === shm) {
     try {
       // `pathToFileURL` escapes `?`, `#` and `%` in the path, which SQLite decodes back.
       const target = wal ? path : `${pathToFileURL(path).href}?immutable=1`;
-      return await using(new sqlite.DatabaseSync(target, { readOnly: true, ...(opts.timeout ? { timeout: opts.timeout } : {}) }), read);
+      return await using(new sqlite.DatabaseSync(target, { readOnly: true }), read);
     } catch {
       // Read a copy.
     }

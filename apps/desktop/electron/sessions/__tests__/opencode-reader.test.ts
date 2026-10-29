@@ -380,6 +380,51 @@ describe("the opencode reader", () => {
     running.close();
   });
 
+  it("reads a Session's messages only when it changed, and its latest model only when its row has none", async () => {
+    // Every statement read, by its SQL.
+    const reads: string[] = [];
+    class Spy extends sqlite.DatabaseSync {
+      prepare(sql: string) {
+        const statement = super.prepare(sql);
+        return new Proxy(statement, {
+          get(target, key) {
+            const value = Reflect.get(target, key) as unknown;
+            if (typeof value !== "function") return value;
+            return (...args: unknown[]) => {
+              if (key === "get" || key === "all" || key === "iterate") reads.push(`${sql} ${String(args[0])}`);
+              return (value as (...a: unknown[]) => unknown).apply(target, args);
+            };
+          },
+        });
+      }
+    }
+    const reader = createOpencodeReader({ ...sqlite, DatabaseSync: Spy } as typeof sqlite);
+    const latest = (id: string) => reads.filter((r) => r.includes("type = 'assistant'") && r.endsWith(` ${id}`));
+    const anyOf = (id: string) => reads.filter((r) => r.includes("session_message WHERE") && r.endsWith(` ${id}`));
+
+    const db = open();
+    v2Schema(db);
+    v2Session(db, { id: "ses_named", title: "Has model", dir: "/r", model: { id: "gpt-5" }, at: T0 });
+    v2Session(db, { id: "ses_bare", title: "No model", dir: "/r", at: T0 });
+    v2Message(db, "ses_bare", 1, "user", { text: "hello" });
+    v2Message(db, "ses_bare", 2, "assistant", { model: { id: "claude-opus-4" } });
+    const first = byId(await reader.list(env));
+    expect(first.ses_named.model).toBe("gpt-5");
+    expect(first.ses_bare.model).toBe("claude-opus-4");
+    expect(latest("ses_named")).toEqual([]);
+    expect(latest("ses_bare")).toHaveLength(1);
+
+    // A write to one Session: only its messages are read again.
+    reads.length = 0;
+    v2Message(db, "ses_bare", 3, "user", { text: "again" });
+    db.prepare("UPDATE session_v2 SET time_updated = time_updated + 1 WHERE id = ?").run("ses_bare");
+    const second = byId(await reader.list(env));
+    expect(second.ses_bare.messageCount).toBe(3);
+    expect(anyOf("ses_bare").length).toBeGreaterThan(0);
+    expect(anyOf("ses_named")).toEqual([]);
+    db.close();
+  });
+
   it("lists nothing, rather than failing, on a Node without node:sqlite", async () => {
     const db = open();
     v2Schema(db);

@@ -145,6 +145,8 @@ interface SessionRow {
   model: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  /** `time_updated` as stored: opencode bumps it on every message, so it keys the facts cache. */
+  stamp: string;
 }
 
 /** The top-level, unarchived Sessions in `table`. */
@@ -168,6 +170,7 @@ function sessionRows(
       model: modelId(row.model),
       createdAt: isoTime(row.time_created),
       updatedAt: isoTime(row.time_updated),
+      stamp: String(row.time_updated),
     });
   }
   return out;
@@ -180,7 +183,11 @@ interface MessageFacts {
   messageCount: number | null;
 }
 
-type MessageReader = (sessionId: string) => MessageFacts;
+/** One Session's facts; its latest model only when `needModel` (its row names none). */
+type MessageReader = (sessionId: string, needModel: boolean) => MessageFacts;
+
+/** Facts by Session id, kept while its `time_updated` is unchanged. */
+type FactsCache = Map<string, { key: string; facts: MessageFacts }>;
 
 const NO_MESSAGES: MessageReader = () => ({
   firstPrompt: null,
@@ -209,7 +216,7 @@ function v2Messages(
   const total = db.prepare(
     "SELECT COUNT(*) AS n FROM session_message WHERE session_id = ? AND type IN ('user', 'assistant')",
   );
-  return (sessionId) => {
+  return (sessionId, needModel) => {
     let firstPrompt: string | null = null;
     for (const row of first.iterate(sessionId) as Iterable<Row>) {
       const data = json(row.data);
@@ -219,7 +226,7 @@ function v2Messages(
         break;
       }
     }
-    const answer = json((latest.get(sessionId) as Row | undefined)?.data);
+    const answer = needModel ? json((latest.get(sessionId) as Row | undefined)?.data) : null;
     return {
       firstPrompt,
       model: isRec(answer) ? modelId(answer.model) : null,
@@ -267,7 +274,7 @@ function v1Messages(
     }
     return texts.join("\n\n").trim() || null;
   };
-  return (sessionId) => {
+  return (sessionId, needModel) => {
     let firstPrompt: string | null = null;
     for (const row of ascending.iterate(sessionId) as Iterable<Row>) {
       const data = json(row.data);
@@ -280,7 +287,7 @@ function v1Messages(
       }
     }
     let model: string | null = null;
-    for (const row of descending.iterate(sessionId) as Iterable<Row>) {
+    for (const row of needModel ? (descending.iterate(sessionId) as Iterable<Row>) : []) {
       const data = json(row.data);
       if (!isRec(data) || data.role !== "assistant") continue;
       model = str(data.modelID) ?? modelId(data.model);
@@ -329,41 +336,59 @@ function yieldToLoop(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-/** Every listable Session in the open database `db`, which lives at `path`. */
+/**
+ * Every listable Session in the open database `db`, which lives at `path`.
+ * A Session's messages are read only when its `time_updated` moved since
+ * `cache` saw it.
+ */
 async function readSessions(
   db: DatabaseSync,
   path: string,
+  cache: FactsCache,
 ): Promise<SessionSummary[]> {
   const tables = tableColumns(db);
-  const jobs: { row: SessionRow; messages: MessageReader }[] = [];
+  const jobs: { row: SessionRow; messages: MessageReader; table: string }[] = [];
   const seen = new Set<string>();
   const v2 = tables.get("session_v2");
   if (v2?.has("id")) {
     const messages = v2Messages(db, tables.get("session_message"));
     for (const row of sessionRows(db, "session_v2", v2)) {
       seen.add(row.id);
-      jobs.push({ row, messages });
+      jobs.push({ row, messages, table: "v2" });
     }
   }
   const v1 = tables.get("session");
   if (v1?.has("id")) {
     const messages = v1Messages(db, tables.get("message"), tables.get("part"));
     for (const row of sessionRows(db, "session", v1)) {
-      if (!seen.has(row.id)) jobs.push({ row, messages });
+      if (!seen.has(row.id)) jobs.push({ row, messages, table: "v1" });
     }
   }
   const out: SessionSummary[] = [];
-  for (const [i, { row, messages }] of jobs.entries()) {
-    out.push(summarize(path, row, messages(row.id)));
+  const listed = new Set<string>();
+  for (const [i, { row, messages, table }] of jobs.entries()) {
+    listed.add(row.id);
+    const needModel = row.model === null;
+    const key = `${table}|${row.stamp}|${needModel}`;
+    let facts = cache.get(row.id)?.key === key ? cache.get(row.id)?.facts : undefined;
+    if (!facts) {
+      facts = messages(row.id, needModel);
+      cache.set(row.id, { key, facts });
+    }
+    out.push(summarize(path, row, facts));
     if ((i + 1) % BATCH === 0) await yieldToLoop();
   }
+  for (const id of cache.keys()) if (!listed.has(id)) cache.delete(id);
   return out;
 }
 
-/** opencode's Sessions in the database at `path`, read without writing beside it. */
-function readDatabase(sqlite: SqliteModule, path: string): Promise<SessionSummary[]> {
-  return readSqliteStore(sqlite, path, (db) => readSessions(db, path), {
-    timeout: 1000,
+/**
+ * opencode's Sessions in the database at `path`, read without writing
+ * beside it. No busy timeout: SQLite's wait would sleep on this thread, so
+ * a lock goes straight to reading a copy.
+ */
+function readDatabase(sqlite: SqliteModule, path: string, cache: FactsCache): Promise<SessionSummary[]> {
+  return readSqliteStore(sqlite, path, (db) => readSessions(db, path, cache), {
     tempPrefix: "manor-opencode-",
   });
 }
@@ -388,6 +413,7 @@ export function createOpencodeReader(
   let cached: { path: string; key: string; list: SessionSummary[] } | null =
     null;
   let warned = false;
+  const facts: FactsCache = new Map();
   return {
     kind: "opencode",
     async list(env) {
@@ -406,7 +432,8 @@ export function createOpencodeReader(
       const key = `${dbKey}|${await fileKey(`${path}-wal`)}`;
       if (cached && cached.path === path && cached.key === key)
         return cached.list;
-      const list = await readDatabase(sqlite, path);
+      if (cached?.path !== path) facts.clear();
+      const list = await readDatabase(sqlite, path, facts);
       // Keyed on what was there before the read, so a write made during it is read next time.
       cached = { path, key, list };
       return list;

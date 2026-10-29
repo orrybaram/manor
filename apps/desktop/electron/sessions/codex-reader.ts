@@ -28,6 +28,7 @@
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import { pipeline } from "node:stream";
 import * as zlib from "node:zlib";
 
 import { LOCAL_HOST_ID } from "../backend/types";
@@ -106,10 +107,17 @@ function isoTime(value: unknown): string | null {
   return ms === null ? null : new Date(ms).toISOString();
 }
 
-/** Whether a thread's `source` marks it a sub-agent's (Codex writes `{"subagent": …}`). */
-function isSubagentSource(source: unknown): boolean {
-  if (isRec(source)) return "subagent" in source || "SubAgent" in source;
-  return typeof source === "string" && /sub_?agent/i.test(source);
+/**
+ * What a thread's `source` or `thread_source` says when Codex's picker hides
+ * it: a sub-agent's (`{"subagent": …}`) or one of Codex's own internal
+ * threads (`{"internal": "memory_consolidation"}`, guardian review). An
+ * `exec` or `mcp` thread is still the user's, and resumable.
+ */
+const HIDDEN_SOURCE = /sub_?agent|internal|guardian|memory_consolidation/i;
+
+function isHiddenSource(source: unknown): boolean {
+  if (typeof source === "string") return HIDDEN_SOURCE.test(source);
+  return isRec(source) && HIDDEN_SOURCE.test(JSON.stringify(source));
 }
 
 /** Let the event loop run between files: a large store must not hold up the server. */
@@ -190,6 +198,7 @@ const COLUMNS = {
   updatedAt: ["updated_at_ms", "updated_at", "recency_at_ms", "recency_at"],
   parent: ["forked_from_id", "parent_thread_id", "attached_thread_parent_id"],
   source: ["source"],
+  threadSource: ["thread_source"],
   hasUserEvent: ["has_user_event"],
 } as const;
 
@@ -204,7 +213,7 @@ function pick(row: Rec, columns: Set<string>, field: Field): unknown {
   return null;
 }
 
-/** One `threads` row's summary; null for a sub-agent's thread or one no one spoke in. */
+/** One `threads` row's summary; null for a sub-agent's or internal thread, or one no one spoke in. */
 export function summarizeCodexThread(
   row: Rec,
   columns: Set<string>,
@@ -221,7 +230,9 @@ export function summarizeCodexThread(
       // Not JSON after all; test the text.
     }
   }
-  if (isSubagentSource(source)) return null;
+  if (isHiddenSource(source)) return null;
+  const threadSource = str(pick(row, columns, "threadSource"));
+  if (threadSource && isHiddenSource(threadSource)) return null;
   const firstPrompt = asPrompt(str(pick(row, columns, "firstPrompt")));
   const name = str(pick(row, columns, "name")) ?? names.get(sessionId) ?? null;
   const agentTitle = str(pick(row, columns, "title"));
@@ -252,27 +263,54 @@ export function summarizeCodexThread(
   };
 }
 
-/** Every row of `threads` in `db`, with its column names; null when the table is missing. */
-function readThreads(
-  db: DatabaseSync,
-): { rows: Rec[]; columns: Set<string> } | null {
-  const info = db.prepare("PRAGMA table_info(threads)").all();
-  const columns = new Set(
-    info.map((c) => (isRec(c) ? String(c.name) : "")).filter(Boolean),
-  );
+interface Threads {
+  rows: Rec[];
+  columns: Set<string>;
+  /**
+   * Whether Codex has finished backfilling the index from its rollouts
+   * (`backfill_state.status`): until then Codex itself doesn't trust it
+   * alone, and neither does this.
+   */
+  complete: boolean;
+}
+
+/** Rows read between yields to the event loop. */
+const ROW_BATCH = 500;
+
+function columnsOf(db: DatabaseSync, table: string): Set<string> {
+  const info = db.prepare(`PRAGMA table_info(${table})`).all();
+  return new Set(info.map((c) => (isRec(c) ? String(c.name) : "")).filter(Boolean));
+}
+
+/**
+ * The `threads` columns a summary reads, row by row with the event loop let
+ * run between batches; null when the table is missing.
+ */
+async function readThreads(db: DatabaseSync): Promise<Threads | null> {
+  const columns = columnsOf(db, "threads");
   if (!columns.has("id")) return null;
-  const rows = db.prepare("SELECT * FROM threads").all().filter(isRec);
-  return { rows, columns };
+  let complete = false;
+  if (columnsOf(db, "backfill_state").has("status")) {
+    const row = db.prepare("SELECT status FROM backfill_state LIMIT 1").get();
+    complete = isRec(row) && row.status === "complete";
+  }
+  const wanted = Object.values(COLUMNS)
+    .flat()
+    .filter((c) => columns.has(c));
+  const select = wanted.map((c) => `"${c.replace(/"/g, '""')}"`).join(", ");
+  const rows: Rec[] = [];
+  for (const row of db.prepare(`SELECT ${select} FROM threads`).iterate()) {
+    if (isRec(row)) rows.push(row);
+    if (rows.length % ROW_BATCH === 0) await yieldToLoop();
+  }
+  return { rows, columns, complete };
 }
 
 /**
  * `threads` from the database at `path`, read without writing beside it
  * (`./sqlite-store.ts`). Null when the table isn't there or no read works.
  */
-async function queryThreads(
-  sqlite: SqliteModule,
-  path: string,
-): Promise<{ rows: Rec[]; columns: Set<string> } | null> {
+async function queryThreads(sqlite: SqliteModule, path: string): Promise<Threads | null> {
   try {
     return await readSqliteStore(sqlite, path, readThreads, {
       tempPrefix: "manor-codex-state-",
@@ -280,6 +318,19 @@ async function queryThreads(
   } catch {
     return null;
   }
+}
+
+async function exists(path: string): Promise<boolean> {
+  return (await stamp(path)) !== null;
+}
+
+/**
+ * The rollout a `threads` row names, as it is on disk: Codex compresses a
+ * cold rollout in place, so a missing `.jsonl` may be there as `.jsonl.zst`.
+ */
+async function rolloutOnDisk(path: string): Promise<string> {
+  if (!path.endsWith(".jsonl") || (await exists(path))) return path;
+  return (await exists(`${path}.zst`)) ? `${path}.zst` : path;
 }
 
 // ---------------------------------------------------------------------------
@@ -333,7 +384,7 @@ function rolloutUserPrompt(
 
 /**
  * One rollout's summary from its head and tail records; null for a
- * sub-agent's thread or one no one spoke in. `path` and `mtimeMs` fill
+ * sub-agent's or internal thread, or one no one spoke in. `path` and `mtimeMs` fill
  * what the records don't.
  */
 export function summarizeCodexRollout(
@@ -353,13 +404,13 @@ export function summarizeCodexRollout(
   // Codex's own `user_message` event is the prompt as typed; a raw message is the fallback.
   let firstMessage: string | null = null;
   let model: string | null = null;
-  let sawMeta = false;
+  const meta = ownSessionMeta(head, sessionId);
   for (const record of head) {
     if (!isRec(record)) continue;
     const payload = isRec(record.payload) ? record.payload : null;
-    if (record.type === "session_meta" && payload && !sawMeta) {
-      sawMeta = true;
-      if (isSubagentSource(payload.source)) return null;
+    if (record.type === "session_meta") {
+      if (record !== meta || !payload) continue;
+      if (isHiddenSource(payload.source) || isHiddenSource(payload.thread_source)) return null;
       sessionId = str(payload.id) ?? sessionId;
       createdAt =
         isoTime(payload.timestamp) ?? isoTime(record.timestamp) ?? createdAt;
@@ -410,19 +461,37 @@ export function summarizeCodexRollout(
   };
 }
 
-/** Whether a rollout's `session_meta` says a sub-agent ran it. */
-function subagentRollout(head: readonly unknown[]): boolean {
-  const meta = head.find((r) => isRec(r) && r.type === "session_meta");
-  return isRec(meta) && isRec(meta.payload) && isSubagentSource(meta.payload.source);
+/**
+ * The rollout's own `session_meta`: the one whose id is the filename's, as a
+ * fork's rollout can open with its parent's; else the first.
+ */
+function ownSessionMeta(head: readonly unknown[], fileId: string | null): Rec | null {
+  const metas = head.filter(
+    (r): r is Rec => isRec(r) && r.type === "session_meta" && isRec(r.payload),
+  );
+  return metas.find((r) => fileId !== null && (r.payload as Rec).id === fileId) ?? metas[0] ?? null;
 }
+
+/** Whether a rollout's own `session_meta` says Codex's picker hides it. */
+function hiddenRollout(path: string, head: readonly unknown[]): boolean {
+  const meta = ownSessionMeta(head, ROLLOUT_NAME.exec(basename(path))?.[2] ?? null);
+  const payload = meta?.payload as Rec | undefined;
+  return !!payload && (isHiddenSource(payload.source) || isHiddenSource(payload.thread_source));
+}
+
+/** How long decompressing one rollout's head may take before it is given up. */
+const ZSTD_HEAD_TIMEOUT_MS = 5000;
 
 /**
  * The records in the first `windowBytes` of a zstd-compressed rollout, or
- * null when this Node has no zstd (it arrived in Node 22.15).
+ * null when this Node has no zstd (it arrived in Node 22.15). A read error,
+ * or a read that outlasts `timeoutMs`, rejects: a stuck file must not stall
+ * every later scan, which joins the running one.
  */
-async function readZstdHead(
+export async function readZstdHead(
   path: string,
   windowBytes = ROLLOUT_WINDOW_BYTES,
+  timeoutMs = ZSTD_HEAD_TIMEOUT_MS,
 ): Promise<unknown[] | null> {
   const createZstdDecompress = (
     zlib as { createZstdDecompress?: () => import("node:stream").Transform }
@@ -433,14 +502,20 @@ async function readZstdHead(
   const decompress = createZstdDecompress();
   const chunks: Buffer[] = [];
   let total = 0;
+  // Unlike `pipe`, `pipeline` passes the file's read errors on, failing the loop below.
+  pipeline(input, decompress, () => undefined);
+  const timer = setTimeout(
+    () => decompress.destroy(new Error(`decompressing ${path} timed out`)),
+    timeoutMs,
+  );
   try {
-    input.pipe(decompress);
     for await (const chunk of decompress) {
       chunks.push(chunk as Buffer);
       total += (chunk as Buffer).length;
       if (total >= windowBytes) break;
     }
   } finally {
+    clearTimeout(timer);
     input.destroy();
     decompress.destroy();
     await file.close().catch(() => undefined);
@@ -493,16 +568,26 @@ interface RolloutCacheEntry extends FileStamp {
   summary: SessionSummary | null;
 }
 
-interface DbCache {
+/** What the index lists, and how far it can be trusted. */
+interface FromDb {
+  list: SessionSummary[];
+  /** Codex's backfill is done: the index alone is the whole store. */
+  complete: boolean;
+  /** Every thread id in the index, listed or not (a sub-agent's, an internal one). */
+  ids: ReadonlySet<string>;
+}
+
+interface DbCache extends FromDb {
   db: FileStamp | null;
   wal: FileStamp | null;
   index: FileStamp | null;
-  list: SessionSummary[];
 }
 
 /**
  * Codex's reader. The index is re-read only when the database, its WAL or
  * `session_index.jsonl` changed; a rollout only when its size or mtime did.
+ * Until Codex has backfilled the index, the rollouts it doesn't hold yet
+ * are listed beside it.
  */
 export function createCodexReader(): SessionReader {
   let dbCache: DbCache | null = null;
@@ -536,7 +621,7 @@ export function createCodexReader(): SessionReader {
   const fromDb = async (
     dbPath: string,
     index: { stamp: FileStamp | null; names: ReadonlyMap<string, string> },
-  ): Promise<SessionSummary[] | null> => {
+  ): Promise<FromDb | null> => {
     const sqlite = loadSqlite();
     if (!sqlite) return null;
     const db = await stamp(dbPath);
@@ -548,17 +633,20 @@ export function createCodexReader(): SessionReader {
       sameStamp(dbCache.wal, wal) &&
       sameStamp(dbCache.index, index.stamp)
     ) {
-      return dbCache.list;
+      return dbCache;
     }
     const threads = await queryThreads(sqlite, dbPath);
     if (!threads) return null;
     const list: SessionSummary[] = [];
+    const ids = new Set<string>();
     for (const row of threads.rows) {
+      const id = str(pick(row, threads.columns, "id"));
+      if (id) ids.add(id);
       const summary = summarizeCodexThread(row, threads.columns, index.names);
-      if (summary) list.push(summary);
+      if (summary) list.push({ ...summary, path: await rolloutOnDisk(summary.path) });
     }
-    dbCache = { db, wal, index: index.stamp, list };
-    return list;
+    dbCache = { db, wal, index: index.stamp, list, complete: threads.complete, ids };
+    return dbCache;
   };
 
   const fromRollouts = async (
@@ -609,7 +697,7 @@ export function createCodexReader(): SessionReader {
             );
             // A line too long to read is no sign no one spoke; a sub-agent's thread stays unlisted.
             const id =
-              capped && !summary && !subagentRollout(head)
+              capped && !summary && !hiddenRollout(path, head)
                 ? ROLLOUT_NAME.exec(basename(path))?.[2]
                 : null;
             if (id) summary = bareSummary("codex", id, path, info.mtimeMs);
@@ -637,8 +725,10 @@ export function createCodexReader(): SessionReader {
       const home = codexHome(env);
       const index = await readNames(home);
       const indexed = await fromDb(codexStateDb(env), index);
-      if (indexed) return indexed;
-      return fromRollouts(home, index.names);
+      if (indexed?.complete) return indexed.list;
+      const rollouts = await fromRollouts(home, index.names);
+      if (!indexed) return rollouts;
+      return [...indexed.list, ...rollouts.filter((s) => !indexed.ids.has(s.sessionId))];
     },
   };
 }

@@ -42,6 +42,14 @@ describe("piSessionsDir", () => {
     expect(at({})).toBe("/h/.pi/agent/sessions");
     expect(at({ PI_CODING_AGENT_SESSION_DIR: "~/pi-sessions" })).toBe("/h/pi-sessions");
   });
+
+  it("takes settings.json's sessionDir after the session dir env, with ~ and relative paths resolved", () => {
+    const at = (vars: Record<string, string>, fromSettings: string) => piSessionsDir({ home: "/h", env: vars }, fromSettings);
+    expect(at({ PI_CODING_AGENT_SESSION_DIR: "/s" }, "/x")).toBe("/s");
+    expect(at({}, "~/kept")).toBe("/h/kept");
+    expect(at({ PI_CODING_AGENT_DIR: "/a" }, "rel")).toBe("/a/rel");
+    expect(at({ PI_CODING_AGENT_DIR: "/a" }, "  ")).toBe("/a/sessions");
+  });
 });
 
 describe("piSessionIdFromPath", () => {
@@ -120,6 +128,18 @@ describe("the pi reader", () => {
     expect(c.title).toBe("Big one");
   });
 
+  it("reads the session dir pi's settings.json names, after the env's", async () => {
+    const custom = join(dir, "from-settings");
+    await mkdir(custom);
+    await rename(join(dir, "pi/agent/sessions", REPO, B_FILE), join(custom, B_FILE));
+    await writeFile(join(dir, "pi/agent/settings.json"), JSON.stringify({ sessionDir: custom }));
+    expect((await createPiReader().list(env)).map((s) => s.sessionId)).toEqual([B]);
+    // The env's session dir still wins.
+    const sessions = join(dir, "pi/agent/sessions");
+    const withEnv = { ...env, env: { ...env.env, PI_CODING_AGENT_SESSION_DIR: sessions } };
+    expect((await createPiReader().list(withEnv)).map((s) => s.sessionId)).not.toContain(B);
+  });
+
   it("reads a custom session dir, where pi writes files flat", async () => {
     const flat = join(dir, "flat");
     await mkdir(flat);
@@ -163,10 +183,18 @@ describe("summarizePiSession", () => {
   const header = { type: "session", version: 3, id: A, timestamp: "2026-10-28T10:00:00.000Z", cwd: "/w" };
   const user = (content: string) => ({ type: "message", message: { role: "user", content } });
 
-  it("falls back to the first prompt when the name is outside the tail window", () => {
-    const head = [header, user("first ask"), { type: "session_info", name: "Named mid-file" }];
+  it("keeps a name given early when the tail window no longer holds it", () => {
+    const head = [header, user("first ask"), { type: "session_info", name: "Named early" }];
     const tail = [user("a later ask")];
-    expect(summarizePiSession(`/p/x_${A}.jsonl`, 0, head, tail)?.title).toBe("first ask");
+    expect(summarizePiSession(`/p/x_${A}.jsonl`, 0, head, tail)?.title).toBe("Named early");
+  });
+
+  it("lets the tail's name, or its clearing, override the head's", () => {
+    const head = [header, user("first ask"), { type: "session_info", name: "Named early" }];
+    const renamed = [{ type: "session_info", name: "Renamed" }];
+    expect(summarizePiSession(`/p/x_${A}.jsonl`, 0, head, renamed)?.title).toBe("Renamed");
+    const cleared = [{ type: "session_info", name: "" }];
+    expect(summarizePiSession(`/p/x_${A}.jsonl`, 0, head, cleared)?.title).toBe("first ask");
   });
 
   it("is null for a file that does not open with a header", () => {

@@ -1,6 +1,7 @@
 import {
   appendFile,
   cp,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -19,6 +20,8 @@ import {
   codexStateDb,
   createCodexReader,
   parseSessionIndex,
+  readZstdHead,
+  summarizeCodexRollout,
 } from "../codex-reader";
 import type { SessionEnv, SessionSummary } from "../types";
 
@@ -167,15 +170,53 @@ describe("the Codex reader, from rollouts", () => {
   );
 });
 
+describe("summarizeCodexRollout", () => {
+  const own = "11111111-0000-4000-8000-000000000001";
+  const parent = "22222222-0000-4000-8000-000000000002";
+  const path = `/c/rollout-2026-10-20T09-15-00-${own}.jsonl`;
+  const meta = (id: string, cwd: string, extra: Record<string, unknown> = {}) => ({
+    type: "session_meta",
+    payload: { id, cwd, timestamp: "2026-10-20T09:15:00.000Z", ...extra },
+  });
+  const prompt = { type: "event_msg", payload: { type: "user_message", message: "go" } };
+
+  it("reads the session_meta whose id is the filename's, not a parent's copied first", () => {
+    const head = [meta(parent, "/parent"), meta(own, "/own", { forked_from_id: parent }), prompt];
+    expect(summarizeCodexRollout(path, 0, head, [], new Map())).toMatchObject({
+      sessionId: own,
+      cwd: "/own",
+      parentSessionId: parent,
+    });
+  });
+
+  it("drops a rollout whose own session_meta marks an internal thread", () => {
+    const head = [meta(own, "/w", { source: { internal: "memory_consolidation" } }), prompt];
+    expect(summarizeCodexRollout(path, 0, head, [], new Map())).toBeNull();
+  });
+});
+
+describe.skipIf(!zstdCompressSync)("readZstdHead", () => {
+  it("rejects, rather than hanging, when the file can't be read", async () => {
+    const path = join(dir, "rollout.jsonl.zst");
+    await mkdir(path);
+    await expect(readZstdHead(path)).rejects.toThrow();
+  });
+});
+
 /** A `threads` table shaped like Codex's, with the columns given. */
 function makeDb(
   path: string,
   columns: string,
   rows: Record<string, unknown>[],
+  backfill: string | null = "complete",
 ): void {
   const db = new sqlite!.DatabaseSync(path);
   db.exec("PRAGMA journal_mode = WAL");
   db.exec(`CREATE TABLE threads (${columns})`);
+  if (backfill !== null) {
+    db.exec("CREATE TABLE backfill_state (id INTEGER PRIMARY KEY, status TEXT NOT NULL, last_watermark TEXT)");
+    db.prepare("INSERT INTO backfill_state (id, status) VALUES (1, ?)").run(backfill);
+  }
   for (const row of rows) {
     const keys = Object.keys(row);
     db.prepare(
@@ -315,6 +356,57 @@ describe.skipIf(!sqlite)("the Codex reader, from the SQLite index", () => {
       model: null,
       gitBranch: null,
     });
+  });
+
+  it("lists the rollouts the index doesn't hold yet until Codex's backfill is complete", async () => {
+    for (const backfill of ["running", null]) {
+      await rm(join(home, "state_5.sqlite"), { force: true });
+      makeDb(
+        join(home, "state_5.sqlite"),
+        THREAD_COLUMNS,
+        [
+          { id: A, created_at: 1792000000, updated_at: 1792000100, title: "From the index", first_user_message: "hi" },
+          { id: "t9", created_at: 1792000000, updated_at: 1792000100, title: "Only indexed" },
+        ],
+        backfill,
+      );
+      const sessions = byId(await createCodexReader().list(env));
+      // The index's row stands for a thread it holds; the rest come from rollouts.
+      expect(Object.keys(sessions).sort()).toEqual([A, B, E, "t9"].sort());
+      expect(sessions[A].firstPrompt).toBe("hi");
+    }
+  });
+
+  it("drops Codex's internal threads, but keeps exec and mcp ones", async () => {
+    makeDb(join(home, "state_5.sqlite"), `${THREAD_COLUMNS}, thread_source TEXT`, [
+      { id: "mem", created_at: 1792000000, updated_at: 1792000100, title: "m", source: '{"internal":"memory_consolidation"}' },
+      { id: "guard", created_at: 1792000000, updated_at: 1792000100, title: "g", thread_source: "guardian_review" },
+      { id: "memsrc", created_at: 1792000000, updated_at: 1792000100, title: "m2", thread_source: "memory_consolidation" },
+      { id: "sub", created_at: 1792000000, updated_at: 1792000100, title: "s", thread_source: "subagent" },
+      { id: "exec", created_at: 1792000000, updated_at: 1792000100, title: "e", source: "exec", thread_source: "user" },
+      { id: "mcp", created_at: 1792000000, updated_at: 1792000100, title: "p", source: "mcp" },
+    ]);
+    const list = await createCodexReader().list(env);
+    expect(list.map((s) => s.sessionId).sort()).toEqual(["exec", "mcp"]);
+  });
+
+  it("reads every row of a large index", async () => {
+    const rows = Array.from({ length: 1234 }, (_, i) => ({ id: `t${i}`, created_at: 1792000000, updated_at: 1792000000 + i, title: `T${i}` }));
+    makeDb(join(home, "state_5.sqlite"), THREAD_COLUMNS, rows);
+    expect(await createCodexReader().list(env)).toHaveLength(1234);
+  });
+
+  it("points at a rollout's .zst when Codex compressed it in place", async () => {
+    const plain = join(home, A_PATH);
+    await writeFile(`${plain}.zst`, "compressed");
+    await unlink(plain);
+    makeDb(join(home, "state_5.sqlite"), THREAD_COLUMNS, [
+      { id: A, created_at: 1792000000, updated_at: 1792000100, title: "One", rollout_path: plain },
+      { id: "t2", created_at: 1792000000, updated_at: 1792000100, title: "Two", rollout_path: join(home, "gone.jsonl") },
+    ]);
+    const sessions = byId(await createCodexReader().list(env));
+    expect(sessions[A].path).toBe(`${plain}.zst`);
+    expect(sessions.t2.path).toBe(join(home, "gone.jsonl"));
   });
 
   it("falls back to the rollouts when the database has no threads table", async () => {

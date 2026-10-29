@@ -1,7 +1,8 @@
 /**
  * pi's Sessions: `<root>/--<encoded cwd>--/<timestamp>_<session-id>.jsonl`,
- * where `<root>` is `$PI_CODING_AGENT_SESSION_DIR`, else
- * `$PI_CODING_AGENT_DIR/sessions`, else `~/.pi/agent/sessions`. pi writes a
+ * where `<root>` is `$PI_CODING_AGENT_SESSION_DIR`, else the `sessionDir`
+ * in the agent dir's `settings.json`, else `<agent dir>/sessions`; the
+ * agent dir is `$PI_CODING_AGENT_DIR`, else `~/.pi/agent`. pi writes a
  * custom session directory flat (no per-cwd directories), so files directly
  * under the root are read too.
  *
@@ -15,14 +16,15 @@
  *   message names its `model`;
  * - `model_change` (`modelId`) is the model the user picked;
  * - `session_info` (`name`) is the name the user gave it; the latest one
- *   wins, and an empty name clears it.
+ *   wins, and an empty name clears it. Read from the head too, so a name
+ *   given early survives a tail window that no longer holds it.
  *
  * The directory name encodes the cwd lossily (`-` stands for `/`, `\`, `:`
  * and itself), so the cwd always comes from the header.
  */
 
-import { readdir, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { basename, join, resolve } from "node:path";
 
 import { LOCAL_HOST_ID } from "../backend/types";
 import { readJsonlWindows } from "./jsonl-window";
@@ -36,12 +38,34 @@ function expandHome(path: string, home: string): string {
   return path;
 }
 
-/** Where pi keeps its sessions on the host `env` describes. */
-export function piSessionsDir({ home, env }: SessionEnv): string {
-  const sessionDir = env.PI_CODING_AGENT_SESSION_DIR?.trim();
-  if (sessionDir) return expandHome(sessionDir, home);
+/** pi's agent dir on the host `env` describes: `$PI_CODING_AGENT_DIR`, else `~/.pi/agent`. */
+function piAgentDir({ home, env }: SessionEnv): string {
   const agentDir = env.PI_CODING_AGENT_DIR?.trim();
-  return join(agentDir ? expandHome(agentDir, home) : join(home, ".pi", "agent"), "sessions");
+  return agentDir ? expandHome(agentDir, home) : join(home, ".pi", "agent");
+}
+
+/**
+ * Where pi keeps its sessions on the host `env` describes, given the
+ * `sessionDir` its `settings.json` names (a relative one is taken under the
+ * agent dir).
+ */
+export function piSessionsDir(at: SessionEnv, settingsSessionDir: string | null = null): string {
+  const sessionDir = at.env.PI_CODING_AGENT_SESSION_DIR?.trim();
+  if (sessionDir) return expandHome(sessionDir, at.home);
+  const agentDir = piAgentDir(at);
+  const fromSettings = settingsSessionDir?.trim();
+  if (fromSettings) return resolve(agentDir, expandHome(fromSettings, at.home));
+  return join(agentDir, "sessions");
+}
+
+/** The `sessionDir` in pi's `settings.json`, or null when it names none or can't be read. */
+async function settingsSessionDir(at: SessionEnv): Promise<string | null> {
+  try {
+    const settings: unknown = JSON.parse(await readFile(join(piAgentDir(at), "settings.json"), "utf8"));
+    return isRec(settings) && typeof settings.sessionDir === "string" ? settings.sessionDir : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -120,18 +144,23 @@ export function summarizePiSession(
 
   let firstPrompt: string | null = null;
   let headModel: string | null = null;
+  // The latest name seen, top then bottom; `undefined` until a `session_info` is seen.
+  let name: string | null | undefined;
+  const nameOf = (record: Rec): void => {
+    // An empty name clears the one before it.
+    if (record.type === "session_info") name = typeof record.name === "string" ? record.name.trim() || null : null;
+  };
   for (const record of head) {
     if (!isRec(record)) continue;
     firstPrompt ??= userPrompt(record);
     headModel ??= modelOf(record);
+    nameOf(record);
   }
-  // The latest of each, from the bottom. `undefined` until a `session_info` is seen.
-  let name: string | null | undefined;
+  // The latest of each, from the bottom.
   let tailModel: string | null = null;
   for (const record of tail) {
     if (!isRec(record)) continue;
-    // An empty name clears the one before it.
-    if (record.type === "session_info") name = typeof record.name === "string" ? record.name.trim() || null : null;
+    nameOf(record);
     tailModel = modelOf(record) ?? tailModel;
   }
 
@@ -201,7 +230,7 @@ export function createPiReader(): SessionReader {
     async list(env) {
       const seen = new Set<string>();
       const out: SessionSummary[] = [];
-      for (const path of await sessionFiles(piSessionsDir(env))) {
+      for (const path of await sessionFiles(piSessionsDir(env, await settingsSessionDir(env)))) {
         let info;
         try {
           info = await stat(path);

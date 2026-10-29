@@ -137,7 +137,8 @@
 }
 
 .folder {
-  flex: 0 1 auto;
+  /* Gives way long before the name does. */
+  flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

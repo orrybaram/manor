@@ -566,8 +566,8 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await window.keyboard.press("ControlOrMeta+z");
   await expect(editor.locator(".cm-line.cm-change-mine")).toHaveCount(0);
 
-  // Source Control: both files under Changes (nothing staged yet), the
-  // agent's with its chip, the new file untracked.
+  // Source Control: both files under Changes (nothing staged yet), no
+  // writer's chip on the rows, the new file untracked.
   await pane(window).locator('[data-testid="file-pane-scm-button"]').click();
   await expect(drawer).toHaveAttribute("data-mode", "scm");
   const changesGroup = drawer.locator('[data-testid="scm-group-changes"]');
@@ -577,7 +577,7 @@ test("the file pane marks what changed: tree badges, gutter, edit jumps and the 
   await expect(scmRow("src/components/Widget.tsx")).toHaveAttribute("data-letter", "M");
   await expect(
     scmRow("src/components/Widget.tsx").locator('[data-testid="file-pane-agent-chip"]'),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(scmRow("src/helper.ts")).toHaveAttribute("data-letter", "U");
   await window.waitForTimeout(300);
   await window.screenshot({ path: shot(testInfo, "changed-list") });

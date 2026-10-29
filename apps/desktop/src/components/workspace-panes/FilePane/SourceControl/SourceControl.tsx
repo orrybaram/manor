@@ -15,7 +15,6 @@ import FolderOpen from "lucide-react/dist/esm/icons/folder-open";
 import Minus from "lucide-react/dist/esm/icons/minus";
 import Plus from "lucide-react/dist/esm/icons/plus";
 import Undo2 from "lucide-react/dist/esm/icons/undo-2";
-import type { FileAuthor } from "../../../../electron.d";
 import { useProjectStore } from "../../../../store/project-store";
 import { ownerOf } from "../../../../lib/workspace-directory";
 import { workspaceKey } from "../../../../lib/workspace-key";
@@ -30,7 +29,6 @@ import {
   fetchStagedSingleFlight,
 } from "../../../../lib/diff/diff-fetch";
 import { FingerprintedFetch } from "../FingerprintedFetch";
-import { AgentChip } from "../AgentChip";
 import { fileChangesFromDiff, type FileChange } from "../file-changes";
 import type { FilesWorkspace } from "../open-file-watches";
 import type { WorkspaceChanges } from "../workspace-changes";
@@ -170,7 +168,6 @@ export function SourceControl({
     () => branchEntries(fileChangesFromDiff(branchRaw).values()),
     [branchRaw],
   );
-  const authors = changes?.authors ?? {};
 
   // Rows get one callback that never changes, reading this render's state
   // through a ref, so a memoized row re-renders only when what it shows does.
@@ -225,7 +222,6 @@ export function SourceControl({
             entry={entry}
             group={group}
             depth={depth}
-            author={authors[entry.change.path] ?? null}
             selected={entry.change.path === openFile}
             webApp={webApp}
             locked={locked}
@@ -531,7 +527,6 @@ type ScmRowProps = {
   group: RowGroup;
   /** How many folders deep it sits in the tree. */
   depth: number;
-  author: FileAuthor | null;
   selected: boolean;
   webApp: boolean;
   /** A git action is running, or git can't be reached: its buttons wait. */
@@ -550,8 +545,6 @@ function sameRow(a: ScmRowProps, b: ScmRowProps): boolean {
     a.entry.letter === b.entry.letter &&
     a.group === b.group &&
     a.depth === b.depth &&
-    a.author?.paneId === b.author?.paneId &&
-    a.author?.agentKind === b.author?.agentKind &&
     a.selected === b.selected &&
     a.webApp === b.webApp &&
     a.locked === b.locked &&
@@ -559,12 +552,11 @@ function sameRow(a: ScmRowProps, b: ScmRowProps): boolean {
   );
 }
 
-/** One changed file: icon, name, its writer's chip, then actions and letter. */
+/** One changed file: icon, name, then actions and letter. */
 const ScmRow = memo(function ScmRow({
   entry,
   group,
   depth,
-  author,
   selected,
   webApp,
   locked,
@@ -610,7 +602,6 @@ const ScmRow = memo(function ScmRow({
           className: styles.fileIcon,
         })}
         <span className={styles.name}>{name}</span>
-        {author && <AgentChip author={author} />}
       </button>
       <span className={styles.actions}>
         {change.status !== "deleted" && (

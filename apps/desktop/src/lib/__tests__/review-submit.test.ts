@@ -116,7 +116,7 @@ describe("reviewPrompt", () => {
       filePath: "src/store/app-store.ts",
       startLine: 120,
       endLine: 121,
-      snippet: "-119: let x = 1\n120: const x = 1\n121: export { x }",
+      snippet: "119: -let x = 1\n120: +const x = 1\n121:  export { x }",
       startLabel: "L120–L121",
       body: "This should be a constant.",
       createdAt: 0,
@@ -124,9 +124,9 @@ describe("reviewPrompt", () => {
 
     expect(reviewPrompt([comment]).split("\n").slice(1)).toEqual([
       "[1] src/store/app-store.ts L120–L121 — This should be a constant.",
-      "    Code: -119: let x = 1",
-      "120: const x = 1",
-      "121: export { x }",
+      "    Code: 119: -let x = 1",
+      "120: +const x = 1",
+      "121:  export { x }",
     ]);
   });
 

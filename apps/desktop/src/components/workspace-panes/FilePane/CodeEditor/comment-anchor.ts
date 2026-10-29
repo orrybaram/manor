@@ -1,5 +1,5 @@
-import { getChunks, getOriginalDoc } from "@codemirror/merge";
-import type { ChangeDesc, EditorState, Text } from "@codemirror/state";
+import { diff, getChunks, getOriginalDoc } from "@codemirror/merge";
+import { ChangeSet, type ChangeDesc, type EditorState, type Text } from "@codemirror/state";
 
 /** The working copy's lines a comment covers: 1-based, inclusive. */
 export type LineSpan = { startLine: number; endLine: number };
@@ -44,17 +44,38 @@ export function spanOf(doc: Text, anchor: Anchor): LineSpan {
 }
 
 /**
- * `anchor` after `changes`, read against the documents before (`before`) and
- * after (`after`) them. Typing in its lines grows them, a line inserted
- * above pushes it down, and deleting its lines leaves it on the line that
- * took their place. A wholesale replacement (the file reloaded from disk)
- * would put every comment at the top, so it keeps each on its line number.
+ * `anchor` after `changes`. Typing in its lines grows them (text typed at
+ * its last line's end too: it is drawn under the whole line, `cardPos`), a
+ * line inserted above pushes it down, and deleting its lines leaves it on
+ * the line that took their place.
  */
-export function mapAnchor(anchor: Anchor, changes: ChangeDesc, before: Text, after: Text): Anchor {
-  if (replacesAll(changes, before.length)) return anchorFor(after, spanOf(before, anchor));
+export function mapAnchor(anchor: Anchor, changes: ChangeDesc): Anchor {
   const from = changes.mapPos(anchor.from, 1);
   const to = changes.mapPos(anchor.to, -1);
   return { from: Math.min(from, to), to };
+}
+
+/** Where a comment's card hangs: under the whole of its last line. */
+export function cardPos(doc: Text, anchor: Anchor): number {
+  return doc.lineAt(Math.min(anchor.to, doc.length)).to;
+}
+
+/**
+ * The changes to map comments through for `changes`, which took `before` to
+ * `after`. A wholesale replacement (the file reloaded from disk) would put
+ * every comment at the top, so it is mapped as the smallest edit between
+ * the two instead, and each comment follows its own text.
+ */
+export function changesToMap(changes: ChangeSet, before: Text, after: Text): ChangeDesc {
+  if (!replacesAll(changes, before.length)) return changes;
+  const a = before.toString();
+  const b = after.toString();
+  const minimal = diff(a, b, { scanLimit: 500, timeout: 200 }).map((c) => ({
+    from: c.fromA,
+    to: c.toA,
+    insert: b.slice(c.fromB, c.toB),
+  }));
+  return ChangeSet.of(minimal, a.length).desc;
 }
 
 function replacesAll(changes: ChangeDesc, length: number): boolean {
@@ -66,33 +87,44 @@ function replacesAll(changes: ChangeDesc, length: number): boolean {
   return whole;
 }
 
+/** The lines a chunk's side covers, from its start to the end of its range. */
+function chunkLines(doc: Text, from: number, to: number): [number, number] | null {
+  if (to <= from) return null;
+  return [doc.lineAt(from).number, doc.lineAt(Math.min(to, doc.length + 1) - 1).number];
+}
+
 /**
- * The text a comment on `from`..`to` quotes to the agent, one
- * `"<num>: <content>"` line per working-copy line, as the Diff pane's
- * snippet reads. Removed lines the selection takes in (the diff shows them
- * above the line that replaced them) come in as `"-<old num>: <content>"`,
- * so a comment on a deletion still says what was deleted.
+ * The text a comment on `from`..`to` quotes to the agent, row for row as the
+ * Diff pane's snippet reads (`DiffLines`' row source): `"<num>: <prefix><content>"`,
+ * the prefix `+` for an added line, a space for an unchanged one, both
+ * numbered in the working copy, and `-` for a removed one, numbered in the
+ * old side. Removed lines the selection takes in (the diff shows them above
+ * the line that replaced them) are quoted too, so a comment on a deletion
+ * still says what was deleted.
  */
 export function snippetFor(state: EditorState, from: number, to: number): string {
   const doc = state.doc;
   const span = selectedLines(doc, from, to);
+  const chunks = getChunks(state)?.chunks ?? [];
+  const added = new Set<number>();
+  for (const chunk of chunks) {
+    const lines = chunkLines(doc, chunk.fromB, chunk.toB);
+    if (lines) for (let n = lines[0]; n <= lines[1]; n++) added.add(n);
+  }
   const rows: { pos: number; order: number; text: string }[] = [];
   for (let n = span.startLine; n <= span.endLine; n++) {
     const line = doc.line(n);
-    rows.push({ pos: line.from, order: 1, text: `${n}: ${line.text}` });
+    rows.push({ pos: line.from, order: 1, text: `${n}: ${added.has(n) ? "+" : " "}${line.text}` });
   }
-  const chunks = getChunks(state)?.chunks ?? [];
   if (chunks.length > 0) {
     const original = getOriginalDoc(state);
     const startsAtLine = from === doc.line(span.startLine).from;
     for (const chunk of chunks) {
-      const deletes = chunk.toA > chunk.fromA;
+      const removed = chunkLines(original, chunk.fromA, chunk.toA);
       const inside = (startsAtLine ? chunk.fromB >= from : chunk.fromB > from) && chunk.fromB <= to;
-      if (!deletes || !inside) continue;
-      const first = original.lineAt(chunk.fromA).number;
-      const last = original.lineAt(Math.min(chunk.toA, original.length + 1) - 1).number;
-      for (let n = first; n <= last; n++) {
-        rows.push({ pos: chunk.fromB, order: 0, text: `-${n}: ${original.line(n).text}` });
+      if (!removed || !inside) continue;
+      for (let n = removed[0]; n <= removed[1]; n++) {
+        rows.push({ pos: chunk.fromB, order: 0, text: `${n}: -${original.line(n).text}` });
       }
     }
   }

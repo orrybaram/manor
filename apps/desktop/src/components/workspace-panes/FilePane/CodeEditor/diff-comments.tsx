@@ -23,6 +23,8 @@ import { TooltipProvider } from "../../../ui/Tooltip/Tooltip";
 import { CommentComposer, DiffCommentCard } from "../../../review/DiffCommentCard/DiffCommentCard";
 import {
   anchorFor,
+  cardPos,
+  changesToMap,
   lineLabel,
   mapAnchor,
   selectedLines,
@@ -41,8 +43,23 @@ const commentsConfig = Facet.define<CommentsConfig, CommentsConfig | null>({
 /** A draft on the open file, where it is in the document now. */
 type Placed = { draft: DraftComment } & Anchor;
 
-/** The composer: a new comment on a selection, or a saved one being edited. */
-type Composing = ({ kind: "new"; snippet: string } & Anchor) | { kind: "edit"; id: string };
+/**
+ * The composer: a new comment on a selection, or a saved one being edited.
+ * `key` names this composer for as long as it is open, across rebuilds of
+ * its widget.
+ */
+type Composing =
+  | ({ kind: "new"; key: string; snippet: string } & Anchor)
+  | { kind: "edit"; key: string; id: string };
+
+let composerCount = 0;
+
+/**
+ * What an open composer holds while its widget is gone: the editor drops a
+ * widget scrolled far enough out of view, and the text typed in it would go
+ * with it. Kept by composer key until the composer saves or cancels.
+ */
+const composerText = new Map<string, string>();
 
 type CommentsState = {
   placed: readonly Placed[];
@@ -77,8 +94,9 @@ const commentsField = StateField.define<CommentsState>({
   create: () => ({ placed: [], composing: null, flash: null }),
   update(value, tr) {
     let { placed, composing, flash } = value;
-    if (tr.docChanged) {
-      const move = (a: Anchor) => mapAnchor(a, tr.changes, tr.startState.doc, tr.state.doc);
+    if (tr.docChanged && (placed.length > 0 || composing?.kind === "new")) {
+      const changes = changesToMap(tr.changes, tr.startState.doc, tr.state.doc);
+      const move = (a: Anchor) => mapAnchor(a, changes);
       placed = placed.map((p) => ({ ...p, ...move(p) }));
       if (composing?.kind === "new") composing = { ...composing, ...move(composing) };
     }
@@ -99,7 +117,8 @@ const commentsField = StateField.define<CommentsState>({
 
 /** Where comment `id` is in the document, for a jump to it; null if not here. */
 export function commentPosition(state: EditorState, id: string): number | null {
-  return state.field(commentsField, false)?.placed.find((p) => p.draft.id === id)?.to ?? null;
+  const placed = state.field(commentsField, false)?.placed.find((p) => p.draft.id === id);
+  return placed ? cardPos(state.doc, placed) : null;
 }
 
 /**
@@ -155,34 +174,51 @@ export function reviewComments(config: CommentsConfig): Extension {
   ];
 }
 
+type Mounted = { root: Root; observer: ResizeObserver; view: EditorView };
+
 /**
  * React inside a widget: its own root (wrapped for the card's tooltips),
  * re-measured by the editor as it grows, unmounted a tick after the widget
- * goes so it never unmounts mid-render.
+ * goes so it never unmounts mid-render. A new widget with the same
+ * `identity` re-renders into the old one's root, so React keeps its state
+ * (what a composer holds) while a label or a body changes.
  */
 abstract class ReactWidget extends WidgetType {
+  abstract readonly identity: string;
   abstract render(view: EditorView): ReactNode;
 
-  private static roots = new WeakMap<HTMLElement, { root: Root; observer: ResizeObserver }>();
+  private static mounted = new WeakMap<HTMLElement, Mounted>();
 
   toDOM(view: EditorView): HTMLElement {
     const dom = document.createElement("div");
     dom.className = "cm-reviewComment";
+    dom.dataset.widget = this.identity;
     const root = createRoot(dom);
     root.render(<TooltipProvider>{this.render(view)}</TooltipProvider>);
     const observer = new ResizeObserver(() => view.requestMeasure());
     observer.observe(dom);
-    ReactWidget.roots.set(dom, { root, observer });
+    ReactWidget.mounted.set(dom, { root, observer, view });
     return dom;
   }
 
+  updateDOM(dom: HTMLElement, view: EditorView): boolean {
+    const mounted = ReactWidget.mounted.get(dom);
+    if (!mounted || dom.dataset.widget !== this.identity) return false;
+    mounted.root.render(<TooltipProvider>{this.render(view)}</TooltipProvider>);
+    return true;
+  }
+
   destroy(dom: HTMLElement): void {
-    const mounted = ReactWidget.roots.get(dom);
+    const mounted = ReactWidget.mounted.get(dom);
     if (!mounted) return;
-    ReactWidget.roots.delete(dom);
+    this.leaving(dom, mounted.view);
+    ReactWidget.mounted.delete(dom);
     mounted.observer.disconnect();
     setTimeout(() => mounted.root.unmount());
   }
+
+  /** The widget's DOM is about to go. */
+  protected leaving(_dom: HTMLElement, _view: EditorView): void {}
 
   get estimatedHeight(): number {
     return 60;
@@ -196,6 +232,10 @@ class CardWidget extends ReactWidget {
     readonly flash: boolean,
   ) {
     super();
+  }
+
+  get identity(): string {
+    return `card:${this.draft.id}`;
   }
 
   eq(other: CardWidget): boolean {
@@ -213,7 +253,7 @@ class CardWidget extends ReactWidget {
       <DiffCommentCard
         comment={{ ...draft, startLabel: this.label }}
         flash={this.flash}
-        onEdit={() => view.dispatch({ effects: compose.of({ kind: "edit", id: draft.id }) })}
+        onEdit={() => editComment(view, draft.id)}
         onDelete={() => {
           const config = view.state.facet(commentsConfig);
           if (config) useReviewStore.getState().removeDraft(config.workspacePath, draft.id);
@@ -233,24 +273,33 @@ class ComposerWidget extends ReactWidget {
     super();
   }
 
-  // The same composer stays put while its label moves with edits: rebuilding
-  // it would drop what is typed.
+  get identity(): string {
+    return this.composing.key;
+  }
+
+  // A moved label re-renders the same composer in place (`updateDOM`).
   eq(other: ComposerWidget): boolean {
-    const a = this.composing;
-    const b = other.composing;
-    if (a.kind === "edit") return b.kind === "edit" && a.id === b.id;
-    return b.kind === "new";
+    return other.composing.key === this.composing.key && other.label === this.label;
+  }
+
+  // Scrolled out of view (not closed): keep what is typed for its return.
+  protected leaving(dom: HTMLElement, view: EditorView): void {
+    const open = view.state.field(commentsField, false)?.composing;
+    const textarea = dom.querySelector("textarea");
+    if (open?.key === this.composing.key && textarea) composerText.set(open.key, textarea.value);
   }
 
   render(view: EditorView): ReactNode {
+    const { key } = this.composing;
     const close = () => {
+      composerText.delete(key);
       view.dispatch({ effects: compose.of(null) });
       view.focus();
     };
     return (
       <CommentComposer
         startLabel={this.label}
-        initialBody={this.initialBody}
+        initialBody={composerText.get(key) ?? this.initialBody}
         onCancel={close}
         onSave={(body) => {
           const config = view.state.facet(commentsConfig);
@@ -275,6 +324,42 @@ class ComposerWidget extends ReactWidget {
   }
 }
 
+/** Where the open composer hangs, and the text it started with. */
+function composerAt(state: EditorState, composing: Composing): { pos: number; initial: string } | null {
+  if (composing.kind === "new") return { pos: cardPos(state.doc, composing), initial: "" };
+  const placed = state.field(commentsField).placed.find((p) => p.draft.id === composing.id);
+  return placed ? { pos: cardPos(state.doc, placed), initial: placed.draft.body } : null;
+}
+
+/**
+ * Edit comment `id`, unless a composer already open holds writing of its
+ * own: that one is shown instead, so nothing typed is dropped. One untouched
+ * gives way.
+ */
+function editComment(view: EditorView, id: string): void {
+  const open = view.state.field(commentsField).composing;
+  if (open) {
+    const at = composerAt(view.state, open);
+    const live = view.dom.querySelector<HTMLTextAreaElement>(
+      `.cm-reviewComment[data-widget="${CSS.escape(open.key)}"] textarea`,
+    );
+    const text = live?.value ?? composerText.get(open.key) ?? at?.initial ?? "";
+    if (at && text.trim() !== at.initial.trim()) {
+      view.dispatch({ effects: EditorView.scrollIntoView(at.pos, { y: "center" }) });
+      requestAnimationFrame(() =>
+        view.dom
+          .querySelector<HTMLTextAreaElement>(
+            `.cm-reviewComment[data-widget="${CSS.escape(open.key)}"] textarea`,
+          )
+          ?.focus(),
+      );
+      return;
+    }
+    composerText.delete(open.key);
+  }
+  view.dispatch({ effects: compose.of({ kind: "edit", key: `edit:${id}`, id }) });
+}
+
 const commentedMarker = new (class extends GutterMarker {
   elementClass = "cm-commentedLine";
 })();
@@ -286,14 +371,14 @@ const commentWidgets = EditorView.decorations.compute([commentsField], (state) =
   for (const p of placed) {
     const label = lineLabel(spanOf(state.doc, p));
     if (composing?.kind === "edit" && composing.id === p.draft.id) {
-      widgets.push({ pos: p.to, widget: new ComposerWidget(composing, label, p.draft.body) });
+      widgets.push({ pos: cardPos(state.doc, p), widget: new ComposerWidget(composing, label, p.draft.body) });
     } else {
-      widgets.push({ pos: p.to, widget: new CardWidget(p.draft, label, flash === p.draft.id) });
+      widgets.push({ pos: cardPos(state.doc, p), widget: new CardWidget(p.draft, label, flash === p.draft.id) });
     }
   }
   if (composing?.kind === "new") {
     const label = lineLabel(spanOf(state.doc, composing));
-    widgets.push({ pos: composing.to, widget: new ComposerWidget(composing, label, "") });
+    widgets.push({ pos: cardPos(state.doc, composing), widget: new ComposerWidget(composing, label, "") });
   }
   widgets.sort((a, b) => a.pos - b.pos);
   const builder = new RangeSetBuilder<Decoration>();
@@ -325,7 +410,12 @@ function startComment(view: EditorView): boolean {
   const doc = view.state.doc;
   const at = anchorFor(doc, selectedLines(doc, from, to));
   view.dispatch({
-    effects: compose.of({ kind: "new", ...at, snippet: snippetFor(view.state, from, to) }),
+    effects: compose.of({
+      kind: "new",
+      key: `new:${++composerCount}`,
+      ...at,
+      snippet: snippetFor(view.state, from, to),
+    }),
     // The selection has done its job; left lit behind the composer it reads as still live.
     selection: { anchor: at.to },
   });

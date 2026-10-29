@@ -197,6 +197,18 @@ function runCobwebs(host: HTMLElement, canvas: HTMLCanvasElement): void {
     draw();
   };
   new ResizeObserver(resize).observe(host);
+  // Moving to a screen with another pixel ratio doesn't resize the footer, so
+  // watch the ratio too, re-arming the one-shot query each time it changes.
+  const watchRatio = () =>
+    matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`).addEventListener(
+      "change",
+      () => {
+        resize();
+        watchRatio();
+      },
+      { once: true },
+    );
+  watchRatio();
   resize();
 }
 

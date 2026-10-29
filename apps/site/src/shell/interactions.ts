@@ -15,11 +15,28 @@ export type ShellContext = {
   onScreen: () => boolean;
 };
 
+/**
+ * The one mount the keyboard types into: whichever had its visible
+ * "Automations suite" pane clicked last. Any click elsewhere hands the keys
+ * back to the page, so Space scrolls and other mounts never echo the text.
+ */
+let typingInto: ShellContext | null = null;
+
+document.addEventListener(
+  "pointerdown",
+  (e) => {
+    const pane = (e.target as Element | null)?.closest('[data-pane="suite"]');
+    if (!pane) typingInto = null;
+  },
+  { capture: true },
+);
+
 export function onShellClick(ctx: ShellContext, e: MouseEvent): void {
   const { state } = ctx;
   const t = (e.target as Element | null)?.closest<HTMLElement>("[data-act],[data-ws],[data-agent],[data-pane]");
   if (!t || !ctx.root.contains(t)) return;
   const { act, ws, agent, pane } = t.dataset;
+  typingInto = pane === "suite" ? ctx : null;
 
   if (act) {
     const a = state.agents.gtf;
@@ -67,10 +84,10 @@ function keyboardTaken(e: KeyboardEvent): boolean {
   return document.querySelector('[aria-modal="true"]:not([hidden])') !== null;
 }
 
-/** Keys go to "Automations suite" while it's focused, open and on screen. Enter sends a canned turn. */
+/** Keys go to "Automations suite" once its pane was clicked, while it stays open and on screen. Enter sends a canned turn. */
 export function onShellKey(ctx: ShellContext, e: KeyboardEvent): void {
   const { state } = ctx;
-  if (state.focus !== "suite" || state.ws !== "homepage" || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (typingInto !== ctx || state.focus !== "suite" || state.ws !== "homepage" || e.metaKey || e.ctrlKey || e.altKey) return;
   if (keyboardTaken(e) || !ctx.onScreen()) return;
   const a = state.agents.suite;
   if (e.key === "Enter" && state.typing.trim()) {

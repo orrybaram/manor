@@ -83,6 +83,25 @@ test.describe("desktop 1440", () => {
     await expect(hero.locator(".ma-tab")).toContainText("homepage");
   });
 
+  test("typing goes only to a suite pane you clicked, and the page keeps its keys otherwise", async ({ page }) => {
+    await open(page);
+    // Ch II: picking the suite agent focuses a pane that's cropped out of view;
+    // Space must still scroll the page.
+    const rooms = page.locator('[data-shell="rooms"]');
+    await page.locator("#rooms").scrollIntoViewIfNeeded();
+    await rooms.locator('[data-agent="suite"]').click({ force: true });
+    const y = await page.evaluate(() => scrollY);
+    await page.keyboard.press("Space");
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(y);
+    // Hero: clicking the visible suite pane types into it, and only there.
+    await page.evaluate(() => scrollTo(0, 0));
+    const hero = page.locator('[data-shell="hero"]');
+    await hero.locator('[data-pane="suite"]').click();
+    await page.keyboard.type("hi");
+    await expect(hero.locator('[data-pane="suite"] .inp')).toHaveText("hi");
+    await expect(rooms.locator(".inp")).toHaveText("");
+  });
+
   test("the footer is revealed from under the east wing and its webs sweep", async ({ page }) => {
     await open(page);
     const max = await page.evaluate(() => document.documentElement.scrollHeight - innerHeight);

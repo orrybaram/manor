@@ -5,7 +5,8 @@
  * real `SshTransport` + `TerminalHostClient` against a real box: cold
  * bootstrap, reinstall over a stale host, a session's whole lifecycle, the
  * remote hook journal across a dropped connection, snapshot resync after a
- * drop mid-output, and a remote daemon restart.
+ * drop mid-output, a remote daemon restart, and the file pane's list, read
+ * and write over the host's Exec.
  *
  * Skipped unless MANOR_E2E_SSH=1 — `pnpm test:unit` never runs it. Run it
  * through the harness, which starts the sshd and builds the host tarball:
@@ -23,7 +24,10 @@ import * as path from "node:path";
 import { Terminal as HeadlessTerminal } from "@xterm/headless";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { ExecShellBackend } from "../../backend/exec-shell";
 import { ensureRemoteHost, hostTarballPath } from "../../backend/remote-bootstrap";
+import { createRemoteExec } from "../../backend/remote-exec";
+import { contentHash, listWorkspaceFiles, readWorkspaceFile, writeWorkspaceFile } from "../../workspace-files";
 import { TerminalHostClient } from "../client";
 import { SshTransport } from "../transport-ssh";
 import type { HookJournalEntry, StreamEvent } from "../types";
@@ -396,5 +400,50 @@ describe.skipIf(skipReason !== null)("remote host over a real sshd", () => {
       await h.client.kill(fresh);
     },
     4 * STEP_TIMEOUT_MS,
+  );
+
+  it(
+    "lists, reads and writes a workspace's files through the host's Exec",
+    async () => {
+      // The file pane's backend for a remote workspace (#449): the same
+      // ExecShellBackend main builds over the daemon's exec.
+      const files = { shell: new ExecShellBackend(createRemoteExec(h.client)) };
+      const ws = `${home}/.manor-e2e/files-ws`;
+      onRemote(
+        `rm -rf "${ws}" && mkdir -p "${ws}/src" "${ws}/node_modules/pkg" "${ws}/dist" && cd "${ws}" && ` +
+          "git init -q && " +
+          "printf 'node_modules/\\ndist/\\n' > .gitignore && " +
+          "printf 'export const a = 1;\\n' > src/a.ts && " +
+          "printf 'module.exports = 1;\\n' > node_modules/pkg/index.js && " +
+          "printf 'built\\n' > dist/out.js",
+      );
+
+      const listed = await listWorkspaceFiles(files, ws);
+      expect(listed.source).toBe("git");
+      expect(listed.paths).toEqual([".gitignore", "src/a.ts"]);
+
+      const read = await readWorkspaceFile(files, ws, "src/a.ts");
+      expect(read).toEqual({
+        ok: true,
+        content: "export const a = 1;\n",
+        hash: contentHash("export const a = 1;\n"),
+      });
+
+      const next = "export const a = 2;\n";
+      const written = await writeWorkspaceFile(files, ws, "src/a.ts", next, contentHash("export const a = 1;\n"));
+      expect(written).toEqual({ ok: true, hash: contentHash(next) });
+      expect(onRemote(`cat "${ws}/src/a.ts"`).stdout).toBe(next);
+
+      // A stale hash is refused rather than overwriting the box's copy.
+      onRemote(`printf 'export const a = 3;\\n' > "${ws}/src/a.ts"`);
+      expect(await writeWorkspaceFile(files, ws, "src/a.ts", "mine\n", contentHash(next))).toMatchObject({
+        ok: false,
+        reason: "changed-on-disk",
+      });
+      expect(onRemote(`cat "${ws}/src/a.ts"`).stdout).toBe("export const a = 3;\n");
+
+      onRemote(`rm -rf "${ws}"`);
+    },
+    STEP_TIMEOUT_MS,
   );
 });

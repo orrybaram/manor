@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { liveValue } from "../bridge/resync";
 import type { RemoteControlStatus, RemotePairResult } from "../electron.d";
 import { isOn } from "../components/settings/remote-control-status";
-import { useToastStore } from "./toast-store";
+import { toast } from "../toast";
 
 /**
  * Live mirror of the main process's remote-control state.
@@ -133,25 +133,19 @@ export const useRemoteControlStore = create<RemoteControlState>((set, get) => {
           : turningOn && status.relay.state === "failed"
             ? status.relay.error ?? "The relay connection failed."
             : null);
-      useToastStore.getState().addToast(
-        failed
-          ? {
-              id: "remote-control-toggle",
-              message: turningOn
-                ? "Couldn't turn on remote control"
-                : "Couldn't turn off remote control",
-              status: "error",
-              detail: failed,
-            }
-          : {
-              id: "remote-control-toggle",
-              message: turningOn ? "Remote control is on" : "Remote control is off",
-              status: "success",
-              detail: turningOn
-                ? "Paired devices can reach this computer through the relay."
-                : undefined,
-            },
-      );
+      if (failed) {
+        toast.error(
+          turningOn ? "Couldn't turn on remote control" : "Couldn't turn off remote control",
+          { id: "remote-control-toggle", detail: failed },
+        );
+      } else {
+        toast.success(turningOn ? "Remote control is on" : "Remote control is off", {
+          id: "remote-control-toggle",
+          detail: turningOn
+            ? "Paired devices can reach this computer through the relay."
+            : undefined,
+        });
+      }
     },
     resetRelayAddress: () =>
       runStatus(() => window.electronAPI.remoteControl.resetRelayAddress()),

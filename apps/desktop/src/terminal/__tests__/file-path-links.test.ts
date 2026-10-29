@@ -77,6 +77,72 @@ describe("matchFilePaths", () => {
     expect(links("//cdn.example.com/a.js")).toEqual([]);
   });
 
+  it("reads a file:// URL as its absolute path, the URL linked whole", () => {
+    expect(links("    at file:///home/u/repo/src/a.js:10:5")).toEqual([
+      {
+        text: "file:///home/u/repo/src/a.js:10:5",
+        path: "/home/u/repo/src/a.js",
+        line: 10,
+        col: 5,
+      },
+    ]);
+    expect(links("at Object.<anonymous> (file:///repo/a.mjs:2:1)").map((l) => l.path)).toEqual([
+      "/repo/a.mjs",
+    ]);
+    // Another machine's file.
+    expect(links("file://server/share/a.js")).toEqual([]);
+  });
+
+  it("reads a webpack:// URL as a project-relative path", () => {
+    expect(
+      [
+        "at webpack:///./src/a.ts:3:7",
+        "at eval (webpack-internal:///./src/a.ts:3:7)",
+        "at foo (webpack://my-app/./src/a.ts:3:7)",
+        "at eval (webpack-internal:///(app-pages-browser)/./src/a.ts:3:7)",
+      ].map((line) => links(line).map((l) => [l.path, l.line, l.col])),
+    ).toEqual(Array(4).fill([["./src/a.ts", 3, 7]]));
+    expect(links("webpack:///src/b.ts").map((l) => l.path)).toEqual(["src/b.ts"]);
+  });
+
+  it("finds a path after a lone word's colon, not after a host's", () => {
+    expect(links("error:src/a.ts:3").map((l) => [l.path, l.line])).toEqual([["src/a.ts", 3]]);
+    expect(links("scp me@host:src/a.ts .")).toEqual([]);
+    expect(links("serving localhost:5173/src/main.ts")).toEqual([]);
+  });
+
+  // What the editor fallback linked before workspace links (any path with an
+  // extension, existence checked on disk) is still offered to it.
+  it("keeps every real path the old matcher found", () => {
+    const sample = [
+      "src/foo.ts:12:3 - error TS2322",
+      "./main.go:12:3: undefined: x",
+      "  --> src/main.rs:3:5",
+      '  File "/home/u/repo/app/x.py", line 3, in <module>',
+      "M  src/a.ts",
+      "diff --git a/src/a.ts b/src/a.ts",
+      "/home/u/repo/node_modules/@scope/pkg/index.js:1",
+      "../lib/bar.js:10:5",
+      "    at file:///home/u/repo/src/a.js:10:5",
+      "error:src/a.ts:3",
+    ];
+    expect(sample.map((line) => links(line).map((l) => [l.path, l.line, l.col]))).toEqual([
+      [["src/foo.ts", 12, 3]],
+      [["./main.go", 12, 3]],
+      [["src/main.rs", 3, 5]],
+      [["/home/u/repo/app/x.py", undefined, undefined]],
+      [["src/a.ts", undefined, undefined]],
+      [
+        ["a/src/a.ts", undefined, undefined],
+        ["b/src/a.ts", undefined, undefined],
+      ],
+      [["/home/u/repo/node_modules/@scope/pkg/index.js", 1, undefined]],
+      [["../lib/bar.js", 10, 5]],
+      [["/home/u/repo/src/a.js", 10, 5]],
+      [["src/a.ts", 3, undefined]],
+    ]);
+  });
+
   it("gives 0-based start and end on the line", () => {
     const [m] = matchFilePaths("  src/foo.ts:12 ok");
     expect([m.start, m.end]).toEqual([2, 15]);
@@ -108,8 +174,18 @@ describe("workspaceCandidates", () => {
     expect(workspaceCandidates("../../other/a.ts", "/work/repo/src", root)).toEqual([]);
   });
 
-  it("keeps the root's reading when the cwd is outside the workspace", () => {
-    expect(workspaceCandidates("src/a.ts", "/tmp", root)).toEqual(["src/a.ts"]);
+  it("has no reading of a relative path when the cwd is outside the workspace", () => {
+    expect(workspaceCandidates("src/a.ts", "/tmp", root)).toEqual([]);
+    expect(workspaceCandidates("src/a.ts", "/work/repo-old", root)).toEqual([]);
+    // An absolute path still reads, whatever the cwd.
+    expect(workspaceCandidates("/work/repo/src/a.ts", "/tmp", root)).toEqual(["src/a.ts"]);
+  });
+
+  it("falls back to the root from anywhere inside the workspace", () => {
+    expect(workspaceCandidates("src/a.ts", "/work/repo/packages/x/", root)).toEqual([
+      "packages/x/src/a.ts",
+      "src/a.ts",
+    ]);
   });
 
   it("makes an absolute path inside the workspace relative", () => {

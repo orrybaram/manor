@@ -20,12 +20,17 @@ export type FilePathMatch = {
  * A path, then an optional `:line[:col]` or tsc's `(line,col)`.
  *
  * Not preceded by anything a path or URL is made of, so the tail of
- * `https://host/a.js` or `a:b/c.ts` is not one. The path never takes a `:`,
- * so `src/foo.ts:12` splits there, and it ends on a word character, so a
- * sentence's full stop is left off.
+ * `https://host/a.js`, `host:8080/a.js` or scp's `me@host:a/b.ts` is not
+ * one; a lone word's colon may lead in (`error:src/a.ts`). The path never
+ * takes a `:`, so `src/foo.ts:12` splits there, and it ends on a word
+ * character, so a sentence's full stop is left off.
+ *
+ * Two URL schemes in stack traces name a file, and lead in: `file://` (the
+ * path is its absolute part) and webpack's `webpack://[namespace]/` (the path
+ * after it is the project's, relative, past Next.js's `(layer)/`).
  */
 const PATH_RE =
-  /(?<![\w@.+\-/:~\\])((?:\.{1,2}\/|\/)?[\w@.+-][\w@.+\-/]*[\w])(?::(\d+)(?::(\d+))?|\((\d+),(\d+)\))?/g;
+  /(?:(?<![\w@.+\-/:~\\])|(?<=(?:^|[\s([{"'`])[A-Za-z]+:)(?=[A-Za-z_.]))(?:(?<file>file:\/\/)|(?<webpack>webpack(?:-internal)?:\/\/[^\s/]*\/(?:\([^\s/)]*\)\/)?))?(?<path>(?:\.{1,2}\/|\/)?[\w@.+-][\w@.+\-/]*[\w])(?::(?<line>\d+)(?::(?<col>\d+))?|\((?<tscLine>\d+),(?<tscCol>\d+)\))?/g;
 
 /** An extension: what a path with no slash needs to count. */
 const HAS_EXTENSION = /\.[A-Za-z0-9]+$/;
@@ -39,12 +44,17 @@ export function matchFilePaths(line: string): FilePathMatch[] {
   PATH_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = PATH_RE.exec(line)) !== null) {
-    const path = m[1];
+    const groups = m.groups ?? {};
+    let path = groups.path;
+    // `file:///a.js` is absolute; `file://host/a.js` names another machine.
+    if (groups.file && !path.startsWith("/")) continue;
+    // `webpack:///src/a.ts` is the project's `src/a.ts`.
+    if (groups.webpack) path = path.replace(/^\/+/, "");
     if (!path.includes("/") && !HAS_EXTENSION.test(path)) continue;
     // `//host/x` is a protocol-relative URL, not a path.
     if (path.startsWith("//")) continue;
-    const lineNum = m[2] ?? m[4];
-    const colNum = m[3] ?? m[5];
+    const lineNum = groups.line ?? groups.tscLine;
+    const colNum = groups.col ?? groups.tscCol;
     matches.push({
       path,
       ...(lineNum ? { line: Number(lineNum) } : {}),
@@ -71,6 +81,14 @@ function normalizeAbsolute(path: string): string | null {
   return `/${out.join("/")}`;
 }
 
+/** Whether the absolute `dir` is `root` or inside it. */
+function isWithin(dir: string, root: string): boolean {
+  const abs = normalizeAbsolute(dir);
+  const top = normalizeAbsolute(root);
+  if (!abs || !top) return false;
+  return top === "/" || abs === top || abs.startsWith(`${top}/`);
+}
+
 /** `printed` resolved against `base`, as a path relative to `root`; null outside it. */
 function relativeTo(printed: string, base: string, root: string): string | null {
   const abs = normalizeAbsolute(printed.startsWith("/") ? printed : `${base}/${printed}`);
@@ -84,9 +102,11 @@ function relativeTo(printed: string, base: string, root: string): string | null 
 /**
  * Where a printed path may be in the workspace at `root`, most likely first:
  * against the terminal's `cwd` when it knows one, then against the root
- * (agents print paths from the repo's top whatever the shell's cwd). An
- * absolute path has one answer, or none when it is outside the workspace.
- * Workspace-relative, `/`-separated.
+ * (agents print paths from the repo's top whatever the shell's cwd in it).
+ * A shell whose cwd is outside the workspace prints paths of somewhere else,
+ * so its relative paths are none of the workspace's. An absolute path has
+ * one answer, or none when it is outside the workspace. Workspace-relative,
+ * `/`-separated.
  */
 export function workspaceCandidates(
   printed: string,
@@ -97,6 +117,7 @@ export function workspaceCandidates(
     const rel = relativeTo(printed, root, root);
     return rel ? [rel] : [];
   }
+  if (cwd && !isWithin(cwd, root)) return [];
   const out: string[] = [];
   for (const base of cwd ? [cwd, root] : [root]) {
     const rel = relativeTo(printed, base, root);

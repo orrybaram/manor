@@ -224,7 +224,10 @@ test("an OSC 8 hyperlink offers its target, and plain text offers no link items"
   await expect.poll(() => paneText(window, paneId)).toMatch(lineStarting("Read the docs"));
 
   await rightClickText(window, paneId, "Read the docs");
-  await expect(menu(window).getByRole("menuitem", { name: "Open in New Browser Tab" })).toBeVisible();
+  const items = menu(window).locator('[role="menuitem"]');
+  for (const [i, name] of LINK_ITEMS.entries()) {
+    await expect(items.nth(i)).toContainText(name);
+  }
   await window.screenshot({ path: shot(testInfo, "osc8-menu-dark") });
   await menu(window).getByRole("menuitem", { name: "Copy Link" }).click();
   await expect.poll(() => app.evaluate(({ clipboard }) => clipboard.readText())).toBe(url);

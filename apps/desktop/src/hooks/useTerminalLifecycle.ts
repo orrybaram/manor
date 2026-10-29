@@ -657,6 +657,8 @@ export function useTerminalLifecycle(
           detach();
         }
         t.dispose();
+        // Disposing says no `leave` for a link under the pointer.
+        linkHover.clear();
         // After the terminal, which takes the addon down without building a
         // DOM renderer it would never draw with; this frees the context.
         webglRef.current?.dispose();

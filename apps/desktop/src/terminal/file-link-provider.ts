@@ -4,6 +4,7 @@ import { useAppStore } from "../store/app-store";
 import type { FilesWorkspace } from "../components/workspace-panes/FilePane/open-file-watches";
 import { matchFilePaths, workspaceCandidates, type FilePathMatch } from "./file-path-links";
 import { workspaceFileIndex } from "./workspace-file-index";
+import { LOCAL_HOST_ID, normalizeHostId } from "../lib/workspace-key";
 import type { TerminalFileLink } from "./link-hover";
 
 type FileLinkOptions = {
@@ -30,11 +31,14 @@ const HAS_EXTENSION = /\.\w+$/;
  * listing (`workspaceFileIndex`, one `files.list` kept per workspace), is a
  * file pane link: ⌘/Ctrl-click opens it beside the terminal, and right-click
  * offers it in the context menu. Relative paths resolve against the shell's
- * cwd, then the workspace root. Any other path that exists on this machine
- * still ⌘/Ctrl-clicks into the external editor, as before.
+ * cwd, then the workspace root while the cwd is in the workspace. Any other
+ * path that exists on this machine still ⌘/Ctrl-clicks into the external
+ * editor, as before; not in a workspace on another host, whose paths name
+ * that host's files, not this machine's.
  */
 export function createFileLinkProvider(opts: FileLinkOptions): ILinkProvider {
   const { terminal, paneId, fallbackCwd, workspace } = opts;
+  const onAnotherHost = workspace !== null && normalizeHostId(workspace.hostId) !== LOCAL_HOST_ID;
   return {
     provideLinks(bufferLineNumber: number, callback) {
       const line = getLineText(terminal, bufferLineNumber);
@@ -79,7 +83,7 @@ export function createFileLinkProvider(opts: FileLinkOptions): ILinkProvider {
       };
 
       const onThisMachine = async (m: FilePathMatch): Promise<ILink | null> => {
-        if (!HAS_EXTENSION.test(m.path)) return null;
+        if (onAnotherHost || !HAS_EXTENSION.test(m.path)) return null;
         const resolved = await window.electronAPI.shell.resolveFilePath(m.path, cwd);
         if (!resolved) return null;
         return {

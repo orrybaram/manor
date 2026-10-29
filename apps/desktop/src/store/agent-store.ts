@@ -102,6 +102,15 @@ const ATTENTION_KINDS: readonly Attention[] = ["input", "responded"];
 /** Agents this window raised a toast for, per kind, until main stops flagging them. */
 const raised: Record<Attention, Set<string>> = { input: new Set(), responded: new Set() };
 
+// Agents whose updates arrive without unseen flags (an older host bundle).
+// They fall back to status alone, as before flags existed.
+const unflagged = new Set<string>();
+
+// Agents this window marked seen, with the status they had, until main's
+// cleared flags come back. An update main sent before it processed the
+// mark still carries the old flag, and must not raise the toast again.
+const locallySeen = new Map<string, AgentInfo["lastAgentStatus"]>();
+
 function attentionToastId(kind: Attention, agentId: string): string {
   return kind === "input" ? `agent-input-${agentId}` : `agent-responded-${agentId}`;
 }
@@ -116,9 +125,12 @@ function wantsAttention(
   state: Pick<AgentStoreState, "unseenInputAgentIds" | "unseenRespondedAgentIds">,
 ): boolean {
   if (!agent) return false;
+  const flagged = unflagged.has(agent.id);
   return kind === "input"
-    ? agent.lastAgentStatus === "requires_input" && state.unseenInputAgentIds.has(agent.id)
-    : agent.lastAgentStatus === "responded" && state.unseenRespondedAgentIds.has(agent.id);
+    ? agent.lastAgentStatus === "requires_input" &&
+        (flagged || state.unseenInputAgentIds.has(agent.id))
+    : agent.lastAgentStatus === "responded" &&
+        (flagged || state.unseenRespondedAgentIds.has(agent.id));
 }
 
 function raiseAttention(kind: Attention, agent: AgentInfo): void {
@@ -356,6 +368,8 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       const hadResponded = s.unseenRespondedAgentIds.has(agentId);
       const hadInput = s.unseenInputAgentIds.has(agentId);
       if (hadResponded || hadInput) {
+        const seen = s.agents.find((a) => a.id === agentId);
+        if (seen) locallySeen.set(agentId, seen.lastAgentStatus);
         const nextResponded = hadResponded
           ? new Set(s.unseenRespondedAgentIds)
           : s.unseenRespondedAgentIds;
@@ -404,6 +418,12 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       // agent. Older preloads may not include the `unseen` argument; in that
       // case we leave the cache alone.
       if (unseen) {
+        unflagged.delete(agent.id);
+        if (!unseen.responded && !unseen.requires_input) locallySeen.delete(agent.id);
+      } else {
+        unflagged.add(agent.id);
+      }
+      if (unseen) {
         const hadResponded = s.unseenRespondedAgentIds.has(agent.id);
         const hadInput = s.unseenInputAgentIds.has(agent.id);
         const wantsResponded = unseen.responded;
@@ -445,8 +465,18 @@ export const useAgentStore = create<AgentStoreState>((set, get) => {
       // user", and only in the focused window: unfocused, main shows the
       // native banner instead, and this window does not toast later either.
       // Taking it down again is `settleAttention`'s, on every store change.
+      // An agent this window has never held (a host connecting, or a catch-up
+      // after load) was already waiting before we saw it: no toast, as at boot.
+      // One marked seen here at this status is a stale echo of that mark.
       const after = get();
       const current = after.agents.find((t) => t.id === agent.id);
+      const stale =
+        locallySeen.has(agent.id) && locallySeen.get(agent.id) === agent.lastAgentStatus;
+      if (!previous || stale) {
+        get().markVisibleAgentsSeen();
+        return;
+      }
+      locallySeen.delete(agent.id);
       for (const kind of ATTENTION_KINDS) {
         if (wantsAttention(kind, previous, s) || !wantsAttention(kind, current, after)) continue;
         if (isWindowFocused()) raiseAttention(kind, agent);

@@ -223,4 +223,29 @@ describe("agent attention toasts", () => {
     receive({ ...agent, lastAgentStatus: "responded" }, RESPONDED);
     expect(shown()).toEqual(["Agent responded"]);
   });
+
+  it("does not toast an agent first seen already waiting (a host connecting)", () => {
+    const agent = makeAgent({ id: "f1", paneId: "off-screen", lastAgentStatus: "requires_input" });
+    receive(agent, NEEDS_INPUT);
+    expect(shown()).toEqual([]);
+  });
+
+  it("does not re-raise from an update main sent before it saw the mark", () => {
+    const agent = working("f2", "off-screen");
+    receive({ ...agent, lastAgentStatus: "responded" }, RESPONDED);
+    useAgentStore.getState().markAgentSeen("f2");
+    expect(shown()).toEqual([]);
+    // A name sync main sent before processing markSeen, still flagged.
+    receive({ ...agent, name: "renamed", lastAgentStatus: "responded" }, RESPONDED);
+    expect(shown()).toEqual([]);
+  });
+
+  it("falls back to status for a host that sends no unseen flags", () => {
+    const agent = makeAgent({ id: "f3", paneId: "off-screen", lastAgentStatus: "working" });
+    useAgentStore.getState().receiveAgentUpdate(agent);
+    useAgentStore.getState().receiveAgentUpdate({ ...agent, lastAgentStatus: "requires_input" });
+    expect(shown()).toEqual(["Agent needs input"]);
+    useAgentStore.getState().receiveAgentUpdate({ ...agent, lastAgentStatus: "working" });
+    expect(shown()).toEqual([]);
+  });
 });

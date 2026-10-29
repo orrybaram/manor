@@ -31,6 +31,7 @@ function makeChrome(): MenuChrome {
   return {
     openSettings: vi.fn(),
     togglePalette: vi.fn(),
+    openGoToFile: vi.fn(),
     openPaletteView: vi.fn(),
     openNewWorkspace: vi.fn(),
     addProject: vi.fn(),

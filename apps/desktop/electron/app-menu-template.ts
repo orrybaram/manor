@@ -136,6 +136,7 @@ export function buildMenuTemplate(
       cmd("new-workspace", "New Workspace…"),
       cmd("add-project", "Add Project…"),
       SEPARATOR,
+      cmd("go-to-file", "Go to File…", { enabled: canCreateTabs }),
       cmd("open-diff", "Open Diff", { enabled: canCreateTabs }),
       cmd(
         "open-in-editor",

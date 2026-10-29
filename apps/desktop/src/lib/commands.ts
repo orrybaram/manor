@@ -129,6 +129,7 @@ export interface SharedCommandContext {
 export interface CommandChrome {
   openSettings(page?: "keybindings" | "devices"): void;
   togglePalette(): void;
+  openGoToFile(): void;
   openPaletteView(
     view: "processes" | "stats",
   ): void;
@@ -876,6 +877,15 @@ export const COMMANDS: readonly CommandDef[] = [
     category: "workspace",
     scope: "any",
     run: unlessHome((ctx) => ctx.app().addFileTab()),
+  },
+  {
+    // Quick open: the active workspace's files, fuzzy-matched by name.
+    id: "go-to-file",
+    label: "Go to File…",
+    category: "workspace",
+    defaultCombo: metaCombo("p"),
+    scope: "primary",
+    run: unlessHome((ctx) => ctx.chrome.openGoToFile()),
   },
   {
     id: "split-with",

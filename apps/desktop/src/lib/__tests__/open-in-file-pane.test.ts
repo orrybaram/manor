@@ -2,6 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PaneNode } from "../layout/pane-tree";
 import type { WorkspaceLayout } from "../layout/workspace-layout";
 
+/** A store's `subscribe`, for the fakes below. */
+const subscribable = vi.hoisted(() => () => {
+  const listeners = new Set<() => void>();
+  return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    },
+    emit: () => {
+      for (const listener of [...listeners]) listener();
+    },
+  };
+});
+
 const app = vi.hoisted(() => ({
   workspaceLayouts: {} as Record<string, unknown>,
   filePaths: {} as Record<string, string>,
@@ -10,21 +24,28 @@ const app = vi.hoisted(() => ({
   splitPaneAt: vi.fn(() => "new-file-pane"),
   addFileTab: vi.fn(() => ({ tabId: "t-new", paneId: "tab-file-pane" })),
 }));
-const files = vi.hoisted(() => ({ dirty: new Set<string>(), dispatch: vi.fn() }));
-const lines = vi.hoisted(() => ({ request: vi.fn() }));
+const appStore = vi.hoisted(() => subscribable());
+type FakePane = { dirty: boolean; pendingOpen: string | null };
+const files = vi.hoisted(() => ({
+  byPane: {} as Record<string, FakePane>,
+  dispatch: vi.fn(),
+}));
+const fileStore = vi.hoisted(() => subscribable());
 
 vi.mock("../../store/app-store", () => ({
-  useAppStore: { getState: () => app },
+  useAppStore: { getState: () => app, subscribe: appStore.subscribe },
   selectPaneFilePath: (_s: unknown, paneId: string) => app.filePaths[paneId] ?? null,
 }));
 vi.mock("../../store/open-file-store", () => ({
-  hasUnsavedEdits: (paneId: string) => files.dirty.has(paneId),
-  useOpenFileStore: { getState: () => ({ dispatch: files.dispatch }) },
-}));
-vi.mock("../../components/workspace-panes/FilePane/pending-line", () => ({
-  pendingLines: lines,
+  hasUnsavedEdits: (paneId: string) => files.byPane[paneId]?.dirty ?? false,
+  useOpenFileStore: {
+    getState: () => ({ byPane: files.byPane, dispatch: files.dispatch }),
+    subscribe: (listener: (state: { byPane: Record<string, FakePane> }) => void) =>
+      fileStore.subscribe(() => listener({ byPane: files.byPane })),
+  },
 }));
 
+const { pendingLines } = await import("../../components/workspace-panes/FilePane/pending-line");
 const { filePaneInTabOf, openFileBeside, openFileInNewTab } = await import(
   "../open-in-file-pane"
 );
@@ -58,8 +79,18 @@ function layoutWith(...tabs: PaneNode[]): WorkspaceLayout {
 beforeEach(() => {
   vi.clearAllMocks();
   app.filePaths = {};
-  files.dirty.clear();
+  files.byPane = {};
+  for (const paneId of ["new-file-pane", "file", "tab-file-pane"]) pendingLines.clearLine(paneId);
 });
+
+/** A file pane with unsaved edits to `path`. */
+function dirtyPane(paneId: string, path: string) {
+  app.filePaths[paneId] = path;
+  files.byPane[paneId] = { dirty: true, pendingOpen: null };
+  files.dispatch.mockImplementation((id: string, event: { type: string; path: string }) => {
+    if (event.type === "ask-before-open") files.byPane[id].pendingOpen = event.path;
+  });
+}
 
 describe("filePaneInTabOf", () => {
   it("finds the file pane sharing the tab, not one in another tab", () => {
@@ -84,7 +115,7 @@ describe("openFileBeside", () => {
       contentType: "file",
       filePath: "src/a.ts",
     });
-    expect(lines.request).toHaveBeenCalledWith("new-file-pane", {
+    expect(pendingLines.take("new-file-pane", "src/a.ts")).toEqual({
       path: "src/a.ts",
       line: 8,
       col: undefined,
@@ -102,8 +133,7 @@ describe("openFileBeside", () => {
 
   it("asks in the swap bar, rather than swapping, over unsaved edits", () => {
     app.workspaceLayouts = { "/repo": layoutWith(split(leaf("diff", "diff"), leaf("file", "file"))) };
-    app.filePaths.file = "src/old.ts";
-    files.dirty.add("file");
+    dirtyPane("file", "src/old.ts");
     openFileBeside("diff", "src/a.ts");
     expect(app.setPaneFilePath).not.toHaveBeenCalled();
     expect(files.dispatch).toHaveBeenCalledWith("file", { type: "ask-before-open", path: "src/a.ts" });
@@ -111,23 +141,78 @@ describe("openFileBeside", () => {
 
   it("only moves the cursor when the pane already has the file", () => {
     app.workspaceLayouts = { "/repo": layoutWith(split(leaf("term"), leaf("file", "file"))) };
-    app.filePaths.file = "src/a.ts";
-    files.dirty.add("file");
+    dirtyPane("file", "src/a.ts");
     openFileBeside("term", "src/a.ts", "horizontal", { line: 3, col: 2 });
     expect(app.setPaneFilePath).not.toHaveBeenCalled();
     expect(files.dispatch).not.toHaveBeenCalled();
-    expect(lines.request).toHaveBeenCalledWith("file", { path: "src/a.ts", line: 3, col: 2 });
+    expect(pendingLines.take("file", "src/a.ts")).toEqual({ path: "src/a.ts", line: 3, col: 2 });
+  });
+
+  describe("a line waiting on the swap bar", () => {
+    const tab = () => ({
+      "/repo": layoutWith(split(leaf("term"), leaf("file", "file"))),
+    });
+
+    it("is dropped when the swap bar is cancelled", () => {
+      app.workspaceLayouts = tab();
+      dirtyPane("file", "src/old.ts");
+      openFileBeside("term", "src/a.ts", "horizontal", { line: 9 });
+      expect(pendingLines.waiting("file")).toMatchObject({ path: "src/a.ts", line: 9 });
+      files.byPane.file.pendingOpen = null; // Cancel: still dirty
+      fileStore.emit();
+      expect(pendingLines.waiting("file")).toBeNull();
+    });
+
+    it("waits out a slow Discard, then is the opened file's", () => {
+      app.workspaceLayouts = tab();
+      dirtyPane("file", "src/old.ts");
+      openFileBeside("term", "src/a.ts", "horizontal", { line: 9 });
+      files.byPane.file = { dirty: false, pendingOpen: null }; // Discard
+      fileStore.emit();
+      app.filePaths.file = "src/a.ts"; // the layout broadcast, later
+      appStore.emit();
+      expect(pendingLines.take("file", "src/a.ts")).toMatchObject({ line: 9 });
+    });
+
+    it("is dropped when the pane opens another file instead", () => {
+      app.workspaceLayouts = tab();
+      dirtyPane("file", "src/old.ts");
+      openFileBeside("term", "src/a.ts", "horizontal", { line: 9 });
+      files.byPane.file = { dirty: false, pendingOpen: null };
+      fileStore.emit();
+      app.filePaths.file = "src/other.ts";
+      appStore.emit();
+      expect(pendingLines.waiting("file")).toBeNull();
+    });
+
+    it("is dropped when the swap bar is asked for another file", () => {
+      app.workspaceLayouts = tab();
+      dirtyPane("file", "src/old.ts");
+      openFileBeside("term", "src/a.ts", "horizontal", { line: 9 });
+      files.byPane.file.pendingOpen = "src/tree-pick.ts";
+      fileStore.emit();
+      expect(pendingLines.waiting("file")).toBeNull();
+    });
   });
 });
 
 describe("openFileInNewTab", () => {
-  it("opens a file tab, with the line waiting for its pane", () => {
-    openFileInNewTab("src/a.ts", { line: 12 });
-    expect(app.addFileTab).toHaveBeenCalledWith("src/a.ts");
-    expect(lines.request).toHaveBeenCalledWith("tab-file-pane", {
+  it("opens a file tab in the terminal's own workspace and panel, with the line waiting", () => {
+    app.workspaceLayouts = { "/repo": layoutWith(leaf("x")), "box:/other": layoutWith(leaf("term")) };
+    openFileInNewTab("term", "src/a.ts", { line: 12 });
+    expect(app.addFileTab).toHaveBeenCalledWith("src/a.ts", {
+      workspaceKey: "box:/other",
+      panelId: "panel",
+    });
+    expect(pendingLines.take("tab-file-pane", "src/a.ts")).toEqual({
       path: "src/a.ts",
       line: 12,
       col: undefined,
     });
+  });
+
+  it("falls back to the active workspace for a pane no layout has", () => {
+    openFileInNewTab("gone", "src/a.ts");
+    expect(app.addFileTab).toHaveBeenCalledWith("src/a.ts", undefined);
   });
 });

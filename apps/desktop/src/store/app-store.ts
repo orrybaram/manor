@@ -316,10 +316,14 @@ export interface AppState {
   addDiffTab: () => void;
   /**
    * Open a file pane as a new tab of the active panel, on `filePath`
-   * (workspace-relative) or with no file open, which shows its tree.
-   * Returns the ids it minted, or null with no active workspace.
+   * (workspace-relative) or with no file open, which shows its tree; or of
+   * the panel `at` names, in its workspace, whichever is active. Returns the
+   * ids it minted, or null with no workspace.
    */
-  addFileTab: (filePath?: string) => { tabId: string; paneId: string } | null;
+  addFileTab: (
+    filePath?: string,
+    at?: { workspaceKey: WorkspaceKey; panelId: string },
+  ) => { tabId: string; paneId: string } | null;
   /** Returns the id of the tab it minted, or null when there is nothing to
    *  duplicate. The duplicate's panes are fresh ids, not the source's. */
   duplicateTab: (tabId: string) => string | null;
@@ -1861,12 +1865,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
   },
 
-  addFileTab: (filePath?: string) => {
-    const path = activeLayoutKey(get());
+  addFileTab: (filePath, at) => {
+    const path = at?.workspaceKey ?? activeLayoutKey(get());
     if (!path) return null;
     const tab = createFileTab(filePath);
     leaveTasksView();
-    sendLayoutCommand(path, { type: "new-tab", tab, ...activePanelOf(get()) });
+    const panel = at ? { panelId: at.panelId } : activePanelOf(get());
+    sendLayoutCommand(path, { type: "new-tab", tab, ...panel });
     return { tabId: tab.id, paneId: firstPaneOfTab(tab) };
   },
 

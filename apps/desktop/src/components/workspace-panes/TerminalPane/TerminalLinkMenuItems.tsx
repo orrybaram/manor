@@ -116,7 +116,7 @@ export function TerminalFileLinkMenuItems({
       <ContextMenu.Item
         className={styles.contextMenuItem}
         data-testid="terminal-link-open-file-tab"
-        onSelect={() => openFileInNewTab(link.path, link)}
+        onSelect={() => openFileInNewTab(paneId, link.path, link)}
       >
         <FilePlus size={14} />
         Open in New File Tab

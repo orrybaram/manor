@@ -3,7 +3,7 @@ import { createPendingLines } from "./pending-line";
 
 describe("createPendingLines", () => {
   it("hands a line to the pane once, for the file it named", () => {
-    const lines = createPendingLines(() => 0);
+    const lines = createPendingLines();
     lines.request("p1", { path: "src/a.ts", line: 8 });
     expect(lines.take("p1", "src/other.ts")).toBeNull();
     expect(lines.take("p1", "src/a.ts")).toEqual({ path: "src/a.ts", line: 8 });
@@ -11,7 +11,7 @@ describe("createPendingLines", () => {
   });
 
   it("tells a pane's open editor about a request", () => {
-    const lines = createPendingLines(() => 0);
+    const lines = createPendingLines();
     const heard = vi.fn();
     const stop = lines.subscribe("p1", heard);
     lines.request("p2", { path: "a.ts", line: 1 });
@@ -23,11 +23,19 @@ describe("createPendingLines", () => {
     expect(heard).toHaveBeenCalledTimes(1);
   });
 
-  it("drops a request that waited too long for its file", () => {
-    let t = 0;
-    const lines = createPendingLines(() => t);
-    lines.request("p1", { path: "a.ts", line: 5 });
-    t = 60_000;
+  it("keeps a request however long its file takes, until it is cleared", () => {
+    const lines = createPendingLines();
+    const request = lines.request("p1", { path: "a.ts", line: 5 });
+    expect(lines.waiting("p1")).toBe(request);
+    lines.clearLine("p1");
+    expect(lines.waiting("p1")).toBeNull();
     expect(lines.take("p1", "a.ts")).toBeNull();
+  });
+
+  it("tells a later request from an earlier one", () => {
+    const lines = createPendingLines();
+    const first = lines.request("p1", { path: "a.ts", line: 5 });
+    lines.request("p1", { path: "a.ts", line: 5 });
+    expect(lines.waiting("p1")).not.toBe(first);
   });
 });

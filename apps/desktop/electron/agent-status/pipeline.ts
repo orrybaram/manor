@@ -53,6 +53,17 @@ export interface AgentPipelineOptions
 /** A status transition worth telling someone about (`AgentPipelineOptions.onStatus`). */
 export type AgentStatusSink = AgentPipelineOptions["onStatus"];
 
+/** What a server knows about a transition's agent beyond the agent itself. */
+export interface AgentStatusAbout {
+  /** The automation whose run started the agent, or null. */
+  automationName: string | null;
+}
+
+/** A server's status sink: `AgentStatusSink`, told what the agent is about. */
+export type ServerAgentStatusSink = (
+  ...args: [...Parameters<AgentStatusSink>, about?: AgentStatusAbout]
+) => void;
+
 /**
  * What `createManorServer` hands the pipeline: the pane contexts renderers
  * set as a map, everything else as `AgentPipelineOptions`.

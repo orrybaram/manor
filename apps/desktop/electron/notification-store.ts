@@ -21,13 +21,33 @@ export type NotificationKind =
   | "pr-approved"
   | "pr-changes-requested"
   | "pr-checks-failed"
-  | "badge-unlocked";
+  | "badge-unlocked"
+  /** An automation's run started its agent. */
+  | "automation-ran"
+  /** An automation's run could not start one. */
+  | "automation-failed";
+
+/**
+ * The kinds a host server's log holds, and the only ones the desktop takes
+ * from it: a remote agent's own notifications are recorded by the desktop
+ * that hears it, so a host's copy would show twice.
+ */
+export const HOST_LOG_KINDS: ReadonlySet<NotificationKind> = new Set([
+  "automation-ran",
+  "automation-failed",
+]);
 
 export type NotificationTarget =
   | { type: "agent"; agentId: string }
   | { type: "url"; url: string }
   /** The trophy room; `badgeId` opens the Badges tab on that badge's track. */
-  | { type: "stats"; badgeId?: string };
+  | { type: "stats"; badgeId?: string }
+  /**
+   * An automation's page in Settings → Automations. `hostId` names the
+   * server that keeps it, once the record has left that server (the
+   * record's own `hostId`, stamped on the way).
+   */
+  | { type: "automation"; automationId: string; hostId?: string };
 
 export interface NotificationRecord {
   id: string;
@@ -43,6 +63,12 @@ export interface NotificationRecord {
    * and whenever the fetcher could not name a latest comment.
    */
   comment?: PrComment;
+  /**
+   * The host whose server keeps this record: `local` as a server hands out
+   * its own log, the host's id once the desktop or the renderer's router has
+   * stamped it. Never stored.
+   */
+  hostId?: string;
 }
 
 interface PersistedState {

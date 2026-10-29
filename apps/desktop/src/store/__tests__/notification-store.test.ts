@@ -162,11 +162,49 @@ describe("useNotificationStore", () => {
     await useNotificationStore.getState().markAllRead();
     await useNotificationStore.getState().clear();
 
-    expect(notificationsApi.markRead).toHaveBeenCalledWith("a");
-    expect(notificationsApi.markAllRead).toHaveBeenCalled();
-    expect(notificationsApi.clear).toHaveBeenCalled();
+    expect(notificationsApi.markRead).toHaveBeenCalledWith("a", null);
+    expect(notificationsApi.markAllRead).toHaveBeenCalledWith(null);
+    expect(notificationsApi.clear).toHaveBeenCalledWith(null);
     // No speculative local mutation: state only moves on the broadcast.
     expect(useNotificationStore.getState().notifications).toEqual([]);
+  });
+
+  it("marks a record on the host that keeps it, and every host's log for all", async () => {
+    onChangedCallback?.([
+      makeRecord({ id: "b1", kind: "automation-ran", hostId: "box" }),
+      makeRecord({ id: "d1", hostId: "local" }),
+    ]);
+    await useNotificationStore.getState().markRead("b1");
+    expect(notificationsApi.markRead).toHaveBeenCalledWith("b1", "box");
+    await useNotificationStore.getState().markAllRead();
+    expect(notificationsApi.markAllRead.mock.calls).toEqual([[null], ["box"]]);
+    await useNotificationStore.getState().clear();
+    expect(notificationsApi.clear.mock.calls).toEqual([[null], ["box"]]);
+  });
+
+  it("marks and clears every other host when one is away, and never throws", async () => {
+    onChangedCallback?.([
+      makeRecord({ id: "b1", kind: "automation-ran", hostId: "box" }),
+      makeRecord({ id: "d1", hostId: "local" }),
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const away = (hostId: string | null) =>
+      hostId === "box" ? Promise.reject(new Error("wsl-box is offline")) : Promise.resolve(undefined);
+    notificationsApi.markAllRead.mockImplementation(away);
+    notificationsApi.clear.mockImplementation(away);
+    notificationsApi.markRead.mockRejectedValueOnce(new Error("wsl-box is offline"));
+    try {
+      await expect(useNotificationStore.getState().markAllRead()).resolves.toBeUndefined();
+      expect(notificationsApi.markAllRead.mock.calls).toEqual([[null], ["box"]]);
+      await expect(useNotificationStore.getState().clear()).resolves.toBeUndefined();
+      expect(notificationsApi.clear.mock.calls).toEqual([[null], ["box"]]);
+      await expect(useNotificationStore.getState().markRead("b1")).resolves.toBeUndefined();
+      expect(warn).toHaveBeenCalledTimes(3);
+    } finally {
+      notificationsApi.markAllRead.mockReset().mockResolvedValue(undefined);
+      notificationsApi.clear.mockReset().mockResolvedValue(undefined);
+      warn.mockRestore();
+    }
   });
 });
 
@@ -236,10 +274,27 @@ describe("navigateToNotification", () => {
     expect(seen).toEqual(["stats"]);
   });
 
+  it("opens an automation target's page, on the host that keeps the record", async () => {
+    const { onUiRequest } = await import("../../utils/ui-request");
+    const requests: unknown[] = [];
+    const off = onUiRequest((r) => requests.push(r));
+    await navigateToNotification(
+      makeRecord({
+        id: "n7",
+        kind: "automation-failed",
+        hostId: "box",
+        target: { type: "automation", automationId: "auto-1" },
+      }),
+    );
+    off();
+    expect(notificationsApi.markRead).toHaveBeenCalledWith("n7", "box");
+    expect(requests).toEqual([{ type: "open-automation", hostId: "box", automationId: "auto-1" }]);
+  });
+
   it("marks read and stops when the target is null", async () => {
     await navigateToNotification(makeRecord({ id: "n9", target: null }));
 
-    expect(notificationsApi.markRead).toHaveBeenCalledWith("n9");
+    expect(notificationsApi.markRead).toHaveBeenCalledWith("n9", null);
     expect(navigateToAgent).not.toHaveBeenCalled();
     expect(shellApi.openExternal).not.toHaveBeenCalled();
   });

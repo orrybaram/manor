@@ -44,6 +44,7 @@ import type {
 } from "../remote-control/devices";
 import {
   pushAgentTransition,
+  pushAutomationRun,
   type PushManager,
   type VapidKeys,
 } from "../remote-control/push";
@@ -56,7 +57,8 @@ import {
 } from "../remote-control/relay/connector";
 import type { RelayIdentityStore } from "../remote-control/relay/identity";
 import { RelayRoom, type PairResult } from "../remote-control/relay-room";
-import type { AgentStatusSink } from "../agent-status/pipeline";
+import type { ServerAgentStatusSink } from "../agent-status/pipeline";
+import type { Automation, AutomationRun } from "../../src/lib/automations";
 import type { HostOwnership } from "./ownership";
 import type { SupervisorFacts } from "./supervisor/types";
 
@@ -214,8 +216,13 @@ export interface HostRelay {
   start(): void;
   /** Hang up, close every device connection, persist the stores. */
   stop(): Promise<void>;
-  /** A status transition: pushed to subscribed phones if worth it. */
-  onAgentStatus: AgentStatusSink;
+  /**
+   * A status transition: pushed to subscribed phones if worth it, titled by
+   * the automation that started the agent when one did.
+   */
+  onAgentStatus: ServerAgentStatusSink;
+  /** A recorded run of this host's: a push when it failed to start. */
+  onAutomationRun(automation: Automation, run: AutomationRun): void;
   relayStatus(): HostServerStatus["relay"];
   deviceCount(): number;
   pushEndpoints(): string[];
@@ -255,7 +262,10 @@ export interface HostRelayDeps {
    * relay does. Read no earlier than the first channel, revoke or `stop()`.
    */
   frames: () => Pick<WsBridgeServer, "attach" | "closeDevice" | "closeAll">;
-  /** The user's "agent needs input" preference, read per transition. */
+  /**
+   * The user's "agent needs input" preference, read per transition and per
+   * run that failed to start.
+   */
   notifyOnRequiresInput: () => boolean;
   options?: HostRelayOptions;
 }
@@ -382,9 +392,20 @@ export function createHostRelay(deps: HostRelayDeps): HostRelay {
       );
     },
 
-    onAgentStatus(agent, prevStatus, newStatus) {
+    onAgentStatus(agent, prevStatus, newStatus, about) {
       if (!ready || !deps.notifyOnRequiresInput()) return;
-      pushAgentTransition(push, agent, prevStatus, newStatus);
+      pushAgentTransition(
+        push,
+        { ...agent, automationName: about?.automationName ?? null },
+        prevStatus,
+        newStatus,
+      );
+    },
+
+    // The same opt-in as an agent's push: a phone is told what needs it.
+    onAutomationRun(automation, run) {
+      if (!ready || !deps.notifyOnRequiresInput()) return;
+      pushAutomationRun(push, automation, run, roomIdOrNull());
     },
 
     relayStatus() {

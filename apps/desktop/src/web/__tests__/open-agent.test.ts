@@ -9,6 +9,8 @@ import type { AgentInfo } from "../../electron.d";
 import { useAgentStore } from "../../store/agent-store";
 import { navigateToAgent } from "../../utils/agent-navigation";
 import { listenForOpenAgent } from "../open-agent";
+import { pushClickMessage } from "../push-click";
+import { onUiRequest, type UiRequest } from "../../utils/ui-request";
 
 vi.mock("../../utils/agent-navigation", () => ({ navigateToAgent: vi.fn() }));
 
@@ -71,6 +73,23 @@ describe("listenForOpenAgent", () => {
     await vi.waitFor(() => expect(get).toHaveBeenCalledOnce());
     await Promise.resolve();
     expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("opens the automation of a run that failed to start, on its host", () => {
+    const requests: UiRequest[] = [];
+    const off = onUiRequest((request) => requests.push(request));
+    try {
+      // What the worker posts for a failed-to-start push's notification.
+      post(container, pushClickMessage({ automationId: "auto-1", hostId: "room-box" }));
+      // A server with no room named no host: home.
+      post(container, pushClickMessage({ automationId: "auto-2" }));
+      expect(requests).toEqual([
+        { type: "open-automation", hostId: "room-box", automationId: "auto-1" },
+        { type: "open-automation", hostId: "local", automationId: "auto-2" },
+      ]);
+    } finally {
+      off();
+    }
   });
 
   it("stops listening when unsubscribed", async () => {

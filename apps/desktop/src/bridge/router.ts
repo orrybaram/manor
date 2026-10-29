@@ -40,8 +40,14 @@
  * server, home calls included, has its arguments turned back into that
  * server's own ids (`toServerArgs`) and its answer stamped (`stampResult`).
  *
+ * **The bell** (`notifications`). Every server keeps its own log, and
+ * each `notifications.changed` carries one server's whole log: the router
+ * keeps each server's last one and hands the listener all of them merged,
+ * newest first, as `notifications.getAll` answers. A mark goes to the host
+ * the record names (`byHost`).
+ *
  * **Subscriptions.** A listener of a merged or split namespace (`layout`,
- * `projects`, `agents`, `branches`, `diffs`) is opened on every server,
+ * `projects`, `agents`, `branches`, `diffs`), and `automations`, is opened on every server,
  * replayed on one that joins later, and its events are stamped and
  * deduplicated like a merged answer. A pane's
  * `chat.*` and `pty.*` are opened only on the pane's source, keyed by server
@@ -72,7 +78,11 @@
  */
 
 import type { EventName, WireEventArgs } from "../../electron/bridge/events";
-import { keyFor } from "../../electron/bridge/host-rewrite";
+import {
+  keyAutomationPaths,
+  keyFor,
+  rewriteNestedWorkspace,
+} from "../../electron/bridge/host-rewrite";
 import { byPane, declinesWake, ROUTES, wakesHost, type RouteRule } from "../../electron/bridge/routes";
 import { BridgeUnavailableError } from "../../electron/bridge/settle";
 import { UNAVAILABLE_HOST_AWAY_CODE, UNAVAILABLE_HOST_CODE } from "../../electron/bridge/types";
@@ -170,11 +180,14 @@ const WOKEN_SOURCE_WAIT_MS = 10_000;
  * The namespaces with a merged read, or a watch split across the servers:
  * their listeners fan out.
  */
-const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set(
-  Object.entries(ROUTES)
+const FAN_OUT_NAMESPACES: ReadonlySet<string> = new Set([
+  ...Object.entries(ROUTES)
     .filter(([, route]) => route === "merge" || route === "split")
     .map(([key]) => key.slice(0, key.lastIndexOf("."))),
-);
+  // Routed by host, but each server announces its own host's changes: a
+  // phone paired with several hears each of them.
+  "automations",
+]);
 
 /**
  * The events whose payload is a `Record<WorkspaceKey, …>` of everything one
@@ -354,6 +367,8 @@ export function createRouter(
    * kept by id, as the merged list's indexes move. Not persisted across a reload (a known limit).
    */
   let pageSelectionId: unknown = null;
+  /** The index home's `projects.getSelectedIndex` last gave, for while it is away. */
+  let homeSelectedIndex: unknown = null;
   /**
    * The desktop's claims on each workspace, as home last said them: a
    * tab a detached window holds is the desktop's to know, and no host
@@ -365,6 +380,12 @@ export function createRouter(
    * on a workspace home does not answer for: told again with it.
    */
   const lastLayouts = new Map<string, { version: unknown; layout: unknown }>();
+  /**
+   * Each server's own notification log, as its last `getAll` answer or
+   * `notifications.changed` said it (stamped): each event carries one
+   * server's whole log, and the listener takes it as everyone's.
+   */
+  const notificationLogs = new Map<string, unknown[]>();
 
   // ── sources ──
 
@@ -587,13 +608,17 @@ export function createRouter(
       const key = typeof result.workspacePath === "string" ? stampKey(entry, result.workspacePath) : null;
       return key ? { ...result, workspacePath: key } : result;
     }
+    if (ns === "automations") {
+      return stampRecords(entry, keyAutomationPaths(result, (key) => stampKey(entry, key)));
+    }
     return stampRecords(entry, result);
   }
 
   /**
    * Arguments for `entry` in its own form: a string naming one of its hosts,
-   * or keyed on one, at the top level and one level into a plain object —
-   * `toHostArgs`'s reach, which is what main's `HostProxy` rewrites too — and
+   * or keyed on one, at the top level, one level into a plain object and
+   * into that object's `workspace` (an automation's) — `toHostArgs`'s reach,
+   * which is what main's `HostProxy` rewrites too — and
    * in each object of a top-level list (`branches.start`'s workspaces).
    */
   function toServerArgs(entry: ServerEntry, args: unknown[]): unknown[] {
@@ -611,7 +636,7 @@ export function createRouter(
     const object = (arg: Record<string, unknown>): Record<string, unknown> => {
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(arg)) out[k] = value(v);
-      return out;
+      return rewriteNestedWorkspace(out, value);
     };
     return args.map((arg) => {
       if (Array.isArray(arg)) return arg.map((item) => (isPlainObject(item) ? object(item) : value(item)));
@@ -901,6 +926,15 @@ export function createRouter(
         );
       case "agents.get":
         return firstOf(answers, (value, entry) => kept(value, entry));
+      case "notifications.getAll":
+        for (const { entry, value } of answers) {
+          if (Array.isArray(value)) notificationLogs.set(entry.id, value);
+        }
+        {
+          const list = mergedNotifications();
+          toldNotifications = JSON.stringify(list);
+          return list;
+        }
       case "agents.getPaneStatuses":
         return answers.flatMap(({ entry, value }) =>
           (Array.isArray(value) ? value : []).filter((update: unknown) => {
@@ -946,6 +980,50 @@ export function createRouter(
       }
     }
     return out;
+  }
+
+  /**
+   * Every server's last log, newest first: each record kept from the server
+   * answering for its host now, so a desktop's copy of an adopted host's
+   * records and the host's own are one.
+   */
+  /**
+   * The bell's listeners, told the merge again when the set changed under it
+   * without any server's log changing: a departed server's log gone, or a
+   * host's records now kept from another server. Only when it differs from
+   * what they last heard. Alone with the desktop, its own events reach them
+   * as they are: told once, the desktop's last log, when the others leave.
+   */
+  let toldNotifications: string | null = null;
+  function retellNotifications(): void {
+    const alone = passThrough();
+    if (alone && toldNotifications === null) return;
+    const subs = [...fanSubs].filter(
+      (sub) => sub.event.ns === "notifications" && sub.event.event === "changed",
+    );
+    if (subs.length === 0 || notificationLogs.size === 0) return;
+    const list = mergedNotifications();
+    const json = JSON.stringify(list);
+    if (json === toldNotifications) return;
+    // Alone, nothing keeps the logs current: they start again when a second
+    // server joins.
+    toldNotifications = alone ? null : json;
+    if (alone) notificationLogs.clear();
+    for (const sub of subs) sub.listener(list);
+  }
+
+  function mergedNotifications(): unknown[] {
+    const answers: Answer[] = [];
+    for (const entry of set.list()) {
+      const value = notificationLogs.get(entry.id);
+      if (value) answers.push({ entry, value });
+    }
+    const out = mergeRecords(answers) as unknown[];
+    const at = (record: unknown): number => {
+      const ms = isPlainObject(record) && typeof record.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
+      return Number.isFinite(ms) ? ms : 0;
+    };
+    return out.sort((a, b) => at(b) - at(a));
   }
 
   function mergeLayouts(answers: Answer[]): Record<string, unknown> {
@@ -1038,7 +1116,7 @@ export function createRouter(
 
   /** `projects.getSelectedIndex`, home's index translated to the merged list. */
   async function selectedIndex(): Promise<unknown> {
-    const answer = await callHome("projects", "getSelectedIndex", []);
+    const answer = await homeIndex();
     const orders = await projectOrders();
     if (pageSelectionId !== null) {
       const at = orders.merged.indexOf(pageSelectionId);
@@ -1049,6 +1127,25 @@ export function createRouter(
     const at = orders.merged.indexOf(orders.home[answer]);
     if (at >= 0) return at;
     return orders.merged.length === 0 ? -1 : 0;
+  }
+
+  /**
+   * Home's selected index, or — home away among other servers — the one it
+   * last gave. A phone whose desktop quit still reloads its projects from the
+   * hosts it reaches directly; a refusal here would fail that whole reload.
+   */
+  async function homeIndex(): Promise<unknown> {
+    const others = () => set.list().length > 1;
+    // Never answered: no index of home's, so the merged list's first.
+    const last = () => homeSelectedIndex ?? -1;
+    if (!reachable(set.home()) && others()) return last();
+    try {
+      homeSelectedIndex = await callHome("projects", "getSelectedIndex", []);
+      return homeSelectedIndex;
+    } catch (err) {
+      if (others()) return last();
+      throw err;
+    }
   }
 
   /** `projects.select`, the merged index translated to home's. */
@@ -1226,10 +1323,24 @@ export function createRouter(
       if (key === path && origin === first.origin && claims === first.claims) return args;
       return [{ ...first, workspacePath: key, origin, claims }, ...rest];
     }
+    if (event.ns === "notifications" && event.event === "changed" && Array.isArray(first)) {
+      notificationLogs.set(entry.id, stampRecords(entry, first) as unknown[]);
+      const list = mergedNotifications();
+      toldNotifications = JSON.stringify(list);
+      return [list, ...rest];
+    }
     if (event.ns === "agents" && event.event === "updated") {
       const agent = stampRecords(entry, first);
       if (!kept(agent, entry)) return null;
       return agent === first ? args : [agent, ...rest];
+    }
+    if (event.ns === "automations" && event.event === "changed" && isPlainObject(first)) {
+      // Named by its server's id for the host (`local` from the host's own
+      // server); kept only from the server answering for that host now, so a
+      // desktop's copy of an adopted host's event and the host's own are one.
+      const info = stampRecords(entry, first) as Record<string, unknown>;
+      if (typeof info.hostId === "string" && !answersFor(entry, info.hostId)) return null;
+      return info === first ? args : [info, ...rest];
     }
     if (event.ns === "agents" && event.event === "status" && isPlainObject(first)) {
       const paneId = first.paneId;
@@ -1401,6 +1512,7 @@ export function createRouter(
         if (!now.has(id)) sub.parts?.delete(id);
       }
       panesByServer.delete(id);
+      if (!now.has(id)) notificationLogs.delete(id);
       // A new connection holds none of this page's watches, and may be a
       // newer server.
       for (const watch of splits.values()) {
@@ -1419,6 +1531,7 @@ export function createRouter(
     rebindPanes();
     // Whose workspaces are whose may have moved: a server away or back.
     for (const ns of splits.keys()) void resplit(ns);
+    retellNotifications();
   });
 
   // A server whose stream came back has let go of what it watched for this

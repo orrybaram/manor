@@ -86,13 +86,17 @@ export type NotificationKind =
   | "pr-approved"
   | "pr-changes-requested"
   | "pr-checks-failed"
-  | "badge-unlocked";
+  | "badge-unlocked"
+  | "automation-ran"
+  | "automation-failed";
 
 export type NotificationTarget =
   | { type: "agent"; agentId: string }
   | { type: "url"; url: string }
   /** The trophy room; `badgeId` opens the Badges tab on that badge's track. */
-  | { type: "stats"; badgeId?: string };
+  | { type: "stats"; badgeId?: string }
+  /** An automation's page in Settings → Automations. */
+  | { type: "automation"; automationId: string; hostId?: string };
 
 export interface NotificationRecord {
   id: string;
@@ -105,6 +109,11 @@ export interface NotificationRecord {
   target: NotificationTarget | null;
   /** `pr-comment` records only, and only when the fetcher knew it (#177). */
   comment?: PrComment;
+  /**
+   * The host whose server keeps the record, in the renderer's ids. Absent
+   * on one from a server older than the host logs: the home server's.
+   */
+  hostId?: string;
 }
 
 /**

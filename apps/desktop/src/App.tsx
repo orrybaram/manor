@@ -190,11 +190,16 @@ function App() {
   );
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [settingsSection, setSettingsSection] = useState<string | null>(null);
+  const [settingsAutomation, setSettingsAutomation] = useState<{
+    hostId: string;
+    automationId: string;
+  } | null>(null);
   const closeSettings = useCallback(() => {
     setSettingsOpen(false);
     setSettingsProjectId(null);
     setSettingsPage(null);
     setSettingsSection(null);
+    setSettingsAutomation(null);
     // Revert to the active surface's theme in case settings was previewing a
     // different theme. Home and the Tasks view have no project override —
     // they inherit the global theme (null).
@@ -399,6 +404,13 @@ function App() {
         if (request.type === "open-hosts-settings") {
           setSettingsPage("hosts");
           if (request.hostId) setSettingsSection(`host-${request.hostId}`);
+          setSettingsOpen(true);
+        }
+        // A bell row for an automation's run opens its page in Settings → Automations.
+        if (request.type === "open-automation") {
+          setSettingsPage("automations");
+          setSettingsSection(null);
+          setSettingsAutomation({ hostId: request.hostId, automationId: request.automationId });
           setSettingsOpen(true);
         }
         if (request.type === "open-remote-settings") {
@@ -940,6 +952,7 @@ function App() {
               initialProjectId={settingsProjectId}
               initialPage={settingsPage}
               initialSection={settingsSection}
+              initialAutomation={settingsAutomation}
             />
             <FeedbackModal open={feedbackOpen} onOpenChange={setFeedbackOpen} />
             <AgentsModal

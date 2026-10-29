@@ -31,7 +31,9 @@ export type UiRequest =
   /** Open Settings → Hosts on This Mac's row (the status-bar REMOTE chip). */
   | { type: "open-remote-settings" }
   /** Open Settings → Hosts, on `hostId`'s row when given. */
-  | { type: "open-hosts-settings"; hostId?: string };
+  | { type: "open-hosts-settings"; hostId?: string }
+  /** Open Settings → Automations on one automation of `hostId`'s (a bell row's). */
+  | { type: "open-automation"; hostId: string; automationId: string };
 
 type Listener = (request: UiRequest) => void;
 

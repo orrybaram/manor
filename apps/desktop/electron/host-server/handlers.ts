@@ -171,6 +171,21 @@ import {
 } from "../bridge/handlers/agents-read";
 import { sessionsList, sessionsTranscript } from "../bridge/handlers/sessions";
 import {
+  notificationsClear,
+  notificationsGetAll,
+  notificationsMarkAllRead,
+  notificationsMarkRead,
+} from "../bridge/handlers/notifications";
+import {
+  automationsCreate,
+  automationsGet,
+  automationsList,
+  automationsRemove,
+  automationsRunNow,
+  automationsSetEnabled,
+  automationsUpdate,
+} from "../bridge/handlers/automations";
+import {
   remoteControlPair,
   remoteControlSubscribePush,
   remoteControlVapidPublicKey,
@@ -551,6 +566,28 @@ const METHODS = flatten({
     clone: method(owned(projectsClone), { mutating: true, localOnly: true }),
     update: method(owned(projectsUpdate), { mutating: true, localOnly: true }),
     remove: method(owned(projectsRemove), { mutating: true, localOnly: true }),
+  },
+  // This host's notification log: its automations' runs, kept while no
+  // desktop is open, which the desktop's bell and a phone's merge in.
+  // Reading and marking it read is anyone's.
+  notifications: {
+    getAll: method(notificationsGetAll),
+    markRead: method(notificationsMarkRead, { mutating: true }),
+    markAllRead: method(notificationsMarkAllRead, { mutating: true }),
+    clear: method(notificationsClear, { mutating: true }),
+  },
+  // This host's automations, which this server fires with the lid closed.
+  // A device may read them, run one now and pause or resume one; making,
+  // changing and deleting one is the owner's, as a project's settings are
+  // (`localOnly`). Until adoption every write is refused.
+  automations: {
+    list: method(automationsList),
+    get: method(automationsGet),
+    runNow: method(owned(automationsRunNow), { mutating: true }),
+    setEnabled: method(owned(automationsSetEnabled), { mutating: true }),
+    create: method(owned(automationsCreate), { mutating: true, localOnly: true }),
+    update: method(owned(automationsUpdate), { mutating: true, localOnly: true }),
+    remove: method(owned(automationsRemove), { mutating: true, localOnly: true }),
   },
   // The layout is this server's: an agent tab applied here
   // spawns on the server, whoever is looking.

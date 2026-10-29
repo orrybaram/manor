@@ -241,3 +241,32 @@ describe("NotificationStore", () => {
     expect(reloaded.getAll().map((n) => n.id)).toEqual(["1"]);
   });
 });
+
+describe("NotificationStore automation records", () => {
+  it("keeps an automation's run, pointing at the automation, across a reload", () => {
+    const dir = path.join(os.tmpdir(), `manor-notification-test-${crypto.randomUUID()}`);
+    try {
+      const store = new NotificationStore(dir);
+      const ran = store.append({
+        kind: "automation-ran",
+        title: "Morning triage ran",
+        body: "Started Claude in Morning triage · Oct 29 09:00",
+        target: { type: "automation", automationId: "auto-1" },
+      });
+      store.append({
+        kind: "automation-failed",
+        title: "Morning triage failed to start",
+        body: "The project isn't set up on this host",
+        target: { type: "automation", automationId: "auto-1" },
+      });
+      store.flushNow();
+      const reloaded = new NotificationStore(dir);
+      expect(reloaded.getAll().map((n) => n.kind)).toEqual(["automation-failed", "automation-ran"]);
+      expect(reloaded.getById(ran.id)?.target).toEqual({ type: "automation", automationId: "auto-1" });
+      // Not an agent's: looking at an agent's pane leaves it unread.
+      expect(reloaded.markReadByAgent("auto-1")).toBe(false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

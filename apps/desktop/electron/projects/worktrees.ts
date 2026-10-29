@@ -4,11 +4,16 @@
  * through the project's own host.
  */
 
+import { existsSync } from "node:fs";
+import { stat } from "node:fs/promises";
+import path from "node:path";
+
 import { LOCAL_HOST_ID } from "../backend/types";
 import { workspaceKey } from "../../src/lib/workspace-key";
 import { sanitizeBranchName, toDirSlug } from "../branch-name";
 import { errorMessage } from "../lib/errors";
 import type { ProjectContext } from "./context";
+import { changedIgnoredPath } from "./ignored-changes";
 import type { SetupStep, StepStatus } from "../../src/store/project-store";
 import type {
   CreateWorktreeOptions,
@@ -444,6 +449,147 @@ export async function canQuickMerge(
   }
 
   return { canMerge: true };
+}
+
+/** How long after a workspace is made its setup script may still write ignored files. */
+const SETUP_GRACE_MS = 2 * 60_000;
+
+/**
+ * What removing a worktree with no one asking would lose, or null when
+ * nothing. Keep last N asks this before it removes an automation's run
+ * workspace; the user's own remove asks nothing.
+ *
+ * A risk is any of: uncommitted or untracked changes (asked with explicit
+ * flags, so a repo's `status.showUntrackedFiles=no` or submodule settings
+ * can't hide one); submodules, which `remove --force` takes with it; commits
+ * on neither the default branch nor any remote; or an ignored file changed
+ * since the workspace was made plus a setup grace (`changedIgnoredPath`:
+ * a `.env`, a local database, an agent's report in a gitignored folder —
+ * dependency and build folders aside). The workspace was made at
+ * `createdAt` (ms) when the caller knows it — a run's `firedAt` — else at
+ * the worktree folder's birth time, or its `.git` file's when the file
+ * system has none.
+ *
+ * Anything that can't be answered counts as a risk, and so does a
+ * worktree on another host: its ignored files can't be read from here.
+ */
+export async function worktreeRemovalRisk(
+  ctx: ProjectContext,
+  projectId: string,
+  worktreePath: string,
+  opts: { createdAt?: number } = {},
+): Promise<string | null> {
+  const project = ctx.find(projectId);
+  if (!project) return "Project not found";
+  if (stripTrailingSlashes(worktreePath) === stripTrailingSlashes(project.path)) return "It is the main workspace";
+  if ((project.hostId ?? LOCAL_HOST_ID) !== LOCAL_HOST_ID) return "It is on another host";
+  const git = gitOf(ctx, project);
+  try {
+    const status = await git().exec(worktreePath, [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "--ignore-submodules=none",
+    ]);
+    if (status.trim().length > 0) return "Uncommitted changes in workspace";
+  } catch (err) {
+    return `Could not read git status: ${errorMessage(err)}`;
+  }
+  if (existsSync(path.join(worktreePath, ".gitmodules"))) return "It has submodules";
+
+  const defaultRef = await resolveDefaultBranchRef(git(), worktreePath, project.defaultBranch);
+  if (!defaultRef) return `Could not find ${project.defaultBranch}`;
+  try {
+    const unique = await git().exec(worktreePath, [
+      "rev-list",
+      "--count",
+      "HEAD",
+      "--not",
+      defaultRef,
+      "--remotes",
+    ]);
+    const count = Number(unique.trim());
+    if (!Number.isFinite(count)) return "Could not count unpushed commits";
+    if (count > 0) return `${count} commit${count === 1 ? "" : "s"} on neither ${project.defaultBranch} nor a remote`;
+  } catch (err) {
+    return `Could not count unpushed commits: ${errorMessage(err)}`;
+  }
+
+  try {
+    const createdAt = opts.createdAt ?? (await worktreeBirth(worktreePath));
+    if (!Number.isFinite(createdAt)) return "Could not tell when the workspace was made";
+    const listed = await git().exec(worktreePath, [
+      "ls-files",
+      "-z",
+      "--others",
+      "--ignored",
+      "--exclude-standard",
+      "--directory",
+    ]);
+    const changed = await changedIgnoredPath(
+      worktreePath,
+      listed.split("\0").filter(Boolean),
+      createdAt + SETUP_GRACE_MS,
+    );
+    if (changed === "too-many") return "Too many ignored files to check";
+    if (changed) return `Ignored file changed since the run: ${changed}`;
+  } catch (err) {
+    return `Could not check ignored files: ${errorMessage(err)}`;
+  }
+  return null;
+}
+
+/**
+ * The full ref of `branch`: the local branch, else `origin`'s; null when
+ * neither resolves. A bare name could resolve to a tag or a stale ref.
+ */
+async function resolveDefaultBranchRef(
+  git: { exec(cwd: string, args: string[]): Promise<string> },
+  cwd: string,
+  branch: string,
+): Promise<string | null> {
+  for (const ref of [`refs/heads/${branch}`, `refs/remotes/origin/${branch}`]) {
+    try {
+      await git.exec(cwd, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+      return ref;
+    } catch {
+      // Try the next one.
+    }
+  }
+  return null;
+}
+
+/**
+ * What an automation's new run workspace branches from: `origin`'s default
+ * branch when the repo has one, else the local default branch, else null
+ * (which leaves `createWorktree`'s own `origin/<default>`). A repo with no
+ * `origin` cannot branch from `origin/<default>` at all.
+ */
+export async function runBaseRef(ctx: ProjectContext, projectId: string): Promise<string | null> {
+  const project = ctx.find(projectId);
+  if (!project) return null;
+  const branch = project.defaultBranch || "main";
+  const git = gitOf(ctx, project)();
+  for (const ref of [`refs/remotes/origin/${branch}`, `refs/heads/${branch}`]) {
+    try {
+      await git.exec(project.path, ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`]);
+      return ref;
+    } catch {
+      // Try the next one.
+    }
+  }
+  return null;
+}
+
+/** When the worktree folder was made: its birth time, else its `.git` file's last write. */
+async function worktreeBirth(worktreePath: string): Promise<number> {
+  const dir = await stat(worktreePath);
+  if (dir.birthtimeMs > 0) return dir.birthtimeMs;
+  return (await stat(path.join(worktreePath, ".git"))).mtimeMs;
+}
+
+function stripTrailingSlashes(p: string): string {
+  return p.length > 1 ? p.replace(/[\\/]+$/, "") : p;
 }
 
 export async function quickMergeWorktree(

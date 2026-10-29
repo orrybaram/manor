@@ -319,6 +319,42 @@ describe("server-side launches", () => {
     });
   });
 
+  it("with awaitSetup, a create answers with the setup script's exit code once its shell exits", async () => {
+    const ops = createWorkspaceOps({
+      projectManager: {
+        createWorktree: async () =>
+          ({
+            id: "p1",
+            hostId: "local",
+            worktreeStartScript: "pnpm i",
+            group: null,
+            workspaces: [{ path: WS, branch: "feat", isMain: false, name: "feat" }],
+          }) as unknown as ProjectInfo,
+        createWorkspacesFromIssues: async () => [],
+        removeWorktree: async () => {},
+        quickMergeWorktree: async () => {},
+        setGroupLastUsedHost: () => {},
+      },
+      statsStore: { record: () => {} },
+      notifyProjectsChanged: () => {},
+      runSetupScript: launches.runSetupScript,
+    });
+    let answered = false;
+    const created = ops
+      .create({ projectId: "p1", name: "feat", awaitSetup: { timeoutMs: 60_000 } })
+      .then((r) => {
+        answered = true;
+        return r;
+      });
+    await settle();
+    expect(answered).toBe(false);
+    const tabs = Object.values(store.get(WS)!.layout.panels).flatMap((p) => p.tabs);
+    const paneId = (tabs[0].rootNode as { paneId: string }).paneId;
+
+    launches.onExit(paneId, 3);
+    expect((await created).setup).toEqual({ status: "exited", exitCode: 3 });
+  });
+
   it("ignores the exit of a pane that is not running a setup script", async () => {
     const paneId = await openAgentTab("claude");
     await settle();

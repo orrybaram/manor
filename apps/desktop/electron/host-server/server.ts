@@ -74,7 +74,7 @@ import {
   type IdentityReset,
 } from "./instance";
 import { fileHookCursorStore } from "./hook-cursor";
-import { fileOwnershipState, type OwnershipState } from "./ownership";
+import { fileOwnershipState, PENDING_MESSAGE, type OwnershipState } from "./ownership";
 import { createSupervisorFactsCache } from "./supervisor";
 import {
   createHostRelay,
@@ -82,6 +82,9 @@ import {
   type HostRelayOptions,
   type HostServerStatus,
 } from "./relay";
+
+/** Why a host server fires no automation before its daemon is caught up. */
+const DAEMON_NOT_READY_MESSAGE = "The host's daemon isn't connected yet";
 
 export interface HostServerOptions {
   /** Defaults to `~/.manor/remote/server/` (`remoteServerDir()`). */
@@ -221,6 +224,12 @@ export function createHostServer(opts: HostServerOptions): HostServer {
   const ownership = fileOwnershipState(paths.ownership);
 
   // ── the daemon's connection, as `hosts.list` reports it ──
+  /**
+   * Set once the daemon's first connect and hook catch-up are done: until
+   * then no automation fires, since its session could not start and its
+   * overlap check would read agents the catch-up has not settled.
+   */
+  let daemonReady = false;
   let daemonState: { status: HostStatus; error?: string } = {
     status: "disconnected",
   };
@@ -239,10 +248,17 @@ export function createHostServer(opts: HostServerOptions): HostServer {
 
   const server = createManorServer<HostServerDeps>(hostPlatform, {
     table: HOST_TABLE,
-    onAgentStatus: (agent, prevStatus, newStatus) => {
-      relay.onAgentStatus(agent, prevStatus, newStatus);
+    // Nothing fires before the desktop hands this host over, nor before the
+    // daemon is first reached and caught up.
+    automationsBlocked: () => {
+      if (ownership.current() !== "host") return PENDING_MESSAGE;
+      return daemonReady ? null : DAEMON_NOT_READY_MESSAGE;
+    },
+    onAgentStatus: (agent, prevStatus, newStatus, about) => {
+      relay.onAgentStatus(agent, prevStatus, newStatus, about);
       opts.onAgentStatus?.(agent, prevStatus, newStatus);
     },
+    onAutomationRun: (automation, run) => relay.onAutomationRun(automation, run),
     daemonListener: {
       onLost: () => {
         daemonState = { status: "reconnecting" };
@@ -508,6 +524,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       await relayUp;
       await feed.catchUp();
       await afterFirstCatchUp();
+      if (!daemonReady && !stopped) {
+        daemonReady = true;
+        // What came due while blocked fires now, not on the next tick.
+        void shared.automations.scheduler.tick();
+      }
     } catch (err) {
       if (stopped) return;
       const delay = daemonRetryDelayMs(attempt);
@@ -546,8 +567,9 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       await relay.stop();
       frames.closeAll();
       winsize.dispose();
-      // The bridge, the chat mirror and the server's stores.
-      server.stop();
+      // The bridge, the chat mirror and the server's stores; then a few
+      // seconds for automation fires in flight to record their runs.
+      await server.stop();
       // agents.json first, then the cursor that says how much of the
       // journal it reflects (`./hook-cursor.ts`).
       agentManager.flushNow();

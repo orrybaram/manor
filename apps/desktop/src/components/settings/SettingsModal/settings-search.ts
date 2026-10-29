@@ -7,7 +7,8 @@ export type SettingsPageId =
   | "notifications"
   | "integrations"
   | "hosts"
-  | "devices";
+  | "devices"
+  | "automations";
 
 export type SettingsSection = {
   /**
@@ -175,6 +176,18 @@ const PAGE_SECTIONS: {
         id: "devices-hosts",
         label: "Hosts your devices can reach",
         keywords: ["reach", "hosts", "allow", "phone"],
+      },
+    ],
+  },
+  {
+    page: "automations",
+    pageLabel: "Automations",
+    pageKeywords: ["automations", "schedule", "scheduled agents", "cron", "recurring", "timer", "routine"],
+    sections: [
+      {
+        id: "automations-list",
+        label: "Automations",
+        keywords: ["schedule", "cron", "scheduled agents", "run now", "pause", "every day", "weekdays", "hourly"],
       },
     ],
   },

@@ -103,6 +103,8 @@ export interface ServerNotifier {
 export interface NotifierOptions {
   /** The durable notification log. */
   notificationStore: NotificationStore;
+  /** The log as the server hands it out (`HeadlessNotifierOptions`). */
+  notificationLog?: () => NotificationRecord[];
   /** Usage stats. */
   statsStore: StatsStore;
   unseen: UnseenAgents;

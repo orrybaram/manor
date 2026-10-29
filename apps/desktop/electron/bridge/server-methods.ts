@@ -15,6 +15,7 @@ import type { ServerDeps } from "../ipc/types";
 import { flatten, type BridgeHandler, type Method } from "./method";
 import { agents } from "./handlers/agents";
 import { agentActivity } from "./handlers/agent-activity";
+import { automations } from "./handlers/automations";
 import { appCommands } from "./handlers/app-commands";
 import { branches, diffs, git, gitPush } from "./handlers/branches-diffs";
 import { chat } from "./handlers/chat";
@@ -59,6 +60,7 @@ export const SERVER_METHODS = flatten({
   sessions,
   notifications,
   agentActivity,
+  automations,
   stats,
   ports,
   processes: serverProcesses,

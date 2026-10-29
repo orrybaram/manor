@@ -20,6 +20,7 @@ describe("commandAvailableOnWeb", () => {
       "detach-tab",
       "open-in-editor",
       "reveal-in-finder",
+      "toggle-remote-control",
     ]);
   });
 
@@ -51,9 +52,9 @@ describe("availableCommands", () => {
 });
 
 describe("commandAvailableOnHostServer", () => {
-  it("refuses nothing now that a host server launches agents and makes workspaces", () => {
+  it("refuses only the desktop's remote-control switch now that a host server launches agents and makes workspaces", () => {
     const refused = COMMANDS.filter((d) => !commandAvailableOnHostServer(d.id)).map((d) => d.id);
-    expect(refused).toEqual([]);
+    expect(refused).toEqual(["toggle-remote-control"]);
   });
 
   it("keeps new-agent and new-workspace on a host server", () => {

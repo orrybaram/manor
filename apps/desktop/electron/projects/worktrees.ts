@@ -446,6 +446,46 @@ export async function canQuickMerge(
   return { canMerge: true };
 }
 
+/**
+ * What removing a worktree with no one asking would lose, or null when
+ * nothing: uncommitted or untracked changes, or commits on neither the
+ * default branch nor any remote. Anything git can't answer counts as a
+ * risk. Keep last N asks this before it removes an automation's run
+ * workspace; the user's own remove asks nothing.
+ */
+export async function worktreeRemovalRisk(
+  ctx: ProjectContext,
+  projectId: string,
+  worktreePath: string,
+): Promise<string | null> {
+  const project = ctx.find(projectId);
+  if (!project) return "Project not found";
+  if (worktreePath === project.path) return "It is the main workspace";
+  const git = gitOf(ctx, project);
+  try {
+    const status = await git().exec(worktreePath, ["status", "--porcelain"]);
+    if (status.trim().length > 0) return "Uncommitted changes in workspace";
+  } catch (err) {
+    return `Could not read git status: ${errorMessage(err)}`;
+  }
+  try {
+    const unique = await git().exec(worktreePath, [
+      "rev-list",
+      "--count",
+      "HEAD",
+      "--not",
+      project.defaultBranch,
+      "--remotes",
+    ]);
+    const count = Number(unique.trim());
+    if (!Number.isFinite(count)) return "Could not count unpushed commits";
+    if (count > 0) return `${count} commit${count === 1 ? "" : "s"} on neither ${project.defaultBranch} nor a remote`;
+  } catch (err) {
+    return `Could not count unpushed commits: ${errorMessage(err)}`;
+  }
+  return null;
+}
+
 export async function quickMergeWorktree(
   ctx: ProjectContext,
   projectId: string,

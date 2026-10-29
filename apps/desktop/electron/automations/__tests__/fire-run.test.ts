@@ -130,7 +130,27 @@ describe("createFireRun", () => {
       outcome: "started",
       workspacePath: "/worktrees/auto/nightly-triage-20261029-0900",
       paneId: "pane-1",
+      // What keep last N checks a rename against.
+      workspaceName: "Nightly triage · Oct 29 09:00",
     });
+  });
+
+  it("trims to keep last N once a new-workspace run has started, without waiting", async () => {
+    const prune = vi.fn(() => new Promise<void>(() => {}));
+    fire = createFireRun({ ...deps, pruneRunWorkspaces: prune } as unknown as FireRunDeps);
+    const keeping = automation({ workspace: { mode: "new", keepLast: 3 } });
+    expect(await fire(keeping, ctx)).toMatchObject({ outcome: "started" });
+    expect(prune).toHaveBeenCalledWith(keeping, "/worktrees/auto/nightly-triage-20261029-0900");
+  });
+
+  it("trims nothing when the run's agent fails to start, or it reuses a workspace", async () => {
+    const prune = vi.fn(async () => {});
+    fire = createFireRun({ ...deps, pruneRunWorkspaces: prune } as unknown as FireRunDeps);
+    deps.startAgent.mockResolvedValueOnce({ ok: false, error: "no pty" });
+    expect(await fire(automation(), ctx)).toMatchObject({ outcome: "failed" });
+    projects[0]!.workspaces.push({ path: "/worktrees/inbox", branch: "inbox", isMain: false, name: "Inbox" });
+    await fire(automation({ workspace: { mode: "reuse", workspacePath: "/worktrees/inbox" } }), ctx);
+    expect(prune).not.toHaveBeenCalled();
   });
 
   it("reads the time in the automation's own zone", async () => {

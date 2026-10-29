@@ -101,6 +101,12 @@ export interface AutomationRun {
   /** The pane the run's agent was launched in. */
   paneId?: string;
   workspacePath?: string;
+  /**
+   * The name a new-workspace run gave its workspace. Keep last N removes a
+   * run's workspace only while it still has this name: a rename is the user
+   * keeping it.
+   */
+  workspaceName?: string;
 }
 
 /** Twelve hours: a laptop opened the next morning still gets last night's run. */

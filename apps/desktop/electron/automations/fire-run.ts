@@ -5,6 +5,7 @@ import type { SetupScriptEnd, WorkspaceOps } from "../workspace-ops";
 import type { Automation } from "../../src/lib/automations";
 import { LOCAL_HOST_ID } from "../../src/lib/workspace-key";
 import { branchesEqual, toDirSlug } from "../../src/utils/branch-name";
+import { AUTOMATIONS_FOLDER } from "./retention";
 import type { AutomationFireResult, AutomationSchedulerDeps } from "./scheduler";
 
 /**
@@ -26,10 +27,11 @@ import type { AutomationFireResult, AutomationSchedulerDeps } from "./scheduler"
  * dialog's default host alone, and waits for the project's setup script to
  * finish before the agent starts (a manual create starts it alongside).
  * Whether this server may fire at all is the scheduler's `blocked`.
+ *
+ * Once a new-workspace run has started, `pruneRunWorkspaces` trims the
+ * automation's older run workspaces to its keep last N (`./retention.ts`),
+ * in the background: the run is recorded without waiting for it.
  */
-
-/** The sidebar folder a project's run workspaces go in. */
-const AUTOMATIONS_FOLDER = "Automations";
 
 /** How long a run waits for a new workspace's setup script. */
 const DEFAULT_SETUP_TIMEOUT_MS = 10 * 60_000;
@@ -49,6 +51,8 @@ export interface FireRunDeps {
   ) => Promise<StartAgentResult>;
   /** How long to wait for a new workspace's setup script; 10 minutes by default. */
   setupTimeoutMs?: number;
+  /** Keep last N, after a new-workspace run starts in `currentPath`. Never rejects. */
+  pruneRunWorkspaces?: (automation: Automation, currentPath: string) => Promise<void>;
 }
 
 export function createFireRun(deps: FireRunDeps): AutomationSchedulerDeps["fire"] {
@@ -76,7 +80,14 @@ export function createFireRun(deps: FireRunDeps): AutomationSchedulerDeps["fire"
     if (!started.ok) {
       return { outcome: "failed", reason: "error", detail: started.error, workspacePath: workspace.path };
     }
-    return { outcome: "started", workspacePath: workspace.path, paneId: started.data.paneId };
+    if (!workspace.name) return { outcome: "started", workspacePath: workspace.path, paneId: started.data.paneId };
+    void deps.pruneRunWorkspaces?.(automation, workspace.path);
+    return {
+      outcome: "started",
+      workspacePath: workspace.path,
+      paneId: started.data.paneId,
+      workspaceName: workspace.name,
+    };
   };
 }
 
@@ -85,7 +96,7 @@ async function resolveWorkspace(
   automation: Automation,
   project: ProjectInfo,
   scheduledFor: string,
-): Promise<{ path: string } | { failed: AutomationFireResult }> {
+): Promise<{ path: string; name?: string } | { failed: AutomationFireResult }> {
   const spec = automation.workspace;
   if (spec.mode === "reuse") {
     if (project.workspaces.some((ws) => ws.path === spec.workspacePath)) {
@@ -117,7 +128,7 @@ async function resolveWorkspace(
       if (setupFailed) {
         return { failed: { outcome: "failed", reason: "workspace-failed", detail: setupFailed, workspacePath } };
       }
-      return { path: workspacePath };
+      return { path: workspacePath, name };
     }
     return {
       failed: { outcome: "failed", reason: "workspace-failed", detail: `Could not create the workspace ${name}` },

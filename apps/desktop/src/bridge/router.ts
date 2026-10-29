@@ -367,6 +367,8 @@ export function createRouter(
    * kept by id, as the merged list's indexes move. Not persisted across a reload (a known limit).
    */
   let pageSelectionId: unknown = null;
+  /** The index home's `projects.getSelectedIndex` last gave, for while it is away. */
+  let homeSelectedIndex: unknown = null;
   /**
    * The desktop's claims on each workspace, as home last said them: a
    * tab a detached window holds is the desktop's to know, and no host
@@ -1114,7 +1116,7 @@ export function createRouter(
 
   /** `projects.getSelectedIndex`, home's index translated to the merged list. */
   async function selectedIndex(): Promise<unknown> {
-    const answer = await callHome("projects", "getSelectedIndex", []);
+    const answer = await homeIndex();
     const orders = await projectOrders();
     if (pageSelectionId !== null) {
       const at = orders.merged.indexOf(pageSelectionId);
@@ -1125,6 +1127,25 @@ export function createRouter(
     const at = orders.merged.indexOf(orders.home[answer]);
     if (at >= 0) return at;
     return orders.merged.length === 0 ? -1 : 0;
+  }
+
+  /**
+   * Home's selected index, or — home away among other servers — the one it
+   * last gave. A phone whose desktop quit still reloads its projects from the
+   * hosts it reaches directly; a refusal here would fail that whole reload.
+   */
+  async function homeIndex(): Promise<unknown> {
+    const others = () => set.list().length > 1;
+    // Never answered: no index of home's, so the merged list's first.
+    const last = () => homeSelectedIndex ?? -1;
+    if (!reachable(set.home()) && others()) return last();
+    try {
+      homeSelectedIndex = await callHome("projects", "getSelectedIndex", []);
+      return homeSelectedIndex;
+    } catch (err) {
+      if (others()) return last();
+      throw err;
+    }
   }
 
   /** `projects.select`, the merged index translated to home's. */

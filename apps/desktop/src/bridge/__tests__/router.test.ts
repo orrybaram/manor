@@ -1306,6 +1306,7 @@ describe("the selected project on the merged list", () => {
 
   function setup() {
     const added: unknown[] = [];
+    const deskGone = { value: false };
     const desk = fakeServer({
       // `x` is the box's, which the box answers for, so the merged list
       // drops it and `b` sits one place earlier than in home's own list.
@@ -1315,10 +1316,14 @@ describe("the selected project on the merged list", () => {
         { id: "b", hostId: "local" },
         ...added,
       ],
-      "projects.getSelectedIndex": () => 2,
+      "projects.getSelectedIndex": () => {
+        if (deskGone.value) throw new Error("The connection to Manor dropped");
+        return 2;
+      },
       "projects.select": undefined,
     });
-    const box = fakeServer({ "projects.getAll": () => [{ id: "c", hostId: "local" }] });
+    const boxProjects: unknown[] = [{ id: "c", hostId: "local" }];
+    const box = fakeServer({ "projects.getAll": () => boxProjects });
     const set = createServerSet();
     set.add(DESK, desk.transport, { home: true, roomId: DESK });
     set.recordHello(DESK, { hostName: "desk.local", hostServer: false });
@@ -1327,7 +1332,7 @@ describe("the selected project on the merged list", () => {
     set.add(BOX, box.transport, { roomId: BOX });
     set.recordHello(BOX, { hostName: "wsl-box", hostServer: true });
     set.setReachability(BOX, "connected");
-    return { desk, added, api: createRouter(set, fakeResolver({})) };
+    return { desk, added, set, deskGone, boxProjects, api: createRouter(set, fakeResolver({})) };
   }
 
   const ids = async (api: ReturnType<typeof setup>["api"]) =>
@@ -1337,6 +1342,34 @@ describe("the selected project on the merged list", () => {
     const { api } = setup();
     const order = await ids(api);
     expect(await api.projects.getSelectedIndex()).toBe(order.indexOf("b"));
+  });
+
+  it("still reloads the box's projects once the desktop has quit", async () => {
+    const { api, set, deskGone, boxProjects } = setup();
+    const before = await ids(api);
+    const selected = await api.projects.getSelectedIndex();
+    deskGone.value = true;
+    boxProjects.push({ id: "d", hostId: "local" });
+
+    // Dropped before the set hears it: the call home refuses.
+    expect(await api.projects.getSelectedIndex()).toBe(selected);
+    // Away: home is not asked at all.
+    set.setReachability(DESK, "unreachable");
+    expect(await api.projects.getSelectedIndex()).toBe(selected);
+    expect(await ids(api)).toEqual([...before, "d"]);
+  });
+
+  it("refuses a lone home's away index as before", async () => {
+    const desk = fakeServer({
+      "projects.getSelectedIndex": () => {
+        throw new Error("The connection to Manor dropped");
+      },
+    });
+    const set = createServerSet();
+    set.add("DeskRoom0000000000000a", desk.transport, { home: true, roomId: "DeskRoom0000000000000a" });
+    set.recordHello("DeskRoom0000000000000a", { hostName: "desk.local", hostServer: false });
+    const api = createRouter(set, fakeResolver({}));
+    await expect(api.projects.getSelectedIndex()).rejects.toThrow("dropped");
   });
 
   it("sends home its own index for a merged one", async () => {

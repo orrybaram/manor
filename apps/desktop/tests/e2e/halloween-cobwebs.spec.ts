@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { ElectronApplication, Page, TestInfo } from "@playwright/test";
-import { bootWorkspaceWithTerminal, expect, test } from "./fixtures";
+import { bootWorkspaceWithTerminal, createWorkspace, expect, openTerminalTab, test } from "./fixtures";
 import { activePaneId, paneText, runInTerminal } from "./helpers/terminal";
 
 const MIN = 60_000;
@@ -207,6 +207,34 @@ test("tabs left alone gather dust, and their panels open under cobwebs the mouse
   await expect(window.getByTestId("panel-cobwebs")).toHaveCount(0);
   await toggle.click();
   await expect(window.getByTestId("tab-dust").first()).toBeAttached();
+});
+
+test("a dusty tab in another workspace leaves no dust on the one on screen", async ({
+  app,
+  window,
+  tempHome,
+}, testInfo) => {
+  test.setTimeout(180_000);
+  await bootWorkspaceWithTerminal(app, window, tempHome, "ws-dusty");
+  await fakeClock(window, new Date(2026, 9, 31, 10, 0));
+  await window.keyboard.press("ControlOrMeta+t");
+  await expect(tabs(window)).toHaveCount(2);
+  await visit(window, 0, 30);
+  await expect(dustOf(window, 1)).toHaveAttribute("data-tab-dust", "2");
+
+  await createWorkspace(window, "ws-clean");
+  await openTerminalTab(window);
+  await expect(tabs(window)).toHaveCount(1);
+  // Only the workspace on screen draws dust at all: one layer, on its own tab.
+  await expect(window.getByTestId("tab-dust")).toHaveCount(1);
+  await expect(dustOf(window, 0)).toHaveAttribute("data-tab-dust", "0");
+  await window.mouse.move(5, 5);
+  await window.waitForTimeout(800);
+  await window.locator('[role="tablist"]:visible').first().screenshot({ path: shot(testInfo, "other-workspace-clean") });
+
+  // Back in the first workspace, its tab is as dusty as it was.
+  await window.locator('[data-testid="workspace-item"]', { hasText: "ws-dusty" }).first().click();
+  await expect(dustOf(window, 1)).toHaveAttribute("data-tab-dust", "2");
 });
 
 test("outside Halloween week, tabs stay clean", async ({ app, window, tempHome }) => {

@@ -264,13 +264,22 @@ export function initApp(devTitle: string | null): void {
 
   const server = createManorServer<HostDeps>(electronPlatform, {
     table: DESKTOP_TABLE,
-    onAgentStatus: (agent, prevStatus, newStatus) => {
+    onAgentStatus: (agent, prevStatus, newStatus, about) => {
       notifier.maybeSendNotification(agent, prevStatus, newStatus);
       // A second sink on the same transition, not a second detector: whatever
       // moves the dock badge is what a paired phone hears about. What that means
       // — a stream event, a push, or nothing at all — belongs to
       // `RemoteControlController`, not here.
-      server.deps.remoteControl.onAgentStatus(agent, prevStatus, newStatus, {
+      server.deps.remoteControl.onAgentStatus(
+        { ...agent, automationName: about?.automationName ?? null },
+        prevStatus,
+        newStatus,
+        { notify: server.shared.preferencesManager.get("notifyOnRequiresInput") },
+      );
+    },
+    // A local automation's run that failed to start, to paired phones.
+    onAutomationRun: (automation, run) => {
+      server.deps.remoteControl.onAutomationRun(automation, run, {
         notify: server.shared.preferencesManager.get("notifyOnRequiresInput"),
       });
     },

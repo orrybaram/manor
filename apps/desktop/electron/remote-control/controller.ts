@@ -43,7 +43,7 @@ import { serialQueue, type Serially } from "../lib/serial";
 import type { RemoteDeviceInfo, RemoteDeviceStore } from "./devices";
 import type { RelayConnector, RelayStatus } from "./relay/connector";
 import type { RelayIdentityStore } from "./relay/identity";
-import { pushAgentTransition, type PushManager } from "./push";
+import { pushAgentTransition, pushAutomationRun, type PushManager } from "./push";
 import { relayAppUrl } from "./relay/url";
 import type { PushSubscriptionRecord } from "./devices";
 import type { RelayGate } from "./relay-gate";
@@ -234,6 +234,8 @@ export class RemoteControlController {
       projectName: string | null;
       /** Absent or `local`: the desktop is the only one pushing for it. */
       hostId?: string;
+      /** The automation whose run started it, which titles the push. */
+      automationName?: string | null;
     },
     previousStatus: string | null | undefined,
     status: string,
@@ -247,6 +249,20 @@ export class RemoteControlController {
         ? this.hostPushEndpoints(agent.hostId)
         : undefined,
     });
+  }
+
+  /**
+   * A run of one of this desktop's own automations, as a push when it
+   * failed to start (`pushAutomationRun`). `notify` is the same preference
+   * an agent's push follows. A remote host's runs are its server's to push.
+   */
+  onAutomationRun(
+    automation: { id: string; name: string },
+    run: { outcome: string; detail?: string },
+    { notify }: { notify: boolean },
+  ): void {
+    if (!this.push || !notify) return;
+    pushAutomationRun(this.push, automation, run);
   }
 
   onChange(listener: (status: RemoteControlStatus) => void): () => void {

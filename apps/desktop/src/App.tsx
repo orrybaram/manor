@@ -401,6 +401,12 @@ function App() {
           if (request.hostId) setSettingsSection(`host-${request.hostId}`);
           setSettingsOpen(true);
         }
+        // A bell row for an automation's run opens Settings → Automations.
+        if (request.type === "open-automation") {
+          setSettingsPage("automations");
+          setSettingsSection(null);
+          setSettingsOpen(true);
+        }
         if (request.type === "open-remote-settings") {
           setSettingsPage("hosts");
           setSettingsSection("host-local");

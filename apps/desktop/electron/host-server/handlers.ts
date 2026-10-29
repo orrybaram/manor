@@ -171,6 +171,12 @@ import {
 } from "../bridge/handlers/agents-read";
 import { sessionsList, sessionsTranscript } from "../bridge/handlers/sessions";
 import {
+  notificationsClear,
+  notificationsGetAll,
+  notificationsMarkAllRead,
+  notificationsMarkRead,
+} from "../bridge/handlers/notifications";
+import {
   automationsCreate,
   automationsGet,
   automationsList,
@@ -560,6 +566,15 @@ const METHODS = flatten({
     clone: method(owned(projectsClone), { mutating: true, localOnly: true }),
     update: method(owned(projectsUpdate), { mutating: true, localOnly: true }),
     remove: method(owned(projectsRemove), { mutating: true, localOnly: true }),
+  },
+  // This host's notification log: its automations' runs, kept while no
+  // desktop is open, which the desktop's bell and a phone's merge in.
+  // Reading and marking it read is anyone's.
+  notifications: {
+    getAll: method(notificationsGetAll),
+    markRead: method(notificationsMarkRead, { mutating: true }),
+    markAllRead: method(notificationsMarkAllRead, { mutating: true }),
+    clear: method(notificationsClear, { mutating: true }),
   },
   // This host's automations, which this server fires with the lid closed.
   // A device may read them, run one now and pause or resume one; making,

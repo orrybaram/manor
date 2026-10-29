@@ -1,7 +1,8 @@
 import type { AgentInfo, AgentManager } from "../agent-persistence";
 import type { AgentStatusDriver } from "../agent-status/driver";
 import type { AgentStatus } from "../agent-status/types";
-import type { AutomationRun } from "../../src/lib/automations";
+import type { Automation, AutomationRun } from "../../src/lib/automations";
+import type { AutomationStore } from "./automation-store";
 
 /**
  * A run's Agent, read live. A run never stores a status of its own: it
@@ -52,6 +53,26 @@ export function isRunAgentBusy(deps: RunAgentDeps, run: AutomationRun): boolean 
   const paneId = agent ? agent.paneId : run.paneId;
   const live = paneId ? (deps.agentStatus.getPaneState(paneId)?.status ?? null) : null;
   return live === "thinking" || live === "working";
+}
+
+/**
+ * The automation whose run started `agent`, or null when none did: what a
+ * push about the agent is titled by ("Morning triage needs input"). Only a
+ * started run on the agent's pane, or naming it, is looked at.
+ */
+export function automationOfAgent(
+  deps: RunAgentDeps,
+  store: Pick<AutomationStore, "list" | "runs">,
+  agent: Pick<AgentInfo, "id" | "paneId">,
+): Automation | null {
+  for (const automation of store.list()) {
+    for (const run of store.runs(automation.id)) {
+      if (run.outcome !== "started") continue;
+      if (run.agentId !== agent.id && (!agent.paneId || run.paneId !== agent.paneId)) continue;
+      if (findAgent(deps, run)?.id === agent.id) return automation;
+    }
+  }
+  return null;
 }
 
 function findAgent(deps: RunAgentDeps, run: Pick<AutomationRun, "agentId" | "paneId" | "firedAt">): AgentInfo | null {

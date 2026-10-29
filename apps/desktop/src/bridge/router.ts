@@ -40,6 +40,12 @@
  * server, home calls included, has its arguments turned back into that
  * server's own ids (`toServerArgs`) and its answer stamped (`stampResult`).
  *
+ * **The bell** (`notifications`). Every server keeps its own log, and
+ * each `notifications.changed` carries one server's whole log: the router
+ * keeps each server's last one and hands the listener all of them merged,
+ * newest first, as `notifications.getAll` answers. A mark goes to the host
+ * the record names (`byHost`).
+ *
  * **Subscriptions.** A listener of a merged or split namespace (`layout`,
  * `projects`, `agents`, `branches`, `diffs`), and `automations`, is opened on every server,
  * replayed on one that joins later, and its events are stamped and
@@ -372,6 +378,12 @@ export function createRouter(
    * on a workspace home does not answer for: told again with it.
    */
   const lastLayouts = new Map<string, { version: unknown; layout: unknown }>();
+  /**
+   * Each server's own notification log, as its last `getAll` answer or
+   * `notifications.changed` said it (stamped): each event carries one
+   * server's whole log, and the listener takes it as everyone's.
+   */
+  const notificationLogs = new Map<string, unknown[]>();
 
   // ── sources ──
 
@@ -912,6 +924,11 @@ export function createRouter(
         );
       case "agents.get":
         return firstOf(answers, (value, entry) => kept(value, entry));
+      case "notifications.getAll":
+        for (const { entry, value } of answers) {
+          if (Array.isArray(value)) notificationLogs.set(entry.id, value);
+        }
+        return mergedNotifications();
       case "agents.getPaneStatuses":
         return answers.flatMap(({ entry, value }) =>
           (Array.isArray(value) ? value : []).filter((update: unknown) => {
@@ -957,6 +974,25 @@ export function createRouter(
       }
     }
     return out;
+  }
+
+  /**
+   * Every server's last log, newest first: each record kept from the server
+   * answering for its host now, so a desktop's copy of an adopted host's
+   * records and the host's own are one.
+   */
+  function mergedNotifications(): unknown[] {
+    const answers: Answer[] = [];
+    for (const entry of set.list()) {
+      const value = notificationLogs.get(entry.id);
+      if (value) answers.push({ entry, value });
+    }
+    const out = mergeRecords(answers) as unknown[];
+    const at = (record: unknown): number => {
+      const ms = isPlainObject(record) && typeof record.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
+      return Number.isFinite(ms) ? ms : 0;
+    };
+    return out.sort((a, b) => at(b) - at(a));
   }
 
   function mergeLayouts(answers: Answer[]): Record<string, unknown> {
@@ -1237,6 +1273,10 @@ export function createRouter(
       if (key === path && origin === first.origin && claims === first.claims) return args;
       return [{ ...first, workspacePath: key, origin, claims }, ...rest];
     }
+    if (event.ns === "notifications" && event.event === "changed" && Array.isArray(first)) {
+      notificationLogs.set(entry.id, stampRecords(entry, first) as unknown[]);
+      return [mergedNotifications(), ...rest];
+    }
     if (event.ns === "agents" && event.event === "updated") {
       const agent = stampRecords(entry, first);
       if (!kept(agent, entry)) return null;
@@ -1420,6 +1460,7 @@ export function createRouter(
         if (!now.has(id)) sub.parts?.delete(id);
       }
       panesByServer.delete(id);
+      if (!now.has(id)) notificationLogs.delete(id);
       // A new connection holds none of this page's watches, and may be a
       // newer server.
       for (const watch of splits.values()) {

@@ -43,6 +43,7 @@
  */
 
 import type { AgentInfo } from "../agent-persistence";
+import type { NotificationRecord } from "../notification-store";
 import type { SessionSummary } from "../sessions/types";
 import {
   HOST_PTY_EVENTS,
@@ -790,6 +791,11 @@ export class HostRouting implements BridgeForward {
   }
 
   // ── merged reads ──
+
+  /** Every adopted host's automation notifications, in the desktop's form. */
+  notifications(): NotificationRecord[] {
+    return this.proxies().flatMap((proxy) => proxy.notifications());
+  }
 
   /** Every adopted host's agents, in the desktop's form. */
   agents(): AgentInfo[] {

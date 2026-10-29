@@ -10,6 +10,8 @@ import * as Popover from "@radix-ui/react-popover";
 import Award from "lucide-react/dist/esm/icons/award";
 import Bell from "lucide-react/dist/esm/icons/bell";
 import Bot from "lucide-react/dist/esm/icons/bot";
+import CalendarClock from "lucide-react/dist/esm/icons/calendar-clock";
+import CalendarX from "lucide-react/dist/esm/icons/calendar-x";
 import CheckCheck from "lucide-react/dist/esm/icons/check-check";
 import CircleHelp from "lucide-react/dist/esm/icons/circle-help";
 import CircleCheck from "lucide-react/dist/esm/icons/circle-check";
@@ -20,6 +22,7 @@ import Trash2 from "lucide-react/dist/esm/icons/trash-2";
 import type { NotificationKind, NotificationRecord } from "../../electron.d";
 import type { PrComment } from "../../lib/pr-info";
 import { useNotificationStore } from "../../store/notification-store";
+import { useHostStore } from "../../store/host-store";
 import { navigateToNotification } from "../../utils/notification-navigation";
 import { onUiRequest } from "../../utils/ui-request";
 import {
@@ -28,6 +31,7 @@ import {
   type DateBucket,
 } from "../../utils/date-buckets";
 import { relativeShortThenDate } from "../../utils/relative-time";
+import { hostLabel, isRemoteHost } from "../../lib/hosts";
 import { Button } from "../ui/Button/Button";
 import { PrCommentCard } from "../ui/PrCommentCard/PrCommentCard";
 import { ToggleGroup } from "../ui/ToggleGroup/ToggleGroup";
@@ -42,6 +46,8 @@ const ICON_FOR: Record<NotificationKind, typeof Bell> = {
   "pr-changes-requested": CircleX,
   "pr-checks-failed": CircleX,
   "badge-unlocked": Award,
+  "automation-ran": CalendarClock,
+  "automation-failed": CalendarX,
 };
 
 const TONE_FOR: Partial<Record<NotificationKind, string>> = {
@@ -49,6 +55,7 @@ const TONE_FOR: Partial<Record<NotificationKind, string>> = {
   "pr-approved": styles.iconSuccess,
   "pr-changes-requested": styles.iconError,
   "pr-checks-failed": styles.iconError,
+  "automation-failed": styles.iconError,
 };
 
 /**
@@ -80,7 +87,8 @@ const FILTER_OPTIONS: { value: KindFilter; label: ReactNode }[] = [
 
 function matchesFilter(kind: NotificationKind, filter: KindFilter): boolean {
   if (filter === "all") return true;
-  const isAgent = kind.startsWith("agent-");
+  // An automation's run is an agent starting, or failing to.
+  const isAgent = kind.startsWith("agent-") || kind.startsWith("automation-");
   return filter === "agent" ? isAgent : !isAgent;
 }
 
@@ -129,9 +137,9 @@ function useHoverMarksRead(record: NotificationRecord) {
     if (record.read) return;
     timerRef.current = setTimeout(() => {
       timerRef.current = null;
-      void markRead(record.id);
+      void markRead(record.id, record.hostId);
     }, READ_HOVER_DELAY);
-  }, [cancel, markRead, record.id, record.read]);
+  }, [cancel, markRead, record.id, record.hostId, record.read]);
 
   useEffect(() => cancel, [cancel]);
 
@@ -152,6 +160,12 @@ function NotificationRow(props: {
   const hover = useHoverMarksRead(record);
   const Icon = ICON_FOR[record.kind] ?? Bell;
   const tone = TONE_FOR[record.kind];
+  // A run fires on the host that keeps it: a remote one says which.
+  const hostName = useHostStore((s) => {
+    if (!record.kind.startsWith("automation-") || !record.hostId) return null;
+    const host = s.hosts.find((h) => h.hostId === record.hostId);
+    return host && isRemoteHost(host.hostId) ? hostLabel(host.hostId, s.hosts) : null;
+  });
 
   return (
     <div
@@ -183,6 +197,12 @@ function NotificationRow(props: {
             </span>
           )}
           {record.body}
+          {hostName && (
+            <span className={styles.rowHost} data-testid="notification-host">
+              {" "}
+              · {hostName}
+            </span>
+          )}
         </div>
       </div>
       <span className={styles.rowTime}>

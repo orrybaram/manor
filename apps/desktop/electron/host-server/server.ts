@@ -254,10 +254,11 @@ export function createHostServer(opts: HostServerOptions): HostServer {
       if (ownership.current() !== "host") return PENDING_MESSAGE;
       return daemonReady ? null : DAEMON_NOT_READY_MESSAGE;
     },
-    onAgentStatus: (agent, prevStatus, newStatus) => {
-      relay.onAgentStatus(agent, prevStatus, newStatus);
+    onAgentStatus: (agent, prevStatus, newStatus, about) => {
+      relay.onAgentStatus(agent, prevStatus, newStatus, about);
       opts.onAgentStatus?.(agent, prevStatus, newStatus);
     },
+    onAutomationRun: (automation, run) => relay.onAutomationRun(automation, run),
     daemonListener: {
       onLost: () => {
         daemonState = { status: "reconnecting" };

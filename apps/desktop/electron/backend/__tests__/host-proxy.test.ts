@@ -357,3 +357,68 @@ describe("HostProxy", () => {
     expect(Object.keys(onDisk.layout.workspaces).sort()).toEqual([BOX_APP, BOX_WT].sort());
   });
 });
+
+describe("HostProxy and the host's notification log", () => {
+  const h = useHostServerHarness();
+
+  it("holds the host's automation records only, stamped, and hears them change", async () => {
+    withoutGit();
+    h.adopt();
+    const at = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "notifications.json"),
+      JSON.stringify({
+        notifications: [
+          // The host never writes one of these, and the desktop records its own.
+          { id: "agent-1", kind: "agent-responded", title: "t", body: "", timestamp: at(1), read: false, target: null },
+          {
+            id: "ran-1",
+            kind: "automation-ran",
+            title: "Triage ran",
+            body: "Started Claude",
+            timestamp: at(2),
+            read: false,
+            target: { type: "automation", automationId: "auto-1" },
+          },
+        ],
+      }),
+    );
+    const past = at(5);
+    fs.writeFileSync(
+      path.join(h.paths.dataDir, "automations.json"),
+      JSON.stringify({
+        automations: [
+          {
+            id: "auto-1",
+            name: "Triage",
+            enabled: false,
+            schedule: { cron: "0 9 * * *", timezone: "UTC" },
+            projectId: "gone",
+            prompt: "go",
+            agentKind: "claude",
+            workspace: { mode: "new" },
+            missedGraceMinutes: 720,
+            createdAt: past,
+            updatedAt: past,
+            lastScheduledFor: past,
+            nextRunAt: null,
+          },
+        ],
+      }),
+    );
+    await h.serve();
+    const client = ownerClient(h);
+    client.hostConnected();
+    let told = 0;
+    const proxy = proxyFor(h, client, desktopBus().bus, { onNotificationsChanged: () => (told += 1) });
+
+    const first = await eventually(() => proxy.notifications(), (list) => list.length > 0, "the host's log");
+    expect(first.map((n) => [n.id, n.hostId])).toEqual([["ran-1", "box"]]);
+
+    // A run fails on the host: its changed log reaches the proxy.
+    await client.invoke("automations", "runNow", [null, "auto-1"]);
+    const after = await eventually(() => proxy.notifications(), (list) => list.length === 2, "the new record");
+    expect(after.map((n) => n.kind)).toEqual(["automation-failed", "automation-ran"]);
+    expect(told).toBeGreaterThanOrEqual(2);
+  });
+});

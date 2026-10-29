@@ -20,7 +20,7 @@
 import type { AppCommandResult } from "../renderer-bridge";
 import type { WindowDirectory } from "../layout/layout-store";
 import type { DiffGateWindow } from "../diff-watcher";
-import type { NotificationStore } from "../notification-store";
+import type { NotificationRecord, NotificationStore } from "../notification-store";
 import type { ServerNotifier } from "../notifications";
 import type { SecretBox } from "../platform/secret-box";
 import type { PreferencesManager } from "../preferences";
@@ -32,6 +32,8 @@ import type { UnseenAgents } from "../agent-status/unseen-agents";
 /** What a platform's notifier is built over: the server's own state. */
 export interface NotifierParts {
   notificationStore: NotificationStore;
+  /** The log as the server hands it out (`ServerDeps.notificationLog`). */
+  notificationLog: () => NotificationRecord[];
   statsStore: StatsStore;
   unseen: UnseenAgents;
   preferencesManager: PreferencesManager;

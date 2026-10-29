@@ -3,6 +3,7 @@ import type { NotificationRecord } from "../electron.d";
 import { navigateToNotification } from "../utils/notification-navigation";
 import { liveValue } from "../bridge/resync";
 import { ipcErrorMessage } from "../lib/ipc-error";
+import { LOCAL_HOST_ID } from "../lib/workspace-key";
 
 /**
  * Renderer cache of main's notification log.
@@ -11,6 +12,12 @@ import { ipcErrorMessage } from "../lib/ipc-error";
  * back through the `notifications:changed` broadcast — the renderer never
  * mutates its copy speculatively, the same ownership split the agent store
  * uses for the unseen sets.
+ *
+ * The list is every server's log, merged newest first (on the desktop by
+ * main, across servers by the router), each record naming the host whose
+ * server keeps it (`hostId`). A mark or a clear goes to that host's log:
+ * `markRead` by the record's host, `markAllRead` and `clear` to each host
+ * the list holds records of.
  */
 interface NotificationState {
   /** Newest first, exactly as main sends it. */
@@ -27,13 +34,26 @@ interface NotificationState {
   loadError: string | null;
   /** Read the log again. */
   retry: () => Promise<void>;
-  markRead: (id: string) => Promise<void>;
+  /** `hostId`: the host keeping the record; the list's word for it when absent. */
+  markRead: (id: string, hostId?: string | null) => Promise<void>;
   markAllRead: () => Promise<void>;
   clear: () => Promise<void>;
 }
 
 function countUnread(notifications: NotificationRecord[]): number {
   return notifications.filter((n) => !n.read).length;
+}
+
+/**
+ * Each host the records are kept by, the home server's own (null) always
+ * among them, so a mark with nothing loaded still reaches it.
+ */
+function hostsOf(records: NotificationRecord[]): (string | null)[] {
+  const hosts = new Set<string | null>([null]);
+  for (const record of records) {
+    if (record.hostId && record.hostId !== LOCAL_HOST_ID) hosts.add(record.hostId);
+  }
+  return [...hosts];
 }
 
 export const useNotificationStore = create<NotificationState>((set, get) => {
@@ -109,16 +129,19 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
       }
     },
 
-    markRead: async (id: string) => {
-      await window.electronAPI?.notifications.markRead(id);
+    markRead: async (id: string, hostId?: string | null) => {
+      const host = hostId ?? get().notifications.find((n) => n.id === id)?.hostId ?? null;
+      await window.electronAPI?.notifications.markRead(id, host);
     },
 
     markAllRead: async () => {
-      await window.electronAPI?.notifications.markAllRead();
+      const hosts = hostsOf(get().notifications.filter((n) => !n.read));
+      await Promise.all(hosts.map((hostId) => window.electronAPI?.notifications.markAllRead(hostId)));
     },
 
     clear: async () => {
-      await window.electronAPI?.notifications.clear();
+      const hosts = hostsOf(get().notifications);
+      await Promise.all(hosts.map((hostId) => window.electronAPI?.notifications.clear(hostId)));
     },
   };
 });

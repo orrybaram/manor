@@ -206,6 +206,16 @@ export const ROUTES: Record<string, RouteRule | "merge" | "split" | "home"> = {
   "agents.reconcileStale": "home",
   "agents.getFileAuthors": byWorkspaceKey(0),
 
+  // Each server keeps its own notification log (a host server's holds its
+  // automations' runs); the bell reads every one, and a write marks the log
+  // of the host that keeps the record.
+  "notifications.getAll": "merge",
+  "notifications.markRead": byHost(1),
+  "notifications.markAllRead": byHost(0),
+  "notifications.clear": byHost(0),
+  // A native banner on demand: the desktop's.
+  "notifications.show": "home",
+
   // Each server keeps and fires its own host's automations; the renderer
   // asks each host it shows.
   "automations.list": byHost(0),

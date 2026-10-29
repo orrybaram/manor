@@ -5,9 +5,9 @@
 
 import { describe, it, expect } from "vitest";
 
-import { isRunAgentBusy, runAgent, type RunAgentDeps } from "../run-agent";
+import { automationOfAgent, isRunAgentBusy, runAgent, type RunAgentDeps } from "../run-agent";
 import type { AgentInfo } from "../../agent-persistence";
-import type { AutomationRun } from "../../../src/lib/automations";
+import type { Automation, AutomationRun } from "../../../src/lib/automations";
 
 const FIRED = "2026-10-29T09:00:00.000Z";
 
@@ -106,5 +106,32 @@ describe("isRunAgentBusy", () => {
 
   it("is not busy for a run with no pane", () => {
     expect(isRunAgentBusy(deps([]), run({ paneId: undefined }))).toBe(false);
+  });
+});
+
+describe("automationOfAgent", () => {
+  const triage = { id: "auto-1", name: "Morning triage" } as Automation;
+  const store = (runs: AutomationRun[]) => ({
+    list: () => [triage],
+    runs: (id: string) => (id === triage.id ? runs : []),
+  });
+
+  it("names the automation whose started run's pane the agent is on", () => {
+    const mine = agent({ id: "mine" });
+    expect(automationOfAgent(deps([mine]), store([run()]), mine)?.name).toBe("Morning triage");
+  });
+
+  it("names none for a later agent on the same pane, or a skipped run's", () => {
+    const first = agent({ id: "first" });
+    const later = agent({ id: "later", createdAt: "2026-10-29T10:00:00.000Z" });
+    expect(automationOfAgent(deps([first, later]), store([run()]), later)).toBeNull();
+    expect(
+      automationOfAgent(deps([first]), store([run({ outcome: "skipped" })]), first),
+    ).toBeNull();
+  });
+
+  it("names none for an agent on another pane", () => {
+    const other = agent({ id: "other", paneId: "pane-9" });
+    expect(automationOfAgent(deps([other]), store([run()]), other)).toBeNull();
   });
 });

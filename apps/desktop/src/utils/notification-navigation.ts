@@ -3,6 +3,8 @@ import { useNotificationStore } from "../store/notification-store";
 import { useAgentStore } from "../store/agent-store";
 import { navigateToAgent } from "./agent-navigation";
 import { requestPaletteView } from "./palette-request";
+import { requestUi } from "./ui-request";
+import { LOCAL_HOST_ID } from "../lib/workspace-key";
 import { openExternal } from "../lib/open-external";
 import { BADGE_META } from "../lib/badges";
 import { useStatsStore } from "../store/stats-store";
@@ -20,7 +22,7 @@ export async function navigateToNotification(
   if (!record.read) {
     await useNotificationStore
       .getState()
-      .markRead(record.id)
+      .markRead(record.id, record.hostId)
       .catch((err: unknown) => console.warn("[notifications] markRead failed:", err));
   }
 
@@ -42,6 +44,16 @@ export async function navigateToNotification(
 
   if (target.type === "url") {
     openExternal(target.url);
+    return;
+  }
+
+  // A run's record opens its automation, on the host that keeps it.
+  if (target.type === "automation") {
+    requestUi({
+      type: "open-automation",
+      hostId: target.hostId ?? record.hostId ?? LOCAL_HOST_ID,
+      automationId: target.automationId,
+    });
     return;
   }
 

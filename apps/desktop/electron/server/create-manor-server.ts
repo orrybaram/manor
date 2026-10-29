@@ -42,6 +42,7 @@ import {
   serverAgentPipelineOptions,
   type AgentPipeline,
   type AgentStatusSink,
+  type ServerAgentStatusSink,
 } from "../agent-status/pipeline";
 import type { AgentStatusDriverDeps } from "../agent-status/driver";
 import { UnseenAgents } from "../agent-status/unseen-agents";
@@ -68,7 +69,7 @@ import type { ServerDeps, SharedDeps } from "../ipc/types";
 import { KeybindingsManager } from "../keybindings";
 import { LayoutStore } from "../layout/layout-store";
 import { LinearManager } from "../linear";
-import { NotificationStore } from "../notification-store";
+import { NotificationStore, type NotificationRecord } from "../notification-store";
 import { ProjectManager } from "../persistence";
 import { PortScanner } from "../ports";
 import { BranchWatcher } from "../branch-watcher";
@@ -94,7 +95,9 @@ import { AutomationStore } from "../automations/automation-store";
 import { AutomationScheduler } from "../automations/scheduler";
 import { createFireRun } from "../automations/fire-run";
 import { pruneRunWorkspaces } from "../automations/retention";
-import { isRunAgentBusy } from "../automations/run-agent";
+import { automationOfAgent, isRunAgentBusy } from "../automations/run-agent";
+import { runNotification } from "../automations/notify";
+import type { Automation, AutomationRun } from "../../src/lib/automations";
 import { startAgentInWorkspace } from "../routes/agents";
 import { pickPaneAgent } from "../../src/lib/pane-agent";
 import { parseWorkspaceKey, type WorkspaceKey } from "../../src/lib/workspace-key";
@@ -150,9 +153,16 @@ export interface ManorServerOptions<D extends BridgeServerDeps> {
   deps: (core: ManorCore) => D;
   /**
    * A status transition worth telling someone about (a banner, a push);
-   * a replay's are coalesced. Read once the pipeline has started.
+   * a replay's are coalesced. Read once the pipeline has started. Told the
+   * automation whose run started the agent, when one of this server's did.
    */
-  onAgentStatus?: AgentStatusSink;
+  onAgentStatus?: ServerAgentStatusSink;
+  /**
+   * A run of one of this server's automations was recorded — started,
+   * skipped or failed. Its notification is already in the log; this is for
+   * a push.
+   */
+  onAutomationRun?: (automation: Automation, run: AutomationRun) => void;
   /** The daemon connection's own listener; the resync on reconnect is added. */
   daemonListener?: ConnectionListener;
   /** The relay stores' files and push's network, where they are not the defaults. */
@@ -303,6 +313,9 @@ export function createManorServer<D extends BridgeServerDeps>(
               onRemoteAgentUpdate(agent, flags, previous),
             onUnseenRead: (ids: readonly string[], flags: { responded: string[]; requires_input: string[] }): void =>
               onRemoteUnseenRead(ids, flags),
+            // A host's own log (its automations' runs) is part of this
+            // desktop's: told again whenever it changes.
+            onNotificationsChanged: (): void => notifier.sendNotificationsUpdate(),
             onProgress: (...args: Parameters<HostRouting["onProgress"]>): void =>
               routing.onProgress(...args),
             label: (hostId: string): string => projectManager.hostLabel(hostId),
@@ -522,8 +535,21 @@ export function createManorServer<D extends BridgeServerDeps>(
   // The server's unseen flags and the notifications built on them: one of each per server, shared by the status pipeline, the handlers
   // and the broadcast.
   const unseen = new UnseenAgents();
+  /**
+   * The log this server hands out (`notifications.getAll`, and every
+   * `notifications.changed`): its own records, each saying it is this
+   * server's (`hostId: "local"`), and on the desktop each adopted host's
+   * automation records, newest first.
+   */
+  const notificationLog = (): NotificationRecord[] => {
+    const own = notificationStore.getAll().map((record) => ({ ...record, hostId: LOCAL_HOST_ID }));
+    const remote = routing?.notifications() ?? [];
+    if (remote.length === 0) return own;
+    return [...own, ...remote].sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+  };
   const notifierParts = {
     notificationStore,
+    notificationLog,
     statsStore,
     unseen,
     preferencesManager,
@@ -568,6 +594,17 @@ export function createManorServer<D extends BridgeServerDeps>(
 
   const broadcastAgent = (agent: AgentInfo): void => notifier.sendAgentUpdate(agent);
 
+  /** A transition, to the caller's sink, with the automation that started its agent. */
+  const tellAgentStatus: AgentStatusSink = (agent, prevStatus, newStatus) => {
+    if (!opts.onAgentStatus) return;
+    const automation = automationOfAgent(
+      { agentManager, agentStatus: agentStatusDriver },
+      automationStore,
+      agent,
+    );
+    opts.onAgentStatus(agent, prevStatus, newStatus, { automationName: automation?.name ?? null });
+  };
+
   /**
    * A remote agent moved on its host's server: the dock badge
    * follows the host's unseen flags, and a transition into `responded` or
@@ -608,7 +645,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     const status = agent.lastAgentStatus;
     const was = previous?.lastAgentStatus ?? null;
     if (status && status !== was) {
-      opts.onAgentStatus?.(agent, was, status as Parameters<AgentStatusSink>[2]);
+      tellAgentStatus(agent, was, status as Parameters<AgentStatusSink>[2]);
     }
   }
 
@@ -634,8 +671,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     getPaneHostId,
     unseen,
     broadcastAgent,
-    onStatus: (agent, prevStatus, newStatus) =>
-      opts.onAgentStatus?.(agent, prevStatus, newStatus),
+    onStatus: (agent, prevStatus, newStatus) => tellAgentStatus(agent, prevStatus, newStatus),
     // Each hook also pokes the pane's chat mirror, after the driver has
     // captured any new transcript path: the hooks are when a transcript
     // grows, and a remote one has no file watch. Hooks reach
@@ -742,6 +778,33 @@ export function createManorServer<D extends BridgeServerDeps>(
   automationStore.onChange(({ automationId }) =>
     bus.publish("automations", "changed", { hostId: LOCAL_HOST_ID, automationId }),
   );
+  // A run that started or failed goes in this server's own log — a host
+  // server's too, so the bell shows what fired while no desktop was open —
+  // and to the caller, for a push.
+  automationStore.onChange((change) => {
+    if (change.type !== "run") return;
+    const automation = automationStore.get(change.automationId);
+    if (!automation) return;
+    opts.onAutomationRun?.(automation, change.run);
+    if (change.run.outcome === "skipped") return;
+    void runWorkspaceName(change.run.workspacePath).then((workspaceName) => {
+      const record = runNotification(automation, change.run, workspaceName);
+      if (!record) return;
+      notificationStore.append(record);
+      notifier.sendNotificationsUpdate();
+    });
+  });
+
+  /** A run's workspace as the sidebar names it: its name, else its branch. */
+  async function runWorkspaceName(workspacePath: string | undefined): Promise<string | null> {
+    if (!workspacePath) return null;
+    const projects = await projectManager.getProjects().catch(() => []);
+    for (const project of projects) {
+      const workspace = project.workspaces.find((w) => w.path === workspacePath);
+      if (workspace) return workspace.name || workspace.branch || path.basename(workspacePath);
+    }
+    return path.basename(workspacePath) || null;
+  }
 
   /** Resync a host's panes after it (re)connects (`resyncPaneFacts`). */
   async function resyncHostPanes(hostId: string, sessionIds?: readonly string[]): Promise<void> {
@@ -896,6 +959,7 @@ export function createManorServer<D extends BridgeServerDeps>(
       agentStatus: agentStatusDriver,
       chatMirror,
       notificationStore,
+      notificationLog,
       statsStore,
       workspaceOps,
       agentActivityStore,
@@ -1000,6 +1064,9 @@ export function createManorServer<D extends BridgeServerDeps>(
       void backendRegistry.disconnectAll();
       killAllActivePushes();
       statsStore.flushNow();
+      // A host server's log is what the bell shows of the runs that fired
+      // with no desktop open: a stop inside the debounce must not lose one.
+      notificationStore.flushNow();
       // A fire still in flight records its run after this: written at once,
       // with no debounce left to run.
       automationStore.writeThrough();

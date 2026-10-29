@@ -12,7 +12,9 @@
 declare const self: ServiceWorkerGlobalScope;
 
 interface PushPayload {
-  agentId: string;
+  /** Absent on a push about no agent: an automation's run that failed to start. */
+  agentId?: string;
+  automationId?: string;
   title: string;
   body: string;
 }
@@ -37,7 +39,9 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(payload.title, {
       body: payload.body,
-      tag: `manor-${payload.agentId}`,
+      tag: payload.agentId
+        ? `manor-${payload.agentId}`
+        : `manor-automation-${payload.automationId ?? "unknown"}`,
       renotify: true,
       data: { agentId: payload.agentId },
     } as NotificationOptions),

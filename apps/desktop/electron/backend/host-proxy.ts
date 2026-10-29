@@ -60,6 +60,7 @@ import fs from "node:fs";
 import { writeFileAtomic } from "../lib/fs-atomic";
 import { errorMessage } from "../lib/errors";
 import type { AgentInfo } from "../agent-persistence";
+import { HOST_LOG_KINDS, type NotificationRecord } from "../notification-store";
 import type { ProjectInfo } from "../projects/types";
 import type { BroadcastBus } from "../renderer-broadcast";
 import type { EventArgs } from "../bridge/events";
@@ -155,6 +156,11 @@ export interface HostProxyOptions {
     before: WorkspaceLayout | undefined,
     after: WorkspaceLayout | null,
   ) => void;
+  /**
+   * The host's notification log changed (`notifications()`): a snapshot read
+   * it, or the host said so.
+   */
+  onNotificationsChanged?: () => void;
   /** How long a change waits before the cache file is written. */
   saveDelayMs?: number;
   log?: Pick<Console, "info" | "warn">;
@@ -203,6 +209,12 @@ export class HostProxy {
   // The host's state, in its own form (bare paths, `hostId: "local"`).
   private projectList: ProjectInfo[] = [];
   private agentList = new Map<string, AgentInfo>();
+  /**
+   * The host's notification log, its automation records only: a remote
+   * agent's own notifications are the desktop's, recorded as it hears them.
+   * Read after each snapshot; not cached on disk.
+   */
+  private notificationList: NotificationRecord[] = [];
   /** Each pane's last published Agent status; live, so never cached on disk. */
   private paneStatusList = new Map<string, PaneAgentStatusUpdate>();
   private workspaces: Record<string, LayoutEntry> = {};
@@ -264,6 +276,11 @@ export class HostProxy {
         if (this.opts.republishAgents) {
           this.opts.bus.publish("agents", "status", update as unknown as PaneAgentStatusUpdate);
         }
+      }),
+      // The host's log, whole on every change.
+      client.subscribe("notifications", "changed", undefined, (list) => {
+        if (this.disposed || !Array.isArray(list)) return;
+        this.applyNotifications(list);
       }),
       // The host's automations are its server's alone: the desktop keeps no
       // copy, and tells its renderers which host to re-read.
@@ -327,6 +344,11 @@ export class HostProxy {
   /** The host's agents, `hostId` stamped. */
   agents(): AgentInfo[] {
     return [...this.agentList.values()].map((agent) => toDesktop(this.hostId, agent));
+  }
+
+  /** The host's automation notifications, `hostId` stamped, newest first. */
+  notifications(): NotificationRecord[] {
+    return this.notificationList.map((record) => toDesktop(this.hostId, record));
   }
 
   /** The host's panes' last Agent statuses. */
@@ -473,6 +495,11 @@ export class HostProxy {
         removed: true,
       });
     }
+    // Its log leaves the bell with it.
+    if (this.notificationList.length > 0) {
+      this.notificationList = [];
+      this.opts.onNotificationsChanged?.();
+    }
     this.dispose();
   }
 
@@ -545,6 +572,33 @@ export class HostProxy {
     this.opts.bus.publish("projects", "changed");
     this.publishLayoutDiff(before);
     this.publishAgentDiff(agentsBefore, unseenRead);
+    void this.readNotifications(current);
+  }
+
+  /**
+   * The host's log, read apart from the snapshot: a host server older
+   * than the host logs answers `unavailable:host`, which must not cost the
+   * rest of the snapshot.
+   */
+  private async readNotifications(current: () => boolean): Promise<void> {
+    let list: unknown;
+    try {
+      list = await this.client.invoke("notifications", "getAll", []);
+    } catch {
+      return;
+    }
+    if (current() && Array.isArray(list)) this.applyNotifications(list);
+  }
+
+  private applyNotifications(list: unknown[]): void {
+    this.notificationList = list.filter(
+      (record): record is NotificationRecord =>
+        isPlainObject(record) &&
+        typeof record.id === "string" &&
+        typeof record.kind === "string" &&
+        HOST_LOG_KINDS.has(record.kind as NotificationRecord["kind"]),
+    );
+    this.opts.onNotificationsChanged?.();
   }
 
   private startLayoutRead(): void {

@@ -144,7 +144,11 @@
 }
 
 .panelTouch .rowBody,
-.panelTouch .rowTime {
+.panelTouch .rowHost {
+  color: var(--text-dim);
+}
+
+.rowTime {
   font-size: 12px;
 }
 

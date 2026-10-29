@@ -41,7 +41,10 @@ export interface VapidKeys {
 }
 
 export interface PushPayload {
-  agentId: string;
+  /** The agent a tap opens; absent on a push about no agent (a run that failed to start). */
+  agentId?: string;
+  /** The automation it is about, when it is about one. */
+  automationId?: string;
   title: string;
   body: string;
 }
@@ -309,18 +312,56 @@ export class PushManager {
   }
 }
 
+/** What a push needs to know of an agent: never its scrollback. */
+export interface PushAgent {
+  id: string;
+  name: string | null;
+  projectName: string | null;
+  /** The automation whose run started it, which titles the push. */
+  automationName?: string | null;
+}
+
 /** The user-visible half of a push. No scrollback, ever. */
-export function pushPayloadFor(
-  status: PushableStatus,
-  agent: { id: string; name: string | null; projectName: string | null },
-): PushPayload {
+export function pushPayloadFor(status: PushableStatus, agent: PushAgent): PushPayload {
+  const who = agent.automationName || "Agent";
   return {
     agentId: agent.id,
-    title: status === "error" ? "Agent errored" : "Agent needs input",
+    title: status === "error" ? `${who} errored` : `${who} needs input`,
     body: [agent.name || "Agent", agent.projectName]
       .filter(Boolean)
       .join(" — "),
   };
+}
+
+/**
+ * A run that could not start its agent, as a push: nothing else would tell
+ * anyone, since there is no agent to need input. The detail is the run's
+ * own message ("The project isn't set up on this host"), never a terminal's.
+ */
+export function automationFailedPayload(
+  automation: { id: string; name: string },
+  run: { detail?: string },
+): PushPayload {
+  return {
+    automationId: automation.id,
+    title: `${automation.name} failed to start`,
+    body: run.detail ?? "The run could not start its agent",
+  };
+}
+
+/**
+ * A recorded run, as a push to every subscribed device when it failed to
+ * start; nothing for one that started (its agent pushes for itself) or was
+ * skipped (the run history has it).
+ */
+export function pushAutomationRun(
+  push: Pick<PushManager, "notify">,
+  automation: { id: string; name: string },
+  run: { outcome: string; detail?: string },
+  opts?: PushNotifyOptions,
+): void {
+  if (run.outcome !== "failed") return;
+  void push.notify(automationFailedPayload(automation, run), opts);
 }
 
 /**
@@ -332,7 +373,7 @@ export function pushPayloadFor(
  */
 export function pushAgentTransition(
   push: Pick<PushManager, "notify">,
-  agent: { id: string; name: string | null; projectName: string | null },
+  agent: PushAgent,
   previousStatus: string | null | undefined,
   status: string,
   opts?: PushNotifyOptions,

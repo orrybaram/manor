@@ -12,6 +12,7 @@ import path from "node:path";
 
 import { eventually, HarnessTransport, useHostServerHarness, withGit, withoutGit } from "./harness";
 import type { ProjectInfo } from "../../projects/types";
+import type { NotificationRecord } from "../../notification-store";
 import type { Automation, AutomationRun } from "../../../src/lib/automations";
 
 async function seedRepo(dir: string): Promise<void> {
@@ -112,6 +113,22 @@ describe("automations on a host server", () => {
     };
     const folders = projects.projects.find((p) => p.id === project.id)?.workspaceFolders ?? [];
     expect(folders.map((f) => f.name)).toEqual(["Automations"]);
+
+    // The host's own log says it ran, for a desktop or phone that opens later.
+    const owner2 = await h.owner();
+    const log = await eventually(
+      () => owner2.invoke<NotificationRecord[]>("notifications", "getAll"),
+      (list) => list.length > 0,
+      "the run's notification",
+    );
+    expect(log).toEqual([
+      expect.objectContaining({
+        kind: "automation-ran",
+        title: "Nightly triage ran",
+        body: expect.stringMatching(/^Started Claude in Nightly triage · /),
+        target: { type: "automation", automationId: "auto-1" },
+      }),
+    ]);
   }, 30_000);
 
   it("fires nothing before the host is adopted, and leaves the occurrence for after", async () => {

@@ -34,7 +34,7 @@ import type { JevClient } from "../jev";
 import type { AgentHookServer } from "../agent-hooks";
 import type { AgentManager, PaneHostLookup } from "../agent-persistence";
 import type { AgentStatusDriver } from "../agent-status/driver";
-import type { NotificationStore } from "../notification-store";
+import type { NotificationRecord, NotificationStore } from "../notification-store";
 import type { StatsStore } from "../stats-store";
 import type { WorkspaceOps } from "../workspace-ops";
 import type { AgentActivityStore } from "../agent-activity-store";
@@ -133,6 +133,12 @@ export interface ServerDeps {
   chatMirror: ChatMirror;
   /** The durable notification log. */
   notificationStore: NotificationStore;
+  /**
+   * The log as this server hands it out: its own records stamped
+   * `hostId: "local"`, and on the desktop each adopted host's automation
+   * records, newest first.
+   */
+  notificationLog: () => NotificationRecord[];
   /** Usage stats. */
   statsStore: StatsStore;
   /**
@@ -230,6 +236,7 @@ export type SharedDeps = Pick<
   | "agentStatus"
   | "chatMirror"
   | "notificationStore"
+  | "notificationLog"
   | "statsStore"
   | "workspaceOps"
   | "agentActivityStore"

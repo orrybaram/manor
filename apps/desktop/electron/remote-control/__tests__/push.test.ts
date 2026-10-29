@@ -35,7 +35,13 @@ vi.mock("web-push", () => {
 const keychain = switchableBox();
 
 import { RemoteDeviceStore } from "../devices";
-import { PushManager, isPushable, pushPayloadFor } from "../push";
+import {
+  PushManager,
+  automationFailedPayload,
+  isPushable,
+  pushAutomationRun,
+  pushPayloadFor,
+} from "../push";
 
 const SUBSCRIPTION = {
   endpoint: "https://push.example/abc",
@@ -426,5 +432,46 @@ describe("pushPayloadFor", () => {
     expect(
       pushPayloadFor("error", { id: "t", name: null, projectName: null }).body,
     ).toBe("Agent");
+  });
+});
+
+describe("automation pushes", () => {
+  it("titles an agent's push by the automation whose run started it", () => {
+    const agent = { ...AGENT, automationName: "Morning PR triage" };
+    expect(pushPayloadFor("requires_input", agent)).toEqual({
+      agentId: "agent-1",
+      title: "Morning PR triage needs input",
+      body: "fix the thing — manor",
+    });
+    expect(pushPayloadFor("error", agent).title).toBe("Morning PR triage errored");
+    expect(pushPayloadFor("requires_input", { ...AGENT, automationName: null }).title).toBe(
+      "Agent needs input",
+    );
+  });
+
+  it("says a run failed to start, and why", () => {
+    expect(
+      automationFailedPayload(
+        { id: "auto-1", name: "Morning PR triage" },
+        { detail: "The project isn't set up on this host" },
+      ),
+    ).toEqual({
+      automationId: "auto-1",
+      title: "Morning PR triage failed to start",
+      body: "The project isn't set up on this host",
+    });
+  });
+
+  it("pushes only a run that failed to start", () => {
+    const notify = vi.fn().mockResolvedValue(1);
+    const automation = { id: "auto-1", name: "Triage" };
+    pushAutomationRun({ notify }, automation, { outcome: "started" });
+    pushAutomationRun({ notify }, automation, { outcome: "skipped", detail: "missed" });
+    expect(notify).not.toHaveBeenCalled();
+    pushAutomationRun({ notify }, automation, { outcome: "failed", detail: "no project" });
+    expect(notify).toHaveBeenCalledWith(
+      { automationId: "auto-1", title: "Triage failed to start", body: "no project" },
+      undefined,
+    );
   });
 });

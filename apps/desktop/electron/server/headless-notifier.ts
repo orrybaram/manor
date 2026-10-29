@@ -9,13 +9,18 @@
 
 import type { AgentInfo } from "../agent-persistence";
 import type { UnseenAgents } from "../agent-status/unseen-agents";
-import type { NotificationStore } from "../notification-store";
+import type { NotificationRecord, NotificationStore } from "../notification-store";
 import type { ServerNotifier } from "../notifications";
 import type { BroadcastBus } from "../renderer-broadcast";
 
 export interface HeadlessNotifierOptions {
   /** The durable notification log. */
   notificationStore: NotificationStore;
+  /**
+   * The log as the server hands it out, which every broadcast carries.
+   * Absent: the store's own records.
+   */
+  notificationLog?: () => NotificationRecord[];
   unseen: UnseenAgents;
   /** Where broadcasts go: the server's bus. */
   publish: BroadcastBus["publish"];
@@ -28,7 +33,7 @@ export class HeadlessNotifier implements ServerNotifier {
     this.opts.publish(
       "notifications",
       "changed",
-      this.opts.notificationStore.getAll(),
+      this.opts.notificationLog?.() ?? this.opts.notificationStore.getAll(),
     );
   }
 

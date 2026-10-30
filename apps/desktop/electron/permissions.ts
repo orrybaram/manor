@@ -43,6 +43,44 @@ export function trustAppWindow(wc: WebContents): void {
 /** The bundled renderer `window.ts` loads when there is no dev server. */
 const RENDERER_FILE = path.join(__dirname, "../dist/index.html");
 
+/** How long a capture pass waits for the request it expects. */
+const TAB_CAPTURE_PASS_MS = 5_000;
+
+/** Guest `WebContents` ids the webview recorder is about to capture. */
+const tabCapturePasses = new Map<number, ReturnType<typeof setTimeout>>();
+
+/**
+ * Let the webview recorder capture `guest` once. Electron attributes a tab
+ * capture (`getUserMedia` with `chromeMediaSource: "tab"`) to the tab being
+ * captured, not to the app window that asked, so the page policy would
+ * otherwise treat a recording as the page asking for its camera. The next
+ * `media` request from `guest` without audio uses the pass; unused, it lapses.
+ */
+export function allowTabCapture(guest: WebContents): void {
+  const id = guest.id;
+  clearTimeout(tabCapturePasses.get(id));
+  tabCapturePasses.set(
+    id,
+    setTimeout(() => tabCapturePasses.delete(id), TAB_CAPTURE_PASS_MS),
+  );
+}
+
+/** Use `wc`'s capture pass if this request is the capture it expects. */
+function takeTabCapturePass(
+  wc: WebContents | null,
+  permission: string,
+  mediaTypes: readonly string[] | undefined,
+): boolean {
+  if (!wc || permission !== "media") return false;
+  const pass = tabCapturePasses.get(wc.id);
+  if (pass === undefined) return false;
+  // Electron lists no device types for a tab capture; never a microphone.
+  if (!(mediaTypes ?? []).every((type) => type === "video")) return false;
+  clearTimeout(pass);
+  tabCapturePasses.delete(wc.id);
+  return true;
+}
+
 /** Whether `url` is the app's renderer: the dev server, or the bundled file. */
 function isRendererUrl(url: string): boolean {
   const devServer = process.env.VITE_DEV_SERVER_URL;
@@ -121,6 +159,10 @@ function install(
       mediaTypes: "mediaTypes" in details ? details.mediaTypes : undefined,
       externalUrl: "externalURL" in details ? details.externalURL : undefined,
     };
+    if (takeTabCapturePass(wc, permission, ask.mediaTypes)) {
+      callback(true);
+      return;
+    }
     policy.request(wc, ask).then(callback, () => callback(false));
   });
   ses.setPermissionCheckHandler((wc, permission, requestingOrigin, details) =>

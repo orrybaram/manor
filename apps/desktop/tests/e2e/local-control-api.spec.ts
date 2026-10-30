@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
@@ -27,6 +27,7 @@ import {
  */
 
 const ARTIFACTS = path.join(__dirname, "artifacts", "local-control-api");
+const CLI = path.join(__dirname, "..", "..", "dist-electron", "manor-cli.js");
 const MCP = path.join(
   __dirname,
   "..",
@@ -540,6 +541,20 @@ test.describe("local control API", () => {
           `== page POSTs the control server: ${pageFetch}; command ran: ${fs.existsSync(marker)}`,
         );
         expect(fs.existsSync(marker)).toBe(false);
+
+        // The webview recorder captures the pane through the app window's
+        // own media permission, driven from the CLI.
+        const cli = (args: string[]) =>
+          execFileSync("node", [CLI, ...args], {
+            env: outsideEnv(tempHome),
+            encoding: "utf-8",
+          });
+        log.push("== manor start-recording", cli(["start-recording"]).trim());
+        await window.waitForTimeout(2500);
+        const stopped = cli(["stop-recording"]).trim();
+        log.push("== manor stop-recording", stopped);
+        const bytes = Number(/size: (\d+) bytes/.exec(stopped)?.[1] ?? 0);
+        expect(bytes).toBeGreaterThan(0);
 
         // The app window itself keeps clipboard and notifications without a prompt.
         await stubPermissionDialog(app, "Block");

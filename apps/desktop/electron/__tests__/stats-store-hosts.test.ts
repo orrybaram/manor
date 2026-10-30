@@ -126,6 +126,28 @@ describe("StatsStore across hosts", () => {
     expect(store.getHistory().days).toEqual({ "2026-10-30": { prompts: 1 } });
   });
 
+  it("takes a badge the host earned on a day today's totals no longer show, quietly", () => {
+    const onBadge = vi.fn();
+    const store = new StatsStore(tmpDir, { now, onBadge });
+    // Delegator is a single day's: nothing in today's totals earns it now.
+    store.setHostHistory("box", { days: {}, badges: {} });
+    store.setHostHistory("box", {
+      days: { "2026-09-01": { subagents: 12 } },
+      badges: { delegator: "2026-09-01T10:00:00.000Z" },
+    });
+    expect(onBadge).not.toHaveBeenCalled();
+    expect(store.getBadges().delegator).toBe("2026-09-01T10:00:00.000Z");
+  });
+
+  it("keeps only badges this build knows, with real dates", () => {
+    const store = new StatsStore(tmpDir, { now });
+    store.setHostHistory("box", {
+      days: {},
+      badges: { "not-a-badge": "2026-09-01T10:00:00.000Z", delegator: "garbage" },
+    });
+    expect(store.getBadges()).toEqual({});
+  });
+
   it("drops malformed host history", () => {
     const store = new StatsStore(tmpDir, { now });
     store.setHostHistory("box", {

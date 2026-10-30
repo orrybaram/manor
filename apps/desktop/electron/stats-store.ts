@@ -9,7 +9,7 @@ import {
   type SignalTrackerState,
   type StatDelta,
 } from "./stats-signals";
-import { evaluateBadges, type BadgeDef } from "./stats-badges";
+import { BADGES, evaluateBadges, type BadgeDef } from "./stats-badges";
 
 import type { AgentHookEvent } from "./agent-hook-events";
 import type { Effect } from "./agent-status/types";
@@ -468,22 +468,23 @@ export class StatsStore {
    * Takes a host server's history in place of the last one read for it.
    * The first read of a host awards what the combined history already earns
    * quietly, dated by the host's own award where it has one: that is
-   * backlog, not news. Later reads announce like any other recording.
+   * backlog, not news. Later reads announce like any other recording. Either
+   * way a badge the host earned on its own (a day's or a streak's, which
+   * today's totals may no longer show) is taken quietly, with its date.
    */
   setHostHistory(hostId: string, history: StatsHistory): void {
     if (!this.isEnabled()) return;
     const first = this.hosts[hostId] === undefined;
-    this.hosts[hostId] = {
-      days: pruneDays(sanitizeDays(history.days)),
-      badges: sanitizeBadges(history.badges),
-    };
-    if (!first) {
+    const host = sanitizeHost(history);
+    this.hosts[hostId] = host;
+    if (first) {
+      for (const badge of evaluateBadges(this.getSummary(), this.badges)) {
+        this.awardBadge(badge.id, host.badges[badge.id]);
+      }
+    } else {
       this.commit();
-      return;
     }
-    for (const badge of evaluateBadges(this.getSummary(), this.badges)) {
-      this.awardBadge(badge.id, this.hosts[hostId].badges[badge.id]);
-    }
+    for (const [id, at] of Object.entries(host.badges)) this.awardBadge(id, at);
     this.saveState();
     this.emitChange();
   }
@@ -692,8 +693,22 @@ function sanitizeHosts(hosts: unknown): Record<string, StatsHistory> {
   const result: Record<string, StatsHistory> = {};
   for (const [hostId, raw] of Object.entries(hosts as Record<string, unknown>)) {
     if (!raw || typeof raw !== "object") continue;
-    const history = raw as Partial<StatsHistory>;
-    result[hostId] = { days: sanitizeDays(history.days), badges: sanitizeBadges(history.badges) };
+    result[hostId] = sanitizeHost(raw as Partial<StatsHistory>);
   }
   return result;
+}
+
+const BADGE_IDS = new Set(BADGES.map((badge) => badge.id));
+
+/**
+ * A host's history as the desktop keeps it: bounded days, and only badges
+ * this build knows, each with a real award time.
+ */
+function sanitizeHost(history: Partial<StatsHistory>): StatsHistory {
+  const badges: Record<string, string> = {};
+  for (const [id, at] of Object.entries(sanitizeBadges(history.badges))) {
+    const ms = Date.parse(at);
+    if (BADGE_IDS.has(id) && Number.isFinite(ms)) badges[id] = new Date(ms).toISOString();
+  }
+  return { days: pruneDays(sanitizeDays(history.days)), badges };
 }

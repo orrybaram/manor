@@ -22,6 +22,7 @@
  * each host's server itself where they touch a remote project.
  */
 
+import type { PaneEnding } from "../../layout/layout-store";
 import crypto from "node:crypto";
 import { assertGroupUpdates, assertString } from "../../ipc-validate";
 import type {
@@ -476,9 +477,11 @@ export async function projectsRemoveWorktree(
   projectId: string,
   worktreePath: string,
   deleteBranch?: boolean,
+  ending?: PaneEnding | null,
 ): Promise<void> {
   // Through `workspaceOps`, which owes the stats counter and the
-  // `projects.changed` broadcast.
+  // `projects.changed` broadcast. `ending` comes off the wire: only a
+  // literal `moved: true` (a workspace move's removal) counts.
   await ctx.deps.workspaceOps.remove(
     projectId,
     worktreePath,
@@ -486,6 +489,7 @@ export async function projectsRemoveWorktree(
     (step: string) => {
       ctx.deps.workspaceOps.publishRemoveProgress(ctx.caller.id, step);
     },
+    ending?.moved === true ? { moved: true } : {},
   );
 }
 

@@ -429,7 +429,7 @@ export function createManorServer<D extends BridgeServerDeps>(
     // legacy Home entry dropped on load. Read at call time: the agent side
     // is built below.
     {
-      abandonForPanes: (panes) => agentService.abandonForPanes(panes),
+      abandonForPanes: (panes, ending) => agentService.abandonForPanes(panes, ending),
       moveToWorkspace: (paneIds, workspacePath) =>
         agentService.moveToWorkspace(paneIds, workspacePath),
     },

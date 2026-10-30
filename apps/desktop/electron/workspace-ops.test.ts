@@ -422,13 +422,14 @@ describe("remove", () => {
     deps.projectManager.removeWorktree.mockResolvedValue(undefined);
     const onProgress = vi.fn();
 
-    await ops.remove("p1", "/wt/feature", true, onProgress);
+    await ops.remove("p1", "/wt/feature", true, onProgress, { moved: true });
 
     expect(deps.projectManager.removeWorktree).toHaveBeenCalledWith(
       "p1",
       "/wt/feature",
       true,
       onProgress,
+      { moved: true },
     );
     expect(deps.statsStore.record).toHaveBeenCalledTimes(1);
     expect(deps.statsStore.record).toHaveBeenCalledWith("worktreesRemoved");

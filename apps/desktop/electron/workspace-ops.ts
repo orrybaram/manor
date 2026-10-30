@@ -12,6 +12,7 @@
  * spawns nothing.
  */
 
+import type { PaneEnding } from "./layout/layout-store";
 import type {
   IssueSeed,
   LinkedIssue,
@@ -119,11 +120,13 @@ export interface WorkspaceOps {
     seeds: IssueSeed[],
     baseBranch?: string,
   ): Promise<WorkspaceFromIssue[]>;
+  /** `ending.moved`: the workspace moved to another host (see `PaneEnding`). */
   remove(
     projectId: string,
     worktreePath: string,
     deleteBranch?: boolean,
     onProgress?: (step: string) => void,
+    ending?: PaneEnding,
   ): Promise<void>;
   /**
    * Run `project`'s worktree start script in `workspacePath` and wait for
@@ -247,8 +250,8 @@ export function createWorkspaceOps(deps: WorkspaceOpsDeps): WorkspaceOps {
       return results;
     },
 
-    async remove(projectId, worktreePath, deleteBranch, onProgress) {
-      await pm.removeWorktree(projectId, worktreePath, deleteBranch, onProgress);
+    async remove(projectId, worktreePath, deleteBranch, onProgress, ending) {
+      await pm.removeWorktree(projectId, worktreePath, deleteBranch, onProgress, ending);
       statsStore.record("worktreesRemoved");
       deps.notifyProjectsChanged();
     },

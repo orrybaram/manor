@@ -8,6 +8,7 @@ import type { ProjectProgress } from "./progress";
 import type { PathRouter } from "./path-router";
 import type { StateStore } from "./state-store";
 import type { PersistedProject, ProjectHost, ProjectInfo, RemoteProjects } from "./types";
+import type { PaneEnding } from "../layout/layout-store";
 import type { LayoutEntry } from "../../src/lib/layout/protocol";
 
 /**
@@ -17,7 +18,7 @@ import type { LayoutEntry } from "../../src/lib/layout/protocol";
  * move to carry on, and lets them go again (`release`) if it fails.
  */
 export interface WorkspaceLayoutOwner {
-  remove(workspaceKey: string): void;
+  remove(workspaceKey: string, ending?: PaneEnding): void;
   take?(entries: Readonly<Record<string, LayoutEntry>>): Promise<void>;
   release?(workspaceKeys: readonly string[]): Promise<void>;
 }

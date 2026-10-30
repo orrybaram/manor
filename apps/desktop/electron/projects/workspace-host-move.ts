@@ -17,7 +17,9 @@
  * 4. **restore** and **agents**: whatever the injected `WorkspaceRecreator`
  *    plans (the layout and the agents; nothing by default),
  * 5. **removeSource** through the normal removal path, keeping the branch,
- *    unless `keepSource`.
+ *    unless `keepSource`. Its panes end as a moved workspace's
+ *    (`PaneEnding.moved`): each Agent goes on in the target, so ending it
+ *    here is not a kill and its record ends `completed`, not `abandoned`.
  *
  * A failure at any step stops there: the source is removed only once every
  * step before it succeeded, so a failed move leaves it as it was.
@@ -30,6 +32,7 @@
  */
 
 import type { BackendRegistry } from "../backend/registry";
+import type { PaneEnding } from "../layout/layout-store";
 import { LOCAL_HOST_ID, type GitBackend } from "../backend/types";
 import { errorMessage } from "../lib/errors";
 import type { HostRouting } from "../server/host-routing";
@@ -225,7 +228,11 @@ export interface WorkspaceHostMoveDeps {
     target: ProjectInfo,
     updates: Pick<Partial<ProjectInfo>, "worktreeStartScript" | "worktreeTeardownScript">,
   ): Promise<ProjectInfo | null>;
-  /** The normal removal path: teardown script, panes ended, branch kept. */
+  /**
+   * The normal removal path: teardown script, panes ended, branch kept. The
+   * panes end as a moved workspace's (`{ moved: true }`), on whichever host
+   * holds them, so no Agent in them counts as killed.
+   */
   removeWorkspace(project: ProjectInfo, workspacePath: string): Promise<void>;
   recreator?: WorkspaceRecreator;
 }
@@ -789,6 +796,9 @@ export async function moveWorkspaceToHost(
 
 // ── The server's deps ──
 
+/** How the source's panes end: its Agents go on in the target. */
+const MOVED: PaneEnding = { moved: true };
+
 /**
  * The deps a move runs over in the desktop's Manor server. Git goes through
  * each host's backend. A workspace write goes through `WorkspaceOps` for a
@@ -902,10 +912,16 @@ export function createWorkspaceHostMoveDeps(server: {
 
     async removeWorkspace(project, workspacePath) {
       if (onServer(project)) {
-        await remoteCall(project.hostId, "removeWorktree", [project.id, workspacePath, false]);
+        // Its host's server ends the panes, and records its own stats.
+        await remoteCall(project.hostId, "removeWorktree", [
+          project.id,
+          workspacePath,
+          false,
+          MOVED,
+        ]);
         return;
       }
-      await server.workspaceOps.remove(project.id, workspacePath, false);
+      await server.workspaceOps.remove(project.id, workspacePath, false, undefined, MOVED);
     },
 
     ...(server.recreator ? { recreator: server.recreator } : {}),

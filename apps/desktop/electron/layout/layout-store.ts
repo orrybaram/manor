@@ -129,6 +129,16 @@ export interface EndedPane {
 }
 
 /**
+ * How a workspace's panes end when it is removed. `moved`: the workspace
+ * moved to another host and its Agents go on there
+ * (`workspace-host-move.ts`), so ending one here is not a kill, and its
+ * record ends `completed`, not `abandoned`.
+ */
+export interface PaneEnding {
+  moved?: boolean;
+}
+
+/**
  * The agents side of a pane leaving a tree.
  *
  * Every pane this store ends — a close of any size, a whole workspace going
@@ -137,7 +147,7 @@ export interface EndedPane {
  * closing. Backed by `createAgentService` in `bridge/handlers/agents.ts`.
  */
 export interface AgentService {
-  abandonForPanes(panes: readonly EndedPane[]): void;
+  abandonForPanes(panes: readonly EndedPane[], ending?: PaneEnding): void;
   /**
    * Panes that moved to another workspace, still running: an agent in one
    * now belongs to `workspacePath` (a workspace key). Optional, for the
@@ -613,13 +623,13 @@ export class LayoutStore {
    * way. A command queued before this and not yet run is refused (see
    * `removals`).
    */
-  remove(workspacePath: string): void {
+  remove(workspacePath: string, ending: PaneEnding = {}): void {
     this.removals.set(workspacePath, (this.removals.get(workspacePath) ?? 0) + 1);
     const state = this.entries.get(workspacePath);
     if (state) {
       this.endPanes(workspacePath, state, state.layout, [
         ...layoutPaneIds(state.layout),
-      ], { grace: false });
+      ], { grace: false, ...ending });
     }
     this.entries.delete(workspacePath);
     this.queues.delete(workspacePath);
@@ -1263,15 +1273,15 @@ export class LayoutStore {
     state: WorkspaceState,
     layout: WorkspaceLayout,
     paneIds: readonly string[],
-    { grace }: { grace: boolean },
+    { grace, moved }: { grace: boolean } & PaneEnding,
   ): void {
     if (paneIds.length === 0) return;
-    this.agents.abandonForPanes(
-      paneIds.map((paneId) => ({
-        paneId,
-        title: state.paneSessions[paneId]?.lastTitle ?? null,
-      })),
-    );
+    const ended = paneIds.map((paneId) => ({
+      paneId,
+      title: state.paneSessions[paneId]?.lastTitle ?? null,
+    }));
+    if (moved) this.agents.abandonForPanes(ended, { moved });
+    else this.agents.abandonForPanes(ended);
     for (const paneId of paneIds) {
       this.pendingCommands.clear(paneId);
       if (contentTypeOf(layout, paneId) !== "terminal") {

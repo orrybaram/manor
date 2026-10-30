@@ -727,7 +727,13 @@ describe("createWorkspaceHostMoveDeps", () => {
       "linear",
     );
     await deps.removeWorkspace(target, TARGET_WS);
-    expect(call).toHaveBeenCalledWith("box", "removeWorktree", ["dst", TARGET_WS, false], undefined);
+    // Its server ends the panes as a moved workspace's: no Agent counts as killed.
+    expect(call).toHaveBeenCalledWith(
+      "box",
+      "removeWorktree",
+      ["dst", TARGET_WS, false, { moved: true }],
+      undefined,
+    );
     expect(projectManager.linkIssueToWorkspace).not.toHaveBeenCalled();
   });
 
@@ -744,7 +750,7 @@ describe("createWorkspaceHostMoveDeps", () => {
     await deps.runStartScript(target, TARGET_WS);
     expect(workspaceOps.runStartScript).toHaveBeenCalledWith(target, TARGET_WS, { timeoutMs: 5000 });
     await deps.removeWorkspace(target, TARGET_WS);
-    expect(workspaceOps.remove).toHaveBeenCalledWith("dst", TARGET_WS, false);
+    expect(workspaceOps.remove).toHaveBeenCalledWith("dst", TARGET_WS, false, undefined, { moved: true });
     expect(call).not.toHaveBeenCalled();
   });
 

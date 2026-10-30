@@ -61,6 +61,11 @@ export class AgentHookServer {
     return this.port;
   }
 
+  /** This launch's token; empty until `start()`. */
+  get hookToken(): string {
+    return this.token;
+  }
+
   /** Set the relay function. Any events buffered before this call are replayed in order. */
   setRelay(relay: RelayFn): void {
     this.relayFn = relay;

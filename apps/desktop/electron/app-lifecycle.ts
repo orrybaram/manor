@@ -565,6 +565,7 @@ export function initApp(devTitle: string | null): void {
         start: () => agentHookServer.start(),
         env: "MANOR_HOOK_PORT",
         port: () => agentHookServer.hookPort,
+        token: { env: "MANOR_HOOK_TOKEN", value: () => agentHookServer.hookToken },
       },
       {
         name: "webview server",

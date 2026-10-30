@@ -557,6 +557,7 @@ async function sendHook(eventType: string, sessionId?: string): Promise<void> {
     token = tokenLine?.trim() || undefined;
   } catch {
     port = process.env.MANOR_HOOK_PORT;
+    token = process.env.MANOR_HOOK_TOKEN || undefined;
   }
   if (!port) return;
 

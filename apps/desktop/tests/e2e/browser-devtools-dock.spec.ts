@@ -72,7 +72,8 @@ test("DevTools open docked in a browser pane and hide under the command palette"
       .poll(async () => (await dock())?.view?.visible ?? false, { timeout: 10_000 })
       .toBe(true);
     const opened = (await dock())!;
-    expect(opened.devToolsOpened).toBe(true);
+    // `isDevToolsOpened()` stays false for DevTools hosted in a view of our
+    // own (Electron 44), so the live DevTools webContents is the check.
     expect(opened.hasDevToolsWebContents).toBe(true);
     expect(opened.views).toBe(1);
 
@@ -89,6 +90,13 @@ test("DevTools open docked in a browser pane and hide under the command palette"
     expect(bounds.x).toBeGreaterThanOrEqual(page.x * z - 1);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual((page.x + page.width) * z + 1);
     await window.screenshot({ path: "tests/e2e/artifacts/devtools-open.png" });
+    // A page screenshot can't see a native view: capture the DevTools view's
+    // own pixels too, to show the frontend is attached and inspecting.
+    await app.evaluate(async ({ webContents }) => {
+      const fs = process.mainModule!.require("node:fs") as typeof import("node:fs");
+      const dt = webContents.getAllWebContents().find((w) => w.getURL().startsWith("devtools://"));
+      if (dt) fs.writeFileSync("tests/e2e/artifacts/devtools-open-view.png", (await dt.capturePage()).toPNG());
+    });
 
     // ── Hidden under the command palette ──
     await window.keyboard.press("ControlOrMeta+k");

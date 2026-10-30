@@ -14,6 +14,8 @@ import { portlessProxyPortFile } from "./paths";
 const PORT_FILE = portlessProxyPortFile();
 
 const DEFAULT_PROXY_PORT = 1355;
+/** Never the LAN: routes reach dev servers bound to loopback and remote forwards. */
+const LOOPBACK = "127.0.0.1";
 
 export class PortlessManager {
   routes: RouteInfo[] = [];
@@ -37,7 +39,7 @@ export class PortlessManager {
       // force-refresh.  headersTimeout defaults to 60 000 ms — the server
       // terminates idle keep-alive sockets after ~60 s, which Chromium
       // interprets as a connection reset and triggers a visible reload.
-      // This proxy only listens on 127.0.0.1, so the timeouts add no
+      // This proxy only listens on loopback, so the timeouts add no
       // security value.
       if (this.server instanceof http.Server) {
         this.server.headersTimeout = 0;
@@ -52,7 +54,7 @@ export class PortlessManager {
           };
 
           this.server!.once("error", onError);
-          this.server!.listen(port, () => {
+          this.server!.listen(port, LOOPBACK, () => {
             this.server!.off("error", onError);
             this.proxyPort = port;
             fs.mkdirSync(path.dirname(PORT_FILE), { recursive: true });

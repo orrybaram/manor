@@ -5,11 +5,12 @@
  * workspace's host and delivers one prompt citing those paths, then the
  * queue and its pins are gone.
  */
-import { act, createElement, createRef, useEffect } from "react";
+import { act, createElement, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentInfo } from "../../../electron.d";
 import type { PagePick } from "../../../../electron/webview-pins";
+import { notesWhereLabel } from "../../../lib/page-notes";
 import { workspaceKey } from "../../../lib/workspace-key";
 import { usePageNotes, type PageNotes } from "./usePageNotes";
 
@@ -54,14 +55,16 @@ let root: Root;
 const probe: { current: PageNotes | null } = { current: null };
 const onPickingChange = vi.fn();
 let picking = true;
+let pageUrl = "http://localhost:3000/";
+/** Stands in for the `<webview>`, for its `did-navigate`. */
+const page = document.createElement("div");
 
 function Probe() {
-  const webviewRef = createRef<HTMLElement>();
   const notes = usePageNotes({
     paneId: "pane-1",
-    webviewRef,
+    webviewRef: { current: page },
     workspaceKey: workspaceKey("box", "/repo/ws"),
-    pageUrl: () => "http://localhost:3000/",
+    pageUrl: () => pageUrl,
     isPicking: () => picking,
     onPickingChange,
   });
@@ -75,6 +78,7 @@ beforeEach(() => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   picking = true;
+  pageUrl = "http://localhost:3000/";
   container = document.createElement("div");
   root = createRoot(container);
   act(() => root.render(createElement(Probe)));
@@ -165,5 +169,31 @@ describe("usePageNotes", () => {
     expect(latestNotes().openId).toBeNull();
     act(() => (handlers.opened as (p: string, id: string) => void)("pane-1", "1"));
     expect(latestNotes().openId).toBe("1");
+  });
+
+  it("keeps the notes over a navigation, but not their pins, the open note or picking", () => {
+    act(() => {
+      (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("1"));
+      (handlers.picked as (p: string, k: PagePick) => void)("pane-1", pick("2"));
+      (handlers.moved as (p: string, l: unknown) => void)("pane-1", {
+        pins: [{ id: "1", x: 0, y: 0, width: 10, height: 10, gone: false }],
+        viewport: { width: 800, height: 600 },
+      });
+    });
+    expect(latestNotes().layout).not.toBeNull();
+    expect(latestNotes().openId).toBe("2");
+    expect(notesWhereLabel(latestNotes().notes, pageUrl)).toBe("on this page");
+    onPickingChange.mockClear();
+
+    pageUrl = "http://localhost:3000/other";
+    act(() => {
+      page.dispatchEvent(new Event("did-navigate"));
+    });
+
+    expect(latestNotes().layout).toBeNull();
+    expect(latestNotes().openId).toBeNull();
+    expect(onPickingChange).toHaveBeenCalledWith(false);
+    expect(latestNotes().notes.map((n) => n.id)).toEqual(["1", "2"]);
+    expect(notesWhereLabel(latestNotes().notes, pageUrl)).toBe("on another page");
   });
 });

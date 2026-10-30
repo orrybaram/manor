@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { applyLayoutCommand, type LayoutCommand } from "../commands";
 import {
   bindPanelId,
+  currentOrder,
   layoutReplay,
   mapUnderRoot,
   TARGET_FIRST_PANEL,
@@ -237,6 +238,86 @@ describe("layoutReplay", () => {
       const setup = createSinglePanelLayout("T", [tab("t-setup", "Setup", leaf("p-setup"))], []);
       const { built } = replayAll(["p-shell"], setup);
       expect(built.panels.T.tabs.map((t) => t.title)).toEqual(["server", "Setup", "work"]);
+    });
+  });
+
+  it("keeps the source's pin order when a held tab sits between pinned ones", () => {
+    const source = createSinglePanelLayout(
+      "L",
+      [tab("a", "a", leaf("pa")), tab("b", "b", leaf("pb")), tab("c", "c", leaf("pc")), tab("d", "d", leaf("pd"))],
+      ["a", "b", "c"],
+    );
+    const replay = layoutReplay({
+      source,
+      paneSessions: {},
+      sourceRoot: SRC,
+      targetRoot: DST,
+      target: null,
+      heldPaneIds: new Set(["pb"]),
+    });
+    const built = apply(replay.heldCommands, apply(replay.commands, null));
+    const panel = Object.values(built.panels)[0];
+    const titleOf = (id: string) => panel.tabs.find((t) => t.id === id)!.title;
+    expect(panel.tabs.map((t) => t.title)).toEqual(["a", "b", "c", "d"]);
+    expect(panel.pinnedTabIds.map(titleOf)).toEqual(["a", "b", "c"]);
+  });
+
+  describe("again, after a failure", () => {
+    it("builds on what the last replay left, making nothing twice", () => {
+      const first = layoutReplay({ ...input(null), heldPaneIds: new Set(["p-web"]) });
+      // The restore landed; the held batch never ran.
+      const partial = apply(first.commands, null);
+      const record = {
+        tabIds: first.record.tabIds,
+        panelIds: Object.fromEntries(
+          Object.entries(first.record.panelIds).map(([k, v]) => [k, v === TARGET_FIRST_PANEL ? "panel-minted" : v]),
+        ),
+        placeholderTabIds: first.placeholderTabIds,
+      };
+      expect(first.placeholderTabIds).toHaveLength(1);
+      const again = layoutReplay({
+        ...input({ layout: partial, paneSessions: {} }),
+        heldPaneIds: new Set(["p-web"]),
+        previous: record,
+      });
+      expect(again.commands).toEqual([]);
+      const built = apply(again.heldCommands, partial);
+      // The placeholder the first run opened for the web panel is closed now.
+      expect(shape(built)).toEqual(shape(sourceLayout()));
+    });
+
+    it("makes again what the target lost since", () => {
+      const first = layoutReplay(input(null));
+      const built = apply(first.commands, null);
+      const logs = Object.values(built.panels).find((p) => p.tabs.some((t) => t.title === "logs"))!;
+      const without = apply(
+        [{ type: "close-tab", tabId: logs.tabs[0].id }],
+        built,
+      );
+      const record = {
+        tabIds: first.record.tabIds,
+        panelIds: Object.fromEntries(
+          Object.entries(first.record.panelIds).map(([k, v]) => [k, v === TARGET_FIRST_PANEL ? "panel-minted" : v]),
+        ),
+      };
+      const again = layoutReplay({ ...input({ layout: without, paneSessions: {} }), previous: record });
+      expect(shape(apply(again.commands, without))).toEqual(shape(sourceLayout()));
+    });
+  });
+
+  describe("currentOrder", () => {
+    const layout = createSinglePanelLayout(
+      "P",
+      [tab("a", "a", leaf("1")), tab("x", "x", leaf("2")), tab("b", "b", leaf("3"))],
+      ["b"],
+    );
+    it("orders the tabs the panel has, extras after, pins first", () => {
+      expect(currentOrder(layout, "P", ["gone", "a", "b"])).toEqual(["b", "a", "x"]);
+    });
+    it("is null when the order is right already, or the panel is gone", () => {
+      expect(currentOrder(layout, "Q", ["a"])).toBeNull();
+      const right = createSinglePanelLayout("P", [tab("a", "a", leaf("1"))], []);
+      expect(currentOrder(right, "P", ["a"])).toBeNull();
     });
   });
 

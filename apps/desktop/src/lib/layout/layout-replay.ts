@@ -34,6 +34,11 @@
  * lands in the target's first (top-left) panel; the source's other panels
  * split off it.
  *
+ * **Again, after a failure.** A move that failed after part of its replay
+ * landed is retried into the same target: `previous` names what the last
+ * replay made there (`tabIds`, `panelIds`), and whatever of it the target
+ * still has is built on, not made a second time.
+ *
  * Pure: the reducer (`./commands/`) is what proves it, and the tests run the
  * answer through it.
  */
@@ -73,6 +78,16 @@ export interface LayoutReplayInput {
    * no `cwd`.
    */
   heldPaneIds?: ReadonlySet<string>;
+  /** What an earlier replay of the same move made in the target (see the module header). */
+  previous?: ReplayRecord;
+}
+
+/** Which target tab and panel a replay made for each source tab and panel. */
+export interface ReplayRecord {
+  tabIds: Readonly<Record<string, string>>;
+  panelIds: Readonly<Record<string, string>>;
+  /** Its placeholders: one still open is closed once its panel has a tab. */
+  placeholderTabIds?: readonly string[];
 }
 
 export interface LayoutReplay {
@@ -88,6 +103,38 @@ export interface LayoutReplay {
   paneIds: Record<string, string>;
   /** A fresh terminal's cwd, by its target pane id, where it is not the target root. */
   cwds: Record<string, string>;
+  /**
+   * The target tab and panel for each source tab and panel, made now or
+   * kept from `previous`. A source panel standing for the target's first
+   * panel maps to `TARGET_FIRST_PANEL` while that has no id yet.
+   */
+  record: { tabIds: Record<string, string>; panelIds: Record<string, string> };
+  /** Placeholder tabs `commands` opens and `heldCommands` closes. */
+  placeholderTabIds: string[];
+}
+
+/**
+ * `tabIds` in the order to send as `reorder-tabs` for `panel` as it stands:
+ * those of `tabIds` it holds, in that order, then any it holds that
+ * `tabIds` lacks, with every pinned tab ahead of the rest. Null when that
+ * is the order already, or the panel is gone.
+ */
+export function currentOrder(
+  layout: WorkspaceLayout,
+  panelId: string,
+  tabIds: readonly string[],
+): string[] | null {
+  const panel = layout.panels[panelId];
+  if (!panel) return null;
+  const present = new Set(panel.tabs.map((t) => t.id));
+  const wanted = new Set(tabIds);
+  const order = [
+    ...tabIds.filter((id) => present.has(id)),
+    ...panel.tabs.map((t) => t.id).filter((id) => !wanted.has(id)),
+  ];
+  const pinned = new Set(panel.pinnedTabIds);
+  const sorted = [...order.filter((id) => pinned.has(id)), ...order.filter((id) => !pinned.has(id))];
+  return sorted.every((id, i) => panel.tabs[i]?.id === id) ? null : sorted;
 }
 
 /** `path` under `targetRoot`, when it is `sourceRoot` or under it; else null. */
@@ -165,9 +212,25 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   const heldCommands: LayoutCommand[] = [];
   const paneIds: Record<string, string> = {};
   const cwds: Record<string, string> = {};
+  const record = { tabIds: {} as Record<string, string>, panelIds: {} as Record<string, string> };
+  const placeholderTabIds: string[] = [];
+  const answer = () => ({ commands, heldCommands, paneIds, cwds, record, placeholderTabIds });
 
   const tree = withoutEmptyPanels(source.panelTree, source);
-  if (!tree) return { commands, heldCommands, paneIds, cwds };
+  if (!tree) return answer();
+
+  // What an earlier replay made that the target still has.
+  const targetTabs = new Set(
+    Object.values(target?.layout.panels ?? {}).flatMap((p) => p.tabs.map((t) => t.id)),
+  );
+  const madeTab = (sourceTabId: string): string | null => {
+    const id = input.previous?.tabIds[sourceTabId];
+    return id && targetTabs.has(id) ? id : null;
+  };
+  const madePanel = (sourcePanelId: string): string | null => {
+    const id = input.previous?.panelIds[sourcePanelId];
+    return id && target?.layout.panels[id] ? id : null;
+  };
 
   const remapLeaves = (node: PaneNode): PaneNode => {
     if (node.type === "split") {
@@ -202,11 +265,22 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
     return { id: newTabId(), title: tab.title, rootNode: remapLeaves(rootNode) };
   };
 
+  /** Each source tab's target tab: the one already made, or a fresh one to send. */
   const freshTabs = new Map<string, Tab>();
+  const done = new Set<string>();
   for (const panel of Object.values(source.panels)) {
-    for (const tab of panel.tabs) freshTabs.set(tab.id, fresh(tab));
+    for (const tab of panel.tabs) {
+      const made = madeTab(tab.id);
+      if (made) done.add(tab.id);
+      const next = made ? { ...tab, id: made } : fresh(tab);
+      freshTabs.set(tab.id, next);
+      record.tabIds[tab.id] = next.id;
+    }
   }
+  const idOf = (sourceTabId: string) => freshTabs.get(sourceTabId)!.id;
   const isHeld = (tab: Tab) => allPaneIds(tab.rootNode).some((id) => held.has(id));
+  /** A tab the restore sends: not held, not already there. */
+  const sends = (tab: Tab) => !isHeld(tab) && !done.has(tab.id);
 
   const replaced = replaceableTab(target);
   const firstPanel = target ? allPanelIds(target.layout.panelTree)[0] : TARGET_FIRST_PANEL;
@@ -219,7 +293,7 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   const seeded = new Map<string, Tab>();
   const placeholders = new Map<string, Tab>();
   const seedOf = (sourcePanelId: string): Tab => {
-    const open = source.panels[sourcePanelId].tabs.find((t) => !isHeld(t));
+    const open = source.panels[sourcePanelId].tabs.find(sends);
     if (open) {
       const tab = freshTabs.get(open.id)!;
       seeded.set(sourcePanelId, tab);
@@ -231,6 +305,7 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
       rootNode: { type: "leaf", paneId: newPaneId() },
     };
     placeholders.set(sourcePanelId, placeholder);
+    placeholderTabIds.push(placeholder.id);
     return placeholder;
   };
 
@@ -242,30 +317,37 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
   // `at` is the target panel standing for `node`. A split of `at` keeps
   // `at` first and opens the second half's first panel beside it; its ratio
   // is set at once, while `at` is still that split's direct first child
-  // (`update-panel-ratio` finds a split by it).
+  // (`update-panel-ratio` finds a split by it). A panel an earlier replay
+  // opened is opened again by nobody.
   const build = (node: PanelNode, at: string) => {
     if (node.type === "leaf") {
       panelOf.set(node.panelId, at);
+      record.panelIds[node.panelId] = at;
       return;
     }
-    const opened = newPanelId();
-    commands.push({
-      type: "split-panel-with-new-tab",
-      tab: seedOf(firstLeaf(node.second)),
-      direction: node.direction,
-      newPanelId: opened,
-      sourcePanelId: at,
-    });
-    commands.push({ type: "update-panel-ratio", firstPanelId: at, ratio: node.ratio });
+    const seedPanel = firstLeaf(node.second);
+    let opened = madePanel(seedPanel);
+    if (!opened) {
+      opened = newPanelId();
+      commands.push({
+        type: "split-panel-with-new-tab",
+        tab: seedOf(seedPanel),
+        direction: node.direction,
+        newPanelId: opened,
+        sourcePanelId: at,
+      });
+      commands.push({ type: "update-panel-ratio", firstPanelId: at, ratio: node.ratio });
+    }
     build(node.first, at);
     build(node.second, opened);
   };
   build(tree, firstPanel);
 
   const firstSourcePanel = firstLeaf(tree);
+  const ours = new Set(Object.values(record.tabIds));
   /** The target's own tabs, in the panel the source's first lands in. */
   const kept = target
-    ? (target.layout.panels[firstPanel]?.tabs ?? []).filter((t) => t.id !== replaced)
+    ? (target.layout.panels[firstPanel]?.tabs ?? []).filter((t) => t.id !== replaced && !ours.has(t.id))
     : [];
   const keptPinned = new Set(target?.layout.panels[firstPanel]?.pinnedTabIds ?? []);
   let replacedClosed = !replaced;
@@ -274,21 +356,22 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
     const panel = source.panels[sourcePanelId];
     const at = panelOf.get(sourcePanelId)!;
     const seed = seeded.get(sourcePanelId);
-    const pinned = new Set(panel.pinnedTabIds);
-    let opened = seed !== undefined;
+    const pinned = panel.pinnedTabIds.filter((id) => panel.tabs.some((t) => t.id === id));
+    const isPinned = new Set(pinned);
+    let opened = seed !== undefined || panel.tabs.some((t) => done.has(t.id));
 
     // The restore: every tab without a held pane. Pinning moves a tab to
     // the end of the pinned block, so pinned in pin order they line up as
     // they were.
     for (const tab of panel.tabs) {
       const made = freshTabs.get(tab.id)!;
-      if (made === seed || isHeld(tab)) continue;
+      if (made === seed || !sends(tab)) continue;
       commands.push({ type: "new-tab", tab: made, panelId: at, select: false });
       opened = true;
     }
-    for (const tabId of panel.pinnedTabIds) {
-      const tab = panel.tabs.find((t) => t.id === tabId);
-      if (tab && !isHeld(tab)) commands.push({ type: "toggle-pin-tab", tabId: freshTabs.get(tabId)!.id });
+    for (const tabId of pinned) {
+      const tab = panel.tabs.find((t) => t.id === tabId)!;
+      if (sends(tab)) commands.push({ type: "toggle-pin-tab", tabId: idOf(tabId) });
     }
     const isFirst = sourcePanelId === firstSourcePanel;
     if (isFirst && opened && !replacedClosed) {
@@ -296,17 +379,28 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
       replacedClosed = true;
     }
 
-    // The held batch: the rest, then the order put back.
-    const heldTabs = panel.tabs.filter(isHeld);
+    // The held batch: the rest, then the pins and the order put back.
+    const heldTabs = panel.tabs.filter((t) => isHeld(t) && !done.has(t.id));
     if (heldTabs.length === 0) continue;
     for (const tab of heldTabs) {
       heldCommands.push({ type: "new-tab", tab: freshTabs.get(tab.id)!, panelId: at, select: false });
     }
-    for (const tab of heldTabs) {
-      if (pinned.has(tab.id)) heldCommands.push({ type: "toggle-pin-tab", tabId: freshTabs.get(tab.id)!.id });
+    // A pin lands at the end of the pinned block: from the first held pin
+    // on, every pin is undone and made again, in the source's order.
+    const firstHeldPin = pinned.findIndex((id) => heldTabs.some((t) => t.id === id));
+    if (firstHeldPin >= 0) {
+      const again = pinned.slice(firstHeldPin);
+      for (const tabId of again) {
+        if (!heldTabs.some((t) => t.id === tabId)) heldCommands.push({ type: "toggle-pin-tab", tabId: idOf(tabId) });
+      }
+      for (const tabId of again) heldCommands.push({ type: "toggle-pin-tab", tabId: idOf(tabId) });
     }
     const placeholder = placeholders.get(sourcePanelId);
     if (placeholder) heldCommands.push({ type: "close-tab", tabId: placeholder.id });
+    const left = target?.layout.panels[at]?.tabs ?? [];
+    for (const id of input.previous?.placeholderTabIds ?? []) {
+      if (left.some((t) => t.id === id)) heldCommands.push({ type: "close-tab", tabId: id });
+    }
     if (isFirst && !replacedClosed) {
       heldCommands.push({ type: "close-tab", tabId: replaced! });
       replacedClosed = true;
@@ -314,12 +408,12 @@ export function layoutReplay(input: LayoutReplayInput): LayoutReplay {
     const mine = isFirst ? kept : [];
     const ordered = [
       ...mine.filter((t) => keptPinned.has(t.id)).map((t) => t.id),
-      ...panel.tabs.filter((t) => pinned.has(t.id)).map((t) => freshTabs.get(t.id)!.id),
+      ...panel.tabs.filter((t) => isPinned.has(t.id)).map((t) => idOf(t.id)),
       ...mine.filter((t) => !keptPinned.has(t.id)).map((t) => t.id),
-      ...panel.tabs.filter((t) => !pinned.has(t.id)).map((t) => freshTabs.get(t.id)!.id),
+      ...panel.tabs.filter((t) => !isPinned.has(t.id)).map((t) => idOf(t.id)),
     ];
     heldCommands.push({ type: "reorder-tabs", panelId: at, tabIds: ordered });
   }
 
-  return { commands, heldCommands, paneIds, cwds };
+  return answer();
 }

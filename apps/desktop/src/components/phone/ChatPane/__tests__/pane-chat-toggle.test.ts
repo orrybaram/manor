@@ -123,7 +123,7 @@ describe("togglePaneChat", () => {
   it("does nothing for a pane with no chat", () => {
     for (const setup of [
       () => seedAgent(null),
-      () => seedAgent({ agentKind: "codex" }),
+      () => seedAgent({ agentKind: "aider" as never }),
       () => seedAgent({ transcriptPath: null }),
       () => seedPane("browser"),
     ]) {
@@ -134,6 +134,13 @@ describe("togglePaneChat", () => {
       togglePaneChat(PANE, "desk");
       expect(usePaneChatViewStore.getState().deskViews).toEqual({});
     }
+  });
+
+  it("flips a Codex pane with a rollout like a Claude one", () => {
+    seedAgent({ agentKind: "codex" });
+    expect(paneHasChat(PANE)).toBe(true);
+    togglePaneChat(PANE, "desk");
+    expect(deskView()).toBe("chat");
   });
 
   it("under a menu handoff, ends it and keeps the stored choice", () => {

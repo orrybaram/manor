@@ -2,16 +2,17 @@ import { describe, expect, it } from "vitest";
 import { CHAT_KINDS } from "../../../../src/lib/agent-chat";
 import { adapterFor } from "../index";
 import { claudeAdapter } from "../claude";
+import { codexAdapter } from "../codex";
 import { piAdapter } from "../pi";
 
 describe("adapterFor", () => {
-  it("resolves claude and pi", () => {
+  it("resolves claude, codex and pi", () => {
     expect(adapterFor("claude")).toBe(claudeAdapter);
+    expect(adapterFor("codex")).toBe(codexAdapter);
     expect(adapterFor("pi")).toBe(piAdapter);
   });
 
   it("has no adapter for the other agents yet", () => {
-    expect(adapterFor("codex")).toBeNull();
     expect(adapterFor("opencode")).toBeNull();
   });
 

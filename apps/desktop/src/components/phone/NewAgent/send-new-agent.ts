@@ -30,9 +30,15 @@ async function takenNames(project: ProjectInfo): Promise<Set<string>> {
   return taken;
 }
 
-/** Whether `project` launches an agent that has a chat (open on it from the start). */
+/**
+ * Whether `project` launches an agent whose chat opens before its Agent
+ * exists: only Claude's. Until the first hook there is no agent to route the
+ * composer's typing by, and it is typed the Claude way; other kinds with a
+ * chat (`hasChat`) open on it once their transcript is known.
+ */
 function launchesChat(project: ProjectInfo): boolean {
-  return hasChat(getAgentKindForCommand(project.agentCommand ?? DEFAULT_AGENT_COMMAND));
+  const kind = getAgentKindForCommand(project.agentCommand ?? DEFAULT_AGENT_COMMAND);
+  return kind === "claude" && hasChat(kind);
 }
 
 /** Start the agent in an existing workspace (or main) right away. */

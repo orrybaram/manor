@@ -6,8 +6,9 @@ import { useStartingPrompt } from "./usePaneChatView";
 
 type ChatStartingProps = {
   paneId: string;
-  /** The pane's **Agent kind**, if known yet. A chat starts only for a kind
-   *  in `CHAT_KINDS`; one not known yet is taken for Claude's. */
+  /** The pane's **Agent kind**, if known yet. Only Claude's chat starts
+   *  ahead of its transcript (a launch from the phone, or `/clear`), so one
+   *  not known yet is Claude's. */
   agentKind: string | null;
   /** The terminal is showing instead. */
   hidden: boolean;

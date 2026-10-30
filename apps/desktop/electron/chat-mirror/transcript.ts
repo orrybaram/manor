@@ -404,7 +404,7 @@ function editHunks(info: Json): ChatDiffHunk[] {
 }
 
 /** `path` relative to `cwd` when it is inside it. */
-function relativeTo(path: string, cwd: string | undefined): string {
+export function relativeTo(path: string, cwd: string | undefined): string {
   if (!cwd) return path;
   const base = cwd.endsWith("/") ? cwd : `${cwd}/`;
   return path.startsWith(base) && path.length > base.length ? path.slice(base.length) : path;
@@ -423,16 +423,31 @@ function editEntry(
 }
 
 /**
- * A tool's landed edit as an edit entry in its place: `all` counted over
- * the whole patch, then capped to an edit card's limits. `filePath` is the
- * file it wrote, else the tool's summary names it. Null when there is no
- * diff to show. Any agent's adapter builds its edit cards with this.
+ * A tool's landed edit as an edit entry in its place. `filePath` is the file
+ * it wrote, else the tool's summary names it. Null when there is no diff to
+ * show.
  */
 export function landedEdit(
   tool: Extract<ChatEntry, { kind: "tool" }>,
   all: ChatDiffHunk[],
   filePath: string | undefined,
   cwd?: string,
+): Extract<ChatEntry, { kind: "edit" }> | null {
+  const path = filePath || (tool.summary !== tool.name ? tool.summary : "");
+  return cappedEdit(
+    { id: tool.id, ts: tool.ts, name: tool.name, path: relativeTo(path, cwd) },
+    all,
+  );
+}
+
+/**
+ * An edit entry of `all`'s hunks: added and removed counted over all of
+ * them, then cut to an edit card's caps. Null when there is nothing to show.
+ * Any adapter's landed edit goes through here, so every card fits one frame.
+ */
+export function cappedEdit(
+  base: { id: string; ts: string; name: string; path: string },
+  all: ChatDiffHunk[],
 ): Extract<ChatEntry, { kind: "edit" }> | null {
   if (all.length === 0) return null;
   let added = 0;
@@ -469,18 +484,7 @@ export function landedEdit(
     }
   }
   if (hunks.length === 0) return null;
-  const path = filePath || (tool.summary !== tool.name ? tool.summary : "");
-  return {
-    kind: "edit",
-    id: tool.id,
-    ts: tool.ts,
-    name: tool.name,
-    path: relativeTo(path, cwd),
-    hunks,
-    added,
-    removed,
-    truncated,
-  };
+  return { kind: "edit", ...base, hunks, added, removed, truncated };
 }
 
 /** How a `TranscriptParser` reads. */

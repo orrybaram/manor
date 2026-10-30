@@ -109,6 +109,14 @@ export class WebviewServer {
 
     this.server?.close();
     this.server = null;
+    // Only if the port file still names this listener: another Manor
+    // sharing ~/.manor (a relaunch, a dev build) may have rewritten both
+    // since, and its shells' only way back to it is these files.
+    try {
+      if (fs.readFileSync(PORT_FILE, "utf-8").trim() !== String(this.port)) return;
+    } catch {
+      // Port file gone or unreadable; the token file may still be ours.
+    }
     for (const file of [PORT_FILE, TOKEN_FILE]) {
       try {
         fs.unlinkSync(file);

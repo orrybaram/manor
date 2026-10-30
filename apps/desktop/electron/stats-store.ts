@@ -124,6 +124,11 @@ export interface StatsSummary {
   /** PRs merged per local day: today and the previous 6, oldest first, zeros included. */
   dailyPrsMerged: { day: string; count: number }[];
   badges: Record<string, string>;
+  /**
+   * Badges awarded quietly since this server started: a host's backlog, taken
+   * when its history was merged. Already in `badges`; not news, so no toast.
+   */
+  quietBadges?: string[];
   enabled: boolean;
 }
 
@@ -148,6 +153,8 @@ export class StatsStore {
   private badges: Record<string, string>;
   /** Each host server's last-read history, summed into every total. */
   private hosts: Record<string, StatsHistory>;
+  /** Badges `setHostHistory` awarded quietly (`StatsSummary.quietBadges`). */
+  private quiet = new Set<string>();
   /** Insertion-ordered, so eviction drops the oldest token. */
   private once: Set<string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -439,6 +446,7 @@ export class StatsStore {
       dailyPrompts: dailyPrompts(days),
       dailyPrsMerged: this.dailyPrsMerged(days),
       badges: this.getBadges(),
+      ...(this.quiet.size > 0 ? { quietBadges: [...this.quiet] } : {}),
       enabled: this.isEnabled(),
     };
   }
@@ -474,17 +482,22 @@ export class StatsStore {
    */
   setHostHistory(hostId: string, history: StatsHistory): void {
     if (!this.isEnabled()) return;
-    const first = this.hosts[hostId] === undefined;
+    const was = this.hosts[hostId];
+    const first = was === undefined;
     const host = sanitizeHost(history);
+    // A re-read that found nothing new (each reconnect reads again).
+    if (!first && JSON.stringify(was) === JSON.stringify(host)) return;
     this.hosts[hostId] = host;
     if (first) {
       for (const badge of evaluateBadges(this.getSummary(), this.badges)) {
-        this.awardBadge(badge.id, host.badges[badge.id]);
+        if (this.awardBadge(badge.id, host.badges[badge.id])) this.quiet.add(badge.id);
       }
     } else {
       this.commit();
     }
-    for (const [id, at] of Object.entries(host.badges)) this.awardBadge(id, at);
+    for (const [id, at] of Object.entries(host.badges)) {
+      if (this.awardBadge(id, at)) this.quiet.add(id);
+    }
     this.saveState();
     this.emitChange();
   }
@@ -559,6 +572,7 @@ export class StatsStore {
     this.badges = {};
     this.once = new Set();
     this.hosts = {};
+    this.quiet.clear();
     try {
       fs.rmSync(this.statsFilePath(), { force: true });
     } catch {

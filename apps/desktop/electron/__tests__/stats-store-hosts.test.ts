@@ -62,6 +62,16 @@ describe("StatsStore across hosts", () => {
     expect(store.getSummary().streakWeeks).toBe(3);
   });
 
+  it("says nothing when a host's history is read again unchanged", () => {
+    const store = new StatsStore(tmpDir, { now });
+    const history = { days: { "2026-10-30": { prompts: 2 } }, badges: {} };
+    store.setHostHistory("box", history);
+    const changed = vi.fn();
+    store.onChange(changed);
+    store.setHostHistory("box", structuredClone(history));
+    expect(changed).not.toHaveBeenCalled();
+  });
+
   it("replaces a host's history rather than adding to it", () => {
     const store = new StatsStore(tmpDir, { now });
     store.setHostHistory("box", { days: { "2026-10-30": { prompts: 2 } }, badges: {} });
@@ -78,6 +88,7 @@ describe("StatsStore across hosts", () => {
     });
     expect(onBadge).not.toHaveBeenCalled();
     expect(store.getBadges()["first-blood"]).toBe("2026-10-01T09:00:00.000Z");
+    expect(store.getSummary().quietBadges).toEqual(["first-blood"]);
   });
 
   it("announces a badge a later read of the host makes the total reach", () => {
@@ -95,6 +106,7 @@ describe("StatsStore across hosts", () => {
     });
     expect(onBadge.mock.calls.map(([badge]) => badge.id)).toEqual(["executioner"]);
     expect(store.getBadges().executioner).toBe(new Date(now()).toISOString());
+    expect(store.getSummary().quietBadges ?? []).not.toContain("executioner");
   });
 
   it("announces a desktop recording that the host's share pushes over", () => {

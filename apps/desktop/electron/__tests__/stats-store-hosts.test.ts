@@ -205,4 +205,27 @@ describe("StatsStore across hosts", () => {
     store.reset();
     expect(fs.existsSync(path.join(tmpDir, "stats.json"))).toBe(false);
   });
+
+  it("counts a merged PR once when two machines both saw it", () => {
+    const desktop = new StatsStore(tmpDir, { now: () => localMs(2026, 10, 28) });
+    desktop.recordOnce("prsMerged", "https://github.com/o/r/pull/1");
+    // The workspace moved to the box, whose own poll counted the PR again.
+    const boxDir = path.join(tmpDir, "box");
+    const box = new StatsStore(boxDir, { now });
+    box.recordOnce("prsMerged", "https://github.com/o/r/pull/1");
+    box.recordOnce("prsMerged", "https://github.com/o/r/pull/2");
+
+    desktop.setHostHistory("box", box.getHistory());
+    const summary = desktop.getSummary();
+    expect(summary.allTime.prsMerged).toBe(2);
+    expect(summary.dailyPrsMerged.find((d) => d.day === "2026-10-28")?.count).toBe(1);
+  });
+
+  it("leaves a host's own counts alone when it says nothing of what they were", () => {
+    const store = new StatsStore(tmpDir, { now });
+    store.recordOnce("prsMerged", "https://github.com/o/r/pull/1");
+    store.setHostHistory("box", { days: { "2026-10-30": { prsMerged: 1 } }, badges: {} });
+    expect(store.getSummary().allTime.prsMerged).toBe(2);
+  });
 });
+

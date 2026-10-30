@@ -440,12 +440,12 @@ describe("HostProxy and the host's usage stats", () => {
     proxyFor(h, client, desktopBus().bus, { onStatsHistory: (history) => heard.push(history) });
 
     await eventually(() => heard, (list) => list.length > 0, "the host's history");
-    expect(heard[0]).toEqual({ days: { "2026-10-30": { prompts: 4 } }, badges: {} });
+    expect(heard[0]).toEqual({ days: { "2026-10-30": { prompts: 4 } }, badges: {}, onceAt: {} });
 
     // The host's stats move (here, cleared): its `stats.changed` brings a re-read.
     await client.invoke("stats", "reset", []);
     const after = await eventually(() => heard, (list) => list.length > 1, "the re-read");
-    expect(after[after.length - 1]).toEqual({ days: {}, badges: {} });
+    expect(after[after.length - 1]).toEqual({ days: {}, badges: {}, onceAt: {} });
   });
 
   it("leaves out a host that has no history to give", async () => {
@@ -494,7 +494,7 @@ describe("HostProxy and the host's usage stats", () => {
 
     await eventually(() => heard, (list) => list.length > 0, "the history");
     expect(due).toBe(false);
-    expect(heard[0]).toEqual({ days: {}, badges: {} });
+    expect(heard[0]).toEqual({ days: {}, badges: {}, onceAt: {} });
   });
 });
 

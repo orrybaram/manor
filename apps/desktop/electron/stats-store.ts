@@ -86,6 +86,12 @@ export interface PersistedStats {
    */
   once?: string[];
   /**
+   * What each `once` token counted and when (`counter@YYYY-MM-DD`), so a
+   * desktop can count once an event two machines both saw (a merged PR whose
+   * workspace moved). Absent on tokens from before merged stats.
+   */
+  onceAt?: Record<string, string>;
+  /**
    * The desktop's copy of each host server's own history, keyed by host id:
    * the last one read, kept so a host that is asleep or gone still counts.
    * Absent on a host server and on files written before merged stats.
@@ -107,6 +113,8 @@ export interface PersistedStats {
 export interface StatsHistory {
   days: Record<string, DayBucket>;
   badges: Record<string, string>;
+  /** `PersistedStats.onceAt`. Absent from a host older than it. */
+  onceAt?: Record<string, string>;
 }
 
 /** One retained day's prompt count, for the contribution graph. */
@@ -169,6 +177,8 @@ export class StatsStore {
   private quiet: Set<string>;
   /** Insertion-ordered, so eviction drops the oldest token. */
   private once: Set<string>;
+  /** `PersistedStats.onceAt`. */
+  private onceAt: Record<string, string>;
   private saveTimer: ReturnType<typeof setTimeout> | null = null;
   private listeners = new Set<() => void>();
   private isEnabled: () => boolean;
@@ -208,6 +218,7 @@ export class StatsStore {
     this.days = state.days;
     this.badges = state.badges;
     this.once = state.once;
+    this.onceAt = state.onceAt;
     this.hosts = state.hosts;
     this.pendingResets = state.pendingResets;
     this.quiet = state.quiet;
@@ -236,6 +247,7 @@ export class StatsStore {
     days: Record<string, DayBucket>;
     badges: Record<string, string>;
     once: Set<string>;
+    onceAt: Record<string, string>;
     hosts: Record<string, StatsHistory>;
     pendingResets: Set<string>;
     quiet: Set<string>;
@@ -247,6 +259,7 @@ export class StatsStore {
         days: sanitizeDays(state.days),
         badges: sanitizeBadges(state.badges),
         once: sanitizeOnce(state.once),
+        onceAt: sanitizeOnceAt(state.onceAt),
         hosts: sanitizeHosts(state.hosts),
         pendingResets: new Set(sanitizeIds(state.pendingHostResets)),
         quiet: new Set(sanitizeIds(state.quietBadges).filter((id) => BADGE_IDS.has(id))),
@@ -256,6 +269,7 @@ export class StatsStore {
         days: {},
         badges: {},
         once: new Set(),
+        onceAt: {},
         hosts: {},
         pendingResets: new Set(),
         quiet: new Set(),
@@ -270,6 +284,7 @@ export class StatsStore {
       days: this.days,
       badges: this.badges,
       once: [...this.once],
+      ...(Object.keys(this.onceAt).length > 0 ? { onceAt: this.onceAt } : {}),
       ...(Object.keys(this.hosts).length > 0 ? { hosts: this.hosts } : {}),
       ...(this.pendingResets.size > 0 ? { pendingHostResets: [...this.pendingResets] } : {}),
       ...(this.quiet.size > 0 ? { quietBadges: [...this.quiet] } : {}),
@@ -314,6 +329,7 @@ export class StatsStore {
     for (const token of this.once) {
       if (dropped >= excess) break;
       this.once.delete(token);
+      delete this.onceAt[token];
       dropped++;
     }
   }
@@ -420,6 +436,7 @@ export class StatsStore {
     const token = onceToken(counter, key);
     if (this.once.has(token)) return false;
     this.once.add(token);
+    this.onceAt[token] = `${counter}@${this.todayKey()}`;
     this.pruneOnce();
     this.applyDelta({ counter, n: 1 });
     this.commit();
@@ -497,12 +514,36 @@ export class StatsStore {
     }
     const merged: Record<string, DayBucket> = {};
     for (const [day, buckets] of byDay) merged[day] = aggregate(buckets);
+    // An event two machines both counted once (a merged PR whose workspace
+    // moved): kept on the first day it was seen, taken off the others.
+    const seen = new Map<string, string[]>();
+    for (const onceAt of [this.onceAt, ...hosts.map((history) => history.onceAt ?? {})]) {
+      for (const [token, at] of Object.entries(onceAt)) {
+        const list = seen.get(token);
+        if (list) list.push(at);
+        else seen.set(token, [at]);
+      }
+    }
+    for (const list of seen.values()) {
+      if (list.length < 2) continue;
+      const byDay = list.sort((a, b) => (a.split("@")[1] ?? "").localeCompare(b.split("@")[1] ?? ""));
+      for (const at of byDay.slice(1)) {
+        const [counter, day] = at.split("@") as [StatCounter, string];
+        const bucket = merged[day];
+        const count = bucket?.[counter];
+        if (count !== undefined && count > 0) bucket[counter] = count - 1;
+      }
+    }
     return merged;
   }
 
   /** This server's own counts and awards, for a desktop to merge (`stats.getHistory`). */
   getHistory(): StatsHistory {
-    return { days: structuredClone(this.days), badges: this.getBadges() };
+    return {
+      days: structuredClone(this.days),
+      badges: this.getBadges(),
+      onceAt: { ...this.onceAt },
+    };
   }
 
   /**
@@ -609,6 +650,7 @@ export class StatsStore {
     this.days = {};
     this.badges = {};
     this.once = new Set();
+    this.onceAt = {};
     this.hosts = {};
     this.quiet.clear();
     this.pendingResets = new Set(this.hostIds());
@@ -784,5 +826,22 @@ function sanitizeHost(history: Partial<StatsHistory>): StatsHistory {
     const ms = Date.parse(at);
     if (BADGE_IDS.has(id) && Number.isFinite(ms)) badges[id] = new Date(ms).toISOString();
   }
-  return { days: pruneDays(sanitizeDays(history.days)), badges };
+  return {
+    days: pruneDays(sanitizeDays(history.days)),
+    badges,
+    ...(history.onceAt !== undefined ? { onceAt: sanitizeOnceAt(history.onceAt) } : {}),
+  };
+}
+
+/** Known tokens' `counter@YYYY-MM-DD`, at most `MAX_ONCE` of them. */
+function sanitizeOnceAt(onceAt: unknown): Record<string, string> {
+  if (!onceAt || typeof onceAt !== "object") return {};
+  const result: Record<string, string> = {};
+  const entries = Object.entries(onceAt as Record<string, unknown>);
+  for (const [token, at] of entries.slice(Math.max(0, entries.length - MAX_ONCE))) {
+    if (!/^[0-9a-f]{16}$/.test(token) || typeof at !== "string") continue;
+    const [counter, day] = at.split("@");
+    if (COUNTER_KEYS.has(counter) && /^\d{4}-\d{2}-\d{2}$/.test(day ?? "")) result[token] = at;
+  }
+  return result;
 }

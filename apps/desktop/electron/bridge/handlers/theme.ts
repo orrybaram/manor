@@ -45,7 +45,7 @@ export function themeCatalog(ctx: HandlerCtx<ServerDeps>): Promise<ThemeCatalog>
   return ctx.deps.themeManager.catalog();
 }
 
-/** Count a project's theme pick as recent; the global pick counts itself. */
+/** Count a theme as recent: Settings calls it on close for the picks it kept. */
 export function themeAddRecent(ctx: HandlerCtx<ServerDeps>, name: string): void {
   assertString(name, "name");
   ctx.deps.themeManager.addRecent(name);

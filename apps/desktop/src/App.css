@@ -321,12 +321,15 @@ html:has(
    role/tag/tabindex; `.xterm-helper-textarea` sets `tabIndex=0` to stay
    Tab-reachable inside xterm itself but must never show a ring (xterm draws
    its own cursor), and a `<webview>`'s own guest content manages its own
-   focus indication. Components that need a different ring style define their
-   own `:focus-visible` rule, which wins on specificity. */
-:where(button, [role="button"], [role="tab"], a, [tabindex]):not(
-    .xterm-helper-textarea,
-    webview
-  ):focus-visible {
+   focus indication. All inside `:where`, so it has no specificity: any
+   component rule wins, including an `outline: none` on a container that is
+   focusable only to take arrow keys (a list, a drawer, a sheet). */
+:where(
+    :is(button, [role="button"], [role="tab"], a, [tabindex]):not(
+        .xterm-helper-textarea,
+        webview
+      ):focus-visible
+  ) {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

@@ -10,6 +10,45 @@ export const THEME_FILTERS: { id: ThemeFilter; label: string }[] = [
   { id: "custom", label: "Yours" },
 ];
 
+export type ThemeSort = "name" | "color";
+
+export const THEME_SORTS: { id: ThemeSort; label: string }[] = [
+  { id: "name", label: "Name" },
+  { id: "color", label: "Color" },
+];
+
+/**
+ * Where a background sits in a colour sort, within its scheme: greys first,
+ * dark to light, then tinted backgrounds round the hue wheel. Most terminal backgrounds are only
+ * faintly tinted, so the grey cut-off is on chroma, not HSL saturation,
+ * which blows up near black.
+ */
+function colorKey(hex: string): [neutral: number, hue: number, lightness: number] {
+  const m = /^#?([0-9a-f]{6})/i.exec(hex);
+  if (!m) return [0, 0, 0];
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const chroma = max - min;
+  const lightness = (max + min) / 2;
+  if (chroma < 0.03) return [0, 0, lightness];
+  let hue =
+    max === r ? ((g - b) / chroma) % 6 : max === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4;
+  hue = (hue * 60 + 360) % 360;
+  return [1, hue, lightness];
+}
+
+/** Dark themes, then light, each sorted by `colorKey`. */
+function byColor(a: ThemeListEntry, b: ThemeListEntry): number {
+  if (a.scheme !== b.scheme) return a.scheme === "dark" ? -1 : 1;
+  const ka = colorKey(a.colors.background);
+  const kb = colorKey(b.colors.background);
+  return ka[0] - kb[0] || ka[1] - kb[1] || ka[2] - kb[2];
+}
+
 function inFilter(entry: ThemeListEntry, filter: ThemeFilter): boolean {
   switch (filter) {
     case "dark":
@@ -24,22 +63,26 @@ function inFilter(entry: ThemeListEntry, filter: ThemeFilter): boolean {
 
 /**
  * The tiles to show. A search looks across every theme whatever the filter;
- * Recent keeps its newest-first order, the rest keep the catalog's.
+ * Recent keeps its newest-first order, the rest keep the catalog's (by
+ * name) or go by background colour.
  */
 export function visibleThemes(
   catalog: ThemeCatalog,
   filter: ThemeFilter,
   query: string,
+  sort: ThemeSort = "name",
 ): ThemeListEntry[] {
   const q = query.trim().toLowerCase();
+  let list: ThemeListEntry[];
   if (q) {
-    return catalog.themes.filter((t) => t.displayName.toLowerCase().includes(q));
-  }
-  if (filter === "recent") {
+    list = catalog.themes.filter((t) => t.displayName.toLowerCase().includes(q));
+  } else if (filter === "recent") {
     const byName = new Map(catalog.themes.map((t) => [t.name, t]));
     return catalog.recent.flatMap((n) => byName.get(n) ?? []);
+  } else {
+    list = catalog.themes.filter((t) => inFilter(t, filter));
   }
-  return catalog.themes.filter((t) => inFilter(t, filter));
+  return sort === "color" ? [...list].sort(byColor) : list;
 }
 
 /** How many tiles each filter would show, for the rail's counts. */

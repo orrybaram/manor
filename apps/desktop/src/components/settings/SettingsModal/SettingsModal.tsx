@@ -35,6 +35,7 @@ import {
   type SettingsSearchResult,
 } from "./settings-search";
 import { SettingsJumpContext, SettingsNavContext, type GoToSettings } from "./settings-nav";
+import { useRecentThemesOnClose } from "./theme-recents";
 import styles from "./SettingsModal.module.css";
 
 /** A page as a stable key, for React keys and the nav's active state. */
@@ -76,6 +77,7 @@ export function SettingsModal(props: SettingsModalProps) {
   const { open, onClose, initialProjectId, initialPage, initialSection, initialAutomation } = props;
 
   const { onCloseAutoFocus: restoreFocusOnClose } = useRestoreFocus(open);
+  useRecentThemesOnClose(open);
 
   const projects = useProjectStore((s) => s.projects);
   const [page, setPage] = useState<SettingsPage>({ type: "general" });

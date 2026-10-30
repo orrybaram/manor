@@ -546,15 +546,18 @@ export class ThemeManager {
     return settings.themeName ?? GHOSTTY_CONFIG_THEME;
   }
 
-  /** Save the selected theme name, and count it as a recent pick. */
+  /**
+   * Save the selected theme name. Not a recent pick by itself: Settings
+   * selects every tile clicked while browsing, and counts only the theme
+   * left selected when it closes (`addRecent`).
+   */
   setSelectedThemeName(name: string): void {
     const settings = this.loadSettings();
     settings.themeName = name;
-    settings.recentThemes = withRecent(settings.recentThemes, name);
     this.saveSettings(settings);
   }
 
-  /** Count a pick that isn't the global theme (a project's) as recent. */
+  /** Count a theme as a recent pick, the global one or a project's. */
   addRecent(name: string): void {
     const settings = this.loadSettings();
     settings.recentThemes = withRecent(settings.recentThemes, name);

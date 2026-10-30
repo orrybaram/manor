@@ -225,6 +225,8 @@ export const systemRoutes: Route[] = [
       // Not `setSelectedThemeName` directly: a theme set from the CLI or MCP
       // is every viewer's, exactly as one set from the UI is.
       const theme = themeSetSelected(localCtx(deps), name);
+      // No Settings to close here: a pick from the CLI is a pick.
+      deps.themeManager.addRecent(name);
       json(200, { name, theme });
     },
   },

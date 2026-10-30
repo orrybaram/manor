@@ -18,8 +18,8 @@
   inset: 0;
   margin: auto;
   z-index: 101;
-  width: 760px;
-  max-height: 75vh;
+  width: min(1040px, 92vw);
+  height: min(820px, 88vh);
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;

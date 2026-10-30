@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agentCommandFor,
+  readAgentTranscript,
   workspaceRecreator,
   type HostLayout,
   type WorkspaceRecreatorDeps,
@@ -90,6 +91,8 @@ const tab = (id: string, title: string, paneId: string): Tab => ({
   rootNode: { type: "leaf", paneId },
 });
 
+const AT_WORK = (kind: string) => ({ status: "responded", reason: "Stop hook", kind });
+
 function sourceEntry(): LayoutEntry {
   return entry(
     {
@@ -105,7 +108,11 @@ function sourceEntry(): LayoutEntry {
         B: { id: "B", tabs: [tab("t3", "logs", "p3")], pinnedTabIds: [] },
       },
     },
-    { p1: { daemonSessionId: "p1", lastCwd: `${SRC}/api server`, lastTitle: null } },
+    {
+      p1: { daemonSessionId: "p1", lastCwd: `${SRC}/api server`, lastTitle: null },
+      p2: { daemonSessionId: "p2", lastCwd: SRC, lastTitle: null, lastAgentStatus: AT_WORK("claude") },
+      p3: { daemonSessionId: "p3", lastCwd: SRC, lastTitle: null, lastAgentStatus: AT_WORK("codex") },
+    },
   );
 }
 
@@ -309,6 +316,112 @@ describe("workspaceRecreator: agents", () => {
     await recreator.run(MOVE, (i) => begun.push(i));
     expect(begun).toEqual([0]);
     expect(target.queued.filter((q) => q.kind === "agent-startup")).toEqual([]);
+  });
+});
+
+describe("workspaceRecreator: again, after a failure", () => {
+  it("adds no tab and starts no agent a second time when the move is retried", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const target = fakeHost();
+    const recreator = workspaceRecreator(hosts(source, target, { agents: () => [agent("p2")] }));
+    const tabs = () => Object.values(target.entries[TARGET_KEY].layout.panels).map((p) => p.tabs.map((t) => t.title));
+
+    await recreator.plan(planOf(SOURCE_KEY));
+    await recreator.run(MOVE, () => {});
+    // Then the move failed at removeSource; Retry plans and runs it again.
+    await recreator.plan(planOf(SOURCE_KEY));
+    await recreator.run(MOVE, () => {});
+    expect(tabs()).toEqual([["api", "web"], ["logs"]]);
+    expect(target.queued.filter((q) => q.kind === "agent-startup")).toHaveLength(1);
+  });
+
+  it("starts the agent on a retry when the first try failed before its tab landed", async () => {
+    const source = fakeHost({ [SOURCE_KEY]: sourceEntry() });
+    const target = fakeHost();
+    const recreator = workspaceRecreator(hosts(source, target, { agents: () => [agent("p2")] }));
+    const apply = target.layout.apply;
+    let refuse = true;
+    target.layout.apply = async (key, command) =>
+      refuse && command.type === "new-tab" && command.tab.title === "web"
+        ? { error: "host went away" }
+        : apply(key, command);
+
+    await recreator.plan(planOf(SOURCE_KEY));
+    await expect(recreator.run(MOVE, () => {})).rejects.toThrow(/host went away/);
+    refuse = false;
+    await recreator.plan(planOf(SOURCE_KEY));
+    await recreator.run(MOVE, () => {});
+
+    const panels = Object.values(target.entries[TARGET_KEY].layout.panels);
+    expect(panels.map((p) => p.tabs.map((t) => t.title))).toEqual([["api", "web"], ["logs"]]);
+    const launches = target.queued.filter((q) => q.kind === "agent-startup");
+    expect(launches).toHaveLength(2);
+    expect(panels[0].tabs[1].rootNode).toMatchObject({ paneId: launches[1].paneId });
+  });
+});
+
+describe("agents whose CLI is gone", () => {
+  it("comes back as a shell when its pane's last status says the agent ended", async () => {
+    const entry = sourceEntry();
+    entry.paneSessions.p2 = {
+      ...entry.paneSessions.p2,
+      lastAgentStatus: { status: "idle", reason: "agent process exited", kind: null },
+    };
+    const source = fakeHost({ [SOURCE_KEY]: entry });
+    const recreator = workspaceRecreator(hosts(source, fakeHost(), { agents: () => [agent("p2")] }));
+    expect(await recreator.plan(planOf(SOURCE_KEY))).toEqual([{ id: "restore" }]);
+  });
+});
+
+describe("readAgentTranscript", () => {
+  const summary = (kind: string, sessionId: string, path: string) =>
+    ({ kind, sessionId, path }) as unknown as import("../sessions/types").SessionSummary;
+
+  it("reads the transcript the hooks named", async () => {
+    const asked: unknown[] = [];
+    await readAgentTranscript(
+      {
+        list: async () => {
+          throw new Error("not asked");
+        },
+        preview: async (_h, ref) => (asked.push(ref), PREVIEW),
+      },
+      "local",
+      agent("p2"),
+    );
+    expect(asked).toEqual([
+      { hostId: "local", kind: "claude", sessionId: "session-p2", path: "/Users/me/.claude/projects/x/session-p2.jsonl" },
+    ]);
+  });
+
+  it("finds a transcript the hooks never named in the host's Session list, by kind and id", async () => {
+    const asked: unknown[] = [];
+    const preview = await readAgentTranscript(
+      {
+        list: async (hostId) => {
+          expect(hostId).toBe("box");
+          return [
+            summary("claude", "session-p3", "/wrong.jsonl"),
+            summary("codex", "session-p3", "/home/u/.codex/sessions/r.jsonl"),
+          ];
+        },
+        preview: async (_h, ref) => (asked.push(ref.path), PREVIEW),
+      },
+      "box",
+      agent("p3", { agentKind: "codex", transcriptPath: null }),
+    );
+    expect(asked).toEqual(["/home/u/.codex/sessions/r.jsonl"]);
+    expect(preview).toBe(PREVIEW);
+  });
+
+  it("throws when the list has no such Session", async () => {
+    await expect(
+      readAgentTranscript(
+        { list: async () => [], preview: async () => PREVIEW },
+        "local",
+        agent("p3", { transcriptPath: null }),
+      ),
+    ).rejects.toThrow(/not in its host's list/);
   });
 });
 

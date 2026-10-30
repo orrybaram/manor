@@ -13,7 +13,13 @@
  * `agent-startup` pending command, is queued with a handoff prompt
  * (`buildHandoffPrompt`) built from the old Session's transcript, read on
  * the source host. A transcript that can't be read leaves a shorter
- * prompt, never a failed move. No CLI's session store is written.
+ * prompt, never a failed move. No CLI's session store is written. An
+ * Agent's pinned name does not come across: the new Agent's record exists
+ * only once its first hook arrives, and nothing names it before then.
+ *
+ * **Retry.** The recreator remembers what each move's replay made in its
+ * target. A Retry of that move builds on whatever of it is still there, so
+ * no tab is added and no Agent started twice.
  *
  * Each host's layout is read and changed where it lives
  * (`createWorkspaceRecreator`): in this desktop's `LayoutStore` for this
@@ -30,15 +36,22 @@ import { errorMessage } from "../lib/errors";
 import type { LayoutStore, LayoutOrigin } from "../layout/layout-store";
 import type { PendingCommandKind, PendingCommandOptions } from "../layout/pending-commands";
 import type { HostRouting } from "../server/host-routing";
-import { readSessionPreview, type SessionPreview } from "../sessions/preview";
-import { processEnv } from "../sessions/scanner";
+import { readSessionPreview, type SessionPreview, type SessionRef } from "../sessions/preview";
+import { createSessionScanner, processEnv, type SessionScanner } from "../sessions/scanner";
+import type { SessionSummary } from "../sessions/types";
 import { shellQuote } from "../terminal-host/ssh-config";
 import type { AgentKind } from "../terminal-host/types";
 import { buildHandoffPrompt, handoffFromPreview } from "./handoff-prompt";
 import type { ProjectManager } from "./project-manager";
 import type { RecreateContext, RecreateStep, WorkspaceRecreator } from "./workspace-host-move";
 import type { LayoutCommand } from "../../src/lib/layout/commands";
-import { bindPanelId, layoutReplay, TARGET_FIRST_PANEL } from "../../src/lib/layout/layout-replay";
+import {
+  bindPanelId,
+  currentOrder,
+  layoutReplay,
+  TARGET_FIRST_PANEL,
+  type ReplayRecord,
+} from "../../src/lib/layout/layout-replay";
 import { allPanelIds } from "../../src/lib/layout/panel-tree";
 import type { LayoutApplyResult, LayoutEntry } from "../../src/lib/layout/protocol";
 import { findPanelWithTab, layoutPaneIds } from "../../src/lib/layout/workspace-layout";
@@ -101,9 +114,17 @@ async function applyAll(
 ): Promise<string | null> {
   let firstPanel = bound;
   for (const [i, raw] of commands.entries()) {
-    const command: LayoutCommand = firstPanel
+    let command: LayoutCommand = firstPanel
       ? bindPanelId(raw, TARGET_FIRST_PANEL, firstPanel)
       : raw;
+    if (command.type === "reorder-tabs") {
+      // Ordered against the panel as it is now: a reorder naming a tab that
+      // closed meanwhile (a Setup tab's script ending) is refused whole.
+      const entry: LayoutEntry | null = await layout.read(key);
+      const order = entry ? currentOrder(entry.layout, command.panelId, command.tabIds) : null;
+      if (!order) continue;
+      command = { ...command, tabIds: order };
+    }
     const result = await layout.apply(key, command);
     if ("error" in result) throw new Error(`The target refused a layout command: ${result.error}`);
     if (i === 0 && firstPanel === null && command.type === "new-tab") {
@@ -135,11 +156,18 @@ export function agentCommandFor(
   return connector.defaultCommand;
 }
 
-/** The source's active Agents, one per pane (the latest), in layout order. */
+/**
+ * The source's active Agents, one per pane (the latest), in layout order.
+ * The pane must still be an agent's: an Agent whose CLI exited without a
+ * SessionEnd stays `active`, but every way a pane's agent ends (SessionEnd,
+ * the process gone from the foreground, a user's end) publishes its status
+ * with `kind: null`, and that is the last status its pane keeps.
+ */
 function agentsIn(entry: LayoutEntry, agents: readonly AgentInfo[]): AgentInfo[] {
   const byPane = new Map<string, AgentInfo>();
   for (const agent of agents) {
     if (agent.status !== "active" || !agent.paneId) continue;
+    if (!entry.paneSessions[agent.paneId]?.lastAgentStatus?.kind) continue;
     const had = byPane.get(agent.paneId);
     if (!had || had.updatedAt < agent.updatedAt) byPane.set(agent.paneId, agent);
   }
@@ -165,6 +193,13 @@ function within<T>(promise: Promise<T>, ms: number): Promise<T> {
 export function workspaceRecreator(deps: WorkspaceRecreatorDeps): WorkspaceRecreator {
   /** Whether each source's plan has an agents step, for its run. */
   const plannedAgents = new Map<WorkspaceKey, boolean>();
+  /**
+   * What each move's replay made in its target, by source and target key:
+   * a Retry of a move that failed after its restore builds on it rather
+   * than adding every tab, and starting every Agent, a second time. A Retry
+   * comes in the same app session, so memory is enough.
+   */
+  const replayed = new Map<string, ReplayRecord>();
 
   /** The handoff for `agent`: its Session's turns when they can be read, else without. */
   const handoff = async (move: RecreateContext, agent: AgentInfo): Promise<string> => {
@@ -211,6 +246,8 @@ export function workspaceRecreator(deps: WorkspaceRecreatorDeps): WorkspaceRecre
       const agents = withAgents ? agentsIn(sourceEntry, deps.agents()) : [];
       const target = deps.layout(move.targetHostId);
       const targetEntry = await target.read(move.targetKey);
+      const moveKey = `${move.sourceKey}\0${move.targetKey}`;
+      const previous = replayed.get(moveKey);
       const replay = layoutReplay({
         source: sourceEntry.layout,
         paneSessions: sourceEntry.paneSessions,
@@ -218,19 +255,37 @@ export function workspaceRecreator(deps: WorkspaceRecreatorDeps): WorkspaceRecre
         targetRoot: move.targetPath,
         target: targetEntry,
         heldPaneIds: new Set(agents.map((a) => a.paneId!)),
+        ...(previous ? { previous } : {}),
       });
+      // Remembered before anything is sent: whatever of it lands, a Retry
+      // finds in the target and keeps.
+      const remember = (firstPanel: string | null) =>
+        replayed.set(moveKey, {
+          tabIds: replay.record.tabIds,
+          panelIds: Object.fromEntries(
+            Object.entries(replay.record.panelIds).map(([from, to]) => [
+              from,
+              to === TARGET_FIRST_PANEL && firstPanel ? firstPanel : to,
+            ]),
+          ),
+          placeholderTabIds: [...(previous?.placeholderTabIds ?? []), ...replay.placeholderTabIds],
+        });
+      remember(null);
       // A shell line waits for whoever mounts the pane, so it goes first.
       for (const [paneId, cwd] of Object.entries(replay.cwds)) {
         await target.queue(paneId, `cd ${shellQuote(cwd)}`, "shell");
       }
       const known = targetEntry ? allPanelIds(targetEntry.layout.panelTree)[0] : null;
       const firstPanel = await applyAll(target, move.targetKey, replay.commands, known);
+      remember(firstPanel);
       if (!withAgents) return;
 
       begin(1);
       const base = await deps.agentCommand(move.targetKey);
       for (const agent of agents) {
+        // An Agent whose tab an earlier try already put back was started then.
         const paneId = replay.paneIds[agent.paneId!];
+        if (!paneId) continue;
         const command = agentCommandFor(agent.agentKind, [base, agent.agentCommand]);
         // Queued before the apply that adds the pane: that apply launches it.
         await target.queue(paneId, command, "agent-startup", {
@@ -297,22 +352,63 @@ interface RecreatorServer {
   >;
 }
 
+/** How a host's Sessions are read: its list, and one Session's preview. */
+export interface SessionReads {
+  list(hostId: string): Promise<SessionSummary[]>;
+  preview(hostId: string, ref: SessionRef): Promise<SessionPreview>;
+}
+
 /**
- * `agent`'s Session's preview, read on `hostId`: this machine's store here,
- * an adopted host's through its server. A host not adopted has no reader
- * the desktop can reach, so its Agents get the short handoff.
+ * `agent`'s Session's preview, read on `hostId`. Its transcript is where
+ * its hooks said; an Agent whose hooks never said (pi, opencode, often
+ * codex) is found in the host's Session list by kind and session id.
  */
-async function readTranscript(
-  server: RecreatorServer,
+export async function readAgentTranscript(
+  reads: SessionReads,
   hostId: string,
   agent: AgentInfo,
 ): Promise<SessionPreview> {
-  if (!agent.transcriptPath) throw new Error("the Agent has no transcript path");
-  const ref = { hostId, kind: agent.agentKind, sessionId: agent.agentSessionId, path: agent.transcriptPath };
-  if (hostId === LOCAL_HOST_ID) return readSessionPreview(ref, processEnv());
-  const proxy = server.hostRouting?.proxy(hostId);
-  if (!proxy) throw new Error(`${hostId}'s Sessions can only be read through its host server`);
-  return (await proxy.invoke("sessions", "transcript", [ref])) as SessionPreview;
+  let path = agent.transcriptPath;
+  if (!path) {
+    const sessions = await reads.list(hostId);
+    path =
+      sessions.find((s) => s.kind === agent.agentKind && s.sessionId === agent.agentSessionId)?.path ?? null;
+    if (!path) throw new Error("the Agent's Session is not in its host's list");
+  }
+  return reads.preview(hostId, { hostId, kind: agent.agentKind, sessionId: agent.agentSessionId, path });
+}
+
+/** This machine's Session scanner, made at the first move that needs it. */
+let localScanner: SessionScanner | null = null;
+
+/**
+ * Sessions as the desktop's server reads them: this machine's store here,
+ * an adopted host's through its server. A host not adopted has no reader
+ * the desktop can reach, so its Agents get the short handoff.
+ */
+function sessionReads(server: RecreatorServer): SessionReads {
+  const proxyOf = (hostId: string) => {
+    const proxy = server.hostRouting?.proxy(hostId);
+    if (!proxy) throw new Error(`${hostId}'s Sessions can only be read through its host server`);
+    return proxy;
+  };
+  return {
+    async list(hostId) {
+      if (hostId === LOCAL_HOST_ID) return (localScanner ??= createSessionScanner()).list();
+      return (await proxyOf(hostId).invoke("sessions", "list", [])) as SessionSummary[];
+    },
+    async preview(hostId, ref) {
+      if (hostId === LOCAL_HOST_ID) return readSessionPreview(ref, processEnv());
+      return (await proxyOf(hostId).invoke("sessions", "transcript", [ref])) as SessionPreview;
+    },
+  };
+}
+
+/** A host as the sidebar names it: "This machine", or the remote host's name. */
+function hostDisplayName(pm: Pick<ProjectManager, "hostLabel">, hostId: string): string {
+  // `hostLabel` is the remote host's `hostSpecLabel`, the name main reports
+  // for it (`BackendRegistry`), which the sidebar shows.
+  return hostId === LOCAL_HOST_ID ? "This machine" : pm.hostLabel(hostId);
 }
 
 /** The recreator a move runs in the desktop's Manor server (`createWorkspaceHostMoveDeps`). */
@@ -324,9 +420,9 @@ export function createWorkspaceRecreator(server: RecreatorServer): WorkspaceRecr
       ...server.agentManager.getActiveAgents(),
       ...(server.hostRouting?.agents() ?? []).filter((a) => a.status === "active"),
     ],
-    transcript: (hostId, agent) => readTranscript(server, hostId, agent),
+    transcript: (hostId, agent) => readAgentTranscript(sessionReads(server), hostId, agent),
     agentCommand: async (key) => resolveAgentCommand({ key, projects: await pm.getProjects() }),
-    hostName: (hostId) => pm.hostLabel(hostId),
+    hostName: (hostId) => hostDisplayName(pm, hostId),
     async notePane(move, paneId, agentCommand) {
       // An adopted host's server launches the pane, and keeps its own.
       if (pm.isRemoteProject(move.targetProjectId)) return;

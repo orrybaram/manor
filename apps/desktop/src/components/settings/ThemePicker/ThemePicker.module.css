@@ -105,6 +105,9 @@
 .wall {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+  /* A tile clips (overflow: hidden), so its min height is 0; auto rows would
+     squash hundreds of tiles into max-height instead of scrolling. */
+  grid-auto-rows: max-content;
   gap: 8px;
   max-height: min(560px, calc(88vh - 220px));
   overflow-y: auto;

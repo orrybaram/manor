@@ -245,13 +245,13 @@ test.describe("Settings › Theme", () => {
     window,
     tempHome,
   }, testInfo) => {
-    // Enough themes that the wall scrolls.
+    // A real install's worth of themes, so the wall scrolls a long way.
     installGhosttyThemes(tempHome);
     const dir = path.join(tempHome, "Library", "Application Support", "ghostty", "themes");
-    for (let i = 0; i < 40; i++) {
-      const shade = (20 + i * 4).toString(16).padStart(2, "0");
+    for (let i = 0; i < 400; i++) {
+      const shade = (20 + (i % 50) * 4).toString(16).padStart(2, "0");
       fs.writeFileSync(
-        path.join(dir, `Zz Spectrum ${String(i).padStart(2, "0")}`),
+        path.join(dir, `Zz Spectrum ${String(i).padStart(3, "0")}`),
         `background = #${shade}${shade}30\nforeground = #f0f0f0\n`,
       );
     }
@@ -261,12 +261,15 @@ test.describe("Settings › Theme", () => {
       win?.setSize(1280, 800);
     });
     await importSeededProject(app, window, tempHome);
-    await window.evaluate(() => window.electronAPI.theme.setSelected("Zz Spectrum 39"));
+    await window.evaluate(() => window.electronAPI.theme.setSelected("Zz Spectrum 399"));
 
     await openThemes(window);
-    const last = tile(window, "Zz Spectrum 39");
+    const last = tile(window, "Zz Spectrum 399");
     await expect(last).toHaveAttribute("aria-selected", "true");
     await expect(last).toBeInViewport();
+    // Tiles keep their height and the wall scrolls; they don't squash to fit.
+    expect((await last.boundingBox())?.height).toBeGreaterThan(50);
+    await shot(window, testInfo, "15-wall-many-themes");
 
     // Columns as laid out, then one row down from the first tile.
     const columns = await window

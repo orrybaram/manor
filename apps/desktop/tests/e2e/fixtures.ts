@@ -200,6 +200,8 @@ export interface LaunchOptions {
    * reply both name the desktop's version.
    */
   asPackage?: boolean;
+  /** Extra Chromium switches, e.g. `--use-fake-device-for-media-stream`. */
+  args?: string[];
 }
 
 /**
@@ -220,7 +222,7 @@ export interface LaunchOptions {
  */
 export async function launchApp(
   tempHome: string,
-  { env: extraEnv = {}, asPackage = false }: LaunchOptions = {},
+  { env: extraEnv = {}, asPackage = false, args = [] }: LaunchOptions = {},
 ): Promise<ElectronApplication> {
   const { VITE_DEV_SERVER_URL: _devServer, ...rest } = process.env;
 
@@ -263,10 +265,13 @@ export async function launchApp(
       // Left there, a run would see what the previous one persisted in the
       // renderer, and the real installation's storage sits one directory over.
       `--user-data-dir=${path.join(tempHome, "user-data")}`,
+      ...args,
     ],
     env: { ...env, ...extraEnv, HOME: tempHome },
     cwd: appRoot,
-    recordVideo: videoDir() ? { dir: videoDir()!, size: VIDEO_SIZE } : undefined,
+    recordVideo: videoDir()
+      ? { dir: videoDir()!, size: VIDEO_SIZE }
+      : undefined,
   });
   // Linux: a temp HOME has no keyring, so safeStorage falls back to its
   // basic_text store and reports no encryption, which locks every
@@ -370,7 +375,10 @@ export async function killApp(app: ElectronApplication): Promise<void> {
   // does; the kill below is what actually ends the process either way.
   if (videoDir()) {
     await Promise.race([
-      app.context().close().catch(() => {}),
+      app
+        .context()
+        .close()
+        .catch(() => {}),
       new Promise((resolve) => setTimeout(resolve, 5_000)),
     ]);
   }

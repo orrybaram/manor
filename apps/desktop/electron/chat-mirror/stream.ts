@@ -209,6 +209,8 @@ export class TranscriptStream {
       } else {
         this.consume(result.data, this.primed);
         reached = start + Buffer.byteLength(result.data, "utf8");
+        // A cursor source says where it got to.
+        if (result.next !== undefined) this.offset = reached = result.next;
       }
       // A source returns a window at a time: read on until the end, still as
       // one read (and, the first time, all of it history). A read that got

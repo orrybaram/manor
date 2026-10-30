@@ -37,12 +37,13 @@ describe("agentChat", () => {
 });
 
 describe("hasChat", () => {
-  it("is true only for kinds in CHAT_KINDS (Claude, Codex and pi, for now)", () => {
-    expect([...CHAT_KINDS]).toEqual(["claude", "codex", "pi"]);
+  it("is true for every agent kind with a transcript reader", () => {
+    expect([...CHAT_KINDS]).toEqual(["claude", "codex", "pi", "opencode"]);
     expect(hasChat("claude")).toBe(true);
     expect(hasChat("codex")).toBe(true);
     expect(hasChat("pi")).toBe(true);
-    expect(hasChat("opencode")).toBe(false);
+    expect(hasChat("opencode")).toBe(true);
+    expect(hasChat("aider")).toBe(false);
     expect(hasChat(null)).toBe(false);
     expect(hasChat(undefined)).toBe(false);
   });

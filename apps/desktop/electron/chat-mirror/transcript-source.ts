@@ -31,6 +31,13 @@ export type TranscriptRead =
        */
       head?: string;
       tail?: string;
+      /**
+       * Where the next read starts, for a source whose offset is a cursor of
+       * its own rather than a byte count (`OpencodeDbSource`): `data` is
+       * whole lines, and the offset moves to `next` instead of on by their
+       * bytes. `size` is then on the same scale as `next`.
+       */
+      next?: number;
     }
   | { ok: false; error: string };
 

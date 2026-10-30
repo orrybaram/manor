@@ -3,6 +3,7 @@
 import type { AgentKind } from "../../terminal-host/types";
 import { claudeAdapter } from "./claude";
 import { codexAdapter } from "./codex";
+import { opencodeAdapter } from "./opencode";
 import { piAdapter } from "./pi";
 import type { TranscriptAdapter } from "./types";
 
@@ -19,6 +20,8 @@ export function adapterFor(kind: AgentKind): TranscriptAdapter | null {
       return codexAdapter;
     case "pi":
       return piAdapter;
+    case "opencode":
+      return opencodeAdapter;
     default:
       return null;
   }

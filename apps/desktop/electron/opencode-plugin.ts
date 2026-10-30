@@ -22,11 +22,12 @@
  * | `session.idle` / `session.status` idle, from busy | `Stop`       |
  * | `session.deleted`                          | `SessionEnd`        |
  *
- * Every event carries `transcriptPath = <opencode.db>#<sessionID>`: opencode
- * keeps no transcript file, so the chat mirror reads the session's rows from
- * its database (`chat-mirror/opencode-db-source.ts`). The database path
- * follows the rule `sessions/opencode-reader.ts` `opencodeDbPath` documents,
- * computed in the plugin from opencode's own environment.
+ * Every event carries `transcriptPath = <opencode.db>#<sessionID>`
+ * (`sessions/opencode-locator.ts`): opencode keeps no transcript file, so the
+ * chat mirror reads the session's rows from its database
+ * (`chat-mirror/opencode-db-source.ts`). The database path follows the rule
+ * `sessions/opencode-reader.ts` `opencodeDbPath` documents, computed in the
+ * plugin from opencode's own environment.
  */
 
 import * as path from "node:path";

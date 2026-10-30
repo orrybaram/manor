@@ -65,6 +65,7 @@ import { BridgeServer, type BridgeServerDeps } from "../bridge/server";
 import { ChatMirror } from "../chat-mirror/mirror";
 import { chatTaskKey } from "../chat-mirror/task-key";
 import { LocalTranscriptSource } from "../chat-mirror/transcript-source";
+import { OpencodeDbSource } from "../chat-mirror/opencode-db-source";
 import { GitHubManager } from "../github";
 import type { ServerDeps, SharedDeps } from "../ipc/types";
 import { KeybindingsManager } from "../keybindings";
@@ -890,6 +891,7 @@ export function createManorServer<D extends BridgeServerDeps>(
   // its mirror watches the pane, and `wireChatMirror` forwards the desktop's
   // subscriptions to it. This mirror reads this machine's transcripts only.
   const localTranscripts = new LocalTranscriptSource();
+  const opencodeTranscripts = new OpencodeDbSource();
   const chatMirror = new ChatMirror({
     agentForPane: (paneId) => {
       const agent = pickPaneAgent(agentManager.getAllAgents(), paneId);
@@ -901,7 +903,8 @@ export function createManorServer<D extends BridgeServerDeps>(
         transcriptPath: agent.transcriptPath,
       };
     },
-    sourceFor: () => localTranscripts,
+    // opencode's "transcript" is its session's rows in opencode.db.
+    sourceFor: (agent) => (agent.agentKind === "opencode" ? opencodeTranscripts : localTranscripts),
     write: (paneId, data) => backend.pty.write(paneId, data),
     publish: (paneId, entry) => bridge.publish("chat", "entry", [paneId, entry], paneId),
     // Keyed by pane and task, so only that task's subscribers hear it.

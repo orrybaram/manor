@@ -25,6 +25,7 @@ import type { ChatEntry } from "../chat-mirror/transcript";
 import type { AgentKind } from "../terminal-host/types";
 import { claudeProjectsDir } from "./claude-reader";
 import { codexHome, isCodexInjected } from "./codex-reader";
+import { parseOpencodeLocator } from "./opencode-locator";
 import { opencodeDbPath } from "./opencode-reader";
 import { piSessionsRoot } from "./pi-reader";
 import { createSqliteCopyCache, loadSqlite, readSqliteStore, type SqliteModule } from "./sqlite-store";
@@ -185,7 +186,9 @@ function isInside(root: string, path: string): boolean {
  * nothing else.
  */
 export async function resolveSessionPath(ref: SessionRef, env: SessionEnv): Promise<string> {
-  const path = await real(ref.path);
+  // An opencode Agent's transcript is its database and session (`./opencode-locator.ts`).
+  const located = ref.kind === "opencode" ? parseOpencodeLocator(ref.path) : null;
+  const path = await real(located?.sessionId === ref.sessionId ? located.db : ref.path);
   if (!path) throw new Error("sessions.transcript: no such transcript");
   const roots = await storeRoots(ref.kind, env);
   for (const root of roots) {

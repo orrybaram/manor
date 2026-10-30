@@ -76,7 +76,7 @@ const UNKNOWN_AGENT_CHAT: AgentChat = {
  * once its `TranscriptAdapter` exists (`adapterFor` answers for exactly
  * these).
  */
-export const CHAT_KINDS: ReadonlySet<string> = new Set<AgentKind>(["claude", "codex", "pi"]);
+export const CHAT_KINDS: ReadonlySet<string> = new Set<AgentKind>(["claude", "codex", "pi", "opencode"]);
 
 /** Whether an agent of `kind` gets a chat at all. */
 export function hasChat(kind: string | null | undefined): boolean {

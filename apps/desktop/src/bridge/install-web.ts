@@ -364,7 +364,8 @@ function onHello(entry: Held, reply: HelloReply): void {
   // token is unchanged, so `syncPairings` keeps this bridge rather than redial.
   clearPairingTicket(roomId, entry.pairing.ticket);
   recordPairingHello(roomId, reply);
-  entry.kind = reply.hostServer ? "host" : "desktop";
+  // A room once a host server's stays one (`recordPairingHello`).
+  entry.kind = reply.hostServer || entry.pairing.hostServer === true ? "host" : "desktop";
   if (entry.kind === "desktop") {
     watchHosts(entry);
     void linkHosts(entry);

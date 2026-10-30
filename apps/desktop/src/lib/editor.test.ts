@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAppStore } from "../store/app-store";
 import { usePreferencesStore } from "../store/preferences-store";
-import { openInEditor } from "./editor";
+import { editorIsManor, editorName, openInEditor } from "./editor";
 
 describe("openInEditor with a terminal editor", () => {
   const addTerminalTab = vi.fn();
@@ -22,5 +22,26 @@ describe("openInEditor with a terminal editor", () => {
   it("types nothing for a name with control characters", () => {
     openInEditor("/repo/a\u0003b.md");
     expect(addTerminalTab).not.toHaveBeenCalled();
+  });
+});
+
+describe("Manor as the editor", () => {
+  const setEditor = (defaultEditor: string) =>
+    usePreferencesStore.setState((s) => ({
+      preferences: { ...s.preferences, defaultEditor },
+    }));
+
+  it("is Manor while no editor command is set", () => {
+    setEditor("");
+    expect(editorIsManor()).toBe(true);
+    expect(editorName("")).toBe("Manor");
+    setEditor("  ");
+    expect(editorIsManor()).toBe(true);
+  });
+
+  it("is the command once one is set", () => {
+    setEditor("code");
+    expect(editorIsManor()).toBe(false);
+    expect(editorName("code")).toBe("code");
   });
 });

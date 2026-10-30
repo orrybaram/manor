@@ -27,7 +27,7 @@ import {
 } from "./keybinding-commands";
 import { convertFocusedPaneTo, splitFocusedPaneWith } from "./pane-actions";
 import { detachTabToNewWindow, movePaneToNewWindow } from "./detach";
-import { openInEditor } from "./editor";
+import { editorIsManor, openInEditor } from "./editor";
 import { focusRegionWhenReady } from "./focus-regions";
 import { HOME_PATH } from "./home";
 import { LOCAL_HOST_ID } from "./hosts";
@@ -175,7 +175,11 @@ function createCommandContext(chrome: MenuChrome): CommandContext {
     convertFocusedPaneTo,
     movePaneToNewWindow: (paneId) => void movePaneToNewWindow(paneId),
     detachTab: (tabId) => void detachTabToNewWindow(tabId),
-    openInEditor,
+    // Manor as the editor opens the workspace's files in a file pane.
+    openInEditor: (path) => {
+      if (editorIsManor()) useAppStore.getState().addFileTab();
+      else openInEditor(path);
+    },
     revealInFinder: (path) =>
       void window.electronAPI.shell.showItemInFolder(path),
     openExternal,

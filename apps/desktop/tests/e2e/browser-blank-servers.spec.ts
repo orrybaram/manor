@@ -39,28 +39,32 @@ test("a blank browser pane lists the workspace's servers, and a click opens one"
     const list = window.locator('[data-testid="browser-blank-servers"]');
     await expect(list).toBeVisible({ timeout: 30_000 });
     await expect(list).toContainText("Running in this workspace");
-    const row = list.getByRole("button", { name: `Open localhost:${port}` });
+    // A row names the server as the sidebar's port badge would open it:
+    // the workspace's proxy hostname when it has one, else localhost:<port>.
+    const row = list.getByRole("button", { name: /^Open / }).filter({ hasText: "node" });
     await expect(row).toBeVisible({ timeout: 30_000 });
-    await expect(row).toContainText("node");
+    const host = ((await row.getAttribute("aria-label")) ?? "").replace(/^Open /, "");
+    expect(host).toMatch(new RegExp(`(^localhost:${port}$)|(\\.localhost:\\d+$)`));
     await expect(list).toContainText("or type a URL above");
     await window.screenshot({ path: "tests/e2e/artifacts/browser-blank-servers.png" });
 
     await row.click();
     await expect(list).toBeHidden({ timeout: 10_000 });
+    // Unfocused, the URL bar shows the address without its scheme.
     await expect(window.locator("[data-pane-url-input]:visible")).toHaveValue(
-      `http://localhost:${port}/`,
+      `${host}/`,
       { timeout: 10_000 },
     );
     await expect
       .poll(
         () =>
-          app.evaluate(async ({ webContents }, p) => {
+          app.evaluate(async ({ webContents }, h) => {
             const wc = webContents
               .getAllWebContents()
-              .find((w) => w.getType() === "webview" && w.getURL().includes(`:${p}/`));
+              .find((w) => w.getType() === "webview" && w.getURL().includes(`${h}/`));
             if (!wc || wc.isLoading()) return null;
             return (await wc.executeJavaScript(`document.querySelector("h1")?.textContent`)) as unknown;
-          }, port),
+          }, host),
         { timeout: 10_000 },
       )
       .toBe("From the workspace");

@@ -57,9 +57,13 @@ export interface UseLoadProblemResult {
 export function useLoadProblem(
   paneId: string,
   webviewRef: RefObject<ProblemWebview | null>,
+  /** Told of each problem as it is shown. */
+  onProblem?: (problem: LoadProblem) => void,
 ): UseLoadProblemResult {
   const [problem, setProblemState] = useState<LoadProblem | null>(null);
   const problemRef = useRef(problem);
+  const onProblemRef = useRef(onProblem);
+  onProblemRef.current = onProblem;
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** The URL of the retry this hook last loaded, until its navigation ends. */
   const retryingRef = useRef<string | null>(null);
@@ -76,6 +80,7 @@ export function useLoadProblem(
     }
     problemRef.current = next;
     setProblemState(next);
+    if (next) onProblemRef.current?.(next);
   };
 
   // Main drops it if the pane has gone elsewhere by the time it arrives.

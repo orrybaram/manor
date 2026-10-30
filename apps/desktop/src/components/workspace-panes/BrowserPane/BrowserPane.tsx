@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { useMountEffect } from "../../../hooks/useMountEffect";
-import { selectPaneUrl, useAppStore } from "../../../store/app-store";
+import { useAppStore } from "../../../store/app-store";
 import { toast } from "../../../toast";
 import { useBrowserHistoryStore, type HistoryEntry } from "../../../store/browser-history-store";
 import { useDragOverlayStore, selectIsDragActive } from "../../../store/drag-overlay-store";
@@ -9,6 +9,7 @@ import { onUiRequest } from "../../../utils/ui-request";
 import { useRemoteBrowserUrl } from "../../../hooks/useRemoteBrowserUrl";
 import { HostIndicator } from "../../hosts/HostIndicator";
 import { siteLabel } from "./site-label";
+import { isLocalhostHttpUrl } from "../../../lib/hosts";
 import type { PageDialog } from "../../../../electron/webview-dialogs";
 import { PageDialogOverlay } from "./PageDialogOverlay";
 import { LoadProblemPage } from "./LoadProblemPage";
@@ -153,18 +154,34 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       initialUrl,
       webviewRef,
     });
+    const remoteHostIdRef = useRef(remoteHostId);
+    remoteHostIdRef.current = remoteHostId;
+
+    // The sites a remote pane's error page and dialogs name, by the URL they
+    // are for. The page is loaded through a port forward on this machine, so
+    // a loopback URL means one of the box's ports: until main says which, the
+    // forward's own `host:port` stands in.
+    const [boxSites, setBoxSites] = useState<Record<string, string>>({});
+    const nameBoxSite = (url: string) => {
+      const hostId = remoteHostIdRef.current;
+      if (!hostId || !isLocalhostHttpUrl(url)) return;
+      window.electronAPI.ports.remoteUrl(url, hostId).then(
+        (shown) => setBoxSites((prev) => ({ ...prev, [url]: siteLabel(shown) })),
+        () => {},
+      );
+    };
+    const siteOf = (url: string) => boxSites[url] ?? siteLabel(url);
+
     // The error and crash pages.
-    const loadProblem = useLoadProblem(paneId, webviewRef);
+    const loadProblem = useLoadProblem(paneId, webviewRef, (problem) => {
+      if (problem.kind !== "crashed") nameBoxSite(problem.url);
+    });
     const [url, setUrl] = useState(initialUrl === "about:blank" ? "" : initialUrl);
     const [isBlank, setIsBlank] = useState(initialUrl === "about:blank");
     const [isLoading, setIsLoading] = useState(false);
     const [suggestions, setSuggestions] = useState<HistoryEntry[]>([]);
     const [highlightIndex, setHighlightIndex] = useState(-1);
     const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // The URL last asked for or shown as the page, as the pane names it (a
-    // remote pane's box URL): a load that fails never commits, so the
-    // remembered URL can still be the page before it.
-    const shownUrlRef = useRef<string | null>(null);
     // The page's open alert/confirm/prompt; the first is shown. The page is
     // blocked on it, so there is rarely more than one.
     const [dialogs, setDialogs] = useState<PageDialog[]>([]);
@@ -261,7 +278,6 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       // the box; main swaps in the port forward's local port when the
       // host's scan reports that port, and hands anything else back as is.
       remoteBrowserUrl.navigate(resolved);
-      shownUrlRef.current = resolved;
       setUrl(resolved);
       fireNavStateChange({ url: resolved, suggestions: [], highlightIndex: -1 });
     }, [fireNavStateChange, remoteBrowserUrl]);
@@ -430,13 +446,6 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       onSuggestionMouseDown: handleSuggestionMouseDown,
     }), [paneId, navigateTo, fireNavStateChange, openFindBar, handleUrlChange, handleUrlKeyDown, handleUrlBlur, handleUrlFocus, handleSuggestionMouseDown]);
 
-    const remoteHostIdRef = useRef(remoteHostId);
-    remoteHostIdRef.current = remoteHostId;
-
-    /** A remote pane's remembered box URL, which names its forwarded pages. */
-    const rememberedRemoteUrl = () =>
-      remoteHostId ? (shownUrlRef.current ?? selectPaneUrl(useAppStore.getState(), paneId)) : null;
-
     const answerDialog = (dialog: PageDialog, ok: boolean, text?: string) => {
       void window.electronAPI.webview.replyDialog(dialog.id, ok, text);
       setDialogs((open) => open.filter((d) => d.id !== dialog.id));
@@ -456,7 +465,6 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       /** Record `shown` — the URL as the pane remembers it — as the page. */
       const applyNavigation = (shown: string, actual: string) => {
         const blank = shown === "about:blank";
-        shownUrlRef.current = shown;
         setUrl(blank ? "" : shown);
         setIsBlank(blank);
         setPaneUrl(paneId, shown);
@@ -499,6 +507,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         (dialogPaneId: string, dialog: PageDialog) => {
           if (dialogPaneId !== paneId) return;
           setDialogs((open) => [...open, dialog]);
+          nameBoxSite(dialog.origin);
         },
       );
       const unsubDialogClosed = window.electronAPI.webview.onDialogClosed(
@@ -715,7 +724,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
               site={
                 loadProblem.problem.kind === "crashed"
                   ? ""
-                  : siteLabel(loadProblem.problem.url, rememberedRemoteUrl())
+                  : siteOf(loadProblem.problem.url)
               }
               onRetry={loadProblem.retry}
               onCancel={loadProblem.cancelWait}
@@ -732,7 +741,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
             <PageDialogOverlay
               key={dialogs[0].id}
               dialog={dialogs[0]}
-              site={siteLabel(dialogs[0].origin, rememberedRemoteUrl())}
+              site={siteOf(dialogs[0].origin)}
               onAnswer={(ok, text) => answerDialog(dialogs[0], ok, text)}
             />
           )}

@@ -3,7 +3,7 @@
 # Builds, signs, notarizes, and publishes Manor to GitHub Releases.
 # Triggered by pushing a version tag (e.g., git tag v0.2.0 && git push --tags).
 #
-# Required repository secrets:
+# Required secrets, in the `release` environment (Settings -> Environments):
 #
 #   CSC_LINK
 #     Base64-encoded .p12 certificate for macOS code signing.
@@ -141,6 +141,9 @@ jobs:
   release:
     needs: tag-on-main
     runs-on: macos-latest
+    # Signing, notarization and Cloudflare secrets live in this environment,
+    # which only v* tags (admin-only, "Release tags" ruleset) can deploy to.
+    environment: release
 
     steps:
       - name: Checkout

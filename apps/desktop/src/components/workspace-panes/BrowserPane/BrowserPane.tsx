@@ -14,6 +14,7 @@ import { PageDialogOverlay } from "./PageDialogOverlay";
 import { LoadProblemPage } from "./LoadProblemPage";
 import { useLoadProblem } from "./useLoadProblem";
 import { BlankPage } from "./BlankPage";
+import { splitDirectionBeside } from "../../../lib/open-in-file-pane";
 import type { WorkspaceKey } from "../../../lib/workspace-key";
 
 import styles from "./BrowserPane.module.css";
@@ -135,6 +136,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     const { paneId, initialUrl, remoteHostId = null, projectId, workspaceKey, onNavStateChange } = props;
 
     const webviewRef = useRef<WebviewElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
 
     // Remote panes load `localhost:<port>` URLs through a port
     // forward rather than on this machine — everything about that lives in
@@ -518,6 +520,19 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         },
       );
 
+      const unsubOpenInSplit = window.electronAPI.webview.onOpenInSplit(
+        (sourcePaneId: string, openUrl: string) => {
+          if (sourcePaneId !== paneId) return;
+          // As the terminal's link menu does: beside a wide pane, under a tall one.
+          useAppStore
+            .getState()
+            .splitPaneAt(paneId, splitDirectionBeside(containerRef.current), "second", {
+              contentType: "browser",
+              url: openUrl,
+            });
+        },
+      );
+
       const unsubLoading = window.electronAPI.webview.onLoadingChanged(
         (loadPaneId: string, loading: boolean) => {
           if (loadPaneId !== paneId) return;
@@ -585,6 +600,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         unsubEscape();
         unsubFocusUrl();
         unsubNewWindow();
+        unsubOpenInSplit();
         unsubLoading();
         unsubFavicon();
         unsubAudioState();
@@ -596,7 +612,7 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
     });
 
     return (
-      <div className={styles.container}>
+      <div ref={containerRef} className={styles.container}>
         <div className={styles.webviewContainer}>
           {isLoading && <div className={styles.loadingBar} />}
           <webview

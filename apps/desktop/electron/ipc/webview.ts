@@ -37,6 +37,7 @@ import type { HostDeps } from "./types";
 import { resolveBindings } from "../../src/lib/keybinding-defs";
 import { createPageKeyHandler } from "./webview-keys";
 import { attachPageDialogs, registerPageDialogIpc } from "../webview-dialogs";
+import { buildPageContextMenu } from "../webview-context-menu";
 import {
   buildPopupWindowOptions,
   closeAllChildWindows,
@@ -356,61 +357,39 @@ export function register(deps: HostDeps): void {
           _ev: Electron.Event,
           params: Electron.ContextMenuParams,
         ) => {
-          const template: Electron.MenuItemConstructorOptions[] = [];
-
-          if (params.mediaType === "image" && params.srcURL) {
-            template.push(
-              {
-                label: "Open Image in New Tab",
-                click: () => {
-                  rendererWebContents.send(
-                    "webview:new-window",
-                    paneId,
-                    params.srcURL,
-                  );
-                },
-              },
-              {
-                label: "Save Image As...",
-                click: async () => {
-                  const win = BrowserWindow.fromWebContents(rendererWebContents);
-                  if (!win || win.isDestroyed()) return;
-                  const result = await dialog.showSaveDialog(win, {
-                    defaultPath: new URL(params.srcURL).pathname
-                      .split("/")
-                      .pop() || "image",
-                  });
-                  if (!result.canceled && result.filePath) {
-                    wc.downloadURL(params.srcURL);
-                    wc.session.once("will-download", (_e, item) => {
-                      item.setSavePath(result.filePath!);
-                    });
-                  }
-                },
-              },
-              {
-                label: "Copy Image",
-                click: () => {
-                  wc.copyImageAt(params.x, params.y);
-                },
-              },
-              {
-                label: "Copy Image Address",
-                click: () => {
-                  void clipboard.writeText(params.srcURL);
-                },
-              },
-              { type: "separator" },
-            );
-          }
-
-          template.push({
-            label: "Inspect Element",
-            click: () => wc.inspectElement(params.x, params.y),
+          const template = buildPageContextMenu(params, {
+            canGoBack: wc.navigationHistory.canGoBack(),
+            canGoForward: wc.navigationHistory.canGoForward(),
+            goBack: () => wc.navigationHistory.goBack(),
+            goForward: () => wc.navigationHistory.goForward(),
+            reload: () => wc.reload(),
+            openInNewTab: (url) =>
+              rendererWebContents.send("webview:new-window", paneId, url),
+            // The renderer owns the layout: it splits the pane.
+            openInSplit: (url) =>
+              rendererWebContents.send("webview:open-in-split", paneId, url),
+            copyText: (text) => clipboard.writeText(text),
+            cut: () => wc.cut(),
+            copy: () => wc.copy(),
+            paste: () => wc.paste(),
+            selectAll: () => wc.selectAll(),
+            saveImageAs: async (url) => {
+              const win = BrowserWindow.fromWebContents(rendererWebContents);
+              if (!win || win.isDestroyed()) return;
+              const result = await dialog.showSaveDialog(win, {
+                defaultPath: new URL(url).pathname.split("/").pop() || "image",
+              });
+              if (!result.canceled && result.filePath) {
+                wc.downloadURL(url);
+                wc.session.once("will-download", (_e, item) => {
+                  item.setSavePath(result.filePath!);
+                });
+              }
+            },
+            copyImageAt: (x, y) => wc.copyImageAt(x, y),
+            inspectElement: (x, y) => wc.inspectElement(x, y),
           });
-
-          const menu = Menu.buildFromTemplate(template);
-          menu.popup();
+          Menu.buildFromTemplate(template).popup();
         };
         wc.on("context-menu", handler);
         webviewContextMenuCleanup.set(paneId, () => {

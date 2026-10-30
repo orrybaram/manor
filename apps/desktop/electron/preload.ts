@@ -259,6 +259,9 @@ const nativeApi = {
         opts?: { background?: boolean },
       ) => void,
     ) => onChannelArgs("webview:new-window", callback),
+    /** The page menu's Open Link in Split: a browser pane beside this one. */
+    onOpenInSplit: (callback: (paneId: string, url: string) => void) =>
+      onChannelArgs("webview:open-in-split", callback),
     stop: (paneId: string) => invoke("webview:stop", paneId),
     /** Load `url` again after a failure; a new failure is the page's `did-fail-load`. */
     loadUrl: (paneId: string, url: string) => invoke("webview:load-url", paneId, url),

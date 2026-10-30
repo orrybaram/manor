@@ -209,21 +209,66 @@ test("a prompt with text starts an agent; an empty one starts none", async ({
   tempHome,
 }) => {
   await importSeededProject(app, window, tempHome);
-  const agentTabs = () => window.locator('[data-testid="terminal-pane"]').count();
+  // Panes of the workspace on screen; other workspaces' stay mounted, hidden.
+  const visiblePanes = () => window.locator('[data-testid="terminal-pane"]:visible').count();
 
   await openDialog(window);
   await nameInput(window).fill("No agent");
   await window.getByTestId("new-workspace-submit").click();
   await expect(dialog(window)).toBeHidden({ timeout: 15_000 });
-  await window.waitForTimeout(1_500);
-  const without = await agentTabs();
+  await window.waitForTimeout(2_000);
+  expect(await visiblePanes()).toBe(0);
 
   await openDialog(window);
   await nameInput(window).fill("With agent");
   await window.getByTestId("new-workspace-agent-prompt").fill("Say hello");
   await window.getByTestId("new-workspace-agent-prompt").press("ControlOrMeta+Enter");
   await expect(dialog(window)).toBeHidden({ timeout: 15_000 });
-  await expect.poll(agentTabs, { timeout: 15_000 }).toBeGreaterThan(without);
+  await expect.poll(visiblePanes, { timeout: 15_000 }).toBe(1);
+});
+
+test("the folder chip makes a folder from its search and picks it", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  await importSeededProject(app, window, tempHome);
+  await openDialog(window);
+  const folder = window.getByTestId("new-workspace-folder-select");
+  await folder.click();
+  await window.keyboard.type("Backend");
+  await window.getByTestId("new-workspace-folder-select-create").click();
+  await expect(folder).toHaveText(/Backend/);
+});
+
+test("Set up on another host… opens the set-up dialog from the host chip", async ({
+  app,
+  window,
+  tempHome,
+}) => {
+  installLightTheme(tempHome);
+  await importSeededProject(app, window, tempHome);
+  // A host the project isn't on yet; it never connects, which is fine here.
+  await window.evaluate(() => window.electronAPI.hosts.add("e2e@unreachable.invalid"));
+
+  for (const theme of ["dark", "light"] as const) {
+    await selectTheme(window, theme);
+    await openDialog(window);
+    const host = window.getByTestId("new-workspace-host-picker");
+    await expect(host).toBeVisible({ timeout: 10_000 });
+    await host.click();
+    await expect(window.getByTestId("new-workspace-set-up-on-host")).toBeVisible();
+    await shotWithList(window, `host-set-up-${theme}`);
+    await window.getByTestId("new-workspace-set-up-on-host").click();
+    const setUp = window.getByRole("dialog").filter({ hasText: /another host|Set up/i }).last();
+    await expect(setUp).toBeVisible();
+    await shot(window, `clone-dialog-${theme}`, window.locator("body"));
+    await window.keyboard.press("Escape");
+    // Focus comes back to the host chip.
+    await expect(host).toBeFocused();
+    await window.keyboard.press("Escape");
+    await expect(dialog(window)).toBeHidden();
+  }
 });
 
 test("the card fits at phone width", async ({ app, window, tempHome }) => {

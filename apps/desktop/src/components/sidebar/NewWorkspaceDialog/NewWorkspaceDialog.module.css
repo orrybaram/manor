@@ -82,8 +82,9 @@
   border: none;
 }
 
-/* The phone lifts every field to 16px (no iOS focus zoom); the title stays bigger. */
-:global(:root[data-layout="phone"]) .nameInput.nameInput {
+/* The phone lifts every field to 16px (no iOS focus zoom); the title stays
+   bigger. Three classes to outrank that rule's two :not([type]) clauses. */
+:global(:root[data-layout="phone"]) .nameInput.nameInput.nameInput {
   font-size: 20px !important;
 }
 

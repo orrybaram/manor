@@ -19,7 +19,7 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 101;
-  width: 520px;
+  width: min(520px, calc(100vw - 24px));
   background: var(--dim);
   border: 1px solid var(--surface);
   border-radius: 10px;
@@ -36,54 +36,148 @@
   animation: scaleOut 100ms ease-in;
 }
 
-.header {
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--surface);
+/* No header bar: the name is the title, and × sits in its corner. */
+.close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
 }
 
-.title {
-  font-size: 14px;
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.fieldset {
+  all: unset;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 16px 16px;
+}
+
+.top {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 32px 0 6px;
+}
+
+/* The name, set as the dialog's title: big, borderless. */
+.nameInput.nameInput {
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  font-size: 20px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text-selected);
 }
 
-
-.body {
-  padding: 16px 20px;
+.nameInput.nameInput:focus {
+  border: none;
 }
 
-.fieldLabel {
-  font-size: 12px;
+/* The phone lifts every field to 16px (no iOS focus zoom); the title stays bigger. */
+:global(:root[data-layout="phone"]) .nameInput.nameInput {
+  font-size: 20px !important;
+}
+
+/* The branch the workspace makes, or checks out, under its name. */
+.branchLine {
+  min-height: 22px;
   color: var(--text-dim);
-  margin-bottom: 4px;
-  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
-.fieldLabel:first-of-type {
-  margin-top: 0;
+.branchInput.branchInput {
+  flex: 1;
+  padding: 2px 0;
+}
+
+.branchInput.branchInput:focus {
+  color: var(--text-selected);
+}
+
+.branchName {
+  color: var(--green, var(--accent));
+  font-family: var(--font-mono);
+}
+
+/* The prompt in a box shaped like the phone's composer, chips in its foot. */
+.composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.composer:focus-within {
+  border-color: var(--accent);
+}
+
+.prompt.prompt {
+  border: none;
+  background: transparent;
+  border-radius: 10px 10px 0 0;
+  padding: 10px 12px;
+  resize: none;
+  min-height: 72px;
+}
+
+.prompt.prompt:focus {
+  border: none;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--surface);
+}
+
+.chip.chip {
+  height: 26px;
+  padding: 0 8px;
+  gap: 4px;
+  border: none;
+  border-radius: 7px;
+  background: var(--surface);
+  color: var(--text-selected);
+  font-weight: 500;
+}
+
+.chip.chip:hover {
+  background: color-mix(in srgb, var(--surface) 80%, var(--text-selected));
+}
+
+.chipDim {
+  color: var(--text-dim);
+  font-weight: 400;
 }
 
 .hint {
   font-size: 12px;
   color: var(--text-dim);
+  padding: 0 4px;
 }
 
 .error {
   font-size: 12px;
   color: var(--danger);
-  margin-top: 8px;
+  padding: 0 4px;
 }
 
 .actions {
-  margin-top: 16px;
-}
-
-/* The selects get their own row and wrap rather than shrink, so a project,
-   folder or branch name is never squeezed down to an ellipsis by the buttons. */
-.selects {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  margin-top: 4px;
 }
 
 /* Jev is picking a folder: a soft accent sweep crosses the folder picker
@@ -121,21 +215,12 @@
   }
 }
 
-.selects:empty {
-  display: none;
-}
 
 /* Reserve the "Creating..." width so the row doesn't reflow on submit. */
 .submit {
   min-width: 112px;
 }
 
-.fieldset {
-  all: unset;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
 
 .fieldset:disabled input,
 .fieldset:disabled select {
@@ -196,33 +281,8 @@
   }
 }
 
-.hostPickerRow {
-  flex-wrap: wrap;
-}
 
-.agentSection {
-  gap: 6px;
-}
 
-/* Quiet until asked for: most workspaces start without an agent. */
-.agentToggle {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-dim);
-}
 
-.agentToggle:hover {
-  color: var(--text-selected);
-}
 
-.chevron {
-  transition: transform 150ms ease-out;
-}
 
-.chevronOpen {
-  composes: chevron;
-  transform: rotate(90deg);
-}

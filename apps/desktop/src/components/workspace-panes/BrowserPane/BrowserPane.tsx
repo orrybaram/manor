@@ -487,6 +487,13 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
       // The guest reports it straight to its element; no trip through main.
       const onTargetUrl = (e: Event) => setTargetUrl((e as WebviewTargetUrlEvent).url);
       wv.addEventListener("update-target-url", onTargetUrl);
+      // A link the old page reported never gets its "left" from it.
+      const onTargetPageGone = (e: Event) => {
+        if ((e as Event & { isMainFrame?: boolean }).isMainFrame === false) return;
+        setTargetUrl("");
+      };
+      wv.addEventListener("did-start-navigation", onTargetPageGone);
+      wv.addEventListener("render-process-gone", onTargetPageGone);
 
       const unsubDialog = window.electronAPI.webview.onDialog(
         (dialogPaneId: string, dialog: PageDialog) => {
@@ -643,6 +650,8 @@ export const BrowserPane = forwardRef<BrowserPaneRef, BrowserPaneProps>(
         wv.removeEventListener("page-title-updated", onTitleUpdate);
         wv.removeEventListener("did-attach", onDidAttach);
         wv.removeEventListener("update-target-url", onTargetUrl);
+        wv.removeEventListener("did-start-navigation", onTargetPageGone);
+        wv.removeEventListener("render-process-gone", onTargetPageGone);
         wv.removeEventListener("focus", onWebviewFocus);
         wv.removeEventListener("blur", onWebviewBlur);
         window.electronAPI.webview.unregister(paneId);

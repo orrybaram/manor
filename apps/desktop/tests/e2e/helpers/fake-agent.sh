@@ -66,6 +66,9 @@ while IFS= read -r -n 1 char; do
     hook UserPromptSubmit
     retitle
     printf 'received: %s\n' "$line"
+    # Every message whole, one per line, for a test that asserts on what was
+    # typed rather than on a wrapped terminal row.
+    [ -n "${FAKE_AGENT_LOG:-}" ] && printf '%s\n' "$line" >> "$FAKE_AGENT_LOG"
     # A long reply on demand, so a test can check what a full screen of output
     # does to the reader's scroll position.
     if [ "$line" = "spam" ]; then

@@ -194,6 +194,30 @@ describe("POST /projects/:projectId/workspaces", () => {
     expect(pm.getProjects).toHaveBeenCalledTimes(1);
   });
 
+  it("with wait, has the op await the setup script and answers how it ended", async () => {
+    const d = deps(pm);
+    const create_ = vi.fn(async (_req: unknown) => ({
+      project: project("solo", "local"),
+      workspacePath: "/local/feat",
+      setup: { status: "exited" as const, exitCode: 2 },
+    }));
+    (d as unknown as { workspaceOps: { create: typeof create_ } }).workspaceOps.create = create_;
+
+    const waited = await call(create, d, { projectId: "solo" }, { name: "feat", wait: true });
+    expect(create_.mock.calls[0]).toEqual([
+      expect.objectContaining({ awaitSetup: { timeoutMs: 8 * 60_000 } }),
+    ]);
+    expect((waited.body as { setup: unknown }).setup).toEqual({ status: "exited", exitCode: 2 });
+
+    create_.mockResolvedValueOnce({
+      project: project("solo", "local"),
+      workspacePath: "/local/feat",
+    } as never);
+    const quick = await call(create, d, { projectId: "solo" }, { name: "feat" });
+    expect(create_.mock.calls[1][0]).not.toHaveProperty("awaitSetup");
+    expect(quick.body).not.toHaveProperty("setup");
+  });
+
   it("accepts the local host id", async () => {
     await call(create, deps(pm), { projectId: "box-app" }, {
       name: "feat",

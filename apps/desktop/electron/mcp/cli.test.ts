@@ -212,7 +212,7 @@ describe("dispatch", () => {
 
     expect(http.get).toHaveBeenCalledWith("/projects/abc");
     expect(io.stdout).toBe(
-      "abc: Manor\n  path: /code/manor\n  default branch: main\n  workspaces (0):\n",
+      "abc: Manor\n  path: /code/manor\n  default branch: main\n  start script: (none)\n  workspaces (0):\n",
     );
     expect(io.stderr).toBe("");
   });

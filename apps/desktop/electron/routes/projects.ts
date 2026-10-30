@@ -363,6 +363,14 @@ function parseLinkedIssue(value: unknown): LinkedIssue | null {
 }
 
 /**
+ * How long `POST /projects/:id/workspaces { wait: true }` waits for the
+ * setup script before answering `timed-out`. Under the ten minutes the
+ * desktop gives a forwarded write (`host-routing`'s `LONG_CALL_TIMEOUT_MS`),
+ * which also covers the fetch and the worktree.
+ */
+const CREATE_SETUP_WAIT_MS = 8 * 60_000;
+
+/**
  * `ProjectUpdatableFields`' keys, kept in sync by the `satisfies` check —
  * `POST /projects/:projectId/update` copies only these off the body, so an
  * unrelated field (or a typo) is silently ignored rather than smuggled into
@@ -622,15 +630,18 @@ export const projectRoutes: ServerRoute[] = [
           : undefined;
       const ops = ctx.deps.workspaceOps;
       // The op starts `worktreeStartScript` on the server, as it does for
-      // the UI: no window need be open.
-      const { project: updated } = await ops.create({
+      // the UI: no window need be open. `wait` holds the answer until the
+      // script's shell exits, and the answer says how (`setup`).
+      const wait = body.wait === true;
+      const { project: updated, setup } = await ops.create({
         projectId: project.id,
         name,
         branch,
         baseBranch,
         useExistingBranch,
+        ...(wait && { awaitSetup: { timeoutMs: CREATE_SETUP_WAIT_MS } }),
       });
-      json(200, updated && withHostLabel(pm, updated));
+      json(200, updated && { ...withHostLabel(pm, updated), ...(setup && { setup }) });
     }, { here: HERE }),
   },
 

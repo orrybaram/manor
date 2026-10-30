@@ -68,6 +68,8 @@ export interface SpawnPaneOptions {
   hostId?: HostId;
   /** Sets `MANOR_AGENT_KIND` in a freshly spawned session's env. */
   agentKind?: string | null;
+  /** More env for a freshly spawned session: a setup script's paths. */
+  env?: Record<string, string>;
   /** False for a create nobody meant: a sleeping host stays asleep. */
   wake?: boolean;
 }
@@ -174,9 +176,10 @@ export async function spawnPane(
   // A line queued with its agent kind names the session's kind: the
   // caller's guess comes from the workspace's project, which may run another.
   const agentKind = deps.layoutStore.pendingCommands.peek(paneId)?.agentKind ?? opts.agentKind;
-  const env: Record<string, string> | undefined = agentKind
-    ? { MANOR_AGENT_KIND: agentKind }
-    : undefined;
+  const env: Record<string, string> | undefined =
+    agentKind || opts.env
+      ? { ...opts.env, ...(agentKind && { MANOR_AGENT_KIND: agentKind }) }
+      : undefined;
   try {
     const result = await oneAtATime(deps.backend, paneId, () =>
       deps.backend.pty.createOrAttachWith(paneId, resolvedCwd, cols, rows, {
@@ -411,6 +414,23 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
     return command ? getConnectorForCommand(command).kind : "claude";
   }
 
+  /**
+   * Where a setup script runs, in its shell's env: the workspace, and the
+   * project's main checkout it can copy untracked files (`.env`, …) from.
+   * `ROOT_WORKTREE_PATH` is the name Cursor's worktree setup passes, so a
+   * script written for it runs here unchanged.
+   */
+  function setupScriptEnv(hostId: string, workspacePath: string): Record<string, string> {
+    const projectPath = deps.projectManager.workspaceProject(hostId, workspacePath)?.projectPath;
+    return {
+      MANOR_WORKSPACE_PATH: workspacePath,
+      ...(projectPath && {
+        MANOR_PROJECT_PATH: projectPath,
+        ROOT_WORKTREE_PATH: projectPath,
+      }),
+    };
+  }
+
   return {
     launch(key, paneId) {
       const { hostId, path: workspacePath } = parseWorkspaceKey(key);
@@ -418,12 +438,14 @@ export function createServerLaunches(deps: ServerLaunchesDeps): ServerLaunches {
       // Not awaited: the layout command that added the pane answers now. A
       // failure is a pane a viewer creates later — its command is still
       // queued — and `toPtyFailure` has logged anything but an away host.
+      const setup = setups.get(paneId);
       void spawnPane(spawn, paneId, {
         cwd: workspacePath,
         cols: LAUNCH_COLS,
         rows: LAUNCH_ROWS,
         hostId,
         agentKind: agentKindFor(paneId, hostId, workspacePath),
+        ...(setup && { env: setupScriptEnv(hostId, workspacePath) }),
       }).catch((err: unknown) => {
         console.error(`[launch] could not start ${paneId}:`, err);
       });

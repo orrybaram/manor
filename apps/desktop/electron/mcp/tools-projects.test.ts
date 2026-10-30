@@ -215,6 +215,108 @@ describe("create_workspace", () => {
   });
 });
 
+describe("create_workspace's setup script", () => {
+  const created = (extra: Record<string, unknown>) => ({
+    id: "p1",
+    name: "tango",
+    hostId: "local",
+    host: "this Mac",
+    workspaces: [],
+    ...extra,
+  });
+
+  it("says no setup script ran, and how to set one, when the project has none", async () => {
+    const http = fakeHttp({ post: async () => created({ worktreeStartScript: null }) });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat" },
+      http,
+    );
+
+    const said = result.content[0].text!;
+    expect(said).toContain("This project has no setup script, so nothing was run");
+    expect(said).toContain("manor update-project --worktree-start-script");
+    expect(said).not.toContain("started");
+  });
+
+  it("names the script and its Setup tab when one is configured", async () => {
+    const http = fakeHttp({
+      post: async () => created({ worktreeStartScript: "bash scripts/setup-worktree.sh" }),
+    });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat" },
+      http,
+    );
+
+    expect(http.calls[0].body).not.toHaveProperty("wait");
+    expect(result.content[0].text).toContain(
+      'The project\'s setup script (`bash scripts/setup-worktree.sh`) started in the new workspace\'s "Setup" tab',
+    );
+  });
+
+  it("with --wait, asks the route to wait and reports a clean exit", async () => {
+    const http = fakeHttp({
+      post: async () =>
+        created({ worktreeStartScript: "pnpm i", setup: { status: "exited", exitCode: 0 } }),
+    });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat", wait: true },
+      http,
+    );
+
+    expect(http.calls[0].body).toMatchObject({ name: "feat", wait: true });
+    expect(result.content[0].text).toContain("(`pnpm i`) finished with exit code 0.");
+  });
+
+  it("with --wait, fails when the script exits non-zero or is still running", async () => {
+    for (const [setup, said] of [
+      [{ status: "exited", exitCode: 3 }, "failed with exit code 3"],
+      [{ status: "timed-out" }, "still running when the wait ran out"],
+      [{ status: "failed", error: "host away" }, "could not start: host away"],
+    ] as const) {
+      const http = fakeHttp({ post: async () => created({ worktreeStartScript: "pnpm i", setup }) });
+      await expect(
+        projectsModule.handlers.create_workspace({ projectId: "p1", name: "feat", wait: true }, http),
+      ).rejects.toThrow(said);
+    }
+  });
+
+  it("with --wait and no script, succeeds and says nothing ran", async () => {
+    const http = fakeHttp({ post: async () => created({ worktreeStartScript: null }) });
+
+    const result = await projectsModule.handlers.create_workspace(
+      { projectId: "p1", name: "feat", wait: true },
+      http,
+    );
+
+    expect(result.content[0].text).toContain("no setup script");
+  });
+});
+
+describe("get_project", () => {
+  it("shows the start script, or that there is none", async () => {
+    for (const [script, line] of [
+      ["bash scripts/setup-worktree.sh", "  start script: bash scripts/setup-worktree.sh"],
+      [null, "  start script: (none)"],
+    ] as const) {
+      const http = fakeHttp({
+        get: async () => ({
+          id: "p1",
+          name: "tango",
+          path: "/code/tango",
+          defaultBranch: "main",
+          worktreeStartScript: script,
+          workspaces: [],
+        }),
+      });
+      const result = await projectsModule.handlers.get_project({ projectId: "p1" }, http);
+      expect(result.content[0].text).toContain(line);
+    }
+  });
+});
+
 describe("move_workspace_to_host", () => {
   const moveTo = (answer: Record<string, unknown>) =>
     fakeHttp({ post: async () => ({ sourceHost: "This machine", targetHost: "me@box", ...answer }) });

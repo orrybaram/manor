@@ -215,6 +215,7 @@ describe("ProjectManager host-relative paths", () => {
     expect(mgr.workspaceProject("box", "/srv/app/packages/lib")).toEqual({
       projectId: inner.id,
       projectName: "Inner",
+      projectPath: "/srv/app/packages/lib",
       agentCommand: "codex",
     });
     // A workspace it only remembers, outside its root.

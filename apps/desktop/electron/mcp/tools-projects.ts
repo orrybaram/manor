@@ -63,6 +63,69 @@ export interface ProjectInfo {
   group?: ProjectGroupListing | null;
 }
 
+/**
+ * How a new workspace's setup script ended, on a create sent with `wait`
+ * (the server's `SetupScriptEnd`): its shell exited (null code: killed),
+ * it could not start, or it was still running when the wait ran out.
+ */
+type SetupEnd =
+  | { status: "exited"; exitCode: number | null }
+  | { status: "failed"; error: string }
+  | { status: "timed-out" };
+
+/** What `manor update-project` takes to set the start script. */
+const SET_START_SCRIPT_HINT =
+  "Set one with `manor update-project --worktree-start-script '<command>'`.";
+
+/**
+ * What `create_workspace` says about the setup script: none configured, started
+ * (its tab closes when it ends, so say where to look), or, with `wait`, how it
+ * ended. `failed`: a waited-for script that did not exit 0, which makes the
+ * create an error.
+ */
+function setupNote(
+  script: string | null | undefined,
+  setup: SetupEnd | undefined,
+  waited: boolean,
+): { note: string; failed: boolean } {
+  if (!script?.trim()) {
+    return {
+      note: `This project has no setup script, so nothing was run in the new workspace. ${SET_START_SCRIPT_HINT}`,
+      failed: false,
+    };
+  }
+  const quoted = `\`${script.trim()}\``;
+  if (!waited || !setup) {
+    return {
+      note: `The project's setup script (${quoted}) started in the new workspace's "Setup" tab, which closes when the script exits. Pass --wait to wait for it and get its exit code.`,
+      failed: false,
+    };
+  }
+  switch (setup.status) {
+    case "exited":
+      if (setup.exitCode === 0) {
+        return { note: `The project's setup script (${quoted}) finished with exit code 0.`, failed: false };
+      }
+      return {
+        note:
+          setup.exitCode === null
+            ? `The project's setup script (${quoted}) was killed before it finished.`
+            : `The project's setup script (${quoted}) failed with exit code ${setup.exitCode}.`,
+        failed: true,
+      };
+    case "failed":
+      return {
+        note: `The project's setup script (${quoted}) could not start: ${setup.error}`,
+        failed: true,
+      };
+    case "timed-out":
+      return {
+        note: `The project's setup script (${quoted}) was still running when the wait ran out; it goes on in the workspace's "Setup" tab.`,
+        failed: true,
+      };
+  }
+}
+
 /** One member of a linked-project group: a project on one host. */
 interface ProjectGroupMember {
   projectId: string;
@@ -255,6 +318,12 @@ async function moveProjectId(
  */
 const MOVE_TIMEOUT_MS = 40 * 60_000;
 
+/**
+ * A create with `wait`: the server waits up to 8 minutes for the setup
+ * script, after the fetch and the worktree. Not imported, for the same reason.
+ */
+const CREATE_WAIT_TIMEOUT_MS = 12 * 60_000;
+
 export function formatWorkspace(
   ws: WorkspaceInfo,
   folders: WorkspaceFolder[] = [],
@@ -273,6 +342,7 @@ export function formatProject(p: ProjectInfo): string {
     `${p.id}: ${p.name}`,
     `  path: ${p.path}`,
     `  default branch: ${p.defaultBranch}`,
+    `  start script: ${p.worktreeStartScript?.trim() || "(none)"}`,
     `  workspaces (${p.workspaces.length}):`,
     ...p.workspaces.map((ws) => formatWorkspace(ws, p.folders)),
   ];
@@ -328,7 +398,7 @@ const tools: ToolDef[] = [
   {
     name: "create_workspace",
     description:
-      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one. Runs the project's setup script afterwards, if one is configured. Provide 'name', 'branch', or both.",
+      "Create a new workspace (git worktree) in a project. Creates a new branch by default, or checks out an existing one. Runs the project's setup script (its worktreeStartScript) afterwards, if one is configured, in a 'Setup' tab that closes when it exits; pass 'wait' to wait for it. Provide 'name', 'branch', or both.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -353,6 +423,11 @@ const tools: ToolDef[] = [
             "Check out an existing branch instead of creating a new one.",
         },
         host: CREATE_HOST_PROP,
+        wait: {
+          type: "boolean",
+          description:
+            "Wait for the project's setup script to exit (up to 8 minutes) and report its exit code. Fails when the script exits non-zero, cannot start, or is still running.",
+        },
       },
     },
   },
@@ -728,7 +803,8 @@ const tools: ToolDef[] = [
         },
         worktreeStartScript: {
           type: "string",
-          description: "Shell script run after a new worktree is created.",
+          description:
+            "Setup command run in each new workspace, in a 'Setup' tab, from the workspace's directory: e.g. 'bash scripts/setup-worktree.sh'. Its env has MANOR_WORKSPACE_PATH (the new workspace) and MANOR_PROJECT_PATH and ROOT_WORKTREE_PATH (the project's main checkout, to copy .env files and the like from). An empty string removes it.",
         },
         worktreeTeardownScript: {
           type: "string",
@@ -834,18 +910,21 @@ const handlers: ToolModule["handlers"] = {
     if (args.useExistingBranch !== undefined)
       body.useExistingBranch = args.useExistingBranch;
     if (args.host !== undefined) body.host = args.host;
+    const waited = args.wait === true;
+    if (waited) body.wait = true;
     const project = (await http.post(
       `/projects/${encodeURIComponent(projectId)}/workspaces`,
       body,
-    )) as ProjectInfo;
-    const setupNote = project.worktreeStartScript
-      ? "\n\nThe project's setup script is running in the new workspace."
-      : "";
-    return text(
-      `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).${setupNote}\n\nWorkspaces now:\n${project.workspaces
-        .map((ws) => formatWorkspace(ws, project.folders))
-        .join("\n")}`,
-    );
+      waited ? CREATE_WAIT_TIMEOUT_MS : undefined,
+    )) as ProjectInfo & { setup?: SetupEnd };
+    const setup = setupNote(project.worktreeStartScript, project.setup, waited);
+    const answer = `Created workspace "${label}" in project "${project.name}" (${project.id}${hostOf(project)}).\n\n${setup.note}\n\nWorkspaces now:\n${project.workspaces
+      .map((ws) => formatWorkspace(ws, project.folders))
+      .join("\n")}`;
+    // A caller that waited is waiting to build on the workspace: one whose
+    // setup did not finish is an error (a non-zero exit from the CLI).
+    if (setup.failed) throw new Error(answer);
+    return text(answer);
   },
 
   async list_workspaces(args, http) {

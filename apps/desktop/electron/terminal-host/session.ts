@@ -525,6 +525,7 @@ export class Session {
    *   still has to parse while post-resize output kept overtaking it.
    */
   private applyResized(cols: number, rows: number): void {
+    void this.scrollbackWriter?.noteResize(cols, rows);
     this.headless.write("", () => {
       this.headless.resize(cols, rows);
     });

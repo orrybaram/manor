@@ -72,6 +72,12 @@ export class ScrollbackWriter {
   private bufferSize = 0;
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private totalBytes = 0;
+  /**
+   * Every byte ever appended, truncation and clears notwithstanding: the
+   * position in the stream `resizes.jsonl` measures against (see
+   * `noteResize`).
+   */
+  private streamBytes = 0;
   private disposed = false;
   /** What meta.json holds, so a cwd change never has to read it back. */
   private meta: SessionMeta | null = null;
@@ -99,6 +105,10 @@ export class ScrollbackWriter {
     return path.join(this.sessionDir, "scrollback.bin");
   }
 
+  private get resizesPath(): string {
+    return path.join(this.sessionDir, "resizes.jsonl");
+  }
+
   private get metaPath(): string {
     return path.join(this.sessionDir, "meta.json");
   }
@@ -117,6 +127,11 @@ export class ScrollbackWriter {
     // Create empty scrollback file
     fs.writeFileSync(this.scrollbackPath, "");
     this.totalBytes = 0;
+    this.streamBytes = 0;
+    fs.writeFileSync(
+      this.resizesPath,
+      JSON.stringify({ fileStartsAt: 0, cols: meta.cols, rows: meta.rows }) + "\n",
+    );
   }
 
   /** Append PTY output data. Buffered and flushed periodically. */
@@ -124,6 +139,7 @@ export class ScrollbackWriter {
     if (this.disposed) return;
 
     const buf = Buffer.from(data, "utf-8");
+    this.streamBytes += buf.length;
     this.buffer.push(buf);
     this.bufferSize += buf.length;
 
@@ -155,10 +171,12 @@ export class ScrollbackWriter {
     // going over on the very next flush.
     const truncate = this.totalBytes > MAX_SCROLLBACK_BYTES;
     if (truncate) this.totalBytes = SCROLLBACK_TRUNCATE_TO_BYTES;
+    // Nothing is buffered now, so the file ends exactly here in the stream.
+    const streamEnd = this.streamBytes;
 
     return this.enqueue(async () => {
       await fsp.appendFile(this.scrollbackPath, combined);
-      if (truncate) await this.truncateScrollback();
+      if (truncate) await this.truncateScrollback(streamEnd);
     });
   }
 
@@ -171,7 +189,7 @@ export class ScrollbackWriter {
    * Keep only the last SCROLLBACK_TRUNCATE_TO_BYTES of the file, reading just
    * that tail.
    */
-  private async truncateScrollback(): Promise<void> {
+  private async truncateScrollback(streamEnd: number): Promise<void> {
     const handle = await fsp.open(this.scrollbackPath, "r");
     let tail: Buffer;
     try {
@@ -195,6 +213,7 @@ export class ScrollbackWriter {
       start++;
     }
     await writeFileAtomic(this.scrollbackPath, tail.subarray(start));
+    await this.appendResizeLog({ fileStartsAt: streamEnd - (tail.length - start) });
   }
 
   /** Handle clear-scrollback escape sequence (\e[3J) — truncate scrollback */
@@ -203,7 +222,35 @@ export class ScrollbackWriter {
     this.buffer = [];
     this.bufferSize = 0;
     this.totalBytes = 0;
-    return this.enqueue(() => fsp.writeFile(this.scrollbackPath, ""));
+    const streamEnd = this.streamBytes;
+    return this.enqueue(async () => {
+      await fsp.writeFile(this.scrollbackPath, "");
+      await this.appendResizeLog({ fileStartsAt: streamEnd });
+    });
+  }
+
+  /**
+   * Record that the pty's winsize changed here in the stream.
+   *
+   * `scrollback.bin` is the program's bytes alone, so a session that drew
+   * garbage cannot be replayed from it: the replay has to guess where each
+   * resize landed, and a wrong guess draws garbage of its own. Each line of
+   * `resizes.jsonl` is `{ at, cols, rows }`, `at` counted in stream bytes.
+   * A `{ fileStartsAt }` line is written whenever truncation or a clear moves
+   * the file's first byte; the last one says where the file starts now, so
+   * `at - fileStartsAt` is the offset into `scrollback.bin`, and a resize
+   * whose offset is negative was cut off with the bytes before it.
+   */
+  noteResize(cols: number, rows: number): Promise<void> {
+    if (this.disposed) return this.whenIdle();
+    const at = this.streamBytes;
+    return this.enqueue(() =>
+      this.appendResizeLog({ at, cols, rows, t: Date.now() }),
+    );
+  }
+
+  private async appendResizeLog(entry: Record<string, number>): Promise<void> {
+    await fsp.appendFile(this.resizesPath, JSON.stringify(entry) + "\n");
   }
 
   /** Update CWD in meta.json. A cwd that did not change writes nothing. */

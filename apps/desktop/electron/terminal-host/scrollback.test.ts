@@ -318,6 +318,7 @@ describe("ScrollbackWriter", () => {
       expect(fs.statSync(metaPath()).ino).not.toBe(ino);
       expect(fs.readdirSync(path.join(sessionsDir, "s1")).sort()).toEqual([
         "meta.json",
+        "resizes.jsonl",
         "scrollback.bin",
       ]);
       expect(readMeta().cwd).toBe("/new/path");
@@ -591,6 +592,88 @@ describe("ScrollbackWriter static readers", () => {
     it("returns empty array when no sessions", () => {
       const sessions = ScrollbackWriter.listPersistedSessions(sessionsDir);
       expect(sessions).toEqual([]);
+    });
+  });
+  describe("resize log", () => {
+    const dir = () => path.join(sessionsDir, "s1");
+    const entries = () =>
+      fs
+        .readFileSync(path.join(dir(), "resizes.jsonl"), "utf-8")
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as Record<string, number>);
+
+    /**
+     * Where in `scrollback.bin` each logged resize landed. The last
+     * `fileStartsAt` describes the file as it is now, whatever came before it.
+     */
+    const fileOffsets = () => {
+      const all = entries();
+      const starts = all.filter((e) => e.fileStartsAt !== undefined);
+      const start = starts[starts.length - 1].fileStartsAt;
+      return all
+        .filter((e) => e.at !== undefined)
+        .map((e) => ({ offset: e.at - start, cols: e.cols, rows: e.rows }));
+    };
+
+    it("places each resize at its byte in the scrollback", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      writer.append("at eighty ✻\r\n");
+      void writer.noteResize(29, 40);
+      writer.append("at twenty-nine\r\n");
+      void writer.noteResize(159, 40);
+      writer.append("wide");
+      await writer.flush();
+
+      expect(entries()[0]).toEqual({ fileStartsAt: 0, cols: 80, rows: 24 });
+      const file = fs.readFileSync(path.join(dir(), "scrollback.bin"));
+      const [narrow, wide] = fileOffsets();
+      expect(narrow).toMatchObject({ cols: 29, rows: 40 });
+      expect(file.subarray(narrow.offset).toString()).toBe("at twenty-nine\r\nwide");
+      expect(wide).toMatchObject({ cols: 159, rows: 40 });
+      expect(file.subarray(wide.offset).toString()).toBe("wide");
+
+      writer.dispose();
+    });
+
+    it("still points at the right byte after the file is cut back", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      const chunk = "x".repeat(1024 * 1024);
+      for (let i = 0; i < 5; i++) {
+        writer.append(chunk);
+        await writer.flush();
+      }
+      void writer.noteResize(100, 30);
+      writer.append("after the cut");
+      await writer.flush();
+
+      const file = fs.readFileSync(path.join(dir(), "scrollback.bin"));
+      const [resize] = fileOffsets();
+      expect(file.subarray(resize.offset).toString()).toBe("after the cut");
+
+      writer.dispose();
+    });
+
+    it("still points at the right byte after a clear", async () => {
+      const writer = new ScrollbackWriter("s1", sessionsDir);
+      writer.init({ sessionId: "s1", cols: 80, rows: 24, cwd: "/tmp" });
+
+      writer.append("before\x1b[3J");
+      await writer.handleClearScrollback();
+      writer.append("kept ");
+      void writer.noteResize(100, 30);
+      writer.append("resized");
+      await writer.flush();
+
+      const file = fs.readFileSync(path.join(dir(), "scrollback.bin"));
+      const [resize] = fileOffsets();
+      expect(file.subarray(resize.offset).toString()).toBe("resized");
+
+      writer.dispose();
     });
   });
 });

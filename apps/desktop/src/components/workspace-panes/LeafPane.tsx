@@ -416,6 +416,7 @@ export const LeafPane = memo(function LeafPane(props: LeafPaneProps) {
       <ContextMenu.Trigger asChild>
       <div
         className={`${styles.paneStatusBar} ${isFocused ? styles.paneStatusBarFocused : ""} ${isThisPaneDragging ? styles.paneStatusBarDragging : ""} ${navState?.webviewFocused ? styles.paneStatusBarWebviewFocused : ""}`}
+        data-testid="pane-status-bar"
         // This one gesture is drag-to-split AND detach-by-drag.
         draggable={dragEnabled}
         onDragStart={handleStatusBarDragStart}
